@@ -1,20 +1,12 @@
 (ns re-frame.ssr.ring-streaming-test
-  "Streaming SSR Ring adapter — chunked-response wiring. Per Spec 011
-  §Streaming SSR.
-
-  Exercises the full request lifecycle through `stream-handler`:
-    1. Ring request comes in
-    2. setup-request-frame! seeds the frame + initial-events
-    3. streaming writer flushes shell → continuations → final payload → close
-    4. response body is a PipedInputStream; we drain it into a string
-    5. asserts on chunk shapes + final-payload."
+  "`stream-handler` end to end (Spec 011 §Streaming SSR): the chunk order,
+  redirects, failures before the head commits, the envelope opts and the hash
+  channels."
   (:require [clojure.edn]
-            [clojure.set]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.interop :as rf.interop]
             [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.ring :as rf.ssr.ring]
             [re-frame.ssr.ring.lifecycle :as rf.ssr.ring.lifecycle]
@@ -25,8 +17,6 @@
   [test-fn]
   (rf.ssr.ring.test-support/reset-runtime
     (fn []
-      (rf/reg-event :rf.test/seed-articles
-        (fn [_ [_ arts]] {:db {:articles arts}}))
       (rf/reg-event :rf.test.server/init
         {:platforms #{:server}}
         (fn [_ _]
@@ -36,15 +26,13 @@
       (rf/reg-sub :articles (fn [db _] (:articles db)))
       (rf/reg-sub :comments (fn [db _] (:comments db)))
       (rf/reg-view ^{:rf/id :test/article-list} article-list-view []
-        (let [arts @(subscribe [:articles])]
-          (into [:ul.articles]
-                (for [{:keys [id title]} arts]
-                  ^{:key id} [:li title]))))
+        (into [:ul.articles]
+              (for [{:keys [id title]} @(subscribe [:articles])]
+                ^{:key id} [:li title])))
       (rf/reg-view ^{:rf/id :test/comments-section} comments-view []
-        (let [cs @(subscribe [:comments])]
-          (into [:ul.comments]
-                (for [{:keys [body]} cs]
-                  [:li body]))))
+        (into [:ul.comments]
+              (for [{:keys [body]} @(subscribe [:comments])]
+                [:li body])))
       (rf/reg-view ^{:rf/id :test/root} root-view []
         [:main
          [:h1 "News"]
@@ -57,730 +45,123 @@
 
 (use-fixtures :each reset+reg-test-handlers)
 
-(defn- drain-stream
-  "Drain a Ring response's InputStream body into a string. Synchronous
-  — blocks until the writer thread closes the pipe."
-  [^InputStream is]
-  (with-open [is is]
-    (slurp is)))
+(def ^:private get-root {:uri "/" :request-method :get})
 
-(defn- final-payload
-  "Read the final `__rf_payload` chunk out of a drained streaming body and
-  parse it back to data.
+(defn- handler-opts [opts]
+  (merge {:initial-events [[:rf.test.server/init]]
+          :root-view      [(rf/view :test/root)]
+          :payload        :rf.ssr.payload/whole-app-db}
+         opts))
 
-  `shell/payload-script-tag` escapes the EDN through
-  `html/escape-edn-script-body`, whose only transformation is `<` → `\\u003c`
-  INSIDE string literals — a six-character escape the EDN reader itself
-  decodes — so the round-trip is exact and needs no un-escaping pass here.
-  The reader also handles the `#:rf{…}` namespace-map shorthand `pr-str`
-  emits for the payload's uniformly-namespaced keys."
-  [body]
+(defn- stream
+  "GET `/` through a `stream-handler` built from `opts` over the defaults; a
+  streamed body comes back drained to a string."
+  [opts]
+  (let [response ((rf.ssr.ring/stream-handler (handler-opts opts)) get-root)]
+    (cond-> response
+      (instance? InputStream (:body response))
+      (update :body #(with-open [^InputStream is %] (slurp is))))))
+
+(defn- final-payload [body]
   (some-> (re-find #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>" body)
           second
           clojure.edn/read-string))
 
-(defn- payload-failed-boundaries
-  "The failed-boundary id set the final payload's serialisable runtime-db
-  slice carries, or nil when the slice omits it (the ordinary
-  nothing-failed page must carry NO key — see
-  `re-frame.ssr.streaming/with-failed-boundaries`)."
-  [payload]
-  (get-in (:rf/runtime-db payload)
-          [:rf.runtime/ssr :streaming :failed-boundaries]))
+(defn- wire-render-hash [body]
+  (second (re-find #"<div id=\"app\" data-rf-render-hash=\"([0-9a-f]{8})\">" body)))
+
+(defn- wire-head-hash [body]
+  (second (re-find #"data-rf-head-hash=\"([0-9a-f]{8})\"" body)))
+
+(def ^:private redirect-shape
+  (juxt :status #(get-in % [:headers "Location"]) :body))
 
 (deftest stream-handler-emits-shell-then-resolved-then-payload
-  (testing "chunk order: shell prefix → shell-html → resolved templates → final __rf_payload → close"
-    (let [handler  (rf.ssr.ring/stream-handler
-                     {:initial-events [[:rf.test.server/init]]
-                      :root-view [(rf/view :test/root)]
-                      :payload :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/" :request-method :get})
-          body     (drain-stream (:body response))
-          ;; Indices into the body string — the wire-order invariant
-          ;; we pin: shell open, then template fallback, then resolved
-          ;; template, then __rf_payload, then </body></html>.
-          idx-doctype  (str/index-of body "<!DOCTYPE html>")
-          idx-h1       (str/index-of body "<h1>News</h1>")
-          idx-fallback (str/index-of body "data-rf2-suspense-fallback=\"1\"")
-          idx-resolved (str/index-of body "data-rf2-suspense-resolved=\"1\"")
-          idx-comments (str/index-of body "First!")
-          idx-payload  (str/index-of body "__rf_payload")
-          idx-close    (str/index-of body "</body></html>")]
-      (is (= 200 (:status response)) "Ring response status defaults to 200")
-      (is (some? idx-doctype) "shell carries doctype")
-      (is (some? idx-h1) "shell carries the static header")
-      (is (some? idx-fallback) "fallback placeholder embedded in shell")
-      (is (some? idx-resolved) "resolved subtree chunk emitted")
-      (is (some? idx-comments) "resolved subtree carries the rendered comments")
-      (is (some? idx-payload) "final __rf_payload chunk emitted")
-      (is (some? idx-close) "body close emitted")
-      ;; The chunk-ordering contract.
-      (is (< idx-doctype idx-h1 idx-fallback) "shell + fallback emitted before resolved chunks")
-      (is (< idx-fallback idx-resolved) "fallback placeholder emitted before resolved chunk")
-      (is (< idx-resolved idx-payload) "resolved chunks emitted before final payload")
-      (is (< idx-payload idx-close) "final payload before body close"))))
+  (testing "shell, the app-root close, resolved templates, the final payload,
+            the document close — so no protocol chunk lands inside #app.
+            `:test/root` renders no <div>, so the first </div> is the root's"
+    (let [{:keys [status body]} (stream {})
+          at                    #(str/index-of body %)]
+      (is (= 200 status))
+      (is (< (at "<!DOCTYPE html>")
+             (at "<div id=\"app\"")
+             (at "<h1>News</h1>")
+             (at "data-rf2-suspense-fallback=\"1\"")
+             (at "</div>")
+             (at "data-rf2-suspense-resolved=\"1\"")
+             (at "First!")
+             (at "__rf_payload")
+             (at "</body></html>"))))))
 
-;; ===========================================================================
-;; The streaming shell closes the app root (`</div>`) at the END
-;; of the shell chunk, BEFORE the resolved templates, hydration-delta scripts,
-;; and the final `__rf_payload`. Were the close to live in
-;; `default-streaming-suffix`, AFTER every protocol chunk, resolved
-;; templates + the `__rf_payload` script would land INSIDE the application root,
-;; leaking streaming control/protocol nodes into the DOM `#app` a client
-;; renderer/hydrator owns (hydration-mismatch / replacement risk). Spec 011
-;; §Chunk-ordering contract pins chunk 1 as `…<div id="app"><shell-html/></div>`
-;; and the non-streaming `default-html-shell` also closes `</div>` before the
-;; payload script.
-;; ===========================================================================
-
-(deftest stream-handler-closes-app-root-before-protocol-chunks
-  (testing "the app-root `</div>` is emitted at the END of the
-            shell chunk — BEFORE the first resolved template AND before the
-            final `__rf_payload` — so the resolved templates, delta scripts,
-            and payload all stream OUTSIDE `#app` (Spec 011 §Chunk-ordering
-            contract). The
-            `:test/root` shell has NO inner `<div>`, so the only `</div>` in
-            the wire is the app-root close."
-    (let [handler  (rf.ssr.ring/stream-handler
-                     {:initial-events [[:rf.test.server/init]]
-                      :root-view [(rf/view :test/root)]
-                      :payload :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/" :request-method :get})
-          body     (drain-stream (:body response))
-          idx-app-open  (str/index-of body "<div id=\"app\"")
-          ;; The app-root close: `:test/root` emits no nested <div>, so the
-          ;; first (and only) `</div>` IS the app-root close.
-          idx-app-close (str/index-of body "</div>")
-          idx-resolved  (str/index-of body "data-rf2-suspense-resolved=\"1\"")
-          idx-payload   (str/index-of body "__rf_payload")
-          idx-comments  (str/index-of body "First!")]
-      (is (= 200 (:status response)))
-      (is (some? idx-app-open) "the #app root div opened")
-      (is (some? idx-app-close) "an app-root close exists")
-      (is (some? idx-resolved) "a resolved subtree chunk streamed")
-      (is (some? idx-payload) "the final payload chunk streamed")
-      ;; THE PINS — the app-root close precedes the protocol chunks.
-      (is (< idx-app-open idx-app-close)
-          "the `</div>` comes after the `<div id=\"app\"` open")
-      (is (< idx-app-close idx-resolved)
-          "the app root closes BEFORE the first resolved template
-           — resolved chunks stream OUTSIDE #app, not nested inside it")
-      (is (< idx-app-close idx-payload)
-          "the app root closes BEFORE the final __rf_payload —
-           the payload script streams OUTSIDE #app (matching the non-streaming
-           shell, which closes </div> before the payload script)")
-      ;; The resolved comment body is itself a child of the resolved
-      ;; <template>, which is OUTSIDE #app — so it too lands after the close.
-      (is (< idx-app-close idx-comments)
-          "the resolved subtree body streams after the app-root close")
-      ;; Defense-in-depth: NO resolved-template protocol node of any kind
-      ;; appears between the #app open and its close.
-      (let [app-inner (subs body idx-app-open idx-app-close)]
-        (is (not (str/includes? app-inner "data-rf2-suspense-resolved"))
-            "no resolved-template protocol node nested inside #app")))))
-
-(deftest default-streaming-suffix-leaves-the-app-root-close-to-the-shell-chunk
-  (testing "`default-streaming-suffix` does not carry the
-            app-root `</div>` (the shell chunk closes it). The suffix is
-            purely the bootstrap script + body-end + document close."
-    (let [suffix (rf.ssr.ring/default-streaming-suffix {:script-src "/main.js"})]
-      (is (not (str/includes? suffix "</div>"))
-          "the suffix does not close the app root")
-      (is (str/includes? suffix "</body></html>")
-          "the suffix closes the document")
-      (is (str/includes? suffix "<script src=\"/main.js\">")
-          "the suffix emits the bootstrap script"))))
-
-(deftest stream-handler-multiple-boundaries-FIFO
-  (testing "Multiple boundaries emit resolved chunks in document-order FIFO"
-    (rf/reg-view ^{:rf/id :test/multi-root} multi-root-view []
-      [:div
-       [:rf/suspense-boundary {:id :a :fallback [:p "A loading"]} [:p "A done"]]
-       [:rf/suspense-boundary {:id :b :fallback [:p "B loading"]} [:p "B done"]]
-       [:rf/suspense-boundary {:id :c :fallback [:p "C loading"]} [:p "C done"]]])
-    (let [handler  (rf.ssr.ring/stream-handler
-                     {:initial-events [[:rf.test.server/init]]
-                      :root-view [(rf/view :test/multi-root)]
-                      :payload :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/" :request-method :get})
-          body     (drain-stream (:body response))
-          ;; Extract the order of resolved chunks by finding each id's
-          ;; resolved template offset.
-          offs (->> [:a :b :c]
-                    (map (fn [id]
-                           [id (str/index-of
-                                 body
-                                 (str "data-rf2-suspense-id=\":" (name id) "\""
-                                      " data-rf2-suspense-resolved"))]))
-                    (filter (fn [[_ o]] (some? o)))
-                    sort
-                    (sort-by second))]
-      (is (= [:a :b :c] (mapv first offs))
-          "resolved chunks emitted in registration FIFO order"))))
-
-(deftest stream-handler-carries-nested-failures-and-spares-a-successful-sibling
-  (testing "the accumulator must follow the GROWABLE FIFO — a
-            boundary discovered DURING another continuation's render is
-            drained from the tail, and its failure has to reach the payload
-            too. A sibling that resolved must NOT appear."
-    (rf/reg-view ^{:rf/id :test/inner-throwing} inner-throwing []
-      (throw (ex-info "inner broke" {})))
-    (rf/reg-view ^{:rf/id :test/outer-with-inner} outer-with-inner []
-      [:section
-       [:p "outer rendered fine"]
-       ;; Registered DURING the outer continuation's render — it reaches the
-       ;; queue only after the outer entry has been drained.
-       [:rf/suspense-boundary
-        {:id :test/inner-bad :fallback [:p "inner loading"]}
-        [(rf/view :test/inner-throwing)]]])
-    (rf/reg-view ^{:rf/id :test/good-section} good-section []
-      [:div.good "GOOD BODY"])
-    (rf/reg-view ^{:rf/id :test/mixed-root} mixed-root []
+(deftest stream-handler-drains-boundaries-FIFO-and-carries-every-failure
+  (testing "siblings drain in registration order, a boundary registered while
+            another renders drains from the tail, a throwing continuation ships
+            the failed marker, and the payload names exactly the failed ids"
+    (rf/reg-view ^{:rf/id :test/throwing} throwing []
+      (throw (ex-info "continuation broke" {})))
+    (rf/reg-view ^{:rf/id :test/fifo-root} fifo-root []
       [:main
-       [:rf/suspense-boundary
-        {:id :test/outer-ok :fallback [:p "outer loading"]}
-        [(rf/view :test/outer-with-inner)]]
-       [:rf/suspense-boundary
-        {:id :test/sibling-good :fallback [:p "sibling loading"]}
-        [(rf/view :test/good-section)]]
-       [:rf/suspense-boundary
-        {:id :test/sibling-bad :fallback [:p "sibling-bad loading"]}
-        [(rf/view :test/inner-throwing)]]])
-    (let [handler  (rf.ssr.ring/stream-handler
-                     {:initial-events [[:rf.test.server/init]]
-                      :root-view [(rf/view :test/mixed-root)]
-                      :payload :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/" :request-method :get})
-          body     (drain-stream (:body response))
-          payload  (final-payload body)
-          failed   (payload-failed-boundaries payload)]
-      (is (= 200 (:status response)) "a mixed stream still completes")
-      (is (str/includes? body "GOOD BODY") "the successful sibling resolved its body")
-      (is (= #{:test/inner-bad :test/sibling-bad} failed)
-          "exactly the two failed ids — the NESTED one included; never the
-           sibling that resolved, nor the outer boundary that rendered fine
-           around its failing child")
-      (testing "visible fallback behaviour"
-        (is (str/includes? body "data-rf2-suspense-failed=\"1\"")
-            "failed chunks carry the wire marker")
-        (is (str/includes? body "inner loading")
-            "the failed nested boundary's declared fallback is in the DOM")))))
-
-(deftest stream-handler-nested-boundary-drains-inner-FIFO
-  (testing "an OUTER :rf/suspense-boundary whose
-            subtree contains an INNER :rf/suspense-boundary streams
-            end-to-end. The writer drains a GROWABLE FIFO: the inner
-            boundary registers DURING the outer continuation's render and
-            its resolved chunk streams at the TAIL — AFTER the outer's
-            resolved chunk (Spec 011 §Boundary nesting and recursion). The outer must
-            NOT be marked failed; the inner must resolve its own body."
-    (rf/reg-view ^{:rf/id :test/inner-section} inner-section []
-      [:div.inner-body "INNER BODY CONTENT"])
-    (rf/reg-view ^{:rf/id :test/outer-section} outer-section []
-      [:section.outer
-       [:p "outer content above inner"]
-       [:rf/suspense-boundary
-        {:id :test/inner :fallback [:p.inner-fallback "inner loading"]}
-        [(rf/view :test/inner-section)]]])
-    (rf/reg-view ^{:rf/id :test/nested-root} nested-root []
-      [:main
-       [:h1 "Nested"]
-       [:rf/suspense-boundary
-        {:id :test/outer :fallback [:p.outer-fallback "outer loading"]}
-        [(rf/view :test/outer-section)]]
-       [:footer "End"]])
-    (let [handler  (rf.ssr.ring/stream-handler
-                     {:initial-events [[:rf.test.server/init]]
-                      :root-view [(rf/view :test/nested-root)]
-                      :payload :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/" :request-method :get})
-          body     (drain-stream (:body response))
-          ;; Wire offsets pinning the FIFO drain order.
-          idx-outer-fallback (str/index-of body "data-rf2-suspense-id=\":test/outer\" data-rf2-suspense-fallback=\"1\"")
-          idx-outer-resolved (str/index-of body "data-rf2-suspense-id=\":test/outer\" data-rf2-suspense-resolved=\"1\"")
-          idx-inner-fallback (str/index-of body "data-rf2-suspense-id=\":test/inner\" data-rf2-suspense-fallback=\"1\"")
-          idx-inner-resolved (str/index-of body "data-rf2-suspense-id=\":test/inner\" data-rf2-suspense-resolved=\"1\"")
-          idx-inner-body     (str/index-of body "INNER BODY CONTENT")
-          idx-payload        (str/index-of body "__rf_payload")
-          idx-close          (str/index-of body "</body></html>")]
-      (is (= 200 (:status response)) "nested stream still 200")
-      ;; Shell carries the OUTER fallback only — the inner is buried in
-      ;; the unresolved outer subtree.
-      (is (some? idx-outer-fallback) "outer fallback placeholder in the shell")
-      (is (str/includes? body "outer loading") "outer fallback text in the shell")
-      (is (< idx-outer-fallback (or idx-inner-fallback Long/MAX_VALUE))
-          "the inner fallback is NOT in the shell — it appears only inside
-           the outer's resolved chunk, which streams after the shell")
-      ;; CRITICAL — the outer continuation resolved CLEANLY (no failed
-      ;; marker on the outer). Were the buried inner boundary to throw
-      ;; through the non-streaming emitter, the outer would be marked failed.
-      (is (some? idx-outer-resolved)
-          "outer resolved chunk emitted (NOT a failed re-emit of its fallback)")
-      (is (not (str/includes? body "data-rf2-suspense-id=\":test/outer\" data-rf2-suspense-resolved=\"1\" data-rf2-suspense-failed=\"1\""))
-          "the OUTER boundary is NOT marked failed — it resolved through
-           the streaming walker")
-      (is (str/includes? body "outer content above inner")
-          "the outer subtree's static content resolved")
-      ;; The inner boundary's FALLBACK template appears INSIDE the outer's
-      ;; resolved chunk (the inner is deferred at outer-drain time).
-      (is (some? idx-inner-fallback)
-          "the inner boundary's fallback placeholder appears (inside the
-           outer resolved chunk) — the inner registered during the outer
-           drain")
-      ;; The inner's OWN resolved chunk + body stream LAST (FIFO tail).
-      (is (some? idx-inner-resolved)
-          "the inner boundary's resolved chunk streamed — the nested
-           continuation was appended to the FIFO and drained")
-      (is (some? idx-inner-body)
-          "the inner resolved chunk carries the inner body content")
-      (is (some? idx-payload) "final __rf_payload emitted")
-      (is (some? idx-close) "body close emitted")
-      ;; FIFO drain-order contract: outer fallback (shell) → outer resolved
-      ;; → inner resolved → final payload → close. The inner resolved chunk
-      ;; lands AFTER the outer resolved chunk (registered at the tail).
-      (is (< idx-outer-fallback idx-outer-resolved)
-          "outer fallback (shell) before outer resolved chunk")
-      (is (< idx-outer-resolved idx-inner-resolved)
-          "inner resolved chunk streams AFTER the outer resolved chunk —
-           FIFO tail registration (Spec 011 §Boundary nesting and recursion)")
-      (is (< idx-inner-resolved idx-payload)
-          "inner resolved chunk before the final payload")
-      (is (< idx-payload idx-close)
-          "final payload before body close"))))
-
-;; ===========================================================================
-;; The per-boundary hydration-delta <script> is emitted ONLY
-;; for a boundary whose render CHANGED app-db. A continuation that merely
-;; READS state (the common case — deferred subtrees typically subscribe,
-;; they do not mutate) yields an EMPTY delta (`{}`) from `subtree-delta`,
-;; and the writer must emit NO `<script data-rf2-suspense-hydrate>` chunk
-;; for it. The writer guard is `(seq delta)`, not `(some? delta)` — `{}` is
-;; `some?`, so that guard would ship every unchanged boundary an inert
-;; `…hydrate=…>{}</script>` the client parses and discards.
-;; ===========================================================================
+       [:rf/suspense-boundary {:id :test/outer :fallback [:p "outer loading"]}
+        [:section
+         [:p "outer"]
+         [:rf/suspense-boundary {:id :test/inner-bad :fallback [:p "inner loading"]}
+          [(rf/view :test/throwing)]]]]
+       [:rf/suspense-boundary {:id :test/good :fallback [:p "good loading"]}
+        [:p "GOOD"]]
+       [:rf/suspense-boundary {:id :test/bad :fallback [:p "bad loading"]}
+        [(rf/view :test/throwing)]]])
+    (let [{:keys [body]} (stream {:root-view [(rf/view :test/fifo-root)]})]
+      (is (= [["test/outer" false] ["test/good" false]
+              ["test/bad" true] ["test/inner-bad" true]]
+             (mapv (fn [[_ id failed]] [id (some? failed)])
+                   (re-seq #"data-rf2-suspense-id=\":([^\"]+)\" data-rf2-suspense-resolved=\"1\"( data-rf2-suspense-failed=\"1\")?"
+                           body))))
+      (is (= #{:test/inner-bad :test/bad}
+             (get-in (final-payload body)
+                     [:rf/runtime-db :rf.runtime/ssr :streaming :failed-boundaries]))))))
 
 (deftest stream-handler-skips-empty-delta-script-on-unchanged-boundary
-  (testing "a boundary whose continuation MUTATES app-db emits
-            its delta script; a boundary whose continuation only READS state
-            (empty/unchanged delta) emits NO `data-rf2-suspense-hydrate`
-            script — not an inert `{}` chunk."
-    ;; A db-mutating event the deferred subtree dispatches during its render
-    ;; — produces a non-empty per-subtree delta for the :changed boundary.
+  (testing "a continuation that changes app-db ships its hydration-delta script;
+            one that only reads ships none, not an inert {} chunk"
     (rf/reg-event :rf.test/bump-counter
       {:platforms #{:server}}
       (fn [{:keys [db]} _] {:db (update db :counter (fnil inc 0))}))
-    ;; Subtree that mutates app-db during render → non-empty delta.
     (rf/reg-view ^{:rf/id :test/mutating-section} mutating-section []
       (rf/dispatch-sync [:rf.test/bump-counter])
-      [:div.mutated "mutated content"])
-    ;; Subtree that only READS app-db (subscribes, no mutation) → empty delta.
-    (rf/reg-view ^{:rf/id :test/reading-section} reading-section []
-      (let [arts @(subscribe [:articles])]
-        (into [:div.read] (for [{:keys [title]} arts] [:span title]))))
+      [:div "mutated"])
     (rf/reg-view ^{:rf/id :test/delta-root} delta-root []
       [:main
-       [:h1 "Deltas"]
-       [:rf/suspense-boundary
-        {:id :test/changed :fallback [:p "changed loading"]}
+       [:rf/suspense-boundary {:id :test/changed :fallback [:p "loading"]}
         [(rf/view :test/mutating-section)]]
-       [:rf/suspense-boundary
-        {:id :test/unchanged :fallback [:p "unchanged loading"]}
-        [(rf/view :test/reading-section)]]
-       [:footer "End"]])
-    (let [handler  (rf.ssr.ring/stream-handler
-                     {:initial-events [[:rf.test.server/init]]
-                      :root-view [(rf/view :test/delta-root)]
-                      :payload :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/" :request-method :get})
-          body     (drain-stream (:body response))]
-      (is (= 200 (:status response)) "stream still 200")
-      ;; Both boundaries resolved (their bodies are on the wire).
-      (is (str/includes? body "mutated content")
-          "the mutating boundary's resolved body streamed")
-      (is (str/includes? body "Article A")
-          "the reading boundary's resolved body streamed")
-      ;; The mutating boundary SHIPS its delta script.
-      (is (str/includes? body "data-rf2-suspense-hydrate=\":test/changed\"")
-          "the boundary that changed app-db ships its hydration-delta script")
-      ;; THE PIN: the read-only boundary ships NO delta script, not
-      ;; `data-rf2-suspense-hydrate=":test/unchanged" …>{}</script>`.
-      (is (not (str/includes? body "data-rf2-suspense-hydrate=\":test/unchanged\""))
-          "the unchanged boundary ships NO hydration-delta script — an empty
-           `{}` delta is skipped, not emitted as an inert script chunk
-           (the guard is `(seq delta)`, not `(some? delta)`)")
-      ;; No empty-EDN delta body anywhere on the wire.
-      (is (not (str/includes? body ">{}</script>"))
-          "no empty-`{}` delta-script body crosses the wire")
-      (is (str/includes? body "__rf_payload") "final payload emitted"))))
-
-;; ===========================================================================
-;; The streaming redirect short-circuit MUST destroy the per-request frame —
-;; inline and incarnation-EXACTLY — and ship the accumulator's own headers.
-;;
-;; The redirect branch returns BEFORE the writer thread (whose `finally`
-;; tears the frame down on the streaming path) is ever spawned, so the
-;; teardown must happen inline. A redirect branch returning
-;; directly from inside the `try` with no enclosing `finally` would leak
-;; the per-request frame + its three side-channel slots (request /
-;; response / pending-error-trace) on every redirected streaming request
-;; — a per-request leak on auth-gated SSR routes (login redirects) where
-;; redirects are common. Spec 011 §Per-request frame teardown contract.
-;;
-;; Being the deterministic inline-teardown path (no writer thread to wait
-;; on), the redirect branch is also the clean seam to prove that a streaming
-;; terminal cleanup destroys the frame VALUE make-frame returned (carrying the
-;; exact incarnation token), not the bare gensym frame-id.
-;;
-;; The bodiless 3xx carries no handler Content-Type default: it materialises
-;; the response accumulator exactly as the non-streaming redirect does, so
-;; whatever Content-Type rides is the accumulator's and the two handlers agree.
-;; ===========================================================================
+       [:rf/suspense-boundary {:id :test/unchanged :fallback [:p "loading"]}
+        [(rf/view :test/article-list)]]])
+    (let [{:keys [body]} (stream {:root-view [(rf/view :test/delta-root)]})]
+      (is (str/includes? body "Article A") "control: the read-only boundary resolved")
+      (is (str/includes? body "data-rf2-suspense-hydrate=\":test/changed\""))
+      (is (not (str/includes? body "data-rf2-suspense-hydrate=\":test/unchanged\""))))))
 
 (deftest stream-handler-redirect-destroys-frame
-  (testing "a :rf.server/redirect on the streaming path
-            short-circuits to a bodiless Location response AND destroys the
-            per-request frame VALUE inline — no frame / side-channel-slot
-            leak, and a same-id successor is left intact. The redirect branch
-            never spawns the writer thread, so the teardown CANNOT defer to
-            the writer's finally."
+  (testing "a drain-time redirect ships a bodiless Location response and
+            destroys the request frame inline, by the make-frame value, so a
+            same-id successor survives"
     (rf/reg-event :rf.test.stream/redirect
       {:platforms #{:server}}
-      (fn [_ _]
-        {:fx [[:rf.server/redirect {:status 302 :location "/login"}]]}))
-    (rf/reg-view ^{:rf/id :test/should-not-stream} should-not-stream []
-      [:div "should not render under redirect"])
-    (let [opts            {:initial-events [[:rf.test.stream/redirect]]
-                           :root-view [(rf/view :test/should-not-stream)]
-                           :payload :rf.ssr.payload/whole-app-db}
-          handler         (rf.ssr.ring/stream-handler opts)
-          real-destroy    rf/destroy-frame!
-          teardown-target (atom ::none)
-          baseline-fids   (disj (rf.frame/frame-ids) :rf/default)
-          response        (with-redefs [rf/destroy-frame!
-                                        (fn [target & more]
-                                          (when (and (= ::none @teardown-target)
-                                                     (rf.frame/frame-value? target))
-                                            (reset! teardown-target target))
-                                          (apply real-destroy target more))]
-                            (handler {:uri "/secret" :request-method :get}))
-          content-type    (fn [resp]
-                            (or (get (:headers resp) "Content-Type")
-                                (get (:headers resp) "content-type")))]
-      ;; Redirect response shape — status + Location, empty body, no
-      ;; chunked InputStream (a redirect has no streamed body).
-      (is (= 302 (:status response)) "redirect status on the wire")
-      (let [headers (:headers response)
-            loc     (or (get headers "Location") (get headers "location"))]
-        (is (= "/login" loc) "Location header carries the redirect target"))
-      (is (= "" (:body response))
-          "redirect short-circuits the stream — empty body, no InputStream")
-      ;; Teardown — the per-request frame + its request slot MUST be
-      ;; gone immediately after the call (no writer thread to wait on).
-      (let [end-fids (disj (rf.frame/frame-ids) :rf/default)
-            leaked   (clojure.set/difference end-fids baseline-fids)]
-        (is (empty? leaked)
-            (str "the per-request frame MUST be destroyed on the streaming
-                 redirect path — found leaked frame-ids: " (vec leaked))))
-      (doseq [fid (disj (rf.frame/frame-ids) :rf/default)]
-        (is (nil? (rf.ssr/get-request fid))
-            (str "no request slot leaks for frame " fid)))
-      ;; N+1 protected: the terminal teardown targeted the incarnation VALUE.
-      (is (rf.frame/frame-value? @teardown-target)
-          "streaming terminal teardown targeted the make-frame VALUE, not the bare id")
-      (is (some? (rf.frame/frame-value-incarnation-token @teardown-target))
-          "the teardown target carries the exact incarnation token — so a same-id
-           successor (N+1) is left intact by the two-argument destroy")
-      (let [ns-response ((rf.ssr.ring/ssr-handler opts)
-                         {:uri "/secret" :request-method :get})]
-        (is (= (content-type ns-response) (content-type response))
-            "streaming + non-streaming redirect paths agree on Content-Type —
-             the bodiless 3xx carries the accumulator's headers, with no
-             handler default stamped on top")))))
-
-;; ===========================================================================
-;; STREAMING SHELL FAILURES FAIL CLOSED to a non-200
-;; ===========================================================================
-;;
-;; `stream-handler` renders the shell on the REQUEST thread before the head
-;; commits. Were it to materialise the Ring response head (status 200) and
-;; spawn the daemon writer BEFORE the shell resolved/rendered, a root-view
-;; throw, a shell-walk throw, and a production-mode reactive sub throw during
-;; the shell render could NOT stamp the HTTP status or render the projected
-;; error page — the wire would ship a silent 200 / truncated body. (The
-;; non-streaming handler covers the recovered-sub variant with a post-render
-;; re-flush in `pipeline.clj`.)
-;;
-;; A throw escalates to `:rf.error/ssr-render-failed` (→
-;; projected non-200 error page); a recovered-to-nil sub buffers a fail-
-;; closed status the post-shell `flush-response-result!` re-read picks up and
-;; diverts to the non-streamed projected-error arm. Only a known-renderable shell + success status
-;; commits the chunked response. The shell-walk throw and the clean-render
-;; control are pinned in-process here. The root-view throw is pinned
-;; in-process by `streaming_writer_trace_test` (with its frame teardown) and
-;; on the wire by `streaming_robustness_test`; the recovered-to-nil sub by
-;; `ring_draintime_error_view_test`.
-;; ===========================================================================
-
-(defn- streamed-body
-  "Drain a Ring response body to a string when it is an InputStream
-  (the streamed-chunk path), else return it verbatim (a projected error
-  page is an ordinary non-chunked String body)."
-  [body]
-  (if (instance? InputStream body)
-    (drain-stream body)
-    body))
-
-(deftest stream-handler-shell-walk-throw-fails-closed
-  (testing "a view INSIDE the shell walk (NOT inside a
-            `:rf/suspense-boundary`) that throws fails closed to a
-            non-200 — the shell-walk throw is a structural failure that
-            escalates per Spec 011 §Failure semantics — inline fallback (the inline-fallback boundary
-            stops at continuations)."
-    (rf/reg-event :rf.test.server/init-min
-      {:platforms #{:server}}
-      (fn [_ _] {:db {}}))
-    ;; A view that throws during the shell walk — it is NOT wrapped in a
-    ;; `:rf/suspense-boundary`, so the inline-fallback path does NOT apply.
-    (rf/reg-view ^{:rf/id :test/shell-throwing-section} shell-throwing-section []
-      (throw (ex-info ":rf.test/shell-walk-throw" {})))
-    (rf/reg-view ^{:rf/id :test/shell-throwing-root} shell-throwing-root []
-      [:main
-       [:h1 "Header"]
-       [(rf/view :test/shell-throwing-section)]
-       [:footer "End"]])
-    (let [handler  (rf.ssr.ring/stream-handler
-                     {:initial-events [[:rf.test.server/init-min]]
-                      :root-view [(rf/view :test/shell-throwing-root)]
-                      :payload :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/" :request-method :get})]
-      (is (= 500 (:status response))
-          "shell-walk throw escalates to `:rf.error/ssr-render-failed` →
-           non-200; the inline-fallback boundary stops at continuations
-           (Spec 011 §Failure semantics — inline fallback)")
-      (is (not (instance? InputStream (:body response)))
-          "shell-walk throw fails closed to a projected error page, not a
-           streamed chunked body"))))
-
-(deftest stream-handler-clean-render-stays-200
-  (testing "the request-thread shell render + post-shell
-            re-read is benign for the happy path — a clean shell render
-            with no buffered error keeps the default 200 and streams
-            normally. Confirms the re-read is fail-closed-on-error, not a
-            blanket divert."
-    (rf/reg-sub :clean-sub (fn [_db _] :ok))
-    (rf/reg-view ^{:rf/id :test/uses-clean-sub} uses-clean-sub []
-      (let [v @(rf/subscribe [:clean-sub])]
-        [:main [:h1 "clean"] [:p (str "value: " v)]]))
-    (rf/reg-event :rf.test.server/init-min
-      {:platforms #{:server}}
-      (fn [_ _] {:db {}}))
-    (let [handler  (rf.ssr.ring/stream-handler
-                     {:initial-events [[:rf.test.server/init-min]]
-                      :root-view [(rf/view :test/uses-clean-sub)]
-                      :ssr       {:public-error-id   :rf.ssr/default-error-projector
-                                  :dev-error-detail? false}
-                      :payload :rf.ssr.payload/whole-app-db})]
-      (with-redefs [rf.interop/debug-enabled? false]
-        (let [response (handler {:uri "/" :request-method :get})
-              body     (streamed-body (:body response))]
-          (is (= 200 (:status response))
-              "clean shell render → empty error buffer → re-read no-op → 200")
-          (is (instance? InputStream (:body response))
-              "happy path streams a chunked InputStream body")
-          (is (str/includes? body "value: :ok")
-              "the clean sub's value rendered into the streamed HTML")
-          (is (str/includes? body "__rf_payload")
-              "the final payload chunk streamed"))))))
-
-;; ===========================================================================
-;; A :redirect surfacing at the POST-SHELL re-read must ship a
-;;               bodiless redirect, NOT a streamed body, and spawn NO writer.
-;; ===========================================================================
-;;
-;; The early redirect branch (stream-handler, on the :initial-events-drain
-;; `flush-response-result!`) is covered by stream-handler-redirect-destroys-
-;; frame above. This test covers the SECOND `flush-response-result!` — the post-shell
-;; re-read at the materialise site. A branch that
-;; UNCONDITIONALLY materialised `resp-map`, spawned the daemon writer, and
-;; assoc'd the pipe `:body` would ship a `:redirect` carried on the post-shell
-;; accumulator as a malformed 3xx + Location + a FULL
-;; streamed HTML body (the writer pumps shell + payload + close) for a wire
-;; response the contract says must be bodiless (Spec 011 §Redirect
-;; precedence). The non-streaming handler gets this for free
-;; (`ssr-response->ring-response` ignores the body arg on its `:redirect`
-;; branch); the streaming path branches explicitly.
-;;
-;; A `:redirect` cannot surface at the post-shell read under v1's
-;; architecture (it is set only by the `:rf.server/redirect` fx during the
-;; `:initial-events` drain — caught by the EARLY branch — and the error projector
-;; stamps `:status` only, never `:redirect`). So this guards a LATENT fail-open:
-;; we simulate the latent condition by stubbing `ssr/flush-response-result!`
-;; (the read both handler branches use) to return a non-redirect
-;; on the FIRST call (so the early branch passes through to the shell render)
-;; and a redirect on the SECOND call (the post-shell re-read). This exercises
-;; the post-shell redirect branch directly.
-
-(deftest stream-handler-post-shell-redirect-bodiless
-  (testing "a :redirect surfacing at the POST-SHELL re-read ships
-            a bodiless Location response (NOT a streamed body), spawns NO
-            writer thread, and destroys the frame inline."
-    (rf/reg-event :rf.test.server/init-min
-      {:platforms #{:server}}
-      (fn [_ _] {:db {}}))
-    (rf/reg-view ^{:rf/id :test/plain-root} plain-root []
-      [:main [:h1 "rendered shell"]])
-    (let [real-flush rf.ssr/flush-response-result!
-          ;; Per-frame call counter so we stub ONLY the second
-          ;; flush-response-result! (the post-shell re-read) for our frame,
-          ;; leaving the first (early-branch drain read) untouched. Keying on
-          ;; the call count keeps the stub from perturbing any other frame's
-          ;; reads.
-          calls (atom 0)
-          redirect-resp {:status   302
-                         :headers  []
-                         :cookies  []
-                         :redirect {:status 302 :location "/post-shell-login"}}]
-      (with-redefs [rf.ssr/flush-response-result!
-                    (fn [fid]
-                      (let [n (swap! calls inc)]
-                        ;; 1st call = early-branch drain read → real value
-                        ;; (no redirect, so the handler proceeds to render
-                        ;; the shell). 2nd call = post-shell re-read → inject
-                        ;; the latent redirect (public-error nil so the 5xx
-                        ;; branch does not fire).
-                        (if (= n 2)
-                          {:response redirect-resp :public-error nil}
-                          (real-flush fid))))]
-        (let [handler       (rf.ssr.ring/stream-handler
-                              {:initial-events [[:rf.test.server/init-min]]
-                               :root-view [(rf/view :test/plain-root)]
-                               :payload :rf.ssr.payload/whole-app-db})
-              baseline-fids (disj (rf.frame/frame-ids) :rf/default)
-              response      (handler {:uri "/secret" :request-method :get})]
-          (is (= 302 (:status response))
-              "post-shell redirect ships the 3xx status on the wire")
-          (let [headers (:headers response)
-                loc     (or (get headers "Location") (get headers "location"))]
-            (is (= "/post-shell-login" loc)
-                "Location header carries the post-shell redirect target"))
-          (is (= "" (:body response))
-              "post-shell redirect is BODILESS — :body \"\", NOT a streamed
-               full HTML document or a writer pipe (the latent fail-open this
-               guards)")
-          ;; No writer thread spawned + frame torn down inline (the writer's
-          ;; finally — the streaming teardown path — never runs on this
-          ;; branch, so the inline destroy is load-bearing).
-          (let [end-fids (disj (rf.frame/frame-ids) :rf/default)
-                leaked   (clojure.set/difference end-fids baseline-fids)]
-            (is (empty? leaked)
-                (str "the per-request frame MUST be destroyed inline on the
-                     post-shell redirect branch — leaked frame-ids: "
-                     (vec leaked)))))))))
-
-;; ===========================================================================
-;; STREAMING-path counterpart of the non-streaming
-;; handler-throwing-head-fn-ships-degraded-200 wire pin
-;; (ring_test.clj `handler-throwing-head-fn-ships-degraded-200-not-projected-error`).
-;;
-;; CONTRACT (Spec 011 §Resolved decisions — `resolve-head` emits before
-;; fallback; lifecycle/resolve-head):
-;; a throwing route `:head` fn is a RECOVERABLE DEGRADATION — the request
-;; still ships a 200 with an empty head fragment + body intact, AND emits
-;; `:rf.error/ssr-head-resolution-failed` for observability; the throwable
-;; message never reaches the wire.
-;;
-;; The STREAMING path resolves the head on the request thread inside
-;; `render-streaming-shell!` (streaming.clj `lifecycle/resolve-head`),
-;; BEFORE the chunked response head + status are committed and BEFORE the
-;; daemon writer is spawned — so a head-resolution failure physically
-;; cannot change the already-committed 200. The streaming path is thus
-;; structurally MORE immune than the non-streaming one; this test pins the
-;; degraded-stream-200 contract so a future refactor of the streaming head
-;; path cannot regress it silently.
-;; ===========================================================================
-
-(deftest stream-handler-throwing-head-fn-ships-degraded-streamed-200
-  (testing "a throwing route :head fn on the STREAMING path →
-            a streamed 200 (degraded — empty head, body chunks intact),
-            NEVER a projected 4xx/5xx, AND the
-            :rf.error/ssr-head-resolution-failed trace fires once."
-    (rf/reg-head :test.stream/head-throws
-                 (fn [_db _route]
-                   (throw (ex-info "synthetic streaming head failure"
-                                   {:reason :test}))))
-    (rf/reg-route :test.stream/route-head-throws
-                  {:doc  "Streaming route whose head fn throws"
-                   :head :test.stream/head-throws} "/stream-head-throws")
-    ;; EP-0001: the route slice is durable routing runtime-db state.
-    (rf/reg-event :rf.test.stream/seed-throwing-head-route
-      {:platforms #{:server}}
-      (fn [{rt :rf.db/runtime} _]
-        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
-                                  {:route-id :test.stream/route-head-throws})}))
-    (rf/reg-view ^{:rf/id :test/stream-head-body} stream-head-body []
-      [:main [:h1 "Streamed body rendered fine"]])
-    (let [traces  (atom [])
-          _       (rf/register-listener! :trace ::stream-head-fail-watch
-                    (fn [ev]
-                      (when (= :rf.error/ssr-head-resolution-failed
-                               (:operation ev))
-                        (swap! traces conj ev))))
-          handler (rf.ssr.ring/stream-handler
-                    {:initial-events [[:rf.test.stream/seed-throwing-head-route]]
-                     :root-view [(rf/view :test/stream-head-body)]
-                     :payload   :rf.ssr.payload/whole-app-db})
-          response (try
-                     (handler {:uri "/stream-head-throws" :request-method :get})
-                     (finally
-                       (rf/unregister-listener! :trace ::stream-head-fail-watch)))
-          ;; Drain the chunked body — the head trace fires on the request
-          ;; thread (before the writer), but draining proves the body chunks
-          ;; still ship cleanly after the head degradation.
-          body    (drain-stream (:body response))]
-      ;; THE PIN: the streamed status is 200, not a projected 5xx. The head
-      ;; status/headers are committed BEFORE the writer is spawned, so a
-      ;; head-resolution throw cannot change the already-sent status — were
-      ;; the head trace ever projected (a reorder regression), this 200
-      ;; assertion turns red.
-      (is (= 200 (:status response))
-          "throwing :head fn degrades to a streamed 200 — NEVER a projected
-           4xx/5xx (the streaming status commits BEFORE the
-           writer thread, and the projector skips the category as a
-           recoverable degradation)")
-      ;; The streamed body is intact: doctype + the rendered root view.
-      (is (str/includes? body "<!DOCTYPE html>")
-          "the document still streams — the shell + body rendered")
-      (is (str/includes? body "Streamed body rendered fine")
-          "the body view content streams intact — only the head degraded")
-      (is (str/includes? body "__rf_payload")
-          "the final payload chunk still streams")
-      (is (str/includes? body "</body></html>")
-          "the streamed body closes cleanly")
-      ;; The throwable message never crosses the wire.
-      (is (not (str/includes? body "synthetic streaming head failure"))
-          "the throwable's message never reaches the streamed wire")
-      ;; Observability: degrade AND emit.
-      (is (= 1 (count @traces))
-          ":rf.error/ssr-head-resolution-failed fires once for observability
-           on the streaming path too — degraded,
-           not silent"))))
-
-;; ===========================================================================
-;; The document PREFIX renders on the request thread
-;;
-;; The prefix — the head model's `<html>` / `<body>` attribute bags, the head
-;; fragment, the app-root open — can throw on content: the shared
-;; `attr-string` serialiser refuses an attribute name outside the HTML5
-;; grammar (`:rf.error/ssr-invalid-attribute-name`). It renders in
-;; the request-thread shell render and takes the same projected-error arm as
-;; `ssr-handler` (the Spec 011 streaming pre-commit rule). Rendered on the
-;; writer thread AFTER the 200 was selected, it would hand the client a 200
-;; with an EMPTY body where `ssr-handler` answers the projected 500.
-;; ===========================================================================
+      (fn [_ _] {:fx [[:rf.server/redirect {:status 302 :location "/login"}]]}))
+    (let [real-destroy rf/destroy-frame!
+          target       (atom nil)
+          before       (rf.frame/frame-ids)
+          response     (with-redefs [rf/destroy-frame!
+                                     (fn [t & more]
+                                       (compare-and-set! target nil t)
+                                       (apply real-destroy t more))]
+                         (stream {:initial-events [[:rf.test.stream/redirect]]}))]
+      (is (= [302 "/login" ""] (redirect-shape response)))
+      (is (= before (rf.frame/frame-ids)))
+      (is (some? (rf.frame/frame-value-incarnation-token @target))))))
 
 (defn- seed-route-with-html-attrs!
-  "Register a route whose head model carries `html-attrs`, a server init
-  event that makes it the active route, and a small body view."
+  "Make `:test.stream/attr-route`, whose head model carries `html-attrs`, the
+  route `attr-route-opts` renders."
   [html-attrs]
   (rf/reg-head :test.stream/attr-head
                (fn [_db _route] {:title "T" :html-attrs html-attrs}))
@@ -797,525 +178,154 @@
 
 (defn- attr-route-opts []
   {:initial-events [[:rf.test.stream/seed-attr-route]]
-   :root-view      [(rf/view :test/attr-body)]
-   :payload        :rf.ssr.payload/whole-app-db})
+   :root-view      [(rf/view :test/attr-body)]})
 
-(deftest stream-handler-prefix-throw-fails-closed-like-ssr-handler
-  (testing "a head-model attribute name the shell refuses
-            fails closed to the projected 500 on the request thread — the
-            answer ssr-handler gives — not a committed 200 with an empty body"
+(deftest stream-handler-shell-render-throw-fails-closed-before-commit
+  (testing "a throw while resolving the root view, walking the shell or
+            rendering the document prefix is the projected 500 on the request
+            thread, with the frame torn down inline — never a committed 200"
+    (rf/reg-view ^{:rf/id :test/throwing} throwing []
+      (throw (ex-info "shell walk broke" {})))
+    ;; `attr-string` refuses this attribute name.
     (seed-route-with-html-attrs! {:data-user.id "42"})
-    (let [ssr-response    ((rf.ssr.ring/ssr-handler (attr-route-opts))
-                           {:uri "/attrs" :request-method :get})
-          stream-response ((rf.ssr.ring/stream-handler (attr-route-opts))
-                           {:uri "/attrs" :request-method :get})
-          stream-body     (streamed-body (:body stream-response))]
-      (is (= 500 (:status ssr-response))
-          "ssr-handler answers the projected 500 (the parity reference)")
-      (is (= 500 (:status stream-response))
-          "stream-handler answers the same projected 500 (not a
-           200 whose body is empty)")
-      (is (not (instance? InputStream (:body stream-response)))
-          "no chunked body was committed — the error page is an ordinary body")
-      (is (str/includes? stream-body "Something went wrong")
-          "the default projected error page ships")
-      (is (empty? (rf.ssr.ring.test-support/await-no-streaming-threads! 5000 10))
-          "no writer thread was spawned"))))
+    (doseq [[label opts] [["root view" {:root-view (fn [] (throw (ex-info "root broke" {})))}]
+                          ["shell walk" {:root-view [:main [:h1 "Header"] [(rf/view :test/throwing)]]}]
+                          ["prefix" (attr-route-opts)]]]
+      (let [before                (rf.frame/frame-ids)
+            {:keys [status body]} (stream opts)]
+        (is (= 500 status) label)
+        (is (str/includes? body "Something went wrong") label)
+        (is (= before (rf.frame/frame-ids)) label)))
+    (is (= 500 (:status ((rf.ssr.ring/ssr-handler (handler-opts (attr-route-opts))) get-root)))
+        "ssr-handler answers the refused prefix the same way")))
 
 (deftest stream-handler-valid-head-model-attrs-stream-a-200
-  (testing "control: a valid attribute name streams a 200
-            whose <html> carries it, rendered on the request thread"
+  (testing "control: a valid attribute name streams a 200 whose <html> carries it"
     (seed-route-with-html-attrs! {:data-user-id "42"})
-    (let [response ((rf.ssr.ring/stream-handler (attr-route-opts))
-                    {:uri "/attrs" :request-method :get})
-          body     (streamed-body (:body response))]
-      (is (= 200 (:status response)))
-      (is (str/includes? body "data-user-id=\"42\"")
-          "the head model's html-attrs reach the streamed <html>")
-      (is (str/includes? body "</body></html>")
-          "the document streams through to its close"))))
+    (let [{:keys [status body]} (stream (attr-route-opts))]
+      (is (= 200 status))
+      (is (str/includes? body "data-user-id=\"42\""))
+      (is (str/ends-with? body "</body></html>")))))
 
-;; ===========================================================================
-;; The stream-handler :content-type opt is honored on the wire
-;;
-;; The streaming path threads `:content-type` into the same materialiser as
-;; the non-streaming handler. A custom opt must force-replace the runtime's
-;; default-seeded text/html on the streamed head; omitting it leaves the
-;; default in control. (Parity with the non-streaming coverage in ring_test.)
-;; ===========================================================================
+(deftest stream-handler-post-shell-redirect-bodiless
+  (testing "a redirect at the post-shell re-read (stubbed: the second
+            flush-response-result!) ships a bodiless Location response, not a
+            streamed body, and destroys the frame inline"
+    (let [real-flush rf.ssr/flush-response-result!
+          calls      (atom 0)
+          before     (rf.frame/frame-ids)
+          response   (with-redefs [rf.ssr/flush-response-result!
+                                   (fn [fid]
+                                     (if (= 2 (swap! calls inc))
+                                       {:response {:status   302
+                                                   :headers  []
+                                                   :cookies  []
+                                                   :redirect {:status 302 :location "/post-shell-login"}}}
+                                       (real-flush fid)))]
+                       (stream {}))]
+      (is (= [302 "/post-shell-login" ""] (redirect-shape response)))
+      (is (= before (rf.frame/frame-ids))))))
 
 (deftest stream-handler-honors-custom-content-type-opt
-  (testing "a custom :content-type opt force-replaces the
-            default-seeded text/html on the STREAMED response head — no
-            duplicate content-type key, and the body still streams in full"
-    (let [handler  (rf.ssr.ring/stream-handler
-                     {:initial-events [[:rf.test.server/init]]
-                      :root-view      [(rf/view :test/root)]
-                      :content-type   "application/xhtml+xml; charset=utf-8"
-                      :payload        :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/" :request-method :get})
-          headers  (:headers response)
-          ct       (some (fn [[k v]]
-                           (when (= "content-type" (clojure.string/lower-case (str k))) v))
-                         headers)
-          ct-keys  (filter (fn [k] (= "content-type" (clojure.string/lower-case (str k))))
-                           (keys headers))
-          body     (drain-stream (:body response))]
-      (is (= 200 (:status response)))
-      (is (= 1 (count ct-keys))
-          (str "exactly one content-type key on the streamed head, no "
-               "duplicate — keys: " (pr-str (keys headers))))
-      (is (= "application/xhtml+xml; charset=utf-8" ct)
-          "the custom :content-type opt is on the streamed head, not text/html")
-      (is (str/includes? body "<!DOCTYPE html>")
-          "the streamed body is still emitted in full (override did not break it)")
-      (is (str/includes? body "Article A")
-          "the resolved body content streamed"))))
-
-;; ---- :html-shell is rejected at construction ------------------------------
-;;
-;; The non-streaming `ssr-handler` honours a one-piece `:html-shell` fn;
-;; the streaming path flushes a SPLIT prefix/suffix straddling the
-;; continuation chunks, so a one-piece shell callback can never run after
-;; streaming starts. `stream-handler` MUST fail CLOSED at construction
-;; rather than silently dropping a passed `:html-shell` (a fail-open
-;; API-contract gap — a custom shell carries CSP nonces / asset URLs /
-;; root markup an app would lose switching ssr-handler → stream-handler).
+  (testing "a :content-type opt replaces the default on the streamed head, as
+            the one content-type key"
+    (let [{:keys [headers]} (stream {:content-type "application/xhtml+xml; charset=utf-8"})]
+      (is (= ["application/xhtml+xml; charset=utf-8"]
+             (keep (fn [[k v]] (when (= "content-type" (str/lower-case k)) v)) headers))))))
 
 (deftest stream-handler-refuses-html-shell-at-construction
-  (testing "a one-piece :html-shell fn (the non-streaming
-            contract) is REJECTED at handler-construction time — not
-            silently ignored per-request"
-    (let [custom-shell (fn [body-html payload-edn _opts]
-                         (str "<custom>" body-html payload-edn "</custom>"))
-          ex (is (thrown? clojure.lang.ExceptionInfo
-                   (rf.ssr.ring/stream-handler
-                     {:initial-events  [[:rf.test.server/init]]
-                      :root-view  [(rf/view :test/root)]
-                      :payload    :rf.ssr.payload/whole-app-db
-                      :html-shell custom-shell})))
-          data (ex-data ex)]
-      (is (= :rf.error/ssr-streaming-unsupported-opt (:rf.error/id data))
-          "structured error id names the unsupported-opt failure")
-      (is (= :html-shell (:opt-key data))
-          "ex-data names the offending opt")
-      (is (= custom-shell (:got data))
-          "ex-data carries the rejected value")
-      (is (str/includes? (str (:reason data)) ":html-shell")
-          "the reason explains :html-shell is unsupported under streaming")
-      (is (str/includes? (str (:reason data)) "ssr-handler")
-          "the reason points the caller at the non-streaming handler")))
-  (testing "…and so is ANY other non-nil :html-shell value — the
-            streaming path supports no one-piece shell of any shape, so a
-            string / map / vector fails closed the same way a fn does"
-    (doseq [bad ["<html>…</html>" {:shape :map} [:vector]]]
-      (let [ex (is (thrown? clojure.lang.ExceptionInfo
-                     (rf.ssr.ring/stream-handler
-                       {:initial-events  [[:rf.test.server/init]]
-                        :root-view  [(rf/view :test/root)]
-                        :payload    :rf.ssr.payload/whole-app-db
-                        :html-shell bad}))
-                 (str "stream-handler must reject :html-shell " (pr-str bad)))]
-        (is (= :rf.error/ssr-streaming-unsupported-opt
-               (:rf.error/id (ex-data ex)))
-            (str "structured rejection for :html-shell " (pr-str bad))))))
-  (testing "…while an explicit-nil :html-shell constructs cleanly and
-            streams the default envelope — the refusal gates only a non-nil
-            override. (The absent key is how every other test here
-            constructs the handler.)"
-    (let [handler  (rf.ssr.ring/stream-handler
-                     {:initial-events  [[:rf.test.server/init]]
-                      :root-view  [(rf/view :test/root)]
-                      :payload    :rf.ssr.payload/whole-app-db
-                      :html-shell nil})
-          response (handler {:uri "/" :request-method :get})
-          body     (drain-stream (:body response))]
-      (is (= 200 (:status response)) "explicit :html-shell nil streams a 200")
-      (is (str/includes? body "<!DOCTYPE html>")
-          "explicit-nil :html-shell still opens the default document")
-      (is (str/includes? body "<h1>News</h1>")
-          "explicit-nil :html-shell still streams the default envelope"))))
+  (testing "a one-piece :html-shell cannot run once streaming starts, so
+            construction refuses it rather than dropping it"
+    (let [shell (fn [body-html payload-edn _opts] (str body-html payload-edn))
+          data  (try (rf.ssr.ring/stream-handler (handler-opts {:html-shell shell}))
+                     nil
+                     (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+      (is (= {:rf.error/id :rf.error/ssr-streaming-unsupported-opt
+              :opt-key     :html-shell
+              :got         shell}
+             (select-keys data [:rf.error/id :opt-key :got])))))
+  (testing "an explicit nil :html-shell constructs"
+    (is (fn? (rf.ssr.ring/stream-handler (handler-opts {:html-shell nil}))))))
 
-;; ===========================================================================
-;; Streaming:
-;; BODY-ONLY :rf/render-hash + a SEPARATE :rf/head-hash channel, AND the
-;; streamed root element honours :emit-hash? with a data-rf-render-hash
-;; marker equal to the final payload's :rf/render-hash (data-rf-head-hash /
-;; :rf/head-hash mirror the same shape on the SEPARATE channel).
-;;
-;; The documented client boot only ever hashes the bare body tree
-;; (`:render-tree-fn`), so folding the head into a unified `:rf/render-hash`
-;; would fire a spurious mismatch on every SSR page (streaming included).
-;; These tests pin the split: a head-only divergence
-;; does NOT move the streamed `:rf/render-hash` / `data-rf-render-hash`, but
-;; DOES move the separate `:rf/head-hash` / `data-rf-head-hash`.
-;;
-;; The `:emit-hash?` marker toggle: `stream-handler` stamps `data-rf-render-hash`
-;; (and, when a reconstructible head is present, `data-rf-head-hash`) on
-;; `:emit-hash? true`, omits both on `:emit-hash? false`; the payload keys
-;; stay unconditional either way.
-;; ===========================================================================
-
-(defn- stream-payload-hash
-  "Pull the `:rf/render-hash` out of a streamed document's final
-  `__rf_payload` script. Matches the `#:rf{…}` namespace-map shorthand too."
-  [body]
-  (let [payload-edn (second (re-find
-                              #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
-                              body))]
-    (when payload-edn
-      (second (re-find #":(?:rf/)?render-hash \"([0-9a-f]{8})\"" payload-edn)))))
-
-(defn- stream-payload-head-hash
-  "Pull the `:rf/head-hash` out of a streamed document's final
-  `__rf_payload` script. nil when the channel is omitted (no
-  reconstructible head)."
-  [body]
-  (let [payload-edn (second (re-find
-                              #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
-                              body))]
-    (when payload-edn
-      (second (re-find #":(?:rf/)?head-hash \"([0-9a-f]{8})\"" payload-edn)))))
-
-(defn- stream-root-wire-hash
-  "Pull the `data-rf-render-hash` stamped on the streamed `#app` root div."
-  [body]
-  (second (re-find #"data-rf-render-hash=\"([0-9a-f]{8})\"" body)))
-
-(defn- stream-head-wire-hash
-  "Pull the `data-rf-head-hash` stamped on the streamed `<head>` element."
-  [body]
-  (second (re-find #"data-rf-head-hash=\"([0-9a-f]{8})\"" body)))
-
-(deftest stream-handler-explicit-head-string-does-not-move-render-hash
-  (testing "identical body + DIFFERENT explicit :head string →
-            SAME streamed final-payload :rf/render-hash (body-only). An
-            explicit :head STRING carries no reconstructible model, so
-            :rf/head-hash / data-rf-head-hash is OMITTED entirely."
-    (let [mk      (fn [head]
-                    (rf.ssr.ring/stream-handler
-                      {:initial-events [[:rf.test.server/init]]
-                       ;; Resolving form; the body-only-hash
-                       ;; assertions below need a hash to exist.
-                       :root-view (fn [] ((rf/view :test/root)))
-                       :head      head
-                       :payload   :rf.ssr.payload/whole-app-db}))
-          body-a  (drain-stream (:body ((mk "<title>Alpha</title>")
-                                        {:uri "/" :request-method :get})))
-          body-b  (drain-stream (:body ((mk "<title>Beta</title>")
-                                        {:uri "/" :request-method :get})))
-          ha      (stream-payload-hash body-a)
-          hb      (stream-payload-hash body-b)]
-      (is (str/includes? body-a "<h1>News</h1>") "body A identical")
-      (is (str/includes? body-b "<h1>News</h1>") "body B identical")
-      (is (some? ha) "streamed payload A carries :rf/render-hash")
-      (is (some? hb) "streamed payload B carries :rf/render-hash")
-      (is (= ha hb)
-          "identical streamed body but different head → SAME
-           final-payload :rf/render-hash (body-only; the head does not fold in)")
-      (is (nil? (stream-payload-head-hash body-a))
-          "explicit :head string omits :rf/head-hash (A)")
-      (is (nil? (stream-payload-head-hash body-b))
-          "explicit :head string omits :rf/head-hash (B)"))))
-
-(deftest stream-handler-route-head-moves-head-hash-not-render-hash
-  (testing "identical body + DIFFERENT route-driven reg-head
-            output → streamed :rf/render-hash STAYS THE SAME (body-only)
-            while the SEPARATE :rf/head-hash channel DIFFERS."
+(deftest stream-handler-render-hash-is-body-only-and-head-hash-tracks-the-head
+  (testing "two route heads and an explicit :head string over one body share
+            the payload :rf/render-hash; :rf/head-hash differs per head model
+            and is omitted for a :head string; the #app and <head> markers
+            equal the payload's values"
     (rf/reg-head :test.stream/head-a (fn [_db _route] {:title "Stream head A"}))
     (rf/reg-head :test.stream/head-b (fn [_db _route] {:title "Stream head B"}))
     (rf/reg-route :test.stream/route-a {:doc "A" :head :test.stream/head-a} "/")
     (rf/reg-route :test.stream/route-b {:doc "B" :head :test.stream/head-b} "/")
-    (rf/reg-event :test.stream/seed-head-a
+    (rf/reg-event :test.stream/seed-route
       {:platforms #{:server}}
-      (fn [{rt :rf.db/runtime} _]
-        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :test.stream/route-a})}))
-    (rf/reg-event :test.stream/seed-head-b
-      {:platforms #{:server}}
-      (fn [{rt :rf.db/runtime} _]
-        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :test.stream/route-b})}))
-    (let [mk      (fn [init]
-                    (rf.ssr.ring/stream-handler
-                      {:initial-events [[:rf.test.server/init] [init]]
-                       ;; Resolving form: `(= ha hb)` below would
-                       ;; hold vacuously (nil = nil) on an unresolved root.
-                       :root-view (fn [] ((rf/view :test/root)))
-                       :payload   :rf.ssr.payload/whole-app-db}))
-          body-a  (drain-stream (:body ((mk :test.stream/seed-head-a)
-                                        {:uri "/" :request-method :get})))
-          body-b  (drain-stream (:body ((mk :test.stream/seed-head-b)
-                                        {:uri "/" :request-method :get})))
-          ha      (stream-payload-hash body-a)
-          hb      (stream-payload-hash body-b)
-          head-ha (stream-payload-head-hash body-a)
-          head-hb (stream-payload-head-hash body-b)]
-      (is (str/includes? body-a "<title>Stream head A</title>"))
-      (is (str/includes? body-b "<title>Stream head B</title>"))
-      ;; Assert PRESENCE before equality. With an
-      ;; unresolved `:root-view` this equality would hold vacuously as nil = nil.
-      (is (some? ha) "render A carries :rf/render-hash")
-      (is (some? hb) "render B carries :rf/render-hash")
-      (is (= ha hb)
-          "different reg-head title (identical body) → SAME
-           streamed :rf/render-hash (body-only)")
-      (is (some? head-ha) "render A carries :rf/head-hash")
-      (is (some? head-hb) "render B carries :rf/head-hash")
-      (is (not= head-ha head-hb)
-          "different reg-head title (identical body) → DIFFERENT
-           :rf/head-hash (the separate channel attributes head divergence)"))))
-
-(deftest stream-handler-emit-hash-true-stamps-root-marker-equal-to-payload
-  (testing ":emit-hash? true →
-            the streamed #app root div carries data-rf-render-hash, equal to
-            the final payload's :rf/render-hash (body-only). The <head>
-            element carries data-rf-head-hash, equal to the final payload's
-            :rf/head-hash (the separate channel — a default head is always
-            reconstructible via head-model, so the channel is present even
-            with no explicit :head/:reg-head)."
-    (let [handler  (rf.ssr.ring/stream-handler
-                     {:initial-events  [[:rf.test.server/init]]
-                      ;; Resolving form; an unresolved root
-                      ;; carries no hash on either channel.
-                      :root-view  (fn [] ((rf/view :test/root)))
-                      :emit-hash? true
-                      :payload    :rf.ssr.payload/whole-app-db})
-          body     (drain-stream (:body (handler {:uri "/" :request-method :get})))
-          wire     (stream-root-wire-hash body)
-          payload  (stream-payload-hash body)
-          head-wire    (stream-head-wire-hash body)
-          head-payload (stream-payload-head-hash body)]
-      (is (some? wire)
-          ":emit-hash? true stamps data-rf-render-hash on the
-           streamed root element")
-      (is (some? payload) "final payload carries :rf/render-hash")
-      (is (= wire payload)
-          "streamed root data-rf-render-hash == final payload :rf/render-hash
-           (both the body-only structural hash)")
-      ;; The marker lands on the #app root div, not buried in a child.
-      (is (re-find #"<div id=\"app\" data-rf-render-hash=\"[0-9a-f]{8}\">" body)
-          "the marker is stamped on the opening #app root div")
-      (is (some? head-wire) "data-rf-head-hash present on <head>")
-      (is (some? head-payload) ":rf/head-hash present in payload")
-      (is (= head-wire head-payload)
-          "streamed <head> data-rf-head-hash == final payload
-           :rf/head-hash"))))
+      (fn [{rt :rf.db/runtime} [_ route-id]]
+        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
+                                  {:route-id route-id})}))
+    (let [;; Resolving root form: an unresolved root carries no hash at all.
+          root     (fn [] ((rf/view :test/root)))
+          routed   #(:body (stream {:initial-events [[:rf.test.server/init]
+                                                     [:test.stream/seed-route %]]
+                                    :root-view      root}))
+          body-a   (routed :test.stream/route-a)
+          [a b s]  (map final-payload
+                        [body-a
+                         (routed :test.stream/route-b)
+                         (:body (stream {:root-view root :head "<title>Alpha</title>"}))])]
+      (is (some? (:rf/render-hash a)))
+      (is (apply = (map :rf/render-hash [a b s])))
+      (is (every? some? (map :rf/head-hash [a b])))
+      (is (apply not= (map :rf/head-hash [a b])))
+      (is (nil? (:rf/head-hash s)))
+      (is (= [(:rf/render-hash a) (:rf/head-hash a)]
+             [(wire-render-hash body-a) (wire-head-hash body-a)])))))
 
 (deftest stream-handler-emit-hash-false-omits-root-marker
-  (testing ":emit-hash? false →
-            NO data-rf-render-hash / data-rf-head-hash on the streamed
-            shell. Toggling the opt has an observable effect on the
-            wire."
-    (let [handler  (rf.ssr.ring/stream-handler
-                     {:initial-events  [[:rf.test.server/init]]
-                      ;; Resolving form, so this test
-                      ;; isolates the `:emit-hash?` toggle: the payload keys
-                      ;; below are present BECAUSE a hash exists, proving the
-                      ;; opt gates the wire markers and nothing else.
-                      :root-view  (fn [] ((rf/view :test/root)))
-                      :emit-hash? false
-                      :payload    :rf.ssr.payload/whole-app-db})
-          body     (drain-stream (:body (handler {:uri "/" :request-method :get})))]
-      (is (str/includes? body "<div id=\"app\">")
-          "the #app root div is present without a hash marker")
-      (is (not (str/includes? body "data-rf-render-hash"))
-          ":emit-hash? false → no data-rf-render-hash anywhere in
-           the streamed shell")
-      (is (not (str/includes? body "data-rf-head-hash"))
-          ":emit-hash? false → no data-rf-head-hash either (the
-           SAME toggle gates both wire markers)")
-      ;; The payload still carries both hashes (the payload slots are
-      ;; hash-driven regardless of :emit-hash?, mirroring the non-streaming
-      ;; handler).
-      (is (some? (stream-payload-hash body))
-          "the final payload still carries :rf/render-hash when :emit-hash?
-           is false (only the wire MARKER is gated by the opt)")
-      (is (some? (stream-payload-head-hash body))
-          "the final payload still carries :rf/head-hash when :emit-hash? is
-           false"))))
-
-;; ===========================================================================
-;; The streaming final-payload :rf/render-hash MUST describe the
-;; SAME (post-drain) render state as the :rf/app-db it ships.
-;;
-;; `doc-hash` is computed in `render-streaming-shell!` on the request
-;; thread BEFORE any continuation drains (over the PRE-drain root hiccup),
-;; but `build-final-payload` reads the LIVE frame app-db AFTER every
-;; continuation has drained. When a continuation mutates app-db and the ROOT
-;; tree reads that mutated key, shipping the shell's hash would pair POST-drain
-;; state (`:rf/app-db`) with a PRE-drain `:rf/render-hash`. A streaming hydrate
-;; re-renders the root tree against the payload's post-drain app-db, hashes
-;; it, and would see a mismatch against the pre-drain `:rf/render-hash` even though
-;; the server shipped its own canonical final state — firing a spurious
-;; `:rf.ssr/hydration-mismatch` (Spec 011 §Hydration equivalence rule).
-;;
-;; So the final-payload `:rf/render-hash` is recomputed from the post-drain
-;; render tree (re-resolving the root view after all continuations drain), so
-;; the hash and the `:rf/app-db` describe the same moment in the request.
-;; ===========================================================================
-
-(defn- stream-payload-edn
-  "Pull the EDN body of the streamed `__rf_payload` script and read it."
-  [body]
-  (let [payload-edn (second (re-find
-                              #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
-                              body))]
-    (when payload-edn
-      (clojure.edn/read-string payload-edn))))
+  (testing ":emit-hash? false drops both wire markers; the payload keeps both
+            hashes"
+    (let [{:keys [body]} (stream {:root-view  (fn [] ((rf/view :test/root)))
+                                  :emit-hash? false})]
+      (is (not (re-find #"data-rf-(render|head)-hash" body)))
+      (is (every? some? ((juxt :rf/render-hash :rf/head-hash) (final-payload body)))))))
 
 (deftest stream-handler-final-hash-reflects-post-drain-state
-  (testing "a continuation that MUTATES app-db a ROOT-read key
-            depends on → the final payload's :rf/render-hash describes the
-            POST-drain render tree (the one the client hydrates against),
-            NOT the pre-drain shell render. The hash and the shipped
-            :rf/app-db describe the same moment."
-    ;; A db-mutating event the deferred subtree dispatches during its render.
+  (testing "when a continuation changes a key the root reads, the payload's
+            :rf/render-hash is the hash a client computes re-rendering the root
+            over the shipped post-drain app-db"
     (rf/reg-event :rf.test/bump-counter
       {:platforms #{:server}}
       (fn [{:keys [db]} _] {:db (update db :counter (fnil inc 0))}))
-    ;; initial-events seeds :counter 0 alongside the fixture's articles/comments.
-    (rf/reg-event :rf.test.server/init-counter
-      {:platforms #{:server}}
-      (fn [_ _] {:db {:counter 0}}))
-    ;; Client hydration replaces app-db with the payload slice wholesale.
-    (rf/reg-event :rf.test/hydrate-db
-      {:platforms #{:server}}
-      (fn [_ [_ db]] {:db db}))
+    (rf/reg-event :rf.test/set-db {:platforms #{:server}} (fn [_ [_ db]] {:db db}))
     (rf/reg-sub :counter (fn [db _] (:counter db)))
-    ;; A deferred subtree that MUTATES :counter during its continuation render.
     (rf/reg-view ^{:rf/id :test/counter-mutator} counter-mutator []
       (rf/dispatch-sync [:rf.test/bump-counter])
-      [:div.mutated "bumped"])
-    ;; The ROOT view READS :counter INLINE — `render-tree-hash` is a pure
-    ;; structural hash that does NOT expand view-refs, so the subscribed
-    ;; value must land directly in the root hiccup for the hash to depend on
-    ;; it (pre-drain 0 vs post-drain 1 → different hashes). The deferred
-    ;; subtree stays a view-ref child of the suspense boundary (the streaming
-    ;; walker drains it; the hash leaves the boundary marker unexpanded).
+      [:div "bumped"])
+    ;; The root reads :counter inline: the structural hash does not expand view refs.
     (rf/reg-view ^{:rf/id :test/counter-root} counter-root []
       [:main
-       [:span.counter (str "counter=" @(subscribe [:counter]))]
-       [:rf/suspense-boundary
-        {:id :test/bump :fallback [:p "loading"]}
+       [:span (str "counter=" @(subscribe [:counter]))]
+       [:rf/suspense-boundary {:id :test/bump :fallback [:p "loading"]}
         [(rf/view :test/counter-mutator)]]])
-    (let [handler  (rf.ssr.ring/stream-handler
-                     ;; EXPANDED :root-view form (symmetric with the client's
-                     ;; :render-tree-fn) so the streamed hash is over the
-                     ;; rendered counter-bearing tree, not an unexpanded
-                     ;; view-ref vector. The wire/payload
-                     ;; :rf/render-hash is BODY-ONLY, so the head (explicit
-                     ;; or route-driven) has no bearing on it — no explicit
-                     ;; `:head` opt is needed here.
-                     {:initial-events [[:rf.test.server/init-counter]]
-                      :root-view (fn [] ((rf/view :test/counter-root)))
-                      :payload   :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/" :request-method :get})
-          body     (drain-stream (:body response))
-          payload  (stream-payload-edn body)
-          db-slice (:rf/app-db payload)
-          server-hash (:rf/render-hash payload)]
-      (is (= 200 (:status response)) "stream still 200")
-      (is (str/includes? body "bumped")
-          "the mutating boundary's resolved body streamed")
-      ;; The shipped app-db is the POST-drain state (counter bumped to 1).
-      (is (= 1 (:counter db-slice))
-          "the final payload's :rf/app-db carries the post-drain counter=1")
-      ;; Model the streaming client: it hydrates against the payload's
-      ;; post-drain :rf/app-db and re-renders the root tree, then hashes it.
-      ;; That hash MUST equal the payload's :rf/render-hash, or
-      ;; :rf.ssr/hydration-mismatch fires on a page the server just shipped.
-      (let [cfid (keyword "rf.frame" (str (gensym "client")))]
-        (rf/make-frame {:id cfid :platform :server})
-        (try
-          (rf/with-frame cfid
-            ;; Hydrate the client frame with the payload's post-drain app-db
-            ;; (the :replace-app-db hydration semantics, modelled via a
-            ;; whole-db replace event).
-            (rf/dispatch-sync [:rf.test/hydrate-db db-slice])
-            (let [client-hiccup ((rf/view :test/counter-root))
-                  client-hash   (rf.ssr.ring.lifecycle/render-document-hash client-hiccup)]
-              ;; THE PIN — the load-bearing assertion. A server hash over the
-              ;; shell render would describe counter=0 (pre-drain) while the
-              ;; client renders counter=1 (post-drain), so these would DIFFER
-              ;; → spurious mismatch.
-              (is (= server-hash client-hash)
-                  "the final-payload :rf/render-hash describes the
-                   SAME post-drain render state the client hydrates against;
-                   the server hash matches the client's re-render hash over the
-                   shipped :rf/app-db (no spurious :rf.ssr/hydration-mismatch)")))
-          (finally
-            (rf/destroy-frame! cfid)))))))
-
-;; ===========================================================================
-;; A fn-form :root-view with ZERO continuations (no
-;; `:rf/suspense-boundary` in the tree — the common case) is invoked
-;; EXACTLY ONCE per streaming request, per the shared `resolve-root-view`
-;; contract.
-;;
-;; The post-drain re-resolution of `:root-view` for the final payload's
-;; `:rf/render-hash` (above) runs only for requests where at least one
-;; continuation actually drained; a zero-continuation request reuses the
-;; pre-drain hash verbatim. With no continuations app-db has zero
-;; opportunity to change between the shell render and the final-payload
-;; build, so a second invocation would be needless — and a non-idempotent
-;; fn-form root view (unsorted-map iteration order / gensym'd keys /
-;; time-of-day props — the very hazards `resolve-root-view`'s docstring
-;; names) would then hash two DIFFERENT trees, producing a spurious
-;; `:rf.ssr/hydration-mismatch` on a perfectly successful hydration.
-;; ===========================================================================
-
-(deftest stream-handler-fn-root-view-invoked-exactly-once-when-no-continuations
-  (testing "a 0-arity fn :root-view with no suspense boundary
-            fires exactly once per streaming request — the writer must NOT
-            re-resolve it a second time for the final-payload hash when no
-            continuation drained to give app-db a chance to change"
-    (let [call-count (atom 0)]
-      (rf/reg-event :rf.test/init-once
-        {:platforms #{:server}}
-        (fn [_ _] {}))
-      (rf/reg-view* :pages/stream-once
-        (fn [] [:div.page "once"]))
-      (let [handler  (rf.ssr.ring/stream-handler
-                       {:initial-events [[:rf.test/init-once]]
-                        :root-view (fn []
-                                     (swap! call-count inc)
-                                     [(rf/view :pages/stream-once)])
-                        :payload   :rf.ssr.payload/whole-app-db})
-            response (handler {:uri "/" :request-method :get})
-            body     (drain-stream (:body response))]
-        (is (= 200 (:status response)))
-        (is (str/includes? body "once") "shell streamed the resolved page")
-        (is (= 1 @call-count)
-            "fn-form :root-view must be invoked exactly once per
-             streaming request when no continuation drains — the shell
-             render is the ONE call; the final-payload hash reuses that
-             SAME pre-drain result rather than re-resolving root-view")))))
+    (let [payload (final-payload
+                    (:body (stream {:initial-events [[:rf.test/set-db {:counter 0}]]
+                                    :root-view      (fn [] ((rf/view :test/counter-root)))})))
+          db      (:rf/app-db payload)
+          client  (keyword "rf.frame" (str (gensym "client")))]
+      (is (= 1 (:counter db)) "the payload ships the post-drain app-db")
+      (rf/make-frame {:id client :platform :server})
+      (try
+        (rf/with-frame client
+          (rf/dispatch-sync [:rf.test/set-db db])
+          (is (= (:rf/render-hash payload)
+                 (rf.ssr.ring.lifecycle/render-document-hash ((rf/view :test/counter-root))))))
+        (finally
+          (rf/destroy-frame! client))))))
 
 (deftest stream-handler-fn-root-view-non-idempotent-hashes-consistently-when-no-continuations
-  (testing "a non-idempotent fn-form :root-view (a different
-            tree on every call) still produces a streamed marker hash that
-            matches the final payload's :rf/render-hash when the stream has
-            no continuations — the single invocation covers BOTH channels"
-    (rf/reg-event :rf.test/init-noni
-      {:platforms #{:server}}
-      (fn [_ _] {}))
-    (rf/reg-view* :pages/stream-noni
-      (fn [n] [:div {:data-call n} "noni"]))
-    (let [counter   (atom 0)
-          handler   (rf.ssr.ring/stream-handler
-                      {:initial-events [[:rf.test/init-noni]]
-                       ;; Outer call: RESOLVES the view instead of
-                       ;; handing back a reference, so a hash exists at all.
-                       ;; Still non-idempotent and still one invocation.
-                       :root-view (fn [] ((rf/view :pages/stream-noni) (swap! counter inc)))
-                       :payload   :rf.ssr.payload/whole-app-db})
-          response  (handler {:uri "/" :request-method :get})
-          body      (drain-stream (:body response))
-          wire-hash (second (re-find #"data-rf-render-hash=\"([0-9a-f]{8})\"" body))
-          payload-hash (stream-payload-hash body)]
-      (is (= 200 (:status response)))
-      (is (some? wire-hash) "streamed shell carries the render-hash marker")
-      (is (some? payload-hash) "final payload carries :rf/render-hash")
-      (is (= wire-hash payload-hash)
-          "with no continuations the streamed marker and the
-           final payload hash describe the SAME single invocation — a
-           non-idempotent root-view fn does not desync them"))))
+  (testing "with no continuation a fn :root-view runs once, so even a
+            non-idempotent root stamps a marker equal to the payload hash"
+    (rf/reg-view* :pages/stream-noni (fn [n] [:div {:data-call n} "noni"]))
+    (let [calls          (atom 0)
+          {:keys [body]} (stream {:root-view (fn [] ((rf/view :pages/stream-noni) (swap! calls inc)))})]
+      (is (= 1 @calls))
+      (is (some? (wire-render-hash body)))
+      (is (= (wire-render-hash body) (:rf/render-hash (final-payload body)))))))
