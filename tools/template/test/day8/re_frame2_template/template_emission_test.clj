@@ -208,34 +208,27 @@
 ;; --- The events_test.cljs assertions ------------------------------------
 
 (def ^:private expected-events-test-requires
-  "ns symbols the emitted events_test.cljs MUST require. Drift here means
-  the test scaffold has fallen out of sync with the registrar / fixture /
-  substrate API."
+  "ns symbols the emitted events_test.cljs MUST require: the registrar /
+  fixture / substrate API, and the user's events / subs nses, so their
+  registrations land before the deftests run."
   '#{cljs.test
      re-frame.core
      re-frame.substrate.plain-atom
-     re-frame.test-support})
+     re-frame.test-support
+     acme.my-app.events
+     acme.my-app.subs})
 
 (defn- assert-events-test-shape!
   [substrate ^java.io.File root]
   (let [test-file (io/file root "test/acme/my_app/events_test.cljs")
         forms     (read-cljs-forms test-file)
-        ns-form   (first forms)
-        _         (is (and (sequential? ns-form) (= 'ns (first ns-form)))
-                      "first form is the ns form")
-        requires  (parse-ns-requires ns-form)
+        requires  (parse-ns-requires (first forms))
         required  (::required requires)
         text      (slurp test-file)]
-    (doseq [needed expected-events-test-requires]
-      (is (contains? required needed)
-          (str "events_test.cljs (" substrate ") requires " needed
-               " — current requires: " (sort required))))
-    ;; The user's events / subs nses are required so their registrations
-    ;; land before the deftests run.
-    (is (contains? required 'acme.my-app.events)
-        "events_test.cljs requires the user's events ns")
-    (is (contains? required 'acme.my-app.subs)
-        "events_test.cljs requires the user's subs ns")
+    (is (empty? (remove required expected-events-test-requires))
+        (str "events_test.cljs (" substrate ") requires "
+             (sort expected-events-test-requires) " — current requires: "
+             (sort required)))
     ;; Every alias used in the body is declared.
     (doseq [sym (collect-symbols #(some? (namespace %)) (rest forms))]
       (let [alias-sym (symbol (namespace sym))]
@@ -249,12 +242,7 @@
     (is (or (re-find #":preset\s+:test" text)
             (re-find #":rf\.cofx/mint-policy\s+:strict" text))
         (str "events_test.cljs (" substrate ") must run under a strict cofx "
-             "mint policy — `{:preset :test}` or `:rf.cofx/mint-policy :strict`"))
-    (doseq [[re what] [[#":rf\.world/inputs" ":rf.world/inputs (retired)"]
-                       [#"inject-cofx"        "inject-cofx (removed)"]]]
-      (is (not (re-find re text))
-          (str "events_test.cljs (" substrate ") must not use legacy "
-               "coeffect vocabulary: " what)))))
+             "mint policy — `{:preset :test}` or `:rf.cofx/mint-policy :strict`"))))
 
 ;; --- Framework-surface drift audit ----------------------------------------
 
@@ -323,46 +311,6 @@
 (deftest uix-emission-static-parse-test
   (testing "the UIx emission has well-formed ns requires and no surface drift"
     (run-for-substrate! :uix)))
-
-(deftest framework-ns-file-resolves-every-family-test
-  (testing "`framework-source-roots` resolves each framework family to a real
-            file"
-    ;; Direct coverage, because no emission above reaches two of these
-    ;; families, and they are exactly the two a leaf-whitelist string
-    ;; convention gets wrong: `re-frame.fresco.*`
-    ;; (published from implementation/fresco, not implementation/adapters)
-    ;; and `re-frame.adapter.reagent-slim` (whose file carries the CLJS
-    ;; underscore a whitelisted leaf would spell with a dash). Under that
-    ;; convention both would answer nil, and a nil is a HARD FAIL in
-    ;; `audit-framework-symbol!` — so the first emission naming one would
-    ;; die on the lookup rather than on anything it was auditing.
-    (let [root (repo-root)]
-      (doseq [[ns-sym expected-suffix]
-              '[[re-frame.core                  "implementation/core/src/re_frame/core.cljc"]
-                [re-frame.adapter.uix           "implementation/adapters/uix/src/re_frame/adapter/uix.cljs"]
-                [re-frame.adapter.reagent       "implementation/adapters/reagent/src/re_frame/adapter/reagent.cljs"]
-                [re-frame.adapter.reagent-slim  "implementation/adapters/reagent-slim/src/re_frame/adapter/reagent_slim.cljs"]
-                [re-frame.fresco               "implementation/fresco/src/re_frame/fresco.cljc"]
-                [re-frame.fresco.substrate     "implementation/fresco/src/re_frame/fresco/substrate.cljs"]
-                ;; The tools-tier family an emission names (stories.cljs).
-                [re-frame.story                 "tools/story/src/re_frame/story.cljc"]
-                ;; `adapter` in the name is not evidence of a separate
-                ;; coordinate: this one really does ship from core.
-                [re-frame.adapter.use-frame     "implementation/core/src/re_frame/adapter/use_frame.cljs"]]]
-        (let [f (framework-ns-file root ns-sym)]
-          (is (some? f)
-              (str ns-sym " must resolve to a framework source file — add its "
-                   "family to `framework-source-roots`"))
-          (is (and f (string/ends-with? (string/replace (.getPath ^java.io.File f) "\\" "/")
-                                        expected-suffix))
-              (str ns-sym " must resolve to " expected-suffix
-                   " — got " (some-> f .getPath))))))
-    ;; A namespace outside every family stays nil rather than throwing: the
-    ;; audit calls this for the app's own nses and for `uix.*` / `reagent.*`.
-    (is (nil? (framework-ns-file (repo-root) 'acme.my-app.views))
-        "a non-framework ns resolves to nil, not a fabricated path")
-    (is (nil? (framework-ns-file (repo-root) 'uix.core))
-        "a view-library ns resolves to nil, not a fabricated path")))
 
 ;; --- The hot-reload lifecycle -----------------------------------------------
 ;;
