@@ -219,17 +219,18 @@
 (deftest flow-and-effect-claims-union-and-remove-independently
   ;; A flow's output claim and an app effect's claim on the same absolute path
   ;; union, and each removes only itself: the path stays classified while any
-  ;; owner claims it.
+  ;; owner claims it. A flow claim reads as `:flow`; the effect's is exact.
   (let [p      [:auth :creds :secret]
-        owners #(set (map :source (get (rf.elision/sensitive-declarations :rf/default) p)))]
+        owners #(set (map (fn [d] (if (= :flow (:source d)) :flow d))
+                          (get (rf.elision/sensitive-declarations :rf/default) p)))]
     (rf/reg-flow :creds {:inputs [[:n]] :output-path [:auth :creds] :sensitive [[:secret]]}
       (fn [n] {:secret n}))
     (rf/reg-event :classify (fn [{:keys [db]} _] {:db db :sensitive [p]}))
     (rf/reg-event :declassify (fn [{:keys [db]} _] {:db db :clear-sensitive [p]}))
     (rf/dispatch-sync [:classify])
-    (is (= #{:flow :effect} (owners)))
+    (is (= #{:flow {:source :effect}} (owners)))
     (rf/dispatch-sync [:declassify])
     (is (= #{:flow} (owners)))
     (rf/dispatch-sync [:classify])
     (rf/clear :flow :creds {:frame :rf/default})
-    (is (= #{:effect} (owners)))))
+    (is (= #{{:source :effect}} (owners)))))
