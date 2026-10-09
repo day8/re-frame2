@@ -1,33 +1,22 @@
 (ns re-frame.actor-revertibility-restore-test
-  "End-to-end actor-liveness restore coverage.
-
-  Machine snapshots live in the runtime-db partition, and actor liveness is
-  derived from snapshot presence. Restoring whole frame state must therefore:
-
-    - remove an actor when rewinding to before its spawn;
-    - revive lazy resolution when rewinding to before its destroy.
-
-  The tests use the public restore path and real machine dispatch so registrar
-  state cannot mask a non-revertible actor lifecycle."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  "Restoring frame state reverts actor liveness. A spawned actor has no
+  per-instance registration: it is alive while its snapshot sits in the
+  runtime-db partition, and its TYPE rides that snapshot under
+  `:rf/machine-type`. So `restore-epoch!` must remove an actor when rewinding
+  past its spawn, revive it when rewinding past its destroy, and resolve its
+  TYPE for the missing-handler and version-drift preconditions."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.registrar :as rf.registrar]
             [re-frame.elision]
             [re-frame.epoch :as rf.epoch]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            ;; Side-effect require — loads the machines late-bind hooks
-            ;; (`:machines/reg-machine`, `:machines/resolve-actor-handler-meta`,
-            ;; `:machines/actor-resolvable?`) and the `:rf.machine/spawn` /
-            ;; `:rf.machine/destroy` fxs the tests exercise. The
-            ;; capture/restore fixture preserves these ns-load-time
-            ;; registrations across each test.
+            ;; Publishes the machine hooks and the `:rf.machine/spawn` /
+            ;; `:rf.machine/destroy` fxs; the fixture keeps those ns-load
+            ;; registrations across tests.
             [re-frame.machines]))
 
-;; Use the canonical capture/restore fixture (NOT a clear-all! reset) so
-;; the machines artefact's ns-load-time fx + sub registrations survive —
-;; my tests use the `:rf.machine/spawn` fx, which `clear-all!` would drop.
-;; Clear the epoch ring/listeners before each test via the :init-fn.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.substrate.plain-atom/adapter
@@ -36,291 +25,113 @@
                 (rf.epoch/clear-epoch-listeners!))}))
 
 (defn- snapshot [machine-id]
-  ;; Machine snapshots are runtime-db partition state at
-  ;; [:rf.runtime/machines :snapshots <id>] (EP-0001).
   (get-in (:rf.db/runtime (rf/frame-state-value :test/main))
           [:rf.runtime/machines :snapshots machine-id]))
 
 (defn- last-epoch-id []
   (:epoch-id (last (rf/epoch-history :test/main))))
 
-(defn- record-trace! []
+(defn- traces-of
+  "Run `f` and return the trace events it emitted."
+  [f]
   (let [recorded (atom [])]
     (rf/register-listener! :trace ::rec (fn [ev] (swap! recorded conj ev)))
-    recorded))
+    (try (f) (finally (rf/unregister-listener! :trace ::rec)))
+    @recorded))
 
-(defn- counter-child []
-  {:initial :live
-   :data    {:n 0}
-   :actions {:bump (fn [{data :data}] {:data (update data :n inc)})}
-   :states  {:live {:on {:bump {:action :bump}}}}})
+(defn- op [operation traces]
+  (some #(when (= operation (:operation %)) %) traces))
 
-(defn- parent []
+(defn- child
+  ([] (child nil))
+  ([version]
+   (cond-> {:initial :live
+            :data    {:n 0}
+            :actions {:bump (fn [{data :data}] {:data (update data :n inc)})}
+            :states  {:live {:on {:bump {:action :bump}}}}}
+     version (assoc :meta {:rf/snapshot-version version}))))
+
+(defn- parent
+  "Spawns a `child-type` (a registered machine-id, or an inline definition)
+  as `:rev/child#1` on `:go`, and destroys it on `:drop`."
+  [child-type]
   {:initial :idle
    :data    {}
    :states  {:idle {:on {:go   {:action (fn [_]
                                           {:fx [[:rf.machine/spawn
-                                                 {:machine-id :rev/child
-                                                  :id-prefix  :rev/child}]]})}
-                          :drop {:action (fn [_]
-                                           {:fx [[:rf.machine/destroy :rev/child#1]]})}}}}})
+                                                 (if (map? child-type)
+                                                   {:id-prefix :rev/child :definition child-type}
+                                                   {:id-prefix :rev/child :machine-id child-type})]]})}
+                         :drop {:action (fn [_]
+                                          {:fx [[:rf.machine/destroy :rev/child#1]]})}}}}})
 
-;; ---- rewind PAST A SPAWN — no orphaned handler ----------------------------
+(defn- spawn-child!
+  "Spawn `:rev/child#1` of `child-type` on `:test/main` (which must exist);
+  return the epoch id the spawn settled."
+  [child-type]
+  (rf/reg-machine :rev/parent (parent child-type))
+  (rf/dispatch-sync [:rev/parent [:go]] {:frame :test/main})
+  (last-epoch-id))
 
-;; These end-to-end
-;; restore-epoch! tests revert actor LIVENESS, which is a spawned actor's
-;; snapshot presence in the runtime-db partition (EP-0001). The epoch captures
-;; the whole frame-state
-;; (`:frame-state-before/-after`) and `restore-epoch!` reinstalls BOTH partitions
-;; via `replace-frame-state!`, so reverting/restoring runtime-db state works
-;; end-to-end.
 (deftest restore-past-spawn-leaves-no-orphan
-  (testing "restore-epoch! to BEFORE a spawn reverts the
-            actor's liveness; no orphaned handler survives"
-    (rf/make-frame {:id :test/main})
-    (rf/reg-machine :rev/child  (counter-child))
-    (rf/reg-machine :rev/parent (parent))
-    ;; Seed an epoch that PRE-DATES the spawn (a no-op self-event on a
-    ;; trivial handler so there is a clean :ok epoch to rewind to).
-    (rf/reg-event :test/noop (fn [{:keys [db]} _] {:db (assoc db :seeded true)}))
-    (rf/dispatch-sync [:test/noop] {:frame :test/main})
-    (let [pre-spawn-epoch (last-epoch-id)]
-      ;; Spawn the actor.
-      (rf/dispatch-sync [:rev/parent [:go]] {:frame :test/main})
-      (is (some? (snapshot :rev/child#1)) "actor alive after spawn")
-      (is (nil? (rf.registrar/lookup :event :rev/child#1))
-          "spawned actor never registered a per-instance handler")
-      ;; Rewind PAST the spawn.
-      (let [ok? (rf/restore-epoch! :test/main pre-spawn-epoch)]
-        (is (true? ok?) "restore-epoch! to the pre-spawn epoch succeeded")
-        (is (nil? (snapshot :rev/child#1))
-            "rewind-past-spawn: the actor's snapshot is gone")
-        ;; Restore preserves the original child id.
-        (is (nil? (rf.registrar/lookup :event :rev/child#1))
-            "NO orphaned handler
-             survives the revert")
-        ;; Dispatch to the gone actor → clean no-such-handler.
-        (let [errs (record-trace!)]
-          (rf/dispatch-sync [:rev/child#1 [:bump]] {:frame :test/main})
-          (rf/unregister-listener! :trace ::rec)
-          (is (some #(= :rf.error/no-such-handler (:operation %)) @errs)
-              "dispatch to the gone actor is a clean :rf.error/no-such-handler"))))))
-
-;; ---- rewind PAST A DESTROY — liveness comes back --------------------------
+  (rf/make-frame {:id :test/main})
+  (rf/reg-machine :rev/child (child))
+  (rf/reg-event :test/noop (fn [{:keys [db]} _] {:db (assoc db :seeded true)}))
+  (rf/dispatch-sync [:test/noop] {:frame :test/main})
+  (let [pre-spawn-epoch (last-epoch-id)]
+    (spawn-child! :rev/child)
+    (is (some? (snapshot :rev/child#1)) "precondition: the actor is alive")
+    (is (true? (rf/restore-epoch! :test/main pre-spawn-epoch)))
+    (is (nil? (snapshot :rev/child#1)) "the actor's snapshot is gone")
+    (is (op :rf.error/no-such-handler
+            (traces-of #(rf/dispatch-sync [:rev/child#1 [:bump]] {:frame :test/main})))
+        "no orphaned handler survives: a dispatch to the gone actor is no-such-handler")))
 
 (deftest restore-past-destroy-rematerialises-liveness
-  (testing "restore-epoch! to when an actor was
-            ALIVE re-materialises its liveness: a dispatch to it RESOLVES
-            via the lazy resolver and drives a transition (NOT
-            :rf.error/no-such-handler)"
-    (rf/make-frame {:id :test/main})
-    (rf/reg-machine :rev/child  (counter-child))
-    (rf/reg-machine :rev/parent (parent))
-    ;; Spawn → the actor is alive. Capture the alive epoch.
-    (rf/dispatch-sync [:rev/parent [:go]] {:frame :test/main})
-    (is (some? (snapshot :rev/child#1)) "actor alive after spawn")
-    (let [alive-epoch (last-epoch-id)]
-      ;; Drive a transition so the alive epoch's :n is a known value.
-      (rf/dispatch-sync [:rev/child#1 [:bump]] {:frame :test/main})
-      (is (= 1 (:n (:data (snapshot :rev/child#1)))))
-      ;; Destroy the actor.
-      (rf/dispatch-sync [:rev/parent [:drop]] {:frame :test/main})
-      (is (nil? (snapshot :rev/child#1)) "actor destroyed")
-      ;; Rewind to when the actor was alive (the snapshot recorded at the
-      ;; spawn epoch carries :n 0).
-      (let [ok? (rf/restore-epoch! :test/main alive-epoch)]
-        (is (true? ok?)
-            "restore-epoch! to the alive epoch SUCCEEDED — the spawned-actor
-             snapshot is a valid restore target (its TYPE resolves), NOT a
-             :rf.epoch/restore-missing-handler")
-        (is (some? (snapshot :rev/child#1))
-            "rewind-past-destroy: the actor's snapshot is restored")
-        ;; Dispatch resolves via the lazy resolver and transitions.
-        (rf/dispatch-sync [:rev/child#1 [:bump]] {:frame :test/main})
-        (is (= 1 (:n (:data (snapshot :rev/child#1))))
-            "rewind-past-destroy: dispatch RESOLVED and drove a transition
-             (the restored snapshot had :n 0, the bump made it 1) — NOT
-             :rf.error/no-such-handler")))))
-
-;; ---- a missing TYPE is still a genuine missing-handler --------------------
+  (rf/make-frame {:id :test/main})
+  (rf/reg-machine :rev/child (child))
+  (let [alive-epoch (spawn-child! :rev/child)]
+    (rf/dispatch-sync [:rev/child#1 [:bump]] {:frame :test/main})
+    (rf/dispatch-sync [:rev/parent [:drop]] {:frame :test/main})
+    (is (nil? (snapshot :rev/child#1)) "precondition: the actor is destroyed")
+    (is (true? (rf/restore-epoch! :test/main alive-epoch)))
+    (rf/dispatch-sync [:rev/child#1 [:bump]] {:frame :test/main})
+    (is (= 1 (:n (:data (snapshot :rev/child#1))))
+        "the restored snapshot (:n 0) resolves lazily and transitions")))
 
 (deftest restore-with-missing-type-still-fails-missing-handler
-  (testing "a spawned-actor snapshot whose TYPE was
-            unregistered is NOT restorable: restore-epoch! fires
-            :rf.epoch/restore-missing-handler (the singleton-style
-            missing-reference contract holds)"
-    (rf/make-frame {:id :test/main})
-    (rf/reg-machine :rev/child  (counter-child))
-    (rf/reg-machine :rev/parent (parent))
-    (rf/dispatch-sync [:rev/parent [:go]] {:frame :test/main})
-    (let [alive-epoch (last-epoch-id)]
-      (is (some? (snapshot :rev/child#1)))
-      ;; Unregister the TYPE so the recorded snapshot's :rf/machine-type
-      ;; no longer resolves.
-      (rf.registrar/unregister! :event :rev/child)
-      (let [errs (record-trace!)
-            pre  (rf/app-db-value :test/main)
-            ok?  (rf/restore-epoch! :test/main alive-epoch)]
-        (rf/unregister-listener! :trace ::rec)
-        (is (false? ok?) "restore refused — the actor's TYPE is gone")
-        (is (= pre (rf/app-db-value :test/main)) "app-db unchanged on refusal")
-        (let [ev (some #(when (= :rf.epoch/restore-missing-handler (:operation %)) %) @errs)]
-          (is (some? ev) ":rf.epoch/restore-missing-handler fired")
-          (is (some #(= :rev/child#1 (:id %)) (:missing (:tags ev)))
-              "the unresolvable spawned actor surfaces in :missing"))))))
-
-;; ---- SPAWNED-actor snapshot VERSION drift ---------------------------------
-;;
-;; For a
-;; SPAWNED actor the snapshot key is an instance id (`:rev/child#1`) with NO
-;; per-instance registration — the actor's TYPE rides the snapshot under
-;; `:rf/machine-type`. A version-drift probe (`machine-version-mismatch`) that
-;; compared the snapshot KEY against the machine registrar would therefore never
-;; observe a hot-reloaded spawned-actor TYPE's `:rf/snapshot-version` bump, and
-;; `restore-epoch!` would accept an older, incompatible snapshot reporting
-;; success. The probe resolves the current definition the same way
-;; dispatch does — singleton by key, spawned actor by `:rf/machine-type` —
-;; so the drift fires `:rf.epoch/restore-version-mismatch` (false, frame-state
-;; unchanged, documented trace with both the instance id and the TYPE).
-
-(defn- versioned-child [v]
-  {:initial :live
-   :meta    {:rf/snapshot-version v}
-   :data    {:n 0}
-   :actions {:bump (fn [{data :data}] {:data (update data :n inc)})}
-   :states  {:live {:on {:bump {:action :bump}}}}})
-
-(defn- spawning-parent
-  "A parent that spawns a child of `child-type` (a registered :machine-id
-  keyword OR an inline :definition spec map) under id-prefix :rev/child."
-  [child-type]
-  {:initial :idle
-   :data    {}
-   :states  {:idle {:on {:go {:action (fn [_]
-                                        {:fx [[:rf.machine/spawn
-                                               (cond-> {:id-prefix :rev/child}
-                                                 (keyword? child-type) (assoc :machine-id child-type)
-                                                 (map? child-type)     (assoc :definition child-type))]]})}}}}})
-
-(deftest restore-spawned-actor-version-match-succeeds
-  (testing "a registered-TYPE spawned actor whose TYPE version is
-            UNCHANGED restores cleanly (no false version-mismatch)"
-    (rf/make-frame {:id :test/main})
-    (rf/reg-machine :rev/child  (versioned-child 1))
-    (rf/reg-machine :rev/parent (spawning-parent :rev/child))
-    (rf/dispatch-sync [:rev/parent [:go]] {:frame :test/main})
-    (let [alive-epoch (last-epoch-id)]
-      (is (= :rev/child (:rf/machine-type (snapshot :rev/child#1)))
-          "spawned actor's snapshot carries its registered TYPE keyword")
-      (is (= 1 (get-in (snapshot :rev/child#1) [:meta :rf/snapshot-version])))
-      (let [ok? (rf/restore-epoch! :test/main alive-epoch)]
-        (is (true? ok?) "version matches → restore succeeds")
-        (is (some? (snapshot :rev/child#1)) "actor snapshot restored")))))
+  (rf/make-frame {:id :test/main})
+  (rf/reg-machine :rev/child (child 1))
+  (let [alive-epoch (spawn-child! :rev/child)]
+    (rf.registrar/unregister! :event :rev/child)
+    (let [ok?    (atom nil)
+          traces (traces-of #(reset! ok? (rf/restore-epoch! :test/main alive-epoch)))]
+      (is (false? @ok?) "restore refused: the actor's TYPE is gone")
+      (is (some #(= :rev/child#1 (:id %))
+                (-> (op :rf.epoch/restore-missing-handler traces) :tags :missing))
+          "the unresolvable spawned actor surfaces in :missing"))))
 
 (deftest restore-spawned-actor-version-mismatch-registered-type-fails
-  (testing "a registered-TYPE spawned actor whose TYPE was
-            hot-reloaded forward fires :rf.epoch/restore-version-mismatch,
-            returns false, leaves frame-state unchanged, and surfaces BOTH the
-            instance id and the TYPE in the trace"
-    (rf/make-frame {:id :test/main})
-    (rf/reg-machine :rev/child  (versioned-child 1))
-    (rf/reg-machine :rev/parent (spawning-parent :rev/child))
-    (rf/dispatch-sync [:rev/parent [:go]] {:frame :test/main})
-    (let [alive-epoch (last-epoch-id)]
-      (is (some? (snapshot :rev/child#1)))
-      ;; Hot-reload bumps the TYPE's version — the recorded snapshot stays v1.
-      (rf/reg-machine :rev/child (versioned-child 2))
-      (let [errs (record-trace!)
-            pre  (rf/app-db-value :test/main)
-            ok?  (rf/restore-epoch! :test/main alive-epoch)]
-        (rf/unregister-listener! :trace ::rec)
-        (is (false? ok?) "restore refused — spawned-actor TYPE version drifted")
-        (is (= pre (rf/app-db-value :test/main)) "frame-state unchanged on refusal")
-        (let [ev (some #(when (= :rf.epoch/restore-version-mismatch (:operation %)) %) @errs)]
-          (is (some? ev) ":rf.epoch/restore-version-mismatch fired")
-          (is (= :rev/child#1 (:machine-id (:tags ev)))
-              "the trace identifies the spawned actor's INSTANCE id")
-          (is (= :rev/child (:machine-type (:tags ev)))
-              "the trace identifies the spawned actor's registered TYPE")
-          (is (= 1 (:version-recorded (:tags ev))))
-          (is (= 2 (:version-current  (:tags ev)))))))))
+  (rf/make-frame {:id :test/main})
+  (rf/reg-machine :rev/child (child 1))
+  (let [alive-epoch (spawn-child! :rev/child)]
+    (is (true? (rf/restore-epoch! :test/main alive-epoch))
+        "control: an unchanged TYPE version restores")
+    (rf/reg-machine :rev/child (child 2))
+    (let [ok?    (atom nil)
+          traces (traces-of #(reset! ok? (rf/restore-epoch! :test/main alive-epoch)))]
+      (is (false? @ok?) "a hot-reloaded TYPE version refuses the restore")
+      (is (= {:machine-id :rev/child#1 :machine-type :rev/child
+              :version-recorded 1 :version-current 2}
+             (-> (op :rf.epoch/restore-version-mismatch traces)
+                 :tags
+                 (select-keys [:machine-id :machine-type :version-recorded :version-current])))
+          "the trace names the instance id and the TYPE"))))
 
 (deftest restore-spawned-actor-inline-definition-version-match-succeeds
-  (testing "an inline-:definition spawned actor whose snapshot
-            carries the spec map verbatim restores cleanly when its recorded
-            version equals the carried definition's version (the snapshot IS
-            the source of truth — no drift possible against itself)"
-    (rf/make-frame {:id :test/main})
-    ;; No reg-machine for the child — the parent spawns an INLINE definition.
-    (rf/reg-machine :rev/parent (spawning-parent (versioned-child 1)))
-    (rf/dispatch-sync [:rev/parent [:go]] {:frame :test/main})
-    (let [alive-epoch (last-epoch-id)
-          snap        (snapshot :rev/child#1)]
-      (is (map? (:rf/machine-type snap))
-          "inline-definition spawn carries the spec MAP on the snapshot")
-      (is (= 1 (get-in snap [:meta :rf/snapshot-version])))
-      (let [ok? (rf/restore-epoch! :test/main alive-epoch)]
-        (is (true? ok?)
-            "inline definition's version == recorded → restore succeeds")
-        (is (some? (snapshot :rev/child#1)))))))
-
-(deftest restore-spawned-actor-inline-definition-version-mismatch-fails
-  (testing "an inline-:definition spawned actor whose CARRIED
-            definition declares a higher version than the recorded snapshot's
-            fires :rf.epoch/restore-version-mismatch (the inline map IS the
-            current definition resolved via :rf/machine-type)"
-    (rf/make-frame {:id :test/main})
-    (rf/reg-machine :rev/parent (spawning-parent (versioned-child 1)))
-    (rf/dispatch-sync [:rev/parent [:go]] {:frame :test/main})
-    (let [alive-epoch (last-epoch-id)]
-      ;; Forge version drift WITHIN the snapshot: the recorded snapshot's :meta
-      ;; version (the restore target) is older than the carried inline
-      ;; definition's :rf/machine-type :meta version (the "current" def). This
-      ;; mirrors a hot-reload where an inline-spawned actor's definition moved
-      ;; forward while an older recorded snapshot is being restored.
-      (rf/reg-event :forge-drift
-        (fn [{rt :rf.db/runtime} _]
-          (let [snap (get-in rt [:rf.runtime/machines :snapshots :rev/child#1])
-                bumped (-> snap
-                           ;; carried current definition moves to v2 ...
-                           (assoc-in [:rf/machine-type :meta :rf/snapshot-version] 2)
-                           ;; ... while the recorded snapshot version stays v1
-                           (assoc-in [:meta :rf/snapshot-version] 1))]
-            {:rf.db/runtime
-             (assoc-in rt [:rf.runtime/machines :snapshots :rev/child#1] bumped)})))
-      (rf/dispatch-sync [:forge-drift] {:frame :test/main})
-      (let [drift-epoch (last-epoch-id)
-            errs        (record-trace!)
-            pre         (rf/app-db-value :test/main)
-            ok?         (rf/restore-epoch! :test/main drift-epoch)]
-        (rf/unregister-listener! :trace ::rec)
-        (is (false? ok?) "inline-definition version drift refuses restore")
-        (is (= pre (rf/app-db-value :test/main)) "frame-state unchanged on refusal")
-        (let [ev (some #(when (= :rf.epoch/restore-version-mismatch (:operation %)) %) @errs)]
-          (is (some? ev) ":rf.epoch/restore-version-mismatch fired")
-          (is (= :rev/child#1 (:machine-id (:tags ev))))
-          (is (map? (:machine-type (:tags ev)))
-              "the trace carries the inline-definition map as the TYPE")
-          (is (= 1 (:version-recorded (:tags ev))))
-          (is (= 2 (:version-current  (:tags ev)))))))))
-
-(deftest restore-spawned-actor-missing-type-not-version-mismatch
-  (testing "a spawned actor whose registered TYPE was CLEARED is a
-            MISSING reference (caught upstream by missing-references), NOT a
-            version mismatch — the version probe never resolves a definition,
-            so it does not fire :rf.epoch/restore-version-mismatch"
-    (rf/make-frame {:id :test/main})
-    (rf/reg-machine :rev/child  (versioned-child 1))
-    (rf/reg-machine :rev/parent (spawning-parent :rev/child))
-    (rf/dispatch-sync [:rev/parent [:go]] {:frame :test/main})
-    (let [alive-epoch (last-epoch-id)]
-      (is (some? (snapshot :rev/child#1)))
-      (rf.registrar/unregister! :event :rev/child)   ;; clear the TYPE
-      (let [errs (record-trace!)
-            ok?  (rf/restore-epoch! :test/main alive-epoch)]
-        (rf/unregister-listener! :trace ::rec)
-        (is (false? ok?) "restore refused")
-        (is (some #(= :rf.epoch/restore-missing-handler (:operation %)) @errs)
-            "a cleared TYPE is a MISSING handler, not a version mismatch")
-        (is (not-any? #(= :rf.epoch/restore-version-mismatch (:operation %)) @errs)
-            "no version-mismatch trace fires when no definition resolves")))))
+  (rf/make-frame {:id :test/main})
+  (let [alive-epoch (spawn-child! (child 1))]
+    (is (map? (:rf/machine-type (snapshot :rev/child#1)))
+        "precondition: the snapshot carries the inline definition")
+    (is (true? (rf/restore-epoch! :test/main alive-epoch))
+        "an inline definition resolves from the snapshot itself")))
