@@ -1,33 +1,7 @@
 (ns day8.re-frame2-machines-viz.chart.post-elk-cljs-test
-  "Pure-data tests for the post-ELK layout subsystem — the OPT-IN
-  adaptive-aspect rebalance + back-edge return-route detour that close
-  `001-Topology-Parity.md` §4.3.1 + §4.3.2.
-
-  The #1 acceptance criterion is that the DEFAULT path does NOT invoke the
-  post-ELK subsystem — the pass is opt-in, never auto-default.
-  `adaptive?-is-opt-in-only` + `resolve-direction-only-resolves-
-  on-opt-in` pin that gate.
-
-  Four groups, each pinned at the JVM layer (mirroring the `chart.layout` /
-  `chart.projection` test corpus):
-
-    0. `adaptive?` / `resolve-direction` — the OPT-IN gate (`:auto` only).
-    1. `aspect-direction` / `max-out-degree` — the orientation heuristic
-       (column vs landscape per machine).
-    2. `transpose-parallel-regions` — the parallel-region stacking-axis
-       transpose (regions stack vertically, intra-region flow horizontal).
-    3. `back-edge?` / `back-edge-detour` / `reroute-back-edges` — the sunk
-       back-edge return-route detour.
-
-  Positions are built PROGRAMMATICALLY from the parsed graph (via the public
-  `layout/node-id` + `projection/event-node-id`) so the tests pin BEHAVIOUR,
-  not a particular id-string scheme — a stub layout result keyed off the
-  real ids the live ELK pass would produce.
-
-  Also covers `region-touch?`'s transitive-ancestor-walk (a
-  nested-compound-in-region edge is region-touched, not just a one-hop
-  region child) and `reroute-back-edges`' same-parent candidate filter (a
-  cross-hierarchy/nested-vs-root back-edge is excluded, never mis-detected)."
+  "The opt-in post-ELK pass (001-Topology-Parity.md §4.3.1 + §4.3.2). Stub
+  layouts are keyed off the real ids the parse mints (`layout/node-id`,
+  `projection/event-node-id`)."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [clojure.string :as str]
@@ -38,19 +12,14 @@
 ;; ---- fixtures ----------------------------------------------------------
 
 (def linear-machine
-  "A pure chain: each state has exactly one outward target. The aspect
-  heuristic must keep this a COLUMN (`:tb`) — a chain has nowhere to
-  branch (the door/brew/session shape)."
   {:initial :a
    :states  {:a {:on {:go :b}}
              :b {:on {:go :c}}
              :c {:final? true}}})
 
 (def door-cyclic-machine
-  "The door shape: a forward spine `locked → closed → open → alarming`
-  with a back-edge `alarming → reset → locked`. `:open` fans to two
-  targets (close / trip) — under the threshold, so the heuristic keeps it
-  a column; it exercises the back-edge reroute."
+  "A forward spine with a back-edge `alarming → reset → locked`; `:open` fans
+  to two targets, one under the landscape threshold."
   {:initial :locked
    :states  {:locked   {:on {:insert-coin :closed}}
              :closed   {:on {:push :open}}
@@ -58,38 +27,21 @@
              :alarming {:on {:reset :locked}}}})
 
 (def branchy-machine
-  "A hub state fanning to THREE distinct targets — at the landscape
-  threshold, so the aspect heuristic flows it landscape (`:lr`), the
-  quiz/modal/gate shape."
+  "A hub fanning to three distinct targets: at the landscape threshold."
   {:initial :menu
    :states  {:menu {:on {:a :sa :b :sb :c :sc}}
              :sa   {}
              :sb   {}
              :sc   {}}})
 
-(def guarded-fork-machine
-  "A genuine 3-way guarded fork (the gate `:gate/check` shape): three
-  candidates of ONE trigger branching to three distinct targets. Counts as
-  out-degree 3 → landscape."
-  {:initial :idle
-   :states  {:idle {:on {:check [{:target :high :guard :hi?}
-                                 {:target :low  :guard :lo?}
-                                 {:target :rejected}]}}
-             :high     {}
-             :low      {}
-             :rejected {}}})
-
 (def same-target-fan-machine
-  "Two distinct events from one state that BOTH land on the same target
-  plus the spine — only 1 distinct outward target beyond the spine, so it
-  is NOT branchy (no visual spread). Stays a column."
+  "Three events from one state that all land on ONE target: one distinct branch."
   {:initial :a
-   :states  {:a {:on {:x :b :y :b}}
+   :states  {:a {:on {:x :b :y :b :z :b}}
              :b {:on {:go :c}}
              :c {}}})
 
 (def parallel-machine
-  "Two-region parallel machine — exercises the region transpose + re-stack."
   {:type    :parallel
    :regions {:audio {:initial :muted
                      :states  {:muted   {:on {:unmute :playing}}
@@ -99,14 +51,8 @@
                                :shown  {:on {:hide :hidden}}}}}})
 
 (def nested-compound-in-region-machine
-  "A parallel machine whose `:audio` region nests a COMPOUND
-  state (`:playing`, with its own `:low`/`:high` substates) so `:low`/`:high`
-  sit TWO hops from the region container: their DIRECT `:parent-id` is
-  `:playing`'s own (region-scoped) id, NOT the region container id. Exercises
-  `region-touch?`'s transitive-ancestor-walk — an edge between the two
-  nested leaves must still have its stale ELK route cleared when the region
-  transposes/re-stacks, even though neither leaf's direct parent is the
-  region."
+  "`:low`/`:high` sit inside the compound `:playing`, inside the `:audio`
+  region, so their direct parent is `:playing`, not the region."
   {:type    :parallel
    :regions {:audio {:initial :muted
                      :states  {:muted   {:on {:unmute :playing}}
@@ -119,753 +65,286 @@
                                :shown  {:on {:hide :hidden}}}}}})
 
 (def nested-back-edge-machine
-  "A compound (non-parallel) machine whose nested leaf `:step2`
-  (inside the `:working` compound) transitions back to `:idle`, a TOP-LEVEL
-  sibling of `:working` — a genuine back-edge shape, but one whose source
-  (`:working__step2`, parented to `:working`) and target (`:idle`, parented
-  to the machine's synthetic root-container) carry DIFFERENT `:parent-id`.
-  The target is an explicit vector-path (`[:idle]`) because a bare keyword
-  target from inside a nested compound resolves SIBLING-relative (Spec 005 /
-  `resolve-target-path`) — `:reset :idle` would land on `:working/:idle`,
-  not the top-level state.
-
-  Exercises `reroute-back-edges`' same-parent filter: this cross-hierarchy
-  candidate must be EXCLUDED from back-edge detection/reroute, because its
-  endpoints' positions are recorded in different coordinate frames
-  (`:working`-relative for `:step2`, root-container-relative for `:idle`) —
-  comparing them geometrically is meaningless even when it happens to look
-  'sunk'."
+  "`:step2` (inside `:working`) returns to the top-level `:idle`: a back-edge
+  whose endpoints sit in different parents' coordinate frames. The target is
+  a vector path because a bare keyword would resolve sibling-relative."
   {:initial :idle
    :states  {:idle    {:on {:start :working}}
              :working {:initial :step1
                        :states  {:step1 {:on {:next :step2}}
                                  :step2 {:on {:reset [:idle]}}}}}})
 
-;; ---- helpers -----------------------------------------------------------
-
-(defn- col-positions
-  "Build a stub ELK-result `:positions` map laying every REAL state node out
-  in a single vertical COLUMN (y = layer index × step) in parse order, with
-  each transition's synthetic event-node placed at the layer BELOW its
-  source — the events-as-nodes default that sinks a back-edge's event-node
-  to the bottom (the §4.3.1 signature). Top-level frame/region/synthetic
-  nodes are placed at origin (not on the spine).
-
-  Returns `{:positions … :edge-points {} :edge-labels {}}`."
-  [parsed]
-  (let [step 100
-        states (->> (:nodes parsed)
-                    (remove #(or (:region? %) (:root-container? %)
-                                 (:machine-root? %) (:parallel-root? %))))
-        layer-of (into {} (map-indexed (fn [i n] [(:id n) i]) states))
-        state-pos (into {}
-                        (map (fn [n]
-                               [(:id n) {:x 200
-                                         :y (* step (get layer-of (:id n) 0))
-                                         :width 120 :height 50}]))
-                        states)
-        ;; each event-node sits one layer below its source's layer; a
-        ;; back-edge's source is the deepest state, so its event-node lands
-        ;; at the very bottom (deeper than its target).
-        max-layer (reduce max 0 (vals layer-of))
-        event-pos (into {}
-                        (keep (fn [e]
-                                (when (:target e)
-                                  (let [sl (get layer-of (:source e))
-                                        tl (get layer-of (:target e))]
-                                    ;; forward edge: event between source +
-                                    ;; target; back-edge (target above
-                                    ;; source): event sinks to the bottom.
-                                    [(projection/event-node-id e)
-                                     {:x 200
-                                      :y (if (< tl sl)
-                                           (* step (inc max-layer)) ;; sunk
-                                           (* step (+ sl 0.5)))
-                                      :width 96 :height 34}]))))
-                        (:edges parsed))]
-    {:positions   (merge state-pos event-pos)
-     :edge-points {}
-     :edge-labels {}}))
-
-(defn- row-positions
-  "The `:lr` mirror of `col-positions`: lay every REAL state node
-  out in a single horizontal ROW (x = layer index × step) in parse order,
-  with each transition's synthetic event-node placed at the layer to the
-  RIGHT of its source. A back-edge's source is the rightmost state, so its
-  event-node sinks to the far RIGHT (greater x than both endpoints) — the
-  `:lr` analogue of the §4.3.1 sunk signature `col-positions` builds on y.
-
-  Returns `{:positions … :edge-points {} :edge-labels {}}`."
-  [parsed]
-  (let [step 100
-        states (->> (:nodes parsed)
-                    (remove #(or (:region? %) (:root-container? %)
-                                 (:machine-root? %) (:parallel-root? %))))
-        layer-of (into {} (map-indexed (fn [i n] [(:id n) i]) states))
-        state-pos (into {}
-                        (map (fn [n]
-                               [(:id n) {:x (* step (get layer-of (:id n) 0))
-                                         :y 200
-                                         :width 120 :height 50}]))
-                        states)
-        max-layer (reduce max 0 (vals layer-of))
-        event-pos (into {}
-                        (keep (fn [e]
-                                (when (:target e)
-                                  (let [sl (get layer-of (:source e))
-                                        tl (get layer-of (:target e))]
-                                    ;; forward edge: event between source +
-                                    ;; target; back-edge (target left of
-                                    ;; source): event sinks to the far right.
-                                    [(projection/event-node-id e)
-                                     {:x (if (< tl sl)
-                                           (* step (inc max-layer)) ;; sunk right
-                                           (* step (+ sl 0.5)))
-                                      :y 200
-                                      :width 96 :height 34}]))))
-                        (:edges parsed))]
-    {:positions   (merge state-pos event-pos)
-     :edge-points {}
-     :edge-labels {}}))
-
-;; ====================================================================
-;; Step 0 — the OPT-IN gate
-;; ====================================================================
-;; The #1 acceptance criterion: the default path does NOT invoke the
-;; post-ELK pass. These guards lock the opt-in surface against an
-;; auto-default.
-
-(deftest adaptive?-is-opt-in-only
-  (testing "ONLY :auto opts a machine in to the adaptive pass"
-    (is (true? (post-elk/adaptive? :auto))))
-
-  (testing "the DEFAULT :tb is NON-adaptive (the post-ELK pass never runs)"
-    (is (false? (post-elk/adaptive? :tb))))
-
-  (testing "an explicit :lr is NON-adaptive (forced, not adaptive)"
-    (is (false? (post-elk/adaptive? :lr))))
-
-  (testing "nil (prop omitted before the :tb default applies) is NON-adaptive"
-    (is (false? (post-elk/adaptive? nil))))
-
-  (testing "an unknown direction value is NON-adaptive (defensive default)"
-    (is (false? (post-elk/adaptive? :sideways)))))
-
-(deftest resolve-direction-only-resolves-on-opt-in
-  (let [branchy (layout/project-definition branchy-machine)
-        linear  (layout/project-definition linear-machine)]
-    (testing ":auto defers to the heuristic (branchy → :lr)"
-      (is (= :lr (post-elk/resolve-direction :auto branchy))))
-
-    (testing ":auto on a linear machine → :tb"
-      (is (= :tb (post-elk/resolve-direction :auto linear))))
-
-    (testing "an explicit :tb passes STRAIGHT THROUGH (no heuristic) even on a branchy machine"
-      (is (= :tb (post-elk/resolve-direction :tb branchy))))
-
-    (testing "an explicit :lr passes straight through on a linear machine (no heuristic flip)"
-      (is (= :lr (post-elk/resolve-direction :lr linear))))
-
-    (testing "nil passes straight through (the default :tb is applied upstream, NOT here)"
-      ;; the chart caller only routes :auto here; resolve-direction stays
-      ;; total/defensive — a non-:auto value is the forced direction, not
-      ;; the heuristic.
-      (is (nil? (post-elk/resolve-direction nil branchy))))))
-
-;; ====================================================================
-;; Step 1 — aspect heuristic
-;; ====================================================================
-
-(deftest max-out-degree-counts-distinct-outward-targets
-  (testing "a pure chain has max out-degree 1"
-    (is (= 1 (post-elk/max-out-degree (layout/project-definition linear-machine)))))
-
-  (testing "a 3-way hub has max out-degree 3"
-    (is (= 3 (post-elk/max-out-degree (layout/project-definition branchy-machine)))))
-
-  (testing "a 3-way guarded fork counts as out-degree 3"
-    (is (= 3 (post-elk/max-out-degree (layout/project-definition guarded-fork-machine)))))
-
-  (testing "two events to the SAME target count as ONE distinct outward branch"
-    ;; `:a` fans x→:b and y→:b (1 distinct) ; `:b` go→:c (1). Max = 1.
-    (is (= 1 (post-elk/max-out-degree
-               (layout/project-definition same-target-fan-machine)))))
-
-  (testing "the door `:open` 2-way fan stays under the landscape threshold"
-    (is (< (post-elk/max-out-degree (layout/project-definition door-cyclic-machine))
-           post-elk/landscape-branch-threshold))))
-
-(deftest aspect-direction-biases-per-machine
-  (testing "a linear chain stays a COLUMN (:tb)"
-    (is (= :tb (post-elk/aspect-direction (layout/project-definition linear-machine)))))
-
-  (testing "the door (chain + 2-way fan + back-edge) stays a COLUMN"
-    (is (= :tb (post-elk/aspect-direction
-                 (layout/project-definition door-cyclic-machine)))))
-
-  (testing "a branchy hub flows LANDSCAPE (:lr)"
-    (is (= :lr (post-elk/aspect-direction
-                 (layout/project-definition branchy-machine)))))
-
-  (testing "a guarded 3-way fork flows LANDSCAPE"
-    (is (= :lr (post-elk/aspect-direction
-                 (layout/project-definition guarded-fork-machine)))))
-
-  (testing "a PARALLEL machine resolves :tb (its aspect is the region transpose)"
-    (is (= :tb (post-elk/aspect-direction
-                 (layout/project-definition parallel-machine))))))
-
-;; ====================================================================
-;; Step 2 — parallel-region stacking-axis transpose
-;; ====================================================================
-
-(deftest region-descendant-ids-groups-states-and-event-nodes
-  (let [parsed (layout/project-definition parallel-machine)
-        desc   (post-elk/region-descendant-ids parsed)
-        region-ids (->> (:nodes parsed) (filter :region?) (map :id) set)]
-    (testing "every region container is a key"
-      (is (= region-ids (set (keys desc)))))
-
-    (testing "each region groups its OWN states (audio: muted/playing)"
-      (let [audio-rid (layout/region-node-id :audio)
-            audio-states #{(layout/region-scoped-id :audio [:muted])
-                           (layout/region-scoped-id :audio [:playing])}]
-        (is (every? (get desc audio-rid) audio-states))))
-
-    (testing "a region's event-nodes are folded in under that region"
-      ;; audio has muted--unmute-->playing + playing--mute-->muted = 2 events
-      (let [audio-rid (layout/region-node-id :audio)
-            ev-ids (filter #(str/starts-with? % "__rf2_event_")
-                           (get desc audio-rid))]
-        (is (= 2 (count ev-ids)))))))
-
-(deftest transpose-parallel-regions-stacks-and-flips
-  (let [parsed (layout/project-definition parallel-machine)
-        ;; lay each region SIDE-BY-SIDE with vertical intra-region flow
-        ;; (the ELK shape the transpose must flip): region containers at
-        ;; x=0 and x=400; each region's states in a vertical column.
-        audio-rid (layout/region-node-id :audio)
-        video-rid (layout/region-node-id :video)
-        ;; region-relative child positions: a vertical stack inside each region
-        child-col (fn [ids]
-                    (into {} (map-indexed
-                               (fn [i id] [id {:x 20 :y (+ 40 (* 80 i))
-                                               :width 120 :height 50}])
-                               ids)))
-        desc (post-elk/region-descendant-ids parsed)
-        positions (merge
-                    {audio-rid {:x 0   :y 0 :width 200 :height 400}
-                     video-rid {:x 400 :y 0 :width 200 :height 400}}
-                    (child-col (sort (get desc audio-rid)))
-                    (child-col (sort (get desc video-rid))))
-        stub {:positions positions :edge-points {} :edge-labels {}}
-        out  (post-elk/transpose-parallel-regions stub parsed)
-        np   (:positions out)]
-    (testing "region containers re-stack into a VERTICAL column (video below audio)"
-      (is (= (:x (get np audio-rid)) (:x (get np video-rid)))
-          "both regions left-aligned (same x)")
-      (is (< (:y (get np audio-rid)) (:y (get np video-rid)))
-          "audio (region-index 0) sits ABOVE video (region-index 1)"))
-
-    (testing "the second region's y starts below the first's transposed band"
-      (let [audio-band (get np audio-rid)]
-        (is (>= (:y (get np video-rid))
-                (+ (:y audio-band) (:height audio-band)))
-            "no vertical overlap between stacked regions")))
-
-    (testing "intra-region children TRANSPOSE (a vertical stack becomes a row)"
-      ;; original audio children: same x (20), increasing y → a column.
-      ;; after transpose: same y, increasing x → a row.
-      (let [audio-child-ids (filter #(not (str/starts-with? % "__rf2_event_"))
-                                    (get desc audio-rid))
-            child-positions (map #(get np %) audio-child-ids)
-            xs (map :x child-positions)
-            ys (map :y child-positions)]
-        (is (apply = ys) "transposed children share a y (horizontal row)")
-        (is (not (apply = xs)) "transposed children spread on x")))))
-
-(deftest transpose-preserves-positive-region-origin
-  ;; for a root-container-wrapped chart the region containers are
-  ;; positioned relative to the root frame's padding/header, so every region
-  ;; origin is POSITIVE. The column origin must be computed from the ACTUAL
-  ;; region positions, NOT `(reduce min 0 …)`, which would clamp a positive
-  ;; origin to zero and slide the stacked column up/left into the reserved
-  ;; root chrome.
-  (let [parsed (layout/project-definition parallel-machine)
-        desc   (post-elk/region-descendant-ids parsed)
-        audio-rid (layout/region-node-id :audio)
-        video-rid (layout/region-node-id :video)
-        ;; the root frame reserves chrome: a left padding (60) + a top
-        ;; header band (120). BOTH region containers start at that positive
-        ;; origin (side-by-side: audio at root-x, video offset right).
-        root-x 60
-        root-y 120
-        child-col (fn [ids]
-                    (into {} (map-indexed
-                               (fn [i id] [id {:x 20 :y (+ 40 (* 80 i))
-                                               :width 120 :height 50}])
-                               ids)))
-        positions (merge
-                    {audio-rid {:x root-x        :y root-y :width 200 :height 400}
-                     video-rid {:x (+ root-x 400) :y root-y :width 200 :height 400}}
-                    (child-col (sort (get desc audio-rid)))
-                    (child-col (sort (get desc video-rid))))
-        stub {:positions positions :edge-points {} :edge-labels {}}
-        out  (post-elk/transpose-parallel-regions stub parsed)
-        np   (:positions out)]
-    (testing "the stacked column preserves the leftmost region's POSITIVE x origin"
-      (is (= root-x (:x (get np audio-rid)))
-          "audio container keeps the reserved root x (not clamped to 0)")
-      (is (= root-x (:x (get np video-rid)))
-          "video container left-aligns to the same positive column x"))
-
-    (testing "the stacked column preserves the topmost region's POSITIVE y origin"
-      (is (= root-y (:y (get np audio-rid)))
-          "the topmost (audio) band starts at the reserved root y (not 0)")
-      (is (>= (:y (get np video-rid)) root-y)
-          "the second band stacks below, still inside the reserved frame"))))
-
-(deftest transpose-grows-the-frame-to-enclose-the-stacked-column
-  ;; the region containers are the ROOT-CONTAINER frame's
-  ;; `parentId` children (xyflow `:extent "parent"`), so after the re-stack
-  ;; the frame must enclose every band, or xyflow clamps them back inside the
-  ;; box ELK sized for the side-by-side layout. Region positions are
-  ;; frame-relative, as `elk-result->positions` records them.
-  (let [parsed    (layout/project-definition parallel-machine)
-        desc      (post-elk/region-descendant-ids parsed)
-        audio-rid (layout/region-node-id :audio)
-        video-rid (layout/region-node-id :video)
-        child-col (fn [ids]
-                    (into {} (map-indexed
-                               (fn [i id] [id {:x 20 :y (+ 40 (* 80 i))
-                                               :width 120 :height 50}])
-                               ids)))
-        ;; the frame HUGS the side-by-side regions with a 20px right/bottom inset
-        frame     {:x 12 :y 12 :width 680 :height 540}
-        positions (merge
-                    {layout/root-container-id frame
-                     audio-rid {:x 60  :y 120 :width 200 :height 400}
-                     video-rid {:x 460 :y 120 :width 200 :height 400}}
-                    (child-col (sort (get desc audio-rid)))
-                    (child-col (sort (get desc video-rid))))
-        out       (post-elk/transpose-parallel-regions
-                    {:positions positions :edge-points {} :edge-labels {}} parsed)
-        np        (:positions out)
-        new-frame (get np layout/root-container-id)
-        bands     (map #(get np %) [audio-rid video-rid])
-        right     (reduce max (map #(+ (:x %) (:width %)) bands))
-        bottom    (reduce max (map #(+ (:y %) (:height %)) bands))]
-    (testing "sanity: the stacked column outgrows the side-by-side frame"
-      (is (> right (:width frame))))
-    (testing "every stacked band sits inside the frame"
-      (is (<= bottom (:height new-frame))))
-    (testing "the frame keeps its origin and ELK's 20px right inset, and never shrinks"
-      (is (= [12 12] [(:x new-frame) (:y new-frame)]))
-      (is (= (+ right 20) (:width new-frame)))
-      (is (= (:height frame) (:height new-frame))
-          "the column is shorter than the frame, so the height stays"))))
-
-(defn- x-overlap?
-  "Do two boxes `{:x :width}` overlap along the x-axis (open intervals)? Pure."
-  [a b]
-  (and (< (:x a) (+ (:x b) (:width b)))
-       (< (:x b) (+ (:x a) (:width a)))))
-
-(deftest transpose-event-chips-clear-state-boxes
-  ;; after the transpose, intra-region event-node chips must NOT
-  ;; overlap the state boxes. A bare coordinate swap inherits the flow spacing
-  ;; ELK sized for node HEIGHTS (state 58 / chip 34), far too tight once boxes
-  ;; occupy their WIDTHS along the new x-axis (state 152 / chip 96), so the
-  ;; chips would bury into the state boxes. The re-pack must space the ranks
-  ;; by their actual widths.
-  (let [parsed (layout/project-definition parallel-machine)
-        desc   (post-elk/region-descendant-ids parsed)
-        audio-rid (layout/region-node-id :audio)
-        video-rid (layout/region-node-id :video)
-        ;; an ELK-shaped column inside each region: states at REALISTIC widths
-        ;; (152×58) stacked vertically with an event chip (96×34) between
-        ;; consecutive states (the +0.5 inter-rank events-as-nodes shape). The
-        ;; vertical pitch (108px) is sized for the heights a bare swap inherits.
-        state-ids  (fn [rid] (->> (get desc rid)
-                                  (remove #(str/starts-with? % "__rf2_event_"))
-                                  sort))
-        event-ids  (fn [rid] (->> (get desc rid)
-                                  (filter #(str/starts-with? % "__rf2_event_"))
-                                  sort))
-        region-cols
-        (fn [rid x0]
-          (let [ss (state-ids rid)
-                es (event-ids rid)
-                ;; states on integer ranks 0,1,…; events on the +0.5 ranks
-                ;; between them — exactly the column ELK produces for a region.
-                state-pos (into {} (map-indexed
-                                     (fn [i id] [id {:x (+ x0 20) :y (* 108 i)
-                                                     :width 152 :height 58}])
-                                     ss))
-                event-pos (into {} (map-indexed
-                                     (fn [i id] [id {:x (+ x0 48) :y (+ 54 (* 108 i))
-                                                     :width 96 :height 34}])
-                                     es))]
-            (merge state-pos event-pos)))
-        positions (merge
-                    {audio-rid {:x 0   :y 0 :width 200 :height 500}
-                     video-rid {:x 400 :y 0 :width 200 :height 500}}
-                    (region-cols audio-rid 0)
-                    (region-cols video-rid 400))
-        stub {:positions positions :edge-points {} :edge-labels {}}
-        out  (post-elk/transpose-parallel-regions stub parsed)
-        np   (:positions out)
-        check-region
-        (fn [rid]
-          (let [s-boxes (map #(get np %) (state-ids rid))
-                e-boxes (map #(get np %) (event-ids rid))]
-            (doseq [eb e-boxes
-                    sb s-boxes]
-              (is (not (x-overlap? eb sb))
-                  (str "event chip " eb " overlaps state box " sb
-                       " in region " rid " after transpose")))))]
-    (testing "audio region: no event chip overlaps a state box on the flow axis"
-      (check-region audio-rid))
-    (testing "video region: no event chip overlaps a state box on the flow axis"
-      (check-region video-rid))
-
-    (testing "the re-packed children spread across distinct flow ranks"
-      ;; the transposed audio children must occupy DISTINCT x ranks (not all
-      ;; piled on one x).
-      (let [audio-children (map #(get np %) (get desc audio-rid))
-            xs (distinct (map :x audio-children))]
-        (is (> (count xs) 1) "children spread across multiple flow ranks")))))
-
-(deftest transpose-clears-region-edge-routes
-  (let [parsed (layout/project-definition parallel-machine)
-        ;; seed an ELK route on an intra-region edge, then assert the
-        ;; transpose CLEARS it (so the renderer re-routes via bezier).
-        an-edge (first (:edges parsed))
-        seeded  {:positions (:positions (col-positions parsed))
-                 :edge-points {(str (:id an-edge) "__in")  [{:x 1 :y 1} {:x 2 :y 2}]
-                               (str (:id an-edge) "__out") [{:x 3 :y 3} {:x 4 :y 4}]}
-                 :edge-labels {}}
-        out (post-elk/transpose-parallel-regions seeded parsed)]
-    (testing "a region-touching edge's stale ELK route is dropped"
-      (is (not (contains? (:edge-points out) (str (:id an-edge) "__in"))))
-      (is (not (contains? (:edge-points out) (str (:id an-edge) "__out")))))))
-
-(deftest transpose-clears-nested-compound-region-edge-routes
-  ;; region-touch? must walk the FULL ancestor chain, not just
-  ;; one :parent-id hop. :low/:high sit inside :playing, a compound state
-  ;; nested INSIDE the :audio region — their DIRECT :parent-id is
-  ;; :playing's own id, not the region id, so a one-hop region-touch? test
-  ;; would miss this edge entirely and its stale absolute ELK route would
-  ;; survive the transpose untouched even though :playing (and the region)
-  ;; move.
-  (let [parsed (layout/project-definition nested-compound-in-region-machine)
-        low->high (first (filter
-                            (fn [e]
-                              (and (= (:source e)
-                                      (layout/region-scoped-id :audio [:playing :low]))
-                                   (= (:target e)
-                                      (layout/region-scoped-id :audio [:playing :high]))))
-                            (:edges parsed)))
-        seeded {:positions (:positions (col-positions parsed))
-                :edge-points {(str (:id low->high) "__in")  [{:x 1 :y 1} {:x 2 :y 2}]
-                              (str (:id low->high) "__out") [{:x 3 :y 3} {:x 4 :y 4}]}
-                :edge-labels {}}
-        out (post-elk/transpose-parallel-regions seeded parsed)]
-    (testing "sanity: the fixture parses the nested-compound low->high edge"
-      (is (some? low->high)))
-
-    (testing "the low->high edge (two hops from the region) IS region-touched"
-      (is (not (contains? (:edge-points out) (str (:id low->high) "__in"))))
-      (is (not (contains? (:edge-points out) (str (:id low->high) "__out")))))))
-
-;; ====================================================================
-;; Step 3 — back-edge return-route detour
-;; ====================================================================
-
-(deftest back-edge-detour-lifts-the-chip-to-mid-height
-  (let [parsed (layout/project-definition door-cyclic-machine)
-        stub   (col-positions parsed)
-        positions (:positions stub)
-        back-e (first (filter (fn [e]
-                                (and (= (:source e) (layout/node-id [:alarming]))
-                                     (= (:target e) (layout/node-id [:locked]))))
-                              (:edges parsed)))
-        ev-id  (projection/event-node-id back-e)
-        sunk-y (:y (get positions ev-id))
-        {:keys [event-pos in-points out-points]}
-        (post-elk/back-edge-detour back-e positions :tb)
-        src-c  (:y (get positions (:source back-e)))
-        tgt-c  (:y (get positions (:target back-e)))]
-    (testing "the rerouted chip is LIFTED above its sunk y (mid-height return)"
-      (is (< (:y event-pos) sunk-y)
-          "rerouted event-node y is above the deep-layer sink"))
-
-    (testing "the chip lands between the endpoints' flow extent (mid-height)"
-      (let [chip-cy (+ (:y event-pos) (/ 34 2))]
-        (is (<= (min src-c tgt-c) chip-cy (max src-c tgt-c)))))
-
-    (testing "the detour bows to the SIDE of the spine (different x than the column)"
-      (let [spine-x (:x (get positions (:source back-e)))]
-        (is (not= spine-x (:x event-pos))
-            "the chip detours off the spine column")))
-
-    (testing "both segments are multi-point detour routes"
-      (is (>= (count in-points) 3))
-      (is (>= (count out-points) 3)))))
-
-(deftest back-edge-detour-lr-mirrors-the-elbow
-  ;; on an :lr layout the back-edge detour must MIRROR the elbow:
-  ;; leave the source VERTICALLY to the side lane (above the row), then run
-  ;; horizontally to the lifted chip — NOT run along the flow row first (the
-  ;; :tb elbow shape, which would cross the forward edges).
-  (let [parsed (layout/project-definition door-cyclic-machine)
-        ;; an :lr row layout where the back-edge event-node sank to the far
-        ;; RIGHT of both endpoints (the :lr sunk signature).
-        stub   (row-positions parsed)
-        positions (:positions stub)
-        back-e (first (filter (fn [e]
-                                (and (= (:source e) (layout/node-id [:alarming]))
-                                     (= (:target e) (layout/node-id [:locked]))))
-                              (:edges parsed)))]
-    (testing "the :lr back-edge IS detected (its event-node sank to the right)"
-      (is (true? (post-elk/back-edge? back-e positions :lr))))
-
-    (let [sc (#'post-elk/node-center positions (:source back-e))
-          tc (#'post-elk/node-center positions (:target back-e))
-          {:keys [event-pos in-points out-points]}
-          (post-elk/back-edge-detour back-e positions :lr)
-          ev-w   projection/event-node-elk-width
-          ev-h   projection/event-node-elk-height
-          chip-cx (+ (:x event-pos) (/ ev-w 2))
-          chip-cy (+ (:y event-pos) (/ ev-h 2))
-          in-elbow  (second in-points)
-          out-elbow (second out-points)]
-      (testing "the chip is lifted ABOVE the flow row (bowed off the :lr spine on y)"
-        (is (< chip-cy (:y sc))
-            "rerouted chip y is above the source/target row")
-        (is (= (:y sc) (:y tc))
-            "sanity: the :lr endpoints share the flow row"))
-
-      (testing "the chip lands mid-WIDTH between the endpoints (the :lr flow axis)"
-        (is (<= (min (:x sc) (:x tc)) chip-cx (max (:x sc) (:x tc)))))
-
-      (testing "the __in elbow leaves the source VERTICALLY (keeps source x, drops to the lane y)"
-        ;; {:x detour-x :y (:y sc)} — the :tb shape — would run along the flow
-        ;; row first. The :lr mirror keeps the source's x and moves to the lane y.
-        (is (= (:x sc) (:x in-elbow))
-            "the in-elbow shares the source's x (leaves vertically, not along the row)")
-        (is (= chip-cy (:y in-elbow))
-            "the in-elbow drops to the side-lane y before running horizontally"))
-
-      (testing "the __out elbow re-enters the target VERTICALLY (keeps target x at the lane y)"
-        (is (= (:x tc) (:x out-elbow))
-            "the out-elbow shares the target's x (drops onto the target vertically)")
-        (is (= chip-cy (:y out-elbow))
-            "the out-elbow stays at the lane y until it is above the target")))))
-
-(deftest back-edge-detour-tb-keeps-its-elbow
-  ;; guard that the :lr mirror leaves the :tb branch alone: the :tb
-  ;; elbow leaves the source SIDEWAYS (to the side lane x) keeping the
-  ;; source's y.
-  (let [parsed (layout/project-definition door-cyclic-machine)
-        stub   (col-positions parsed)
-        positions (:positions stub)
-        back-e (first (filter (fn [e]
-                                (and (= (:source e) (layout/node-id [:alarming]))
-                                     (= (:target e) (layout/node-id [:locked]))))
-                              (:edges parsed)))
-        sc (#'post-elk/node-center positions (:source back-e))
-        tc (#'post-elk/node-center positions (:target back-e))
-        {:keys [in-points out-points]}
-        (post-elk/back-edge-detour back-e positions :tb)
-        in-elbow  (second in-points)
-        out-elbow (second out-points)]
-    (testing "the :tb __in elbow keeps the source's y and moves to the side lane x"
-      (is (= (:y sc) (:y in-elbow))
-          "the in-elbow shares the source's y (leaves sideways, the :tb shape)")
-      (is (not= (:x sc) (:x in-elbow))
-          "the in-elbow moves off the spine x to the side lane"))
-    (testing "the :tb __out elbow keeps the target's y and stays on the side lane x"
-      (is (= (:y tc) (:y out-elbow))
-          "the out-elbow shares the target's y (the :tb shape)"))))
-
-(deftest reroute-back-edges-rewrites-positions-and-routes
-  (let [parsed (layout/project-definition door-cyclic-machine)
-        stub   (col-positions parsed)
-        back-e (first (filter (fn [e]
-                                (and (= (:source e) (layout/node-id [:alarming]))
-                                     (= (:target e) (layout/node-id [:locked]))))
-                              (:edges parsed)))
-        ev-id  (projection/event-node-id back-e)
-        sunk-y (:y (get-in stub [:positions ev-id]))
-        out    (post-elk/reroute-back-edges stub parsed :tb)]
-    (testing "the back-edge event-node is repositioned (lifted)"
-      (is (< (:y (get-in out [:positions ev-id])) sunk-y)))
-
-    (testing "the back-edge's __in / __out segments get detour routes"
-      (is (contains? (:edge-points out) (str (:id back-e) "__in")))
-      (is (contains? (:edge-points out) (str (:id back-e) "__out"))))
-
-    (testing "a forward edge's event-node is UNTOUCHED"
-      (let [fwd-e (first (filter (fn [e]
-                                   (and (= (:source e) (layout/node-id [:locked]))
-                                        (= (:target e) (layout/node-id [:closed]))))
-                                 (:edges parsed)))
-            fwd-ev (projection/event-node-id fwd-e)]
-        (is (= (get-in stub [:positions fwd-ev])
-               (get-in out [:positions fwd-ev]))
-            "forward event-node position unchanged")))))
-
-(deftest reroute-back-edges-excludes-cross-hierarchy-candidates
-  ;; node-center's centre read is only valid within one
-  ;; coordinate frame (same :parent-id). :step2 (parented to :working) and
-  ;; :idle (parented to the synthetic root-container, a DIFFERENT parent)
-  ;; sit in DIFFERENT frames; a bare geometric comparison of their positions
-  ;; can look "sunk" even though the comparison is meaningless.
-  ;; reroute-back-edges must exclude this candidate rather than mis-detect +
-  ;; reroute it.
-  (let [parsed (layout/project-definition nested-back-edge-machine)
-        back-e (first (filter (fn [e]
-                                (and (= (:source e) (layout/node-id [:working :step2]))
-                                     (= (:target e) (layout/node-id [:idle]))))
-                              (:edges parsed)))
-        ev-id  (projection/event-node-id back-e)
-        ;; hand-built positions: :idle at the top (y 0), :step2 lower
-        ;; (y 200), and the reset event-node sunk BELOW both (y 300) — the
-        ;; naive geometric signature back-edge? flags as sunk, even though
-        ;; :idle and :step2/the event are recorded relative to DIFFERENT
-        ;; parents (different frames; the raw comparison is bogus).
-        positions {(layout/node-id [:idle])          {:x 200 :y 0   :width 120 :height 50}
-                   (layout/node-id [:working :step1]) {:x 200 :y 100 :width 120 :height 50}
-                   (layout/node-id [:working :step2]) {:x 200 :y 200 :width 120 :height 50}
-                   ev-id                              {:x 200 :y 300 :width 96  :height 34}}
-        stub {:positions positions :edge-points {} :edge-labels {}}
-        out  (post-elk/reroute-back-edges stub parsed :tb)]
-    (testing "sanity: the fixture parses the cross-hierarchy back-edge"
-      (is (some? back-e)))
-
-    (testing "sanity: the naive geometric check WOULD flag this cross-hierarchy edge as sunk"
-      (is (true? (post-elk/back-edge? back-e positions :tb))))
-
-    (testing "reroute-back-edges excludes it — the event-node position is UNTOUCHED"
-      (is (= (get positions ev-id) (get-in out [:positions ev-id]))))
-
-    (testing "reroute-back-edges excludes it — no detour routes are written"
-      (is (not (contains? (:edge-points out) (str (:id back-e) "__in"))))
-      (is (not (contains? (:edge-points out) (str (:id back-e) "__out")))))))
-
 (def compound-same-parent-back-edge-machine
-  "A compound `:grouped` holding `:a → :b` (forward) and
-  `:b → :a` (a SAME-PARENT back-edge — both leaves parented to `:grouped`).
-  `:grouped` nests under the synthetic root-container, so the shared parent's
-  origin is non-(0,0): the reroute must write the detour in ROOT-ABSOLUTE
-  coords (endpoint centre + container origin), NOT the raw parent-relative
-  values `node-center` reads."
+  "`:b → :a` is a same-parent back-edge nested in `:grouped`, whose origin
+  is not (0,0)."
   {:initial :outer
    :states  {:outer   {:on {:go :grouped}}
              :grouped {:initial :a
                        :states  {:a {:on {:next :b}}
                                  :b {:on {:back :a}}}}}})
 
-(deftest reroute-back-edges-nested-same-parent-writes-absolute-edge-points
-  ;; a same-parent back-edge whose endpoints are NESTED inside a
-  ;; compound (`:grouped`) whose origin ≠ (0,0). `back-edge-detour` computes in
-  ;; the shared-parent (`:grouped`) frame; `:edge-points` is ROOT-ABSOLUTE, so
-  ;; `reroute-back-edges` must REBASE the written __in/__out by the container
-  ;; origin. Writing the parent-relative points straight through would float
-  ;; the detour ~(:grouped origin) away from its endpoints.
-  (let [parsed      (layout/project-definition compound-same-parent-back-edge-machine)
-        node-parent (#'post-elk/node-parent-map (:nodes parsed))
-        grouped-id  (layout/node-id [:grouped])
-        a-id        (layout/node-id [:grouped :a])
-        b-id        (layout/node-id [:grouped :b])
-        back-e      (first (filter (fn [e]
-                                     (and (= (:source e) b-id)
-                                          (= (:target e) a-id)))
-                                   (:edges parsed)))
-        ev-id       (projection/event-node-id back-e)
-        ;; hand-built positions in the REAL frames `elk-result->positions`
-        ;; records: containers + leaves parent-relative to their OWN parent,
-        ;; no re-basing. The root-container sits at a small non-(0,0) origin +
-        ;; `:grouped` is offset FROM it, so the origin exercises the ancestor-
-        ;; chain SUM (grouped + root-container), not just the direct parent.
-        positions   {layout/root-container-id {:x 10  :y 15  :width 800 :height 700}
-                     grouped-id               {:x 600 :y 500 :width 220 :height 320}
-                     a-id                     {:x 40  :y 20  :width 120 :height 50}
-                     b-id                     {:x 40  :y 120 :width 120 :height 50}
-                     ev-id                    {:x 40  :y 260 :width 96  :height 34}}
-        stub        {:positions positions :edge-points {} :edge-labels {}}
-        out         (post-elk/reroute-back-edges stub parsed :tb)
-        origin      (#'post-elk/container-origin positions node-parent grouped-id)
-        ;; parent-relative detour — the pure geometry, before the rebase.
-        {:keys [in-points out-points]} (post-elk/back-edge-detour back-e positions :tb)
-        written-in  (get (:edge-points out) (str (:id back-e) "__in"))
-        written-out (get (:edge-points out) (str (:id back-e) "__out"))]
+;; ---- helpers -----------------------------------------------------------
 
-    (testing "sanity: the fixture is a NESTED same-parent back-edge that sinks"
-      (is (some? back-e) "the b→a back-edge parses")
-      (is (= grouped-id (get node-parent b-id) (get node-parent a-id))
-          "both endpoints share the :grouped parent")
-      (is (true? (#'post-elk/same-parent? node-parent back-e)))
-      (is (true? (post-elk/back-edge? back-e positions :tb))
-          "the event-node sank below both endpoints"))
+(defn- edge-between [parsed source target]
+  (some #(when (and (= source (:source %)) (= target (:target %))) %) (:edges parsed)))
 
-    (testing "sanity: the shared container origin is non-(0,0) — grouped + root-container"
-      (is (= {:x 610 :y 515} origin)))
+(defn- door-back-edge [parsed]
+  (edge-between parsed (layout/node-id [:alarming]) (layout/node-id [:locked])))
 
-    (testing "the written __in / __out are ROOT-ABSOLUTE (parent-relative + origin)"
-      (is (= (#'post-elk/rebase-points in-points origin)  written-in))
-      (is (= (#'post-elk/rebase-points out-points origin) written-out)))
+(defn- event-id? [id]
+  (str/starts-with? id "__rf2_event_"))
 
-    (testing "the written detour is SHIFTED off the raw parent-relative points
-              (writing the un-rebased values would leave them equal)"
-      (is (not= in-points  written-in))
-      (is (not= out-points written-out)))
+(defn- col-positions
+  "A stub ELK result laying every real state out in one vertical column in
+  parse order, each event-node one half-layer below its source, and a
+  back-edge's event-node sunk below the deepest state (the §4.3.1 signature)."
+  [parsed]
+  (let [step     100
+        states   (remove #(or (:region? %) (:root-container? %)
+                              (:machine-root? %) (:parallel-root? %))
+                         (:nodes parsed))
+        layer-of (into {} (map-indexed (fn [i n] [(:id n) i]) states))
+        max-layer (reduce max 0 (vals layer-of))]
+    {:positions
+     (merge
+       (into {} (map (fn [n] [(:id n) {:x 200 :y (* step (get layer-of (:id n) 0))
+                                       :width 120 :height 50}]))
+             states)
+       (into {} (keep (fn [e]
+                        (when (:target e)
+                          (let [sl (get layer-of (:source e))
+                                tl (get layer-of (:target e))]
+                            [(projection/event-node-id e)
+                             {:x 200
+                              :y (if (< tl sl) (* step (inc max-layer)) (* step (+ sl 0.5)))
+                              :width 96 :height 34}]))))
+             (:edges parsed)))
+     :edge-points {}
+     :edge-labels {}}))
 
-    (testing "concretely: the __in arm STARTS at the source's ABSOLUTE centre"
-      (let [b-centre-rel (#'post-elk/node-center positions b-id)]
-        (is (= {:x (+ (:x b-centre-rel) (:x origin))
-                :y (+ (:y b-centre-rel) (:y origin))}
-               (first written-in))
-            "the detour lands on the source box, not offset by the container origin")))))
+(defn- side-by-side-regions
+  "ELK's shape for `parallel-machine` before the transpose: the root frame,
+  the two region containers side by side at a positive origin, and each
+  region's children stacked in a column."
+  [parsed]
+  (let [desc   (post-elk/region-descendant-ids parsed)
+        column (fn [rid]
+                 (into {} (map-indexed (fn [i id] [id {:x 20 :y (+ 40 (* 80 i))
+                                                       :width 120 :height 50}]))
+                       (sort (get desc rid))))
+        audio  (layout/region-node-id :audio)
+        video  (layout/region-node-id :video)]
+    {:positions   (merge {layout/root-container-id {:x 12  :y 12  :width 680 :height 540}
+                          audio                    {:x 60  :y 120 :width 200 :height 400}
+                          video                    {:x 460 :y 120 :width 200 :height 400}}
+                         (column audio)
+                         (column video))
+     :edge-points {}
+     :edge-labels {}}))
 
-;; ====================================================================
-;; Composing pass
-;; ====================================================================
+;; ---- the opt-in gate + aspect heuristic ---------------------------------
 
-(deftest apply-post-elk-is-identity-for-simple-linear-machines
-  (let [parsed (layout/project-definition linear-machine)
-        stub   (col-positions parsed)]
-    (testing "linear, non-parallel, no back-edge → no-op even after opt-in"
-      (is (= stub (post-elk/apply-post-elk stub parsed :tb))))))
+(deftest adaptive?-is-opt-in-only
+  (testing "only :auto opts in; the default :tb and a forced :lr never run the pass"
+    (is (= [true false false] (map post-elk/adaptive? [:auto :tb :lr])))
+    (is (= :lr (post-elk/resolve-direction :auto (layout/project-definition branchy-machine)))
+        ":auto defers to the heuristic")))
 
-(deftest apply-post-elk-reroutes-the-door-back-edge
+(deftest aspect-direction-biases-per-machine
+  (doseq [[label machine expected]
+          [["a 2-way fan stays under the threshold: column"     door-cyclic-machine     :tb]
+           ["a 3-way hub flows landscape"                       branchy-machine         :lr]
+           ["three events to ONE target are one branch: column" same-target-fan-machine :tb]
+           ["a parallel machine leaves its aspect to the region transpose" parallel-machine :tb]]]
+    (is (= expected (post-elk/aspect-direction (layout/project-definition machine))) label)))
+
+;; ---- parallel-region stacking-axis transpose ----------------------------
+
+(deftest region-descendant-ids-groups-states-and-event-nodes
+  (let [parsed (layout/project-definition parallel-machine)
+        desc   (post-elk/region-descendant-ids parsed)
+        audio  (get desc (layout/region-node-id :audio))]
+    (is (= #{(layout/region-node-id :audio) (layout/region-node-id :video)} (set (keys desc))))
+    (is (= #{(layout/region-scoped-id :audio [:muted]) (layout/region-scoped-id :audio [:playing])}
+           (set (remove event-id? audio))))
+    (is (= 2 (count (filter event-id? audio))) "the region's two event-nodes fold in")))
+
+(deftest transpose-parallel-regions-stacks-and-flips
+  (testing "the regions re-stack into one column at the leftmost / topmost
+            region's own (positive) origin, and each region's vertical column
+            of children becomes a row"
+    (let [parsed (layout/project-definition parallel-machine)
+          audio  (layout/region-node-id :audio)
+          video  (layout/region-node-id :video)
+          np     (:positions (post-elk/transpose-parallel-regions
+                               (side-by-side-regions parsed) parsed))
+          kids   (map np (remove event-id? (get (post-elk/region-descendant-ids parsed) audio)))]
+      (is (= [60 120] ((juxt :x :y) (np audio))))
+      (is (= 60 (:x (np video))))
+      (is (>= (:y (np video)) (+ (:y (np audio)) (:height (np audio))))
+          "video stacks below audio's band")
+      (is (apply = (map :y kids)) "the children share a y")
+      (is (not (apply = (map :x kids))) "and spread along x"))))
+
+(deftest transpose-grows-the-frame-to-enclose-the-stacked-column
+  (testing "the regions are the root frame's parentId children, so the frame
+            grows to hold the column (keeping its origin and ELK's 20px right
+            inset, never shrinking) or xyflow clamps the bands back inside"
+    (let [parsed (layout/project-definition parallel-machine)
+          np     (:positions (post-elk/transpose-parallel-regions
+                               (side-by-side-regions parsed) parsed))
+          right  (reduce max (map #(+ (:x %) (:width %))
+                                  (map np [(layout/region-node-id :audio)
+                                           (layout/region-node-id :video)])))]
+      (is (> right 680) "the stacked column outgrows the side-by-side frame")
+      (is (= {:x 12 :y 12 :width (+ right 20) :height 540}
+             (np layout/root-container-id))))))
+
+(defn- x-overlap? [a b]
+  (and (< (:x a) (+ (:x b) (:width b)))
+       (< (:x b) (+ (:x a) (:width a)))))
+
+(deftest transpose-event-chips-clear-state-boxes
+  (testing "a bare x/y swap inherits ELK's height-sized flow pitch, so chips
+            would bury into the state boxes; the re-pack spaces ranks by width"
+    (let [parsed    (layout/project-definition parallel-machine)
+          desc      (post-elk/region-descendant-ids parsed)
+          audio     (layout/region-node-id :audio)
+          video     (layout/region-node-id :video)
+          state-ids (fn [rid] (sort (remove event-id? (get desc rid))))
+          event-ids (fn [rid] (sort (filter event-id? (get desc rid))))
+          ;; an ELK column at realistic sizes (state 152×58, chip 96×34),
+          ;; chips on the half-ranks between states
+          region-col (fn [rid x0]
+                       (merge
+                         (into {} (map-indexed (fn [i id] [id {:x (+ x0 20) :y (* 108 i)
+                                                               :width 152 :height 58}]))
+                               (state-ids rid))
+                         (into {} (map-indexed (fn [i id] [id {:x (+ x0 48) :y (+ 54 (* 108 i))
+                                                               :width 96 :height 34}]))
+                               (event-ids rid))))
+          np (:positions (post-elk/transpose-parallel-regions
+                           {:positions   (merge {audio {:x 0   :y 0 :width 200 :height 500}
+                                                 video {:x 400 :y 0 :width 200 :height 500}}
+                                                (region-col audio 0)
+                                                (region-col video 400))
+                            :edge-points {}
+                            :edge-labels {}}
+                           parsed))]
+      (doseq [rid [audio video]
+              eb  (map np (event-ids rid))
+              sb  (map np (state-ids rid))]
+        (is (not (x-overlap? eb sb)) (str "chip " eb " overlaps state " sb " in " rid))))))
+
+(deftest transpose-clears-nested-compound-region-edge-routes
+  (testing "the region-touch test walks the whole ancestor chain: an edge between
+            two leaves of a compound nested in a region loses its stale route"
+    (let [parsed    (layout/project-definition nested-compound-in-region-machine)
+          low->high (edge-between parsed
+                                  (layout/region-scoped-id :audio [:playing :low])
+                                  (layout/region-scoped-id :audio [:playing :high]))
+          seeded    {:positions   (:positions (col-positions parsed))
+                     :edge-points {(str (:id low->high) "__in")  [{:x 1 :y 1} {:x 2 :y 2}]
+                                   (str (:id low->high) "__out") [{:x 3 :y 3} {:x 4 :y 4}]}
+                     :edge-labels {}}]
+      (is (= {} (:edge-points (post-elk/transpose-parallel-regions seeded parsed)))))))
+
+;; ---- back-edge return-route detour --------------------------------------
+
+(deftest back-edge-detour-lifts-the-chip-beside-the-spine
+  (testing ":tb — the chip is lifted to mid-height and the route leaves the
+            source sideways to a lane off the spine"
+    (let [parsed    (layout/project-definition door-cyclic-machine)
+          back-e    (door-back-edge parsed)
+          ;; locked centre (260, 25); alarming centre (260, 325); the chip sank below
+          positions {(layout/node-id [:locked])          {:x 200 :y 0   :width 120 :height 50}
+                     (layout/node-id [:alarming])        {:x 200 :y 300 :width 120 :height 50}
+                     (projection/event-node-id back-e)   {:x 200 :y 400 :width 96  :height 34}}
+          {:keys [event-pos in-points out-points]} (post-elk/back-edge-detour back-e positions :tb)
+          in-elbow  (second in-points)]
+      (is (<= 25 (+ (:y event-pos) 17) 325) "the chip centre sits between the endpoints")
+      (is (= 325 (:y in-elbow)) "the __in elbow keeps the source's y")
+      (is (not= 260 (:x in-elbow)) "and moves off the spine")
+      (is (= 25 (:y (second out-points))) "the __out elbow keeps the target's y"))))
+
+(deftest back-edge-detour-lr-mirrors-the-elbow
+  (testing ":lr — the chip bows above the flow row and the elbows leave and
+            re-enter VERTICALLY, never running along the row first"
+    (let [parsed    (layout/project-definition door-cyclic-machine)
+          back-e    (door-back-edge parsed)
+          ;; locked centre (60, 225); alarming centre (360, 225); the chip sank right
+          positions {(layout/node-id [:locked])          {:x 0   :y 200 :width 120 :height 50}
+                     (layout/node-id [:alarming])        {:x 300 :y 200 :width 120 :height 50}
+                     (projection/event-node-id back-e)   {:x 450 :y 200 :width 96  :height 34}}
+          {:keys [in-points out-points]} (post-elk/back-edge-detour back-e positions :lr)
+          chip      (last in-points)]
+      (is (true? (post-elk/back-edge? back-e positions :lr)))
+      (is (< (:y chip) 225) "the chip sits above the row")
+      (is (<= 60 (:x chip) 360) "mid-width between the endpoints")
+      (is (= {:x 360 :y (:y chip)} (second in-points)) "leaves the source vertically")
+      (is (= {:x 60 :y (:y chip)} (second out-points)) "re-enters the target vertically"))))
+
+(deftest reroute-back-edges-rewrites-positions-and-routes
   (let [parsed (layout/project-definition door-cyclic-machine)
         stub   (col-positions parsed)
-        back-e (first (filter (fn [e]
-                                (and (= (:source e) (layout/node-id [:alarming]))
-                                     (= (:target e) (layout/node-id [:locked]))))
-                              (:edges parsed)))
-        out    (post-elk/apply-post-elk stub parsed :tb)]
-    (testing "the cohesive pass reroutes the door back-edge end-to-end"
-      (is (contains? (:edge-points out) (str (:id back-e) "__in")))
-      (is (< (:y (get-in out [:positions (projection/event-node-id back-e)]))
-             (:y (get-in stub [:positions (projection/event-node-id back-e)])))))))
+        back-e (door-back-edge parsed)
+        ev-id  (projection/event-node-id back-e)
+        fwd-ev (projection/event-node-id
+                 (edge-between parsed (layout/node-id [:locked]) (layout/node-id [:closed])))
+        out    (post-elk/reroute-back-edges stub parsed :tb)]
+    (is (< (get-in out [:positions ev-id :y]) (get-in stub [:positions ev-id :y]))
+        "the sunk chip is lifted")
+    (is (every? (:edge-points out) [(str (:id back-e) "__in") (str (:id back-e) "__out")])
+        "both of the back-edge's segments get detour routes")
+    (is (= (get-in stub [:positions fwd-ev]) (get-in out [:positions fwd-ev]))
+        "a forward chip is untouched")))
 
-(deftest apply-post-elk-restacks-parallel-regions
-  (let [parsed    (layout/project-definition parallel-machine)
-        audio-rid (layout/region-node-id :audio)
-        video-rid (layout/region-node-id :video)
-        ;; ELK's side-by-side region layout, which the transpose re-stacks.
-        stub      {:positions   {audio-rid {:x 0   :y 0 :width 200 :height 400}
-                                 video-rid {:x 400 :y 0 :width 200 :height 400}}
-                   :edge-points {}
-                   :edge-labels {}}
-        np        (:positions (post-elk/apply-post-elk stub parsed :tb))]
-    (testing "the cohesive pass runs the region transpose: side-by-side
-              regions re-stack into one left-aligned column"
-      (is (= (:x (get np audio-rid)) (:x (get np video-rid)))
-          "both regions share an x")
-      (is (>= (:y (get np video-rid))
-              (+ (:y (get np audio-rid)) (:height (get np audio-rid))))
-          "video (region-index 1) sits below audio's band"))))
+(deftest reroute-back-edges-excludes-cross-hierarchy-candidates
+  (testing "endpoints in different parents' frames are never compared, even when
+            the raw numbers look sunk"
+    (let [parsed (layout/project-definition nested-back-edge-machine)
+          back-e (edge-between parsed (layout/node-id [:working :step2]) (layout/node-id [:idle]))
+          stub   {:positions   {(layout/node-id [:idle])          {:x 200 :y 0   :width 120 :height 50}
+                                (layout/node-id [:working :step2]) {:x 200 :y 200 :width 120 :height 50}
+                                (projection/event-node-id back-e)  {:x 200 :y 300 :width 96  :height 34}}
+                  :edge-points {}
+                  :edge-labels {}}]
+      (is (true? (post-elk/back-edge? back-e (:positions stub) :tb))
+          "the naive geometric check would flag it")
+      (is (= stub (post-elk/reroute-back-edges stub parsed :tb))))))
+
+(deftest reroute-back-edges-nested-same-parent-writes-absolute-edge-points
+  (testing ":edge-points are root-absolute, so a detour computed in the shared
+            parent's frame is rebased by that parent's full ancestor origin
+            (grouped 600,500 + root container 10,15)"
+    (let [parsed (layout/project-definition compound-same-parent-back-edge-machine)
+          a-id   (layout/node-id [:grouped :a])
+          b-id   (layout/node-id [:grouped :b])
+          back-e (edge-between parsed b-id a-id)
+          out    (post-elk/reroute-back-edges
+                   {:positions   {layout/root-container-id         {:x 10  :y 15  :width 800 :height 700}
+                                  (layout/node-id [:grouped])       {:x 600 :y 500 :width 220 :height 320}
+                                  a-id                              {:x 40  :y 20  :width 120 :height 50}
+                                  b-id                              {:x 40  :y 120 :width 120 :height 50}
+                                  (projection/event-node-id back-e) {:x 40  :y 260 :width 96  :height 34}}
+                    :edge-points {}
+                    :edge-labels {}}
+                   parsed :tb)]
+      (is (= {:x 710 :y 660} (first (get-in out [:edge-points (str (:id back-e) "__in")])))
+          "the detour starts on b's absolute centre")
+      (is (= {:x 710 :y 560} (peek (get-in out [:edge-points (str (:id back-e) "__out")])))
+          "and ends on a's absolute centre"))))
+
+;; ---- composing pass -----------------------------------------------------
+
+(deftest apply-post-elk-runs-the-transpose-then-the-reroute
+  (let [linear (layout/project-definition linear-machine)
+        door   (layout/project-definition door-cyclic-machine)
+        par    (layout/project-definition parallel-machine)
+        par-stub (side-by-side-regions par)]
+    (is (= (col-positions linear) (post-elk/apply-post-elk (col-positions linear) linear :tb))
+        "identity when neither pattern is present")
+    (is (= (post-elk/reroute-back-edges (col-positions door) door :tb)
+           (post-elk/apply-post-elk (col-positions door) door :tb)))
+    (is (= (post-elk/transpose-parallel-regions par-stub par)
+           (post-elk/apply-post-elk par-stub par :tb)))))
