@@ -4,7 +4,8 @@
   :epoch` ship!) maps `project-egress` over raw epoch records, and what it ships
   must carry no raw sensitive bytes and no raw large payload, keep the
   bookkeeping slots a tool navigates by, and be a fixed point of a second
-  projection. The per-leaf redaction matrix lives in `epoch_privacy_test.clj`.
+  projection. The per-leaf redaction cases live in
+  `epoch_egress_redaction_cljs_test.cljc`.
 
   The fixtures here drive the shapes an app-db-only ring never contains: a
   whole-output `:large?` sub (a registration stamp, not an app-db path), a
