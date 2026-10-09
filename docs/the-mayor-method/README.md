@@ -209,8 +209,9 @@ one of the clauses and is not green: an empty rollup reports no failures too.
 There is no bypass. An administrative override is for the host's own mergeability
 recompute lag, which is not a check at all, and only once every clause is already met.
 
-After merge, the mayor pulls and verifies the tree rather than the line git printed.
-Then it closes the item with a concrete reason.
+After each merge, the mayor updates its checkout by the named-fetch and fast-forward
+procedure in [`loops.md`](loops.md#after-each-merge) and verifies the tree rather than the
+line git printed. Then it closes the item with a concrete reason.
 
 This is the difference between "a lot of agents did things" and "the project advanced."
 

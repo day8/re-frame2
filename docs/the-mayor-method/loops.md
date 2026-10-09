@@ -126,7 +126,7 @@ item, and that anything routed into the change landed in the diff.
   overwritten"* is uncommitted tracker state: checkpoint, *then* clear, *then* retry — clearing first
   reverts what the tracker just recorded. *"Not possible to fast-forward"* is divergence: rebase, then
   **push**. You are left ahead by one and **that is expected, not a second failure** — repeating the
-  pull stays ahead, forcing equality discards the checkpoint.
+  fetch and fast-forward stays ahead, forcing equality discards the checkpoint.
 - **A remedy inherits the hazards of whatever it reads**, so rebase onto the ref, not with a pull
   carrying a rebase flag.
 - **Never wire a remedy behind a pipe** — the pipeline's status is the filter's, so the fallback never
