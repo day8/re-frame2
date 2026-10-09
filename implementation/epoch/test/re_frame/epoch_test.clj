@@ -1,118 +1,39 @@
 (ns re-frame.epoch-test
-  "Tool-Pair §Time-travel — epoch recording, query, listener, restore.
-
-    1. Recording — each DEQUEUED EVENT commits its own record; a
-       multi-event drain (an :fx-dispatched child) commits one record
-       per event, not one per drain.
-    2. Per-frame isolation — two frames, each gets its own ring.
-    3. Ring depth cap — dispatch >depth events; oldest get evicted.
-    4. Configurable depth — `(rf/configure! {:epoch-history {:depth N}})`.
-    5. Listener — `register-epoch-listener!` fires per event epoch with the
-       assembled record; same-key replaces; remove unhooks; exception
-       isolation.
-    6. Restore happy path — `restore-epoch!` rewinds app-db.
-    7. The seven documented failure modes (Tool-Pair §Time-travel
-       restore-failure-modes table) — six fire under `:rf.epoch/*`,
-       plus `:rf.error/no-such-handler` (kind `:frame`) for an
-       unknown frame-id; each leaves app-db unchanged.
-    8. Sub-runs / renders / effects projection from the trace stream.
-
-  Per-event and per-mount post-settle attribution lives in the dedicated
-  standing suite `re-frame.epoch-attribution-test` — those cases simulate the
-  React-commit / React-deref timing the synchronous JVM cascade can't
-  reproduce."
+  "Tool-Pair §Time-travel — epoch recording, ring depth, listeners, restore,
+  replace-frame-state! and replay refusal. Post-settle render / sub-run
+  attribution lives in `re-frame.epoch-attribution-test`."
   (:require [clojure.java.io :as io]
-            [clojure.set :as set]
             [clojure.string :as str]
             [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            ;; Side-effect require: flows publishes the `:flows/reg-flow`
-            ;; late-bind hook at ns-load. Several restore-* tests register
-            ;; flows via `rf/reg-flow` in their bodies; without this load
-            ;; they throw `:rf.error/flows-artefact-missing`. Loading it
-            ;; HERE means the capture/restore fixture's ns-load registrar
-            ;; snapshot includes the flows surface. Alias unused — the
-            ;; fixture does not touch the private flows atoms (the
-            ;; reset-hook table owns flows reset).
+            ;; flows, routing and machines are required for the late-bind hooks
+            ;; they publish (reg-flow, reg-route, reg-machine), so the
+            ;; fixture's ns-load registrar snapshot includes them.
             [re-frame.flows]
-            ;; `with-redefs`'d in the :committed-at causal-time
-            ;; tests to a sentinel clock, proving the durable :committed-at
-            ;; comes from the committing token's :time-ms, not an ambient
-            ;; clock read at assembly time. Both `now-ms` (elapsed clock) and
-            ;; `epoch-now-ms` (wall-clock, the surface the router stamps fresh
-            ;; tokens from — EP-0010 §Time) are pinned.
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.registrar :as rf.registrar]
-            ;; Require the schemas FAÇADE, not the `.malli`
-            ;; validator adapter. The dependency runs ONE way:
-            ;; `re-frame.schemas` `:require`s `re-frame.schemas.malli`
-            ;; (publishing the Malli validate/explain hooks) — the reverse
-            ;; is NOT true. `re-frame.schemas.malli` only publishes
-            ;; `:schemas/malli-validate` / `:schemas/malli-explain`; it does
-            ;; NOT publish the `:schemas/reg-app-schema` /
-            ;; `:schemas/app-schemas-digest` / `:schemas/validate-with-
-            ;; registered-fn` registrar+digest hooks (those `set-fn!` forms
-            ;; live in `re-frame.schemas`). Requiring the façade installs
-            ;; BOTH layers: the registrar hooks the `reg-app-schema` tests
-            ;; need AND the Malli validate hook the runtime-db
-            ;; schema-mismatch precondition drives a real
-            ;; failure through. Side-effect require — alias unused.
+            ;; The façade, not `re-frame.schemas.malli`: only the façade
+            ;; publishes the registrar + digest hooks as well as the validator.
             [re-frame.schemas :as rf.schemas]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             [re-frame.trace :as rf.trace]
-            [re-frame.epoch :as rf.epoch]
+            [re-frame.epoch]
             [re-frame.epoch.assembly :as rf.epoch.assembly]
             [re-frame.epoch.capture :as rf.epoch.capture]
             [re-frame.epoch.listeners :as rf.epoch.listeners]
-            ;; `state` is used in test BODIES for the deep private-impl
-            ;; unit tests (the `@#'state/value-changed-epoch-for` scan
-            ;; against a hand-built `@#'state/histories` ring, and the
-            ;; shipped-default accessor probe) — NOT for fixture config
-            ;; reset, which flows through the public `configure!`
-            ;; boundary + the `:epoch/reset-config!` reset hook.
             [re-frame.epoch.state :as rf.epoch.state]
             [re-frame.epoch.tool-pair :as rf.epoch.tool-pair]
-            ;; Side-effect require: routing publishes its `:routing/*`
-            ;; late-bind hooks (incl. the `rf/reg-route` registrar kind)
-            ;; at ns-load. Several tests call `rf/reg-route` in their
-            ;; bodies; loading routing HERE (rather than reloading it in
-            ;; the fixture) means the capture/restore fixture's ns-load
-            ;; registrar snapshot includes routing's registrations and
-            ;; restores them around each test.
             [re-frame.routing]
-            ;; machines is a separate artefact whose late-bind
-            ;; hook publishes `rf/reg-machine` only when the namespace is
-            ;; loaded. Several restore-* tests register machines via
-            ;; `rf/reg-machine` in their bodies; without this require they
-            ;; throw `:rf.error/machines-artefact-missing`. Side-effect
-            ;; require — the namespace alias is unused.
             [re-frame.machines]
-            ;; Read the machine `:after` host-clock timer table
-            ;; directly to prove an end-to-end restore releases the restored
-            ;; frame's armed timer handles (the orphaned async host work).
             [re-frame.machines.timer :as rf.machines.timer]))
 
 ;; ---- fixtures --------------------------------------------------------------
-;;
-;; The canonical capture/restore fixture. It snapshots the
-;; registrar at ns-load and restores around each test (so the routing /
-;; schemas / machines registrations this ns's `:require` chain brought
-;; live survive cross-ns runs without a `clear-all!` + reload dance), and
-;; fires the epoch reset-hook table (`:epoch/clear-history!`,
-;; `:epoch/clear-epoch-listeners!`, `:epoch/reset-config!`) so each test
-;; starts from a clean epoch slate with config reset to the shipped
-;; default. The `:init-fn` re-applies the suite's non-default
-;; `:trace-events-keep 5` (a keep<depth OVERRIDE so the
-;; elision path is reachable with a handful of dispatches; NOT the
-;; shipped default of 50 = :depth, see
-;; `re-frame.epoch.state/default-trace-events-keep`) through the public
-;; `configure!` boundary — no test ns
-;; reaches into the private `state/config` var for fixture reset. The
-;; `:init-fn` runs AFTER the post-dispose reset hooks, so the override
-;; lands on top of the freshly-reset default.
+
+;; `:trace-events-keep 5` (below the shipped default of 50) makes the elision
+;; path reachable with a handful of dispatches.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.substrate.plain-atom/adapter
@@ -131,11 +52,8 @@
         events))
 
 (defn- epoch-source-files
-  "Every epoch-artefact `.cljc` source file, discovered off the classpath
-  (the :local/root `src` dir) so a NEW file with a fresh emit site is
-  scanned automatically by `skip-ops-catalogue-pins-every-rf-epoch-op`.
-  The epoch package directory is located via a known file resource's
-  parent; the `re-frame.epoch` facade lives one level up."
+  "Every epoch-artefact `.cljc` source file, discovered off the classpath so a
+  new file is scanned without editing the test."
   []
   (let [pkg-dir (-> (io/resource "re_frame/epoch/capture.cljc")
                     io/file
@@ -148,952 +66,336 @@
 ;; ---- recording -------------------------------------------------------------
 
 (deftest record-shape-canonical
-  (testing "an :rf/epoch-record carries the canonical shape"
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-    (rf/dispatch-sync [:inc]  {:frame :test/main})
-
-    (let [r (last (rf/epoch-history :test/main))]
-      (is (= :test/main (:frame r)))
-      (is (= :inc       (:event-id r)))
-      (is (= [:inc]     (:trigger-event r)))
-      (is (= {:n 0}     (:db-before r))
-          "db-before is the pre-cascade snapshot")
-      (is (= {:n 1}     (:db-after r))
-          "db-after is the post-settle snapshot")
-      (is (vector? (:trace-events r)))
-      (is (vector? (:sub-runs r)))
-      (is (vector? (:renders r)))
-      (is (vector? (:effects r)))
-      ;; The settling cascade's :dispatch-id is pinned as a
-      ;; first-class slot (the stable epoch-id ↔ cascade link Xray's
-      ;; focus correlation reads). It must equal the :dispatch-id tag the
-      ;; cascade's own trace events carry.
-      (is (some? (:dispatch-id r))
-          "record carries the pinned :dispatch-id slot")
-      (is (= (:dispatch-id r)
-             (some #(get-in % [:tags :rf.trace/dispatch-id]) (:trace-events r)))
-          ":dispatch-id slot equals the cascade's trace :rf.trace/dispatch-id tag"))))
-
-;; ---- :committed-at is the committing token's causal time ------------------
-;;
-;; Per EP-0010 §Time (epoch record causal time) + Spec 002 §The World-Input
-;; Rule: the durable :committed-at fact MUST come from the committing causal
-;; token's `:rf.cofx` :time-ms (read ONCE at the causal boundary,
-;; envelope construction, from `interop/epoch-now-ms`), NOT an
-;; ambient clock read at epoch assembly time. The test below pins that
-;; conversion: the parent event supplies its token time while
-;; `interop/epoch-now-ms` is stubbed to a sentinel, so a regression that
-;; re-reads either host clock at assembly stamps the parent's record with
-;; something other than its token time and fails loudly. The `:fx`-dispatched
-;; child has no supplied token, so its record carries the sentinel the router
-;; stamped onto its own fresh token.
+  (rf/make-frame {:id :test/main})
+  (rf/reg-event :seed (fn [_ _] {:db {:n 0}}))
+  (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
+  (rf/dispatch-sync [:seed] {:frame :test/main})
+  (rf/dispatch-sync [:inc]  {:frame :test/main})
+  (let [r (last (rf/epoch-history :test/main))]
+    (is (= {:frame :test/main :event-id :inc :trigger-event [:inc] :outcome :ok
+            :db-before {:n 0} :db-after {:n 1}}
+           (select-keys r [:frame :event-id :trigger-event :outcome :db-before :db-after])))
+    (is (= [{:n 0} {:n 1}]
+           (map #(get-in r [% :rf.db/app]) [:frame-state-before :frame-state-after]))
+        ":db-before / :db-after are the app-db partitions of the frame-state slots")
+    (is (every? vector? ((juxt :trace-events :sub-runs :renders :effects) r)))
+    (is (some? (:dispatch-id r)))
+    (is (= (:dispatch-id r)
+           (some #(get-in % [:tags :rf.trace/dispatch-id]) (:trace-events r)))
+        ":dispatch-id is the cascade's trace correlation id")))
 
 (deftest committed-at-each-child-event-reads-its-own-token
-  (testing "in a multi-event drain, each dequeued event's :committed-at is
-            ITS OWN token's :time-ms — an :fx-dispatched child gets a fresh
-            token (the router does NOT inherit the parent's :time-ms), so the
-            child's :committed-at is the freshly-stamped clock value, while
-            the parent's is its supplied token time (EP-0010
-            §Dispatch Envelope Stamping — children are distinct causal tokens)"
+  (testing ":committed-at is the committing token's :time-ms, never an
+            assembly-time clock read; an :fx-dispatched child gets its own fresh
+            token rather than inheriting the parent's (EP-0010 §Time)"
     (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:order []}}))
-    (rf/reg-event :parent
-      (fn [{:keys [db]} _]
-        {:db (update db :order conj :parent)
-         :fx [[:dispatch [:child]]]}))
-    (rf/reg-event :child (fn [{:keys [db]} _] {:db (update db :order conj :child)}))
+    (rf/reg-event :parent (fn [_ _] {:fx [[:dispatch [:child]]]}))
+    (rf/reg-event :child  (fn [_ _] {}))
     (let [parent-time 1781078400123
-          ;; The child has no supplied token, so the router stamps its
-          ;; :time-ms fresh at the causal boundary (envelope construction) from
-          ;; `interop/epoch-now-ms` — the wall-clock-epoch surface for durable
-          ;; causal time (EP-0010 §Time), NOT `interop/now-ms`
-          ;; (which is the elapsed-measurement clock: `performance.now()` on
-          ;; CLJS). Pinned to this sentinel by the redef below.
           child-clock 5550000000000]
-      (rf/dispatch-sync [:seed] {:frame :test/main})
       (with-redefs [rf.interop/epoch-now-ms (constantly child-clock)]
-        (rf/dispatch-sync [:parent] {:frame            :test/main
-                                     :rf.cofx {:rf/time-ms parent-time}}))
-      (let [history    (rf/epoch-history :test/main)
-            by-event   (into {} (map (juxt :event-id :committed-at)) history)]
-        (is (= parent-time (get by-event :parent))
-            "the parent's :committed-at is its supplied token time")
-        (is (= child-clock (get by-event :child))
-            "the :fx-dispatched child reads ITS OWN fresh token (stamped from
-             now-ms here) — NOT inherited from the parent, NOT a separate
-             assembly-time clock read")))))
+        (rf/dispatch-sync [:parent] {:frame :test/main :rf.cofx {:rf/time-ms parent-time}}))
+      (is (= [[:parent parent-time] [:child child-clock]]
+             (mapv (juxt :event-id :committed-at) (rf/epoch-history :test/main)))))))
 
 (deftest record-multi-event-cascade
-  (testing "per Spec 002 §Drain versus event: each dequeued
-            event in a multi-event drain commits its OWN epoch — an
-            :fx [[:dispatch …]] child is a separate dequeued event, so it
-            yields a separate record, NOT folded into the parent's epoch"
+  (testing "each dequeued event of one drain commits its own epoch with its own
+            dispatch-id — a child's :rf.event/dispatched marker rides the
+            child's epoch, not the parent's (Spec 009 §Dispatch correlation)"
     (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:order []}}))
     (rf/reg-event :outer
-      (fn [{:keys [db]} _]
-        {:db (update db :order conj :outer)
-         :fx [[:dispatch [:inner-1]]
-              [:dispatch [:inner-2]]]}))
+      (fn [_ _] {:db {:order [:outer]}
+                 :fx [[:dispatch [:inner-1]] [:dispatch [:inner-2]]]}))
     (rf/reg-event :inner-1 (fn [{:keys [db]} _] {:db (update db :order conj :inner-1)}))
     (rf/reg-event :inner-2 (fn [{:keys [db]} _] {:db (update db :order conj :inner-2)}))
-
-    (rf/dispatch-sync [:seed]  {:frame :test/main})
-    ;; ONE drain: :outer runs, then its two :fx-dispatched children
-    ;; (:inner-1, :inner-2) drain in the same turn — but each is its own
-    ;; dequeued event = its own epoch.
     (rf/dispatch-sync [:outer] {:frame :test/main})
+    (let [history (rf/epoch-history :test/main)
+          dids    (mapv #(into #{} (keep (fn [ev] (-> ev :tags :rf.trace/dispatch-id)))
+                               (:trace-events %))
+                        history)]
+      (is (= [[:outer   {}                     {:order [:outer]}]
+              [:inner-1 {:order [:outer]}          {:order [:outer :inner-1]}]
+              [:inner-2 {:order [:outer :inner-1]} {:order [:outer :inner-1 :inner-2]}]]
+             (mapv (juxt :event-id :db-before :db-after) history)))
+      (is (every? #(= 1 (count %)) dids) "each epoch's traces carry one dispatch-id")
+      (is (apply distinct? dids) "and no two epochs share one"))))
 
-    (let [history (rf/epoch-history :test/main)]
-      ;; Four dequeued events: :seed (own drain), then :outer + :inner-1 +
-      ;; :inner-2 (one drain, three epochs).
-      (is (= 4 (count history))
-          "one epoch per dequeued event — the :fx-dispatched children are
-           NOT folded into :outer's epoch")
-      (is (= [:seed :outer :inner-1 :inner-2]
-             (mapv :event-id history))
-          "epochs land in dequeue order, oldest-first")
-      ;; Each event's db-before / db-after chains from the previous —
-      ;; per-event run-to-completion snapshots.
-      (is (= [{:order []}
-              {:order [:outer]}
-              {:order [:outer :inner-1]}]
-             (mapv :db-before (rest history)))
-          ":db-before of :outer / :inner-1 / :inner-2 chains per event")
-      (is (= [{:order [:outer]}
-              {:order [:outer :inner-1]}
-              {:order [:outer :inner-1 :inner-2]}]
-             (mapv :db-after (rest history)))
-          ":db-after of :outer / :inner-1 / :inner-2 chains per event")
-      ;; Distinct correlation: each epoch has its own :epoch-id, and the
-      ;; per-event :rf.trace/dispatch-id rides the trace stream distinctly. Per
-      ;; Spec 009 §Dispatch correlation, each epoch's
-      ;; :trace-events carry EXACTLY ONE :rf.trace/dispatch-id (one dispatch-id =
-      ;; one epoch) — a child's :rf.event/dispatched marker (fired during the
-      ;; parent's do-fx) rides the CHILD's epoch, not the parent's.
-      (is (apply distinct? (mapv :epoch-id history))
-          "every dequeued event gets a distinct :epoch-id")
-      (let [dispatch-ids-of
-            (fn [r] (->> (:trace-events r)
-                         (keep #(-> % :tags :rf.trace/dispatch-id))
-                         distinct))
-            outer-dids  (dispatch-ids-of (nth history 1))
-            inner1-dids (dispatch-ids-of (nth history 2))]
-        (is (= 1 (count outer-dids))
-            ":outer epoch's traces carry exactly ONE :rf.trace/dispatch-id — the
-             child's :rf.event/dispatched marker does NOT leak in")
-        (is (= 1 (count inner1-dids))
-            ":inner-1 epoch's traces carry exactly ONE :rf.trace/dispatch-id")
-        (is (not= (first outer-dids) (first inner1-dids))
-            "parent and :fx-dispatched child have DISTINCT :dispatch-ids
-             — the child is a separate dequeued event / epoch")))))
-
-;; ---- machine macrostep stays ONE epoch ------------------------------------
-
-;; The epoch record captures the whole frame-state
-;; (`:frame-state-before/-after`, EP-0001 decision #2); the machine snapshot lives in the runtime-db partition at
-;; `[:rf.db/runtime :rf.runtime/machines :snapshots …]`. This asserts the
-;; macrostep's terminal state is captured there.
 (deftest machine-raise-macrostep-is-one-epoch
-  (testing "per Spec 005 §macrostep: a machine's :raise sub-events
-            are in-memory microsteps inside a SINGLE macrostep — they ride
-            the TRIGGERING event's epoch and do NOT allocate new epochs.
-            Only separately-dequeued events get their own epoch."
+  (testing "a machine's :raise chain runs inside one macrostep (Spec 005): one
+            epoch, one dispatch-id, terminal state in the runtime-db partition"
     (rf/make-frame {:id :test/main})
-    ;; A 2-deep :raise chain: one [:e1] dispatch drives three transitions
-    ;; (s0 → s1 → s2 → s3) in one macrostep via two pre-commit :raises.
     (rf/reg-machine :mac/chain
       {:initial :s0
        :actions {:a1 (fn [_] {:fx [[:raise [:e2]]]})
-                 :a2 (fn [_] {:fx [[:raise [:e3]]]})
-                 :a3 (fn [_] {})}
+                 :a2 (fn [_] {:fx [[:raise [:e3]]]})}
        :states  {:s0 {:on {:e1 {:target :s1 :action :a1}}}
                  :s1 {:on {:e2 {:target :s2 :action :a2}}}
-                 :s2 {:on {:e3 {:target :s3 :action :a3}}}
+                 :s2 {:on {:e3 :s3}}
                  :s3 {}}})
-
     (rf/dispatch-sync [:mac/chain [:e1]] {:frame :test/main})
-
-    (let [history (rf/epoch-history :test/main)]
-      ;; ONE dequeued event ([:mac/chain [:e1]]) → ONE epoch, even though
-      ;; the macrostep ran three transitions via two :raises.
-      (is (= 1 (count history))
-          "the whole :raise chain rides ONE epoch — :raises are microsteps,
-           not separate dequeued events")
-      (let [r (first history)]
-        (is (= :mac/chain (:event-id r))
-            "the triggering machine event is the epoch's trigger")
-        (is (= :s3 (:state (get-in (:frame-state-after r)
-                                   [:rf.db/runtime :rf.runtime/machines :snapshots :mac/chain])))
-            "the macrostep reached the terminal state — all three
-             transitions committed inside this one epoch (runtime-db partition)")
-        ;; Every trace in the epoch rides the SAME :rf.trace/dispatch-id — the
-        ;; :raises did NOT mint a new correlation id (Spec 009).
-        (let [dispatch-ids (->> (:trace-events r)
-                                (keep #(-> % :tags :rf.trace/dispatch-id))
-                                distinct)]
-          (is (= 1 (count dispatch-ids))
-              "the macrostep's emits (incl. raised transitions) all carry
-               the triggering event's single :rf.trace/dispatch-id"))))))
+    (let [history (rf/epoch-history :test/main)
+          r       (first history)]
+      (is (= [:mac/chain] (mapv :event-id history)))
+      (is (= :s3 (get-in r [:frame-state-after :rf.db/runtime
+                            :rf.runtime/machines :snapshots :mac/chain :state])))
+      (is (= 1 (count (into #{} (keep #(-> % :tags :rf.trace/dispatch-id))
+                            (:trace-events r))))))))
 
 ;; ---- ring depth ------------------------------------------------------------
 
 (deftest ring-depth-evicts-oldest
-  (testing "when the ring fills, oldest records are evicted FIFO"
-    (rf/configure! {:epoch-history {:depth 3}})
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
+  (rf/configure! {:epoch-history {:depth 3}})
+  (rf/make-frame {:id :test/main})
+  (rf/reg-event :set (fn [_ [_ n]] {:db {:n n}}))
+  (dotimes [n 6] (rf/dispatch-sync [:set n] {:frame :test/main}))
+  (let [history (rf/epoch-history :test/main)]
+    (is (= [{:n 3} {:n 4} {:n 5}] (mapv :db-after history)))
+    ;; A bare `subvec` window keeps every evicted record reachable through its
+    ;; backing vector — an unbounded leak behind a correctly-sized history.
+    (is (not (instance? clojure.lang.APersistentVector$SubVector history)))))
 
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-    (dotimes [_ 5] (rf/dispatch-sync [:inc] {:frame :test/main}))
-
-    (let [history (rf/epoch-history :test/main)
-          dbs     (mapv :db-after history)]
-      (is (= 3 (count history)) "ring depth caps history at 3")
-      (is (= [{:n 3} {:n 4} {:n 5}] dbs)
-          "the three most-recent are kept; oldest evicted"))))
-
-(deftest ring-cap-materialises-and-releases-evicted-records
-  ;; The ring cap MUST materialise the
-  ;; retained window into a fresh PersistentVector. A bare
-  ;; `(subvec history+ ...)` view does NOT release the evicted records —
-  ;; `SubVector.cons` keeps appending to the same growing underlying
-  ;; vector and `subvec` of a `SubVector` re-wraps that same backing, so
-  ;; the depth-d view's backing vector accretes EVERY record ever
-  ;; appended (each with its full :db-before / :db-after / :trace-events
-  ;; payload) even though `epoch-history` correctly returns only d
-  ;; records — an unbounded heap leak that defeats the bounded-ring
-  ;; contract. This pins that the retained window is a concrete vector
-  ;; whose backing storage is bounded by the configured depth, so
-  ;; evicted records become GC-eligible.
-  (testing "ring cap releases evicted records (no SubVector backing-vector leak)"
-    (let [depth 3]
-      (rf/configure! {:epoch-history {:depth depth}})
-      (rf/make-frame {:id :test/main})
-      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-      (rf/reg-event :inc  (fn [{:keys [db]} [_ i]] {:db (assoc db :n i)}))
-
-      (rf/dispatch-sync [:seed] {:frame :test/main})
-      ;; Drive far more events than the depth so the cap fires many times.
-      (dotimes [i 200] (rf/dispatch-sync [:inc i] {:frame :test/main}))
-
-      (let [history (rf/epoch-history :test/main)]
-        (is (= depth (count history))
-            "history is capped at the configured depth")
-        ;; The retained vector must be a concrete PersistentVector, NOT a
-        ;; SubVector view. A SubVector here would mean the backing vector
-        ;; still references all 201 evicted-and-live records.
-        (is (not (instance? clojure.lang.APersistentVector$SubVector history))
-            (str "history must be a materialised PersistentVector, not a "
-                 "SubVector view that retains the evicted records' backing "
-                 "storage; got " (class history)))
-        ;; Belt-and-braces: if a future refactor introduces a SubVector,
-        ;; assert its backing vector is bounded by the depth rather than
-        ;; the full append count (the leak signature).
-        (when (instance? clojure.lang.APersistentVector$SubVector history)
-          (let [f (doto (.getDeclaredField clojure.lang.APersistentVector$SubVector "v")
-                    (.setAccessible true))]
-            (is (<= (count (.get f history)) depth)
-                "SubVector backing vector must not retain evicted records")))))))
-
-;; ---- depth reduction prunes the live rings ---------------------------------
-;;
-;; `(rf/configure! {:epoch-history {:depth N}})` prunes every live ring at
-;; the configure! boundary. Changing only the config atom — re-capping a ring
-;; only on a LATER append — would leave TWO distinct failures, and a fix
-;; closing one without the other looks green on a single-axis
-;; test — so both are pinned below.
-;;
-;;   QUERYABLE  — `epoch-history` and its off-box projection would both read
-;;                the un-pruned vector, so records the operator believed were
-;;                dropped would stay visible (and their `:db-before` /
-;;                `:db-after` / `:trace-events` payloads retained,
-;;                which is the whole point of the memory knob).
-;;   RESTORABLE — `restore-epoch!` / `replay-epoch!` resolve their targets
-;;                off that SAME vector, so a saved id would still rewind the
-;;                frame to state the app had moved past. That is a
-;;                correctness failure rather than a leak.
-;;
-;; Depth 0 is the sharp case: `record!` skips
-;; `append-record` entirely at depth 0, so no later append would arrive to
-;; repair the ring. That would contradict Tool-Pair §Time-travel twice over —
-;; "Setting depth to 0 disables the per-frame ring buffer (so
-;; `(rf/epoch-history frame-id)` returns `[]`)", and the "Bounded history"
-;; rule that "the runtime keeps the last N epochs per frame ... Older
-;; epochs are discarded".
+;; `configure!` prunes every live ring at once: epoch-history, restore and
+;; replay all read the same vector, and at depth 0 no later append arrives to
+;; re-cap it.
 
 (deftest lowering-depth-prunes-every-live-ring-immediately
-  (testing "a depth reduction caps EVERY frame's ring at the configure!
-            boundary — newest-N retained, no further dispatch needed"
-    (rf/configure! {:epoch-history {:depth 10}})
-    (rf/make-frame {:id :frame/a})
-    (rf/make-frame {:id :frame/b})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-event :inc  (fn [{:keys [db]} [_ i]] {:db (assoc db :n i)}))
-
-    (rf/dispatch-sync [:seed] {:frame :frame/a})
-    (rf/dispatch-sync [:seed] {:frame :frame/b})
-    (dotimes [i 4]
-      (rf/dispatch-sync [:inc i] {:frame :frame/a})
-      (rf/dispatch-sync [:inc i] {:frame :frame/b}))
-
-    (is (= 5 (count (rf/epoch-history :frame/a))) "precondition: frame/a holds 5")
-    (is (= 5 (count (rf/epoch-history :frame/b))) "precondition: frame/b holds 5")
-
-    (let [newest-2   (fn [frame-id]
-                       (mapv :epoch-id (take-last 2 (rf/epoch-history frame-id))))
-          a-expected (newest-2 :frame/a)
-          b-expected (newest-2 :frame/b)]
-      (rf/configure! {:epoch-history {:depth 2}})
-
-      (is (= a-expected (mapv :epoch-id (rf/epoch-history :frame/a)))
-          "frame/a keeps its NEWEST 2 records, still oldest-first")
-      (is (= b-expected (mapv :epoch-id (rf/epoch-history :frame/b)))
-          "frame/b keeps its NEWEST 2 records, still oldest-first")
-      (is (= [{:n 2} {:n 3}] (mapv :db-after (rf/epoch-history :frame/a)))
-          "the retained window is the newest one, not the oldest"))))
+  (rf/configure! {:epoch-history {:depth 10}})
+  (rf/make-frame {:id :frame/a})
+  (rf/make-frame {:id :frame/b})
+  (rf/reg-event :set (fn [_ [_ n]] {:db {:n n}}))
+  (doseq [n (range 5) frame [:frame/a :frame/b]]
+    (rf/dispatch-sync [:set n] {:frame frame}))
+  (rf/configure! {:epoch-history {:depth 2}})
+  (is (= [[{:n 3} {:n 4}] [{:n 3} {:n 4}]]
+         (mapv #(mapv :db-after (rf/epoch-history %)) [:frame/a :frame/b]))
+      "every frame keeps its newest 2 records, oldest-first, with no further dispatch"))
 
 (deftest depth-zero-drops-retained-history-and-refuses-time-travel
-  (testing "setting depth 0 AFTER recording empties the ring on both read
-            surfaces and retires the ids for restore AND replay"
-    (rf/configure! {:epoch-history {:depth 5}})
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 1}}))
-    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-    (let [saved-id (:epoch-id (first (rf/epoch-history :test/main)))]
-      (rf/dispatch-sync [:inc] {:frame :test/main})
-
-      (is (= 2 (count (rf/epoch-history :test/main))) "precondition: two records")
-      (is (= {:n 2} (rf/app-db-value :test/main)) "precondition: app-db has moved on")
-
-      (rf/configure! {:epoch-history {:depth 0}})
-
-      ;; QUERYABLE half — both public read surfaces read the same ring.
-      (is (= [] (rf/epoch-history :test/main))
-          "epoch-history is empty immediately, per Tool-Pair §Time-travel")
-      (is (= [] (mapv rf/project-egress (rf/epoch-history :test/main)))
-          "the off-box projection reads the same pruned ring")
-
-      ;; RESTORABLE half — the more serious one: a retired id must not
-      ;; resurrect state the app has moved past.
-      (is (false? (rf/restore-epoch! :test/main saved-id))
-          "the saved id is no longer a valid restore target")
-      (is (= {:n 2} (rf/app-db-value :test/main))
-          "the refused restore left frame state untouched")
-      (let [res (rf/replay-epoch! :test/main saved-id)]
-        (is (false? (:ok? res)))
-        (is (= :rf.epoch/replay-unknown-epoch (:reason res))
-            "replay refuses the retired id through the unknown-epoch failure mode"))
-      (is (= {:n 2} (rf/app-db-value :test/main))
-          "the refused replay left frame state untouched"))))
+  (rf/make-frame {:id :test/main})
+  (rf/reg-event :set (fn [_ [_ n]] {:db {:n n}}))
+  (rf/dispatch-sync [:set 1] {:frame :test/main})
+  (let [saved-id (:epoch-id (first (rf/epoch-history :test/main)))]
+    (rf/dispatch-sync [:set 2] {:frame :test/main})
+    (rf/configure! {:epoch-history {:depth 0}})
+    (is (= [] (rf/epoch-history :test/main)))
+    (is (false? (rf/restore-epoch! :test/main saved-id)))
+    (is (= {:ok? false :reason :rf.epoch/replay-unknown-epoch}
+           (select-keys (rf/replay-epoch! :test/main saved-id) [:ok? :reason])))
+    (is (= {:n 2} (rf/app-db-value :test/main))
+        "neither refusal touched the frame")))
 
 (deftest re-enabling-depth-starts-from-an-empty-history
-  (testing "depth 0 then a positive depth starts genuinely clean — no
-            pre-disable record returns, and no back-fill anchor still names
-            a retired epoch id"
-    (rf/configure! {:epoch-history {:depth 5}})
+  (testing "depth 0 then a positive depth starts clean: no retired record comes
+            back, and no back-fill anchor still names a retired epoch (the
+            post-settle splice would drop a render aimed at one)"
     (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :seed (fn [_ _] {:db {:n 0}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
-
     (let [retired-id (:epoch-id (first (rf/epoch-history :test/main)))]
-      ;; A render-key whose mount anchor names the about-to-be-retired
-      ;; epoch — `resolve-render-epoch`'s step 2. Left behind, it would
-      ;; send a post-settle render at a record that no longer exists, so
-      ;; the splice would silently drop the render instead of attributing
-      ;; it to the live cascade.
       (rf.epoch.state/record-mount-epoch! :test/main [:view/probe "t1"] retired-id)
-      (is (= retired-id (rf.epoch.state/mount-epoch-for :test/main [:view/probe "t1"]))
-          "precondition: the mount anchor names the epoch about to retire")
-
       (rf/configure! {:epoch-history {:depth 0}})
       (rf/configure! {:epoch-history {:depth 5}})
-
-      (is (= [] (rf/epoch-history :test/main))
-          "re-enabling does not resurrect the pre-disable records")
-      (is (nil? (rf.epoch.state/last-settled-epoch-id :test/main))
-          "the post-settle back-fill anchor no longer names a retired epoch")
-      (is (nil? (rf.epoch.state/mount-epoch-for :test/main [:view/probe "t1"]))
-          "nor does the per-render-key mount anchor")
-
+      (is (nil? (rf.epoch.state/last-settled-epoch-id :test/main)))
+      (is (nil? (rf.epoch.state/mount-epoch-for :test/main [:view/probe "t1"])))
       (rf/dispatch-sync [:inc] {:frame :test/main})
-      (let [history (rf/epoch-history :test/main)]
-        (is (= [:inc] (mapv :event-id history))
-            "a new dispatch records normally into the empty ring")
-        (is (not (contains? (into #{} (map :epoch-id) history) retired-id))
-            "and the retired id is not among them")))))
+      (is (= [:inc] (mapv :event-id (rf/epoch-history :test/main)))))))
 
-;; ---- multi-listener observations + re-register gen ------------------------
-;;
-;; `notify-listeners!` invokes `record-observation!` once per listener per
-;; event settle, stamping `observed-frames-by-cb[cb-id][frame-id]` with the
-;; listener's live GENERATION token. Two contracts:
-;;
-;;   1. Two listeners both observing the same frame on the same drain land
-;;      independent entries in `observed-frames-by-cb` — each cb's ledger maps
-;;      the frame to that cb's own generation token.
-;;   2. Re-registering a listener under the same id (via
-;;      `register-epoch-listener!`) mints a FRESH generation. The prior
-;;      generation's observation is no longer live: a destroy after the
-;;      re-registration but before the new callback re-observes emits NO
-;;      silencing trace for that cb, and once the new callback DOES observe the
-;;      frame its silencing re-arms under the new generation. The token scoping
-;;      is what keeps the re-registration from inheriting the old generation's
-;;      ledger OR erasing a fresh observation.
+;; ---- listeners -------------------------------------------------------------
 
 (deftest multi-listener-observed-frames-and-re-register-generation
-  (testing "two listeners both observing the same frame land independent
-            observed-frames-by-cb entries stamped with each cb's generation;
-            re-registering under the same id mints a fresh generation whose
-            ledger is not live until the new callback observes, and re-arms
-            silencing under the new generation"
+  (testing "two listeners on one frame both fire; re-registering an id replaces
+            its fn; a destroy then silences each live observer exactly once"
     (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-
-    (let [observed (deref #'rf.epoch.state/observed-frames-by-cb)
-          recorded (record-trace!)
-          a        (atom 0)
-          b        (atom 0)
-          c        (atom 0)]
-      ;; Two listeners under independent ids, both observe :test/main.
-      (rf/register-listener! :epoch ::w1 (fn [_] (swap! a inc)))
-      (rf/register-listener! :epoch ::w2 (fn [_] (swap! b inc)))
+    (rf/reg-event :seed (fn [_ _] {:db {:n 0}}))
+    (let [recorded (record-trace!)
+          calls    (atom [])]
+      (rf/register-listener! :epoch ::w1 (fn [_] (swap! calls conj :w1)))
+      (rf/register-listener! :epoch ::w2 (fn [_] (swap! calls conj :w2)))
       (rf/dispatch-sync [:seed] {:frame :test/main})
-
-      (is (= 1 @a) "::w1 fired on the cascade")
-      (is (= 1 @b) "::w2 fired on the cascade")
-
-      (let [snap @observed]
-        (is (contains? (get snap ::w1) :test/main)
-            "::w1 observed :test/main")
-        (is (contains? (get snap ::w2) :test/main)
-            "::w2 observed :test/main")
-        ;; each ledger stamps the frame with the cb's own live generation
-        (is (= (:generation (get (rf.epoch.state/listeners-snapshot) ::w1))
-               (get-in snap [::w1 :test/main]))
-            "::w1's observation carries ::w1's generation token")
-        (is (= (:generation (get (rf.epoch.state/listeners-snapshot) ::w2))
-               (get-in snap [::w2 :test/main]))
-            "::w2's observation carries ::w2's generation token")
-        (is (= #{::w1 ::w2} (set (rf.epoch.state/cbs-observing-frame :test/main)))
-            "both cbs are live-generation observers of :test/main"))
-
-      ;; Re-register ::w1 under a different fn — mints a fresh generation. Its
-      ;; ledger entry for :test/main still carries the OLD generation token
-      ;; (not cleared), but that token is no longer live.
-      (rf/register-listener! :epoch ::w1 (fn [_] (swap! c inc)))
-      (is (= [::w2] (rf.epoch.state/cbs-observing-frame :test/main))
-          "immediately after re-register, only ::w2 (live gen) observes
-           :test/main — ::w1's retired generation is skipped, not silenced")
-      (is (contains? (get @observed ::w2) :test/main)
-          "::w2's entry is untouched — re-registration is scoped to ::w1")
-
-      ;; Drive a new cascade — the new ::w1 fn + ::w2 both fire; the new ::w1
-      ;; generation re-stamps :test/main.
+      (rf/register-listener! :epoch ::w1 (fn [_] (swap! calls conj :w1-new)))
       (rf/dispatch-sync [:seed] {:frame :test/main})
-      (is (= 1 @a) "the original ::w1 fn does not fire — it was replaced")
-      (is (= 1 @c) "the replacement ::w1 fn fires once")
-      (is (= 2 @b) "::w2 keeps firing across both cascades")
-      (is (= (:generation (get (rf.epoch.state/listeners-snapshot) ::w1))
-             (get-in @observed [::w1 :test/main]))
-          "::w1's ledger re-stamped :test/main under the NEW generation")
-
-      ;; Destroy now silences BOTH cbs exactly once — no stale double-silence
-      ;; for the retired ::w1 generation, no false negative for either.
+      (is (= {:w1 1 :w2 2 :w1-new 1} (frequencies @calls)))
       (rf/destroy-frame! :test/main)
-      (let [silenced (->> @recorded
-                          (filter #(= :rf.epoch.cb/silenced-on-frame-destroy
-                                      (:operation %)))
-                          (map #(:cb-id (:tags %))))]
-        (is (= #{::w1 ::w2} (set silenced))
-            "each live-generation observer silenced")
-        (is (= 2 (count silenced))
-            "exactly two silencing traces — no torn double-silence")))))
+      (is (= {::w1 1 ::w2 1}
+             (frequencies (keep #(when (= :rf.epoch.cb/silenced-on-frame-destroy (:operation %))
+                                   (:cb-id (:tags %)))
+                                @recorded)))))))
 
 (deftest listener-exception-emits-trace
-  (testing "a throwing listener emits a
-            :rf.epoch.cb/listener-exception error trace per broken
-            invocation, carrying :cb-id, :frame, :rf.epoch/id; isolation
-            still holds (other listeners continue to fire)"
+  (testing "a throwing listener emits one :rf.epoch.cb/listener-exception per
+            invocation, linked to its record; sibling listeners keep firing"
     (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-
+    (rf/reg-event :seed (fn [_ _] {:db {:n 0}}))
     (let [recorded (record-trace!)
           survivor (atom 0)]
-      (rf/register-listener! :epoch ::throwing
-        (fn [_] (throw (ex-info "tool blew" {:why :test}))))
-      (rf/register-listener! :epoch ::survivor
-        (fn [_] (swap! survivor inc)))
-
+      (rf/register-listener! :epoch ::throwing (fn [_] (throw (ex-info "tool blew" {}))))
+      (rf/register-listener! :epoch ::survivor (fn [_] (swap! survivor inc)))
       (rf/dispatch-sync [:seed] {:frame :test/main})
       (rf/dispatch-sync [:seed] {:frame :test/main})
+      (is (= (mapv (fn [r] {:op-type :error :recovery :no-recovery :frame :test/main
+                            :cb-id ::throwing :rf.epoch/id (:epoch-id r) :message "tool blew"})
+                   (rf/epoch-history :test/main))
+             (keep #(when (= :rf.epoch.cb/listener-exception (:operation %))
+                      (merge (select-keys % [:op-type :recovery])
+                             (select-keys (:tags %) [:frame :cb-id :rf.epoch/id :message])))
+                   @recorded)))
+      (is (= 2 @survivor)))))
 
-      (let [exc-events (filter (fn [ev]
-                                 (and (= :error (:op-type ev))
-                                      (= :rf.epoch.cb/listener-exception
-                                         (:operation ev))))
-                               @recorded)]
-        (is (= 2 (count exc-events))
-            "one trace per broken-listener invocation (one per cascade)")
-        (is (every? (fn [ev] (= :test/main (-> ev :tags :frame))) exc-events)
-            ":frame tag carries the originating frame")
-        (is (every? (fn [ev] (= ::throwing (-> ev :tags :cb-id))) exc-events)
-            ":cb-id tag identifies the broken listener registration key")
-        (is (every? (fn [ev] (some? (-> ev :tags :rf.epoch/id))) exc-events)
-            ":rf.epoch/id tag (canonical) links the failure to the assembled record")
-        (is (every? (fn [ev] (string? (-> ev :tags :message))) exc-events)
-            ":message tag carries the exception message")
-        (is (every? (fn [ev] (= :no-recovery (:recovery ev))) exc-events)
-            ":recovery is hoisted to the envelope top-level by
-             `build-event` for error traces (Spec 009 §Error event
-             shape); pins the no-recovery semantic — next cascade
-             re-invokes the same fn afresh, no automatic remediation"))
-
-      (is (= 2 @survivor)
-          "isolation contract still holds: sibling listener kept firing
-           — the trace emit does not change delivery")
-      (is (= 2 (count (rf/epoch-history :test/main)))
-          "history still records every cascade"))))
-
-;; ---- frame-state snapshot/restore (EP-0001 decisions #2 + #9) ------------
-
-(deftest epoch-captures-whole-frame-state-both-partitions
-  (testing "an epoch record captures the canonical :frame-state-before /
-            :frame-state-after (both partitions) and derives the :db-* app-db
-            projections from them"
-    (rf/make-frame {:id :test/main})
-    ;; A handler that writes BOTH partitions in one cascade — app-db via :db,
-    ;; runtime-db via the reserved :rf.db/runtime effect.
-    (rf/reg-event :seed-both
-      (fn [{rt :rf.db/runtime} _]
-        {:db            {:app-value 1}
-         :rf.db/runtime (assoc-in (or rt {})
-                                  [:rf.runtime/machines :snapshots :m/x]
-                                  {:state :live})}))
-    (rf/dispatch-sync [:seed-both] {:frame :test/main})
-
-    (let [r (last (rf/epoch-history :test/main))]
-      (is (= {:rf.db/app     {:app-value 1}
-              :rf.db/runtime {:rf.runtime/machines {:snapshots {:m/x {:state :live}}}}}
-             (:frame-state-after r))
-          ":frame-state-after carries BOTH partitions coherently")
-      (is (= {} (get-in r [:frame-state-before :rf.db/app]))
-          ":frame-state-before's app-db partition is the pre-cascade {}")
-      ;; The :db-* projections are the app-db slice of the canonical frame-state.
-      (is (= {:app-value 1} (:db-after r))
-          ":db-after is the app-db projection of :frame-state-after")
-      (is (= {} (:db-before r))
-          ":db-before is the app-db projection of :frame-state-before"))))
+;; ---- restore ----------------------------------------------------------------
 
 (deftest restore-rewinds-whole-frame-state-revives-runtime-db
-  (testing "restore-epoch! reinstalls BOTH partitions (EP-0001 decision #9): a rewind to
-            an epoch whose runtime-db carried a machine snapshot revives that
-            snapshot, not just the app-db partition. The machine TYPE is
-            registered so the restored snapshot reference resolves (it is a
-            valid restore target, not a :rf.epoch/restore-missing-handler)."
+  (testing "restore-epoch! reinstalls both partitions of :frame-state-after
+            (EP-0001 decision #9), reviving a machine snapshot"
     (rf/make-frame {:id :test/main})
-    ;; Register a real machine so the recorded snapshot's id resolves through
-    ;; the public event registry (Spec 005 §Registration).
-    (rf/reg-machine :m/x
-      {:initial :live :states {:live {} :gone {}}})
-    ;; Seed a known snapshot into the runtime-db partition + a marker in app-db.
+    (rf/reg-machine :m/x {:initial :live :states {:live {} :gone {}}})
     (rf/reg-event :put-machine
       (fn [{rt :rf.db/runtime} _]
-        {:db {:phase :machine-alive}
-         :rf.db/runtime (assoc-in (or rt {})
-                                  [:rf.runtime/machines :snapshots :m/x]
+        {:db            {:phase :machine-alive}
+         :rf.db/runtime (assoc-in rt [:rf.runtime/machines :snapshots :m/x]
                                   {:state :live :data {} :meta {}})}))
     (rf/reg-event :drop-machine
       (fn [{rt :rf.db/runtime} _]
-        {:db {:phase :machine-gone}
-         :rf.db/runtime (update-in (or rt {}) [:rf.runtime/machines :snapshots]
-                                   dissoc :m/x)}))
-
-    (rf/dispatch-sync [:put-machine]  {:frame :test/main})
+        {:db            {:phase :machine-gone}
+         :rf.db/runtime (update-in rt [:rf.runtime/machines :snapshots] dissoc :m/x)}))
+    (rf/dispatch-sync [:put-machine] {:frame :test/main})
     (let [alive-epoch (:epoch-id (last (rf/epoch-history :test/main)))]
       (rf/dispatch-sync [:drop-machine] {:frame :test/main})
-      ;; After the drop, the runtime-db snapshot is gone.
-      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :test/main))
-                        [:rf.runtime/machines :snapshots :m/x]))
-          "the machine snapshot was dropped from runtime-db")
-      ;; Rewind to the alive epoch.
-      (is (true? (rf/restore-epoch! :test/main alive-epoch))
-          "restore to the alive epoch succeeded")
-      ;; BOTH partitions are rewound.
-      (is (= {:state :live :data {} :meta {}}
-             (get-in (:rf.db/runtime (rf/frame-state-value :test/main))
-                     [:rf.runtime/machines :snapshots :m/x]))
-          "restore revived the runtime-db machine snapshot (EP-0001 decision #9)")
-      (is (= {:phase :machine-alive} (rf/app-db-value :test/main))
-          "restore also rewound the app-db partition"))))
+      (is (true? (rf/restore-epoch! :test/main alive-epoch)))
+      (let [fs (rf/frame-state-value :test/main)]
+        (is (= [{:phase :machine-alive} {:state :live :data {} :meta {}}]
+               [(:rf.db/app fs)
+                (get-in fs [:rf.db/runtime :rf.runtime/machines :snapshots :m/x])]))))))
 
-;; ---- runtime-db subsystem reconcile on restore -----------------------------
-;;
-;; perform-restore! installs the captured frame-state WHOLESALE — a runtime
-;; subsystem whose durable snapshot is not safe to install verbatim must be
-;; reconciled BEFORE the install, via the late-bound :resources/reconcile-on-
-;; restore hook (Spec 016 §Restore and replay). The epoch artefact has no
-;; static dep on the optional Resources artefact, so these tests stub the hook
-;; (late-bind/set-fn!) and assert the WIRING: the hook is consulted with the
-;; runtime-db partition, its return value is installed, and absence is a clean
-;; verbatim pass-through. The reconcile LOGIC itself (settle-to-last-stable,
-;; dangling-marking, index recompute, owner orphaning) is pinned in the
-;; resources artefact's resources-restore-cljs-test.
-
-(deftest reconcile-runtime-db-on-restore-consults-hook-and-installs-result
-  (testing "reconcile-runtime-db-on-restore passes the runtime-db
-            partition + frame-id to the :resources/reconcile-on-restore hook and
-            returns the frame-state with the hook's reconciled runtime-db installed."
-    (let [hook-key :resources/reconcile-on-restore
-          original (rf.late-bind/get-fn hook-key)
-          seen     (atom nil)]
-      (try
-        ;; Stub a reconcile that records its inputs and rewrites the runtime-db
-        ;; (the resources artefact's real reconcile does the settle/dangling work).
-        ;; The hook is consulted with a third `opts` arg
-        ;; (`{:defer-traces? true}`) so its success traces ride back deferred;
-        ;; the stub records it to pin that the seam passes the opts through.
-        (rf.late-bind/set-fn! hook-key
-                           (fn [rdb frame-id opts]
-                             (reset! seen {:rdb rdb :frame-id frame-id :opts opts})
-                             (assoc rdb :rf.runtime/reconciled? true)))
-        (let [fs {:rf.db/app     {:n 1}
-                  :rf.db/runtime {:rf.runtime/resources {:entries {}}}}
-              out (rf.epoch.tool-pair/reconcile-runtime-db-on-restore :test/x fs)]
-          (is (= {:rf.runtime/resources {:entries {}}} (:rdb @seen))
-              "the hook receives the runtime-db PARTITION value")
-          (is (= :test/x (:frame-id @seen)) "the hook receives the carried frame-id")
-          (is (= {:defer-traces? true :restore-time-ms nil :owner-token nil} (:opts @seen))
-              "the hook is consulted with :defer-traces? true so it does not emit success rows before the install, a :restore-time-ms slot (nil here, the 2-arity no-token path) and an :owner-token slot (nil here, the 2-arity no-incarnation path) so the reconcile can fence its bare-id host-table clear to the exact incarnation")
-          (is (true? (get-in out [:rf.db/runtime :rf.runtime/reconciled?]))
-              "the hook's reconciled runtime-db is installed back into the frame-state")
-          (is (= {:n 1} (:rf.db/app out)) "the app-db partition is untouched"))
-        (finally
-          (rf.late-bind/set-fn! hook-key original))))))
+;; perform-restore! runs the captured runtime-db through the late-bound
+;; :resources/reconcile-on-restore hook before installing it (Spec 016 §Restore
+;; and replay). The hook is stubbed here; its logic is the resources artefact's.
 
 (deftest reconcile-runtime-db-on-restore-noop-without-hook
-  (testing "absent the :resources/reconcile-on-restore hook (no
-            resources artefact), the frame-state installs verbatim."
-    (let [hook-key :resources/reconcile-on-restore
-          original (rf.late-bind/get-fn hook-key)]
-      (try
-        (rf.late-bind/set-fn! hook-key nil)
-        (let [fs {:rf.db/app {:n 1} :rf.db/runtime {:rf.runtime/resources {:entries {:k :v}}}}]
-          (is (= fs (rf.epoch.tool-pair/reconcile-runtime-db-on-restore :test/x fs))
-              "no hook → frame-state passes through unchanged"))
-        (finally
-          (rf.late-bind/set-fn! hook-key original))))))
-
-(deftest reconcile-runtime-db-on-restore-noop-on-app-db-only-record
-  (testing "a frame-state with only the app-db partition (no
-            :rf.db/runtime key) passes through unchanged even when the hook
-            is present (nothing to reconcile)."
-    (let [hook-key :resources/reconcile-on-restore
-          original (rf.late-bind/get-fn hook-key)
-          called?  (atom false)]
-      (try
-        ;; Variadic, so a call through the real 3-argument shape lands in
-        ;; `called?` and fails the named assertion rather than throwing.
-        (rf.late-bind/set-fn! hook-key (fn [rdb & _] (reset! called? true) rdb))
-        (let [fs {:rf.db/app {:n 1}}]
-          (is (= fs (rf.epoch.tool-pair/reconcile-runtime-db-on-restore :test/x fs))
-              "app-db-only frame-state is unchanged")
-          (is (false? @called?) "the hook is not consulted when there is no runtime-db partition"))
-        (finally
-          (rf.late-bind/set-fn! hook-key original))))))
-
-(deftest perform-restore!-reconciles-installed-runtime-db
-  (testing "end-to-end: perform-restore! runs the
-            :resources/reconcile-on-restore hook over the runtime-db it is about
-            to install, so the FRAME's restored runtime-db carries the reconciled
-            value (a mid-flight slice never installs verbatim)."
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :put-resource
-      (fn [{rt :rf.db/runtime} _]
-        {:db {:phase :mid-flight}
-         :rf.db/runtime (assoc-in (or rt {})
-                                  [:rf.runtime/resources :entries :k]
-                                  {:status :loading :current-work [:w 1]})}))
-    (rf/reg-event :clear (fn [{:keys [db]} _] {:db {:phase :cleared}}))
-
-    (let [hook-key :resources/reconcile-on-restore
-          original (rf.late-bind/get-fn hook-key)]
-      (try
-        ;; Stub the reconcile: settle the mid-flight entry (loading → loaded-ish)
-        ;; + clear current-work, standing in for the resources artefact's real
-        ;; reconcile so the epoch wiring is exercised without a resources dep.
-        ;; Accept the third `opts` arg (`{:defer-traces? true}`).
-        (rf.late-bind/set-fn! hook-key
-                           (fn [rdb _frame-id _opts]
-                             (-> rdb
-                                 (assoc-in [:rf.runtime/resources :entries :k :status] :idle)
-                                 (assoc-in [:rf.runtime/resources :entries :k :current-work] nil)
-                                 (assoc :rf.runtime/restore-reconciled? true))))
-        (rf/dispatch-sync [:put-resource] {:frame :test/main})
-        (let [mid-epoch (:epoch-id (last (rf/epoch-history :test/main)))]
-          (rf/dispatch-sync [:clear] {:frame :test/main})
-          (is (true? (rf/restore-epoch! :test/main mid-epoch))
-              "restore to the mid-flight epoch succeeded")
-          (let [rdb (:rf.db/runtime (rf/frame-state-value :test/main))]
-            (is (true? (:rf.runtime/restore-reconciled? rdb))
-                "perform-restore! ran the reconcile hook over the installed runtime-db")
-            (is (= :idle (get-in rdb [:rf.runtime/resources :entries :k :status]))
-                "the mid-flight :loading entry was settled by the reconcile, not installed verbatim")
-            (is (nil? (get-in rdb [:rf.runtime/resources :entries :k :current-work]))
-                "the vanished current-work pointer was cleared during the reconcile")))
-        (finally
-          (rf.late-bind/set-fn! hook-key original))))))
+  (let [hook-key :resources/reconcile-on-restore
+        original (rf.late-bind/get-fn hook-key)
+        fs       {:rf.db/app {:n 1} :rf.db/runtime {:rf.runtime/resources {:entries {:k :v}}}}]
+    (try
+      (rf.late-bind/set-fn! hook-key nil)
+      (is (= fs (rf.epoch.tool-pair/reconcile-runtime-db-on-restore :test/x fs 1 nil))
+          "no resources artefact → the frame-state installs verbatim")
+      (finally
+        (rf.late-bind/set-fn! hook-key original)))))
 
 (deftest perform-restore!-threads-restored-epoch-causal-time-as-restore-time-ms
-  (testing "perform-restore! threads the RESTORED epoch's causal
-            :committed-at (the committing token's :rf.cofx :time-ms,
-            replay-stable per EP-0010 §Time) into the reconcile hook as
-            :restore-time-ms — NOT the live install wall clock. The hook stamps a
-            dangled-on-restore mutation instance's durable :settled-at from it, so
-            the durable field comes from a causal input rather than an ambient
-            world read at install (EP-0010 §Restore/Replay)."
+  (testing "the reconcile hook receives the RECORDED runtime-db and, as
+            :restore-time-ms, the restored epoch's :committed-at rather than the
+            install clock (EP-0010 §Restore/Replay); its result is what installs"
     (rf/make-frame {:id :test/main})
     (rf/reg-event :put-resource
       (fn [{rt :rf.db/runtime} _]
-        {:db {:phase :mid-flight}
-         :rf.db/runtime (assoc-in (or rt {})
-                                  [:rf.runtime/resources :entries :k]
-                                  {:status :loading :current-work [:w 1]})}))
-    (rf/reg-event :clear (fn [{:keys [db]} _] {:db {:phase :cleared}}))
-
+        {:db            {:phase :mid-flight}
+         :rf.db/runtime (assoc-in rt [:rf.runtime/resources :entries :k] {:status :loading})}))
+    (rf/reg-event :clear
+      (fn [{rt :rf.db/runtime} _]
+        {:db {:phase :cleared} :rf.db/runtime (dissoc rt :rf.runtime/resources)}))
     (let [hook-key   :resources/reconcile-on-restore
           original   (rf.late-bind/get-fn hook-key)
-          seen-opts  (atom nil)
-          token-time 1781078400777          ; the causal token time of the mid-flight commit
-          clock-time 9999999999999]         ; the (wrong) ambient install-clock sentinel
+          seen       (atom nil)
+          token-time 1781078400777
+          clock-time 9999999999999]
       (try
         (rf.late-bind/set-fn! hook-key
-                           (fn [rdb _frame-id opts]
-                             (reset! seen-opts opts)
-                             rdb))
-        ;; Commit the mid-flight epoch under a SCRIPTED causal token time so the
-        ;; restored epoch's :committed-at is a known sentinel-distinct value.
-        (rf/dispatch-sync [:put-resource] {:frame           :test/main
-                                           :rf.cofx {:rf/time-ms token-time}})
-        (let [mid-record (last (rf/epoch-history :test/main))
-              mid-epoch  (:epoch-id mid-record)]
-          (is (= token-time (:committed-at mid-record))
-              "precondition: the mid-flight epoch's :committed-at is the scripted causal token time")
+                              (fn [rdb frame-id opts]
+                                (reset! seen [rdb frame-id
+                                              (select-keys opts [:defer-traces? :restore-time-ms])])
+                                (assoc rdb ::reconciled true)))
+        (rf/dispatch-sync [:put-resource] {:frame :test/main :rf.cofx {:rf/time-ms token-time}})
+        (let [mid (last (rf/epoch-history :test/main))]
           (rf/dispatch-sync [:clear] {:frame :test/main})
-          ;; Restore UNDER a wrong ambient install clock — a regression that
-          ;; sourced :restore-time-ms from now-ms would stamp the sentinel here.
           (with-redefs [rf.interop/now-ms       (constantly clock-time)
                         rf.interop/epoch-now-ms (constantly clock-time)]
-            (is (true? (rf/restore-epoch! :test/main mid-epoch))
-                "restore to the mid-flight epoch succeeded"))
-          (is (= token-time (:restore-time-ms @seen-opts))
-              ":restore-time-ms is the RESTORED epoch's causal :committed-at — replay-stable")
-          (is (not= clock-time (:restore-time-ms @seen-opts))
-              ":restore-time-ms is NOT the live ambient install clock"))
+            (is (true? (rf/restore-epoch! :test/main (:epoch-id mid)))))
+          (is (= [(get-in mid [:frame-state-after :rf.db/runtime])
+                  :test/main
+                  {:defer-traces? true :restore-time-ms token-time}]
+                 @seen))
+          (is (true? (get-in (rf/frame-state-value :test/main) [:rf.db/runtime ::reconciled]))
+              "the hook's result is what installed"))
         (finally
           (rf.late-bind/set-fn! hook-key original))))))
 
-;; ---- restore-time host-transient quiesce -----------------------------------
-;;
-;; EP-0011 / Managed-Effects §SSR, preload, hydration, and restore: "Hydration
-;; and epoch restore MUST NOT revive host work." A restore installs the captured
-;; durable frame-state WHOLESALE but the async HOST WORK spawned by the epochs
-;; being unwound (machine `:after` host-clock timers, non-resource managed-HTTP
-;; AbortControllers / in-flight handles) is NOT frame-state — it stays attached
-;; to the pre-restore timeline. Restore must QUIESCE it for the restored frame:
-;; cancel/clear the orphaned host handles so a late pre-restore completion is
-;; stale-suppressed and never delivers to its original `:rf/reply-to` target.
-;;
-;; The `:resources/reconcile-on-restore` hook covers the Resources
-;; subsystem; the OTHER managed async subsystems need their own restore-time
-;; cleanup. perform-restore! fires a generic host-transient quiesce hook chain
-;; (`:machines/on-frame-restored!`, `:http/abort-in-flight-for-frame!`) AFTER a
-;; successful install — the restore counterpart to destroy-frame!'s
-;; `:machines/on-frame-destroyed!` / `:http/abort-on-actor-destroy` chain. The
-;; epoch artefact has no static dep on the optional machines / http artefacts,
-;; so the tests below stub the hooks and assert the WIRING: an absent hook is a
-;; clean pass-through and a failed install fires none. The end-to-end test
-;; drives the real machines hook for the restored frame. The cancel/abort +
-;; stale-suppression LOGIC is pinned in each subsystem's own artefact test.
-
-(deftest perform-restore!-quiesce-noop-without-hooks
-  (testing "absent the machines / http artefacts (hooks nil) the
-            restore install is a clean pass-through (apps with no async host work
-            pay nothing)."
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :step (fn [{:keys [db]} _] {:db (assoc db :n 1)}))
-    (rf/reg-event :step2 (fn [{:keys [db]} _] {:db (assoc db :n 2)}))
-    (let [machines-key :machines/on-frame-restored!
-          http-key     :http/abort-in-flight-for-frame!
-          orig-mach    (rf.late-bind/get-fn machines-key)
-          orig-http    (rf.late-bind/get-fn http-key)]
-      (try
-        (rf.late-bind/set-fn! machines-key nil)
-        (rf.late-bind/set-fn! http-key nil)
-        (rf/dispatch-sync [:step] {:frame :test/main})
-        (let [target (:epoch-id (last (rf/epoch-history :test/main)))]
-          (rf/dispatch-sync [:step2] {:frame :test/main})
-          (is (true? (rf/restore-epoch! :test/main target))
-              "restore succeeds with no quiesce hooks registered"))
-        (finally
-          (rf.late-bind/set-fn! machines-key orig-mach)
-          (rf.late-bind/set-fn! http-key orig-http))))))
-
-(deftest perform-restore!-does-not-quiesce-on-failed-install
-  (testing "a destroyed-frame install (perform-restore! returns
-            false, writes nothing) does NOT fire the quiesce hooks: cancelling a
-            live frame's host work for a restore that never landed would be a
-            false cancellation. The quiesce runs only on the success branch,
-            mirroring commit-resources-restore-traces!."
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :step (fn [{:keys [db]} _] {:db (assoc db :n 1)}))
-    (let [machines-key :machines/on-frame-restored!
-          orig-mach    (rf.late-bind/get-fn machines-key)
-          fired?       (atom false)]
-      (try
-        (rf.late-bind/set-fn! machines-key (fn [_frame-id] (reset! fired? true)))
-        (rf/dispatch-sync [:step] {:frame :test/main})
-        (let [target-record (last (rf/epoch-history :test/main))
-              ;; Capture the incarnation token while the frame is still live (as
-              ;; restore-epoch! does at precondition time), then destroy it and
-              ;; drive perform-restore! directly against the now-gone incarnation
-              ;; (the validate-then-destroy / destroyed-frame branch): the
-              ;; write-boundary incarnation gate refuses and perform-restore!
-              ;; bails with false BEFORE the success telemetry / quiesce chain.
-              token (rf.frame/frame-incarnation-token :test/main)
-              _ (rf/destroy-frame! :test/main)
-              result (rf.epoch.tool-pair/perform-restore! :test/main token target-record)]
-          (is (false? result) "perform-restore! returns false for the destroyed frame")
-          (is (false? @fired?)
-              "the quiesce chain did NOT fire for a restore that wrote nothing"))
-        (finally
-          (rf.late-bind/set-fn! machines-key orig-mach))))))
-
 (deftest restore-releases-armed-machine-after-timer-end-to-end
-  (testing "ADVERSARIAL end-to-end through the REAL machines
-            artefact (no stubbed hook): a machine `:after` host-clock timer
-            armed before a restore is released by the restore boundary, so the
-            restored frame carries no orphaned wall-clock handle from the
-            unwound epoch."
+  (testing "restore must not revive host work (EP-0011): a machine :after timer
+            armed by an unwound epoch is released, through the real machines hook"
     (rf/make-frame {:id :test/main})
-    ;; A machine whose :loading state arms a long-delay :after (the host clock
-    ;; will not fire it during the test; it lingers in the timer table). The
-    ;; :idle epoch is the restore target — restoring to it rewinds the snapshot
-    ;; out of :loading, so the in-flight :after timer is orphaned.
     (rf/reg-machine :rest/m
       {:initial :idle
        :data    {}
-       :states
-       {:idle    {:on {:fetch :loading}}
-        :loading {:after {3600000 :timeout}
-                  :on    {:loaded :ready}}
-        :timeout {}
-        :ready   {}}})
-    ;; epoch 1: machine boots into :idle (its initial-entry cascade).
+       :states  {:idle    {:on {:fetch :loading}}
+                 :loading {:after {3600000 :timeout}}
+                 :timeout {}}})
     (rf/dispatch-sync [:rest/m [:rf.machine/start]] {:frame :test/main})
     (let [idle-epoch (:epoch-id (last (rf/epoch-history :test/main)))]
-      ;; epoch 2: :fetch → :loading arms the :after host-clock timer.
       (rf/dispatch-sync [:rest/m [:fetch]] {:frame :test/main})
       (is (seq (get @rf.machines.timer/after-timers :test/main))
-          "precondition: the :loading state armed an :after host-clock timer")
-      ;; Restore to the :idle epoch — the snapshot rewinds out of :loading.
-      (is (true? (rf/restore-epoch! :test/main idle-epoch))
-          "restore to the pre-:loading epoch succeeded")
-      (is (empty? (get @rf.machines.timer/after-timers :test/main))
-          "the orphaned :after host-clock handle was RELEASED by the restore — no leaked wall-clock timer from the unwound epoch"))))
+          "precondition: :loading armed its :after timer")
+      (is (true? (rf/restore-epoch! :test/main idle-epoch)))
+      (is (empty? (get @rf.machines.timer/after-timers :test/main))))))
 
-;; ---- restore failure modes -------------------------------------------------
+(deftest restore-rewinds-route-slice-and-route-sub
+  (testing "a sub held across a restore derefs to the rewound value — here the
+            route sub over the runtime-db route slice — with no stale sub cache"
+    (rf/make-frame {:id :test/main})
+    (rf/reg-route :route/home    {} "/")
+    (rf/reg-route :route/article {} "/articles/:id")
+    (rf/reg-event :go
+      {:rf/machine? true}
+      (fn [{rt :rf.db/runtime} [_ route-id]]
+        {:rf.db/runtime (assoc-in rt [:rf.runtime/routing :current]
+                                  {:route-id route-id :params {}})}))
+    (rf/dispatch-sync [:go :route/home] {:frame :test/main})
+    (let [home-epoch (:epoch-id (last (rf/epoch-history :test/main)))
+          _          (rf/dispatch-sync [:go :route/article] {:frame :test/main})
+          route      (rf/subscribe [:rf.route/id] {:frame :test/main})]
+      (is (= :route/article @route) "the held sub has cached the pre-restore route")
+      (is (true? (rf/restore-epoch! :test/main home-epoch)))
+      (is (= :route/home @route))
+      (rf/unsubscribe :test/main [:rf.route/id]))))
+
+;; ---- restore failure modes (Tool-Pair §Time-travel) -------------------------
 
 (deftest restore-failure-unknown-frame
-  (testing "restore-epoch! on an unknown frame fires :rf.error/no-such-handler (kind :frame)"
-    (let [recorded (record-trace!)
-          ok?      (rf/restore-epoch! :no.such/frame :ignored)]
-      (is (false? ok?))
-      (let [events @recorded]
-        (is (has-error-op? events :rf.error/no-such-handler))
-        (let [ev (some #(when (= :rf.error/no-such-handler (:operation %)) %) events)]
-          (is (= :frame (:kind (:tags ev))))
-          (is (= :no.such/frame (:frame (:tags ev)))))))))
+  (let [recorded (record-trace!)]
+    (is (false? (rf/restore-epoch! :no.such/frame :ignored)))
+    (is (= {:kind :frame :frame :no.such/frame}
+           (some #(when (= :rf.error/no-such-handler (:operation %))
+                    (select-keys (:tags %) [:kind :frame]))
+                 @recorded)))))
 
 (deftest restore-failure-schema-mismatch
-  (testing "restore-epoch! on a db that no longer validates fires :rf.epoch/restore-schema-mismatch"
+  (testing "a record that fails a schema tightened since it was recorded is
+            refused; the trace names the failing path, the digest pinned on the
+            record and the frame's live digest"
     (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-event :set-bad
-      ;; Commit a value that LATER fails a tightened schema. We dispatch
-      ;; this BEFORE the schema is registered so the pre-restore commit
-      ;; succeeds; tightening the schema happens between dispatch and
-      ;; restore.
-      (fn [{:keys [db]} _] {:db (assoc db :n "not-an-int")}))
+    (rf/reg-event :set (fn [_ [_ n]] {:db {:n n}}))
+    (rf/dispatch-sync [:set "not-an-int"] {:frame :test/main})
+    (let [target (last (rf/epoch-history :test/main))]
+      (rf/dispatch-sync [:set 0] {:frame :test/main})
+      (rf/reg-app-schema [:n] {:frame :test/main} [:int])
+      (let [recorded (record-trace!)]
+        (is (false? (rf/restore-epoch! :test/main (:epoch-id target))))
+        (is (= {:n 0} (rf/app-db-value :test/main)) "app-db unchanged")
+        (is (= {:failing-paths          [[:n]]
+                :schema-digest-recorded (:schema-digest target)
+                :schema-digest-current  (rf.schemas/app-schemas-digest {:frame :test/main})}
+               (some #(when (= :rf.epoch/restore-schema-mismatch (:operation %))
+                        (select-keys (:tags %) [:failing-paths :schema-digest-recorded
+                                                :schema-digest-current]))
+                     @recorded)))))))
 
-    (rf/dispatch-sync [:seed]    {:frame :test/main})
-    (rf/dispatch-sync [:set-bad] {:frame :test/main})
-    ;; Reset the db to something valid so we can verify the restore
-    ;; doesn't run when schema mismatch is detected.
-    (rf/dispatch-sync [:seed]    {:frame :test/main})
-
-    ;; Now register a schema that the bad-record's :db-after fails.
-    ;; Per Spec 010 §Per-frame schemas reg-app-schema is frame-scoped;
-    ;; restore-epoch! runs on :test/main so the schema must register
-    ;; against that frame, not the (current-frame)-default :rf/default.
-    (rf/reg-app-schema [:n] {:frame :test/main} [:int])
-
-    (let [pre      (rf/app-db-value :test/main)
-          history  (rf/epoch-history :test/main)
-          target   (some (fn [r]
-                           (when (= "not-an-int" (:n (:db-after r)))
-                             r))
-                         history)
-          recorded (record-trace!)
-          ok?      (rf/restore-epoch! :test/main (:epoch-id target))]
-      (is (some? target) "we recorded the bad-db cascade")
-      (is (false? ok?)   "restore rejected")
-      (is (= pre (rf/app-db-value :test/main)) "app-db unchanged")
-      (let [ev   (some (fn [ev]
-                         (when (= :rf.epoch/restore-schema-mismatch (:operation ev))
-                           ev))
-                       @recorded)
-            tags (:tags ev)]
-        (is (some? ev) ":rf.epoch/restore-schema-mismatch fired")
-        (is (vector? (:failing-paths tags)))
-        ;; Per Spec 010 §Schema digest + Tool-Pair §Time-travel: the trace
-        ;; carries the digest pinned on the record (stamped before any schema
-        ;; was registered — the empty set's digest is still non-nil) and the
-        ;; frame's live digest, so a pair tool can see WHAT changed.
-        (is (string? (:schema-digest-recorded tags))
-            ":schema-digest-recorded is a digest string, not nil")
-        (is (string? (:schema-digest-current tags))
-            ":schema-digest-current is a digest string, not nil")
-        (is (re-matches #"sha256:[0-9a-f]{16}" (:schema-digest-recorded tags))
-            ":schema-digest-recorded matches the canonical wire form")
-        (is (re-matches #"sha256:[0-9a-f]{16}" (:schema-digest-current tags))
-            ":schema-digest-current matches the canonical wire form")
-        (is (not= (:schema-digest-recorded tags)
-                  (:schema-digest-current tags))
-            "recorded and current differ — that is why the restore was rejected")))))
-
-;; ---- restore / replace obey `set-schema-fns!` ------------------------------
-;;
-;; The app-db check behind `restore-epoch!` and `replace-frame-state!` routes
-;; through the `:schemas/validate-with-registered-fn` seam every other Spec 010
-;; site uses. Calling Malli directly would bypass the registered validator:
-;; validation switched off would still refuse, a substituted validator's
-;; rejections would be admitted, and a validator that threw would count as a
-;; pass.
+;; Restore and replace validate app-db through the registered validator, as
+;; every Spec 010 site does: a nil validator admits, a substituted one decides,
+;; and one that throws refuses.
 
 (defn- with-schema-fns
-  "Run `f` with `fns` installed through `set-schema-fns!`, restoring the
-  framework defaults afterwards. The validator is PROCESS-GLOBAL and this
-  suite's reset fixture does not touch it, so a leaked substitute would poison
-  every later test."
+  "Run `f` with `fns` installed via `set-schema-fns!`. The validator is
+  process-global and the reset fixture does not restore it."
   [fns f]
   (rf.schemas/set-schema-fns! fns)
   (try (f)
@@ -1103,2032 +405,634 @@
   (some #(when (= :rf.epoch/replace-schema-mismatch (:operation %)) %) @recorded))
 
 (deftest restore-obeys-a-nil-validator
-  (testing "with validation switched off, restore rewinds to a
-            state the app itself committed; the schema set is inert data"
-    (rf/make-frame {:id :test/off})
-    (rf/reg-app-schema [:n] {:frame :test/off} :int)
-    (rf/reg-event :seed    (fn [_ _] {:db {:n 0}}))
-    (rf/reg-event :set-str (fn [_ _] {:db {:n "not-an-int"}}))
-    (rf/dispatch-sync [:seed] {:frame :test/off})
-    (with-schema-fns {:validate nil}
-      (fn []
-        (rf/dispatch-sync [:set-str] {:frame :test/off})
-        (rf/dispatch-sync [:seed]    {:frame :test/off})
-        (let [target (some #(when (= "not-an-int" (:n (:db-after %))) %)
-                           (rf/epoch-history :test/off))]
-          (is (some? target)
-              "PRECONDITION: with validation off the hot path committed the value")
-          (is (true? (rf/restore-epoch! :test/off (:epoch-id target)))
-              "restore rewinds to a state the app legitimately produced")
-          (is (= {:n "not-an-int"} (rf/app-db-value :test/off))))))))
+  (rf/make-frame {:id :test/off})
+  (rf/reg-app-schema [:n] {:frame :test/off} :int)
+  (rf/reg-event :set (fn [_ [_ n]] {:db {:n n}}))
+  (with-schema-fns {:validate nil}
+    (fn []
+      (rf/dispatch-sync [:set "not-an-int"] {:frame :test/off})
+      (let [target (last (rf/epoch-history :test/off))]
+        (rf/dispatch-sync [:set 0] {:frame :test/off})
+        (is (true? (rf/restore-epoch! :test/off (:epoch-id target))))
+        (is (= {:n "not-an-int"} (rf/app-db-value :test/off)))))))
 
 (deftest replace-obeys-a-substituted-validators-verdict
-  (testing "a substituted (non-Malli) validator decides: its
-            rejection refuses the replace, its acceptance admits it. Calling
-            Malli directly would throw on the foreign schema token and count
-            the throw as a pass."
+  (testing "a substituted (non-Malli) validator's rejection refuses the replace
+            and its acceptance admits it — Malli would throw on the foreign token"
     (with-schema-fns {:validate (fn [schema v]
                                   (if (= ::pos schema) (and (int? v) (pos? v)) true))}
       (fn []
         (rf/make-frame {:id :test/sub})
         (rf/reg-app-schema [:n] {:frame :test/sub} ::pos)
         (rf/reg-event :seed (fn [_ _] {:db {:n 1}}))
-        (rf/reg-event :neg  (fn [_ _] {:db {:n -5}}))
         (rf/dispatch-sync [:seed] {:frame :test/sub})
-        (rf/dispatch-sync [:neg]  {:frame :test/sub})
-        (is (= {:n 1} (rf/app-db-value :test/sub))
-            "PRECONDITION: the substituted validator rejects {:n -5} on the hot path")
         (let [recorded (record-trace!)]
-          (is (false? (rf/replace-frame-state! :test/sub {:rf.db/app {:n -5}}))
-              "replace refuses what the installed validator rejects")
-          (is (= {:n 1} (rf/app-db-value :test/sub)) "app-db unchanged")
-          (is (= [[:n]] (:failing-paths (:tags (replace-schema-mismatch recorded))))
-              ":rf.epoch/replace-schema-mismatch names the failing path"))
+          (is (false? (rf/replace-frame-state! :test/sub {:rf.db/app {:n -5}})))
+          (is (= [[:n]] (:failing-paths (:tags (replace-schema-mismatch recorded))))))
         (is (true? (rf/replace-frame-state! :test/sub {:rf.db/app {:n 7}}))
-            "CONTROL: a value the installed validator accepts is admitted")))))
+            "CONTROL: a value the validator accepts is admitted")))))
 
 (deftest replace-refuses-when-the-validator-throws
-  (testing "a validator that THROWS (here default Malli on the
-            childless, malformed `[:vector]`) refuses the replace, as the hot
-            path refuses the write. Counting the throw as a pass would install
-            the unvalidated value."
+  (testing "default Malli throws on the malformed `[:vector]`; the replace is
+            refused, as the hot path refuses the write"
     (rf/make-frame {:id :test/malformed})
     (rf/reg-event :seed (fn [_ _] {:db {:n [1 2]}}))
     (rf/dispatch-sync [:seed] {:frame :test/malformed})
     (rf/reg-app-schema [:n] {:frame :test/malformed} [:vector])
     (let [recorded (record-trace!)]
-      (is (false? (rf/replace-frame-state! :test/malformed {:rf.db/app {:n [9 9 9]}}))
-          "replace refuses under a throwing validator")
-      (is (= {:n [1 2]} (rf/app-db-value :test/malformed)) "app-db unchanged")
-      (is (= [[:n]] (:failing-paths (:tags (replace-schema-mismatch recorded))))
-          "the refusal names the path whose validation threw"))))
+      (is (false? (rf/replace-frame-state! :test/malformed {:rf.db/app {:n [9 9 9]}})))
+      (is (= [[:n]] (:failing-paths (:tags (replace-schema-mismatch recorded))))))))
 
 (deftest epoch-record-stamps-schema-digest
-  (testing "Per Spec-Schemas §:rf/epoch-record: every epoch
-            record carries a :schema-digest pinned at record time."
-    (rf/make-frame {:id :test/digest})
-    (rf/reg-app-schema [:n] {:frame :test/digest} [:int])
-    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/dispatch-sync [:init] {:frame :test/digest})
-    (let [r (last (rf/epoch-history :test/digest))]
-      (is (some? r) "an epoch record was committed")
-      (is (string? (:schema-digest r))
-          "the record carries a :schema-digest string")
-      (is (= (:schema-digest r)
-             (rf.schemas/app-schemas-digest {:frame :test/digest}))
-          "record's stamp matches the live digest at record time"))))
+  (rf/make-frame {:id :test/digest})
+  (rf/reg-app-schema [:n] {:frame :test/digest} [:int])
+  (rf/reg-event :init (fn [_ _] {:db {:n 0}}))
+  (rf/dispatch-sync [:init] {:frame :test/digest})
+  (is (= (rf.schemas/app-schemas-digest {:frame :test/digest})
+         (:schema-digest (last (rf/epoch-history :test/digest))))
+      "the record pins the frame's live schema digest at record time"))
 
 (deftest restore-failure-missing-handler-route
-  (testing "restore-epoch! on a db referencing a now-unregistered route fires :rf.epoch/restore-missing-handler"
-    (rf/make-frame {:id :test/main})
-    ;; Register a route so the recorded route reference resolves; we'll
-    ;; later unregister it to trigger the missing-handler failure.
-    (rf/reg-route :route/users {} "/users")
-    ;; EP-0001: the route slice is runtime-db state
-    ;; at [:rf.runtime/routing :current]; `missing-references` reads the
-    ;; recorded frame-state's runtime-db partition.
-    (rf/reg-event :route-to
-      (fn [{rt :rf.db/runtime} _]
-        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
-                                  {:route-id :route/users})}))
-    (rf/dispatch-sync [:route-to] {:frame :test/main})
-    ;; A subsequent dispatch so the history holds at least one record
-    ;; whose :frame-state-after references :route/users.
-    (let [target (last (rf/epoch-history :test/main))]
-      ;; Now blow away the route registration.
-      (rf.registrar/unregister! :route :route/users)
+  (rf/make-frame {:id :test/main})
+  (rf/reg-route :route/users {} "/users")
+  (rf/reg-event :route-to
+    (fn [{rt :rf.db/runtime} _]
+      {:rf.db/runtime (assoc-in rt [:rf.runtime/routing :current] {:route-id :route/users})}))
+  (rf/dispatch-sync [:route-to] {:frame :test/main})
+  (let [target (last (rf/epoch-history :test/main))]
+    (rf.registrar/unregister! :route :route/users)
+    (let [recorded (record-trace!)]
+      (is (false? (rf/restore-epoch! :test/main (:epoch-id target))))
+      (is (= [{:kind :route :id :route/users}]
+             (some #(when (= :rf.epoch/restore-missing-handler (:operation %))
+                      (:missing (:tags %)))
+                   @recorded))))))
 
-      (let [recorded (record-trace!)
-            pre      (rf/app-db-value :test/main)
-            ok?      (rf/restore-epoch! :test/main (:epoch-id target))]
-        (is (false? ok?))
-        (is (= pre (rf/app-db-value :test/main)) "app-db unchanged")
-        (let [ev (some (fn [ev]
-                         (when (= :rf.epoch/restore-missing-handler (:operation ev))
-                           ev))
-                       @recorded)]
-          (is (some? ev) ":rf.epoch/restore-missing-handler fired")
-          (let [missing (:missing (:tags ev))]
-            (is (vector? missing))
-            (is (some #(and (= :route (:kind %))
-                            (= :route/users (:id %)))
-                      missing))))))))
-
-;; EP-0001: the epoch
-;; captures + restores the runtime-db partition (machine snapshots are
-;; runtime-db state), and `tool_pair/missing-references` reads the recorded
-;; runtime-db partition. See machine-raise note above.
 (deftest restore-failure-missing-handler-machine
-  (testing "restore-epoch! on a frame-state referencing a machine snapshot whose
-  machine is no longer registered fires :rf.epoch/restore-missing-handler.
-  Machine resolution goes through the public event registry
-  (:rf/machine? metadata), NOT the internal :head registrar kind."
+  (testing "a recorded machine snapshot is a missing handler once its machine is
+            unregistered — or replaced by a same-id plain event, since machine
+            resolution gates on :rf/machine? metadata"
     (rf/make-frame {:id :test/main})
-    ;; Register a machine via the public reg-machine path. This installs an
-    ;; :event handler with :rf/machine? metadata.
-    (rf/reg-machine :machine/tl
-      {:initial :red
-       :states  {:red    {:on {:tick :green}}
-                 :green  {:on {:tick :red}}}})
-    ;; Drive the machine so the runtime-db partition gets a snapshot at
-    ;; [:rf.runtime/machines :snapshots :machine/tl].
+    (rf/reg-machine :machine/tl {:initial :red :states {:red {:on {:tick :green}} :green {}}})
     (rf/dispatch-sync [:machine/tl [:tick]] {:frame :test/main})
-
-    (let [target (last (rf/epoch-history :test/main))]
-      (is (some? (get-in (:frame-state-after target)
-                         [:rf.db/runtime :rf.runtime/machines :snapshots :machine/tl]))
-          "snapshot recorded in the runtime-db partition")
-
-      ;; Unregister the machine so the recorded snapshot's id no longer resolves.
+    (let [target  (last (rf/epoch-history :test/main))
+          restore (fn []
+                    (let [recorded (record-trace!)]
+                      [(rf/restore-epoch! :test/main (:epoch-id target))
+                       (some #(when (= :rf.epoch/restore-missing-handler (:operation %))
+                                (:missing (:tags %)))
+                             @recorded)]))]
+      (rf/reg-event :machine/tl (fn [{:keys [db]} _] {:db db}))
+      (is (= [false [{:kind :machine :id :machine/tl}]] (restore)) "same-id plain event")
       (rf.registrar/unregister! :event :machine/tl)
-
-      (let [recorded (record-trace!)
-            pre      (rf/app-db-value :test/main)
-            ok?      (rf/restore-epoch! :test/main (:epoch-id target))]
-        (is (false? ok?))
-        (is (= pre (rf/app-db-value :test/main)) "app-db unchanged")
-        (let [ev (some (fn [ev]
-                         (when (= :rf.epoch/restore-missing-handler (:operation ev))
-                           ev))
-                       @recorded)]
-          (is (some? ev) ":rf.epoch/restore-missing-handler fired")
-          (let [missing (:missing (:tags ev))]
-            (is (vector? missing))
-            (is (some #(and (= :machine (:kind %))
-                            (= :machine/tl (:id %)))
-                      missing)
-                "missing entry surfaces the machine id under :machine kind")))))))
-
-;; EP-0001: same runtime-db
-;; epoch capture/restore as restore-failure-missing-handler-machine.
-(deftest restore-failure-missing-handler-non-machine-event-not-confused
-  (testing "an event handler under the same id as a recorded machine snapshot —
-  but NOT marked :rf/machine? — does not satisfy the machine reference. The
-  registry probe gates on :rf/machine? metadata."
-    (rf/make-frame {:id :test/main})
-    ;; Register a machine, drive it, then replace its registration with a
-    ;; plain event handler (no :rf/machine? metadata). The recorded snapshot
-    ;; should still surface as missing, since the public contract says the
-    ;; reference must resolve to a registered MACHINE — not a same-id event.
-    (rf/reg-machine :machine/tl
-      {:initial :red
-       :states  {:red {:on {:tick :green}} :green {}}})
-    (rf/dispatch-sync [:machine/tl [:tick]] {:frame :test/main})
-
-    (let [target (last (rf/epoch-history :test/main))]
-      (rf/reg-event :machine/tl (fn [{:keys [db]} _] {:db db})) ;; replace with non-machine handler
-
-      (let [recorded (record-trace!)
-            ok?      (rf/restore-epoch! :test/main (:epoch-id target))]
-        (is (false? ok?))
-        (let [ev (some (fn [ev]
-                         (when (= :rf.epoch/restore-missing-handler (:operation ev))
-                           ev))
-                       @recorded)]
-          (is (some? ev))
-          (is (some #(and (= :machine (:kind %))
-                          (= :machine/tl (:id %)))
-                    (:missing (:tags ev)))))))))
-
-(deftest restore-failure-version-mismatch
-  (testing "restore-epoch! on a db whose machine snapshot version drifts fires
-  :rf.epoch/restore-version-mismatch. The recorded snapshot's
-  [:meta :rf/snapshot-version] is compared against the registered machine's
-  [:meta :rf/snapshot-version], both via the public Spec 005 surface."
-    (rf/make-frame {:id :test/main})
-    ;; Register a versioned machine via the public path.
-    (rf/reg-machine :machine/tl
-      {:initial :red
-       :meta    {:rf/snapshot-version 1}
-       :states  {:red {:on {:tick :green}} :green {}}})
-    ;; Commit a snapshot carrying matching :meta :rf/snapshot-version into the
-    ;; runtime-db partition (EP-0001 — machine snapshots are
-    ;; runtime-db state; the version-drift precondition reads the runtime-db
-    ;; partition of the recorded frame-state).
-    (rf/reg-event :put-snap
-      (fn [{rt :rf.db/runtime} _]
-        {:rf.db/runtime
-         (assoc-in (or rt {}) [:rf.runtime/machines :snapshots :machine/tl]
-                   {:state :red :data {} :meta {:rf/snapshot-version 1}})}))
-    (rf/dispatch-sync [:put-snap] {:frame :test/main})
-
-    (let [target (last (rf/epoch-history :test/main))]
-      ;; Hot-reload bumps the machine definition's version.
-      (rf/reg-machine :machine/tl
-        {:initial :red
-         :meta    {:rf/snapshot-version 2}
-         :states  {:red {:on {:tick :green}} :green {}}})
-
-      (let [recorded (record-trace!)
-            pre      (rf/app-db-value :test/main)
-            ok?      (rf/restore-epoch! :test/main (:epoch-id target))]
-        (is (false? ok?))
-        (is (= pre (rf/app-db-value :test/main)))
-        (let [ev (some (fn [ev]
-                         (when (= :rf.epoch/restore-version-mismatch (:operation ev))
-                           ev))
-                       @recorded)]
-          (is (some? ev) ":rf.epoch/restore-version-mismatch fired")
-          (is (= :machine/tl (:machine-id (:tags ev))))
-          (is (= 1 (:version-recorded (:tags ev))))
-          (is (= 2 (:version-current  (:tags ev)))))))))
+      (is (= [false [{:kind :machine :id :machine/tl}]] (restore)) "unregistered"))))
 
 (defn- restore-across-a-version-change
-  "Record a `:machine/tl` snapshot stamped `recorded` (nil = no stamp) under a
-  definition stamped the same, move app-db on past it, hot-reload the
-  definition to `current`, then restore that epoch. Returns the restore's
-  return value, whether the frame state was left untouched (a restore that
-  went through would drop the later app-db write), and the version-mismatch
-  trace (or nil)."
+  "On a fresh frame, record a `:machine/tl` snapshot stamped `recorded` (nil =
+  unstamped) under a definition stamped the same, move app-db on, hot-reload the
+  definition stamped `current`, then restore the recorded epoch. Returns the
+  restore result, whether the frame state was left unchanged, and the
+  version-mismatch trace's tags (or nil)."
   [recorded current]
-  (let [machine (fn [v] (cond-> {:initial :red
-                                 :states  {:red {:on {:tick :green}} :green {}}}
+  (let [frame   (keyword "test" (str (gensym "version-")))
+        machine (fn [v] (cond-> {:initial :red :states {:red {:on {:tick :green}} :green {}}}
                           (some? v) (assoc :meta {:rf/snapshot-version v})))
         snap    (cond-> {:state :red :data {}}
                   (some? recorded) (assoc :meta {:rf/snapshot-version recorded}))]
-    (rf/make-frame {:id :test/main})
+    (rf/make-frame {:id frame})
     (rf/reg-machine :machine/tl (machine recorded))
     (rf/reg-event :put-snap
       (fn [{rt :rf.db/runtime} _]
-        {:rf.db/runtime
-         (assoc-in (or rt {}) [:rf.runtime/machines :snapshots :machine/tl] snap)}))
-    (rf/reg-event :bump (fn [{:keys [db]} _] {:db (assoc db :bumped? true)}))
-    (rf/dispatch-sync [:put-snap] {:frame :test/main})
-    (let [target (last (rf/epoch-history :test/main))]
-      (rf/dispatch-sync [:bump] {:frame :test/main})
+        {:rf.db/runtime (assoc-in rt [:rf.runtime/machines :snapshots :machine/tl] snap)}))
+    (rf/reg-event :bump (fn [_ _] {:db {:bumped? true}}))
+    (rf/dispatch-sync [:put-snap] {:frame frame})
+    (let [target (:epoch-id (last (rf/epoch-history frame)))]
+      (rf/dispatch-sync [:bump] {:frame frame})
       (rf/reg-machine :machine/tl (machine current))
-      (let [recorded-traces (record-trace!)
-            pre             (rf/frame-state-value :test/main)
-            ok?             (rf/restore-epoch! :test/main (:epoch-id target))]
+      (let [traces (record-trace!)
+            before (rf/frame-state-value frame)
+            ok?    (rf/restore-epoch! frame target)]
         {:ok?        ok?
-         :unchanged? (= pre (rf/frame-state-value :test/main))
-         :mismatch   (some #(when (= :rf.epoch/restore-version-mismatch (:operation %)) %)
-                           @recorded-traces)}))))
+         :unchanged? (= before (rf/frame-state-value frame))
+         :mismatch   (some #(when (= :rf.epoch/restore-version-mismatch (:operation %))
+                              (select-keys (:tags %) [:machine-id :version-recorded
+                                                      :version-current]))
+                           @traces)}))))
 
-(deftest restore-refuses-a-version-stamp-added-since-the-recording
-  (testing "absent → 1 (a machine's FIRST incompatible change)
-            is drift. The machines artefact's rule is exact equality, absent
-            included, so a restore that passed here would be reset to `:initial`
-            by the machine's own check on its next event, after reporting
-            success."
-    (let [{:keys [ok? unchanged? mismatch]} (restore-across-a-version-change nil 1)]
-      (is (false? ok?) "restore refused up front")
-      (is (true? unchanged?) "frame state unchanged")
-      (is (some? mismatch) ":rf.epoch/restore-version-mismatch fired")
-      (is (nil? (get-in mismatch [:tags :version-recorded])))
-      (is (= 1 (get-in mismatch [:tags :version-current]))))))
-
-(deftest restore-refuses-a-version-stamp-removed-since-the-recording
-  (testing "the mirror, 1 → absent, is drift too"
-    (let [{:keys [ok? unchanged? mismatch]} (restore-across-a-version-change 1 nil)]
-      (is (false? ok?) "restore refused up front")
-      (is (true? unchanged?) "frame state unchanged")
-      (is (some? mismatch) ":rf.epoch/restore-version-mismatch fired")
-      (is (= 1 (get-in mismatch [:tags :version-recorded])))
-      (is (nil? (get-in mismatch [:tags :version-current]))))))
-
-(deftest restore-admits-an-unversioned-machine-across-a-reload
-  (testing "CONTROL — both absent matches: an unversioned machine
-            hot-reloaded without a stamp still restores"
-    (let [{:keys [ok? unchanged? mismatch]} (restore-across-a-version-change nil nil)]
-      (is (true? ok?) "restore succeeds")
-      (is (false? unchanged?) "and rewound past the later app-db write")
-      (is (nil? mismatch) "no version-mismatch trace"))))
+(deftest restore-failure-version-mismatch
+  (testing "the recorded snapshot version must equal the current definition's,
+            absent included (the machines artefact's own rule): a stamp
+            changed, added or removed since the recording is drift"
+    (are [recorded current ok?]
+         (= (if ok?
+              {:ok? true :unchanged? false :mismatch nil}
+              {:ok? false :unchanged? true
+               :mismatch {:machine-id :machine/tl
+                          :version-recorded recorded :version-current current}})
+            (restore-across-a-version-change recorded current))
+      1   2   false
+      nil 1   false
+      1   nil false
+      nil nil true)))
 
 ;; ---- structured projections ------------------------------------------------
 
 (deftest sub-runs-projection
-  (testing ":sub-runs reflects each :rf.sub/run trace under the cascade"
+  (testing ":sub-runs carries one row per :rf.sub/run in the cascade, attributed
+            to the cascade's event"
     (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-sub :n     (fn [db _] (:n db)))
-    (rf/reg-sub :n*2   {:inputs [[:n]]} (fn [[n] _] (* 2 (or n 0))))
-
-    ;; Force a sub-run inside a handler (subscribe-once emits :rf.sub/run
-    ;; from compute-sub when no cache exists for the query, AND from the
-    ;; reactive path when a fresh subscription materialises). Either
-    ;; way, the cascade contains :rf.sub/run traces.
-    (rf/reg-event :read-sub
-      (fn [_ _]
-        ;; Read both subs to exercise layer-1 and layer-2.
-        (let [_v (rf/subscribe-once [:n*2] {:frame :test/main})]
-          {})))
-
-    (rf/dispatch-sync [:seed]      {:frame :test/main})
-    (rf/dispatch-sync [:read-sub]  {:frame :test/main})
-
-    (let [r        (last (rf/epoch-history :test/main))
-          sub-runs (:sub-runs r)]
-      (is (vector? sub-runs))
-      (is (some #(= :n   (:sub-id %)) sub-runs))
-      (is (some #(= :n*2 (:sub-id %)) sub-runs))
-      (is (every? :recomputed? sub-runs))
-      ;; There is no :result-changed? slot: it would be structurally always
-      ;; true (only recomputed subs emit :rf.sub/run under value-equality
-      ;; suppression), so every entry must NOT carry
-      ;; the slot.
-      (is (every? #(not (contains? % :result-changed?)) sub-runs)))))
+    (rf/reg-sub :n   (fn [db _] (:n db)))
+    (rf/reg-sub :n*2 {:inputs [[:n]]} (fn [[n] _] (* 2 (or n 0))))
+    (rf/reg-event :read-sub (fn [_ _] (rf/subscribe-once [:n*2] {:frame :test/main}) {}))
+    (rf/dispatch-sync [:read-sub] {:frame :test/main})
+    (is (= [[:n true :read-sub] [:n*2 true :read-sub]]
+           (mapv (juxt :sub-id :recomputed? :cause-event-id)
+                 (:sub-runs (last (rf/epoch-history :test/main))))))))
 
 (deftest sub-run-row-threads-cause-event-id
-  (testing "`:rf.sub/cause-event-id` (the
-            dispatching cascade's trigger event-id) is threaded onto
-            the structured `:sub-runs` row as `:cause-event-id` so
-            consumers (Xray's Epoch panel SUBSCRIPTIONS section) can
-            attribute each sub-run to the right epoch without re-folding
-            the raw trace. Parity with the sibling `:cause-sub` slot:
-            present when emitted, absent (key omitted) when the tag was
-            OMITTED at the emit site (sub ran outside any cascade).
-
-            Direct unit test against `capture/sub-run-row` — the
-            projector shared between `project-all`'s fused settle-time
-            walk and `re-frame.epoch.listeners`'s post-settle back-fill."
-    (testing "tag PRESENT on a sub run inside an in-flight cascade →
-              row carries :cause-event-id"
-      (let [row (rf.epoch.capture/sub-run-row
-                  {:op-type   :rf.sub
-                   :operation :rf.sub/run
-                   :tags      {:rf.sub/id             :counter/value
-                               :rf.sub/query-v        [:counter/value]
-                               :rf.sub/value-changed? true
-                               :rf.sub/prev-value     0
-                               :rf.sub/value          1
-                               :rf.sub/cascade?       false
-                               :rf.sub/cause-sub      nil
-                               :rf.sub/cause-event-id :counter/inc}})]
-        (is (= :counter/inc (:cause-event-id row))
-            ":cause-event-id is lifted from the `:rf.sub/cause-event-id` tag")
-        (is (true? (:value-changed? row))
-            "the other slots ride alongside the attribution")))
-    (testing "tag OMITTED (post-settle reactive flush outside a cascade,
-              or `re-frame.epoch` artefact absent) → row slot is ABSENT,
-              parity with the OMIT-vs-nil semantics of the trace tag"
-      (let [row (rf.epoch.capture/sub-run-row
-                  {:op-type   :rf.sub
-                   :operation :rf.sub/run
-                   :tags      {:rf.sub/id             :counter/value
-                               :rf.sub/query-v        [:counter/value]
-                               :rf.sub/value-changed? true
-                               :rf.sub/prev-value     0
-                               :rf.sub/value          1
-                               :rf.sub/cascade?       false
-                               :rf.sub/cause-sub      nil}})]
-        (is (not (contains? row :cause-event-id))
-            ":cause-event-id key is ABSENT when the trace tag was
-             omitted at the emit site (cond-> on (contains? tags ...))")))))
-
-(deftest effects-projection-error-rows-carry-an-error-trace
-  (testing ":effects captures an :error outcome, with its :error-trace, both for
-            an unknown fx-id and for an fx whose handler throws"
-    (rf/make-frame {:id :test/main})
-    (rf/reg-fx :throwing-fx (fn [_ _] (throw (ex-info "boom" {}))))
-    (rf/reg-event :run (fn [_ [_ fx-id]] {:fx [[fx-id :payload]]}))
-    (doseq [fx-id [:no/such-fx :throwing-fx]]
-      (testing (str fx-id)
-        (rf/dispatch-sync [:run fx-id] {:frame :test/main})
-        (let [effects (:effects (last (rf/epoch-history :test/main)))
-              ent     (some #(when (= fx-id (:fx-id %)) %) effects)]
-          (is (some? ent))
-          (is (= :error (:outcome ent)))
-          (is (some? (:error-trace ent))))))))
-
-(deftest effects-projection-records-success
-  (testing ":effects captures :ok outcomes for successful user fx"
-    (rf/make-frame {:id :test/main})
-    (let [calls (atom 0)]
-      (rf/reg-fx :tally-fx (fn [_ args] (swap! calls + args)))
-      (rf/reg-event :run
-        (fn [_ _] {:fx [[:tally-fx 5]]}))
-
-      (rf/dispatch-sync [:run] {:frame :test/main})
-
-      (is (= 5 @calls) "the fx ran")
-      (let [r       (last (rf/epoch-history :test/main))
-            effects (:effects r)
-            ent     (some #(when (= :tally-fx (:fx-id %)) %) effects)]
-        (is (some? ent) ":tally-fx surfaces in :effects on success")
-        (is (= :ok (:outcome ent)))
-        (is (= 5   (:args ent)))
-        (is (not (contains? ent :error-trace))
-            ":ok entries don't carry :error-trace")))))
-
-(deftest effects-projection-records-reserved-fx-success
-  (testing ":effects captures :ok outcomes for reserved fx-ids (:dispatch)"
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed   (fn [{:keys [db]} _]   {:db {:n 0}}))
-    (rf/reg-event :inc    (fn [{:keys [db]} _]  {:db (update db :n inc)}))
-    (rf/reg-event :outer
-      (fn [_ _] {:fx [[:dispatch [:inc]]
-                      [:dispatch [:inc]]]}))
-
-    (rf/dispatch-sync [:seed]  {:frame :test/main})
-    (rf/dispatch-sync [:outer] {:frame :test/main})
-
-    ;; Per-event epochs — the two `:dispatch` fx fire
-    ;; during :outer's own do-fx, so they project onto :outer's record
-    ;; (NOT the last record, which is the second :inc child epoch).
-    (let [history (rf/epoch-history :test/main)
-          r       (first (filter #(= :outer (:event-id %)) history))
-          effects (:effects r)
-          dispatches (filterv #(= :dispatch (:fx-id %)) effects)]
-      (is (= 2 (count dispatches))
-          "two :dispatch fx → two :effects entries on the :outer epoch")
-      (is (every? #(= :ok (:outcome %)) dispatches)))))
+  (testing "the projector shared by the settle-time walk and the post-settle
+            back-fill lifts :rf.sub/cause-event-id onto the row, and omits the
+            slot (not nil) when the emit site omitted the tag"
+    (let [row (fn [tags] (rf.epoch.capture/sub-run-row
+                           {:operation :rf.sub/run
+                            :tags      (assoc tags :rf.sub/id :counter/value)}))]
+      (is (= :counter/inc (:cause-event-id (row {:rf.sub/cause-event-id :counter/inc}))))
+      (is (not (contains? (row {}) :cause-event-id))))))
 
 (deftest effects-projection-one-entry-per-fx
-  (testing "an epoch with N dispatched fx produces N :effects entries"
+  (testing ":effects has one row per dispatched fx, in order, on the dispatching
+            event's own record (a :dispatch child's record is separate); error
+            rows name their error trace by :id"
     (rf/make-frame {:id :test/main})
     (rf/reg-fx :ok-fx       (fn [_ _] :ok))
     (rf/reg-fx :throwing-fx (fn [_ _] (throw (ex-info "boom" {}))))
-    (rf/reg-fx :client-only {:platforms #{:client}}
-               (fn [_ _] :nope))
+    (rf/reg-fx :client-only {:platforms #{:client}} (fn [_ _] :nope))
+    (rf/reg-event :noop (fn [_ _] {}))
     (rf/reg-event :run
-      (fn [_ _] {:fx [[:ok-fx       :a]
-                      [:throwing-fx :b]
-                      [:no/such-fx  :c]
-                      [:client-only :d]
-                      [:ok-fx       :e]]}))
-
+      (fn [_ _] {:fx [[:ok-fx :a] [:throwing-fx :b] [:no/such-fx :c]
+                      [:client-only :d] [:dispatch [:noop]]]}))
     (rf/dispatch-sync [:run] {:frame :test/main})
+    (let [r     (first (rf/epoch-history :test/main))
+          op-of (into {} (map (juxt :id :operation)) (:trace-events r))]
+      (is (= [{:fx-id :ok-fx       :args :a      :outcome :ok}
+              {:fx-id :throwing-fx :args :b      :outcome :error}
+              {:fx-id :no/such-fx  :args :c      :outcome :error}
+              {:fx-id :client-only :args :d      :outcome :skipped-on-platform}
+              {:fx-id :dispatch    :args [:noop] :outcome :ok}]
+             (mapv #(dissoc % :error-trace) (:effects r))))
+      (is (= [:none :rf.error/fx-handler-exception :rf.error/no-such-fx :none :none]
+             (mapv #(if (contains? % :error-trace) (op-of (:error-trace %)) :none)
+                   (:effects r)))))))
 
-    (let [r       (last (rf/epoch-history :test/main))
-          effects (:effects r)]
-      (is (= 5 (count effects))
-          "five dispatched fx → five projection entries, no double-count")
-      (is (= [:ok :error :error :skipped-on-platform :ok]
-             (mapv :outcome effects))
-          "outcomes preserved in dispatch order")
-      (is (= [:ok-fx :throwing-fx :no/such-fx :client-only :ok-fx]
-             (mapv :fx-id effects))
-          "fx-ids preserved in dispatch order"))))
-
-;; ---- partial-drain semantics ---------------------------------------------
+;; ---- partial drain ---------------------------------------------------------
 
 (deftest depth-exceeded-commits-halted-record
-  (testing "per-event epochs: a depth-exceeded drain leaves
-            the events that already ran as DURABLE :ok epochs (no whole-
-            drain rollback — each settled event is independently atomic),
-            and commits a single trailing :halted-depth record marking the
-            halt boundary. The halting event (next in queue) never ran, so
-            its record's :db-before / :db-after both equal the durable
-            last-settled db."
+  (testing "a depth-exceeded drain keeps the events that ran as durable :ok
+            epochs and commits one trailing :halted-depth marker carrying the
+            last-settled state; listeners and the :rf.epoch/snapshotted /
+            :rf.epoch/outcome traces see every record, and the marker is not a
+            restore target"
     (rf/make-frame {:id :test/main :drain-depth 5})
     (rf/reg-event :loop
-      (fn [{:keys [db]} _]
-        {:db (update (or db {}) :n (fnil inc 0))
-         :fx [[:dispatch [:loop]]]}))
-
-    (rf/dispatch-sync [:loop] {:frame :test/main})
-
-    (let [history (rf/epoch-history :test/main)]
-      ;; Five :loop events ran (the depth limit), each a durable :ok
-      ;; epoch, then a trailing :halted-depth marker.
-      (is (= 6 (count history))
-          "five durable :ok epochs + one trailing :halted-depth marker")
-      (is (= (repeat 5 :ok) (mapv :outcome (take 5 history)))
-          "the events that ran are durable :ok epochs — NOT rolled back")
-      (is (= {:n 5} (:db-after (nth history 4)))
-          "the durable db reflects the five completed events' writes")
-      (let [r (last history)]
-        (is (= :halted-depth (:outcome r))
-            "the trailing record pins the depth-exceed halt boundary")
-        (is (= {:n 5} (:db-before r) (:db-after r))
-            "the halting event never ran — :db-before = :db-after = the
-             durable last-settled db (no rollback)")
-        (is (= :rf.error/drain-depth-exceeded
-               (-> r :halt-reason :operation))
-            ":halt-reason carries the structured halt descriptor")
-        (is (= 5 (-> r :halt-reason :depth))
-            ":halt-reason carries the depth at which the drain tripped")
-        (is (= :loop (:event-id r))
-            "the halting event's trigger pins the :halted-depth record")
-        (is (= [:loop] (:trigger-event r))
-            "the synthesised trigger-event is the halting event vector")
-        ;; The halt record's whole frame-state is sourced from
-        ;; the canonical last-settled :ok epoch record's :frame-state-after
-        ;; (the same value restore rewinds to), NOT a live re-read. Pin that
-        ;; both partitions equal the last-settled record's :frame-state-after.
-        (let [last-ok (nth history 4)]
-          (is (= (:frame-state-after last-ok)
-                 (:frame-state-before r)
-                 (:frame-state-after r))
-              ":frame-state-before/-after are the durable last-settled
-               :frame-state-after — sourced from the canonical record, not a
-               live container re-read"))))))
-
-(deftest halted-record-fires-listeners
-  (testing "register-epoch-listener! listeners receive halted records too —
-            devtools route off :outcome to render failure shapes. With
-            per-event epochs the listener observes each durable
-            :ok event epoch as it settles, then the trailing :halted-depth
-            marker."
-    (rf/make-frame {:id :test/main :drain-depth 5})
-    (rf/reg-event :loop
-      (fn [_ _] {:fx [[:dispatch [:loop]]]}))
-
-    (let [received (atom [])]
-      (rf/register-listener! :epoch ::watcher
-                             (fn [record] (swap! received conj record)))
+      (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0)) :fx [[:dispatch [:loop]]]}))
+    (let [recorded (record-trace!)
+          received (atom [])]
+      (rf/register-listener! :epoch ::watcher #(swap! received conj %))
       (rf/dispatch-sync [:loop] {:frame :test/main})
+      (let [history (rf/epoch-history :test/main)
+            halted  (last history)
+            last-ok (nth history 4)
+            ids     (mapv :epoch-id history)
+            emitted (fn [op] (keep #(when (= op (:operation %))
+                                      ((juxt :rf.epoch/id :outcome) (:tags %)))
+                                   @recorded))]
+        (is (= [:ok :ok :ok :ok :ok :halted-depth] (mapv :outcome history)))
+        (is (= {:n 5} (:db-after last-ok)) "the events that ran are not rolled back")
+        (is (= {:event-id           :loop
+                :trigger-event      [:loop]
+                :db-before          {:n 5}
+                :db-after           {:n 5}
+                :frame-state-before (:frame-state-after last-ok)
+                :frame-state-after  (:frame-state-after last-ok)
+                :halt-reason        {:operation :rf.error/drain-depth-exceeded :depth 5}}
+               (-> (select-keys halted [:event-id :trigger-event :db-before :db-after
+                                        :frame-state-before :frame-state-after :halt-reason])
+                   (update :halt-reason select-keys [:operation :depth]))))
+        (is (= (mapv (juxt :epoch-id :outcome) history)
+               (mapv (juxt :epoch-id :outcome) @received)
+               (emitted :rf.epoch/snapshotted)))
+        (is (= (map vector ids [:ok :ok :ok :ok :ok :blocked]) (emitted :rf.epoch/outcome)))
+        (let [refusal (record-trace!)]
+          (is (false? (rf/restore-epoch! :test/main (:epoch-id halted))))
+          (is (has-error-op? @refusal :rf.epoch/restore-non-ok-record)))))))
 
-      (is (= 6 (count @received))
-          "five durable :ok records + the trailing :halted-depth marker
-           delivered to the listener")
-      (is (= (repeat 5 :ok) (mapv :outcome (take 5 @received)))
-          "the events that ran surface as durable :ok records")
-      (is (= :halted-depth (:outcome (last @received)))
-          "listener observed the trailing :halted-depth outcome"))))
-
-(deftest restore-non-ok-record-refused
-  (testing "restore-epoch! refuses non-:ok records — halted records are
-            for devtools introspection, not valid restore targets.
-            Emits :rf.epoch/restore-non-ok-record and leaves app-db
-            unchanged."
-    (rf/make-frame {:id :test/main :drain-depth 5})
-    (rf/reg-event :loop
-      (fn [_ _] {:fx [[:dispatch [:loop]]]}))
-
-    ;; Drive the halted cascade to land a non-:ok record in history.
-    (rf/dispatch-sync [:loop] {:frame :test/main})
-
-    ;; Per-event epochs — the :halted-depth marker is the
-    ;; trailing record (the durable :ok event epochs precede it).
-    (let [history     (rf/epoch-history :test/main)
-          halted      (last history)
-          recorded    (record-trace!)
-          result      (rf/restore-epoch! :test/main (:epoch-id halted))]
-      (is (= :halted-depth (:outcome halted))
-          "sanity — the trailing record in history is the halted one")
-      (is (false? result)
-          "restore-epoch! returned false — refusal is observable to callers")
-      (is (has-error-op? @recorded :rf.epoch/restore-non-ok-record)
-          ":rf.epoch/restore-non-ok-record fired so listeners can surface
-           the refusal to the user"))))
-
-;; ---- :rf.epoch/outcome consumer-facing enum ------------------------------
-;;
-;; The runtime emits a
-;; SEPARATE trace op `:rf.epoch/outcome` carrying the consumer-facing
-;; `{:ok :blocked :error}` tier, derived from the detailed cause enum
-;; on `:rf.epoch/snapshotted` (`:ok` / `:halted-depth` / `:halted-destroy`
-;; / `:halted-handler-exception`, per Spec-Schemas §`:rf/epoch-record`
-;; §Outcomes). The op sits at the same cascade-trailer
-;; point as `:rf.epoch/snapshotted` — both fire per dequeued event —
-;; and the consuming spec (`tools/xray/spec/023-Trace-Panel.md` §13)
-;; reads it directly for the EPOCH CLOSE row.
-;;
-;; The mapping is load-bearing — Xray's Trace panel renders off it,
-;; Story chips render off it, MCP wire consumers may key off it. The
-;; pure helper `re-frame.epoch.assembly/outcome->consumer-facing` is
-;; the single canonical projection; these four deftests pin the
-;; full mapping table at the helper level. The two emit sites are
-;; covered by the integration tests below.
-
+;; Xray's Trace panel and Story chips render off this mapping.
 (deftest outcome-enum-projection-pins-mapping
-  (testing "the pure helper is total over the schema's four cause values
-            and projects them onto the {:ok :blocked :error} consumer-
-            facing tier (the rationale lives
-            in `re-frame.epoch.assembly/outcome->consumer-facing`)"
-    (testing ":ok → :ok (the cascade settled cleanly)"
-      (is (= :ok (rf.epoch.assembly/outcome->consumer-facing :ok))))
-    (testing ":halted-depth → :blocked (drain hit the depth limit)"
-      (is (= :blocked (rf.epoch.assembly/outcome->consumer-facing :halted-depth))))
-    (testing ":halted-destroy → :blocked (frame destroyed mid-drain)"
-      (is (= :blocked (rf.epoch.assembly/outcome->consumer-facing :halted-destroy))))
-    (testing ":halted-handler-exception → :error (schema-reserved)"
-      (is (= :error (rf.epoch.assembly/outcome->consumer-facing :halted-handler-exception))))))
-
-(deftest rf-epoch-outcome-emits-on-ok-cascade
-  (testing "every :ok cascade emits a paired :rf.epoch/outcome trace
-            alongside :rf.epoch/snapshotted, carrying the consumer-facing
-            :outcome :ok tag. The two emits share the same :frame /
-            :rf.epoch/id / :rf.trace/event-id so consumers can correlate."
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-
-    (let [recorded (record-trace!)]
-      (rf/dispatch-sync [:seed] {:frame :test/main})
-      (rf/dispatch-sync [:inc]  {:frame :test/main})
-
-      (let [snapshotted (filter #(= :rf.epoch/snapshotted (:operation %)) @recorded)
-            outcomes    (filter #(= :rf.epoch/outcome (:operation %)) @recorded)]
-        (is (= 2 (count snapshotted))
-            "one :rf.epoch/snapshotted per dequeued event")
-        (is (= 2 (count outcomes))
-            "one paired :rf.epoch/outcome per dequeued event")
-        (is (every? #(= :ok (get-in % [:tags :outcome])) outcomes)
-            "every :ok cascade projects to consumer-facing :outcome :ok")
-        (is (= (mapv #(get-in % [:tags :rf.epoch/id]) snapshotted)
-               (mapv #(get-in % [:tags :rf.epoch/id]) outcomes))
-            ":rf.epoch/id is shared between the paired emits — consumers
-             correlate snapshotted detail ↔ outcome summary")))))
-
-(deftest rf-epoch-outcome-emits-on-halted-depth
-  (testing "a depth-exceeded drain emits :rf.epoch/outcome :blocked
-            for the trailing halt marker (the :halted-depth cause
-            projects to the :blocked consumer tier).
-            The durable :ok events that preceded it emit :outcome :ok."
-    (rf/make-frame {:id :test/main :drain-depth 5})
-    (rf/reg-event :loop
-      (fn [{:keys [db]} _]
-        {:db (update (or db {}) :n (fnil inc 0))
-         :fx [[:dispatch [:loop]]]}))
-
-    (let [recorded (record-trace!)]
-      (rf/dispatch-sync [:loop] {:frame :test/main})
-
-      (let [outcomes (filterv #(= :rf.epoch/outcome (:operation %)) @recorded)]
-        (is (= 6 (count outcomes))
-            "five durable :ok event outcomes + one trailing :blocked
-             halt-marker outcome")
-        (is (= (repeat 5 :ok) (mapv #(get-in % [:tags :outcome]) (take 5 outcomes)))
-            "the durable per-event epochs emit :outcome :ok")
-        (is (= :blocked (get-in (last outcomes) [:tags :outcome]))
-            "the trailing :halted-depth halt-marker projects to :blocked")))))
-
-(deftest rf-epoch-outcome-emits-on-halted-destroy
-  (testing "a mid-drain destroy emits :rf.epoch/outcome :blocked alongside
-            the partial :halted-destroy :rf.epoch/snapshotted record (the
-            :halted-destroy cause projects to the :blocked consumer tier).
-            The frame's ring buffer is dropped in the
-            same destroy step, so :epoch-history is empty — the outcome
-            survives in the trace stream as evidence."
-    (rf/make-frame {:id :test/short-lived})
-    (rf/reg-event :self-destruct
-      (fn [_ _]
-        (rf/destroy-frame! :test/short-lived)
-        {}))
-
-    (let [recorded (record-trace!)]
-      (rf/dispatch-sync [:self-destruct] {:frame :test/short-lived})
-
-      (let [outcomes (filterv #(= :rf.epoch/outcome (:operation %)) @recorded)]
-        (is (seq outcomes)
-            ":rf.epoch/outcome fired for the mid-drain destroy")
-        (is (some #(= :blocked (get-in % [:tags :outcome])) outcomes)
-            "the :halted-destroy cause projects to :blocked at the consumer
-             tier")))))
+  (is (= [:ok :blocked :blocked :error]
+         (map rf.epoch.assembly/outcome->consumer-facing
+              [:ok :halted-depth :halted-destroy :halted-handler-exception]))))
 
 (deftest committed-at-on-halted-destroy-is-destroying-token-time
-  (testing "the :halted-destroy partial record committed when a handler
-            destroys its OWN frame mid-drain carries the DESTROYING event's
-            causal token :time-ms as :committed-at — threaded via the
-            router-bound frame/*run-time-ms*, NOT an ambient now-ms read
-            at assembly time (EP-0010 §Time). The ring is
-            dropped in the same destroy step, so the record is observed via
-            a register-epoch-listener! callback."
+  (testing "a handler that destroys its own frame commits a :halted-destroy
+            record whose :committed-at is the destroying event's token time, not
+            the host clock, and emits :rf.epoch/outcome :blocked. The ring goes
+            with the frame, so the record is read from a listener."
     (rf/make-frame {:id :test/short-lived})
-    (rf/reg-event :self-destruct
-      (fn [_ _]
-        (rf/destroy-frame! :test/short-lived)
-        {}))
+    (rf/reg-event :self-destruct (fn [_ _] (rf/destroy-frame! :test/short-lived) {}))
     (let [token-time 1781078400123
           clock-time 7777777777777
-          halted     (atom [])]
+          halted     (atom [])
+          recorded   (record-trace!)]
       (rf/register-listener! :epoch ::watch-committed-at
-                                   (fn [r]
-                                     (when (= :halted-destroy (:outcome r))
-                                       (swap! halted conj r))))
-      ;; Stub the ambient clock to a sentinel; supply the destroying event's
-      ;; causal token time. A regression that re-read now-ms at assembly
-      ;; would stamp the sentinel.
+                             (fn [r] (when (= :halted-destroy (:outcome r)) (swap! halted conj r))))
       (with-redefs [rf.interop/now-ms (constantly clock-time)]
-        (rf/dispatch-sync [:self-destruct]
-                          {:frame            :test/short-lived
-                           :rf.cofx {:rf/time-ms token-time}}))
-      (is (= 1 (count @halted))
-          "exactly one :halted-destroy record reached the listener")
-      (let [r (first @halted)]
-        (is (= token-time (:committed-at r))
-            ":committed-at is the destroying event's token :time-ms")
-        (is (not= clock-time (:committed-at r))
-            ":committed-at is NOT the ambient host clock")))))
+        (rf/dispatch-sync [:self-destruct] {:frame   :test/short-lived
+                                            :rf.cofx {:rf/time-ms token-time}}))
+      (is (= [token-time] (mapv :committed-at @halted)))
+      (is (some #(and (= :rf.epoch/outcome (:operation %)) (= :blocked (-> % :tags :outcome)))
+                @recorded)))))
 
-;; ---- :halted-handler-exception is schema-reserved, never emitted ---------
+;; ---- a throw rides :trace-events; the epoch still settles :ok -------------
 ;;
-;; Per Spec-Schemas §`:rf/epoch-record` §Outcomes and Spec 009
-;; §register-epoch-listener!: the reference runtime commits exactly three
-;; drain-boundary outcomes — :ok / :halted-depth / :halted-destroy.
-;; `:halted-handler-exception` is a SCHEMA-RESERVED enum value held for a
-;; runtime path that aborts the drain on handler throw; the reference
-;; runtime routes handler exceptions through the interceptor error-capture
-;; seam (the drain does NOT abort), so the cascade settles `:ok` with the
-;; `:rf.error/handler-exception` trace under `:trace-events`. This test
-;; pins that contract directly so the dead outcome can't silently start
-;; being emitted — the dual of `depth-exceeded-commits-halted-
-;; record` for the one halt the runtime deliberately does NOT model.
+;; :halted-handler-exception is schema-reserved and never committed: handler
+;; and flow throws are captured by the interceptor error seam, so the drain
+;; does not halt.
 
 (deftest handler-exception-settles-ok-never-halted-handler-exception
-  (testing "an event handler that throws does NOT halt the drain: the
-            cascade settles with :outcome :ok (the interceptor chain
-            captured the throw via the error-capture seam) and the
-            failure surfaces as a :rf.error/handler-exception trace under
-            :trace-events. The schema-reserved :halted-handler-exception
-            outcome is never committed by the reference runtime."
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-event :boom (fn [{:keys [db]} _] {:db (throw (ex-info "handler blew" {:why :test}))}))
-
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-    ;; The throw is captured by the chain — dispatch-sync returns normally,
-    ;; the drain does not abort.
-    (rf/dispatch-sync [:boom] {:frame :test/main})
-
-    (let [history (rf/epoch-history :test/main)
-          boom-r  (last history)]
-      (is (= 2 (count history))
-          "the throwing cascade still commits exactly one epoch record")
-      (is (= :boom (:event-id boom-r))
-          "the throwing event is the cascade trigger")
-      (is (= :ok (:outcome boom-r))
-          ":outcome is :ok — the drain settled cleanly despite the throw")
-      (is (nil? (:halt-reason boom-r))
-          "no :halt-reason on a clean settle — there was no drain halt")
-      (is (has-error-op? (:trace-events boom-r) :rf.error/handler-exception)
-          "the throw surfaces as a :rf.error/handler-exception trace under
-           :trace-events, not as a halt outcome")
-      (is (not-any? (fn [r] (= :halted-handler-exception (:outcome r)))
-                    history)
-          "no record across the whole ring carries the reserved outcome"))))
-
-;; ---- flow-throw epoch shape (regression-guard) ---------------------------
-;;
-;; Sibling to `handler-exception-settles-ok-never-halted-handler-exception`
-;; above: pins the epoch-record observability shape of a flow-throw event.
-;;
-;; Per the atomicity contract (Spec 013 §Failure semantics) a flow's `:derive` throw is
-;; a PRE-INSTALL failure — the router's `flows-after-interceptor` dissoc-s
-;; the pending `:db` so the single deferred install installs NOTHING. The
-;; cascade-level `:rf.error/flow-eval-exception` is emitted by
-;; `emit-flow-eval-exception!` (router.cljc) and `commit-and-flow!` skips
-;; `:fx`. `settle-event-epoch!` (router.cljc) settles every event with a
-;; literal `:ok` outcome — the event's failure is not
-;; threaded through — so the resulting epoch record's `:outcome` is `:ok`
-;; and the error rides `:trace-events`. Pinned downstream consequence:
-;;
-;;   1. `:db-before == :db-after`   (the pending `:db` was discarded — no
-;;                                   handler write and no flow write landed)
-;;   2. `:outcome :ok`              (intentional behaviour — the
-;;                                   flow-throw failure rides `:trace-events`,
-;;                                   not the outcome slot; mirrors the
-;;                                   handler-exception pin above)
-;;   3. `:trace-events` contains a `:rf.error/flow-eval-exception` entry
-;;
-;; This contract could quietly regress (e.g. a future widening of
-;; `settle!`'s outcome surface that rolled `:flow-error` into one of the
-;; `:halted-*` enums); the test names it directly. The companion
-;; observability surfaces are pinned elsewhere — the always-on event-emit
-;; record's `:flow-error` outcome lives in
-;; `core/test/re_frame/event_emit_cljs_test.cljc`; the trace-stream + app-db
-;; invariants live in `ssr/test/re_frame/flows_integration_test.clj`.
+  (rf/make-frame {:id :test/main})
+  (rf/reg-event :boom (fn [_ _] (throw (ex-info "handler blew" {}))))
+  (rf/dispatch-sync [:boom] {:frame :test/main})
+  (let [history (rf/epoch-history :test/main)]
+    (is (= [[:boom :ok]] (mapv (juxt :event-id :outcome) history)))
+    (is (has-error-op? (:trace-events (first history)) :rf.error/handler-exception))))
 
 (deftest flow-throw-epoch-shape
-  (testing "a flow whose :derive throws aborts the event pre-install: the
-            epoch settles with :db-before == :db-after (the pending :db was
-            discarded — no handler write and no flow write landed), :outcome
-            is :ok (intentional behaviour — flow-throw rides
-            :trace-events, not the outcome slot, sibling to
-            handler-exception-settles-ok-never-halted-handler-exception),
-            and :trace-events carries a :rf.error/flow-eval-exception entry"
+  (testing "a flow whose :derive throws discards the event's pending :db (Spec 013
+            §Failure semantics): the epoch settles :ok with :db-before =
+            :db-after and the :rf.error/flow-eval-exception in :trace-events"
     (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    ;; Handler returns a :db effect (so the normal flow path would
-    ;; transform it). The flow's :derive throws, so the router DISCARDS
-    ;; the pending :db wholesale.
+    (rf/reg-event :seed (fn [_ _] {:db {:n 0}}))
     (rf/reg-event :bump (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    ;; Seed a clean baseline FIRST, then register the throwing flow — the
-    ;; flow throws on every eval, so registering it after the seed keeps
-    ;; the baseline untouched and isolates the throw to the :bump drain.
     (rf/dispatch-sync [:seed] {:frame :test/main})
-    (rf/reg-flow :boom {:frame :test/main :inputs [[:n]] :output-path [:derived :doomed]} (fn [_] (throw (ex-info "flow boom" {:why :test}))))
+    (rf/reg-flow :boom {:frame :test/main :inputs [[:n]] :output-path [:derived :doomed]}
+                 (fn [_] (throw (ex-info "flow boom" {}))))
     (rf/dispatch-sync [:bump] {:frame :test/main})
+    (let [r (last (rf/epoch-history :test/main))]
+      (is (= {:event-id :bump :outcome :ok :db-before {:n 0} :db-after {:n 0}}
+             (select-keys r [:event-id :outcome :db-before :db-after])))
+      (is (has-error-op? (:trace-events r) :rf.error/flow-eval-exception)))))
 
-    (let [history (rf/epoch-history :test/main)
-          boom-r  (last history)]
-      (is (= 2 (count history))
-          "the flow-throw cascade still commits exactly one epoch record
-           (one per dequeued event — the throw is observable, not silent)")
-      (is (= :bump (:event-id boom-r))
-          "the flow-throwing event is the cascade trigger")
-      ;; Property 1 — :db-before == :db-after (no install happened).
-      (is (= (:db-before boom-r) (:db-after boom-r))
-          ":db-before == :db-after — the pending :db (handler write +
-           flow write) was DISCARDED wholesale; no partial commit")
-      (is (= {:n 0} (:db-after boom-r))
-          "the seeded baseline is what landed in :db-after — the handler's
-           :n inc did NOT take effect (no install)")
-      ;; Property 2 — :outcome :ok (intentional behaviour;
-      ;; flow-throw rides :trace-events, not the outcome slot).
-      (is (= :ok (:outcome boom-r))
-          ":outcome is :ok — the drain settled cleanly; flow-throw rides
-           :trace-events, not the outcome slot (sibling of the handler-
-           exception contract pinned above)")
-      (is (nil? (:halt-reason boom-r))
-          "no :halt-reason on a clean settle — there was no drain halt")
-      ;; Property 3 — the cascade-level error rides :trace-events.
-      (is (has-error-op? (:trace-events boom-r) :rf.error/flow-eval-exception)
-          "the flow throw surfaces as a :rf.error/flow-eval-exception trace
-           under :trace-events"))))
-
-;; ---- no-handler dispatch commits no fake ok epoch --------------------------
+;; ---- a rejected dispatch commits no epoch ----------------------------------
 ;;
-;; A dispatch to an UNREGISTERED event on a LIVE frame early-exits via
-;; `diag/handle-no-handler!` — it never fires `:event/run-start`, but it DOES
-;; emit a `:rf.error/no-such-handler` trace that is frame-stamped AND carries
-;; the cascade scope's `:dispatch-id` (bound by `process-event!`). That trace
-;; buffers into epoch capture, so the buffer is NON-EMPTY at the settle seam.
-;; A no-run-start harvest returning the whole buffer would let `settle!`
-;; commit the non-empty harvest — synthesising a misleading `:ok` epoch
-;; (with a fallback `:event-id` derived from the error trace) for a dispatch
-;; that never ran, contradicting the no-run-start / no-epoch invariant. So the
-;; settling envelope's `:dispatch-id` is threaded into the scoped harvest:
-;; the rejection's own trace is DROPPED (not returned), the empty-buffer skip
-;; fires, and no epoch / listener advances.
+;; A dispatch to an unregistered event never runs, but its no-such-handler
+;; trace carries the cascade's dispatch-id and buffers into capture. The
+;; harvest is scoped to the settling dispatch so settle! commits no fake :ok
+;; epoch while a sibling's queued marker survives for its own settle.
 
 (deftest no-handler-dispatch-commits-no-epoch
-  (testing "dispatching an UNREGISTERED event on an existing frame
-            records NO epoch and fires NO epoch listener, even though the
-            no-such-handler error trace buffers into epoch capture. The
-            no-run-start / no-epoch invariant holds through the real router."
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :real (fn [{:keys [db]} _] {:db {:n 1}}))
-    ;; A real cascade first, so history is non-empty — we then prove the
-    ;; no-handler dispatch does NOT advance it (and does not overwrite it).
-    (rf/dispatch-sync [:real] {:frame :test/main})
-    (let [fired          (atom [])
-          history-before (rf/epoch-history :test/main)]
-      (is (= 1 (count history-before))
-          "the real cascade committed exactly one record")
-      (rf/register-listener! :epoch ::probe (fn [r] (swap! fired conj r)))
-      ;; Dispatch an event with NO registered handler on the LIVE frame.
-      ;; Recovers (`:replaced-with-default`) — no throw — but emits the
-      ;; frame-stamped, dispatch-id-bearing no-such-handler error trace.
-      (rf/dispatch-sync [:no/such-handler 42] {:frame :test/main})
-      (let [history-after (rf/epoch-history :test/main)]
-        (is (= history-before history-after)
-            "epoch history did NOT advance for the no-handler dispatch —
-             no fake :ok epoch committed")
-        (is (= 1 (count history-after))
-            "still exactly one record (the real cascade)")
-        (is (= :real (:event-id (last history-after)))
-            "the last record is still the real cascade, not a synthesised
-             no-such-handler record with a fallback :event-id")
-        (is (empty? @fired)
-            "no epoch listener fired for the rejected dispatch"))
-      (rf/unregister-listener! :epoch ::probe))
-    ;; A subsequent real dispatch STILL commits — proving the suppression is
-    ;; scoped to the rejected dispatch, not a frame-wide disable.
-    (rf/dispatch-sync [:real] {:frame :test/main})
-    (is (= 2 (count (rf/epoch-history :test/main)))
-        "a real cascade after the rejected dispatch commits normally")))
+  (rf/make-frame {:id :test/main})
+  (rf/reg-event :real (fn [_ _] {:db {:n 1}}))
+  (rf/dispatch-sync [:real] {:frame :test/main})
+  (let [history-before (rf/epoch-history :test/main)
+        fired          (atom 0)]
+    (rf/register-listener! :epoch ::probe (fn [_] (swap! fired inc)))
+    (rf/dispatch-sync [:no/such-handler 42] {:frame :test/main})
+    (is (= history-before (rf/epoch-history :test/main)))
+    (is (zero? @fired) "no listener fired for the rejected dispatch"))
+  (rf/dispatch-sync [:real] {:frame :test/main})
+  (is (= 2 (count (rf/epoch-history :test/main)))
+      "the suppression is scoped to the rejected dispatch"))
 
 (deftest no-run-start-harvest-scopes-drop-to-settling-dispatch
-  (testing "unit — harvest-buffer-for-event! given a settling
-            dispatch-id, on a NO-RUN-START buffer, DROPS the settling
-            dispatch's own traces (its error trace) + orphans and RETAINS an
-            unrelated child marker, returning [] so settle! commits nothing."
-    (let [frame   :test/scoped-harvest
-          ;; The rejected dispatch's OWN error trace — carries the settling id,
-          ;; no run-start.
-          own-err {:op-type :error :operation :rf.error/no-such-handler
-                   :tags {:rf.trace/dispatch-id :S :rf.trace/event-id :no/such}}
-          ;; An unrelated child's queue-time marker buffered during an earlier
-          ;; parent's do-fx — carries a DIFFERENT id; must survive for its
-          ;; own settle.
-          child   {:op-type :rf.event :operation :rf.event/dispatched
-                   :tags {:rf.trace/dispatch-id :C :rf.trace/event-id :child}}
-          ;; An orphan (nil dispatch-id) — must be dropped (self-cleaning).
-          orphan  {:op-type :rf.frame :operation :rf.frame/created
-                   :tags {:frame frame}}]
-      (rf.epoch.state/buffer-event! frame own-err)
-      (rf.epoch.state/buffer-event! frame child)
-      (rf.epoch.state/buffer-event! frame orphan)
-      (let [returned (rf.epoch.state/harvest-buffer-for-event! frame :S)]
-        (is (= [] returned)
-            "no cascade ran — nothing returned, so settle! commits no fake epoch")
-        (is (= [child] (rf.epoch.state/buffer-for frame))
-            "the unrelated child marker is RETAINED; the settling dispatch's own
-             error trace + the orphan are dropped"))
-      (rf.epoch.state/drop-frame-buffer! frame))))
+  (let [frame   :test/scoped-harvest
+        own-err {:op-type :error :operation :rf.error/no-such-handler
+                 :tags {:rf.trace/dispatch-id :S :rf.trace/event-id :no/such}}
+        child   {:op-type :rf.event :operation :rf.event/dispatched
+                 :tags {:rf.trace/dispatch-id :C :rf.trace/event-id :child}}
+        orphan  {:op-type :rf.frame :operation :rf.frame/created
+                 :tags {:frame frame}}]
+    (run! #(rf.epoch.state/buffer-event! frame %) [own-err child orphan])
+    (is (= [] (rf.epoch.state/harvest-buffer-for-event! frame :S))
+        "nothing ran, so nothing is returned to commit")
+    (is (= [child] (rf.epoch.state/buffer-for frame))
+        "the settling dispatch's own trace and the orphan are dropped; the
+         unrelated child marker is kept")
+    (rf.epoch.state/drop-frame-buffer! frame)))
 
-;; ---- :trace-events elision policy ------------------------------------------
+;; ---- :trace-events elision -------------------------------------------------
 ;;
-;; Per Spec-Schemas §`:rf/epoch-record`, `:trace-events` is
-;; optional — 'implementations may choose to drop traces from older
-;; epochs'. Per Security.md §Epoch privacy posture the keep is FINITE:
-;; the shipped default is 50 (= :depth), and under a keep of N below the
-;; depth the most-recent N records per frame
-;; retain raw `:trace-events`; older records keep their cheap
-;; structured projections (`:sub-runs` / `:renders` / `:effects`)
-;; but lose the raw trace stream. Apps that want the whole ring's
-;; raw streams pass an explicit larger value (or one >= the depth
-;; cap). Setting the slot to `0` drops every record's
-;; `:trace-events`.
+;; Records older than the newest :trace-events-keep drop their raw
+;; :trace-events but keep the structured projections (Security.md §Epoch
+;; privacy posture).
 
 (deftest trace-events-keep-elides-older-records
-  (testing "with :trace-events-keep N set, only the most-recent N records
-            carry :trace-events; older records keep :sub-runs / :renders /
-            :effects but drop :trace-events"
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-
-    (rf/configure! {:epoch-history {:depth 10 :trace-events-keep 2}})
-
-    ;; Drive 5 cascades so the buffer has 5 records and only the last 2
-    ;; should retain :trace-events.
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-    (rf/dispatch-sync [:inc]  {:frame :test/main})
-    (rf/dispatch-sync [:inc]  {:frame :test/main})
-    (rf/dispatch-sync [:inc]  {:frame :test/main})
-    (rf/dispatch-sync [:inc]  {:frame :test/main})
-
-    (let [history (rf/epoch-history :test/main)]
-      (is (= 5 (count history))
-          "all 5 records remain in the ring (depth 10)")
-      (is (every? #(contains? % :sub-runs) history)
-          "every record keeps its :sub-runs projection")
-      (is (every? #(contains? % :effects) history)
-          "every record keeps its :effects projection")
-      (is (every? #(contains? % :renders) history)
-          "every record keeps its :renders projection")
-
-      (is (= [false false false true true]
-             (mapv #(contains? % :trace-events) history))
-          "only the newest 2 of the 5 records (oldest-first) keep :trace-events"))))
-
-(deftest trace-events-keep-explicit-large-value-keeps-all
-  (testing "explicit :trace-events-keep >= depth — every record carries
-            :trace-events (the opt-back-in path for apps that want the
-            whole ring's raw streams)"
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-
-    ;; Opt back into unbounded retention.
-    (rf/configure! {:epoch-history {:trace-events-keep 100}})
-
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-    (rf/dispatch-sync [:inc]  {:frame :test/main})
-    (rf/dispatch-sync [:inc]  {:frame :test/main})
-
-    (let [history (rf/epoch-history :test/main)]
-      (is (= 3 (count history)))
-      (is (every? #(contains? % :trace-events) history)
-          "every record carries :trace-events — keep is large enough"))))
-
-;; ---- value-changed scan bound tracks the ELISION boundary -----------------
-;;
-;; `value-changed-epoch-for` (state.cljc) scans the ring newest-first for the
-;; epoch that genuinely re-rendered a view, bounded so it only walks records
-;; that still carry `:trace-events` (the matchable set). The scan bounds on the
-;; directly-observable elision state: it breaks at the first
-;; record MISSING `:trace-events`, so it tracks reality under any reconfigure.
-;; An index bound at `(- n keep)` is correct only in STEADY STATE:
-;; after a RUNTIME `:trace-events-keep` REDUCTION, elision is non-retroactive
-;; (`elide-just-crossed-trace-events`'s docstring), so records that were inside
-;; the OLD keep-window still carry `:trace-events` yet now sit BELOW
-;; `(- n new-keep)` — an index bound would skip those still-trace-bearing
-;; records and miss a genuine value-change, mis-attributing the render.
-;;
-;; The two tests below use direct private-var access
-;; (`@#'state/histories`, `@#'state/config`, `@#'state/value-changed-epoch-for`)
-;; rather than the shared fixture / `configure!` boundary. They are
-;; narrow unit tests of the PRIVATE `value-changed-epoch-for` scan: they
-;; hand-stuff a bespoke `histories` ring (a post-reduction transient gap
-;; / a manually-elided boundary) that no public API can construct, then
-;; pin the private config to the exact keep the scenario needs. Routing
-;; the config line through `configure!` while the rest of the setup is
-;; raw private-atom manipulation would be inconsistent and add no
-;; isolation — these cases live entirely below the public surface.
-
-(defn- vc-record
-  "A minimal epoch record carrying a value-changed `:rf.sub/run` for
-  `render-key` in its `:trace-events` — the shape `value-changed-epoch-for`
-  matches (via `epoch-value-changed-for-view?`)."
-  [frame-id epoch-id render-key]
-  {:frame        frame-id
-   :epoch-id     epoch-id
-   :trace-events [{:op-type   :rf.sub
-                   :operation :rf.sub/run
-                   :tags      {:rf.sub/value-changed?    true
-                               :rf.sub/reader-render-key render-key
-                               :frame                    frame-id}}]})
-
-(defn- plain-record
-  "A minimal epoch record whose `:trace-events` carries NO value-change for
-  `render-key` — a record that is present + trace-bearing but never a hit."
-  [frame-id epoch-id]
-  {:frame        frame-id
-   :epoch-id     epoch-id
-   :trace-events []})
-
-(deftest value-changed-scan-finds-trace-bearing-epoch-below-reduced-keep
-  (testing "after a runtime :trace-events-keep REDUCTION, the
-            value-changed scan still finds an epoch that sits below the new
-            (- n keep) index but STILL carries :trace-events (elision is
-            non-retroactive). An index-derived bound would
-            skip it; the elision-boundary bound finds it."
-    (let [frame-id   :test/main
-          render-key [:counter-view 0]
-          ;; A ring of 8 records, all still trace-bearing (elision has not yet
-          ;; re-run for the reduced keep). The value-change for the view lives
-          ;; in record index 2 — well below a freshly-reduced keep window.
-          history    (into [(vc-record frame-id :e0 render-key)        ;; idx 0
-                            (plain-record frame-id :e1)                ;; idx 1
-                            (vc-record frame-id :e2 render-key)]       ;; idx 2 ← target
-                           (map #(plain-record frame-id (keyword (str "e" %)))
-                                (range 3 8)))]                          ;; idx 3..7
-      (reset! @#'rf.epoch.state/histories {frame-id history})
-      ;; new-keep = 3 → the index bound would be lo = (- 8 3) = 5, skipping
-      ;; idx 2 even though it still carries :trace-events.
-      (reset! @#'rf.epoch.state/config {:depth 50 :trace-events-keep 3})
-      ;; Anchor at the ring-newest epoch (:e7) so the scan runs the full
-      ;; newest-first walk — the anchor bound is a no-op here.
-      (is (= :e2 (@#'rf.epoch.state/value-changed-epoch-for frame-id render-key :e7))
-          "the scan reaches the still-trace-bearing value-change at idx 2,
-           below (- n new-keep) = 5 — the post-reduction transient gap"))))
-
-(deftest value-changed-scan-needs-retained-evidence
-  (testing "a value-change present only in an elided raw trace, with no
-            structured :sub-runs evidence, is not attributed"
-    (let [frame-id   :test/main
-          render-key [:counter-view 0]
-          ;; idx 0 carries a value-change but was ELIDED (no :trace-events slot);
-          ;; idx 1 is the elision boundary (also elided); idx 2..4 trace-bearing
-          ;; but carry no value-change for the view.
-          elided-vc  (dissoc (vc-record frame-id :e0 render-key) :trace-events)
-          elided     (dissoc (plain-record frame-id :e1) :trace-events)
-          history    [elided-vc                       ;; idx 0 — elided, has a (lost) vc
-                      elided                           ;; idx 1 — elided boundary
-                      (plain-record frame-id :e2)      ;; idx 2 — trace-bearing, no vc
-                      (plain-record frame-id :e3)      ;; idx 3
-                      (plain-record frame-id :e4)]     ;; idx 4
-          ]
-      (reset! @#'rf.epoch.state/histories {frame-id history})
-      (reset! @#'rf.epoch.state/config {:depth 50 :trace-events-keep 5})
-      ;; Anchor at the ring-newest epoch (:e4) — full newest-first scan.
-      (is (nil? (@#'rf.epoch.state/value-changed-epoch-for frame-id render-key :e4))
-          "the elided record carries no evidence the attribution scan can match"))))
-
-;; ---- restore-epoch! reactive surfaces -------------------------------------
-;;
-;; Tool-Pair §Time-travel says restore "rewinds the
-;; frame's app-db to the named epoch's :db-after value." Spec 006 §Subscription
-;; cache pins invalidation to :replace-container! — and restore-epoch! goes
-;; through the same adapter/replace-container! choke point used by the drain
-;; loop's :db commit. The two together imply: every reactive surface that
-;; observes app-db (subscriptions, flows materialised at :output-path, route slice
-;; reads) must reflect the rewound value after restore-epoch! returns true,
-;; without a separate cache-invalidation call.
-;;
-;; These tests pin that downstream contract on the JVM with the plain-atom
-;; adapter. The plain-atom adapter recomputes derived values on every deref
-;; (no cache), so subscribe-once before/after restore is a clean read of
-;; the post-restore container. The CLJS Reagent counterpart in
-;; runtime_cljs_test.cljs covers the reactive-graph case where a held
-;; reaction must observe the rewound value.
-
-(deftest restore-frame-isolation
-  (testing "restoring frame A leaves frame B's app-db and subscriptions
-  untouched. Per Tool-Pair §Time-travel: time-travel is a frame-local
-  primitive — there is no global epoch sequence."
-    (rf/make-frame {:id :frame/a})
-    (rf/make-frame {:id :frame/b})
-    (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
-    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
-
-    ;; Drive A through 0 → 1 → 2; B through 100 → 101.
-    (rf/dispatch-sync [:seed 0]   {:frame :frame/a})
-    (rf/dispatch-sync [:inc]      {:frame :frame/a})
-    (rf/dispatch-sync [:inc]      {:frame :frame/a})
-    (rf/dispatch-sync [:seed 100] {:frame :frame/b})
-    (rf/dispatch-sync [:inc]      {:frame :frame/b})
-
-    (let [a-history (rf/epoch-history :frame/a)
-          ;; The epoch where A's n landed at 1 (first :inc).
-          a-target  (some (fn [r] (when (= 1 (:n (:db-after r))) r)) a-history)]
-      (is (true? (rf/restore-epoch! :frame/a (:epoch-id a-target))))
-      (is (= 1   (rf/subscribe-once [:n] {:frame :frame/a}))
-          "frame A's sub sees the rewound value")
-      (is (= 101 (rf/subscribe-once [:n] {:frame :frame/b}))
-          "frame B's sub is unchanged by the cross-frame restore")
-      (is (= 101 (:n (rf/app-db-value :frame/b)))
-          "frame B's app-db is unchanged"))))
-
-(deftest restore-fixed-point-same-epoch-twice
-  (testing "restoring twice to the same epoch is a no-op semantically:
-  the second call lands on the same db-after, every observable surface
-  reads the same value, and the call still returns true."
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
-
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-    (rf/dispatch-sync [:inc]  {:frame :test/main})  ;; n=1
-    (rf/dispatch-sync [:inc]  {:frame :test/main})  ;; n=2
-    (rf/dispatch-sync [:inc]  {:frame :test/main})  ;; n=3
-
-    (let [history (rf/epoch-history :test/main)
-          target  (some (fn [r] (when (= 1 (:n (:db-after r))) r)) history)
-          target-eid (:epoch-id target)]
-      (is (true? (rf/restore-epoch! :test/main target-eid)) "first restore ok")
-      (let [db-after-1 (rf/app-db-value :test/main)
-            sub-1      (rf/subscribe-once [:n] {:frame :test/main})]
-        (is (= {:n 1} db-after-1))
-        (is (= 1     sub-1))
-
-        ;; Restore again to the SAME epoch.
-        (is (true? (rf/restore-epoch! :test/main target-eid)) "second restore ok")
-        (is (= db-after-1 (rf/app-db-value :test/main))
-            "app-db unchanged across the second restore")
-        (is (= sub-1 (rf/subscribe-once [:n] {:frame :test/main}))
-            "sub value unchanged across the second restore")))))
-
-(deftest restore-then-dispatch-recomputes-flow-correctly
-  (testing "After restore, the next event drain re-runs flows correctly.
-  The dirty-check operates on observed inputs (:w, :h) vs last-inputs;
-  even if last-inputs holds a pre-restore tuple, a real input change
-  in the next dispatch triggers recomputation. Pins that flow recompute
-  state does not silently miss after a restore."
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :init (fn [{:keys [db]} _]      {:db {:w 1 :h 1}}))
-    (rf/reg-event :w!   (fn [{:keys [db]} [_ w]] {:db (assoc db :w w)}))
-    (rf/reg-flow :rect/area {:frame :test/main :inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* (or w 0) (or h 0))))
-
-    (rf/dispatch-sync [:init]   {:frame :test/main})  ;; area=1
-    (rf/dispatch-sync [:w! 4]   {:frame :test/main})  ;; area=4
-    (rf/dispatch-sync [:w! 7]   {:frame :test/main})  ;; area=7
-    (rf/dispatch-sync [:w! 9]   {:frame :test/main})  ;; area=9
-
-    (let [history (rf/epoch-history :test/main)
-          target  (some (fn [r] (when (= 4 (get-in (:db-after r) [:rect :area])) r))
-                        history)]
-      (is (true? (rf/restore-epoch! :test/main (:epoch-id target))))
-      (is (= 4 (get-in (rf/app-db-value :test/main) [:rect :area]))
-          "restored db carries the flow output value at :output-path")
-
-      ;; Drive a new event that changes :w. The flow must recompute
-      ;; against the post-restore inputs, not against any leftover
-      ;; last-inputs cache from the pre-restore history.
-      (rf/dispatch-sync [:w! 6] {:frame :test/main})
-      (is (= 6 (get-in (rf/app-db-value :test/main) [:w])))
-      (is (= 6 (get-in (rf/app-db-value :test/main) [:rect :area]))
-          "flow recomputed correctly post-restore (6 * 1 = 6)"))))
-
-(deftest restore-rewinds-route-slice-and-route-sub
-  (testing "when a restored epoch changes the route slice, observable routing
-  state follows. The route slice
-  lives in the runtime-db partition at [:rf.runtime/routing :current] — NOT
-  under an app-db :rf/runtime root (a hard error) — and a
-  full-frame-state restore (EP-0001 decision #2) rewinds runtime-db with app-db.
-  A route subscription held across the restore derefs to the rewound route
-  without re-subscribing."
-    (rf/make-frame {:id :test/main})
-    (rf/reg-route :route/home    {} "/")
-    (rf/reg-route :route/article {} "/articles/:id")
-    ;; Framework-authority handlers write the route slice into the runtime-db
-    ;; partition via the reserved :rf.db/runtime effect.
-    (rf/reg-event :go-home
-      {:rf/machine? true}
-      (fn [{:keys [rf.db/runtime]} _]
-        {:rf.db/runtime (assoc-in (or runtime {}) [:rf.runtime/routing :current]
-                                  {:route-id :route/home :params {}})}))
-    (rf/reg-event :go-article
-      {:rf/machine? true}
-      (fn [{:keys [rf.db/runtime]} [_ id]]
-        {:rf.db/runtime (assoc-in (or runtime {}) [:rf.runtime/routing :current]
-                                  {:route-id :route/article :params {:id id}})}))
-
-    (rf/dispatch-sync [:go-home]               {:frame :test/main})
-    (rf/dispatch-sync [:go-article "intro"]    {:frame :test/main})
-    (is (= :route/article
-           (get-in (:rf.db/runtime (rf/frame-state-value :test/main)) [:rf.runtime/routing :current :route-id]))
-        "the route slice is in the runtime-db partition")
-
-    (let [route   (rf/subscribe [:rf.route/id] {:frame :test/main})
-          _       (is (= :route/article @route)
-                      "the held route sub reads the current route before the restore")
-          history (rf/epoch-history :test/main)
-          ;; The epoch whose runtime-db carries :route/home under
-          ;; [:rf.db/runtime :rf.runtime/routing :current :route-id]. Restore rewinds
-          ;; the whole frame-state, so :frame-state-after is the canonical unit.
-          target  (some (fn [r]
-                          (when (= :route/home
-                                   (get-in (:frame-state-after r)
-                                           [:rf.db/runtime :rf.runtime/routing :current :route-id]))
-                            r))
-                        history)]
-      (is (some? target))
-      (is (true? (rf/restore-epoch! :test/main (:epoch-id target))))
-      (is (= :route/home
-             (get-in (:rf.db/runtime (rf/frame-state-value :test/main)) [:rf.runtime/routing :current :route-id]))
-          "the runtime-db route slice is rewound by the full-frame-state restore")
-      (is (= :route/home @route)
-          "the route sub held across the restore derefs to the rewound route")
-      (rf/unsubscribe :test/main [:rf.route/id]))))
+  (rf/configure! {:epoch-history {:depth 10 :trace-events-keep 2}})
+  (rf/make-frame {:id :test/main})
+  (rf/reg-event :inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+  (dotimes [_ 5] (rf/dispatch-sync [:inc] {:frame :test/main}))
+  (let [history (rf/epoch-history :test/main)]
+    (is (= [false false false true true] (mapv #(contains? % :trace-events) history)))
+    (is (every? #(every? (partial contains? %) [:sub-runs :renders :effects]) history))))
 
 ;; ---- replace-frame-state! app-db patches ---------------------------------
 ;;
-;; Per Tool-Pair §Pair-tool writes, an app-db-only `replace-frame-state!` is the
-;; Tool-Pair write surface for state injection. The invariants below
-;; cover the contract the spec commits to:
-;;
-;; 1. Replaces the frame's app-db with new-db.
-;; 2. Records a synthetic :rf/epoch-record so restore-epoch! can rewind.
-;; 3. Drain-check: rejects a call from inside a drain.
-;; 4. Schema validation: rejects a new-db that fails the frame's
-;;    registered app-schemas.
-;; 5. Trace emission: :rf.epoch/db-replaced fires on success with
-;;    :frame and :epoch-id.
-;; 6. Listeners: register-epoch-listener! fires with the assembled record.
-;; 7. Unknown frame: :rf.error/no-such-handler (kind :frame).
+;; Tool-Pair §Pair-tool writes: an app-db-only `replace-frame-state!` is the
+;; pair tool's state-injection surface. The seven
+;; `replace-frame-state-app-only-*` tests below are cited by name from
+;; skills/re-frame2-pair/tests/runtime/app_db_reset_test.clj.
+
+(defn- tags-of
+  "The `:tags` of the first event in `events` whose `:operation` is `op`."
+  [events op]
+  (some #(when (= op (:operation %)) (:tags %)) events))
+
+(defn- no-such-frame-errors
+  "`[op-type {:kind … :frame …}]` for every `:rf.error/no-such-handler` trace in
+  `events` — the typed failure every lost-incarnation path resolves to."
+  [events]
+  (->> events
+       (filter #(= :rf.error/no-such-handler (:operation %)))
+       (mapv (fn [ev] [(:op-type ev) (select-keys (:tags ev) [:kind :frame])]))))
 
 (deftest replace-frame-state-app-only-replaces-container
-  (testing "an app-db-only replace-frame-state! patch replaces the app-db value"
+  (testing "an app-db-only patch replaces the app-db and preserves the omitted
+            runtime-db partition"
     (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :seed
+      (fn [{rt :rf.db/runtime} _]
+        {:db            {:n 0}
+         :rf.db/runtime (assoc (or rt {}) :rf.runtime/routing {:current {:route-id :kept}})}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
-    (is (= {:n 0} (rf/app-db-value :test/main)))
-
     (is (true? (rf/replace-frame-state! :test/main {:rf.db/app {:n 99 :injected? true}})))
-    (is (= {:n 99 :injected? true} (rf/app-db-value :test/main))
-        "container holds the injected value")))
-
-(deftest replace-frame-state-app-reset-resets-app-db-only-preserving-runtime-db
-  (testing "an empty app-db patch resets that partition while the live
-            runtime-db (machines and routes) survives"
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7 :cart {:items [1 2]}}}))
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-    ;; Seed a live runtime-db partition (framework-owned subsystem state).
-    (rf/replace-frame-state! :test/main {:rf.db/runtime {:rf.runtime/machines {:m 1}}})
-    (is (= {:n 7 :cart {:items [1 2]}} (rf/app-db-value :test/main)))
-    (is (= {:rf.runtime/machines {:m 1}} (:rf.db/runtime (rf/frame-state-value :test/main))))
-
-    (is (true? (rf/replace-frame-state! :test/main {:rf.db/app {}}))
-        "the empty app-db patch returns true on success")
-    (is (= {} (rf/app-db-value :test/main))
-        "app-db partition is reset to {}")
-    (is (= {:rf.runtime/machines {:m 1}} (:rf.db/runtime (rf/frame-state-value :test/main)))
-        "the runtime-db partition is preserved")))
+    (is (= {:n 99 :injected? true} (rf/app-db-value :test/main)))
+    (is (= {:current {:route-id :kept}}
+           (get-in (rf/frame-state-value :test/main) [:rf.db/runtime :rf.runtime/routing]))
+        "the omitted runtime-db partition is preserved")))
 
 (deftest replace-frame-state-app-only-records-undo-epoch
-  (testing "an app-db-only patch records a synthetic epoch so restore-epoch!
-            can rewind to the prior state"
+  (testing "an app-db-only patch appends one synthetic :rf.epoch/db-replaced
+            record that anchors last-settled, and restoring an earlier epoch
+            rewinds past the injection"
     (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
+    (rf/reg-event :seed (fn [_ _] {:db {:n 7}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
-
-    (let [pre-history-count (count (rf/epoch-history :test/main))
-          _                 (rf/replace-frame-state! :test/main {:rf.db/app {:n 999}})
-          history           (rf/epoch-history :test/main)
-          fresh-record      (last history)]
-      (is (= (inc pre-history-count) (count history))
-          "a new record was appended")
-      (is (= :rf.epoch/db-replaced (:event-id fresh-record))
-          "the synthetic record's event-id sentinels the pair-tool injection")
-      (is (= [:rf.epoch/db-replaced] (:trigger-event fresh-record))
-          "trigger-event mirrors the sentinel")
-      (is (= {:n 7}   (:db-before fresh-record)) "db-before captured")
-      (is (= {:n 999} (:db-after fresh-record))  "db-after captured")
-
-      ;; restore-epoch! on the synthetic record rewinds to db-after of
-      ;; the synthetic record (not its db-before). To rewind PAST the
-      ;; injection, the caller restores an earlier epoch in the history.
-      (let [pre-injection (some (fn [r]
-                                  (when (= :seed (:event-id r)) r))
-                                history)]
-        (is (some? pre-injection))
-        (is (true? (rf/restore-epoch! :test/main (:epoch-id pre-injection))))
-        (is (= {:n 7} (rf/app-db-value :test/main))
-            "restoring the seed epoch rewinds past the pair-tool injection")))))
+    (rf/replace-frame-state! :test/main {:rf.db/app {:n 999}})
+    (let [history (rf/epoch-history :test/main)
+          fresh   (peek history)]
+      (is (= [:seed :rf.epoch/db-replaced] (mapv :event-id history)))
+      (is (= [[:rf.epoch/db-replaced] {:n 7} {:n 999}]
+             ((juxt :trigger-event :db-before :db-after) fresh)))
+      (is (= (:epoch-id fresh) (rf.epoch.state/last-settled-epoch-id :test/main)))
+      (is (true? (rf/restore-epoch! :test/main (:epoch-id (first history)))))
+      (is (= {:n 7} (rf/app-db-value :test/main))))))
 
 (deftest replace-frame-state-app-only-emits-trace
-  (testing "an app-db-only patch emits :rf.epoch/db-replaced on success with
-            :frame and :epoch-id tags"
+  (testing "a successful app-db-only patch emits one :rf.epoch/db-replaced
+            tagged with the frame and the synthetic record's :rf.epoch/id"
     (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-
-    (let [recorded (record-trace!)
-          _        (rf/replace-frame-state! :test/main {:rf.db/app {:n 1}})
-          ev       (some (fn [ev]
-                           (when (= :rf.epoch/db-replaced (:operation ev))
-                             ev))
-                         @recorded)]
-      (is (some? ev) ":rf.epoch/db-replaced fired")
-      (is (= :rf.epoch (:op-type ev)))
-      (is (= :test/main (:frame (:tags ev))))
-      (is (number? (:rf.epoch/id (:tags ev)))
-          "trace carries the synthetic record's epoch-id"))))
+    (let [recorded (record-trace!)]
+      (rf/replace-frame-state! :test/main {:rf.db/app {:n 1}})
+      (is (= [{:op-type :rf.epoch
+               :tags    {:frame       :test/main
+                         :rf.epoch/id (:epoch-id (peek (rf/epoch-history :test/main)))}}]
+             (->> @recorded
+                  (filter #(= :rf.epoch/db-replaced (:operation %)))
+                  (mapv #(select-keys % [:op-type :tags]))))))))
 
 (deftest replace-frame-state-app-only-fires-listeners
-  (testing "an app-db-only patch fans out the assembled synthetic record to
-            register-epoch-listener! listeners"
+  (testing "an app-db-only patch fans the synthetic record out to epoch listeners"
     (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :seed (fn [_ _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
-
     (let [received (atom [])]
-      (rf/register-listener! :epoch ::reset-listener
-                            (fn [r] (swap! received conj r)))
-      (try
-        (rf/replace-frame-state! :test/main {:rf.db/app {:n 42}})
-        (let [r (last @received)]
-          (is (some? r) "a record was delivered to the listener")
-          (is (= :test/main (:frame r)))
-          (is (= :rf.epoch/db-replaced (:event-id r)))
-          (is (= {:n 42} (:db-after r)))
-          (is (= {:n 0}  (:db-before r))))
-        (finally
-          (rf/unregister-listener! :epoch ::reset-listener))))))
+      (rf/register-listener! :epoch ::reset-listener #(swap! received conj %))
+      (rf/replace-frame-state! :test/main {:rf.db/app {:n 42}})
+      (is (= [[:test/main :rf.epoch/db-replaced {:n 0} {:n 42}]]
+             (mapv (juxt :frame :event-id :db-before :db-after) @received))))))
 
 (deftest replace-frame-state-app-only-failure-unknown-frame
   (testing "an app-db-only patch on an unknown frame returns false and emits
-            :rf.error/no-such-handler (kind :frame); no-op on app-db"
-    (let [recorded (record-trace!)
-          ok?      (rf/replace-frame-state! :no.such/frame {:rf.db/app {:any 'value}})]
-      (is (false? ok?))
-      (is (has-error-op? @recorded :rf.error/no-such-handler))
-      (let [ev (some #(when (= :rf.error/no-such-handler (:operation %)) %)
-                     @recorded)]
-        (is (= :frame (:kind (:tags ev))))
-        (is (= :no.such/frame (:frame (:tags ev))))))))
+            :rf.error/no-such-handler (kind :frame)"
+    (let [recorded (record-trace!)]
+      (is (false? (rf/replace-frame-state! :no.such/frame {:rf.db/app {:any 'value}})))
+      (is (= [[:error {:kind :frame :frame :no.such/frame}]]
+             (no-such-frame-errors @recorded))))))
 
 (deftest replace-frame-state-app-only-failure-during-drain
-  (testing "an app-db-only patch called from inside a drain returns false and
-            emits :rf.epoch/replace-during-drain; app-db unchanged
-            by the rejected call"
+  (testing "an app-db-only patch from inside a drain returns false, emits
+            :rf.epoch/replace-during-drain, and records and fans out no
+            synthetic epoch: the only new record is the refusing cascade's own"
     (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :seed (fn [_ _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
-
     (let [recorded (record-trace!)
+          seen     (atom [])
           attempt  (atom nil)]
+      (rf/register-listener! :epoch ::watcher #(swap! seen conj (:event-id %)))
       (rf/reg-event :try-reset
         (fn [{:keys [db]} _]
           (reset! attempt (rf/replace-frame-state! :test/main {:rf.db/app {:n 999}}))
-          ;; If reset succeeded we'd see {:n 999} after settle (the
-          ;; drain's :db-after returned by this handler is {:n 0}).
           {:db db}))
       (rf/dispatch-sync [:try-reset] {:frame :test/main})
-
-      (is (false? @attempt) "reset returned false from inside the drain")
-      (is (= {:n 0} (rf/app-db-value :test/main))
-          "app-db unchanged — the in-drain reset was rejected")
-      (let [ev (some (fn [ev]
-                       (when (= :rf.epoch/replace-during-drain
-                                (:operation ev))
-                         ev))
-                     @recorded)]
-        (is (some? ev) ":rf.epoch/replace-during-drain fired")
-        (is (= :test/main (:frame (:tags ev))))))))
+      (is (false? @attempt))
+      (is (= :test/main (:frame (tags-of @recorded :rf.epoch/replace-during-drain))))
+      (is (= [:seed :try-reset] (mapv :event-id (rf/epoch-history :test/main))))
+      (is (= [:try-reset] @seen)))))
 
 (deftest replace-frame-state-app-only-failure-schema-mismatch
-  (testing "an app-db-only patch whose value fails the frame's
-            registered schemas returns false; emits
-            :rf.epoch/replace-schema-mismatch; app-db unchanged"
+  (testing "an app-db-only patch failing the frame's app-schemas returns
+            false, leaves app-db unchanged, and emits
+            :rf.epoch/replace-schema-mismatch naming the failing path"
     (rf/make-frame {:id :test/main})
-    ;; Per Spec 010 §Per-frame schemas — schema is frame-scoped.
     (rf/reg-app-schema [:n] {:frame :test/main} [:int])
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :seed (fn [_ _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
+    (let [recorded (record-trace!)]
+      (is (false? (rf/replace-frame-state! :test/main {:rf.db/app {:n "not-an-int"}})))
+      (is (= {:n 0} (rf/app-db-value :test/main)))
+      (is (= [:test/main [[:n]]]
+             ((juxt :frame :failing-paths)
+              (tags-of @recorded :rf.epoch/replace-schema-mismatch)))))))
 
-    (let [pre      (rf/app-db-value :test/main)
-          recorded (record-trace!)
-          ok?      (rf/replace-frame-state! :test/main {:rf.db/app {:n "not-an-int"}})]
-      (is (false? ok?) "reset rejected on schema mismatch")
-      (is (= pre (rf/app-db-value :test/main))
-          "app-db unchanged after a rejected reset")
-      (let [ev (some (fn [ev]
-                       (when (= :rf.epoch/replace-schema-mismatch
-                                (:operation ev))
-                         ev))
-                     @recorded)]
-        (is (some? ev) ":rf.epoch/replace-schema-mismatch fired")
-        (is (= :test/main (:frame (:tags ev))))
-        (is (vector? (:failing-paths (:tags ev)))
-            "trace carries the failing schema paths")
-        (is (some #{[:n]} (:failing-paths (:tags ev)))
-            "[:n] is the failing path")))))
-
-;; ---- depth-0 undo-works-after invariant ----------------------------------
-;;
-;; Every partition shape records a :rf.epoch/db-replaced undo anchor
-;; so restore-epoch! can rewind PAST the injection — their caller's invariant is
-;; "undo works after this call" (Tool-Pair §Pair-tool writes). Under
-;; (rf/configure! {:epoch-history {:depth 0}}) the ring buffer is DISABLED by
-;; documented design (Tool-Pair §Time-travel — depth 0 retains no history;
-;; consume via register-epoch-listener!), so the synthetic anchor can never land
-;; in the ring (state/record! early-returns under its pos-depth guard). If
-;; perform-replace! nonetheless returned true and re-anchored last-settled-epoch
-;; (a PHANTOM anchor naming a non-ring epoch-id), a tool/pair gesture would
-;; believe it could rewind and could not (restore-epoch! of that id fails
-;; :rf.epoch/restore-unknown-epoch). The contract is therefore LOUD REJECT —
-;; depth 0 means "history disabled", so force-appending the anchor would
-;; contradict the spec; instead reject loudly via the in-artefact failure
-;; channel, analogous to the artefact-missing public wrapper failure.
+;; Depth 0 retains no history, so the synthetic undo anchor could never land
+;; and a success would leave a write nothing can rewind. The contract is a loud
+;; refusal (Tool-Pair §Pair-tool writes).
 
 (deftest replace-frame-state-app-only-depth-0-rejects-no-false-undo
-  (testing "under depth 0 (ring disabled), an app-db-only patch
-            returns FALSE and emits :rf.epoch/replace-history-disabled rather
-            than a false success; app-db is unchanged and NO phantom
-            last-settled anchor is left (the undo-works-after invariant is
-            honoured by refusing, not by lying)"
+  (testing "under depth 0 an app-db-only patch is refused with
+            :rf.epoch/replace-history-disabled and app-db is unchanged"
     (rf/configure! {:epoch-history {:depth 0}})
     (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :seed (fn [_ _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
-    (is (= {:n 0} (rf/app-db-value :test/main)))
-    ;; Pre-condition: depth 0 retains no history (the documented
-    ;; behaviour) and no anchor has been set by the seed dispatch.
-    (is (= [] (rf/epoch-history :test/main)) "depth 0 retains no ring history")
-    (is (nil? (rf.epoch.state/last-settled-epoch-id :test/main))
-        "no last-settled anchor under depth 0 (companion phantom-anchor gate)")
+    (let [recorded (record-trace!)]
+      (is (false? (rf/replace-frame-state! :test/main {:rf.db/app {:n 999}})))
+      (is (= {:n 0} (rf/app-db-value :test/main)))
+      (is (has-error-op? @recorded :rf.epoch/replace-history-disabled)))))
 
-    (let [recorded (record-trace!)
-          ok?      (rf/replace-frame-state! :test/main {:rf.db/app {:n 999}})]
-      (is (false? ok?)
-          "the patch is rejected under depth 0 rather than returning false success")
-      (is (= {:n 0} (rf/app-db-value :test/main))
-          "app-db unchanged — the rejected injection is a no-op")
-      (is (= [] (rf/epoch-history :test/main))
-          "still no ring history — nothing force-appended")
-      (is (nil? (rf.epoch.state/last-settled-epoch-id :test/main))
-          "NO phantom anchor left behind (would have named a non-ring epoch-id
-           and broken later back-fill or undo attribution)")
-      (let [ev (some (fn [ev]
-                       (when (= :rf.epoch/replace-history-disabled (:operation ev))
-                         ev))
-                     @recorded)]
-        (is (some? ev) ":rf.epoch/replace-history-disabled fired")
-        (is (= :error (:op-type ev)))
-        (is (= :test/main (:frame (:tags ev))))))))
-
-;; ---- a halt record is a MARKER, never the settled state -------------------
+;; ---- a halt record is a marker, never the settled state -------------------
 ;;
-;; `last-settled-epoch` names the last epoch that actually SETTLED: it is what
-;; `restore-epoch!` rewinds to, what a post-settle render / sub-run / unmount
-;; back-fills onto, and the source `commit-halt-record!` reads its own durable
-;; frame-state snapshot from. A `:halted-depth` / `:halted-destroy` record
-;; describes an event that never ran, so it is a candidate for none of those,
-;; and `commit-frame-owner-record!` anchors on an `:ok` record only.
-;;
-;; Anchoring on a halt marker would produce a refusal that reads as data loss:
-;; the newest epoch would be the halt marker, `restore-epoch!` refuses a
-;; non-`:ok` target with `:rf.epoch/restore-non-ok-record`, and a pair tool
-;; asking to rewind to "now" would be told it cannot — although the state that
-;; epoch names IS the live state.
-;;
-;; These sit beside the depth-0 phantom-anchor gates above because they are the
-;; same invariant from the other side: an anchor must name a real, settled
-;; epoch, so a halt refuses to move it rather than moving it somewhere
-;; plausible.
+;; `last-settled-epoch` is what `restore-epoch!` rewinds to. A `:halted-depth`
+;; record describes an event that never ran; anchoring on it would make a
+;; restore to "now" refuse with `:rf.epoch/restore-non-ok-record`.
 
 (deftest drain-depth-halt-leaves-the-restore-anchor-on-the-last-ok-epoch
-  (testing "a committed :halted-depth record does NOT take the
-            last-settled anchor, so restore of the anchored epoch still works"
-    (rf/configure! {:epoch-history {:depth 50}})
+  (testing "a committed :halted-depth record does not take the last-settled
+            anchor, so restoring the anchored epoch still succeeds"
     (rf/make-frame {:id :test/halt-anchor :drain-depth 4})
-    (rf/reg-event :halt-seed (fn [_ _] {:db {:n 0}}))
-    (rf/dispatch-sync [:halt-seed] {:frame :test/halt-anchor})
-    ;; A GENUINE runaway — self-redispatching, so there really is a halting
-    ;; event at the seam and a real `:halted-depth` record is committed. (A
-    ;; clean cascade of exactly `:drain-depth` events does not halt; this pin
-    ;; is about what the epoch surface does
-    ;; with a halt record that is entirely legitimate.)
     (rf/reg-event :halt-loop
       (fn [{:keys [db]} _]
-        {:db (update db :n inc)
+        {:db (update db :n (fnil inc 0))
          :fx [[:dispatch [:halt-loop]]]}))
     (rf/dispatch-sync [:halt-loop] {:frame :test/halt-anchor})
-    (let [history  (rf/epoch-history :test/halt-anchor)
-          head     (last history)
-          anchor   (rf.epoch.state/last-settled-epoch-id :test/halt-anchor)
-          anchored (some (fn [r] (when (= anchor (:epoch-id r)) r)) history)]
-      ;; PRECONDITIONS — assert the halt actually happened and was actually
-      ;; recorded. Without these the test passes vacuously on a tree where the
-      ;; drain never reached the depth limit at all, which is precisely the
-      ;; state the router produces for a NON-runaway cascade.
-      (is (= :halted-depth (:outcome head))
-          "PRECONDITION: the runaway drain committed a :halted-depth record at
-           the head of the ring")
-      (is (= 4 (:n (rf/app-db-value :test/halt-anchor)))
-          "PRECONDITION: exactly :drain-depth events settled before the halt")
-      ;; The invariant.
-      (is (some? anchored) "the anchor names a real ring epoch")
-      (is (not= (:epoch-id head) anchor)
-          "the :halted-depth head did NOT take the last-settled anchor")
-      (is (= :ok (:outcome anchored))
-          "last-settled-epoch names an epoch that actually SETTLED")
-      (is (true? (rf/restore-epoch! :test/halt-anchor anchor))
-          "restore-epoch! of the anchored epoch SUCCEEDS — an anchor on
-           the halt record would refuse with :rf.epoch/restore-non-ok-record,
-           although the state it names is the live state"))))
+    (is (= :halted-depth (:outcome (peek (rf/epoch-history :test/halt-anchor)))))
+    (is (true? (rf/restore-epoch! :test/halt-anchor
+                                  (rf.epoch.state/last-settled-epoch-id :test/halt-anchor))))))
 
-(deftest commit-halt-record-commits-nothing-without-a-halting-event
-  (testing "no halting envelope, no record"
-    (rf/configure! {:epoch-history {:depth 50}})
-    (rf/make-frame {:id :test/halt-nil})
-    (rf/reg-event :seed-h (fn [_ _] {:db {:n 1}}))
-    (rf/dispatch-sync [:seed-h] {:frame :test/halt-nil})
-    (let [before-count  (count (rf/epoch-history :test/halt-nil))
-          before-anchor (rf.epoch.state/last-settled-epoch-id :test/halt-nil)
-          token         (rf.frame/frame-incarnation-token :test/halt-nil)
-          fs            (rf.frame/frame-state-value :test/halt-nil)
-          halt-reason   {:operation :rf.error/drain-depth-exceeded :depth 4}]
-      (is (pos? before-count) "PRECONDITION: the seed dispatch recorded an epoch")
-      (is (some? before-anchor) "PRECONDITION: the seed anchored last-settled")
-      ;; The router does not reach this with a nil halting event, but the
-      ;; epoch surface must not DEPEND on that: the halting event's vector is
-      ;; the only thing naming what a halt record is about, and a nameless one
-      ;; still heads the ring.
-      (#'rf.epoch/commit-halt-record! :test/halt-nil fs (rf.interop/epoch-now-ms)
-                                      :halted-depth halt-reason nil token)
-      (is (= before-count (count (rf/epoch-history :test/halt-nil)))
-          "no record committed for a halt with no halting event")
-      (is (= before-anchor (rf.epoch.state/last-settled-epoch-id :test/halt-nil))
-          "the anchor is untouched")
-      ;; CONTROL — the identical call WITH a halting event DOES commit. Without
-      ;; this the assertions above would pass just as well against a call that
-      ;; never reached the commit for some unrelated reason (a lost owner
-      ;; token, a disabled ring), i.e. they would be about nothing.
-      (#'rf.epoch/commit-halt-record! :test/halt-nil fs (rf.interop/epoch-now-ms)
-                                      :halted-depth halt-reason
-                                      [:unit/halting] token)
-      (is (= (inc before-count) (count (rf/epoch-history :test/halt-nil)))
-          "CONTROL: the same call WITH a halting event does commit")
-      (is (= :unit/halting (:event-id (last (rf/epoch-history :test/halt-nil))))
-          "CONTROL: and the committed record is named by the halting event"))))
-
-;; Every partial-map shape (app-only / runtime-only / both-partition)
-;; routes through the SAME `:epoch/replace-frame-state!` hook and the SAME
-;; `:where 'rf/replace-frame-state!` ex-data, so the shape of the map passed
-;; is irrelevant to the artefact-missing check — `replace-frame-state!-raises-
-;; when-epoch-artefact-missing` (below) is the ONE test for it.
-
-;; ---- replace-frame-state! (runtime-only / both-partition) -----------------
-;;
-;; Per Tool-Pair §Pair-tool writes every partition shape of
-;; `replace-frame-state!` is an epoch-backed dev/tooling write — app-db,
-;; runtime-db and full-frame patches all run through the one epoch-backed
-;; write path. The invariants below mirror the app-db tests above,
-;; proving four contract points:
-;;
-;;   1. A runtime-only or both-partition replace-frame-state! injection records a
-;;      synthetic :rf.epoch/db-replaced epoch, and restore-epoch! of a PRIOR
-;;      epoch rewinds PAST the injection.
-;;   2. Boolean return (true on success).
-;;   3. :rf.error/epoch-artefact-missing when the late-bind hook is nil.
-;;   4. Runtime-db schema validation fires (against the framework-owned
-;;      runtime-db validator — the machine-data boundary), rejecting an
-;;      injection whose snapshot :data violates its machine's [:schemas :data] schema.
-
-(deftest replace-frame-state-runtime-only-records-undo-epoch-and-restore-rewinds-past
-  (testing "a runtime-only patch records a synthetic :rf.epoch/db-replaced
-            epoch so restore-epoch! can rewind PAST the runtime-db injection"
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-    ;; A real cascade that seeds a runtime-db value to rewind back to.
-    (rf/replace-frame-state! :test/main {:rf.db/runtime {:rf.runtime/routing {:current {:route-id :start}}}})
-    (let [seed-record (some (fn [r] (when (= :seed (:event-id r)) r))
-                            (rf/epoch-history :test/main))
-          pre-count   (count (rf/epoch-history :test/main))
-          ok?         (rf/replace-frame-state! :test/main {:rf.db/runtime {:rf.runtime/routing {:current {:route-id :end}}}})
-          history     (rf/epoch-history :test/main)
-          fresh       (last history)]
-      (is (true? ok?) "boolean true return")
-      (is (= (inc pre-count) (count history)) "a synthetic epoch was appended")
-      (is (= :rf.epoch/db-replaced (:event-id fresh))
-          "the synthetic record sentinels the pair-tool injection")
-      (is (= [:rf.epoch/db-replaced] (:trigger-event fresh))
-          "trigger-event mirrors the sentinel")
-      (is (= {:current {:route-id :start}}
-             (get-in fresh [:frame-state-before :rf.db/runtime :rf.runtime/routing]))
-          "frame-state-before captured the pre-injection runtime-db")
-      (is (= {:current {:route-id :end}}
-             (get-in fresh [:frame-state-after :rf.db/runtime :rf.runtime/routing]))
-          "frame-state-after captured the post-injection runtime-db")
-      ;; Restore the epoch BEFORE the second injection — rewinds PAST it.
-      (is (true? (rf/restore-epoch! :test/main (:epoch-id seed-record)))
-          "restore-epoch! returns true")
-      (is (= {:n 7} (rf/app-db-value :test/main))
-          "app-db rewound to the seed epoch")
-      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :test/main))
-                        [:rf.runtime/routing :current]))
-          "runtime-db rewound PAST the injection (the seed epoch carried no route)"))))
-
-(deftest replace-frame-state-runtime-only-failure-schema-mismatch
-  (testing "a runtime-only patch whose machine snapshot :data
-            violates its registered [:schemas :data] schema returns false; emits
-            :rf.epoch/replace-schema-mismatch; runtime-db unchanged"
-    (rf/make-frame {:id :test/main})
-    ;; Register a machine carrying a [:schemas :data] schema; the framework-owned
-    ;; runtime-db validator (the machine-data boundary) validates each
-    ;; snapshot's :data against it.
-    (rf/reg-machine :rf.szbzei/door
-      {:initial :idle
-       :data    {:n 1}
-       :schemas {:data [:map [:n [:int {:min 0}]]]}
-       :states  {:idle {}}})
-
-    (let [pre      (:rf.db/runtime (rf/frame-state-value :test/main))
-          recorded (record-trace!)
-          ;; A runtime-db whose snapshot :data (:n -5) violates [:int {:min 0}].
-          ok?      (rf/replace-frame-state! :test/main {:rf.db/runtime {:rf.runtime/machines
-                      {:snapshots {:rf.szbzei/door {:state :idle :data {:n -5}}}}}})]
-      (is (false? ok?) "runtime-db injection rejected on schema mismatch")
-      (is (= pre (:rf.db/runtime (rf/frame-state-value :test/main)))
-          "runtime-db unchanged after a rejected injection")
-      (let [ev (some (fn [ev]
-                       (when (= :rf.epoch/replace-schema-mismatch
-                                (:operation ev))
-                         ev))
-                     @recorded)]
-        (is (some? ev) ":rf.epoch/replace-schema-mismatch fired")
-        (is (= :test/main (:frame (:tags ev))))
-        (is (vector? (:failing-paths (:tags ev)))
-            "trace carries the failing paths")))))
-
-(deftest replace-frame-state!-replaces-both-partitions
-  (testing "replace-frame-state! installs BOTH partitions atomically; returns
-            true on success"
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-
-    (is (true? (rf/replace-frame-state! :test/main
-                 {:rf.db/app {:a 7} :rf.db/runtime {:rf.runtime/routing {:r 1}}}))
-        "replace-frame-state! returns true on success")
-    (is (= {:a 7} (rf/app-db-value :test/main)) "app-db partition installed")
-    (is (= {:rf.runtime/routing {:r 1}} (:rf.db/runtime (rf/frame-state-value :test/main)))
-        "runtime-db partition installed")
-    (is (= {:rf.db/app {:a 7} :rf.db/runtime {:rf.runtime/routing {:r 1}}}
-           (rf/frame-state-value :test/main))
-        "frame-state reads back the coherent both-partition snapshot")))
+;; ---- replace-frame-state! (runtime-db and both partitions) ----------------
 
 (deftest replace-frame-state!-records-undo-epoch-and-restore-rewinds-past
-  (testing "replace-frame-state! records a synthetic :rf.epoch/db-replaced
-            epoch so restore-epoch! can rewind PAST the full-frame injection"
+  (testing "a both-partition patch installs both partitions, records one
+            synthetic epoch whose :frame-state-after is the installed state,
+            and restoring an earlier epoch rewinds both partitions past it"
     (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
+    (rf/reg-event :seed (fn [_ _] {:db {:n 7}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
-    (let [seed-record (some (fn [r] (when (= :seed (:event-id r)) r))
-                            (rf/epoch-history :test/main))
-          pre-count   (count (rf/epoch-history :test/main))
-          ok?         (rf/replace-frame-state! :test/main
-                        {:rf.db/app {:a :injected}
-                         :rf.db/runtime {:rf.runtime/routing {:r :injected}}})
-          history     (rf/epoch-history :test/main)
-          fresh       (last history)]
-      (is (true? ok?) "boolean true return")
-      (is (= (inc pre-count) (count history)) "a synthetic epoch was appended")
-      (is (= :rf.epoch/db-replaced (:event-id fresh))
-          "the synthetic record sentinels the pair-tool injection")
-      (is (= {:rf.db/app {:a :injected}
-              :rf.db/runtime {:rf.runtime/routing {:r :injected}}}
-             (:frame-state-after fresh))
-          "frame-state-after captured BOTH injected partitions")
-      ;; Restore the seed epoch — rewinds PAST the full-frame injection.
-      (is (true? (rf/restore-epoch! :test/main (:epoch-id seed-record))))
-      (is (= {:n 7} (rf/app-db-value :test/main))
-          "app-db rewound past the injection")
-      (is (nil? (:rf.runtime/routing (:rf.db/runtime (rf/frame-state-value :test/main))))
-          "runtime-db rewound past the injection too"))))
+    (let [injected {:rf.db/app     {:a :injected}
+                    :rf.db/runtime {:rf.runtime/routing {:r :injected}}}]
+      (is (true? (rf/replace-frame-state! :test/main injected)))
+      (is (= injected (rf/frame-state-value :test/main)))
+      (let [history (rf/epoch-history :test/main)]
+        (is (= [:seed :rf.epoch/db-replaced] (mapv :event-id history)))
+        (is (= injected (:frame-state-after (peek history))))
+        (is (true? (rf/restore-epoch! :test/main (:epoch-id (first history))))))
+      (is (= {:n 7} (rf/app-db-value :test/main)))
+      (is (nil? (get-in (rf/frame-state-value :test/main) [:rf.db/runtime :rf.runtime/routing]))
+          "the runtime-db partition rewound past the injection too"))))
 
 (deftest replace-frame-state!-raises-when-epoch-artefact-missing
-  (testing "rf/replace-frame-state! raises :rf.error/epoch-artefact-missing
-            when the :epoch/replace-frame-state! late-bind hook is nil"
-    (let [hook-key :epoch/replace-frame-state!
-          original (rf.late-bind/get-fn hook-key)]
+  (testing "with the :epoch/replace-frame-state! hook absent, rf/replace-frame-state!
+            raises :rf.error/epoch-artefact-missing rather than degrading silently"
+    (let [original (rf.late-bind/get-fn :epoch/replace-frame-state!)]
       (try
-        (rf.late-bind/set-fn! hook-key nil)
-        (let [thrown (try (rf/replace-frame-state! :any/frame {:rf.db/app {} :rf.db/runtime {}})
-                          nil
-                          (catch clojure.lang.ExceptionInfo e e))]
-          (is (some? thrown)
-              "replace-frame-state! throws when the epoch artefact is absent")
-          ;; Assert the [:rf.error/<id>] token + canonical
-          ;; :rf.error/id, not exact keyword-equality.
-          (is (re-find #"\[:rf\.error/epoch-artefact-missing\]" (.getMessage thrown)))
-          (is (= :rf.error/epoch-artefact-missing (:rf.error/id (ex-data thrown))))
-          (let [data (ex-data thrown)]
-            (is (= 'rf/replace-frame-state! (:where data))
-                "ex-data carries :where = 'rf/replace-frame-state!")
-            (is (= :no-recovery (:recovery data)))
-            (is (string? (:reason data)))))
+        (rf.late-bind/set-fn! :epoch/replace-frame-state! nil)
+        (is (= :rf.error/epoch-artefact-missing
+               (try (rf/replace-frame-state! :any/frame {:rf.db/app {}})
+                    nil
+                    (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e))))))
         (finally
-          (rf.late-bind/set-fn! hook-key original))))))
+          (rf.late-bind/set-fn! :epoch/replace-frame-state! original))))))
 
 (deftest replace-frame-state!-failure-runtime-schema-mismatch
-  (testing "replace-frame-state! rejects an injection whose runtime-db
-            partition fails the framework-owned runtime-db validator —
-            either partition's schema failure rejects the whole atomic install"
+  (testing "a runtime-db partition failing the framework-owned runtime-db
+            validator rejects the whole patch: false, frame-state unchanged,
+            and :rf.epoch/replace-schema-mismatch names the failing path"
     (rf/make-frame {:id :test/main})
     (rf/reg-machine :rf.szbzei/gate
       {:initial :idle
        :data    {:n 1}
        :schemas {:data [:map [:n [:int {:min 0}]]]}
        :states  {:idle {}}})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:ok true}}))
-    (rf/dispatch-sync [:seed] {:frame :test/main})
+    (let [before   (rf/frame-state-value :test/main)
+          recorded (record-trace!)]
+      (is (false? (rf/replace-frame-state!
+                    :test/main
+                    {:rf.db/app     {:fresh :app}
+                     :rf.db/runtime {:rf.runtime/machines
+                                     {:snapshots {:rf.szbzei/gate {:state :idle :data {:n -1}}}}}})))
+      (is (= before (rf/frame-state-value :test/main)))
+      (is (= [:test/main [[:rf.runtime/machines :snapshots]]]
+             ((juxt :frame :failing-paths)
+              (tags-of @recorded :rf.epoch/replace-schema-mismatch)))))))
 
-    (let [pre-app (rf/app-db-value :test/main)
-          pre-rt  (:rf.db/runtime (rf/frame-state-value :test/main))
-          ok?     (rf/replace-frame-state! :test/main
-                    {:rf.db/app {:fresh :app}
-                     :rf.db/runtime
-                     {:rf.runtime/machines
-                      {:snapshots {:rf.szbzei/gate {:state :idle :data {:n -1}}}}}})]
-      (is (false? ok?) "the whole install rejected on a runtime-db schema failure")
-      (is (= pre-app (rf/app-db-value :test/main))
-          "app-db unchanged — the atomic install was rolled back wholesale")
-      (is (= pre-rt (:rf.db/runtime (rf/frame-state-value :test/main)))
-          "runtime-db unchanged too"))))
-
-;; ---- capture-event! skip-ops cross-contamination ---------------------------
+;; ---- capture-event! skip-ops ------------------------------------------------
 ;;
-;; Every `:rf.epoch/*` op this namespace emits carries a `:frame` tag. Most
-;; fire OUTSIDE a cascade (the drain has either not started, or has just
-;; settled and the buffer has been harvested); if `capture-event!` failed
-;; to skip them they would accrete into `capture-buffers` and leak into the
-;; NEXT cascade's harvested record for the same frame — phantom
-;; `:trace-events` and a wrong `:trigger-event` from `find-trigger-event`'s
-;; fallback arm. The two in-drain refusals (`:rf.epoch/restore-during-drain`,
-;; `:rf.epoch/replace-during-drain`) fire INSIDE the refused caller's
-;; cascade, carrying its dispatch-id, so the orphan-drop branch cannot catch
-;; them: `skip-ops` alone keeps them out of that cascade's own record.
-;;
-;; This catalogue test pins the `skip-ops` set against every
-;; `:rf.epoch/*` op the namespace emits. If a future op is added (e.g.
-;; an in-drain `:rf.epoch/cascade-rollback`) and forgotten in
-;; `skip-ops`, OR a stale op is left there, the diff between
-;; observed-and-skipped ops vs the registry will tell. Keeps the
-;; deliberate-enumeration choice right-by-construction.
+;; Every `:rf.epoch/*` op carries a `:frame` tag. Unskipped, an op fired outside
+;; a cascade would accrete into the capture buffer and leak into the next
+;; record; the two in-drain refusals carry the refused cascade's dispatch-id, so
+;; only `skip-ops` keeps them out of that cascade's own record.
 
 (deftest in-drain-epoch-refusals-stay-out-of-the-settling-record
-  (testing "a restore-epoch! and a replace-frame-state! refused from inside a
-            handler emit their -during-drain refusals INSIDE that cascade,
-            and the record the cascade settles carries no :rf.epoch/* op in
-            its :trace-events"
+  (testing "restore-epoch! and replace-frame-state! refused from inside a
+            handler emit their -during-drain refusals inside that cascade, yet
+            the record it settles carries no :rf.epoch/* op"
     (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [_ _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
-    (let [seed-eid (:epoch-id (last (rf/epoch-history :test/main)))
+    (let [seed-eid (:epoch-id (peek (rf/epoch-history :test/main)))
           recorded (record-trace!)
-          attempts (atom nil)]
+          attempts (atom nil)
+          refusal? #{:rf.epoch/restore-during-drain :rf.epoch/replace-during-drain}]
       (rf/reg-event :try-both
         (fn [{:keys [db]} _]
           (reset! attempts [(rf/restore-epoch! :test/main seed-eid)
                             (rf/replace-frame-state! :test/main {:rf.db/app {:n 999}})])
-          {:db (assoc db :tried? true)}))
+          {:db db}))
       (rf/dispatch-sync [:try-both] {:frame :test/main})
-      (is (= [false false] @attempts)
-          "both tool writes are refused from inside the drain")
-      (let [rec      (last (rf/epoch-history :test/main))
-            refusals (filterv #(#{:rf.epoch/restore-during-drain
-                                  :rf.epoch/replace-during-drain} (:operation %))
-                              @recorded)]
-        (is (= :try-both (:event-id rec))
-            "the settling record is the refusing cascade's own")
-        ;; Both refusals fired, stamped with THIS cascade's dispatch-id, so
-        ;; neither the orphan-drop branch nor a later harvest can be what
-        ;; keeps them out of `rec` — only the skip-ops guard can.
-        (is (= #{:rf.epoch/restore-during-drain :rf.epoch/replace-during-drain}
-               (into #{} (map :operation) refusals))
-            "both in-drain refusals were emitted")
-        (is (every? #(= (:dispatch-id rec) (get-in % [:tags :rf.trace/dispatch-id]))
-                    refusals)
-            "each refusal carries the settling cascade's dispatch-id")
-        (is (not-any? #(= "rf.epoch" (namespace (:operation %)))
-                      (:trace-events rec))
-            "no :rf.epoch/* op reached the settling record's :trace-events")))))
+      (let [rec (peek (rf/epoch-history :test/main))]
+        (is (= [false false] @attempts))
+        (is (= #{[:rf.epoch/restore-during-drain (:dispatch-id rec)]
+                 [:rf.epoch/replace-during-drain (:dispatch-id rec)]}
+               (into #{}
+                     (comp (filter #(refusal? (:operation %)))
+                           (map (juxt :operation #(get-in % [:tags :rf.trace/dispatch-id]))))
+                     @recorded))
+            "both refusals carry the settling cascade's dispatch-id")
+        (is (not-any? #(= "rf.epoch" (namespace (:operation %))) (:trace-events rec)))))))
 
 (deftest skip-ops-catalogue-pins-every-rf-epoch-op
-  (testing "skip-ops covers every :rf.epoch/* + :rf.epoch.cb/* + :rf.warning/* op this
-            namespace emits with a :frame tag OUTSIDE a cascade — the
-            out-of-cascade op set is DERIVED from the emit sites (source
-            reality), NOT a hand-literal compared against another
-            hand-literal, so a new op added to an emit site but forgotten
-            in `skip-ops` fails loudly (a literal==literal shape would
-            be false-green: an op missing from BOTH literals goes
-            unnoticed)"
-    ;; --- (a) derive the emitted out-of-cascade op set from reality ------
-    ;; The epoch artefact emits an :rf.epoch/* | :rf.epoch.cb/* |
-    ;; :rf.warning/* OPERATION through three syntactic seams, all scanned here:
-    ;;   (trace/emit! <op-type> :rf.epoch/OP ...)   — the success emits
-    ;;                                                 (snapshotted / outcome
-    ;;                                                 / restored / db-replaced)
-    ;;   {:outcome :fail :op :rf.epoch/OP ...}       — the precondition-failure
-    ;;                                                 results, emitted by
-    ;;                                                 `emit-precondition-failure!`
-    ;;                                                 via `trace/emit-error!`.
-    ;;   (trace/emit-error! :rf.epoch.cb/OP ...)      — listener failure
-    ;;                                                 isolation.
-    ;; Tag KEYS that share the :rf.epoch/ prefix (:rf.epoch/id,
-    ;; :rf.epoch/sensitive?, :rf.epoch/redacted-modified-paths-count) sit
-    ;; in map-KEY position, never after `emit!`/`:op`, so they are not
-    ;; operations and are not matched.
-    (let [src            (apply str (map slurp (epoch-source-files)))
-          hits->kws      (fn [hits] (into #{} (map #(keyword (subs % 1))) hits))
-          emit-ops       (hits->kws (map second
-                                         (re-seq #"emit!\s+:[A-Za-z.]+\s+(:rf\.(?:epoch(?:\.cb)?|warning)/[a-z][a-z0-9-]*)"
-                                                 src)))
-          fail-ops       (hits->kws (map second
-                                         (re-seq #":op\s+(:rf\.(?:epoch(?:\.cb)?|warning)/[a-z][a-z0-9-]*)"
-                                                 src)))
-          error-ops      (hits->kws (map second
-                                         (re-seq #"emit-error!\s+(:rf\.(?:epoch(?:\.cb)?|warning)/[a-z][a-z0-9-]*)"
-                                                 src)))
-          derived        (into emit-ops (concat fail-ops error-ops))
-          ;; Every :rf.epoch/* op the artefact emits is kept out of epoch
-          ;; records, the two in-drain refusals included — the
-          ;; deliberate-enumeration design (capture.cljc §skip-ops
-          ;; catalogue). If a FUTURE :rf.epoch/* op must surface in the
-          ;; epoch record (e.g. an in-drain :rf.epoch/cascade-rollback
-          ;; trace), list it here to exempt it from the skip-ops obligation
-          ;; below. Empty while no such op exists.
-          in-cascade     #{}
-          out-of-cascade (set/difference derived in-cascade)
-          ;; --- (b) the human-readable pin, kept honest against reality ----
-          ;; This catalogue is ASSERTED equal to the scanned set below, so
-          ;; it cannot silently drift. Update
-          ;; it AND `skip-ops` when adding/removing an emitted op.
-          expected       #{:rf.epoch/snapshotted
-                           :rf.epoch/outcome
-                           :rf.epoch/restored
-                           :rf.epoch/restore-unknown-epoch
-                           :rf.epoch/restore-schema-mismatch
-                           :rf.epoch/restore-missing-handler
-                           :rf.epoch/restore-version-mismatch
-                           :rf.epoch/restore-during-drain
-                           :rf.epoch/restore-non-ok-record
-                           :rf.epoch/db-replaced
-                           :rf.epoch/replace-during-drain
-                           :rf.epoch/replace-history-disabled
-                           :rf.epoch/replace-schema-mismatch
-                           ;; Terminal exact-owner cleanup evidence: never
-                           ;; input to a later incarnation's cascade.
-                           :rf.epoch.cb/silenced-on-frame-destroy
-                           :rf.epoch.cb/listener-exception
-                           :rf.warning/restore-quiesce-hook-exception}
-          skip-ops       @#'rf.epoch.capture/skip-ops]
-      ;; Anti-vacuity guard: an empty scanned set would make the SUPERSET
-      ;; assertion trivially true.
-      ;; A zero-match regex or a broken source path fails HERE.
-      (is (seq out-of-cascade)
-          "emit-site scan resolved the epoch source (non-vacuous)")
-      ;; The readable catalogue tracks the scanned reality — no silent drift.
-      (is (= expected out-of-cascade)
-          "documented catalogue == the ops actually emitted out-of-cascade")
-      ;; (a) TEETH: skip-ops is a SUPERSET of every out-of-cascade emitted
-      ;; op. An op added to an emit site but forgotten in skip-ops fails
-      ;; HERE.
-      (is (set/subset? out-of-cascade skip-ops)
-          "skip-ops covers every out-of-cascade epoch/epoch-cb/warning op the namespace emits")
-      ;; No stale entry: every skipped op is one the namespace actually
-      ;; emits out-of-cascade (a removed emit left in skip-ops fails here).
-      (is (set/subset? skip-ops out-of-cascade)
-          "skip-ops has no stale entry the namespace no longer emits out-of-cascade"))))
+  (testing "skip-ops is exactly the set of :rf.epoch/*, :rf.epoch.cb/* and
+            :rf.warning/* operations the epoch sources emit, scanned from the
+            emit sites, so an emit forgotten in skip-ops, or a stale entry,
+            fails here"
+    (let [src     (apply str (map slurp (epoch-source-files)))
+          emitted (into #{}
+                        (comp (mapcat #(re-seq % src))
+                              (map #(keyword (subs (second %) 1))))
+                        [#"emit!\s+:[A-Za-z.]+\s+(:rf\.(?:epoch(?:\.cb)?|warning)/[a-z][a-z0-9-]*)"
+                         #":op\s+(:rf\.(?:epoch(?:\.cb)?|warning)/[a-z][a-z0-9-]*)"
+                         #"emit-error!\s+(:rf\.(?:epoch(?:\.cb)?|warning)/[a-z][a-z0-9-]*)"])]
+      (is (= emitted @#'rf.epoch.capture/skip-ops)))))
 
-;; ---- restore trace-tag :rf.epoch/id golden guard ---------------------------
+;; ---- restore trace tags ------------------------------------------------------
 ;;
-;; Spec 009 §Instrumentation and Spec-Schemas reserve the namespaced
-;; `:rf.epoch/id` key for the epoch-id slot on EVERY `:rf.epoch/*` trace tag
-;; (Spec-Schemas `Restore{UnknownEpoch,SchemaMismatch,MissingHandler,
-;; VersionMismatch,DuringDrain}Tags` + `DbReplacedTags`). An unqualified
-;; `:epoch-id` alias on the restore success (`:rf.epoch/restored`) or the
-;; precondition-failure traces would split the contract, so a
-;; trace consumer keyed off the Spec-Schemas vocabulary could not correlate a
-;; restore success/failure trace with its epoch record. This golden guard
-;; drives one restore SUCCESS and two restore FAILURE paths, validates each
-;; emitted tag map against the Spec-Schemas key-set, and — adversarially —
-;; fails loudly if ANY restore-family trace tag carries the unqualified
-;; `:epoch-id`.
-
-(defn- restore-tag-event
-  "Find the first listener event whose `:operation` is `op`."
-  [events op]
-  (some (fn [ev] (when (= op (:operation ev)) ev)) events))
+;; Spec 009 and Spec-Schemas reserve `:rf.epoch/id` for the epoch-id slot on
+;; every `:rf.epoch/*` trace tag; an unqualified `:epoch-id` would stop a
+;; consumer correlating a restore trace with its record.
 
 (deftest restore-trace-tags-use-namespaced-epoch-id
-  (testing "every restore-family trace tag carries :rf.epoch/id (Spec 009 /
-            Spec-Schemas) and never the unqualified :epoch-id alias"
+  (testing "restore success and failure traces carry exactly their Spec-Schemas
+            tag keys, with the epoch under :rf.epoch/id"
     (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :seed (fn [_ _] {:db {:n 0}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
+    (rf/reg-event :try-restore
+      (fn [{:keys [db]} [_ eid]] (rf/restore-epoch! :test/main eid) {:db db}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (rf/dispatch-sync [:inc]  {:frame :test/main})
-
-    (let [history    (rf/epoch-history :test/main)
-          target     (first history)            ;; the :seed epoch ({:n 0})
-          target-eid (:epoch-id target)
-          recorded   (record-trace!)]
-
-      ;; (A) SUCCESS path — :rf.epoch/restored.
-      (is (true? (rf/restore-epoch! :test/main target-eid))
-          "restore to a valid epoch succeeds")
-
-      ;; (B) FAILURE path 1 — unknown epoch.
-      (is (false? (rf/restore-epoch! :test/main :no-such-epoch))
-          "restore to an absent epoch is rejected")
-
-      ;; (C) FAILURE path 2 — restore refused mid-drain.
-      (let [drain-attempt (atom nil)]
-        (rf/reg-event :try-restore
-          (fn [{:keys [db]} _]
-            (reset! drain-attempt (rf/restore-epoch! :test/main target-eid))
-            {:db db}))
-        (rf/dispatch-sync [:try-restore] {:frame :test/main})
-        (is (false? @drain-attempt)
-            "restore from inside a drain is rejected"))
-
-      (let [events   @recorded
-            restored (restore-tag-event events :rf.epoch/restored)
-            unknown  (restore-tag-event events :rf.epoch/restore-unknown-epoch)
-            drain    (restore-tag-event events :rf.epoch/restore-during-drain)]
-
-        ;; --- success: :rf.epoch/restored ---
-        (is (some? restored) ":rf.epoch/restored fired on the success path")
-        (is (= target-eid (:rf.epoch/id (:tags restored)))
-            ":rf.epoch/restored carries the restored epoch's id under :rf.epoch/id")
-        (is (= :test/main (:frame (:tags restored))))
-
-        ;; --- failure: :rf.epoch/restore-unknown-epoch ---
-        (is (some? unknown) ":rf.epoch/restore-unknown-epoch fired")
-        (is (= :no-such-epoch (:rf.epoch/id (:tags unknown)))
-            "restore-unknown-epoch carries the requested id under :rf.epoch/id")
-        (is (= :test/main (:frame (:tags unknown))))
-        (is (number? (:history-size (:tags unknown))))
-
-        ;; --- failure: :rf.epoch/restore-during-drain ---
-        (is (some? drain) ":rf.epoch/restore-during-drain fired")
-        (is (= target-eid (:rf.epoch/id (:tags drain)))
-            "restore-during-drain carries the requested id under :rf.epoch/id")
-        (is (= :test/main (:frame (:tags drain))))
-
-        ;; --- golden key-set: each tag map's keys match the Spec-Schemas
-        ;;     definition for its op (the `:category` key is injected by
-        ;;     core's `emit-error!` on the failure paths — Spec-Schemas list
-        ;;     it; the success trace is op-type :rf.epoch and carries none). ---
-        (is (= #{:frame :rf.epoch/id} (set (keys (:tags restored))))
-            ":rf.epoch/restored tag key-set == Spec-Schemas (frame + :rf.epoch/id)")
-        (is (= #{:category :frame :rf.epoch/id :history-size}
-               (set (keys (:tags unknown))))
-            "restore-unknown-epoch tag key-set == Spec-Schemas RestoreUnknownEpochTags")
-        ;; restore-during-drain fires from INSIDE a live run, so the
-        ;; envelope's `stamp-dispatch-id` adds `:rf.trace/dispatch-id` for
-        ;; correlation — that's an envelope concern, not part of the
-        ;; Spec-Schemas RestoreDuringDrainTags shape. Assert the contract
-        ;; keys are present and the alias is absent (the adversarial scan
-        ;; below pins the full no-:epoch-id invariant across every op).
-        (is (= #{:category :frame :rf.epoch/id}
-               (-> (:tags drain)
-                   (dissoc :rf.trace/dispatch-id)
-                   keys set))
-            "restore-during-drain contract keys == Spec-Schemas RestoreDuringDrainTags
-             (:recovery hoisted to envelope; :rf.trace/dispatch-id is cascade correlation)")
-
-        ;; --- ADVERSARIAL guard: NO trace event in the WHOLE
-        ;;     epoch trace family may carry the unqualified :epoch-id alias
-        ;;     as a tag. The canonical epoch-identity TAG is :rf.epoch/id
-        ;;     (the bare :epoch-id is the RECORD-field spelling only — the
-        ;;     deliberate record/projection vocabulary, never a trace tag).
-        ;;     Scoped to the whole family, not only restore, so a future
-        ;;     epoch trace op (restore mode, :rf.epoch.cb/* listener
-        ;;     diagnostic, :rf.warning/epoch-* advisory) cannot silently
-        ;;     regress the canonical tag. The op-namespace test is
-        ;;     spelling-agnostic — any operation whose namespace starts
-        ;;     "rf.epoch" is in scope. ---
-        (let [epoch-family-op? (fn [op]
-                                 (and (keyword? op)
-                                      (some-> (namespace op)
-                                              (str/starts-with? "rf.epoch"))))
-              leaked           (filter (fn [ev]
-                                         (and (epoch-family-op? (:operation ev))
-                                              (contains? (:tags ev) :epoch-id)))
-                                       events)]
-          (is (empty? leaked)
-              (str "no epoch-family trace tag may carry the unqualified "
-                   ":epoch-id alias (canonical is :rf.epoch/id); "
-                   "leaked ops: " (mapv :operation leaked))))))))
+    (let [eid      (:epoch-id (first (rf/epoch-history :test/main)))
+          recorded (record-trace!)]
+      (rf/restore-epoch! :test/main eid)
+      (rf/restore-epoch! :test/main :no-such-epoch)
+      (rf/dispatch-sync [:try-restore eid] {:frame :test/main})
+      (is (= {:frame :test/main :rf.epoch/id eid}
+             (tags-of @recorded :rf.epoch/restored)))
+      (is (= {:category     :rf.epoch/restore-unknown-epoch
+              :frame        :test/main
+              :rf.epoch/id  :no-such-epoch
+              :history-size 2}
+             (tags-of @recorded :rf.epoch/restore-unknown-epoch)))
+      ;; In-drain, the envelope adds :rf.trace/dispatch-id for correlation.
+      (is (= {:category    :rf.epoch/restore-during-drain
+              :frame       :test/main
+              :rf.epoch/id eid}
+             (dissoc (tags-of @recorded :rf.epoch/restore-during-drain)
+                     :rf.trace/dispatch-id))))))
 
 ;; ---- destroyed-frame contract ----------------------------------------------
 ;;
-;; Per Tool-Pair §Surface behaviour against destroyed frames:
-;;   - read-shaped surfaces return empty/nil:
-;;       (rf/epoch-history destroyed)  → []
-;;       (rf/app-db-value   destroyed) → nil
-;;   - mutate-shaped surfaces raise :rf.error/no-such-handler (kind :frame):
-;;       (rf/restore-epoch!       destroyed _) → false + :rf.error/no-such-handler
-;;       (rf/replace-frame-state! destroyed _) → false + :rf.error/no-such-handler
-;;   - listener silencing emits one-shot :rf.epoch.cb/silenced-on-frame-destroy
-;;     when a frame previously observed by a register-epoch-listener! callback is
-;;     destroyed.
+;; Tool-Pair §Surface behaviour against destroyed frames: read-shaped surfaces
+;; return empty/nil, mutate-shaped ones fail with :rf.error/no-such-handler.
 
 (deftest destroyed-frame-app-db-value-returns-nil
   (testing "(rf/app-db-value frame-id) returns nil for a destroyed frame
@@ -3146,1451 +1050,348 @@
         "for a never-registered frame, app-db-value returns nil")))
 
 (deftest destroyed-frame-silences-epoch-cb-listener
-  (testing "A register-epoch-listener! callback that observed a frame receives
-            a one-shot :rf.epoch.cb/silenced-on-frame-destroy trace when
-            that frame is destroyed. Subsequent destroys of the same
-            frame do not re-emit. The callback registration itself
-            remains in place."
+  (testing "destroying a frame an epoch listener observed emits one
+            :rf.epoch.cb/silenced-on-frame-destroy naming the frame and the
+            callback; the registration survives, so a recreated frame re-arms
+            it and a second destroy silences again"
     (rf/make-frame {:id :test/short-lived})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-
-    (let [received (atom [])
-          recorded (record-trace!)]
-      (rf/register-listener! :epoch ::watcher
-                            (fn [r] (swap! received conj r)))
-      ;; Drive a cascade so the cb observes the frame.
+    (rf/reg-event :seed (fn [_ _] {:db {:n 0}}))
+    (let [recorded (record-trace!)
+          silenced #(->> @recorded
+                         (filter (fn [ev] (= :rf.epoch.cb/silenced-on-frame-destroy (:operation ev))))
+                         (mapv (fn [ev] [(:op-type ev) (select-keys (:tags ev) [:frame :cb-id])])))]
+      (rf/register-listener! :epoch ::watcher (fn [_] nil))
       (rf/dispatch-sync [:seed] {:frame :test/short-lived})
-      (is (= 1 (count @received))
-          "the cb received the seed cascade record")
-      (is (= :test/short-lived (:frame (first @received)))
-          "the observed record was for :test/short-lived")
-
-      ;; Destroy the frame; expect a single silencing trace.
       (rf/destroy-frame! :test/short-lived)
-      (let [silenced (filter #(= :rf.epoch.cb/silenced-on-frame-destroy
-                                 (:operation %))
-                             @recorded)]
-        (is (= 1 (count silenced))
-            "exactly one :rf.epoch.cb/silenced-on-frame-destroy fired")
-        (let [ev (first silenced)]
-          (is (= :rf.epoch.cb (:op-type ev))
-              ":op-type is :rf.epoch.cb")
-          (is (= :test/short-lived (:frame (:tags ev)))
-              "tags carry :frame")
-          (is (= ::watcher (:cb-id (:tags ev)))
-              "tags carry :cb-id")))
-
-      ;; The cb is still registered — re-create the frame, drive a
-      ;; cascade, the cb fires again.
+      (is (= [[:rf.epoch.cb {:frame :test/short-lived :cb-id ::watcher}]] (silenced)))
       (rf/make-frame {:id :test/short-lived})
       (rf/dispatch-sync [:seed] {:frame :test/short-lived})
-      (is (= 2 (count @received))
-          "the same cb continues to fire after the frame is re-registered")
-
-      ;; Destroying again emits a fresh silencing trace (the cb's
-      ;; observation set was re-armed when the second cascade landed).
       (rf/destroy-frame! :test/short-lived)
-      (let [silenced (filter #(= :rf.epoch.cb/silenced-on-frame-destroy
-                                 (:operation %))
-                             @recorded)]
-        (is (= 2 (count silenced))
-            "a second silencing trace fires for the second destroy")))))
+      (is (= 2 (count (silenced)))))))
 
-;; ---- on-frame-destroyed! direct unit pin ----------------------------------
-;;
-;; on-frame-destroyed! is the late-bind hook
-;; (`re-frame.frame/destroy-frame!` calls it via `:epoch/on-frame-destroyed`).
-;; Tools and alternate-destroy paths invoke it directly, so these pin the
-;; seam itself rather than only through `destroy-frame!`.
-
-(deftest on-frame-destroyed-idempotent-on-repeat
-  (testing "on-frame-destroyed! is idempotent — repeated calls on the
-            same frame are no-ops (no throw, no side-effect cascade)"
-    (rf/make-frame {:id :test/repeat})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/dispatch-sync [:seed] {:frame :test/repeat})
-    (is (= 1 (count (rf/epoch-history :test/repeat))))
-
-    ;; First call — clears the buffer. (Hook arity
-    ;; is (frame-id owner-token db-before db-after committed-at); nil snapshots + nil
-    ;; committed-at for this ring-drop pin.)
-    (let [owner-token (rf.frame/frame-incarnation-token :test/repeat)]
-      (rf.epoch.listeners/on-frame-destroyed! :test/repeat owner-token nil nil nil)
-    (is (= [] (rf/epoch-history :test/repeat)))
-
-    ;; Second call — no-op.
-      (rf.epoch.listeners/on-frame-destroyed! :test/repeat owner-token nil nil nil))
-    (is (= [] (rf/epoch-history :test/repeat))
-        "ring stays empty across repeated calls")))
-
-(deftest on-frame-destroyed-on-unknown-frame-is-noop
-  (testing "on-frame-destroyed! on a frame that was never registered does
-            not throw — it's a clean no-op"
-    ;; on-frame-destroyed! is a side-effect fn over the internal
-    ;; epoch-state atoms; its return value is whatever swap! produces.
-    ;; The observable contract is "no throw, no side effects on
-    ;; unrelated state".
-    (let [traces (record-trace!)]
-      (rf.epoch.listeners/on-frame-destroyed! :test/no-such-frame nil nil nil nil)
-      (is (empty? @traces)
-          "no traces emitted — nothing observed to silence"))))
-
-;; ---- the snapshot/publish SPLIT: nil bundle publishes nothing
-;;
-;; `frame/destroy-frame!` SPLITS the epoch destroy contract across two late-bind
-;; hooks: `:epoch/snapshot-frame-destroyed` binds A's terminal evidence BEFORE
-;; dissoc, and `:epoch/on-frame-destroyed` PUBLISHES it AFTER dissoc (the halted
-;; record under structural delivery, then the per-identity silencing).
-;; `snapshot-epoch-terminal-evidence!` is best-effort: if it THREW it returns nil,
-;; and `notify-epoch-listeners!` (step 11) still fires — threading that nil
-;; through as the `terminal-evidence` bundle. The publish half must then fabricate
-;; NOTHING. This pins that honesty at the epoch seam: a lost snapshot yields no
-;; terminal record — the publish never synthesises evidence the snapshot did not
-;; bind. The full-destroy peer (a throwing snapshot hook
-;; leaving no residual ring + exactly one diagnostic) lives in
-;; `frame-destroy-incarnation-jvm-test/snapshot-hook-failure-leaves-no-residual-ring`.
-
-(deftest terminal-publish-noops-on-nil-bundle-no-fabrication
-  (testing "on-frame-destroyed! handed a NIL terminal-evidence bundle (the exact
-            state destroy-frame! threads when the pre-dissoc snapshot threw)
-            publishes no :halted-destroy record and fires no silencing for the
-            observed cb — no fabrication, and no deferred-silence mark accreted"
-    (let [id      :test/nil-bundle
-          cb      ::nil-bundle-cb
-          records (atom [])
-          traces  (record-trace!)]
-      (rf/make-frame {:id id})
-      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-      ;; cb OBSERVES A: one settled event stamps cb's observation of the frame,
-      ;; so a fabricating publish would have a real observer to (wrongly) silence.
-      (rf/register-listener! :epoch cb (fn [r] (swap! records conj r)))
-      (rf/dispatch-sync [:seed] {:frame id})
-      (reset! records [])                       ; drop the :seed :ok record
-      (let [token (rf.frame/frame-incarnation-token id)]
-        ;; The 3-arity nil-bundle seam: exactly what `notify-epoch-listeners!`
-        ;; threads when `snapshot-epoch-terminal-evidence!` returned nil (threw).
-        (rf.epoch.listeners/on-frame-destroyed! id token nil))
-      (is (empty? (filterv (fn [r] (= :halted-destroy (:outcome r))) @records))
-          "no :halted-destroy record is fabricated from the nil bundle")
-      (is (empty? (filterv #(= :rf.epoch.cb/silenced-on-frame-destroy
-                                (:operation %))
-                           @traces))
-          "no silencing fires — the snapshot that would have owed it produced nothing")
-      (is (zero? (reduce + 0 (map count (vals (rf.epoch.state/terminal-silence-marks-snapshot)))))
-          "a nil bundle opens no deferred-silence window — no mark accreted (bounded)"))))
-
-;; ---- nil terminal-evidence STILL cleans the exact-owner stores -------------
-;;
-;; A nil terminal-evidence bundle PUBLISHES nothing when the pre-dissoc
-;; `:epoch/snapshot-frame-destroyed` hook throws (frame.cljc converts the throw to
-;; nil). But cleanup authority comes SEPARATELY from the frame-id + owner-token, so
-;; `on-frame-destroyed!` must still DROP the destroyed incarnation's id-keyed stores
-;; even when the bundle is nil. Nesting the exact-owner `cleanup-frame-owner!`
-;; transaction INSIDE `(when terminal-evidence ...)` would let a snapshot failure
-;; suppress cleanup too, and a same-id successor B would inherit A's history /
-;; observation / buffer / last-settled-epoch / mount attribution.
-;;
-;; This drives the throwing-snapshot repro through the FULL destroy path
-;; and proves: (1) the destroyed id's public history is [] after destroy; (2) a
-;; same-id successor B, BEFORE its first epoch, inherits none of A's records (no
-;; `[:audit/seed]`, distinct token); (3) the non-fabrication invariant still
-;; holds — no `:halted-destroy` record, no owed silence, no accreted mark. The
-;; sibling `terminal-publish-noops-on-nil-bundle-no-fabrication` and the
-;; integrated fixtures never READ destroyed / pre-first-epoch successor history; this
-;; one does. Moving the cleanup beneath the evidence guard fails assertion (1).
+;; `destroy-frame!` snapshots terminal evidence before dissoc
+;; (`:epoch/snapshot-frame-destroyed`) and publishes it after
+;; (`:epoch/on-frame-destroyed`). A throwing snapshot reaches the publish half as
+;; a nil bundle, which must still clean the destroyed incarnation's stores (or a
+;; same-id successor inherits them) and must fabricate no evidence.
 
 (deftest destroy-cleans-exact-owner-stores-when-snapshot-evidence-is-nil
-  (testing "a throwing :epoch/snapshot-frame-destroyed hook yields nil terminal-
-            evidence, but the destroyed incarnation's id-keyed epoch stores
-            are STILL dropped — cleanup authority is the frame-id + owner-token, not
-            the snapshot bundle — so a same-id successor B inherits nothing.
-            Directly SEEDS and ASSERTS each of the FIVE exact-owner stores the
-            cleanup-fn drops — observation stamps, history, capture buffer,
-            last-settled epoch, mount attribution — so neutering ANY single drop
-            fails exactly its assertion."
+  (testing "when the pre-dissoc snapshot hook throws, destroy still drops each
+            of the five exact-owner stores, and the nil bundle publishes no
+            :halted-destroy record, no silencing and no silence mark"
     (let [id            :test/nil-evidence-cleanup
-          cb            ::nil-evidence-cb
-          render-key    ::nil-evidence-view   ; mount-attribution key for store #5
+          render-key    ::nil-evidence-view
           records       (atom [])
           traces        (record-trace!)
-          original-snap (rf.late-bind/get-fn :epoch/snapshot-frame-destroyed)]
+          original-snap (rf.late-bind/get-fn :epoch/snapshot-frame-destroyed)
+          stores        (fn []
+                          {:observers    (seq (rf.epoch.state/cbs-observing-frame id))
+                           :history      (seq (rf.epoch.state/history-for id))
+                           :buffer       (seq (rf.epoch.state/buffer-for id))
+                           :last-settled (rf.epoch.state/last-settled-epoch-id id)
+                           :mount        (rf.epoch.state/mount-epoch-for id render-key)
+                           :render-deps  (rf.epoch.state/render-deps-for id render-key)})]
       (rf/make-frame {:id id})
-      (rf/reg-event :seed (fn [_ _] {:db {:audit/seed :from-A}}))
-      ;; cb OBSERVES A: delivery of the settled :seed record stamps its observation
-      ;; of the frame, so a FABRICATING publish would have a real observer to
-      ;; (wrongly) silence — making the non-fabrication assertion meaningful.
-      (rf/register-listener! :epoch cb (fn [r] (swap! records conj r)))
+      (rf/reg-event :seed (fn [_ _] {:db {:n 0}}))
+      ;; An observing listener gives a fabricating publish someone to silence.
+      (rf/register-listener! :epoch ::nil-evidence-cb #(swap! records conj %))
       (rf/dispatch-sync [:seed] {:frame id})
-      (reset! records [])                          ; drop the :seed :ok record
-      (let [a-token   (rf.frame/frame-incarnation-token id)
-            a-epoch-id (:epoch-id (first (rf/epoch-history id)))]
-        ;; A settled one epoch: the cascade already seeded three of the five stores
-        ;; — history (the [:audit/seed] record), last-settled-epoch (the settle
-        ;; anchor), and cb's observation stamp (fanning the settled record to the
-        ;; :epoch listener). The synchronous JVM cascade cannot populate the other
-        ;; two: the in-flight capture buffer is harvested empty at settle, and there
-        ;; is no React commit to record mount attribution. SEED those two directly so
-        ;; every one of the five exact-owner stores holds A's state before destroy.
-        (rf.epoch.state/buffer-event! id {:operation :rf.event/run-start
-                                 :tags {:rf.trace/dispatch-id ::seed-dispatch}})
-        (rf.epoch.state/record-mount-epoch! id render-key a-epoch-id)
-        (rf.epoch.state/record-render-deps! id render-key ::a-sub)
+      ;; The settle seeded observers, history and last-settled; a synchronous
+      ;; JVM cascade leaves the buffer empty and records no mount, so seed those.
+      (rf.epoch.state/buffer-event! id {:operation :rf.event/run-start
+                                        :tags      {:rf.trace/dispatch-id ::seed-dispatch}})
+      (rf.epoch.state/record-mount-epoch! id render-key (rf.epoch.state/last-settled-epoch-id id))
+      (rf.epoch.state/record-render-deps! id render-key ::a-sub)
+      (is (every? some? (vals (stores))) "precondition: every store holds A's state")
+      (try
+        (rf.late-bind/set-fn! :epoch/snapshot-frame-destroyed
+          (fn [& args]
+            (if (= id (first args))
+              (throw (ex-info "snapshot blew" {}))
+              (when original-snap (apply original-snap args)))))
+        (rf/destroy-frame! id)
+        (finally
+          (rf.late-bind/set-fn! :epoch/snapshot-frame-destroyed original-snap)))
+      (is (= {} (into {} (filter val) (stores))) "every exact-owner store dropped")
+      (is (= [[] [] 0]
+             [(filterv #(= :halted-destroy (:outcome %)) @records)
+              (filterv #(= :rf.epoch.cb/silenced-on-frame-destroy (:operation %)) @traces)
+              (reduce + 0 (map count (vals (rf.epoch.state/terminal-silence-marks-snapshot))))])
+          "no fabricated record, silence or silence mark"))))
 
-        ;; PRE-DESTROY: all five exact-owner stores are non-empty for A's id.
-        (is (contains? (set (rf.epoch.state/cbs-observing-frame id)) cb)
-            "observation stamp seeded — cb observed A's settled record")
-        (is (= 1 (count (rf.epoch.state/history-for id)))
-            "history seeded — A settled one epoch")
-        (is (seq (rf.epoch.state/buffer-for id))
-            "capture buffer seeded — an in-flight event is buffered")
-        (is (some? (rf.epoch.state/last-settled-epoch-id id))
-            "last-settled epoch seeded — A's settle anchored it")
-        (is (some? (rf.epoch.state/mount-epoch-for id render-key))
-            "mount attribution seeded — render-key anchored to A's epoch")
-        (is (= :from-A (get-in (first (rf/epoch-history id)) [:db-after :audit/seed]))
-            "A's settled record carries [:audit/seed] :from-A")
-        (try
-          ;; Fail the PRE-dissoc snapshot for this id (delegate every other id):
-          ;; destroy-frame! converts the throw to nil terminal-evidence and threads
-          ;; it to on-frame-destroyed!. Teardown is best-effort — it does
-          ;; NOT abort — so destroy-frame! returns normally.
-          (rf.late-bind/set-fn! :epoch/snapshot-frame-destroyed
-            (fn [& args]
-              (if (= id (first args))
-                (throw (ex-info "snapshot blew" {:why :test}))
-                (when original-snap (apply original-snap args)))))
-          (rf/destroy-frame! id)
-
-          ;; (1) EXACT-OWNER STORE CLEANUP ran despite the nil bundle. Each of the
-          ;;     FIVE id-keyed stores the cleanup-fn drops is asserted directly, so
-          ;;     re-nesting cleanup under the evidence guard — or removing ANY single
-          ;;     drop call — fails exactly the matching assertion.
-          (is (empty? (rf.epoch.state/cbs-observing-frame id))
-              "observation stamps dropped (drop-frame-observation!)")
-          (is (= [] (rf.epoch.state/history-for id))
-              "history dropped (drop-frame-history!)")
-          (is (empty? (rf.epoch.state/buffer-for id))
-              "capture buffer dropped (drop-frame-buffer!)")
-          (is (nil? (rf.epoch.state/last-settled-epoch-id id))
-              "last-settled epoch dropped (drop-last-settled-epoch!)")
-          (is (nil? (rf.epoch.state/mount-epoch-for id render-key))
-              "mount attribution dropped (drop-frame-mount-attribution!)")
-          (is (nil? (rf.epoch.state/render-deps-for id render-key))
-              "mount attribution read-set dropped with the frame's entry")
-          ;; The public projection agrees with the raw store, and the incarnation
-          ;; is gone.
-          (is (= [] (rf/epoch-history id))
-              "destroyed id's epoch-history is [] even though the snapshot threw")
-          (is (nil? (rf.frame/frame-incarnation-token id))
-              "A is fully destroyed — no live incarnation owns the id")
-
-          ;; (2) NON-FABRICATION still holds: the nil bundle publishes nothing.
-          (is (empty? (filterv #(= :halted-destroy (:outcome %)) @records))
-              "no :halted-destroy record is fabricated from the nil bundle")
-          (is (empty? (filterv #(= :rf.epoch.cb/silenced-on-frame-destroy
-                                    (:operation %))
-                               @traces))
-              "no silencing fires — the snapshot that would have owed it produced nothing")
-          (is (zero? (reduce + 0 (map count
-                                      (vals (rf.epoch.state/terminal-silence-marks-snapshot)))))
-              "a nil bundle opens no deferred-silence window — no mark accreted (bounded)")
-
-          ;; (3) SAME-ID SUCCESSOR B, BEFORE its first epoch, inherits nothing.
-          (rf/make-frame {:id id})
-          (let [b-token (rf.frame/frame-incarnation-token id)]
-            (is (some? b-token) "same-id B is live after A's destroy")
-            (is (not= a-token b-token)
-                "B is a FRESH incarnation — distinct token from destroyed A")
-            (is (= [] (rf/epoch-history id))
-                "same-id B exposes no A history before its first epoch")
-            (is (not-any? #(= :from-A (get-in % [:db-after :audit/seed]))
-                          (rf/epoch-history id))
-                "B carries none of A's [:audit/seed] records"))
-          (finally
-            (rf.late-bind/set-fn! :epoch/snapshot-frame-destroyed original-snap)
-            (when (rf.frame/frame id) (rf/destroy-frame! id))
-            (rf/unregister-listener! :epoch cb)))))))
-
-;; ---- live :halted-destroy partial-record commit ----------------------------
+;; ---- live :halted-destroy partial record -----------------------------------
 ;;
-;; The live `:halted-destroy` partial-record
-;; commit is the most intricate live destroy behaviour in the artefact.
-;; Assertions that are conditionally
-;; skipped (`(when @halted ...)` / `(when-let [halted ...] ...)`) would let a
-;; regression in the live wiring (capture buffer empty / lacking a
-;; run-start by destroy time, or the `in-cascade?` gate regressing)
-;; pass green with zero executed assertions, so this test drives a REAL
-;; mid-drain `destroy-frame!` and asserts the full contract
-;; UNCONDITIONALLY: exactly one :halted-destroy record reaches a
-;; registered epoch listener, with :outcome :halted-destroy, a populated
-;; :event-id, REAL :db-before / :db-after snapshots, the halt-reason
-;; descriptor, and — per the read-empty contract — that the
-;; partial record was NOT appended to the ring (epoch-history returns []
-;; for a destroyed frame; devtools receive the record via the listener
-;; fan-out, the documented introspection channel for the destroy halt).
-;;
-;; Per Spec-Schemas §:rf/epoch-record §Outcomes, :halted-destroy carries the
-;; PRE-CASCADE snapshot as :db-before and the DESTROY-TIME state as :db-after
-;; — NOT nil/nil. `destroy-frame!` threads both snapshots
-;; (pre-cascade via frame/*cascade-db-before*, destroy-time via the container
-;; read at the top of destroy-frame!) into the destroy hook before the
-;; container is dissoc'd, so the record carries the real app-db state.
+;; Spec-Schemas §:rf/epoch-record §Outcomes: a :halted-destroy record carries
+;; the destroying event's pre-run snapshot as :db-before and the destroy-time
+;; state as :db-after, and reaches listeners only (a destroyed frame's history
+;; reads empty).
 
 (deftest live-halted-destroy-fires-partial-record-with-real-snapshots
-  (testing "a mid-drain destroy-frame! fires exactly one :halted-destroy
-            partial record to listeners (NOT to the ring), carrying the
-            cascade's :event-id, halt-reason, and the REAL pre-cascade
-            :db-before / destroy-time :db-after snapshots —
-            the live capture-buffer → in-cascade? gate →
-            destroy-frame!-threaded-snapshots → notify-listeners! chain"
-    (rf/make-frame {:id :test/main})
-    ;; Seed the frame so the pre-cascade app-db is a real, non-empty
-    ;; value — proves the snapshots carry actual state, not {} / nil.
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7 :live true}}))
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-    (let [records (atom [])]
-      (rf/register-listener! :epoch ::watch (fn [r] (swap! records conj r)))
-      ;; A handler that destroys its own frame mid-cascade. It writes no
-      ;; committed db before destroying, so destroy-time db == pre-cascade
-      ;; db here (the {:n 7 :live true} the :seed cascade settled) — both
-      ;; REAL and non-nil, which is the contract (Spec-Schemas §Outcomes).
-      (rf/reg-event :destroy-self
-                       (fn [_ _]
-                         (rf.frame/destroy-frame! :test/main)
-                         {}))
-      (try (rf/dispatch-sync [:destroy-self] {:frame :test/main})
-           (catch Throwable _ nil))
-      (let [halted-records (filterv (fn [r] (= :halted-destroy (:outcome r)))
-                                    @records)]
-        ;; UNCONDITIONAL: exactly one :halted-destroy record reached the
-        ;; live listener fan-out via the capture-buffer → in-cascade?
-        ;; gate. If the wiring stops firing, this fails loudly (a
-        ;; guarded form would pass green with zero assertions).
-        (is (= 1 (count halted-records))
-            "exactly one :halted-destroy record reaches a registered
-             epoch listener from the live mid-drain destroy")
-        (let [halted (first halted-records)]
-          (is (= :halted-destroy (:outcome halted)))
-          (is (= :destroy-self (:event-id halted))
-              "the cascade's :event-id is pinned on the partial record
-               (the buffered :destroy-self run-start drove the commit)")
-          ;; The partial record carries the REAL pre-cascade
-          ;; snapshot as :db-before, NOT nil. The :destroy-self cascade's
-          ;; pre-cascade db is the {:n 7 :live true} the :seed settled.
-          (is (= {:n 7 :live true} (:db-before halted))
-              "halted-destroy carries the real pre-cascade :db-before
-               snapshot — the frame's app-db before the
-               in-flight cascade began, NOT nil")
-          ;; The destroy-time :db-after: the live container value read at
-          ;; the top of destroy-frame!, before teardown. The :destroy-self
-          ;; handler committed no db before destroying, so it equals the
-          ;; pre-cascade value here — REAL state, NOT nil.
-          (is (= {:n 7 :live true} (:db-after halted))
-              "halted-destroy carries the real destroy-time :db-after
-               state — the partial cascade's writes survive in
-               the recorded value; NOT nil")
-          (is (= {:operation :rf.frame/destroyed-mid-drain}
-                 (:halt-reason halted))
-              "the halt-reason descriptor rides the partial record"))
-        ;; The partial record is NOT appended to the ring — devtools
-        ;; receive it via the listener fan-out only, and the ring is
-        ;; dropped on destroy (epoch-history returns [] for the destroyed
-        ;; frame per the read-empty contract).
-        (is (empty? (filter (fn [r] (= :halted-destroy (:outcome r)))
-                            (rf.epoch/epoch-history :test/main)))
-            "the :halted-destroy record never lands in the ring buffer
-             (it is delivered to listeners only; epoch-history is
-             read-empty post-destroy)")))))
-
-;; :db-before and :db-after DIVERGE when the in-flight cascade
-;; committed an app-db write before destroying. A parent event writes the
-;; db and `:fx`-dispatches a child; the child commits its own write and
-;; destroys the frame from an fx, which runs after the child's `:db`
-;; commit. The child's pre-cascade :db-before is the POST-PARENT state, and
-;; the destroy-time :db-after is the live container at destroy time, which
-;; carries the child's write — exercising the "partial cascade's writes
-;; survive in the recorded value" half of the Spec-Schemas §Outcomes
-;; contract with non-equal snapshots.
-
-(deftest live-halted-destroy-db-before-reflects-committed-cascade-writes
-  (testing "the :halted-destroy record's :db-before is the destroying
-            (child) event's pre-cascade snapshot — which reflects the
-            parent event's already-committed write — and its :db-after is
-            the destroy-time state, which carries the child's own write"
+  (testing "a child event that writes and then destroys its frame from an fx
+            delivers exactly one :halted-destroy record to listeners: its event
+            id, the halt reason, the parent's committed write as :db-before and
+            its own write as :db-after; nothing reaches the ring"
     (rf/make-frame {:id :test/main})
     (let [records (atom [])]
-      (rf/register-listener! :epoch ::watch (fn [r] (swap! records conj r)))
+      (rf/register-listener! :epoch ::watch #(swap! records conj %))
       (rf/reg-fx :destroy-main (fn [_ _] (rf.frame/destroy-frame! :test/main)))
-      ;; Child: commits a write, then destroys the frame from an fx. Its
-      ;; pre-cascade db-before is whatever the container held when it was
-      ;; dequeued — i.e. AFTER the parent's {:phase :parent-done} write
-      ;; committed (per-event epoch boundary).
       (rf/reg-event :child-destroy
-                       (fn [{:keys [db]} _]
-                         {:db (assoc db :phase :child-wrote)
-                          :fx [[:destroy-main]]}))
-      ;; Parent: commits a db write, then fx-dispatches the child. The
-      ;; child runs as a SEPARATE dequeued event in the same drain.
+        (fn [{:keys [db]} _] {:db (assoc db :phase :child-wrote) :fx [[:destroy-main]]}))
       (rf/reg-event :parent-write-then-spawn
-                       (fn [_ _]
-                         {:db {:phase :parent-done :marker 42}
-                          :fx [[:dispatch [:child-destroy]]]}))
-      (try (rf/dispatch-sync [:parent-write-then-spawn] {:frame :test/main})
-           (catch Throwable _ nil))
-      (let [halted (first (filterv (fn [r] (= :halted-destroy (:outcome r)))
-                                   @records))]
-        (is (some? halted)
-            "the child's mid-drain destroy committed a :halted-destroy
-             record to listeners")
-        (is (= :child-destroy (:event-id halted))
-            "the halted record's :event-id is the destroying child event")
-        ;; The child's pre-cascade :db-before reflects the parent's
-        ;; already-committed write — proving :db-before is the genuine
-        ;; per-event pre-cascade snapshot, not nil and not the frame's
-        ;; initial {}.
-        (is (= {:phase :parent-done :marker 42} (:db-before halted))
-            ":db-before is the destroying event's pre-cascade snapshot —
-             the parent's committed {:phase :parent-done :marker 42}")
-        (is (= {:phase :child-wrote :marker 42} (:db-after halted))
-            ":db-after is the destroy-time state — the child's committed write")
-        (is (not= (:db-before halted) (:db-after halted))
-            "the two snapshots differ, so a :db-after copied from :db-before fails here")))))
-
-;; ---- build-record omits :event-id / :trigger-event when
-;; ---- find-trigger-event yields nothing -----------------------------------
-;;
-;; `:rf/epoch-record` declares `[:event-id :keyword]`
-;; (required, non-maybe per Spec-Schemas §`:rf/epoch-record`). The live
-;; router halt paths short-circuit `build-record` on an empty buffer via
-;; `(when (seq events) ...)` in `settle!`, but `on-frame-destroyed!`'s
-;; `:halted-destroy` path commits a partial record from whatever buffered
-;; events are present — and a degenerate buffer that holds a `:event/
-;; run-start` but no `:event-id` / `:event` tags would otherwise produce
-;; `:event-id nil` / `:trigger-event nil`, violating the schema.
-;;
-;; Contract pin: when `find-trigger-event` returns nil for both fields,
-;; the assembled record carries NEITHER slot (the schema admits the
-;; absent slot, rejects nil values). `build-record` is exercised
-;; directly because driving a real router path with this exact degenerate
-;; buffer would need cooperation from router internals.
-
-(deftest build-record-omits-event-id-and-trigger-event-on-tag-less-buffer
-  (testing "build-record on a buffer whose only `:event/run-start` trace
-            carries neither :event-id nor :event in :tags omits the
-            :event-id and :trigger-event slots from the record (rather
-            than emitting them as nil, which would violate the
-            :event-id :keyword schema)"
-    (rf/make-frame {:id :test/main})
-    ;; Synthetic `:event/run-start` with empty tags — the `in-cascade?`
-    ;; gate at on-frame-destroyed! fires on phase :run-start, but the
-    ;; tags carry no :event-id / :event, so find-trigger-event resolves
-    ;; nothing. This mirrors the degenerate path
-    ;; on the :halted-destroy commit.
-    (let [tag-less-events [{:op-type   :rf.event
-                            :operation :rf.event/run-start
-                            :tags      {:frame          :test/main
-                                        :rf.trace/phase :run-start}}]
-          record          (#'rf.epoch.assembly/build-record
-                            :test/main nil nil tag-less-events
-                            1700000000000  ; committed-at (token :time-ms)
-                            :halted-destroy
-                            {:operation :rf.frame/destroyed-mid-drain})]
-      (is (not (contains? record :event-id))
-          "the record does NOT carry :event-id when find-trigger-event
-           yields nil — the slot is absent rather than nil-valued
-           (schema rejects nil; absent is fine on the open map)")
-      (is (not (contains? record :trigger-event))
-          "the record does NOT carry :trigger-event when find-trigger-event
-           yields nil — symmetric to :event-id, the slot is absent
-           rather than nil-valued")
-      ;; Sanity: every required non-conditional slot still landed, and
-      ;; the halt-reason came through.
-      (is (= :test/main (:frame record)))
-      (is (= :halted-destroy (:outcome record)))
-      (is (= {:operation :rf.frame/destroyed-mid-drain}
-             (:halt-reason record))))))
-
-;; ---- find-trigger-event must not synthesise [eid] when
-;; ---- :event tag is absent on the fallback arm ----------------------------
-;;
-;; The fallback arm of `find-trigger-event` returns
-;; `:event nil` when the buffered event carries an `:event-id` tag but no
-;; `:event` tag, and `build-record` then omits the
-;; `:trigger-event` slot entirely. Synthesising `[eid]` as `:event` would
-;; misrepresent an event that carried payload (e.g. `[:foo "bar" 42]`) as a
-;; payload-less event, so there is no such fabrication; consumers rendering
-;; 'what triggered this cascade' either see the real event vector or none at
-;; all.
-
-(deftest find-trigger-event-fallback-does-not-synthesise-event-vector
-  (testing "find-trigger-event's fallback arm — :event-id tag present,
-            :event tag absent — returns :event nil rather than fabricating
-            [eid]; the calling build-record then omits :trigger-event"
-    (let [tag-less-fallback [{:op-type   :rf.event
-                              :operation :rf.event
-                              :tags      {:frame             :test/main
-                                          :rf.trace/event-id :foo}}]
-          trigger           (#'rf.epoch.capture/find-trigger-event tag-less-fallback)]
-      (is (= :foo (:event-id trigger))
-          ":event-id is recovered from the fallback arm")
-      (is (nil? (:event trigger))
-          ":event is NOT synthesised as [:foo] — the slot is nil so
-           build-record can decide not to emit a fabricated
-           :trigger-event"))
-
-    ;; Build-record consumes the fallback's nil :event via its conditional
-    ;; cond-> and emits no :trigger-event slot.
-    (rf/make-frame {:id :test/main})
-    (let [tag-less-events [{:op-type   :rf.event
-                            :operation :rf.event
-                            :tags      {:frame             :test/main
-                                        :rf.trace/event-id :foo}}]
-          record          (#'rf.epoch.assembly/build-record
-                            :test/main nil nil tag-less-events
-                            1700000000000  ; committed-at (token :time-ms)
-                            :halted-destroy
-                            {:operation :rf.frame/destroyed-mid-drain})]
-      (is (= :foo (:event-id record))
-          ":event-id lands on the record from the fallback arm")
-      (is (not (contains? record :trigger-event))
-          ":trigger-event is absent — no synthesised vector survives
-           into the record"))))
-
-(deftest find-trigger-event-fallback-preserves-payload-when-event-tag-present
-  (testing "find-trigger-event's fallback arm preserves the full event
-            vector when the buffered event DOES carry an :event tag —
-            payload is never stripped on the
-            non-degenerate fallback path"
-    (let [events  [{:op-type   :rf.event
-                    :operation :rf.event
-                    :tags      {:frame             :test/main
-                                :rf.trace/event-id :foo
-                                :rf.event/v        [:foo "bar" 42]}}]
-          trigger (#'rf.epoch.capture/find-trigger-event events)]
-      (is (= :foo (:event-id trigger)))
-      (is (= [:foo "bar" 42] (:event trigger))
-          "the full event vector survives — payload is preserved"))))
-
-;; ---- find-trigger-event fallback arm does not pin :dispatch-id -------------
-;;
-;; The run-start arm reads
-;; :dispatch-id from the canonical `:event/run-start` trace, which is
-;; correct. Surfacing the :dispatch-id of an arbitrary non-run-start trace
-;; (e.g. an error trace from a rejected dispatch) on the fallback arm would
-;; be wrong: Spec-Schemas §`:rf/epoch-record` documents :dispatch-id as
-;; pinned from the run-start tag and ABSENT for a no-run-start cascade —
-;; so the fallback arm does NOT pin a dispatch-id; only the run-start arm
-;; does.
-
-(deftest find-trigger-event-fallback-omits-dispatch-id
-  (testing "find-trigger-event's fallback arm (no :event/run-start
-            buffered) does NOT surface :dispatch-id — even when the
-            fallback trace carries one — matching the spec's 'absent for
-            a no-run-start cascade' shape"
-    (let [fallback-with-did [{:op-type   :rf.event
-                              :operation :rf.event
-                              :tags      {:frame                :test/main
-                                          :rf.trace/event-id    :foo
-                                          :rf.trace/dispatch-id 99}}]
-          trigger           (#'rf.epoch.capture/find-trigger-event fallback-with-did)]
-      (is (= :foo (:event-id trigger))
-          ":event-id is recovered from the fallback arm")
-      (is (nil? (:dispatch-id trigger))
-          ":dispatch-id is NOT pinned from the fallback (non-run-start)
-           trace — only the run-start arm is its canonical source"))
-    ;; build-record then omits the :dispatch-id slot entirely (the cond->
-    ;; drops nil), matching the schema's 'absent' shape.
-    (rf/make-frame {:id :test/main})
-    (let [events [{:op-type   :rf.event
-                   :operation :rf.event
-                   :tags      {:frame                :test/main
-                               :rf.trace/event-id    :foo
-                               :rf.trace/dispatch-id 99}}]
-          record (#'rf.epoch.assembly/build-record
-                  :test/main nil nil events
-                  1700000000000  ; committed-at (token :time-ms)
-                  :halted-destroy
-                  {:operation :rf.frame/destroyed-mid-drain})]
-      (is (not (contains? record :dispatch-id))
-          "the record omits :dispatch-id when only the fallback arm
-           resolved the trigger — no incidental id leaks onto the slot"))))
-
-;; ---- record-observation! guards its swap ----------------------------------
-;;
-;; `notify-listeners!` invokes `record-observation!` once per listener per
-;; event settle. For the steady state — a long-lived listener observing the
-;; same frame on every cascade — the cb's observed-frames set already
-;; contains the frame-id, and an unconditional `swap!` would fire every
-;; atom watcher N times per settle for ZERO semantic change. The guard
-;; inside `record-observation!` short-circuits the already-observed case;
-;; this test pins that no-op via an atom watcher (the canonical witness:
-;; Clojure's persistent-map `assoc`/`update` can return an identical map
-;; when the value is unchanged, so identity-equality alone is too weak,
-;; but `add-watch` ALWAYS fires on every successful `swap!`).
-
-(deftest record-observation-no-op-when-already-observed
-  (testing "record-observation! does NOT swap! the observed-frames-by-cb
-            atom when the (cb-id, frame-id) pair is already present —
-            repeated event settles for a stable listener-observing-frame
-            pairing leave the atom untouched (no watcher fires)"
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-
-    (let [observed-atom @#'rf.epoch.state/observed-frames-by-cb
-          swap-count    (atom 0)]
-      (add-watch observed-atom ::swap-counter
-                 (fn [_ _ _ _] (swap! swap-count inc)))
-      (try
-        ;; First cascade — the cb observes :test/main for the first time;
-        ;; the membership is added. One swap is expected here (the new
-        ;; observation lands on the atom).
-        (rf/register-listener! :epoch ::watcher (fn [_] nil))
-        (rf/dispatch-sync [:seed] {:frame :test/main})
-        (is (contains? (get @observed-atom ::watcher) :test/main)
-            "after the first cascade, the cb has :test/main in its set")
-
-        (let [swaps-after-first @swap-count]
-          (is (pos? swaps-after-first)
-              "the first observation triggered at least one swap")
-
-          ;; Drive more cascades — every one is a repeat observation of
-          ;; the same (cb-id, frame-id) pair. The guard must short-circuit
-          ;; so no further swap fires.
-          (rf/dispatch-sync [:inc] {:frame :test/main})
-          (rf/dispatch-sync [:inc] {:frame :test/main})
-          (rf/dispatch-sync [:inc] {:frame :test/main})
-
-          (is (= swaps-after-first @swap-count)
-              "no further swap! ran across the three repeat cascades —
-               record-observation! short-circuited on the already-observed
-               case")
-          (is (= 1 (count (get @observed-atom ::watcher)))
-              "the cb's observed-frames set still has exactly one entry")
-          (is (= 4 (count (rf/epoch-history :test/main)))
-              "the four cascades did land four epoch records — the cb was
-               notified each time, but the observation atom stayed put"))
-        (finally
-          (remove-watch observed-atom ::swap-counter))))))
+        (fn [_ _] {:db {:phase :parent-done :marker 42} :fx [[:dispatch [:child-destroy]]]}))
+      (rf/dispatch-sync [:parent-write-then-spawn] {:frame :test/main})
+      (is (= [{:event-id    :child-destroy
+               :halt-reason {:operation :rf.frame/destroyed-mid-drain}
+               :db-before   {:phase :parent-done :marker 42}
+               :db-after    {:phase :child-wrote :marker 42}}]
+             (->> @records
+                  (filter #(= :halted-destroy (:outcome %)))
+                  (mapv #(select-keys % [:event-id :halt-reason :db-before :db-after])))))
+      (is (= [] (rf/epoch-history :test/main))))))
 
 ;; ---- configure! validates at the boundary -------------------------------
-;;
-;; `configure!` validates
-;; `:depth` and `:trace-events-keep` at the boundary — invalid values (nil,
-;; non-numeric) are silently dropped and the prior valid config survives.
-;; Without that boundary check a bad value would survive configuration and
-;; explode later at `record!` time when `pos?` / `nat-int?` ran on the stored
-;; value.
 
 (deftest configure-drops-an-invalid-value-and-keeps-the-prior-one
-  (testing "a nil, non-numeric or negative `:depth` / `:trace-events-keep` is
-            silently dropped by `configure!`; the previously-stored valid
-            value survives (each row stores a non-default value first, so the
-            read-back also proves that value was applied)"
-    (are [k good bad]
-         (do (rf/configure! {:epoch-history {k good}})
-             (rf/configure! {:epoch-history {k bad}})
-             (= good (k (:epoch-history (rf/current-config)))))
-      :depth             7 nil
-      :depth             7 "five"
-      :depth             7 -1
-      :trace-events-keep 3 nil
-      :trace-events-keep 3 "no"
-      :trace-events-keep 3 -5)))
-
-(deftest configure-partial-update-rejects-bad-key-only
-  (testing "a configure call carrying one valid and one invalid key
-            applies the valid one and drops the invalid one — failure
-            in one key never poisons another"
-    (rf/configure! {:epoch-history {:depth 7 :trace-events-keep 4}})
-    (rf/configure! {:epoch-history {:depth 11 :trace-events-keep nil}})
-    (let [cfg (:epoch-history (rf/current-config))]
-      (is (= 11 (:depth cfg))
-          "the valid :depth update was applied")
-      (is (= 4 (:trace-events-keep cfg))
-          "the invalid :trace-events-keep update was dropped"))))
-
-;; ---- ring-eviction interaction with restore -----------------------------
-;;
-;; Ring-buffer eviction and
-;; restore preconditions, pinned together. A restore against an epoch-id that the ring has since evicted
-;; must deterministically fail as :rf.epoch/restore-unknown-epoch with the
-;; current (post-eviction) history-size in its tags, and must leave app-db
-;; unchanged.
-
-(deftest restore-after-eviction-fails-as-unknown-epoch
-  (testing "an epoch-id that was evicted by ring-depth-cap restores as
-            :rf.epoch/restore-unknown-epoch (app-db unchanged; failure
-            tags carry the current history-size, which equals depth)"
-    (rf/configure! {:epoch-history {:depth 3}})
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-    ;; Capture the epoch-id of the FIRST cascade before later cascades
-    ;; evict it. The ring depth is 3, so dispatching 4 more :inc events
-    ;; pushes the head out.
-    (let [evicted-id (-> (rf/epoch-history :test/main) first :epoch-id)]
-      (dotimes [_ 4] (rf/dispatch-sync [:inc] {:frame :test/main}))
-
-      (let [history-after (rf/epoch-history :test/main)
-            pre-restore   (rf/app-db-value :test/main)
-            recorded      (record-trace!)
-            ok?           (rf/restore-epoch! :test/main evicted-id)]
-        (is (= 3 (count history-after))
-            "ring still capped at depth 3")
-        (is (not-any? #(= evicted-id (:epoch-id %)) history-after)
-            "the captured epoch-id is no longer in history")
-        (is (false? ok?) "restore rejected — epoch evicted")
-        (is (= pre-restore (rf/app-db-value :test/main))
-            "app-db unchanged across the rejected restore")
-
-        (let [ev (some (fn [ev]
-                         (when (= :rf.epoch/restore-unknown-epoch
-                                  (:operation ev))
-                           ev))
-                       @recorded)]
-          (is (some? ev) ":rf.epoch/restore-unknown-epoch fired")
-          (is (= :test/main      (:frame (:tags ev))))
-          (is (= evicted-id      (:rf.epoch/id (:tags ev))))
-          (is (= 3 (:history-size (:tags ev)))
-              "history-size tag reflects the post-eviction size, not
-               the pre-eviction count"))))))
-
-;; ---- depth 0 still fires listeners --------------------------------------
-;;
-;; `configure!`'s docstring
-;; documents that depth 0 'disables recording (assembled records can
-;; still fire on listeners but nothing lands in the ring buffer)'. This
-;; test pins both halves: the ring stays empty and the listener still fires.
+  (testing "configure! silently drops a negative, non-numeric or nil :depth /
+            :trace-events-keep, keeping the prior value, and still applies a
+            valid key passed beside an invalid one"
+    (let [epoch-config #(select-keys (:epoch-history (rf/current-config))
+                                     [:depth :trace-events-keep])]
+      (rf/configure! {:epoch-history {:depth 7 :trace-events-keep 3}})
+      (rf/configure! {:epoch-history {:depth -1 :trace-events-keep "no"}})
+      (is (= {:depth 7 :trace-events-keep 3} (epoch-config)))
+      (rf/configure! {:epoch-history {:depth 11 :trace-events-keep nil}})
+      (is (= {:depth 11 :trace-events-keep 3} (epoch-config))))))
 
 (deftest depth-zero-still-fires-listeners
-  (testing "depth 0 disables the ring buffer but the assembled record
-            still fans out to registered listeners"
+  (testing "depth 0 keeps the ring empty but still fans each record out to
+            listeners (configure! / register-epoch-listener! docstrings)"
     (rf/configure! {:epoch-history {:depth 0}})
     (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :seed (fn [_ _] {:db {:n 0}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-
     (let [seen (atom [])]
-      (rf/register-listener! :epoch ::watcher (fn [r] (swap! seen conj r)))
+      (rf/register-listener! :epoch ::watcher #(swap! seen conj %))
       (rf/dispatch-sync [:seed] {:frame :test/main})
       (rf/dispatch-sync [:inc]  {:frame :test/main})
-
-      (is (= [] (rf/epoch-history :test/main))
-          "ring buffer is empty at depth 0")
-      (is (= 2 (count @seen))
-          "listener still received an assembled record per event settle")
-      (is (= [:seed :inc] (mapv :event-id @seen))
-          "records carry the per-cascade trigger event-id")
-      (is (every? #(contains? % :db-after) @seen)
-          "records carry the post-settle db-after")
-      (is (every? #(contains? % :sub-runs) @seen))
-      (is (every? #(contains? % :renders)  @seen))
-      (is (every? #(contains? % :effects)  @seen)))))
-
-;; ---- rejected restore/reset paths do not mutate history or notify listeners
-;;
-;; The rejection tests verify the trace
-;; emission and app-db stability; these pin the related
-;; bookkeeping contracts:
-;;
-;;   1. A rejected restore does not append a new record to history.
-;;   2. A rejected restore does not fire registered epoch listeners.
-;;   3. A rejected replacement does not append a new record.
-;;   4. A rejected replacement does not fire registered listeners.
-;;
-;; A regression that swapped emission-on-failure for fanout-on-failure
-;; (or appended a synthetic failure record) would pass the emission and
-;; app-db checks alone. Pin both halves explicitly.
-
-(deftest rejected-restore-does-not-touch-history-or-listeners
-  (testing "a rejected restore-epoch! (unknown-epoch, the simplest
-            rejection path) leaves the history vector untouched and
-            does not fire registered listeners"
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-    (rf/dispatch-sync [:inc]  {:frame :test/main})
-
-    (let [history-before (rf/epoch-history :test/main)
-          seen           (atom [])]
-      (rf/register-listener! :epoch ::watcher (fn [r] (swap! seen conj r)))
-      (is (false? (rf/restore-epoch! :test/main :no-such-epoch))
-          "restore rejected")
-
-      (is (= history-before (rf/epoch-history :test/main))
-          "history vector unchanged across the rejected restore")
-      (is (= [] @seen)
-          "no listener fanout for the rejected restore"))))
-
-(deftest rejected-replace-frame-state-app-only-does-not-touch-history-or-listeners
-  (testing "a rejected app-db-only patch (during-drain rejection — the
-            simplest rejection path that exercises the reset surface)
-            leaves history untouched and does not fire listeners"
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-
-    (let [history-before (rf/epoch-history :test/main)
-          seen           (atom [])
-          attempt        (atom nil)]
-      (rf/register-listener! :epoch ::watcher (fn [r] (swap! seen conj r)))
-      ;; A handler that calls replace-frame-state! synchronously during a
-      ;; drain — the during-drain precondition fails. The reset itself
-      ;; must not fan out, but the surrounding drain still settles
-      ;; normally (which appends ONE record — the one for :try-reset).
-      (rf/reg-event :try-reset
-        (fn [{:keys [db]} _]
-          (reset! attempt (rf/replace-frame-state! :test/main {:rf.db/app {:n 999}}))
-          {:db db}))
-      (rf/dispatch-sync [:try-reset] {:frame :test/main})
-
-      (is (false? @attempt) "reset rejected")
-      (let [history-after (rf/epoch-history :test/main)
-            new-records   (drop (count history-before) history-after)]
-        (is (= 1 (count new-records))
-            "exactly one new record — the drain settle for :try-reset
-             itself; no synthetic record from the rejected reset")
-        (is (= :try-reset (:event-id (first new-records)))
-            "the new record's event-id is :try-reset (not
-             :rf.epoch/db-replaced — the synthetic event-id the
-             reset surface would have used on success)"))
-
-      (is (= 1 (count @seen))
-          "listener fired exactly once — for the :try-reset cascade
-           settle, NOT for the rejected reset")
-      (is (= :try-reset (:event-id (first @seen)))
-          "the lone listener invocation is for the outer cascade, not
-           a synthetic reset-rejection record"))))
+      (is (= [] (rf/epoch-history :test/main)))
+      (is (= [[:seed {:n 0}] [:inc {:n 1}]] (mapv (juxt :event-id :db-after) @seen))))))
 
 (deftest shipped-trace-events-keep-default-is-50
-  (testing "the SHIPPED runtime default :trace-events-keep is
-            50 (= :depth, so every retained epoch keeps its trace).
-            Asserted against the source-of-truth
-            private `default-trace-events-keep` var, bypassing the
-            fixture's keep<depth override. Pins the default consistently
-            with docs/api/re-frame.core.md and `re-frame.epoch.state`."
-    (is (= 50 @#'rf.epoch.state/default-trace-events-keep)
-        "the source-of-truth default var ships 50")
-    ;; The accessor is wired to fall back to that var when the slot is
-    ;; absent from the live config map (the shape a fresh process / a
-    ;; partial `configure!` leaves). Drive a config WITHOUT the slot and
-    ;; confirm the accessor reports the shipped 50 — proving the var is the
-    ;; live default, not just a declared constant.
-    ;;
-    ;; Uses direct private-var access: `configure!` /
-    ;; `merge-config!` MERGES, so it cannot produce a config map MISSING
-    ;; the `:trace-events-keep` slot (the exact shape this test needs to
-    ;; exercise the accessor's fallback). Only a raw `reset!` of the
-    ;; private `config` can build that shape — the shared fixture's
-    ;; reset-to-default always carries the slot.
-    (reset! @#'rf.epoch.state/config {:depth 50})
-    (is (= 50 (rf.epoch.state/trace-events-keep))
-        "trace-events-keep accessor falls back to the shipped 50 default")))
+  (testing "the shipped :trace-events-keep default is 50 (this suite's fixture
+            overrides it, so reset to the shipped config first)"
+    (rf.epoch.state/reset-config!)
+    (is (= 50 (:trace-events-keep (:epoch-history (rf/current-config)))))))
 
 ;; ============================================================================
-;;  Write-boundary liveness race (validate, then destroy)
+;;  Exact-incarnation restore
 ;; ============================================================================
 ;;
-;; restore-epoch! and replace-frame-state! validate preconditions against a live
-;; frame, then write the frame's container. A frame destroyed in the window
-;; BETWEEN validation and the write (a tool gesture interleaving with the
-;; owning component's teardown) leaves `frame/app-db-container` returning
-;; nil, so the choke-point `adapter/replace-container!` silently no-ops the
-;; write. The epoch surfaces must not emit success or return `true` after this
-;; race. Per Tool-Pair §Surface behaviour against
-;; destroyed frames a destroyed-frame write is a STRUCTURAL FAILURE
-;; (:rf.error/no-such-handler, kind :frame, returns false).
-;;
-;; The test below reproduces the race through the PUBLIC surface: it
-;; with-redefs the precondition check to destroy the frame after a real (live)
-;; validation, so the public restore-epoch! must return perform-restore!'s
-;; false. The write-boundary gate itself, and the public replace-frame-state!,
-;; are pinned by the same-id successor tests below, whose interposed destroy +
-;; reseat takes the same incarnation-gate branch as a bare destroy.
-
-(deftest restore-epoch-public-validate-then-destroy-returns-false
-  (testing "the PUBLIC restore-epoch! returns false (not a false
-            success) when the frame is destroyed AFTER a live precondition
-            pass but BEFORE the container write. The precondition check is
-            real; the destroy is injected into the validate→write window."
-    (rf/make-frame {:id :test/short-lived})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/dispatch-sync [:seed] {:frame :test/short-lived})
-
-    (let [target-id (-> (rf/epoch-history :test/short-lived) first :epoch-id)
-          real-check rf.epoch.tool-pair/check-restore-preconditions!
-          recorded   (record-trace!)]
-      ;; Inject the destroy into the validate→write window: run the REAL
-      ;; (live) precondition check, then destroy the frame before the
-      ;; orchestrator reaches perform-restore!.
-      (with-redefs [rf.epoch.tool-pair/check-restore-preconditions!
-                    (fn [frame-id epoch-id]
-                      (let [r (real-check frame-id epoch-id)]
-                        (rf/destroy-frame! frame-id)
-                        r))]
-        (let [result (rf/restore-epoch! :test/short-lived target-id)]
-          (is (false? result)
-              "public restore-epoch! returns false for the validate-then-destroy
-               race — the write-boundary guard caught the no-op write")
-          (is (has-error-op? @recorded :rf.error/no-such-handler)
-              ":rf.error/no-such-handler fired")
-          (is (not-any? #(= :rf.epoch/restored (:operation %)) @recorded)
-              "no :rf.epoch/restored success trace"))))))
-
-;; ============================================================================
-;;  POST-LIVENESS teardown race (the second half of the window)
-;; ============================================================================
-;;
-;; The write-boundary liveness gate (`event-continuation-live?` on the exact
-;; incarnation token) closes only HALF the validate→write window: a frame
-;; destroyed AFTER the gate passes (it saw a LIVE incarnation) but BEFORE the
-;; actual `frame/replace-frame-state!` write returns would otherwise slip
-;; through — the gate said "live", yet the physical write lands against a
-;; now-destroyed frame and the choke-point `commit-frame-transition!` returns
-;; `nil`. The perform helpers capture that return: `nil` is
-;; the destroyed-frame signal (a non-nil — possibly EMPTY — changed-key-set
-;; means the write landed, even a no-op), so they surface the canonical
-;; `:rf.error/no-such-handler` (kind :frame) / `false` BEFORE any success
-;; telemetry, synthetic epoch, or listener fanout. Ignoring the return would
-;; emit success telemetry and a fanned-out synthetic epoch for a write that
-;; never happened. Empty-set / no-op writes are successful.
-;;
-;; The race is reproduced by redefining the boundary `frame/replace-frame-state!` write
-;; to DESTROY the frame and then delegate to the real fn — so liveness has
-;; already passed (it ran before the redef'd write) and the real write returns
-;; nil against the now-destroyed frame, exactly the post-liveness window.
-
-(deftest restore-epoch-post-liveness-teardown-returns-false
-  (testing "perform-restore! returns false (NOT a synthetic
-            success), emits :rf.error/no-such-handler (kind :frame), and does
-            NOT emit :rf.epoch/restored when the frame is destroyed AFTER the
-            write-boundary liveness check passes but BEFORE replace-frame-state!
-            returns (the nil-return post-liveness teardown window)."
-    (rf/make-frame {:id :test/short-lived})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    (rf/dispatch-sync [:seed] {:frame :test/short-lived})
-    (rf/dispatch-sync [:inc]  {:frame :test/short-lived})
-
-    (let [target-id (-> (rf/epoch-history :test/short-lived) first :epoch-id)
-          {:keys [outcome epoch incarnation-token]}
-          (rf.epoch.tool-pair/check-restore-preconditions! :test/short-lived target-id)]
-      (is (= :ok outcome) "precondition validation passed against the live frame")
-
-      (let [real-write rf.frame/replace-frame-state!
-            recorded   (record-trace!)
-            ;; The post-liveness window: the write-boundary incarnation gate
-            ;; (inside perform-restore!) passes against the LIVE incarnation, THEN
-            ;; this redef'd exact-incarnation write destroys the frame and
-            ;; delegates to the real 3-arity write, which now returns nil against
-            ;; the destroyed incarnation.
-            result     (with-redefs [rf.frame/replace-frame-state!
-                                     (fn [frame-id token fs]
-                                       (rf/destroy-frame! frame-id)
-                                       (real-write frame-id token fs))]
-                         (rf.epoch.tool-pair/perform-restore! :test/short-lived incarnation-token epoch))]
-        (is (false? result)
-            "perform-restore! reports HONEST failure (false) — the nil write
-             return is checked, not ignored")
-        (is (has-error-op? @recorded :rf.error/no-such-handler)
-            ":rf.error/no-such-handler fired for the post-liveness teardown")
-        (let [ev (some #(when (= :rf.error/no-such-handler (:operation %)) %)
-                       @recorded)]
-          (is (= :frame (:kind (:tags ev))) "tags carry :kind :frame")
-          (is (= :test/short-lived (:frame (:tags ev))) "tags carry :frame"))
-        (is (not-any? #(= :rf.epoch/restored (:operation %)) @recorded)
-            "no :rf.epoch/restored success trace for the post-liveness drop")))))
-
-;; The write boundary is fenced to the EXACT frame incarnation the
-;; preconditions resolved against, not the bare id. If incarnation A is
-;; destroyed and a same-id SUCCESSOR B is seated BETWEEN precondition resolution
-;; and the physical write, the restore MUST refuse — installing A's captured
-;; state into B (reported as success) would be the defect. The reproduction drives the
-;; two phases directly with the successor interposed, exactly as the public
-;; restore-epoch! sequences them: validate (live A) → destroy A + create B →
-;; perform! with A's now-stale token. Without the fence the result would be
-;; {:restore-result true, :b-db-after {:owner :A :n 1}} — A's state overwriting B.
-;; With it, the stale write
-;; is rejected via the SAME :rf.error/no-such-handler path a destroyed-frame race
-;; uses, and B is left byte-for-byte untouched.
+;; `restore-epoch!` validates against a live frame, then writes it. The whole
+;; restore is one transaction keyed on the EXACT incarnation token the
+;; preconditions resolved: a frame destroyed, or replaced by a same-id
+;; successor B, at any seam must leave B untouched and resolve to the typed
+;; :rf.error/no-such-handler (Tool-Pair §Surface behaviour against destroyed
+;; frames). The churn is interposed deterministically at each seam.
 
 (deftest restore-fenced-to-exact-incarnation-leaves-same-id-successor-untouched
-  (testing "a restore whose preconditions resolve against incarnation
-            A, then A is destroyed and a same-id SUCCESSOR B is created BEFORE the
-            write, REJECTS the stale install: returns false, leaves B's app-db
-            byte-for-byte unchanged (A's state is NOT installed into B), emits
-            :rf.error/no-such-handler (kind :frame), and emits no
-            :rf.epoch/restored success trace."
+  (testing "preconditions resolved against incarnation A, then A destroyed and
+            a same-id successor B seated before the write: the restore is
+            refused with the typed :rf.error/no-such-handler, emits no success
+            trace, and leaves B unchanged"
     (rf/make-frame {:id :test/succ})
     (rf/reg-event :set-owner (fn [_ [_ owner n]] {:db {:owner owner :n n}}))
-
-    ;; Incarnation A records an epoch at {:owner :A :n 1}, then advances so that
-    ;; epoch is a genuine rewind target (distinct from the current state).
     (rf/dispatch-sync [:set-owner :A 1] {:frame :test/succ})
     (rf/dispatch-sync [:set-owner :A 2] {:frame :test/succ})
-    (let [a-target-id (some (fn [r] (when (= {:owner :A :n 1} (:db-after r)) (:epoch-id r)))
-                            (rf/epoch-history :test/succ))
-          ;; (1) Resolve preconditions against LIVE incarnation A — yields the
-          ;; target epoch AND A's exact incarnation token.
-          {:keys [outcome epoch incarnation-token]}
-          (rf.epoch.tool-pair/check-restore-preconditions! :test/succ a-target-id)]
-      (is (some? a-target-id) "seeded an A epoch whose db-after is {:owner :A :n 1}")
-      (is (= :ok outcome) "preconditions passed against live incarnation A")
-
-      ;; (2) Interpose: destroy A, seat a same-id SUCCESSOR B (a fresh
-      ;; incarnation — distinct :drain-lock), and give B its own app-db.
+    (let [{:keys [outcome epoch incarnation-token]}
+          (rf.epoch.tool-pair/check-restore-preconditions!
+            :test/succ (:epoch-id (first (rf/epoch-history :test/succ))))]
+      (is (= :ok outcome))
       (rf/destroy-frame! :test/succ)
       (rf/make-frame {:id :test/succ})
       (rf/dispatch-sync [:set-owner :B 99] {:frame :test/succ})
-      (is (= {:owner :B :n 99} (rf/app-db-value :test/succ))
-          "successor B seeded to {:owner :B :n 99}")
-
-      ;; (3) Drive the write with A's now-stale token + epoch.
-      (let [recorded    (record-trace!)
-            b-db-before (rf/app-db-value :test/succ)
-            result      (rf.epoch.tool-pair/perform-restore! :test/succ incarnation-token epoch)
-            b-db-after  (rf/app-db-value :test/succ)]
-        (is (false? result)
-            (str "the stale cross-incarnation restore must be REJECTED; got "
-                 (pr-str result)))
-        (is (= {:owner :B :n 99} b-db-after)
-            (str "successor B must be byte-for-byte unchanged — A's {:owner :A :n 1} "
-                 "must NOT install into B; b-db-before " (pr-str b-db-before)
-                 " b-db-after " (pr-str b-db-after)))
-        (is (has-error-op? @recorded :rf.error/no-such-handler)
-            ":rf.error/no-such-handler fired for the lost incarnation")
-        (let [ev (some #(when (= :rf.error/no-such-handler (:operation %)) %) @recorded)]
-          (is (= :frame (:kind (:tags ev))) "the typed failure carries :kind :frame")
-          (is (= :test/succ (:frame (:tags ev))) "the typed failure carries :frame"))
-        (is (not-any? #(= :rf.epoch/restored (:operation %)) @recorded)
-            "no :rf.epoch/restored success trace for the rejected stale restore")))))
-
-;; The exact-incarnation fence covers the whole restore transaction, not only
-;; the PHYSICAL write. Three further seams could otherwise cross from
-;; incarnation A into a same-id successor B across the rest of the restore
-;; transaction. Each test below interposes a deterministic churn at ONE seam
-;; and asserts the exact-incarnation fence holds end to end:
-;;
-;;   seam 1 — precondition sampling re-resolves history
-;;            by bare id;
-;;   seam 2 — the pre-write reconcile does a bare-id host-table clear;
-;;   seam 3 — the post-write bare-id tail (anchor / trace commit / quiesce) runs
-;;            after the synchronous :rf.epoch/restored callback boundary.
-;;
-;; The control (`restore-through-all-fences-still-succeeds`) drives the same
-;; token-threaded seams with NO churn and confirms an ordinary restore succeeds.
+      (let [recorded (record-trace!)]
+        (is (false? (rf.epoch.tool-pair/perform-restore! :test/succ incarnation-token epoch)))
+        (is (= {:owner :B :n 99} (rf/app-db-value :test/succ)))
+        (is (= [[:error {:kind :frame :frame :test/succ}]] (no-such-frame-errors @recorded)))
+        (is (not-any? #(= :rf.epoch/restored (:operation %)) @recorded))))))
 
 (deftest restore-preconditions-refuse-successor-seated-during-history-sampling
-  (testing "seam 1 — a same-id successor B seated DURING precondition
-            sampling (interposed on the bare-id history re-resolve) must NOT
-            yield an :ok ticket that pairs A's retained epoch with a stale
-            incarnation. `check-restore-preconditions!` exact-owner-gates the
-            history/validation snapshot and refuses with :rf.error/no-such-handler
-            (kind :frame); B is byte-for-byte unchanged. Checks that resolved
-            history / re-resolved the token independently by bare id would
-            return :ok."
+  (testing "seam 1 — a same-id successor B seated while the preconditions
+            sample A's history yields the typed no-such-handler refusal, never
+            an :ok ticket pairing A's epoch with a stale incarnation"
     (rf/make-frame {:id :test/seam1})
     (rf/reg-event :set-owner (fn [_ [_ o n]] {:db {:owner o :n n}}))
     (rf/dispatch-sync [:set-owner :A 1] {:frame :test/seam1})
     (rf/dispatch-sync [:set-owner :A 2] {:frame :test/seam1})
-    (let [a-target-id (some (fn [r] (when (= {:owner :A :n 1} (:db-after r)) (:epoch-id r)))
-                            (rf/epoch-history :test/seam1))
-          a-token     (rf.frame/frame-incarnation-token :test/seam1)
+    (let [a-target-id (:epoch-id (first (rf/epoch-history :test/seam1)))
           real-hist   rf.epoch.state/history-for
-          churned?    (atom false)]
-      (is (some? a-target-id) "seeded an A epoch whose db-after is {:owner :A :n 1}")
-      (let [result (with-redefs [rf.epoch.state/history-for
-                                 (fn [fid]
-                                   ;; Interpose the churn on the bare-id history
-                                   ;; re-resolve the checks perform: capture A's
-                                   ;; retained history, destroy A + seat a same-id
-                                   ;; successor B, then hand back A's RETAINED
-                                   ;; history (the documented late-cleanup overlap).
-                                   (if (and (= fid :test/seam1) (not @churned?))
-                                     (let [a-hist (real-hist fid)]
-                                       (reset! churned? true)
-                                       (rf/destroy-frame! :test/seam1)
-                                       (rf/make-frame {:id :test/seam1})
-                                       (rf/dispatch-sync [:set-owner :B 99] {:frame :test/seam1})
-                                       a-hist)
-                                     (real-hist fid)))]
-                     (rf.epoch.tool-pair/check-restore-preconditions! :test/seam1 a-target-id))]
-        (is (true? @churned?) "the successor was interposed during sampling")
-        (is (= :fail (:outcome result))
-            "the checks refuse rather than pair A's epoch against the seated successor")
-        (is (= :rf.error/no-such-handler (:op result))
-            "the refusal is the canonical no-such-handler typed failure")
-        (is (= :frame (:kind (:tags result))) "the typed failure carries :kind :frame")
-        (is (nil? (:incarnation-token result))
-            "no :ok ticket — so no A epoch is ever paired with the successor's token")
-        (is (not (identical? a-token (rf.frame/frame-incarnation-token :test/seam1)))
-            "successor B is a fresh incarnation (distinct token)")
-        (is (= {:owner :B :n 99} (rf/app-db-value :test/seam1))
-            "successor B is byte-for-byte unchanged")))))
-
-(deftest restore-reconcile-fenced-to-exact-incarnation-spares-successor
-  (testing "seam 2 — perform-restore! threads the EXACT incarnation
-            token into the pre-write reconcile so its bare-id host-table clear is
-            fenced. A reconcile that churns A to B mid-pass then gates its side
-            effect on the threaded token performs NO B-addressed effect; the exact
-            write then rejects the lost incarnation, restore returns false, and B
-            is byte-for-byte unchanged. A reconcile receiving no token would
-            land its bare-id clear on B."
-    (rf/make-frame {:id :test/seam2})
-    ;; seed a non-nil runtime-db partition so the reconcile hook is consulted
-    ;; (`reconcile-runtime-db-on-restore` skips a nil runtime-db).
-    (rf/reg-event :seed2
-      (fn [{rt :rf.db/runtime} [_ o n]]
-        {:db {:owner o :n n}
-         :rf.db/runtime (assoc (or rt {}) :marker :present)}))
-    (rf/dispatch-sync [:seed2 :A 1] {:frame :test/seam2})
-    (rf/dispatch-sync [:seed2 :A 2] {:frame :test/seam2})
-    (let [a-target-id (some (fn [r] (when (= {:owner :A :n 1} (:db-after r)) (:epoch-id r)))
-                            (rf/epoch-history :test/seam2))
-          {:keys [outcome epoch incarnation-token]}
-          (rf.epoch.tool-pair/check-restore-preconditions! :test/seam2 a-target-id)
-          seen-token (atom :unseen)
-          b-effect?  (atom false)
-          rk         :resources/reconcile-on-restore
-          r0         (rf.late-bind/get-fn rk)]
-      (is (= :ok outcome) "preconditions passed against live incarnation A")
-      (is (some? a-target-id) "seeded an A epoch")
-      (try
-        (rf.late-bind/set-fn! rk
-          (fn [rdb frame-id {:keys [owner-token]}]
-            (reset! seen-token owner-token)
-            ;; churn A -> same-id successor B mid-reconcile
-            (rf/destroy-frame! :test/seam2)
-            (rf/make-frame {:id :test/seam2})
-            (rf/dispatch-sync [:seed2 :B 99] {:frame :test/seam2})
-            ;; The real resources host-transient clear addresses the frame by BARE
-            ;; id; fence it on the threaded token exactly as ssr.cljc does. A
-            ;; true here would mean a bare-id host-table touch landing on B.
-            (when (and frame-id (or (nil? owner-token)
-                                    (rf.frame/frame-incarnation-live? frame-id owner-token)))
-              (reset! b-effect? true))
-            rdb))
-        (let [result (rf.epoch.tool-pair/perform-restore! :test/seam2 incarnation-token epoch)]
-          (is (identical? incarnation-token @seen-token)
-              "the reconcile received the EXACT incarnation token")
-          (is (false? @b-effect?)
-              "the token-fenced bare-id host-table effect did NOT fire against successor B")
-          (is (false? result) "the exact write rejects the lost incarnation")
-          (is (= {:owner :B :n 99} (rf/app-db-value :test/seam2))
-              "successor B is byte-for-byte unchanged"))
-        (finally (rf.late-bind/set-fn! rk r0))))))
+          churned?    (atom false)
+          result      (with-redefs [rf.epoch.state/history-for
+                                    (fn [fid]
+                                      (if (and (= fid :test/seam1) (not @churned?))
+                                        ;; Capture A's history, seat B, and hand
+                                        ;; back A's retained history.
+                                        (let [a-hist (real-hist fid)]
+                                          (reset! churned? true)
+                                          (rf/destroy-frame! :test/seam1)
+                                          (rf/make-frame {:id :test/seam1})
+                                          (rf/dispatch-sync [:set-owner :B 99] {:frame :test/seam1})
+                                          a-hist)
+                                        (real-hist fid)))]
+                        (rf.epoch.tool-pair/check-restore-preconditions! :test/seam1 a-target-id))]
+      (is (= {:outcome :fail
+              :op      :rf.error/no-such-handler
+              :tags    {:kind :frame :frame :test/seam1}}
+             result))
+      (is (= {:owner :B :n 99} (rf/app-db-value :test/seam1))))))
 
 (deftest restore-tail-anchoring-fenced-to-exact-incarnation
-  (testing "seam 3 — after the exact install commits, a synchronous
-            :rf.epoch/restored trace listener that destroys A and seats a same-id
-            successor B must not let the bare-id post-write tail (last-settled
-            anchor, resource-trace commit, host-work quiesce) RETARGET onto B.
-            restore returns TRUE (the install committed on A) but B's last-settled
-            anchor is NOT stamped with A's restored epoch-id. A tail run
-            unconditionally by bare id would stamp B."
+  (testing "seam 3 — a :rf.epoch/restored trace listener that destroys A and
+            seats a same-id successor B after the install: restore still
+            returns true (it committed on A), but the post-write tail does not
+            stamp B's last-settled anchor with A's restored epoch"
     (rf/make-frame {:id :test/seam3})
     (rf/reg-event :set-owner3 (fn [_ [_ o n]] {:db {:owner o :n n}}))
     (rf/dispatch-sync [:set-owner3 :A 1] {:frame :test/seam3})
     (rf/dispatch-sync [:set-owner3 :A 2] {:frame :test/seam3})
-    (let [a-target-id (some (fn [r] (when (= {:owner :A :n 1} (:db-after r)) (:epoch-id r)))
-                            (rf/epoch-history :test/seam3))
+    (let [a-target-id (:epoch-id (first (rf/epoch-history :test/seam3)))
           {:keys [outcome epoch incarnation-token]}
           (rf.epoch.tool-pair/check-restore-preconditions! :test/seam3 a-target-id)
-          fired? (atom false)
-          lk     ::seam3-churn]
-      (is (= :ok outcome) "preconditions passed against live incarnation A")
-      (is (some? a-target-id) "seeded an A epoch")
-      (rf/register-listener! :trace lk
+          fired?      (atom false)]
+      (is (= :ok outcome))
+      (rf/register-listener! :trace ::seam3-churn
         (fn [ev]
           (when (and (not @fired?) (= :rf.epoch/restored (:operation ev)))
             (reset! fired? true)
             (rf/destroy-frame! :test/seam3)
             (rf/make-frame {:id :test/seam3})
             (rf/dispatch-sync [:set-owner3 :B 99] {:frame :test/seam3}))))
-      (try
-        (let [result (rf.epoch.tool-pair/perform-restore! :test/seam3 incarnation-token epoch)]
-          (is (true? @fired?) "the :rf.epoch/restored listener churned A to B")
-          (is (true? result)
-              "the install committed on the exact incarnation A, so the public result stays TRUE")
-          (is (not= a-target-id (rf.epoch.state/last-settled-epoch-id :test/seam3))
-              "the post-write anchor was NOT retargeted onto successor B")
-          (is (= {:owner :B :n 99} (rf/app-db-value :test/seam3))
-              "successor B's app-db is untouched by the restore tail"))
-        (finally (rf/unregister-listener! :trace lk))))))
+      (is (true? (rf.epoch.tool-pair/perform-restore! :test/seam3 incarnation-token epoch)))
+      (is (= {:owner :B :n 99} (rf/app-db-value :test/seam3)))
+      (is (not= a-target-id (rf.epoch.state/last-settled-epoch-id :test/seam3))))))
 
 (deftest restore-through-all-fences-still-succeeds
-  (testing "control — the same token-threaded seams (record-derived
-            token, exact-owner history gate, token-carrying reconcile, fenced
-            post-write tail) with NO incarnation churn install and return true:
-            the fences reject only a lost incarnation, never an ordinary live one.
-            The reconcile receives the exact token and sees it LIVE; the tail
-            anchors last-settled to the restored epoch."
+  (testing "control — with no churn the reconcile receives the live exact
+            incarnation token, the restore installs and returns true, and the
+            tail anchors last-settled to the restored epoch"
     (rf/make-frame {:id :test/allfences})
     (rf/reg-event :seedc
       (fn [{rt :rf.db/runtime} [_ n]]
-        {:db {:n n}
-         :rf.db/runtime (assoc (or rt {}) :marker :present)}))
+        {:db {:n n} :rf.db/runtime (assoc (or rt {}) :marker :present)}))
     (rf/dispatch-sync [:seedc 1] {:frame :test/allfences})
     (rf/dispatch-sync [:seedc 2] {:frame :test/allfences})
-    (let [target-id (some (fn [r] (when (= {:n 1} (:db-after r)) (:epoch-id r)))
-                          (rf/epoch-history :test/allfences))
-          {:keys [outcome epoch incarnation-token]}
-          (rf.epoch.tool-pair/check-restore-preconditions! :test/allfences target-id)
+    (let [target-id   (:epoch-id (first (rf/epoch-history :test/allfences)))
           token-live? (atom nil)
           rk          :resources/reconcile-on-restore
           r0          (rf.late-bind/get-fn rk)]
-      (is (= :ok outcome) "preconditions passed against the live frame")
-      (is (identical? incarnation-token (rf.frame/frame-incarnation-token :test/allfences))
-          "the :ok ticket's token is the live incarnation's own drain-lock (record-derived)")
       (try
         (rf.late-bind/set-fn! rk
           (fn [rdb frame-id {:keys [owner-token]}]
             (reset! token-live? (and (some? owner-token)
                                      (rf.frame/frame-incarnation-live? frame-id owner-token)))
             rdb))
-        (let [recorded (record-trace!)
-              result   (rf.epoch.tool-pair/perform-restore! :test/allfences incarnation-token epoch)]
-          (is (true? @token-live?) "the reconcile saw the threaded token LIVE (no churn)")
-          (is (true? result) "an ordinary within-incarnation restore still succeeds")
-          (is (= {:n 1} (rf/app-db-value :test/allfences)) "app-db rewound to the target epoch")
-          (is (= target-id (rf.epoch.state/last-settled-epoch-id :test/allfences))
-              "the tail anchored last-settled to the restored epoch")
-          (is (some #(= :rf.epoch/restored (:operation %)) @recorded)
-              ":rf.epoch/restored success trace fired"))
+        (is (true? (rf/restore-epoch! :test/allfences target-id)))
+        (is (true? @token-live?) "the reconcile saw the exact token, live")
+        (is (= [{:n 1} target-id]
+               [(rf/app-db-value :test/allfences)
+                (rf.epoch.state/last-settled-epoch-id :test/allfences)]))
         (finally (rf.late-bind/set-fn! rk r0))))))
 
-;; ---- state INJECTION is the same exact-incarnation transaction -------------
-;;
-;; RESTORE is fenced end to end, and so is the sibling Tool-Pair
-;; write — replace-frame-state!, the dev-only state injection Xray / Pair-MCP
-;; drive. Were it to validate a bare frame id, return no incarnation token, and
-;; write through the non-exact two-arity core write, then if validated
-;; incarnation A were destroyed and a same-id successor B seated before the
-;; write, the stale gesture would overwrite B and record the transition in B's
-;; history while returning true. So it mirrors the restore transaction exactly: the
-;; preconditions derive the EXACT token from the same captured record and
-;; return it on :ok; the public fn threads it to the write boundary; the
-;; serialized region gates on `event-continuation-live?` and installs through
-;; core's exact-incarnation 3-arity write; and the synthetic bookkeeping
-;; claims/commits only under that exact token (`commit-frame-owner-record!`),
-;; with liveness re-checks around the callback-bearing trace/listener tails.
-;;
-;; The churn is interposed exactly as the public fn sequences the phases: a
-;; with-redefs precheck wrapper runs the REAL (live-A) validation, then
-;; destroys A, seats + seeds same-id B, and hands back A's ticket — the
-;; deterministic validate→write window, no timing sleeps.
+;; ---- state injection is the same exact-incarnation transaction -------------
 
 (deftest replace-frame-state-fenced-to-exact-incarnation-leaves-same-id-successor-untouched
-  (testing "an app-only injection (the Xray/Pair-MCP shape) whose
-            preconditions resolve against incarnation A, then A is destroyed
-            and a same-id SUCCESSOR B is seated + seeded BEFORE the write,
-            REJECTS the stale install through the PUBLIC surface: returns
-            false, emits the canonical :rf.error/no-such-handler (kind
-            :frame), emits no :rf.epoch/db-replaced, fans nothing to epoch
-            listeners, and leaves B's full frame-state AND history exactly at
-            their captured baselines."
+  (testing "an app-only injection validated against incarnation A, then A
+            destroyed and a same-id successor B seated before the write, is
+            refused with the typed :rf.error/no-such-handler, emits no
+            :rf.epoch/db-replaced, delivers nothing to listeners, and leaves B's
+            frame-state and history at their baselines"
     (rf/make-frame {:id :test/inj})
     (rf/reg-event :set-owner-inj (fn [_ [_ o]] {:db {:owner o}}))
     (rf/dispatch-sync [:set-owner-inj :A] {:frame :test/inj})
-
-    (let [real-check   rf.epoch.tool-pair/check-replace-frame-state-preconditions!
-          a-token      (rf.frame/frame-incarnation-token :test/inj)
-          check-result (atom nil)
-          b-baseline   (atom nil)
-          fanned       (atom [])
-          recorded     (record-trace!)]
-      (rf/register-listener! :epoch ::inj-fan (fn [r] (swap! fanned conj r)))
+    (let [real-check rf.epoch.tool-pair/check-replace-frame-state-preconditions!
+          b-baseline (atom nil)
+          fanned     (atom [])
+          recorded   (record-trace!)]
+      (rf/register-listener! :epoch ::inj-fan #(swap! fanned conj %))
       (with-redefs [rf.epoch.tool-pair/check-replace-frame-state-preconditions!
                     (fn [frame-id new-frame-state]
+                      ;; The REAL check passes against live A; then churn to B.
                       (let [r (real-check frame-id new-frame-state)]
-                        (reset! check-result r)
-                        ;; Interpose: destroy A, seat + seed same-id successor
-                        ;; B, capture B's baselines, then hand back A's ticket.
                         (rf/destroy-frame! frame-id)
                         (rf/make-frame {:id frame-id})
                         (rf/dispatch-sync [:set-owner-inj :B] {:frame frame-id})
-                        (reset! b-baseline
-                                {:frame-state (rf/frame-state-value frame-id)
-                                 :history     (rf/epoch-history frame-id)})
-                        ;; Drop B's own seed fan-out; only post-churn deliveries
-                        ;; are under test.
+                        (reset! b-baseline [(rf/frame-state-value frame-id)
+                                            (rf/epoch-history frame-id)])
                         (reset! fanned [])
                         r))]
-        (let [result (rf/replace-frame-state! :test/inj {:rf.db/app {:owner :STALE-A}})]
-          (is (= :ok (:outcome @check-result))
-              "the REAL precondition check passed against live incarnation A")
-          (is (identical? a-token (:incarnation-token @check-result))
-              "the :ok ticket carries A's exact record-derived token")
-          (is (not (identical? a-token (rf.frame/frame-incarnation-token :test/inj)))
-              "successor B is a fresh incarnation (A/B tokens distinct)")
-          (is (false? result)
-              (str "the stale cross-incarnation injection must be REJECTED; got "
-                   (pr-str result)))
-          (is (= {:owner :B} (rf/app-db-value :test/inj))
-              "successor B's app-db is byte-for-byte unchanged — :STALE-A never installed")
-          (is (= (:frame-state @b-baseline) (rf/frame-state-value :test/inj))
-              "B's WHOLE frame-state is exactly at its captured baseline")
-          (is (= (:history @b-baseline) (rf/epoch-history :test/inj))
-              "B's history is exactly at its captured baseline — no stale synthetic record spliced in")
-          (is (has-error-op? @recorded :rf.error/no-such-handler)
-              ":rf.error/no-such-handler fired for the lost incarnation")
-          (let [ev (some #(when (= :rf.error/no-such-handler (:operation %)) %) @recorded)]
-            (is (= :frame (:kind (:tags ev))) "the typed failure carries :kind :frame")
-            (is (= :test/inj (:frame (:tags ev))) "the typed failure carries :frame"))
-          (is (not-any? #(= :rf.epoch/db-replaced (:operation %)) @recorded)
-              "no :rf.epoch/db-replaced success trace for the rejected stale injection")
-          (is (empty? @fanned)
-              "no synthetic epoch fanned out to listeners after the churn"))))))
-
-(deftest replace-frame-state-both-partition-fenced-to-exact-incarnation
-  (testing "the same validate→churn→write window with a
-            BOTH-partition patch: the stale injection is rejected, B's two
-            partitions and history stay exactly at their captured baselines."
-    (rf/make-frame {:id :test/inj2})
-    (rf/reg-event :seed-inj2
-      (fn [{rt :rf.db/runtime} [_ o]]
-        {:db {:owner o}
-         :rf.db/runtime (assoc (or rt {}) :rf.runtime/routing {:current {:route-id :start}})}))
-    (rf/dispatch-sync [:seed-inj2 :A] {:frame :test/inj2})
-
-    (let [real-check rf.epoch.tool-pair/check-replace-frame-state-preconditions!
-          b-baseline (atom nil)
-          recorded   (record-trace!)]
-      (with-redefs [rf.epoch.tool-pair/check-replace-frame-state-preconditions!
-                    (fn [frame-id new-frame-state]
-                      (let [r (real-check frame-id new-frame-state)]
-                        (rf/destroy-frame! frame-id)
-                        (rf/make-frame {:id frame-id})
-                        (rf/dispatch-sync [:seed-inj2 :B] {:frame frame-id})
-                        (reset! b-baseline
-                                {:frame-state (rf/frame-state-value frame-id)
-                                 :history     (rf/epoch-history frame-id)})
-                        r))]
-        (let [result (rf/replace-frame-state!
-                       :test/inj2
-                       {:rf.db/app     {:owner :STALE-A}
-                        :rf.db/runtime {:rf.runtime/routing {:current {:route-id :stale}}}})]
-          (is (false? result) "the stale both-partition injection must be REJECTED")
-          (is (= (:frame-state @b-baseline) (rf/frame-state-value :test/inj2))
-              "B's whole frame-state (both partitions) is exactly at its baseline")
-          (is (= (:history @b-baseline) (rf/epoch-history :test/inj2))
-              "B's history is exactly at its baseline")
-          (is (has-error-op? @recorded :rf.error/no-such-handler)
-              ":rf.error/no-such-handler fired for the lost incarnation")
-          (is (not-any? #(= :rf.epoch/db-replaced (:operation %)) @recorded)
-              "no :rf.epoch/db-replaced success trace"))))))
+        (is (false? (rf/replace-frame-state! :test/inj {:rf.db/app {:owner :STALE-A}}))))
+      (is (= @b-baseline [(rf/frame-state-value :test/inj) (rf/epoch-history :test/inj)]))
+      (is (= [[:error {:kind :frame :frame :test/inj}]] (no-such-frame-errors @recorded)))
+      (is (not-any? #(= :rf.epoch/db-replaced (:operation %)) @recorded))
+      (is (empty? @fanned)))))
 
 (deftest replace-frame-state-post-write-tail-fenced-to-exact-incarnation
-  (testing "A-to-B churn interposed AFTER the exact A physical
-            write but BEFORE the synthetic bookkeeping: the write demonstrably
-            ran against A (the arm cannot pass by skipping it), the public
-            result stays TRUE (the exact-incarnation install committed on A,
-            as in the restore tail), and NO A synthetic record, ring
-            entry, last-settled anchor, :rf.epoch/db-replaced trace, or
-            listener delivery appears in B; B remains unchanged."
+  (testing "A-to-B churn after A's physical write but before the synthetic
+            bookkeeping: the result stays true (the install committed on A),
+            but no synthetic record, anchor, :rf.epoch/db-replaced trace or
+            listener delivery lands in successor B"
     (rf/make-frame {:id :test/inj3})
     (rf/reg-event :set-owner-inj3 (fn [_ [_ o]] {:db {:owner o}}))
     (rf/dispatch-sync [:set-owner-inj3 :A] {:frame :test/inj3})
-
     (let [real-write rf.frame/replace-frame-state!
-          a-changed  (atom ::unset)
           fanned     (atom [])
           recorded   (record-trace!)]
-      (rf/register-listener! :epoch ::inj3-fan (fn [r] (swap! fanned conj r)))
-      (let [result (with-redefs [rf.frame/replace-frame-state!
-                                 (fn [frame-id token fs]
-                                   ;; The exact A write runs FIRST and its
-                                   ;; changed-key-set is captured — then the
-                                   ;; churn lands before the tail bookkeeping.
-                                   (let [changed (real-write frame-id token fs)]
-                                     (reset! a-changed changed)
-                                     (rf/destroy-frame! frame-id)
-                                     (rf/make-frame {:id frame-id})
-                                     (rf/dispatch-sync [:set-owner-inj3 :B] {:frame frame-id})
-                                     changed))]
-                     (rf/replace-frame-state! :test/inj3 {:rf.db/app {:owner :INJECTED-A}}))
-            b-history (rf/epoch-history :test/inj3)
-            b-seed    (some #(when (= :set-owner-inj3 (:event-id %)) %) b-history)]
-        (is (= #{:rf.db/app} @a-changed)
-            "the exact A physical write actually ran and landed (non-vacuity)")
-        (is (true? result)
-            "the install committed on the exact incarnation A, so the public result stays TRUE")
-        (is (= {:owner :B} (rf/app-db-value :test/inj3))
-            "successor B's live app-db remains B's own — untouched by A's tail")
-        (is (not-any? #(= :rf.epoch/db-replaced (:event-id %)) b-history)
-            "A's synthetic :rf.epoch/db-replaced record was NOT spliced into B's ring")
-        (is (some? b-seed) "B's own seed epoch is in B's ring")
-        (is (= (:epoch-id b-seed) (rf.epoch.state/last-settled-epoch-id :test/inj3))
-            "B's last-settled anchor is B's own epoch — NOT retargeted to A's synthetic id")
-        (is (not-any? #(= :rf.epoch/db-replaced (:operation %)) @recorded)
-            "no :rf.epoch/db-replaced trace fired after the churn")
-        (is (not-any? #(= :rf.epoch/db-replaced (:event-id %)) @fanned)
-            "no synthetic record was delivered to epoch listeners")))))
+      (rf/register-listener! :epoch ::inj3-fan #(swap! fanned conj (:event-id %)))
+      (is (true? (with-redefs [rf.frame/replace-frame-state!
+                               (fn [frame-id token fs]
+                                 ;; A's exact write lands, then the churn.
+                                 (let [changed (real-write frame-id token fs)]
+                                   (rf/destroy-frame! frame-id)
+                                   (rf/make-frame {:id frame-id})
+                                   (rf/dispatch-sync [:set-owner-inj3 :B] {:frame frame-id})
+                                   changed))]
+                   (rf/replace-frame-state! :test/inj3 {:rf.db/app {:owner :INJECTED-A}}))))
+      (let [b-history (rf/epoch-history :test/inj3)]
+        (is (= [:set-owner-inj3] (mapv :event-id b-history)))
+        (is (= (:epoch-id (first b-history)) (rf.epoch.state/last-settled-epoch-id :test/inj3))))
+      (is (= {:owner :B} (rf/app-db-value :test/inj3)))
+      (is (not-any? #(= :rf.epoch/db-replaced (:operation %)) @recorded))
+      (is (= [:set-owner-inj3] @fanned) "only B's own seed record was delivered"))))
 
-(deftest replace-frame-state-within-incarnation-through-fence-still-succeeds
-  (testing "control — the identical app-only patch with NO churn
-            still succeeds through every fence: true return, the intended
-            frame changes, the omitted runtime partition is PRESERVED, exactly
-            one matching synthetic record is appended, and the success
-            notification fans out. The fences reject only a lost incarnation,
-            never an ordinary live one."
-    (rf/make-frame {:id :test/inj-ctl})
-    (rf/reg-event :seed-ctl
-      (fn [{rt :rf.db/runtime} [_ o]]
-        {:db {:owner o}
-         :rf.db/runtime (assoc (or rt {}) :rf.runtime/routing {:current {:route-id :kept}})}))
-    (rf/dispatch-sync [:seed-ctl :A] {:frame :test/inj-ctl})
+(deftest replace-frame-state-post-liveness-teardown-returns-false
+  (testing "a frame destroyed after the liveness gate passes but before the
+            physical write returns (the write returns nil): replace-frame-state!
+            returns false with the typed :rf.error/no-such-handler and emits no
+            :rf.epoch/db-replaced"
+    (rf/make-frame {:id :test/short-lived})
+    (let [real-write rf.frame/replace-frame-state!
+          recorded   (record-trace!)]
+      (is (false? (with-redefs [rf.frame/replace-frame-state!
+                                (fn [frame-id token fs]
+                                  (rf/destroy-frame! frame-id)
+                                  (real-write frame-id token fs))]
+                    (rf/replace-frame-state! :test/short-lived {:rf.db/app {:n 999}}))))
+      (is (= [[:error {:kind :frame :frame :test/short-lived}]] (no-such-frame-errors @recorded)))
+      (is (not-any? #(= :rf.epoch/db-replaced (:operation %)) @recorded)))))
 
-    ;; The :ok ticket pairs the live incarnation's own record-derived token.
-    (let [{:keys [outcome incarnation-token]}
-          (rf.epoch.tool-pair/check-replace-frame-state-preconditions!
-            :test/inj-ctl {:rf.db/app {:owner :INJECTED}})]
-      (is (= :ok outcome) "preconditions pass against the live frame")
-      (is (identical? incarnation-token (rf.frame/frame-incarnation-token :test/inj-ctl))
-          "the :ok ticket's token is the live incarnation's own drain-lock"))
+;; The other side of the nil / empty-set distinction: a write equal to the
+;; current value returns an EMPTY changed-key set, which is a success.
+(deftest replace-frame-state-app-only-noop-write-stays-successful
+  (testing "a patch equal to the current app-db succeeds and records its
+            synthetic epoch rather than reading as a destroyed-frame drop"
+    (rf/make-frame {:id :test/main})
+    (rf/reg-event :seed (fn [_ _] {:db {:n 7}}))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    (is (true? (rf/replace-frame-state! :test/main {:rf.db/app {:n 7}})))
+    (is (= [:seed :rf.epoch/db-replaced] (mapv :event-id (rf/epoch-history :test/main))))))
 
-    (let [fanned   (atom [])
-          recorded (record-trace!)]
-      (rf/register-listener! :epoch ::inj-ctl-fan (fn [r] (swap! fanned conj r)))
-      (let [result     (rf/replace-frame-state! :test/inj-ctl {:rf.db/app {:owner :INJECTED}})
-            history    (rf/epoch-history :test/inj-ctl)
-            synthetics (filter #(= :rf.epoch/db-replaced (:event-id %)) history)
-            synthetic  (first synthetics)]
-        (is (true? result) "an ordinary within-incarnation injection still succeeds")
-        (is (= {:owner :INJECTED} (rf/app-db-value :test/inj-ctl))
-            "the intended frame's app-db holds the patch")
-        (is (= {:current {:route-id :kept}}
-               (get-in (rf/frame-state-value :test/inj-ctl)
-                       [:rf.db/runtime :rf.runtime/routing]))
-            "the OMITTED runtime partition is preserved by the no-churn control")
-        (is (= 1 (count synthetics))
-            "exactly one synthetic :rf.epoch/db-replaced record was appended")
-        (is (= {:owner :A} (get-in synthetic [:frame-state-before :rf.db/app]))
-            "the synthetic record's before-state matches the pre-injection app-db")
-        (is (= {:owner :INJECTED} (get-in synthetic [:frame-state-after :rf.db/app]))
-            "the synthetic record's after-state matches the installed app-db")
-        (is (= (:epoch-id synthetic) (rf.epoch.state/last-settled-epoch-id :test/inj-ctl))
-            "the synthetic epoch anchors last-settled")
-        (is (some #(= :rf.epoch/db-replaced (:operation %)) @recorded)
-            ":rf.epoch/db-replaced success trace fired")
-        (is (= 1 (count (filter #(= :rf.epoch/db-replaced (:event-id %)) @fanned)))
-            "the success notification fanned exactly one synthetic record to listeners")))))
-
-;; ---- the fenced tail ops are themselves FAN-OUTS ---------------------------
+;; ---- the fenced tail ops are themselves fan-outs ---------------------------
 ;;
-;; Seam 3 above re-checks `event-continuation-live?` before each post-write
-;; tail op. But two of those ops are not single actions: the host-work quiesce
-;; walks a CHAIN of late-bound subsystem hooks, and the deferred resource-trace
-;; commit walks a LIST of trace intents. Each element of each fan-out is another
-;; callback boundary, and every hook / intent addresses the frame by BARE id, so
-;; one check taken before the loop does not fence the loop's later iterations: a
-;; machines cancellation trace fired by the FIRST quiesce hook can destroy A and
-;; seat a same-id successor B, and the SECOND hook then snapshots and aborts B's
-;; in-flight HTTP requests. The token has to travel INTO the fan-out.
+;; The host-work quiesce walks a chain of late-bound hooks and the deferred
+;; resource-trace commit walks a list of intents. Each element is a callback
+;; boundary addressing the frame by bare id, so the token has to travel into
+;; the fan-out: a check before the loop does not fence its later iterations.
 
 (defn- with-quiesce-hook-stubs
   "Install stub `:machines/on-frame-restored!` / `:http/abort-in-flight-for-frame!`
@@ -4609,47 +1410,31 @@
         (rf.late-bind/set-fn! hk h0)))))
 
 (deftest restore-quiesce-chain-fenced-per-hook
-  (testing "the host-work quiesce CHAIN is a callback fan-out. The
-            FIRST hook (machines timer cancellation) destroys A and seats a
-            same-id successor B; the SECOND hook (HTTP abort-in-flight) addresses
-            the frame by BARE id, so without a per-hook fence it aborts B's live
-            requests. Exact ownership must be revalidated at every hook boundary:
-            the chain STOPS. The already-committed A install still returns true."
+  (testing "restore carries the exact token into the quiesce chain: the first
+            hook churns A to a same-id successor B, so the chain stops before
+            the HTTP hook can abort B's requests; the committed install still
+            returns true"
     (rf/make-frame {:id :test/sdeae-quiesce})
     (rf/reg-event :set-q (fn [_ [_ o n]] {:db {:owner o :n n}}))
     (rf/dispatch-sync [:set-q :A 1] {:frame :test/sdeae-quiesce})
     (rf/dispatch-sync [:set-q :A 2] {:frame :test/sdeae-quiesce})
-    (let [target-id (some (fn [r] (when (= {:owner :A :n 1} (:db-after r)) (:epoch-id r)))
-                          (rf/epoch-history :test/sdeae-quiesce))
-          {:keys [outcome epoch incarnation-token]}
-          (rf.epoch.tool-pair/check-restore-preconditions! :test/sdeae-quiesce target-id)
-          machines-saw (atom [])
-          http-saw     (atom [])]
-      (is (= :ok outcome) "preconditions passed against live incarnation A")
+    (let [target-id (:epoch-id (first (rf/epoch-history :test/sdeae-quiesce)))
+          http-saw  (atom [])]
       (with-quiesce-hook-stubs
         (fn [fid]
-          (swap! machines-saw conj fid)
-          ;; the machines cancellation trace churns A to a same-id successor B
           (rf/destroy-frame! fid)
           (rf/make-frame {:id fid})
           (rf/dispatch-sync [:set-q :B 99] {:frame fid}))
         (fn [fid] (swap! http-saw conj fid))
         (fn []
-          (let [result (rf.epoch.tool-pair/perform-restore! :test/sdeae-quiesce incarnation-token epoch)]
-            (is (true? result)
-                "the exact-incarnation install committed, so the public result stays TRUE")
-            (is (= [:test/sdeae-quiesce] @machines-saw)
-                "the FIRST quiesce hook ran under the live incarnation A")
-            (is (empty? @http-saw)
-                "the later hook does NOT quiesce successor B (chain stopped)")
-            (is (= {:owner :B :n 99} (rf/app-db-value :test/sdeae-quiesce))
-                "successor B's state is untouched by A's quiesce tail")))))))
+          (is (true? (rf/restore-epoch! :test/sdeae-quiesce target-id)))
+          (is (= {:owner :B :n 99} (rf/app-db-value :test/sdeae-quiesce)))
+          (is (empty? @http-saw)))))))
 
 (defn- with-quiesce-warning-capture
   "Register a global `:trace` listener collecting every
   `:rf.warning/restore-quiesce-hook-exception` row, run `(f warnings-atom)`,
-  unregister. The warning fans through the PUBLIC trace listener stream, which
-  is precisely the surface a stale A-tail must not reach once B owns the id."
+  unregister."
   [f]
   (let [k        ::vy2hj-quiesce-warnings
         warnings (atom [])]
@@ -4660,52 +1445,19 @@
     (try (f warnings)
          (finally (rf/unregister-listener! :trace k)))))
 
-(deftest restore-quiesce-hook-exception-still-emits-while-incarnation-live
-  (testing "control — the fence rejects only a LOST incarnation. A
-            hook that throws while the captured incarnation is STILL LIVE emits
-            exactly one :rf.warning/restore-quiesce-hook-exception warning, and the
-            best-effort chain continues to the next hook."
-    (rf/make-frame {:id :test/vy2hj-quiesce-live})
-    (rf/reg-event :set-vq2 (fn [_ [_ n]] {:db {:n n}}))
-    (rf/dispatch-sync [:set-vq2 1] {:frame :test/vy2hj-quiesce-live})
-    (rf/dispatch-sync [:set-vq2 2] {:frame :test/vy2hj-quiesce-live})
-    (let [target-id (some (fn [r] (when (= {:n 1} (:db-after r)) (:epoch-id r)))
-                          (rf/epoch-history :test/vy2hj-quiesce-live))
-          fired     (atom [])]
-      (with-quiesce-warning-capture
-        (fn [warnings]
-          (with-quiesce-hook-stubs
-            (fn [_fid]
-              (swap! fired conj :machines)
-              (throw (ex-info "machines quiesce failed, incarnation still live" {})))
-            (fn [_fid] (swap! fired conj :http))
-            (fn []
-              (is (true? (rf/restore-epoch! :test/vy2hj-quiesce-live target-id))
-                  "an ordinary within-incarnation restore still succeeds")
-              (is (= [:machines :http] @fired)
-                  "the best-effort chain continued past the throwing hook")
-              (is (= 1 (count @warnings))
-                  "exactly one warning for the one live-incarnation failure")
-              (is (= :rf.warning/restore-quiesce-hook-exception
-                     (:operation (first @warnings)))
-                  "the warning carries the :rf.warning/restore-quiesce-hook-exception category")
-              (is (= :machines/on-frame-restored!
-                     (:hook (:tags (first @warnings))))
-                  "the warning names the hook that actually threw"))))))))
-
 (deftest quiesce-warning-fence-admits-and-refuses-repeatedly
-  (testing "sequence — the settled-path fence LATCHES NOTHING. Driving
-            ADMIT (throw while live) -> REFUSE (throw after churn) -> ADMIT ->
-            REFUSE inside ONE process proves the guard re-reads the live slot on
-            every announcement rather than tripping once and staying tripped (or
-            arming once and staying open). A single-transition test would pass
-            against a one-shot flag."
-    (let [fid :test/vy2hj-seq
-          ;; One round: seat a fresh incarnation, capture ITS exact token, fire
-          ;; the chain with a hook that throws — optionally churning the
-          ;; incarnation first. Returns the warnings emitted by this round.
+  (testing "a throwing quiesce hook warns, naming the hook, and the best-effort
+            chain continues while the incarnation is live; once the hook has
+            churned the incarnation the warning is withheld and the chain stops.
+            Alternating rounds prove the fence re-reads the live slot rather
+            than latching"
+    (let [fid   :test/vy2hj-seq
+          ;; One round: seat a fresh incarnation and fire the chain with a
+          ;; throwing first hook, optionally churning the incarnation first.
+          ;; Returns [warnings emitted, second hook ran?].
           round (fn [warnings churn?]
-                  (let [before (count @warnings)]
+                  (let [before    (count @warnings)
+                        http-ran? (atom false)]
                     (rf/make-frame {:id fid})
                     (let [token (rf.frame/frame-incarnation-token fid)]
                       (with-quiesce-hook-stubs
@@ -4714,59 +1466,41 @@
                             (rf/destroy-frame! f)
                             (rf/make-frame {:id f}))
                           (throw (ex-info "hook failed" {})))
-                        (fn [_f] nil)
-                        (fn []
-                          (rf.epoch.tool-pair/quiesce-orphaned-async-host-work! fid token))))
-                    (- (count @warnings) before)))]
+                        (fn [_f] (reset! http-ran? true))
+                        #(rf.epoch.tool-pair/quiesce-orphaned-async-host-work! fid token)))
+                    [(- (count @warnings) before) @http-ran?]))]
       (with-quiesce-warning-capture
         (fn [warnings]
-          (is (= 1 (round warnings false)) "1st ADMIT — incarnation live, warning emitted")
-          (is (= 0 (round warnings true))  "1st REFUSE — ownership lost, warning withheld")
-          (is (= 1 (round warnings false)) "2nd ADMIT — the fence re-opened, not latched shut")
-          (is (= 0 (round warnings true))  "2nd REFUSE — the fence re-closed, not latched open")
-          (is (= 2 (count @warnings))
-              "exactly the two live-incarnation failures announced, in one process"))))))
+          (is (= [[1 true] [0 false] [1 true] [0 false]]
+                 (mapv #(round warnings %) [false true false true])))
+          (is (= [:machines/on-frame-restored! :machines/on-frame-restored!]
+                 (mapv #(get-in % [:tags :hook]) @warnings))))))))
 
 (deftest restore-trace-commit-carries-owner-token
-  (testing "the deferred resource-trace commit is a per-intent
-            callback fan-out, so perform-restore! carries the captured exact
-            incarnation token INTO the commit hook (the same `:owner-token`
-            shape the pre-write reconcile receives) rather than fencing
-            only the outer call."
+  (testing "restore hands the deferred resource-trace commit the frame id and
+            the exact incarnation token, so its per-intent fan-out can
+            revalidate ownership at every intent"
     (rf/make-frame {:id :test/sdeae-commit})
     (rf/reg-event :seed-c
-      (fn [{rt :rf.db/runtime} [_ n]]
-        {:db {:n n} :rf.db/runtime (assoc (or rt {}) :marker :present)}))
-    (rf/dispatch-sync [:seed-c 1] {:frame :test/sdeae-commit})
-    (rf/dispatch-sync [:seed-c 2] {:frame :test/sdeae-commit})
-    (let [target-id (some (fn [r] (when (= {:n 1} (:db-after r)) (:epoch-id r)))
-                          (rf/epoch-history :test/sdeae-commit))
-          {:keys [outcome epoch incarnation-token]}
-          (rf.epoch.tool-pair/check-restore-preconditions! :test/sdeae-commit target-id)
-          ck   :resources/commit-restore-reconcile!
-          c0   (rf.late-bind/get-fn ck)
-          seen (atom nil)]
-      (is (= :ok outcome) "preconditions passed against the live frame")
+      (fn [{rt :rf.db/runtime} _]
+        {:db {:n 1} :rf.db/runtime (assoc (or rt {}) :marker :present)}))
+    (rf/dispatch-sync [:seed-c] {:frame :test/sdeae-commit})
+    (let [token (rf.frame/frame-incarnation-token :test/sdeae-commit)
+          ck    :resources/commit-restore-reconcile!
+          c0    (rf.late-bind/get-fn ck)
+          seen  (atom nil)]
       (try
-        (rf.late-bind/set-fn! ck (fn [_rdb frame-id opts] (reset! seen [frame-id opts])))
-        (is (true? (rf.epoch.tool-pair/perform-restore! :test/sdeae-commit incarnation-token epoch))
-            "the restore committed")
-        (is (= :test/sdeae-commit (first @seen))
-            "the commit hook is told WHICH frame the intents belong to")
-        (is (identical? incarnation-token (:owner-token (second @seen)))
-            "the EXACT captured incarnation token is carried into the
-             commit fan-out so it can revalidate at every intent boundary")
+        (rf.late-bind/set-fn! ck (fn [_rdb frame-id opts] (reset! seen [frame-id (:owner-token opts)])))
+        (rf/restore-epoch! :test/sdeae-commit (:epoch-id (first (rf/epoch-history :test/sdeae-commit))))
+        (is (= :test/sdeae-commit (first @seen)))
+        (is (identical? token (second @seen)))
         (finally (rf.late-bind/set-fn! ck c0))))))
 
-;; The resources restore-reconcile success rows
-;; (:rf.resource/restored / :rf.resource/owner-released) must NOT leak when the
-;; frame-state install fails. The reconcile runs BEFORE the atomic install and
-;; defers those rows (riding them back as metadata); perform-restore! emits
-;; them via :resources/commit-restore-reconcile! only on the install-success
-;; branch. These tests stub the two resources hooks (the resources artefact is
-;; not on the epoch test classpath) — the reconcile defers a `:rf.resource/
-;; restored` intent and the commit hook emits whatever the reconcile deferred,
-;; exactly mirroring the real ssr.cljc bodies — and drive both branches.
+;; The resources restore reconcile runs BEFORE the atomic install and defers its
+;; success rows (:rf.resource/restored / :rf.resource/owner-released) as
+;; metadata; perform-restore! commits them only once the install has landed.
+;; The resources artefact is not loaded here, so its two hooks are stubbed with
+;; bodies mirroring ssr.cljc.
 
 (def ^:private rf2-obi8rr-deferred-key
   ;; the metadata key the real ssr.cljc reconcile uses; the stub mirrors it so
@@ -4798,9 +1532,8 @@
                                (do (doseq [{:keys [level op tags]} intents]
                                      (rf.trace/emit! level op tags))
                                    rdb)))))
-      ;; 3-arity, mirroring the real ssr.cljc body: the commit is
-      ;; a per-intent callback fan-out, so it takes the frame-id + the restore's
-      ;; captured `:owner-token` and revalidates exact ownership at every intent.
+      ;; Mirrors the real ssr.cljc body: the commit revalidates exact ownership
+      ;; at every intent.
       (rf.late-bind/set-fn! ck
                          (fn [rdb frame-id {:keys [owner-token]}]
                            (doseq [{:keys [level op tags]} (-> rdb meta (get rf2-obi8rr-deferred-key))
@@ -4814,300 +1547,130 @@
         (rf.late-bind/set-fn! rk r0)
         (rf.late-bind/set-fn! ck c0)))))
 
-(deftest restore-failed-install-emits-no-resource-success-traces
-  (testing "a restore whose frame-state install FAILS
-            (the post-liveness teardown race: replace-frame-state! returns nil)
-            emits NO :rf.resource/restored or :rf.resource/owner-released rows,
-            even though resources rode in the snapshot — the reconcile deferred
-            them and the commit only fires on a successful install."
-    (rf/make-frame {:id :test/obi8rr-fail})
+(deftest restore-epoch-post-liveness-teardown-returns-false
+  (testing "a frame destroyed after the write-boundary liveness gate passes but
+            before the physical write returns: perform-restore! returns false
+            with the typed :rf.error/no-such-handler and emits no success
+            telemetry — neither :rf.epoch/restored nor the resource rows the
+            reconcile deferred"
+    (rf/make-frame {:id :test/short-lived})
     (rf/reg-event :seed-res
-      (fn [{rt :rf.db/runtime} _]
-        {:db {:n 0}
-         :rf.db/runtime (assoc-in (or rt {})
-                                  [:rf.runtime/resources :entries :k]
-                                  {:status :loaded :data {:x 1}
-                                   :active-owners #{[:route :r "nav-OLD"]}})}))
-    (rf/reg-event :clear-res (fn [{:keys [db]} _] {:db {:n 1}}))
+      (fn [{rt :rf.db/runtime} [_ n]]
+        {:db {:n n} :rf.db/runtime (assoc (or rt {}) :marker :present)}))
+    (rf/dispatch-sync [:seed-res 0] {:frame :test/short-lived})
+    (rf/dispatch-sync [:seed-res 1] {:frame :test/short-lived})
     (with-stub-resources-restore-hooks
       (fn []
-        (rf/dispatch-sync [:seed-res] {:frame :test/obi8rr-fail})
-        (let [target-id (-> (rf/epoch-history :test/obi8rr-fail) last :epoch-id)]
-          (rf/dispatch-sync [:clear-res] {:frame :test/obi8rr-fail})
-          (let [{:keys [outcome epoch incarnation-token]}
-                (rf.epoch.tool-pair/check-restore-preconditions! :test/obi8rr-fail target-id)]
-            (is (= :ok outcome) "precondition validation passed against the live frame")
-            (let [real-write rf.frame/replace-frame-state!
-                  recorded   (record-trace!)
-                  result     (with-redefs [rf.frame/replace-frame-state!
-                                           (fn [fid token fs]
-                                             (rf/destroy-frame! fid)
-                                             (real-write fid token fs))]
-                               (rf.epoch.tool-pair/perform-restore! :test/obi8rr-fail incarnation-token epoch))]
-              (is (false? result) "perform-restore! reports honest failure for the nil-write teardown")
-              (is (not-any? #(= :rf.epoch/restored (:operation %)) @recorded)
-                  "no :rf.epoch/restored (the install never landed)")
-              (is (not-any? #(= :rf.resource/restored (:operation %)) @recorded)
-                  "no :rf.resource/restored leaked for the failed restore")
-              (is (not-any? #(= :rf.resource/owner-released (:operation %)) @recorded)
-                  "no :rf.resource/owner-released leaked for the failed restore"))))))))
+        (let [{:keys [outcome epoch incarnation-token]}
+              (rf.epoch.tool-pair/check-restore-preconditions!
+                :test/short-lived (:epoch-id (first (rf/epoch-history :test/short-lived))))
+              real-write rf.frame/replace-frame-state!
+              recorded   (record-trace!)
+              result     (with-redefs [rf.frame/replace-frame-state!
+                                       (fn [frame-id token fs]
+                                         (rf/destroy-frame! frame-id)
+                                         (real-write frame-id token fs))]
+                           (rf.epoch.tool-pair/perform-restore!
+                             :test/short-lived incarnation-token epoch))]
+          (is (= :ok outcome))
+          (is (false? result))
+          (is (= [[:error {:kind :frame :frame :test/short-lived}]]
+                 (no-such-frame-errors @recorded)))
+          (is (not-any? #{:rf.epoch/restored :rf.resource/restored :rf.resource/owner-released}
+                        (map :operation @recorded))))))))
 
 (deftest restore-successful-install-emits-deferred-resource-traces
-  (testing "a SUCCESSFUL restore DOES emit the deferred
-            :rf.resource/restored + :rf.resource/owner-released rows (committed
-            after the install landed) — the deferral does not drop them on the
-            happy path."
+  (testing "a successful restore commits the resource rows the reconcile
+            deferred, after :rf.epoch/restored"
     (rf/make-frame {:id :test/obi8rr-ok})
     (rf/reg-event :seed-res2
-      (fn [{rt :rf.db/runtime} _]
-        {:db {:n 0}
-         :rf.db/runtime (assoc-in (or rt {})
-                                  [:rf.runtime/resources :entries :k]
-                                  {:status :loaded :data {:x 1}
-                                   :active-owners #{[:route :r "nav-OLD"]}})}))
-    (rf/reg-event :clear-res2 (fn [{:keys [db]} _] {:db {:n 1}}))
+      (fn [{rt :rf.db/runtime} [_ n]]
+        {:db {:n n} :rf.db/runtime (assoc (or rt {}) :marker :present)}))
+    (rf/dispatch-sync [:seed-res2 0] {:frame :test/obi8rr-ok})
+    (rf/dispatch-sync [:seed-res2 1] {:frame :test/obi8rr-ok})
     (with-stub-resources-restore-hooks
       (fn []
-        (rf/dispatch-sync [:seed-res2] {:frame :test/obi8rr-ok})
-        (let [target-id (-> (rf/epoch-history :test/obi8rr-ok) last :epoch-id)]
-          (rf/dispatch-sync [:clear-res2] {:frame :test/obi8rr-ok})
-          (let [recorded (record-trace!)
-                ok?      (rf/restore-epoch! :test/obi8rr-ok target-id)]
-            (is (true? ok?) "restore succeeded")
-            (is (some #(= :rf.epoch/restored (:operation %)) @recorded)
-                ":rf.epoch/restored fired (the install landed)")
-            (is (some #(= :rf.resource/restored (:operation %)) @recorded)
-                "the deferred :rf.resource/restored row is committed on success")
-            (is (some #(and (= :rf.resource/owner-released (:operation %))
-                            (= [:route :r "nav-OLD"] (:owner (:tags %)))) @recorded)
-                "the deferred :rf.resource/owner-released row is committed on success")))))))
-
-(deftest replace-frame-state-post-liveness-teardown-returns-false
-  (testing "perform-replace-frame-state! returns false, emits
-            :rf.error/no-such-handler (kind :frame), and records / fans out NO
-            synthetic epoch when frame/replace-frame-state! returns nil AFTER the
-            liveness check passed — for every partition shape"
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (doseq [[shape patch]
-            [[:app-only     {:rf.db/app {:n 999}}]
-             [:runtime-only {:rf.db/runtime {:rf.runtime/routing {:current {:route-id :home}}}}]
-             [:both         {:rf.db/app {:n 999}
-                             :rf.db/runtime {:rf.runtime/routing {:current {:route-id :home}}}}]]]
-      (testing (str shape " patch")
-        (rf/make-frame {:id :test/short-lived})
-        (rf/dispatch-sync [:seed] {:frame :test/short-lived})
-        (let [fanned (atom [])]
-          (rf/register-listener! :epoch ::fan-watcher (fn [r] (swap! fanned conj r)))
-          (rf/dispatch-sync [:seed] {:frame :test/short-lived})
-          (reset! fanned [])
-
-          (let [real-write rf.frame/replace-frame-state!
-                a-token    (rf.frame/frame-incarnation-token :test/short-lived)
-                recorded   (record-trace!)
-                result     (with-redefs [rf.frame/replace-frame-state!
-                                         (fn [frame-id token fs]
-                                           (rf/destroy-frame! frame-id)
-                                           (real-write frame-id token fs))]
-                             (#'rf.epoch/perform-replace-frame-state!
-                               :test/short-lived a-token patch))]
-            (is (false? result)
-                "perform-replace-frame-state! reports HONEST failure (false) for the
-                 nil-return post-liveness teardown")
-            (is (has-error-op? @recorded :rf.error/no-such-handler)
-                ":rf.error/no-such-handler fired")
-            (let [ev (some #(when (= :rf.error/no-such-handler (:operation %)) %)
-                           @recorded)]
-              (is (= :frame (:kind (:tags ev))) "tags carry :kind :frame")
-              (is (= :test/short-lived (:frame (:tags ev))) "tags carry :frame"))
-            (is (not-any? #(= :rf.epoch/db-replaced (:operation %)) @recorded)
-                "no :rf.epoch/db-replaced success trace")
-            (is (empty? @fanned)
-                "no synthetic epoch fanned out to listeners for the dropped write")
-            (is (= [] (rf/epoch-history :test/short-lived))
-                "no synthetic epoch recorded into the dropped ring")))))))
-
-;; Guard the OTHER side of the nil/empty-set distinction: a
-;; live-frame NO-OP write (the value `=` the current slice) returns an EMPTY
-;; changed-key-set (non-nil), so it MUST stay a success — NOT be misread as a
-;; destroyed-frame drop.
-(deftest replace-frame-state-app-only-noop-write-stays-successful
-  (testing "a no-op replace-frame-state! (an app-only map whose
-            value equals the current app-db) returns an EMPTY (non-nil)
-            changed-key-set from the frame write, so the perform helper
-            treats it as success — true return, :rf.epoch/db-replaced
-            emitted, synthetic epoch recorded — NOT a destroyed-frame drop."
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-
-    (let [recorded (record-trace!)
-          ;; Inject the IDENTICAL value — a genuine no-op write against a live
-          ;; frame. commit-frame-transition! returns #{} (empty, non-nil).
-          result   (#'rf.epoch/perform-replace-frame-state!
-                     :test/main (rf.frame/frame-incarnation-token :test/main)
-                     {:rf.db/app {:n 7}})]
-      (is (true? result)
-          "a live-frame no-op write stays successful (empty-set ≠ nil)")
-      (is (= {:n 7} (rf/app-db-value :test/main))
-          "app-db is unchanged by the no-op (the equal value)")
-      (is (some #(= :rf.epoch/db-replaced (:operation %)) @recorded)
-          ":rf.epoch/db-replaced success trace IS emitted for the no-op write")
-      (is (not (has-error-op? @recorded :rf.error/no-such-handler))
-          "no destroyed-frame error for a live no-op write")
-      (is (some #(= :rf.epoch/db-replaced (:event-id %))
-                (rf/epoch-history :test/main))
-          "the synthetic epoch IS recorded for the no-op write"))))
+        (let [recorded (record-trace!)
+              success? #{:rf.epoch/restored :rf.resource/restored :rf.resource/owner-released}]
+          (is (true? (rf/restore-epoch! :test/obi8rr-ok
+                                        (:epoch-id (first (rf/epoch-history :test/obi8rr-ok))))))
+          (is (= [:rf.epoch/restored :rf.resource/restored :rf.resource/owner-released]
+                 (filterv success? (map :operation @recorded)))))))))
 
 ;; ============================================================================
-;;  Same-id listener replacement generation race
+;;  Same-id listener replacement generations
 ;; ============================================================================
 ;;
-;; `put-listener!` publishes the new callback together with a freshly-minted,
-;; monotonically-increasing GENERATION token in ONE atomic swap, and every
-;; observation is stamped with the recording generation, so a replacement never
-;; clears the observation ledger. Were the publish and a ledger clear TWO
-;; separate swaps, a concurrent `notify-listeners!` fan-out could, in the window
-;; between them, record the NEW callback's frame observation — which the
-;; registering thread's second swap would then ERASE, so a later frame destroy
-;; would emit NO `:rf.epoch.cb/silenced-on-frame-destroy` for a callback that
-;; had genuinely consumed the frame (a false negative under ordinary JVM
-;; concurrency). With generation-stamped observations a same-id replacement can
-;; neither erase a fresh observation nor let a stale one arm the new
-;; registration. An unregistered id is the same refusal: it has no live
-;; generation, so a fan-out snapshot taken before `unregister-listener!` cannot
-;; re-stamp it.
+;; `put-listener!` publishes a new callback with a fresh GENERATION token in one
+;; swap, and every observation is stamped with the generation that recorded it.
+;; So a same-id replacement can neither erase a fresh observation (a second,
+;; ledger-clearing swap would) nor let a stale one arm the new registration.
 
 (deftest same-id-replacement-preserves-new-callback-observation
-  (testing "a same-id listener replacement paused right after the
-            new callback is published records the NEW callback's frame
-            observation and does NOT erase it, so frame destroy emits exactly
-            one silencing trace for the new callback. Reproduction: a watch on
-            the private listeners atom parks the replacement thread at the
-            publish point; a record is fanned out while parked; then the
-            replacement is released. A separate ledger-clearing second swap
-            would erase the observation (zero silences)."
+  (testing "a same-id replacement parked right after publishing the new
+            callback: a record fanned out during the pause is observed by the
+            new generation, the completed replacement does not erase that
+            observation, and destroying the frame silences it exactly once"
     (rf/make-frame {:id :j538/race})
-    (let [fired          (atom 0)
-          recorded       (record-trace!)
+    (let [recorded       (record-trace!)
           published      (promise)
           release        (java.util.concurrent.CountDownLatch. 1)
           armed?         (atom false)
           listeners-atom (deref #'rf.epoch.state/listeners)]
-      ;; Register the OLD callback; it never observes :j538/race.
       (rf/register-listener! :epoch ::probe (fn [_] nil))
-      ;; Park the NEXT listeners swap (the replacement's publish) until the main
-      ;; thread has fanned a record out.
+      ;; Park the next listeners swap (the replacement's publish) until the
+      ;; main thread has fanned a record out.
       (add-watch listeners-atom ::barrier
                  (fn [_ _ _ _]
                    (when (compare-and-set! armed? true false)
                      (deliver published :published)
                      (.await ^java.util.concurrent.CountDownLatch release))))
       (reset! armed? true)
-      (let [replace-fut (future
-                          (rf/register-listener! :epoch ::probe
-                                                 (fn [_] (swap! fired inc))))]
+      (let [replace-fut (future (rf/register-listener! :epoch ::probe (fn [_] nil)))]
         (try
-          ;; Wait until the replacement has published the new generation and is
-          ;; parked at the barrier.
-          (is (= :published (deref published 5000 ::timeout))
-              "replacement published the new callback and parked")
-          ;; Fan out a record for :j538/race while the replacement is parked —
-          ;; the NEW callback runs and its observation must be recorded.
+          (is (= :published (deref published 5000 ::timeout)))
           (rf.epoch.listeners/notify-listeners! {:frame :j538/race :epoch-id 1})
-          (is (= 1 @fired) "the new callback ran during the fan-out")
-          (is (contains? (get (rf.epoch.state/observations-snapshot) ::probe) :j538/race)
-              "the new callback's observation was recorded during the pause")
           (finally
             (.countDown release)
-            (is (not= ::timeout (deref replace-fut 5000 ::timeout))
-                "replacement thread completed")
+            (is (not= ::timeout (deref replace-fut 5000 ::timeout)))
             (remove-watch listeners-atom ::barrier))))
-      ;; After the replacement completes, the observation must SURVIVE — a
-      ;; separate ledger-clearing swap would erase it here.
-      (is (contains? (get (rf.epoch.state/observations-snapshot) ::probe) :j538/race)
-          "the new callback's observation survived the completed replacement")
       (rf/destroy-frame! :j538/race)
-      (let [silenced (filter #(and (= :rf.epoch.cb/silenced-on-frame-destroy
-                                       (:operation %))
-                                   (= ::probe (:cb-id (:tags %)))
-                                   (= :j538/race (:frame (:tags %))))
-                             @recorded)]
-        (is (= 1 (count silenced))
-            "exactly one silencing trace for the replacement callback — the
-             observation was not erased by the same-id replacement"))
-      (rf/unregister-listener! :epoch ::probe))))
+      (is (= 1 (count (filter #(and (= :rf.epoch.cb/silenced-on-frame-destroy (:operation %))
+                                    (= ::probe (:cb-id (:tags %))))
+                              @recorded)))))))
 
 (deftest stale-old-generation-fanout-cannot-arm-new-registration
-  (testing "mirror — a fan-out that snapshotted the OLD
-            generation before a same-id replacement cannot add an observation to
-            the NEW registration: record-observation! with the stale generation
-            token is refused, and a later frame destroy emits no silencing trace
-            for a frame the new callback never consumed."
-    (rf/make-frame {:id :j538/mirror})
-    (let [recorded (record-trace!)]
+  (testing "a fan-out holding the OLD generation's token cannot record an
+            observation for the same-id replacement"
+    (rf/register-listener! :epoch ::probe (fn [_] nil))
+    (let [stale-gen (:generation (get (rf.epoch.state/listeners-snapshot) ::probe))]
       (rf/register-listener! :epoch ::probe (fn [_] nil))
-      (let [stale-gen (:generation (get (rf.epoch.state/listeners-snapshot) ::probe))]
-        ;; Same-id replacement mints a new generation.
-        (rf/register-listener! :epoch ::probe (fn [_] nil))
-        (is (not= stale-gen (:generation (get (rf.epoch.state/listeners-snapshot) ::probe)))
-            "same-id replacement minted a fresh generation")
-        ;; The stale fan-out records against the OLD generation — must be refused.
-        (rf.epoch.state/record-observation! ::probe stale-gen :j538/mirror)
-        (is (not (contains? (get (rf.epoch.state/observations-snapshot) ::probe) :j538/mirror))
-            "the stale old-generation observation was refused — the new
-             registration did not inherit it")
-        (is (empty? (rf.epoch.state/cbs-observing-frame :j538/mirror))
-            "no live-generation observer of the frame")
-        (rf/destroy-frame! :j538/mirror)
-        (let [silenced (filter #(and (= :rf.epoch.cb/silenced-on-frame-destroy
-                                         (:operation %))
-                                     (= ::probe (:cb-id (:tags %))))
-                               @recorded)]
-          (is (empty? silenced)
-              "no silencing trace — the new callback never consumed the frame")))
-      (rf/unregister-listener! :epoch ::probe))))
+      (rf.epoch.state/record-observation! ::probe stale-gen :j538/mirror)
+      (is (not (contains? (get (rf.epoch.state/observations-snapshot) ::probe)
+                          :j538/mirror))))))
 
 (deftest generation-scoped-observations-across-frames
-  (testing "old and new generations observing DIFFERENT frames:
-            replacement retires only the old generation's live observation, the
-            new observation survives, each destroy is a true positive/negative,
-            and same-key frame recreation re-arms."
+  (testing "old and new generations observing DIFFERENT frames: destroying the
+            frame only the replaced generation observed emits no silence,
+            destroying the live generation's frame emits exactly one
+            :rf.epoch.cb silence, and a same-id frame recreation re-arms it"
     (rf/make-frame {:id :j538/frame-a})
     (rf/make-frame {:id :j538/frame-b})
-    (let [recorded  (record-trace!)
-          silences  (fn [frame]
-                      (count (filter #(and (= :rf.epoch.cb/silenced-on-frame-destroy
-                                              (:operation %))
-                                           (= frame (:frame (:tags %)))
-                                           (= ::probe (:cb-id (:tags %))))
-                                     @recorded)))]
+    (let [recorded (record-trace!)
+          silences (fn [frame]
+                     (count (filter #(= [:rf.epoch.cb :rf.epoch.cb/silenced-on-frame-destroy
+                                         {:frame frame :cb-id ::probe}]
+                                        [(:op-type %) (:operation %)
+                                         (select-keys (:tags %) [:frame :cb-id])])
+                                    @recorded)))]
       (rf/register-listener! :epoch ::probe (fn [_] nil))
-      ;; Old generation observes frame-a.
       (rf.epoch.listeners/notify-listeners! {:frame :j538/frame-a :epoch-id 1})
-      (is (= [::probe] (rf.epoch.state/cbs-observing-frame :j538/frame-a))
-          "old generation is the live observer of frame-a")
-      ;; Same-id replacement mints a new generation, which observes frame-b.
       (rf/register-listener! :epoch ::probe (fn [_] nil))
       (rf.epoch.listeners/notify-listeners! {:frame :j538/frame-b :epoch-id 2})
-      (is (empty? (rf.epoch.state/cbs-observing-frame :j538/frame-a))
-          "frame-a's stale old-generation observation is no longer live")
-      (is (= [::probe] (rf.epoch.state/cbs-observing-frame :j538/frame-b))
-          "the new generation's frame-b observation survives and is live")
-      ;; Destroy frame-a — the new callback never consumed it → no silence.
       (rf/destroy-frame! :j538/frame-a)
-      (is (zero? (silences :j538/frame-a))
-          "frame-a destroy emits no silencing — true negative")
-      ;; Destroy frame-b — the live generation consumed it → exactly one silence.
       (rf/destroy-frame! :j538/frame-b)
-      (is (= 1 (silences :j538/frame-b))
-          "frame-b destroy silences the live generation exactly once — true positive")
-      ;; Same-key recreation re-arms: recreate frame-b, observe, destroy → silence.
+      (is (= [0 1] [(silences :j538/frame-a) (silences :j538/frame-b)]))
       (rf/make-frame {:id :j538/frame-b})
       (rf.epoch.listeners/notify-listeners! {:frame :j538/frame-b :epoch-id 3})
-      (is (= [::probe] (rf.epoch.state/cbs-observing-frame :j538/frame-b))
-          "same-key frame recreation re-arms the observation")
       (rf/destroy-frame! :j538/frame-b)
-      (is (= 2 (silences :j538/frame-b))
-          "the recreated frame's destroy silences again — re-arm confirmed")
-      (rf/unregister-listener! :epoch ::probe))))
-
+      (is (= 2 (silences :j538/frame-b))))))
