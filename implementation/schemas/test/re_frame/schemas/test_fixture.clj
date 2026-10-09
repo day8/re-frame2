@@ -34,13 +34,8 @@
     a clean slate.
   - `(schemas/clear-edn-print-cache!)` /
     `(schemas/clear-sensitive-paths-cache!)` — reset the printer +
-    sensitive-walker memo caches. The memos are
-    process-lifetime caches bounded by the registered-schema
-    cardinality (schemas register once at boot); tests that register
-    many distinct fresh schemas (`schemas_concurrency_stress_test`)
-    would otherwise grow the caches unbounded across the suite. Clearing
-    them `:each` keeps the suite's steady-state memory bounded and pins
-    the boot-once invariant at the test seam — not with a bounded LRU.
+    sensitive-walker memo caches, which are process-lifetime and keyed
+    by schema value, so each test starts from an empty cache.
   - `(registrar/clear-warning-caches!)` — clears the registrar's
     per-(kind, id) warn-once caches (missing-doc, registration-collision)
     so each test sees a clean suppression slate.
