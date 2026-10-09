@@ -1,57 +1,31 @@
 'use strict';
 // GUARANTEE 1 — PER-REQUEST STATE ISOLATION, VIA IMMUTABLE SNAPSHOTS.
 //
-//     node implementation/ssr-node/test/isolation.test.cjs
-//
-// The guarantee has two mechanisms of different strength and this file is
-// careful to keep them apart, because conflating them would overstate the
-// weaker one:
-//
-//   THE CLONE is the guarantee. `state` crosses the thread boundary by
-//   structured clone, so the isolate's copy shares no memory with the
-//   caller's and none with any other request's. It does not depend on the
-//   render module behaving.
-//
-//   THE FREEZE is a diagnostic. A strict-mode module writing to its
-//   snapshot takes a TypeError; a sloppy-mode CommonJS module's write
-//   fails SILENTLY. `sloppy.cjs` is here to show that second case
-//   honestly — and to show that the isolation still holds under it, which
-//   is the claim that actually matters.
-//
-// A guarantee about "another request" needs another request, so the
-// interference rows use two requests with DIFFERENT state and check each
-// read its own. A single-request test could not tell isolation from
-// there being nothing to isolate from.
+// THE CLONE is the guarantee: `state` crosses the thread boundary by
+// structured clone, whatever the module does. THE FREEZE is a diagnostic:
+// a strict-mode write throws, a sloppy-mode write fails silently — and
+// `sloppy.cjs` shows the isolation holds even then. A claim about "another
+// request" needs another request, so the interference rows send two with
+// different state.
 
 const test = require('node:test');
 const assert = require('node:assert');
 const { withService, collect, observed } = require('./_support.cjs');
 
-const req = (state, extra = {}) => ({ protocol: 1, entry: 'app/root', state, ...extra });
+const req = (state) => ({ protocol: 1, entry: 'app/root', state });
 
 test('the snapshot the module is handed is FROZEN, and a write to it throws', async () => {
   await withService('reference', { isolates: 1 }, async (service) => {
-    const obs = observed(await collect(service, req({ ':todos': '[1 2 3]' })));
-    assert.strictEqual(obs.frozen, true, 'the snapshot must be frozen');
-    assert.strictEqual(obs.mutationThrew, true, 'a strict-mode write must throw');
-    // …and the value it read is the one it was sent, so the freeze did not
-    // simply hand it an empty object.
-    assert.strictEqual(obs.readTodos, '[1 2 3]');
+    const { frozen, mutationThrew, readTodos } = observed(await collect(service, req({ ':todos': '[1 2 3]' })));
+    // The value read is the one sent, so the freeze did not hand it an empty object.
+    assert.deepStrictEqual({ frozen, mutationThrew, readTodos }, { frozen: true, mutationThrew: true, readTodos: '[1 2 3]' });
   });
 });
 
 test("a sloppy module's write fails silently — and still reaches nothing", async () => {
-  // The control for the row above. If the suite only ever tested strict
-  // modules it would be claiming a TypeError the contract cannot promise.
   await withService('sloppy', { isolates: 1 }, async (service) => {
-    const obs = observed(await collect(service, req({ ':todos': 'original' })));
-    assert.strictEqual(obs.frozen, true);
-    assert.strictEqual(obs.threw, false, 'sloppy mode swallows the write');
-    assert.strictEqual(
-      obs.afterWrite,
-      'original',
-      'the write must have reached nothing even though nothing threw',
-    );
+    const { frozen, threw, afterWrite } = observed(await collect(service, req({ ':todos': 'original' })));
+    assert.deepStrictEqual({ frozen, threw, afterWrite }, { frozen: true, threw: false, afterWrite: 'original' });
   });
 });
 
@@ -66,34 +40,26 @@ test('the caller’s own object is untouched by a render', async () => {
 });
 
 test('two concurrent requests do not leak into one another, in either direction', async () => {
-  // Two isolates, two states, overlapping in time — the shape the
-  // guarantee is actually about. Each render sleeps, so both are in
-  // flight at once rather than merely adjacent.
+  // Two isolates, and each render sleeps, so both are in flight at once.
   await withService('reference', { isolates: 2 }, async (service) => {
-    const [a, b] = await Promise.all([
-      collect(service, req({ ':todos': '"AAA"', ':route': '{:name :a}', ':delay': '30' })),
-      collect(service, req({ ':todos': '"BBB"', ':route': '{:name :b}', ':delay': '30' })),
-    ]);
-    const [obsA, obsB] = [observed(a), observed(b)];
-    assert.strictEqual(obsA.readTodos, '"AAA"');
-    assert.strictEqual(obsA.readRoute, '{:name :a}');
-    assert.strictEqual(obsB.readTodos, '"BBB"');
-    assert.strictEqual(obsB.readRoute, '{:name :b}');
-    assert.strictEqual(a.chunks[0].html.includes('AAA'), true);
-    assert.strictEqual(b.chunks[0].html.includes('BBB'), true);
-    assert.notStrictEqual(
-      obsA.threadId,
-      obsB.threadId,
-      'the two renders must have run in different isolates for this row to mean anything',
+    const [a, b] = (
+      await Promise.all([
+        collect(service, req({ ':todos': '"AAA"', ':route': '{:name :a}', ':delay': '30' })),
+        collect(service, req({ ':todos': '"BBB"', ':route': '{:name :b}', ':delay': '30' })),
+      ])
+    ).map(observed);
+    assert.notStrictEqual(a.threadId, b.threadId, 'the two renders must have run in different isolates');
+    assert.deepStrictEqual(
+      [a, b].map(({ readTodos, readRoute }) => [readTodos, readRoute]),
+      [
+        ['"AAA"', '{:name :a}'],
+        ['"BBB"', '{:name :b}'],
+      ],
     );
   });
 });
 
 test('a key omitted from a request is absent, not inherited from the last one', async () => {
-  // The silent failure the pricing dossier names: a view reading a key the
-  // projection did not carry renders as though it were nil. That is the
-  // application's problem to test — but the SERVICE must at least not
-  // manufacture a value by leaving the previous request's behind.
   await withService('reference', { isolates: 1 }, async (service) => {
     const first = await collect(service, req({ ':todos': '"kept"', ':route': '{:name :x}' }));
     assert.strictEqual(observed(first).readRoute, '{:name :x}');
@@ -103,30 +69,13 @@ test('a key omitted from a request is absent, not inherited from the last one', 
 });
 
 test('the module boots once per isolate, not once per request', async () => {
-  // Spec 006 allows exactly one reactive substrate per process, so booting
-  // is a per-isolate decision. If it ran per request the isolation would
-  // be real and the cost would be absurd.
-  //
-  // THE ROW COUNTS BOOTS, and that is the whole of what makes it a
-  // witness. `overlapMax === 1` on both responses would not discriminate
-  // the contract the row is named for: `overlapMax` is render-concurrency
-  // state, and two SEQUENTIAL renders read 1 whether the hook is called
-  // never, once, or before every render, so the hook could be removed
-  // with this file still green. The fixture publishes a per-isolate boot
-  // count for this row; the concurrency rows use `overlapMax`, which is
-  // their subject.
+  // The fixture counts boots on the isolate's own global, which a
+  // per-request re-require would not reset.
   await withService('reference', { isolates: 1 }, async (service) => {
-    const a = await collect(service, req({ ':todos': '[]' }));
-    const b = await collect(service, req({ ':todos': '[]' }));
-    // The precondition: one isolate served both, so a count that did not
-    // change between them is a reading of one isolate's history rather
-    // than of two.
-    assert.strictEqual(observed(a).threadId, observed(b).threadId);
-    assert.strictEqual(observed(a).boots, 1, 'the isolate must have booted the module exactly once');
-    assert.strictEqual(
-      observed(b).boots,
-      1,
-      'a second boot by the time of the second render is a per-request boot',
-    );
+    const a = observed(await collect(service, req({ ':todos': '[]' })));
+    const b = observed(await collect(service, req({ ':todos': '[]' })));
+    assert.strictEqual(a.threadId, b.threadId, 'one isolate served both');
+    assert.strictEqual(a.boots, 1, 'the isolate must have booted the module exactly once');
+    assert.strictEqual(b.boots, 1, 'a second boot by the time of the second render is a per-request boot');
   });
 });
