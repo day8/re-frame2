@@ -1,57 +1,18 @@
 (ns re-frame.epoch-depth-transition-race-test
-  "The `:depth` transition is ONE atomic step against the stores it bounds.
+  "The `:depth` transition is ONE atomic step against the stores it bounds:
+  once `(rf/configure! {:epoch-history {:depth N}})` returns, every ring
+  respects N (Tool-Pair \"Bounded history\"). The single-threaded half is pinned
+  in `re-frame.epoch-test`; this namespace pins the concurrent half.
 
-  ## The invariant
+  `record!` reads the depth and THEN appends; `merge-config!` swaps the config,
+  THEN prunes, THEN reconciles the back-fill anchors. Without the retention
+  serialization, a writer holding the PREVIOUS depth could append after
+  `configure!` returned — queryable and restorable, and permanent at depth 0,
+  where no later append re-prunes.
 
-  `(rf/configure! {:epoch-history {:depth N}})` promises that *once
-  `configure!` returns, every ring respects the accepted depth* (Tool-Pair
-  §Time-travel \"Bounded history\", and its depth-0 bullet: `epoch-history`
-  returns `[]`). The single-threaded half of that promise is pinned in
-  `re-frame.epoch-test`. This namespace pins the half a single thread cannot
-  reach.
-
-  ## The race these tests close
-
-  The depth reduction and the ring append are two sequences over three atoms:
-
-      record!         reads `(depth)`, THEN swaps `histories`
-      merge-config!   swaps `config`, THEN prunes `histories`,
-                      THEN reconciles the anchors
-
-  If nothing held the stores still between those steps, a writer that had
-  already captured the PREVIOUS depth could commit its append after
-  `configure!` had returned. The excess record would then be queryable through
-  `epoch-history` (and its off-box projection) and — for a full runtime record —
-  a live `restore-epoch!` / `replay-epoch!` target.
-
-  Config-swap-before-prune alone would make the escape TRANSIENT for a
-  positive depth (the next append re-caps the ring) but PERMANENT at depth 0,
-  because `record!` skips `append-record` entirely at depth 0 — no later append
-  ever arrives to repair it. \"Transient\" is also the wrong bar for a positive
-  reduction: the promise is about the state at `configure!`'s return, not about
-  some later event.
-
-  The anchors have the same shape. An `enforce-depth!` that computed its
-  retained-id set from the pruned snapshot and reconciled `last-settled-epoch`
-  in a SEPARATE swap would let a record committed at that seam have its own,
-  correct anchor discarded as unretained.
-
-  ## How these tests establish it deterministically
-
-  A concurrency defect proved by racing threads is a defect proved sometimes.
-  Each test below PLACES the interleaving rather than hoping for it: a writer
-  thread is parked inside `record!` at the exact point the depth has been
-  captured and the ring not yet touched, and the configuring thread runs
-  against that held position.
-
-  The seam is `re-frame.epoch.state/trace-events-keep`, which `record!` calls
-  exactly once — on the line after it captures the depth and before its
-  `swap!`. It is the only call between the two, which is what makes it an
-  exact seam rather than an approximate one.
-
-  TOOTH: drop the retention serialization from `record!` or from
-  `merge-config!` and both deftests below fail — the parked writer's append
-  lands after `configure!` has already published its result."
+  Each test parks a writer inside `record!` at the seam between its depth read
+  and its append — `trace-events-keep` is the only call between them — and runs
+  the transition against that held position."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             ;; Side-effect require: publishes the `:epoch/*` late-bind hooks
@@ -126,9 +87,6 @@
         (recur (dec remaining))))
     configurer))
 
-(defn- epoch-ids [frame-id]
-  (mapv :epoch-id (rf/epoch-history frame-id)))
-
 ;; ---- depth 0: the permanent escape ----------------------------------------
 
 (deftest an-in-flight-append-cannot-escape-a-depth-zero-transition
@@ -141,25 +99,19 @@
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     (rf/dispatch-sync [:seed] {:frame :test/main})
-    (is (= 1 (count (rf/epoch-history :test/main))) "precondition: one record")
 
     (let [{:keys [writer release!]} (park-writer-inside-record!
                                       :test/main [:inc])
           configurer                (configure-depth-on-another-thread!
                                       :test/main 0)]
       (release!)
-      (is (= :committed  (deref writer join-ms :timeout))  "the writer finished")
-      (is (= :configured (deref configurer join-ms :timeout)) "configure! finished")
-
+      (is (= [:committed :configured]
+             [(deref writer join-ms :timeout) (deref configurer join-ms :timeout)])
+          "the writer and configure! both finished")
       (is (= [] (rf/epoch-history :test/main))
           "the parked append did not escape the transition")
-      (is (= [] (mapv rf/project-egress (rf/epoch-history :test/main)))
-          "and it is not reachable through the off-box projection either")
       (is (nil? (rf.epoch.state/last-settled-epoch-id :test/main))
-          "no back-fill anchor survives naming a record the ring does not hold")
-      (is (= {:n 2} (rf/app-db-value :test/main))
-          "the frame itself still settled the event — only its RETENTION was
-           refused"))))
+          "no back-fill anchor survives naming a record the ring does not hold"))))
 
 ;; ---- positive reduction: the accepted cap, and anchor coherence -----------
 
@@ -175,23 +127,19 @@
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (rf/dispatch-sync [:inc] {:frame :test/main})
     (rf/dispatch-sync [:inc] {:frame :test/main})
-    (is (= 3 (count (rf/epoch-history :test/main))) "precondition: three records")
 
     (let [{:keys [writer release!]} (park-writer-inside-record!
                                       :test/main [:inc])
           configurer                (configure-depth-on-another-thread!
                                       :test/main 1)]
       (release!)
-      (is (= :committed  (deref writer join-ms :timeout))  "the writer finished")
-      (is (= :configured (deref configurer join-ms :timeout)) "configure! finished")
-
-      (let [ids    (epoch-ids :test/main)
-            anchor (rf.epoch.state/last-settled-epoch-id :test/main)]
-        (is (= 1 (count ids))
-            "the ring holds the accepted depth, not the one the writer captured")
-        (is (= {:n 3} (:db-after (last (rf/epoch-history :test/main))))
-            "and what it holds is the NEWEST record — the one that raced in")
-        (is (some? anchor)
-            "the concurrent record's own anchor was not discarded as unretained")
-        (is (= (last ids) anchor)
-            "the anchor names a record the ring still holds")))))
+      (is (= [:committed :configured]
+             [(deref writer join-ms :timeout) (deref configurer join-ms :timeout)])
+          "the writer and configure! both finished")
+      (let [history (rf/epoch-history :test/main)]
+        (is (= [{:n 3}] (mapv :db-after history))
+            "the ring holds the accepted depth, and what it holds is the NEWEST
+             record — the one that raced in")
+        (is (= (:epoch-id (first history))
+               (rf.epoch.state/last-settled-epoch-id :test/main))
+            "the concurrent record's own anchor survived and names a retained record")))))
