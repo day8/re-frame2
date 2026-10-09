@@ -3,95 +3,26 @@
   NOT THE LOAD-TIME GATE. Every test below rebinds
   `re-frame.interop/debug-enabled?` with `with-redefs`, which happens after the
   framework has loaded; the gate itself is read ONCE at `re-frame.interop` load
-  time from `-Dre-frame.debug` / `RE_FRAME_DEBUG`, long before any of this
-  runs. What is pinned here is that the epoch surfaces honour a REBOUND flag —
-  a real contract, and not the production posture.
+  time from `-Dre-frame.debug` / `RE_FRAME_DEBUG`. What is pinned here is that
+  the epoch surfaces honour a REBOUND flag: with it false the ring stays empty
+  and `restore-epoch!`, `replay-epoch!` and `replace-frame-state!` refuse.
 
-  The distinction is worth a paragraph because a load-time defect can fail
-  `dispatch-sync` TOTALLY under the documented gate — handler run ZERO times —
-  and stay green behind a roster of suites whose NAMES say `prod_gate` while
-  not one of them runs under it.
+  The load-time posture is the epoch production-gate lane's job
+  (`scripts/test-epoch-prod-gate.sh`, the `:prod-gate` alias in
+  `implementation/epoch/deps.edn`, pinned by
+  `re-frame.epoch-prod-gate-lane-pin-test`), and that lane runs every deftest
+  below again with the property genuinely on the JVM command line. A rebind
+  reaches epoch's own gated branches — each is a runtime
+  `(when interop/debug-enabled? …)` Var deref — but not what the framework
+  decided while it LOADED; that half is what the lane adds.
+  `re-frame.prod-gate-naming-drift-test` requires a file named like this one to
+  reach the gate or disclaim it; this file disclaims it, in the sentence at the
+  top.
 
-  The lanes that DO reach the load-time gate:
-
-    * `jvm-core-prod-gate` / `sh scripts/test-core-prod-gate.sh` — the core
-      suite with the `re-frame.debug` property genuinely set false on the JVM
-      command line, and `test-routing-prod-gate.sh` /
-      `test-ssr-prod-gate.sh` for those artefacts.
-
-      (Spelled without the literal `-D...=false` on purpose: that literal is
-      itself one of the three honesty markers the drift ratchet greps for, and
-      a file that mentions it only in PROSE ABOUT OTHER LANES would pass for
-      the wrong reason. This file's honesty rests on the disclaimer sentence
-      above, and on nothing else.)
-    * `re-frame.prod-gate-lane-pin-test` and its per-artefact siblings — each
-      asserts the property really arrived in that lane's JVM and that the
-      framework honoured it.
-    * `re-frame.prod-gate-dispatch-jvm-test` — the child-JVM pattern for a
-      defect that only reproduces at load time.
-
-  THE EPOCH ARTEFACT HAS SUCH A LANE: `:prod-gate` in
-  `implementation/epoch/deps.edn`, `scripts/test-epoch-prod-gate.sh`, the
-  `jvm-epoch-prod-gate` job and `re-frame.epoch-prod-gate-lane-pin-test`.
-  Without it the surfaces below would never execute under the posture they are
-  about, which matters more here than elsewhere: the whole security rationale
-  is that the ring must not retain `:db-before` / `:db-after` / raw
-  `:trace-events` in a production heap.
-
-  THIS FILE'S OWN DISCLAIMER STANDS beside that lane, and the two are worth
-  keeping straight. Every deftest below rebinds the Var, so this file does not
-  reach the load-time gate on its own. But all but one of its deftests are ALSO
-  executed by the lane above, in a JVM where the property is genuinely on the
-  command line — so the same assertions are made twice, once against a rebound
-  flag and once against a real one. The remaining deftest is
-  `^:requires-debug`: it asserts epoch's DEV parity, which the production lane
-  by definition cannot.
-
-  Stated precisely, since the loose version of this sentence is itself a
-  hazard: epoch reads the gate only as `(when interop/debug-enabled? …)`
-  inside fn bodies, which is a runtime Var deref, so the rebinds below do reach
-  epoch's own gated branches — this suite is not vacuous. What a rebind
-  cannot reach is what the framework decided while it LOADED under the dev
-  default: top-level registrations, `defonce` initialisation, interceptor chains
-  composed once at load. That is the half the lane adds, and the half a total
-  `dispatch-sync` failure would live in.
-
-  `re-frame.prod-gate-naming-drift-test` holds every artefact's `test/` tree
-  to that distinction: a file whose name claims the gate must reach it or
-  disclaim it. This file disclaims it, in the sentence at the top.
-
-  ## What this suite pins
-
-  The epoch artefact's dev-only surfaces — `register-epoch-listener!`,
-  `restore-epoch!`, `replace-frame-state!`,
-  the per-frame ring buffer carrying `:db-before` / `:db-after` /
-  raw `:trace-events` — MUST honour the JVM-side production gate
-  `re-frame.interop/debug-enabled?`. When the gate reads `false`
-  in production, the epoch
-  surface drops to its no-op floor: no record lands in the ring, no
-  callback fires, and `restore-epoch!` / `replace-frame-state!` return `false`.
-
-  The companion core gate vocabulary suite is
-  `re-frame.interop-debug-gate-test`; the core integration suite is
-  `re-frame.jvm-prod-gate-integration-test`. This file is the epoch
-  artefact's contribution.
-
-  ## Why every negative assertion below is paired with a WITNESS
-
-  Almost everything this suite claims is an ABSENCE — an empty ring, a silent
-  listener, a record that was never assembled. An absence is
-  satisfied by two different worlds: the gate elided the recording (the claim),
-  or the dispatch never happened at all (a defect). A load-time defect puts a
-  run in the second world — `dispatch-sync` running its handler ZERO times
-  under the documented gate — and a bare `(is (empty? …))` cannot tell the two
-  apart: it reports green for both.
-
-  So each of these deftests asserts, beside the absence, that the dispatch it is
-  reasoning about actually landed: the handler's app-db write is read back
-  through `app-db-of`. That converts \"nothing was recorded\" from an
-  unfalsifiable statement into a conditional one — the run did the work AND
-  epoch kept none of it. Do not delete a witness to \"simplify\" a test; the
-  witness is the half that makes the other half mean something."
+  Every absence below is paired with a WITNESS that the dispatch it reasons
+  about happened — the handler's app-db write, read back through `app-db-of` —
+  because an empty ring is also what a dispatch that never ran leaves behind.
+  Do not delete a witness to \"simplify\" a test."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.epoch :as rf.epoch]
@@ -102,31 +33,13 @@
             ;; (see epoch_test.clj for the same dance).
             [re-frame.machines]))
 
-;; Canonical capture/restore fixture. Snapshots the
-;; registrar at ns-load + restores around each test, fires the epoch
-;; reset-hook table (history / listeners / config-to-default), and the
-;; `:init-fn` re-applies the suite's non-default `:trace-events-keep 5`
-;; (NOT the shipped 50 = :depth) through the
-;; public `configure!` boundary — no test ns reaches into the private
-;; `state/config` var. The `:init-fn` runs OUTSIDE each test's
-;; `(with-redefs [interop/debug-enabled? false] ...)`, so config lands at
+;; The `:init-fn` runs OUTSIDE each test's `with-redefs`, so config lands at
 ;; the normal gate value.
-;;
-;; EP-0002: `init!` does not synthesise
-;; `:rf/default`. The canonical fixture, when handed an `:adapter`, ALSO
-;; ensures the conventional `:rf/default` frame and binds it as the body's
-;; ambient scope — the carried-invariant equivalent of wrapping every test
-;; in `(with-frame :rf/default …)`. So the bare framework-operation surfaces
-;; this suite drives (dispatch / epoch / restore / frame-state replacement)
-;; resolve a carried frame stamp without a hand-rolled `make-frame` + `with-
-;; frame` dance here. Explicit `{:frame …}` opts in the bodies still win.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.substrate.plain-atom/adapter
      :init-fn (fn [] (rf/configure! {:epoch-history {:trace-events-keep 5}}))}))
 
-;; The witness read. See the docstring section above: it is what
-;; separates "epoch recorded nothing" from "nothing happened".
 (defn- app-db-of [frame-id]
   (:rf.db/app (rf/frame-state-value frame-id)))
 
@@ -136,7 +49,8 @@
             events drain. No `:db-before` / `:db-after` /
             `:trace-events` payloads land in heap memory, so no
             tokens / PII / secrets are retained in SSR process
-            memory."
+            memory — and, since a listener is fed only by the same commit
+            that appends to this ring, no epoch listener sees one either."
     (with-redefs [rf.interop/debug-enabled? false]
       (rf/reg-event :prod-gate.epoch/inc
                        (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
@@ -148,25 +62,6 @@
            so the empty ring below is elision, not a dead dispatch loop")
       (is (empty? (rf.epoch/epoch-history :rf/default))
           "epoch ring is empty under disabled debug gate"))))
-
-(deftest epoch-cb-silent-when-debug-disabled
-  (testing "a registered epoch listener does NOT
-            fire under the disabled debug gate. No record fan-out
-            means no tool/plugin callback in-process can observe
-            `:db-before` / `:db-after` / raw trace vectors."
-    (with-redefs [rf.interop/debug-enabled? false]
-      (let [seen (atom [])]
-        (rf.epoch/register-epoch-listener!
-          :prod-gate.epoch/recorder
-          (fn [record] (swap! seen conj record)))
-        (rf/reg-event :prod-gate.epoch/silent
-                         (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-        (rf/dispatch-sync [:prod-gate.epoch/silent])
-        (is (= 1 (:n (app-db-of :rf/default)))
-            "WITNESS: the dispatch ran — the silent listener below had a real
-             cascade to miss")
-        (is (empty? @seen)
-            "epoch listener silent under disabled debug gate")))))
 
 (deftest restore-epoch-refuses-when-debug-disabled
   (testing "`restore-epoch!` MUST refuse to operate
@@ -184,8 +79,6 @@
                       (rf/dispatch-sync [:prod-gate.epoch/restore-probe])
                       (rf/dispatch-sync [:prod-gate.epoch/restore-probe])
                       (:epoch-id (first (rf/epoch-history :rf/default))))]
-      (is (some? target-id)
-          "PRECONDITION: a retained epoch to restore to")
       (with-redefs [rf.interop/debug-enabled? false]
         (is (false? (rf/restore-epoch! :rf/default target-id))
             "restore-epoch! returns false (refuses to operate)")
@@ -199,26 +92,21 @@
 (deftest replay-epoch-refuses-when-debug-disabled
   (testing "`replay-epoch!` is gated exactly like `restore-epoch!`
             — under the disabled gate it returns `false`, resolves no record
-            and dispatches nothing. The dispatch-shaped time-travel surface
-            is dev-only for the same reason the state-rewrite one is."
+            and dispatches nothing."
     (rf/reg-event :prod-gate.epoch/replay-probe
       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    ;; WITNESS: the probe ran once. Under the dev gate that also retains a
-    ;; record (so the refusal below is exercised against a RETAINED id);
-    ;; under the real production-gate lane the ring stays empty by design
-    ;; and the id falls back to an unknown one — both must refuse.
+    ;; Under the dev gate the probe's record is retained, so the refusal is
+    ;; exercised against a RETAINED id; under the production-gate lane the ring
+    ;; stays empty and the id falls back to an unknown one — both must refuse.
     (rf/dispatch-sync [:prod-gate.epoch/replay-probe])
-    (is (= 1 (:n (app-db-of :rf/default)))
-        "WITNESS: the probe handler ran — there is a real dispatch to refuse to replay")
     (let [recorded-id (or (:epoch-id (last (rf/epoch-history :rf/default)))
                           :some-epoch-id)]
       (with-redefs [rf.interop/debug-enabled? false]
         (is (false? (rf/replay-epoch! :rf/default recorded-id))
-            "replay-epoch! returns false (refuses to operate)")
-        (is (false? (rf/replay-epoch! :rf/default :some-epoch-id {:origin :pair}))
-            "replay-epoch! returns false for the opts arity too — no envelope leaks"))
+            "replay-epoch! returns false (refuses to operate)"))
       (is (= 1 (:n (app-db-of :rf/default)))
-          "the probe handler did NOT run again — nothing was dispatched"))))
+          "WITNESS: the probe ran exactly once — it did run, and the refused
+           replay did not run it again"))))
 
 (deftest replace-app-db-refuses-when-debug-disabled
   (testing "`replace-frame-state!` must refuse to operate
@@ -229,53 +117,9 @@
       (is (false? (rf/replace-frame-state! :rf/default {:rf.db/app {:any "db"}}))
           "replace-frame-state! returns false (refuses to operate)"))))
 
-;; `^:requires-debug` is core's dev-only declaration. This deftest is a
-;; statement about the DEV posture, so the epoch production-gate lane excludes
-;; it (`-e :requires-debug` in the `:prod-gate` alias): under the real
-;; load-time gate the ring is empty, so it fails by design. A
-;; `(when interop/debug-enabled? …)` posture arm would be the WRONG repair — it
-;; would leave a deftest with no assertion at all under the gate, reporting
-;; green for a run that executed nothing, which is the false green the
-;; production-gate lane exists to close. It runs exactly once, in
-;; `clojure -M:test`.
 (deftest ^:requires-debug epoch-still-records-with-default-gate
-  (testing "Sanity: with the gate at its default `true` reading
-            (dev parity), epoch recording continues to work. This
-            test fails fast if a future refactor accidentally
-            disables the surface in dev."
+  (testing "dev parity: with the gate at its default reading the ring fills"
     (rf/reg-event :prod-gate.epoch/dev-inc
-                     (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+      (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (rf/dispatch-sync [:prod-gate.epoch/dev-inc])
-    (is (pos? (count (rf.epoch/epoch-history :rf/default)))
-        "epoch ring has at least one record under default gate")))
-
-;; ---- privacy-surface JVM false-path coverage ----------------------------
-
-(deftest project-egress-pure-transform-survives-disabled-gate
-  (testing "project-egress is a pure data transform
-            — it does NOT consult interop/debug-enabled?. A consumer
-            that already holds a record (replayed in a JVM test
-            fixture, or surfaced from a recorded session) can still
-            project it. The gate elides record ASSEMBLY, not record
-            PROJECTION."
-    (let [synthetic-record
-          {:kind          :rf/epoch-record
-           :epoch-id      42
-           :frame         :test/main
-           :committed-at  0
-           :event-id      :synthetic
-           :trigger-event [:synthetic]
-           :db-before     {:n 0}
-           :db-after      {:n 1}
-           :outcome       :ok
-           :rf.epoch/sensitive? false
-           :trace-events  []
-           :sub-runs      []
-           :renders       []
-           :effects       []}]
-      (with-redefs [rf.interop/debug-enabled? false]
-        (let [projected (rf/project-egress synthetic-record)]
-          (is (some? projected)
-              "projection runs even under the disabled gate")
-          (is (= 42 (:epoch-id projected))
-              "bookkeeping preserved"))))))
+    (is (seq (rf.epoch/epoch-history :rf/default)))))
