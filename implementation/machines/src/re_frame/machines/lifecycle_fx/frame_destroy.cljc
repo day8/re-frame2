@@ -133,7 +133,7 @@
   present), and the unified discriminator `:reason
   :parent-frame-destroyed`.
 
-  Per Spec 009 §Actor lifecycle observation (009:240-269) this is NOT a
+  Per Spec 009 §Actor lifecycle observation, this is NOT a
   legacy event: `:rf.machine.lifecycle/destroyed` is the canonical
   REGISTRAR-substrate observation axis (\"the actor's handler / snapshot
   was reaped\", including frame-exit reaping), the deliberate sibling of

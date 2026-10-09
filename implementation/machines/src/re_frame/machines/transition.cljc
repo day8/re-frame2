@@ -25,7 +25,7 @@
   timer scheduling, microsteps, depth-limit aborts, unhandled-event
   no-ops) on the process-wide Spec 009 trace stream, exactly as the rest
   of the framework (router, fx, subs, events) does inline. Per Spec 005
-  §`:before` / `:after` (005:545) and §Strict encapsulation (005:637)
+  §`:before` / `:after` and §Strict encapsulation
   this is deliberate: trace is production-elided observability (Closure
   DCE on `interop/debug-enabled?` — see `re-frame.trace/emit!`), never
   part of the snapshot/fx value, and never read back into the
@@ -1110,7 +1110,8 @@
                ;; without it here the guard-suppressed `:rf.machine.timer/fired`
                ;; `:fired? false` reply degrades to `[:rf.work/timer <actor>
                ;; epoch]` and fails to correlate with the scheduled/cancelled/
-               ;; stale rows for the SAME timer (spec/005:3568/3585).
+               ;; stale rows for the SAME timer (Spec 005 §Async completions share
+               ;; the uniform reply envelope).
                :decl-path         prefix
                :delay             delay-key
                :epoch             carried-epoch})))]
@@ -2133,7 +2134,8 @@
     {})))
 
 (defn enforce-db-disallow
-  "Per Spec 005 §Hard-disallow `:db` (005:463): a machine action's effect
+  "Per Spec 005 §Strict encapsulation (hard-disallow `:db`): a machine
+  action's effect
   map MUST NOT carry `:db`. This is the SINGLE enforcement choke-point so
   the invariant holds UNIFORMLY across every phase that runs an action —
   the cascade collector (`collect-actions`) and the parallel-root
@@ -2254,7 +2256,7 @@
                 (rf.machines.result/with-ok [snap fx] acc-r
                   (let [before-data (:data snap)
                         emit-phase  (or phase kind)
-                        ;; Per spec/009 §History trace events (line 291): a
+                        ;; Per spec/009 §History trace events: a
                         ;; history-driven `:entry` step also carries
                         ;; `:source` (set in `compute-transition-geometry`); a
                         ;; non-history step has none, so only stamp it when
@@ -2494,7 +2496,8 @@
                ;; canonical work-id `[:rf.work/timer [<actor>] epoch]` and the
                ;; guard-suppressed root reply correlates with its scheduled/
                ;; cancelled/stale counterparts (the stale branch below already
-               ;; sets `:decl-path []`). Per spec/005:3568/3585.
+               ;; sets `:decl-path []`). Per Spec 005 §Async completions share the
+               ;; uniform reply envelope.
                :decl-path         []
                :delay             delay-key
                :epoch             carried-epoch}))
@@ -3608,7 +3611,7 @@
                            ;; reconstruct-from-phase path could not.
                            (:rf/transition-slot transition)
                            (assoc :transition-slot (:rf/transition-slot transition)))])
-        ;; Per spec/009 §History trace events (line 291): each `:entry` step
+        ;; Per spec/009 §History trace events: each `:entry` step
         ;; produced by a history restore also carries `:source`
         ;; (`:recorded`|`:default`) matching the `:rf.machine.history/restored`
         ;; event's `:source`; a step with no `:source` key was not

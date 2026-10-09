@@ -20,9 +20,8 @@
        invoke-id]` (declarative form; for a region spawn the key is the
        in-region path, `paths/spawned-mirror-path`) so the parent-side data slot
        (mechanism 1 — XState-context parity) mirrors the runtime registry
-       (step 2) EXACTLY, per Spec 005:2938 (\"the `:rf/spawned` `:data`
-       slot mirrors this registry slot exactly, in-snapshot\"). Without
-       this an action reading `[:data :rf/spawned <invoke-id>]` AFTER the
+       (step 2) EXACTLY, per Spec 005 §Reserved snapshot-internal keys.
+       Without this an action reading `[:data :rf/spawned <invoke-id>]` AFTER the
        child completed would get a DEAD id — the stale-id footgun.
     4. prune the per-parent `[:rf.runtime/machines :spawned parent-id]`
        map, the `[:rf.runtime/machines :spawned]` slot, and the emptied
@@ -69,7 +68,7 @@
   `[:rf.runtime/machines :snapshots <parent-id> :data :rf/spawned
   <invoke-id>]` (the in-region key for a region spawn,
   `paths/spawned-mirror-path`) is cleared, so the parent-side data slot mirrors the
-  runtime registry EXACTLY (Spec 005:2938). Both the parent map /
+  runtime registry EXACTLY (Spec 005 §Reserved snapshot-internal keys). Both the parent map /
   `:spawned` root AND the emptied parent-side `:rf/spawned` data map are
   pruned under the lazy-allocation invariant (matching how spawn
   ALLOCATES the maps lazily — see Spec 005 §Spawning §Lazy allocation).
@@ -96,7 +95,7 @@
         ;; (1)+(2)+(3): the primary slot mutations. (3) clears the
         ;; PARENT snapshot's own `[:data :rf/spawned <invoke-id>]` slot so
         ;; the parent-side data slot (mechanism 1) mirrors the runtime
-        ;; registry (step 2) EXACTLY — see ns docstring + Spec 005:2938.
+        ;; registry (step 2) EXACTLY — see ns docstring.
         new-db       (cond-> db
                        actor-id     (update-in (rf.machines.paths/snapshot-path)
                                                dissoc actor-id)
