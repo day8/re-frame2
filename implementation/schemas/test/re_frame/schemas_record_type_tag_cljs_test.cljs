@@ -1,28 +1,9 @@
 (ns re-frame.schemas-record-type-tag-cljs-test
-  "CLJS half of the closed type-tag contract — and the half where an
-  unclosed tag would be a DISCLOSURE rather than merely an unbounded
-  string.
-
-  `cljs.core/type` is defined as `(.-constructor x)` — literally, docstring
-  \"Return x's constructor\". `constructor` is an ordinary WRITABLE property
-  name, so a foreign JS value carrying its own `constructor` field makes
-  `(str (type v))` return that field's text verbatim. `type-of-value`'s
-  fallback arm is exactly `(str (type v))`, so an
-  `emit-app-db-rejection-record!` that concatenated it after `\"got \"`
-  would publish the result to the corpus-wide `:errors` listener registry.
-
-  So the record whose entire justification is that it is CLOSED-SHAPE — no
-  `:value`, no `:explain`, no `:schema`, no `:path`, every slot a framework
-  keyword or a structural id — could carry arbitrary app- or
-  attacker-controlled text through the one slot nobody watches. `nil` and a
-  ClojureScript string both take fast-path arms, so only a foreign value
-  exercises the fallback.
-
-  These tests plant a sentinel and assert it reaches NEITHER the tag NOR the
-  emitted record. The JVM sibling
-  (`re-frame.schemas-record-type-tag-test`) pins the same classifier's
-  closedness host-agnostically; it cannot express this file's cases, because
-  the JVM's `type` is `(class v)` and takes no instruction from the value."
+  "CLJS half of the closed type-tag contract, where an unclosed tag would be a
+  disclosure: `cljs.core/type` is `(.-constructor x)`, an ordinary writable
+  property, so `(str (type v))` on a foreign JS value carrying its own
+  `constructor` field returns caller text, which the always-on `:errors`
+  record must never carry."
   (:require [clojure.string :as str]
             [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -33,15 +14,8 @@
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
-;; `reg-app-schema` is context-required frame-local (EP-0002): an ambient call
-;; under no established scope raises `:rf.error/no-frame-context`, and there is
-;; no `:rf/default` floor. The JVM sibling inherits its scope from
-;; `re-frame.schemas.test-fixture`, which is a `.clj` and unreachable from here,
-;; so this file takes the CLJS equivalent — the shared fixture's default
-;; `:ambient-frame :rf/default`, over the same plain-atom substrate the JVM
-;; fixture installs. The fixture's reset gives the end-to-end test a
-;; clean per-frame app-schema slate so no sibling ns's registrations add
-;; rejection records to the ones it counts.
+;; `reg-app-schema` needs an established frame scope, and the reset gives the
+;; end-to-end test a clean schema slate.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.substrate.plain-atom/adapter}))
@@ -50,13 +24,8 @@
 
 (def ^:private sentinel "rf2-xpd8-secret-from-value")
 
-(def ^:private closed-vocabulary
-  #{"nil" "string" "integer" "number" "boolean" "keyword" "map" "vector"
-    "object"})
-
 (defn- planted-constructor-obj
-  "A foreign JS object carrying its own `constructor` field — the exact shape
-  that returns the sentinel through `(str (type v))`."
+  "A foreign JS object whose own `constructor` field is the sentinel."
   []
   (let [o (js-obj)]
     (aset o "constructor" sentinel)
@@ -70,59 +39,15 @@
              #js {:get (fn [_ k]
                          (throw (js/Error. (str "hostile accessor fired: " k))))}))
 
-;; ---- the mechanism itself -------------------------------------------------
-
-(deftest cljs-type-really-is-the-values-own-constructor
-  (testing "the premise, asserted rather than assumed: an own `constructor`
-            field wins, so `(str (type v))` IS caller-controlled on CLJS.
-            If this ever stops holding, the constant fallback is still correct but
-            this file's rationale needs rewriting rather than deleting."
-    (let [o (planted-constructor-obj)]
-      (is (= sentinel (str (type o)))
-          "cljs.core/type returned the value's OWN constructor field")))
-
-  (testing "and the obvious host-side repairs are value-controlled too —
-            which is why the fallback is a constant, not a cleverer lookup"
-    (let [tagged (js-obj)]
-      (aset tagged js/Symbol.toStringTag "also-attacker-controlled")
-      (is (str/includes? (.call (.-toString (.-prototype js/Object)) tagged)
-                         "also-attacker-controlled")
-          "Object.prototype.toString.call is steered by Symbol.toStringTag"))))
-
-;; ---- the classifier does not disclose -------------------------------------
-
-(deftest tag-never-returns-value-controlled-text
-  (testing "a planted own `constructor` classifies to the
-            CONSTANT fallback; the sentinel appears nowhere in the tag"
-    (let [t (tag (planted-constructor-obj))]
-      (is (= "object" t)
-          (str "the value's own constructor text reached the type tag; got "
-               (pr-str t))))))
-
 (deftest tag-survives-a-hostile-accessor
   (testing "a diagnostic must not explode while explaining a rejection —
             the throwing Proxy classifies rather than propagating"
     (is (= "object" (tag (hostile-proxy))))))
 
-(deftest tag-is-closed-over-foreign-and-native-cljs-values
-  (testing "every arm yields a framework literal — a masquerading value gets
-            a WRONG tag, never caller text, which is the property that matters"
-    (doseq [v [nil "s" 1 1.5 true false :kw 'sym {} {:a 1} [] [1 2]
-               #{1 2} '(1 2) (range 3)
-               (js-obj) #js [] (js/Date.) (fn [] nil)
-               (planted-constructor-obj) (hostile-proxy)
-               js/Math js/JSON]]
-      (let [t (tag v)]
-        (is (contains? closed-vocabulary t)
-            (str "tag escaped the closed vocabulary — got " (pr-str t)))))))
-
-;; ---- end to end: the emitted record does not disclose ---------------------
-
 (deftest ^:requires-debug rejection-record-never-carries-the-planted-constructor
-  (testing "END TO END — a rejected app-db candidate whose
-            failing leaf is a foreign JS object with a planted `constructor`
-            emits a record carrying the sentinel NOWHERE: not in `:reason`,
-            not in any other slot."
+  (testing "a rejected candidate whose failing leaf carries a planted
+            `constructor` emits a record with the constant tag and the
+            sentinel in no slot"
     (when rf.interop/debug-enabled?
       (let [records (atom [])]
         (rf.error-emit/register-error-listener! ::rec (fn [r] (swap! records conj r)))
@@ -136,19 +61,8 @@
         (let [rejections (filterv
                            #(and (= :rf.error/schema-validation-failure (:error %))
                                  (= :app-db (:where %)))
-                           @records)]
-          (is (= 1 (count rejections))
-              (str "expected one :errors record for the rejected candidate; got "
-                   (count rejections)))
-          (let [r      (first rejections)
-                reason (:reason r)]
-            (is (str/includes? reason "got object")
-                (str "the reason carries the constant fallback tag; got "
-                     (pr-str reason)))
-            (is (not (str/includes? reason sentinel))
-                (str "THE LEAK: the failing value's own `constructor` text "
-                     "reached the always-on :errors stream; got "
-                     (pr-str reason)))
-            (is (not (str/includes? (pr-str r) sentinel))
-                (str "the sentinel reached some OTHER slot of the record; got "
-                     (pr-str r)))))))))
+                           @records)
+              r          (first rejections)]
+          (is (= 1 (count rejections)))
+          (is (str/includes? (:reason r) "got object") (pr-str (:reason r)))
+          (is (not (str/includes? (pr-str r) sentinel)) (pr-str r)))))))

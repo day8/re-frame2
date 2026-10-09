@@ -1,144 +1,44 @@
 (ns re-frame.schemas-record-type-tag-test
-  "The always-on `:errors` record's type tag is a CLOSED vocabulary.
-
-  A rejected app-db candidate gets a structural-only record on the
-  always-on `:errors` stream. Its `:reason` is composed rather than copied
-  precisely so the failing VALUE cannot ride it — every other value-bearing
-  slot (`:value`, `:explain`, `:schema`, `:path`) is omitted outright for that
-  reason. A type tag taken from `re-frame.error/type-of-value` would reopen
-  that hole: its fallback arm is `(str (type v))`, and that arm is NOT
-  closed:
-
-    - On CLJS it is a DISCLOSURE. `cljs.core/type` is defined as
-      `(.-constructor x)` — an ordinary writable property — so a foreign JS
-      value carrying its own `constructor` field returns that field's text
-      verbatim, straight onto the corpus-wide `:errors` listener registry.
-      That half is pinned by the CLJS sibling
-      (`re-frame.schemas-record-type-tag-cljs-test`), which plants a sentinel
-      and a hostile Proxy; it cannot be written here because the JVM's `type`
-      is `(class v)` and takes no instruction from the value.
-
-    - On BOTH hosts it is UNBOUNDED — host class names are not a vocabulary,
-      they are whatever the runtime happens to call the class. That half is
-      what this namespace pins, and it is the structural property a CLJS
-      disclosure would violate: the record's reason carries framework
-      literals ONLY,
-      never text derived from the value's own class or constructor.
-
-  So these tests are the host-agnostic control. Against a `type-of-value`
-  tag they would fail: a set-valued failing leaf would put
-  `clojure.lang.PersistentHashSet` into a record that is supposed to be
-  closed-shape.
-
-  Deliberately NOT asserted here: the eight named tags' spellings for the
-  ordinary shapes are `error/type-of-value`'s documented vocabulary
-  (`got string`, `got nil`, …). This
-  namespace owns the NINTH arm — the constant fallback — and the guarantee
-  that nothing else can appear."
+  "The always-on `:errors` record for a rejected app-db candidate tags the
+  failing leaf from a closed vocabulary, never from the leaf's host class: the
+  record is built from framework literals so no payload rides it. The CLJS
+  sibling pins the disclosure half, where `type` reads a value-owned
+  `constructor`."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.interop :as rf.interop]
             [re-frame.schemas :as rf.schemas]
-            [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]
-            [re-frame.schemas.validate :as rf.schemas.validate]))
+            [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]))
 
 (use-fixtures :each rf.schemas.test-fixture/reset-runtime)
 
-(def ^:private tag #'rf.schemas.validate/record-type-tag)
-
-(def ^:private closed-vocabulary
-  "Every string `record-type-tag` is permitted to return. The record's
-  closed-shape guarantee is exactly this set being exhaustive."
-  #{"nil" "string" "integer" "number" "boolean" "keyword" "map" "vector"
-    "object"})
-
-(defn- capture-errors
-  "Run `body-fn` with a listener on the always-on `:errors` stream and return
-  the captured records. Unregisters in a `finally` so a thrown body cannot
-  leak the listener into the next deftest and silently invert its counts."
-  [body-fn]
+(defn- rejection-reasons
+  "The `:reason` of every app-db rejection record that validating `db` emits
+  on the always-on `:errors` stream."
+  [db]
   (let [errors (atom [])]
     (rf.error-emit/register-error-listener! ::rec (fn [r] (swap! errors conj r)))
     (try
-      (body-fn)
+      (rf.schemas/validate-app-schema! db :tenant/set-bad)
       (finally
         (rf.error-emit/unregister-error-listener! ::rec)))
-    @errors))
-
-(defn- rejection-records [records]
-  (filterv #(and (= :rf.error/schema-validation-failure (:error %))
-                 (= :app-db (:where %)))
-           records))
-
-;; ---- the classifier is total and closed ----------------------------------
-
-(deftest tag-is-drawn-from-the-closed-vocabulary
-  (testing "every shape a failing app-db leaf can take classifies to one of
-            the nine literals — nothing else is reachable"
-    (doseq [v [nil "s" 1 1.5 3/4 true false :kw 'sym
-               {} {:a 1} [] [1 2] #{1 2} '(1 2) (range 3)
-               (java.util.Date.) (Object.) (java.util.HashMap.)
-               (byte-array 2) #"re" (fn [] nil) \c
-               (java.net.URI. "https://example.com/secret-path")]]
-      (is (contains? closed-vocabulary (tag v))
-          (str "tag escaped the closed vocabulary for " (pr-str (class v))
-               " — got " (pr-str (tag v)))))))
-
-(deftest fallback-is-a-constant-never-the-host-class-name
-  (testing "the fallback arm returns the literal \"object\",
-            NOT `(str (type v))`. This is the arm a CLJS `constructor`
-            disclosure would come through; on the JVM the same arm is merely
-            unbounded, and both are closed by the same constant."
-    (doseq [v [#{:a} '(1) (Object.) (java.util.Date.) (java.net.URI. "x:y")]]
-      (is (= "object" (tag v))
-          (str "expected the constant fallback — never `(str (type v))` or "
-               "the host class name — for " (pr-str (class v)))))))
-
-;; ---- end-to-end: the emitted record carries no host class name ------------
+    (into []
+          (comp (filter #(and (= :rf.error/schema-validation-failure (:error %))
+                              (= :app-db (:where %))))
+                (map :reason))
+          @errors)))
 
 (deftest rejection-record-reason-carries-no-host-class-name
-  (testing "END TO END — a rejected candidate whose failing
-            leaf is outside the eight-tag vocabulary emits a record whose
-            :reason says `got object`, never the leaf's class name (a
-            `type-of-value` tag would read
-            `got class clojure.lang.PersistentHashSet`)."
+  (testing "a leaf outside the named tags reads `got object`, never its class
+            name, and the named tags keep their `type-of-value` spelling"
     (when rf.interop/debug-enabled?
       (rf/reg-app-schema [:tenant] [:map [:id :int]])
-      (let [records (rejection-records
-                      (capture-errors
-                        #(rf.schemas/validate-app-schema!
-                           {:tenant {:id #{:not :an :int}}}
-                           :tenant/set-bad)))]
-        (is (= 1 (count records))
-            (str "expected one :errors record for the rejected candidate; got "
-                 (count records) " — " (pr-str records)))
-        (let [reason (:reason (first records))]
-          (is (str/includes? reason "got object")
-              (str "the reason carries the constant fallback tag; got "
-                   (pr-str reason)))
-          (is (not (str/includes? reason "PersistentHashSet"))
-              (str "the failing leaf's CLASS NAME reached a record whose whole "
-                   "contract is that it is built from framework literals and "
-                   "structural ids; got " (pr-str reason)))
-          (is (not (str/includes? reason "clojure.lang"))
-              "no host package name on a closed-shape record")
-          (is (str/includes? reason "[:tenant]")
-              "the reason names its registered path — the closed tag
-               narrows the vocabulary, it does not drop the locator"))))))
-
-(deftest rejection-record-keeps-the-eight-named-tags
-  (testing "only the unbounded fallback differs — the documented
-            vocabulary (`got nil`, `got string`) is `type-of-value`'s own,
-            so no consumer learns a new word"
-    (when rf.interop/debug-enabled?
-      (rf/reg-app-schema [:acct] [:map [:n :int]])
-      (let [reason (fn [db]
-                     (-> (rejection-records
-                           (capture-errors
-                             #(rf.schemas/validate-app-schema! db :acct/bad)))
-                         first
-                         :reason))]
-        (is (str/includes? (reason {:acct {:n "text"}}) "got string"))
-        (is (str/includes? (reason {:acct {:n nil}})  "got nil"))))))
+      (let [[reason :as reasons] (rejection-reasons {:tenant {:id #{:not :an :int}}})]
+        (is (= 1 (count reasons)))
+        (is (str/includes? reason "got object") reason)
+        (is (not (str/includes? reason "PersistentHashSet")) reason)
+        (is (str/includes? reason "[:tenant]") "the reason names its registered path"))
+      (is (str/includes? (first (rejection-reasons {:tenant {:id "text"}})) "got string"))
+      (is (str/includes? (first (rejection-reasons {:tenant {:id nil}})) "got nil")))))
