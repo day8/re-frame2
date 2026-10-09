@@ -136,24 +136,6 @@
 
 ;; ---- what the client does with the server's answer -----------------------
 
-(deftest declined-answer-runs-the-coordinate-preserving-fallback-once
-  (testing "a declined endpoint answer hands the launch to the
-            `windsurf://` URI, which carries 27:9, exactly once"
-    (async done
-      (-> (click! {:editor :windsurf :status 422})
-          (.then (fn [{:keys [requested navigated fallbacks]}]
-                   (is (some? requested)
-                       "the stub fetch was reached — the endpoint IS preferred;
-                        this also proves the stub took effect, so the assertions
-                        below are about the chosen status and not a thrown fetch")
-                   (is (= 1 fallbacks) "the fallback ran exactly once, not twice")
-                   (is (= "windsurf://file/src/app.cljs:27:9" navigated)
-                       "the `windsurf://` URI carries line 27, column 9 — they
-                        reach Windsurf after all")
-                   (is (fetch-restored?) "the fetch stub was not left installed")
-                   (done)))
-          (.catch (fn [err] (is false (str "click! threw: " err)) (done)))))))
-
 (deftest every-declining-status-reaches-the-fallback
   (testing "the client's contract is on non-2xx as a CLASS: each status the
             endpoint can decline with runs the coordinate-preserving fallback

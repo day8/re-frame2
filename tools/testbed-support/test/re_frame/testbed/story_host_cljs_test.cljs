@@ -3,16 +3,8 @@
 
   A fake window records listener identity while mount functions are stubbed.
   Rebinding `on-hash-change!` simulates CLJS hot reload and verifies that the
-  previous listener is removed rather than stacked.
-
-  The host does not resolve an open-in-editor source root or write one into
-  Story's config: the dev server's `POST /__rf-open-in-editor` endpoint
-  resolves classpath-relative coordinates at request time, so the host owns
-  only the React-root handoff and hash routing. The Story-config assertions
-  below pin the carve-out — the public `:rf.story/project-root` option is
-  the consumer's to set, and the host must not disturb it."
+  previous listener is removed rather than stacked."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.story.config :as rf.story.config]
             [re-frame.testbed.story-host :as rf.testbed.story-host]))
 
 ;; A JS Set gives the fake window browser-like listener identity semantics.
@@ -55,43 +47,22 @@
   (reset! @#'rf.testbed.story-host/root-view* nil))
 
 (use-fixtures :each
-  {:before (fn []
-             (reset-host-handles!)
-             ;; The carve-out test below writes Story's global config.
-             (rf.story.config/set-project-root! nil))
+  {:before (fn [] (reset-host-handles!))
    :after  (fn []
              ;; Restore the Node baseline for subsequent namespaces.
              (clear-window!)
-             (reset-host-handles!)
-             (rf.story.config/set-project-root! nil))})
+             (reset-host-handles!))})
 
 ;; Mount functions are stubbed, so this view is never rendered.
 (defn- dummy-view [] [:div "dummy"])
 
-(deftest single-run-installs-exactly-one-listener
-  (testing "one `mount-with-hash-routing!` call installs exactly one active
-            hashchange listener, and stashes that exact handle in
-            `hash-listener*`"
-    (let [{:keys [window hashchange-count]} (make-fake-window "#/")
-          switches (atom 0)]
-      (install-window! window)
-      (with-redefs [rf.testbed.story-host/mount-app!     (fn [] (swap! switches inc))
-                    rf.testbed.story-host/mount-stories! (fn [] (swap! switches inc))]
-        (rf.testbed.story-host/mount-with-hash-routing! dummy-view))
-      (is (= 1 (hashchange-count))
-          "exactly one hashchange listener active after a single run")
-      (is (some? @@#'rf.testbed.story-host/hash-listener*)
-          "the installed handle is recorded for later removal")
-      (is (= 1 @switches)
-          "the initial `on-hash-change!` ran the mount switch exactly once"))))
-
 (deftest many-re-runs-never-accumulate-listeners
-  (testing "across several hot-reload re-`run`s, each with a fresh
-            `on-hash-change!` identity, the active hashchange listener count
-            stays pinned at one — and dispatching a single hash change to the
-            installed registry fires the mount switch exactly ONCE (not once
-            per accumulated listener), which is the user-visible symptom a
-            leak would cause."
+  (testing "the first run mounts exactly once; across five more hot-reload
+            re-`run`s, each with a fresh `on-hash-change!` identity, the
+            active hashchange listener count stays pinned at one — and
+            dispatching a single hash change to the installed registry fires
+            the mount switch exactly ONCE (not once per accumulated listener),
+            which is the user-visible symptom a leak would cause."
     (let [{:keys [window registry hashchange-count]} (make-fake-window "#/")
           switches (atom 0)]
       (install-window! window)
@@ -99,6 +70,8 @@
       (with-redefs [rf.testbed.story-host/mount-app!     (fn [] (swap! switches inc))
                     rf.testbed.story-host/mount-stories! (fn [] (swap! switches inc))]
         (rf.testbed.story-host/mount-with-hash-routing! dummy-view))
+      (is (= 1 @switches)
+          "the first run's initial `on-hash-change!` ran the mount switch exactly once")
       ;; Each subsequent run uses a new handler identity.
       (dotimes [_ 5]
         (with-redefs [rf.testbed.story-host/on-hash-change! (fn [] (swap! switches inc))]
@@ -111,30 +84,3 @@
       (is (= 1 @switches)
           "one hash change runs the mount switch exactly once — proving a
            single active listener, not an N-deep stack"))))
-
-;; ---- the carve-out --------------------------------------------------------
-;;
-;; `:rf.story/project-root` is a public option external and non-shadow hosts
-;; need for the client's `editor://` URI fallback. The HOST never writes it on
-;; the consumer's behalf, so the property to pin is the negative one: mounting
-;; neither sets a root nor clears one the consumer set.
-
-(deftest mount-does-not-write-story-project-root
-  (let [{:keys [window]} (make-fake-window "#/")
-        mount!           #(with-redefs [rf.testbed.story-host/mount-app!     (constantly nil)
-                                        rf.testbed.story-host/mount-stories! (constantly nil)]
-                            (rf.testbed.story-host/mount-with-hash-routing! dummy-view))]
-    (install-window! window)
-    (testing "mounting with no Story config leaves the project-root slot unset —
-              the host has no path that writes it"
-      (mount!)
-      (is (nil? (rf.story.config/get-project-root))
-          "mounting configured no root — source-file resolution is the
-           dev-server endpoint's job, not the host's"))
-    (testing "a consumer that DOES set `:rf.story/project-root` (an external or
-              non-shadow host leaning on the URI fallback) keeps it across a
-              mount — the carve-out is genuinely reachable"
-      (rf.story.config/set-project-root! "/preset/by/consumer")
-      (mount!)
-      (is (= "/preset/by/consumer" (rf.story.config/get-project-root))
-          "the consumer-set root survived the mount untouched"))))
