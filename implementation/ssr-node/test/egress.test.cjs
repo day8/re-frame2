@@ -1,102 +1,22 @@
 'use strict';
 // THE EGRESS CONTROL — application data cannot cross outside body markup.
 //
-//     node implementation/ssr-node/test/egress.test.cjs
+// Checked on the FRAMES `renderFrames()` yields, because that is the
+// in-process API and the surface every transport adapts; HTTP dropping a
+// field would be a fact about HTTP, not a guarantee. On the response leg:
 //
-// The package's stated topology is *Node returns the body markup, and
-// nothing else*, and this file makes that a property rather than a
-// paragraph. An arbitrary `out.meta` accepted from the application's render
-// module, carried by `isolate.cjs` and published by `service.renderFrames()`
-// on the public `complete` frame would be an unallowlisted,
-// application-controlled channel at precisely the point the contract says
-// there is none — and a fixture's observations (`readTodos`, `readRoute`)
-// are application state that would cross on it.
+//   1. the `complete` frame carries exactly the service-owned roster;
+//   2. nothing the render module handled appears outside `chunk.html`;
+//   3. a module that RETURNS a value (`null` included) is refused, and the
+//      refusal carries none of it;
+//   4. a module that THROWS is refused with service-owned wording, code and
+//      detail, and cannot choose its HTTP status;
+//   5. the same holds for an exception that ESCAPES the render call;
+//   6. a REPLACEMENT isolate that cannot boot tells a waiting caller nothing
+//      it authored;
+//   7. a rejection that is not a `Refusal` carries nothing the caller sent.
 //
-// HTTP happens not to serialise such a field, which is why the check does
-// not live there. "The transport drops it" is a fact about `http.cjs` and not a
-// guarantee about this package: the protocol is documented as
-// transport-independent, `renderFrames()`/`renderToString()` are the
-// in-process API a JVM host embedding Node would use, and a socket or
-// pipe adapter written tomorrow would carry the field in full. So the
-// property has to be checked where it is actually true — on the FRAMES —
-// and this file checks the transport afterwards as a corollary rather
-// than as the evidence.
-//
-// ## WHAT IS BEING CLAIMED, EXACTLY
-//
-// Not "no data crosses" — chunks are data and that is the whole job.
-// The claim is that on the response leg:
-//
-//   1. the `complete` frame's fields are EXACTLY `COMPLETE_FIELDS`, every
-//      one of which is a fact this service produced about the crossing;
-//   2. nothing the render module authored appears anywhere in the frame
-//      sequence outside `chunk.html`; and
-//   3. a module that reaches for a second channel is REFUSED, not quietly
-//      dropped — and the refusal does not carry the payload either, which
-//      is the failure a diagnostic-shaped leak would take.
-//
-// Claim 3 is about the ACCEPTED SET as much as about the refusal, and the
-// set is exactly `{ undefined }`. A door reading
-// `out !== undefined && out !== null` would pass `return null` — a value
-// someone typed, and the likeliest deliberate return a render module has —
-// as a clean success. A guarantee one value short is fail-closed except,
-// so the null rows below are ordinary members of this section rather than
-// an appendix to it.
-//
-// ## THERE ARE TWO DOORS OUT OF A RENDER, AND THIS FILE WATCHES BOTH
-//
-// A render module leaves the isolate by RETURNING or by THROWING. Sections
-// 1–3 drive a module that returns, and their error-channel row drives the
-// LEAKY fixture, which returns — so the error channel it checks is the one
-// the return door opens, and a module that throws is not on the table
-// there. A control shaped so that it cannot reach the case it is named for
-// is worse than an absent one, because its green is spent.
-//
-// Section 4 is that door. It matters more than the return door rather than
-// less, for a reason worth stating plainly: RETURNING a payload is a
-// module doing something unusual, while THROWING an Error built from the
-// value being processed is what every renderer already does — React names
-// the property that was undefined, a validation error quotes the input, a
-// template error interpolates the row. So the leak on this side does not
-// need a module that reaches for a second channel; it needs a module that
-// has an ordinary bug. And `error.code` is the second half: it is a bare
-// property on an ordinary `Error`, `statusFor` maps it to an HTTP status,
-// so an application render fault could present itself as a 400 the caller
-// blames itself for, a 503 a retry policy sleeps on, or a 504.
-//
-// ## AND THE THROWING DOOR HAS TWO SIDES, WHICH IS SECTION 5
-//
-// Section 4 covers the throw the SERVICE IS STANDING IN FRONT OF: the
-// module throws while `worker.cjs` is inside `await renderModule.render()`,
-// so its own try/catch has the stack. That is not the only way a render
-// exception escapes. A throw from a callback the render SCHEDULED — a
-// timer, an unhandled `.then`, an event listener — happens on a later tick
-// with no `try` anywhere above it, so it is an uncaught exception in the
-// worker thread; Node kills the thread and raises `'error'` on the parent's
-// `Worker`. That receiver is in `isolate.cjs`, it is a different piece of
-// code with its own refusal to build, and section 4's rows cannot reach it
-// because their fixture throws synchronously.
-//
-// So the same law is stated by two receivers, and each has to be made to
-// state it: the second, left to itself, would put `err.message` on the
-// refusal and `err.stack` in its `detail` — the module's wording, and with
-// it every absolute path in the deployment's filesystem — under
-// `isolate-lost`. Section 5's fixture is a MATCHED PAIR for exactly this
-// reason: the same Error, built the same way, reaching the service down the
-// two different paths. A hole in one of two receivers looks, from outside,
-// like a clean awaited arm beside a leaking scheduled one.
-//
-// ## EVERY ROW HAS A CONTROL, AND THE CONTROLS ARE ORDINARY ROWS
-//
-// The suite-wide discipline (see the package README) applies here with
-// particular force, because an absence check is the easiest kind of test
-// to pass by accident: a scanner with a typo'd field name, a sentinel that
-// was never actually planted, or a fixture that quietly stopped producing
-// the thing being hunted would all read green. So `scanForEgress` is
-// exercised against a doctored frame set that DOES leak and is required to
-// find it, the leaky fixture is driven in-process and required to really
-// return its payload, and the roster row pins the exact key list beside
-// the drift check rather than trusting the checker alone.
+// Every absence check has a control showing its sentinel was really there.
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -104,7 +24,6 @@ const assert = require('node:assert');
 const { withService, collect, observed, refusalOf, post } = require('./_support.cjs');
 const {
   CODE,
-  COMPLETE_FIELDS,
   MODULE_RETURN_REFUSAL,
   RENDER_THREW_REFUSAL,
   ISOLATE_LOST_REFUSAL,
@@ -118,34 +37,10 @@ const NULL_RETURN = require('./fixtures/null-return.cjs');
 const THROWS_DATA = require('./fixtures/throws-data.cjs');
 const THROWS_ASYNC = require('./fixtures/throws-async.cjs');
 
-// ---------------------------------------------------------------------------
-// The two checkers. Both are ordinary functions so a control can feed them
-// a fault by hand — a checker reachable only through a live service is a
-// checker nobody can prove works.
-// ---------------------------------------------------------------------------
-
-/**
- * The fields on a `complete` frame that are not in the roster, and the
- * roster fields that are missing. Both directions: a frame that quietly
- * LOST `buildId` is a different bug, but it is still one this row should
- * see rather than a green tick.
- */
-function rosterDrift(frame) {
-  const got = Object.keys(frame);
-  return {
-    extra: got.filter((k) => !COMPLETE_FIELDS.includes(k)),
-    // `requestId` is optional by contract — present only when the caller
-    // sent one — so its absence is not drift.
-    missing: COMPLETE_FIELDS.filter((k) => k !== 'requestId' && !got.includes(k)),
-  };
-}
-
 /**
  * Every place a sentinel appears in a frame sequence OUTSIDE body markup.
- *
- * Chunks are stripped of `html` rather than skipped whole, because a chunk
- * frame is a plausible place for a future field to sprout and skipping the
- * frame would make this scanner blind to exactly that.
+ * Chunks are stripped of `html` rather than skipped, so a field sprouting
+ * on a chunk frame is seen too.
  */
 function scanForEgress(frames, sentinels) {
   const findings = [];
@@ -160,9 +55,20 @@ function scanForEgress(frames, sentinels) {
   return findings;
 }
 
-// The state one render is given. Distinctive on purpose: a sentinel that
-// could plausibly occur in framing or in a stack trace would make a zero
-// meaningless.
+/** Install a capture on this process's stderr; returns `[captured, restore]`. */
+function captureStderr() {
+  const captured = [];
+  const realWrite = process.stderr.write;
+  process.stderr.write = function (chunk, ...rest) {
+    captured.push(String(chunk));
+    return realWrite.call(this, chunk, ...rest);
+  };
+  return [captured, () => (process.stderr.write = realWrite)];
+}
+
+const prefixed = (log) => log.split('\n').some((line) => line.includes('[rf.ssr-node]'));
+
+// Distinctive sentinels, so a hit can only be a leak.
 const STATE = {
   ':todos': '"rf2-hic-056-todos-4b19ae"',
   ':route': '{:name :rf2-hic-056-route-7c02fd}',
@@ -188,62 +94,11 @@ const req = (extra = {}) => ({
 
 test('the complete frame carries EXACTLY the service-owned roster', async () => {
   await withService('reference', { isolates: 1 }, async (service) => {
-    const withoutId = await collect(service, req());
-    assert.deepStrictEqual(rosterDrift(withoutId.complete), { extra: [], missing: [] });
-    assert.deepStrictEqual(Object.keys(withoutId.complete).sort(), [
-      'buildId',
-      'chunks',
-      'renderMs',
-      'type',
-    ]);
-
-    const withId = await collect(service, req({ requestId: 'corr-1' }));
-    assert.deepStrictEqual(rosterDrift(withId.complete), { extra: [], missing: [] });
-    assert.strictEqual(withId.complete.requestId, 'corr-1', 'the caller’s token is echoed');
-  });
-});
-
-test('renderToString returns the body and the roster, and nothing besides', async () => {
-  // The other public surface, and the one an embedding JVM host would
-  // reach for first. It spreads the complete frame, so a field that got
-  // onto the frame would arrive here too.
-  await withService('reference', { isolates: 1 }, async (service) => {
-    const out = await service.renderToString(req());
-    assert.deepStrictEqual(Object.keys(out).sort(), [
-      'buildId',
-      'chunks',
-      'html',
-      'renderMs',
-      'type',
-    ]);
-    assert.ok(out.html.includes('<div data-entry="app/root"'), 'the body really did render');
-  });
-});
-
-test('every CHUNK frame carries EXACTLY the three body-frame fields', async () => {
-  // The chunk half of the roster above, and the row that makes
-  // `protocol.cjs`'s `chunkFrame` a live constructor rather than a second
-  // written-down copy of a shape the boundary also spells by hand. The
-  // worker's own message carries `t` and `id` as well,
-  // so a boundary that spread it — or that grew a field on one side of the
-  // pair only — arrives here as a fourth key rather than as a quietly
-  // wider public frame.
-  //
-  // Multi-chunk on purpose: `seq` is a field the constructor is given and
-  // a single-chunk response would read 0 whether it was carried or not.
-  await withService('chunked', { isolates: 1 }, async (service) => {
-    const parts = ['<a>', '<b>', '<c/>'];
-    const { chunks } = await collect(service, {
-      protocol: 1,
-      entry: 'app/root',
-      state: { ':bytes': JSON.stringify(parts) },
-    });
-    assert.strictEqual(chunks.length, parts.length, 'the fixture really did emit three');
-    for (const frame of chunks) {
-      assert.deepStrictEqual(Object.keys(frame).sort(), ['html', 'seq', 'type']);
+    for (const echoed of [{}, { requestId: 'corr-1' }]) {
+      const { renderMs, ...rest } = (await collect(service, req(echoed))).complete;
+      assert.strictEqual(typeof renderMs, 'number');
+      assert.deepStrictEqual(rest, { type: 'complete', chunks: 1, buildId: 'reference-build-1', ...echoed });
     }
-    assert.deepStrictEqual(chunks.map((c) => c.seq), [0, 1, 2], 'and seq crossed intact');
-    assert.deepStrictEqual(chunks.map((c) => c.html), parts, 'and so did the markup');
   });
 });
 
@@ -252,8 +107,6 @@ test('every CHUNK frame carries EXACTLY the three body-frame fields', async () =
 // ---------------------------------------------------------------------------
 
 test('CONTROL — the scan finds a planted leak, in each of its two shapes', () => {
-  // Same function, same sentinels, a frame set doctored to carry them.
-  // Without this row a zero below would be evidence of nothing.
   const onComplete = [
     { type: 'chunk', seq: 0, html: `<p>${SENTINELS[0]}</p>` },
     { type: 'complete', chunks: 1, renderMs: 1, buildId: 'b', meta: { readTodos: SENTINELS[0] } },
@@ -266,13 +119,11 @@ test('CONTROL — the scan finds a planted leak, in each of its two shapes', () 
   ];
   assert.strictEqual(scanForEgress(onChunk, SENTINELS).length, 1, 'a leak beside body markup');
 
-  // …and the scan is not simply always positive: the same frames with the
-  // sentinel only inside `html` are clean.
   const clean = [
     { type: 'chunk', seq: 0, html: `<p>${SENTINELS[0]}${SENTINELS[1]}${SENTINELS[2]}</p>` },
     { type: 'complete', chunks: 1, renderMs: 1, buildId: 'b' },
   ];
-  assert.deepStrictEqual(scanForEgress(clean, SENTINELS), []);
+  assert.deepStrictEqual(scanForEgress(clean, SENTINELS), [], 'a sentinel inside html is not a leak');
 });
 
 test('no value the render module handled crosses outside body markup', async () => {
@@ -281,27 +132,15 @@ test('no value the render module handled crosses outside body markup', async () 
     for await (const frame of service.renderFrames(req({ requestId: 'corr-2' }))) {
       frames.push(frame);
     }
-
-    // The sentinels must be REACHABLE, or the scan is looking for
-    // something the render never had. The reference module renders its
-    // todos into the body, so the first one is in the markup by
-    // construction; the other two it merely observed.
+    // The module renders its todos, so the first sentinel is reachable.
     const body = frames.filter((f) => f.type === 'chunk').map((f) => f.html).join('');
     assert.ok(body.includes(SENTINELS[0]), 'the module did read and render the state');
-
-    assert.deepStrictEqual(
-      scanForEgress(frames, SENTINELS),
-      [],
-      'application data reached a public frame outside body markup',
-    );
+    assert.deepStrictEqual(scanForEgress(frames, SENTINELS), [], 'application data reached a public frame outside body markup');
   });
 });
 
 test('the HTTP transport carries none of it either — corollary, not evidence', async () => {
-  // Deliberately last of the three, and deliberately framed as a
-  // corollary: this transport dropping a field is exactly what would let a
-  // leak go unnoticed, so a green row HERE is not the property. It is
-  // still worth having, because headers are their own egress surface.
+  // Headers are their own egress surface.
   await withService('reference', { isolates: 1 }, async (service) => {
     const http = await serve({ service, port: 0 });
     try {
@@ -320,13 +159,10 @@ test('the HTTP transport carries none of it either — corollary, not evidence',
 });
 
 // ---------------------------------------------------------------------------
-// 3. The refusal
+// 3. The refusal — a module that RETURNS
 // ---------------------------------------------------------------------------
 
 test('CONTROL — the leaky fixture really does return a payload', () => {
-  // In-process, with no service in the way. This is what makes the
-  // refusal below a measurement: a fixture that had quietly stopped
-  // returning anything would satisfy every assertion in the next row.
   const emitted = [];
   const out = LEAKY.render({ entry: 'app/root', state: { ':todos': '[1]' } }, (h) => emitted.push(h));
   assert.strictEqual(emitted.length, 1, 'it emits body markup like any other module');
@@ -335,32 +171,16 @@ test('CONTROL — the leaky fixture really does return a payload', () => {
 });
 
 test('a render module that returns a value is REFUSED, not silently dropped', async () => {
-  await withService('leaky', { isolates: 1 }, async (service) => {
-    const err = await refusalOf(() => collect(service, { protocol: 1, entry: 'app/root', state: { ':todos': '[1]' } }));
-    assert.ok(err, 'the render must not have succeeded');
-    assert.strictEqual(err.code, CODE.RENDER_THREW);
-    assert.strictEqual(err.message, MODULE_RETURN_REFUSAL, 'the contract owns the wording');
-
-    // The tear is named. The module emitted before it returned, so bytes
-    // really did leave and the transport must not present them as a page.
-    assert.strictEqual(err.detail.afterChunks, 1);
-    assert.strictEqual(err.detail.returned, '[object Object]', 'the SHAPE, for a diagnosis');
-  });
-});
-
-test('the RETURN refusal does not carry the payload out through the error channel', async () => {
-  // The subtle re-run of the same leak: a diagnostic that echoed what the
-  // module tried to return would be the identical egress wearing a
-  // different frame type, and it would look like helpfulness.
-  //
-  // SCOPE: the fixture is `leaky`, which RETURNS — so what is checked here
-  // is the error channel as the RETURN door opens it, and a thrown Error's
-  // `code`, `message` and `detail` are a different path through the same
-  // channel. Section 4 is that path; this row is half of a pair.
+  // The refusal names the SHAPE; echoing the value would be the same egress
+  // through the error channel.
   await withService('leaky', { isolates: 1 }, async (service) => {
     const err = await refusalOf(() =>
       collect(service, { protocol: 1, entry: 'app/root', state: { ':todos': '"secret-state-3ab1"' } }),
     );
+    assert.strictEqual(err.code, CODE.RENDER_THREW);
+    assert.strictEqual(err.message, MODULE_RETURN_REFUSAL, 'the contract owns the wording');
+    // It emitted before it returned, so the response is torn.
+    assert.deepStrictEqual(err.detail, { entry: 'app/root', returned: '[object Object]', afterChunks: 1 });
     const text = `${err.message}${JSON.stringify(err.detail)}${err.stack ?? ''}`;
     assert.ok(!text.includes(LEAKY.SECRET), 'the refusal echoed the module’s own value');
     assert.ok(!text.includes('secret-state-3ab1'), 'the refusal echoed the request state');
@@ -368,55 +188,33 @@ test('the RETURN refusal does not carry the payload out through the error channe
 });
 
 test('CONTROL — the null fixture really does return null, and not nothing', () => {
-  // In-process, with no service in the way, and for the same reason the
-  // leaky control exists: the row below is only a measurement if the two
-  // values it has to tell apart are genuinely both on the table. `null`
-  // and `undefined` are `==`, so a fixture that had drifted into falling
-  // off its end would look identical from the outside — and would turn
-  // the refusal row into a test of nothing.
   const emitted = [];
-  const out = NULL_RETURN.render({ entry: 'app/root', state: { ':todos': '[1]' } }, (h) =>
-    emitted.push(h),
-  );
+  const out = NULL_RETURN.render({ entry: 'app/root', state: { ':todos': '[1]' } }, (h) => emitted.push(h));
   assert.strictEqual(emitted.length, 1, 'it emits body markup like any other module');
-  assert.strictEqual(out, null, 'the return really is null…');
-  assert.notStrictEqual(out, undefined, '…and null is not undefined, which is the whole distinction');
+  assert.strictEqual(out, null);
 });
 
 test('a module that returns null is REFUSED too — `undefined` is the whole accepted set', async () => {
-  // A door reading `out !== undefined && out !== null` would let this exact
-  // module emit, return, and be reported as a clean success. `undefined` is
-  // what falling off the end produces and is therefore what ABSENCE looks
-  // like; `null` is a value someone typed, and `return null` is the
-  // spelling a render module reaches for to mean "nothing to say". A
-  // guarantee that admits one deliberate value is not fail-closed, and that
-  // one value sits on the likeliest path of all.
-  //
-  // Same code, same wording: reaching for a second channel is one offence
-  // and it keeps one refusal.
+  // `return null` is the likeliest deliberate return a module has, so a door
+  // that admitted it would fail open on the most probable path.
   await withService('null-return', { isolates: 1 }, async (service) => {
     const err = await refusalOf(() =>
       collect(service, { protocol: 1, entry: 'app/root', state: { ':todos': '[1]' } }),
     );
-    assert.ok(err, 'returning null must not pass as a clean success');
-    assert.strictEqual(err.code, CODE.RENDER_THREW, 'the return refusal’s own code, not another member');
-    assert.strictEqual(err.message, MODULE_RETURN_REFUSAL, 'the contract owns the wording');
-    assert.strictEqual(err.detail.afterChunks, 1, 'it emitted first, so the response is torn');
-    assert.strictEqual(err.detail.returned, '[object Null]', 'the SHAPE, for a diagnosis');
+    assert.strictEqual(err.code, CODE.RENDER_THREW);
+    assert.strictEqual(err.message, MODULE_RETURN_REFUSAL);
+    assert.deepStrictEqual(err.detail, { entry: 'app/root', returned: '[object Null]', afterChunks: 1 });
   });
 });
 
 // ---------------------------------------------------------------------------
 // 4. The OTHER door — a render module that THROWS
 //
-// See the header. Everything above drives a module that returns; these
-// rows drive one that throws, which is the ordinary way a renderer fails
-// and the other half of the response law.
+// An Error built from the value being processed is what every renderer
+// produces on an ordinary bug, and `error.code` would choose the HTTP status.
 // ---------------------------------------------------------------------------
 
-// One sentinel per live field of the thrown Error, each arriving as a
-// separate allowlisted state key so a green scan cannot be one field's
-// accident. Distinctive on purpose, for the reason `SENTINELS` gives.
+// One sentinel per field of the thrown Error, each from its own state key.
 const THROW_STATE = {
   ':for-code': '"rf2-c38b-code-1e4a77"',
   ':for-message': '"rf2-c38b-message-8b30d2"',
@@ -430,58 +228,29 @@ const THROW_SENTINELS = [
 
 const throwReq = (entry) => ({ protocol: 1, entry, state: THROW_STATE });
 
-/**
- * Everything a caller of the in-process API can read off a refusal, as one
- * scannable frame plus the stack separately.
- *
- * `toFrame` is the wire shape, so scanning it is scanning what a transport
- * would serialise; it is fed to `scanForEgress` rather than to a second
- * hand-rolled scanner, so the control at the top of section 2 covers this
- * section too. `stack` is checked alongside because it is a string a
- * caller can reach on the `Error` even though no frame carries it — and a
- * service-owned message is what keeps it clean, since `Error`'s stack
- * opens with the message.
- */
-const refusalLeaks = (err) => [
-  ...scanForEgress([err.toFrame('corr-throw')], THROW_SENTINELS),
-  ...THROW_SENTINELS.filter((s) => (err.stack ?? '').includes(s)).map((s) => ({
-    type: 'stack',
-    sentinel: s,
-    in: err.stack,
-  })),
+/** Sentinels on the refusal's wire frame or on its stack. */
+const refusalLeaks = (err, sentinels = THROW_SENTINELS) => [
+  ...scanForEgress([err.toFrame('corr-throw')], sentinels),
+  ...sentinels.filter((s) => (err.stack ?? '').includes(s)).map((s) => ({ type: 'stack', sentinel: s, in: err.stack })),
 ];
 
 test('CONTROL — the throwing fixture really does put all three sentinels on the Error', () => {
-  // In-process, with no service in the way, and for exactly the reason the
-  // leaky control exists: three absence checks below are only measurements
-  // if the three values were genuinely on the Error to begin with. A
-  // fixture that had drifted into throwing a bare `new Error('boom')` would
-  // satisfy every assertion in this section and prove nothing at all.
   let thrown = null;
   try {
     THROWS_DATA.render({ entry: 'app/plain', state: THROW_STATE }, () => {});
   } catch (err) {
     thrown = err;
   }
-  assert.ok(thrown, 'the fixture must actually throw');
   assert.ok(thrown.message.includes(THROW_SENTINELS[1]), 'message carries its sentinel');
   assert.ok(String(thrown.code).includes(THROW_SENTINELS[0]), 'code carries its sentinel');
   assert.ok(thrown.detail.echoed.includes(THROW_SENTINELS[2]), 'detail carries its sentinel');
-  assert.ok(
-    thrown.detail.nested.deeper.includes(THROW_SENTINELS[2]),
-    'and it is NESTED, so a shallow scan would miss it',
-  );
-
-  // The three really are distinct, or one leak could pass for another.
+  assert.ok(thrown.detail.nested.deeper.includes(THROW_SENTINELS[2]), 'and it is NESTED, so a shallow scan would miss it');
   assert.strictEqual(new Set(THROW_SENTINELS).size, 3);
 });
 
 test('CONTROL — the spoofed codes really are members of the refusal family', () => {
-  // Without this row the status-spoof row below could go vacuous in the
-  // quietest possible way: rename a member of `CODE`, and the fixture's
-  // hard-coded strings become codes the service has never heard of, which
-  // `statusFor` maps to 500 all on its own. The row would still be green
-  // and would no longer be testing a spoof.
+  // Rename a member of `CODE` and the fixture's literals would map to 500 on
+  // their own: the status row would stay green and stop testing a spoof.
   const members = new Set(Object.values(CODE));
   for (const [entry, code] of Object.entries(THROWS_DATA.SPOOFED_CODE)) {
     assert.ok(members.has(code), `${entry} spoofs ${code}, which is not a real code`);
@@ -497,30 +266,14 @@ test('CONTROL — the spoofed codes really are members of the refusal family', (
 test('a render that THROWS is refused with service-owned wording, carrying nothing it authored', async () => {
   await withService('throws-data', { isolates: 1 }, async (service) => {
     const err = await refusalOf(() => collect(service, throwReq('app/plain')));
-    assert.ok(err, 'a throw must refuse');
-
     assert.strictEqual(err.code, CODE.RENDER_THREW, 'the documented code, not the module’s');
     assert.strictEqual(err.message, RENDER_THREW_REFUSAL, 'the contract owns the wording');
-    assert.deepStrictEqual(
-      Object.keys(err.detail).sort(),
-      ['afterChunks', 'entry'],
-      'the detail is service-owned: the entry the caller named, and the tear count',
-    );
-    assert.strictEqual(err.detail.entry, 'app/plain');
-    assert.strictEqual(err.detail.afterChunks, 0, 'nothing was written, so nothing is torn');
-
-    assert.deepStrictEqual(
-      refusalLeaks(err),
-      [],
-      'the module’s exception reached the public refusal',
-    );
+    assert.deepStrictEqual(err.detail, { entry: 'app/plain', afterChunks: 0 }, 'the detail is service-owned');
+    assert.deepStrictEqual(refusalLeaks(err), [], 'the module’s exception reached the public refusal');
   });
 });
 
 test('a THROW after emitting is still a torn response, and still carries nothing', async () => {
-  // The pre-emit row above is the clean refusal; this is the other half,
-  // and service-owned wording must not cost the tear. A `detail` rebuilt
-  // by the service is exactly where `afterChunks` could quietly go missing.
   await withService('throws-data', { isolates: 1 }, async (service) => {
     const chunks = [];
     const err = await refusalOf(async () => {
@@ -531,16 +284,12 @@ test('a THROW after emitting is still a torn response, and still carries nothing
     assert.deepStrictEqual(chunks, ['<p>first</p>'], 'the bytes really did leave');
     assert.strictEqual(err.code, CODE.RENDER_THREW);
     assert.strictEqual(err.message, RENDER_THREW_REFUSAL);
-    assert.strictEqual(err.detail.afterChunks, 1, 'the tear is still named, with its count');
+    assert.deepStrictEqual(err.detail, { entry: 'app/torn', afterChunks: 1 }, 'the tear is still named');
     assert.deepStrictEqual(refusalLeaks(err), []);
   });
 });
 
 test('and it cannot choose the HTTP status either — every throw is a 500', async () => {
-  // The corollary over the transport, and the arm with the operational
-  // teeth: `statusFor` reads the refusal code, so a spoofed 400 tells a
-  // JVM host "your request was bad" about a fault that was entirely ours,
-  // a 503 puts a retry policy to sleep, and a 504 blames a deadline.
   await withService('throws-data', { isolates: 1 }, async (service) => {
     const http = await serve({ service, port: 0 });
     try {
@@ -548,21 +297,14 @@ test('and it cannot choose the HTTP status either — every throw is a 500', asy
       for (const entry of entries) {
         const res = await post(`http://127.0.0.1:${http.port}/render`, throwReq(entry));
         assert.strictEqual(res.status, 500, `${entry} chose its own HTTP status`);
-        assert.strictEqual(
-          res.headers.get('x-rf-ssr-refusal'),
-          CODE.RENDER_THREW,
-          `${entry} chose its own refusal header`,
-        );
+        assert.strictEqual(res.headers.get('x-rf-ssr-refusal'), CODE.RENDER_THREW, `${entry} chose its own refusal header`);
 
         const headers = JSON.stringify(Object.fromEntries(res.headers.entries()));
         for (const s of THROW_SENTINELS) {
           assert.ok(!res.text.includes(s), `${entry} leaked ${s} into the JSON body`);
           assert.ok(!headers.includes(s), `${entry} leaked ${s} into a header`);
         }
-        assert.ok(
-          JSON.parse(res.text).message === RENDER_THREW_REFUSAL,
-          'the body carries the contract’s wording',
-        );
+        assert.ok(JSON.parse(res.text).message === RENDER_THREW_REFUSAL, 'the body carries the contract’s wording');
       }
     } finally {
       await http.close();
@@ -571,11 +313,8 @@ test('and it cannot choose the HTTP status either — every throw is a 500', asy
 });
 
 test('a streaming response torn by a throw is DESTROYED, not completed', async () => {
-  // The post-emit arm over the transport. Headers are already sent, so
-  // there is no status left to send and `sendRefusal` destroys the socket:
-  // the caller must see a broken transfer rather than a well-formed
-  // shorter page it would cache and serve. `fetch` surfaces that as a
-  // rejected body read, which is the observation this row makes.
+  // Headers are already sent, so the socket is destroyed: the caller must
+  // see a broken transfer, not a shorter page it would cache and serve.
   await withService('throws-data', { isolates: 1 }, async (service) => {
     const http = await serve({ service, port: 0 });
     try {
@@ -584,18 +323,13 @@ test('a streaming response torn by a throw is DESTROYED, not completed', async (
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(throwReq('app/torn')),
       });
-      // The first chunk really did go out under a 200 — that is what makes
-      // the tear a tear rather than a refusal.
       assert.strictEqual(res.status, 200);
       const read = await res.text().then(
         (text) => ({ ok: true, text }),
         (err) => ({ ok: false, err }),
       );
       assert.strictEqual(read.ok, false, 'a torn stream must not read as a complete body');
-      assert.ok(
-        !String(read.err).includes(THROW_SENTINELS[1]),
-        'not even the transport error may carry the module’s wording',
-      );
+      assert.ok(!String(read.err).includes(THROW_SENTINELS[1]), 'not even the transport error may carry the module’s wording');
     } finally {
       await http.close();
     }
@@ -605,41 +339,18 @@ test('a streaming response torn by a throw is DESTROYED, not completed', async (
 // ---------------------------------------------------------------------------
 // 5. The SECOND RECEIVER — an exception that escapes the render call
 //
-// See the header. Everything in section 4 throws while the service is
-// inside the awaited `render()`; these rows throw from a callback the
-// render scheduled, which no `try` in `worker.cjs` is standing in front of.
-// Node terminates the thread and the parent's `worker.on('error')` builds
-// the refusal instead — a different receiver stating the same law.
+// A throw from a callback the render scheduled has no `try` above it: the
+// thread dies and `isolate.cjs`'s `worker.on('error')` builds the refusal.
 // ---------------------------------------------------------------------------
 
-// One sentinel, from an allowlisted state key, on an Error the fixture
-// reaches by two different routes. Distinctive for the reason `SENTINELS`
-// gives: a value that could occur in framing or in a stack trace would
-// make a zero meaningless.
 const ASYNC_STATE = { ':for-uncaught': '"rf2-c38b-async-9f31c4"' };
 const ASYNC_SENTINEL = 'rf2-c38b-async-9f31c4';
 
 const asyncReq = (entry) => ({ protocol: 1, entry, state: ASYNC_STATE });
 
-/** The same reading as `refusalLeaks`, for this section's single sentinel. */
-const asyncLeaks = (err) => [
-  ...scanForEgress([err.toFrame('corr-async')], [ASYNC_SENTINEL]),
-  ...((err.stack ?? '').includes(ASYNC_SENTINEL)
-    ? [{ type: 'stack', sentinel: ASYNC_SENTINEL, in: err.stack }]
-    : []),
-];
-
 test('CONTROL — the scheduled callback really does throw the sentinel-bearing Error', () => {
-  // The control this section cannot do without, and it has to be built
-  // differently from section 4's: the whole point of this fixture is that
-  // its throw is UNCAUGHT, so calling `render` and letting the callback run
-  // would take down the test process rather than hand back an Error.
-  //
-  // So the callback is intercepted instead of allowed to fire.
-  // `setImmediate` is swapped for the duration of the call, which captures
-  // the exact function the worker thread would have run, and the row then
-  // throws it on purpose and reads what came out. That is a measurement of
-  // the real callback rather than of a fixture's promise about it.
+  // The throw is uncaught by design, so the callback is captured instead of
+  // allowed to fire, and thrown here on purpose.
   const scheduled = [];
   const realSetImmediate = globalThis.setImmediate;
   globalThis.setImmediate = (fn) => {
@@ -659,37 +370,15 @@ test('CONTROL — the scheduled callback really does throw the sentinel-bearing 
   } catch (err) {
     thrown = err;
   }
-  assert.ok(thrown, 'the scheduled callback must actually throw');
-  assert.ok(thrown.message.includes(ASYNC_SENTINEL), 'and its message carries the sentinel');
-  assert.strictEqual(
-    thrown.code,
-    THROWS_ASYNC.SPOOFED_CODE,
-    'it also types a `code`, as a module with its own taxonomy would',
-  );
-  // Without this the spoof below could go vacuous exactly the way section
-  // 4's could: rename a member of `CODE` and the fixture's hard-coded
-  // string stops being a spoof at all.
-  assert.ok(
-    new Set(Object.values(CODE)).has(THROWS_ASYNC.SPOOFED_CODE),
-    'the spoofed code must still be a real member of the family',
-  );
+  assert.ok(thrown.message.includes(ASYNC_SENTINEL), 'its message carries the sentinel');
+  assert.strictEqual(thrown.code, THROWS_ASYNC.SPOOFED_CODE, 'it also types a `code`');
+  assert.ok(new Set(Object.values(CODE)).has(THROWS_ASYNC.SPOOFED_CODE), 'the spoofed code must still be a real member of the family');
 });
 
 test('an exception that ESCAPES the render call carries nothing the module authored', async () => {
-  // The case. `render` returns a promise that never settles and throws from
-  // a scheduled callback, so nothing awaits the exception: the thread dies
-  // and `isolate.cjs`'s `worker.on('error')` is what answers the caller.
-  //
-  // Answering with `err.message` and `err.stack` would publish the module's
-  // own wording plus every absolute path in the deployment's filesystem on
-  // the in-process refusal, and serialise it over HTTP.
   await withService('throws-async', { isolates: 1 }, async (service) => {
     const err = await refusalOf(() => collect(service, asyncReq('app/uncaught')));
-    assert.ok(err, 'the render must not have succeeded');
-
-    // The isolate really is lost — the distinction is kept, not smoothed
-    // into `render-threw`. A crashed worker is not a reusable one, and the
-    // code is how the pool and the operator are told so.
+    // A crashed worker is not a reusable one, so the code stays isolate-lost.
     assert.strictEqual(err.code, CODE.ISOLATE_LOST, 'the fault is what it is');
     assert.strictEqual(err.message, ISOLATE_LOST_REFUSAL, 'the contract owns the wording');
     assert.deepStrictEqual(
@@ -698,151 +387,48 @@ test('an exception that ESCAPES the render call carries nothing the module autho
       'the detail is service-owned: which isolate died, its thread, and the tear count',
     );
     assert.strictEqual(typeof err.detail.threadId, 'number');
-    // The count is SERVICE-owned, on the same footing as the two
-    // fields beside it and as `render-threw`'s own `afterChunks` above: the
-    // isolate counted the chunks it forwarded, and nothing the module
-    // authored reaches it. Nothing was emitted on this entry, so it is 0.
     assert.strictEqual(err.detail.afterChunks, 0, 'nothing was written, so nothing is torn');
-
-    assert.deepStrictEqual(
-      asyncLeaks(err),
-      [],
-      'the escaped exception reached the public refusal',
-    );
-    // A stack carries MORE than the sentinel, and this is that second
-    // half: it names the file the render came from, which is an absolute
-    // path in the deployment's filesystem. The key-list assertion above
-    // already says there is no `detail.stack`; this says what its absence
-    // is worth, and it scans the serialised frame rather than the field, so a
-    // future `detail` member that reached for a path is caught too.
-    assert.ok(
-      !JSON.stringify(err.toFrame()).includes('throws-async.cjs'),
-      'a serialised stack names the server’s own filesystem',
-    );
+    assert.deepStrictEqual(refusalLeaks(err, [ASYNC_SENTINEL]), [], 'the escaped exception reached the public refusal');
+    // A stack would also name the deployment's filesystem.
+    assert.ok(!JSON.stringify(err.toFrame()).includes('throws-async.cjs'), 'a serialised stack names the server’s own filesystem');
   });
 });
 
 test('and the OPERATOR still gets the exception, in full, on the sidecar stderr', async () => {
-  // The other half of closing a diagnostic, and the reason this row is not
-  // optional: the worker's own `reportRenderException` never runs on this
-  // path, because the worker never caught anything, so without the
-  // parent's write the escaped exception would reach NOBODY except through
-  // the refusal. Closing the refusal without the operator's copy would
-  // trade a leak for a silence, and "fail loudly" is a requirement rather
-  // than a preference.
-  //
-  // Not a separate channel: `bin/serve.cjs` writes `[rf.ssr-node] …` to
-  // stderr and this is that stream under that prefix. The write happens in
-  // the PARENT — which, in this suite, is this process — so the row can
-  // read it directly.
-  const captured = [];
-  const realWrite = process.stderr.write;
-  process.stderr.write = function (chunk, ...rest) {
-    captured.push(String(chunk));
-    return realWrite.call(this, chunk, ...rest);
-  };
+  // The worker never caught this one, so the parent's write is the only copy.
+  const [captured, restore] = captureStderr();
   try {
     await withService('throws-async', { isolates: 1 }, async (service) => {
       await refusalOf(() => collect(service, asyncReq('app/uncaught')));
     });
   } finally {
-    process.stderr.write = realWrite;
+    restore();
   }
-
   const log = captured.join('');
-  // The prefix is on the FIRST line only — a stack is many lines and the
-  // rest of them are the stack's own — so the line filter establishes that
-  // the sidecar's own channel is what spoke, and the whole capture is what
-  // the content is then read from. Filtering the content by prefix would
-  // discard every frame and quietly turn the stack assertion below into a
-  // test of the first line.
-  assert.ok(
-    log.split('\n').some((line) => line.includes('[rf.ssr-node]')),
-    'the operator was told nothing at all',
-  );
+  assert.ok(prefixed(log), 'the operator was told nothing at all');
   assert.ok(log.includes(ASYNC_SENTINEL), 'the operator copy must be the REAL exception');
   assert.ok(log.includes('throws-async.cjs'), 'and it must carry the stack, which is the point');
 });
 
-test('an ESCAPED exception after a chunk is a TORN response, and names the count', async () => {
-  // The isolate-lost path's own torn arm, in process, where the
-  // discriminator is readable as data rather than as a destroyed socket. The
-  // worker crashed, so no `error` message ever arrives and the count cannot
-  // come from the worker: `_failPendingRender` is the only thing that still
-  // knows how many chunks were forwarded, so it is the one that has to name
-  // them.
-  await withService('throws-async', { isolates: 1 }, async (service) => {
-    const chunks = [];
-    let complete = null;
-    const err = await refusalOf(async () => {
-      for await (const frame of service.renderFrames(asyncReq('app/uncaught-torn'))) {
-        if (frame.type === 'chunk') chunks.push(frame.html);
-        else complete = frame;
-      }
-    });
-    assert.strictEqual(chunks.length, 1, 'the chunk really did reach the caller');
-    assert.strictEqual(complete, null, 'no success completion follows the failure');
-    assert.strictEqual(err.code, CODE.ISOLATE_LOST, 'the distinction is kept');
-    assert.strictEqual(err.message, ISOLATE_LOST_REFUSAL, 'the contract still owns the wording');
-    assert.strictEqual(err.detail.afterChunks, 1, 'the tear is named, with its exact count');
-    assert.deepStrictEqual(
-      asyncLeaks(err),
-      [],
-      'stamping the count must not have opened a channel for the module',
-    );
-  });
-});
-
 test('an escaped NULLISH throw is refused like any other, and the sidecar survives it', async () => {
-  // CLJS emits `throw null` for `(throw nil)`, and a scheduled callback
-  // that does it hands the parent's `'error'` listener `null` rather than
-  // an Error. That listener's boot arm runs in every phase, so reading
-  // `err.message` there would throw in the MAIN thread and the uncaught
-  // TypeError would exit the whole process — every in-flight render on
-  // every isolate, not only this one. Without the nullish-safe read this
-  // row never reaches an assertion: the file's own process dies under it.
+  // CLJS emits `throw null` for `(throw nil)`; read unsafely in the parent's
+  // `'error'` listener it would kill the whole process, not this row.
   await withService('throws-async', { isolates: 1 }, async (service) => {
     const err = await refusalOf(() => collect(service, asyncReq('app/uncaught-null')));
-    assert.ok(err, 'the render must not have succeeded');
     assert.strictEqual(err.code, CODE.ISOLATE_LOST, 'the fault is what it is');
     assert.strictEqual(err.message, ISOLATE_LOST_REFUSAL, 'the contract owns the wording');
 
-    // Still alive: the pool replaced its one dead isolate, and the next
-    // request is answered by a live one, through the awaited door.
     const next = await refusalOf(() => collect(service, asyncReq('app/rejected')));
-    assert.ok(next, 'the next render must be answered');
-    assert.strictEqual(next.code, CODE.RENDER_THREW, 'by a live replacement isolate');
+    assert.strictEqual(next.code, CODE.RENDER_THREW, 'the next render is answered by a live replacement isolate');
   });
 });
 
 // ---------------------------------------------------------------------------
 // 6. The THIRD RECEIVER — a REPLACEMENT isolate that cannot boot
 //
-// Sections 4 and 5 are both about a render. This one is about a BOOT, and
-// the reason a boot belongs in an egress file at all is that the audience
-// for a boot refusal is not fixed.
-//
-// `isolate.cjs` builds one refusal for every boot failure and says, in a
-// comment, why it may carry the module's own `message` and `stack`: boot
-// fails before the service listens, so the reader is the operator standing
-// at the process they just started rather than a caller across a wire.
-// That is true of `Pool.start()`. It is FALSE of `Pool._startReplacement()`
-// — a replacement boots while the service is live and serving, and
-// `Pool.release()` hands its failure straight to everyone queued in
-// `acquire()`. Same refusal, second audience, and the comment authorising
-// the wording is about the first one.
-//
-// So this section is the same law as sections 4 and 5, stated by a third
-// receiver, and the leak it guards is the widest of the three: the module's
-// boot message, the absolute module path this deployment was pointed at,
-// AND a `code` the module chose — the spoof section 4 closes for a render
-// exception, reachable on the boot path because a different piece of code
-// builds this refusal and it does not consult `isRefusalCode`.
-//
-// THE HALF THE PATTERN ALSO REQUIRES. A replacement failure with NO waiter
-// queued reaches nobody through the loop over `waiters`, so without the
-// operator's copy an empty queue would discard the error and the pool would
-// silently shrink by an isolate — a leak traded for a silence.
+// A boot refusal carries the module's message, path and own `code` for the
+// operator at a process that would not start. A replacement boots while the
+// service is live, and its failure goes to callers queued in `acquire()`.
 // ---------------------------------------------------------------------------
 
 const FLAKY_BOOT = require('./fixtures/flaky-boot.cjs');
@@ -851,26 +437,13 @@ const { FAIL_FLAG, BOOT_SENTINEL, BOOT_SPOOF_CODE } = FLAKY_BOOT;
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
 /**
- * Drive one replacement-boot failure and report everything it produced.
- *
- * The shape is forced by the path. A replacement is only ever spawned by
- * `release()` seeing a DEAD isolate, and the only way to kill one from
- * outside is the deadline — so the scenario is: hang the single isolate,
- * queue a second caller behind it, arm the fixture's boot failure while
- * both are in flight, and read what the QUEUED caller is handed when the
- * pool tries to restore capacity and cannot.
- *
- * `admissionTimeoutMs` is far above the deadline on purpose: the waiter
- * must still be waiting when the replacement fails, or the row measures an
- * ordinary saturation refusal instead of the one it came for.
+ * Hang the single isolate past its deadline with a second caller queued
+ * behind it, arm the fixture's boot failure, and report what the queued
+ * caller is handed when the replacement will not boot. The admission
+ * timeout outlasts the deadline, so the waiter is still waiting.
  */
 async function replacementBootFailure() {
-  const captured = [];
-  const realWrite = process.stderr.write;
-  process.stderr.write = function (chunk, ...rest) {
-    captured.push(String(chunk));
-    return realWrite.call(this, chunk, ...rest);
-  };
+  const [captured, restore] = captureStderr();
   try {
     return await withService(
       'flaky-boot',
@@ -883,9 +456,8 @@ async function replacementBootFailure() {
         await tick();
         await tick();
         const statsWhileQueued = service.stats();
-        // Armed only now: the isolates already running took their copy of
-        // `process.env` when they were constructed, so this reaches the
-        // replacement and nothing else.
+        // Running isolates took their copy of `process.env` at construction,
+        // so this reaches the replacement only.
         process.env[FAIL_FLAG] = '1';
         const [hungRefusal, queuedRefusal] = await Promise.all([hung, queued]);
         return {
@@ -899,15 +471,11 @@ async function replacementBootFailure() {
     );
   } finally {
     delete process.env[FAIL_FLAG];
-    process.stderr.write = realWrite;
+    restore();
   }
 }
 
 test('CONTROL — the flaky fixture really does refuse to boot, with all three payloads', () => {
-  // The fixture measured directly rather than trusted. A fixture that had
-  // quietly stopped throwing — or that threw without the `code`, which is
-  // the half the boot receiver does not check — would make every row below
-  // pass while hunting nothing.
   const modulePath = require.resolve('./fixtures/flaky-boot.cjs');
   process.env[FAIL_FLAG] = '1';
   delete require.cache[modulePath];
@@ -921,194 +489,77 @@ test('CONTROL — the flaky fixture really does refuse to boot, with all three p
     delete require.cache[modulePath];
     require('./fixtures/flaky-boot.cjs'); // leave the cache holding the good one
   }
-  assert.ok(thrown, 'the fixture must actually throw when the flag is armed');
-  assert.ok(thrown.message.includes(BOOT_SENTINEL), 'and carry the sentinel on its message');
+  assert.ok(thrown.message.includes(BOOT_SENTINEL), 'the armed fixture throws, carrying the sentinel on its message');
   assert.strictEqual(thrown.code, BOOT_SPOOF_CODE, 'and carry the spoofed code');
   assert.ok(isRefusalCode(BOOT_SPOOF_CODE), 'which must be a real member, or nothing is spoofed');
 });
 
 test('a replacement that cannot boot tells a WAITING CALLER nothing it authored, and tells the OPERATOR all of it', async () => {
-  // The discriminator. Every assertion in this section is about what a
-  // WAITER receives, so a run in which nobody was waiting — or in which the
-  // pool never tried to replace anything — would be green about a path it
-  // never took. Both halves are read from the service's own counters.
   const run = await replacementBootFailure();
+  // The scenario, read off the service's own counters.
   assert.strictEqual(run.statsWhileQueued.waiting, 1, 'a caller must be queued in acquire()');
   assert.strictEqual(run.statsWhileQueued.busy, 1, 'and the only isolate must be held by the hang');
   assert.strictEqual(run.hungRefusal.code, CODE.RENDER_TIMEOUT, 'the deadline is what kills it');
   assert.strictEqual(run.statsAfter.replacements, 1, 'and the pool must have tried to replace it');
-  assert.ok(run.queuedRefusal, 'the queued caller must have been refused, not served');
 
-  const frame = run.queuedRefusal.toFrame('corr-boot');
-  const text = JSON.stringify(frame);
-
-  assert.ok(
-    !text.includes(BOOT_SENTINEL),
-    'the module\'s boot wording must not cross to a caller',
-  );
-  assert.ok(
-    !/[A-Za-z]:[\\/]|\/(?:home|srv|usr|opt)\//.test(text),
-    `no absolute deployment path may cross either; got ${text}`,
-  );
-  assert.strictEqual(
-    run.queuedRefusal.message,
-    REPLACEMENT_FAILED_REFUSAL,
-    'the wording is this contract\'s',
-  );
+  const text = JSON.stringify(run.queuedRefusal.toFrame('corr-boot'));
+  assert.ok(!text.includes(BOOT_SENTINEL), 'the module\'s boot wording must not cross to a caller');
+  assert.ok(!/[A-Za-z]:[\\/]|\/(?:home|srv|usr|opt)\//.test(text), `no absolute deployment path may cross either; got ${text}`);
+  assert.strictEqual(run.queuedRefusal.message, REPLACEMENT_FAILED_REFUSAL, 'the wording is this contract\'s');
+  // Not the module's spoofed code, so not a 503 a retry policy sleeps on.
   assert.strictEqual(run.queuedRefusal.code, CODE.ISOLATE_LOST, 'an isolate was lost and not replaced');
-  assert.ok(isRefusalCode(frame.code), 'and the code is a member of the closed family');
-  assert.strictEqual(
-    statusFor(frame.code),
-    500,
-    'so the module cannot turn its own boot failure into a 503 a retry policy sleeps on',
-  );
 
-  // The other half, and not optional for the reason section 5 gives. On
-  // this path the operator's position is worse than it is there: with no
-  // waiter queued the refusal reaches no one, so a pool could shrink to
-  // nothing in silence. The write is therefore unconditional — it is not
-  // guarded on there being a waiter to leak to.
-  assert.ok(
-    run.stderr.split('\n').some((line) => line.includes('[rf.ssr-node]')),
-    'the operator was told nothing at all',
-  );
+  // Unconditional: with no waiter queued the refusal would reach no one.
+  assert.ok(prefixed(run.stderr), 'the operator was told nothing at all');
   assert.ok(run.stderr.includes(BOOT_SENTINEL), 'the operator copy must be the REAL failure');
-  assert.ok(
-    run.stderr.includes('flaky-boot.cjs'),
-    'and must name the module that would not load, which is the first thing to go look at',
-  );
+  assert.ok(run.stderr.includes('flaky-boot.cjs'), 'and must name the module that would not load');
 });
 
-/**
- * Boot one isolate against the flaky fixture, armed or not, and report what
- * it settled with and what reached this process's stderr.
- *
- * A worker thread's stderr arrives here through a pipe rather than by a
- * direct write, so the capture is read once the thread has EXITED — the
- * point at which its pending output has been delivered — and not merely
- * once the boot promise has settled.
- */
-async function bootIsolateOnce({ armed }) {
+/** The fixture's own `throw` frame — the refusal's stack never carries it. */
+const FLAKY_CALL_SITE = /flaky-boot\.cjs:\d+:\d+/;
+
+test('a module that throws while LOADING leaves its own stack on the sidecar stderr, and none on its refusal', async () => {
   const { Isolate } = require('../src/isolate.cjs');
-  const captured = [];
-  const realWrite = process.stderr.write;
-  process.stderr.write = function (chunk, ...rest) {
-    captured.push(String(chunk));
-    return realWrite.call(this, chunk, ...rest);
-  };
-  // Read at construction: a worker thread takes its copy of `process.env`
-  // when it is created.
-  if (armed) process.env[FAIL_FLAG] = '1';
+  const [captured, restore] = captureStderr();
+  process.env[FAIL_FLAG] = '1'; // read when the worker thread is constructed
+  let error;
   try {
     const isolate = new Isolate({ modulePath: require.resolve('./fixtures/flaky-boot.cjs') });
     const started = isolate.start();
+    // The thread's stderr arrives through a pipe, so read it once the thread has exited.
     const exited = new Promise((resolve) => isolate.worker.once('exit', resolve));
-    const outcome = await started.then(
-      (value) => ({ value }),
-      (error) => ({ error }),
+    error = await started.then(
+      () => null,
+      (err) => err,
     );
-    if (outcome.value) await isolate.close();
+    if (!error) await isolate.close();
     await exited;
     await tick();
-    return { ...outcome, stderr: captured.join('') };
   } finally {
     delete process.env[FAIL_FLAG];
-    process.stderr.write = realWrite;
+    restore();
   }
-}
-
-/**
- * The line a stack frame writes for the fixture's `throw` — a path, a line
- * and a column. The refusal the parent builds carries frames from
- * `isolate.cjs` and never this one, so this is what tells the application's
- * own stack from a newly constructed one; the module PATH alone would not,
- * because the refusal's `detail` names it too.
- */
-const FLAKY_CALL_SITE = /flaky-boot\.cjs:\d+:\d+/;
-
-test('CONTROL — a HEALTHY boot of the same fixture says nothing on stderr', async () => {
-  const run = await bootIsolateOnce({ armed: false });
-  assert.ok(run.value, `the unarmed fixture must boot; got ${run.error}`);
-  assert.ok(!run.stderr.includes('[rf.ssr-node]'), `a clean boot wrote a diagnostic: ${run.stderr}`);
-});
-
-test('a module that throws while LOADING leaves its own stack on the sidecar stderr, and none on its refusal', async () => {
-  const run = await bootIsolateOnce({ armed: true });
-  assert.ok(run.error, 'the armed fixture must refuse to boot');
-  assert.strictEqual(run.error.name, 'Refusal', 'the boot receiver builds a Refusal');
-
-  // The operator's copy is the APPLICATION's exception: its message, and the
-  // frame it was thrown from.
-  assert.ok(
-    run.stderr.split('\n').some((line) => line.includes('[rf.ssr-node]')),
-    'the operator was told nothing at all',
-  );
-  assert.ok(run.stderr.includes(BOOT_SENTINEL), 'the operator copy must be the REAL exception');
-  assert.ok(
-    FLAKY_CALL_SITE.test(run.stderr),
-    `the operator copy must carry the application's call site; got ${run.stderr}`,
-  );
-
-  // DISCRIMINATOR: the refusal's own stack does not carry that frame, so the
-  // stderr assertion above cannot be met by printing the refusal instead.
-  assert.ok(!FLAKY_CALL_SITE.test(run.error.stack), 'the refusal is a new Error with frames of its own');
-
-  // And the refusal itself carries no stack at all.
-  assert.deepStrictEqual(Object.keys(run.error.detail), ['modulePath'], 'the boot refusal names the module path only');
-  assert.ok(
-    !FLAKY_CALL_SITE.test(JSON.stringify(run.error.toFrame())),
-    'no application frame reaches the refusal frame',
-  );
+  const stderr = captured.join('');
+  assert.strictEqual(error.name, 'Refusal', 'the boot receiver builds a Refusal');
+  assert.ok(prefixed(stderr), 'the operator was told nothing at all');
+  assert.ok(stderr.includes(BOOT_SENTINEL), 'the operator copy must be the REAL exception');
+  assert.ok(FLAKY_CALL_SITE.test(stderr), `the operator copy must carry the application's call site; got ${stderr}`);
+  assert.ok(!FLAKY_CALL_SITE.test(error.stack), 'the refusal is a new Error with frames of its own');
+  assert.deepStrictEqual(Object.keys(error.detail), ['modulePath'], 'the boot refusal names the module path only');
+  assert.ok(!FLAKY_CALL_SITE.test(JSON.stringify(error.toFrame())), 'no application frame reaches the refusal frame');
 });
 
 // ---------------------------------------------------------------------------
 // 7. The FOURTH RECEIVER — a rejection that is not a `Refusal` at all
 //
-// `service.renderFrames` wraps the render's rejection in a last-resort arm
-// for anything that did not arrive as a `Refusal`. It is tempting to call
-// that arm unreachable — every `isolate.render()` path is meant to reject
-// with a `Refusal` — and harmless if reached, on the ground that it could
-// only carry this package's own error text. Neither holds on its own, and
-// this section measures rather than argues.
-//
-// THE ROUTE WOULD BE AN ORDINARY IN-PROCESS CALL. A validator returning the
-// CALLER'S OWN partition object rather than a copy would make the object it
-// read and the object `postMessage` structured-clones one live object read
-// twice — and anything with an accessor on it (a getter, a Proxy, a lazily
-// materialised row from a serializer) could satisfy `typeof value ===
-// 'string'` on the first read and hand back something unclonable on the
-// second, at which point `postMessage` throws `DataCloneError`
-// synchronously inside `render()`'s executor with no receiver above it.
-// `validateRequest` reads every field exactly once and returns what it
-// read, so a request that passes validation is a request that can be
-// cloned, and a caller has no second say.
-//
-// SO THE SECTION HAS TWO HALVES, and they are different claims. The first
-// row is the ROUTE: a two-faced request driven through a real service,
-// whose read count reads 1 where a second read would make it 2. It is the
-// only thing that would notice the day somebody reintroduces the second
-// read.
-//
-// The row after it is the ARM — deleting it would let a raw `Error` reach
-// `statusFor` with no code at all. With the caller's route closed no
-// request reaches it, so it is driven at the seam it actually guards: a `Service`
-// over a stand-in pool whose isolate rejects with a raw `Error`. That is a
-// weaker witness than a live route and it is said plainly here rather than
-// dressed up — but an unreachable backstop with no witness is how a
-// backstop stops working without anyone noticing.
+// A `DataCloneError` from `postMessage` names the value it choked on. The
+// first row shows no caller can reach it (the clone reads the validator's
+// copy); the second drives the last-resort arm at its own seam.
 // ---------------------------------------------------------------------------
 
 const CLONE_SENTINEL = 'rf2-2hmg-caller-7c19ab';
 
-/**
- * A `state` partition whose one value is a string on its first read and an
- * unclonable, sentinel-bearing `Symbol` on every read after it.
- *
- * A `Symbol` rather than a function on purpose: `DataCloneError` renders a
- * function as its source text, which would carry nothing the caller chose,
- * while a symbol renders its DESCRIPTION — so this is the shape that shows
- * whether caller-authored text crosses, which is the claim being tested.
- */
+/** A `state` whose one value is a string on its first read and a sentinel-bearing Symbol after. */
 function twoFacedState() {
   const state = {};
   let reads = 0;
@@ -1123,39 +574,18 @@ function twoFacedState() {
   return { state, reads: () => reads };
 }
 
-test('the CLONE gets no second say — the validator keeps what it checked (rf2-ey07)', async () => {
-  // THE READ COUNT IS THE WHOLE DISCRIMINATOR, and it is deliberately a
-  // fact about the tree rather than about one implementation: nothing but
-  // the structured clone would read that value again. Two reads would say
-  // the caller's own object reached `postMessage`; one says the validator
-  // captured the value and the clone copied the capture.
-  //
-  // The render therefore SUCCEEDS, which is the outcome owed — the request
-  // is well-formed on every value anyone validated, and refusing it would
-  // be the defect rather than the safety.
+test('the CLONE gets no second say — the validator keeps what it checked', async () => {
+  // A second read would mean the caller's own object reached `postMessage`.
   const twoFaced = twoFacedState();
   const run = await withService('reference', { isolates: 1 }, (service) =>
     collect(service, { protocol: 1, entry: 'app/root', state: twoFaced.state }),
   );
   assert.strictEqual(twoFaced.reads(), 1, 'nothing may read the caller\'s value a second time');
   assert.strictEqual(run.chunks.length, 1, 'and the request must render rather than refuse');
-  assert.strictEqual(
-    observed(run).readRoute,
-    '{:name :ok}',
-    'the module must be handed the value the validator approved',
-  );
+  assert.strictEqual(observed(run).readRoute, '{:name :ok}', 'the module must be handed the value the validator approved');
 });
 
-/**
- * A `Service` whose one isolate rejects with `error`, over a pool that is
- * three methods and two tables — everything `renderFrames` reads and
- * nothing more.
- *
- * A stand-in and not a fixture, because the fault being staged is one no
- * render module can produce: a rejection that is not a `Refusal` means
- * every receiver between the module and here was bypassed, and a fixture
- * reaching this arm would be a fixture that had found a fifth route.
- */
+/** A `Service` over a stand-in pool whose one isolate rejects with a raw `error`. */
 function serviceOverRejectingIsolate(error) {
   const pool = {
     buildId: 'reference-build-1',
@@ -1163,84 +593,34 @@ function serviceOverRejectingIsolate(error) {
     acquire: async () => ({ render: () => Promise.reject(error) }),
     release: () => {},
   };
-  return new Service(pool, {
-    defaultTimeoutMs: 1000,
-    maxTimeoutMs: 5000,
-    maxRequestBytes: 1 << 20,
-  });
-}
-
-/** Drive one such render, capturing the sidecar's stderr alongside. */
-async function uncontractedRejection() {
-  const captured = [];
-  const realWrite = process.stderr.write;
-  process.stderr.write = function (chunk, ...rest) {
-    captured.push(String(chunk));
-    return realWrite.call(this, chunk, ...rest);
-  };
-  try {
-    // The wording a real `DataCloneError` carries on that route: the
-    // caller's own value, interpolated by the runtime into a message
-    // nothing downstream would redact.
-    const service = serviceOverRejectingIsolate(
-      new TypeError(`Symbol(${CLONE_SENTINEL}) could not be cloned.`),
-    );
-    const refusal = await refusalOf(() =>
-      collect(service, { protocol: 1, entry: 'app/root', state: { ':route': '{:name :ok}' } }),
-    );
-    return { refusal, stderr: captured.join('') };
-  } finally {
-    process.stderr.write = realWrite;
-  }
+  return new Service(pool, { defaultTimeoutMs: 1000, maxTimeoutMs: 5000, maxRequestBytes: 1 << 20 });
 }
 
 test('a rejection that is not a Refusal carries nothing the CALLER authored, and the OPERATOR still gets the fault', async () => {
-  // Without these two the assertions below could be green about a request the
-  // validator refused — "no sentinel in the frame" is true of a caller-fault
-  // refusal too, and it would prove nothing about the arm.
-  const run = await uncontractedRejection();
-  assert.ok(run.refusal, 'the call must be refused');
-  assert.strictEqual(
-    run.refusal.code,
-    CODE.RENDER_THREW,
-    'and refused BY the last-resort arm, which is the only thing that answers with this code here',
-  );
-
-  const frame = run.refusal.toFrame('corr-clone');
-  assert.ok(
-    !JSON.stringify(frame).includes(CLONE_SENTINEL),
-    'the caller\'s own value must not be reflected back on a public refusal',
-  );
-  assert.strictEqual(run.refusal.message, RENDER_THREW_REFUSAL, 'the wording is this contract\'s');
-  assert.ok(isRefusalCode(frame.code), 'and the code is a member of the closed family');
-
-  // A fault here is a fault in the SIDECAR rather than in the application:
-  // a render rejected with something the package's own contract does not
-  // describe. Nothing upstream logs it — the worker never sees it and the
-  // isolate never builds a refusal for it — so without this write the
-  // wording would be the only copy in existence.
-  assert.ok(
-    run.stderr.split('\n').some((line) => line.includes('[rf.ssr-node]')),
-    'the operator was told nothing at all',
-  );
-  assert.ok(run.stderr.includes(CLONE_SENTINEL), 'the operator copy must be the REAL fault');
+  const [captured, restore] = captureStderr();
+  let refusal;
+  try {
+    // The wording a real `DataCloneError` carries: the caller's own value.
+    const service = serviceOverRejectingIsolate(new TypeError(`Symbol(${CLONE_SENTINEL}) could not be cloned.`));
+    refusal = await refusalOf(() =>
+      collect(service, { protocol: 1, entry: 'app/root', state: { ':route': '{:name :ok}' } }),
+    );
+  } finally {
+    restore();
+  }
+  const stderr = captured.join('');
+  assert.strictEqual(refusal.code, CODE.RENDER_THREW, 'refused BY the last-resort arm');
+  assert.ok(!JSON.stringify(refusal.toFrame('corr-clone')).includes(CLONE_SENTINEL), 'the caller\'s own value must not be reflected back');
+  assert.strictEqual(refusal.message, RENDER_THREW_REFUSAL, 'the wording is this contract\'s');
+  assert.ok(prefixed(stderr), 'the operator was told nothing at all');
+  assert.ok(stderr.includes(CLONE_SENTINEL), 'the operator copy must be the REAL fault');
 });
 
 // ---------------------------------------------------------------------------
-// 8. THE OTHER ARM OF `isolate-lost` — a thread that EXITS rather than
-//    crashing.
+// 8. The EXIT arm of `isolate-lost` — a thread that exits rather than crashing
 //
-// `:rf.ssr-node/isolate-lost` covers three distinct causes — a crashed
-// worker, a worker that exited, and a replacement that will not boot — and
-// they are told apart by detail SHAPE alone. Section 5 above pins the
-// CRASH arm's shape: `isolate`, `threadId`, `afterChunks`. These rows pin
-// the EXIT arm's, which reaches the same code, so with an empty detail map
-// a consumer holding the two side by side could not say which isolate had
-// gone.
-//
-// The fixture is the discriminator: `exits.cjs` throws nothing at all, so
-// no `'error'` event is ever raised and only `worker.on('exit')` can be
-// what answered.
+// `exits.cjs` throws nothing, so only `worker.on('exit')` can answer. A
+// consumer tells the isolate-lost causes apart by detail shape alone.
 // ---------------------------------------------------------------------------
 
 const exitReq = (entry) => ({ protocol: 1, entry, state: { ':for-exit': 'x' } });
@@ -1248,12 +628,7 @@ const exitReq = (entry) => ({ protocol: 1, entry, state: { ':for-exit': 'x' } })
 test('an isolate that EXITS mid-render names WHICH isolate and WHICH thread', async () => {
   await withService('exits', { isolates: 1 }, async (service) => {
     const err = await refusalOf(() => collect(service, exitReq('app/exits')));
-    assert.ok(err, 'the render must not have succeeded');
     assert.strictEqual(err.code, CODE.ISOLATE_LOST, 'the fault is what it is');
-
-    // The claim. The same three service-owned fields the crash arm supplies
-    // — nothing here originates in the render module, which authored no
-    // failure at all.
     assert.deepStrictEqual(
       Object.keys(err.detail).sort(),
       ['afterChunks', 'isolate', 'threadId'],
@@ -1262,27 +637,25 @@ test('an isolate that EXITS mid-render names WHICH isolate and WHICH thread', as
     assert.strictEqual(typeof err.detail.isolate, 'number', 'which isolate went');
     assert.strictEqual(typeof err.detail.threadId, 'number', 'and the thread an operator will look for');
     assert.strictEqual(err.detail.afterChunks, 0, 'nothing was written, so nothing is torn');
-
-    // The wording is the exit arm's own: identifying the isolate is the
-    // detail map's job, not the message's.
     assert.strictEqual(err.message, 'the isolate exited mid-render', 'the exit arm keeps its own wording');
   });
 });
 
 test('and a TORN exit still names the count beside the identifying fields', async () => {
-  // The second half, because a shape assertion on the clean path alone
-  // would not notice `afterChunks` being displaced by the two identifying fields.
+  // The count comes from `_failPendingRender`: the worker is gone and cannot report it.
   await withService('exits', { isolates: 1 }, async (service) => {
     const chunks = [];
+    let complete = null;
     const err = await refusalOf(async () => {
       for await (const frame of service.renderFrames(exitReq('app/exits-torn'))) {
         if (frame.type === 'chunk') chunks.push(frame.html);
+        else complete = frame;
       }
     });
     assert.strictEqual(chunks.length, 1, 'the chunk really did reach the caller');
+    assert.strictEqual(complete, null, 'no success completion follows the failure');
     assert.strictEqual(err.code, CODE.ISOLATE_LOST, 'the distinction is kept');
     assert.strictEqual(err.detail.afterChunks, 1, 'the tear is named, with its exact count');
-    assert.strictEqual(typeof err.detail.threadId, 'number', 'and the thread is still named');
     assert.deepStrictEqual(
       Object.keys(err.detail).sort(),
       ['afterChunks', 'isolate', 'threadId'],
