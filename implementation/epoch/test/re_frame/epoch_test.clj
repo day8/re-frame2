@@ -377,6 +377,36 @@
       (is (= :route/home @route))
       (rf/unsubscribe :test/main [:rf.route/id]))))
 
+(defn- app-db-after-install-and-reset-input
+  "Run a flow over `{:w 3 :h 2}`, call `install!` (a whole-app-db install that
+  rewinds to `{:w 2 :h 2 :area 4}`), then set `:w` back to its pre-install 3
+  and return the frame's app-db. `:area` is 6 only when the flow recomputed
+  from the installed db rather than skipping on the inputs it cached before
+  the install."
+  [install!]
+  (rf/make-frame {:id :test/main})
+  (rf/reg-event :seed  (fn [_ _] {:db {:w 2 :h 2}}))
+  (rf/reg-event :set-w (fn [{:keys [db]} [_ w]] {:db (assoc db :w w)}))
+  (rf/reg-flow :area {:frame :test/main :inputs [[:w] [:h]] :output-path [:area]} *)
+  (rf/dispatch-sync [:seed] {:frame :test/main})
+  (let [seeded (:epoch-id (last (rf/epoch-history :test/main)))]
+    (rf/dispatch-sync [:set-w 3] {:frame :test/main})
+    (is (= {:w 3 :h 2 :area 6} (rf/app-db-value :test/main)))
+    (is (true? (install! seeded)))
+    (is (= {:w 2 :h 2 :area 4} (rf/app-db-value :test/main)))
+    (rf/dispatch-sync [:set-w 3] {:frame :test/main})
+    (rf/app-db-value :test/main)))
+
+(deftest restore-resets-the-flows-dirty-check-cache
+  (is (= {:w 3 :h 2 :area 6}
+         (app-db-after-install-and-reset-input
+           #(rf/restore-epoch! :test/main %)))))
+
+(deftest replace-frame-state-resets-the-flows-dirty-check-cache
+  (is (= {:w 3 :h 2 :area 6}
+         (app-db-after-install-and-reset-input
+           (fn [_] (rf/replace-frame-state! :test/main {:rf.db/app {:w 2 :h 2 :area 4}}))))))
+
 ;; ---- restore failure modes (Tool-Pair §Time-travel) -------------------------
 
 (deftest restore-failure-unknown-frame

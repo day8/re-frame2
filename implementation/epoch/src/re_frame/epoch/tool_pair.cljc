@@ -832,6 +832,28 @@
         false)
     (rf.frame/call-serialized-with-drain! frame-id op)))
 
+;; ---- flows dirty-check reset after a tool write ----------------------------
+;;
+;; A flow recomputes only when its inputs differ from the ones its last
+;; evaluation cached (Spec 013 §Dirty-check semantics). Inside a drain the cache
+;; stays in step with app-db because the flow pass runs over the db the drain
+;; installs. A tool write installs frame-state OUTSIDE any drain, flow outputs
+;; included, so the cache would still describe the timeline the write replaced:
+;; an event that sets an input back to its pre-write value would skip the flow
+;; and keep the output the write installed. Dropping the frame's rows makes the
+;; next drain evaluate every flow against the installed state. Late-bound so
+;; epoch never statically depends on the optional flows artefact — absent the
+;; artefact the hook is nil and there is no cache to reset.
+
+(defn reset-flows-dirty-check!
+  "Drop `frame-id`'s flow dirty-check rows after a successful tool write. The
+  flows hook is fenced to `incarnation-token`, so it writes nothing once that
+  incarnation is lost. Returns nil."
+  [frame-id incarnation-token]
+  (when-let [restore-last-inputs! (rf.late-bind/get-fn :flows/restore-last-inputs!)]
+    (restore-last-inputs! frame-id incarnation-token {}))
+  nil)
+
 ;; ---- runtime-db subsystem reconcile on restore ----------------------------
 ;;
 ;; Epoch restore installs the captured frame-state WHOLESALE — it does not run
@@ -1145,7 +1167,10 @@
             (do (emit-precondition-failure! :rf.error/no-such-handler
                                             {:kind :frame :frame frame-id})
                 false)
-            (do (rf.trace/emit! :rf.epoch :rf.epoch/restored
+            (do ;; Before the first callback boundary, so no callback sees the
+                ;; installed state beside a stale cache.
+                (reset-flows-dirty-check! frame-id incarnation-token)
+                (rf.trace/emit! :rf.epoch :rf.epoch/restored
                              {:frame       frame-id
                               :rf.epoch/id (:epoch-id epoch)})
                 ;; The exact-incarnation install committed, so the public result
