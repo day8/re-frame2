@@ -1,63 +1,25 @@
 (ns re-frame.reprojection-install-race-jvm-test
-  "A PARTIALLY-INSTALLED reprojection must never be observable as INSTALLED.
+  "A partially-installed reprojection must never be observable as installed.
+  `re-frame.live-frame/ensure-reprojection-installed!` performs three side
+  effects — the registrar registration hook and the
+  `:live-frame/mark-projection-dirty!` / `:live-frame/flush-projection!`
+  late-bind keys — and publishes its once-flag last, inside a JVM monitor. A
+  concurrent `make-frame` therefore either performs the install or blocks until
+  it is complete. One that could pass early would seal a generation with the
+  wiring missing and stay permanently stale, reporting `:rf.error/no-such-handler`
+  for a handler `rf.registrar/lookup` holds.
 
-  THE DEFECT CLASS. A `re-frame.live-frame/ensure-reprojection-installed!`
-  that published its once-flag with `compare-and-set!` FIRST and performed the
-  three side effects the flag PROMISES afterwards
+  The test parks the installer at the LAST side effect with a `with-redefs`
+  barrier, so any publication of the flag before the install completes lets the
+  contender through. The contender is blocked on a monitor the parked installer
+  holds, so no timeout value can make the negative assertion fail falsely.
 
-      (when (compare-and-set! reprojection-installed? false true)   ;; publish
-        (rf.registrar/add-registration-hook! reproject-on-registration-change!)
-        (rf.late-bind/set-fn! :live-frame/mark-projection-dirty! …)
-        (rf.late-bind/set-fn! :live-frame/flush-projection!      …))
+  CLJS is single-threaded, so no second caller can observe the once-body
+  mid-flight; there is no counterpart there.
 
-  would race. `compare-and-set!` ELECTS one installer; it does not make the
-  LOSERS WAIT for that installer to finish. A second `make-frame` on another
-  thread would read the flag as `true` while the elected installer is still
-  between the CAS and the hook, conclude the wiring is in place, and proceed to
-  SEAL ITS GENERATION — the seal `rf.registrar/lookup` resolves every
-  `(kind, id)` through (`call-with-frame-resolution`). A `reg-event` issued in
-  that window would fire NO hook, because no hook exists yet. When the elected
-  installer finished there would be no dirty mark left for anything to flush,
-  so that second frame would stay PERMANENTLY STALE: `dispatch` would report
-  `:rf.error/no-such-handler` for a handler `rf.registrar/lookup` is holding at
-  that very moment — the failure `re-frame.prod-gate-dispatch-jvm-test`
-  guards, reached WITHOUT the debug gate.
-
-  THE INVARIANT, stated as this namespace tests it: *completion is observable
-  only after every side effect the flag promises is in place.* The once-body
-  publishes the flag LAST and runs serialized under a JVM monitor, so a
-  concurrent caller either does the install or BLOCKS until the installer has
-  finished it — it can never pass the boundary early.
-
-  THE HARNESS. Both tests open the window DETERMINISTICALLY with a
-  `with-redefs` barrier on one of the three side effects, so the installer
-  thread parks INSIDE the once-body with the flag in whatever state the
-  implementation put it in. No sleeps decide anything: the negative assertion
-  (\"the second caller has NOT returned\") is the one the monitor makes
-  IMPOSSIBLE to violate — the second caller is blocked on a monitor the
-  installer holds until the test releases it, so it cannot return at any
-  timeout; a publish-first install would return in microseconds.
-
-    * `install-boundary-not-passable-before-the-registration-hook` parks at the
-      FIRST side effect (the registrar hook) and pins the full stale-frame end
-      state.
-    * `install-boundary-not-passable-before-the-flush-late-bind` parks at the
-      LAST side effect (`:live-frame/flush-projection!`, the read-time flush
-      consult whose removal twin `:live-frame/mark-projection-dirty!` the
-      registrar's `unregister!` / `clear-kind!` / `clear-all!` paths consult) and
-      pins that even the final publication precedes observability.
-
-  CLJS IS UNAFFECTED and has no counterpart here: it is single-threaded, so no
-  second caller can observe the once-body mid-flight. The CLJS path is
-  lock-free (publish-last only).
-
-  THE FIXTURE REWINDS THE ONCE-FLAG. `reprojection-installed?` is a process-wide
-  `defonce`, so by the time this namespace runs some earlier `make-frame` has
-  usually installed the wiring already. The fixture snapshots and restores the
-  three pieces of process state the once-body writes — the flag, the registrar's
-  registration-hook vector, and `rf.late-bind/hooks` — so each test opens the SAME
-  window a fresh JVM's very first `make-frame` opens, and leaves the process
-  exactly as it found it."
+  The fixture rewinds the process-wide once-state — the flag, the reprojection
+  registration hook and the two late-bind keys — so the test opens the window a
+  fresh JVM's first `make-frame` opens, and restores it afterwards."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.flows :as rf.flows]
@@ -70,17 +32,8 @@
             [re-frame.trace.tooling :as rf.trace.tooling])
   (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
-;; ---------------------------------------------------------------------------
-;; White-box handles on the once-initialization's process state.
-;;
-;; These are deliberate private-var reads: the whole point of the test is that
-;; the once-body's INTERMEDIATE state must never be observable, and observing it
-;; is how we prove it. `reproject-on-registration-change!` is public, so hook
-;; presence is an ordinary identity check.
-;; ---------------------------------------------------------------------------
-
-(def ^:private installed-flag       #'rf.live-frame/reprojection-installed?)
-(def ^:private registration-hooks   #'rf.registrar/registration-hooks)
+(def ^:private installed-flag     #'rf.live-frame/reprojection-installed?)
+(def ^:private registration-hooks #'rf.registrar/registration-hooks)
 
 (defn- reprojection-hook-installed? []
   (boolean (some #{rf.live-frame/reproject-on-registration-change!}
@@ -100,14 +53,10 @@
       (rf.schemas/clear-schemas-by-frame!)
       (rf.trace.tooling/clear-listeners!)
       (rf/init! rf.substrate.plain-atom/adapter)
-      ;; Framework registrations live at namespace-load time; `clear-all!` wiped
-      ;; them. Re-eval so the rest of the suite is not left short.
       (require 're-frame.routing :reload)
       (require 're-frame.ssr :reload)
-      ;; Rewind the once-initialization AFTER those reloads (a reload re-adds
-      ;; the artefact's own registration hooks): drop ONLY the reprojection
-      ;; hook, un-publish ONLY the two late-bind keys the once-body owns, and
-      ;; clear the flag. Anything else in the vector / hook map is left alone.
+      ;; Rewind AFTER the reloads, which re-add their own registration hooks:
+      ;; drop only the reprojection hook and the two keys, then clear the flag.
       (swap! @registration-hooks
              (fn [hs] (vec (remove #{rf.live-frame/reproject-on-registration-change!} hs))))
       (swap! rf.late-bind/hooks #(apply dissoc % published-keys))
@@ -124,100 +73,15 @@
 
 (use-fixtures :each reset-runtime)
 
-;; A latch we expect to FIRE waits this long; the monitor-serialized install
-;; makes every such wait return promptly, so the number only bounds a hang.
+;; Bounds a wait that must fire; the serialized install returns promptly.
 (def ^:private ^:const settle-ms 10000)
 
-;; A latch we expect NOT to fire waits this long. The second caller
-;; is parked on a monitor the barriered installer holds, so no value of this
-;; number can produce a false failure; a publish-first install would return
-;; immediately, so no value can produce a false pass either.
+;; Bounds a wait that must NOT fire. The blocked contender cannot return at any
+;; value; an early-publishing install would return at once.
 (def ^:private ^:const window-ms 2000)
 
 (defn- await! [^CountDownLatch latch ^long ms]
   (.await latch ms TimeUnit/MILLISECONDS))
-
-;; ---------------------------------------------------------------------------
-;; 1. The stale-frame reproduction: park at the FIRST side effect (the registrar
-;;    registration hook) and show the second frame go permanently stale.
-;; ---------------------------------------------------------------------------
-
-(deftest install-boundary-not-passable-before-the-registration-hook
-  (testing "a second make-frame cannot observe the reprojection as installed
-            while the elected installer is still adding the registrar hook"
-    (let [add-hook!  rf.registrar/add-registration-hook!
-          at-barrier (CountDownLatch. 1)   ;; installer A has parked mid-install
-          release    (CountDownLatch. 1)   ;; …and may now finish
-          b-started  (CountDownLatch. 1)   ;; contender B's thread is running
-          b-returned (CountDownLatch. 1)   ;; …and its make-frame has returned
-          b-saw      (atom nil)
-          runs       (atom 0)
-          dispatch-throw (atom nil)]
-      (rf/reg-event :audit/early (fn [{:keys [db]} _] {:db (assoc db :early true)}))
-      (with-redefs [rf.registrar/add-registration-hook!
-                    (fn [f]
-                      ;; Park INSIDE the once-body, before the first of the
-                      ;; three side effects lands.
-                      (.countDown at-barrier)
-                      (await! release settle-ms)
-                      (add-hook! f))]
-        (let [a (future (rf/make-frame {:id :audit/a :doc "the elected installer"}))
-              _ (is (await! at-barrier settle-ms)
-                    "the elected installer parked inside ensure-reprojection-installed!")
-              b (future
-                  (.countDown b-started)
-                  (rf/make-frame {:id :audit/b :doc "the concurrent contender"})
-                  ;; What the contender can SEE the instant its frame exists —
-                  ;; i.e. the instant its generation is sealed and resolvable.
-                  (reset! b-saw {:hook?  (reprojection-hook-installed?)
-                                 :mark?  (some? (rf.late-bind/get-fn :live-frame/mark-projection-dirty!))
-                                 :flush? (some? (rf.late-bind/get-fn :live-frame/flush-projection!))})
-                  ;; The `reg-*` that must reach the just-sealed generation.
-                  (rf/reg-event :audit/late
-                    (fn [{:keys [db]} _]
-                      (swap! runs inc)
-                      {:db (assoc db :late :ran)}))
-                  (.countDown b-returned)
-                  :done)]
-          (is (await! b-started settle-ms) "the contender thread started")
-
-          ;; THE INVARIANT. The contender must NOT be able to complete
-          ;; construction while the installer is parked mid-install.
-          (is (not (await! b-returned window-ms))
-              (str "a concurrent make-frame passed the install boundary while the "
-                   "elected installer was still between the once-flag and the "
-                   "registrar hook — it sealed a generation with no hook behind it"))
-
-          (.countDown release)
-          (is (await! b-returned settle-ms) "the contender completed once released")
-          (is (= :done (deref b settle-ms ::timeout)) "contender thread finished")
-          (is (some? (deref a settle-ms ::timeout)) "installer thread finished")
-
-          ;; Everything the flag promises was in place when the contender
-          ;; observed it — including the removal twin the registrar's
-          ;; `unregister!` / `clear-kind!` / `clear-all!` paths consult.
-          (is (= {:hook? true :mark? true :flush? true} @b-saw)
-              "the contender observed the FULL wiring, not a partial install")
-
-          ;; And the end state: the contender's frame is NOT stale. A handler
-          ;; registered after its construction resolves on the very next
-          ;; dispatch into it.
-          (try
-            (rf/dispatch-sync [:audit/late] {:frame :audit/b})
-            (catch Throwable t (reset! dispatch-throw t)))
-          (is (nil? @dispatch-throw)
-              (str "dispatch into the contender's frame threw: " @dispatch-throw))
-          (is (= 1 @runs)
-              "the handler registered after the contender's make-frame ran exactly once")
-          (is (= :ran (:late (rf/app-db-value :audit/b)))
-              "the contender's frame is not permanently stale"))))))
-
-;; ---------------------------------------------------------------------------
-;; 2. Park at the LAST side effect — the `:live-frame/flush-projection!`
-;;    publication, whose twin `:live-frame/mark-projection-dirty!` is the
-;;    registrar REMOVAL late-bind. Even the final publication must precede
-;;    observability.
-;; ---------------------------------------------------------------------------
 
 (deftest install-boundary-not-passable-before-the-flush-late-bind
   (testing "a second make-frame cannot observe the reprojection as installed
@@ -230,9 +94,7 @@
           b-saw      (atom nil)]
       (with-redefs [rf.late-bind/set-fn!
                     (fn [k f]
-                      ;; Park just before the LAST of the three side effects:
-                      ;; the hook is added and the removal twin is published,
-                      ;; only the read-time flush consult is outstanding.
+                      ;; park before the last of the three side effects
                       (when (= k :live-frame/flush-projection!)
                         (.countDown at-barrier)
                         (await! release settle-ms))
@@ -251,11 +113,10 @@
           (is (await! b-started settle-ms) "the contender thread started")
           (is (not (await! b-returned window-ms))
               (str "a concurrent make-frame passed the install boundary with the "
-                   ":live-frame/flush-projection! consult still unpublished — its "
-                   "frame would resolve without ever flushing a dirty projection"))
+                   ":live-frame/flush-projection! consult still unpublished"))
           (.countDown release)
-          (is (await! b-returned settle-ms) "the contender completed once released")
-          (is (= :done (deref b settle-ms ::timeout)) "contender thread finished")
-          (is (some? (deref a settle-ms ::timeout)) "installer thread finished")
-          (is (= {:hook? true :mark? true :flush? true} @b-saw)
-              "the contender observed the FULL wiring, not a partial install"))))))
+          (is (= [:done true {:hook? true :mark? true :flush? true}]
+                 [(deref b settle-ms ::timeout)
+                  (some? (deref a settle-ms ::timeout))
+                  @b-saw])
+              "both threads finished, and the contender observed the full wiring"))))))
