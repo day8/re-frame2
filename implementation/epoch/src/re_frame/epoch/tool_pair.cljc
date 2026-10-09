@@ -877,9 +877,8 @@
   installed by `perform-restore!`, consulting the late-bound
   `:resources/reconcile-on-restore` hook (Spec 016 §Restore and replay). Returns
   the frame-state with its `:rf.db/runtime` partition reconciled — or
-  `frame-state` unchanged when no resources artefact is loaded (the hook is nil),
-  or when the frame-state carries no runtime-db partition (a `:frame-state-after`
-  whose runtime-db is empty). The runtime-db value is passed with the carried `frame-id` so the
+  `frame-state` unchanged when no resources artefact is loaded (the hook is
+  nil). The runtime-db value is passed with the carried `frame-id` so the
   reconcile can stamp its trace. Other runtime subsystems (machines, routing)
   reconcile their own snapshots through their own contracts; this seam is the
   resources-first extension point, mirroring SSR hydration's single
@@ -899,9 +898,7 @@
   the reconcile stamps a dangled-on-restore mutation instance's DURABLE
   `:settled-at` from that causal input rather than the live install clock
   (`now-ms`). A durable frame-state field MUST come from a causal input, never
-  an ambient world read at install (EP-0010 §Restore/Replay). The 2-arity
-  passes a nil causal time (a frame-state with no mutation instances to stamp;
-  the reconcile then falls back to its own clock for the no-token case).
+  an ambient world read at install (EP-0010 §Restore/Replay).
 
   The EXACT incarnation `owner-token` (the captured record's `:drain-lock`) is
   threaded through `:owner-token` so the reconcile fences its non-deferred host-
@@ -912,24 +909,19 @@
   touch same-id successor B. Passing the token lets the reconcile skip the clear
   once the exact incarnation is lost, so no B host handle is released — B's
   transients belong to B and, if A was destroyed to seat B, `destroy-frame!`
-  already released A's. nil owner-token (the 2-/3-arity pure-unit path) has no
-  incarnation to fence and clears unconditionally."
-  ([frame-id frame-state] (reconcile-runtime-db-on-restore frame-id frame-state nil nil))
-  ([frame-id frame-state restore-time-ms]
-   (reconcile-runtime-db-on-restore frame-id frame-state restore-time-ms nil))
-  ([frame-id frame-state restore-time-ms owner-token]
-   (if-let [reconcile-runtime-db!
-            (rf.late-bind/get-fn :resources/reconcile-on-restore)]
-     (if (contains? frame-state rf.frame/runtime-partition-key)
-       (update frame-state rf.frame/runtime-partition-key
-               (fn [runtime-db]
-                 (when (some? runtime-db)
-                   (reconcile-runtime-db!
-                     runtime-db frame-id {:defer-traces?   true
-                                          :restore-time-ms restore-time-ms
-                                          :owner-token     owner-token}))))
-       frame-state)
-     frame-state)))
+  already released A's. A nil owner-token has no incarnation to fence and
+  clears unconditionally."
+  [frame-id frame-state restore-time-ms owner-token]
+  (if-let [reconcile-runtime-db!
+           (rf.late-bind/get-fn :resources/reconcile-on-restore)]
+    (update frame-state rf.frame/runtime-partition-key
+            (fn [runtime-db]
+              (when (some? runtime-db)
+                (reconcile-runtime-db!
+                  runtime-db frame-id {:defer-traces?   true
+                                       :restore-time-ms restore-time-ms
+                                       :owner-token     owner-token}))))
+    frame-state))
 
 ;; ---- restore-time host-transient quiesce ----------------------------------
 ;;
@@ -991,15 +983,13 @@
   BARE id, and each one is app-observable — a machines cancellation trace fired
   by the first hook can destroy incarnation A and seat a same-id successor B,
   after which the HTTP hook would snapshot and abort B's in-flight requests.
-  The 2-arity therefore carries the restore's EXACT `incarnation-token` INTO the
+  It therefore carries the restore's EXACT `incarnation-token` INTO the
   loop and revalidates ownership at every hook boundary, STOPPING the chain the
   moment the incarnation is lost rather than retargeting the remaining A-only
   cleanup onto B. That revalidation covers the THROWING path too:
   the swallow-and-warn catch is itself a post-callback tail, so it announces
-  only while the captured incarnation is still owned. nil token (the 1-arity)
-  has no incarnation to fence and fires the whole chain — and every
-  warning."
-  ([frame-id] (quiesce-orphaned-async-host-work! frame-id nil))
+  only while the captured incarnation is still owned. A nil token has no
+  incarnation to fence and fires the whole chain — and every warning."
   ([frame-id incarnation-token]
    (let [still-owned? (fn []
                         (or (nil? incarnation-token)
@@ -2236,9 +2226,6 @@
   `opts` `:rf.egress/include-large? true` is the trusted-local opt-in: it keeps the raw
   value in both slots. The `:large?` flag is stripped either way.
 
-  Idempotent: a slot already carrying a marker is left untouched (rebuilding a
-  marker over a marker would report the marker's own size).
-
   Per-PATH `:large` / `:sensitive` sub marks are NOT handled here — those are
   substituted INTO the value at the marks emit site (`redact-with-paths`), so
   they already ride both slots pre-marked. There is no whole-output
@@ -2256,9 +2243,7 @@
   (let [mark-slot-value
         (fn [slot-key]
           (fn [slot-value]
-            (if (rf.elision/marker? slot-value)
-              slot-value
-              (rf.classification/large-marker slot-value [slot-key]))))]
+            (rf.classification/large-marker slot-value [slot-key])))]
     (cond
       (not (:large? slot-map)) slot-map
       include-large?            (dissoc slot-map :large?)
@@ -2582,13 +2567,10 @@
      `{:rf.egress/profile :rf.egress/off-box-tool
        :rf.egress/include-sensitive? true}` meaning what it means: the two
      shared app-db axes lift, the three different-keyspace axes do not
-     (it is NOT `:rf.egress/local-raw`).
-
-  Non-map input returns nil."
+     (it is NOT `:rf.egress/local-raw`)."
   [record opts]
-  (when (map? record)
-    (project-record-slots record
-                          (if (contains? opts :frame)
-                            (:frame opts)
-                            (:frame record))
-                          opts)))
+  (project-record-slots record
+                        (if (contains? opts :frame)
+                          (:frame opts)
+                          (:frame record))
+                        opts))

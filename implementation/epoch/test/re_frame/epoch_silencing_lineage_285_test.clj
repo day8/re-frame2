@@ -40,10 +40,15 @@
 (defn- cb-generation [cb]
   (:generation (get (rf.epoch.state/listeners-snapshot) cb)))
 
+(defn- observers
+  "The cb-ids whose live generation observed `frame`."
+  [frame]
+  (set (keys (:observing (rf.epoch.state/snapshot-terminal-observers frame)))))
+
 (defn- marks
   "The retained terminal-silence marks as a set of `[frame cb]` pairs."
   []
-  (set (for [[frame cbs] (rf.epoch.state/terminal-silence-marks-snapshot)
+  (set (for [[frame cbs] @@#'rf.epoch.state/terminal-silence-marks
              cb          (keys cbs)]
          [frame cb])))
 
@@ -107,7 +112,7 @@
     (rf/register-listener! :epoch target (fn [_] nil))
     (rf.epoch.state/claim-frame-owner! id token-a)
     (rf.epoch.listeners/notify-listeners! {:frame id :epoch-id 1})
-    (is (= #{trigger target} (set (rf.epoch.state/cbs-observing-frame id)))
+    (is (= #{trigger target} (observers id))
         "both identities observed A")
     (let [target-gen (cb-generation target)
           a-ev       (rf.epoch.listeners/snapshot-terminal-destroy-evidence! id nil nil nil)]
@@ -122,7 +127,7 @@
       (rf.epoch.listeners/on-frame-destroyed! id token-a a-ev)
       (is (= [trigger] (map (comp :cb-id :tags) @silencings))
           "a-trigger is silenced; z-target, re-armed live mid-fan, is rechecked and skipped")
-      (is (= [target] (rf.epoch.state/cbs-observing-frame id))
+      (is (= #{target} (observers id))
           "z-target is a live observer of B after the re-arm"))))
 
 (deftest failed-delivery-rolls-back-the-reservation-only-then

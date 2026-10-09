@@ -371,12 +371,6 @@
   halted event made no write. Residual capture is cleared before commit, and
   `committed-at` comes from the halted event's already-stamped envelope.
 
-  A nil `trigger-event` COMMITS NOTHING. The halting event's vector
-  is the only thing naming what a halt record is about, so without it the
-  record is an uninterpretable marker that nonetheless heads the ring and, as a
-  non-`:ok` outcome, makes `restore-epoch!` refuse the newest epoch. The
-  residual-capture harvest still runs.
-
   ONE frame-state parameter, not a before/after pair. `commit-record!`
   receives the SAME value in
   both slots, sourced from the last settled record (or, on a first-cascade halt,
@@ -413,23 +407,13 @@
             fs          (if last-record
                           (:frame-state-after last-record)
                           frame-state-after)]
-        ;; NO HALTING EVENT, NO RECORD. `trigger-event` is the
-        ;; halting event's vector, and it is the ONLY thing that names what
-        ;; this record is about: the halting event never ran, so the harvested
-        ;; buffer resolves no `:event-id` of its own and `commit-record!` has
-        ;; nothing else to fall back on. Committing without it yields a
-        ;; nameless `:halted-depth` marker that still takes an epoch-id, still
-        ;; lands at the head of the ring, and — being non-`:ok` — makes
-        ;; `restore-epoch!` refuse the newest epoch. Declining is strictly
-        ;; better than a record nobody can interpret.
-        ;;
-        ;; The buffer is harvested either way: clearing residual capture is a
-        ;; hygiene property of this seam independent of whether a record lands,
-        ;; and leaving residue would let it drift into the NEXT event's epoch.
-        (when trigger-event
-          (commit-record! frame-id fs fs events
-                          committed-at outcome halt-reason trigger-event
-                          exact-owner-token))))))
+        ;; The halting event never ran, so the harvested buffer resolves no
+        ;; trigger of its own and `trigger-event` — the halting event's vector
+        ;; — names what the record is about. The harvest also clears residual
+        ;; capture, which would otherwise drift into the NEXT event's epoch.
+        (commit-record! frame-id fs fs events
+                        committed-at outcome halt-reason trigger-event
+                        exact-owner-token)))))
 
 ;; ---- restore --------------------------------------------------------------
 ;;

@@ -305,14 +305,14 @@
       (rf.epoch.state/buffer-event! frame (rs id))
       (rf.epoch.state/buffer-event! frame (body id))
       (is (= [[(rs id) (body id)] [child-mark]]
-             [(rf.epoch.state/harvest-buffer-for-event! frame)
+             [(rf.epoch.state/harvest-buffer-for-event! frame id)
               (rf.epoch.state/buffer-for frame)])
           (str "sibling " id " harvests only its own traces; the child marker
                 stays verbatim and the nil-id orphan is dropped")))
     (rf.epoch.state/buffer-event! frame (rs 99))
     (rf.epoch.state/buffer-event! frame (body 99))
     (is (= [[child-mark (rs 99) (body 99)] []]
-           [(rf.epoch.state/harvest-buffer-for-event! frame)
+           [(rf.epoch.state/harvest-buffer-for-event! frame 99)
             (rf.epoch.state/buffer-for frame)])
         "the child's own settle claims its marker")))
 

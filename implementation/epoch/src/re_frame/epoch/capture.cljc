@@ -8,8 +8,7 @@
                           `:sub-runs`, `:renders`, `:effects` slots.
     find-trigger-event -- one walk extracting `:event-id` + `:event`
                           + `:dispatch-id` + `:rf.cofx` from the cascade's
-                          first `:rf.event/run-start`, with a `:event-id`-only
-                          fallback.
+                          first `:rf.event/run-start`.
 
   Buffer storage and low-level mutation live in `re-frame.epoch.state`."
   (:require [re-frame.epoch.state :as rf.epoch.state]
@@ -25,8 +24,7 @@
 ;; harvested). If `capture-event!` didn't skip them they would accrete into
 ;; `capture-buffers` and leak into the NEXT cascade's harvested record for
 ;; the same frame — a silent correctness bug surfacing as phantom
-;; `:trace-events` and a wrong `:trigger-event` via `find-trigger-event`'s
-;; fallback arm. The two `-during-drain` refusals are the exception: they
+;; `:trace-events`. The two `-during-drain` refusals are the exception: they
 ;; fire INSIDE the refused caller's cascade, carrying its
 ;; `:rf.trace/dispatch-id`, and skipping them is what keeps a refusal out
 ;; of the record of the cascade it refused.
@@ -712,8 +710,7 @@
   The first `:rf.event/run-start` supplies event identity, dispatch id,
   post-generation coeffects, and serializable per-call/lexical overrides.
   Dispatch id is pinned independently of raw trace retention. Without a
-  run-start, the first event-id is a limited fallback; no event vector or
-  dispatch id is fabricated when its source tag is absent.
+  run-start it resolves nothing; the caller pins a trigger of its own.
 
   The same walk collects `:rf.cofx/generated` traces that occur after
   run-start, notably generator facts minted inside machine guards/actions.
@@ -727,7 +724,7 @@
             (let [operation  (:operation trace-event)
                   event-tags (:tags trace-event)]
               (cond
-                ;; run-start beats the fallback. We DO NOT short-circuit:
+                ;; The first run-start wins. We DO NOT short-circuit:
                 ;; the cascade's `:rf.cofx/generated`
                 ;; mint traces fire AFTER run-start, so the walk must
                 ;; continue to gather them (below). A second run-start for
@@ -773,27 +770,6 @@
                   (assoc-in [:minted (:rf.cofx/id event-tags)]
                             (:rf.cofx/value event-tags)))
 
-                ;; Capture the first :event-id we see as the fallback.
-                ;; Do not fabricate `:event`; when the
-                ;; tag is absent we leave the field nil so downstream
-                ;; build-record omits a misleading synthesised vector.
-                ;;
-                ;; The fallback arm does not pin `:dispatch-id`. The record schema
-                ;; documents `:dispatch-id` as "pinned from the
-                ;; `:rf.event/run-start` tag … absent when the cascade carried
-                ;; no dispatch-id (rejected dispatch / pre-run-start halt)"
-                ;; — the strictly-spec shape for a no-run-start cascade is
-                ;; ABSENT. Pinning `:dispatch-id` here would surface the id
-                ;; of an arbitrary non-run-start trace (e.g. an error trace
-                ;; from a rejected dispatch); the run-start arm
-                ;; is the canonical source for it, so only that arm above
-                ;; pins `:dispatch-id`.
-                (and (nil? (:fallback capture-state))
-                     (some? (:rf.trace/event-id event-tags)))
-                (assoc capture-state
-                       :fallback {:event-id (:rf.trace/event-id event-tags)
-                                  :event    (:rf.event/v event-tags)})
-
                 :else capture-state)))
           {}
           events)
@@ -809,4 +785,4 @@
                              (and (some? (:rf.cofx captured-run-start))
                                   (seq (:minted capture-state)))
                              (update :rf.cofx merge (:minted capture-state))))]
-    (or run-start-record (:fallback capture-state))))
+    run-start-record))

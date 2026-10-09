@@ -1134,7 +1134,7 @@
           traces        (record-trace!)
           original-snap (rf.late-bind/get-fn :epoch/snapshot-frame-destroyed)
           stores        (fn []
-                          {:observers    (seq (rf.epoch.state/cbs-observing-frame id))
+                          {:observers    (seq (:observing (rf.epoch.state/snapshot-terminal-observers id)))
                            :history      (seq (rf.epoch.state/history-for id))
                            :buffer       (seq (rf.epoch.state/buffer-for id))
                            :last-settled (rf.epoch.state/last-settled-epoch-id id)
@@ -1165,7 +1165,7 @@
       (is (= [[] [] 0]
              [(filterv #(= :halted-destroy (:outcome %)) @records)
               (filterv #(= :rf.epoch.cb/silenced-on-frame-destroy (:operation %)) @traces)
-              (reduce + 0 (map count (vals (rf.epoch.state/terminal-silence-marks-snapshot))))])
+              (reduce + 0 (map count (vals @@#'rf.epoch.state/terminal-silence-marks)))])
           "no fabricated record, silence or silence mark"))))
 
 ;; ---- live :halted-destroy partial record -----------------------------------
