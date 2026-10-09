@@ -669,7 +669,8 @@
             (do (rf.epoch.tool-pair/emit-precondition-failure! :rf.error/no-such-handler
                                                       {:kind :frame :frame frame-id})
                 false)
-            (do (record-synthetic-replace-epoch! frame-id incarnation-token
+            (do (rf.epoch.tool-pair/reset-flows-dirty-check! frame-id incarnation-token)
+                (record-synthetic-replace-epoch! frame-id incarnation-token
                                                  frame-state-before frame-state-after)
                 true)))))))
 
