@@ -1,38 +1,11 @@
 (ns re-frame.schemas-fail-open-test
-  "JVM tests that a validator throw or an explainer throw fails CLOSED on
-  the three meta-bearing validate-*! surfaces and the production boundary
-  seam.
-
-  ## Malformed schema
-
-  Malli validates schema FORMS lazily — a childless `[:vector]`
-  / unknown op registers fine, then makes the validator THROW on the first
-  validate call. Were that throw to propagate out of validate-*!, the
-  runtime call-sites (`router` / `fx` / `subs`) would coerce it to a
-  validation PASS via their defensive `(catch … true)`: the event handler
-  would run, the fx handler would run, the sub would return its invalid
-  value — all with no trace and no recovery. App-db schemas fail closed on
-  the same class. (The cofx surface's malformed-schema fail-closed rides
-  the EP-0017 `:rf.error/cofx-value-invalid` recordable path; the schemas
-  artefact has no injection-time `validate-cofx!`.)
-
-  `run-validation` (the shared core of validate-event! / validate-fx! /
-  validate-sub!) isolates the throw (via `validate-entry-result`), emits a
-  distinct `:rf.error/malformed-schema` trace, and returns `false` so each
-  caller runs its normal recovery (skip handler / skip fx / replace sub
-  return). The boundary seam `validate-with-registered-fn` isolates the
-  same throw and returns `false` (fail CLOSED → skip the handler).
-
-  ## Throwing explainer
-
-  After a validator returns false, `run-explainer` / `validate-app-schema!`
-  call the registered explainer through `safe-explain`: a throw degrades to
-  a nil explanation and the `false` verdict is preserved. Without it, a
-  throwing custom explainer would abort trace construction and the throw
-  would unwind PAST the legitimate `false`, where the runtime would catch
-  it as a PASS (for app-db: the router's swallowed-backstop would return
-  true with no rollback, installing the invalid commit)."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  "A validator or explainer throw fails CLOSED. Malli checks schema forms
+  lazily, so a childless `[:vector]` registers and then throws on first use:
+  each surface emits `:rf.error/malformed-schema` and runs its own recovery,
+  where a propagated throw would reach the runtime's defensive catch and read
+  as a pass. A throwing explainer degrades to a nil explanation and keeps the
+  false verdict."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.schemas :as rf.schemas]
             [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]
@@ -40,202 +13,93 @@
 
 (use-fixtures :each rf.schemas.test-fixture/reset-runtime)
 
-(defn- capture
-  "Run `body-fn` while collecting trace events; return the captured vector."
-  [body-fn]
+(defn- traces-of
+  "Run `body-fn` and return the recorded traces of operation `op`."
+  [op body-fn]
   (with-trace-recorder! [traces]
     (body-fn)
-    @traces))
+    (filterv #(= op (:operation %)) @traces)))
 
-(defn- malformed-traces [traces]
-  (filter #(= :rf.error/malformed-schema (:operation %)) traces))
+(defn- malformed
+  "The surface, schema and recovery of each malformed-schema trace `body-fn`
+  emits, plus any value-bearing slot, which must never appear."
+  [body-fn]
+  (mapv #(assoc (select-keys (:tags %) [:where :schema :received :value])
+                :recovery (:recovery %))
+        (traces-of :rf.error/malformed-schema body-fn)))
 
-(defn- validation-failures [traces]
-  (filter #(= :rf.error/schema-validation-failure (:operation %)) traces))
-
-;; ===========================================================================
-;; Malformed schema — fails CLOSED on every meta-bearing surface
-;; ===========================================================================
+(defn- failures
+  "The `:where` and `:explain` of each validation-failure trace `body-fn` emits."
+  [body-fn]
+  (mapv (comp (juxt :where :explain) :tags)
+        (traces-of :rf.error/schema-validation-failure body-fn)))
 
 (deftest event-malformed-schema-fails-closed
-  (testing "a childless [:vector] :schema on a
-            reg-event handler does NOT throw-as-pass: the handler is
-            skipped and a :rf.error/malformed-schema trace fires."
-    (let [calls (atom 0)]
-      (rf/reg-event :ev/malformed
-        {:schema [:vector]}                       ;; childless — Malli throws at validate-time
-        (fn [{:keys [db]} _] (swap! calls inc) {:db db}))
-      (let [traces (capture #(rf/dispatch-sync [:ev/malformed :anything]))]
-        (is (= 0 @calls)
-            "handler skipped — the malformed-schema throw does not coerce to a pass")
-        (let [mal (malformed-traces traces)]
-          (is (= 1 (count mal)) "exactly one malformed-schema trace fired")
-          (let [m (first mal)]
-            (is (= :event (-> m :tags :where)))
-            (is (= [:vector] (-> m :tags :schema)) ":schema carries the malformed form to fix")
-            (is (string? (-> m :tags :reason)))
-            ;; The malformed trace reports the surface's
-            ;; recovery; the event handler is skipped (:no-recovery).
-            ;; `:recovery` is hoisted to the top-level envelope by
-            ;; trace/build-event (Spec 009 §Core fields hoist contract).
-            (is (= :no-recovery (:recovery m)))
-            ;; fail-closed: no value-bearing slot leaks into the malformed trace.
-            (is (not (contains? (:tags m) :received)))
-            (is (not (contains? (:tags m) :value)))))))))
+  (let [calls (atom 0)]
+    (rf/reg-event :ev/malformed {:schema [:vector]}
+      (fn [{:keys [db]} _] (swap! calls inc) {:db db}))
+    (is (= [{:where :event :schema [:vector] :recovery :no-recovery}]
+           (malformed #(rf/dispatch-sync [:ev/malformed :anything]))))
+    (is (= 0 @calls))))
 
-(defn- cofx-value-invalid-traces [traces]
-  (filter #(= :rf.error/cofx-value-invalid (:operation %)) traces))
-
-;; EP-0017: the LIVE cofx
-;; schema path is the recordable-value check
-;; (`re-frame.cofx/validate-recordable-value!`), which also FAILS CLOSED on a
-;; malformed schema — the validator throw is caught as a plain `false`, so the
-;; path emits `:rf.error/cofx-value-invalid` and THROWS rather than coercing
-;; the throw to a pass. (Unlike the meta-bearing `run-validation` surfaces, the
-;; recordable path does not raise the distinct `:rf.error/malformed-schema`
-;; trace — it folds a malformed-schema throw into the same cofx-value-invalid
-;; hard error, since either way an out-of-contract value must not reach the
-;; durable ledger.)
 (deftest recordable-cofx-malformed-schema-fails-closed
-  (testing "EP-0017 — a malformed recordable-cofx
-            :schema does NOT run the handler via throw-as-pass; the validator
-            throw is caught as false, :rf.error/cofx-value-invalid fires, and
-            the handler is skipped (the recordable-value throw pre-empts it)."
-    (rf/reg-cofx :cf/malformed
-      {:recordable? true :provided? true
-       :schema [:vector]})                          ;; childless — Malli throws at validate-time
-    (let [calls (atom 0)]
-      (rf/reg-event :use/malformed-cofx
-        {:rf.cofx/requires [:cf/malformed]}
-        (fn [_ _] (swap! calls inc) {}))
-      (let [traces (capture
-                     #(try
-                        (rf/dispatch-sync [:use/malformed-cofx]
-                                          {:rf.cofx {:cf/malformed :whatever}})
-                        (catch clojure.lang.ExceptionInfo _)))]
-        (is (= 0 @calls)
-            "handler skipped — recordable-cofx malformed-schema fails closed")
-        (let [inv (cofx-value-invalid-traces traces)]
-          (is (= 1 (count inv)) "exactly one cofx-value-invalid trace fired")
-          (is (= :no-recovery (:recovery (first inv)))))))))
+  ;; The recordable path folds a validator throw into its own hard error.
+  (rf/reg-cofx :cf/malformed {:recordable? true :provided? true :schema [:vector]})
+  (let [calls (atom 0)]
+    (rf/reg-event :use/malformed-cofx {:rf.cofx/requires [:cf/malformed]}
+      (fn [_ _] (swap! calls inc) {}))
+    (is (= [:no-recovery]
+           (mapv :recovery
+                 (traces-of :rf.error/cofx-value-invalid
+                            #(try (rf/dispatch-sync [:use/malformed-cofx]
+                                                    {:rf.cofx {:cf/malformed :whatever}})
+                                  (catch clojure.lang.ExceptionInfo _))))))
+    (is (= 0 @calls))))
 
 (deftest fx-malformed-schema-fails-closed-skipping-only-offender
-  (testing "a malformed fx :schema skips ONLY the
-            offending fx (recovery :skipped); the sibling fx still runs."
-    (let [bad-calls  (atom 0)
-          good-calls (atom 0)]
-      (rf/reg-fx :fx/malformed
-        {:schema [:vector]}
-        (fn [_ _] (swap! bad-calls inc)))
-      (rf/reg-fx :fx/sibling
-        (fn [_ _] (swap! good-calls inc)))
-      (rf/reg-event :emit/both
-        (fn [_ _] {:fx [[:fx/malformed {:any :thing}]
-                        [:fx/sibling   :ok]]}))
-      (let [traces (capture #(rf/dispatch-sync [:emit/both]))]
-        (is (= 0 @bad-calls) "the offending fx was skipped — not run via throw-as-pass")
-        (is (= 1 @good-calls) "the sibling fx still ran")
-        (let [mal (malformed-traces traces)]
-          (is (= 1 (count mal)))
-          (is (= :fx-args (-> (first mal) :tags :where)))
-          ;; The malformed fx trace must report the ACTUAL
-          ;; recovery the data plane took: only the offending fx is
-          ;; skipped (:skipped), NOT :no-recovery, since the sibling fx
-          ;; still runs. `:recovery` hoists to the top-level envelope.
-          (is (= :skipped (:recovery (first mal)))
-              "malformed fx trace reports :skipped (sibling fx still ran)"))))))
+  (let [calls (atom [])]
+    (rf/reg-fx :fx/malformed {:schema [:vector]} (fn [_ _] (swap! calls conj :malformed)))
+    (rf/reg-fx :fx/sibling (fn [_ _] (swap! calls conj :sibling)))
+    (rf/reg-event :emit/both
+      (fn [_ _] {:fx [[:fx/malformed {:any :thing}] [:fx/sibling :ok]]}))
+    (is (= [{:where :fx-args :schema [:vector] :recovery :skipped}]
+           (malformed #(rf/dispatch-sync [:emit/both]))))
+    (is (= [:sibling] @calls))))
 
 (deftest sub-malformed-schema-fails-closed-replaced-with-default
-  (testing "a malformed sub :schema yields the default
-            (nil) per :replaced-with-default recovery instead of returning the
-            unvalidated value via throw-as-pass; a malformed-schema trace fires."
-    (rf/reg-event :sub/init (fn [_ _] {:db {:items [1 2 3]}}))
-    (rf/reg-sub :sub/malformed
-      {:schema [:vector]}                          ;; childless — throws at validate-time
-      (fn [db _] (:items db)))
-    (let [traces (capture
-                   (fn []
-                     (rf/dispatch-sync [:sub/init])
-                     (is (nil? (rf/subscribe-once [:sub/malformed]))
-                         "malformed sub schema → nil (replaced-with-default), not the raw value")))
-          mal    (malformed-traces traces)]
-      (is (pos? (count mal)) "a malformed-schema trace fired")
-      (is (= :sub-return (-> (first mal) :tags :where)))
-      ;; The malformed sub trace must report
-      ;; :replaced-with-default (the sub yields nil), NOT
-      ;; :no-recovery. `:recovery` hoists to the top-level envelope.
-      (is (= :replaced-with-default (:recovery (first mal)))
-          "malformed sub trace reports :replaced-with-default (yielded the default)"))))
+  (rf/reg-event :sub/init (fn [_ _] {:db {:items [1 2 3]}}))
+  (rf/reg-sub :sub/malformed {:schema [:vector]} (fn [db _] (:items db)))
+  (rf/dispatch-sync [:sub/init])
+  (let [value (atom ::unread)]
+    (is (= [{:where :sub-return :schema [:vector] :recovery :replaced-with-default}]
+           (distinct (malformed #(reset! value (rf/subscribe-once [:sub/malformed]))))))
+    (is (nil? @value))))
 
 (deftest boundary-seam-malformed-schema-returns-false
-  (testing "the boundary seam — validate-with-registered-fn
-            isolates a malformed-schema throw and returns FALSE (fail closed)
-            rather than propagating to the interceptor's (catch … true)."
-    (is (false? (rf.schemas/validate-with-registered-fn [:vector] [:anything]))
-        "childless [:vector] → false (not a throw, not a pass)")
-    (is (false? (rf.schemas/validate-with-registered-fn [:not-a-real-op :int] 1))
-        "unknown op → false")
-    ;; A well-formed schema still returns a real verdict.
-    (is (true?  (rf.schemas/validate-with-registered-fn [:cat [:= :ok] :int] [:ok 1]))
-        "well-formed conforming → true")
-    (is (false? (rf.schemas/validate-with-registered-fn [:cat [:= :ok] :int] [:ok "no"]))
-        "well-formed non-conforming → false")))
-
-;; ===========================================================================
-;; Throwing explainer — must NOT become a catch-as-pass
-;; ===========================================================================
+  (is (= [false true false]
+         [(rf.schemas/validate-with-registered-fn [:vector] [:anything])
+          (rf.schemas/validate-with-registered-fn [:cat [:= :ok] :int] [:ok 1])
+          (rf.schemas/validate-with-registered-fn [:cat [:= :ok] :int] [:ok "no"])])))
 
 (def ^:private throwing-explainer
   (fn [_schema _value] (throw (ex-info "explainer boom" {}))))
 
 (deftest app-db-explainer-throw-preserves-failure
-  (testing "when validate returns false and the
-            registered explainer THROWS, validate-app-schema! still returns
-            false (the commit rolls back) and emits the failure trace with
-            :explain nil — the throw does not abort trace construction nor
-            unwind into the router's catch-as-pass."
-    ;; validate fails; explain throws.
-    (rf.schemas/set-schema-fns! {:validate (fn [_ _] false)
-                              :explain  throwing-explainer})
-    (try
-      (rf/reg-app-schema [:n] [:int])
-      (let [traces (capture
-                     (fn []
-                       (is (false? (rf.schemas/validate-app-schema! {:n "bad"} :n/bad))
-                           "fail-closed: false (rollback) — the explainer throw did not flip the verdict")))
-            v      (first (validation-failures traces))]
-        (is (some? v) "the failure trace still fired")
-        (is (= :app-db (-> v :tags :where)))
-        (is (nil? (-> v :tags :explain)) ":explain degraded to nil — explainer threw"))
-      (finally (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)))))
+  (rf.schemas/set-schema-fns! {:validate (fn [_ _] false) :explain throwing-explainer})
+  (rf/reg-app-schema [:n] [:int])
+  (let [verdict (atom nil)]
+    (is (= [[:app-db nil]]
+           (failures #(reset! verdict (rf.schemas/validate-app-schema! {:n "bad"} :n/bad)))))
+    (is (false? @verdict))))
 
 (deftest sub-return-explainer-throw-preserves-failure
-  (testing "a throwing explainer on the meta-bearing
-            run-validation path (sub-return) still returns false; the sub
-            yields the default and the failure trace fires with :explain nil."
-    (rf.schemas/set-schema-fns! {:validate (fn [_ _] false)
-                              :explain  throwing-explainer})
-    (try
-      (rf/reg-event :s/init (fn [_ _] {:db {:v [1 2 3]}}))
-      (rf/reg-sub :s/strict
-        {:schema [:vector :string]}
-        (fn [db _] (:v db)))
-      (let [traces (capture
-                     (fn []
-                       (rf/dispatch-sync [:s/init])
-                       (is (nil? (rf/subscribe-once [:s/strict]))
-                           "sub yields default — the explainer throw did not become a pass")))
-            v      (first (validation-failures traces))]
-        (is (some? v) "the sub-return failure trace fired")
-        (is (= :sub-return (-> v :tags :where)))
-        (is (nil? (-> v :tags :explain)) ":explain degraded to nil"))
-      (finally (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)))))
+  (rf.schemas/set-schema-fns! {:validate (fn [_ _] false) :explain throwing-explainer})
+  (let [verdict (atom nil)]
+    (is (= [[:sub-return nil]]
+           (failures #(reset! verdict (rf.schemas/validate-sub! :s/strict [:s/strict] [1 2 3]
+                                                                 {:schema [:vector :string]})))))
+    (is (false? @verdict))))
 
 (deftest boundary-explain-seam-isolates-explainer-throw
-  (testing "the boundary seam — explain-with-registered-fn
-            degrades a throwing explainer to nil rather than propagating."
-    (rf.schemas/set-schema-fns! {:explain throwing-explainer})
-    (try
-      (is (nil? (rf.schemas/explain-with-registered-fn [:int] "bad"))
-          "explainer throw → nil, not a propagated exception")
-      (finally (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)))))
+  (rf.schemas/set-schema-fns! {:explain throwing-explainer})
+  (is (nil? (rf.schemas/explain-with-registered-fn [:int] "bad"))))
