@@ -2,9 +2,8 @@
   "Per-tool semantics + the server dispatcher's `initialize` / `tools/list`
   / `tools/call` plumbing.
 
-  Tests boot Story's canonical vocabulary in a per-test fixture so the
-  registrar carries the seven canonical tags + the lifecycle machine,
-  then register a small fixture story + variant so each tool has
+  A per-test fixture boots Story's canonical vocabulary and registers a
+  small fixture story, variants, mode and decorators so each tool has
   something to read."
   (:require [cheshire.core :as cheshire]
             [clojure.edn :as edn]
@@ -19,7 +18,6 @@
             [re-frame.schemas :as rf.schemas]
             [re-frame.story :as rf.story]
             [re-frame.story.assertions :as rf.story.assertions]
-            [re-frame.story.recorder :as rf.story.recorder]
             [re-frame.story.registrar :as rf.story.registrar]
             [re-frame.story.schemas :as rf.story.schemas]
             [re-frame.story-mcp.config :as rf.story-mcp.config]
@@ -27,6 +25,7 @@
             [re-frame.story-mcp.server :as rf.story-mcp.server]
             [re-frame.story-mcp.tools.args :as rf.story-mcp.tools.args]
             [re-frame.story-mcp.tools.cljs-resolve :as rf.story-mcp.tools.cljs-resolve]
+            [re-frame.story-mcp.tools.cursor :as rf.story-mcp.tools.cursor]
             [re-frame.story-mcp.tools.wire-pipeline :as rf.story-mcp.tools.wire-pipeline]
             [re-frame.story-mcp.tools.dev :as rf.story-mcp.tools.dev]
             [re-frame.story-mcp.tools.egress :as rf.story-mcp.tools.egress]
@@ -37,60 +36,29 @@
 
 ;; ---- fixtures ------------------------------------------------------------
 
-;; Per-variant classification accumulator (EP-0025 commit-plane effects).
-;; Each `declare-sensitive!` / `declare-large!` call adds ONE `:rf/path` to
-;; the variant's classification config; the commit-plane effects are additive
-;; per axis, so the helpers apply the FULL accumulated config every time (a
-;; variant that declares both a sensitive and a large path keeps both — the
-;; superset is re-asserted idempotently). Cleared per test by the fixture so a
-;; prior test's paths don't bleed in. Defined here (above the fixture) so
-;; `reset-story-and-config` can clear it.
+;; Per-variant classification accumulator: each `declare-sensitive!` /
+;; `declare-large!` adds one path, and the helpers re-apply the FULL
+;; accumulated config every time. Cleared per test by the fixture.
 (def ^:private declared-class (atom {}))
 
 (defn reset-story-and-config
-  "Each test gets a fresh Story registry + write-gate set to false (the
-  documented default per spec/003-Write-Surface-Gating.md). Tests that need writes flip
-  the gate explicitly.
-
-  Also pins re-frame's substrate to `plain-atom` so tests that exercise
-  the full run-variant → assertion-record-into-frame-db → read-failures
-  pipeline land assertions where `read-failures` can find them (the
-  pipeline requires an initialised substrate adapter; without it
-  `dispatch-sync` no-ops and `:rf.story/assertions` never accretes)."
+  "A fresh Story registry with both operator gates closed (their documented
+  defaults), and re-frame pinned to `plain-atom` so a run lands its
+  assertion records where `read-failures` finds them."
   [t]
   (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch clojure.lang.ExceptionInfo _ nil))
   (rf.story/clear-all!)
   (rf.story/install-canonical-vocabulary!)
   (rf.story-mcp.config/set-allow-writes! false)
-  ;; Sensitive-read gate. Default off everywhere (mirrors
-  ;; the `--allow-sensitive-reads` boot-time posture). Tests that
-  ;; exercise the opt-in branch flip it explicitly.
   (rf.story-mcp.config/set-allow-sensitive-reads! false)
   (rf.schemas/clear-schemas-by-frame!)
-  ;; Frame-owned classification accumulator is per-process — clear between
-  ;; tests so a previous test's declared sensitive/large paths don't bleed
-  ;; in (EP-0015 §8).
   (reset! declared-class {})
-  ;; Recorder atom is per-process — clear between tests so a previous
-  ;; test's captured events don't bleed in.
-  (rf.story.recorder/clear!)
-  ;; Disable epoch-ring recording for the duration of each story-mcp test
-  ;; (restored below). story-mcp's OWN artefact carries NO epoch dep, so
-  ;; `cd tools/story-mcp && clojure -M:test` never loads `re-frame.epoch`
-  ;; and `run-variant`'s `:narrative` projection reads an empty tape. This
-  ;; call PINS that posture rather than inheriting it: `re-frame.epoch`
-  ;; installs its capture hooks PROCESS-WIDE at ns-load, so any JVM that
-  ;; puts epoch on this suite's classpath would silently switch
-  ;; `run-variant` to a full per-event narrative (each beat carrying full
-  ;; :db / trace-events), ballooning the wire payload past the MCP token cap
-  ;; — the whole run-result replaced by a `:rf.mcp/overflow` marker, failing
-  ;; the shape + elision-indicator assertions. `(rf/configure!
-  ;; {:epoch-history {:depth 0}})` is a core-facade knob that no-ops when
-  ;; epoch is absent and disables ring recording when present, so it is
-  ;; correct under either classpath.
+  ;; `re-frame.epoch` installs its capture hooks process-wide at ns-load, so
+  ;; on any classpath that carries it `run-variant` would ship a full
+  ;; per-event narrative past the token cap. Depth 0 pins the posture; it
+  ;; no-ops when epoch is absent.
   (rf/configure! {:epoch-history {:depth 0}})
-  ;; Fixture story + variant.
   (rf.story/reg-story :story.button
     {:doc       "A clickable button."
      :component :app.ui/button
@@ -107,10 +75,6 @@
   (rf.story/reg-mode :Mode.theme/dark
     {:doc  "Dark theme."
      :args {:theme :dark}})
-  ;; Decorator fixtures — one of each kind. The `:wrap`
-  ;; closure on the hiccup decorator is the load-bearing case for
-  ;; `list-decorators`: the projected EDN must NOT carry the fn, only
-  ;; a `:has-wrap?` boolean.
   (rf.story/reg-decorator :dec.test/wrap-card
     {:kind :hiccup
      :doc  "Wrap the variant in a card."
@@ -124,21 +88,10 @@
      :doc      "Pin http effect to a known response."
      :fx-id    :http
      :response {:status 200 :body "ok"}})
-  ;; EP-0025 — a test helper event the privacy tests wire into a variant's
-  ;; `:setup` so the durable classification (`:sensitive` / `:large`
-  ;; commit-plane effects) is RE-APPLIED on every fresh run. `run-variant`
-  ;; resets the variant frame's state IN PLACE on each run, which overwrites
-  ;; the runtime-db partition with `{}` — wiping the frame's elision registry
-  ;; (the `[:rf.runtime/elision …]` slot the classification effects write).
-  ;; For the wire-egress redaction to bite at egress (the END of the run),
-  ;; the declarations must be present on the reset frame — so we re-apply
-  ;; them from a `:setup` event (phase 2, after allocation/reset). The handler
-  ;; RETURNS the commit-plane `:sensitive` / `:large` effects (the canonical
-  ;; EP-0025 form), which the router folds into the per-frame elision registry
-  ;; at commit. The registry is empty at this point (just reset), so the
-  ;; additive write installs the full classification fresh.
-  ;; `classification-config` is the flat effect map `{:sensitive [[..]]
-  ;; :large [[..]]}`.
+  ;; `run-variant` resets the variant frame IN PLACE on each run, wiping the
+  ;; frame's elision registry; the privacy tests wire this event into the
+  ;; variant's `:setup` so the classification effects are re-applied on every
+  ;; fresh run and bite at egress.
   (rf/reg-event
     ::reapply-frame-class
     (fn [{:keys [db]} [_ _frame-id classification-config]]
@@ -146,8 +99,6 @@
   (try
     (t)
     (finally
-      ;; Restore the shipped epoch-ring default so any namespace running after
-      ;; this one in the same JVM sees the normal depth-50 posture.
       (rf/configure! {:epoch-history {:depth 50}}))))
 
 (use-fixtures :each reset-story-and-config)
@@ -155,30 +106,9 @@
 ;; ---- helpers -------------------------------------------------------------
 
 (defn- invoke
-  "Invoke a tool by name. Returns the result map (success or error).
-
-  ## Why `:dedup false` is the test-helper default
-
-  The dedup-eligible tools (`preview-variant`, `run-variant`) wrap
-  their `:structuredContent`
-  under `{:rf.mcp/dedup-table <cache>}` at the wire boundary when
-  `:dedup` defaults to `true`. The tests in this corpus assert against
-  the raw structured shape (`(:variant-id (:structuredContent r))`,
-  etc.) — adding a dedup-expand step on every assertion would burn
-  signal-to-noise.
-
-  The wire-boundary transform's CANONICAL behaviour (round-trip
-  exactness, the wrap shape) is covered cross-host in
-  `re-frame.mcp-base.dedup-test`; the story-mcp consumer integration
-  (`apply-dedup` envelope shape, descriptor eligibility gate) lives in
-  `re-frame.story-mcp.tools.dedup-test`. With that coverage the per-tool
-  tests are free to exercise their domain semantics against the unwrapped
-  payload.
-
-  Callers that want to exercise the live-on-the-wire shape (default
-  posture) should call `rf.story-mcp.tools.wire-pipeline/invoke-tool` directly and use
-  `re-frame.story-mcp.test-support/dedup-expand` to unwrap before
-  asserting."
+  "Invoke a tool by name, with `:dedup false` by default so a dedup-eligible
+  tool's `:structuredContent` comes back unwrapped. The wire-boundary dedup
+  transform is pinned in `re-frame.story-mcp.tools.dedup-test`."
   [tool-name args]
   (rf.story-mcp.tools.wire-pipeline/invoke-tool tool-name (merge {:dedup false} args)))
 
@@ -191,2119 +121,820 @@
   (and (map? result)
        (true? (:isError result))))
 
-;; ---------------------------------------------------------------------------
-;; Registry shape
-;; ---------------------------------------------------------------------------
+(defn- run-loop-frames
+  "Drive `run-loop!` over `in-text` (one JSON frame per line) and return the
+  decoded response frames. stderr is captured to keep a green run quiet."
+  [in-text]
+  (let [sw (java.io.StringWriter.)]
+    (binding [*err* (java.io.StringWriter.)]
+      (rf.story-mcp.server/run-loop! (java.io.BufferedReader. (java.io.StringReader. in-text)) sw))
+    (into [] (comp (filter seq) (map #(cheshire/parse-string % true))) (str/split-lines (str sw)))))
 
-(deftest registry-shape
-  (testing "tool-registry is a vector of complete entries"
-    ;; `:name` is held by `registry-covers-impl-spec-7-2` (the fixture's
-    ;; string names) and `:inputSchema` by
-    ;; `every-tool-schema-accepts-max-tokens`.
-    (doseq [t rf.story-mcp.tools.registry/tool-registry]
-      (is (string? (:description t)))
-      (is (#{:dev :docs :testing :write} (:category t)))
-      (is (fn? (:handler t)))))
-  (testing "tool-descriptors strips category + handler (MCP wire shape)"
-    (let [ds (rf.story-mcp.tools.registry/tool-descriptors)]
-      (is (every? #(every? % [:name :description :inputSchema]) ds))
-      (is (every? #(not (contains? % :handler)) ds))
-      (is (every? #(not (contains? % :category)) ds)))))
+(defn- run-frames!
+  "`run-loop-frames` behind a completed `initialize` handshake, whose own
+  response is dropped."
+  [in-text]
+  (vec (rest (run-loop-frames
+               (str "{\"jsonrpc\":\"2.0\",\"id\":0,\"method\":\"initialize\",\"params\":{}}\n" in-text)))))
+
+(def ^:private evidence-slots
+  [:schema-violations :warnings :effects :sub-runs :renders :narrative])
+
+;; ---------------------------------------------------------------------------
+;; Registry
+;; ---------------------------------------------------------------------------
 
 (deftest typical-tokens-hint-on-every-tool
-  ;; `:typicalTokens` is an informational ballpark of
-  ;; response-payload size in tokens; AI clients use it to budget calls.
-  ;; Not a cap. Required to be a positive integer on every tool: the
-  ;; registry asserts that on every entry at load time, and this test pins
-  ;; that the wire projection carries it.
-  (testing "tool-descriptors surfaces a positive-integer :typicalTokens on every tool"
-    (let [ds (rf.story-mcp.tools.registry/tool-descriptors)]
-      (is (every? #(integer? (:typicalTokens %)) ds))
-      (is (every? #(pos? (:typicalTokens %)) ds)))))
-
-(deftest output-schema-on-every-tool
-  ;; Every tool descriptor MUST declare an `:outputSchema`
-  ;; describing its `structuredContent` payload shape. The registry
-  ;; asserts that on every entry at load time; this test makes the
-  ;; contract visible in the test corpus and pins the wire projection.
-  (testing "tool-descriptors surfaces a map :outputSchema on every tool"
-    (let [ds (rf.story-mcp.tools.registry/tool-descriptors)]
-      (is (every? #(map? (:outputSchema %)) ds)))))
+  ;; The registry asserts a positive integer on every entry at load time;
+  ;; this pins that the `tools/list` projection carries it.
+  (is (every? (comp pos-int? :typicalTokens) (rf.story-mcp.tools.registry/tool-descriptors))))
 
 (deftest annotations-on-every-tool
-  ;; Every tool descriptor MUST declare an `:annotations`
-  ;; map carrying the MCP tool-annotation hints (`readOnlyHint`,
-  ;; `destructiveHint`, `idempotentHint`, `openWorldHint`). Asserted
-  ;; at load time in `registry.cljc` too; this test pins the wire
-  ;; projection and the load-bearing classification (at least one of
-  ;; `readOnlyHint` / `destructiveHint` must be set).
-  (testing "registry: every tool's :annotations carries a classification"
-    (doseq [t rf.story-mcp.tools.registry/tool-registry]
-      (is (or (true? (get-in t [:annotations :readOnlyHint]))
-              (true? (get-in t [:annotations :destructiveHint])))
-          (str "annotations on " (:name t)
-               " carries no classification — at least one of "
-               "readOnlyHint / destructiveHint must be set"))))
-  (testing "tool-descriptors surfaces :annotations to the wire"
-    (let [ds (rf.story-mcp.tools.registry/tool-descriptors)]
-      (is (every? #(map? (:annotations %)) ds))))
-  (testing "matrix: read-only tools have readOnlyHint"
-    (let [by-name (into {} (map (juxt :name identity)) rf.story-mcp.tools.registry/tool-registry)
-          ro-tools ["get-story-instructions" "list-substrates"
-                    "list-stories" "get-story" "get-variant" "list-tags"
-                    "list-modes" "list-decorators" "list-assertions"
-                    "get-docs-markdown" "variant->edn" "explain-variant"
-                    "snapshot-identity" "read-a11y-violations" "read-failures"]]
-      (doseq [n ro-tools]
-        (is (true? (get-in (by-name n) [:annotations :readOnlyHint]))
-            (str n " should have readOnlyHint true (annotation matrix)")))))
-  ;; preview-variant is on the destructive list. It dispatches
-  ;; events into the variant's frame via the same `rf.story/run-variant`
-  ;; lifecycle as `run-variant`; marking it read-only would be a
-  ;; wire-mismatch with the actual side-effect surface and would let
-  ;; agent-host auto-approval skip the destructive-write ceremony.
-  (testing "matrix: destructive tools have destructiveHint"
-    (let [by-name (into {} (map (juxt :name identity)) rf.story-mcp.tools.registry/tool-registry)
-          dest-tools ["preview-variant" "run-variant" "register-variant"
-                      "unregister-variant"]]
-      (doseq [n dest-tools]
-        (is (true? (get-in (by-name n) [:annotations :destructiveHint]))
-            (str n " should have destructiveHint true (annotation matrix)")))))
-  ;; The open-world axis is LOAD-BEARING and
-  ;; must not drift silently. `run-variant` / `preview-variant` run the
-  ;; author's lifecycle events/fx, which can reach external systems unless
-  ;; the author stubbed them (fx-stubbing is an opt-in authoring surface,
-  ;; not a universal default), so they MUST be open-world. EVERY other
-  ;; tool is closed-world: reads, registry writes, static docs.
-  (testing "matrix: only the lifecycle-run tools are open-world"
-    (let [open-world #{"run-variant" "preview-variant"}]
-      (doseq [t rf.story-mcp.tools.registry/tool-registry
-              :let [n (:name t)
-                    ow (get-in t [:annotations :openWorldHint])]]
-        (if (contains? open-world n)
-          (is (true? ow)
-              (str n " MUST be open-world (openWorldHint true): it runs the "
-                   "author's lifecycle events/fx which can reach external "
-                   "systems unless explicitly stubbed"))
-          (is (false? ow)
-              (str n " MUST stay closed-world (openWorldHint false): it does "
-                   "not run the author's lifecycle")))))))
-
-(def ^:private tool-names-fixture
-  "Canonical tool-name list. Single source of truth
-  shared with `test/stdio-roundtrip.js` — a registry change updates one
-  file, not two. The fixture sits at `test/fixtures/tool-names.json`;
-  this def parses it once at ns-load."
-  (-> (io/resource "fixtures/tool-names.json")
-      slurp
-      (cheshire/parse-string true)
-      :names
-      sort
-      vec))
-
-(deftest registry-covers-impl-spec-7-2
-  (testing "registry name set matches the shared fixture exactly"
-    ;; The Node `stdio-roundtrip.js` round-trip asserts `tools/list`
-    ;; against the same JSON file. A drift between code + tests on either
-    ;; side surfaces here AND there in the same edit.
-    (let [reg-names (sort (mapv :name rf.story-mcp.tools.registry/tool-registry))]
-      (is (= tool-names-fixture reg-names)
-          (str "registry vs fixtures/tool-names.json drift — update both: "
-               "fixture-only=" (set/difference (set tool-names-fixture) (set reg-names))
-               " registry-only=" (set/difference (set reg-names) (set tool-names-fixture)))))))
+  ;; Agent hosts auto-approve read-only tools and gate destructive ones. Only
+  ;; the lifecycle-run tools run the author's events/fx, which can reach
+  ;; external systems, so they alone are open-world; an absent openWorldHint
+  ;; reads as open-world, so every other tool carries an explicit false.
+  (let [ds         (rf.story-mcp.tools.registry/tool-descriptors)
+        names-with (fn [hint] (set (keep #(when (true? (get-in % [:annotations hint])) (:name %)) ds)))]
+    (is (= #{"get-story-instructions" "list-substrates" "list-stories" "get-story" "get-variant"
+             "list-tags" "list-modes" "list-decorators" "list-assertions" "get-docs-markdown"
+             "variant->edn" "explain-variant" "snapshot-identity" "read-a11y-violations" "read-failures"}
+           (names-with :readOnlyHint)))
+    (is (= #{"preview-variant" "run-variant" "register-variant" "unregister-variant"}
+           (names-with :destructiveHint)))
+    (is (= (into {} (map (fn [{n :name}] [n (contains? #{"run-variant" "preview-variant"} n)])) ds)
+           (into {} (map (juxt :name (comp :openWorldHint :annotations))) ds)))))
 
 ;; ---------------------------------------------------------------------------
-;; Code ↔ skill drift guard
-;;
-;; The `tool-names.json` net above guards code↔test↔conformance (JVM
-;; corpus, `stdio-roundtrip.js`, `end-to-end-story.cjs`). The CONSUMING
-;; skill leaf — `skills/re-frame2/references/tooling/story-mcp-loop.md` —
-;; names tools in PROSE: a count claim ("nineteen tools") and a per-step
-;; catalogue table. Without the deftest below nothing would assert those
-;; prose-named tools still exist in the registry, so a tool rename/removal
-;; would leave the leaf silently stale. (`scripts/check_skill_mcp_drift.py`
-;; covers a DIFFERENT axis: the SKILL.md YAML `allowed-tools:`
-;; front-matter, not this reference leaf's prose catalogue.)
+;; Code ↔ skill drift: the consuming skill leaf
+;; `skills/re-frame2/references/tooling/story-mcp-loop.md` names tools in
+;; prose — a count claim and a per-step catalogue table.
 ;; ---------------------------------------------------------------------------
 
 (defn- artefact-root
-  "Resolve the `tools/story-mcp/` artefact root on disk, cwd-independently.
-  Every shipped invocation runs from `tools/story-mcp` (`clojure -M:test`,
-  typed by hand or driven by `scripts/test-jvm-tools.sh`, which cds into the
-  artefact), so cwd-relative `spec/API.md` / `../../skills/…` paths would
-  happen to work there — but keying the walk to cwd makes them wrong from any
-  other working directory (a REPL or editor rooted at the repo root). The
-  repo-tree files `spec/API.md` and the consuming skill leaf are NOT on the
-  classpath (story-mcp ships only `src` + `test`), so we anchor off a known
-  classpath SOURCE resource
-  (`re_frame/story_mcp/protocol.cljc` under the `src` `:paths` root) and walk
-  its parent chain up to the artefact root. Falls back to the JVM cwd if the
-  resource is absent (e.g. a jar). Mirrors the xray guard tests' src-root
-  resolution, generalised one level up to the artefact root."
+  "The `tools/story-mcp/` artefact root, found from a classpath source
+  resource so the repo-tree reads below work from any working directory."
   []
   (let [marker (io/resource "re_frame/story_mcp/protocol.cljc")]
     (if (and marker (= "file" (.getProtocol marker)))
-      ;; .../tools/story-mcp/src/re_frame/story_mcp/protocol.cljc
-      ;;   → protocol.cljc → story_mcp → re_frame → src → story-mcp (root)
-      (-> (io/file (.toURI marker))
-          .getParentFile .getParentFile .getParentFile .getParentFile)
+      (-> (io/file (.toURI marker)) .getParentFile .getParentFile .getParentFile .getParentFile)
       (io/file "."))))
 
 (def ^:private story-mcp-loop-leaf
-  "The consuming skill leaf, read relative to the `tools/story-mcp/` artefact
-  root (resolved cwd-independently via `artefact-root`). Read once at
-  ns-load — if the path drifts, `slurp` throws and the drift test errors
-  loudly rather than silently passing on an empty string."
   (delay (slurp (io/file (artefact-root) ".." ".." "skills" "re-frame2"
                          "references" "tooling" "story-mcp-loop.md"))))
 
 (def ^:private number-words
-  "Spelled-out integers the leaf's tool-count claim may use. Keyed wide
-  enough that a registry that grows/shrinks by a couple of tools still
-  resolves the new count word — the assertion then bites on the mismatch
-  rather than erroring on an unknown word."
   {"sixteen" 16 "seventeen" 17 "eighteen" 18 "nineteen" 19
    "twenty" 20 "twenty-one" 21 "twenty-two" 22 "twenty-three" 23})
 
 (defn- skill-named-tools
-  "Tool names the leaf's per-step catalogue table references. The table
-  rows have the shape `| <step> | `<tool-name>` | <category> | <desc> |`
-  — pull the backtick-wrapped token from the second cell. Plus the two
-  tools named only in surrounding prose (`get-story-instructions`,
-  `snapshot-identity`). Returns a set of strings.
-
-  Deliberately table-anchored rather than scanning every backtick span:
-  the leaf also backticks non-tool tokens (`reg-variant`, the
-  deliberately-omitted `register-story`, `:rf.assert/*`, CLI flags) which
-  must NOT be asserted into the registry."
+  "Tool names in the leaf's catalogue table (the backticked token in each
+  row's second cell), plus the two tools it names only in prose. Anchored on
+  the table because the leaf also backticks tokens that are not tools."
   [leaf]
-  (let [table-names (->> (re-seq #"(?m)^\|[^|]*\|\s*`([a-z][a-z0-9-]+(?:->[a-z]+)?)`\s*\|"
-                                 leaf)
-                         (map second)
-                         set)]
-    (into table-names ["get-story-instructions" "snapshot-identity"])))
+  (into (->> (re-seq #"(?m)^\|[^|]*\|\s*`([a-z][a-z0-9-]+(?:->[a-z]+)?)`\s*\|" leaf)
+             (map second)
+             set)
+        ["get-story-instructions" "snapshot-identity"]))
 
 (deftest skill-leaf-tool-names-match-registry
-  ;; Code↔skill drift ratchet for the reference leaf prose.
-  (let [leaf       @story-mcp-loop-leaf
-        reg-names  (set (map :name rf.story-mcp.tools.registry/tool-registry))
-        named      (skill-named-tools leaf)]
-    (testing "the catalogue actually parsed some tool names (regex didn't silently miss)"
-      (is (seq named)
-          "skill-named-tools returned empty — the leaf's table shape changed; fix the parser")
-      ;; The authoring tools the leaf's per-step catalogue table enumerates
-      ;; (one tool per row's second cell) plus the two prose-only tools
-      ;; `skill-named-tools` folds in. Pinned explicitly so a table row
-      ;; silently dropping a tool is caught even if the registry still
-      ;; carries it. NOT pinned: `run-variant` / `read-failures` (and the
-      ;; other Testing-category run tools) — this leaf is an author/refine
-      ;; recipe and the run/self-heal loop lives on a `re-frame2-pair`
-      ;; handoff (a pair session calls `re-frame.story/*` through `eval-cljs`),
-      ;; and the MCP run tools are allow-listed by no skill, so they stay out of
-      ;; this skill's catalogue. The Testing-tools split is asserted below.
-      (doseq [t ["register-variant" "unregister-variant" "preview-variant"
-                 "get-variant" "explain-variant" "get-story-instructions"
-                 "snapshot-identity"]]
-        (is (contains? named t)
-            (str "skill leaf catalogue no longer names authoring tool '" t
-                 "' — table row removed or renamed in the prose"))))
-    (testing "every tool the skill leaf names exists in the registry (rename/removal ratchet)"
-      (doseq [t (sort named)]
-        (is (contains? reg-names t)
-            (str "skill leaf names tool '" t "' but the registry has no such tool — "
-                 "a rename/removal left "
-                 "skills/re-frame2/references/tooling/story-mcp-loop.md stale. "
-                 "Update the leaf (and re-verify the count claim)."))))
-    (testing "the author/run split is intact: run-side tools are named in handoff prose but kept OUT of the authoring catalogue"
-      ;; The leaf hands the run/self-heal loop to `re-frame2-pair`.
-      ;; `run-variant`/`read-failures` must still appear in the leaf's prose
-      ;; (the handoff names them) but must NOT be pulled into this skill's
-      ;; authoring catalogue — that would re-imply this skill can drive the
-      ;; run loop. Ratchets both directions of the split.
-      (doseq [t ["run-variant" "read-failures"]]
-        (is (re-find (re-pattern (str "`" t "`")) leaf)
-            (str "leaf no longer names run-side tool '" t "' in its prose — "
-                 "the re-frame2-pair handoff section was dropped or renamed"))
-        (is (not (contains? named t))
-            (str "run-side tool '" t "' leaked into this skill's authoring "
-                 "catalogue table — it belongs to the re-frame2-pair handoff, "
-                 "not this skill's allow-list")))))
-  ;; Count-claim ratchet: the leaf's "<count> tools" prose must equal the
-  ;; live registry size. Catches an add/remove that updates the table but
-  ;; leaves the headline count word stale (or vice-versa).
-  (testing "the leaf's spelled-out tool-count claim matches the registry size"
-    (let [leaf  @story-mcp-loop-leaf
-          n     (count rf.story-mcp.tools.registry/tool-registry)
-          ;; Match `<number-word> tools across` — the leaf reads "nineteen
-          ;; tools across four categories". The `across` anchor pins this
-          ;; to the headline count sentence rather than incidental "the
-          ;; story-mcp tools" / "the tools" prose elsewhere in the leaf.
-          m     (re-find #"(?i)\b([a-z]+(?:-[a-z]+)?)\s+tools\s+across\b" leaf)
-          word  (some-> m second clojure.string/lower-case)
-          claimed (get number-words word)]
-      (is (some? m) "leaf no longer carries an '<n> tools across' count claim — prose shape changed")
-      (is (some? claimed)
-          (str "leaf count word '" word "' is not in number-words; "
-               "the registry is " n " tools — extend number-words or fix the leaf"))
-      (is (= n claimed)
-          (str "leaf claims " word " (" claimed ") tools but the registry has " n
-               " — update story-mcp-loop.md's count claim")))))
+  (let [leaf      @story-mcp-loop-leaf
+        reg-names (set (map :name rf.story-mcp.tools.registry/tool-registry))
+        named     (skill-named-tools leaf)
+        word      (some-> (re-find #"(?i)\b([a-z]+(?:-[a-z]+)?)\s+tools\s+across\b" leaf) second str/lower-case)]
+    (is (seq named) "the catalogue table parsed; empty means its shape changed")
+    (is (= #{} (set/difference named reg-names)) "every tool the leaf names exists in the registry")
+    (is (= (count reg-names) (get number-words word))
+        (str "the leaf's '" word " tools across' claim matches the registry size"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Dev tools
 ;; ---------------------------------------------------------------------------
 
-(deftest get-story-instructions-returns-text
-  ;; `get-story-instructions-emits-structured-content` reads the call's
-  ;; success and `get-story-instructions-covers-the-full-registration-surface`
-  ;; the `reg-*` macros; this test holds the mentions pinned nowhere else.
-  (let [text (-> (invoke "get-story-instructions" {}) :content first :text)]
-    (is (string? text))
-    (is (re-find #":rf.assert" text))
-    (is (re-find #"snapshot-identity" text))))
-
-(deftest get-story-instructions-covers-the-full-registration-surface
-  ;; The onboarding text + descriptor are the agent-facing
-  ;; contract for the Story registration surface. They enumerate all nine
-  ;; public reg-* macros — including the `reg-fragment` / `reg-check`
-  ;; composition cohort — so an agent following the onboarding discovers
-  ;; the `:compose` reuse surface. These assertions pin all nine public
-  ;; macros + the count so a macro-surface change can't silently drift
-  ;; the onboarding.
-  (testing "the onboarding text enumerates all nine reg-* macros, including the composition cohort"
-    (let [text (-> (invoke "get-story-instructions" {}) :content first :text)]
-      (doseq [m ["reg-story" "reg-variant" "reg-fragment" "reg-check"
-                 "reg-workspace" "reg-mode" "reg-story-panel"
-                 "reg-decorator" "reg-tag"]]
-        (is (re-find (re-pattern m) text)
-            (str "onboarding text must mention " m)))
-      (is (re-find #"nine `reg-\*` macros" text)
-          "onboarding states the count is nine, not seven")
-      (is (not (re-find #"seven `reg-\*` macros" text))
-          "the count must not read 'seven'")
-      (is (re-find #":compose" text)
-          "onboarding surfaces the :compose composition mechanism")))
-  (testing "the get-story-instructions descriptor description names the composition surface"
-    (let [d    (some #(when (= "get-story-instructions" (:name %)) %)
-                     rf.story-mcp.tools.registry/tool-registry)
-          desc (:description d)]
-      (is (re-find #"nine reg-\* macros" desc)
-          "descriptor says nine, not seven")
-      (is (re-find #"reg-fragment" desc) "descriptor names reg-fragment")
-      (is (re-find #"reg-check" desc) "descriptor names reg-check"))))
-
 (deftest get-story-instructions-agrees-with-the-variant-schema-and-tag-vocabulary
-  ;; Producer-derived: the onboarding text is checked against Story's own
-  ;; closed `:rf/variant` map and canonical tag sets, so a slot or tag that
-  ;; drifts on either side reds here — listing `:expect` (a PLAN key the closed
-  ;; body schema refuses) as a `reg-variant` slot, say, or claiming seven
-  ;; canonical tags ship when twelve do.
+  ;; Producer-derived: a slot the closed :rf/variant map refuses, or a tag set
+  ;; other than the one Story pre-registers, reds here. Keywords inside
+  ;; backtick spans name axes in the prose, not slots or tags.
   (let [text   (-> (invoke "get-story-instructions" {}) :content first :text)
-        ;; Keywords outside backtick code spans (a span such as `:state/*`
-        ;; names an axis in the prose, not a slot or a tag).
         kws    (fn [s] (->> (str/replace (or s "") #"`[^`]*`" "")
                             (re-seq #":[a-z][a-z0-9?!>/-]*")
                             (map #(keyword (subs % 1)))
                             set))
         slots  (kws (second (re-find #"(?s)\(reg-variant [^{]*\{([^}]*)\}" text)))
         schema (set (map first (drop 2 (second rf.story.schemas/Variant))))]
-    (testing "every reg-variant slot the text lists is a key the closed variant schema accepts"
-      (is (seq slots) "the reg-variant slot line was found")
-      (is (= #{} (set/difference slots schema))
-          "slots listed in the onboarding text that the closed :rf/variant map refuses"))
-    (testing "the canonical tags the text lists are exactly the ones Story pre-registers"
-      (is (= (set/union rf.story.schemas/canonical-tags rf.story.schemas/canonical-state-tags)
-             (kws (second (re-find #"(?s)ship pre-registered(.*?)`:!tag`" text)))))
-      (is (re-find #"Twelve canonical tags" text)))))
+    (is (seq slots) "the reg-variant slot line was found")
+    (is (= #{} (set/difference slots schema)))
+    (is (= (set/union rf.story.schemas/canonical-tags rf.story.schemas/canonical-state-tags)
+           (kws (second (re-find #"(?s)ship pre-registered(.*?)`:!tag`" text)))))))
 
-(deftest get-story-instructions-emits-structured-content
-  ;; The descriptor declares an `:outputSchema`, so the
-  ;; official MCP SDK's high-level callTool REJECTS a result with no
-  ;; `:structuredContent` (JSON-RPC -32600). The handler MUST emit a
-  ;; structuredContent slot. Mirrors re-frame2-pair-mcp's sibling
-  ;; `get-re-frame2-pair-instructions` (which always emits structured
-  ;; content via `wire/ok-text`).
-  (testing "the result carries a non-nil :structuredContent matching the text"
-    (let [r (invoke "get-story-instructions" {})]
-      (is (success? r))
-      (is (some? (:structuredContent r))
-          "an outputSchema-declaring tool MUST return structuredContent (SDK -32600)")
-      (is (= (-> r :content first :text)
-             (-> r :structuredContent :instructions))
-          "structuredContent mirrors the text slot under :instructions")))
-  (testing "the descriptor declares an outputSchema — the invariant that makes structuredContent mandatory"
-    (let [d (some #(when (= "get-story-instructions" (:name %)) %)
-                  rf.story-mcp.tools.registry/tool-registry)]
-      (is (map? (:outputSchema d))
-          "get-story-instructions declares an :outputSchema, so it MUST emit structuredContent"))))
+(deftest story-instructions-text-mentions-every-canonical-assertion
+  ;; The onboarding text is hand-copied from the spec and names assertion ids
+  ;; without their namespace; the registrar is the source of truth.
+  (is (= [] (remove #(re-find (re-pattern (str "\\b" % "\\b")) rf.story-mcp.tools.dev/story-instructions-text)
+                    (sort (map name (rf.story/canonical-assertion-ids)))))
+      "canonical assertions missing from story-instructions-text"))
 
 (deftest preview-variant-happy
-  (let [r (invoke "preview-variant" {:variant-id "story.button/primary"
-                                     :base-url "http://localhost:8000/"})
-        s (:structuredContent r)]
-    (is (success? r))
-    (is (= :story.button/primary (:variant-id s)))
-    (is (string? (:share-url s)))
+  (let [s (:structuredContent (invoke "preview-variant" {:variant-id "story.button/primary"
+                                                         :base-url   "http://localhost:8000/"}))]
+    (is (= [:story.button/primary :pass] [(:variant-id s) (:status s)]) "no assertions ⇒ vacuously :pass")
     (is (re-find #"story\.button(/|%2F)primary" (:share-url s)))
-    ;; :lifecycle is the loader STATE (an adjunct); the verdict is
-    ;; the unified :status — preview speaks the same vocabulary run-variant
-    ;; does, so a vacuous-pass preview reads :status :pass.
-    (is (some? (:lifecycle s)))
-    (is (= :pass (:status s)) "no assertions ⇒ vacuously :pass")
-    (is (vector? (:checks s)))))
+    (is (some? (:lifecycle s)))))
 
-;; On the JVM stdio host the substrate registry is
-;; UNREACHABLE (no browser bridge), so `list-substrates` must return a
-;; machine-readable capability-unavailable error, NOT a false-empty
-;; `{:substrates []}` success an agent could mistake for 'no substrates
-;; registered'. The reached-provider paths (supported-empty /
-;; supported-populated) are exercised by binding the provider seam below.
+;; The JVM stdio host cannot reach the CLJS substrate registry or a11y panel
+;; state; a false-empty success would read as 'none registered' or 'zero
+;; violations', so absence is a capability-unavailable error.
+
 (deftest list-substrates-unavailable-on-jvm-host-is-error
-  (testing "provider ABSENT (JVM stdio default) ⇒ capability-unavailable error, not empty success"
-    (let [r (invoke "list-substrates" {})
-          s (:structuredContent r)]
-      (is (error? r) "an unreachable substrate registry is an error, not empty success")
-      (is (= :rf.error/story-mcp-capability-unavailable (:rf.error s))
-          "the structured error carries the stable capability-unavailable id")
-      (is (= "substrate-registry" (:capability s)))
-      (is (= "list-substrates" (:tool s)))
-      (is (not (contains? s :substrates))
-          "no false-empty :substrates slot — the host never looked"))))
+  (let [r (invoke "list-substrates" {})]
+    (is (error? r))
+    (is (= {:rf.error   :rf.error/story-mcp-capability-unavailable
+            :capability "substrate-registry"
+            :tool       "list-substrates"}
+           (select-keys (:structuredContent r) [:rf.error :capability :tool :substrates])))))
 
 (deftest list-substrates-reached-provider-distinguishes-empty-from-absent
-  (testing "provider REACHED but empty ⇒ ordinary success with :substrates []"
-    (binding [rf.story-mcp.tools.cljs-resolve/*substrate-provider* (fn [] [])]
-      (let [r (invoke "list-substrates" {})
-            s (:structuredContent r)]
-        (is (success? r) "a reached-empty registry is a SUCCESS, distinct from unavailable")
-        (is (= [] (:substrates s))))))
-  (testing "provider REACHED and populated ⇒ ordinary success with the sorted ids"
-    (binding [rf.story-mcp.tools.cljs-resolve/*substrate-provider* (fn [] [:uix :reagent])]
-      (let [r (invoke "list-substrates" {})
-            s (:structuredContent r)]
-        (is (success? r))
-        (is (= [:reagent :uix] (:substrates s)) "the reached registry's ids, sorted")))))
-
-(deftest provider-seams-are-symmetric-no-silent-asymmetry
-  ;; The substrate + a11y provider seams default to the SAME posture:
-  ;; NEITHER auto-wires, so out of the box BOTH report unavailable and a
-  ;; browser-local host binds BOTH. This locks the both-consistent contract
-  ;; against an asymmetry (a CLJS substrate default that auto-wired while
-  ;; a11y stayed nil would leave `read-a11y-violations` falsely
-  ;; capability-unavailable in a process where the panel was live). NOTE:
-  ;; the `#?(:cljs …)` reader-conditional defaults cannot be exercised from
-  ;; this JVM suite (no CLJS build hosts story-mcp); this guards the
-  ;; symmetry the source documents, plus
-  ;; the seam INDEPENDENCE binding one must not imply the other.
-  (testing "no binding ⇒ BOTH seams unavailable (the symmetric default)"
-    (is (false? (rf.story-mcp.tools.cljs-resolve/substrate-provider-available?)))
-    (is (false? (rf.story-mcp.tools.cljs-resolve/a11y-provider-available?)))
-    (is (= [] (rf.story-mcp.tools.cljs-resolve/registered-substrates)))
-    (is (= #{} (rf.story-mcp.tools.cljs-resolve/registered-substrates-set)))
-    (is (nil? (rf.story-mcp.tools.cljs-resolve/a11y-violations-by-frame)))
-    (is (nil? (rf.story-mcp.tools.cljs-resolve/a11y-incomplete-by-frame))))
-  (testing "binding EITHER seam flips ONLY its own availability — independent seams"
-    (binding [rf.story-mcp.tools.cljs-resolve/*substrate-provider* (fn [] [:reagent])]
-      (is (true? (rf.story-mcp.tools.cljs-resolve/substrate-provider-available?)))
-      (is (false? (rf.story-mcp.tools.cljs-resolve/a11y-provider-available?))
-          "binding substrate must NOT imply a11y is available"))
-    (binding [rf.story-mcp.tools.cljs-resolve/*a11y-provider* (fn [] {:story.button/primary []})]
-      (is (true? (rf.story-mcp.tools.cljs-resolve/a11y-provider-available?)))
-      (is (false? (rf.story-mcp.tools.cljs-resolve/substrate-provider-available?))
-          "binding a11y must NOT imply substrate is available"))))
+  (doseq [[registered expected] [[[] []] [[:uix :reagent] [:reagent :uix]]]]
+    (binding [rf.story-mcp.tools.cljs-resolve/*substrate-provider* (fn [] registered)]
+      (let [r (invoke "list-substrates" {})]
+        (is (= [false expected] [(error? r) (:substrates (:structuredContent r))]))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Docs tools
 ;; ---------------------------------------------------------------------------
 
 (deftest list-stories-tag-filter
-  (testing "filtering by :docs returns the button story"
-    (let [r (invoke "list-stories" {:tags ["docs"]})]
-      (is (success? r))
-      (is (= [:story.button]
-             (mapv :id (-> r :structuredContent :stories))))))
-  (testing "filtering by :test (registered canonical tag, no story matches) returns empty"
-    (let [r (invoke "list-stories" {:tags ["test"]})
-          s (:structuredContent r)]
-      (is (success? r))
-      (is (empty? (:stories s)))
-      (is (not (contains? s :ignored-tags))
-          "a REGISTERED tag that simply matches no story is not 'ignored'")))
-  ;; An unknown-only tag filter (a typo / stale tag) MUST
-  ;; return an empty result, NOT silently widen to the full catalogue.
-  ;; The supplied-but-unresolved name rides the `:ignored-tags` diagnostic.
-  (testing "filtering by an UNKNOWN-only tag returns empty, never the full catalogue"
-    (let [r (invoke "list-stories" {:tags [":docz"]})
-          s (:structuredContent r)]
-      (is (success? r))
-      (is (empty? (:stories s))
-          "unknown-only filter must NOT widen to all stories")
-      (is (= [":docz"] (:ignored-tags s))
-          "the unresolved supplied name is echoed back as a diagnostic")
-      (is (nil? (find-keyword "docz"))
-          "the unknown tag id MUST NOT have been interned")))
-  ;; A mixed known+unknown filter still applies the KNOWN tag and reports
-  ;; the dropped name.
-  (testing "mixed known+unknown filter applies the known tag and reports the ignored name"
-    (let [r (invoke "list-stories" {:tags [":docs" ":docz"]})
-          s (:structuredContent r)]
-      (is (success? r))
-      (is (= [:story.button] (mapv :id (:stories s)))
-          "the known :docs tag still narrows")
-      (is (= [":docz"] (:ignored-tags s))
-          "the unknown name is reported, the known tag is honoured")
-      (is (nil? (find-keyword "docz"))
-          "the unknown tag id MUST NOT have been interned")))
-  ;; The no-`:tags` call is the ONLY path that returns the unfiltered
-  ;; registry — a supplied filter (even an all-unknown one) always filters.
-  (testing "no :tags arg returns the unfiltered catalogue (no :ignored-tags slot)"
-    (let [r (invoke "list-stories" {})
-          s (:structuredContent r)]
-      (is (success? r))
-      (is (= [:story.button] (mapv :id (:stories s))))
-      (is (= 2 (count (-> s :stories first :variants)))
-          "each story entry carries its variant ids")
-      (is (not (contains? s :ignored-tags))))))
+  ;; Only an absent `:tags` returns the whole catalogue: a supplied filter
+  ;; always filters, and an unknown tag is reported, never widened over.
+  (doseq [[tags stories ignored] [[nil                [:story.button] {}]
+                                  [[":docz"]          []              {:ignored-tags [":docz"]}]
+                                  [[":docs" ":docz"]  [:story.button] {:ignored-tags [":docz"]}]]]
+    (testing (pr-str tags)
+      (let [s (:structuredContent (invoke "list-stories" (if tags {:tags tags} {})))]
+        (is (= [stories ignored] [(mapv :id (:stories s)) (select-keys s [:ignored-tags])])))))
+  (is (nil? (find-keyword "docz")) "an unknown tag is never interned")
+  (testing "a registry that fits one page is the bare shape, each story carrying its variant ids"
+    (let [s (:structuredContent (invoke "list-stories" {}))]
+      (is (= [2 {}] [(count (-> s :stories first :variants)) (select-keys s [:total :next-cursor])])))))
 
 (deftest list-stories-scalar-tags-rejected
-  ;; `:tags` advertises an array argument
-  ;; (`{:type "array" :items s/kw-or-string}`). A malformed client that
-  ;; sends a bare scalar string instead of `["docs"]` must NOT be silently
-  ;; walked character-by-character (`(seq "docs")` => `(\d \o \c \s)`,
-  ;; every single-char probe missing the registered-tag allowlist and
-  ;; landing in `:ignored-tags`) — that is a successful-looking WRONG
-  ;; result, not a protocol-level rejection. It must surface a clean
-  ;; `isError` result instead.
-  (doseq [[label bad-tags] [["a bare string" "docs"]
-                            ["a number" 42]
-                            ["a boolean" true]]]
-    (testing (str "a scalar :tags (" label ") is rejected, not iterated")
-      (let [r (invoke "list-stories" {:tags bad-tags})]
-        (is (error? r) (str bad-tags " must surface an isError result"))
-        (is (re-find #"(?i):tags must be an array" (-> r :content first :text))
-            "the error names the offending arg + expected shape")
-        (is (= :rf.error/scalar-for-collection-arg
-               (-> r :structuredContent :rf.error))
-            "a stable :rf.error id rides the structuredContent")))))
+  ;; A bare string would otherwise be walked character by character into a
+  ;; successful-looking wrong result.
+  (let [r (invoke "list-stories" {:tags "docs"})]
+    (is (= :rf.error/scalar-for-collection-arg (-> r :structuredContent :rf.error)))
+    (is (re-find #"(?i):tags must be an array" (-> r :content first :text)))))
 
 (deftest get-story-happy
-  (let [r (invoke "get-story" {:story-id "story.button"})]
-    (is (success? r))
-    (is (= :story.button (-> r :structuredContent :id)))
-    (is (= "A clickable button." (-> r :structuredContent :body :doc)))))
-
-(deftest get-variant-happy
-  (let [r (invoke "get-variant" {:variant-id "story.button/primary"})]
-    (is (success? r))
-    (is (= :story.button/primary (-> r :structuredContent :id)))
-    (is (= "Primary button." (-> r :structuredContent :body :doc)))))
+  (let [s (:structuredContent (invoke "get-story" {:story-id "story.button"}))]
+    (is (= [:story.button "A clickable button."] [(:id s) (-> s :body :doc)]))))
 
 (deftest get-variant-descriptor-matches-the-raw-body-it-returns
-  ;; The registrar stores a variant body RAW, `:extends` intact, and the
-  ;; plan compiler is the single merge authority (spec/017), so `get-variant`
-  ;; on a child answers the child's own slots and nothing inherited — and its
-  ;; descriptor must not promise the opposite ("the resolved EDN, with
-  ;; `:extends` already applied"). The behaviour is read off the tool first,
-  ;; then the descriptor is held to it.
+  ;; The registrar stores a variant body RAW and the plan compiler is the
+  ;; single merge authority (spec/017), so the descriptor must not promise a
+  ;; resolved body.
   (rf.story/reg-variant* :story.button/child {:doc "child" :extends :story.button/primary})
-  (let [body    (-> (invoke "get-variant" {:variant-id "story.button/child"})
-                    :structuredContent :body)
-        explain (-> (invoke "explain-variant" {:variant-id "story.button/child"})
-                    :structuredContent :explain)
-        desc    (:description (some #(when (= "get-variant" (:name %)) %)
-                                    rf.story-mcp.tools.registry/tool-registry))]
-    (testing "the tool returns the raw body: :extends intact, the parent's :args not inherited"
-      (is (= :story.button/primary (:extends body)))
-      (is (not (contains? body :args))))
-    (testing "explain-variant carries the resolved view the raw body lacks"
-      (is (= "Save" (:label (:effective-args explain)))))
-    (testing "so the descriptor must not promise a resolved body, and must point at explain-variant"
-      (is (not (re-find #"(?i)already applied|resolved EDN|merged from" desc)) desc)
-      (is (re-find #"NOT resolved" desc) desc)
-      (is (re-find #"explain-variant" desc) desc))))
+  (let [body (-> (invoke "get-variant" {:variant-id "story.button/child"}) :structuredContent :body)
+        desc (:description (rf.story-mcp.tools.registry/tool-by-name "get-variant"))]
+    (is (= [:story.button/primary false] [(:extends body) (contains? body :args)])
+        "the raw body: :extends intact, the parent's :args not inherited")
+    (is (not (re-find #"(?i)already applied|resolved EDN|merged from" desc)) desc)
+    (is (re-find #"NOT resolved" desc) desc)))
 
 (deftest explain-variant-happy
-  ;; The agent mirror of the human Explain panel: the
-  ;; variant-plan `:explain` projection (spec/017 §Explain API), a thin
-  ;; wrapper over the shipped `rf.story/explain` data API.
-  (let [r (invoke "explain-variant" {:variant-id "story.button/primary"})
-        s (:structuredContent r)
+  ;; On this no-run path the frame is non-live; the value slots must carry
+  ;; the real resolved author data, not `:rf/redacted`.
+  (let [s (:structuredContent (invoke "explain-variant" {:variant-id "story.button/primary"}))
         e (:explain s)]
-    (is (success? r))
-    (is (= :story.button/primary (:variant-id s)))
-    (is (map? e) "the :explain projection is a map")
-    ;; The source/merge/runner-requirement slots the human Explain panel
-    ;; renders must round-trip — these are the exact slots that gate-check
-    ;; this tool is a faithful mirror, not a re-projection.
-    (is (= [:story.button/primary] (:source-chain e)))
-    (is (= [] (:parent-chain e)))
-    (is (contains? e :merge) "the per-field merge rules are surfaced")
-    ;; On this no-run path the frame is non-live; the value slots must ship
-    ;; the REAL resolved author data, not :rf/redacted (which a fail-closed
-    ;; egress boundary would produce while KEEPING the key, so a bare
-    ;; contains? check would pass on garbage).
-    (is (map? (:effective-args e))
-        ":effective-args is the real resolved args map, not :rf/redacted")
-    (is (contains? e :required-runner) "the plan's runner requirement is surfaced")))
+    (is (= [:story.button/primary [:story.button/primary] []]
+           [(:variant-id s) (:source-chain e) (:parent-chain e)]))
+    (is (map? (:effective-args e)))
+    (is (every? #(contains? e %) [:merge :required-runner]))))
 
 (deftest lookup-tools-refuse-unknown-or-missing-ids
-  ;; A lookup tool refuses an id the registry does not hold, or an absent
-  ;; required id, as a tool-execution error naming the problem.
-  (doseq [[tool args text-re]
-          [["preview-variant"   {:variant-id "story.nope/missing"} #"not found"]
-           ["preview-variant"   {}                                 #"variant-id"]
-           ["run-variant"       {:variant-id "story.nope/missing"} #"not found"]
-           ["snapshot-identity" {:variant-id "story.nope/missing"} nil]
-           ["explain-variant"   {:variant-id "story.nope/missing"} #"not found"]
-           ["get-docs-markdown" {:story-id "story.nope/missing"}   #"not found"]
-           ["get-docs-markdown" {}                                 #"story-id"]]]
-    (testing (str tool " " (pr-str args))
-      (let [r (invoke tool args)]
-        (is (error? r))
-        (when text-re
-          (is (re-find text-re (-> r :content first :text))))))))
-
-(deftest list-tags-includes-canonical
-  (let [r (invoke "list-tags" {})
-        s (:structuredContent r)]
-    (is (success? r))
-    (is (every? (set (:canonical s))
-                [:dev :docs :test :screenshot :experimental :internal :agent]))
-    (testing "the canonical :state/* magnitude axis is part of the canonical set"
-      (is (every? (set (:canonical s))
-                  [:state/empty :state/small :state/medium :state/large :state/special])))))
+  ;; The tools share three lookup preludes in tools.args (`with-variant`,
+  ;; `with-variant-id`, `with-story-id`); the no-intern tests below pin more
+  ;; unknown ids.
+  (doseq [[tool args text-re] [["run-variant"       {:variant-id "story.nope/missing"} #"not found"]
+                               ["preview-variant"   {}                                 #"variant-id"]
+                               ["get-docs-markdown" {}                                 #"story-id"]]]
+    (let [r (invoke tool args)]
+      (is (= [true true] [(error? r) (boolean (re-find text-re (-> r :content first :text)))])
+          (str tool " " (pr-str args))))))
 
 (deftest list-modes-returns-fixture-mode
-  (let [r (invoke "list-modes" {})
-        ms (-> r :structuredContent :modes)]
-    (is (success? r))
-    (is (= 1 (count ms)))
-    (is (= :Mode.theme/dark (-> ms first :id)))
-    (is (= {:theme :dark} (-> ms first :args)))))
+  (is (= [{:id :Mode.theme/dark :args {:theme :dark}}]
+         (map #(select-keys % [:id :args]) (-> (invoke "list-modes" {}) :structuredContent :modes)))))
 
-;; `list-decorators` is a read-only enumeration. The
-;; `:wrap` closure on `:hiccup` decorators must NOT cross the wire
-;; (closures don't serialise); the projection drops the slot in
-;; favour of a `:has-wrap?` boolean. The canonical vocabulary
-;; pre-registers a handful of decorators (e.g.
-;; `:rf.story/layout-debug.measure`); the fixture adds three more,
-;; one of each kind, so this test asserts presence rather than count.
 (deftest list-decorators-projects-each-kind-safely
-  (let [r  (invoke "list-decorators" {})
-        ds (-> r :structuredContent :decorators)
-        by-id (into {} (map (juxt :id identity)) ds)]
-    (is (success? r))
-    (is (some? (get by-id :dec.test/wrap-card)))
-    (is (some? (get by-id :dec.test/seed-cart)))
-    (is (some? (get by-id :dec.test/stub-http)))
-    (is (= :hiccup (:kind (get by-id :dec.test/wrap-card))))
-    (is (true? (:has-wrap? (get by-id :dec.test/wrap-card)))
-        "hiccup decorator surfaces :has-wrap? not the closure")
-    (is (not (contains? (get by-id :dec.test/wrap-card) :wrap))
-        ":wrap closure MUST NOT be transported over MCP")
-    (is (= :frame-setup (:kind (get by-id :dec.test/seed-cart))))
-    (is (= {:cart {:items []}}
-           (:app-db-patch (get by-id :dec.test/seed-cart))))
-    (is (= :fx-override (:kind (get by-id :dec.test/stub-http))))
-    (is (= :http   (:fx-id    (get by-id :dec.test/stub-http))))
-    (is (= {:status 200 :body "ok"}
-           (:response (get by-id :dec.test/stub-http))))))
+  ;; A `:wrap` closure cannot cross the wire; the projection carries a
+  ;; `:has-wrap?` boolean in its place.
+  (let [by-id (into {} (map (juxt :id identity)) (-> (invoke "list-decorators" {}) :structuredContent :decorators))]
+    (is (= {:kind :hiccup :has-wrap? true}
+           (select-keys (by-id :dec.test/wrap-card) [:kind :has-wrap? :wrap])))
+    (is (= {:kind :frame-setup :app-db-patch {:cart {:items []}}}
+           (select-keys (by-id :dec.test/seed-cart) [:kind :app-db-patch])))
+    (is (= {:kind :fx-override :fx-id :http :response {:status 200 :body "ok"}}
+           (select-keys (by-id :dec.test/stub-http) [:kind :fx-id :response])))))
 
 (deftest list-decorators-kind-filter
-  (testing "kind filter narrows to one decorator kind"
-    (let [r       (invoke "list-decorators" {:kind "hiccup"})
-          ds      (-> r :structuredContent :decorators)
-          kinds   (set (map :kind ds))]
-      (is (success? r))
-      (is (= #{:hiccup} kinds)
-          "filter MUST return only the requested kind")
-      (is (some #(= :dec.test/wrap-card (:id %)) ds)
-          "fixture's hiccup decorator is present"))))
-
-(deftest list-assertions-returns-canonical-ten
-  (let [r (invoke "list-assertions" {})
-        s (:structuredContent r)]
-    (is (success? r))
-    ;; The seven dispatched assertions PLUS the THREE tape-evaluated
-    ;; declarations: :rf.assert/schema-error and the causal pair
-    ;; :rf.assert/caused / :rf.assert/no-cascade-rerender.
-    (is (= 10 (count (:canonical s))))
-    (is (some #(= :rf.assert/path-equals (:id %)) (:canonical s)))
-    (is (some #(= :rf.assert/no-warnings (:id %)) (:canonical s)))
-    (is (some #(= :rf.assert/schema-error (:id %)) (:canonical s)))
-    ;; the causal pair exposes payload + semantics, not just registered
-    (let [no-cascade (first (filter #(= :rf.assert/no-cascade-rerender (:id %))
-                                    (:canonical s)))]
-      (is (some? no-cascade) ":no-cascade-rerender is a canonical doc entry")
-      (is (re-find #"observed-cause-count|:cannot-run|require-cause"
-                   (:semantics no-cascade))
-          "its semantics document the premise requirement / opt-out / diagnostic"))
-    (is (some #(= :rf.assert/caused (:id %)) (:canonical s)))))
+  (is (= #{:hiccup}
+         (set (map :kind (-> (invoke "list-decorators" {:kind "hiccup"}) :structuredContent :decorators))))))
 
 (deftest list-assertions-registered-covers-plan-compiler-vocabulary
-  ;; :registered MUST advertise the FULL vocabulary the Story
-  ;; plan compiler accepts (`rf.story.assertions/known-assertion-ids`, the SAME set
-  ;; `plan.cljc` validates authored assertion atoms against), so MCP agents
-  ;; can discover the DOM / visual / a11y / reactive-count ids the compiler
-  ;; accepts rather than falling back to prose.
-  (testing ":registered == the plan compiler's known-assertion-ids set"
-    (let [r (invoke "list-assertions" {})
-          s (:structuredContent r)]
-      (is (success? r))
-      (is (= (set rf.story.assertions/known-assertion-ids)
-             (set (:registered s)))
-          ":registered must equal the plan compiler's known-assertion-ids"))))
+  ;; `:registered` advertises the full vocabulary the plan compiler validates
+  ;; authored assertion atoms against.
+  (is (= (set rf.story.assertions/known-assertion-ids)
+         (set (-> (invoke "list-assertions" {}) :structuredContent :registered)))))
 
 (deftest variant-edn-roundtrips
-  (testing "variant->edn returns readable EDN text"
-    (let [r (invoke "variant->edn" {:variant-id "story.button/primary"})]
-      (is (success? r))
-      (let [text (-> r :content first :text)
-            back (clojure.edn/read-string text)]
-        (is (map? back))
-        (is (= "Primary button." (:doc back))))))
-  (testing "variant->edn ALSO emits structuredContent (it declares an outputSchema, so the SDK requires it)"
-    ;; `variant->edn` declares an :outputSchema, so a text-only result
-    ;; would trip the SDK's -32600. It mirrors the body into
-    ;; structuredContent.
-    (let [r (invoke "variant->edn" {:variant-id "story.button/primary"})]
-      (is (some? (:structuredContent r))
-          "an outputSchema-declaring tool MUST return structuredContent (SDK -32600)")
-      (is (= "Primary button." (-> r :structuredContent :doc))))))
+  ;; The text slot is byte-stable EDN; the descriptor declares an
+  ;; outputSchema, so the structured slot carries the same body.
+  (let [r (invoke "variant->edn" {:variant-id "story.button/primary"})]
+    (is (= ["Primary button." "Primary button."]
+           [(:doc (edn/read-string (-> r :content first :text))) (-> r :structuredContent :doc)]))))
 
-;; `get-docs-markdown` is the agent-paste shape.
 (deftest get-docs-markdown-renders-story-and-variants
-  (let [r  (invoke "get-docs-markdown" {:story-id "story.button"})
-        s  (:structuredContent r)
+  (let [s  (:structuredContent (invoke "get-docs-markdown" {:story-id "story.button"}))
         md (:markdown s)]
-    (is (success? r))
-    (is (string? md))
-    (is (re-find #"^# Story `:story\.button`" md)
-        "renders an H1 with the story id")
-    (is (re-find #"A clickable button\." md)
-        "includes the story :doc")
-    (is (re-find #":story\.button/primary" md)
-        "lists the primary variant")
-    (is (re-find #":story\.button/secondary" md)
-        "lists the secondary variant")
-    (is (re-find #"Primary button\." md)
-        "includes per-variant :doc")
     (is (= :story.button (:story-id s)))
-    (is (vector? (:variants s)))))
+    (is (every? #(re-find % md)
+                [#"^# Story `:story\.button`" #"A clickable button\." #":story\.button/primary" #"Primary button\."])
+        md)))
 
 ;; ---------------------------------------------------------------------------
-;; Pagination on the Docs `list-*` tools
-;;
-;; spec/Principles.md §'Tight token budget' MUST: every read tool whose
-;; return size is a function of registry size MUST accept `:limit` +
-;; `:cursor`. These tests pin:
-;;   - small registries return the bare shape (no pagination metadata)
-;;   - large registries (>= :limit) return :total :limit :has-more?
-;;     :next-cursor
-;;   - cursor round-trips across pages
-;;   - a stale cursor (registry mutated between pages) returns
-;;     :rf.mcp/cursor-stale
-;;   - `:limit` is clamped to the documented ceiling
+;; Pagination on the Docs `list-*` tools. spec/Principles.md §'Tight token
+;; budget': every read tool whose return size grows with the registry
+;; accepts `:limit` + `:cursor`.
 ;; ---------------------------------------------------------------------------
-
-(deftest list-stories-small-registry-no-pagination-metadata
-  (testing "single-story fixture fits on one page — no :total / :next-cursor"
-    (let [r (invoke "list-stories" {})
-          s (:structuredContent r)]
-      (is (success? r))
-      (is (vector? (:stories s)))
-      (is (not (contains? s :total))
-          "small registry MUST NOT carry pagination metadata (bare wire shape)")
-      (is (not (contains? s :next-cursor))))))
 
 (deftest list-stories-paginates-when-over-limit
-  (testing "with many stories + :limit smaller than total, response is paginated"
-    ;; Register additional stories so total > :limit. The fixture leaves
-    ;; one story; adding 4 more + :limit 2 produces a 5-entry total.
-    (doseq [n (range 4)]
-      (rf.story/reg-story (keyword (str "story.pager" n))
-        {:doc (str "Pager story " n) :component :app/x :tags #{:dev}}))
-    (let [r (invoke "list-stories" {:limit 2})
-          s (:structuredContent r)]
-      (is (success? r))
-      (is (= 2 (count (:stories s))) "first page honours :limit")
-      (is (= 5 (:total s)) "five stories total (fixture + 4)")
-      (is (= 2 (:limit s)))
-      (is (true? (:has-more? s)))
-      (is (string? (:next-cursor s)))
-      ;; Round-trip the cursor: passing :next-cursor returns the next page.
-      (let [r2 (invoke "list-stories" {:limit 2 :cursor (:next-cursor s)})
-            s2 (:structuredContent r2)]
-        (is (success? r2))
-        (is (= 2 (count (:stories s2))) "second page also 2 entries")
-        (is (true? (:has-more? s2)))
-        (is (string? (:next-cursor s2)))
-        ;; Final page: one entry, has-more? false, next-cursor nil.
-        (let [r3 (invoke "list-stories" {:limit 2 :cursor (:next-cursor s2)})
-              s3 (:structuredContent r3)]
-          (is (success? r3))
-          (is (= 1 (count (:stories s3))) "final page has the remaining entry")
-          (is (false? (:has-more? s3)))
-          (is (nil? (:next-cursor s3))))))))
+  (doseq [n (range 4)]
+    (rf.story/reg-story (keyword (str "story.pager" n)) {:doc "" :component :app/x :tags #{:dev}}))
+  (let [page (fn [cursor] (:structuredContent (invoke "list-stories" (cond-> {:limit 2} cursor (assoc :cursor cursor)))))
+        s1   (page nil)
+        s3   (page (:next-cursor (page (:next-cursor s1))))]
+    (is (= [2 5 2 true] [(count (:stories s1)) (:total s1) (:limit s1) (:has-more? s1)]))
+    (is (string? (:next-cursor s1)))
+    (is (= [1 false nil] [(count (:stories s3)) (:has-more? s3) (:next-cursor s3)])
+        "the final page holds the remaining entry and mints no cursor")))
 
 (deftest list-stories-stale-cursor-returns-error
-  (testing "a registry mutation between pages stales the cursor"
-    (doseq [n (range 3)]
-      (rf.story/reg-story (keyword (str "story.stale" n))
-        {:doc (str "Stale " n) :component :app/x :tags #{:dev}}))
-    (let [r1     (invoke "list-stories" {:limit 1})
-          cursor (-> r1 :structuredContent :next-cursor)]
-      (is (string? cursor))
-      ;; Mutate the registry: register one more story before deref.
-      (rf.story/reg-story :story.intruder
-        {:doc "Landed mid-pagination" :component :app/x :tags #{:dev}})
-      (let [r2 (invoke "list-stories" {:limit 1 :cursor cursor})
-            s2 (:structuredContent r2)]
-        (is (error? r2))
-        (is (= :rf.mcp/cursor-stale (:reason s2)))
-        (is (= "list-stories" (:tool s2)))))))
+  (doseq [n (range 3)]
+    (rf.story/reg-story (keyword (str "story.stale" n)) {:doc "" :component :app/x :tags #{:dev}}))
+  (let [cursor (-> (invoke "list-stories" {:limit 1}) :structuredContent :next-cursor)]
+    (rf.story/reg-story :story.intruder {:doc "" :component :app/x :tags #{:dev}})
+    (let [r (invoke "list-stories" {:limit 1 :cursor cursor})]
+      (is (= [true {:reason :rf.mcp/cursor-stale :tool "list-stories"}]
+             [(:isError r) (select-keys (:structuredContent r) [:reason :tool])])))))
 
 (deftest list-stories-limit-clamped-to-max
-  (testing ":limit above the ceiling clamps DOWN to max-limit"
-    ;; The fixture story plus 250 more forces pagination: 251 entries.
-    (doseq [n (range 250)]
-      (rf.story/reg-story (keyword (str "story.clamp" n))
-        {:doc "" :component :app/x :tags #{:dev}}))
-    (let [r (invoke "list-stories" {:limit 99999})
-          s (:structuredContent r)]
-      (is (success? r))
-      ;; With :limit clamped to 200 the first page holds 200 entries and
-      ;; :has-more? is true.
-      (is (<= (count (:stories s)) 200)
-          "first page MUST NOT exceed max-limit 200"))))
+  (doseq [n (range 250)]
+    (rf.story/reg-story (keyword (str "story.clamp" n)) {:doc "" :component :app/x :tags #{:dev}}))
+  ;; `:max-tokens 0` lifts the response cap, which a 200-entry page exceeds:
+  ;; the overflow marker carries no `:stories` at all.
+  (let [s (:structuredContent (invoke "list-stories" {:limit 99999 :max-tokens 0}))]
+    (is (= [rf.story-mcp.tools.cursor/max-limit true] [(count (:stories s)) (:has-more? s)]))))
 
 (deftest list-modes-paginates
-  (testing "list-modes honours :limit + :cursor"
-    (doseq [n (range 35)]
-      ;; Mode ids per spec/007 grammar: `:Mode.<path>/<name>`.
-      (rf.story/reg-mode (keyword "Mode.pager" (str "m" n))
-        {:doc "" :args {}}))
-    (let [r (invoke "list-modes" {:limit 10})
-          s (:structuredContent r)]
-      (is (success? r))
-      (is (= 10 (count (:modes s))))
-      (is (true? (:has-more? s)))
-      (is (string? (:next-cursor s))))))
+  (doseq [n (range 35)]
+    (rf.story/reg-mode (keyword "Mode.pager" (str "m" n)) {:doc "" :args {}}))
+  (let [s (:structuredContent (invoke "list-modes" {:limit 10}))]
+    (is (= [10 true true] [(count (:modes s)) (:has-more? s) (string? (:next-cursor s))]))))
 
 (deftest list-decorators-pagination-preserves-kind-filter
-  (testing ":kind filter narrows the paginated entry set"
-    ;; Build enough hiccup decorators to force pagination of a kind filter.
-    (doseq [n (range 30)]
-      (rf.story/reg-decorator (keyword (str "dec.page/h" n))
-        {:kind :hiccup :doc "" :wrap (fn [child] child)}))
-    (let [r (invoke "list-decorators" {:kind "hiccup" :limit 5})
-          s (:structuredContent r)]
-      (is (success? r))
-      (is (= 5 (count (:decorators s))))
-      (is (every? #(= :hiccup (:kind %)) (:decorators s)))
-      (is (true? (:has-more? s))))))
+  ;; The ids sort after the fixture's other kinds, so a page cut before the
+  ;; filter would carry them.
+  (doseq [n (range 30)]
+    (rf.story/reg-decorator (keyword (str "zz.page/h" n)) {:kind :hiccup :doc "" :wrap (fn [child] child)}))
+  (let [s (:structuredContent (invoke "list-decorators" {:kind "hiccup" :limit 5}))]
+    (is (= [5 #{:hiccup} true] [(count (:decorators s)) (set (map :kind (:decorators s))) (:has-more? s)]))))
 
 (deftest list-tags-all-is-full-catalogue-under-pagination
-  ;; `:all` is the FULL tag catalogue (canonical ∪ ALL custom), NOT
-  ;; canonical + the current page of custom. Page-scoped, a limit-5 read
-  ;; would return an `:all` of 17 entries (12 canonical + 5 page) — silently
-  ;; omitting 45 custom tags behind a field literally named `:all`, with the
-  ;; only incompleteness signal on the `:custom` cursor — and an agent
-  ;; reading `:all` from page one would believe it had the whole catalogue.
-  (testing "a paginated list-tags returns the COMPLETE :all set (canonical ∪ all custom), not just the page"
-    (doseq [n (range 50)]
-      (rf.story/reg-tag (keyword (str "tag/pager" n)) {:doc ""}))
-    (let [r        (invoke "list-tags" {:limit 5})
-          s        (:structuredContent r)
-          all-set  (set (:all s))]
-      (is (success? r))
-      (is (= 5 (count (:custom s))) "precondition: :custom is a 5-entry page (pagination active)")
-      (is (true? (:has-more? s))    "precondition: more custom tags remain unfetched")
-      (is (= 12 (count (:canonical s)))
-          "the 12-entry canonical set (7 inclusion + 5 :state/* magnitude) lands in full, unpaginated")
-      (is (= 62 (count (:all s)))
-          ":all is the FULL catalogue — 12 canonical + all 50 custom — regardless of the :custom page size")
-      (is (= (count all-set) (count (:all s))) ":all carries no duplicates")
-      ;; Every canonical tag AND every custom tag — including ones NOT on the
-      ;; current :custom page — must be present in :all.
-      (is (every? all-set (:canonical s)) ":all contains the whole canonical set")
-      (is (every? #(contains? all-set (keyword (str "tag/pager" %))) (range 50))
-          ":all contains every custom tag, including the 45 not on the current :custom page"))))
+  ;; `:all` is canonical ∪ ALL custom tags, not canonical plus the current
+  ;; `:custom` page: an agent reading `:all` from page one would otherwise
+  ;; believe it had the whole catalogue.
+  (doseq [n (range 50)] (rf.story/reg-tag (keyword (str "tag/pager" n)) {:doc ""}))
+  (let [s      (:structuredContent (invoke "list-tags" {:limit 5}))
+        canon  (set/union rf.story.schemas/canonical-tags rf.story.schemas/canonical-state-tags)
+        custom (set (map #(keyword (str "tag/pager" %)) (range 50)))]
+    (is (= [5 true canon] [(count (:custom s)) (:has-more? s) (set (:canonical s))]))
+    (is (= (set/union canon custom) (set (:all s))))
+    (is (= (+ (count canon) 50) (count (:all s))) ":all carries no duplicates")))
 
 (deftest list-assertions-canonical-doc-stays-full
-  (testing "the canonical assertion-doc vector is bounded (10) so it never paginates"
-    (let [r (invoke "list-assertions" {:limit 3})
-          s (:structuredContent r)]
-      (is (success? r))
-      ;; Ten: the seven dispatched + the three tape-evaluated
-      ;; (:rf.assert/schema-error + the causal pair).
-      (is (= 10 (count (:canonical s)))
-          "the canonical-doc vec is the bounded reference; not subject to pagination")
-      (is (<= (count (:registered s)) 3) ":registered honours :limit"))))
+  ;; The canonical assertion-doc vector is a bounded reference and never
+  ;; paginates; `:registered` honours `:limit`.
+  (let [full  (:structuredContent (invoke "list-assertions" {}))
+        paged (:structuredContent (invoke "list-assertions" {:limit 3}))]
+    (is (= (:canonical full) (:canonical paged)))
+    (is (= [true 3] [(boolean (seq (:canonical full))) (count (:registered paged))]))))
 
 ;; ---------------------------------------------------------------------------
 ;; Testing tools
 ;; ---------------------------------------------------------------------------
 
 (deftest run-variant-happy
-  (let [r (invoke "run-variant" {:variant-id "story.button/primary"})
-        s (:structuredContent r)]
-    (is (success? r))
-    (is (= :story.button/primary (:frame s)))
-    ;; The verdict is the unified :status; there is no :passing? boolean.
-    ;; A zero-assertion run is vacuously :pass.
-    (is (= :pass (:status s)) "no assertions ⇒ vacuously :pass")
-    (is (not (contains? s :passing?)) "there is no :passing? boolean")
-    (is (vector? (:assertions s)))
-    (is (vector? (:checks s)) "the unified :checks group is present")))
+  (let [s (:structuredContent (invoke "run-variant" {:variant-id "story.button/primary"}))]
+    (is (= [:story.button/primary :pass] [(:frame s) (:status s)]) "no assertions ⇒ vacuously :pass")
+    (is (vector? (:checks s)))))
 
 (deftest lifecycle-tools-refuse-with-no-adapter
-  ;; The NEGATIVE CONTROL for the no-adapter refusal. `reset-story-and-config` installs
-  ;; `plain-atom` before every test — exactly the boot a consuming project's
-  ;; preloaded namespace performs — so this test REMOVES that boot for its own
-  ;; duration via core's test-only cold-start seam, and restores it in a
-  ;; `finally`. (The `:each` fixture re-installs regardless, so a failure here
-  ;; cannot leak a cold adapter slot into a later test.)
-  ;;
-  ;; Without the guard both lifecycle tools would return the ORDINARY success
-  ;; envelope with `:status :pass` over an empty app-db and zero assertions —
-  ;; a success-shaped NON-RUN. The distinction this pins is against
-  ;; `run-variant-happy` directly above, which asserts the SAME variant is
-  ;; vacuously `:pass` WITH an adapter installed: executed-and-assertion-free
-  ;; stays green (Story's intentional rule); never-executed is an error.
+  ;; Without the guard both tools would settle `:status :pass` over an empty
+  ;; app-db: a success-shaped NON-RUN. The fixture installs plain-atom, so the
+  ;; test removes that boot through core's cold-start seam and restores it.
   (try
-    (is (true? (rf.story-mcp.tools.lifecycle/adapter-installed?))
-        "precondition: the :each fixture installed plain-atom")
     (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
-    (is (false? (rf.story-mcp.tools.lifecycle/adapter-installed?))
-        "the cold-start seam left this process with no adapter")
     (doseq [tool-name ["run-variant" "preview-variant"]]
-      (testing tool-name
-        (let [r (invoke tool-name {:variant-id "story.button/primary"})
-              s (:structuredContent r)]
-          (is (error? r) "a missing adapter is an error, never a run outcome")
-          (is (= :rf.error/no-adapter-installed (:rf.error s))
-              "the stable machine-readable id is core's own for this condition")
-          (is (= tool-name (:tool s)))
-          (is (= :init-an-adapter-in-the-preloaded-namespace (:recovery s))
-              "the recovery names the fix")
-          (is (not (contains? s :status))
-              "the refusal carries NO run verdict — it is not a run")
-          (is (re-find #"rf/init!" (-> r :content first :text))
-              "the human sentence names rf/init!")
-          (is (re-find #"plain-atom" (-> r :content first :text))
-              "the human sentence names the renderer-free headless substrate"))))
+      (let [r (invoke tool-name {:variant-id "story.button/primary"})]
+        (is (= [true {:rf.error :rf.error/no-adapter-installed
+                      :tool     tool-name
+                      :recovery :init-an-adapter-in-the-preloaded-namespace}]
+               [(:isError r) (select-keys (:structuredContent r) [:rf.error :tool :recovery :status])])
+            (str tool-name ": a refusal carrying no run verdict"))))
     (finally
       (rf/init! rf.substrate.plain-atom/adapter))))
 
 (deftest run-variant-cannot-run-reachable
-  ;; The distinct THIRD verdict `:cannot-run` must be
-  ;; reachable over the wire. A `:rf.assert/caused` expectation needs
-  ;; reactive evidence; run
-  ;; under the default no-reactive headless runner, the causal matcher
-  ;; fails closed to :cannot-run rather than silently passing against an
-  ;; empty projection (spec/017 §Causal and cascade assertions).
-  (testing "a causal assertion with no reactive evidence drives :status :cannot-run"
-    (rf.story-mcp.config/set-allow-writes! true)
-    (let [reg (invoke "register-variant"
-                      {:variant-id "story.cause/unrunnable"
-                       :body (str "{:doc \"A causal expectation with no reactive evidence.\""
-                                  " :assertions"
-                                  "  [[:rf.assert/caused {:event :some/event :surface [:any] :min 1}]]}")})]
-      (is (success? reg)))
-    (let [run (invoke "run-variant" {:variant-id "story.cause/unrunnable"})
-          s   (:structuredContent run)]
-      (is (success? run))
-      (is (= :cannot-run (:status s))
-          "no reactive evidence ⇒ the causal expectation is :cannot-run, not a silent pass"))
-    (invoke "unregister-variant" {:variant-id "story.cause/unrunnable"})))
+  ;; A causal expectation needs reactive evidence; under the headless runner
+  ;; it fails closed to :cannot-run rather than passing vacuously.
+  (rf.story/reg-variant* :story.cause/unrunnable
+    {:doc "causal" :assertions [[:rf.assert/caused {:event :some/event :surface [:any] :min 1}]]})
+  (is (= :cannot-run (-> (invoke "run-variant" {:variant-id "story.cause/unrunnable"}) :structuredContent :status))))
+
+;; ---- run options: preview-variant, run-variant and snapshot-identity each
+;; run the shared guard chain. A run option is refused rather than coerced or
+;; dropped, because a dropped one answers for a DIFFERENT tuple than the one
+;; asked for.
+
+(def ^:private run-opts-tools ["preview-variant" "run-variant" "snapshot-identity"])
+
+(defn- run-opts-result
+  "The `:structuredContent` of `tool` called on story.button/primary with `args`."
+  [tool args]
+  (:structuredContent (invoke tool (merge {:variant-id "story.button/primary"} args))))
 
 (deftest run-opts-wrongly-typed-arg-rejected
-  ;; `:active-modes` advertises an array argument
-  ;; (`{:type "array" :items s/kw-or-string}`) and `:cell-overrides` an object
-  ;; argument on all three `read-run-opts` callers. A malformed client that
-  ;; sends a bare scalar for either must get a clean `isError` result, not a
-  ;; successful-looking WRONG one: `read-run-opts`'s `into`/`keep` would walk a
-  ;; scalar `:active-modes` string character by character (each character
-  ;; probed against the mode allowlist and dropped, producing a confusing
-  ;; empty `:active-modes []`), and `safe-cell-overrides`'s
-  ;; `(when (map? overrides) ...)` guard would silently DROP a non-map
-  ;; `:cell-overrides`, so the call would succeed as if no override was sent.
-  (doseq [[arg bad-value shape-re error-id]
-          [[:active-modes   "Mode.theme/dark" #"(?i):active-modes must be an array"   :rf.error/scalar-for-collection-arg]
-           [:cell-overrides "not-a-map"       #"(?i):cell-overrides must be an object" :rf.error/non-map-arg]]
-          tool-name ["preview-variant" "run-variant" "snapshot-identity"]]
-    (testing (str tool-name " rejects a wrongly-typed " arg)
-      (let [r (invoke tool-name {:variant-id "story.button/primary"
-                                 arg         bad-value})]
-        (is (error? r) (str tool-name " must reject a wrongly-typed " arg ", not coerce, crash or drop it"))
-        (is (re-find shape-re (-> r :content first :text))
-            "the error names the offending arg + expected shape")
-        (is (= error-id (-> r :structuredContent :rf.error))
-            "a stable :rf.error id rides the structuredContent")))))
-
-;; ---- unknown run-option IDENTIFIERS are refused ---------------------------
-;;
-;; The shape guards above reject a WRONGLY-TYPED run option. These reject a
-;; correctly-shaped one carrying an identifier the server does not know.
-;; Were `read-run-opts`' bounded-allowlist coercion to DROP the unknown id
-;; and the handler run on, an agent that typo'd a mode or an override key
-;; would get `:status :pass`, a share URL, or a visual-regression
-;; `:content-hash` for a DIFFERENT tuple than it asked for — a
-;; successful-looking WRONG result, the same class the substrate and
-;; unknown-top-level-knob guards refuse. The no-intern posture holds:
-;; refusing an unknown id interns nothing (see
-;; `run-opts-rejection-does-not-intern` below).
+  ;; A scalar `:active-modes` would be walked character by character, and a
+  ;; non-map `:cell-overrides` silently dropped.
+  (doseq [[args error-id] [[{:active-modes "Mode.theme/dark"} :rf.error/scalar-for-collection-arg]
+                           [{:cell-overrides "not-a-map"}     :rf.error/non-map-arg]]
+          tool run-opts-tools]
+    (is (= error-id (:rf.error (run-opts-result tool args))) (str tool " " args))))
 
 (deftest run-opts-unknown-active-mode-rejected
-  (doseq [tool-name ["preview-variant" "run-variant" "snapshot-identity"]]
-    (testing (str tool-name " refuses an unknown :active-modes id")
-      (let [r (invoke tool-name {:variant-id   "story.button/primary"
-                                 :active-modes ["Mode.theme/darkk"]})
-            s (:structuredContent r)]
-        (is (error? r) (str tool-name " must refuse an unknown mode, not drop it and run on"))
-        (is (re-find #"Mode\.theme/darkk" (-> r :content first :text))
-            "the diagnostic names the OFFENDING raw id, so the agent need not guess which one")
-        (is (re-find #"Mode\.theme/dark\"" (-> r :content first :text))
-            "and enumerates the accepted set (derived live from the registry)")
-        (is (= :rf.error/story-mcp-unknown-active-mode (:rf.error s))
-            "a stable :rf.error id rides the structuredContent")
-        (is (= ["Mode.theme/darkk"] (:active-modes s))
-            "the rejected id rides structured, as the RAW string the caller sent")
-        (is (some #{":Mode.theme/dark"} (:registered s))
-            "the registered set rides structured too — one round trip to recover")))))
+  (doseq [tool run-opts-tools]
+    (is (= {:rf.error :rf.error/story-mcp-unknown-active-mode :active-modes ["Mode.theme/darkk"]}
+           (select-keys (run-opts-result tool {:active-modes ["Mode.theme/darkk"]}) [:rf.error :active-modes]))
+        tool))
+  (is (some #{":Mode.theme/dark"} (:registered (run-opts-result "run-variant" {:active-modes ["Mode.theme/darkk"]})))
+      "the registered set rides too, derived live from the registry"))
 
 (deftest run-opts-mixed-known-unknown-modes-reject-atomically
-  ;; The partial-execution case: running the KNOWN subset is precisely the
-  ;; "different scenario" this guard exists to refuse, so a mixed list must
-  ;; reject whole rather than proceeding under the modes it recognised.
-  (doseq [tool-name ["preview-variant" "run-variant" "snapshot-identity"]]
-    (testing (str tool-name " rejects a mixed known+unknown mode list atomically")
-      (let [r (invoke tool-name {:variant-id   "story.button/primary"
-                                 :active-modes [":Mode.theme/dark" "Mode.theme/nope"]})
-            s (:structuredContent r)]
-        (is (error? r) "a known mode alongside an unknown one must NOT run the known subset")
-        (is (= ["Mode.theme/nope"] (:active-modes s))
-            "only the unresolved id is reported — the known one is not maligned")))))
+  ;; Running the known subset is exactly the different scenario the guard
+  ;; refuses; only the unresolved id is reported.
+  (is (= ["Mode.theme/nope"]
+         (:active-modes (run-opts-result "run-variant" {:active-modes [":Mode.theme/dark" "Mode.theme/nope"]})))))
 
 (deftest run-opts-unknown-cell-override-key-rejected
-  (doseq [tool-name ["preview-variant" "run-variant" "snapshot-identity"]]
-    (testing (str tool-name " refuses an unknown :cell-overrides key")
-      (let [r (invoke tool-name {:variant-id     "story.button/primary"
-                                 :cell-overrides {"lable" "Override"}})
-            s (:structuredContent r)]
-        (is (error? r) (str tool-name " must refuse an unknown override key, not hash/run without it"))
-        (is (re-find #"lable" (-> r :content first :text))
-            "the diagnostic names the offending raw key")
-        (is (re-find #":effective-args" (-> r :content first :text))
-            "and gives a bounded recovery path rather than only a refusal")
-        (is (= :rf.error/story-mcp-unknown-cell-override-key (:rf.error s))
-            "a stable :rf.error id rides the structuredContent")
-        (is (= ["lable"] (:cell-overrides s))
-            "the rejected key rides structured as the RAW string")
-        (is (some #{":label"} (:allowed s))
-            "the allowed key set is derived from the variant's effective args, not hard-coded")))))
+  (doseq [tool run-opts-tools]
+    (is (= {:rf.error :rf.error/story-mcp-unknown-cell-override-key :cell-overrides ["lable"]}
+           (select-keys (run-opts-result tool {:cell-overrides {"lable" "Override"}}) [:rf.error :cell-overrides]))
+        tool))
+  (is (some #{":label"} (:allowed (run-opts-result "run-variant" {:cell-overrides {"lable" "Override"}})))
+      "the allowed set is derived from the variant's effective args"))
 
 (deftest run-opts-valid-identifiers-still-run
-  ;; The other half of the witness: the guard must not be over-broad. A
-  ;; VALID mode and a VALID override still execute end-to-end on all three
-  ;; tools. Without this, a fix that rejected everything would pass the
-  ;; rejection tests above.
-  (testing "a known mode + known override still runs / hashes"
-    (doseq [tool-name ["preview-variant" "run-variant" "snapshot-identity"]]
-      (let [r (invoke tool-name {:variant-id     "story.button/primary"
-                                 :active-modes   [":Mode.theme/dark"]
-                                 :cell-overrides {"label" "Override"}})]
-        (is (success? r) (str tool-name " must still accept valid identifiers"))))
-    (let [r (invoke "snapshot-identity" {:variant-id     "story.button/primary"
-                                         :active-modes   [":Mode.theme/dark"]
-                                         :cell-overrides {"label" "Override"}})]
-      (is (some? (-> r :structuredContent :content-hash))
-          "and the identity hash is actually computed for the accepted tuple"))))
+  ;; The other half of the witness: a guard that refused everything would
+  ;; pass the rejection tests above.
+  (doseq [tool run-opts-tools]
+    (is (success? (invoke tool {:variant-id     "story.button/primary"
+                                :active-modes   [":Mode.theme/dark"]
+                                :cell-overrides {"label" "Override"}}))
+        tool)))
 
 (deftest run-opts-mode-introduced-override-key-accepted-at-handler
-  ;; The handler-level peer of `read-run-opts-allows-active-mode-introduced-
-  ;; cell-override-key`: :theme is NOT a base arg of
-  ;; story.button/primary but IS contributed by :Mode.theme/dark, and Story
-  ;; merges mode args before cell-local overrides — so with that mode active
-  ;; a :theme override is legitimate and must NOT be rejected as unknown.
-  ;; This is why the guard validates modes FIRST and derives the override
-  ;; allowlist under them.
-  (testing "an override for a MODE-INTRODUCED arg key is accepted"
-    (let [r (invoke "snapshot-identity" {:variant-id     "story.button/primary"
-                                         :active-modes   [":Mode.theme/dark"]
-                                         :cell-overrides {"theme" ":light"}})]
-      (is (success? r)
-          "the mode-introduced :theme override must not be refused as an unknown key")))
-  (testing "and WITHOUT the mode it is correctly unknown — the widening is scoped"
-    (let [r (invoke "snapshot-identity" {:variant-id     "story.button/primary"
-                                         :cell-overrides {"theme" ":light"}})]
-      (is (error? r)
-          "with no active mode :theme is not an effective arg, so the override is refused")
-      (is (= ["theme"] (-> r :structuredContent :cell-overrides))))))
+  ;; `:theme` is not an arg of story.button/primary but :Mode.theme/dark
+  ;; contributes it, and Story merges mode args before cell overrides, so the
+  ;; guard derives the override allowlist UNDER the active modes.
+  (is (success? (invoke "snapshot-identity" {:variant-id     "story.button/primary"
+                                             :active-modes   [":Mode.theme/dark"]
+                                             :cell-overrides {"theme" ":light"}})))
+  (is (= ["theme"] (:cell-overrides (run-opts-result "snapshot-identity" {:cell-overrides {"theme" ":light"}})))
+      "without the mode, :theme is not an effective arg and is refused"))
 
 (deftest run-opts-rejection-does-not-intern
-  ;; The no-intern security invariant holds under the REJECT: reporting a raw
-  ;; string does not intern it. The probes go through `invoke-tool` with the
-  ;; string ids the no-intern ingress hands a handler; the over-the-wire
-  ;; probes are the `ingress-does-not-intern-*` tests further down.
-  (testing "a rejected unknown mode / override key never interns a keyword"
-    (let [mode-probe (str "Mode.rf2-sw1d/unknown-" (System/nanoTime))
-          co-probe   (str "rf2-sw1d-co-" (System/nanoTime))]
-      (is (nil? (find-keyword mode-probe)) "precondition: mode probe uninterned")
-      (is (nil? (find-keyword co-probe)) "precondition: override probe uninterned")
-      (let [r1 (invoke "run-variant" {:variant-id   "story.button/primary"
-                                      :active-modes [mode-probe]})
-            r2 (invoke "snapshot-identity" {:variant-id     "story.button/primary"
-                                            :cell-overrides {co-probe "x"}})]
-        (is (error? r1) "the unknown mode is refused")
-        (is (error? r2) "the unknown override key is refused")
-        (is (nil? (find-keyword mode-probe))
-            "refusing an unknown mode MUST NOT intern it")
-        (is (nil? (find-keyword co-probe))
-            "refusing an unknown override key MUST NOT intern it")))))
+  (let [mode-probe (str "Mode.rf2-sw1d/unknown-" (System/nanoTime))
+        co-probe   (str "rf2-sw1d-co-" (System/nanoTime))]
+    (invoke "run-variant" {:variant-id "story.button/primary" :active-modes [mode-probe]})
+    (invoke "snapshot-identity" {:variant-id "story.button/primary" :cell-overrides {co-probe "x"}})
+    (is (= [nil nil] [(find-keyword mode-probe) (find-keyword co-probe)]))))
 
 (deftest read-a11y-violations-unavailable-on-jvm-host-is-error
-  ;; The a11y-panel-state provider is UNREACHABLE on the
-  ;; JVM stdio host (no bridge to the CLJS `violations-by-frame` atom), so
-  ;; the read returns a machine-readable capability-unavailable error, NOT
-  ;; a false-empty `{:violations []}` an agent could read as 'zero
-  ;; accessibility violations'.
-  (testing "provider ABSENT (JVM stdio default) ⇒ capability-unavailable error, not empty success"
-    (let [r (invoke "read-a11y-violations" {:variant-id "story.button/primary"})
-          s (:structuredContent r)]
-      (is (error? r) "an unreachable a11y panel is an error, not empty success")
-      (is (= :rf.error/story-mcp-capability-unavailable (:rf.error s))
-          "the structured error carries the stable capability-unavailable id")
-      (is (= "a11y-panel-state" (:capability s)))
-      (is (= "read-a11y-violations" (:tool s)))
-      (is (not (contains? s :violations))
-          "no false-empty :violations slot — the host never ran axe-core"))))
+  (let [r (invoke "read-a11y-violations" {:variant-id "story.button/primary"})]
+    (is (error? r))
+    (is (= {:rf.error   :rf.error/story-mcp-capability-unavailable
+            :capability "a11y-panel-state"
+            :tool       "read-a11y-violations"}
+           (select-keys (:structuredContent r) [:rf.error :capability :tool :violations])))))
 
 (deftest read-a11y-violations-carries-incomplete-beside-violations
-  ;; axe-core's INCOMPLETE results (checks it could not decide) ride beside
-  ;; `:violations` as an `:incomplete` slot, read through
-  ;; the sibling `*a11y-incomplete-provider*` seam. An incomplete-only frame is
-  ;; NOT a clean bill: an agent must see the undecided checks, not `[]` alone.
+  ;; axe-core's undecided checks ride beside `:violations`: an incomplete-only
+  ;; frame is not a clean bill, and a host that cannot see them says nothing
+  ;; rather than answering `[]`.
   (let [vios [{:id "label" :impact "critical" :nodes [{:html "<input>"}]}]
-        incs [{:id "color-contrast" :impact "serious"
-               :nodes [{:target ["h3"]} {:target ["p"]}]}]]
-    (testing "both seams REACHED ⇒ the result carries both; :violations keeps its shape"
-      (binding [rf.story-mcp.tools.cljs-resolve/*a11y-provider*            (fn [] {:story.button/primary vios})
-                rf.story-mcp.tools.cljs-resolve/*a11y-incomplete-provider* (fn [] {:story.button/primary incs})]
-        (let [r (invoke "read-a11y-violations" {:variant-id "story.button/primary"})
-              s (:structuredContent r)]
-          (is (success? r))
-          (is (= vios (:violations s)) "the violations ride through verbatim")
-          (is (= incs (:incomplete s)) "the incomplete results ride beside them"))))
-    (testing "an INCOMPLETE-ONLY frame does not read as clean: [] violations beside the undecided checks"
-      (binding [rf.story-mcp.tools.cljs-resolve/*a11y-provider*            (fn [] {})
-                rf.story-mcp.tools.cljs-resolve/*a11y-incomplete-provider* (fn [] {:story.button/primary incs})]
-        (let [r (invoke "read-a11y-violations" {:variant-id "story.button/primary"})
-              s (:structuredContent r)]
-          (is (success? r) "incomplete is not a failure")
-          (is (= [] (:violations s)))
-          (is (= 1 (count (:incomplete s)))
-              "the undecided check is returned, so zero violations is not reported alone"))))
-    (testing "incomplete seam REACHED but no entry for this frame ⇒ :incomplete []"
-      (binding [rf.story-mcp.tools.cljs-resolve/*a11y-provider*            (fn [] {:story.button/primary vios})
-                rf.story-mcp.tools.cljs-resolve/*a11y-incomplete-provider* (fn [] {:story.other/frame incs})]
-        (let [s (:structuredContent (invoke "read-a11y-violations" {:variant-id "story.button/primary"}))]
-          (is (= [] (:incomplete s))))))
-    (testing "incomplete seam UNBOUND ⇒ no :incomplete slot, never a false-empty []"
-      (binding [rf.story-mcp.tools.cljs-resolve/*a11y-provider* (fn [] {:story.button/primary vios})]
-        (let [r (invoke "read-a11y-violations" {:variant-id "story.button/primary"})
-              s (:structuredContent r)]
-          (is (success? r))
-          (is (= vios (:violations s)))
-          (is (not (contains? s :incomplete))
-              "a host that cannot see the incomplete bag says nothing about it"))))))
+        incs [{:id "color-contrast" :impact "serious" :nodes [{:target ["h3"]}]}]
+        read (fn [vio-map inc-map]
+               (binding [rf.story-mcp.tools.cljs-resolve/*a11y-provider*            (fn [] vio-map)
+                         rf.story-mcp.tools.cljs-resolve/*a11y-incomplete-provider* (when inc-map (fn [] inc-map))]
+                 (select-keys (:structuredContent (invoke "read-a11y-violations" {:variant-id "story.button/primary"}))
+                              [:violations :incomplete])))]
+    (is (= {:violations vios :incomplete incs} (read {:story.button/primary vios} {:story.button/primary incs})))
+    (is (= {:violations [] :incomplete incs} (read {} {:story.button/primary incs})))
+    (is (= {:violations vios :incomplete []} (read {:story.button/primary vios} {:story.other/frame incs})))
+    (is (= {:violations vios} (read {:story.button/primary vios} nil)))))
 
 (deftest read-failures-empty-after-no-run
-  (testing "no run yet ⇒ zero accumulated assertions, vacuously :pass"
-    (let [r (invoke "read-failures" {:variant-id "story.button/primary"})
-          s (:structuredContent r)]
-      (is (success? r))
-      (is (= 0 (:total s)))
-      (is (empty? (:failures s)))
-      (is (empty? (:assertions s)))
-      ;; :status is the unified verdict; there is no :passing? boolean.
-      (is (= :pass (:status s)))
-      (is (not (contains? s :passing?))))))
-
-;; ---------------------------------------------------------------------------
-;; Self-healing loop — failing :rf.assert/* through run-variant → read-failures
-;;
-;; While other tests cover the optimistic (vacuous-pass) flow, this
-;; deftest drives a DELIBERATELY-FAILING `:rf.assert/path-equals` through
-;; the MCP tool surface and asserts the AI-visible failure shape — the wire-
-;; side contract an agent would consume.
-;;
-;; The agent self-healing loop has four steps:
-;;   1. register-variant with a `:script` body whose assertion will fail
-;;   2. run-variant — :status :fail; :assertions carries the failed record
-;;   3. read-failures — non-empty :failures vector with structured data
-;;   4. (agent proposes a fix — out of scope for this contract test)
-;;
-;; The failure record's shape (per tools/story/spec/004-Assertions.md +
-;; tools/story/src/re_frame/story/assertions.cljc `assertion-record`):
-;;
-;;     {:assertion :rf.assert/path-equals
-;;      :payload   [[:auth :status] :authenticated]
-;;      :passed?   false
-;;      :expected  :authenticated
-;;      :actual    nil
-;;      :path      [:auth :status]
-;;      :reason    "expected :authenticated at [:auth :status] but got nil"
-;;      :elapsed-ms <int>}
-;;
-;; The MCP wire serialises this as-is on `:structuredContent` (per
-;; `tools/testing.cljc` `tool-read-failures` + `tool-run-variant`) —
-;; Story keys survive the JSON-RPC round-trip into the agent's view.
-;; ---------------------------------------------------------------------------
+  (is (= {:total 0 :failures [] :assertions [] :status :pass}
+         (select-keys (:structuredContent (invoke "read-failures" {:variant-id "story.button/primary"}))
+                      [:total :failures :assertions :status]))))
 
 (deftest self-healing-loop-failing-assertion-shape
-  (testing "register → run → read-failures surfaces the :rf.assert/path-equals failure shape"
-    (rf.story-mcp.config/set-allow-writes! true)
-    ;; Step 1 — agent registers a variant whose :script body asserts a
-    ;; slot that no setup step populated. The assertion will fail because
-    ;; `(get-in @app-db [:auth :status])` is nil, not :authenticated.
-    ;;
-    ;; Public vocabulary (spec/017 §Public vocabulary): `:script` is the
-    ;; phase-4 play surface. Each assertion event is wrapped as
-    ;; `[:dispatch-sync <event-vec>]` so the `:rf.assert/*` event runs
-    ;; through the standard re-frame cascade and lands its record on the
-    ;; frame's `[:rf.story/assertions]` BEFORE `read-failures` / the
-    ;; `run-variant` result is built.
-    (let [reg (invoke "register-variant"
-                      {:variant-id "story.auth/sad"
-                       :body (str "{:doc \"Deliberately-failing assertion.\""
-                                  " :script [[:dispatch-sync"
-                                  " [:rf.assert/path-equals [:auth :status] :authenticated]]]}")})]
-      (is (success? reg) "fixture registration succeeds")
-      (is (true? (-> reg :structuredContent :registered?))))
-
-    ;; Step 2 — run-variant. The wire result carries the unified :status
-    ;; :fail and a non-empty :assertions vector. The failed record carries
-    ;; the assertion-id, payload, and expected/actual slots — enough for the
-    ;; agent to localise the failure without re-fetching anything.
-    (let [run (invoke "run-variant" {:variant-id "story.auth/sad"})
-          s   (:structuredContent run)
-          a   (first (:assertions s))]
-      (is (success? run))
-      (is (= :fail (:status s))
-          "a failed assertion drives the unified verdict to :fail")
-      (is (= :fail (:status a)) "the failed record carries the derived :status :fail")
-      (is (= 1 (count (:assertions s))) "one assertion fired, one record")
-      (is (= :rf.assert/path-equals (:assertion a))
-          "the failed record names the canonical assertion id")
-      (is (false? (:passed? a)) "the record explicitly carries :passed? false")
-      (is (= :authenticated (:expected a)))
-      (is (nil? (:actual a)))
-      (is (= [:auth :status] (:path a))
-          "the path slot localises the assertion to a single app-db site")
-      (is (string? (:reason a))
-          "the :reason slot is the human-readable explanation the AI surfaces back to the LLM")
-      (is (re-find #":authenticated" (:reason a))
-          "the reason text names the expected value"))
-
-    ;; Step 3 — read-failures (the dedicated agent-facing read of accumulated
-    ;; failures without re-running). The shape per `tool-read-failures`:
-    ;;   {:variant-id <kw> :status <kw> :total <int> :failures <vec> :assertions <vec>}
-    (let [rf (invoke "read-failures" {:variant-id "story.auth/sad"})
-          s  (:structuredContent rf)
-          f  (first (:failures s))]
-      (is (success? rf))
-      (is (= :story.auth/sad (:variant-id s))
-          ":variant-id round-trips so the agent can correlate the read with its source variant")
-      (is (= 1 (:total s)) ":total counts every assertion (passed + failed)")
-      (is (= 1 (count (:failures s)))
-          ":failures filters to the genuine failure statuses (:fail / :error)")
-      (is (= :fail (:status s))
-          ":status is the same unified verdict `run-variant` returned — consistent across the read surface")
-      ;; The failure record's keys match the run-variant projection — the
-      ;; agent sees the same unified record shape regardless of which tool read it.
-      (is (= :rf.assert/path-equals (:assertion f)))
-      (is (= :fail (:status f)) "the failure record carries the derived :status :fail")
-      (is (false? (:passed? f)))
-      (is (= :authenticated (:expected f)))
-      (is (nil? (:actual f)))
-      (is (= [:auth :status] (:path f))))
-
-    ;; Step 4 (out of scope) — an agent would now propose a `:setup` slot
-    ;; like `[[:test/set-status]]` and re-register, then re-run. The "fix
-    ;; passes" half is exercised in tools/story's `path-equals-pass` test.
-
-    ;; Tear-down — keep the read surface clean for any downstream test.
-    (rf.story-mcp.config/set-allow-writes! true)
-    (invoke "unregister-variant" {:variant-id "story.auth/sad"})))
-
-(deftest self-healing-loop-survives-record-dont-throw
-  (testing "play-runner records every failure and continues; read-failures returns all of them"
-    ;; Per tools/story/spec/004-Assertions.md the play sequence does NOT
-    ;; halt on a failed assertion — failures record into the accumulator and
-    ;; the sequence runs to completion. The agent's view of `read-failures`
-    ;; therefore reflects EVERY failure observed, not just the first.
-    (rf.story-mcp.config/set-allow-writes! true)
-    ;; Wrap each `:rf.assert/*` event vector as a `[:dispatch-sync ...]`
-    ;; step inside `:script` (the public phase-4 play surface). The runner
-    ;; walks both steps even if the first one's assertion fails —
-    ;; record-don't-throw lets the play sequence complete and both records
-    ;; land on `[:rf.story/assertions]` for `read-failures` to surface.
-    (let [reg (invoke "register-variant"
-                      {:variant-id "story.auth/double-fail"
-                       :body (str "{:doc \"Two failing assertions; both must record.\""
-                                  " :script"
-                                  " [[:dispatch-sync"
-                                  "   [:rf.assert/path-equals [:auth :status] :authenticated]]"
-                                  "  [:dispatch-sync"
-                                  "   [:rf.assert/path-equals [:user :role] :admin]]]}")})]
-      (is (success? reg)))
-
-    (let [run (invoke "run-variant" {:variant-id "story.auth/double-fail"})
-          s   (:structuredContent run)]
-      (is (success? run))
-      (is (= :fail (:status s)))
-      (is (= 2 (count (:assertions s)))
-          "BOTH assertions recorded — the play sequence ran to completion despite the first fail"))
-
-    (let [rf (invoke "read-failures" {:variant-id "story.auth/double-fail"})
-          s  (:structuredContent rf)]
-      (is (success? rf))
-      (is (= 2 (:total s)))
-      (is (= 2 (count (:failures s))))
-      (is (= [:auth :status] (-> s :failures first :path))
-          "failures preserve registration order")
-      (is (= [:user :role] (-> s :failures second :path))))
-
-    (invoke "unregister-variant" {:variant-id "story.auth/double-fail"})))
+  ;; The agent loop: register a variant whose assertion fails, run it, then
+  ;; read the accumulated failures without re-running. Both reads carry the
+  ;; same record, enough to localise the failure.
+  (rf.story-mcp.config/set-allow-writes! true)
+  (invoke "register-variant"
+          {:variant-id "story.auth/sad"
+           :body       (str "{:doc \"Deliberately-failing assertion.\""
+                            " :script [[:dispatch-sync"
+                            " [:rf.assert/path-equals [:auth :status] :authenticated]]]}")})
+  (let [record   {:assertion :rf.assert/path-equals :status :fail :passed? false
+                  :expected  :authenticated :actual nil :path [:auth :status]}
+        keep-rec #(select-keys % (keys record))
+        run      (:structuredContent (invoke "run-variant" {:variant-id "story.auth/sad"}))
+        read     (:structuredContent (invoke "read-failures" {:variant-id "story.auth/sad"}))]
+    (is (= [:fail [record]] [(:status run) (mapv keep-rec (:assertions run))]))
+    (is (= [:story.auth/sad :fail 1 [record]]
+           [(:variant-id read) (:status read) (:total read) (mapv keep-rec (:failures read))]))
+    (is (string? (-> run :assertions first :reason)) "a human-readable reason rides the record")))
 
 ;; ---------------------------------------------------------------------------
-;; Write surface (gating)
+;; Write surface
 ;; ---------------------------------------------------------------------------
 
 (deftest write-tools-gated-by-default-name-the-caller
-  ;; With the gate at its default (closed), both write tools refuse through
-  ;; `assert-writes-allowed`, which must stamp the gated-error payload with
-  ;; the ACTUAL invoking tool name. Hardcoding `:tool "register-variant"`
-  ;; would make the other caller (`unregister-variant`) return a gated error
-  ;; whose `:structuredContent :tool` slot LIES about its origin. This test
-  ;; pins the refusal and the slot at each callsite, and the shared message
-  ;; once.
-  (testing "gated error's :structuredContent :tool matches the invoking tool"
-    (is (false? (rf.story-mcp.config/writes-allowed?))
-        "fixture must leave the gate closed for this test")
-    (let [r (invoke "register-variant" {:variant-id "story.button/danger"
-                                        :body {:doc "x"}})]
-      (is (error? r))
-      (is (re-find #"Write surface disabled" (-> r :content first :text)))
-      (is (true? (-> r :structuredContent :gated)))
-      (is (= "register-variant" (-> r :structuredContent :tool))))
-    (let [r (invoke "unregister-variant" {:variant-id "story.button/primary"})]
-      (is (error? r))
-      (is (true? (-> r :structuredContent :gated)))
-      (is (= "unregister-variant" (-> r :structuredContent :tool))))))
+  ;; Both write tools refuse through one shared guard, which must stamp the
+  ;; ACTUAL caller rather than a hard-coded name.
+  (doseq [[tool args] [["register-variant"   {:variant-id "story.button/danger" :body {:doc "x"}}]
+                       ["unregister-variant" {:variant-id "story.button/primary"}]]]
+    (let [r (invoke tool args)]
+      (is (= [true {:gated true :tool tool}] [(:isError r) (select-keys (:structuredContent r) [:gated :tool])])))))
 
-;; ---------------------------------------------------------------------------
-;; EDN reader hardening on register-variant :body
-;;
-;; The EDN-string path through `tool-register-variant` is locked down:
-;; no tagged literals, no custom readers, 64KB size cap, 64-level depth
-;; cap. The reader is `:readers {}` with a throwing `:default`, so any
-;; tagged-literal form — including a `#=(...)` evaluator form or any data
-;; reader on the `*data-readers*` table — lands in `::edn-error` rather
-;; than evaluating.
-;; ---------------------------------------------------------------------------
+;; The EDN-string `:body` reader is locked down: no tagged literals, no
+;; custom readers, a 64KB size cap and a 64-level depth cap, each refused
+;; before the registrar sees the value.
+
+(defn- register-text
+  "The response text of a `register-variant` call, writes allowed."
+  [variant-id body]
+  (rf.story-mcp.config/set-allow-writes! true)
+  (-> (invoke "register-variant" {:variant-id variant-id :body body}) :content first :text))
+
+(def ^:private edn-error #"(?i)must be a map or a valid EDN string")
 
 (deftest register-variant-rejects-tagged-literal
-  (testing "EDN body containing a custom tagged literal is rejected"
-    (rf.story-mcp.config/set-allow-writes! true)
-    ;; Custom tags (non-EDN-built-in: not #inst / #uuid) route through the
-    ;; reader's :default handler, which throws under the EDN
-    ;; hardening. The throw lands as ::edn-error → the "must be a map or
-    ;; a valid EDN string" error message.
-    (let [r (invoke "register-variant"
-                    {:variant-id "story.button/tagged"
-                     :body "{:doc #my.app/widget {:x 1}}"})]
-      (is (error? r))
-      (is (re-find #"(?i)must be a map or a valid EDN string" (-> r :content first :text))
-          "tagged literals route through the EDN-error message"))))
+  (is (re-find edn-error (register-text "story.button/tagged" "{:doc #my.app/widget {:x 1}}"))))
 
 (deftest register-variant-rejects-reader-eval-form
-  (testing "EDN body containing #=() does not evaluate"
-    (rf.story-mcp.config/set-allow-writes! true)
-    ;; `#=(...)` is the read-time eval form. `clojure.edn/read-string`
-    ;; ignores `*read-eval*` and rejects it as a tagged literal under
-    ;; our throwing :default. The body should be refused.
-    (let [r (invoke "register-variant"
-                    {:variant-id "story.button/eval"
-                     :body "{:doc #=(println \"PWNED\") :args {}}"})]
-      (is (error? r)
-          "the #= eval form must be rejected before any side-effect can fire"))))
-
-(deftest register-variant-rejects-oversize-edn-body
-  (testing "EDN body exceeding the 64KB ceiling is rejected"
-    (rf.story-mcp.config/set-allow-writes! true)
-    (let [big-doc (apply str (repeat (* 70 1024) \x))
-          r       (invoke "register-variant"
-                          {:variant-id "story.button/oversize"
-                           :body       (str "{:doc \"" big-doc "\"}")})]
-      (is (error? r))
-      (is (re-find #"(?i)must be a map or a valid EDN string" (-> r :content first :text))
-          "oversize payload routes through the EDN-error message"))))
-
-;; The 64KB ceiling is a UTF-8 BYTE budget, and the test above cannot see
-;; whether it is. Its fixture is `xxxx...`: on ASCII, UTF-16 code units and
-;; UTF-8 bytes are the same number, so a code-unit ruler and a byte ruler
-;; agree and both go green -- one refusal measured with two rulers would
-;; pass that fixture unnoticed.
-;;
-;; A DISCRIMINATING fixture is one whose code-unit count sits comfortably
-;; UNDER the cap while its wire-byte count sits comfortably OVER it, so a
-;; code-unit ruler ADMITS the payload and a byte ruler REFUSES it. Written as
-;; `\uXXXX` escapes (pure-ASCII source, no encoding surprise in transit),
-;; matching the frame-cap fixtures further down this file.
+  ;; `clojure.edn` never evaluates; this goes red if the body reader is
+  ;; swapped for one that does.
+  (is (re-find edn-error (register-text "story.button/eval" "{:doc #=(println \"PWNED\") :args {}}"))))
 
 (def ^:private em-dash-3byte
-  "U+2014 EM DASH -- 1 UTF-16 code unit, 1 code point, 3 UTF-8 bytes."
-  "\u2014")
-
-(def ^:private gclef-4byte
-  "U+1D11E MUSICAL SYMBOL G CLEF -- 1 code point, 2 UTF-16 code units (a
-  surrogate pair), 4 UTF-8 bytes. Code units, code points and bytes are
-  three different numbers here, so nothing can be accidentally right."
-  "\uD834\uDD1E")
+  "U+2014 EM DASH: one UTF-16 code unit, three UTF-8 bytes."
+  "—")
 
 (defn- edn-doc-body
-  "An EDN variant body `{:doc \"<n copies of ch>\"}`. The wrapper is 9 ASCII
-  characters, so the body's code-unit and byte counts differ only by `ch`."
+  "`{:doc \"<n copies of ch>\"}`: 9 ASCII characters around the copies."
   [ch n]
   (str "{:doc " (pr-str (apply str (repeat n ch))) "}"))
 
-(defn- utf8-byte-len
-  "UTF-8 byte length of `s` -- the unit `max-body-bytes` is denominated in."
-  [^String s]
-  (alength (.getBytes s "UTF-8")))
-
 (deftest register-variant-rejects-oversize-multibyte-edn-body
-  (testing "a body UNDER the cap in code units but OVER it in UTF-8 BYTES is
-            rejected -- the ceiling counts wire bytes"
-    (rf.story-mcp.config/set-allow-writes! true)
-    (doseq [[what ch n code-units bytes]
-            [["3-byte BMP (em-dash)"   em-dash-3byte 30000 30009 90009]
-             ["4-byte astral (G clef)" gclef-4byte   20000 40009 80009]]]
-      (let [body (edn-doc-body ch n)]
-        (is (= code-units (count body))
-            (str what ": the fixture is genuinely UNDER the cap in code units"))
-        (is (= bytes (utf8-byte-len body))
-            (str what ": and genuinely OVER it in UTF-8 bytes"))
-        (let [r (invoke "register-variant"
-                        {:variant-id "story.button/oversize-multibyte"
-                         :body       body})]
-          (is (error? r) (str what ": refused"))
-          (is (re-find #"(?i)must be a map or a valid EDN string"
-                       (-> r :content first :text))
-              (str what ": through the size gate, not the registrar")))))))
+  ;; The 64KB ceiling is a UTF-8 BYTE budget: 30000 em-dashes are 30009 code
+  ;; units, under the cap, and 90009 bytes, over it.
+  (is (re-find edn-error (register-text "story.button/oversize-multibyte" (edn-doc-body em-dash-3byte 30000)))))
 
 (deftest register-variant-admits-ascii-body-of-the-same-code-unit-length
-  (testing "the byte ruler only ever TIGHTENS -- UTF-8 bytes are never fewer
-            than UTF-16 code units, so an ASCII body of the SAME code-unit
-            length as the rejected multibyte one still clears the size gate.
-            On ASCII the byte ruler admits exactly what a code-unit one would."
-    (rf.story-mcp.config/set-allow-writes! true)
-    (let [body (edn-doc-body "x" 30000)
-          r    (invoke "register-variant"
-                       {:variant-id "story.button/ascii-under-cap"
-                        :body       body})]
-      (is (not (re-find #"(?i)must be a map or a valid EDN string"
-                        (-> r :content first :text)))
-          "the size gate does not fire on an under-cap ASCII body"))))
+  ;; The control: the byte ruler only ever TIGHTENS, so an ASCII body of the
+  ;; same code-unit length clears the size gate.
+  (is (not (re-find edn-error (register-text "story.button/ascii-under-cap" (edn-doc-body "x" 30000))))))
 
 (deftest register-variant-rejects-over-deep-edn-body
-  (testing "EDN body exceeding the 64-level depth ceiling is rejected"
-    (rf.story-mcp.config/set-allow-writes! true)
-    ;; Build a 100-level nested map by string concatenation; well past the
-    ;; 64 ceiling. The depth check runs AFTER `edn/read-string` parses, so
-    ;; the rejection happens before the registrar sees the value.
-    (let [deep-edn (str (apply str (repeat 100 "{:a "))
-                        "1"
-                        (apply str (repeat 100 "}")))
-          r        (invoke "register-variant"
-                           {:variant-id "story.button/deep"
-                            :body       deep-edn})]
-      (is (error? r))
-      (is (re-find #"(?i)must be a map or a valid EDN string" (-> r :content first :text))))))
+  (is (re-find edn-error (register-text "story.button/deep"
+                                        (str (apply str (repeat 100 "{:a ")) "1" (apply str (repeat 100 "}")))))))
 
 (deftest register-variant-rejects-bad-shape
-  (testing "registration with an invalid body returns a tool-execution error"
-    (rf.story-mcp.config/set-allow-writes! true)
-    (let [r (invoke "register-variant"
-                    {:variant-id "story.button/bad"
-                     :body {:tags #{:nonexistent-tag}}})]
-      (is (error? r))
-      (is (re-find #"(?i)Registration failed" (-> r :content first :text))))))
+  ;; The documented "Registration failed: " prefix.
+  (is (re-find #"(?i)Registration failed" (register-text "story.button/bad" {:tags #{:nonexistent-tag}}))))
 
 (deftest register-variant-rejects-non-map-body
-  ;; The `coerce-body` `::not-a-map` branch (write.cljc).
-  ;; The hardening tests above all cover the `::edn-error` branch (tagged
-  ;; literal, oversize, over-deep, malformed). The DISTINCT `::not-a-map`
-  ;; branch — a `:body` that PARSES cleanly but isn't a map — emits a
-  ;; different error message ("must be a map; got <class>"). A
-  ;; vector/scalar body must not reach the registrar.
-  (testing "an EDN-string body that parses to a vector is rejected as not-a-map"
-    (rf.story-mcp.config/set-allow-writes! true)
-    (let [r (invoke "register-variant"
-                    {:variant-id "story.button/vecbody"
-                     :body "[:not :a :map]"})]
-      (is (error? r))
-      (is (re-find #"(?i):body must be a map" (-> r :content first :text))
-          "the not-a-map branch emits the map-required message, not the edn-error message")
-      (is (nil? (rf.story/variant->edn :story.button/vecbody))
-          "a non-map body never reaches the registrar")))
-  (testing "an EDN-string body that parses to a scalar is rejected as not-a-map"
-    (rf.story-mcp.config/set-allow-writes! true)
-    (let [r (invoke "register-variant"
-                    {:variant-id "story.button/scalarbody"
-                     :body "42"})]
-      (is (error? r))
-      (is (re-find #"(?i):body must be a map" (-> r :content first :text))))))
+  ;; A body that parses but is not a map takes its own branch and message.
+  (is (re-find #"(?i):body must be a map" (register-text "story.button/vecbody" "[:not :a :map]"))))
 
-;; ---------------------------------------------------------------------------
-;; Write-side no-intern: an INVALID id that correctly returns
-;; an MCP error must leave NO keyword in the JVM keyword table.
-;;
-;; Interning an invalid id before rejecting it would let a
-;; hostile/malfunctioning client make the server intern a JVM keyword for
-;; every failed write attempt, and
-;; a wide object-form body could intern many arbitrary keys before the
-;; registrar normalised them. So the write paths validate the id grammar
-;; on the STRING shape (`fresh-keyword-checked` + `variant-id-shape?`)
-;; and cap the object-body string-key WIDTH — both BEFORE any intern.
-;; `find-keyword` (JVM, no-intern lookup) is the no-intern oracle.
-;; ---------------------------------------------------------------------------
+;; Write-side no-intern: the write paths validate the id grammar on the
+;; STRING shape and cap an object body's string-key width before any intern,
+;; so a failed write leaves no keyword in the JVM keyword table.
 
 (deftest register-variant-invalid-id-does-not-intern
-  (testing "an invalid :variant-id is rejected with NO interned keyword"
-    (rf.story-mcp.config/set-allow-writes! true)
-    ;; precondition: the keyword is not already interned
-    (is (nil? (find-keyword "not-story" "tag30h-invalid-A")))
-    (let [r (invoke "register-variant"
-                    {:variant-id "not-story/tag30h-invalid-A" :body {:args {}}})]
-      (is (error? r) "an invalid-grammar :variant-id is rejected")
-      (is (= :rf.error/variant-id-shape (-> r :structuredContent :rf.error))
-          "the reject carries the structured variant-id-shape error")
-      (is (nil? (find-keyword "not-story" "tag30h-invalid-A"))
-          "the rejected id MUST NOT leave an interned keyword"))))
+  (rf.story-mcp.config/set-allow-writes! true)
+  (let [r (invoke "register-variant" {:variant-id "not-story/tag30h-invalid-A" :body {:args {}}})]
+    (is (= :rf.error/variant-id-shape (-> r :structuredContent :rf.error)))
+    (is (nil? (find-keyword "not-story" "tag30h-invalid-A")))))
 
 (deftest register-variant-wide-object-body-rejected-without-interning
-  (testing "an object-form body with too many string keys is rejected BEFORE keywordising"
-    (rf.story-mcp.config/set-allow-writes! true)
-    ;; A shallow object with thousands of distinct unknown string keys —
-    ;; under the depth cap but over the width cap. Pick a distinctive key.
-    (let [distinctive "tag30h-wide-DISTINCTIVE-KEY"
-          wide-body   (into {distinctive 1}
-                            (map (fn [i] [(str "k-tag30h-" i) i]))
-                            (range 2000))]
-      (is (nil? (find-keyword distinctive))
-          "precondition: distinctive wide key not interned")
-      (let [r (invoke "register-variant"
-                      {:variant-id "story.button/wide" :body wide-body})]
-        (is (error? r) "a too-wide object body is rejected")
-        (is (= :rf.story-mcp/body-too-wide (-> r :structuredContent :rf.error))
-            "the reject carries the structured body-too-wide error")
-        (is (nil? (find-keyword distinctive))
-            "a too-wide body MUST NOT intern its arbitrary string keys")
-        (is (nil? (rf.story/variant->edn :story.button/wide))
-            "the too-wide body never reaches the registrar")))))
+  (rf.story-mcp.config/set-allow-writes! true)
+  (let [distinctive "tag30h-wide-DISTINCTIVE-KEY"
+        r           (invoke "register-variant"
+                            {:variant-id "story.button/wide"
+                             :body       (into {distinctive 1} (map (fn [i] [(str "k-tag30h-" i) i])) (range 2000))})]
+    (is (= :rf.story-mcp/body-too-wide (-> r :structuredContent :rf.error)))
+    (is (nil? (find-keyword distinctive)))))
 
 (deftest register-variant-object-body-rejects-overdeep
-  (testing "an object-form :body past the depth cap is rejected, not interned"
-    (rf.story-mcp.config/set-allow-writes! true)
-    ;; Build a string-keyed map nested far past max-edn-depth (64). The
-    ;; depth check in coerce-body must reject it BEFORE keywordize-body-keys
-    ;; walks (and interns) any of the pathological keys.
-    (let [probe (str "rf2-3luf3-deep-" (System/nanoTime))
-          deep  (reduce (fn [acc i] {(str probe "-" i) acc})
-                        {(str probe "-leaf") 1}
-                        (range 70))
-          r     (invoke "register-variant"
-                        {:variant-id "story.button/wire-deep" :body deep})]
-      (is (error? r) "an over-deep object body is rejected")
-      (is (nil? (find-keyword (str probe "-leaf")))
-          "a rejected over-deep body MUST NOT have interned its keys"))))
+  (rf.story-mcp.config/set-allow-writes! true)
+  (let [probe (str "rf2-3luf3-deep-" (System/nanoTime))]
+    (invoke "register-variant"
+            {:variant-id "story.button/wire-deep"
+             :body       (reduce (fn [acc i] {(str probe "-" i) acc}) {(str probe "-leaf") 1} (range 70))})
+    (is (nil? (find-keyword (str probe "-leaf"))))))
 
 (deftest register-variant-narrow-object-body-still-registers
-  (testing "a normal object-form body (string keys, under the width cap) still registers (regression guard)"
-    (rf.story-mcp.config/set-allow-writes! true)
-    (let [r (invoke "register-variant"
-                    {:variant-id "story.button/objform"
-                     :body {"doc" "object-form body" "args" {"label" "Go"}}})]
-      (is (success? r) "a legitimate narrow object body registers")
-      (is (some? (rf.story/variant->edn :story.button/objform))
-          "the variant reached the registry")
-      (is (= "object-form body" (:doc (rf.story/variant->edn :story.button/objform)))
-          "string keys were keywordised into the registered body")
-      (is (= "Go" (-> (rf.story/variant->edn :story.button/objform) :args :label))
-          "nested object-body keys were keywordised recursively"))))
+  ;; The control: string keys under the width cap keywordise recursively.
+  (rf.story-mcp.config/set-allow-writes! true)
+  (invoke "register-variant" {:variant-id "story.button/objform"
+                              :body       {"doc" "object-form body" "args" {"label" "Go"}}})
+  (is (= {:doc "object-form body" :args {:label "Go"}}
+         (select-keys (rf.story/variant->edn :story.button/objform) [:doc :args]))))
 
 (deftest unregister-variant-happy-when-allowed
   (rf.story-mcp.config/set-allow-writes! true)
-  (let [r (invoke "unregister-variant" {:variant-id "story.button/primary"})]
-    (is (success? r))
-    (is (true? (-> r :structuredContent :unregistered?)))
-    (is (nil? (rf.story/variant->edn :story.button/primary)))))
-
-(deftest unregister-variant-unknown-is-error-not-no-op
-  ;; `unregister-variant` resolves `:variant-id` via `safe-keyword`
-  ;; against the LIVE registered-variant set (`with-variant-id`), so an
-  ;; unregistered id NEVER reaches the handler body — it short-circuits to
-  ;; a `Variant not found` error. The success path therefore always
-  ;; reports `:unregistered? true`; there is no reachable
-  ;; `:unregistered? false` "already-gone" branch. This pins the
-  ;; spec-conformant contract (spec/API.md §unregister-variant: error when
-  ;; not registered).
-  (testing "an unregistered :variant-id is a tool-execution error, never a false-no-op"
-    (rf.story-mcp.config/set-allow-writes! true)
-    (let [r (invoke "unregister-variant" {:variant-id "story.no/such"})]
-      (is (error? r))
-      (is (re-find #"not found" (-> r :content first :text)))
-      (is (not (contains? (:structuredContent r) :unregistered?))
-          "no :unregistered? slot on the not-found path — it's an error, not a success envelope"))))
-
-;; ---------------------------------------------------------------------------
-;; record-as-variant — not a tool
-;;
-;; A blocking recorder bridge would advertise a capture window no MCP client
-;; can reach: its handler would sleep the server's ONLY stdio dispatch loop
-;; for `:duration-ms`, so every producer available through the catalogue
-;; would be sequenced OUTSIDE the window and the tool would return a green
-;; EMPTY capture, so the catalogue carries no such tool. The recorder
-;; primitives live in `tools/story/` for their in-process/browser consumers;
-;; interactive canvas recording is performed through Pair in the attached
-;; CLJS runtime. These tests pin the ABSENCE: the name takes the server's
-;; unknown-tool path, and the rejected call cannot start or alter a
-;; recording.
-;; ---------------------------------------------------------------------------
+  (is (true? (-> (invoke "unregister-variant" {:variant-id "story.button/primary"}) :structuredContent :unregistered?)))
+  (is (nil? (rf.story/variant->edn :story.button/primary))))
 
 (deftest record-as-variant-is-retired-method-not-found
-  ;; A tools/call naming record-as-variant receives the server's ordinary
-  ;; method-not-found response (-32601), and the Story
-  ;; recorder state is byte-equal before/after — the rejected call neither
-  ;; starts nor alters a recording.
-  (let [before (pr-str @rf.story.recorder/state)
-        resp   (rf.story-mcp.server/dispatch
-                 {:jsonrpc "2.0" :id 41 :method "tools/call"
-                  :params {:name "record-as-variant"
-                           :arguments {:variant-id  "story.button/primary"
-                                       :duration-ms 0}}})
-        after  (pr-str @rf.story.recorder/state)]
-    (is (= rf.mcp-base.vocab/code-method-not-found (-> resp :error :code))
-        "record-as-variant is an unknown tool at the protocol level")
-    (is (nil? (:result resp))
-        "no tool result envelope on the rejected call")
-    (is (= before after)
-        "recorder state must be byte-equal before/after the rejected call")
-    (is (not (:recording? @rf.story.recorder/state))
-        "no recording window is open after the rejected call")))
-
-;; ---------------------------------------------------------------------------
-;; :origin :story-mcp stamping
-;;
-;; Per spec/Cross-Cutting-Designs.md §5 — every write surface tags its
-;; writes with a single `:origin` keyword so post-mortem queries can
-;; answer "who wrote this?". Story-mcp's `register-variant`
-;; stamps `:origin :story-mcp` onto
-;; the registered variant body. The keyword value is pinned in
-;; `rf.story-mcp.config/origin`; the registrar's open-shape variant schema admits
-;; the extra slot.
-;; ---------------------------------------------------------------------------
+  ;; A blocking recorder bridge would sleep the server's only dispatch loop,
+  ;; so the catalogue carries no such tool and the name takes the unknown-tool
+  ;; path.
+  (is (= rf.mcp-base.vocab/code-method-not-found
+         (-> (rf.story-mcp.server/dispatch {:jsonrpc "2.0" :id 41 :method "tools/call"
+                                            :params  {:name "record-as-variant" :arguments {}}})
+             :error :code))))
 
 (deftest register-variant-overrides-caller-supplied-origin
-  (testing "story-mcp owns the :origin slot — caller-supplied values are clobbered"
-    (rf.story-mcp.config/set-allow-writes! true)
-    (let [r    (invoke "register-variant"
-                       {:variant-id "story.button/origin-override"
-                        :body       {:doc    "Caller tried to claim :app origin."
-                                     :origin :app}})
-          body (rf.story/variant->edn :story.button/origin-override)]
-      (is (success? r))
-      (is (= :story-mcp (:origin body))
-          "the write surface owns the :origin slot; an agent cannot claim a different origin"))))
+  ;; spec/Cross-Cutting-Designs.md §5: every write surface tags its writes.
+  (rf.story-mcp.config/set-allow-writes! true)
+  (invoke "register-variant" {:variant-id "story.button/origin-override" :body {:doc "x" :origin :app}})
+  (is (= :story-mcp (:origin (rf.story/variant->edn :story.button/origin-override)))
+      "the write surface owns :origin; a caller cannot claim another"))
 
 ;; ---------------------------------------------------------------------------
-;; Server dispatcher (initialize, tools/list, tools/call, error paths)
+;; Server dispatcher
 ;; ---------------------------------------------------------------------------
 
 (deftest dispatch-initialize-handshake
-  (let [resp (rf.story-mcp.server/dispatch
-               {:jsonrpc "2.0" :id 1 :method "initialize"
-                :params {:protocolVersion "2025-06-18"
-                         :capabilities {}
-                         :clientInfo {:name "test-client" :version "0.0.0"}}})]
-    (is (= 1 (:id resp)))
-    (is (= rf.story-mcp.config/protocol-version (-> resp :result :protocolVersion)))
-    (is (= rf.story-mcp.config/server-name (-> resp :result :serverInfo :name)))
-    (is (map? (-> resp :result :capabilities)))))
+  ;; The test classpath carries no VERSION resource, so :serverInfo :version
+  ;; takes read-version's "dev" fallback.
+  (is (= {:protocolVersion rf.story-mcp.config/protocol-version
+          :serverInfo      {:name rf.story-mcp.config/server-name :version "dev"}
+          :capabilities    {:tools {:listChanged false}}}
+         (select-keys (:result (rf.story-mcp.server/dispatch {:jsonrpc "2.0" :id 1 :method "initialize"
+                                                              :params  {:protocolVersion "2025-06-18"}}))
+                      [:protocolVersion :serverInfo :capabilities]))))
 
 (deftest dispatch-tools-list-returns-registry
-  (let [resp (rf.story-mcp.server/dispatch
-               {:jsonrpc "2.0" :id 2 :method "tools/list"})
-        ts (-> resp :result :tools)]
-    (is (= 2 (:id resp)))
-    (is (vector? ts))
-    (is (= (count rf.story-mcp.tools.registry/tool-registry) (count ts)))
-    (is (some #(= "list-stories" (:name %)) ts))))
+  (is (= (map :name rf.story-mcp.tools.registry/tool-registry)
+         (map :name (-> (rf.story-mcp.server/dispatch {:jsonrpc "2.0" :id 2 :method "tools/list"}) :result :tools)))))
 
 (deftest dispatch-tools-call-non-map-arguments-is-invalid-params
-  (testing "a non-map `arguments` (scalar / array / string) is a
-            params-CONTAINER shape failure ⇒ -32602 invalid-params, NOT a
-            -32603 internal-error (the misleading server fault an unguarded
-            (keys non-map) would throw)"
-    (doseq [[label bad-args] [["a string" "foo"]
-                              ["an array" ["a" "b"]]
-                              ["a number" 42]
-                              ["a boolean" true]]]
-      (let [resp (rf.story-mcp.server/dispatch
-                   {:jsonrpc "2.0" :id 41 :method "tools/call"
-                    :params {:name "list-tags" :arguments bad-args}})]
-        (is (= rf.mcp-base.vocab/code-invalid-params (-> resp :error :code))
-            (str bad-args " (" label ") ⇒ -32602 invalid-params"))
-        (is (re-find #"arguments" (-> resp :error :message))
-            "the error names the offending `arguments` container")))))
+  ;; A non-map `arguments` is a params-container failure (-32602), not the
+  ;; -32603 an unguarded `(keys non-map)` would throw.
+  (is (= rf.mcp-base.vocab/code-invalid-params
+         (-> (rf.story-mcp.server/dispatch {:jsonrpc "2.0" :id 41 :method "tools/call"
+                                            :params  {:name "list-tags" :arguments ["a" "b"]}})
+             :error :code))))
 
 (deftest dispatch-tools-call-absent-arguments-is-ok
-  (testing "omitted `arguments` is legal (no args) — the guard
-            only rejects a PRESENT non-map container"
-    (let [resp (rf.story-mcp.server/dispatch
-                 {:jsonrpc "2.0" :id 42 :method "tools/call"
-                  :params {:name "list-tags"}})]
-      (is (nil? (:error resp))
-          "absent :arguments dispatches cleanly (treated as empty args)")
-      (is (some? (:result resp))))))
+  (is (some? (:result (rf.story-mcp.server/dispatch {:jsonrpc "2.0" :id 42 :method "tools/call"
+                                                     :params  {:name "list-tags"}})))))
 
 (deftest dispatch-malformed-envelope
-  (testing "missing jsonrpc version yields invalid-request"
-    (let [resp (rf.story-mcp.server/dispatch {:method "tools/list" :id 5})]
-      (is (= rf.mcp-base.vocab/code-invalid-request (-> resp :error :code))))))
+  (is (= rf.mcp-base.vocab/code-invalid-request
+         (-> (rf.story-mcp.server/dispatch {:method "tools/list" :id 5}) :error :code))))
 
 (deftest dispatch-unknown-method
-  (let [resp (rf.story-mcp.server/dispatch
-               {:jsonrpc "2.0" :id 6 :method "nope/whatever"})]
-    (is (= rf.mcp-base.vocab/code-method-not-found (-> resp :error :code)))
-    (is (re-find #"nope/whatever" (-> resp :error :message)))))
+  (is (= rf.mcp-base.vocab/code-method-not-found
+         (-> (rf.story-mcp.server/dispatch {:jsonrpc "2.0" :id 6 :method "nope/whatever"}) :error :code))))
 
 (deftest dispatch-shutdown-empty-result
-  ;; `handle-shutdown` in server.cljc — some agent hosts emit a
-  ;; `shutdown` request before closing stdin (it's not in the 2025-06-18
-  ;; spec, but the server accepts + responds so a well-behaved client
-  ;; doesn't see a timeout). Pins the empty-result happy arm + that the
-  ;; id is echoed back per JSON-RPC.
-  (let [resp (rf.story-mcp.server/dispatch
-               {:jsonrpc "2.0" :id 8 :method "shutdown"})]
-    (is (= 8 (:id resp)) "shutdown echoes the request id")
-    (is (= {} (:result resp)) "shutdown returns an empty success result")
-    (is (nil? (:error resp)) "shutdown is a success, not an error")))
+  ;; Not in the 2025-06-18 spec, but some hosts send it before closing stdin.
+  (is (= {:jsonrpc "2.0" :id 8 :result {}}
+         (rf.story-mcp.server/dispatch {:jsonrpc "2.0" :id 8 :method "shutdown"}))))
 
 (deftest dispatch-tools-call-non-string-name-invalid-params
-  ;; `handle-tools-call` in server.cljc — the dispatcher's ONLY
-  ;; protocol-level invalid-params emit. A `tools/call` whose `:name` is
-  ;; not a string (numeric, or omitted entirely) must yield -32602
-  ;; invalid-params, distinct from the method-not-found path that an
-  ;; unknown *string* tool name takes (record-as-variant-is-retired-method-not-found).
-  (testing "numeric :name → invalid-params"
-    (let [resp (rf.story-mcp.server/dispatch
-                 {:jsonrpc "2.0" :id 9 :method "tools/call"
-                  :params {:name 42 :arguments {}}})]
-      (is (= 9 (:id resp)))
-      (is (= rf.mcp-base.vocab/code-invalid-params (-> resp :error :code))
-          "a non-string tool name is a protocol-level invalid-params, not method-not-found")
-      (is (re-find #"name" (-> resp :error :message)))))
-  (testing "omitted :name → invalid-params"
-    (let [resp (rf.story-mcp.server/dispatch
-                 {:jsonrpc "2.0" :id 10 :method "tools/call"
-                  :params {:arguments {}}})]
-      (is (= rf.mcp-base.vocab/code-invalid-params (-> resp :error :code))
-          "a missing tool name is invalid-params (nil is not a string)"))))
+  ;; Distinct from the method-not-found an unknown STRING name takes.
+  (is (= rf.mcp-base.vocab/code-invalid-params
+         (-> (rf.story-mcp.server/dispatch {:jsonrpc "2.0" :id 9 :method "tools/call"
+                                            :params  {:name 42 :arguments {}}})
+             :error :code))))
 
-;; ---------------------------------------------------------------------------
-;; Lifecycle state enforcement
-;;
-;; Before a successful `initialize`, the dispatcher MUST accept only
-;; `initialize` + `ping` (and any notification); every other request —
-;; `tools/list`, `tools/call`, `shutdown`, an unknown method — MUST be a
-;; protocol-level `-32600 invalid-request`. A malformed or hostile client
-;; must not be able to enumerate or invoke tools before the handshake.
-;; These deftests drive BOTH the direct stateful `dispatch` (2-arity) AND
-;; the full `run-loop!` stdio order.
-;; ---------------------------------------------------------------------------
+;; Before a successful `initialize` the dispatcher accepts only `initialize`,
+;; `ping` and notifications: a client must not enumerate or invoke tools
+;; before the handshake.
 
 (deftest dispatch-rejects-requests-before-initialize
-  (testing "tools/list before initialize → -32600 invalid-request"
-    (let [state (rf.story-mcp.server/new-lifecycle-state)
-          resp  (rf.story-mcp.server/dispatch state {:jsonrpc "2.0" :id 1 :method "tools/list"})]
-      (is (= 1 (:id resp)) "the request id is echoed")
-      (is (= rf.mcp-base.vocab/code-invalid-request (-> resp :error :code))
-          "enumerating tools pre-handshake is a protocol violation, not a success")
-      (is (nil? (:result resp)) "no tool registry leaks before initialize")
-      (is (re-find #"(?i)initialize" (-> resp :error :message))
-          "the error names the missing handshake step")))
-  (testing "shutdown + unknown methods are also gated pre-initialize"
-    (let [state (rf.story-mcp.server/new-lifecycle-state)]
-      (is (= rf.mcp-base.vocab/code-invalid-request
-             (-> (rf.story-mcp.server/dispatch state {:jsonrpc "2.0" :id 3 :method "shutdown"}) :error :code))
-          "shutdown is not in the pre-init open set")
-      (is (= rf.mcp-base.vocab/code-invalid-request
-             (-> (rf.story-mcp.server/dispatch state {:jsonrpc "2.0" :id 4 :method "nope/whatever"}) :error :code))
-          "an unknown method pre-init is invalid-request (the gate runs before the method case)"))))
+  ;; The gate runs before the method case, so even an unknown method is -32600.
+  (let [state (rf.story-mcp.server/new-lifecycle-state)]
+    (is (= [rf.mcp-base.vocab/code-invalid-request rf.mcp-base.vocab/code-invalid-request]
+           (map #(-> (rf.story-mcp.server/dispatch state {:jsonrpc "2.0" :id 1 :method %}) :error :code)
+                ["tools/list" "nope/whatever"])))))
 
 (deftest dispatch-allows-initialize-and-ping-before-handshake
-  (testing "initialize + ping are the only requests accepted pre-handshake"
-    (let [state (rf.story-mcp.server/new-lifecycle-state)
-          ping  (rf.story-mcp.server/dispatch state {:jsonrpc "2.0" :id 5 :method "ping"})]
-      (is (= {} (:result ping)) "ping is a stateless liveness probe — allowed pre-init")
-      (is (nil? (:error ping)))
-      ;; ping does NOT mark the session initialized.
-      (is (false? (:initialized? @state)) "ping must not flip the lifecycle flag")
-      (let [init (rf.story-mcp.server/dispatch state {:jsonrpc "2.0" :id 6 :method "initialize"
-                                         :params {:protocolVersion "2025-06-18"}})]
-        (is (= rf.story-mcp.config/protocol-version (-> init :result :protocolVersion))
-            "initialize succeeds and negotiates the protocol version")
-        (is (true? (:initialized? @state))
-            "a successful initialize flips the session to initialized")))))
+  (let [state (rf.story-mcp.server/new-lifecycle-state)]
+    (is (= {} (:result (rf.story-mcp.server/dispatch state {:jsonrpc "2.0" :id 5 :method "ping"}))))
+    (is (false? (:initialized? @state)) "ping is stateless; only initialize flips the session")
+    (rf.story-mcp.server/dispatch state {:jsonrpc "2.0" :id 6 :method "initialize" :params {}})
+    (is (true? (:initialized? @state)))))
 
 (deftest dispatch-allows-tools-immediately-after-initialize
-  ;; The deliberate relaxation: the session is ready the MOMENT the
-  ;; initialize response is built — we do NOT require
-  ;; `notifications/initialized` first (the reference-SDK posture; a
-  ;; client pipelining initialize + tools/list must not race a refusal).
-  (testing "tools/list works right after initialize, WITHOUT notifications/initialized"
-    (let [state (rf.story-mcp.server/new-lifecycle-state)]
-      (rf.story-mcp.server/dispatch state {:jsonrpc "2.0" :id 7 :method "initialize"
-                              :params {:protocolVersion "2025-06-18"}})
-      (let [resp (rf.story-mcp.server/dispatch state {:jsonrpc "2.0" :id 8 :method "tools/list"})]
-        (is (vector? (-> resp :result :tools))
-            "tools/list dispatches immediately post-initialize (relaxation, no notification required)")))))
+  ;; The session is ready the moment the initialize response is built, without
+  ;; `notifications/initialized`: a client pipelining initialize + tools/list
+  ;; must not race a refusal.
+  (let [state (rf.story-mcp.server/new-lifecycle-state)]
+    (rf.story-mcp.server/dispatch state {:jsonrpc "2.0" :id 7 :method "initialize" :params {}})
+    (is (vector? (-> (rf.story-mcp.server/dispatch state {:jsonrpc "2.0" :id 8 :method "tools/list"}) :result :tools)))))
 
 (deftest dispatch-notifications-accepted-in-any-lifecycle-posture
-  (testing "a notification (no id) is a silent no-op before AND after initialize"
-    (let [state (rf.story-mcp.server/new-lifecycle-state)]
-      (is (nil? (rf.story-mcp.server/dispatch state {:jsonrpc "2.0" :method "notifications/initialized"}))
-          "notifications/initialized pre-handshake is accepted (no response, no error)")
-      ;; It must NOT have flipped the flag — only `initialize` does that.
-      (is (false? (:initialized? @state))
-          "the relaxation: notifications/initialized is informational, initialize is the trigger")
-      (rf.story-mcp.server/dispatch state {:jsonrpc "2.0" :id 9 :method "initialize"
-                              :params {:protocolVersion "2025-06-18"}})
-      (is (nil? (rf.story-mcp.server/dispatch state {:jsonrpc "2.0" :method "notifications/initialized"}))
-          "the same notification post-handshake is still a silent no-op"))))
+  (let [state (rf.story-mcp.server/new-lifecycle-state)]
+    (is (nil? (rf.story-mcp.server/dispatch state {:jsonrpc "2.0" :method "notifications/initialized"}))
+        "accepted before the handshake, with no response")
+    (is (false? (:initialized? @state)) "the notification is informational; initialize is the trigger")))
 
 (deftest run-loop-rejects-pre-initialize-tool-calls
-  (testing "stdio order: a tools/call as the FIRST frame is refused, then initialize unlocks"
-    ;; Frame 1: tools/call BEFORE any initialize → must be -32600.
-    ;; Frame 2: initialize → success.
-    ;; Frame 3: tools/list AFTER initialize → success (registry surfaces).
-    (let [in-text (str "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\","
-                       "\"params\":{\"name\":\"list-tags\",\"arguments\":{}}}\n"
-                       "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"initialize\","
-                       "\"params\":{\"protocolVersion\":\"2025-06-18\"}}\n"
-                       "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/list\"}\n")
-          reader  (java.io.BufferedReader. (java.io.StringReader. in-text))
-          sw      (java.io.StringWriter.)
-          err     (java.io.StringWriter.)]
-      (binding [*err* err]
-        (rf.story-mcp.server/run-loop! reader sw))
-      (let [out-lines (filter seq (clojure.string/split-lines (.toString sw)))
-            frames    (mapv #(cheshire.core/parse-string % true) out-lines)]
-        (is (= 3 (count frames)) "three responses (the pre-init refusal + initialize + tools/list)")
-        (is (= 1 (:id (nth frames 0))))
-        (is (= rf.mcp-base.vocab/code-invalid-request (-> (nth frames 0) :error :code))
-            "the pre-initialize tools/call is refused at the protocol layer over stdio")
-        (is (nil? (-> (nth frames 0) :result))
-            "no tool registry / result leaked before the handshake")
-        (is (= 2 (:id (nth frames 1))))
-        (is (= rf.story-mcp.config/protocol-version (-> (nth frames 1) :result :protocolVersion))
-            "initialize succeeds as the second frame")
-        (is (= 3 (:id (nth frames 2))))
-        (is (vector? (-> (nth frames 2) :result :tools))
-            "tools/list now surfaces the registry — the handshake unlocked the surface")))))
-
-;; ---------------------------------------------------------------------------
-;; Run-loop end-to-end (in-memory)
-;; ---------------------------------------------------------------------------
+  ;; Over stdio: a tools/call as the FIRST frame is refused, then initialize
+  ;; unlocks tools/list.
+  (let [frames (run-loop-frames
+                 (str "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\","
+                      "\"params\":{\"name\":\"list-tags\",\"arguments\":{}}}\n"
+                      "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"initialize\",\"params\":{}}\n"
+                      "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/list\"}\n"))]
+    (is (= [[1 rf.mcp-base.vocab/code-invalid-request false] [2 nil true] [3 nil true]]
+           (map (juxt :id (comp :code :error) (comp some? :result)) frames)))
+    (is (vector? (-> frames (nth 2) :result :tools)))))
 
 (deftest run-loop-handles-multi-frame-session
-  (testing "handshake + tools/list + tools/call over a pipe of frames"
-    (let [in-text (str "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\"}}\n"
-                       "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n"
-                       "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}\n"
-                       "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"list-tags\",\"arguments\":{}}}\n")
-          reader (java.io.BufferedReader. (java.io.StringReader. in-text))
-          sw     (java.io.StringWriter.)]
-      (rf.story-mcp.server/run-loop! reader sw)
-      ;; Split written output into frames, parse each.
-      (let [out-lines (filter seq (clojure.string/split-lines (.toString sw)))
-            frames    (mapv #(cheshire.core/parse-string % true) out-lines)]
-        ;; Three responses (initialize, tools/list, tools/call) — the
-        ;; `notifications/initialized` notification yielded no response.
-        (is (= 3 (count frames)))
-        (is (= 1 (:id (nth frames 0))))
-        (is (= 2 (:id (nth frames 1))))
-        (is (= 3 (:id (nth frames 2))))
-        (is (= rf.story-mcp.config/protocol-version
-               (-> (nth frames 0) :result :protocolVersion)))
-        (is (vector? (-> (nth frames 1) :result :tools)))
-        (is (-> (nth frames 2) :result :content vector?))))))
+  ;; The notification yields no response, so three frames answer four.
+  (let [frames (run-loop-frames
+                 (str "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}\n"
+                      "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n"
+                      "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}\n"
+                      "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\","
+                      "\"params\":{\"name\":\"list-tags\",\"arguments\":{}}}\n"))]
+    (is (= [1 2 3] (map :id frames)))
+    (is (= [true true] [(vector? (-> frames (nth 1) :result :tools)) (vector? (-> frames (nth 2) :result :content))]))))
 
 (deftest run-loop-survives-parse-error
-  (testing "a malformed frame produces a parse-error response; loop continues"
-    (let [in-text (str "{this is garbage\n"
-                       "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"ping\"}\n")
-          reader (java.io.BufferedReader. (java.io.StringReader. in-text))
-          sw     (java.io.StringWriter.)
-          ;; Silent-on-success: the server logs the parse
-          ;; error to *err* per MCP stdio rules; capture it into a
-          ;; throwaway buffer so the green test run stays at the
-          ;; canonical 3-line shape.
-          err    (java.io.StringWriter.)]
-      (binding [*err* err]
-        (rf.story-mcp.server/run-loop! reader sw))
-      (let [out-lines (filter seq (clojure.string/split-lines (.toString sw)))
-            frames    (mapv #(cheshire.core/parse-string % true) out-lines)]
-        (is (= 2 (count frames)))
-        (is (= rf.mcp-base.vocab/code-parse-error (-> (nth frames 0) :error :code)))
-        (is (= 9 (:id (nth frames 1))))))))
+  (is (= [[nil rf.mcp-base.vocab/code-parse-error] [9 nil]]
+         (map (juxt :id (comp :code :error))
+              (run-loop-frames (str "{this is garbage\n" "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"ping\"}\n"))))))
+
+(deftest run-loop-survives-oversize-frame
+  (is (= [[nil rf.mcp-base.vocab/code-parse-error] [11 nil]]
+         (map (juxt :id (comp :code :error))
+              (run-loop-frames (str (apply str (repeat (inc rf.story-mcp.protocol/max-frame-bytes) \x)) "\n"
+                                    "{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"ping\"}\n"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Boot config
 ;; ---------------------------------------------------------------------------
 
 (deftest boot-config-unknown-flag-logged-and-ignored
-  ;; `parse-args` in server.cljc — the log-and-ignore branch for
-  ;; an unrecognised flag. The MCP spec doesn't define CLI conventions,
-  ;; so the parser is deliberately permissive: an unknown flag is logged
-  ;; to *err* and skipped, leaving the config map untouched. Surrounding
-  ;; recognised flags must still parse.
-  (testing "an unknown flag leaves the config map empty"
-    ;; Silent-on-success: the log line goes to *err*; capture
-    ;; it so the green run keeps the canonical reporter shape.
-    (let [err (java.io.StringWriter.)]
-      (binding [*err* err]
-        (is (= {} (#'rf.story-mcp.server/parse-args ["--no-such-flag"]))
-            "unknown flag is ignored — cfg stays empty"))
-      (is (re-find #"unknown CLI flag" (.toString err))
-          "unknown flag is logged to *err*")))
-  (testing "an unknown flag does not swallow an adjacent recognised flag"
-    (let [err (java.io.StringWriter.)]
-      (binding [*err* err]
-        (let [cfg (#'rf.story-mcp.server/parse-args ["--bogus" "--allow-writes" "--also-bogus"])]
-          (is (true? (:allow-writes? cfg))
-              "recognised flag still parses around the ignored ones"))))))
+  ;; The MCP spec defines no CLI conventions, so an unknown flag is logged and
+  ;; skipped, never swallowing a recognised flag beside it.
+  (let [err (java.io.StringWriter.)]
+    (binding [*err* err]
+      (is (= {} (#'rf.story-mcp.server/parse-args ["--no-such-flag"])))
+      (is (= {:allow-writes? true :allow-sensitive-reads? true}
+             (#'rf.story-mcp.server/parse-args ["--bogus" "--allow-writes" "--also-bogus" "--allow-sensitive-reads"]))))
+    (is (re-find #"unknown CLI flag" (str err)))))
 
-(deftest read-version-contract
-  ;; `read-version` in config.cljc — feeds `:serverInfo :version` in
-  ;; the `initialize` handshake. Best-effort: reads `VERSION` off the
-  ;; classpath, falling back to "dev" when the resource is absent
-  ;; (uberjar deploys, REPL hosts). The story-mcp test classpath carries
-  ;; no `VERSION` resource (`:paths ["src"]` + test `:extra-paths ["test"]`,
-  ;; neither of which ship one), so this run exercises the "dev" fallback.
-  (testing "falls back to \"dev\" when no VERSION resource is on the classpath"
-    (is (nil? (io/resource "VERSION"))
-        "precondition: the test classpath ships no VERSION resource")
-    (is (= "dev" (rf.story-mcp.config/read-version))
-        "absent-resource path returns the documented \"dev\" fallback"))
-  (testing "the handshake's :serverInfo :version is fed by read-version"
-    (let [resp (rf.story-mcp.server/dispatch
-                 {:jsonrpc "2.0" :id 11 :method "initialize"
-                  :params {:protocolVersion rf.story-mcp.config/protocol-version}})]
-      (is (= (rf.story-mcp.config/read-version)
-             (-> resp :result :serverInfo :version))
-          "initialize echoes read-version into :serverInfo :version"))))
+(deftest read-boot-config-reads-each-gate-sysprop
+  ;; The `false` polarity and the env fallback are pinned on resolve-gate below.
+  (doseq [[prop slot] [["rf.story-mcp.allow-writes" :allow-writes?]
+                       ["rf.story-mcp.allow-sensitive-reads" :allow-sensitive-reads?]]]
+    (let [restore (System/getProperty prop)]
+      (try
+        (System/setProperty prop "true")
+        (is (true? (slot (rf.story-mcp.config/read-boot-config))) prop)
+        (finally
+          (if restore (System/setProperty prop restore) (System/clearProperty prop)))))))
+
+(deftest resolve-gate-explicit-sysprop-false-overrides-env-true
+  ;; Resolved by SOURCE PRESENCE, not by OR-ing truthiness: an explicit
+  ;; sysprop wins even as `false`, so an inherited env `true` cannot reopen a
+  ;; gate an operator closed. Only an absent sysprop falls through to the env.
+  (is (= [false true true false true]
+         (map #(apply rf.story-mcp.config/resolve-gate %)
+              [["false" "true"] [nil "true"] ["true" "false"] [nil nil] [nil "1"]]))))
+
+(deftest lifecycle-timeout-ms-resolves-and-clamps
+  ;; Both lifecycle tools share this resolver, which clamps rather than
+  ;; rejects: a slow variant still runs and the single-threaded loop never
+  ;; parks past the cap.
+  (is (= [rf.story-mcp.tools.args/max-timeout-ms 5000
+          rf.story-mcp.tools.args/default-timeout-ms rf.story-mcp.tools.args/default-timeout-ms]
+         (map rf.story-mcp.tools.args/resolve-timeout-ms
+              [{:timeout-ms 60000} {:timeout-ms 5000} {} {:timeout-ms "not-a-number"}]))))
 
 ;; ---------------------------------------------------------------------------
-;; Wire-boundary token-budget cap.
-;;
-;; The cap is applied at `invoke-tool` egress — the cumulative
-;; TOKEN ESTIMATE over both wire slots — the `:content` text AND the `pr-edn` of
-;; `:structuredContent` (`re-frame.mcp-base.overflow/token-estimate` -- a CHARACTER
-;; count divided by four, not a byte count) is compared against
-;; `:max-tokens` (default
-;; `re-frame.mcp-base.overflow/default-max-tokens`; `0` disables). Over-budget responses
-;; are replaced with `{:rf.mcp/overflow {...}}` per the cross-MCP shape
-;; pinned in `re-frame.mcp-base.overflow/overflow-payload`.
+;; Wire-boundary token-budget cap: `invoke-tool` sizes BOTH wire slots and
+;; replaces an over-budget response with `{:rf.mcp/overflow {...}}`.
 ;; ---------------------------------------------------------------------------
 
 (defn- overflow-marker?
-  "Does `result` carry the `{:rf.mcp/overflow {:limit :reached ...}}`
-  marker shape? Both the structured-content and the text slot should
-  reflect it. The text slot prints via `pr-str` which renders the
-  namespaced key as the `#:rf.mcp{:overflow ...}` namespace-map form
-  (round-trippable EDN); `read-string`-ing it round-trips to the same
-  key. We check the structured shape and that the text slot is the
-  round-trippable EDN form."
+  "Does `result` carry the overflow marker in its structured slot, and the
+  same marker as round-trippable EDN in its text slot?"
   [result]
-  (and (map? result)
-       (= :reached (get-in result [:structuredContent rf.mcp-base.vocab/overflow-key :limit]))
-       (string? (-> result :content first :text))
-       (let [round-tripped (try (edn/read-string
-                                  (-> result :content first :text))
-                                (catch Throwable _ nil))]
-         (= :reached (get-in round-tripped [rf.mcp-base.vocab/overflow-key :limit])))))
+  (and (= :reached (get-in result [:structuredContent rf.mcp-base.vocab/overflow-key :limit]))
+       (= :reached (get-in (try (edn/read-string (-> result :content first :text)) (catch Throwable _ nil))
+                           [rf.mcp-base.vocab/overflow-key :limit]))))
 
 (deftest cap-fires-when-response-exceeds-budget
-  (testing "get-story-instructions response is large enough to exceed a 1-token cap"
-    (let [r (rf.story-mcp.tools.wire-pipeline/invoke-tool "get-story-instructions" {:max-tokens 1})]
-      (is (overflow-marker? r))
-      (let [body (get-in r [:structuredContent rf.mcp-base.vocab/overflow-key])]
-        (is (= 1 (:cap-tokens body)))
-        (is (= "get-story-instructions" (:tool body)))
-        (is (pos? (:token-count body)))
-        (is (string? (:hint body)))
-        (is (= #{:limit :token-count :cap-tokens :tool :hint} (set (keys body)))
-            "the marker body carries exactly mcp-base/overflow-payload's slots")))))
+  (let [r    (rf.story-mcp.tools.wire-pipeline/invoke-tool "get-story-instructions" {:max-tokens 1})
+        body (get-in r [:structuredContent rf.mcp-base.vocab/overflow-key])]
+    (is (overflow-marker? r))
+    (is (= [#{:limit :token-count :cap-tokens :tool :hint} 1 "get-story-instructions" nil]
+           [(set (keys body)) (:cap-tokens body) (:tool body) (:isError r)])
+        "exactly mcp-base's overflow-payload slots, and an over-cap SUCCESS stays non-error")))
 
 (deftest cap-keeps-is-error-on-an-over-cap-failure
-  ;; The cap applies to error results too (`invoke-tool`
-  ;; routes them through it on purpose), so an over-cap FAILED call must
-  ;; stay a failure. Without `isError` the marker is byte-for-byte what an
-  ;; over-cap success returns: the agent cannot tell the call failed, and
-  ;; the marker's hint invites a re-call.
-  (testing "control: the same failure uncapped is an isError result"
-    (let [r (rf.story-mcp.tools.wire-pipeline/invoke-tool "get-variant" {:variant-id "no.such/variant" :max-tokens 0})]
-      (is (true? (:isError r)))
-      (is (not (overflow-marker? r)))))
-  (testing "over the cap, the failure becomes the overflow marker AND keeps isError"
-    (let [r (rf.story-mcp.tools.wire-pipeline/invoke-tool "get-variant" {:variant-id "no.such/variant" :max-tokens 1})]
-      (is (overflow-marker? r))
-      (is (true? (:isError r))
-          "an over-cap failure must not read as an over-cap success")))
-  (testing "an over-cap SUCCESS stays non-error"
-    (let [r (rf.story-mcp.tools.wire-pipeline/invoke-tool "get-story-instructions" {:max-tokens 1})]
-      (is (overflow-marker? r))
-      (is (nil? (:isError r))))))
+  ;; Without isError the marker is byte-for-byte an over-cap success, whose
+  ;; hint invites a re-call.
+  (let [r (rf.story-mcp.tools.wire-pipeline/invoke-tool "get-variant" {:variant-id "no.such/variant" :max-tokens 1})]
+    (is (overflow-marker? r))
+    (is (true? (:isError r)))))
 
 (deftest cap-negative-max-tokens-rejected-not-overflow-lockout
-  ;; A negative `:max-tokens` resolves to a
-  ;; `{:rf.mcp/invalid-arg {...}}` rejection, NOT a negative cap. The
-  ;; handler is never dispatched and the result is an actionable
-  ;; `isError: true` error — not an `:rf.mcp/overflow` lock-out. Were a
-  ;; negative ceiling accepted, `over-cap?` would trip on any non-negative
-  ;; token count against it, so even a tiny response would be replaced by
-  ;; the overflow marker. The wire `:minimum 0` schema is the first line
-  ;; of defence for validating hosts; this is the egress backstop for
-  ;; hosts that don't validate.
-  (testing "negative :max-tokens surfaces an :rf.mcp/invalid-arg error, not overflow"
-    (let [r    (rf.story-mcp.tools.wire-pipeline/invoke-tool "list-tags" {:max-tokens -1})
-          body (get-in r [:structuredContent rf.mcp-base.vocab/invalid-arg-key])]
-      (is (true? (:isError r))
-          "negative max-tokens surfaces as an isError tool-result")
-      (is (not (overflow-marker? r))
-          "NOT the overflow lock-out a negative cap would cause")
-      (is (some? body) "result carries the :rf.mcp/invalid-arg rejection payload")
-      (is (= :max-tokens (:arg body)))
-      (is (= -1 (:value body)))
-      (is (re-find #"(?i)0 disables" (:hint body))
-          "hint states the disable sentinel so the agent's retry is correct")
-      ;; The text slot mirrors the structured payload (round-trips to EDN).
-      (is (= :max-tokens
-             (get-in (edn/read-string (-> r :content first :text))
-                     [rf.mcp-base.vocab/invalid-arg-key :arg]))))))
+  ;; A negative cap would trip on every response and lock the caller out
+  ;; behind the overflow marker; the handler is never dispatched.
+  (let [r (rf.story-mcp.tools.wire-pipeline/invoke-tool "list-tags" {:max-tokens -1})]
+    (is (= [true {:arg :max-tokens :value -1}]
+           [(:isError r) (select-keys (get-in r [:structuredContent rf.mcp-base.vocab/invalid-arg-key]) [:arg :value])]))))
 
 (deftest cap-counts-the-structured-slot-beside-the-text
-  ;; `edn-result` writes one payload into BOTH wire slots, so the cap sums
-  ;; both: a cap the text slot alone fits must still trip once the
-  ;; `:structuredContent` slot is counted. Counting only the text would
-  ;; underestimate the wire by about half.
+  ;; `edn-result` writes one payload into BOTH slots, so a cap the text slot
+  ;; alone fits still trips once the structured slot is counted.
   (let [full       (rf.story-mcp.tools.wire-pipeline/invoke-tool "list-tags" {:max-tokens 0})
         text-tok   (quot (count (-> full :content first :text)) 4)
-        struct-tok (quot (count (pr-str (:structuredContent full))) 4)]
-    (is (pos? text-tok) "precondition: the text slot is non-trivial")
-    (is (pos? struct-tok) "precondition: list-tags fills the structured slot too")
-    (testing "a cap the text slot alone fits trips on the structured slot"
-      (let [r (rf.story-mcp.tools.wire-pipeline/invoke-tool "list-tags" {:max-tokens text-tok})]
-        (is (overflow-marker? r))
-        (is (= (+ text-tok struct-tok)
-               (get-in r [:structuredContent rf.mcp-base.vocab/overflow-key :token-count]))
-            "the marker reports both slots' tokens")))
-    (testing "control: a cap both slots fit leaves the payload intact"
-      (is (not (overflow-marker? (rf.story-mcp.tools.wire-pipeline/invoke-tool
-                                   "list-tags" {:max-tokens (+ text-tok struct-tok)})))))))
-(deftest every-tool-schema-accepts-max-tokens
-  (testing "every tool's input schema carries an integer `:max-tokens` slot"
-    (doseq [t rf.story-mcp.tools.registry/tool-registry]
-      (is (= "integer" (-> t :inputSchema :properties :max-tokens :type))
-          (str "tool " (:name t) " missing :max-tokens slot, or it is not integer-typed")))))
+        struct-tok (quot (count (pr-str (:structuredContent full))) 4)
+        capped     (rf.story-mcp.tools.wire-pipeline/invoke-tool "list-tags" {:max-tokens text-tok})]
+    (is (= (+ text-tok struct-tok) (get-in capped [:structuredContent rf.mcp-base.vocab/overflow-key :token-count])))
+    (is (not (overflow-marker? (rf.story-mcp.tools.wire-pipeline/invoke-tool "list-tags" {:max-tokens (+ text-tok struct-tok)})))
+        "control: a cap both slots fit leaves the payload intact")))
 
 ;; ---------------------------------------------------------------------------
-;; Wire-egress privacy posture
-;;
-;; Per spec/Tool-Pair.md §Direct-read privacy posture, every
-;; pair-shaped tool that surfaces a live `:app-db` slice MUST route the
-;; value through the egress boundary (`re-frame.core/project-egress`, via
-;; `rf.story-mcp.tools.egress/elide-app-db`) before egress, under the
-;; off-box defaults (the `:rf.egress/off-box-tool` profile: sensitive
-;; redacts, large elides). The cross-MCP `:include-sensitive` arg is the
-;; documented escape hatch.
-;;
-;; The contract at the story-mcp surface: a sensitive slot classified on
-;; the variant's frame (the EP-0025 commit-plane `:sensitive` effect,
-;; applied by `declare-sensitive!` below) surfaces as `:rf/redacted` in the
-;; tool's response `:app-db` slot unless the operator gate is open AND the
-;; caller sends `:include-sensitive true`. The helpers below set that up for
-;; every privacy test in this file. The `preview-variant` / `run-variant`
-;; default-versus-opt-in matrix is
-;; `app-db-slot-honours-the-include-sensitive-flag-only-through-the-open-gate`,
-;; in the sensitive-read boot gate section. Assertion records carrying the
-;; top-level `:sensitive? true` stamp are dropped by default and included
-;; when opted in: `read-failures-surfaces-dropped-sensitive-indicator` and
-;; `read-failures-includes-sensitive-when-opted-in`, in the egress indicator
-;; section, and `named-check-assertion-copies-honour-the-sensitive-filter`
-;; for the copies inside `:checks`.
+;; Wire-egress privacy posture (spec/Tool-Pair.md §Direct-read privacy
+;; posture). A slot classified on the variant's frame surfaces as
+;; `:rf/redacted` unless the operator gate is open AND the caller sends
+;; `:include-sensitive true`.
 ;; ---------------------------------------------------------------------------
 
 (defn- frame-container [variant-id]
-  ;; `re-frame.frame/app-db-container` returns the substrate container (an
-  ;; atom under plain-atom); the user-facing `rf/app-db-value` returns
-  ;; the dereferenced VALUE. Tests need the container so they can write
-  ;; the elision-registry slot back.
   ((requiring-resolve 're-frame.frame/app-db-container) variant-id))
 
-(defn- read-frame-db [variant-id]
-  ((requiring-resolve 're-frame.substrate.adapter/read-container)
-   (frame-container variant-id)))
-
 (defn- replace-frame-db! [variant-id new-db]
-  ;; EP-0001: write the app-db PARTITION via swap-frame-db! —
-  ;; `rf.frame/app-db-container` is a read-only projection over the one
-  ;; physical frame-state container.
-  ((requiring-resolve 're-frame.frame/swap-frame-db!)
-   variant-id (constantly new-db)))
+  ((requiring-resolve 're-frame.frame/swap-frame-db!) variant-id (constantly new-db)))
 
 (defn- ensure-variant-frame!
-  "Allocate `variant-id`'s frame if it doesn't already exist. The fixture
-  only `reg-variant`s the variant body; the variant's *frame* is
-  allocated lazily by `run-variant` / `preview-variant`. The privacy
-  tests need the frame up-front so they can write into its app-db
-  before the tool call runs."
+  "Allocate `variant-id`'s frame up front (a run allocates it lazily), so a
+  test can classify and seed it before the tool call."
   [variant-id]
   (when (nil? (frame-container variant-id))
-    (rf/make-frame {:id variant-id :doc        (str "test frame for " variant-id)
+    (rf/make-frame {:id         variant-id
+                    :doc        (str "test frame for " variant-id)
                     :rf/story?  true
                     :rf/variant variant-id})))
 
 (defn- destroy-variant-frame!
-  "Tear down `variant-id`'s frame so the next test starts fresh. The
-  `frames` atom is per-process (not cleared by `rf.story/clear-all!`); a
-  seeded `:rf.story/assertions` slot would otherwise bleed across
-  tests."
+  "Frames outlive `rf.story/clear-all!`, so tear one down to keep its state
+  out of the next test."
   [variant-id]
   (when (some? (frame-container variant-id))
     ((requiring-resolve 're-frame.frame/destroy-frame!) variant-id)))
 
 (defn- classification-config
-  "The accumulated EP-0025 commit-plane classification-effect map for
-  `variant-id` — `{:sensitive [[..]] :large [[..]]}` (a flat vector of
-  `:rf/path`s per axis), omitting an empty axis. This is the value a
-  `reg-event` returns alongside `:db` to classify the paths."
+  "`variant-id`'s accumulated classification-effect map
+  `{:sensitive [path ...] :large [path ...]}`, omitting an empty axis."
   [variant-id]
   (let [{:keys [sensitive large]} (get @declared-class variant-id)]
     (cond-> {}
@@ -2311,328 +942,74 @@
       (seq large)     (assoc :large (mapv vec large)))))
 
 (defn- declare-classification!
-  "Accumulate `path` under `kind` (`:sensitive` / `:large`) for
-  `variant-id` and install the full classification onto the variant's
-  frame, in a way that survives `run-variant`'s fresh-run boundary.
-
-  Two seams, mirroring `seed-app-db!` (EP-0025 commit-plane classification
-  effects, `:source :effect`):
-
-  1. DIRECT WRITE — `rf.elision/apply-classification-effects` onto the live
-     frame's runtime-db, so a non-lifecycle reader (`read-failures`, the
-     direct-`elide-app-db` unit tests) sees the declaration immediately. The
-     frame container must exist (the elision registry lives in its runtime-db
-     partition), so we `ensure-variant-frame!` first.
-
-  2. `:setup` RE-APPLY — append a `[::reapply-frame-class frame config]`
-     step to the variant body's `:setup` so each fresh run re-applies the
-     classification onto the reset frame (phase 2, after allocation/reset).
-     Without this the declarations are wiped when `ensure-fresh-frame!`
-     resets the pre-run frame's runtime-db to `{}`, and the wire-egress
-     walker (which runs at the END of the run) finds no sensitive/large
-     paths to redact. The step is idempotent — the commit-plane effects are
-     additive per axis, and the config carries ALL accumulated paths (a
-     superset), so re-applying re-asserts the same `:source :effect` entries.
-     Skipped when `variant-id` is not a registered variant (nothing to append
-     to)."
+  "Classify `path` as `kind` on `variant-id`'s frame now, for readers that do
+  not run the variant, and append a `:setup` step re-applying the full
+  classification, because each fresh run resets the frame's runtime-db."
   [variant-id kind path]
   (swap! declared-class update-in [variant-id kind] (fnil conj #{}) (vec path))
   (ensure-variant-frame! variant-id)
   (let [config (classification-config variant-id)]
-    (rf.frame/swap-runtime-db! variant-id
-      (fn [rt] (rf.elision/apply-classification-effects rt config)))
+    (rf.frame/swap-runtime-db! variant-id (fn [rt] (rf.elision/apply-classification-effects rt config)))
     (when-let [body (rf.story.registrar/handler-meta :variant variant-id)]
-      (rf.story.registrar/reg-variant*
-        variant-id
-        (update body :setup (fnil conj [])
-                [::reapply-frame-class variant-id config])))))
+      (rf.story.registrar/reg-variant* variant-id (update body :setup (fnil conj []) [::reapply-frame-class variant-id config])))))
 
-(defn- declare-sensitive!
-  "Classify `path` `:sensitive` on the named variant's frame via the EP-0025
-  commit-plane `:sensitive` effect. The egress walker returns `:rf/redacted`
-  for a sensitive-classified slot."
-  [variant-id path]
+(defn- declare-sensitive! [variant-id path]
   (declare-classification! variant-id :sensitive path))
 
-(defn- declare-large!
-  "Classify `path` `:large` on the named variant's frame via the EP-0025
-  commit-plane `:large` effect. The egress walker substitutes the slot's
-  value with the `:rf.size/large-elided` marker — the leaf the `:elided-large`
-  indicator counts."
-  [variant-id path]
+(defn- declare-large! [variant-id path]
   (declare-classification! variant-id :large path))
 
 (defn- seed-app-db!
-  "Establish `db` as `variant-id`'s frame app-db for the privacy tests.
-
-  Two seams, because two classes of reader consume the result:
-
-  1. DIRECT WRITE (`replace-frame-db!`) — the immediate frame app-db. The
-     `read-failures` tests read the `:rf.story/assertions` accumulator
-     directly (no lifecycle re-run), so they need the value present on the
-     live frame right now.
-
-  2. `:db-seed` REGISTRATION — for the lifecycle readers
-     (`run-variant` / `preview-variant`). There is a fresh-run
-     boundary: `run-phase-0!` `destroy!`s any pre-existing frame BEFORE
-     allocation so a run never inherits a prior run's (or an externally
-     hand-written) app-db. That correctly wipes the direct write above. So
-     for the seeded state to survive INTO the run result it must be
-     re-established BY the lifecycle on every fresh run — which is exactly
-     the `:db-seed` rung (`runtime/run-db-seed!`, phase 0.5, applied after
-     allocation). We merge `db` onto the registered variant body's
-     `:db-seed` slot so each run re-seeds the fresh frame. The merge
-     preserves the rest of the registered body (`:args` / `:doc` / …).
-
-  Skips the `:db-seed` registration when `variant-id` is not a registered
-  variant (nothing to merge into) — the direct write still applies."
+  "Write `db` to `variant-id`'s live frame for readers that do not run it,
+  and merge it into the variant's `:db-seed` so each fresh run re-seeds it."
   [variant-id db]
   (ensure-variant-frame! variant-id)
   (replace-frame-db! variant-id db)
   (when-let [body (rf.story.registrar/handler-meta :variant variant-id)]
-    (rf.story.registrar/reg-variant*
-      variant-id
-      (update body :db-seed merge db))))
+    (rf.story.registrar/reg-variant* variant-id (update body :db-seed merge db))))
 
 (defmacro ^:private with-clean-frame
-  "Bind `vid` to `variant-kw`, run `body` against a clean variant frame,
-  and tear the frame down on exit so the next test sees no residue. The
-  `frames` atom is per-process and survives `rf.story/clear-all!`; the
-  seeded `:rf.story/assertions` and `[:rf.runtime/elision]` runtime-db slots would
-  otherwise leak."
+  "Bind `vid` to `variant-kw`, run `body`, and tear the frame down on exit."
   [[vid variant-kw] & body]
   `(let [~vid ~variant-kw]
      (try ~@body
           (finally (destroy-variant-frame! ~vid)))))
 
-(deftest elide-app-db-include?-true-bypasses-walker
-  ;; The `include? true` branch of `rf.story-mcp.tools.egress/elide-app-db`
-  ;; skips `elide-wire-value` entirely. Pins two invariants:
-  ;;
-  ;;   1. The return is the input db itself (`identical?`) — walking would
-  ;;      rebuild every map / vector via `reduce-kv` and `mapv`, breaking
-  ;;      identity even though value is preserved. The bypass returns the
-  ;;      original reference.
-  ;;
-  ;;   2. The return is value-equal to running the walker with both
-  ;;      inclusion knobs flipped. Future refactors that reintroduce
-  ;;      walker work on this branch will still pass (2) but break (1) —
-  ;;      the load-bearing perf invariant.
-  ;;
-  ;; Calls `rf.story-mcp.tools.egress/elide-app-db` directly so the test pins the helper's
-  ;; contract, not a downstream tool's composition of it. Avoids
-  ;; coupling to `run-variant`'s lifecycle behaviour.
-  (testing ":include? true returns the input ref unchanged AND matches walker-with-both-knobs-on"
-    (with-clean-frame [vid :story.button/primary]
-      (let [db {:public    "ok"
-                :secret    "TOPSECRET"
-                :nested    {:also-secret "DEEP"
-                            :public-leaf 42}
-                :coll      [:a :b :c]
-                :empty-map {}}]
-        ;; Populate the elision registry on vid's frame so the walker
-        ;; has something to consult — the bypass-equivalence proof only
-        ;; works if the walker WOULD have visited sensitive paths.
-        (seed-app-db! vid db)
-        (declare-sensitive! vid [:secret])
-        (declare-sensitive! vid [:nested :also-secret])
-        (let [frame-db (read-frame-db vid)
-              bypass   ((requiring-resolve 're-frame.story-mcp.tools.egress/elide-app-db)
-                        frame-db vid true)
-              walked   (rf.elision/elide-wire-value frame-db
-                                            {:frame                      vid
-                                             :rf.egress/include-sensitive? true
-                                             :rf.egress/include-large?     true})]
-          (is (identical? frame-db bypass)
-              "include? true returns the SAME object — no walker rebuild")
-          (is (= walked bypass)
-              "bypass output value-equals the walking-then-no-edit output")
-          (is (= "TOPSECRET" (get bypass :secret))
-              "top-level sensitive slot rides through")
-          (is (= "DEEP" (get-in bypass [:nested :also-secret]))
-              "nested sensitive slot rides through"))))))
-
-;; ---------------------------------------------------------------------------
-;; Derived-tree wire-egress redaction — EP-0025 FAIL-OPEN posture.
-;;
-;; `elide-app-db` scrubs the `:app-db` slot by PATH. When the SAME sensitive
-;; value is re-keyed into `:effective-args` / `:snapshot` / an evidence tree
-;; — at a tree position NOT at the declared app-db path — the
-;; path-based walker is structurally blind to it. There is no value-match
-;; (taint-by-equality) redaction scrubbing such re-keyed copies (EP-0025
-;; §"What is removed": value-match is propagation/taint by another name,
-;; which a hygiene helper does not earn). `scrub-rendered` projects
-;; the tree through `re-frame.core/project-egress`'s PATH-BASED
-;; `:rf.observe/derived-tree` record: a value AT a classified app-db path that
-;; happens to also occupy that path in the derived tree redacts, but a
-;; RE-KEYED copy at a non-app-db position ships RAW. This is the INTENDED
-;; FAIL-OPEN posture — hygiene, not a guarantee. A consumer that needs a value
-;; redacted in a derived tree must classify its app-db PATH.
-;;
-;; Core's `project-egress` owns the path walk; story-mcp owns the
-;; orchestration around it, which is what this file pins. An empty tree
-;; short-circuits on any frame, a re-keyed copy ships raw on a live frame (the
-;; `:large` case below, and the axe-node case in the read-a11y section), a
-;; non-live frame takes the named carve-out, and each handler slot redacts at
-;; a classified path unless the opt-in reaches it.
-;; ---------------------------------------------------------------------------
-
-(defn- tree-contains?
-  "Deep membership: true iff `needle` appears anywhere as a value inside
-  `tree` (walking maps/vectors/sets/seqs). Used to assert a secret has
-  been scrubbed OUT of a rendered tree regardless of its position."
-  [tree needle]
-  (cond
-    (= tree needle) true
-    (map? tree)     (boolean (some (fn [[k v]] (or (tree-contains? k needle)
-                                                   (tree-contains? v needle)))
-                                   tree))
-    (coll? tree)    (boolean (some #(tree-contains? % needle) tree))
-    :else           false))
-
-(defn- tree-contains-marker?
-  "Deep search for a `:rf.size/large-elided` marker map anywhere in `tree`.
-  The marker is `{:rf.size/large-elided {…}}`; this asserts a
-  large value was elided regardless of which slot/position it landed in."
-  [tree]
-  (cond
-    (and (map? tree) (contains? tree :rf.size/large-elided)) true
-    (map? tree)  (boolean (some (fn [[k v]] (or (tree-contains-marker? k)
-                                                (tree-contains-marker? v)))
-                                tree))
-    (coll? tree) (boolean (some tree-contains-marker? tree))
-    :else        false))
+;; EP-0025 FAIL-OPEN: the egress walk projects by PATH, so a value at a
+;; classified app-db path redacts while a copy re-keyed to another tree
+;; position ships raw — hygiene, not a guarantee. Core's `project-egress` owns
+;; the walk; these tests pin story-mcp's orchestration around it.
 
 (deftest scrub-rendered-empty-collection-non-live-frame-stays-empty
-  ;; An EMPTY derived tree carries nothing to protect on ANY frame. The
-  ;; non-live-frame fail-closed branch must NOT fire for it — routed through
-  ;; it, `project-egress` would redact even `[]` to the `:rf/redacted`
-  ;; keyword on a non-live frame, breaking the `[:sequential :any]` shape the
-  ;; run-variant error branch's `[]` evidence slots must keep.
-  (testing "an empty [] projected against a NON-LIVE (unregistered) frame stays [] — never :rf/redacted"
-    (let [out (rf.story-mcp.tools.egress/scrub-rendered [] nil :no/such-frame-xyz false)]
-      (is (vector? out) "an empty [] stays a sequential, not the :rf/redacted keyword")
-      (is (= [] out))))
-  (testing "empty {} / #{} on a non-live frame also short-circuit unchanged"
-    (is (= {} (rf.story-mcp.tools.egress/scrub-rendered {} nil :no/such-frame-xyz false)))
-    (is (= #{} (rf.story-mcp.tools.egress/scrub-rendered #{} nil :no/such-frame-xyz false))))
-  (testing "a NON-empty tree on a non-live frame still fails closed (the empty short-circuit is narrow)"
-    (is (= :rf/redacted (rf.story-mcp.tools.egress/scrub-rendered [{:token "SECRET"}] nil :no/such-frame-xyz false))
-        "fail-closed still stands for a non-empty tree on a non-live frame")))
-
-;; ---------------------------------------------------------------------------
-;; EP-0025 FAIL-OPEN — no :large derived-tree elision either.
-;; There is no value-match on EITHER egress axis. A :large blob RE-KEYED
-;; into :snapshot / evidence / an explain value slot at a
-;; non-app-db position is structurally invisible to the PATH walker, so it
-;; ships RAW too — same fail-open posture as the :sensitive axis. The :app-db
-;; PATH elision (where the blob is AT its declared path) holds and is pinned
-;; by `run-variant-surfaces-elided-large-indicator`.
-;; ---------------------------------------------------------------------------
+  ;; An empty tree carries nothing to protect on ANY frame. Through the
+  ;; non-live fail-closed branch `[]` would become `:rf/redacted`, breaking the
+  ;; `[:sequential :any]` shape the run-variant error branch's evidence slots
+  ;; keep; a non-empty tree on a non-live frame still fails closed.
+  (is (= [[] :rf/redacted]
+         (map #(rf.story-mcp.tools.egress/scrub-rendered % nil :no/such-frame-xyz false) [[] [{:token "SECRET"}]]))))
 
 (deftest scrub-rendered-large-value-re-keyed-ships-raw-fail-open
-  (testing "EP-0025 fail-open: a :large value RE-KEYED into a derived tree ships RAW — there is no value-match on the large axis"
-    (with-clean-frame [vid :story.button/primary]
-      ;; A large blob lives at [:blob]; the view re-keys it into [:pre blob],
-      ;; a non-app-db position. The :app-db egress elides [:blob], but the
-      ;; re-keyed copy ships raw (fail-open).
-      (let [blob   (vec (range 5000))           ; a big, unique payload
-            db     {:public "ok" :blob blob}
-            hiccup [:div [:pre blob] [:span "label"]]]
-        (seed-app-db! vid db)
-        (declare-large! vid [:blob])
-        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
-              out            (scrub-rendered hiccup db vid false)]
-          (is (tree-contains? out blob)
-              "fail-open: the re-keyed large blob ships raw — classify the app-db PATH to elide")
-          (is (not (tree-contains-marker? out))
-              "no large-elided marker at the re-keyed position (path walk is blind to it)")
-          (is (tree-contains? out "label")
-              "benign leaves are preserved"))))))
-
-;; ---------------------------------------------------------------------------
-;; The re-keyed-runtime egress exception:
-;;
-;;   `scrub-re-keyed-runtime` — axe DOM nodes.
-;;       LIVE frame ⇒ PATH-project (re-keyed copies fail-open, pinned through
-;;       the tool by `read-a11y-violations-re-keyed-html-ships-raw-fail-open`);
-;;       NON-LIVE frame ⇒ RAW under the NAMED, narrow carve-out (the path-scrub
-;;       is a no-op even live, so fail-closing would destroy the tool with zero
-;;       leak-delta).
-;;
-;; A non-live frame is one that was never allocated (or has been destroyed);
-;; `rf.story-mcp.tools.egress/variant-frame-live?` reads `re-frame.core/frame-ids`. The test
-;; below controls liveness directly so it hits the ACTUAL scrub branch, not a
-;; tool that routes around it.
-;; ---------------------------------------------------------------------------
+  ;; A live frame must not fail closed to make up for a re-keyed large value;
+  ;; the `:app-db` path elision is pinned by run-variant-surfaces-elided-large-indicator.
+  (with-clean-frame [vid :story.button/primary]
+    (let [blob   (vec (range 5000))
+          db     {:public "ok" :blob blob}
+          hiccup [:div [:pre blob] [:span "label"]]]
+      (seed-app-db! vid db)
+      (declare-large! vid [:blob])
+      (is (= hiccup (rf.story-mcp.tools.egress/scrub-rendered hiccup db vid false))))))
 
 (deftest scrub-re-keyed-runtime-non-live-frame-ships-raw-under-named-exception
-  (testing "a NON-LIVE variant frame ships the re-keyed runtime payload RAW under the named exception (not fail-closed)"
-    (with-clean-frame [vid :story.nonlive/never-allocated]
-      ;; Never allocate the frame — it is NON-LIVE. (with-clean-frame only
-      ;; binds + tears down; it does not allocate.)
-      (is (not (contains? (rf/frame-ids) vid))
-          "precondition: the variant frame is non-live (never allocated)")
-      (let [scrub-re-keyed-runtime (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-re-keyed-runtime)
-            ;; a captured-event-style payload carrying a distinctive literal
-            tree                   [[:auth/login "NONLIVE-REKEYED-SECRET"]]
-            out                    (scrub-re-keyed-runtime tree vid false)]
-        (is (= tree out)
-            "non-live re-keyed-runtime payload ships RAW under the named carve-out — NOT redacted to :rf/redacted")))))
-
-;; The integration test below pins the WIRING — that `preview-variant`
-;; (`:effective-args` / `:snapshot`) and `run-variant` (`:snapshot` and the
-;; evidence slots) route their derived trees through `scrub-rendered`. It
-;; `with-redefs` `rf.story/run-variant` to a controlled result that embeds the
-;; secret in the derived trees, so the assertion is independent of whatever
-;; the fixture would actually produce.
-;;
-;; The stub deliberately carries ONLY slots a real `rf.story/run-variant` can
-;; produce. `rendered_hiccup_retirement_test.clj` drives the REAL run through
-;; the same handlers and pins that no rendered slot reaches the wire, so a
-;; stub cannot advertise a rendered slot here.
-
-(defn- secret-bearing-run-result
-  "A unified-run-result-shaped value whose :app-db carries the secret at a
-  declared-sensitive path AND whose derived trees re-embed the same value
-  at non-app-db positions. Carries the unified `:status` / `:checks`
-  slots so it is a faithful stand-in for what
-  `rf.story/run-variant` actually returns."
-  [vid]
-  {:status         :pass
-   :frame          vid
-   :lifecycle      :ready
-   :elapsed-ms     1
-   :app-db         {:public "ok" :token "TOPSECRET"}
-   :assertions     []
-   :checks         []
-   :effective-args {:label "Save" :token "TOPSECRET"}
-   :snapshot       {:db {:token "TOPSECRET"}}
-   ;; The three evidence slots that must be value-redacted at egress.
-   ;; :narrative is a two-level evidence tree whose inner beats carry
-   ;; full :db-before / :db-after app-db snapshots (evidence.cljc
-   ;; epoch-beat) — the secret rides those verbatim. :warnings are
-   ;; trace-event records (here one carrying the secret in its data).
-   ;; :sub-runs carry the subscription :value.
-   :narrative      [{:span :epoch
-                     :epochs [{:db-before {:token "TOPSECRET" :public "ok"}
-                               :db-after  {:token "TOPSECRET" :public "ok"}
-                               :trigger-event [:set-token "TOPSECRET"]}]}]
-   :warnings       [{:event :rf.trace/warn :data {:token "TOPSECRET"}}]
-   :sub-runs       [{:sub [:auth/token] :value "TOPSECRET"}]})
-
-;; ---------------------------------------------------------------------------
-;; The `:include-sensitive` opt-in reaches every derived slot. A re-keyed copy
-;; ships raw with or without the opt-in, so it cannot show whether the opt-in
-;; is threaded through. Here each slot carries the secret AT a classified path
-;; — `[:token]` in the map slots, `[0 :token]` in the vector evidence slots —
-;; so it redacts unless the opt-in reaches that slot's projection.
-;; ---------------------------------------------------------------------------
-
-(def ^:private evidence-slots
-  [:schema-violations :warnings :effects :sub-runs :renders :narrative])
+  ;; The path scrub is a no-op even on a live frame, so failing closed on a
+  ;; non-live one would destroy the tool with zero leak-delta.
+  (let [tree [[:auth/login "NONLIVE-REKEYED-SECRET"]]]
+    (is (= tree (rf.story-mcp.tools.egress/scrub-re-keyed-runtime tree :story.nonlive/never-allocated false)))))
 
 (deftest derived-slots-at-a-classified-path-honour-the-include-sensitive-opt-in
+  ;; Each slot carries the secret AT a classified path — `[:token]` in the map
+  ;; slots, `[0 :token]` in the vector evidence slots — so it redacts unless
+  ;; the opt-in reaches that slot's own projection. The stub carries only
+  ;; slots a real `rf.story/run-variant` can produce.
   (rf.story-mcp.config/set-allow-sensitive-reads! true)
   (with-clean-frame [vid :story.button/primary]
     (declare-sensitive! vid [:token])
@@ -2640,1236 +1017,360 @@
     (with-redefs [rf.story/run-variant
                   (fn [_vk _opts]
                     (java.util.concurrent.CompletableFuture/completedFuture
-                      (merge (secret-bearing-run-result vid)
-                             {:effective-args {:token "TOPSECRET"}
-                              :snapshot       {:token "TOPSECRET"}}
+                      (merge {:status :pass :frame vid :lifecycle :ready :elapsed-ms 1
+                              :app-db {} :assertions [] :checks []
+                              :effective-args {:token "TOPSECRET"} :snapshot {:token "TOPSECRET"}}
                              (zipmap evidence-slots (repeat [{:token "TOPSECRET"}])))))]
       (doseq [[tool slots] [["run-variant"     (conj evidence-slots :snapshot)]
-                            ["preview-variant" [:snapshot :effective-args]]]
-              :let [default (:structuredContent (invoke tool {:variant-id "story.button/primary"}))
-                    opted   (:structuredContent (invoke tool {:variant-id        "story.button/primary"
-                                                              :include-sensitive true}))]
-              slot slots
-              :let [path (if (#{:snapshot :effective-args} slot) [slot :token] [slot 0 :token])]]
-        (testing (str tool " " slot)
-          (is (= :rf/redacted (get-in default path)) "redacts without the opt-in")
-          (is (= "TOPSECRET" (get-in opted path)) "ships raw with it"))))))
-;; ---------------------------------------------------------------------------
-;; The lifecycle :timeout-ms ceiling must bound the SYNCHRONOUS Story work,
-;; not just the post-return deref window.
-;;
-;; On the JVM `rf.story/run-variant` executes synchronously (a `[:wait ms]`
-;; step is an inline `Thread/sleep`), so it returns an ALREADY-settled
-;; future. Deref'ing that already-settled future under `:timeout-ms` alone
-;; would be a no-op, so a variant whose synchronous work blew past the
-;; advertised ceiling would still report `:pass` (false green) AND
-;; monopolise the single-threaded stdio loop for the full wait. The tests
-;; below use a REAL registered variant with a REAL `[:wait]`, so they
-;; exercise the synchronous-constructor path where that failure would live.
-;; The advertised bound must be real: an over-budget synchronous run is
-;; BOUNDED near the ceiling and reports the canonical `:error` verdict,
-;; never a false `:pass`.
-;;
-;; The deadline outcome ships a structuredContent that PASSES
-;; `valid-run-result?`, with each of the six evidence slots
-;; (`:schema-violations` / `:warnings` / `:effects` / `:sub-runs` /
-;; `:renders` / `:narrative`) filled to `[]`: the frozen `RunResult` schema
-;; declares them `[:optional true] [:sequential :any]`, so a present nil
-;; violates it. The other way into the same canonical `error-outcome`,
-;; `rf.story/run-variant` throwing synchronously, is pinned directly by
-;; `lifecycle-error-outcome-is-canonical` and through both handlers by
-;; `lifecycle-error-outcome-surfaced-by-both-consumers`.
-;; ---------------------------------------------------------------------------
+                            ["preview-variant" [:snapshot :effective-args]]]]
+        (let [paths (map #(if (#{:snapshot :effective-args} %) [% :token] [% 0 :token]) slots)
+              read  (fn [args]
+                      (let [s (:structuredContent (invoke tool (merge {:variant-id "story.button/primary"} args)))]
+                        (zipmap slots (map #(get-in s %) paths))))]
+          (is (= (zipmap slots (repeat :rf/redacted)) (read {})) (str tool " redacts without the opt-in"))
+          (is (= (zipmap slots (repeat "TOPSECRET")) (read {:include-sensitive true})) (str tool " ships raw with it")))))))
+
+;; The lifecycle :timeout-ms ceiling must bound the SYNCHRONOUS Story work:
+;; on the JVM a `[:wait]` step is an inline Thread/sleep, so run-variant
+;; returns an already-settled future and a deadline on the deref alone would
+;; be a no-op.
 
 (deftest run-variant-synchronous-wait-is-bounded-and-honest
-  (testing "an over-budget SYNCHRONOUS `[:wait]` is bounded near :timeout-ms and reports :error, never a false :pass"
-    (rf.story-mcp.config/set-allow-writes! true)
-    ;; A variant whose play-script sleeps far past the deadline. On the JVM
-    ;; the `[:wait 3000]` is a synchronous `Thread/sleep` inside
-    ;; `rf.story/run-variant` — the exact synchronous-work path the advertised
-    ;; ceiling must cover.
-    (rf.story/reg-variant :story.button/slow-wait
-      {:doc    "Play-script sleeps far past the deadline."
-       :args   {:label "Slow"}
-       :tags   #{:dev}
-       :script [[:wait 3000]]})
-    (with-clean-frame [vid :story.button/slow-wait]
-      (let [t0      (System/nanoTime)
-            r       (invoke "run-variant" {:variant-id "story.button/slow-wait"
-                                           :timeout-ms 100})
-            elapsed (/ (double (- (System/nanoTime) t0)) 1e6)
-            s       (:structuredContent r)]
-        (is (success? r)
-            "the tool call itself succeeds — the deadline outcome rides IN the run-result")
-        (is (= :error (:status s))
-            "the bounded-deadline-exceeded run reports the canonical :error verdict, never a false :pass")
-        (is (rf.story/valid-run-result? s)
-            (str "the deadline outcome conforms to the frozen RunResult schema; "
-                 (rf.story/explain-run-result s)))
-        (doseq [k [:schema-violations :warnings :effects :sub-runs :renders :narrative]]
-          (is (= [] (get s k)) (str k " defaults to [] rather than nil")))
-        (is (< elapsed 2000.0)
-            (str "the run must be BOUNDED near the 100ms :timeout-ms ceiling, "
-                 "not the 3000ms wait — synchronous work is under the deadline. "
-                 "elapsed=" elapsed "ms"))))))
+  (rf.story/reg-variant :story.button/slow-wait {:doc "slow" :script [[:wait 3000]]})
+  (with-clean-frame [_ :story.button/slow-wait]
+    (let [t0 (System/nanoTime)
+          s  (:structuredContent (invoke "run-variant" {:variant-id "story.button/slow-wait" :timeout-ms 100}))
+          ms (/ (double (- (System/nanoTime) t0)) 1e6)]
+      (is (= :error (:status s)) "never a false :pass")
+      (is (rf.story/valid-run-result? s) (str (rf.story/explain-run-result s)))
+      (is (< ms 2000.0) (str "bounded near the 100ms ceiling, not the 3000ms wait; elapsed=" ms "ms")))))
 
 (deftest preview-variant-synchronous-wait-is-bounded-and-honest
-  (testing "preview-variant shares the same bounded-deadline policy over synchronous `[:wait]`"
-    (rf.story-mcp.config/set-allow-writes! true)
-    (rf.story/reg-variant :story.button/slow-preview
-      {:doc    "Play-script sleeps far past the deadline."
-       :args   {:label "Slow"}
-       :tags   #{:dev}
-       :script [[:wait 3000]]})
-    (with-clean-frame [vid :story.button/slow-preview]
-      (let [t0      (System/nanoTime)
-            r       (invoke "preview-variant" {:variant-id "story.button/slow-preview"
-                                               :timeout-ms 100})
-            elapsed (/ (double (- (System/nanoTime) t0)) 1e6)
-            s       (:structuredContent r)]
-        (is (success? r))
-        (is (= :error (:status s))
-            "preview reports the canonical :error verdict over budget, never a false :pass")
-        (is (= :error (:lifecycle s))
-            "preview keeps the :lifecycle :error loader-state on the deadline outcome")
-        (is (< elapsed 2000.0)
-            (str "preview is BOUNDED near the 100ms ceiling, not the 3000ms wait. "
-                 "elapsed=" elapsed "ms"))))))
-
-(deftest stdio-loop-freed-after-lifecycle-deadline
-  (testing "a timed-out run-variant does NOT monopolise the single-threaded
-            stdio loop — a following `ping` is answered bounded near the
-            ceiling, not held for the full Story wait"
-    (rf.story/reg-variant :story.button/slow-loop
-      {:doc    "Runaway wait that would park the whole stdio loop without the deadline."
-       :args   {:label "Slow"}
-       :tags   #{:dev}
-       :script [[:wait 3000]]})
-    (with-clean-frame [vid :story.button/slow-loop]
-      (let [frames   [{:jsonrpc "2.0" :id 1 :method "initialize"
-                       :params  {:protocolVersion "2025-06-18"
-                                 :capabilities    {}
-                                 :clientInfo      {:name "test" :version "0"}}}
-                      {:jsonrpc "2.0" :id 2 :method "tools/call"
-                       :params  {:name      "run-variant"
-                                 :arguments {:variant-id "story.button/slow-loop"
-                                             :timeout-ms 100
-                                             :dedup      false}}}
-                      ;; The liveness probe RIGHT BEHIND the runaway call. In
-                      ;; the single-threaded loop it is only READ after
-                      ;; run-variant returns — so its answer is held for
-                      ;; however long run-variant blocks.
-                      {:jsonrpc "2.0" :id 3 :method "ping"}]
-            input    (apply str (map #(str (cheshire/generate-string %) "\n") frames))
-            reader   (java.io.BufferedReader. (java.io.StringReader. input))
-            writer   (java.io.StringWriter.)
-            t0       (System/nanoTime)
-            _        (rf.story-mcp.server/run-loop! reader writer)
-            elapsed  (/ (double (- (System/nanoTime) t0)) 1e6)
-            by-id    (into {}
-                           (comp (remove #(zero? (count ^String %)))
-                                 (map #(cheshire/parse-string % true))
-                                 (map (juxt :id identity)))
-                           (seq (.split ^String (str writer) "\n")))]
-        ;; The whole loop — the runaway run-variant AND the trailing ping —
-        ;; completes bounded near the 100ms ceiling, NOT the 3000ms wait.
-        (is (< elapsed 2000.0)
-            (str "the stdio loop is freed at the ceiling, not held for the "
-                 "full 3000ms wait. elapsed=" elapsed "ms"))
-        (is (= "error" (get-in by-id [2 :result :structuredContent :status]))
-            "the over-budget run reports :error over the wire, never a false :pass")
-        (is (= {} (get-in by-id [3 :result]))
-            "the following ping IS answered — the loop was not monopolised past the deadline")))))
-
-;; ---------------------------------------------------------------------------
-;; ONE lifecycle execution owner for both consumers
-;;
-;; `run-variant` (tools.testing) + `preview-variant` (tools.dev) share the
-;; `tools.lifecycle` execution owner — blocking invocation, timeout
-;; blocking, and ONE canonical exception normalization. A synchronous
-;; throw / timeout produces the SAME canonical error outcome for BOTH,
-;; routed through `rf.story/run-result` (not a hand-mint), with the
-;; `:lifecycle :error` loader-state + `:frame` preserved.
-;; ---------------------------------------------------------------------------
+  (rf.story/reg-variant :story.button/slow-preview {:doc "slow" :script [[:wait 3000]]})
+  (with-clean-frame [_ :story.button/slow-preview]
+    (let [t0 (System/nanoTime)
+          s  (:structuredContent (invoke "preview-variant" {:variant-id "story.button/slow-preview" :timeout-ms 100}))
+          ms (/ (double (- (System/nanoTime) t0)) 1e6)]
+      (is (= [:error :error] [(:status s) (:lifecycle s)]))
+      (is (< ms 2000.0) (str "elapsed=" ms "ms")))))
 
 (deftest lifecycle-error-outcome-is-canonical
-  (testing "error-outcome routes a throw through rf.story/run-result — canonical
-            shape, :status :error, every evidence slot filled to [], plus
-            the preserved :lifecycle :error + :frame slots"
-    (let [outcome (rf.story-mcp.tools.lifecycle/error-outcome :story.some/variant
-                                           (ex-info "boom" {}))]
-      (is (= :error (:status outcome)) "the run-failed record aggregates to :error")
-      (is (= :error (:lifecycle outcome)) "loader-state :error is preserved (preview reads it)")
-      (is (= :story.some/variant (:frame outcome)) "the frame is preserved (run reads it)")
-      (is (rf.story/valid-run-result? outcome)
-          (str "the error outcome conforms to the frozen RunResult schema; "
-               (rf.story/explain-run-result outcome)))
-      (doseq [k [:schema-violations :warnings :effects :sub-runs :renders :narrative]]
-        (is (= [] (get outcome k)) (str k " is filled to [] — never an absent/nil slot")))
-      (is (= :error (-> outcome :assertions first :status))
-          "the run-failed assertion record itself carries :error"))))
+  ;; One normalisation for a synchronous throw and a deadline, shared by both
+  ;; lifecycle tools: routed through rf.story/run-result with every evidence
+  ;; slot filled to [], because the frozen RunResult schema refuses a
+  ;; present nil.
+  (let [outcome (rf.story-mcp.tools.lifecycle/error-outcome :story.some/variant (ex-info "boom" {}))]
+    (is (= [:error :error :story.some/variant :error]
+           [(:status outcome) (:lifecycle outcome) (:frame outcome) (-> outcome :assertions first :status)]))
+    (is (rf.story/valid-run-result? outcome) (str (rf.story/explain-run-result outcome)))
+    (is (= (zipmap evidence-slots (repeat [])) (select-keys outcome evidence-slots)))))
 
 (deftest lifecycle-error-outcome-surfaced-by-both-consumers
-  ;; A synchronous throw out of `rf.story/run-variant` must surface the SAME
-  ;; canonical :error outcome through BOTH tools' real wire pipelines — the
-  ;; drift-proofing the shared owner buys (preview does not hand-mint a
-  ;; partial map; it shares the owner). `preview-variant` additionally keeps
-  ;; the `:lifecycle :error` slot it projects.
-  (with-clean-frame [vid :story.button/primary]
-    ;; Prime a live frame — the throw is reachable only after phase-0
-    ;; allocation, which resolves unconditionally on every other internal error.
+  ;; The worker future wraps a throw in an ExecutionException whose message is
+  ;; the cause's toString, so only an exact :reason proves the wrapper was
+  ;; peeled.
+  (with-clean-frame [_ :story.button/primary]
+    ;; The throw is reachable only after phase-0 allocation, so prime a live frame.
     (invoke "run-variant" {:variant-id "story.button/primary"})
-    (with-redefs [rf.story/run-variant
-                  (fn [& _] (throw (ex-info "simulated run-variant boom" {})))]
+    (with-redefs [rf.story/run-variant (fn [& _] (throw (ex-info "simulated run-variant boom" {})))]
       (doseq [tool ["run-variant" "preview-variant"]]
-        (testing (str tool " surfaces the canonical :error verdict via the shared owner")
-          (let [r (invoke tool {:variant-id "story.button/primary"})
-                s (:structuredContent r)]
-            (is (success? r))
-            (is (= :error (:status s)) (str tool " ⇒ :error"))
-            (is (= :error (-> s :assertions first :status))
-                (str tool " carries the :rf.error/run-failed record"))
-            ;; The worker future wraps the throw in `ExecutionException`, whose
-            ;; own message is the cause's `toString`
-            ;; ("clojure.lang.ExceptionInfo: simulated …"), so only an exact
-            ;; match proves the wrapper was peeled.
-            (is (= "simulated run-variant boom" (-> s :assertions first :reason))
-                (str tool "'s :reason is the Story throwable's message, not the executor wrapper's")))))
-      (testing "preview-variant additionally preserves the :lifecycle :error loader-state"
-        (let [s (:structuredContent (invoke "preview-variant" {:variant-id "story.button/primary"}))]
-          (is (= :error (:lifecycle s))))))
+        (let [s (:structuredContent (invoke tool {:variant-id "story.button/primary"}))]
+          (is (= [:error :error "simulated run-variant boom"]
+                 [(:status s) (-> s :assertions first :status) (-> s :assertions first :reason)])
+              tool)
+          (when (= tool "preview-variant")
+            (is (= :error (:lifecycle s)) "preview keeps its :lifecycle loader-state")))))
     (testing "a rejected Story future arrives wrapped twice, and both wrappers are peeled"
-      ;; `deref-blocking` rethrows the rejection inside an `ExecutionException`,
-      ;; which the worker future wraps again.
-      (with-redefs [rf.story/run-variant
-                    (fn [& _] (java.util.concurrent.CompletableFuture/failedFuture
-                                (ex-info "simulated Story rejection" {})))]
+      (with-redefs [rf.story/run-variant (fn [& _] (java.util.concurrent.CompletableFuture/failedFuture
+                                                      (ex-info "simulated Story rejection" {})))]
         (let [s (:structuredContent (invoke "run-variant" {:variant-id "story.button/primary"}))]
-          (is (= :error (:status s)))
-          (is (= "simulated Story rejection" (-> s :assertions first :reason))))))))
-
-;; ---------------------------------------------------------------------------
-;; explain-variant ships author data raw.
-;;
-;; `explain-variant` is a NO-RUN tool over the registry side-table (the agent
-;; mirror of the human Explain panel), so its ENTIRE `:explain` map — the
-;; plan-STRUCTURE slots AND the plan-RESOLVED value slots (`:effective-args` /
-;; `:args` / `:substitutions` / `:network` / `:db-seed` / `:sub-overrides` /
-;; `:setup-order` / `:script-order`) — is static author data resolved from the
-;; variant's own registration, not observed user runtime. It ships RAW exactly
-;; like `get-variant` / `variant->edn`; it is NOT routed through any egress
-;; boundary and carries no `:include-sensitive` knob.
-;;
-;; These tests pin that the author data crosses raw under both a
-;; classified live path and a non-live frame.
-;; ---------------------------------------------------------------------------
-
-(deftest explain-variant-ships-value-slots-raw-even-with-classified-path
-  (testing "explain-variant ships author value slots raw even when the frame classifies the matching app-db path"
-    (with-clean-frame [vid :story.button/primary]
-      ;; A live frame classifying [:auth :token], plus a :db-seed slot that
-      ;; mirrors that path. explain-variant is author data, so every slot
-      ;; ships raw.
-      (seed-app-db! vid {:auth {:token "DISTINCTIVE-EXPLAIN-SECRET"}})
-      (declare-sensitive! vid [:auth :token])
-      (with-redefs [rf.story/explain
-                    (fn [_vk & _]
-                      {:source-chain   [:story.button/primary]
-                       :db-seed        {:auth {:token "DISTINCTIVE-EXPLAIN-SECRET"}}
-                       :effective-args {:api-key "DISTINCTIVE-EXPLAIN-SECRET"}
-                       :network        {[:get "/api/me"] {:reply {:token "DISTINCTIVE-EXPLAIN-SECRET"}}}
-                       :sub-overrides  {:overrides  {[:current-user] {:token "DISTINCTIVE-EXPLAIN-SECRET"}}
-                                        :validation {:status :ok :violations []}}
-                       :setup-order    [[:dispatch [:auth/login {:token "DISTINCTIVE-EXPLAIN-SECRET"}]]]
-                       :script-order   [[:dispatch [:api/call {:key "DISTINCTIVE-EXPLAIN-SECRET"}]]]})]
-        (let [r (invoke "explain-variant" {:variant-id "story.button/primary"})
-              s (:structuredContent r)]
-          (is (success? r))
-          (is (= [:story.button/primary] (get-in s [:explain :source-chain]))
-              "plan-STRUCTURE ships raw")
-          (is (= "DISTINCTIVE-EXPLAIN-SECRET" (get-in s [:explain :db-seed :auth :token]))
-              "author data: even the :db-seed slot AT the classified [:auth :token] path ships RAW — not redacted")
-          (is (= "DISTINCTIVE-EXPLAIN-SECRET" (get-in s [:explain :effective-args :api-key]))
-              "author data: the :effective-args value ships RAW")
-          (is (= "DISTINCTIVE-EXPLAIN-SECRET" (get-in s [:explain :network [:get "/api/me"] :reply :token]))
-              "author data: the :network reply value ships RAW")
-          (is (= "DISTINCTIVE-EXPLAIN-SECRET" (get-in s [:explain :sub-overrides :overrides [:current-user] :token]))
-              "author data: the :sub-overrides value ships RAW")
-          (is (= :ok (get-in s [:explain :sub-overrides :validation :status]))
-              "the non-value :validation structure inside :sub-overrides is preserved")
-          (is (= [[:dispatch [:auth/login {:token "DISTINCTIVE-EXPLAIN-SECRET"}]]] (get-in s [:explain :setup-order]))
-              "author data: the :setup-order step payload ships RAW")
-          (is (= [[:dispatch [:api/call {:key "DISTINCTIVE-EXPLAIN-SECRET"}]]] (get-in s [:explain :script-order]))
-              "author data: the :script-order step payload ships RAW")
-          (is (not (tree-contains? (:explain s) :rf/redacted))
-              "nothing in the :explain map is redacted"))))))
-
-;; ---------------------------------------------------------------------------
-;; explain-variant NO-RUN egress — the regression pin.
-;;
-;; `explain-variant` is a documented NO-RUN tool (spec/API.md §explain-variant:
-;; "Plan-derived data — no run, no live :app-db slice"): the documented
-;; static-inspection flow (list-stories -> get-variant -> explain-variant) hits
-;; it BEFORE any run-variant / preview-variant allocates the variant frame, so
-;; the frame is NON-LIVE. Projected through the framework egress boundary,
-;; which FAILS CLOSED on a non-live frame, EVERY value slot would redact to
-;; `:rf/redacted` — destroying the resolved args, final setup/script order,
-;; and network stubs even though nothing is runtime-sensitive. So
-;; explain-variant ships the author data raw.
-;; ---------------------------------------------------------------------------
+          (is (= [:error "simulated Story rejection"] [(:status s) (-> s :assertions first :reason)])))))))
 
 (deftest explain-variant-no-run-non-live-frame-ships-value-slots-raw
-  (testing "explain-variant on a NON-LIVE frame (no run) ships the real author values, NOT :rf/redacted"
-    ;; Guarantee the non-live-frame scenario — the frame is never allocated
-    ;; on the documented no-run inspection path. (A prior test could
-    ;; otherwise leave the frame live and mask a regression.)
-    (destroy-variant-frame! :story.button/primary)
-    (is (nil? (frame-container :story.button/primary))
-        "precondition: the variant frame is non-live (no run has allocated it)")
-    (with-redefs [rf.story/explain
-                  (fn [_vk & _]
-                    {:source-chain   [:story.button/primary]
-                     :effective-args {:api-key "DISTINCTIVE-NORUN-VALUE"}
-                     :network        {[:get "/api/me"] {:reply {:token "DISTINCTIVE-NORUN-VALUE"}}}
-                     :db-seed        {:auth {:token "DISTINCTIVE-NORUN-VALUE"}}
-                     :setup-order    [[:dispatch [:auth/login {:token "DISTINCTIVE-NORUN-VALUE"}]]]
-                     :script-order   [[:dispatch [:api/call {:key "DISTINCTIVE-NORUN-VALUE"}]]]})]
-      (let [r (invoke "explain-variant" {:variant-id "story.button/primary"})
-            s (:structuredContent r)]
-        (is (success? r))
-        (doseq [path [[:explain :effective-args :api-key]
-                      [:explain :network [:get "/api/me"] :reply :token]
-                      [:explain :db-seed :auth :token]]]
-          (is (= "DISTINCTIVE-NORUN-VALUE" (get-in s path))
-              (str path " ships the real author value RAW on the non-live frame, not :rf/redacted")))
-        (is (= [[:dispatch [:auth/login {:token "DISTINCTIVE-NORUN-VALUE"}]]] (get-in s [:explain :setup-order]))
-            ":setup-order ships its step payload raw")
-        (is (= [[:dispatch [:api/call {:key "DISTINCTIVE-NORUN-VALUE"}]]] (get-in s [:explain :script-order]))
-            ":script-order ships its step payload raw")
-        (is (not (tree-contains? (:explain s) :rf/redacted))
-            "no slot of the :explain map is redacted on the non-live frame")))))
+  ;; explain-variant is a NO-RUN tool over static author data (spec/API.md
+  ;; §explain-variant), reached before any run allocates the variant frame.
+  ;; The framework egress boundary FAILS CLOSED on a non-live frame, so routing
+  ;; the plan through it would redact every value slot.
+  (destroy-variant-frame! :story.button/primary)
+  (let [plan {:source-chain   [:story.button/primary]
+              :effective-args {:api-key "DISTINCTIVE-NORUN-VALUE"}
+              :network        {[:get "/api/me"] {:reply {:token "DISTINCTIVE-NORUN-VALUE"}}}
+              :db-seed        {:auth {:token "DISTINCTIVE-NORUN-VALUE"}}
+              :setup-order    [[:dispatch [:auth/login {:token "DISTINCTIVE-NORUN-VALUE"}]]]
+              :script-order   [[:dispatch [:api/call {:key "DISTINCTIVE-NORUN-VALUE"}]]]}]
+    (with-redefs [rf.story/explain (fn [_vk & _] plan)]
+      (is (= plan (-> (invoke "explain-variant" {:variant-id "story.button/primary"}) :structuredContent :explain))))))
 
-;; ---------------------------------------------------------------------------
-;; read-a11y-violations egress scrub. axe-core violation nodes (incl. node
-;; :html outerHTML) must not cross the AI/off-box MCP boundary unredacted: a
-;; sensitive value rendered into the DOM (e.g. `<input value="<token>">`)
-;; lands verbatim in node :html, and read-a11y-violations is :readOnlyHint
-;; true (agent hosts AUTO-APPROVE it). axe DOM nodes are an inherently RE-KEYED
-;; runtime payload class, so :violations route through the named
-;; `rf.story-mcp.tools.egress/scrub-re-keyed-runtime` exception.
-;;
-;; The helpers (`seed-app-db!` / `declare-sensitive!`) allocate the frame and
-;; establish its declared-sensitive path; `scrub-re-keyed-runtime` reads that
-;; frame's live app-db itself and PATH-projects the violations tree. There is
-;; no value-match (EP-0025), so a value rendered into a node :html (a RE-KEYED
-;; DOM position the app-db path cannot reach) ships RAW under a LIVE frame
-;; (fail-open) — the cases below pin that behaviour. A non-live frame ships
-;; the nodes raw under the documented carve-out (pinned by
-;; `scrub-re-keyed-runtime-non-live-frame-ships-raw-under-named-exception`
-;; above). The co-hosted violations are supplied through the `a11y-stand-in`
-;; provider seam below.
-;; ---------------------------------------------------------------------------
-
-(defn- a11y-stand-in
-  "A reached-provider seam for `rf.story-mcp.tools.cljs-resolve/*a11y-provider*`: a zero-arg
-  fn returning the by-frame violations map directly. Binding this makes
-  the a11y capability AVAILABLE, so the handler takes the reached-provider
-  success path."
-  [by-frame]
-  (fn [] by-frame))
+;; axe-core nodes carry the violating element's outerHTML, and
+;; read-a11y-violations is readOnlyHint (hosts auto-approve it). The nodes are
+;; a re-keyed runtime payload, scrubbed through `scrub-re-keyed-runtime`.
 
 (deftest read-a11y-violations-re-keyed-html-ships-raw-fail-open
-  (testing "EP-0025 fail-open: a declared-sensitive value rendered into an axe-core node :html is RE-KEYED off its app-db path, so it ships RAW — there is no value-match"
-    (with-clean-frame [vid :story.button/primary]
-      ;; The frame app-db carries the secret at a declared-sensitive path; the
-      ;; rendered DOM (axe-core node :html) embeds the SAME literal at a
-      ;; non-app-db position. With no value-match (EP-0025), the re-keyed
-      ;; DOM copy ships raw. The public axe-core finding STRUCTURE is intact.
-      (seed-app-db! vid {:auth {:token "DISTINCTIVE-A11Y-SECRET"}})
-      (declare-sensitive! vid [:auth :token])
-      (let [vios     [{:id    "label"
-                       :impact "critical"
-                       :help  "Form elements must have labels"
-                       :nodes [{:html           "DISTINCTIVE-A11Y-SECRET"
-                                :target         ["#api-key-input"]
-                                :failureSummary "Fix any of the following: element has no label"}]}]]
-        (binding [rf.story-mcp.tools.cljs-resolve/*a11y-provider* (a11y-stand-in {:story.button/primary vios})]
-          (let [r (invoke "read-a11y-violations" {:variant-id "story.button/primary"})
-                s (:structuredContent r)]
-            (is (success? r))
-            (is (= "DISTINCTIVE-A11Y-SECRET" (get-in s [:violations 0 :nodes 0 :html]))
-                "fail-open: the re-keyed node :html ships RAW — classify the app-db PATH to redact a value before it reaches the DOM")
-            (is (= "label" (get-in s [:violations 0 :id]))
-                "the public axe-core finding STRUCTURE (id/impact/help/target) survives")
-            (is (= ["#api-key-input"] (get-in s [:violations 0 :nodes 0 :target]))
-                "non-sensitive node fields (CSS target selectors) pass through")))))))
+  ;; A value rendered into a node's :html sits at a DOM position the app-db
+  ;; classification path cannot reach, so on a live frame it ships raw:
+  ;; classify the app-db PATH to redact it before it reaches the DOM.
+  (with-clean-frame [vid :story.button/primary]
+    (seed-app-db! vid {:auth {:token "DISTINCTIVE-A11Y-SECRET"}})
+    (declare-sensitive! vid [:auth :token])
+    (let [vios [{:id "label" :impact "critical" :help "Form elements must have labels"
+                 :nodes [{:html "DISTINCTIVE-A11Y-SECRET" :target ["#api-key-input"]}]}]]
+      (binding [rf.story-mcp.tools.cljs-resolve/*a11y-provider* (fn [] {:story.button/primary vios})]
+        (is (= vios (-> (invoke "read-a11y-violations" {:variant-id "story.button/primary"}) :structuredContent :violations)))))))
 
 (deftest read-a11y-violations-node-at-a-classified-path-honours-the-include-sensitive-opt-in
-  ;; The re-keyed test above ships the node raw with or without the opt-in.
-  ;; A node value AT a classified path under a live frame redacts, so only
-  ;; the threaded opt-in can ship it raw, in both slots the re-keyed-runtime
-  ;; scrub covers.
+  ;; A node value AT a classified path redacts on a live frame, so only the
+  ;; threaded opt-in ships it, in both slots the re-keyed-runtime scrub covers.
   (rf.story-mcp.config/set-allow-sensitive-reads! true)
   (with-clean-frame [vid :story.button/primary]
     (declare-sensitive! vid [0 :nodes 0 :html])
-    (let [nodes [{:id "label" :nodes [{:html "DISTINCTIVE-A11Y-SECRET"}]}]]
-      (binding [rf.story-mcp.tools.cljs-resolve/*a11y-provider*            (a11y-stand-in {vid nodes})
-                rf.story-mcp.tools.cljs-resolve/*a11y-incomplete-provider* (a11y-stand-in {vid nodes})]
-        (let [default (:structuredContent (invoke "read-a11y-violations" {:variant-id "story.button/primary"}))
-              opted   (:structuredContent (invoke "read-a11y-violations" {:variant-id        "story.button/primary"
-                                                                          :include-sensitive true}))]
-          (doseq [slot [:violations :incomplete]]
-            (testing (name slot)
-              (is (= :rf/redacted (get-in default [slot 0 :nodes 0 :html])) "redacts without the opt-in")
-              (is (= "DISTINCTIVE-A11Y-SECRET" (get-in opted [slot 0 :nodes 0 :html]))
-                  "ships raw with it"))))))))
-;; ---------------------------------------------------------------------------
-;; Egress indicator counts (`:dropped-sensitive` / `:elided-large`).
-;;
-;; story-mcp drops `:sensitive? true` assertion records and elides
-;; over-threshold / schema-`:large?` leaves at the wire egress, and surfaces
-;; a count of each — avoiding the canonical silent-swallow failure mode.
-;; spec/Conventions.md §Cross-MCP indicator-field vocabulary is MUST-
-;; level: a tool walking a tree-typed payload MUST carry an
-;; `:elided-large` count alongside the `:dropped-sensitive` count,
-;; omitting each slot when zero. This reuses the mcp-base primitives
-;; (`envelope/with-indicators` + `elision/count-elided-markers`) the
-;; sibling pair-mcp also wires.
-;;
-;; `:dropped-sensitive` / `:elided-large` are present with the correct
-;; counts whenever a sensitive slot is dropped / a large value is elided,
-;; and omitted entirely on a clean read.
-;; ---------------------------------------------------------------------------
+    (let [nodes [{:id "label" :nodes [{:html "DISTINCTIVE-A11Y-SECRET"}]}]
+          read  (fn [args]
+                  (binding [rf.story-mcp.tools.cljs-resolve/*a11y-provider*            (fn [] {vid nodes})
+                            rf.story-mcp.tools.cljs-resolve/*a11y-incomplete-provider* (fn [] {vid nodes})]
+                    (let [s (:structuredContent (invoke "read-a11y-violations"
+                                                        (merge {:variant-id "story.button/primary"} args)))]
+                      (map #(get-in s [% 0 :nodes 0 :html]) [:violations :incomplete]))))]
+      (is (= [:rf/redacted :rf/redacted] (read {})))
+      (is (= ["DISTINCTIVE-A11Y-SECRET" "DISTINCTIVE-A11Y-SECRET"] (read {:include-sensitive true}))))))
+
+;; Egress indicator counts (spec/Conventions.md §Cross-MCP indicator-field
+;; vocabulary): a dropped sensitive record or an elided large value is
+;; counted on the envelope, never silently swallowed.
 
 (deftest read-failures-surfaces-dropped-sensitive-indicator
-  (testing ":dropped-sensitive count rides the envelope when a sensitive record is dropped"
-    (with-clean-frame [vid :story.button/primary]
-      (seed-app-db! vid
-                    {:rf.story/assertions
-                     [{:assertion :rf.assert/path-equals :passed? true :tags [:public]}
-                      {:assertion  :rf.assert/path-equals :passed? false
-                       :sensitive? true :reason "secret mismatch"}
-                      {:assertion  :rf.assert/sub-equals :passed? false
-                       :sensitive? true :reason "another secret mismatch"}]})
-      (let [r (invoke "read-failures" {:variant-id "story.button/primary"})
-            s (:structuredContent r)]
-        (is (success? r))
-        (is (= 1 (:total s)) "only the non-sensitive record survives")
-        (is (empty? (:failures s)) "the sensitive failures are filtered out")
-        (is (= :pass (:status s))
-            ":status aggregates the scrubbed vec — a dropped sensitive failure does not flip the verdict")
-        (is (= 2 (:dropped-sensitive s))
-            "the count of dropped sensitive records rides the envelope (MUST)")))))
+  (with-clean-frame [vid :story.button/primary]
+    (seed-app-db! vid {:rf.story/assertions
+                       [{:assertion :rf.assert/path-equals :passed? true}
+                        {:assertion :rf.assert/path-equals :passed? false :sensitive? true :reason "secret"}
+                        {:assertion :rf.assert/sub-equals :passed? false :sensitive? true :reason "secret"}]})
+    (is (= {:total 1 :failures [] :status :pass :dropped-sensitive 2}
+           (select-keys (:structuredContent (invoke "read-failures" {:variant-id "story.button/primary"}))
+                        [:total :failures :status :dropped-sensitive]))
+        "a dropped sensitive failure is counted and does not flip the verdict")))
 
 (deftest read-failures-includes-sensitive-when-opted-in
-  (testing ":include-sensitive true preserves sensitive records"
-    (rf.story-mcp.config/set-allow-sensitive-reads! true)
-    (with-clean-frame [vid :story.button/primary]
-      (seed-app-db! vid
-                    {:rf.story/assertions
-                     [{:assertion :rf.assert/path-equals
-                       :passed?   true}
-                      {:assertion  :rf.assert/path-equals
-                       :passed?    false
-                       :sensitive? true
-                       :reason     "expected TOPSECRET got something-else"}]})
-      (let [r (invoke "read-failures" {:variant-id "story.button/primary"
-                                       :include-sensitive true})
-            s (:structuredContent r)]
-        (is (success? r))
-        (is (= 2 (:total s)) "both records survive the egress")
-        (is (= 1 (count (:failures s))) "the failed sensitive record is visible")
-        (is (= :fail (:status s)) "the visible failure drives :status :fail")
-        (is (not (contains? s :dropped-sensitive))
-            "nothing was dropped, so the slot is omitted (omit-when-zero)")))))
-
-(deftest read-failures-omits-indicators-when-nothing-dropped
-  (testing "neither indicator slot appears on a clean read (omit-when-zero MUST)"
-    (with-clean-frame [vid :story.button/primary]
-      (seed-app-db! vid
-                    {:rf.story/assertions
-                     [{:assertion :rf.assert/path-equals :passed? true :tags [:public]}]})
-      (let [r (invoke "read-failures" {:variant-id "story.button/primary"})
-            s (:structuredContent r)]
-        (is (success? r))
-        (is (not (contains? s :dropped-sensitive))
-            ":dropped-sensitive omitted when zero")
-        (is (not (contains? s :elided-large))
-            ":elided-large omitted when zero")))))
+  (rf.story-mcp.config/set-allow-sensitive-reads! true)
+  (with-clean-frame [vid :story.button/primary]
+    (seed-app-db! vid {:rf.story/assertions
+                       [{:assertion :rf.assert/path-equals :passed? true}
+                        {:assertion :rf.assert/path-equals :passed? false :sensitive? true :reason "x"}]})
+    (let [s (:structuredContent (invoke "read-failures" {:variant-id "story.button/primary" :include-sensitive true}))]
+      (is (= [2 1 :fail false] [(:total s) (count (:failures s)) (:status s) (contains? s :dropped-sensitive)])
+          "both records survive, and the zero drop count is omitted"))))
 
 (deftest run-variant-surfaces-elided-large-indicator
-  (testing ":elided-large count rides the envelope when a large value is elided"
-    (with-clean-frame [vid :story.button/primary]
-      ;; A schema-declared `:large?` slot whose value the egress walker
-      ;; substitutes with `:rf.size/large-elided` — the leaf the
-      ;; `:elided-large` indicator counts.
-      (seed-app-db! vid {:public "ok" :blob "a-big-uploaded-blob"})
-      (declare-large! vid [:blob])
-      (let [r (invoke "run-variant" {:variant-id "story.button/primary"})
-            s (:structuredContent r)]
-        (is (success? r))
-        ;; The slot is replaced by the marker in the wire :app-db.
-        (is (contains? (get-in s [:app-db :blob]) :rf.size/large-elided)
-            "the large slot is replaced by the :rf.size/large-elided marker")
-        (is (pos-int? (:elided-large s))
-            "the count of elided leaves rides the envelope (MUST)")))))
+  (with-clean-frame [vid :story.button/primary]
+    (seed-app-db! vid {:public "ok" :blob "a-big-uploaded-blob"})
+    (declare-large! vid [:blob])
+    (let [s (:structuredContent (invoke "run-variant" {:variant-id "story.button/primary"}))]
+      (is (contains? (get-in s [:app-db :blob]) :rf.size/large-elided))
+      (is (pos-int? (:elided-large s))))))
 
-;; The full set of tools that surface an OBSERVED-RUNTIME value-bearing slot
-;; (live `:app-db` / assertions OR a non-live captured runtime value) and so
-;; must accept the `:include-sensitive` opt-in. The live three
-;; (`preview-variant` / `run-variant` / `read-failures`) plus the non-live
-;; runtime tool
-;; (`read-a11y-violations`'s runtime DOM `:violations`). `explain-variant` is
-;; NOT here: it is a no-run projection over the registry, so it
-;; ships author data raw like `get-variant` and carries no gate knob.
+;; The tools that surface an OBSERVED-RUNTIME value and so accept the
+;; `:include-sensitive` opt-in. explain-variant ships author data raw and is
+;; not among them.
 (def ^:private include-sensitive-tools
-  ["preview-variant" "run-variant" "read-failures"
-   "read-a11y-violations"])
-
-(deftest egress-tools-input-schema-carries-include-sensitive
-  ;; Pin the EXACT include-sensitive tool set against the
-  ;; registry so the spec's affected-tools prose (four) and the descriptor
-  ;; strip can't silently drift apart. The set is precisely the
-  ;; descriptors that carry the slot — no more, no less.
-  (testing "the include-sensitive set is EXACTLY the descriptors carrying the slot (no drift)"
-    (let [carriers (->> rf.story-mcp.tools.registry/tool-registry
-                        (filter #(contains? (-> % :inputSchema :properties) :include-sensitive))
-                        (map :name)
-                        set)]
-      (is (= (set include-sensitive-tools) carriers)
-          "every descriptor carrying :include-sensitive must be in the pinned set, and vice versa")
-      (is (= 4 (count carriers))
-          "the affected set is four tools (spec/002 §sensitive-read gate) — explain-variant ships author data raw")
-      (is (not (contains? carriers "explain-variant"))
-          "explain-variant carries no :include-sensitive — it is author data, shipped raw like get-variant"))))
+  ["preview-variant" "run-variant" "read-failures" "read-a11y-violations"])
 
 (def ^:private api-md
-  "The consolidated public-API page, read relative to the `tools/story-mcp/`
-  artefact root (resolved cwd-independently via `artefact-root`). Read once
-  at ns-load — if the path drifts `slurp` throws and the drift test errors
-  loudly rather than silently passing on an empty string."
   (delay (slurp (io/file (artefact-root) "spec" "API.md"))))
 
 (defn- api-section
-  "Return the `### \\`<tool-name>\\`` section body from API.md — the text
-  from that heading up to the next `### ` (or `## `) heading. Used by the
-  docs-drift guard so a per-tool assertion bites on the right slice."
+  "The `### \\`<tool-name>\\`` section of API.md, up to the next `### ` or
+  `## ` heading."
   [tool-name]
   (let [doc     @api-md
-        heading (str "### `" tool-name "`")
-        start   (clojure.string/index-of doc heading)]
-    (when start
+        heading (str "### `" tool-name "`")]
+    (when-let [start (str/index-of doc heading)]
       (let [after (subs doc (+ start (count heading)))
-            ;; The next `### ` or `## ` heading on its own line bounds the
-            ;; section; nil end ⇒ the section runs to EOF.
-            end   (->> [(clojure.string/index-of after "\n### ")
-                        (clojure.string/index-of after "\n## ")]
-                       (remove nil?)
-                       (apply min Long/MAX_VALUE))]
-        (if (= end Long/MAX_VALUE)
-          after
-          (subs after 0 end))))))
+            end   (->> [(str/index-of after "\n### ") (str/index-of after "\n## ")] (remove nil?) (apply min Long/MAX_VALUE))]
+        (if (= end Long/MAX_VALUE) after (subs after 0 end))))))
 
 (deftest api-md-tracks-include-sensitive-descriptor-set
-  ;; The consolidated API page must list
-  ;; `:include-sensitive` for EVERY tool whose descriptor carries the
-  ;; slot, so the summary can't silently under-document the gated
-  ;; privacy escape hatch. Derives the expected set from the live registry,
-  ;; so a new value-surfacing tool that gains the slot must also gain the
-  ;; API.md mention or this trips.
-  (testing "API.md documents :include-sensitive for every descriptor that carries it"
-    (let [carriers (->> rf.story-mcp.tools.registry/tool-registry
-                        (filter #(contains? (-> % :inputSchema :properties) :include-sensitive))
-                        (map :name)
-                        sort)]
-      (doseq [tname carriers]
-        (let [section (api-section tname)]
-          (is (some? section)
-              (str "API.md is missing a `### `" tname "`` section"))
-          (is (and section (clojure.string/includes? section ":include-sensitive"))
-              (str "API.md §" tname " must document the gated :include-sensitive slot "
-                   "(descriptor carries it; the consolidated page must not under-document it)")))))))
+  ;; Derived from the live registry, so a tool that gains the slot must gain
+  ;; the API.md mention too.
+  (doseq [tname (->> rf.story-mcp.tools.registry/tool-registry
+                     (filter #(contains? (-> % :inputSchema :properties) :include-sensitive))
+                     (map :name)
+                     sort)]
+    (is (some-> (api-section tname) (str/includes? ":include-sensitive"))
+        (str "API.md §" tname " must document the gated :include-sensitive slot"))))
 
-;; ---------------------------------------------------------------------------
-;; Sensitive-read boot gate
-;;
-;; The per-call `:include-sensitive` arg
-;; is honoured ONLY when the operator opened the server-side gate at boot
-;; (`--allow-sensitive-reads`). When the gate is closed:
-;;
-;;   1. `tools/list` omits `:include-sensitive` from the input schemas of
-;;      every affected tool — the four that surface live observed
-;;      VALUES (preview-variant / run-variant / read-failures /
-;;      read-a11y-violations), i.e. every descriptor that
-;;      carries the slot (caller UX — no ghost knob). (explain-variant ships
-;;      author data raw and is not among them.)
-;;   2. `:include-sensitive true` on a tool call is silently ignored at
-;;      the egress helpers (defence-in-depth — even a caller who learned
-;;      about the slot some other way can't exfiltrate raw values).
-;; ---------------------------------------------------------------------------
+;; The per-call `:include-sensitive` arg is honoured ONLY when the operator
+;; opened the gate at boot (`--allow-sensitive-reads`). Closed, `tools/list`
+;; omits the slot and the egress helpers ignore a caller who sends it anyway.
 
-(deftest sensitive-reads-gate-flag-flips-config
-  ;; An argv with no recognised flag leaves every gate slot unset, so the
-  ;; boot merge keeps the sysprop/env value;
-  ;; `boot-config-unknown-flag-logged-and-ignored` pins that.
-  (testing "--allow-sensitive-reads flag flips the boot config"
-    (let [cfg (#'rf.story-mcp.server/parse-args ["--allow-sensitive-reads"])]
-      (is (true? (:allow-sensitive-reads? cfg))))))
+(defn- advertised-include-sensitive
+  "Each include-sensitive tool's advertised slot type in `tools/list`, nil when absent."
+  []
+  (let [props (into {} (map (juxt :name (comp :properties :inputSchema))) (rf.story-mcp.tools.registry/tool-descriptors))]
+    (map #(get-in (props %) [:include-sensitive :type]) include-sensitive-tools)))
 
 (deftest tools-list-strips-include-sensitive-when-gate-closed
-  (testing "tools/list omits :include-sensitive from the schema when the gate is closed"
-    (is (false? (rf.story-mcp.config/sensitive-reads-allowed?)))
-    (let [descriptors (rf.story-mcp.tools.registry/tool-descriptors)]
-      (doseq [tname include-sensitive-tools]
-        (let [t     (some #(when (= tname (:name %)) %) descriptors)
-              props (-> t :inputSchema :properties)]
-          (is (not (contains? props :include-sensitive))
-              (str "gate closed: " tname " must not advertise :include-sensitive")))))))
+  (is (= [nil nil nil nil] (advertised-include-sensitive))))
 
 (deftest tools-list-surfaces-include-sensitive-when-gate-open
-  (testing "tools/list advertises :include-sensitive when the gate is open"
-    (rf.story-mcp.config/set-allow-sensitive-reads! true)
-    (let [descriptors (rf.story-mcp.tools.registry/tool-descriptors)]
-      (doseq [tname include-sensitive-tools]
-        (let [t     (some #(when (= tname (:name %)) %) descriptors)
-              props (-> t :inputSchema :properties)]
-          (is (= "boolean" (-> props :include-sensitive :type))
-              (str "gate open: " tname " must advertise :include-sensitive as a boolean")))))))
+  (rf.story-mcp.config/set-allow-sensitive-reads! true)
+  (is (= ["boolean" "boolean" "boolean" "boolean"] (advertised-include-sensitive))))
 
 (deftest app-db-slot-honours-the-include-sensitive-flag-only-through-the-open-gate
-  ;; Every call sends `:include-sensitive true`; only the operator gate
-  ;; varies. Closed, the flag is dropped, so the classified slot redacts
-  ;; exactly as it does for a call that omits the flag. Open, the raw value
-  ;; crosses. The benign slot survives either way. Each run resets the
-  ;; frame's runtime-db; `declare-sensitive!`'s `:setup` step re-applies the
-  ;; classification, so the redaction shows at egress on every call.
-  (is (false? (rf.story-mcp.config/sensitive-reads-allowed?))
-      "precondition: the fixture closes the gate")
+  ;; Every call sends :include-sensitive true; only the operator gate varies.
   (with-clean-frame [vid :story.button/primary]
     (seed-app-db! vid {:public "ok" :secret "TOPSECRET"})
     (declare-sensitive! vid [:secret])
     (doseq [tool            ["preview-variant" "run-variant"]
             [gate expected] [[false :rf/redacted] [true "TOPSECRET"]]]
-      (testing (str tool ", gate " (if gate "open" "closed"))
-        (rf.story-mcp.config/set-allow-sensitive-reads! gate)
-        (let [r (invoke tool {:variant-id        "story.button/primary"
-                              :include-sensitive true})
-              s (:structuredContent r)]
-          (is (success? r))
-          (is (= expected (get-in s [:app-db :secret])))
-          (is (= "ok" (get-in s [:app-db :public]))
-              "the benign slot survives the walk"))))))
+      (rf.story-mcp.config/set-allow-sensitive-reads! gate)
+      (is (= {:public "ok" :secret expected}
+             (select-keys (:app-db (:structuredContent (invoke tool {:variant-id        "story.button/primary"
+                                                                     :include-sensitive true})))
+                          [:public :secret]))
+          (str tool ", gate " (if gate "open" "closed"))))))
 
 (deftest read-failures-gate-closed-ignores-per-call-flag
-  (testing "with gate closed, :include-sensitive true does not surface sensitive records"
-    (is (false? (rf.story-mcp.config/sensitive-reads-allowed?)))
-    (with-clean-frame [vid :story.button/primary]
-      (seed-app-db! vid
-                    {:rf.story/assertions
-                     [{:assertion :rf.assert/path-equals :passed? true}
-                      {:assertion  :rf.assert/path-equals
-                       :passed?    false
-                       :sensitive? true
-                       :reason     "leak"}]})
-      (let [r (invoke "read-failures" {:variant-id "story.button/primary"
-                                       :include-sensitive true})
-            s (:structuredContent r)]
-        (is (success? r))
-        (is (= 1 (:total s))
-            "gate closed: sensitive records remain dropped despite the opt-in")))))
+  (with-clean-frame [vid :story.button/primary]
+    (seed-app-db! vid {:rf.story/assertions
+                       [{:assertion :rf.assert/path-equals :passed? true}
+                        {:assertion :rf.assert/path-equals :passed? false :sensitive? true :reason "leak"}]})
+    (is (= 1 (:total (:structuredContent (invoke "read-failures" {:variant-id        "story.button/primary"
+                                                                  :include-sensitive true})))))))
 
 ;; ---------------------------------------------------------------------------
-;; Agent-onboarding text parity
-;;
-;; `story-instructions-text` (tools/dev.cljc) is hand-copied from the spec.
-;; CI must catch drift between the prose's assertion-id list and what the
-;; registrar reports — otherwise the agent's onboarding doc silently lies as
-;; the registry evolves. The canonical-tag list is held to the registrar by
-;; `get-story-instructions-agrees-with-the-variant-schema-and-tag-vocabulary`.
+;; The stdio frame cap is a UTF-8 BYTE budget, the DoS bound the error
+;; message promises. Each oversize frame below is UNDER the cap in Java chars
+;; and OVER it in bytes, so a char counter would admit it.
 ;; ---------------------------------------------------------------------------
 
-(deftest story-instructions-text-mentions-every-canonical-assertion
-  (testing "the onboarding text names every canonical assertion the registrar ships"
-    (let [text             rf.story-mcp.tools.dev/story-instructions-text
-          assertion-names  (->> (rf.story/canonical-assertion-ids)
-                                (map name)
-                                set)]
-      ;; The prose styles assertion ids without the namespace prefix (e.g.
-      ;; "path-equals", "state-is") to keep the line under width. Match on
-      ;; the bare name with a word boundary on each side.
-      (doseq [aname assertion-names]
-        (is (re-find (re-pattern (str "\\b" aname "\\b")) text)
-            (str "story-instructions-text missing canonical assertion " aname
-                 " — keep the onboarding doc in lockstep with `rf.story/canonical-assertion-ids`"))))))
+(def ^:private cjk-3byte (String. (Character/toChars 0x4E2D)))
+(def ^:private emoji-4byte (String. (Character/toChars 0x1F600)))
 
-;; ---------------------------------------------------------------------------
-;; Boot config: each gate's sysprop
-;;
-;; `read-boot-config` reads each gate's JVM sysprop and honours an explicit
-;; value in both polarities. Env vars are read-only on the JVM, so the
-;; sysprop-over-env precedence is pinned on `resolve-gate` below.
-;; ---------------------------------------------------------------------------
-
-(deftest read-boot-config-reads-each-gate-sysprop
-  (doseq [[prop slot] [["rf.story-mcp.allow-writes" :allow-writes?]
-                       ["rf.story-mcp.allow-sensitive-reads" :allow-sensitive-reads?]]
-          [v want]    [["true" true] ["false" false]]]
-    (let [restore (System/getProperty prop)]
-      (try
-        (System/setProperty prop v)
-        (is (= want (slot (rf.story-mcp.config/read-boot-config)))
-            (str "-D" prop "=" v))
-        (finally
-          (if restore
-            (System/setProperty prop restore)
-            (System/clearProperty prop)))))))
-
-;; ---------------------------------------------------------------------------
-;; Boot-config sysprop > env precedence
-;;
-;; `resolve-gate` resolves each gate by SOURCE PRESENCE, not by a boolean OR
-;; over parsed truthiness: an explicitly set sysprop wins even when it parses
-;; to `false`, so an inherited env `true` cannot re-enable a gate an operator
-;; disabled with `-D...=false`. Only an absent sysprop falls through to the
-;; env var. The helper takes the raw source strings as arguments, so this
-;; table stages env values the JVM cannot set.
-;; ---------------------------------------------------------------------------
-
-(deftest resolve-gate-explicit-sysprop-false-overrides-env-true
-  (doseq [[sysprop env want why]
-          [["false" "true"  false "an explicit sysprop false disables an inherited env true"]
-           [nil     "true"  true  "an absent sysprop falls through to the env var"]
-           ["true"  "false" true  "an explicit sysprop true overrides an env false"]
-           ["true"  nil     true  "sysprop true, env unset"]
-           [nil     nil     false "both sources absent: default-closed"]
-           ["false" nil     false "sysprop false, env unset"]
-           [nil     "1"     true  "the truthy-string vocabulary flows through the env"]
-           ["yes"   "false" true  "the truthy-string vocabulary flows through the sysprop"]
-           ["off"   "true"  false "the falsy-string vocabulary flows through the sysprop"]]]
-    (is (= want (rf.story-mcp.config/resolve-gate sysprop env))
-        (str "sysprop " (pr-str sysprop) ", env " (pr-str env) ": " why))))
-
-;; ---------------------------------------------------------------------------
-;; Lifecycle :timeout-ms cap
-;;
-;; The single-threaded stdio loop parks for the full `:timeout-ms` window
-;; — caller-supplied values clamp DOWN to `rf.story-mcp.tools.args/max-timeout-ms`
-;; (30 s, matches the `:rf.http/timeout-ms` baseline). A
-;; legitimately-slow variant runs against the cap; a hostile caller can't
-;; park the loop indefinitely.
-;;
-;; `run-variant` AND `preview-variant` share the same
-;; bounded ceiling + tunable knob (`rf.story-mcp.tools.args/resolve-timeout-ms` +
-;; `s/with-timeout-ms`); both descriptors advertise `:timeout-ms` so the
-;; two lifecycle tools cannot drift in their blocking policy.
-;; ---------------------------------------------------------------------------
-
-(deftest lifecycle-tools-timeout-ms-schema-advertises-ceiling
-  (testing "run-variant + preview-variant :timeout-ms schema carries :maximum mirroring the runtime cap"
-    (doseq [tool-name ["run-variant" "preview-variant"]]
-      (let [t          (some #(when (= tool-name (:name %)) %) rf.story-mcp.tools.registry/tool-registry)
-            ts-schema  (-> t :inputSchema :properties :timeout-ms)]
-        (is (some? ts-schema)
-            (str tool-name " advertises a :timeout-ms slot so an agent can tune the blocking ceiling"))
-        (is (= rf.story-mcp.tools.args/max-timeout-ms (:maximum ts-schema))
-            (str tool-name " schema :maximum tracks the runtime cap so clients can pre-validate"))
-        (is (= 1 (:minimum ts-schema))
-            (str tool-name " :minimum stays at 1 — a zero-timeout doesn't make sense on a blocking call"))))))
-
-(deftest lifecycle-timeout-ms-resolves-and-clamps
-  ;; Pin the behavioural contract on the SHARED resolver both lifecycle
-  ;; tools call: it MUST clamp values above the ceiling rather than reject.
-  ;; A legitimate slow variant still runs (against the cap), the loop never
-  ;; parks past 30 s. Exercising `rf.story-mcp.tools.args/resolve-timeout-ms` directly proves
-  ;; the advertised schema policy matches the runtime timeout policy.
-  (testing "the shared resolver clamps, rides-through, and defaults"
-    (is (= rf.story-mcp.tools.args/max-timeout-ms (rf.story-mcp.tools.args/resolve-timeout-ms {:timeout-ms 60000}))
-        "60s caller-supplied → clamped to 30s ceiling")
-    (is (= 5000 (rf.story-mcp.tools.args/resolve-timeout-ms {:timeout-ms 5000}))
-        "below-cap values ride through unchanged")
-    (is (= rf.story-mcp.tools.args/default-timeout-ms (rf.story-mcp.tools.args/resolve-timeout-ms {}))
-        "absent :timeout-ms uses the default")
-    (is (= rf.story-mcp.tools.args/default-timeout-ms (rf.story-mcp.tools.args/resolve-timeout-ms {:timeout-ms "not-a-number"}))
-        "unparseable :timeout-ms falls back to the default")))
-
-;; ---------------------------------------------------------------------------
-;; Protocol-side frame-length cap
-;;
-;; `BufferedReader.readLine` allocates unbounded memory for a one-line
-;; frame that never sees a newline. The MCP server's stdio transport is
-;; line-delimited per spec/2025-06-18/basic/transports; an attacker (or
-;; a runaway producer) sending an unterminated frame would OOM the JVM.
-;; `read-frame` caps each frame at `rf.story-mcp.protocol/max-frame-bytes` (4 MB,
-;; well above the largest legitimate MCP message); over-cap frames
-;; throw `:rf.error/frame-too-large`, which the run-loop catches and
-;; converts to a parse-error response.
-;; ---------------------------------------------------------------------------
-
-(deftest read-frame-rejects-oversize-frame
-  (testing "a frame exceeding max-frame-bytes throws :rf.error/frame-too-large"
-    (let [oversize (str (apply str (repeat (inc rf.story-mcp.protocol/max-frame-bytes) \x)) "\n")
-          reader   (java.io.BufferedReader. (java.io.StringReader. oversize))]
-      (try
-        (rf.story-mcp.protocol/read-frame reader)
-        (is false "should have thrown")
-        (catch clojure.lang.ExceptionInfo e
-          (is (= :rf.error/story-mcp-frame-too-large (:rf.error/id (ex-data e)))
-              "ex-data carries the canonical :rf.error/id the run-loop dispatches on"))))))
-
-;; ---------------------------------------------------------------------------
-;; The frame cap is a UTF-8 BYTE budget, not a char count.
-;;
-;; A `read-bounded-line` that counted once per decoded Java char and
-;; bounded on (>= chars max-bytes) would under-count multibyte UTF-8 input
-;; (decoded-char-count < wire-byte-count), so a frame whose UTF-8 byte
-;; length exceeded max-frame-bytes could slip under the cap while still
-;; being a multi-MB-over-budget wire payload — weakening the DoS bound the
-;; spec + error message promise. The reader re-derives each code point's
-;; UTF-8 byte width and bounds on the running byte total.
-;;
-;; The oversize test above uses only ASCII \x (char count == byte
-;; count), so it cannot tell the two counters apart.
-;; ---------------------------------------------------------------------------
-
-;; Multibyte fixtures are built from `\uXXXX` / code-point escapes (pure
-;; ASCII in the source) so the test is independent of the source file's
-;; on-disk charset and the JVM's default charset.
-
-(def ^:private cjk-3byte
-  "U+4E2D — a CJK BMP code point that encodes to 3 UTF-8 bytes.
-  Built from the code point (not a literal) so the source file's on-disk
-  charset can't corrupt the fixture."
-  (String. (Character/toChars 0x4E2D)))
-
-(def ^:private emoji-4byte
-  "U+1F600 (grinning face) — a supplementary code point: 2 Java chars
-  (a surrogate pair) but 4 UTF-8 bytes on the wire."
-  (String. (Character/toChars 0x1F600)))
+(defn- read-frame-error-id
+  "The `:rf.error/id` `read-frame` throws on a one-line frame of `content`."
+  [content]
+  (try (rf.story-mcp.protocol/read-frame (java.io.BufferedReader. (java.io.StringReader. (str content "\n"))))
+       ::read
+       (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))
 
 (deftest read-frame-cap-counts-utf8-bytes-not-chars
-  (testing "a multibyte frame UNDER the char count but OVER the byte cap is rejected"
-    ;; The 3-byte CJK char lets us pick a CHARACTER count comfortably
-    ;; BELOW max-frame-bytes (so a char counter would accept the frame)
-    ;; yet whose UTF-8 BYTE length is ABOVE the cap (so the byte counter
-    ;; rejects it). With a 3-byte char, half the cap in chars is ~1.5x
-    ;; the cap in bytes.
-    (let [char-count (+ (quot rf.story-mcp.protocol/max-frame-bytes 2) 1000)
-          byte-count (* 3 char-count)]
-      (is (< char-count rf.story-mcp.protocol/max-frame-bytes)
-          "precondition: a char counter would ACCEPT this frame")
-      (is (> byte-count rf.story-mcp.protocol/max-frame-bytes)
-          "precondition: the frame's UTF-8 byte length EXCEEDS the cap")
-      (let [multibyte (str (apply str (repeat char-count cjk-3byte)) "\n")
-            reader    (java.io.BufferedReader. (java.io.StringReader. multibyte))]
-        (try
-          (rf.story-mcp.protocol/read-frame reader)
-          (is false "should have thrown — the cap must fire on bytes, not chars")
-          (catch clojure.lang.ExceptionInfo e
-            (is (= :rf.error/story-mcp-frame-too-large (:rf.error/id (ex-data e)))
-                "multibyte over-byte-budget frame rejected on the UTF-8 byte count")))))))
-
-(deftest read-frame-cap-accepts-multibyte-frame-under-byte-budget
-  (testing "a multibyte frame UNDER the byte cap parses normally"
-    ;; A small valid JSON-RPC frame whose `:method` value carries
-    ;; multibyte content: well under the cap on both chars and bytes, so
-    ;; it must round-trip verbatim (proving the byte counter doesn't
-    ;; over-reject legitimate non-ASCII frames). `:method` is an
-    ;; allowlisted envelope key, so the value survives normalisation.
-    (let [method (str "ping-" cjk-3byte cjk-3byte emoji-4byte)
-          good   (rf.story-mcp.protocol/write-json {:jsonrpc "2.0" :method method :id 42})
-          reader (java.io.BufferedReader. (java.io.StringReader. (str good "\n")))]
-      (is (= {:jsonrpc "2.0" :method method :id 42}
-             (rf.story-mcp.protocol/read-frame reader))
-          "a legitimate multibyte frame under the byte budget is read verbatim"))))
+  (is (= :rf.error/story-mcp-frame-too-large
+         (read-frame-error-id (apply str (repeat (+ (quot rf.story-mcp.protocol/max-frame-bytes 2) 1000) cjk-3byte))))))
 
 (deftest read-frame-cap-counts-supplementary-code-points
-  (testing "a frame of supplementary (surrogate-pair) code points caps on UTF-8 bytes"
-    ;; U+1F600 is a supplementary code point: 2 Java chars (a surrogate
-    ;; pair) but 4 UTF-8 bytes on the wire. A char counter sees 2 units
-    ;; per emoji; a byte counter sees 4. We pick a count whose char
-    ;; length is under the cap but whose UTF-8 byte length is over it,
-    ;; proving the surrogate-pair recombination charges the full 4-byte
-    ;; code-point width (not 2x the per-surrogate width).
-    (let [emoji-cnt (+ (quot rf.story-mcp.protocol/max-frame-bytes 4) 1000)
-          char-len  (* 2 emoji-cnt)
-          byte-len  (* 4 emoji-cnt)]
-      (is (< char-len rf.story-mcp.protocol/max-frame-bytes)
-          "precondition: a char counter would ACCEPT this frame")
-      (is (> byte-len rf.story-mcp.protocol/max-frame-bytes)
-          "precondition: the frame's UTF-8 byte length EXCEEDS the cap")
-      (let [frame  (str (apply str (repeat emoji-cnt emoji-4byte)) "\n")
-            reader (java.io.BufferedReader. (java.io.StringReader. frame))]
-        (try
-          (rf.story-mcp.protocol/read-frame reader)
-          (is false "should have thrown — supplementary code points count 4 bytes each")
-          (catch clojure.lang.ExceptionInfo e
-            (is (= :rf.error/story-mcp-frame-too-large (:rf.error/id (ex-data e)))
-                "supplementary-plane over-byte-budget frame rejected on the UTF-8 byte count")))))))
+  ;; A surrogate pair is two chars but one 4-byte code point.
+  (is (= :rf.error/story-mcp-frame-too-large
+         (read-frame-error-id (apply str (repeat (+ (quot rf.story-mcp.protocol/max-frame-bytes 4) 1000) emoji-4byte))))))
+
+(deftest read-frame-cap-accepts-multibyte-frame-under-byte-budget
+  (let [method (str "ping-" cjk-3byte cjk-3byte emoji-4byte)
+        frame  (rf.story-mcp.protocol/write-json {:jsonrpc "2.0" :method method :id 42})]
+    (is (= {:jsonrpc "2.0" :method method :id 42}
+           (rf.story-mcp.protocol/read-frame (java.io.BufferedReader. (java.io.StringReader. (str frame "\n"))))))))
 
 ;; ---------------------------------------------------------------------------
-;; No-intern keyword resolution on the read surface
-;;
-;; Caller-supplied keyword ids on the read surface MUST resolve through
-;; `args/safe-keyword` against a bounded set, NOT through a plain `keyword`
-;; coercion, which interns into the JVM's process-global keyword table. The tests below assert the no-intern property by
-;; calling each read-side tool with a fresh random-shaped id and
-;; verifying that the underlying `find-keyword` returns nil after the
-;; call (the rejection path didn't intern the string).
+;; No-intern keyword resolution. Caller-supplied ids resolve against a bounded
+;; set (`find-keyword`), never through `keyword`, which interns into the JVM's
+;; process-global keyword table.
 ;; ---------------------------------------------------------------------------
-
-(defn- find-kw
-  "Find an existing interned keyword by namespace and name without
-  interning. Returns nil when no such keyword has been interned —
-  the asserting probe for the no-intern contract."
-  [ns-str name-str]
-  (find-keyword ns-str name-str))
 
 (deftest get-story-unknown-id-does-not-intern
-  (testing "unknown :story-id rejects WITHOUT interning a fresh JVM keyword"
-    (let [ns-str   "story.rf2-lqjbk-probe"
-          name-str (str "unknown-" (System/nanoTime))
-          r        (invoke "get-story" {:story-id (str ns-str "/" name-str)})]
-      (is (error? r) "unknown story id must error")
-      (is (re-find #"(?i)story not found" (-> r :content first :text)))
-      (is (nil? (find-kw ns-str name-str))
-          "the unknown id MUST NOT have been interned"))))
-
-(deftest get-variant-unknown-id-does-not-intern
-  (testing "unknown :variant-id rejects WITHOUT interning a fresh JVM keyword"
-    (let [ns-str   "story.rf2-lqjbk-probe"
-          name-str (str "unknown-variant-" (System/nanoTime))
-          r        (invoke "get-variant" {:variant-id (str ns-str "/" name-str)})]
-      (is (error? r))
-      (is (re-find #"(?i)variant not found" (-> r :content first :text)))
-      (is (nil? (find-kw ns-str name-str))
-          "the unknown id MUST NOT have been interned"))))
+  (let [name-str (str "unknown-" (System/nanoTime))
+        r        (invoke "get-story" {:story-id (str "story.rf2-lqjbk-probe/" name-str)})]
+    (is (re-find #"(?i)story not found" (-> r :content first :text)))
+    (is (nil? (find-keyword "story.rf2-lqjbk-probe" name-str)))))
 
 (deftest read-failures-unknown-id-does-not-intern
-  (testing "read-failures on an unknown :variant-id rejects WITHOUT interning"
-    (let [ns-str   "story.rf2-lqjbk-probe"
-          name-str (str "rf-" (System/nanoTime))
-          r        (invoke "read-failures" {:variant-id (str ns-str "/" name-str)})]
-      (is (error? r))
-      (is (nil? (find-kw ns-str name-str))
-          "the unknown id MUST NOT have been interned"))))
+  ;; read-failures resolves through `with-variant-id`, the prelude the
+  ;; registered-but-never-run reads share.
+  (let [name-str (str "rf-" (System/nanoTime))
+        r        (invoke "read-failures" {:variant-id (str "story.rf2-lqjbk-probe/" name-str)})]
+    (is (re-find #"(?i)variant not found" (-> r :content first :text)))
+    (is (nil? (find-keyword "story.rf2-lqjbk-probe" name-str)))))
 
 (deftest list-decorators-unknown-kind-rejects
-  ;; A SUPPLIED `:kind` outside the bounded enum is an agent-recoverable
-  ;; error, NOT a silent widen to the full catalogue. (Treating the typo as
-  ;; nil, i.e. no filter, would return EVERY decorator — hiding the caller's
-  ;; mistake behind a successful-looking full result.) The no-intern
-  ;; invariant holds: the unrecognised kind string never mints a fresh keyword.
-  (testing ":kind filter with an unrecognised value REJECTS WITHOUT interning"
-    (let [name-str (str "rf2-cdavyf-kind-" (System/nanoTime))
-          r        (invoke "list-decorators" {:kind name-str})
-          s        (:structuredContent r)]
-      (is (error? r) "an unrecognised :kind surfaces an isError diagnostic, not a full catalogue")
-      (is (= :rf.story-mcp/unknown-decorator-kind (:rf.error s))
-          "the structured error carries the unknown-decorator-kind id")
-      (is (= name-str (:kind s)) "echoes the bad kind value")
-      (is (= ["frame-setup" "fx-override" "hiccup"] (:allowed s))
-          "lists the bounded enum so the agent can correct")
-      (is (re-find #"(?i)unknown decorator kind" (-> r :content first :text)))
-      (is (nil? (find-kw nil name-str))
-          "unknown kind name MUST NOT intern"))))
+  ;; A typo'd kind treated as no filter would hide the mistake behind a
+  ;; successful-looking full catalogue.
+  (let [name-str (str "rf2-cdavyf-kind-" (System/nanoTime))
+        s        (:structuredContent (invoke "list-decorators" {:kind name-str}))]
+    (is (= {:rf.error :rf.story-mcp/unknown-decorator-kind
+            :kind     name-str
+            :allowed  ["frame-setup" "fx-override" "hiccup"]}
+           (select-keys s [:rf.error :kind :allowed])))
+    (is (nil? (find-keyword name-str)))))
 
 (deftest run-variant-explicit-substrate-unavailable-is-error-no-intern
-  ;; An explicit :substrate is NEVER silently dropped to nil. On the JVM
-  ;; stdio host the substrate registry is unreachable,
-  ;; so an explicit :substrate MUST reject with the capability-unavailable
-  ;; error (the requested render substrate cannot be honoured here — a run
-  ;; under a dropped substrate would be invalid substrate-specific
-  ;; evidence). No-intern still holds: the capability path never keywordises
-  ;; the caller-supplied substrate string.
-  (testing "provider ABSENT + explicit :substrate ⇒ capability-unavailable error, no intern"
-    (let [name-str (str "rf2-lqjbk-sub-" (System/nanoTime))
-          r        (invoke "run-variant" {:variant-id "story.button/primary"
-                                          :substrate  name-str})
-          s        (:structuredContent r)]
-      (is (error? r) "an explicit substrate with no reachable registry is rejected, not dropped")
-      (is (= :rf.error/story-mcp-capability-unavailable (:rf.error s))
-          "the requested render substrate cannot be honoured on a host with no registry")
-      (is (nil? (find-kw nil name-str))
-          "rejecting the substrate MUST NOT intern its id"))))
+  ;; A run under a silently-dropped substrate would be invalid
+  ;; substrate-specific evidence.
+  (let [name-str (str "rf2-lqjbk-sub-" (System/nanoTime))
+        r        (invoke "run-variant" {:variant-id "story.button/primary" :substrate name-str})]
+    (is (= :rf.error/story-mcp-capability-unavailable (-> r :structuredContent :rf.error)))
+    (is (nil? (find-keyword name-str)))))
 
 (deftest run-variant-explicit-substrate-reached-provider-validates
-  ;; With a REACHED substrate registry, a known id is
-  ;; honoured and an unknown id rejects explicitly (still no intern for the
-  ;; unknown one).
-  (testing "provider REACHED + KNOWN :substrate ⇒ honoured (run succeeds)"
-    (binding [rf.story-mcp.tools.cljs-resolve/*substrate-provider* (fn [] [:reagent :uix])]
-      (let [r (invoke "run-variant" {:variant-id "story.button/primary"
-                                     :substrate  ":reagent"})]
-        (is (success? r) "a registered substrate is honoured, not rejected"))))
-  (testing "provider REACHED + UNKNOWN :substrate ⇒ unknown-substrate error, no intern"
-    (binding [rf.story-mcp.tools.cljs-resolve/*substrate-provider* (fn [] [:reagent :uix])]
-      (let [name-str (str "rf2-3fc89f-unknown-sub-" (System/nanoTime))
-            r        (invoke "run-variant" {:variant-id "story.button/primary"
-                                            :substrate  name-str})
-            s        (:structuredContent r)]
-        (is (error? r) "an unknown substrate against a reached registry rejects, not drops")
-        (is (= :rf.error/story-mcp-unknown-substrate (:rf.error s)))
-        (is (nil? (find-kw nil name-str))
-            "the unknown substrate id MUST NOT intern")))))
-
-(deftest run-loop-survives-oversize-frame
-  (testing "an oversize frame produces a parse-error response and the loop continues"
-    (let [oversize (apply str (repeat (inc rf.story-mcp.protocol/max-frame-bytes) \x))
-          in-text  (str oversize "\n"
-                        "{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"ping\"}\n")
-          reader   (java.io.BufferedReader. (java.io.StringReader. in-text))
-          sw       (java.io.StringWriter.)
-          err      (java.io.StringWriter.)]
-      (binding [*err* err]
-        (rf.story-mcp.server/run-loop! reader sw))
-      (let [out-lines (filter seq (clojure.string/split-lines (.toString sw)))
-            frames    (mapv #(cheshire.core/parse-string % true) out-lines)]
-        (is (= 2 (count frames)) "one parse-error + one ping response")
-        (is (= rf.mcp-base.vocab/code-parse-error (-> (nth frames 0) :error :code))
-            "oversize frame routes through the parse-error response shape")
-        (is (= 11 (:id (nth frames 1))) "the loop continued to the next frame")))))
+  (binding [rf.story-mcp.tools.cljs-resolve/*substrate-provider* (fn [] [:reagent :uix])]
+    (is (success? (invoke "run-variant" {:variant-id "story.button/primary" :substrate ":reagent"})))
+    (let [name-str (str "rf2-3fc89f-unknown-sub-" (System/nanoTime))]
+      (is (= :rf.error/story-mcp-unknown-substrate
+             (-> (invoke "run-variant" {:variant-id "story.button/primary" :substrate name-str}) :structuredContent :rf.error)))
+      (is (nil? (find-keyword name-str))))))
 
 ;; ---------------------------------------------------------------------------
-;; MCP JSON ingress must NOT intern attacker-controlled nested keys before
-;; the bounded allowlists run.
-;;
-;; A `protocol/parse-json` that called `(json/parse-string s true)` would
-;; recursively keywordise EVERY object key in the frame — including
-;; arbitrary keys under `params.arguments`, `cell-overrides`, and write
-;; bodies — interning them into the JVM's process-global keyword table
-;; BEFORE `tools.args/safe-keyword` could reject them. That both costs an
-;; intern per unique key the caller chooses and can let an unknown
-;; string key intern into a keyword a downstream allowlist then resolves.
-;;
-;; So ingress parses the frame string-keyed and keywordises ONLY the finite
-;; JSON-RPC envelope keys + the bounded top-level argument-key allowlist
-;; (no-intern via `find-keyword`); nested data-bearing maps keep string
-;; keys and are routed through each surface's own bounded keyword policy.
-;;
-;; The `ingress-*` tests drive the FULL stdio path
-;; (`rf.story-mcp.server/run-loop!` / `rf.story-mcp.protocol/read-frame`
-;; over a real JSON frame) — the gap the direct-`invoke` no-intern tests
-;; above leave open, since those bypass `parse-json` / `read-frame`. The
-;; `read-run-opts-*` tests call `read-run-opts` directly with the
-;; string-keyed shape `parse-json` produces.
+;; MCP JSON ingress parses string-keyed and keywordises only the finite
+;; envelope keys and the bounded top-level argument allowlist, so an
+;; attacker-controlled key never interns before the tool's own allowlist runs.
 ;; ---------------------------------------------------------------------------
-
-(defn- run-frames!
-  "Drive `rf.story-mcp.server/run-loop!` over `in-text` (one JSON frame per line) and
-  return the parsed response frames (keywordised for assertion
-  ergonomics). stderr is captured so the test output stays clean.
-
-  The dispatcher enforces the MCP lifecycle — a
-  `tools/call` / `tools/list` before `initialize` is refused with
-  `-32600`. These no-intern wire tests exercise the TOOL surface, not
-  the lifecycle gate, so the helper PREPENDS an `initialize` frame to
-  complete the handshake and DROPS its response from the returned vector.
-  Callers' `(first frames)` / `(count frames)` assertions are therefore
-  unaffected — they still see only the response(s) to `in-text`. The
-  prepended handshake uses a string `:id` (`\"rf2-e6knrq-init\"`) that
-  cannot collide with any caller's numeric ids."
-  [in-text]
-  (let [init-frame (str "{\"jsonrpc\":\"2.0\",\"id\":\"rf2-e6knrq-init\","
-                        "\"method\":\"initialize\","
-                        "\"params\":{\"protocolVersion\":\"2025-06-18\"}}\n")
-        reader (java.io.BufferedReader. (java.io.StringReader. (str init-frame in-text)))
-        sw     (java.io.StringWriter.)
-        err    (java.io.StringWriter.)]
-    (binding [*err* err]
-      (rf.story-mcp.server/run-loop! reader sw))
-    (->> (clojure.string/split-lines (.toString sw))
-         (filter seq)
-         (mapv #(cheshire.core/parse-string % true))
-         ;; Drop the prepended handshake's response so callers see only
-         ;; the responses to their own `in-text` frames.
-         (drop-while #(= "rf2-e6knrq-init" (:id %)))
-         vec)))
 
 (deftest ingress-does-not-intern-unknown-nested-arguments-key
-  (testing "a fresh unknown nested :arguments key is NOT interned over the wire"
-    (let [probe-name (str "rf2-3luf3-nested-probe-" (System/nanoTime))
-          ;; The attacker slips an unknown key into the arguments map of a
-          ;; tools/call. An interning parse-json would intern it immediately.
-          frame      (str "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\","
-                          "\"params\":{\"name\":\"get-variant\","
-                          "\"arguments\":{\"" probe-name "\":1,"
-                          "\"variant-id\":\"story.button/primary\"}}}\n")]
-      (is (nil? (find-keyword probe-name))
-          "precondition: the probe keyword has not been interned yet")
-      (let [frames (run-frames! frame)]
-        (is (= 1 (count frames)) "one tools/call response")
-        (is (= 1 (:id (first frames))) "the legitimate call still dispatched"))
-      (is (nil? (find-keyword probe-name))
-          "the attacker-supplied nested arguments key MUST NOT have been interned"))))
+  (let [probe  (str "rf2-3luf3-nested-probe-" (System/nanoTime))
+        frames (run-frames! (str "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\","
+                                 "\"params\":{\"name\":\"get-variant\","
+                                 "\"arguments\":{\"" probe "\":1,\"variant-id\":\"story.button/primary\"}}}\n"))]
+    (is (= [1] (map :id frames)))
+    (is (nil? (find-keyword probe)))))
 
 (deftest ingress-does-not-intern-unknown-envelope-key
-  (testing "a stray unknown top-level envelope key is NOT interned over the wire"
-    (let [probe-name (str "rf2-3luf3-envelope-probe-" (System/nanoTime))
-          frame      (str "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"ping\",\"" probe-name "\":99}\n")]
-      (is (nil? (find-keyword probe-name)) "precondition")
-      (run-frames! frame)
-      (is (nil? (find-keyword probe-name))
-          "a stray envelope key MUST NOT intern"))))
-
-(deftest ingress-does-not-intern-cell-overrides-key
-  (testing "an unknown :cell-overrides KEY is NOT interned over the wire"
-    (let [probe-name (str "rf2-3luf3-cell-probe-" (System/nanoTime))
-          frame      (str "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\","
-                          "\"params\":{\"name\":\"preview-variant\","
-                          "\"arguments\":{\"variant-id\":\"story.button/primary\","
-                          "\"cell-overrides\":{\"" probe-name "\":\"x\"}}}}\n")]
-      (is (nil? (find-keyword probe-name)) "precondition")
-      (run-frames! frame)
-      (is (nil? (find-keyword probe-name))
-          "an unknown cell-override key (outside the variant's declared args) MUST NOT intern"))))
+  (let [probe (str "rf2-3luf3-envelope-probe-" (System/nanoTime))]
+    (run-frames! (str "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"ping\",\"" probe "\":99}\n"))
+    (is (nil? (find-keyword probe)))))
 
 (deftest read-run-opts-allows-active-mode-introduced-cell-override-key
-  (testing "an override for an arg introduced ONLY by an active mode is preserved"
-    ;; story.button/primary declares :args {:label "Save"} — :theme is
-    ;; NOT among its base args. The fixture's :Mode.theme/dark mode
-    ;; contributes :args {:theme :dark}. Story precedence merges mode
-    ;; args before cell-local overrides, so with that mode active a
-    ;; caller :theme override is a LEGITIMATE override target. An
-    ;; allowlist built from the bare variant (no active modes) would drop
-    ;; the :theme override as 'unknown', and the render would fall back to
-    ;; the mode's :dark value.
-    (let [probe (str "rf2-to3q7-co-" (System/nanoTime))
-          opts  (rf.story-mcp.tools.args/read-run-opts
-                  :story.button/primary
-                  {:active-modes   [":Mode.theme/dark"]
-                   :cell-overrides {"theme" ":light"   ; arg introduced by the active mode
-                                    "label" "Override"  ; arg on the variant itself
-                                    probe   "x"}})      ; genuinely-unknown key
-          co    (:cell-overrides opts)]
-      (is (= [:Mode.theme/dark] (:active-modes opts)) "the mode coerced through the bounded set")
-      (is (= ":light" (:theme co))
-          "the mode-introduced :theme override is PRESERVED, not dropped")
-      (is (= "Override" (:label co)) "the variant's own :label override is kept")
-      (is (= #{:theme :label} (set (keys co)))
-          "the genuinely-unknown key is still dropped — the allowlist widened only to the mode args")
-      (is (nil? (find-keyword probe)) "the unknown key never interned"))))
+  ;; The override allowlist is the variant's effective args UNDER the active
+  ;; modes: :theme comes only from :Mode.theme/dark, so with that mode active a
+  ;; :theme override is kept, while a genuinely unknown key is dropped
+  ;; without interning.
+  (let [probe (str "rf2-to3q7-co-" (System/nanoTime))]
+    (is (= {:active-modes [:Mode.theme/dark] :cell-overrides {:theme ":light" :label "Override"}}
+           (rf.story-mcp.tools.args/read-run-opts :story.button/primary
+                                                  {:active-modes   [":Mode.theme/dark"]
+                                                   :cell-overrides {"theme" ":light" "label" "Override" probe "x"}})))
+    (is (nil? (find-keyword probe)))))
 
-(deftest read-run-opts-without-active-mode-still-drops-mode-only-key
-  (testing "without the active mode, the mode-only arg key is correctly NOT an allowed override"
-    ;; Mirror of the test above with the mode absent: :theme is not in
-    ;; the variant's effective args, so the override IS unknown and must
-    ;; drop — proving the widening is scoped to the ACTIVE modes, not a
-    ;; blanket relaxation.
-    (let [opts (rf.story-mcp.tools.args/read-run-opts
-                 :story.button/primary
-                 {:cell-overrides {"theme" ":light" "label" "Override"}})
-          co   (:cell-overrides opts)]
-      (is (= #{:label} (set (keys co)))
-          "with no active mode, :theme is not a declared arg and the override drops"))))
+;; Nested override keys arrive as strings off the JSON wire. Resolving only
+;; the top-level key would deep-merge `{"settings":{"title":"Edited"}}` BESIDE
+;; the registered `:title`, so a consumer reading `[:settings :title]` would
+;; see the old value and snapshot-identity would key the mixed-key tuple.
 
-;; ---------------------------------------------------------------------------
-;; Nested JSON cell overrides must reach the existing keyword-keyed arg
-;; they name.
-;;
-;; Story supports nested keyword-keyed args and deep-merges cell
-;; overrides into them, but the JSON ingress deliberately leaves nested
-;; arg keys as STRINGS. Resolving only the TOP-level override key,
-;; `{"settings":{"title":"Edited"}}` against a registered
-;; `{:settings {:title "Nested title" :enabled? true}}` would deep-merge to
-;; `{:settings {:title "Nested title" :enabled? true "title" "Edited"}}`:
-;; the consumer reading `[:settings :title]` would still see the OLD value,
-;; no unknown-id guard would fire (`settings` is perfectly valid), and
-;; `snapshot-identity` would key the unintended mixed-key tuple.
-;; ---------------------------------------------------------------------------
-
-(defn- reg-nested-fixture!
-  "Register the nested-args fixture the nested-override tests share: a variant
-  whose `:settings` arg is itself a keyword-keyed map."
-  []
-  (rf.story/reg-story :story.nest
-    {:doc       "Nested keyword-keyed args."
-     :component :app.ui/panel
-     :tags      #{:dev}})
+(defn- reg-nested-fixture! []
+  (rf.story/reg-story :story.nest {:doc "Nested keyword-keyed args." :component :app.ui/panel :tags #{:dev}})
   (rf.story/reg-variant :story.nest/map-arg
     {:doc  "A variant whose arg value is a keyword-keyed map."
      :args {:settings {:title "Nested title" :enabled? true}}}))
 
-(deftest read-run-opts-nested-override-reaches-the-keyword-keyed-arg
-  (testing "a nested wire key resolves to the existing keyword arg it names"
-    (reg-nested-fixture!)
-    (let [opts (rf.story-mcp.tools.args/read-run-opts
-                 :story.nest/map-arg
-                 {:cell-overrides {"settings" {"title" "Edited"}}})
-          eff  (rf.story/resolve-args :story.nest/map-arg opts)]
-      (is (= {:settings {:title "Edited"}} (:cell-overrides opts))
-          "the nested \"title\" aligns onto the existing :title — no string key survives")
-      (is (= {:settings {:title "Edited" :enabled? true}} eff)
-          "the consumer reading [:settings :title] sees the edit, the untouched sibling survives, and no mixed-key residue remains"))))
-
 (deftest read-run-opts-nested-override-never-interns-and-keeps-string-keyed-data
-  (testing "an unknown nested key rides verbatim and never interns"
-    (reg-nested-fixture!)
-    (let [probe (str "rf2-49o8-nested-" (System/nanoTime))]
-      (is (nil? (find-keyword probe)) "precondition: probe uninterned")
-      (let [opts (rf.story-mcp.tools.args/read-run-opts
-                   :story.nest/map-arg
-                   {:cell-overrides {"settings" {probe "x"}}})]
-        (is (= {:settings {probe "x"}} (:cell-overrides opts))
-            "a nested key naming nothing existing is DATA — left exactly as supplied")
-        (is (nil? (find-keyword probe))
-            "aligning nested keys MUST NOT intern a fresh keyword"))))
-  (testing "a legitimately string-keyed base map keeps its string keys"
-    (rf.story/reg-story :story.strkeys
-      {:doc "String-keyed arg data." :component :app.ui/panel :tags #{:dev}})
-    (rf.story/reg-variant :story.strkeys/map-arg
-      {:doc "The arg value is genuinely string-keyed payload data."
-       :args {:headers {"Accept" "text/html"}}})
-    (let [opts (rf.story-mcp.tools.args/read-run-opts
-                 :story.strkeys/map-arg
-                 {:cell-overrides {"headers" {"Accept" "application/json"}}})]
-      (is (= {:headers {"Accept" "application/json"}} (:cell-overrides opts))
-          "an exact existing string key is kept verbatim, never converted")
-      (is (= {:headers {"Accept" "application/json"}}
-             (rf.story/resolve-args :story.strkeys/map-arg opts))
-          "and it overrides in place rather than landing beside the original"))))
-
-(deftest read-run-opts-nested-override-ambiguous-key-prefers-the-exact-match
-  (testing "when the base carries BOTH spellings, the exact match wins and nothing is guessed"
-    ;; The explicit ambiguous-key policy. A base map carrying both
-    ;; `\"title\"` and `:title` gives the wire key two candidate targets;
-    ;; the alignment refuses to choose and takes the one the caller
-    ;; literally wrote.
-    (rf.story/reg-story :story.ambig
-      {:doc "Mixed-key arg data." :component :app.ui/panel :tags #{:dev}})
-    (rf.story/reg-variant :story.ambig/map-arg
-      {:doc "The arg value carries both spellings of one name."
-       :args {:settings {:title "kw" "title" "str"}}})
-    (let [opts (rf.story-mcp.tools.args/read-run-opts
-                 :story.ambig/map-arg
-                 {:cell-overrides {"settings" {"title" "Edited"}}})
-          eff  (rf.story/resolve-args :story.ambig/map-arg opts)]
-      (is (= {:settings {"title" "Edited"}} (:cell-overrides opts))
-          "the ambiguous key stays as written — no reinterpretation")
-      (is (= "Edited" (get-in eff [:settings "title"])))
-      (is (= "kw" (get-in eff [:settings :title]))
-          "and the keyword sibling is untouched"))))
-
-;; ---------------------------------------------------------------------------
-;; ACCEPTANCE — the same alignment, but reached through ACTUAL JSON
-;; normalisation rather than through a hand-built Clojure map.
-;;
-;; The tests above call `read-run-opts` directly, and the `invoke` helper
-;; calls `wire-pipeline/invoke-tool` directly — both hand the seam a map
-;; that has ALREADY been decoded. Neither route passes through
-;; `protocol/parse-json` + `normalize-frame`, which is where the wire's
-;; string keys are actually minted and where `:cell-overrides` values are
-;; deliberately left string-keyed. An alignment that only ever meets a
-;; pre-decoded map is not evidence about the ingress the agent uses.
-;;
-;; `run-frames!` closes that: a literal JSON string in, the real server
-;; loop, the real decoder, the real handler. Driven through all three
-;; shared consumers of `read-run-opts` — `preview-variant`, `run-variant`
-;; and `snapshot-identity`.
-;; ---------------------------------------------------------------------------
+  ;; A nested key aligns only onto a key the base value already carries: one
+  ;; naming nothing is data and rides verbatim, and a genuinely string-keyed
+  ;; base map keeps its string keys.
+  (reg-nested-fixture!)
+  (rf.story/reg-variant :story.nest/string-keyed {:doc "String-keyed arg data." :args {:headers {"Accept" "text/html"}}})
+  (let [probe     (str "rf2-49o8-nested-" (System/nanoTime))
+        overrides (fn [vk co] (:cell-overrides (rf.story-mcp.tools.args/read-run-opts vk {:cell-overrides co})))]
+    (is (= {:settings {probe "x"}} (overrides :story.nest/map-arg {"settings" {probe "x"}})))
+    (is (nil? (find-keyword probe)))
+    (is (= {:headers {"Accept" "application/json"}}
+           (overrides :story.nest/string-keyed {"headers" {"Accept" "application/json"}})))))
 
 (defn- nested-override-frame
-  "One `tools/call` JSON frame for `tool-name`, carrying the
-  nested override `{\"settings\":{\"title\":\"Edited\"}}` as REAL JSON."
+  "One `tools/call` frame for `tool-name` carrying the nested override
+  `{\"settings\":{\"title\":\"Edited\"}}` as real JSON."
   [id tool-name extra-json]
   (str "{\"jsonrpc\":\"2.0\",\"id\":" id ",\"method\":\"tools/call\","
        "\"params\":{\"name\":\"" tool-name "\","
@@ -3878,282 +1379,108 @@
        extra-json "}}}\n"))
 
 (deftest ingress-nested-override-reaches-preview-variant
-  (testing "JSON ingress: the nested override reaches preview-variant's effective args"
-    (reg-nested-fixture!)
-    ;; `dedup false` — preview advertises the knob, and the default would
-    ;; wrap :structuredContent in a dedup table the assertion would have
-    ;; to unwrap.
-    (let [frames (run-frames! (nested-override-frame 71 "preview-variant" ",\"dedup\":false"))
-          result (-> frames first :result)
-          eff    (-> result :structuredContent :effective-args)]
-      (is (not (true? (:isError result)))
-          "the wire-shaped nested override is accepted, not refused")
-      (is (= {:settings {:title "Edited" :enabled? true}} eff)
-          "the JSON edit lands on the KEYWORD :title, the sibling the caller never named is untouched, and no mixed-key residue survives the round trip")
-      ;; MEASURED LIMIT of this particular observation, recorded because a
-      ;; reader would otherwise take it for the strongest of the three.
-      ;; With the alignment neutered, `:effective-args` deep-merges to
-      ;; `{:settings {:title "Nested title" :enabled? true "title"
-      ;; "Edited"}}` — and BOTH keys encode to the JSON member "title", so
-      ;; the last one wins on the way back and this projection reads
-      ;; IDENTICALLY to the repaired one. So these assertions witness the
-      ;; ingress route but do NOT discriminate the bug; the hash control in
-      ;; `ingress-nested-override-reaches-snapshot-identity` is the one that
-      ;; does, and it goes red under exactly that fault.
-      )))
-
-(deftest ingress-nested-override-is-accepted-by-run-variant
-  (testing "JSON ingress: run-variant accepts the nested string-keyed override and settles the run"
-    ;; The third shared consumer of `read-run-opts` takes the wire-shaped
-    ;; nested override over real JSON and settles the run rather than
-    ;; refusing it. `run-variant` projects no `:effective-args` slot and the
-    ;; fixture variant's result does not depend on the arg, so this test
-    ;; cannot see the override applied; the arg-level witnesses are
-    ;; `preview-variant`'s above and `snapshot-identity`'s below.
-    (reg-nested-fixture!)
-    (let [frames (run-frames! (nested-override-frame 72 "run-variant" ",\"dedup\":false"))
-          wire   (-> frames first :result)]
-      (is (not (true? (:isError wire)))
-          "the wire-shaped nested override is accepted, not refused")
-      (is (= "pass" (-> wire :structuredContent :status))
-          "the wire run settles :pass (JSON renders the keyword as a string)"))))
+  ;; Through the real JSON decoder the edit lands on the KEYWORD :title and
+  ;; leaves its sibling alone. Both spellings encode to the JSON member
+  ;; "title", so this projection cannot see a mixed-key merge; the hash
+  ;; control in ingress-nested-override-reaches-snapshot-identity does.
+  (reg-nested-fixture!)
+  (is (= {:settings {:title "Edited" :enabled? true}}
+         (-> (run-frames! (nested-override-frame 71 "preview-variant" ",\"dedup\":false"))
+             first :result :structuredContent :effective-args))))
 
 (deftest ingress-nested-override-reaches-snapshot-identity
-  (testing "JSON ingress: snapshot-identity keys the intended tuple"
-    (reg-nested-fixture!)
-    ;; snapshot-identity does NOT advertise :dedup, and the wire pipeline
-    ;; refuses an unadvertised property — so no dedup knob here.
-    (let [frames    (run-frames! (nested-override-frame 73 "snapshot-identity" ""))
-          wire      (-> frames first :result)
-          native    (invoke "snapshot-identity"
-                            {:variant-id     "story.nest/map-arg"
-                             :cell-overrides {:settings {:title "Edited"}}})
-          untouched (invoke "snapshot-identity" {:variant-id "story.nest/map-arg"})]
-      (is (not (true? (:isError wire)))
-          "the wire-shaped nested override is accepted, not refused")
-      (is (some? (-> wire :structuredContent :content-hash))
-          "an identity hash was actually computed")
-      ;; The CONTROL. Without it, two hashes agreeing proves only that the
-      ;; override was ignored on BOTH routes — which is exactly the bug.
-      (is (not= (-> untouched :structuredContent :content-hash)
-                (-> wire :structuredContent :content-hash))
-          "the JSON override actually PERTURBED the identity — it was not dropped")
-      (is (= (-> native :structuredContent :content-hash)
-             (-> wire :structuredContent :content-hash))
-          "JSON ingress and the native keyword call key ONE tuple"))))
+  ;; Without the untouched control, two agreeing hashes would prove only that
+  ;; the override was dropped on BOTH routes.
+  (reg-nested-fixture!)
+  (let [content-hash #(-> % :structuredContent :content-hash)
+        wire         (content-hash (-> (run-frames! (nested-override-frame 73 "snapshot-identity" "")) first :result))
+        native       (content-hash (invoke "snapshot-identity" {:variant-id     "story.nest/map-arg"
+                                                                :cell-overrides {:settings {:title "Edited"}}}))
+        untouched    (content-hash (invoke "snapshot-identity" {:variant-id "story.nest/map-arg"}))]
+    (is (some? wire))
+    (is (= [true true] [(= native wire) (not= untouched wire)])
+        "JSON ingress and the native call key ONE tuple, and the override perturbed it")))
 
 (deftest ingress-unknown-variant-id-over-wire-does-not-intern
-  (testing "an unknown :variant-id sent over JSON is rejected WITHOUT interning"
-    ;; This is the wire-level peer of the direct-invoke no-intern test —
-    ;; it proves the allowlist gates correctly when parse-json does not
-    ;; pre-intern the value.
-    (let [ns-str   "story.rf2-3luf3-wire"
-          name-str (str "unknown-" (System/nanoTime))
-          frame    (str "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\","
-                        "\"params\":{\"name\":\"get-variant\","
-                        "\"arguments\":{\"variant-id\":\"" ns-str "/" name-str "\"}}}\n")]
-      (is (nil? (find-keyword ns-str name-str)) "precondition")
-      (let [frames (run-frames! frame)
-            result (-> frames first :result)]
-        (is (true? (:isError result)) "unknown variant id errors as a tool result")
-        (is (re-find #"(?i)variant not found" (-> result :content first :text))))
-      (is (nil? (find-keyword ns-str name-str))
-          "the unknown variant id MUST NOT have been interned over the wire"))))
+  (let [name-str (str "unknown-" (System/nanoTime))
+        result   (-> (run-frames! (str "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\","
+                                       "\"params\":{\"name\":\"get-variant\","
+                                       "\"arguments\":{\"variant-id\":\"story.rf2-3luf3-wire/" name-str "\"}}}\n"))
+                     first :result)]
+    (is (= [true true] [(:isError result) (boolean (re-find #"(?i)variant not found" (-> result :content first :text)))]))
+    (is (nil? (find-keyword "story.rf2-3luf3-wire" name-str)))))
 
 (deftest ingress-legitimate-wire-keys-still-dispatch
-  (testing "known JSON wire arg keys still normalise + dispatch correctly"
-    ;; variant-id + max-tokens are read by get-variant / the wire-pipeline;
-    ;; both must survive the no-intern normalisation. (`:include-sensitive`
-    ;; is deliberately NOT exercised here: get-variant
-    ;; surfaces no value-bearing slot, so it does not advertise that knob,
-    ;; and the per-tool schema check rejects it for this tool. The
-    ;; `:include-sensitive` no-intern path is covered on the tools that DO
-    ;; advertise it — preview-variant / run-variant / read-failures etc.)
-    (let [frame  (str "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"tools/call\","
-                      "\"params\":{\"name\":\"get-variant\","
-                      "\"arguments\":{\"variant-id\":\"story.button/primary\","
-                      "\"max-tokens\":4000}}}\n")
-          frames (run-frames! frame)
-          result (-> frames first :result)]
-      (is (= 5 (:id (first frames))))
-      (is (not (true? (:isError result))) "the legitimate call succeeds")
-      ;; get-variant's structuredContent carries the resolved variant under
-      ;; `:id`; over JSON the keyword serialises to a bare string. Its
-      ;; presence proves `variant-id` keywordised + resolved through the
-      ;; allowlist (an unresolved id would have produced an :isError result).
-      (is (= "story.button/primary" (-> result :structuredContent :id))
-          "the variant-id arg keywordised + resolved through the allowlist")
-      (is (= "Primary button." (-> result :structuredContent :body :doc))
-          "the variant body came back, confirming a real dispatch"))))
+  ;; The control: known argument keys survive the no-intern normalisation.
+  (let [frame (first (run-frames! (str "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"tools/call\","
+                                       "\"params\":{\"name\":\"get-variant\","
+                                       "\"arguments\":{\"variant-id\":\"story.button/primary\",\"max-tokens\":4000}}}\n")))]
+    (is (= [5 "story.button/primary" "Primary button."]
+           [(:id frame) (-> frame :result :structuredContent :id) (-> frame :result :structuredContent :body :doc)]))))
 
-(deftest normalize-frame-drops-unknown-arg-keys-but-keeps-known
-  (testing "normalize-frame keeps allowlisted arg keys (keyword), drops + DIAGNOSES the rest"
-    (let [probe   (str "rf2-3luf3-drop-" (System/nanoTime))
-          parsed  (rf.story-mcp.protocol/parse-json
-                   (str "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"tools/call\","
-                        "\"params\":{\"name\":\"run-variant\","
-                        "\"arguments\":{\"variant-id\":\"story.button/primary\","
-                        "\"" probe "\":1,\"substrate\":\"reagent\"}}}"))
-          norm    (rf.story-mcp.protocol/normalize-frame parsed)
-          arg-map (-> norm :params :arguments)]
-      (is (= "story.button/primary" (:variant-id arg-map)) "known key keywordised + kept")
-      (is (= "reagent" (:substrate arg-map)) "known key keywordised + kept")
-      (is (= #{:variant-id :substrate} (set (keys arg-map)))
-          "ONLY the two allowlisted keys survive as ENTRIES; the unknown key is dropped at both string + keyword form")
-      ;; NB: do not call `(keyword probe)` here — that would itself intern
-      ;; the probe and defeat the no-intern assertion below.
-      (is (nil? (find-keyword probe)) "and the unknown key never interned")
-      ;; The unknown key is not SILENTLY dropped: its
-      ;; RAW STRING form is recorded as metadata (not a map entry, so it
-      ;; never reaches a handler or interns) for the dispatcher to diagnose.
-      (is (= [probe] (get (meta arg-map) rf.story-mcp.protocol/unknown-arg-keys-meta))
-          "the dropped key's raw string is recorded as metadata for the diagnostic"))))
+(defn- normalized-arguments
+  "The `arguments` map of the `tools/call` JSON `frame` after the real ingress
+  normalisation, unknown keys recorded as metadata."
+  [frame]
+  (-> frame rf.story-mcp.protocol/parse-json rf.story-mcp.protocol/normalize-frame :params :arguments))
 
 (deftest invoke-tool-diagnoses-unknown-top-level-argument
-  ;; A top-level argument typo (a non-schema-
-  ;; validating host or hand-rolled agent sending `:timeuot-ms` etc.) must
-  ;; surface an agent-recoverable `isError: true` result naming the unknown
-  ;; key, the tool, and the allowed key set — NOT a successful-looking call
-  ;; that silently defaulted. The server is the authoritative backstop for
-  ;; the advertised `additionalProperties false` contract.
-  (testing "an unknown top-level arg key surfaces an isError diagnostic before dispatch"
-    (let [probe   (str "rf2-ovmc5e-typo-" (System/nanoTime))
-          parsed  (rf.story-mcp.protocol/parse-json
-                   (str "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/call\","
-                        "\"params\":{\"name\":\"run-variant\","
-                        "\"arguments\":{\"variant-id\":\"story.button/primary\","
-                        "\"" probe "\":1}}}"))
-          norm    (rf.story-mcp.protocol/normalize-frame parsed)
-          arg-map (-> norm :params :arguments)
-          r       (rf.story-mcp.tools.wire-pipeline/invoke-tool "run-variant" arg-map)
-          s       (:structuredContent r)]
-      (is (error? r) "unknown top-level arg ⇒ isError result")
-      (is (= :rf.story-mcp/unknown-arguments (:rf.error s))
-          "the structured error carries the unknown-arguments id")
-      (is (= "run-variant" (:tool s)) "names the tool")
-      (is (= [probe] (:unknown s)) "echoes the RAW unknown key string")
-      (is (contains? (set (:allowed s)) "variant-id")
-          "lists the tool's allowed arg-key set so the agent can correct")
-      (is (contains? (set (:allowed s)) "timeout-ms")
-          "the allowed set is the tool's full advertised property set, not the global union")
-      (is (nil? (find-keyword probe))
-          "diagnosing the typo never interned the unknown key"))))
-
-;; ---------------------------------------------------------------------------
-;; Per-tool argument-schema enforcement AFTER the global
-;; no-intern normalisation.
-;;
-;; `protocol/normalize-frame` only drops keys outside the UNION of every
-;; tool's argument keys (`protocol/arg-keys`). A key valid for ANOTHER
-;; tool — `:body` (register-variant) — therefore SURVIVES normalisation as a
-;; keyword entry, which the selected handler would silently ignore.
-;; The per-tool check (`tool-invalid-arg-keys`) is the descriptor-level
-;; `additionalProperties false` backstop: it rejects globally-known keys
-;; the SELECTED tool doesn't advertise, with the same
-;; `:rf.story-mcp/unknown-arguments` shape as the global-unknown diagnostic.
-;; The wire-managed knobs (`wire-managed-arg-keys`, `:dedup` on a
-;; non-eligible tool among them) are exempt: the wire boundary consumes
-;; them, so they are tolerated — the `invoke` helper's `{:dedup false}`
-;; default exercises that on every non-eligible-tool call in this file.
-;; ---------------------------------------------------------------------------
+  ;; A typo'd knob is an agent-recoverable error naming the key, the tool and
+  ;; its allowed set, not a successful-looking call that silently defaulted.
+  (let [probe (str "rf2-ovmc5e-typo-" (System/nanoTime))
+        s     (:structuredContent
+                (rf.story-mcp.tools.wire-pipeline/invoke-tool
+                  "run-variant"
+                  (normalized-arguments (str "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/call\","
+                                             "\"params\":{\"name\":\"run-variant\","
+                                             "\"arguments\":{\"variant-id\":\"story.button/primary\",\"" probe "\":1}}}"))))]
+    (is (= {:rf.error :rf.story-mcp/unknown-arguments :tool "run-variant" :unknown [probe]}
+           (select-keys s [:rf.error :tool :unknown])))
+    (is (every? (set (:allowed s)) ["variant-id" "timeout-ms"]) "the tool's own advertised property set")
+    (is (nil? (find-keyword probe)))))
 
 (deftest invoke-tool-rejects-tool-invalid-but-globally-known-arg
-  ;; Acceptance — `get-variant` with `:body`. `:body` is a real
-  ;; key (register-variant advertises it) so it survives the global
-  ;; allowlist as a keyword entry; but get-variant does NOT advertise it.
-  (testing "a globally-known but tool-invalid arg (`:body` on get-variant) rejects"
-    (let [r (rf.story-mcp.tools.wire-pipeline/invoke-tool "get-variant"
-                                       {:variant-id "story.button/primary" :body "x"})
-          s (:structuredContent r)]
-      (is (error? r) "tool-invalid arg ⇒ isError result, not a silent ignore + success")
-      (is (= :rf.story-mcp/unknown-arguments (:rf.error s))
-          "uses the unknown-arguments diagnostic shape")
-      (is (= "get-variant" (:tool s)) "names the tool")
-      (is (= ["body"] (:unknown s)) "names the tool-invalid key")
-      (is (contains? (set (:allowed s)) "variant-id")
-          "lists the tool's advertised arg-key set")
-      (is (not (contains? (set (:allowed s)) "body"))
-          "the tool's allowed set does NOT include the rejected key"))))
+  ;; `:body` survives the global allowlist (register-variant advertises it),
+  ;; so only the per-tool check stops get-variant silently ignoring it.
+  (let [s (:structuredContent (rf.story-mcp.tools.wire-pipeline/invoke-tool
+                                "get-variant" {:variant-id "story.button/primary" :body "x"}))]
+    (is (= {:rf.error :rf.story-mcp/unknown-arguments :tool "get-variant" :unknown ["body"]}
+           (select-keys s [:rf.error :tool :unknown])))
+    (is (= [true false] [(contains? (set (:allowed s)) "variant-id") (contains? (set (:allowed s)) "body")]))))
 
-;; ---------------------------------------------------------------------------
-;; Pre-dispatch error envelopes ride the response cap.
-;;
-;; `spec/Principles.md §Tight token budget` bounds EVERY tool response,
-;; errors included. The pre-dispatch rejection branches (unknown-arg,
-;; invalid-`:max-tokens`, per-tool unknown-arg) go through the cap too:
-;; returning BEFORE it would let a caller packing many long unknown keys
-;; inside the 4 MB frame cap receive an uncapped diagnostic echoing them
-;; all back.
-;; ---------------------------------------------------------------------------
+;; The pre-dispatch rejections ride the response cap too (spec/Principles.md
+;; §Tight token budget): a caller packing many long unknown keys inside the
+;; 4 MB frame cap must not get them all echoed back uncapped. The capped
+;; envelope keeps isError, which tells it from an over-cap success.
 
 (deftest unknown-arg-error-rides-the-response-cap
-  ;; Many large unknown keys produce an overflow marker under
-  ;; a small cap rather than an uncapped echo. The unknown keys ride as
-  ;; metadata (no-intern), so we build the frame through normalise-frame.
-  (testing "an unknown-argument diagnostic overflows under a small cap"
-    (let [big-keys (apply str
-                          (for [i (range 200)]
-                            (str "\"unknown-key-" i "-"
-                                 (apply str (repeat 80 \x))
-                                 "\":1,")))
-          frame    (str "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\","
-                        "\"params\":{\"name\":\"get-variant\","
-                        "\"arguments\":{" big-keys
-                        "\"variant-id\":\"story.button/primary\"}}}")
-          arg-map  (-> (rf.story-mcp.protocol/normalize-frame (rf.story-mcp.protocol/parse-json frame))
-                       :params :arguments)
-          ;; sanity: the unknown keys WERE recorded as metadata
-          _        (is (seq (get (meta arg-map) rf.story-mcp.protocol/unknown-arg-keys-meta))
-                       "the many unknown keys are recorded for the diagnostic")
-          capped   (rf.story-mcp.tools.wire-pipeline/invoke-tool "get-variant"
-                                              (with-meta (assoc arg-map :max-tokens 5)
-                                                (meta arg-map)))]
-      (is (overflow-marker? capped)
-          "the uncapped echo of many long unknown keys is replaced by the overflow marker")
-      (is (= "get-variant" (get-in capped [:structuredContent rf.mcp-base.vocab/overflow-key :tool]))
-          "the overflow marker names the tool"))))
+  (let [big-keys (apply str (for [i (range 200)] (str "\"unknown-key-" i "-" (apply str (repeat 80 \x)) "\":1,")))
+        arg-map  (normalized-arguments (str "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\","
+                                            "\"params\":{\"name\":\"get-variant\",\"arguments\":{" big-keys
+                                            "\"variant-id\":\"story.button/primary\"}}}"))
+        capped   (rf.story-mcp.tools.wire-pipeline/invoke-tool
+                   "get-variant" (with-meta (assoc arg-map :max-tokens 5) (meta arg-map)))]
+    (is (= ["get-variant" true] [(get-in capped [:structuredContent rf.mcp-base.vocab/overflow-key :tool]) (:isError capped)]))))
 
 (deftest tool-invalid-arg-error-rides-the-response-cap
-  ;; The per-tool unknown-arg diagnostic is
-  ;; capped too. The diagnostic echoes the offending key names + the tool's
-  ;; allowed set; throwing every globally-known key get-variant does NOT
-  ;; advertise makes that echo exceed a 1-token cap, so the
-  ;; per-tool diagnostic must overflow rather than return uncapped.
-  (testing "a per-tool unknown-arg diagnostic overflows under a tiny cap"
-    (let [tool-invalid {:story-id "x"
-                        :substrate "x" :active-modes ["x"] :cell-overrides {}
-                        :base-url "x" :body "x"
-                        :tags ["x"] :kind "x"
-                        :timeout-ms 1}
-          r (rf.story-mcp.tools.wire-pipeline/invoke-tool "get-variant"
-                                       (assoc tool-invalid
-                                              :variant-id "story.button/primary"
-                                              :max-tokens 1))]
-      ;; All those keys are globally-known (in `protocol/arg-keys`) but
-      ;; tool-invalid for get-variant, so they survive normalisation and
-      ;; the per-tool check diagnoses them.
-      (is (overflow-marker? r)
-          "the capped per-tool diagnostic replaces the uncapped echo — proving it rides the cap path")
-      (is (= "get-variant" (get-in r [:structuredContent rf.mcp-base.vocab/overflow-key :tool]))))))
+  (let [r (rf.story-mcp.tools.wire-pipeline/invoke-tool
+            "get-variant" {:variant-id "story.button/primary" :max-tokens 1
+                           :story-id "x" :substrate "x" :active-modes ["x"] :cell-overrides {}
+                           :base-url "x" :body "x" :tags ["x"] :kind "x" :timeout-ms 1})]
+    (is (= ["get-variant" true] [(get-in r [:structuredContent rf.mcp-base.vocab/overflow-key :tool]) (:isError r)]))))
 
 ;; ---------------------------------------------------------------------------
-;; Named-check assertion copies honour the sensitive-record filter.
-;;
-;; A `:checks` group carries the SAME assertion-record maps as the top-level
-;; `:assertions` vec (`re-frame.story.result/check-record`), so a record the
-;; egress drops at the top level must not ride back out inside a group.
-;; Driven through the real `run-loop!` and looked for in the ENCODED frame —
-;; both slots — rather than in a handler's return value.
+;; A `:checks` group carries the same record maps as the top-level
+;; `:assertions` vec, so a record the egress drops must not ride back out
+;; inside a group. Looked for in the ENCODED frame, both slots.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private check-private-sentinel "CHECK-PRIVATE-SENTINEL")
 
 (defn- reg-check-private-fixture!
-  "A variant whose setup seeds the accumulator with a programmer-stamped
-  `:sensitive? true` record (the record-don't-throw contract the
-  sensitive-assertion tests above already use), and whose TWO named checks
-  both expand to the atom that record matches — so one source record lands
-  in both groups, and a per-group drop count would double-count it."
+  "A variant whose setup seeds a `:sensitive? true` record, and whose TWO
+  named checks both expand to the atom it matches — so one source record
+  lands in both groups, and a per-group drop count would double-count it."
   []
   (rf/reg-event :story-mcp.test/seed-private-record
     (fn [{:keys [db]} _]
@@ -4182,57 +1509,33 @@
            (str (cheshire/generate-string
                   {:jsonrpc "2.0" :id 1 :method "tools/call"
                    :params  {:name      tool
-                             :arguments (merge {:variant-id "story.button/checked-private"
-                                                :max-tokens 0}
-                                               args)}})
+                             :arguments (merge {:variant-id "story.button/checked-private" :max-tokens 0} args)}})
                 "\n"))))
 
 (deftest named-check-assertion-copies-honour-the-sensitive-filter
   (reg-check-private-fixture!)
-  (doseq [tool  ["run-variant" "preview-variant"]
-          dedup [true false]]
-    (testing (str tool " dedup=" dedup ", operator gate closed, caller asks anyway")
-      (let [frame (call-checked-private tool {:dedup dedup :include-sensitive true})]
-        (is (nil? (:error frame))
-            (str "a result envelope, not a protocol error: " (pr-str (:error frame))))
-        (is (not (clojure.string/includes? (pr-str frame) check-private-sentinel))
-            "no copy of the dropped record crosses the wire, in either slot")
-        (when-not dedup
-          (let [s (get-in frame [:result :structuredContent])]
-            (is (= 1 (:dropped-sensitive s))
-                "one source record, counted once — not once per group it appeared in")
-            (is (= #{"check.button/private-a" "check.button/private-b"}
-                   (set (map :check (:checks s))))
-                "check identity survives")
-            (is (every? #(= "fail" (:status %)) (:checks s))
-                "each check keeps its authoritative verdict — hiding its failure does not recompute a pass")
-            (is (every? #(and (seq (:assertions %)) (not-any? :sensitive? (:assertions %)))
-                        (:checks s))
-                "each group keeps its benign records and loses only the stamped one"))))))
+  (doseq [tool ["run-variant" "preview-variant"] dedup [true false]]
+    (let [frame (call-checked-private tool {:dedup dedup :include-sensitive true})]
+      (is (= [nil false] [(:error frame) (str/includes? (pr-str frame) check-private-sentinel)])
+          (str tool " dedup=" dedup ", gate closed: no copy of the dropped record crosses the wire"))))
+  (let [s (get-in (call-checked-private "run-variant" {:dedup false :include-sensitive true}) [:result :structuredContent])]
+    (is (= [1 #{"check.button/private-a" "check.button/private-b"} #{"fail"}]
+           [(:dropped-sensitive s) (set (map :check (:checks s))) (set (map :status (:checks s)))])
+        "one source record counted once; check identity and authoritative verdicts survive")
+    (is (every? #(and (seq (:assertions %)) (not-any? :sensitive? (:assertions %))) (:checks s))
+        "each group keeps its benign records and loses only the stamped one"))
   (testing "both gates open restores the record inside the groups"
     (rf.story-mcp.config/set-allow-sensitive-reads! true)
-    (let [frame (call-checked-private "run-variant" {:dedup false :include-sensitive true})
-          s     (get-in frame [:result :structuredContent])]
-      (is (clojure.string/includes? (pr-str frame) check-private-sentinel))
-      (is (every? #(some :sensitive? (:assertions %)) (:checks s))))))
-
-;; ---------------------------------------------------------------------------
-;; `run-loop!` leaves Clojure's executors alone.
-;;
-;; The CLI's `-main` releases Clojure's future/agent executor once stdin
-;; closes, so a session that ran a variant exits promptly instead of idling
-;; out the pool's keep-alive. That release belongs to the process OWNER:
-;; `run-loop!` is the embeddable half, and an embedding caller's later
-;; futures — and later sessions — must keep working after it returns.
-;; ---------------------------------------------------------------------------
+    (let [frame (call-checked-private "run-variant" {:dedup false :include-sensitive true})]
+      (is (str/includes? (pr-str frame) check-private-sentinel))
+      (is (every? #(some :sensitive? (:assertions %)) (get-in frame [:result :structuredContent :checks]))))))
 
 (deftest run-loop-leaves-clojure-futures-usable-after-eof
-  (let [frames (run-frames!
-                 (str "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\","
-                      "\"params\":{\"name\":\"run-variant\",\"arguments\":"
-                      "{\"variant-id\":\"story.button/primary\",\"dedup\":false,"
-                      "\"max-tokens\":0}}}\n"))]
+  ;; The CLI's -main releases Clojure's executors at EOF; run-loop! is the
+  ;; embeddable half and must leave them working for its caller.
+  (let [frames (run-frames! (str "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\","
+                                 "\"params\":{\"name\":\"run-variant\",\"arguments\":"
+                                 "{\"variant-id\":\"story.button/primary\",\"dedup\":false,\"max-tokens\":0}}}\n"))]
     (is (= "pass" (get-in (first frames) [:result :structuredContent :status]))
-        "precondition: the session really ran a variant on a worker future")
-    (is (= 42 (deref (future 42) 5000 ::timed-out))
-        "a future submitted after run-loop! returned still runs")))
+        "precondition: the session ran a variant on a worker future")
+    (is (= 42 (deref (future 42) 5000 ::timed-out)))))

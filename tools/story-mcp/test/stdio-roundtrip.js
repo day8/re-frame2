@@ -48,8 +48,8 @@ const path = require('node:path');
 
 const CWD = path.join(__dirname, '..');
 
-// Canonical tool-name list — single source of truth shared
-// with the JVM test corpus (tools_test.clj `tool-names-fixture`). Both
+// Canonical tool-name list — single source of truth shared with the
+// cross-server conformance harness (tools/mcp-conformance). Both
 // consumers parse this JSON; a drift in the registry surfaces in one
 // place rather than two.
 const TOOL_NAMES = JSON.parse(
@@ -157,8 +157,8 @@ function run() {
       notify('notifications/initialized', {});
 
       // 2. tools/list — expect the full registry per spec/002-Tool-Registry.md.
-      // The canonical name list is shared with the JVM test corpus via
-      // test/fixtures/tool-names.json — a registry change updates one file,
+      // The canonical name list is test/fixtures/tool-names.json, shared
+      // with the conformance harness — a registry change updates one file,
       // not two.
       const list = await call('tools/list', {});
       const names = (list.result?.tools || []).map((t) => t.name).sort();
