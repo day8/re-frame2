@@ -1,125 +1,46 @@
 (ns re-frame.story-mcp.tools.dedup-test
-  "Consumer-integration coverage for the structural-dedup
-  wire-boundary transform.
+  "Story-mcp's integration of the structural-dedup wire-boundary transform:
+  the dual-slot rewrite and sibling-slot preservation of `apply-dedup`, and
+  the `:dedup-eligible?` gate through `invoke-tool`.
 
-  Per `tools/story-mcp/spec/Principles.md` §Structural dedup at the wire
-  boundary, a dedup-eligible tool's `:structuredContent` payload is
-  passed through `re-frame.mcp-base.dedup` before the wire-cap check. Repeated
-  subtrees collapse into a flat cache map keyed by `de-dupe.cache/cache-N`
-  namespaced symbols; the agent host reconstructs via
-  `re-frame.mcp-base.dedup/expand`.
-
-  ## What this file pins — and what it deliberately does NOT
-
-  The CANONICAL dedup behaviour (`empty-payload?`, `dedup-value` wrap /
-  passthrough / marker shape, round-trip exactness) is asserted ONCE,
-  cross-host, in `re-frame.mcp-base.dedup-test` — story-mcp requires
-  `re-frame.mcp-base.dedup` DIRECTLY (there is no story-mcp pass-through
-  facade), so re-asserting the same behaviour here would just duplicate
-  that suite. What lives here is the coverage the base suite CANNOT own:
-
-    - the wire-boundary envelope integration
-      (`rf.story-mcp.tools.wire-pipeline/apply-dedup` dual-slot rewrite, sibling-slot
-      preservation, the `:dedup-eligible?` gate through
-      `rf.story-mcp.tools.wire-pipeline/invoke-tool`).
-
-  The test-only inverse (`dedup-expand`) lives in
-  `re-frame.story-mcp.test-support`; the MCP server never inverts the
-  transform at runtime.
-
-  `:dedup` MCP-arg normalisation lives on the shared
-  `re-frame.mcp-base.args/parse-boolean` table-driven parser — coverage
-  is in `mcp-base`'s args tests."
+  The canonical dedup behaviour (wrap, passthrough, marker shape,
+  round-trip exactness) is asserted once, cross-host, in
+  `re-frame.mcp-base.dedup-test`."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.story-mcp.test-support :as rf.story-mcp.test-support]
             [re-frame.story-mcp.tools.wire-pipeline :as rf.story-mcp.tools.wire-pipeline]
             [re-frame.story-mcp.tools.result :as rf.story-mcp.tools.result]
             [re-frame.story-mcp.tools.registry :as rf.story-mcp.tools.registry]))
 
-;; ---------------------------------------------------------------------------
-;; Wire-boundary integration — `rf.story-mcp.tools.wire-pipeline/apply-dedup` is the wrapper that
-;; lifts `dedup-value` onto the story-mcp result-envelope shape.
-;; ---------------------------------------------------------------------------
-
 (deftest apply-dedup-rewrites-both-slots-consistently
-  ;; The load-bearing wire-boundary invariant: BOTH `:structuredContent`
-  ;; AND `:content[*].text` get the deduped payload, so the cap step
-  ;; sees the post-dedup size on both slots.
+  ;; Both slots carry the deduped payload, so the cap step sizes the
+  ;; post-dedup wire on both.
   (let [shared  {:big "value" :tags [:a :b :c]}
         payload [{:id 1 :data shared} {:id 2 :data shared} {:id 3 :data shared}]
-        result  (rf.story-mcp.tools.result/text-result (rf.story-mcp.tools.result/pr-edn payload) payload)
-        out     (rf.story-mcp.tools.wire-pipeline/apply-dedup result true)
-        sc      (:structuredContent out)
-        text    (-> out :content first :text)]
-    (testing "structuredContent is wrapped under the dedup-table marker"
-      (is (contains? sc :rf.mcp/dedup-table))
-      (is (= payload (rf.story-mcp.test-support/dedup-expand sc))
-          "round-trip restores the original payload"))
-    (testing "the text slot mirrors the deduped structured payload"
-      (is (= text (rf.story-mcp.tools.result/pr-edn sc))
-          "the text slot is re-stringified from the deduped structured payload — both slots ride the same wire shape"))))
+        out     (rf.story-mcp.tools.wire-pipeline/apply-dedup
+                  (rf.story-mcp.tools.result/text-result (rf.story-mcp.tools.result/pr-edn payload) payload)
+                  true)
+        sc      (:structuredContent out)]
+    (is (contains? sc :rf.mcp/dedup-table))
+    (is (= payload (rf.story-mcp.test-support/dedup-expand sc)) "round-trip restores the payload")
+    (is (= (rf.story-mcp.tools.result/pr-edn sc) (-> out :content first :text))
+        "the text slot is re-stringified from the deduped structured payload")))
 
 (deftest apply-dedup-preserves-sibling-slots
-  ;; Anything the handler set on the envelope (e.g. `:isError`) must
-  ;; survive the dedup rewrite. The wire-boundary transform is
-  ;; structural-content-only.
-  (let [shared  {:k :v}
-        payload [shared shared]
+  (let [payload [{:k :v} {:k :v}]
         result  (assoc (rf.story-mcp.tools.result/text-result (rf.story-mcp.tools.result/pr-edn payload) payload)
-                       :_sibling :passes-through)
-        out     (rf.story-mcp.tools.wire-pipeline/apply-dedup result true)]
-    (is (= :passes-through (:_sibling out)))))
-
-;; ---------------------------------------------------------------------------
-;; Eligibility gate — descriptors carry `:dedup-eligible? true` for the
-;; two surfaces that benefit (preview-variant, run-variant);
-;; every other tool ignores the wire-boundary
-;; dedup transform. Pin via the registry-load.
-;; ---------------------------------------------------------------------------
+                       :_sibling :passes-through)]
+    (is (= :passes-through (:_sibling (rf.story-mcp.tools.wire-pipeline/apply-dedup result true))))))
 
 (deftest descriptor-dedup-eligibility-matches-the-documented-set
-  ;; Per `tools/story-mcp/spec/Principles.md` §Structural dedup at the
-  ;; wire boundary, dedup is applied selectively to surfaces where
-  ;; repeated subtrees dominate the wire cost. Mirrors pair-mcp's
-  ;; selective `:dedup` knob assignment in `descriptors_data.cljs`.
-  (let [eligible (->> rf.story-mcp.tools.registry/tool-registry
-                      (filter :dedup-eligible?)
-                      (map :name)
-                      set)]
-    (is (= #{"preview-variant" "run-variant"} eligible)
-        (str "dedup-eligible set drifted; if extending the contract, "
-             "update Principles.md §Structural dedup AND the canonical "
-             "list documented here AND in tools.wire-pipeline/invoke-tool's "
-             "docstring. Found: " eligible))))
-
-(deftest dedup-eligible-tools-carry-dedup-slot-on-input-schema
-  ;; The `:dedup-eligible?` flag is consumed by `rf.story-mcp.tools.wire-pipeline/invoke-tool` (the
-  ;; dispatch boundary). The `:inputSchema.:properties.:dedup` slot is
-  ;; consumed by the agent host (`tools/list`) so it knows the knob
-  ;; exists. The two MUST stay in lock-step — eligibility without the
-  ;; descriptor slot is invisible to agents, descriptor slot without
-  ;; eligibility is a lying advertisement.
-  (doseq [{:keys [name dedup-eligible? inputSchema]} rf.story-mcp.tools.registry/tool-registry]
-    (testing (str "tool " name)
-      (if dedup-eligible?
-        (is (contains? (:properties inputSchema) :dedup)
-            (str name " is :dedup-eligible? true but missing the "
-                 ":dedup property on its input schema — wrap the "
-                 "properties map in `schemas/with-dedup`."))
-        (is (not (contains? (:properties inputSchema) :dedup))
-            (str name " carries the :dedup property but is NOT "
-                 ":dedup-eligible? — `rf.story-mcp.tools.wire-pipeline/invoke-tool` will silently "
-                 "ignore the caller's value, which is dishonest. "
-                 "Either flip :dedup-eligible? to true or remove "
-                 "the `with-dedup` wrap."))))))
-
-;; ---------------------------------------------------------------------------
-;; invoke-tool eligibility gate — end-to-end pin that selective dedup
-;; actually fires only for opted-in surfaces. Synthesises a one-off
-;; eligible + one-off ineligible descriptor via `with-redefs` around
-;; `rf.story-mcp.tools.registry/tool-by-name` so the assertion targets the cap-pipeline
-;; mechanism rather than a particular tool's domain semantics.
-;; ---------------------------------------------------------------------------
+  ;; tools/story-mcp/spec/Principles.md §Structural dedup at the wire
+  ;; boundary names the set. Eligibility and the advertised `:dedup` input
+  ;; slot move together: eligibility without the slot is invisible to
+  ;; agents, the slot without eligibility is silently ignored.
+  (let [names-where (fn [pred] (->> rf.story-mcp.tools.registry/tool-registry (filter pred) (map :name) set))]
+    (is (= #{"preview-variant" "run-variant"}
+           (names-where :dedup-eligible?)
+           (names-where #(contains? (-> % :inputSchema :properties) :dedup))))))
 
 (defn- mock-handler [_args]
   (let [payload [{:id 1 :data {:k :shared-value}}
@@ -128,27 +49,11 @@
     (rf.story-mcp.tools.result/text-result (rf.story-mcp.tools.result/pr-edn payload) payload)))
 
 (deftest invoke-tool-fires-dedup-on-eligible-descriptors
-  ;; The end-to-end pin: an eligible descriptor's response carries the
-  ;; `:rf.mcp/dedup-table` wrap; an ineligible one's does not. Mocks
-  ;; the registry lookup so the assertion stays focused on the gate,
-  ;; not on any particular tool's domain.
-  (let [eligible-desc   {:name             "test-eligible"
-                         :dedup-eligible?  true
-                         :handler          mock-handler}
-        ineligible-desc {:name            "test-ineligible"
-                         :dedup-eligible? false
-                         :handler         mock-handler}]
-    (testing "eligible descriptor wraps the response under :rf.mcp/dedup-table"
-      (with-redefs [rf.story-mcp.tools.registry/tool-by-name (fn [_] eligible-desc)]
-        (let [r (rf.story-mcp.tools.wire-pipeline/invoke-tool "test-eligible" {})]
-          (is (contains? (:structuredContent r) :rf.mcp/dedup-table)))))
-    (testing "ineligible descriptor passes through unwrapped"
-      (with-redefs [rf.story-mcp.tools.registry/tool-by-name (fn [_] ineligible-desc)]
-        (let [r (rf.story-mcp.tools.wire-pipeline/invoke-tool "test-ineligible" {})]
-          (is (not (contains? (:structuredContent r) :rf.mcp/dedup-table))
-              "ineligible tools never see the wire-boundary dedup transform"))))
-    (testing "eligible descriptor + :dedup false honours the opt-out"
-      (with-redefs [rf.story-mcp.tools.registry/tool-by-name (fn [_] eligible-desc)]
-        (let [r (rf.story-mcp.tools.wire-pipeline/invoke-tool "test-eligible" {:dedup false})]
-          (is (not (contains? (:structuredContent r) :rf.mcp/dedup-table))
-              "the per-call :dedup false arg suppresses the wrap even on an eligible tool"))))))
+  (doseq [[eligible? args wrapped?] [[true  {}             true]
+                                     [false {}             false]
+                                     [true  {:dedup false} false]]]
+    (testing (str "eligible " eligible? " args " args)
+      (with-redefs [rf.story-mcp.tools.registry/tool-by-name
+                    (fn [_] {:name "t" :dedup-eligible? eligible? :handler mock-handler})]
+        (is (= wrapped? (contains? (:structuredContent (rf.story-mcp.tools.wire-pipeline/invoke-tool "t" args))
+                                   :rf.mcp/dedup-table)))))))
