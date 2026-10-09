@@ -18,6 +18,11 @@
   (let [patches [[[:user :prefs :theme] :assoc :dark]]]
     (is (= [{:section-path [:user :prefs] :section-kind :modified :patches patches}] (group patches)))))
 
+(deftest siblings-under-common-prefix-coalesce-into-one-section
+  ;; The head is the longest common prefix, not just its first segment.
+  (let [patches [[[:cart :items 0 :discount] :assoc 0.1] [[:cart :items 0 :qty] :assoc 2]]]
+    (is (= [{:section-path [:cart :items 0] :section-kind :modified :patches patches}] (group patches)))))
+
 (deftest cluster-coalescence-respects-max-depth
   ;; Two leaves whose common ancestor [:a] sits 5 levels away stay apart
   ;; under the default budget of 3, and merge once the budget is raised.
