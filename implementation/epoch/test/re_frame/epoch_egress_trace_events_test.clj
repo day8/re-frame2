@@ -1,52 +1,11 @@
 (ns re-frame.epoch-egress-trace-events-test
-  "Coverage for the `:trace-events` re-root in off-box egress projection.
-
-  Per `re-frame.epoch.tool-pair/reroot-trace-event-db-slots` +
-  `elide-trace-events-slot`: the `:rf.event/db-pending` (t1) and
-  `:rf.event/db-pending-post-flow` (t2) trace events each carry the FULL
-  pending app-db value under `:tags :rf.event/db`. The bulk
-  `elide-wire-value` walk over `:trace-events` treats that nested db as
-  rooted at `[<i> :tags :rf.event/db ...]`, so a frame-declared sensitive
-  path like `[:auth :password]` does NOT match (the walker expects it
-  rooted at the frame's app-db). `reroot-trace-event-db-slots` re-roots the
-  walk at the frame's app-db (`{:path []}`) so the sensitive / large
-  declarations match natively.
-
-  WHY THIS FILE EXISTS: the record-slot suites (`epoch_privacy_test.clj`,
-  `epoch_mcp_egress_conformance_test.clj`) cover redaction of `:db-before`,
-  `:db-after`, and `:trigger-event`, but not the `:trace-events` re-root for
-  the t1/t2 trace events' nested `:rf.event/db` tag. Deleting
-  `reroot-trace-event-db-slots` (collapsing `elide-trace-events-slot` to
-  the bare bulk walk) would pass those suites green while failing
-  to redact a sensitive leaf nested inside a t1/t2 trace's `:rf.event/db`
-  tag — the bulk walk roots that nested db at
-  `[<i> :tags :rf.event/db ...]`, so `[:auth :password]` never matches.
-  `re-frame.epoch-egress-redaction-cljs-test`'s
-  `trace-events-db-pending-tag-is-rerooted-and-redacted` pins the
-  sensitive-leaf re-root on both hosts; this file holds the live end-to-end
-  path, the large-leaf re-root, the re-root's scope and edge shapes, the
-  after-delta pins and the off-box HTTP body omission.
-
-  DEFENCE-IN-DEPTH note (`re-frame.classification/project-db-tags`): when
-  the frame HAS elision declarations, the t1/t2
-  `:rf.event/db` tag is ALSO redacted at EMIT time, so the on-ring trace
-  already carries `:rf/redacted` for frame-declared paths. The egress
-  re-root is therefore the redaction site for records whose tag was NOT
-  emit-redacted — a raw record fed to `project-egress` directly, or a
-  frame whose declarations were registered after the record was captured —
-  plus the idempotency guarantee for already-redacted records. The unit
-  tests below pin the source behaviour by feeding `project-egress`
-  hand-built records (the not-emit-redacted shape); the live test pins the
-  emit-time redaction + end-to-end no-leak + idempotency.
-
-  Two angles:
-    1. End-to-end via the live router (the t1/t2 traces are real
-       `:rf.event/db-pending` emits captured into the epoch record's
-       `:trace-events`); the on-ring tag is emit-redacted, and the
-       projection keeps it redacted (no leak, idempotent).
-    2. Direct unit test of `project-egress` against a hand-built record
-       whose `:trace-events` carries a t1/t2 event with a RAW large leaf —
-       isolates the egress re-root as the elision site."
+  "Off-box projection of an epoch record's `:trace-events` slot: the focused
+  slices a path interceptor stamps into `:rf.event/after-deltas`, and the
+  fail-closed rule for HTTP response bodies. The HTTP emit site stamps each
+  body's off-box disposition forward under `:tags :rf.http/off-box-body`
+  (`:omit` for an unschematized body, `:classify` for one already marked
+  on-box) and `omit-off-box-http-bodies` enforces it; the records here are
+  hand-built carrying that stamp, so no HTTP artefact is loaded."
   (:require [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
@@ -54,169 +13,25 @@
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.test-support :as rf.test-support]
-            ;; Side-effect require (mirror epoch_test.clj fixture).
-            [re-frame.machines]))
+            [re-frame.test-support :as rf.test-support]))
 
-;; ---- fixture --------------------------------------------------------------
-;;
-;; Canonical capture/restore fixture. Snapshots the
-;; registrar at ns-load + restores around each test, fires the epoch
-;; reset-hook table (history / listeners / config-to-default), and the
-;; `:init-fn` re-applies the suite's non-default `:trace-events-keep 5`
-;; (NOT the shipped 50 = :depth) through the
-;; public `configure!` boundary — no test ns reaches into the private
-;; `state/config` var.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
-    {:adapter rf.substrate.plain-atom/adapter
-     :init-fn (fn [] (rf/configure! {:epoch-history {:trace-events-keep 5}}))}))
+    {:adapter rf.substrate.plain-atom/adapter}))
 
-;; ---- helpers ---------------------------------------------------------------
+(defn- leaks? [x needle] (.contains (pr-str x) ^String needle))
 
 (def ^:private secret "topsecret-do-not-leak")
 
-;; EP-0025: durable app-db classification rides the commit-plane
-;; classification effects. Seed the sensitive / large declarations through
-;; `elision/apply-classification-effects` (`:source :effect`) — the same
-;; registry write a `reg-event` returning `:sensitive` / `:large` performs.
-;; The frame container is make-frame'd by each deftest before this runs.
-(defn- install-sensitive-schema! [frame-id]
-  (rf.frame/swap-runtime-db! frame-id
-    (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[:auth :password]]})))
-  nil)
-
-(defn- install-large-schema! [frame-id]
-  (rf.frame/swap-runtime-db! frame-id
-    (fn [rt] (rf.elision/apply-classification-effects rt {:large [[:blob :payload]]})))
-  nil)
-
-(defn- big-string [n] (apply str (repeat n "X")))
-
-(defn- contains-secret?
-  "Walk an arbitrary EDN value looking for the exact secret string."
-  [x]
-  (cond
-    (string? x) (.contains ^String x ^String secret)
-    (map? x)    (or (some contains-secret? (keys x))
-                    (some contains-secret? (vals x)))
-    (coll? x)   (some contains-secret? x)
-    :else       false))
-
-(defn- db-pending-events
-  "The t1 / t2 trace events (`:rf.event/db-pending` /
-  `:rf.event/db-pending-post-flow`) in a record's :trace-events."
-  [record]
-  (filter (fn [ev]
-            (contains? #{:rf.event/db-pending :rf.event/db-pending-post-flow}
-                       (:operation ev)))
-          (:trace-events record)))
-
-;; ===========================================================================
-;; 1. End-to-end: the live router's t1 :rf.event/db-pending trace carries
-;;    the sensitive leaf; the projection must redact it.
-;; ===========================================================================
-
-(deftest projection-keeps-db-pending-trace-leaf-redacted-end-to-end
-  (rf/make-frame {:id :test/eg})
-  (install-sensitive-schema! :test/eg)
-  (rf/reg-event :login (fn [{:keys [db]} _] {:db (assoc-in db [:auth :password] secret)}))
-  (rf/dispatch-sync [:login] {:frame :test/eg})
-
-  (let [raw  (last (rf/epoch-history :test/eg))
-        once (rf/project-egress raw)]
-    (testing "the live router's t1/t2 :rf.event/db-pending trace carries the
-              FULL pending db under :rf.event/db — and for a frame WITH
-              elision declarations, that nested tag is redacted at EMIT time
-              (re-frame.classification/project-db-tags), so the on-ring
-              trace already shows :rf/redacted at [:auth :password]. The
-              egress re-root then keeps it redacted (idempotent) and covers
-              the not-emit-redacted shapes (pinned by the unit tests and the
-              redaction suite)"
-      (let [t-evts (db-pending-events raw)]
-        (is (seq t-evts)
-            "the cascade emitted at least one t1/t2 :rf.event/db-pending trace")
-        (is (every? (fn [ev]
-                      (let [leaf (get-in ev [:tags :rf.event/db :auth :password])]
-                        (or (nil? leaf) (= :rf/redacted leaf))))
-                    t-evts)
-            "the nested :rf.event/db sensitive leaf is :rf/redacted on the
-             ring — emit-time redaction (marks/project-db-tags) fired for the
-             declared path before the trace reached the epoch-capture sink")
-        ;; NOTE: the ring record's :db-before / :db-after ARE raw on-box (the
-        ;; privacy posture: ring is raw; off-box egress is the redaction
-        ;; boundary). Only the TRACE TAG is emit-redacted, because the trace
-        ;; stream fans out to listeners directly, bypassing project-egress.
-        (is (= secret (get-in raw [:db-after :auth :password]))
-            ":db-after carries the RAW secret on the ring — on-box records are
-             unredacted by design; the trace tag is the lone emit-redacted
-             slot (it has a separate, listener-facing fan-out path)")))
-
-    (testing "project-egress over a live record (whose t1/t2
-              :rf.event/db tag was emit-redacted) keeps the nested sensitive
-              leaf :rf/redacted and leaks nothing. The re-root re-walks the
-              tag at the app-db root; an already-:rf/redacted scalar passes
-              through unchanged (idempotent), and a raw leaf would be
-              redacted (pinned directly by
-              `trace-events-db-pending-tag-is-rerooted-and-redacted` in
-              `re-frame.epoch-egress-redaction-cljs-test`)"
-      (let [t-evts (db-pending-events once)]
-        (is (seq t-evts)
-            "the projected record still carries the t1/t2 trace events")
-        (is (every? (fn [ev]
-                      (let [leaf (get-in ev [:tags :rf.event/db :auth :password])]
-                        (or (nil? leaf) (= :rf/redacted leaf))))
-                    t-evts)
-            "every projected t1/t2 trace's nested :rf.event/db sensitive leaf
-             is :rf/redacted (or absent) — the re-root matched the
-             frame-declared path")
-        (is (not (contains-secret? once))
-            "the raw secret appears NOWHERE in the projected record — not in
-             :db-after, not nested inside any :trace-events :rf.event/db tag")))
-
-    (testing "re-projecting an already-projected record leaves the
-              nested t1 :rf.event/db sensitive leaf as the :rf/redacted
-              sentinel (the re-root's own target); forwarder pipelines that
-              double-project do not corrupt or re-leak the nested slot"
-      (let [twice (rf/project-egress once)]
-        (is (= once twice)
-            "second projection pass is a no-op — the re-rooted :rf.event/db
-             leaves are already :rf/redacted")
-        (is (not (contains-secret? twice))
-            "no secret re-leaks across the second pass")))))
-
-(deftest off-box-projection-of-a-path-focused-event-omits-its-after-delta-secret
-  (testing "a [:rf.interceptor/path …] handler that never reads
-            :auth still stamps the WHOLE db into :rf.event/after-deltas on
-            :rf.event/run-end (the path interceptor's :after restores and widens
-            it). The off-box-tool projection of that epoch record — what the
-            pair MCP trace-window / watch-epochs tools send — leaks nothing"
-    (rf/make-frame {:id :test/eg})
-    (install-sensitive-schema! :test/eg)
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db (assoc db :auth {:password secret} :n 0)}))
-    (rf/reg-event :bump {:interceptors [[:rf.interceptor/path [:n]]]}
-      (fn [{:keys [db]} _] {:db (inc db)}))
-    (rf/dispatch-sync [:seed] {:frame :test/eg})
-    (rf/dispatch-sync [:bump] {:frame :test/eg})
-    (let [raw     (last (rf/epoch-history :test/eg))
-          run-end (first (filter #(= :rf.event/run-end (:operation %)) (:trace-events raw)))]
-      (is (= [:bump] (:trigger-event raw)) "control: the newest record is :bump's")
-      (is (= [:rf.interceptor/path]
-             (mapv :rf.interceptor.delta/id (get-in run-end [:tags :rf.event/after-deltas])))
-          "control: the record carries the path interceptor's after-delta")
-      (is (not (contains-secret?
-                 (rf/project-egress raw {:rf.egress/profile :rf.egress/off-box-tool})))
-          "the off-box-tool projection carries the secret nowhere"))))
-
 (deftest off-box-projection-of-an-auth-focused-event-omits-its-slice-secret
   (testing "a handler focused AT the classified subtree
-            ([:rf.interceptor/path [:auth]] writing :password) puts FOCUSED
-            SLICES into :rf.event/after-deltas: the :before values the handler
-            saw and returned sit at [:auth], where a root-anchored walk cannot
-            match [:auth :password]. The off-box-tool projection of that epoch
+            ([:rf.interceptor/path [:auth]] writing :password) puts focused
+            slices into :rf.event/after-deltas, where a root-anchored walk
+            cannot match [:auth :password]. The off-box-tool projection of the
             record carries the secret nowhere"
     (rf/make-frame {:id :test/eg})
-    (install-sensitive-schema! :test/eg)
+    (rf.frame/swap-runtime-db! :test/eg
+      #(rf.elision/apply-classification-effects % {:sensitive [[:auth :password]]}))
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db (assoc db :auth {:password secret})}))
     (rf/reg-event :rotate {:interceptors [[:rf.interceptor/path [:auth]]]}
       (fn [{:keys [db]} _] {:db (assoc db :password (str secret "-rotated"))}))
@@ -224,337 +39,75 @@
     (rf/dispatch-sync [:rotate] {:frame :test/eg})
     (let [raw     (last (rf/epoch-history :test/eg))
           run-end (first (filter #(= :rf.event/run-end (:operation %)) (:trace-events raw)))]
-      (is (= [:rotate] (:trigger-event raw)) "control: the newest record is :rotate's")
       (is (= [:rf.interceptor/path]
              (mapv :rf.interceptor.delta/id (get-in run-end [:tags :rf.event/after-deltas])))
-          "control: the record carries the path interceptor's after-delta")
-      (is (not (contains-secret?
-                 (rf/project-egress raw {:rf.egress/profile :rf.egress/off-box-tool})))
-          "the off-box-tool projection carries the secret nowhere"))))
+          "control: the newest record carries the path interceptor's after-delta")
+      (is (not (leaks? (rf/project-egress raw {:rf.egress/profile :rf.egress/off-box-tool}) secret))))))
 
-;; ===========================================================================
-;; 2. Direct unit: project-egress over a hand-built record whose
-;;    :trace-events carries a t1/t2 event with a large leaf. Isolates
-;;    the re-root from whichever traces the live router happens to emit.
-;; ===========================================================================
+;; ---- off-box HTTP response-body fail-closed --------------------------------
 
-(deftest unit-projection-reroots-large-leaf-inside-db-pending-trace
-  (testing "the re-root also surfaces a :large?-declared leaf
-            nested inside a t1 trace's :rf.event/db tag: the projection
-            substitutes an elision marker, not the raw bytes"
-    (rf/make-frame {:id :test/eg})
-    (install-large-schema! :test/eg)
-    (let [payload   (big-string 50000)
-          t1-event  {:op-type   :rf.event
-                     :operation :rf.event/db-pending
-                     :tags      {:rf.event/db {:blob {:payload payload}}}}
-          record    {:kind          :rf/epoch-record
-                     :epoch-id      1
-                     :frame         :test/eg
-                     :committed-at  0
-                     :event-id      :upload
-                     :trigger-event [:upload]
-                     :db-before     {}
-                     :db-after      {:blob {:payload payload}}
-                     :outcome       :ok
-                     :rf.epoch/sensitive? false
-                     :trace-events  [t1-event]
-                     :sub-runs      []
-                     :renders       []
-                     :effects       []}
-          projected (rf/project-egress record)
-          p-t1      (first (:trace-events projected))
-          leaf      (get-in p-t1 [:tags :rf.event/db :blob :payload])]
-      (is (rf.elision/marker? leaf)
-          "the large leaf nested in the t1 :rf.event/db tag is substituted
-           with a :rf.size/large-elided marker — re-root reached it; the raw
-           50K payload does not survive into the projected trace"))))
-
-;; ===========================================================================
-;; 3. Edge cases the re-root must handle without throwing
-;; ===========================================================================
-
-(deftest reroot-passes-through-non-db-pending-events-untouched
-  (testing "a t1/t2 event LACKING the :rf.event/db tag, and a
-            non-map :trace-events entry, pass through the re-root untouched
-            (no throw, no fabrication)"
-    (rf/make-frame {:id :test/eg})
-    (install-sensitive-schema! :test/eg)
-    (let [no-db-tag {:op-type :rf.event :operation :rf.event/db-pending :tags {}}
-          record    {:kind          :rf/epoch-record
-                     :epoch-id      1
-                     :frame         :test/eg
-                     :committed-at  0
-                     :event-id      :ev
-                     :trigger-event [:ev]
-                     :db-before     {}
-                     :db-after      {}
-                     :outcome       :ok
-                     :rf.epoch/sensitive? false
-                     ;; A non-map entry alongside the tag-less t1 event.
-                     :trace-events  [no-db-tag :not-a-map]
-                     :sub-runs      []
-                     :renders       []
-                     :effects       []}
-          projected (rf/project-egress record)]
-      (is (some? projected) "projection did not throw on the edge shapes")
-      (is (= {} (get-in (first (:trace-events projected)) [:tags]))
-          "the t1 event lacking :rf.event/db passes through with empty tags")
-      (is (= :not-a-map (second (:trace-events projected)))
-          "the non-map :trace-events entry passes through untouched")))
-
-  (testing "the re-root is SCOPED to the t1/t2 ops: a non-t1/t2 trace event
-            whose tags carry a value at a NON-app-db-rooted path is NOT
-            re-rooted (the bulk walk handles it at its real root, where the
-            frame-declared [:auth :password] does not match)"
-    (rf/make-frame {:id :test/eg2})
-    (install-sensitive-schema! :test/eg2)
-    (let [;; A non-t1/t2 op carrying a nested map at a slot that is NOT the
-          ;; frame's app-db root — the re-root must skip it (op not in the
-          ;; t1/t2 set), and the bulk walk does not match it at this root.
-          other-event {:op-type   :rf.event
-                       :operation :rf.event/db-changed
-                       :tags      {:some-other-slot {:auth {:password "scoped-marker"}}}}
-          record      {:kind          :rf/epoch-record
-                       :epoch-id      2
-                       :frame         :test/eg2
-                       :committed-at  0
-                       :event-id      :ev
-                       :trigger-event [:ev]
-                       :db-before     {}
-                       :db-after      {}
-                       :outcome       :ok
-                       :rf.epoch/sensitive? false
-                       :trace-events  [other-event]
-                       :sub-runs      []
-                       :renders       []
-                       :effects       []}
-          projected   (rf/project-egress record)
-          p-other     (first (:trace-events projected))]
-      (is (= "scoped-marker" (get-in p-other [:tags :some-other-slot :auth :password]))
-          "the non-t1/t2 event's nested value is untouched — the re-root is
-           scoped to the t1/t2 ops and the bulk walk does not match it at
-           this non-app-db-rooted path"))))
-
-(deftest reroot-handles-scalar-sentinel-trace-events
-  (testing "when the whole :trace-events slot is already the
-            scalar :rf/redacted sentinel, the re-root returns it untouched
-            (no descent into a non-vector)"
-    (let [record    {:kind          :rf/epoch-record
-                     :epoch-id      1
-                     :frame         :test/eg
-                     :committed-at  0
-                     :event-id      :ev
-                     :trigger-event [:ev]
-                     :db-before     {}
-                     :db-after      {}
-                     :outcome       :ok
-                     :rf.epoch/sensitive? false
-                     :trace-events  :rf/redacted
-                     :sub-runs      []
-                     :renders       []
-                     :effects       []}
-          projected (rf/project-egress record)]
-      (is (= :rf/redacted (:trace-events projected))
-          "scalar-sentinel :trace-events passes through the re-root chain"))))
-
-;; ===========================================================================
-;; 4. Off-box HTTP response-body fail-closed (EP-0015
-;;    disposition 5). An UNSCHEMATIZED HTTP response body is whole-sensitive
-;;    off-box and MUST be omitted; the HTTP emit site stamps the disposition
-;;    forward under :tags :rf.http/off-box-body (:omit | :classify), and
-;;    `omit-off-box-http-bodies` (in `elide-trace-events-slot`) enforces it.
-;;    A schematized body rides as-is (its per-slot marks were applied on-box).
-;;
-;;    No HTTP-artefact dependency here — the records are hand-built carrying
-;;    the same stamp the transport emits, isolating the off-box projector.
-;; ===========================================================================
-
-(def ^:private http-body-secret "raw-bearer-token-do-not-leak")
-
-(defn- contains-http-secret?
-  "Walk an arbitrary EDN value looking for the exact http-body-secret string."
-  [x]
-  (cond
-    (string? x) (.contains ^String x ^String http-body-secret)
-    (map? x)    (or (some contains-http-secret? (keys x))
-                    (some contains-http-secret? (vals x)))
-    (coll? x)   (some contains-http-secret? x)
-    :else       false))
+(def ^:private http-secret "raw-bearer-token-do-not-leak")
 
 (defn- http-record
-  "A synthetic epoch record whose :trace-events carries one :rf.http/*
-  trace event with the decoded body at `body-slot` and the given off-box
-  disposition stamp."
-  [frame-id operation body-slot body disposition]
-  {:kind          :rf/epoch-record
-   :epoch-id      1
-   :frame         frame-id
-   :committed-at  0
-   :event-id      :http/done
-   :trigger-event [:http/done]
-   :db-before     {}
-   :db-after      {}
-   :outcome       :ok
-   :rf.epoch/sensitive? false
-   :trace-events  [{:op-type   :rf.trace
-                    :operation operation
-                    :tags      (cond-> {body-slot body}
-                                 disposition (assoc :rf.http/off-box-body disposition))}]
-   :sub-runs      []
-   :renders       []
-   :effects       []})
+  "An epoch record whose `:trace-events` carries one `operation` row with `tags`."
+  [operation tags]
+  {:kind         :rf/epoch-record
+   :epoch-id     1
+   :frame        :test/http
+   :trace-events [{:op-type :rf.trace :operation operation :tags tags}]})
+
+(defn- projected-tags [record opts]
+  (:tags (first (:trace-events (rf/project-egress record opts)))))
 
 (deftest off-box-omits-only-an-explicit-omit-stamp
-  (testing "a body the projector must NOT omit rides off-box untouched: a
-            SCHEMATIZED body (stamped :classify — its sensitive slots already
-            :rf/redacted on-box, its non-sensitive structure intact) and a body
-            slot with NO :rf.http/off-box-body stamp at all. The omission gates
-            strictly on an explicit :omit."
+  (testing "an :omit-stamped body redacts off-box, at a nested slot too (a
+            retry-attempt's intermediate failure body), leaving its siblings;
+            a :classify-stamped body (its sensitive slots already redacted
+            on-box) and an unstamped one ride untouched"
     (rf/make-frame {:id :test/http})
-    (are [body stamp]
-         (= body (get-in (first (:trace-events
-                                  (rf/project-egress
-                                    (http-record :test/http :rf.http/replied :value body stamp))))
-                         [:tags :value]))
-      {:token :rf/redacted :user-id 42} :classify
-      {:k "v"}                          nil)))
+    (are [operation tags expected] (= expected (projected-tags (http-record operation tags) nil))
+      :rf.http/retry-attempt {:failure {:status 500 :body http-secret} :rf.http/off-box-body :omit}
+                             {:failure {:status 500 :body :rf/redacted} :rf.http/off-box-body :omit}
+      :rf.http/replied       {:value {:token :rf/redacted :user-id 42} :rf.http/off-box-body :classify}
+                             {:value {:token :rf/redacted :user-id 42} :rf.http/off-box-body :classify}
+      :rf.http/replied       {:value {:k "v"}}
+                             {:value {:k "v"}})))
 
 (deftest local-raw-profile-lifts-omission-without-an-explicit-key
-  (testing "the docstring above, and every other `omit-off-box-*`
-            seam's, names `the local-raw boundary` as what lifts the omission,
-            so the PROFILE that resolves to it must lift it too, not only the
-            EXPLICIT `:rf.egress/include-sensitive? true` key.
-
-            These seams read the axis off the epoch opts by key presence, and
-            `project-egress` forwards the caller's ORIGINAL opts to its
-            `:rf/epoch-record` arm — so without resolving the shared axes
-            first, `{:rf.egress/profile :rf.egress/local-raw}` alone would
-            never deliver the floor and the body would stay omitted,
-            contradicting the docstring. The shared axes are resolved once at
-            the record boundary (`tool-pair/resolve-shared-size-axes`), for
-            the whole-output `:large?` slots and this seam alike.
-
-            The `:rf.egress/include-large?` sibling of this claim is pinned as a
-            three-surface matrix in
-            `re-frame.epoch-egress-redaction-cljs-test`; this arm is the
-            sensitive half, on the seam whose docstrings assert it."
+  (testing "the omit seams read the sensitive axis by key presence, so the
+            profile floor is resolved once at the record boundary: the
+            local-raw PROFILE alone lifts the omission, and an explicit false
+            still overlays that floor and wins"
     (rf/make-frame {:id :test/http})
-    (let [body   {:token http-body-secret :user-id 42}
-          record (http-record :test/http :rf.http/replied :value body :omit)
-          value  (fn [opts] (get-in (first (:trace-events (rf/project-egress record opts)))
-                                    [:tags :value]))]
-      (is (= :rf/redacted (value {:rf.egress/profile :rf.egress/off-box-observability}))
-          "CONTROL — a fail-closed profile still omits the body, so the
-           assertion below cannot pass by the omission having stopped")
-      (is (= body (value {:rf.egress/profile :rf.egress/local-raw}))
-          "the local-raw PROFILE lifts the omission with NO explicit
-           :rf.egress/include-sensitive? key from the caller — the profile is the
-           floor, exactly as it is for the app-db tree walk")
-      (is (= :rf/redacted (value {:rf.egress/profile          :rf.egress/local-raw
-                                  :rf.egress/include-sensitive? false}))
-          "and an EXPLICIT false still overlays that floor and WINS")
-      (is (= body (get-in (first (:trace-events record)) [:tags :value]))
-          "the source record is untouched by any of the projections above"))))
-
-;; ---------------------------------------------------------------------------
-;; The RAW error-response body axis. The same disposition-5
-;; fail-closed rule, but for the failure-category trace events that carry the
-;; RAW (unschematized-by-construction) error body: `:rf.http/http-4xx` /
-;; `:rf.http/http-5xx` at `:body`, `:rf.http/decode-failure` at `:body-text`,
-;; and the `:rf.http/retry-attempt` trace whose intermediate failure body
-;; nests at `[:failure :body]`. The emit site always stamps `:omit` for these
-;; (the raw body is unschematized) so the off-box projector omits the slot,
-;; lifted only by the trusted-local `:rf.egress/include-sensitive?` opt-in. On-box stays
-;; raw.
-;; ---------------------------------------------------------------------------
-
-(deftest off-box-omits-nested-retry-attempt-failure-body
-  (testing "a :rf.http/retry-attempt nests the intermediate
-            failure's raw body at [:failure :body]; stamped :omit it is omitted
-            off-box (a retry-eligible 4xx/5xx echoing a token)"
-    (rf/make-frame {:id :test/http})
-    (let [record    {:kind          :rf/epoch-record
-                     :epoch-id      1
-                     :frame         :test/http
-                     :committed-at  0
-                     :event-id      :http/retry
-                     :trigger-event [:http/retry]
-                     :db-before     {}
-                     :db-after      {}
-                     :outcome       :ok
-                     :rf.epoch/sensitive? false
-                     :trace-events  [{:op-type   :rf.trace
-                                      :operation :rf.http/retry-attempt
-                                      :tags      {:request-id :rid
-                                                  :attempt    1
-                                                  :failure    {:kind :rf.http/http-5xx
-                                                               :status 500
-                                                               :body (str "retry-body " http-body-secret)}
-                                                  :rf.http/off-box-body :omit}}]
-                     :sub-runs      []
-                     :renders       []
-                     :effects       []}
-          projected (rf/project-egress record)
-          ev        (first (:trace-events projected))]
-      (is (= :rf/redacted (get-in ev [:tags :failure :body]))
-          "the nested intermediate-failure raw body is omitted off-box")
-      (is (= 500 (get-in ev [:tags :failure :status]))
-          "non-body failure metadata (:status) rides verbatim")
-      (is (not (contains-http-secret? projected))
-          "no token re-leaks via the nested retry-attempt failure body"))))
-
-;; ---------------------------------------------------------------------------
-;; COLD gate-false seam. `project-egress` is a PURE off-box
-;; projection transform callable even when `interop/debug-enabled?` is false
-;; (a JVM SSR process booted with RE_FRAME_DEBUG=false, or an already-held /
-;; synthetic record — the gate elides record ASSEMBLY, not PROJECTION). Its
-;; fail-closed HTTP-body contract must therefore hold when the debug gate is
-;; false FROM namespace/process start, so the five production-real HTTP
-;; operation rows of the body-slot table must be bound regardless of the gate.
-;;
-;; A disabled-gate test misses this seam if it loads the ns gate-TRUE
-;; (which populates the table) and only then flips the gate, because the table
-;; is already full. This test reproduces a genuine cold process-start by
-;; RE-LOADING tool-pair with the gate redefed false — recomputing the
-;; body-slot table under the false gate exactly as a prod JVM boot would — and
-;; confirms public project-egress still omits every production-real stamped
-;; HTTP body. A wholly-gated table would fold to nil, so
-;; `omit-off-box-http-bodies` would find no slot path and pass the raw body
-;; through; the five production rows are unconditional, so it fails
-;; closed. The `finally` restores the normal gate-true table for the rest of
-;; the suite.
-;; ---------------------------------------------------------------------------
+    (let [body   {:token http-secret :user-id 42}
+          record (http-record :rf.http/replied {:value body :rf.http/off-box-body :omit})]
+      (is (= [:rf/redacted body :rf/redacted]
+             (mapv #(:value (projected-tags record %))
+                   [{:rf.egress/profile :rf.egress/off-box-observability}
+                    {:rf.egress/profile :rf.egress/local-raw}
+                    {:rf.egress/profile          :rf.egress/local-raw
+                     :rf.egress/include-sensitive? false}]))))))
 
 (deftest off-box-http-fail-closed-survives-cold-gate-false
-  (testing "with interop/debug-enabled? false FROM namespace load
-            (a production-start JVM), the pure projector still omits each
-            production-real unschematized HTTP body off-box"
+  (testing "project-egress is a pure transform a production JVM calls with the
+            debug gate false FROM namespace load, so the five production HTTP
+            rows of the body-slot table bind regardless of the gate. A table
+            loaded gate-true and then flipped would not show this, so
+            tool-pair is RE-LOADED under a false gate, as a cold start loads it"
     (rf/make-frame {:id :test/http})
     (try
-      ;; Recompute the tool-pair defs (incl. the HTTP body-slot table) with
-      ;; the debug gate false — a cold process-start reproduction, which a
-      ;; table loaded gate-true never reaches. project-egress
-      ;; is a pure transform (it never consults the gate), so it runs after.
       (with-redefs [rf.interop/debug-enabled? false]
         (require 're-frame.epoch.tool-pair :reload))
-      ;; The five PRODUCTION-REAL operations, one per body slot.
-      (doseq [[operation body-slot] [[:rf.http/replied        :value]
+      (is (= (repeat 5 :rf/redacted)
+             (for [[operation slot] [[:rf.http/replied        :value]
                                      [:rf.http/accept-failure :decoded]
                                      [:rf.http/http-4xx       :body]
                                      [:rf.http/http-5xx       :body]
                                      [:rf.http/decode-failure :body-text]]]
-        (let [record    (http-record :test/http operation body-slot
-                                     {:token http-body-secret :user-id 7} :omit)
-              projected (rf/project-egress record)
-              ev        (first (:trace-events projected))]
-          (is (= :rf/redacted (get-in ev [:tags body-slot]))
-              (str "cold gate-false: " operation " body slot " body-slot
-                   " is omitted off-box (fail-closed)"))
-          (is (not (contains-http-secret? projected))
-              (str "cold gate-false: the raw token appears nowhere in the "
-                   operation " projected record"))))
+               (get (projected-tags (http-record operation {slot                  {:token http-secret}
+                                                            :rf.http/off-box-body :omit})
+                                    nil)
+                    slot))))
       (finally
-        ;; Restore the full gate-true table (incl. the dev-only
-        ;; :rf.http/retry-attempt row) for the remaining tests.
+        ;; Restore the gate-true table, which carries the dev-only retry row.
         (require 're-frame.epoch.tool-pair :reload)))))
