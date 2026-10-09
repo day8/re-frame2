@@ -1,40 +1,14 @@
 (ns re-frame.platform-gating-test
-  "JVM coverage for per-frame platform gating.
-
-  Per Spec 011 §Effect handling on the server: the runtime tracks the
-  active platform (`:server` or `:client`) so `reg-fx`/`reg-cofx`
-  `:platforms` metadata can gate execution. There is ONE way to say it —
-  the frame's own `:platform` config key — over a per-host CONSTANT
-  default (`:server` on the JVM, `:client` on CLJS including
-  CLJS-on-Node). Nothing is process-wide: `rf.interop/active-platform`
-  is a constant, and there is no setter.
-
-  These tests pin three contract points:
-
-    1. An UNTAGGED frame gets the host default — `:server` on the JVM,
-       so a `:platforms #{:client}` fx skips.
-    2. A frame TAGGED `{:platform :client}` runs that same fx, unchanged
-       body and unchanged dispatch. The gate is the load-bearing
-       observable: tagging the frame flips the trace shape.
-    3. Two such frames live in ONE process each gate by their OWN
-       platform: a tagged frame's `:client` never reaches an untagged
-       sibling, and the untagged `:server` never reaches the tagged one.
+  "Per-frame platform gating (Spec 011 §Effect handling on the server). A frame's
+  `:platform` config key overrides a per-host constant default (`:server` on the
+  JVM), and `reg-fx` `:platforms` metadata gates each fx by its frame's platform.
 
   ## Posture split
 
-  All three contract points are production-real and are asserted WITHOUT a
-  posture guard: the untagged default, the per-frame override, and the
-  `:platforms` GATE ITSELF (whether the handler body ran). They run in
-  the ordinary `clojure -M:test` suite AND in
-  `scripts/test-core-prod-gate.sh`.
-
-  `:rf.fx/skipped-on-platform` is a bare `trace/emit!` warning (fx.cljc
-  §handle-one-fx) with no always-on twin, so under the real gate nothing is
-  emitted BY DESIGN. Its assertions are kept verbatim inside a
-  `(when rf.interop/debug-enabled? …)` arm — including the
-  negative on the tagged-client leg, which over an empty ring would pass
-  whether the gate passed or skipped."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  The default, the override and the gate itself (whether the fx body ran) are
+  asserted in both postures. `:rf.fx/skipped-on-platform` is a dev-only trace,
+  so its assertions sit inside a `(when rf.interop/debug-enabled? …)` arm."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
             [re-frame.frame :as rf.frame]
@@ -52,11 +26,7 @@
   (require 're-frame.routing :reload)
   (require 're-frame.ssr     :reload)
   (require 're-frame.machines :reload)
-  ;; EP-0002: `init!` does not synthesise `:rf/default`;
-  ;; framework operation surfaces require a carried frame stamp. Register
-  ;; `:rf/default` + pin it as the body's ambient scope (the carried-
-  ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
-  ;; `{:frame …}` opts in the test bodies win.
+  ;; `init!` seats no `:rf/default`; operations need a carried frame.
   (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (test-fn)))
@@ -70,9 +40,8 @@
     acc))
 
 (defn- register-browser-only-fx!
-  "Register the shared `:platforms #{:client}` fx + the event that emits
-  it. Returns the `fired?` atom the fx body sets — the production-visible
-  half of \"the gate passed\"."
+  "Register a `:platforms #{:client}` fx and the event that emits it. Returns
+  the atom the fx body sets."
   []
   (let [fired? (atom false)]
     (rf/reg-fx :platform-gating-test/browser-only
@@ -82,82 +51,46 @@
       (fn [_ _] {:fx [[:platform-gating-test/browser-only {}]]}))
     fired?))
 
-;; ---- 1. Untagged frame → host default -------------------------------------
-
 (deftest untagged-frame-uses-the-host-default-platform
-  (testing "`rf.interop/active-platform` is the per-host CONSTANT :server on
-            the JVM, and an untagged frame inherits it — so a
-            :platforms #{:client} fx skips with :rf.fx/skipped-on-platform"
-    (is (= :server (rf.interop/active-platform))
-        "JVM hosts default to :server per Spec 011 §Effect handling on the server")
-    (let [traces (collect-traces! ::untagged)
-          fired? (register-browser-only-fx!)]
-      (rf/make-frame {:id :platform-gating-test/untagged})
-      (is (nil? (:platform (:config (rf.frame/frame :platform-gating-test/untagged))))
-          "no :platform key on the frame — it rides the host default")
-
-      (rf/with-frame :platform-gating-test/untagged
-        (rf/dispatch-sync [:platform-gating-test/save]))
-      (rf/unregister-listener! :trace ::untagged)
-
-      (is (false? @fired?)
-          "the :client-only fx did NOT run — the untagged frame is :server on the JVM")
-      ;; Dev-instrumentation arm (see ns docstring §Posture split).
-      ;; `:rf.fx/skipped-on-platform` is a bare `trace/emit!` warning with no
-      ;; always-on twin; the SKIP it reports is asserted above and runs in
-      ;; both postures.
-      (when rf.interop/debug-enabled?
-        (let [skips (filter #(= :rf.fx/skipped-on-platform (:operation %)) @traces)]
-          (is (= 1 (count skips))
-              "exactly one :rf.fx/skipped-on-platform trace")
-          (is (= :server (get-in (first skips) [:tags :rf.fx/platform]))
-              ":rf.fx/platform stamp matches the resolved platform"))))))
-
-;; ---- 2. Frame-tagged :client overrides the host default -------------------
+  (is (= :server (rf.interop/active-platform)))
+  (let [traces (collect-traces! ::untagged)
+        fired? (register-browser-only-fx!)]
+    (rf/make-frame {:id :platform-gating-test/untagged})
+    (is (nil? (:platform (:config (rf.frame/frame :platform-gating-test/untagged)))))
+    (rf/with-frame :platform-gating-test/untagged
+      (rf/dispatch-sync [:platform-gating-test/save]))
+    (rf/unregister-listener! :trace ::untagged)
+    (is (false? @fired?) "the untagged frame is :server, so the :client-only fx skips")
+    (when rf.interop/debug-enabled?
+      (let [skips (filter #(= :rf.fx/skipped-on-platform (:operation %)) @traces)]
+        (is (= 1 (count skips)))
+        (is (= :server (get-in (first skips) [:tags :rf.fx/platform])))))))
 
 (deftest frame-tagged-client-allows-client-only-fx
-  (testing "a frame tagged {:platform :client} runs a :platforms #{:client} fx
-            that the host default would have skipped — same fx body, same
-            dispatch, different FRAME"
-    (let [traces (collect-traces! ::tagged-client)
-          fired? (register-browser-only-fx!)]
-      (rf/make-frame {:id :platform-gating-test/client :platform :client})
-      (is (= :client (:platform (:config (rf.frame/frame :platform-gating-test/client))))
-          "the frame carries :platform :client (singular keyword — one platform per frame)")
-
-      (rf/with-frame :platform-gating-test/client
-        (rf/dispatch-sync [:platform-gating-test/save]))
-      (rf/unregister-listener! :trace ::tagged-client)
-
-      (is (true? @fired?)
-          "the :client-only fx ran because the FRAME's platform is :client")
-      ;; Dev-instrumentation arm (see ns docstring §Posture split). A NEGATIVE
-      ;; over the trace ring: under `-Dre-frame.debug=false` the ring is empty
-      ;; by design, so `empty?` would pass whether the gate passed or skipped.
-      ;; The production-visible half of "the gate passed" is `@fired?` above.
-      (when rf.interop/debug-enabled?
-        (let [skips (filter #(= :rf.fx/skipped-on-platform (:operation %)) @traces)]
-          (is (empty? skips)
-              "no :rf.fx/skipped-on-platform trace — the gate passed"))))))
-
-;; ---- 3. Two frames in ONE process gate by their own platform ---------------
+  (let [traces (collect-traces! ::tagged-client)
+        fired? (register-browser-only-fx!)]
+    (rf/make-frame {:id :platform-gating-test/client :platform :client})
+    (is (= :client (:platform (:config (rf.frame/frame :platform-gating-test/client)))))
+    (rf/with-frame :platform-gating-test/client
+      (rf/dispatch-sync [:platform-gating-test/save]))
+    (rf/unregister-listener! :trace ::tagged-client)
+    (is (true? @fired?) "the frame's own :client platform lets the fx run")
+    ;; Over the empty production ring this negative would pass either way.
+    (when rf.interop/debug-enabled?
+      (is (empty? (filter #(= :rf.fx/skipped-on-platform (:operation %)) @traces))))))
 
 (deftest two-frames-in-one-process-gate-by-their-own-platform
-  (testing "an untagged frame and a {:platform :client} frame, live side by
-            side, gate the same :platforms #{:client} fx each by its OWN
-            platform — there is no process-wide platform marker"
-    (let [fired?    (register-browser-only-fx!)
-          fires-on? (fn [frame-id]
-                      (reset! fired? false)
-                      (rf/with-frame frame-id
-                        (rf/dispatch-sync [:platform-gating-test/save]))
-                      @fired?)]
-      (rf/make-frame {:id :platform-gating-test/iso-client :platform :client})
-      (rf/make-frame {:id :platform-gating-test/iso-untagged})
-
-      (is (true? (fires-on? :platform-gating-test/iso-client))
-          "the :client-tagged frame runs the :client-only fx")
-      (is (false? (fires-on? :platform-gating-test/iso-untagged))
-          "the untagged sibling still skips it — the :client tag did not leak")
-      (is (true? (fires-on? :platform-gating-test/iso-client))
-          "the :client-tagged frame still runs it — the untagged :server did not leak back"))))
+  (let [fired?    (register-browser-only-fx!)
+        fires-on? (fn [frame-id]
+                    (reset! fired? false)
+                    (rf/with-frame frame-id
+                      (rf/dispatch-sync [:platform-gating-test/save]))
+                    @fired?)]
+    (rf/make-frame {:id :platform-gating-test/iso-client :platform :client})
+    (rf/make-frame {:id :platform-gating-test/iso-untagged})
+    ;; client, then untagged (the tag did not leak), then client again (the
+    ;; untagged :server did not leak back).
+    (is (= [true false true]
+           (mapv fires-on? [:platform-gating-test/iso-client
+                            :platform-gating-test/iso-untagged
+                            :platform-gating-test/iso-client])))))
