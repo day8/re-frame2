@@ -13,7 +13,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
-            [re-frame.epoch :as rf.epoch]
+            [re-frame.epoch]
             [re-frame.frame :as rf.frame]
             ;; `fx/reg-fx`, the plain fn: the `rf/reg-fx` macro would stamp this
             ;; ns as a second provenance under one fx id, and the frame's next
