@@ -1,44 +1,16 @@
 (ns day8.re-frame2-template.version-lockstep-test
-  "Pin-lockstep guard for the template's inline version literals.
+  "Pin-lockstep guard (Principle P5, tools/template/spec/Principles.md): each
+  version pin the template emits matches its source of truth here —
+  `:rf2-version` the repo-root `VERSION`; the shadow-cljs, React and Story
+  shell npm pins `implementation/package.json`; each substrate's view-library
+  and clojure(script) pins the implementation deps.edn files. The emitted-app
+  smoke compiles against the TEMPLATE's pins, never the implementation's, so
+  a drift is invisible to every other gate.
 
-  Principle P5 (tools/template/spec/Principles.md) declares that the
-  template's pin literals are bumped in lockstep with their external
-  sources of truth in the implementation reference tree. The guarded
-  pins:
-
-    - `:rf2-version`    ↔ repo-root `VERSION`
-    - `:shadow-version` ↔ `implementation/package.json` shadow-cljs
-    - `:react-version`  ↔ `implementation/package.json` react (and react-dom)
-
-  The substrate-lib + clojure(script) pins are guarded too. They need an
-  explicit guard because the emitted-app smoke compiles against the
-  TEMPLATE's own pin, never the impl tree's, so a drift between them would
-  otherwise be invisible to every gate:
-
-    - reagent/reagent          ↔ `implementation/adapters/reagent/deps.edn` :deps
-    - com.pitch/uix.core       ↔ `implementation/adapters/uix/deps.edn` :deps
-    - org.clojure/clojure      ↔ `implementation/core/deps.edn` :deps
-    - org.clojure/clojurescript ↔ `implementation/core/deps.edn` :deps
-
-  One pin OUTSIDE the template rides along, and deliberately:
-  `skills/re-frame2-pair/tests/fixture/package.json`'s react / react-dom
-  ↔ `implementation/package.json` (that fixture TRACKS the project's
-  React). It lives here rather than beside the fixture because this suite
-  is the gate the classifier arms on an `implementation/package.json`
-  change, and no fixture-side lane runs then — a React bump would
-  otherwise leave the fixture behind.
-
-  The package.json reader searches both `:dependencies` and
-  `:devDependencies` (first hit wins) so the guard doesn't false-fail
-  if the impl tree ever relocates a pin between the two sections.
-
-  Without an automated check a template literal such as `:react-version`
-  can silently drift away from `implementation/package.json`. This test
-  reads both sources of truth on disk and asserts the entry-fn literals
-  match, so a bump on one side can't drift silently from the other.
-
-  The test runs free (JVM, no shadow), under the standard
-  `clojure -M:test` invocation."
+  One pin outside the template rides along: the re-frame2-pair fixture's
+  React, which tracks `implementation/package.json`. It lives here because
+  this suite is the gate the classifier arms on an `implementation/package.json`
+  change, and no fixture-side lane runs then."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]
             [clojure.string :as string]
@@ -68,26 +40,11 @@
     (some-> (re-find pin-re text) second)))
 
 (defn- read-package-json-pin
-  "Read a pin for `pkg` (e.g. `\"react\"`) from
-  `implementation/package.json`, searching `:dependencies` AND
-  `:devDependencies` (first hit wins). Returns the pin string (e.g.
-  `\"19.3.0\"`).
-
-  Searching both sections decouples this guard from an incidental
-  layout choice in the impl package.json: react / react-dom /
-  shadow-cljs sit in `:devDependencies` (it is a test target, not a
-  shipped lib), but if any of them ever moves to `:dependencies` the
-  guard keeps working rather than false-failing the template suite for
-  a reason unrelated to the template.
-
-  We deliberately use a simple regex parse rather than dragging in a
-  JSON library — the template test artefact has no JSON dep, and
-  the package.json shape is stable enough that a regex (the section
-  body, then `\"pkg\": \"value\"` inside it) reads simply and fails
-  loudly on shape drift.
-
-  The two-arity form reads the same way from another repo-relative
-  package.json (the re-frame2-pair fixture's, below)."
+  "The pin for `pkg` in a repo-relative package.json (default
+  `implementation/package.json`), from `dependencies` or `devDependencies`,
+  so a pin moving between the two sections does not false-fail this suite.
+  A regex rather than a JSON parser: this artefact has no JSON dependency,
+  and the shape is stable enough to fail loudly on drift."
   ([pkg] (read-package-json-pin "implementation/package.json" pkg))
   ([rel-path pkg]
    (let [text     (slurp (io/file (repo-root) rel-path))
@@ -106,30 +63,14 @@
                        {:pkg pkg :package-json rel-path})))
      pin)))
 
-;; --- deps.edn :mvn/version readers --------------------------------------
-
-(defn- mvn-pin-in
-  "Pull the `:mvn/version` string for coord `sym` out of a deps-map
-  fragment `m` (e.g. a `:deps` map or an alias's `:extra-deps` map).
-  Returns nil when `sym` is absent or has no `:mvn/version` (a
-  :local/root / :git coord)."
-  [m sym]
-  (get-in m [sym :mvn/version]))
-
 (defn- read-impl-deps-pin
-  "Read the `:mvn/version` for coord `sym` from the deps.edn at
-  `rel-path` (relative to repo-root). Searches `:deps` first, then every
-  alias's `:extra-deps` / `:replace-deps` (first hit wins). Throws with a
-  loud message if the coord isn't found with an `:mvn/version` anywhere —
-  a shape drift in the impl tree must fail this guard, not silently
-  skip it."
+  "The `:mvn/version` for `sym` in the deps.edn at `rel-path`, from `:deps`
+  or any alias's `:extra-deps` / `:replace-deps`. Throws when absent: a shape
+  drift in the implementation tree must fail this guard, not skip it."
   [rel-path sym]
-  (let [deps  (read-edn (io/file (repo-root) rel-path))
-        alias-maps (->> (vals (:aliases deps))
-                        (mapcat (juxt :extra-deps :replace-deps))
-                        (remove nil?))
-        pin   (or (mvn-pin-in (:deps deps) sym)
-                  (some #(mvn-pin-in % sym) alias-maps))]
+  (let [deps       (read-edn (io/file (repo-root) rel-path))
+        alias-maps (mapcat (juxt :extra-deps :replace-deps) (vals (:aliases deps)))
+        pin        (some #(get-in % [sym :mvn/version]) (cons (:deps deps) alias-maps))]
     (when-not pin
       (throw (ex-info (str "Couldn't find an :mvn/version pin for " sym
                            " in :deps or any alias of " rel-path
@@ -138,19 +79,11 @@
                       {:coord sym :deps-file rel-path})))
     pin))
 
-;; --- Template literal extraction ----------------------------------------
+;; --- The emitted literals ------------------------------------------------
 ;;
-;; The `data-fn` assembles the substitution data map. The three pin
-;; literals are static — they don't depend on caller args — so we can
-;; recover them by emitting a tmp app and reading the substituted
-;; package.json + deps.edn. This tests the literals as actually-consumed
-;; (the same value that flows into a generated app), not the source
-;; string parsed out of the .clj.
-;;
-;; Emission uses the shared `run-template!` (test-support) — the
-;; pin literals are substrate-invariant, so the Reagent default path
-;; recovers them. One harness drives every emission rather than a
-;; per-test re-implementation of the `org.corfield.new/create` opts map.
+;; The pins are read off a real emission — the values a generated app gets —
+;; not off `hooks.clj`'s source. They are substrate-invariant, so one Reagent
+;; emission recovers them all.
 
 (defn- extract-rf2-version
   "Pull `'day8/re-frame2 {:mvn/version \"...\"}` out of the emitted
@@ -183,8 +116,6 @@
   (string/replace-first pin #"^[~^=]+" ""))
 
 (deftest template-pin-literals-lockstep
-  ;; The pin literals are substrate-invariant, so one Reagent emission
-  ;; recovers all of them.
   (let [tmp (tmp-dir "rf2-template-lockstep-pins-")]
     (try
       (let [root      (run-template! tmp "acme/my-app" :reagent)

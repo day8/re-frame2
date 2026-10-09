@@ -1,30 +1,12 @@
 (ns day8.re-frame2-template.release-gate-test
-  "Workflow-sanity coverage for `.github/workflows/template-release.yml`.
-
-   The tag-triggered template release runs a pre-release test gate
-   (`test-template`) before cutting a GitHub Release. The gate is only
-   meaningful if it actually exercises the behavioural emitted-app tier
-   in `emitted_test_run_test.clj` — that tier compiles the generated
-   `:app` + `:test` builds, runs the generated tests, and runs the
-   Reagent `:advanced` release build. That tier is OFF by default and
-   needs:
-
-     1. `RF2_TEMPLATE_RUN_EMITTED_TESTS=1` (the opt-in env var), and
-     2. a populated `implementation/node_modules` (`npm ci` in
-        `implementation`) so the emitted bundle's React imports resolve.
-
-   A plain `clojure -M:test` with neither would let a `template-v…` tag
-   publish a scaffold that fails to compile / run / release, even though
-   the PR + nightly template gates (test.yml / expensive-tests.yml) would
-   have caught it.
-
-   These tests pin the release gate's shape so it cannot silently
-   regress to a fast-loop-only run. They read the workflow YAML as
-   text (no YAML parser dependency — the assertions are on stable
-   substrings, mirroring how the sibling shape/static-parse tests assert
-   on emitted source). They run in the default `clojure -M:test` (no
-   Node, no env-var gate) — this is the cheap signal the release gate
-   itself is correctly wired."
+  "Workflow-sanity coverage for `.github/workflows/template-release.yml`,
+   read as text (no YAML dependency). The tag-triggered release runs a
+   `test-template` gate before cutting a GitHub Release, and that gate means
+   something only if it runs the emitted-app tier of
+   `emitted_test_run_test.clj`, which is OFF unless
+   `RF2_TEMPLATE_RUN_EMITTED_TESTS=1` and `implementation/node_modules` is
+   populated. These tests pin that wiring, and the Release body's pre-split
+   caveat, so neither regresses unnoticed to a fast-loop-only release."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]
             [clojure.string :as string]
@@ -83,17 +65,12 @@
           "could not isolate the test-template job block — has it been
            renamed or merged with github-release?")
       (when job
-        ;; The opt-in env var. Without it `emitted_test_run_test.clj`
-        ;; short-circuits every behavioural deftest to a skip-assert, so
-        ;; the gate would compile/run nothing.
         (is (re-find #"RF2_TEMPLATE_RUN_EMITTED_TESTS:\s*[\"']?1" job)
             "test-template must set RF2_TEMPLATE_RUN_EMITTED_TESTS to 1
              (string), matching test.yml / expensive-tests.yml — it is the
              opt-in flag that turns the emitted-app compile/run/release tier
              ON. Without it the release gate is a fast-loop-only shape check
              and a broken scaffold can be published.")
-        ;; Node + npm ci provision implementation/node_modules so the
-        ;; emitted bundle's React imports resolve at compile/run time.
         (is (string/includes? job "setup-node")
             "test-template must set up Node.js — the emitted-app tier
              shells out to `node` and shadow-cljs needs it.")
@@ -104,19 +81,13 @@
         (is (string/includes? job "working-directory: implementation")
             "the npm ci step must run in implementation/ (where the
              node_modules tree the smoke links to lives).")
-        ;; `npm ci` installs the playwright PACKAGE but no browser BINARY.
-        ;; Without an explicit install the tier's Chromium proof (the emitted
-        ;; dev-page boot) cannot launch, and a `template-v…` tag would cut a
-        ;; Release whose gate never loaded the emitted index.html in any
-        ;; browser. The tier hard-fails on an unlaunchable browser under CI,
-        ;; so dropping this step reds the release — but only at tag time;
-        ;; this assertion catches it at PR time instead.
+        ;; The tier hard-fails on an unlaunchable browser, but only at tag
+        ;; time; this read catches a dropped install at PR time.
         (is (re-find #"playwright install --with-deps chromium" job)
             "test-template must `npx playwright install --with-deps chromium`
              — `npm ci` installs the playwright package but no browser
              binary, and the emitted-app tier's dev-page boot proof needs a
              launchable Chromium.")
-        ;; And it invokes the JVM test suite itself.
         (is (re-find #"clojure -M:test" job)
             "test-template must run `clojure -M:test` from tools/template
              (the suite the env var + node_modules unlock).")))))
@@ -130,15 +101,8 @@
           "could not isolate the github-release job block — has it been
            renamed or removed?")
       (when job
-        ;; The pre-release gate proves only "generated code compiles
-        ;; after the emitted framework coords are rewritten to monorepo
-        ;; :local/root paths" (emitted_test_run_test.clj). It does NOT
-        ;; prove the emitted :mvn/version coords resolve — they are
-        ;; unpublished and the io.github.day8/re-frame2-template git-coord
-        ;; does not resolve until the repo split. So the cut Release MUST
-        ;; carry a loud caveat: otherwise a `template-v…` tag advertises a
-        ;; usable public scaffold that fails at the first consumer's
-        ;; dependency resolution (the very false-green this guards).
+        ;; The gate proves the scaffold compiles against :local/root rewrites
+        ;; of its coords, not that the unpublished :mvn/version coords resolve.
         (is (re-find #"(?i)not\s+(yet\s+)?a usable public scaffold" job)
             "the GitHub Release body must state the pre-split release is
              NOT a usable public scaffold — the emitted coords don't
