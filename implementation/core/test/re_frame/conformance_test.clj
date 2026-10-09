@@ -196,21 +196,22 @@
       "comments and surrounding whitespace are not trailing forms"))
 
 (deftest epoch-records-checked-on-jvm
-  ;; The real drain records `:outcome :ok`, so this expectation must fail.
-  (is (seq (:epoch-failures
-             (rf.conformance-runner/run-fixture
-               {:fixture/id           :rf.test/epoch-records-deliberate-mismatch
-                :fixture/spec-version "1.0"
-                :fixture/capabilities #{:core/event-handler :core/trace}
-                :fixture/handlers     {:event {:counter/inc [[:update [:count] [:fn :inc]]]}}
-                :fixture/frame-config {}
-                :fixture/dispatches   [[:counter/inc]]
-                :fixture/expect       {:epoch-records
-                                       [{:frame  :rf/default
-                                         :record {:event-id :counter/inc
-                                                  :outcome  :rf.test/DELIBERATELY-WRONG}}]}}
-               host)))
-      "a wrong :epoch-records expectation must fail, attributed to the epoch matcher"))
+  ;; The real drain records `:outcome :ok`, so this expectation must fail the
+  ;; fixture, attributed to the epoch matcher.
+  (let [result (rf.conformance-runner/run-fixture
+                 {:fixture/id           :rf.test/epoch-records-deliberate-mismatch
+                  :fixture/spec-version "1.0"
+                  :fixture/capabilities #{:core/event-handler :core/trace}
+                  :fixture/handlers     {:event {:counter/inc [[:update [:count] [:fn :inc]]]}}
+                  :fixture/frame-config {}
+                  :fixture/dispatches   [[:counter/inc]]
+                  :fixture/expect       {:epoch-records
+                                         [{:frame  :rf/default
+                                           :record {:event-id :counter/inc
+                                                    :outcome  :rf.test/DELIBERATELY-WRONG}}]}}
+                 host)]
+    (is (not (:passed? result)))
+    (is (seq (:epoch-failures result)))))
 
 (deftest unknown-expect-key-fails-loud
   (is (seq (rf.conformance-runner/unknown-expect-keys
