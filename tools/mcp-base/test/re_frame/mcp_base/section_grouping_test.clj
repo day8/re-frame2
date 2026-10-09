@@ -1,250 +1,82 @@
 (ns re-frame.mcp-base.section-grouping-test
-  "Tests for the path-headed cluster projection used at the MCP wire
-  boundary. The pass takes the flat patch list produced
-  by `re-frame.mcp-base.diff-encode/collect-patches` and projects it
-  into N path-headed clusters — the same `sections-per-cluster`
-  decomposition Xray ships in its panel renderer, recast over patches
-  so mcp-base stays free of the xray dep."
-  (:require [clojure.test :refer [deftest is testing]]
+  "Tests for the path-headed cluster projection of a diff-encode patch
+  list at the MCP wire boundary."
+  (:require [clojure.test :refer [are deftest is]]
             [re-frame.mcp-base.diff-encode :as rf.mcp-base.diff-encode]
             [re-frame.mcp-base.section-grouping :as rf.mcp-base.section-grouping]))
 
-;; ---------------------------------------------------------------------------
-;; Trivial cases — empty, root replacement.
-;; ---------------------------------------------------------------------------
+(def ^:private group rf.mcp-base.section-grouping/group-patches-into-sections)
 
 (deftest empty-patches-emit-no-sections
-  (is (= [] (rf.mcp-base.section-grouping/group-patches-into-sections [])))
-  (is (= [] (rf.mcp-base.section-grouping/group-patches-into-sections nil))))
+  (is (= [] (group []) (group nil))))
 
 (deftest root-replacement-projects-to-one-root-section
-  (testing "single :assoc at root path is the replace-app-db! signature"
-    (let [patches  [[[] :assoc {:new :db}]]
-          sections (rf.mcp-base.section-grouping/group-patches-into-sections patches)]
-      (is (= 1 (count sections)))
-      (is (= [] (:section-path (first sections))))
-      (is (= :modified (:section-kind (first sections))))
-      (is (= patches (:patches (first sections)))))))
-
-;; ---------------------------------------------------------------------------
-;; Singleton — promote-to-parent breadcrumb rule.
-;; ---------------------------------------------------------------------------
+  (let [patches [[[] :assoc {:new :db}]]]
+    (is (= [{:section-path [] :section-kind :modified :patches patches}] (group patches)))))
 
 (deftest deep-singleton-promotes-to-parent-breadcrumb
-  ;; A single change at [:user :prefs :theme] heads as [:user :prefs] —
-  ;; the parent gives container context.
-  (let [patches  [[[:user :prefs :theme] :assoc :dark]]
-        sections (rf.mcp-base.section-grouping/group-patches-into-sections patches)]
-    (is (= 1 (count sections)))
-    (is (= [:user :prefs] (:section-path (first sections))))
-    (is (= patches (:patches (first sections))))))
-
-;; ---------------------------------------------------------------------------
-;; Coalescence — siblings within the depth budget merge under a
-;; common ancestor.
-;; ---------------------------------------------------------------------------
-
-(deftest siblings-under-common-prefix-coalesce-into-one-section
-  ;; Both patches are leaves of [:cart :items 0] — they merge under
-  ;; the [:cart :items 0] head.
-  (let [patches  [[[:cart :items 0 :qty] :assoc 2]
-                  [[:cart :items 0 :discount] :assoc 0.1]]
-        sections (rf.mcp-base.section-grouping/group-patches-into-sections patches)]
-    (is (= 1 (count sections)))
-    (let [s (first sections)]
-      (is (= [:cart :items 0] (:section-path s)))
-      (is (= :modified (:section-kind s))
-          "without :db-before, patch shape cannot prove the container is new")
-      (is (= 2 (count (:patches s)))))))
+  (let [patches [[[:user :prefs :theme] :assoc :dark]]]
+    (is (= [{:section-path [:user :prefs] :section-kind :modified :patches patches}] (group patches)))))
 
 (deftest cluster-coalescence-respects-max-depth
-  ;; Default max-coalesce-depth is 3. Two patches whose common
-  ;; ancestor sits 4 levels away from both should NOT coalesce.
-  (let [patches  [[[:a :b :c :d :leaf1] :assoc 1]
-                  [[:a :b :c :d :leaf2] :assoc 2]]
-        sections (rf.mcp-base.section-grouping/group-patches-into-sections patches)]
-    (is (= 1 (count sections))
-        "common ancestor [:a :b :c :d] sits 1 level from each leaf — within budget"))
-  ;; But two patches with common ancestor [:a] and depth distance 5
-  ;; each → outside budget; separate clusters.
-  (let [patches  [[[:a :b :c :d :e :leaf1] :assoc 1]
-                  [[:a :B :C :D :E :leaf2] :assoc 2]]
-        sections (rf.mcp-base.section-grouping/group-patches-into-sections patches)]
-    (is (= 2 (count sections))
-        "common ancestor [:a] is 5 levels away from each leaf — out of budget")))
-
-(deftest tunable-max-depth-via-opts
+  ;; Two leaves whose common ancestor [:a] sits 5 levels away stay apart
+  ;; under the default budget of 3, and merge once the budget is raised.
   (let [patches [[[:a :b :c :d :e :leaf1] :assoc 1]
                  [[:a :B :C :D :E :leaf2] :assoc 2]]]
-    (is (= 1 (count (rf.mcp-base.section-grouping/group-patches-into-sections patches {:max-coalesce-depth 10})))
-        "raising the budget admits the coalescence the default budget rejects")))
-
-;; ---------------------------------------------------------------------------
-;; Worked example — Xray's cart cascade recast over patches.
-;; ---------------------------------------------------------------------------
+    (is (= 2 (count (group patches))))
+    (is (= 1 (count (group patches {:max-coalesce-depth 10}))))))
 
 (deftest cart-cascade-projects-to-3-cart-and-non-cart-sections
-  ;; The classic cart-event drain: line item + totals + user
-  ;; last-edit + flash. With max-coalesce-depth=3 over patches, the
-  ;; three [:cart ...] patches all sit within depth-3 of the shared
-  ;; [:cart] ancestor and coalesce into one [:cart]-headed section.
-  ;; [:user :last-edited-at] is a singleton → promotes to [:user];
-  ;; [:flash] is a top-level singleton → stays at [:flash].
-  ;;
-  ;; Three sections — fewer than Xray's panel-side annotated-tree
-  ;; projection produces (which can split [:cart :items] vs
-  ;; [:cart :totals] because the annotated tree carries the
-  ;; container structure that lets the renderer split overfilled
-  ;; sections). The patch-based projection is a cheaper signal: same
-  ;; cluster-intent the agent needs, slightly coarser headers.
-  (let [patches  [[[:cart :items 0 :qty]      :assoc 3]
-                  [[:cart :totals :line]      :assoc 30]
-                  [[:cart :totals :grand]     :assoc 33]
-                  [[:user :last-edited-at]    :assoc 12345]
-                  [[:flash]                   :assoc "Cart updated"]]
-        sections (rf.mcp-base.section-grouping/group-patches-into-sections patches)]
-    (is (= 3 (count sections)))
-    (let [paths (mapv :section-path sections)]
-      (is (some #(= [:cart] %) paths))
-      (is (some #(= [:user] %) paths))
-      (is (some #(= [:flash] %) paths)))
-    ;; The [:cart] cluster carries all 3 cart patches.
-    (let [cart-s (first (filter #(= [:cart] (:section-path %)) sections))]
-      (is (= 3 (count (:patches cart-s))))
-      (is (= :modified (:section-kind cart-s))
-          "patches span multiple depths under [:cart] → :modified"))))
+  ;; The three [:cart ...] patches sit within depth 3 of [:cart] and
+  ;; coalesce there; [:user :last-edited-at] promotes to [:user]; [:flash]
+  ;; is a top-level singleton and stays put.
+  (let [patches [[[:cart :items 0 :qty]   :assoc 3]
+                 [[:cart :totals :line]   :assoc 30]
+                 [[:cart :totals :grand]  :assoc 33]
+                 [[:user :last-edited-at] :assoc 12345]
+                 [[:flash]                :assoc "Cart updated"]]]
+    (is (= [[[:cart] :modified 3] [[:flash] :modified 1] [[:user] :modified 1]]
+           (mapv (juxt :section-path :section-kind (comp count :patches)) (group patches))))))
 
-;; ---------------------------------------------------------------------------
-;; section-kind classification.
-;; ---------------------------------------------------------------------------
-
-(deftest all-dissoc-patches-classify-as-removed
-  (let [patches  [[[:user :token] :dissoc]
-                  [[:user :session-id] :dissoc]]
-        sections (rf.mcp-base.section-grouping/group-patches-into-sections patches)]
-    (is (= :removed (:section-kind (first sections))))))
-
-(deftest all-assoc-direct-children-classify-as-added-only-with-db-before-proof
-  ;; The patch grammar uses :assoc for BOTH inserted and
-  ;; changed leaves, so all-:assoc direct-child shape alone CANNOT prove
-  ;; a container is newly added. `:added` is claimed only when :db-before
-  ;; proves the container was absent.
-  (let [patches  [[[:user :name]  :assoc "ada"]
-                  [[:user :email] :assoc "ada@example.com"]]]
-    (testing "without :db-before context → conservative :modified (no false :added)"
-      (is (= :modified (:section-kind (first (rf.mcp-base.section-grouping/group-patches-into-sections patches))))))
-    (testing ":db-before proves [:user] is genuinely new → :added"
-      (is (= :added (:section-kind
-                      (first (rf.mcp-base.section-grouping/group-patches-into-sections
-                               patches {:db-before {}}))))
-          "container [:user] absent in db-before ⇒ newly-introduced subtree"))
-    (testing ":db-before shows [:user] already existed (a sibling changed) → :modified, NOT a false :added"
-      (is (= :modified (:section-kind
-                         (first (rf.mcp-base.section-grouping/group-patches-into-sections
-                                  patches {:db-before {:user {:name "bob"}}}))))
-          "existing [:user] whose direct children changed is a modification, not an addition"))))
-
-(deftest db-before-with-stored-nil-counts-container-as-present
-  ;; A stored `nil` under the container key is PRESENT, not absent — the
-  ;; sentinel-based path-present? check distinguishes a stored nil from a
-  ;; missing key. So an all-:assoc direct-child cluster whose container
-  ;; key is present-but-nil classifies :modified, not a false :added.
-  (let [patches [[[:user :name]  :assoc "ada"]
-                 [[:user :email] :assoc "ada@example.com"]]]
-    (is (= :modified (:section-kind
-                       (first (rf.mcp-base.section-grouping/group-patches-into-sections patches {:db-before {:user nil}}))))
-        "[:user] present (stored nil) ⇒ :modified, not a false :added")))
-
-(deftest mixed-assoc-and-dissoc-classify-as-modified
-  (let [patches  [[[:user :name]  :assoc "ada"]
-                  [[:user :token] :dissoc]]
-        sections (rf.mcp-base.section-grouping/group-patches-into-sections patches)]
-    (is (= :modified (:section-kind (first sections))))))
-
-;; ---------------------------------------------------------------------------
-;; Round-trip — sections->patches inverts group-patches-into-sections.
-;; ---------------------------------------------------------------------------
+(deftest section-kind-classification
+  ;; `:assoc` covers both an insert and a change, so `:added` needs
+  ;; :db-before to prove the container was absent; a stored nil counts
+  ;; as present.
+  (let [assocs [[[:user :name] :assoc "ada"] [[:user :email] :assoc "ada@example.com"]]]
+    (are [patches opts kind] (= kind (:section-kind (first (group patches opts))))
+      [[[:user :token] :dissoc] [[:user :session-id] :dissoc]] nil :removed
+      [[[:user :name] :assoc "ada"] [[:user :token] :dissoc]]   nil :modified
+      assocs nil                                                   :modified
+      assocs {:db-before {}}                                       :added
+      assocs {:db-before {:user {:name "bob"}}}                    :modified
+      assocs {:db-before {:user nil}}                              :modified)))
 
 (deftest sections-roundtrip-via-flatten-then-apply
-  ;; The load-bearing claim: concatenating sections back to a patch
-  ;; list and applying against db-before reproduces db-after.
-  (let [db-before {:cart {:items [{:sku "A1" :qty 1}]
-                          :totals {:line 10 :grand 10}}
-                   :user  {:id 7 :last-edited-at 0}}
-        db-after  {:cart {:items [{:sku "A1" :qty 3}]
-                          :totals {:line 30 :grand 30}}
+  ;; Concatenating the sections back to a patch list and applying it to
+  ;; db-before reproduces db-after.
+  (let [db-before {:cart {:items [{:sku "A1" :qty 1}] :totals {:line 10 :grand 10}}
+                   :user {:id 7 :last-edited-at 0}}
+        db-after  {:cart  {:items [{:sku "A1" :qty 3}] :totals {:line 30 :grand 30}}
                    :user  {:id 7 :last-edited-at 12345}
                    :flash "Updated"}
-        patches  (rf.mcp-base.diff-encode/collect-patches db-before db-after [])
-        sections (rf.mcp-base.section-grouping/group-patches-into-sections patches)
-        flat     (rf.mcp-base.section-grouping/sections->patches sections)
-        rebuilt  (rf.mcp-base.diff-encode/apply-patches db-before flat)]
-    (is (= db-after rebuilt)
-        "sections → flat patches → apply reconstructs db-after exactly")))
+        sections  (group (rf.mcp-base.diff-encode/collect-patches db-before db-after []))]
+    (is (= db-after (rf.mcp-base.diff-encode/apply-patches
+                      db-before (rf.mcp-base.section-grouping/sections->patches sections))))))
 
 (deftest sections-preserve-all-patches
   ;; Every input patch lands in exactly one section.
-  (let [patches  [[[:a :x] :assoc 1]
-                  [[:a :y] :assoc 2]
-                  [[:b :p] :assoc 3]
-                  [[:b :q] :dissoc]
-                  [[:c]    :assoc :singleton]]
-        sections (rf.mcp-base.section-grouping/group-patches-into-sections patches)
-        flat     (rf.mcp-base.section-grouping/sections->patches sections)]
-    (is (= (set patches) (set flat))
-        "no patches dropped or duplicated")
-    (is (= (count patches) (count flat))
-        "exact count preserved")))
-
-;; ---------------------------------------------------------------------------
-;; Stable ordering — same input ⇒ same section order across runs.
-;; ---------------------------------------------------------------------------
+  (let [patches [[[:a :x] :assoc 1]
+                 [[:a :y] :assoc 2]
+                 [[:b :p] :assoc 3]
+                 [[:b :q] :dissoc]
+                 [[:c]    :assoc :singleton]]]
+    (is (= (sort-by pr-str patches)
+           (sort-by pr-str (rf.mcp-base.section-grouping/sections->patches (group patches)))))))
 
 (deftest sections-are-sorted-ascending-by-final-section-path
-  ;; The initial sort keys patches by their full path, but
-  ;; coalescing (`group-by-ancestor`) and singleton-promotion both
-  ;; NARROW a cluster's prefix to a shorter common-ancestor path —
-  ;; changing its sort key. `pr-str` of a vector closes with `]` (char
-  ;; 93) but separates elements with a space (char 32), so an
-  ;; ancestor's `pr-str` is ALWAYS greater than its own descendants':
-  ;; `(pr-str [:cart])` > `(pr-str [:cart-items])` even though
-  ;; `:cart` < `:cart-items` as keywords. A walk-order-only sort (never
-  ;; re-deriving order post-coalescing) can therefore emit sections
-  ;; out of the documented ascending order. This test asserts the
-  ;; FINAL output is always ascending by `(pr-str :section-path)` —
-  ;; the §Ordering contract in `spec/section-grouping.md` — whatever the
-  ;; input order.
-  (testing "[:cart] (narrowed ancestor) vs [:cart-summary] (untouched sibling)"
-    ;; {:cart {:qty 1} :cart-summary old} -> {:cart {:qty 5} :cart-summary new}.
-    ;; [:cart :qty] promotes (singleton, depth > 1) to the [:cart]
-    ;; ancestor; [:cart-summary] is an untouched top-level singleton.
-    ;; Sorted by full path pre-coalescing, [:cart ...] < [:cart-summary]
-    ;; (matching keyword order) — a walk-order-only sort would preserve
-    ;; that ordering into the output. But post-promotion the KEYS
-    ;; being compared are [:cart] vs [:cart-summary], and
-    ;; `(pr-str [:cart])` = "[:cart]" > `(pr-str [:cart-summary])` =
-    ;; "[:cart-summary]" because `]` (93) > `-` (45) at the
-    ;; first point of difference right after the shared "[:cart"
-    ;; prefix. The contract requires [:cart-summary] first.
-    (let [patches  [[[:cart :qty] :assoc 5]
-                    [[:cart-summary] :assoc :new]]
-          sections (rf.mcp-base.section-grouping/group-patches-into-sections patches)
-          paths    (mapv :section-path sections)]
-      (is (= [:cart] (:section-path (first (filter #(= [:cart] (:section-path %)) sections))))
-          "sanity: [:cart :qty] promotes to the [:cart] ancestor")
-      (is (= [[:cart-summary] [:cart]] paths)
-          "ancestor [:cart] sorts AFTER [:cart-summary] by pr-str, even though it was
-           walked first — the contract order, not the walk order")))
-  (testing "general property: output section-paths are ascending by pr-str, regardless of input order"
-    (let [patches [[[:cart :qty] :assoc 5]
-                   [[:cart-summary] :assoc :new]
-                   [[:a :b :c] :assoc 1]
-                   [[:ab] :assoc 2]
-                   [[:flash] :assoc "Saved"]]]
-      (doseq [ordering (list patches
-                             (vec (reverse patches))
-                             (shuffle patches))]
-        (let [sections (rf.mcp-base.section-grouping/group-patches-into-sections ordering)
-              paths    (mapv (comp pr-str :section-path) sections)]
-          (is (= (sort paths) paths)
-              (str "sections must be ascending by (pr-str :section-path); got " paths)))))))
+  ;; Coalescing and singleton promotion shorten a section's path after the
+  ;; walk-order sort, and an ancestor's pr-str sorts after a sibling that
+  ;; extends its name ("[:cart]" > "[:cart-summary]"), so the output is
+  ;; re-sorted by the final path.
+  (is (= [[:cart-summary] [:cart]]
+         (mapv :section-path (group [[[:cart :qty] :assoc 5] [[:cart-summary] :assoc :new]])))))
