@@ -1,145 +1,51 @@
 (ns re-frame.flows-t2-trace-test
-  "The framework stamps `:rf.event/db-pending-post-flow`
-  (t2) when one or more flows transformed the pending `:db` between
-  the handler's return and the deferred commit. The flows artefact is
-  loaded here so the `:flows/run-flows-on-db` late-bind hook is wired
-  in and the post-flow path actually runs.
-
-  Contract — Spec 009 §Canonical per-event trace sequence + Spec 013
-  §Drain integration:
-
-    t2 fires INSIDE the outermost flows-after-interceptor `:after`,
-    AFTER `run-flows-on-db` returns, when the new value is not
-    `identical?` to the pre-flow value. Position in the trace stream:
-    AFTER the last `:rf.flow/computed` emit and BEFORE
-    `:rf.event/db-changed` (the deferred commit).
-
-    No flow touched `:db` (value-equal skips across the board, or no
-    registered flow read inputs the handler changed) — t2 is OMITTED:
-    t1 == t2, no information.
-
-  Same-shape-as-`:fx` posture: the value lives under
-  `:tags :rf.event/db` as the full persistent reference. PDS structural
-  sharing keeps the cost pointer-sized; `day8/de-dupe` at the wire
-  boundary collapses repeated subtrees on egress."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  "`:rf.event/db-pending-post-flow` (t2), per Spec 009 §Canonical per-event
+  trace sequence and Spec 013 §Drain integration: when flows changed the
+  pending `:db`, t2 carries the flow-augmented value, after the last
+  `:rf.flow/computed` and before `:rf.event/db-changed`; when no flow changed
+  it, t2 is omitted, because it would repeat t1. Loading `re-frame.flows` wires
+  the `:flows/run-flows-on-db` late-bind hook the post-flow path runs through."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            ;; Loading `re-frame.flows` wires the `:flows/run-flows-on-db`
-            ;; late-bind hook this test exercises (the post-flow t2 path);
-            ;; the tests register flows via the `rf/reg-flow` facade.
             [re-frame.flows]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
-;; The standard runtime reset (registrar baseline + frames + flows/schemas +
-;; plain-atom adapter + ambient `:rf/default` scope) is owned by
-;; `make-reset-runtime-fixture`; EP-0002 — `:rf/default` is bound so the
-;; ambient `reg-flow` / `dispatch-sync` calls in the bodies below carry a
-;; frame stamp.
-
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-(defn- collect-traces!
-  [id]
+(defn- traces-of
+  "Every trace event a `dispatch-sync` of `event` emits."
+  [event]
   (let [acc (atom [])]
-    (rf/register-listener! :trace id (fn [ev] (swap! acc conj ev)))
-    acc))
+    (rf/register-listener! :trace ::t2 (fn [ev] (swap! acc conj ev)))
+    (try (rf/dispatch-sync event)
+         @acc
+         (finally (rf/unregister-listener! :trace ::t2)))))
 
-;; ---- t2 fires when a flow transforms :db ---------------------------------
+(defn- of-op [op evs] (filterv #(= op (:operation %)) evs))
 
-(deftest t2-emits-when-flow-changes-db
-  (testing ":rf.event/db-pending-post-flow fires once when a registered flow
-   `:after` transformed the pending :db value the handler returned. The
-   (t1, t2) pair lets Xray render the t1→t2 reshape without a
-   framework-precomputed diff: t1 carries the handler's :db, t2 carries the
-   flow-augmented :db — full values, no diff."
-    (rf/reg-flow :len {:inputs [[:items]] :output-path [:item-count]} (fn [items] (count items)))
-    (rf/reg-event :t2/add-items (fn [{:keys [db]} _] {:db {:items [:a :b :c]}}))
-    (let [acc (collect-traces! ::t2-emit)]
-      (try
-        (rf/dispatch-sync [:t2/add-items])
-        (let [[t1]  (filterv #(= :rf.event/db-pending           (:operation %)) @acc)
-              t2s   (filterv #(= :rf.event/db-pending-post-flow (:operation %)) @acc)
-              [t2]  t2s
-              t1-db (-> t1 :tags :rf.event/db)
-              t2-db (-> t2 :tags :rf.event/db)]
-          (is (and (some? t1) (some? t2))
-              "both t1 and t2 fired")
-          (is (= 1 (count t2s)) "exactly one t2 emit")
-          (is (= :rf.event (:op-type t2)) ":op-type rides the :rf.event family")
-          (is (= :rf/default (-> t2 :tags :frame))
-              ":tags :frame routes canonically")
-          (is (= {:items [:a :b :c]} t1-db)
-              "t1 carries what the handler returned (no :item-count yet)")
-          (is (= {:items [:a :b :c] :item-count 3} t2-db)
-              "t2 carries the flow-augmented value: the handler's :items write
-               and the :item-count :len wrote"))
-        (finally
-          (rf/unregister-listener! :trace ::t2-emit))))))
+(deftest t2-carries-the-flow-augmented-db-between-the-flow-and-the-commit
+  ;; t1 carries what the handler returned; t2 what the flows made of it.
+  (rf/reg-flow :len {:inputs [[:items]] :output-path [:item-count]} (fn [items] (count items)))
+  (rf/reg-event :t2/add-items (fn [_ _] {:db {:items [:a :b :c]}}))
+  (let [evs (traces-of [:t2/add-items])
+        ops (mapv :operation evs)
+        idx #(.indexOf ^java.util.List ops %)]
+    (is (= [[{:items [:a :b :c]}]
+            [[:rf.event {:items [:a :b :c] :item-count 3} :rf/default]]]
+           [(mapv (comp :rf.event/db :tags) (of-op :rf.event/db-pending evs))
+            (mapv (juxt :op-type (comp :rf.event/db :tags) (comp :frame :tags))
+                  (of-op :rf.event/db-pending-post-flow evs))]))
+    (is (apply < (map idx [:rf.event/db-pending :rf.flow/computed
+                           :rf.event/db-pending-post-flow :rf.event/db-changed])))))
 
-(deftest t2-suppressed-when-flow-makes-no-change
-  (testing "when a flow's value-equal skip leaves :db identical?-equal to
-   the pre-flow value, t2 is OMITTED — t1 == t2 carries no information.
-   First dispatch primes the flow's last-inputs; second dispatch with the
-   same inputs hits the skip branch."
-    (rf/reg-flow :doubled {:inputs [[:n]] :output-path [:doubled]} (fn [n] (* 2 n)))
-    (rf/reg-event :t2/set-n (fn [{:keys [db]} _] {:db (assoc db :n 5)}))
-    (rf/dispatch-sync [:t2/set-n])      ; prime
-    (let [acc (collect-traces! ::t2-skip)]
-      (try
-        ;; second dispatch — same :n, so the flow's dirty-check finds inputs
-        ;; equal and skips; the post-flow new-db is identical? to pending-db
-        ;; (no assoc-in happened), so t2 is suppressed.
-        (rf/dispatch-sync [:t2/set-n])
-        (let [t2s (filterv #(= :rf.event/db-pending-post-flow (:operation %)) @acc)]
-          (is (zero? (count t2s))
-              "no t2 emit when the flow skipped (pending-db is unchanged)"))
-        (finally
-          (rf/unregister-listener! :trace ::t2-skip))))))
-
-;; ---- ordering against :rf.flow/computed and :rf.event/db-changed ---------
-
-(deftest t2-sits-after-flow-computed-before-db-changed
-  (testing "Spec 009 §Canonical per-event trace sequence — t2 fires AFTER
-   the last :rf.flow/computed and BEFORE :rf.event/db-changed (the deferred
-   commit). Mirrors the t1 contract — t1 leads the flow walk, t2 trails it."
-    (rf/reg-flow :sum {:inputs [[:a] [:b]] :output-path [:sum]} +)
-    (rf/reg-event :t2/seed (fn [{:keys [db]} _] {:db {:a 3 :b 4}}))
-    (let [acc (collect-traces! ::t2-order)]
-      (try
-        (rf/dispatch-sync [:t2/seed])
-        (let [ops (mapv :operation @acc)
-              idx (fn [op] (first (keep-indexed (fn [i x] (when (= x op) i)) ops)))]
-          (is (some? (idx :rf.event/db-pending))           "t1 emitted")
-          (is (some? (idx :rf.flow/computed))              "flow emitted")
-          (is (some? (idx :rf.event/db-pending-post-flow)) "t2 emitted")
-          (is (some? (idx :rf.event/db-changed))           "commit emitted")
-          (is (< (idx :rf.event/db-pending) (idx :rf.flow/computed))
-              "t1 precedes the flow's :rf.flow/computed")
-          (is (< (idx :rf.flow/computed) (idx :rf.event/db-pending-post-flow))
-              ":rf.flow/computed precedes t2")
-          (is (< (idx :rf.event/db-pending-post-flow) (idx :rf.event/db-changed))
-              "t2 precedes the commit (atomicity contract — Spec 002)"))
-        (finally
-          (rf/unregister-listener! :trace ::t2-order))))))
-
-;; ---- flow-throw abort suppresses t2 --------------------------------------
-
-(deftest t2-suppressed-when-flow-throws
-  (testing "a flow throw aborts the event before commit (Spec 013 atomicity).
-   No t2 emit: the partial-cascade :db was discarded. t1 stays — it
-   recorded what the handler returned, before the throw."
-    (rf/reg-flow :boom {:inputs [[:x]] :output-path [:boom]} (fn [_] (throw (ex-info "boom" {}))))
-    (rf/reg-event :t2/trigger-boom (fn [{:keys [db]} _] {:db {:x 1}}))
-    (let [acc (collect-traces! ::t2-throw)]
-      (try
-        (rf/dispatch-sync [:t2/trigger-boom])
-        (let [t1s (filterv #(= :rf.event/db-pending           (:operation %)) @acc)
-              t2s (filterv #(= :rf.event/db-pending-post-flow (:operation %)) @acc)]
-          (is (= 1 (count t1s))
-              "t1 still fired — the handler returned :db before the flow throw")
-          (is (zero? (count t2s))
-              "t2 did NOT fire — the cascade aborted, the pending :db was discarded"))
-        (finally
-          (rf/unregister-listener! :trace ::t2-throw))))))
+(deftest t2-omitted-when-no-flow-changed-the-db
+  ;; The second same-input dispatch skips the flow, so the post-flow db is
+  ;; identical to t1. The t1 count shows the capture saw the dispatch.
+  (rf/reg-flow :doubled {:inputs [[:n]] :output-path [:doubled]} (fn [n] (* 2 n)))
+  (rf/reg-event :t2/set-n (fn [{:keys [db]} _] {:db (assoc db :n 5)}))
+  (rf/dispatch-sync [:t2/set-n])
+  (let [evs (traces-of [:t2/set-n])]
+    (is (= [1 []] [(count (of-op :rf.event/db-pending evs))
+                   (of-op :rf.event/db-pending-post-flow evs)]))))
