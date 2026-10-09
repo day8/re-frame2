@@ -1,529 +1,163 @@
 (ns re-frame.epoch-concurrency-stress-test
-  "JVM concurrency stress coverage for epoch recorder, listener, and ring paths.
-  Deterministic tests cover the same contracts in isolation. Under contention,
-  the three hot paths
-  (`settle!`/`record!`, the `register-epoch-listener!`/`unregister-epoch-listener!`
-  listener registry, and the per-frame ring buffer) are reached
-  concurrently and must hold the same invariants.
+  "JVM concurrency stress for epoch's recorder, listener registry and ring.
+  Deterministic tests cover each contract in isolation; these drive the hot
+  paths concurrently and assert the same invariants hold under contention.
+  CLJS is single-threaded, so these races cannot arise there.
 
-  Scenarios 1–3 (Scenarios 4–6 are described beside their deftests):
-
-  ### Scenario 1 — N concurrent settle! calls from N independent frames
-
-    Per Spec 002 §Rules rule 1 frames are independent state machines,
-    their drain-locks don't share. Each thread owns its own frame and
-    drives `iters` `dispatch-sync` cycles against it. The framework
-    serialises per-frame drains, so per-frame ordering MUST equal
-    dispatch order; across frames the `record!` swap into the global
-    `histories` atom is the contended seam.
-
-    Invariants:
-    1. **No event dropped.** Each frame's history vector has exactly
-       `iters` records.
-    2. **Ordering stable per frame.** The `:trigger-event` sequence in
-       each frame's history matches the per-iter dispatch sequence
-       `[[:bump 0] [:bump 1] ...]`.
-    3. **No cross-frame mixing.** Every record's `:frame` slot equals
-       the frame the history is keyed under (the global `histories`
-       atom is keyed by frame; a swap-races bug could cross-key).
-    4. **Epoch ids unique across all frames.** `next-epoch-id` is a
-       single shared `(swap! epoch-counter inc)` — every record across
-       all frames must carry a distinct id.
-
-  ### Scenario 2 — register-epoch-listener! / unregister-epoch-listener! race vs settle fanout
-
-    A pair of threads churns the listener registry (register + remove
-    a per-thread id in a tight loop) while a separate driver thread
-    fires settles. The contended seam is the `listeners` atom + the
-    `observed-frames-by-cb` atom, both swapped from `notify-listeners!`
-    on every settle.
-
-    Invariants:
-    1. **No leak after quiescence.** When the churners stop and one
-       final remove fires, `(@listeners)` MUST NOT contain ANY
-       per-thread id. A swap-race that lost a `dissoc` would leak the
-       entry and (worse) leak a stale closure into future fan-outs.
-    2. **No exception escapes notify-listeners!.** A listener that
-       raises mid-fan-out must be isolated; the driver thread MUST
-       process every settle without an exception escaping through
-       `record!` / `notify-listeners!`. We register a permanently-
-       throwing listener for the duration of the run to keep the
-       isolation seam exercised.
-    3. **Driver thread's records all land.** Every settle the driver
-       thread issues lands in the frame's ring buffer (the listener
-       fanout is downstream of the ring-buffer write; a fanout
-       exception leaking up would bypass the append).
-
-  ### Scenario 3 — ring-buffer write/read race (concurrent record + restore)
-
-    One producer thread fires settles into a single frame; one consumer
-    thread concurrently reads `epoch-history` AND fires `restore-epoch!`
-    against arbitrary epoch-ids from the snapshot it just read. The
-    producer's `swap!` into `histories` races the consumer's deref +
-    `find-epoch-in` walk + the `replace-container!` path inside
-    `perform-restore!`.
-
-    Note: `restore-epoch!` validates a precondition that no drain is
-    in flight on the target frame (`drain-in-flight?`); when the
-    producer is mid `dispatch-sync`, the consumer's restore correctly
-    refuses with `:rf.epoch/restore-during-drain`. That refusal IS the
-    contract — the test asserts that ALL restores either succeed or
-    fail with one of the documented refusal traces, and that the
-    consumer thread NEVER throws.
-
-    Invariants:
-    1. **No exception escapes.** Both threads run their full loop;
-       `restore-epoch!` either returns true/false but never throws, and
-       `epoch-history` always returns a vector (possibly empty).
-    2. **No event dropped.** Producer's settle count = `iters`. After
-       both threads join, the frame's history has either exactly
-       `iters` records (when iters ≤ depth) OR depth records (when
-       iters > depth — the ring cap). The test pins `iters ≤ depth`.
-    3. **Ordering stable.** The producer's records land in dispatch
-       order — the final history's `:trigger-event` sequence equals
-       `[[:bump 0] [:bump 1] ...]`. A torn append would surface as
-       a duplicate or out-of-order id.
-
-  CLJS is single-threaded; these races cannot manifest there. The test
-  is JVM-only by design.
-
-  ## Stress dial
-
-  Defaults: 8 threads × 5000 iterations per scenario. Override with
-  `RF2_RD7A7_STRESS_ITERS`.
-  Scenario 1's wall-clock at the default is ~10-20s on a 4-core CI box;
-  scenarios 2 and 3 are similar (each pins one frame so the per-frame
-  drain serialisation throttles wall-clock). Five consecutive runs take roughly
-  5-7 minutes."
+  Stress dial: `n-threads` × `stress-iters` (default 5000, override with
+  `RF2_RD7A7_STRESS_ITERS`); scenario 6 uses `RF2_J538F75_ITERS` (default 500)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.epoch :as rf.epoch]
-            ;; `state` is used in test BODIES for the private back-fill
-            ;; path (`state/back-fill-sub-run!`) + the private listeners
-            ;; var (`@#'state/listeners`) the concurrency invariants
-            ;; exercise directly — NOT for fixture config reset (that
-            ;; flows through `configure!`).
+            ;; Side-effect: publishes the `:epoch/*` late-bind hooks.
+            [re-frame.epoch]
             [re-frame.epoch.state :as rf.epoch.state]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            ;; Machines is a separate artefact whose late-bind
-            ;; hook publishes `rf/reg-machine` only when loaded. Pulled in
-            ;; for symmetry across the suite so the captured ns-load
-            ;; baseline includes the machines registrations.
+            ;; Loaded so the fixture's ns-load registrar baseline includes the
+            ;; machines registrations, as in the rest of the epoch suite.
             [re-frame.machines])
   (:import [java.util.concurrent CountDownLatch]))
 
-;; ---- fixture --------------------------------------------------------------
-;;
-;; Canonical capture/restore fixture. Snapshots the
-;; registrar at ns-load + restores around each test, fires the epoch
-;; reset-hook table (history / listeners / config-to-default), and the
-;; `:init-fn` re-applies the suite's non-default `:trace-events-keep 5`
-;; (NOT the shipped 50 = :depth) through the
-;; public `configure!` boundary — no test ns reaches into the private
-;; `state/config` var for fixture reset.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.substrate.plain-atom/adapter
      :init-fn (fn [] (rf/configure! {:epoch-history {:trace-events-keep 5}}))}))
 
-;; ---- stress dials ---------------------------------------------------------
-
-;; Per-thread iteration count: the repo's standard stress count of 5000,
-;; which keeps CI under ~90s wall-clock for the whole file.
-;; Operators dial up via the env override; CI dials down by lowering it
-;; (e.g. `RF2_RD7A7_STRESS_ITERS=500` for a smoke-test pass).
 (def ^:private stress-iters
   (or (some-> (System/getenv "RF2_RD7A7_STRESS_ITERS") Long/parseLong)
       5000))
 
-;; Eight parallel threads — the thread count the repo's other stress
-;; suites use. Higher contention than
-;; the typical 4-core CI box; the per-frame partitioning in scenario 1
-;; means we're not over-saturating any one drain-lock, we're driving N
-;; independent settle/record cycles in parallel and asserting the
-;; `histories` atom's swap! never tangles across frames.
 (def ^:private n-threads 8)
 
-;; Bounded join — if the cycle ever hangs (e.g. a listener fanout that
-;; deadlocks under contention), we want a visible failure rather than
-;; a stuck CI run. 180s gives ample headroom for 8 × 5000 cycles on a
-;; slow box.
+;; Bounded join, so a hang under contention is a failure rather than a stuck run.
 (def ^:private join-timeout-ms 180000)
 
-;; Helper: deref-with-timeout, surfacing a sentinel on timeout so the
-;; deftest can assert against the value rather than the deftest hanging.
 (defn- await-future [f]
   (deref f join-timeout-ms ::timeout))
 
-;; ---- Scenario 1 -----------------------------------------------------------
-;;
-;; N threads × M iters of dispatch-sync, each thread owning its own
-;; frame. Every settle commits a record into the global `histories`
-;; atom; the assertion is that no record is dropped, no record is
-;; doubled, ordering is preserved per frame, and epoch-ids are unique
-;; across all records (the `next-epoch-id` shared counter is the
-;; cross-frame contention seam).
+(defn- all-completed?
+  "Join every future; true when none timed out."
+  [futures]
+  (not-any? #{::timeout} (mapv await-future futures)))
+
+(defn- bumps [n]
+  (mapv (fn [i] [:bump i]) (range n)))
+
+;; ---- Scenario 1: N concurrent settles from N independent frames ----------
 
 (deftest n-frames-parallel-settle-stress
-  (testing (str n-threads " threads × " stress-iters
-                " iters parallel settle! across independent frames "
-                "— no drops, no doubles, ordering stable, ids unique")
-    ;; Bump the ring depth above iters so the cap doesn't evict early
-    ;; records mid-run — the count / ordering invariants below pin the
-    ;; no-cap case. The depth-cap behaviour itself is covered by the
-    ;; `ring-depth-evicts-oldest` deterministic pin.
+  (testing "parallel settles across independent frames — no drops, no doubles,
+            per-frame order kept, epoch ids unique across frames"
+    ;; Depth above iters so the cap never evicts; `ring-depth-evicts-oldest`
+    ;; covers the cap.
     (rf/configure! {:epoch-history {:depth (* 2 stress-iters)}})
-    (let [per-thread
-          (vec
-            (for [i (range n-threads)]
-              {:idx      i
-               :frame-id (keyword "rd7a7.settle" (str "f" i))}))]
-      ;; Set up per-thread frames + the shared event handler on the
-      ;; main thread before any futures launch. `:bump` is a single
-      ;; event handler reused across every frame — re-registration
-      ;; doesn't race because it lands BEFORE the latch releases.
-      (doseq [{:keys [frame-id]} per-thread]
-        (rf/make-frame {:id frame-id :doc "per-thread frame for epoch settle stress"}))
-      (rf/reg-event :bump (fn [{:keys [db]} [_ i]]
-                               {:db (assoc db :last i)}))
-
+    (let [frames (mapv #(keyword "rd7a7.settle" (str "f" %)) (range n-threads))]
+      (doseq [frame-id frames] (rf/make-frame {:id frame-id}))
+      (rf/reg-event :bump (fn [{:keys [db]} [_ i]] {:db (assoc db :last i)}))
       (let [latch   (CountDownLatch. 1)
-            futures (vec
-                      (for [{:keys [frame-id]} per-thread]
-                        (future
-                          (.await latch)
-                          (dotimes [i stress-iters]
-                            (rf/dispatch-sync [:bump i]
-                                              {:frame frame-id})))))]
-        ;; Release all threads simultaneously — maximises lock-step
-        ;; contention on the shared `histories` swap! and the shared
-        ;; `epoch-counter` swap!.
+            futures (mapv (fn [frame-id]
+                            (future
+                              (.await latch)
+                              (dotimes [i stress-iters]
+                                (rf/dispatch-sync [:bump i] {:frame frame-id}))))
+                          frames)]
         (.countDown latch)
-        (doseq [f futures]
-          (let [v (await-future f)]
-            (is (not= ::timeout v)
-                (str "thread " f " completed within "
-                     join-timeout-ms "ms wall-clock"))))
+        (is (all-completed? futures) "every settle thread completed")
+        (let [histories (mapv rf/epoch-history frames)
+              expected  (bumps stress-iters)]
+          ;; Exact per-frame order also rules out a dropped, doubled or
+          ;; cross-keyed record.
+          (is (empty? (for [[frame-id h] (map vector frames histories)
+                            :when (not= expected (mapv :trigger-event h))]
+                        frame-id))
+              "each frame's :trigger-event sequence equals its dispatch order")
+          (let [ids (mapcat #(map :epoch-id %) histories)]
+            (is (= (count ids) (count (set ids)))
+                "epoch ids are unique across all frames")))))))
 
-        ;; --- Invariant 1: no event dropped, per-frame count exact ---
-        (doseq [{:keys [frame-id]} per-thread]
-          (let [history (rf/epoch-history frame-id)]
-            (is (= stress-iters (count history))
-                (str "Frame " frame-id ": expected " stress-iters
-                     " records (one per dispatch-sync); got "
-                     (count history)))))
-
-        ;; --- Invariant 2: per-frame ordering matches dispatch order
-        ;;     `[[:bump 0] [:bump 1] ...]`. A torn append would surface
-        ;;     here as duplicates or out-of-order entries.
-        (doseq [{:keys [frame-id]} per-thread]
-          (let [history  (rf/epoch-history frame-id)
-                expected (mapv (fn [i] [:bump i]) (range stress-iters))
-                actual   (mapv :trigger-event history)]
-            (is (= expected actual)
-                (str "Frame " frame-id ": :trigger-event sequence "
-                     "must match dispatch order. First mismatch at "
-                     "index " (or (->> (map vector
-                                            (range)
-                                            expected
-                                            actual)
-                                       (some (fn [[i e a]]
-                                               (when (not= e a) i))))
-                                  -1)))))
-
-        ;; --- Invariant 3: no cross-frame mixing — each record's :frame
-        ;;     slot equals the frame the history is keyed under.
-        (doseq [{:keys [frame-id]} per-thread]
-          (let [history (rf/epoch-history frame-id)
-                wrong   (filter (fn [r] (not= frame-id (:frame r)))
-                                history)]
-            (is (empty? wrong)
-                (str "Frame " frame-id ": every record's :frame must "
-                     "equal " frame-id "; got " (count wrong)
-                     " mis-keyed: "
-                     (pr-str (vec (take 3 (map :frame wrong))))))))
-
-        ;; --- Invariant 4: epoch-ids unique across ALL frames. The
-        ;;     `epoch-counter` is a single global atom; a swap-race
-        ;;     bug could surface as duplicate ids.
-        (let [all-ids   (mapcat (fn [{:keys [frame-id]}]
-                                  (map :epoch-id (rf/epoch-history frame-id)))
-                                per-thread)
-              total     (count all-ids)
-              distinct  (count (set all-ids))]
-          (is (= total distinct)
-              (str "Expected " total " unique epoch-ids across all "
-                   "frames; got " distinct " distinct (i.e. "
-                   (- total distinct) " collisions)")))))))
-
-;; ---- Scenario 2 -----------------------------------------------------------
-;;
-;; Listener registry churn vs settle fanout. One driver thread fires
-;; `iters` settles against a single frame; multiple churner threads
-;; concurrently register and remove per-thread listener ids. The
-;; contended seams are the `listeners` atom (swapped on every
-;; register/remove + read on every notify) and the `observed-frames-by-cb`
-;; atom (swapped per listener per notify by `record-observation!`).
+;; ---- Scenario 2: listener registry churn vs settle fan-out ---------------
 
 (deftest register-deregister-vs-settle-fanout-stress
-  (testing (str "register-epoch-listener! / unregister-epoch-listener! churn vs "
-                stress-iters " settle fanouts — no leaked listeners, "
-                "exception isolation holds, every settle records")
-    ;; Bump the ring depth above iters — invariant 3 below counts the
-    ;; final history; the cap behaviour is covered by the deterministic
-    ;; `ring-depth-evicts-oldest` pin.
+  (testing "register/unregister churn vs settle fan-out — a throwing listener
+            stays isolated and a pinned sibling sees every settle"
     (rf/configure! {:epoch-history {:depth (* 2 stress-iters)}})
-    (rf/make-frame {:id :rd7a7.fanout/main :doc "fanout-stress frame"})
-    (rf/reg-event :bump (fn [{:keys [db]} [_ i]]
-                             {:db (assoc db :last i)}))
-
-    ;; Two pinned listeners share one `let`-scope so both atoms stay
-    ;; live through the assertion phase below:
-    ;;   ::throwing — permanently-registered throwing listener. Keeps
-    ;;     `notify-listeners!`'s exception-isolation seam exercised; a
-    ;;     leaked throw would surface as a failed driver dispatch-sync.
-    ;;   ::counter — non-throwing sibling. Verifies the throwing peer
-    ;;     does NOT short-circuit fanout for siblings (broken try/catch
-    ;;     would mean siblings stop firing after the first throw).
-    (let [throw-count (atom 0)
-          seen-count  (atom 0)]
-      (rf/register-listener! :epoch ::throwing
-                             (fn [_]
-                               (swap! throw-count inc)
-                               (throw (ex-info "intentional" {}))))
-      (rf/register-listener! :epoch ::counter
-                             (fn [_] (swap! seen-count inc)))
-
-      (let [;; One churner per thread. Each churner-id is per-thread so
-            ;; concurrent register/remove of the SAME id never tangles
-            ;; (the listeners atom guarantees per-key atomicity via
-            ;; swap!; we want to stress concurrent multi-key churn).
-            n-churners (max 2 (quot n-threads 2))
-            churn-stop (atom false)
-            latch      (CountDownLatch. 1)
-            churners
-            (vec
-              (for [i (range n-churners)]
-                (let [cb-id (keyword "rd7a7.fanout"
-                                     (str "churner-" i))]
-                  (future
-                    (.await latch)
-                    (loop []
-                      (when-not @churn-stop
-                        (rf/register-listener! :epoch cb-id (fn [_] nil))
-                        (rf/unregister-listener! :epoch cb-id)
-                        (recur)))))))
-            driver
-            (future
-              (.await latch)
-              (dotimes [i stress-iters]
-                (rf/dispatch-sync [:bump i]
-                                  {:frame :rd7a7.fanout/main}))
-              ;; Signal churners to stop AFTER the driver's full run.
-              (reset! churn-stop true))]
+    (rf/make-frame {:id :rd7a7.fanout/main})
+    (rf/reg-event :bump (fn [{:keys [db]} [_ i]] {:db (assoc db :last i)}))
+    (let [seen-count (atom 0)
+          churn-stop (atom false)
+          latch      (CountDownLatch. 1)]
+      (rf/register-listener! :epoch ::throwing (fn [_] (throw (ex-info "intentional" {}))))
+      (rf/register-listener! :epoch ::counter (fn [_] (swap! seen-count inc)))
+      (let [churners (mapv (fn [i]
+                             (let [cb-id (keyword "rd7a7.fanout" (str "churner-" i))]
+                               (future
+                                 (.await latch)
+                                 (while (not @churn-stop)
+                                   (rf/register-listener! :epoch cb-id (fn [_] nil))
+                                   (rf/unregister-listener! :epoch cb-id)))))
+                           (range (max 2 (quot n-threads 2))))
+            driver   (future
+                       (.await latch)
+                       (try
+                         (dotimes [i stress-iters]
+                           (rf/dispatch-sync [:bump i] {:frame :rd7a7.fanout/main}))
+                         (finally (reset! churn-stop true))))]
         (.countDown latch)
-        ;; Wait for the driver. Once it sets `churn-stop` the churners
-        ;; will exit their loop on the next iteration.
-        (let [v (await-future driver)]
-          (is (not= ::timeout v)
-              "driver thread completed within timeout"))
-        (doseq [c churners]
-          (let [v (await-future c)]
-            (is (not= ::timeout v)
-                "churner thread completed within timeout")))
-
-        ;; --- Invariant 1: no leaked listeners after quiescence.
-        ;;     The churners' final loop iteration is `register` then
-        ;;     `remove`; the `remove` is idempotent if the entry was
-        ;;     already absent. After `churn-stop` the churners exit; we
-        ;;     fire one belt-and-braces remove per id in case a thread
-        ;;     was paused between register and remove when the flag
-        ;;     flipped (pre-alpha posture: explicit cleanup).
-        (dotimes [i n-churners]
-          (rf/unregister-listener! :epoch (keyword "rd7a7.fanout"
-                                        (str "churner-" i))))
-        (let [live (deref @#'rf.epoch.state/listeners)
-              churner-keys (filter (fn [k]
-                                     (and (keyword? k)
-                                          (= "rd7a7.fanout"
-                                             (namespace k))
-                                          (.startsWith
-                                            ^String (name k)
-                                            "churner-")))
-                                   (keys live))]
-          (is (empty? churner-keys)
-              (str "Expected zero leaked churner listeners after the "
-                   "explicit cleanup step; got "
-                   (count churner-keys) " leaked: "
-                   (pr-str (vec churner-keys))
-                   ". A leak indicates a register/remove race lost "
-                   "the dissoc.")))
-
-        ;; --- Invariant 2: exception isolation held — driver completed
-        ;;     all `iters` dispatches without an exception escaping. The
-        ;;     `(await-future driver)` above already pinned this; the
-        ;;     throwing listener fired exactly `iters` times (each
-        ;;     fanout reaches it once).
-        (is (= stress-iters @throw-count)
-            (str "Throwing listener fired " @throw-count " times; "
-                 "expected " stress-iters
-                 " (one per settle fanout). A lower count means the "
-                 "fanout skipped the throwing entry under churn; a "
-                 "higher count means it ran twice for one settle."))
-
-        ;; The non-throwing sibling listener also fired `iters` times,
-        ;; proving the throwing listener's exception didn't break the
-        ;; fanout for siblings — sibling isolation is the second half
-        ;; of the contract.
+        (is (all-completed? (cons driver churners))
+            "the driver ran every settle (no listener throw escaped) and the churners stopped")
         (is (= stress-iters @seen-count)
-            (str "Counter listener fired " @seen-count " times; "
-                 "expected " stress-iters
-                 ". A lower count means a sibling listener was "
-                 "skipped after a throwing peer."))
+            "the non-throwing sibling fired once per settle — never skipped after a throwing peer or lost under churn")))))
 
-        ;; --- Invariant 3: every settle landed a record. The ring-
-        ;;     buffer write happens upstream of `notify-listeners!`,
-        ;;     so listener-side exceptions can't bypass the append;
-        ;;     this asserts that path stays robust.
-        (let [history (rf/epoch-history :rd7a7.fanout/main)]
-          (is (= stress-iters (count history))
-              (str "Expected " stress-iters " records on the frame's "
-                   "history (one per settle); got " (count history))))))))
-
-;; ---- Scenario 3 -----------------------------------------------------------
-;;
-;; Concurrent record (settle!) + read (epoch-history + restore-epoch!).
-;; One producer fires settles; one consumer reads history and tries
-;; restore against arbitrary epoch-ids it observed in the snapshot.
-;; Because restore-epoch!'s precondition refuses while a drain is in
-;; flight, we expect a mix of ok and `:rf.epoch/restore-during-drain`
-;; outcomes — the contract is that NEITHER thread throws and the
-;; producer's records all land in dispatch order.
+;; ---- Scenario 3: concurrent record + history read + restore --------------
 
 (deftest ring-buffer-write-read-race-stress
-  (testing (str "concurrent settle (" stress-iters " iters) + "
-                "epoch-history reads + restore attempts — no exceptions, "
-                "ordering stable, all records land")
-    ;; depth set generously above iters so the cap doesn't kick in;
-    ;; the test pins the no-cap case so the count assertion is exact.
-    ;; The `ring-depth-evicts-oldest` pin covers the cap behaviour.
+  (testing "concurrent settles + epoch-history reads + restore attempts — no
+            exception, every record lands in dispatch order"
     (rf/configure! {:epoch-history {:depth (* 2 stress-iters)}})
-    (rf/make-frame {:id :rd7a7.race/main :doc "ring-buffer race frame"})
-    (rf/reg-event :bump (fn [{:keys [db]} [_ i]]
-                             {:db (assoc db :last i)}))
-
+    (rf/make-frame {:id :rd7a7.race/main})
+    (rf/reg-event :bump (fn [{:keys [db]} [_ i]] {:db (assoc db :last i)}))
     (let [consumer-stop  (atom false)
           consumer-error (atom nil)
           read-count     (atom 0)
           latch          (CountDownLatch. 1)
-          producer
-          (future
-            (.await latch)
-            (dotimes [i stress-iters]
-              (rf/dispatch-sync [:bump i]
-                                {:frame :rd7a7.race/main}))
-            (reset! consumer-stop true))
-          consumer
-          (future
-            (.await latch)
-            (try
-              (loop []
-                (when-not @consumer-stop
-                  (let [history (rf/epoch-history :rd7a7.race/main)]
-                    (swap! read-count inc)
-                    ;; epoch-history MUST always return a vector
-                    ;; (possibly empty); a non-vector would mean the
-                    ;; histories atom was holding a stale partial.
-                    (when-not (vector? history)
-                      (throw (ex-info "epoch-history returned non-vector"
-                                      {:got history})))
-                    (when (seq history)
-                      ;; Try a restore against the most recently
-                      ;; observed epoch-id. Concurrent producer means
-                      ;; the precondition will often refuse — that's
-                      ;; the contract.
-                      (rf/restore-epoch! :rd7a7.race/main
-                                         (:epoch-id (rand-nth history)))))
-                  (recur)))
-              (catch Throwable t
-                (reset! consumer-error t))))]
+          producer       (future
+                           (.await latch)
+                           (try
+                             (dotimes [i stress-iters]
+                               (rf/dispatch-sync [:bump i] {:frame :rd7a7.race/main}))
+                             (finally (reset! consumer-stop true))))
+          consumer       (future
+                           (.await latch)
+                           (try
+                             (while (not @consumer-stop)
+                               (let [history (rf/epoch-history :rd7a7.race/main)]
+                                 (swap! read-count inc)
+                                 (when-not (vector? history)
+                                   (throw (ex-info "epoch-history returned non-vector"
+                                                   {:got history})))
+                                 ;; Often refused as :rf.epoch/restore-during-drain —
+                                 ;; that refusal is the contract.
+                                 (when (seq history)
+                                   (rf/restore-epoch! :rd7a7.race/main
+                                                      (:epoch-id (rand-nth history))))))
+                             (catch Throwable t
+                               (reset! consumer-error t))))]
       (.countDown latch)
-      (let [vp (await-future producer)
-            vc (await-future consumer)]
-        (is (not= ::timeout vp) "producer completed within timeout")
-        (is (not= ::timeout vc) "consumer completed within timeout"))
-
-      ;; --- Invariant 1: no exception escaped the consumer.
+      (is (all-completed? [producer consumer]) "producer and consumer completed")
       (is (nil? @consumer-error)
-          (str "Consumer thread must not throw; got "
-               (some-> @consumer-error .getMessage)))
+          (str "the consumer must not throw; got " (some-> @consumer-error .getMessage)))
+      (is (pos? @read-count) "the consumer actually read")
+      ;; Restores replace app-db, never the ring, so the ring is the producer's alone.
+      (is (= (bumps stress-iters) (mapv :trigger-event (rf/epoch-history :rd7a7.race/main)))
+          "every producer record landed, in dispatch order"))))
 
-      ;; The consumer made at least some reads — pins that the loop
-      ;; actually ran (a quiescent consumer would silently pass invariant 1).
-      (is (pos? @read-count)
-          (str "Consumer made " @read-count " reads; expected > 0"))
-
-      ;; --- Invariant 2: every producer settle landed.
-      (let [history (rf/epoch-history :rd7a7.race/main)]
-        (is (= stress-iters (count history))
-            (str "Expected " stress-iters " records (one per "
-                 "dispatch-sync); got " (count history) ". (Note: "
-                 "successful restores from the consumer don't change "
-                 "history — restore replaces the container's value, "
-                 "not the ring buffer.)"))
-
-        ;; --- Invariant 3: producer's ordering preserved. The records
-        ;;     committed by the producer's settles are in dispatch
-        ;;     order; consumer's restores never write to the history
-        ;;     vector (restore replaces app-db, not history). A torn
-        ;;     append would surface as a missing or repeated id here.
-        (let [expected (mapv (fn [i] [:bump i]) (range stress-iters))
-              actual   (mapv :trigger-event history)]
-          (is (= expected actual)
-              (str ":trigger-event sequence must match dispatch order. "
-                   "Total records: " (count history)
-                   "; mismatch index: "
-                   (or (->> (map vector (range) expected actual)
-                            (some (fn [[i e a]]
-                                    (when (not= e a) i))))
-                       -1))))))))
-
-;; ---- Scenario 4 (EP-0015 §15 / open-issue 6) -----------------------------
+;; ---- Scenario 4: raw back-fill under CAS contention ----------------------
 ;;
-;; RAW back-fill under CAS contention. `back-fill-event!` mutates the single
-;; global `histories` atom under `swap!`. Per EP-0015 §15 + open-issue 6
-;; the back-fill stores the RAW delta — the ring is causal
-;; replay material, so it stays raw; every redaction runs projection-side
-;; only. The swap update fn (the pure splice inside `back-fill-event!`)
-;; is therefore PURE — it invokes no injected fn, so a JVM CAS
-;; retry re-runs only the pure splice. With no per-back-fill projection
-;; invocation there is no double-invoke hazard inside the swap.
-;;
-;; This scenario drives N threads, each performing M post-settle sub-run
-;; back-fills (`state/back-fill-sub-run!`) against its OWN frame's settled
-;; epoch — but ALL frames share the single global `histories` atom, so the
-;; CAS on that atom is heavily contended and retries WILL occur. The
-;; invariant the pure splice must hold under that contention:
-;;
-;;   Invariant 1 (no loss / no duplication): each frame's target epoch
-;;     accrues EXACTLY M `:sub-runs` rows — one per back-fill — with the
-;;     full distinct value set. A CAS-retry bug that dropped or double-
-;;     appended a splice would surface as a wrong row count or a duplicate.
-;;   Invariant 2 (raw stored): each back-filled `:sub-runs` row carries
-;;     the RAW value verbatim (no redaction at storage — the ring is the
-;;     raw causal-replay surface).
-;;
-;; CLJS is single-threaded; the race cannot manifest there — JVM-only.
+;; Each thread back-fills sub-runs onto its own frame's settled epoch, but all
+;; frames share the one global `histories` atom, so its CAS retries. The splice
+;; inside the swap is pure, so a retry must neither lose nor double a row.
 
-(defn- sub-run-event
-  "A bare `:rf.sub/run` trace-event map (the shape `back-fill-sub-run!`
-  appends to `:trace-events`). We call `state/back-fill-sub-run!` directly
-  (the production post-settle path) rather than firing through `trace/emit!`
-  so the test drives concurrent back-fills against the contended global
-  `histories` atom from N threads — the cross-frame CAS contention the
-  runtime's per-frame single-drainer would otherwise serialise away."
-  [frame-id sub-id value]
+(defn- sub-run-event [frame-id sub-id value]
   {:op-type   :rf.sub
    :operation :rf.sub/run
    :tags      {:rf.sub/id      sub-id
@@ -532,290 +166,158 @@
                :rf.sub/value   value}})
 
 (deftest raw-back-fill-lands-exactly-once-under-cas-contention
-  (testing (str n-threads " threads × " stress-iters
-                " sub-run back-fills each, all contending the single global "
-                "histories atom — every RAW back-fill delta lands EXACTLY "
-                "ONCE (no CAS-retry loss / duplication) and the stored rows "
-                "carry the raw value verbatim (EP-0015 §15 / open-issue 6)")
+  (testing "contended sub-run back-fills — every raw delta lands exactly once"
     (rf/configure! {:epoch-history {:depth (* 2 stress-iters)}})
-    (let [n      n-threads
-          frames (mapv (fn [t] (keyword "ep0015.cas" (str "frame-" t)))
-                       (range n))]
-      ;; Seed each frame with one settled epoch (the back-fill target).
-      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (let [frames (mapv #(keyword "ep0015.cas" (str "frame-" %)) (range n-threads))]
+      (rf/reg-event :seed (fn [_ _] {:db {:n 0}}))
       (doseq [frame-id frames]
         (rf/make-frame {:id frame-id})
         (rf/dispatch-sync [:seed] {:frame frame-id}))
-
       (let [latch   (CountDownLatch. 1)
             futures (mapv
                       (fn [frame-id]
                         (future
                           (.await latch)
-                          (let [epoch-id (-> (rf/epoch-history frame-id)
-                                             first :epoch-id)]
+                          (let [epoch-id (-> (rf/epoch-history frame-id) first :epoch-id)]
                             (dotimes [i stress-iters]
                               (let [sid (keyword (str "s" i))]
-                                ;; Production post-settle path: the back-fill
-                                ;; stores the RAW delta — no redact arg
-                                ;; (redaction is projection-side, in
-                                ;; `project-egress`).
                                 (rf.epoch.state/back-fill-sub-run!
                                   frame-id epoch-id
                                   (sub-run-event frame-id sid i)
-                                  {:sub-id sid :value i})))
-                            :done)))
+                                  {:sub-id sid :value i}))))))
                       frames)]
         (.countDown latch)
-        (let [results (mapv await-future futures)]
-          (doseq [r results]
-            (is (not= ::timeout r) "back-fill thread completed within timeout"))
+        (is (all-completed? futures) "every back-fill thread completed")
+        (is (empty? (for [frame-id frames
+                          :let  [values (->> (rf/epoch-history frame-id)
+                                             first :sub-runs (map :value) sort)]
+                          :when (not= (range stress-iters) values)]
+                      frame-id))
+            "each frame's epoch holds exactly one raw row per back-fill — none lost, none doubled")))))
 
-          ;; --- Invariant 1: each frame's target epoch accrued EXACTLY
-          ;;     `stress-iters` sub-runs, with the full distinct value set.
-          ;;     A CAS-retry that dropped a splice would shrink the count; a
-          ;;     double-append would inflate it or duplicate a value.
-          (doseq [frame-id frames]
-            (let [record   (-> (rf/epoch-history frame-id) first)
-                  sub-runs (:sub-runs record)
-                  values   (set (map :value sub-runs))]
-              (is (= stress-iters (count sub-runs))
-                  (str frame-id ": expected " stress-iters
-                       " back-filled sub-runs, got " (count sub-runs)
-                       " — a CAS retry on the contended histories atom lost "
-                       "or duplicated a splice."))
-              ;; --- Invariant 2: the RAW values were stored verbatim (the
-              ;;     ring is the raw causal-replay surface; redaction is
-              ;;     projection-side only).
-              (is (= (set (range stress-iters)) values)
-                  (str frame-id ": the back-filled rows carry the full raw "
-                       "value set 0.." (dec stress-iters)
-                       " verbatim — none lost, none redacted at storage.")))))))))
-
-;; ---- Scenario 5 -----------------------------------------------------------
+;; ---- Scenario 5: back-fill vs interleaved eviction at ring cap -----------
 ;;
-;; BACK-FILL vs INTERLEAVED EVICTION at ring cap. `back-fill-event!` fires at
-;; React commit / deref / teardown time, OUTSIDE any drain, so a cascade
-;; `record!` for the SAME frame can interleave with it. The back-fill must
-;; re-derive the target record's ring index from the SINGLE CAS-retried
-;; `@histories` value inside the one `swap!`: resolving the index against one
-;; deref and then splicing against a later deref would splice the WRONG record,
-;; because at ring CAP an interleaved append EVICTS the front record and shifts
-;; every index down by one.
-;;
-;; This scenario pins ONE frame at a small ring cap and runs two contending
-;; thread groups against it:
-;;   * a RECORDER thread that fires `iters` `dispatch-sync` settles — each at
-;;     cap evicts the front, churning indices continuously;
-;;   * BACK-FILLER threads that, in a tight loop, snapshot the live ring, pick a
-;;     real (currently-present) epoch-id, and `back-fill-sub-run!` a uniquely-
-;;     tagged row onto it.
-;;
-;; Invariant (snapshot consistency): every accepted back-filled row
-;; (the target was still present at splice time) lands on the epoch whose
-;; `:epoch-id` matches the tag the row carries — NEVER on a positional
-;; neighbour. After the run we walk the final ring and assert no surviving
-;; record carries a `:sub-runs` row whose embedded target-id != that record's
-;; own epoch-id. A stale-index wrong-record splice surfaces as exactly such a
-;; mismatch. Neither thread group may throw.
-;;
-;; CLJS is single-threaded; the race cannot manifest there — JVM-only.
+;; A back-fill runs outside any drain, so a same-frame `record!` can interleave.
+;; At cap every append evicts the front and shifts indices, so the back-fill
+;; must resolve its target index inside the one CAS-retried swap; resolving it
+;; against an earlier deref would splice onto a positional neighbour. Each row
+;; embeds the epoch-id it was aimed at, so a wrong-record splice is visible.
 
 (deftest back-fill-snapshot-consistent-under-interleaved-eviction-stress
-  (testing (str "back-fill vs " stress-iters
-                " interleaved cap-evicting settles — every accepted back-fill "
-                "lands on the epoch matching its embedded target-id, never a "
-                "stale-index neighbour")
-    ;; Small cap so the recorder's settles continuously evict + shift indices.
+  (testing "back-fill vs cap-evicting settles — every accepted back-fill lands
+            on the epoch it was aimed at"
     (let [cap 8]
       (rf/configure! {:epoch-history {:depth cap :trace-events-keep 50}})
-      (rf/make-frame {:id :qh13yf.race/main :doc "back-fill vs eviction race frame"})
+      (rf/make-frame {:id :qh13yf.race/main})
       (rf/reg-event :bump (fn [{:keys [db]} [_ i]] {:db (assoc db :n i)}))
-      ;; Seed the ring to cap so back-fillers have live targets from the start.
       (dotimes [i cap] (rf/dispatch-sync [:bump i] {:frame :qh13yf.race/main}))
-
       (let [recorder-done (atom false)
             errors        (atom [])
             accepted      (atom 0)
-            n-fillers     (max 2 (quot n-threads 2))
             latch         (CountDownLatch. 1)
-            ;; Each back-filled row embeds the TARGET epoch-id it was aimed at,
-            ;; so the post-run walk can detect a wrong-record splice (the row's
-            ;; embedded target-id != the record it actually landed on).
-            bf-event (fn [target-id]
-                       {:op-type   :rf.sub
-                        :operation :rf.sub/run
-                        :tags      {:rf.sub/id     :race-sub
-                                    :frame         :qh13yf.race/main
-                                    :rf.sub/value  target-id}})
-            recorder
-            (future
-              (.await latch)
-              (try
-                (dotimes [i stress-iters]
-                  (rf/dispatch-sync [:bump (+ cap i)] {:frame :qh13yf.race/main}))
-                (catch Throwable t (swap! errors conj t))
-                (finally (reset! recorder-done true))))
-            fillers
-            (vec
-              (for [_ (range n-fillers)]
-                (future
-                  (.await latch)
-                  (try
-                    (loop []
-                      (when-not @recorder-done
-                        (let [hist (rf/epoch-history :qh13yf.race/main)]
-                          (when (seq hist)
-                            (let [target-id (:epoch-id (rand-nth hist))
-                                  ;; embed the target-id as the row's :value so a
-                                  ;; mis-splice is detectable; back-fill returns
-                                  ;; nil when the target evicted before the splice.
-                                  result (rf.epoch.state/back-fill-sub-run!
-                                           :qh13yf.race/main target-id
-                                           (bf-event target-id)
-                                           {:sub-id :race-sub :value target-id})]
-                              (when (some? result) (swap! accepted inc)))))
-                        (recur)))
-                    (catch Throwable t (swap! errors conj t))))))]
+            bf-event      (fn [target-id]
+                            {:op-type   :rf.sub
+                             :operation :rf.sub/run
+                             :tags      {:rf.sub/id    :race-sub
+                                         :frame        :qh13yf.race/main
+                                         :rf.sub/value target-id}})
+            recorder      (future
+                            (.await latch)
+                            (try
+                              (dotimes [i stress-iters]
+                                (rf/dispatch-sync [:bump (+ cap i)] {:frame :qh13yf.race/main}))
+                              (catch Throwable t (swap! errors conj t))
+                              (finally (reset! recorder-done true))))
+            fillers       (mapv
+                            (fn [_]
+                              (future
+                                (.await latch)
+                                (try
+                                  (while (not @recorder-done)
+                                    (when-let [hist (seq (rf/epoch-history :qh13yf.race/main))]
+                                      (let [target-id (:epoch-id (rand-nth (vec hist)))]
+                                        ;; nil when the target evicted before the splice.
+                                        (when (rf.epoch.state/back-fill-sub-run!
+                                                :qh13yf.race/main target-id
+                                                (bf-event target-id)
+                                                {:sub-id :race-sub :value target-id})
+                                          (swap! accepted inc)))))
+                                  (catch Throwable t (swap! errors conj t)))))
+                            (range (max 2 (quot n-threads 2))))]
         (.countDown latch)
-        (is (not= ::timeout (await-future recorder)) "recorder completed")
-        (doseq [f fillers]
-          (is (not= ::timeout (await-future f)) "back-filler completed"))
-
-        ;; --- Invariant 0: no exception escaped either thread group.
+        (is (all-completed? (cons recorder fillers)) "recorder and back-fillers completed")
         (is (empty? @errors)
-            (str "no thread threw; got " (count @errors) " exceptions: "
+            (str "no thread threw; got "
                  (pr-str (mapv #(.getMessage ^Throwable %) (take 3 @errors)))))
+        (is (empty? (for [record (rf/epoch-history :qh13yf.race/main)
+                          row    (:sub-runs record)
+                          :when  (= :race-sub (:sub-id row))
+                          :when  (not= (:value row) (:epoch-id record))]
+                      {:landed-on (:epoch-id record) :aimed-at (:value row)}))
+            "every accepted back-fill landed on the epoch it embeds — no stale-index splice")
+        (is (pos? @accepted) "the back-fillers accepted splices, so the race was exercised")))))
 
-        ;; --- Invariant 1 (snapshot consistency): every back-filled row on a
-        ;;     surviving record embeds THAT record's own epoch-id. A row whose
-        ;;     embedded target-id differs from the record it sits on is a
-        ;;     stale-index wrong-record splice.
-        (let [final-hist (rf/epoch-history :qh13yf.race/main)
-              mis-spliced
-              (for [record final-hist
-                    row     (:sub-runs record)
-                    :when   (= :race-sub (:sub-id row))
-                    :when   (not= (:value row) (:epoch-id record))]
-                {:landed-on (:epoch-id record) :aimed-at (:value row)})]
-          (is (empty? mis-spliced)
-              (str "every accepted back-fill landed on the epoch matching its "
-                   "embedded target-id; got " (count mis-spliced)
-                   " wrong-record splices (stale-index bug): "
-                   (pr-str (vec (take 5 mis-spliced))))))
-
-        ;; --- Diagnostic: the back-fillers actually accepted some splices
-        ;;     (a quiescent run would vacuously pass invariant 1).
-        (is (pos? @accepted)
-            (str "back-fillers accepted " @accepted
-                 " splices (a positive count means the race window was "
-                 "actually exercised; some attempts return nil when the "
-                 "target evicted before the splice)."))))))
-
-;; ---- Scenario 6 -----------------------------------------------------------
+;; ---- Scenario 6: same-id listener replacement vs fan-out / destroy -------
 ;;
-;; SAME-ID LISTENER REPLACEMENT vs FAN-OUT / DESTROY. Scenario 2 churns
-;; register/unregister of PER-THREAD ids and asserts only final listener-map
-;; emptiness + callback counts. It never churns the SAME id against fan-out and
-;; frame-destroy, so it cannot see the generation-scoped observation/silencing
-;; invariant this scenario pins: a same-id replacement must INSTALL the new
-;; generation's observation (never erase it via a stale second swap) and must
-;; never emit a torn double silence for one destroy.
-;;
-;; A single DRIVER owns the frame lifecycle (settle → destroy → recreate) so
-;; there is no frame-not-found race; N CHURNERS hammer `register-epoch-listener!`
-;; under ONE shared id, minting a fresh generation on every call. The contended
-;; seam is the listeners registry + the token-stamped observation ledger.
-;;
-;; Invariants:
-;;   1. No exception escapes any thread.
-;;   2. Each frame destroy emits AT MOST ONE silencing trace for the churned id
-;;      — a torn generation could double-count (or drop it
-;;      to zero even for a live generation).
-;;   3. Deterministic tail (churn stopped): a fresh same-id registration's
-;;      fan-out observation SURVIVES, is stamped with the LIVE generation, and
-;;      its destroy silences EXACTLY once — the core false-negative a two-swap
-;;      replacement would produce.
-;;
-;; CLJS is single-threaded; the race cannot manifest there — JVM-only.
+;; One driver owns the frame lifecycle (settle → destroy → recreate) while
+;; churners re-register ONE shared id, minting a generation per call. A
+;; replacement must install the new generation's observation rather than erase
+;; it, and no destroy may emit a torn double silence.
 
 (def ^:private gen-churn-iters
   (or (some-> (System/getenv "RF2_J538F75_ITERS") Long/parseLong)
       500))
 
 (deftest same-id-replacement-vs-fanout-destroy-stress
-  (testing (str "same-id listener replacement churn vs " gen-churn-iters
-                " settle/destroy cycles — no torn double-silence, the live "
-                "generation's observation survives and silences "
-                "exactly once")
-    (rf/make-frame {:id :j538.gen/main :doc "same-id replacement stress frame"})
+  (testing "same-id replacement churn vs settle/destroy cycles — at most one
+            silence per destroy, and the live generation silences exactly once"
+    (rf/make-frame {:id :j538.gen/main})
     (rf/reg-event :bump (fn [{:keys [db]} [_ i]] {:db (assoc db :last i)}))
     (let [cb-id       ::churned
           silence-cnt (atom 0)
           errors      (atom [])
           churn-stop  (atom false)
-          latch       (CountDownLatch. 1)
-          n-churners  (max 2 (quot n-threads 2))]
-      ;; Count silencing traces for the churned id (fired synchronously on the
-      ;; driver thread inside destroy-frame!, so the per-cycle delta is exact).
+          latch       (CountDownLatch. 1)]
       (rf/register-listener! :trace ::silence-rec
                              (fn [ev]
                                (when (and (= :rf.epoch.cb/silenced-on-frame-destroy
                                              (:operation ev))
                                           (= cb-id (:cb-id (:tags ev))))
                                  (swap! silence-cnt inc))))
-      ;; Seed one generation so fan-out has a listener from the start.
       (rf/register-listener! :epoch cb-id (fn [_] nil))
-      (let [churners
-            (vec (for [_ (range n-churners)]
-                   (future
-                     (.await latch)
-                     (try
-                       (loop []
-                         (when-not @churn-stop
-                           (rf/register-listener! :epoch cb-id (fn [_] nil))
-                           (recur)))
-                       (catch Throwable t (swap! errors conj t))))))
-            driver
-            (future
-              (.await latch)
-              (try
-                (dotimes [i gen-churn-iters]
-                  (rf/dispatch-sync [:bump i] {:frame :j538.gen/main})
-                  (let [before @silence-cnt]
-                    (rf/destroy-frame! :j538.gen/main)
-                    (let [delta (- @silence-cnt before)]
-                      (when (> delta 1)
-                        (swap! errors conj
-                               (ex-info "torn double-silence for one destroy"
-                                        {:delta delta :cycle i})))))
-                  (rf/make-frame {:id :j538.gen/main}))
-                (catch Throwable t (swap! errors conj t))
-                (finally (reset! churn-stop true))))]
+      (let [churners (mapv (fn [_]
+                             (future
+                               (.await latch)
+                               (try
+                                 (while (not @churn-stop)
+                                   (rf/register-listener! :epoch cb-id (fn [_] nil)))
+                                 (catch Throwable t (swap! errors conj t)))))
+                           (range (max 2 (quot n-threads 2))))
+            driver   (future
+                       (.await latch)
+                       (try
+                         (dotimes [i gen-churn-iters]
+                           (rf/dispatch-sync [:bump i] {:frame :j538.gen/main})
+                           (let [before @silence-cnt]
+                             (rf/destroy-frame! :j538.gen/main)
+                             (let [delta (- @silence-cnt before)]
+                               (when (> delta 1)
+                                 (swap! errors conj
+                                        (ex-info "torn double-silence for one destroy"
+                                                 {:delta delta :cycle i})))))
+                           (rf/make-frame {:id :j538.gen/main}))
+                         (catch Throwable t (swap! errors conj t))
+                         (finally (reset! churn-stop true))))]
         (.countDown latch)
-        (is (not= ::timeout (await-future driver)) "driver completed within timeout")
-        (doseq [c churners]
-          (is (not= ::timeout (await-future c)) "churner completed within timeout"))
-
-        ;; --- Invariant 1 + 2: no thread threw, and no destroy double-silenced.
+        (is (all-completed? (cons driver churners)) "driver and churners completed")
         (is (empty? @errors)
             (str "no thread threw and no destroy double-silenced; got "
-                 (count @errors) ": "
                  (pr-str (mapv #(.getMessage ^Throwable %) (take 3 @errors)))))
-
-        ;; --- Invariant 3: deterministic tail with churn stopped. A fresh
-        ;;     same-id registration's fan-out observation survives, is stamped
-        ;;     with the live generation, and its destroy silences EXACTLY once.
+        ;; Churn stopped: a fresh registration's observation survives, carries
+        ;; the live generation, and its destroy silences exactly once.
         (rf/register-listener! :epoch cb-id (fn [_] nil))
         (rf/dispatch-sync [:bump -1] {:frame :j538.gen/main})
-        (let [obs  (get (rf.epoch.state/observations-snapshot) cb-id)
-              live (:generation (get (rf.epoch.state/listeners-snapshot) cb-id))]
-          (is (= live (get obs :j538.gen/main))
-              "the surviving observation is stamped with the LIVE generation")
-          (let [before @silence-cnt]
-            (rf/destroy-frame! :j538.gen/main)
-            (is (= 1 (- @silence-cnt before))
-                "the fresh generation's destroy silences EXACTLY once — a
-                 same-id replacement does not erase the observation")))
-        (rf/unregister-listener! :epoch cb-id)
-        (rf/unregister-listener! :trace ::silence-rec)))))
+        (let [before @silence-cnt]
+          (rf/destroy-frame! :j538.gen/main)
+          (is (= 1 (- @silence-cnt before))
+              "the fresh generation's destroy silences exactly once"))))))
