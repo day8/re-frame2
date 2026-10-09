@@ -59,51 +59,33 @@
                 :large     [[:doc]]}))))
 
 (deftest framed-trace-summary-elides-declared-slots
-  (testing "trace-summary routes :value/:error/:correlation/:meta through the
-            shared elide-wire-value walker under the frame's classification —
-            declared-sensitive leaf → :rf/redacted, declared-large leaf →
-            marker, and identity facts remain verbatim"
-    (mk-frame! :reply/framed)
-    (let [reply-map {:status       :partial
-                     :value        {:token sentinel :doc big-string :public 7}
-                     :error        {:kind :rf.http/server-error
-                                    :detail {:token sentinel}}
-                     :correlation  {:partner-key sentinel :trace-id "t-1"}
-                     :meta         {:token sentinel :note "ok"}
-                     :rf.reply/work-id      [:rf.work/http :article/by-id 1]
-                     :rf.reply/work-kind    :http
-                     :rf.reply/work-status  :failed
-                     :rf.frame/id  :reply/framed
-                     :completed-at 1781078400456}
-          out (rf.reply/trace-summary reply-map
-                {:frame :reply/framed
-                 :rf.egress/include-sensitive? false
-                 :rf.egress/include-large?     false})]
-      (is (rf.security.gen/redacted? (get-in out [:value :token])) ":value sensitive leaf redacted")
-      (is (rf.security.gen/large-marker? (get-in out [:value :doc])) ":value large leaf elided")
-      (is (= 7 (get-in out [:value :public])) "unmarked sibling rides through")
-      (is (rf.security.gen/redacted? (get-in out [:error :detail :token])) ":error sensitive leaf redacted")
-      (is (rf.security.gen/redacted? (get-in out [:correlation :partner-key])) ":correlation sensitive leaf redacted")
-      (is (= "t-1" (get-in out [:correlation :trace-id])) "non-sensitive correlation fact rides")
-      (is (rf.security.gen/redacted? (get-in out [:meta :token])) ":meta sensitive leaf redacted")
-      (is (not (contains-sentinel? (:value out))))
-      (is (not (contains-sentinel? (:error out))))
-      (is (not (contains-sentinel? (:correlation out))))
-      (is (not (contains-sentinel? (:meta out))))
-      ;; Framework identity facts remain available for tool correlation.
-      (is (= :partial (:status out)))
-      (is (= [:rf.work/http :article/by-id 1] (:rf.reply/work-id out))
-          "canonical :rf.reply/work-id verbatim")
-      (is (= :http (:rf.reply/work-kind out)) "canonical :rf.reply/work-kind verbatim")
-      (is (= :failed (:rf.reply/work-status out)))
-      (is (= :reply/framed (:rf.frame/id out)))
-      (is (= 1781078400456 (:completed-at out)) "causal completion timestamp verbatim")
-      (testing "TOOTH — framed egress preserves the TRANSIENT-ENVELOPE identity
-                and grows NO top-level bare ledger alias beside it"
-        (is (not (contains? out :work/id))
-            "no top-level bare :work/id alias survives framed trace egress")
-        (is (not (contains? out :work/kind))
-            "no top-level bare :work/kind alias survives framed trace egress")))))
+  ;; Declared-sensitive leaves redact, the declared-large leaf becomes a
+  ;; marker, and everything else, identity facts included, rides verbatim
+  ;; with no bare ledger alias beside the envelope spelling.
+  (mk-frame! :reply/framed)
+  (let [reply-map {:status       :partial
+                   :value        {:token sentinel :doc big-string :public 7}
+                   :error        {:kind :rf.http/server-error
+                                  :detail {:token sentinel}}
+                   :correlation  {:partner-key sentinel :trace-id "t-1"}
+                   :meta         {:token sentinel :note "ok"}
+                   :rf.reply/work-id      [:rf.work/http :article/by-id 1]
+                   :rf.reply/work-kind    :http
+                   :rf.reply/work-status  :failed
+                   :rf.frame/id  :reply/framed
+                   :completed-at 1781078400456}
+        out (rf.reply/trace-summary reply-map
+              {:frame :reply/framed
+               :rf.egress/include-sensitive? false
+               :rf.egress/include-large?     false})]
+    (is (rf.security.gen/large-marker? (get-in out [:value :doc])))
+    (is (= (-> reply-map
+               (assoc-in [:value :token] :rf/redacted)
+               (assoc-in [:value :doc] (get-in out [:value :doc]))
+               (assoc-in [:error :detail :token] :rf/redacted)
+               (assoc-in [:correlation :partner-key] :rf/redacted)
+               (assoc-in [:meta :token] :rf/redacted))
+           out))))
 
 (deftest stale-suppression-never-delivers-app-target-or-value
   (testing "suppress on a superseded completion yields :deliver? false,
