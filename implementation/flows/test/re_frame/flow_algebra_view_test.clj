@@ -1,149 +1,68 @@
 (ns re-frame.flow-algebra-view-test
-  "Tests for the STATIC derivation/process algebra view of flows
-  (EP-0014). Per [spec/Derivations.md] and the `:rf/derivation-node` shape in
-  [spec/Spec-Schemas.md].
-
-  `re-frame.flows.tooling/flow-algebra-view` lowers every registered flow
-  into the normalized algebra node every declared fact/process shares: a
-  `:derivation` whose MATERIALIZED output lands in app-db, evaluated
-  `:after-event`, owned by the `:frame` it registered against — the
-  subscription's policy twin (same whole-value function, different output /
-  storage / evaluation / lifecycle).
-
-  These tests pin the registrar-derived projection: the fixed
-  classifications (`:kind` / `:storage` / `:evaluation` / `:lifecycle` /
-  `:materialized?`), the per-path declared-input lowering (bare app-db vs
-  `[:rf.db/runtime …]`), the output app-db address, the frame-scoped keying,
-  the `:owner`, the source-form metadata, the opaque `:derive` body token,
-  and the source coordinates.
-
-  The view ships NO public accessor (Derivations §Flows expose algebra
-  views): it lives in the bundle-isolated `re-frame.flows.tooling` sibling and is
-  consumed by Xray + the conformance fixtures, which name that sibling
-  directly. There is no `re-frame.core/flow-algebra-view` public facade export
-  and no `re-frame.flows` convenience alias on either runtime;
-  `re-frame.derivation.graph` reaches the view by `requiring-resolve`."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  "The static derivation/process algebra view of flows (EP-0014; spec
+  Derivations.md, and the `:rf/derivation-node` shape in Spec-Schemas.md):
+  `re-frame.flows.tooling/flow-algebra-view` lowers each registered flow to a
+  `:derivation` materialized in app-db, evaluated `:after-event` and owned by
+  its frame. The view has no public accessor: it lives in the bundle-isolated
+  tooling sibling, which Xray and the conformance fixtures name directly."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.flows :as rf.flows]
+            [re-frame.flows]
             [re-frame.flows.tooling :as rf.flows.tooling]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.test-support :as rf.test-support]
-            [re-frame.trace]))
-
-;; The standard runtime reset (registrar baseline + frames + flows/schemas +
-;; plain-atom adapter) is owned by `make-reset-runtime-fixture`, with a
-;; `:rf/default` frame established and bound as the ambient scope so the
-;; ambient `reg-flow` calls in the bodies below carry a scope stamp
-;; (EP-0002 — reg-flow is context-required frame-local).
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-;; The five fixed classifications EVERY flow algebra node carries
-;; (Derivations §Worked equivalence — the flow column: the canonical
-;; app-db / after-event / frame MATERIALIZED member of the algebra).
-(def fixed-classifications
-  {:kind          :derivation
-   :storage       :app-db
-   :evaluation    :after-event
-   :lifecycle     :frame
-   :materialized? true})
-
-(defn- has-fixed-classifications? [node]
-  (= fixed-classifications (select-keys node (keys fixed-classifications))))
-
-;; ---- empty / shape contract ----------------------------------------------
-
-(deftest empty-registry-returns-empty-map
-  (testing "(flow-algebra-view) returns {} (not nil) when no flows are registered"
-    (rf.flows/reset-flows!)
-    (is (= {} (rf.flows.tooling/flow-algebra-view))))
-  (testing "(flow-algebra-view frame-id) returns {} for a frame with no flows"
-    (is (= {} (rf.flows.tooling/flow-algebra-view :rf/default)))))
-
 (deftest facade-publishes-no-algebra-view-alias
-  ;; The absence pin. The view ships NO public accessor (Derivations §Flows
-  ;; expose algebra views): the `defn` lives in `re-frame.flows.tooling` and the facade re-exports it on
-  ;; neither runtime, so `re-frame.derivation.graph` reaches it by
-  ;; `requiring-resolve` and CLJS tools by a direct `:require`.
-  (testing "`re-frame.flows` re-exports no flow algebra view"
-    (is (nil? (ns-resolve 're-frame.flows 'flow-algebra-view))
-        "flow-algebra-view is not a public name on the flows facade"))
-  (testing "the tooling sibling publishes it"
-    (is (some? (ns-resolve 're-frame.flows.tooling 'flow-algebra-view)))))
-
-;; ---- a registered flow exposes its algebra view --------------------------
+  (is (= [nil true]
+         [(ns-resolve 're-frame.flows 'flow-algebra-view)
+          (some? (ns-resolve 're-frame.flows.tooling 'flow-algebra-view))])))
 
 (deftest flow-exposes-its-full-algebra-view
-  (testing "a reg-flow exposes the full materialized / after-event / frame node"
-    (rf/reg-flow :cart/materialized-total {:inputs [[:cart :items] [:pricing :discounts]] :output-path [:cart :total]} (fn [items discounts] [items discounts]))
-    (let [node   (get-in (rf.flows.tooling/flow-algebra-view)
-                         [:rf/default :cart/materialized-total])
-          source (:source node)]
-      (is (some? node) "the flow is present under its owning frame's slot")
-      (is (has-fixed-classifications? node)
-          "flow carries the fixed derivation / app-db / after-event / frame / materialized classifications")
-      (is (= :cart/materialized-total (:id node)))
-      (is (= {:kind :reg-flow :id :cart/materialized-total} (:source-form node)))
-      (is (= [:db [:cart :total]] (:output node))
-          "the output materializes the whole value into app-db at the flow's :output-path")
-      (is (= [[:db [:cart :items]] [:db [:pricing :discounts]]] (:inputs node))
-          "each bare :inputs path lowers to a [:db path] declared input, in declaration order")
-      (is (= [:frame :rf/default] (:owner node))
-          "the owner is the frame the flow registered against")
-      (is (fn? (:derive node))
-          "the :derive body fn is surfaced as an opaque :derive token")
-      (is (some? source) ":source map is present when the registration carried coords")
-      (is (some? (:ns source))     ":ns captured at the call site")
-      (is (number? (:line source)) ":line captured at the call site")
-      (is (some? (:file source))   ":file captured at the call site")
-      (is (not (contains? node :schema)) ":schema is absent when the registration supplied none")
-      (is (not (contains? node :doc))    ":doc is absent when the registration supplied none")
-      (let [per-frame (rf.flows.tooling/flow-algebra-view :rf/default)]
-        (is (= #{:cart/materialized-total} (set (keys per-frame)))
-            "(flow-algebra-view frame-id) returns {flow-id node} for one frame")
-        (is (= node (get per-frame :cart/materialized-total))
-            "the one-frame form equals that frame's entry in the all-flows map")))))
-
-;; ---- runtime-db partition-qualified input --------------------------------
+  ;; An empty registry projects `{}`, not nil, in both arities. Absent
+  ;; `:schema` and `:doc` stay absent from the node.
+  (is (= [{} {}] [(rf.flows.tooling/flow-algebra-view) (rf.flows.tooling/flow-algebra-view :rf/default)]))
+  (rf/reg-flow :cart/total {:inputs [[:cart :items] [:pricing :discounts]] :output-path [:cart :total]}
+    (fn [items discounts] [items discounts]))
+  (let [node (get-in (rf.flows.tooling/flow-algebra-view) [:rf/default :cart/total])]
+    (is (= {:id            :cart/total
+            :kind          :derivation
+            :storage       :app-db
+            :evaluation    :after-event
+            :lifecycle     :frame
+            :materialized? true
+            :source-form   {:kind :reg-flow :id :cart/total}
+            :output        [:db [:cart :total]]
+            :inputs        [[:db [:cart :items]] [:db [:pricing :discounts]]]
+            :owner         [:frame :rf/default]}
+           (dissoc node :derive :source)))
+    (is (= [true #{:ns :file :line} true true]
+           [(fn? (:derive node)) (set (keys (:source node)))
+            (every? some? (vals (:source node))) (number? (get-in node [:source :line]))]))
+    (is (= {:cart/total node} (rf.flows.tooling/flow-algebra-view :rf/default)))))
 
 (deftest runtime-qualified-input-lowers-to-a-runtime-read
-  (testing "a [:rf.db/runtime …] input lowers to a [:runtime …rest] declared input"
-    ;; EP-0001 §535-551: any flow may READ runtime-db via an explicit
-    ;; partition-qualified input; only the write side is reserved.
-    (rf/reg-flow :route/derived {:inputs [[:rf.db/runtime :rf.runtime/routing :current :route-id]
-                           [:local :seed]] :output-path [:derived :slug]} (fn [route-id seed] [route-id seed]))
-    (let [node (get-in (rf.flows.tooling/flow-algebra-view)
-                       [:rf/default :route/derived])]
-      (is (has-fixed-classifications? node))
-      (is (= [[:runtime [:rf.runtime/routing :current :route-id]]
-              [:db [:local :seed]]]
-             (:inputs node))
-          "the partition key is stripped for the runtime read; the bare path stays a [:db …] read"))))
-
-;; ---- multiple flows ------------------------------------------------------
+  ;; EP-0001 §535-551: a flow may read runtime-db through a partition-qualified
+  ;; input, which lowers with the partition key stripped. A supplied `:schema`
+  ;; and `:doc` pass through as node facts.
+  (rf/reg-flow :route/derived {:doc "a route slug" :schema :app/slug
+                               :inputs [[:rf.db/runtime :rf.runtime/routing :current :route-id]
+                                        [:local :seed]]
+                               :output-path [:derived :slug]}
+    (fn [route-id seed] [route-id seed]))
+  (is (= {:inputs [[:runtime [:rf.runtime/routing :current :route-id]] [:db [:local :seed]]]
+          :schema :app/slug
+          :doc    "a route slug"}
+         (select-keys (get-in (rf.flows.tooling/flow-algebra-view) [:rf/default :route/derived])
+                      [:inputs :schema :doc]))))
 
 (deftest same-flow-id-on-two-frames-projects-per-frame
-  (testing "the same flow-id on two frames yields two distinct nodes (frame-scoped)"
-    ;; Flows are frame-scoped — the same id may carry different :inputs /
-    ;; :output-path on different frames. The view preserves the frame dimension.
-    (rf/make-frame {:id :other :doc "second frame for the frame-scoped view test"})
-    (rf/reg-flow :shared {:frame :rf/default :inputs [[:a]] :output-path [:out :default]} (fn [a] a))
-    (rf/reg-flow :shared {:frame :other :inputs [[:b]] :output-path [:out :other]} (fn [b] b))
-    (let [view (rf.flows.tooling/flow-algebra-view)]
-      (is (= [:db [:out :default]] (get-in view [:rf/default :shared :output])))
-      (is (= [:db [:out :other]]   (get-in view [:other :shared :output])))
-      (is (= [:frame :rf/default]  (get-in view [:rf/default :shared :owner])))
-      (is (= [:frame :other]       (get-in view [:other :shared :owner]))
-          "each node names its own owning frame"))))
-
-;; ---- schema / doc passthrough --------------------------------------------
-
-(deftest schema-and-doc-pass-through
-  (testing ":schema and :doc supplied on the flow map surface in the node"
-    (rf/reg-flow :priced {:doc "a priced total" :schema :app.money/amount :inputs [[:price]] :output-path [:cart :total]} (fn [p] p))
-    (let [node (get-in (rf.flows.tooling/flow-algebra-view) [:rf/default :priced])]
-      (is (= :app.money/amount (:schema node))
-          "the declared output :schema surfaces as a node fact")
-      (is (= "a priced total" (:doc node))))))
+  (rf/make-frame {:id :other})
+  (rf/reg-flow :shared {:frame :rf/default :inputs [[:a]] :output-path [:out :default]} identity)
+  (rf/reg-flow :shared {:frame :other :inputs [[:b]] :output-path [:out :other]} identity)
+  (is (= {:rf/default [[:db [:out :default]] [:frame :rf/default]]
+          :other      [[:db [:out :other]] [:frame :other]]}
+         (into {} (for [[frame-id nodes] (rf.flows.tooling/flow-algebra-view)]
+                    [frame-id ((juxt :output :owner) (:shared nodes))])))))
