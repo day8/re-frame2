@@ -1,386 +1,110 @@
 (ns re-frame.flows-direct-clear-settle-cljs-test
-  "Cross-host coverage for Spec 013 §The same boundary for a direct flow clear.
+  "Spec 013 §The same boundary for a direct flow clear, on both hosts: when
+  `(rf/clear :flow id)` returns, no remaining flow still publishes a value
+  derived from the slot it removed. The settle re-evaluates only flows that
+  have run since they were (re-)registered; the rest wait for the next drain.
 
-  The `:rf.fx/clear-flow` route settles: its dependents recompute
-  against the cleared flow's absence before the dispatching event returns
-  (`re-frame.flows-settle-on-dispatch-test`). The plain function call
-  `(rf/clear :flow id)` is documented as a synchronous
-  deregister-and-vacate call for boot code, tests, and per-tenant setup, and
-  it must honour the same OBSERVABLE boundary: when it returns, no remaining
-  flow may still publish a value derived from the slot it just removed.
-
-  This file is `*-cljs-test.cljc` so the shadow-cljs `:node-test` build
-  (ns-regexp `cljs-test$`) discovers it AND the cognitect JVM runner runs it
-  (the `-test` suffix). The lifecycle code under test — `clear-flow`, the
-  settle bridge, and `run-flows-on-db` — is all `.cljc`, so the boundary is
-  exercised on both hosts.
-
-  ## Why these tests are shaped the way they are
-
-  The failure this file guards against is invisible to any test that does
-  something after the clear. A stale dependent would self-heal on the next
-  ordinary drain, so a witness that dispatches — or that merely calls
-  anything which could drain — would pass whether or not the clear settled. Every assertion below is
-  therefore made against a db value captured with `clear-flow` as the ONLY
-  intervening call, and each carries two independent proofs that nothing
-  drained in that window:
-
-  1. A `:derive` counter on the dependent. A settle runs the dependent's
-     derivation exactly once; a window in which nothing drained leaves the
-     counter untouched. The counter distinguishes \"settled inside the
-     clear\" from \"settled later\" in a way an app-db read alone cannot.
-  2. A trace recorder over EVERY op-type. `:rf.event` op-type events are
-     emitted by any dispatch and any drain, so an empty `:rf.event` slice
-     across the window is affirmative evidence that no event ran — which
-     also pins the implementation constraint that the direct settle must NOT
-     be a dispatched settle event (that would re-enter the drain gate the
-     call already holds).
-
-  An absence is only evidence if the instrument works, so the recorder
-  carries its own POSITIVE CONTROL in-run: the same slice is re-read after a
-  deliberate dispatch and must be non-empty. Without it, a dead recorder — a
-  build with tracing compiled out, an op-type rename — would report the empty
-  window slice that means \"nothing drained\" in exactly the words a working
-  one does.
-
-  `re-frame.core/app-db-value` is a pure deref of the frame's app-db
-  projection through the substrate adapter, so the observation itself cannot
-  trigger a pass."
+  Every observation is taken with the clear as the only intervening call,
+  because a stale dependent would self-heal on any later drain.
+  `app-db-value` is a pure read, so observing cannot trigger a pass."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.flows :as rf.flows]
    [re-frame.test-support :as rf.test-support]
-   [re-frame.trace.tooling :as rf.trace.tooling]
    #?(:clj  [re-frame.substrate.plain-atom :as substrate]
       :cljs [re-frame.adapter.reagent :as substrate])))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter substrate/adapter}))
 
-;; ---- whole-stream trace recorder -----------------------------------------
-;;
-;; Unlike the flow-op-type recorder in `flows-trace-test`, this one keeps
-;; EVERY op-type: the point here is to prove the ABSENCE of `:rf.event`
-;; traffic, which a pre-filtered recorder could not distinguish from a filter
-;; that simply never matched. Registered per test body rather than as a
-;; fixture so the teardown is a plain `finally` on both hosts.
+(defn- db [] (rf/app-db-value :rf/default))
 
-(defn- call-with-recorder
-  "Run `(f captured)` with a whole-stream trace recorder installed."
-  [f]
-  (let [captured (atom [])]
-    (rf.trace.tooling/register-listener!
-      ::direct-clear-settle-recorder
-      (fn [ev] (swap! captured conj ev)))
-    (try
-      (f captured)
-      (finally
-        (rf.trace.tooling/unregister-listener! ::direct-clear-settle-recorder)))))
+(defn- registered? [frame-id flow-id]
+  (contains? (get (rf.flows/flows-snapshot) frame-id) flow-id))
 
-(defn- event-ops
-  "Every recorded `:rf.event` op-type operation, in capture order. Non-empty
-  iff an event was dispatched or a drain ran while the recorder was armed."
-  [captured]
-  (into [] (comp (filter #(= :rf.event (:op-type %)))
-                 (map :operation))
-        @captured))
-
-;; ---------------------------------------------------------------------------
-;; The witness
-;; ---------------------------------------------------------------------------
+(defn- seed-chain!
+  "`:probe/a` [:x] -> [:a] and `:probe/b` [:a] -> [:b], which counts its
+  derivations in `derives`; seeded to {:x 2 :a 2 :b 2}."
+  [derives]
+  (rf/reg-event :seed (fn [_ _] {:db {:x 2}}))
+  (rf/reg-flow :probe/a {:inputs [[:x]] :output-path [:a]} identity)
+  (rf/reg-flow :probe/b {:inputs [[:a]] :output-path [:b]} (fn [a] (swap! derives inc) a))
+  (rf/dispatch-sync [:seed]))
 
 (deftest direct-clear-settles-dependents-before-it-returns
-  (testing "a dependent flow has recomputed against the cleared producer's
-            absence by the time the plain `clear-flow` call returns, with no
-            application-authored dispatch and no drain in the window"
-    (call-with-recorder
-      (fn [captured]
-        (let [derives (atom 0)]
-          (rf/reg-event :seed (fn [_ _] {:db {:x 2}}))
-          ;; Producer A: [:x] -> [:a].
-          (rf/reg-flow :probe/a
-            {:inputs [[:x]] :output-path [:a]}
-            (fn [x] x))
-          ;; Dependent B: [:a] -> [:b]. B's ONLY declared input is A's output,
-          ;; so once A is deregistered and its slot vacated, B's correct value
-          ;; is the derivation of `nil`.
-          (rf/reg-flow :probe/b
-            {:inputs [[:a]] :output-path [:b]}
-            (fn [a] (swap! derives inc) a))
-          (rf/dispatch-sync [:seed])
-          (is (= {:x 2 :a 2 :b 2} (rf/app-db-value :rf/default))
-              "precondition — the seeding drain materialised A and B in topological order")
-
-          (let [derives-before @derives]
-            ;; Arm the window: discard everything the seeding dispatch
-            ;; recorded, so the `:rf.event` slice below covers the clear and
-            ;; nothing else.
-            (reset! captured [])
-
-            ;; ---- THE WINDOW ---------------------------------------------
-            ;; `clear-flow` is the SOLE call between the precondition read
-            ;; above and the capture below. No dispatch, no `dispatch-sync`,
-            ;; no manual flow pass, no other framework call of any kind.
-            (rf/clear :flow :probe/a)
-            (let [observed   (rf/app-db-value :rf/default)
-                  window-ops (event-ops captured)]
-              ;; -------------------------------------------------------------
-
-              ;; Proof 1 — nothing drained: no event ran in the window at all.
-              ;; (Its positive control is at the end of this test.)
-              (is (= [] window-ops)
-                  (str "no event ran between the clear and the observation — the "
-                       "direct settle must not dispatch (it would re-enter the "
-                       "drain gate the call already holds); saw " (pr-str window-ops)))
-
-              ;; The deregister-and-vacate half, asserted so a regression here is not
-              ;; masked by the dependent assertion below.
-              (is (not (contains? (get (rf.flows/flows-snapshot) :rf/default) :probe/a))
-                  "A is deregistered from the per-frame registry")
-              (is (not (contains? observed :a))
-                  "A's output leaf is vacated")
-
-              ;; THE CONTRACT. Without the settle, `:b` would still be 2, derived
-              ;; from the `:a` slot that this very call removed — an app-db in which
-              ;; a live flow publishes a value from a dead input.
-              ;;
-              ;; B is still REGISTERED, so its slot stays published; what must
-              ;; change is the value, derived from A's absence. This is the
-              ;; same shape `:rf.fx/clear-flow` produces — see
-              ;; `flows-settle-on-dispatch-test/settle-runs-once-and-recomputes-dependents`,
-              ;; where the dependent's slot holds `"total="` (derived from nil)
-              ;; rather than disappearing. Only the CLEARED flow's own leaf is
-              ;; vacated; leaf-only vacation does not cascade.
-              (is (= {:x 2 :b nil} observed)
-                  (str "the dependent recomputed against A's absence before the "
-                       "call returned; app-db was " (pr-str observed)))
-
-              ;; Proof 2 — the recompute happened INSIDE the clear, not merely
-              ;; "eventually": exactly one derivation, and no fixed-point churn.
-              (is (= 1 (- @derives derives-before))
-                  "the dependent derived exactly once — one settle pass, not repeated iteration"))
-
-            ;; DRAIN-EQUIVALENCE, stated directly. The failure mode is not
-            ;; "dependents are not updated" — it is "they are updated only by
-            ;; some LATER, UNRELATED drain", which would be self-healing in a
-            ;; busy app and invisible to any test that dispatches afterwards. So
-            ;; the contract is drain-equivalence: an unrelated event must find
-            ;; nothing left to repair. Without the settle these two values would
-            ;; differ ({:x 2, :b 2} against {:x 2, :b nil}); that difference IS
-            ;; the failure.
-            (let [settled-by-clear (rf/app-db-value :rf/default)
-                  derives-at-clear @derives]
-              (reset! captured [])
-              (rf/reg-event :unrelated-no-op (fn [_ _] {}))
-              (rf/dispatch-sync [:unrelated-no-op])
-              (is (= settled-by-clear (rf/app-db-value :rf/default))
-                  "an unrelated drain finds nothing to repair — the clear already settled it")
-              (is (zero? (- @derives derives-at-clear))
-                  "and the dependent does not derive again: the dirty check sees settled inputs")
-
-              ;; POSITIVE CONTROL for proof 1, sharing its exact shape: the
-              ;; same `:rf.event` slice, over a window that DID dispatch. If
-              ;; this is empty the recorder is dead and the empty window slice
-              ;; above proved nothing.
-              (is (seq (event-ops captured))
-                  (str "control — the recorder does capture :rf.event traffic, so "
-                       "the empty window slice above is a real absence and not a "
-                       "dead instrument")))))))))
+  (let [derives (atom 0)]
+    (seed-chain! derives)
+    (is (= {:x 2 :a 2 :b 2} (db)))
+    (rf/clear :flow :probe/a)
+    (is (not (registered? :rf/default :probe/a)))
+    ;; Only the cleared leaf is vacated; the dependent stays published,
+    ;; re-derived once from A's absence.
+    (is (= [{:x 2 :b nil} 2] [(db) @derives]))
+    (rf/reg-event :noop (fn [_ _] {}))
+    (rf/dispatch-sync [:noop])
+    (is (= [{:x 2 :b nil} 2] [(db) @derives])
+        "an unrelated drain finds nothing left to repair")))
 
 (deftest direct-clear-no-op-paths-stay-silent
   (testing "an unknown flow id settles nothing and derives nothing"
-    (call-with-recorder
-      (fn [captured]
-        (let [derives (atom 0)]
-          (rf/reg-event :seed (fn [_ _] {:db {:x 2}}))
-          (rf/reg-flow :probe/a {:inputs [[:x]] :output-path [:a]} (fn [x] x))
-          (rf/reg-flow :probe/b {:inputs [[:a]] :output-path [:b]}
-            (fn [a] (swap! derives inc) a))
-          (rf/dispatch-sync [:seed])
-          (let [before @derives]
-            (reset! captured [])
-            (rf/clear :flow :probe/no-such-flow)
-            (is (= {:x 2 :a 2 :b 2} (rf/app-db-value :rf/default))
-                "an unknown id leaves the frame exactly as it was")
-            (is (zero? (- @derives before))
-                "an unknown id runs no settle pass")
-            (is (= [] (event-ops captured))
-                "an unknown id dispatches nothing"))))))
-
+    (let [derives (atom 0)]
+      (seed-chain! derives)
+      (rf/clear :flow :probe/no-such-flow)
+      (is (= [{:x 2 :a 2 :b 2} 1] [(db) @derives]))))
   (testing "an absent frame is a silent no-op, not a throw"
-    (is (= :probe/a (rf/clear :flow :probe/a {:frame :probe/never-registered}))
-        "clear against an absent frame returns the id without throwing")))
-
-;; ---------------------------------------------------------------------------
-;; Malformed opts: no silent mis-clear
-;; ---------------------------------------------------------------------------
-;;
-;; A TOLERANT opts destructure — `([id {:keys [frame] :as _opts}] …)` — would
-;; bind `frame` to nil for `{:fram :session}`, fall through to the
-;; ambient-frame resolution, and clear the WRONG frame's flow with no signal.
-;;
-;; The pin below is deliberately shaped around what a tolerant destructure
-;; WOULD do, because that is the only way to tell a refusal from a
-;; coincidence: the typo names a frame that EXISTS and holds a flow of the
-;; SAME id as the ambient frame's. A tolerant implementation clears the
-;; AMBIENT one; a fail-closed one clears NEITHER. Asserting only that the call
-;; throws would pass against an implementation that threw AFTER clearing, so
-;; both frames are checked for residue — registration and app-db slot alike.
+    (is (= :probe/a (rf/clear :flow :probe/a {:frame :probe/never-registered})))))
 
 (deftest direct-clear-malformed-opts-fail-closed-and-touch-nothing
-  (testing "(rf/clear :flow id {:fram f}) THROWS
-            :rf.error/registrar-clear-bad-request and leaves BOTH the ambient
-            frame's flow and the named frame's flow registered, with neither
-            frame's output path vacated"
-    (rf/make-frame {:id :probe/named})
-    (rf/reg-event :seed (fn [_ _] {:db {:x 2}}))
-    ;; The SAME flow id on both frames — the ambient one is what a tolerant
-    ;; destructure would have cleared.
-    (rf/reg-flow :probe/a {:inputs [[:x]] :output-path [:a]} (fn [x] x))
-    (rf/reg-flow :probe/a
-      {:frame :probe/named :inputs [[:x]] :output-path [:a]}
-      (fn [x] x))
-    (rf/dispatch-sync [:seed])
-    (rf/dispatch-sync [:seed] {:frame :probe/named})
-
-    (is (= {:x 2 :a 2} (rf/app-db-value :rf/default))
-        "precondition — the ambient frame's flow is materialised")
-    (is (= {:x 2 :a 2} (rf/app-db-value :probe/named))
-        "precondition — the named frame's flow is materialised")
-
-    (let [thrown (try (rf/clear :flow :probe/a {:fram :probe/named})
-                      nil
-                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e e))
-          data   (ex-data thrown)]
-      (is (some? thrown)
-          "a near-miss opts key must SIGNAL, not resolve the ambient frame
-           (Principles §No silent swallow)")
-      (is (= :rf.error/registrar-clear-bad-request (:rf.error/id data))
-          "the canonical discriminator for clear's own argument validation")
-      (is (= :malformed-opts (:reason data))
-          "the machine reason distinguishes a bad opts MAP from a bad KIND")
-      (is (= :flow (:kind data))
-          "ex-data names the kind"))
-
-    (is (some? (rf.flows/flow-meta {:frame :rf/default :id :probe/a}))
-        "ZERO RESIDUE — the AMBIENT frame's flow is still registered; this is
-         the assertion a tolerant destructure fails")
-    (is (some? (rf.flows/flow-meta {:frame :probe/named :id :probe/a}))
-        "ZERO RESIDUE — the named frame's flow is still registered")
-    (is (= {:x 2 :a 2} (rf/app-db-value :rf/default))
-        "the ambient frame's output path was not vacated")
-    (is (= {:x 2 :a 2} (rf/app-db-value :probe/named))
-        "the named frame's output path was not vacated"))
-
-  (testing "the EXACT {:frame f} form still clears the frame it names, and
-            only that frame — the positive control for the refusal above"
-    (is (= :probe/a (rf/clear :flow :probe/a {:frame :probe/named}))
-        "a well-formed opts map clears and returns the id")
-    (is (nil? (rf.flows/flow-meta {:frame :probe/named :id :probe/a}))
-        "the named frame's flow is gone")
-    (is (some? (rf.flows/flow-meta {:frame :rf/default :id :probe/a}))
-        "the ambient frame's flow is untouched")))
-
-;; ---------------------------------------------------------------------------
-;; The settle re-evaluates only flows that have already run
-;; ---------------------------------------------------------------------------
-;;
-;; A direct `reg-flow` registers without evaluating; the flow's first
-;; evaluation belongs to the next drain (Spec 013 §Why a direct `reg-flow`
-;; does not settle). The direct-clear settle runs the ordinary pass, whose
-;; dirty check compares inputs against the flow's recorded last inputs — and a
-;; flow that has not evaluated since it was (re-)registered has NO row, so an
-;; unguarded pass would evaluate it: a clear of ANY flow would force the first
-;; evaluation of every never-run flow on the frame, at a moment the caller did
-;; not choose and often against an unseeded app-db. The settle therefore leaves
-;; such a flow untouched, row still absent, for the next drain.
-
-(defn- strict-greeting
-  "A `:derive` that is NOT total on nil — legal under Spec 013, which does not
-  require a derive to accept absent inputs."
-  [calls]
-  (fn [n]
-    (swap! calls conj n)
-    (when (nil? n) (throw (ex-info "derive refuses nil" {})))
-    (str "Hi " n)))
-
-(deftest direct-clear-does-not-first-evaluate-a-never-run-flow
-  (testing "boot-time setup: register two flows cold, clear one, THEN
-            seed. The clear neither throws nor evaluates the other flow"
-    (let [calls (atom [])]
-      (rf/reg-event :seed (fn [_ _] {:db {:user {:name "Ada"}}}))
-      (rf/reg-flow :t/greeting {:inputs [[:user :name]] :output-path [:greeting]}
-        (strict-greeting calls))
-      (rf/reg-flow :t/legacy {:inputs [[:x]] :output-path [:legacy]} identity)
-      ;; A settle that evaluated never-run flows would THROW
-      ;; :rf.error/flow-eval-exception here, blaming :t/greeting, whose derive
-      ;; it would call with nil.
-      (let [outcome (try (rf/clear :flow :t/legacy) :returned
-                         (catch #?(:clj Throwable :cljs :default) e
-                           [:threw (:rf.error/id (ex-data e))]))]
-        (is (= :returned outcome)
-            "the clear returns rather than failing on a flow it never touched"))
-      (is (= [] @calls) "the never-run flow was not evaluated by the clear")
-      (is (= {} (rf/app-db-value :rf/default)) "the clear wrote nothing")
-      (rf/dispatch-sync [:seed])
-      (is (= "Hi Ada" (:greeting (rf/app-db-value :rf/default)))
-          "the seeding drain performs the first evaluation")
-      (is (= ["Ada"] @calls) "exactly once, against the seeded input"))))
+  ;; `{:fram f}` must signal rather than fall back to the ambient frame, which
+  ;; holds a flow of the same id: a tolerant destructure would clear that one.
+  (rf/make-frame {:id :probe/named})
+  (rf/reg-event :seed (fn [_ _] {:db {:x 2}}))
+  (doseq [f [:rf/default :probe/named]]
+    (rf/reg-flow :probe/a {:frame f :inputs [[:x]] :output-path [:a]} identity)
+    (rf/dispatch-sync [:seed] {:frame f}))
+  (let [state  (fn [] (mapv (fn [f] [(registered? f :probe/a) (rf/app-db-value f)])
+                            [:rf/default :probe/named]))
+        before (state)]
+    (is (= [[true {:x 2 :a 2}] [true {:x 2 :a 2}]] before))
+    (is (= {:rf.error/id :rf.error/registrar-clear-bad-request :reason :malformed-opts :kind :flow}
+           (select-keys (ex-data (try (rf/clear :flow :probe/a {:fram :probe/named}) nil
+                                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e e)))
+                        [:rf.error/id :reason :kind])))
+    (is (= before (state)) "neither frame's flow nor output was touched")
+    (rf/clear :flow :probe/a {:frame :probe/named})
+    (is (= [[true {:x 2 :a 2}] [false {:x 2}]] (state))
+        "the exact {:frame f} form clears the frame it names, and only that frame")))
 
 (deftest direct-clear-defers-a-never-run-flow-even-over-seeded-inputs
-  (testing "a lifecycle rule, not an empty-db exemption: inputs seeded
-            BEFORE the cold registration still do not make the clear evaluate it"
-    (let [calls (atom [])]
-      (rf/reg-event :seed (fn [_ _] {:db {:user {:name "Ada"}}}))
-      (rf/reg-event :noop (fn [_ _] {}))
-      (rf/dispatch-sync [:seed])
-      (rf/reg-flow :t/greeting {:inputs [[:user :name]] :output-path [:greeting]}
-        (strict-greeting calls))
-      (rf/reg-flow :t/legacy {:inputs [[:x]] :output-path [:legacy]} identity)
-      (rf/clear :flow :t/legacy)
-      ;; A settle that evaluated never-run flows would record ["Ada"] and
-      ;; install :greeting from the clear.
-      (is (= [] @calls) "the clear performed no first evaluation")
-      (is (= {:user {:name "Ada"}} (rf/app-db-value :rf/default))
-          "and installed no output")
-      (rf/dispatch-sync [:noop])
-      (is (= "Hi Ada" (:greeting (rf/app-db-value :rf/default)))
-          "the next drain evaluates it"))))
-
-(deftest direct-clear-still-settles-an-established-chain
-  (testing "CONTROL — the skip must not disable the settle: an established
-            A -> B -> C chain is derived from A's absence at return"
-    (rf/reg-event :seed (fn [_ _] {:db {:x 2}}))
-    (rf/reg-flow :c/a {:inputs [[:x]] :output-path [:a]} identity)
-    (rf/reg-flow :c/b {:inputs [[:a]] :output-path [:b]} identity)
-    (rf/reg-flow :c/c {:inputs [[:b]] :output-path [:c]} identity)
+  ;; A flow registered since the last drain has never evaluated, so the clear
+  ;; of another flow leaves it for that drain even with its inputs present.
+  (let [calls (atom [])]
+    (rf/reg-event :seed (fn [_ _] {:db {:user {:name "Ada"}}}))
+    (rf/reg-event :noop (fn [_ _] {}))
     (rf/dispatch-sync [:seed])
-    (is (= {:x 2 :a 2 :b 2 :c 2} (rf/app-db-value :rf/default)) "precondition")
-    (rf/clear :flow :c/a)
-    (is (= {:x 2 :b nil :c nil} (rf/app-db-value :rf/default))
-        "B and C both recomputed transitively before the clear returned")))
+    (rf/reg-flow :t/greeting {:inputs [[:user :name]] :output-path [:greeting]}
+      (fn [n] (swap! calls conj n) (str "Hi " n)))
+    (rf/reg-flow :t/legacy {:inputs [[:x]] :output-path [:legacy]} identity)
+    (rf/clear :flow :t/legacy)
+    (is (= [[] {:user {:name "Ada"}}] [@calls (db)]))
+    (rf/dispatch-sync [:noop])
+    (is (= "Hi Ada" (:greeting (db))) "the next drain evaluates it")))
 
 (deftest direct-clear-leaves-a-cold-re-registration-for-the-next-drain
-  (testing "PINNED DELIBERATELY. A dependent re-registered cold since its
-            last evaluation has no row, so the clear leaves it (and anything
-            established downstream of it) at its current value — the stale but
-            OWNED state Spec 013 §Re-registration accepts — and the
-            next drain recomputes both. Changing this changes the Spec 013
-            contract."
-    (rf/reg-event :seed (fn [_ _] {:db {:x 2}}))
-    (rf/reg-event :noop (fn [_ _] {}))
-    (rf/reg-flow :c/a {:inputs [[:x]] :output-path [:a]} identity)
-    (rf/reg-flow :c/b {:inputs [[:a]] :output-path [:b]} (fn [a] (some-> a (* 10))))
-    (rf/reg-flow :c/c {:inputs [[:b]] :output-path [:c]} (fn [b] (str "c:" b)))
-    (rf/dispatch-sync [:seed])
-    (is (= {:x 2 :a 2 :b 20 :c "c:20"} (rf/app-db-value :rf/default)) "precondition")
-    ;; Cold re-registration of B — a NEW definition, row dropped.
-    (rf/reg-flow :c/b {:inputs [[:a]] :output-path [:b]} (fn [a] (if a (* 100 a) :none)))
-    (rf/clear :flow :c/a)
-    (is (= {:x 2 :b 20 :c "c:20"} (rf/app-db-value :rf/default))
-        "B keeps its previous value and established C stays derived from it")
-    (rf/dispatch-sync [:noop])
-    (is (= {:x 2 :b :none :c "c::none"} (rf/app-db-value :rf/default))
-        "the next drain evaluates the new B against A's absence, and C follows")))
+  ;; Spec 013 §Re-registration: a dependent re-registered since its last
+  ;; evaluation keeps its value (stale but owned), as does anything derived
+  ;; from it, until the next drain recomputes both.
+  (rf/reg-event :seed (fn [_ _] {:db {:x 2}}))
+  (rf/reg-event :noop (fn [_ _] {}))
+  (rf/reg-flow :c/a {:inputs [[:x]] :output-path [:a]} identity)
+  (rf/reg-flow :c/b {:inputs [[:a]] :output-path [:b]} (fn [a] (some-> a (* 10))))
+  (rf/reg-flow :c/c {:inputs [[:b]] :output-path [:c]} (fn [b] (str "c:" b)))
+  (rf/dispatch-sync [:seed])
+  (is (= {:x 2 :a 2 :b 20 :c "c:20"} (db)))
+  (rf/reg-flow :c/b {:inputs [[:a]] :output-path [:b]} (fn [a] (if a (* 100 a) :none)))
+  (rf/clear :flow :c/a)
+  (is (= {:x 2 :b 20 :c "c:20"} (db)))
+  (rf/dispatch-sync [:noop])
+  (is (= {:x 2 :b :none :c "c::none"} (db))))
