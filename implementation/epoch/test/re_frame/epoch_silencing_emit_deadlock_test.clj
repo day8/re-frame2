@@ -1,71 +1,18 @@
 (ns re-frame.epoch-silencing-emit-deadlock-test
-  "The delayed-silence emit MUST fan out with NO ledger lock held.
+  "The delayed-silence emit fans out with NO ledger lock held.
 
-  ## The deadlock an emit under the ledger locks would cause
+  The emit reaches arbitrary trace listeners, and a blessed one may
+  `dispatch-sync` (Xray does), which needs the target frame's `:drain-lock`.
+  A thread holding that `:drain-lock` — a cold `call-serialized-with-drain!`
+  section, or the every-settle `record-observation!` re-arm — takes
+  `silence-lock` under it. Emitting under the ledger locks would therefore be
+  an AB-BA hang: T1 holds silence-lock and spins on `:drain-lock`, T2 holds
+  `:drain-lock` and blocks on silence-lock. This test places exactly that
+  interleave with latches; under the bug both futures time out.
 
-  Emitting the external `:rf.epoch.cb/silenced-on-frame-destroy` signal INSIDE
-  both ledger locks (`claim-and-publish-delayed-silence!` running `publish!`
-  under `with-claim-locks` = registry-lock + silence-lock) would keep the winning
-  generation authoritative THROUGH the emission. But `publish!` is an
-  external `trace/emit!` that fans to ARBITRARY trace listeners, and a
-  framework-blessed listener may `dispatch-sync` (Xray dispatch-syncs from its
-  collector). `dispatch-sync` enters `drain-block!`, which spin-CAS-acquires the
-  target frame's `:drain-lock`. So the emit path would be:
-
-      Order A:  hold silence-lock (+registry-lock)  ->  want :drain-lock
-
-  Meanwhile a thread holding a frame's `:drain-lock` acquires `silence-lock` under
-  it. This is the every-settle re-arm (`settle!` -> `notify-listeners!` ->
-  `record-observation!`), and — the variant this test drives — a COLD serialized
-  section (`frame/call-serialized-with-drain!`: a Tool-Pair state write, the
-  `destroy-frame!` recipe, any lifecycle op) that runs `record-observation!` /
-  `claim-and-publish` while holding the lock:
-
-      Order B:  hold :drain-lock  ->  want silence-lock
-
-  A + B is an AB-BA hard hang: T1 (cold destroy of frame G) holds silence-lock and
-  spins on frame F's :drain-lock; T2 (holding F's :drain-lock) blocks on
-  silence-lock. Neither makes progress. A deadlock-freedom argument that
-  analyses only `frame-owner-lock` and never `:drain-lock` misses this.
-
-  Note the target frame's `:drain-lock` must be held by a path that does NOT set
-  `:in-sync-drain?` — a cold `call-serialized-with-drain!` section (this test) or
-  an async drainer. A concurrent `dispatch-sync` into a frame that is mid-SYNC-
-  drain is instead rejected as `:rf.error/dispatch-sync-in-handler` (the
-  `:in-sync-drain?` guard) and never reaches `drain-block!`, so a sync-drained
-  frame cannot be the deadlock target.
-
-  ## The protocol
-
-  `claim-and-publish-delayed-silence!` reserves the mark under both ledger locks,
-  RELEASES them, then emits OUTSIDE them; generation authority is preserved by
-  QUALIFYING the emit with `observed-gen` (self-filtering at the receiver) rather
-  than by holding a lock across the foreign fan-out. With no ledger lock held
-  during the emit, there is no Order A `silence-lock -> :drain-lock` edge, so the
-  cycle cannot form.
-
-  ## This test
-
-  Reproduces the exact AB-BA interleave deterministically with latches:
-
-    * T2 holds frame F's `:drain-lock` via `frame/call-serialized-with-drain!`
-      (a cold section, so `:in-sync-drain?` is unset and a concurrent
-      dispatch-sync reaches `drain-block!`); inside it takes `silence-lock` via a
-      genuine `record-observation!` re-arm — Order B.
-    * T1 runs `claim-and-publish-delayed-silence!` for a deferred-silence frame;
-      its `publish!` `dispatch-sync`s into F — Order A, which with the emit
-      under the locks is hold-silence-lock -> want-drain-lock.
-
-  With the emit under the locks this HANGS: both futures time out. The bounded
-  `deref` surfaces `::timeout` and the `(not= ::timeout ...)` assertions go RED
-  (an emit-under-lock `claim-and-publish` wedges both threads). With the emit
-  outside the locks, T2 takes
-  silence-lock freely, finishes its cold section, frees F's `:drain-lock`, and
-  T1's dispatch-sync then drains and returns — both futures COMPLETE (GREEN).
-
-  JVM-only by intent: `silence-lock` / `:drain-lock` are no-ops / uncontended on
-  the single CLJS thread. Run 2-core-pinned (`-J-XX:ActiveProcessorCount=2`) to
-  keep the interleave tight."
+  The cold section matters: a frame mid-SYNC-drain rejects a concurrent
+  `dispatch-sync` before `drain-block!`, so it cannot be the deadlock target.
+  JVM-only — the locks are uncontended on the single CLJS thread."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -81,10 +28,8 @@
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- owe-silence!
-  "Register `cb`, observe `frame` under its current generation, then drop the
-  live observation so a delayed silence for `(frame, cb)` is genuinely owed —
-  exactly the state A's compare-owned cleanup leaves for a paused predecessor.
-  `claim-and-publish-delayed-silence!` for `(frame, cb)` then reaches `publish!`."
+  "Register `cb`, observe `frame`, then drop the live observation so a delayed
+  silence for `(frame, cb)` is genuinely owed and the claim reaches `publish!`."
   [frame token cb]
   (rf/register-listener! :epoch cb (fn [_] nil))
   (rf.epoch.state/claim-frame-owner! frame token)
@@ -95,60 +40,36 @@
   (:generation (get (rf.epoch.state/listeners-snapshot) cb)))
 
 (deftest claim-and-publish-emit-into-a-dispatch-syncing-listener-does-not-deadlock-a-drain-lock-holder
-  ;; An emit under the ledger locks HANGS (bounded-timeout -> RED); an emit
-  ;; outside them COMPLETES.
   (let [drainee        :edl/drainee    ; live frame whose :drain-lock T2 holds
-        destroyed      :edl/destroyed  ; deferred-silence frame (epoch-state seam)
-        cb             ::edl-owed-cb    ; owed-silence subject (T1's claim)
-        other          ::edl-rearm-cb   ; Order-B silence-lock acquirer (drain-lock side)
-        token          (Object.)
-        t2-holds-drain (CountDownLatch. 1) ; T2 is inside its cold section, holding :drain-lock
-        t2-go          (CountDownLatch. 1) ; release T2 to take silence-lock
-        t1-in-publish  (CountDownLatch. 1) ; T1 reached publish!
+        destroyed      :edl/destroyed  ; deferred-silence frame (T1's claim)
+        cb             ::edl-owed-cb
+        other          ::edl-rearm-cb   ; T2's silence-lock acquirer
+        t2-holds-drain (CountDownLatch. 1)
+        t2-go          (CountDownLatch. 1)
+        t1-in-publish  (CountDownLatch. 1)
         await-s        (fn [^CountDownLatch l] (.await l (long 5) TimeUnit/SECONDS))]
-    (rf/make-frame {:id drainee :doc "drainee: holds :drain-lock, wants silence-lock"})
+    (rf/make-frame {:id drainee})
     (rf/register-listener! :epoch other (fn [_] nil))
-    (let [other-gen (cb-generation other)]
-      (rf/reg-event :edl/probe (fn [{:keys [db]} _] {:db (assoc db :probed true)}))
-      ;; Owe a silence for (destroyed, cb) so T1's claim reaches publish!.
-      (owe-silence! destroyed token cb)
-      (try
-        (let [g  (cb-generation cb)
-              ;; T2: hold drainee's :drain-lock via a COLD serialized section
-              ;; (`:in-sync-drain?` stays unset, so T1's dispatch-sync reaches
-              ;; drain-block!), then take silence-lock via a genuine re-arm —
-              ;; Order B. `other` has not observed `drainee`, so this is a real
-              ;; transition that enters `with-silence-lock` (not the no-op).
-              t2 (future
-                   (rf.frame/call-serialized-with-drain! drainee
-                     (fn []
-                       (.countDown t2-holds-drain)
-                       (await-s t2-go)
-                       (rf.epoch.state/record-observation! other other-gen drainee))))]
-          (is (await-s t2-holds-drain)
-              "T2 holds the frame's :drain-lock (cold serialized section)")
-          (let [publish! (fn []
-                           ;; The blessed listener's `dispatch-sync` — into the
-                           ;; frame whose :drain-lock T2 holds, so it needs it.
-                           (.countDown t1-in-publish)
-                           (rf/dispatch-sync [:edl/probe] {:frame drainee}))
-                t1       (future (rf.epoch.state/claim-and-publish-delayed-silence!
-                                   destroyed cb g 0 publish!))]
-            (is (await-s t1-in-publish)
-                "T1 reached the emit")
-            ;; Release T2 to acquire silence-lock. Were the emit under the locks,
-            ;; T1 would hold it -> T2 would block while holding :drain-lock, and
-            ;; T1's dispatch-sync would spin on :drain-lock -> AB-BA hard hang.
-            ;; T1 holds no ledger lock -> T2 proceeds, frees :drain-lock, T1's
-            ;; dispatch-sync then completes.
-            (.countDown t2-go)
-            (let [t1-res (deref t1 8000 ::timeout)
-                  t2-res (deref t2 8000 ::timeout)]
-              (is (not= ::timeout t1-res)
-                  "claim-and-publish completed — the emit ran OUTSIDE the ledger locks (no ledger->drain-lock edge)")
-              (is (not= ::timeout t2-res)
-                  "the :drain-lock holder completed — no ledger<->:drain-lock deadlock")
-              (is (true? t1-res) "the silence was reserved+published"))))
-        (finally
-          (rf/unregister-listener! :epoch other)
-          (rf/unregister-listener! :epoch cb))))))
+    (rf/reg-event :edl/probe (fn [{:keys [db]} _] {:db (assoc db :probed true)}))
+    (owe-silence! destroyed (Object.) cb)
+    (let [other-gen (cb-generation other)
+          ;; T2: hold drainee's :drain-lock in a COLD section, then take
+          ;; silence-lock via a genuine re-arm (`other` has not observed drainee).
+          t2 (future
+               (rf.frame/call-serialized-with-drain! drainee
+                 (fn []
+                   (.countDown t2-holds-drain)
+                   (await-s t2-go)
+                   (rf.epoch.state/record-observation! other other-gen drainee))))]
+      (is (await-s t2-holds-drain) "T2 holds the frame's :drain-lock")
+      (let [publish! (fn []
+                       (.countDown t1-in-publish)
+                       (rf/dispatch-sync [:edl/probe] {:frame drainee}))
+            t1       (future (rf.epoch.state/claim-and-publish-delayed-silence!
+                               destroyed cb (cb-generation cb) 0 publish!))]
+        (await-s t1-in-publish)
+        (.countDown t2-go)
+        (let [t1-res (deref t1 8000 ::timeout)
+              t2-res (deref t2 8000 ::timeout)]
+          (is (true? t1-res) "the silence was reserved and published — T1 did not hang")
+          (is (not= ::timeout t2-res) "the :drain-lock holder completed"))))))
