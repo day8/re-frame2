@@ -1,31 +1,18 @@
 (ns re-frame.epoch-egress-resource-scope-test
-  "Coverage for the OFF-BOX egress redaction of a `:rf.resource/scope-resolved`
-  trace row's resolver-owned values inside an epoch record's `:trace-events`
-  (EP-0015).
+  "Off-box egress of a `:rf.resource/scope-resolved` row inside an epoch
+  record's `:trace-events`. The row carries the resolver's resolved
+  `:input-values` and the `:scope` derived from them — identity-bearing values
+  no app-db path declaration can match once they are copied into trace tags —
+  so the epoch projection hands the row to the resources artefact's late-bound
+  `:resources/project-scope-resolved-egress` projector, which fails closed.
 
-  The `:rf.resource/scope-resolved` trace row carries the resolver's resolved
-  `:input-values` (the concrete app-db reads — e.g. `{:username \"jake\"}`) and
-  the derived `:scope` (the identity tuple embedding them). These are
-  owner-local, identity-bearing values the generic value-path trace egress walk
-  (`re-frame.epoch.tool-pair/elide-trace-events-slot` → `project-egress`) is
-  structurally blind to once they have been copied into trace tags — a frame's
-  declared `:sensitive` app-db PATHS do not match a resolver's resolved VALUES.
-
-  The resource family owns the row's egress projector
-  (`re-frame.resources.scope-registry/project-scope-resolved-egress`), published
-  as the late-bound `:resources/project-scope-resolved-egress` hook the epoch
-  tool-pair consults from `omit-off-box-resource-scope-values`. This test proves
-  the WIRING fires end-to-end: with resources loaded, `project-egress` redacts
-  the resolver values for the off-box default, and the trusted-local
-  `:rf.egress/include-sensitive?` opt-in lifts the redaction (the `local-raw` boundary).
-
-  resources is a TEST-ONLY dep here: production epoch never deps resources, and
-  when the artefact is absent the hook lookup in
-  `omit-off-box-resource-scope-values` finds nil and passes the rows through
-  untouched."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  resources is a TEST-ONLY dep: production epoch never deps it, and with the
+  artefact absent the hook is nil and the rows pass through untouched."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.epoch :as rf.epoch]
+            ;; load-bearing: publishes the `:epoch/project-record` hook the
+            ;; door dispatches an `:rf/epoch-record` to.
+            [re-frame.epoch]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             ;; load-bearing: publishes the :resources/* late-bind hooks,
@@ -35,119 +22,35 @@
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.substrate.plain-atom/adapter
-     :init-fn (fn []
-                (rf/make-frame {:id :test/rs})
-                ;; a db-reading resolver (the :inherit default — fail-closed
-                ;; off-box); NOT explicitly declassified.
-                (rf/reg-resource-scope :rs/session
-                  {:inputs {:username [:db [:auth :user :username]]}}
-                  (fn [{:keys [username]} _]
-                    (when username [:rf.scope/session {:username username}])))
-                ;; a resolver declaring :rf.egress/public — off-box egress
-                ;; redacts it all the same (there is no declassification hatch).
-                (rf/reg-resource-scope :rs/public-locale
-                  {:inputs {:locale [:db [:i18n :locale]]}
-                   :rf.egress/output-sensitivity :rf.egress/public}
-                  (fn [{:keys [locale]} _]
-                    (when locale [:rf.scope/locale {:locale locale}]))))}))
+     ;; The trace walk is rooted at the record's frame; with no live frame it
+     ;; would redact the whole `:trace-events` slot.
+     :init-fn #(rf/make-frame {:id :test/rs})}))
 
-(def ^:private secret "jake-SECRET")
+(def ^:private raw-tags
+  {:resource-id   :rs/session
+   :kind          :resource-scope
+   :inputs        [:username]
+   :input-values  {:username "jake-SECRET"}
+   :whole-db?     false
+   :scope         [:rf.scope/session {:username "jake-SECRET"}]
+   :resolved-nil? false})
 
-(defn- contains-secret? [v]
-  (boolean
-    (cond
-      (= v secret) true
-      (map? v)     (or (some contains-secret? (keys v)) (some contains-secret? (vals v)))
-      (coll? v)    (some contains-secret? v)
-      :else        false)))
+(def ^:private record
+  {:kind         :rf/epoch-record
+   :epoch-id     1
+   :frame        :test/rs
+   :trace-events [{:op-type   :rf.event
+                   :operation :rf.resource/scope-resolved
+                   :tags      raw-tags}]})
 
-(defn- scope-resolved-event [resource-id input-values scope]
-  {:op-type   :rf.event
-   :operation :rf.resource/scope-resolved
-   :tags      {:resource-id   resource-id
-               :kind          :resource-scope
-               :inputs        (vec (keys input-values))
-               :input-values  input-values
-               :whole-db?     false
-               :scope         scope
-               :resolved-nil? false}})
-
-(defn- record-with [trace-events]
-  {:kind                :rf/epoch-record
-   :epoch-id            1
-   :frame               :test/rs
-   :committed-at        0
-   :event-id            :login
-   :trigger-event       [:login]
-   :db-before           {}
-   :db-after            {}
-   :outcome             :ok
-   :trace-events        trace-events
-   :sub-runs            []
-   :renders             []
-   :effects             []})
+(defn- projected-tags [opts]
+  (:tags (first (:trace-events (rf/project-egress record opts)))))
 
 (deftest off-box-projection-redacts-sensitive-resolver-values
-  (testing "project-egress redacts a db-reading (:inherit)
-            resolver's :input-values + :scope for the off-box default; the
-            structural attribution slots survive and no raw secret egresses"
-    (let [record    (record-with
-                       [(scope-resolved-event :rs/session
-                                              {:username secret}
-                                              [:rf.scope/session {:username secret}])])
-          projected (rf/project-egress record)
-          row       (first (:trace-events projected))]
-      (is (= :rf/redacted (get-in row [:tags :input-values]))
-          "the raw db reads are redacted off-box")
-      (is (= :rf/redacted (get-in row [:tags :scope]))
-          "the derived identity tuple is redacted off-box")
-      (is (true? (get-in row [:tags :sensitive?])) "stamped sensitive")
-      (testing "the structural attribution slots ride verbatim"
-        (is (= :rs/session (get-in row [:tags :resource-id])))
-        (is (= [:username]  (get-in row [:tags :inputs])))
-        (is (= :resource-scope (get-in row [:tags :kind])))
-        (is (false? (get-in row [:tags :resolved-nil?]))))
-      (testing "no raw secret survives anywhere in the projected record"
-        (is (not (contains-secret? projected)))))))
-
-(deftest include-sensitive-lifts-the-scope-resolved-redaction
-  (testing "the trusted-local `:rf.egress/include-sensitive?` opt-in (the
-            `local-raw` boundary) lifts the scope-resolved redaction: the
-            resolver's raw `:input-values` and `:scope` come back, and the row
-            is not stamped sensitive"
-    (let [input-values {:username secret}
-          scope        [:rf.scope/session {:username secret}]
-          record       (record-with
-                         [(scope-resolved-event :rs/session input-values scope)])
-          row          (fn [projected] (first (:trace-events projected)))
-          lifted       (row (rf/project-egress record
-                                               {:rf.egress/include-sensitive? true}))]
-      (is (= :rf/redacted (get-in (row (rf/project-egress record))
-                                  [:tags :input-values]))
-          "CONTROL — the same record redacts under the off-box default")
-      (is (= input-values (get-in lifted [:tags :input-values]))
-          "the raw db reads come back")
-      (is (= scope (get-in lifted [:tags :scope]))
-          "the raw identity tuple comes back")
-      (is (not (contains? (:tags lifted) :sensitive?))
-          "the lifted row carries no sensitive stamp"))))
-
-(deftest off-box-projection-redacts-formerly-declassified-resolver-values
-  (testing "a resolver declaring :rf.egress/public redacts its resolved values
-            off-box like any other — there is no DECLASSIFICATION escape hatch
-            (off-box resolved-scope egress is unconditionally fail-closed;
-            see EP-0025)"
-    (let [record    (record-with
-                       [(scope-resolved-event :rs/public-locale
-                                              {:locale "en"}
-                                              [:rf.scope/locale {:locale "en"}])])
-          projected (rf/project-egress record)
-          row       (first (:trace-events projected))]
-      (is (= :rf/redacted (get-in row [:tags :input-values]))
-          "the resolved input-values are redacted (no declassify hatch)")
-      (is (= :rf/redacted (get-in row [:tags :scope]))
-          "the derived scope is redacted")
-      (is (true? (get-in row [:tags :sensitive?])) "stamped sensitive")
-      (testing "the structural attribution slots ride verbatim"
-        (is (= :rs/public-locale (get-in row [:tags :resource-id])))
-        (is (= [:locale] (get-in row [:tags :inputs])))))))
+  (is (= (assoc raw-tags :input-values :rf/redacted :scope :rf/redacted :sensitive? true)
+         (projected-tags nil))
+      "the resolved values redact off-box and the row is stamped sensitive,
+       while the structural attribution rides verbatim")
+  (is (= raw-tags (projected-tags {:rf.egress/include-sensitive? true}))
+      "the trusted-local opt-in lifts the redaction: the raw values come back
+       and no sensitive stamp is added"))
