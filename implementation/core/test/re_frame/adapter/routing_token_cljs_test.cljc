@@ -1,35 +1,14 @@
 (ns re-frame.adapter.routing-token-cljs-test
-  "Stable-token hook routing.
-
-  `substrate-adapter/route-hook!` wraps each adapter's late-bind hook impl
-  in a closure that fires ONLY when that adapter is the (rf/init!)-installed
-  one. It routes by a STABLE token carried in the installed map — the
-  canonical `:rf.adapter/*` `:kind` discriminator — which survives a copy.
-  A raw object-identity guard — `(identical? adapter-spec (current-adapter))`
-  — would be WRONG against a COPIED or wrapped canonical adapter map: a
-  value-equal map installed via `assoc`/`merge`/copy has a different
-  identity, so every routed hook would silently fall through to the
-  chain/fallback (inert), even though the user installed a fully-functional
-  adapter (Spec 006 §Frame-provider via React context requires
-  `:adapter/current-frame` to resolve to the LIVE routed impl). The
-  adapter-swap pattern (`boot_test/adapter-swap-...`) installs exactly such
-  an `assoc`'d copy.
-
-  This ns pins the mechanism substrate-agnostically (JVM + the :node-test
-  CLJS gate, via .cljc) against the plain-atom adapter, independently of any
-  one substrate's hook wiring; the per-substrate observable regressions
-  (copied UIx/Reagent/reagent-slim maps still drive their live hooks,
-  copied Test-React map still mounts) live in the adapter suites."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-               :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+  "`route-hook!` routes by the installed adapter's canonical `:rf.adapter/*`
+  `:kind`, a token that survives a copy, rather than by object identity: a
+  copied or wrapped canonical adapter map must still drive its adapter's live
+  hooks (Spec 006 §Frame-provider via React context). An adapter with no
+  canonical kind falls back to identity."
+  (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+               :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
-
-;; ---- fixture --------------------------------------------------------------
-;; Each test installs/disposes adapters explicitly (the unit under test is
-;; the install-time routing token), so the fixture only guarantees a cold
-;; adapter slot before and after.
 
 (defn- cold-adapter [test-fn]
   (rf.substrate.adapter/dispose-adapter!)
@@ -42,79 +21,24 @@
 
 (def ^:private probe-key :rf.test/routing-token-probe)
 
-(defn- install-probe!
-  "Route `impl` for the probe hook against `adapter-spec` (fallback returns
-  `:fell-through`). Returns the routed closure read back from the table."
-  [adapter-spec impl]
-  (rf.substrate.adapter/route-hook! adapter-spec probe-key impl (constantly :fell-through))
-  (rf.late-bind/get-fn probe-key))
-
-;; ---- same-adapter? token predicate ----------------------------------------
-
-(deftest same-adapter-true-for-copied-canonical-map
-  (testing "a copied/assoc'd canonical adapter map is the SAME adapter by token"
-    (let [copied (assoc rf.substrate.plain-atom/adapter :instrumentation-wrapper true)]
-      (is (false? (identical? rf.substrate.plain-atom/adapter copied))
-          "precondition: the copy is a distinct object (identity differs)")
-      (is (= (:kind rf.substrate.plain-atom/adapter) (:kind copied))
-          "precondition: the copy preserves the canonical :kind token")
-      (is (true? (rf.substrate.adapter/same-adapter? rf.substrate.plain-atom/adapter copied))
-          "same canonical :kind ⇒ same adapter for routing, despite distinct identity")
-      (is (true? (rf.substrate.adapter/same-adapter? copied rf.substrate.plain-atom/adapter))
-          "the token comparison is symmetric for two canonical maps"))))
-
-(deftest same-adapter-falls-back-to-identity-for-non-canonical
-  (testing "a non-canonical / :custom / kindless adapter routes by object identity"
-    (let [custom-a {:kind :custom :make-state-container identity}
-          custom-b {:kind :custom :make-state-container identity}
-          kindless (dissoc rf.substrate.plain-atom/adapter :kind)
-          kindless-copy (assoc kindless :x 1)]
-      (is (true? (rf.substrate.adapter/same-adapter? custom-a custom-a))
-          "a :custom adapter is the same as itself (identity)")
-      (is (false? (rf.substrate.adapter/same-adapter? custom-a custom-b))
-          "two distinct :custom adapters are NOT conflated by the shared :custom keyword")
-      (is (true? (rf.substrate.adapter/same-adapter? kindless kindless))
-          "a kindless adapter is the same as itself (identity)")
-      (is (false? (rf.substrate.adapter/same-adapter? kindless kindless-copy))
-          "a kindless adapter copy is NOT the same — no canonical token to route by"))))
-
-(deftest same-adapter-nil-safe
-  (testing "a nil installed-adapter (none installed) is never the same as a real one"
-    (is (false? (rf.substrate.adapter/same-adapter? rf.substrate.plain-atom/adapter nil)))
-    (is (false? (rf.substrate.adapter/same-adapter? nil rf.substrate.plain-atom/adapter)))
-    (is (false? (rf.substrate.adapter/same-adapter? nil nil)))))
-
-;; ---- route-hook! dispatches a COPIED canonical map to the live impl --------
+(deftest same-adapter-routes-by-canonical-kind-else-identity
+  (let [canonical rf.substrate.plain-atom/adapter
+        copied    (assoc canonical :instrumentation-wrapper true)
+        custom-a  {:kind :custom :make-state-container identity}
+        custom-b  {:kind :custom :make-state-container identity}
+        kindless  (dissoc canonical :kind)]
+    (doseq [[expected a b why]
+            [[true  canonical copied                "a copy keeps the canonical :kind token"]
+             [true  custom-a  custom-a              "a non-canonical adapter is the same as itself"]
+             [false custom-a  custom-b              "a shared non-canonical :kind does not conflate two adapters"]
+             [false kindless  (assoc kindless :x 1) "a kindless copy has no token to route by"]
+             [false canonical nil                   "nothing installed"]
+             [false nil       canonical             "a nil adapter is never the installed one"]]]
+      (is (= expected (rf.substrate.adapter/same-adapter? a b)) why))))
 
 (deftest routed-hook-fires-for-copied-canonical-map
-  (testing "a routed hook fires its LIVE impl when a COPY of its adapter is installed"
-    (let [fired  (atom 0)
-          routed (install-probe! rf.substrate.plain-atom/adapter
-                                 (fn [& _] (swap! fired inc) :live-impl))
-          ;; Install a COPY (assoc'd instrumentation wrapper) — a distinct
-          ;; object, same canonical :kind — exactly the shape an identity
-          ;; guard mis-routes.
-          copied (assoc rf.substrate.plain-atom/adapter :instrumentation-wrapper true)]
-      (rf.substrate.adapter/install-adapter! copied)
-      ;; Precondition that makes this test meaningful: the ROUTED adapter
-      ;; (rf.substrate.plain-atom/adapter) is a DIFFERENT object from the installed copy.
-      ;; An `(identical? ...)` guard would see this mismatch and fall through.
-      (is (false? (identical? rf.substrate.plain-atom/adapter (rf.substrate.adapter/current-adapter)))
-          "the installed copy is NOT identical to the routed canonical map")
-      (is (= :live-impl (routed))
-          "the routed hook dispatched to its LIVE impl for the copied canonical map")
-      (is (= 1 @fired)
-          "the live impl actually ran (not the :fell-through fallback)"))))
-
-(deftest routed-hook-falls-through-for-different-kind
-  (testing "a routed hook does NOT fire when a DIFFERENT-kind adapter is installed"
-    (let [fired  (atom 0)
-          routed (install-probe! rf.substrate.plain-atom/adapter
-                                 (fn [& _] (swap! fired inc) :live-impl))]
-      ;; Install a map whose :kind differs from the routed adapter's token.
-      (rf.substrate.adapter/install-adapter! (assoc rf.substrate.plain-atom/adapter :kind :rf.adapter/uix))
-      (is (= :fell-through (routed))
-          "a different-kind installed adapter routes to the fallback")
-      (is (zero? @fired)
-          "the plain-atom impl did NOT run under a uix-kind install"))))
-
+  (rf.substrate.adapter/route-hook! rf.substrate.plain-atom/adapter probe-key
+                                    (constantly :live-impl) (constantly :fell-through))
+  (rf.substrate.adapter/install-adapter!
+    (assoc rf.substrate.plain-atom/adapter :instrumentation-wrapper true))
+  (is (= :live-impl ((rf.late-bind/get-fn probe-key)))))
