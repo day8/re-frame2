@@ -3,8 +3,9 @@
   source-ordered `[fx-id args]` and run NO fx body. Interception sits at the
   single effect executor (`do-fx`), before any per-fx resolution, so it covers
   fx that an enumeration of the `:fx` registrar would miss: image-only inline
-  fx and the reserved fx whose real body core always runs. Each test carries a
-  positive control showing the body does run without the sink."
+  fx and the reserved fx whose real body core always runs. The image-only and
+  reserved-fx tests each carry a positive control showing the body does run
+  without the sink."
   (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.core                 :as rf]
