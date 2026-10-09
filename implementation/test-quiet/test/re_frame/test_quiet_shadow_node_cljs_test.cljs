@@ -10,148 +10,48 @@
   Contracts pinned:
 
    - `--test=` SELECTION: comma-split into symbols, simple symbols are
-     namespace selectors and qualified symbols are single-var
-     selectors; `--list` / `--help` flags; unknown args are COLLECTED by
-     the pure parser (into `:unknown-args`) and rejected as a fatal parse
-     error by `execute-cli`; the process-level pins below
-     prove that boundary.
+     namespace selectors and qualified symbols are single-var selectors.
+     Unknown args and unmatched selectors are fatal at the process
+     boundary, never a green run.
    - EXIT-CODE INTEGRITY: the `:end-run-tests` defmethod exits 0 on a
      green summary and 1 on a red one, and two safeguards stop a run
      draining to a false green — the red warning replay is wrapped so a
      throw cannot pre-empt the nonzero exit, and `execute-cli` seeds
      `process.exitCode = 1` so a run that never dispatches the defmethod
-     still fails.  All four are pinned at the REAL process boundary, the
-     two safeguards each through their own fault fixture.  None is pinned
-     in-process: a summary predicate is upstream `cljs.test`'s, and the
-     mere presence of a `[:cljs.test/default :end-run-tests]` method is
-     ClojureScript's own no-op — neither is evidence about this runner.
-   - console.warn CAPTURE COMPAT: the ns-load `console.warn` stub does
-     not break the local save/shim/restore capture pattern that
-     warning-assertion tests use — a shim installed over the stub still
-     records, and restore reverts to the stub.
-
-  Nested-run banner coverage is JVM-only. Those tests live in the JVM
-  `re-frame.test-quiet-runner-contract-test`, not here.  A nested
-  `cljs.test/run-tests` cannot be exercised in-process under this
-  runner: `run-tests` is block-based/async and unconditionally fires
-  `:end-run-tests`, which shadow-node overrides to `js/process.exit`
-  — a nested run would tear
-  down the node runner before the outer assertion. The implementation is shared
-  CLJC (the banner ns is derived from the failing var's metadata, not a
-  clobberable global cell), so the CLJS reporter benefits identically
-  for sequential runs; only the nesting test is JVM-scoped."
+     still fails. All four are pinned at the REAL process boundary, the
+     two safeguards each through their own fault fixture: invoking the
+     defmethod in-process would call `js/process.exit`.
+   - The buffered `console.warn` ring is bounded, and replayed in full on a
+     red run."
   ;; NB: must NOT require re-frame.test-quiet.shadow-node — that ns is
   ;; `:dev/always` and expands the test-ns-enumeration macro, so a test
   ;; requiring it forms a compile cycle. Pure CLI parsing lives in the
   ;; `-cli` ns; the console.warn stub it installs is live at runtime
   ;; anyway because shadow-node is the :node-test build's :main.
-  (:require [cljs.test :refer-macros [deftest is testing]]
+  (:require [cljs.test :refer-macros [deftest is]]
             [clojure.string :as str]
             [re-frame.test-quiet.shadow-node-cli :as rf.test-quiet.shadow-node-cli]
             [re-frame.test-quiet.warn-buffer :as rf.test-quiet.warn-buffer]))
 
 ;; ----------------------------------------------------------------------
-;; --test= selection / flag parsing.
+;; Pure helpers.
 
 (deftest parse-args-test-selection
-  (testing "--test= splits on comma into symbols"
-    (is (= {:test-syms '[my.ns]}
-           (rf.test-quiet.shadow-node-cli/parse-args ["--test=my.ns"]))
-        "a single simple symbol selects a whole namespace")
-    (is (= {:test-syms '[my.ns other.ns]}
-           (rf.test-quiet.shadow-node-cli/parse-args ["--test=my.ns,other.ns"]))
-        "comma-separated values become multiple symbols")
-    (is (= {:test-syms '[my.ns/a-test]}
-           (rf.test-quiet.shadow-node-cli/parse-args ["--test=my.ns/a-test"]))
-        "a qualified symbol selects a single var")
-    (is (= {:test-syms '[my.ns my.ns/a-test]}
-           (rf.test-quiet.shadow-node-cli/parse-args ["--test=my.ns,my.ns/a-test"]))
-        "ns and fqn selectors coexist")
-    (is (= {:test-syms '[a b c d]}
-           (rf.test-quiet.shadow-node-cli/parse-args ["--test=a,b" "--test=c,d"]))
-        "repeated --test= flags accumulate into one list")))
-
-(deftest parse-args-flags
-  (testing "--list and --help set their flags and default an empty test-syms"
-    (is (= {:test-syms [] :list true} (rf.test-quiet.shadow-node-cli/parse-args ["--list"])))
-    (is (= {:test-syms [] :help true} (rf.test-quiet.shadow-node-cli/parse-args ["--help"]))))
-  (testing "no args yields the run-all default (empty test-syms, no flags)"
-    (is (= {:test-syms []} (rf.test-quiet.shadow-node-cli/parse-args []))))
-  (testing "unknown args are collected (not printed); the pure parser does not abort"
-    ;; The pure parser must NOT print on an unknown arg — it collects
-    ;; them into `:unknown-args` and the real CLI path (`execute-cli`)
-    ;; reports them and exits nonzero, pinned at the process boundary below.
-    ;; Keeping the parser pure and silent is what keeps
-    ;; the green-run contract gate truly silent-on-success: a
-    ;; `(println \"Unknown arg: ...\")` here would leak a non-summary line
-    ;; into every consolidated `npm run test:cljs` run.
-    (is (= {:test-syms '[ok.ns] :unknown-args ["--bogus"]}
-           (rf.test-quiet.shadow-node-cli/parse-args ["--bogus" "--test=ok.ns"]))
-        "an unknown flag is collected; later valid flags still parse")
-    (is (= {:test-syms '[ok.ns] :unknown-args ["--bogus" "--nope"]}
-           (rf.test-quiet.shadow-node-cli/parse-args ["--bogus" "--test=ok.ns" "--nope"]))
-        "multiple unknown flags accumulate in input order")
-    (is (not (contains? (rf.test-quiet.shadow-node-cli/parse-args ["--test=ok.ns"]) :unknown-args))
-        "a clean arg set carries no :unknown-args key at all")))
-
-;; ----------------------------------------------------------------------
-;; Warning-ring entry-count and backing-vector bound.
-;;
-;; The buffered-`console.warn` ring retains the newest `warn-buffer-cap`
-;; calls. Individual arguments are not byte-bounded. A `subvec` in
-;; ClojureScript shares and retains its underlying
-;; vector via `.-v` (and `conj`-ing onto a `Subvec` grows that underlying
-;; vector), so the helper materialises the trimmed window into a fresh
-;; `PersistentVector`. This is a structural property (the backing must not be a growing
-;; `Subvec`), so it can only be pinned as a pure unit test — not across the
-;; process boundary the other shadow-node pins use.
+  ;; Dropping a repeated flag would silently run fewer tests.
+  (is (= {:test-syms '[a b c d]}
+         (rf.test-quiet.shadow-node-cli/parse-args ["--test=a,b" "--test=c,d"]))))
 
 (deftest warn-buffer-is-bounded-and-materialised
-  (testing "bound-conj retains only the newest cap entries as a fresh vector"
-    ;; Fill FAR past a tiny cap: the ring must report exactly `cap` entries,
-    ;; hold the NEWEST ones, and — the core pin — its backing must NOT be a
-    ;; Subvec (which would retain the full discarded history via its shared
-    ;; underlying vector).
-    (let [capacity 4
-          buffer   (reduce (fn [current-buffer entry]
-                             (rf.test-quiet.warn-buffer/bound-conj current-buffer [entry] capacity))
-                           []
-                           (range 1000))]
-      (is (= capacity (count buffer))
-          "the ring is bounded to cap entries no matter how many are appended")
-      (is (= [[996] [997] [998] [999]] buffer)
-          "the ring retains the NEWEST cap entries, dropping the oldest")
-      (is (not (instance? cljs.core/Subvec buffer))
-          (str "the trimmed ring must NOT be a Subvec — a Subvec shares and"
-               " retains its full underlying vector, so the bound would leak"
-               " every discarded warning until process exit"))
-      (is (instance? cljs.core/PersistentVector buffer)
-          "the trimmed ring is a materialised PersistentVector, not a view")))
-  (testing "below the cap the ring is a plain growing vector (no trim, no Subvec)"
-    (let [buffer (reduce (fn [current-buffer entry]
-                           (rf.test-quiet.warn-buffer/bound-conj current-buffer [entry] 10))
-                         []
-                         (range 3))]
-      (is (= [[0] [1] [2]] buffer))
-      (is (not (instance? cljs.core/Subvec buffer))
-          "an untrimmed ring is never a Subvec")))
-  (testing "under the REAL default cap the ring never exceeds warn-buffer-cap"
-    ;; Drive several multiples of the real cap through the real default arity
-    ;; so a regression that dropped the materialisation (or the cap) is caught
-    ;; against the production constant, not just a synthetic tiny cap.
-    (let [buffer (reduce (fn [current-buffer entry]
-                           (rf.test-quiet.warn-buffer/bound-conj current-buffer [entry]))
-                         []
-                         (range (* 4 rf.test-quiet.warn-buffer/warn-buffer-cap)))]
-      (is (= rf.test-quiet.warn-buffer/warn-buffer-cap (count buffer))
-          "the ring stays capped at the production warn-buffer-cap")
-      (is (not (instance? cljs.core/Subvec buffer))
-          "the production-cap ring must not degrade into a retaining Subvec"))))
-
-;; ----------------------------------------------------------------------
-;; Var filtering — simple symbols match by namespace, qualified by fully-qualified
-;; var name. Driven against synthetic var-like maps so the pin does not depend
-;; on the live test-data registry.
+  ;; A `subvec` shares and retains its whole underlying vector, so the trimmed
+  ;; ring must be a fresh PersistentVector or the bound would leak every
+  ;; discarded warning until process exit.
+  (let [cap    rf.test-quiet.warn-buffer/warn-buffer-cap
+        buffer (reduce (fn [current-buffer entry]
+                         (rf.test-quiet.warn-buffer/bound-conj current-buffer [entry]))
+                       []
+                       (range (* 4 cap)))]
+    (is (= (mapv vector (range (* 3 cap) (* 4 cap))) buffer))
+    (is (instance? cljs.core/PersistentVector buffer))))
 
 (defn- fake-var
   "A stand-in for a test var: `meta` returns namespace/name metadata, matching
@@ -160,274 +60,63 @@
   (with-meta (fn []) {:ns test-namespace :name test-name}))
 
 (deftest find-matching-test-vars-filtering
-  ;; This drives the SHIPPED selector. `shadow-node/find-matching-test-vars`
-  ;; is `cli/select-matching-test-vars` over the live `(env/get-test-vars)`
-  ;; registry, which cannot be injected here — so the registry lookup is the
-  ;; only part this cannot reach, and the RULE is exercised directly.
-  ;;
-  ;; A handwritten COPY of the predicate would be a false green by
-  ;; construction: production could stop matching qualified symbols entirely
-  ;; and the copy would stay green. `select-syms` below only RENDERS the
-  ;; returned vars as symbols; it makes no selection decision.
-  (let [test-vars   [(fake-var 'my.ns 'a-test)
-                     (fake-var 'my.ns 'b-test)
-                     (fake-var 'other.ns 'c-test)]
-        select-syms (fn [test-selectors]
-                      (->> (rf.test-quiet.shadow-node-cli/select-matching-test-vars test-selectors
-                                                          test-vars)
-                           (map (fn [test-var]
-                                  (let [{test-namespace :ns test-name :name}
-                                        (meta test-var)]
-                                    (symbol test-namespace test-name))))))]
-    (testing "a simple symbol selects every var in that namespace"
-      (is (= '[my.ns/a-test my.ns/b-test]
-             (select-syms '[my.ns]))))
-    (testing "a qualified symbol selects exactly that var"
-      (is (= '[my.ns/b-test]
-             (select-syms '[my.ns/b-test]))))
-    (testing "namespace + fully-qualified selectors combine"
-      (is (= '[my.ns/a-test my.ns/b-test other.ns/c-test]
-             (select-syms '[my.ns other.ns/c-test]))))
-    (testing "an unmatched selector yields nothing"
-      (is (= '[] (select-syms '[absent.ns]))))
-    (testing "no selectors select nothing (the whole-suite path, not this one)"
-      (is (= '[] (select-syms '[]))))
-    (testing "selection does not depend on HOW MANY selectors were given"
-      ;; Nine, because eight is where ClojureScript's set representation
-      ;; changes: up to eight entries a set is array-map-backed and finds a
-      ;; key by `=`, above that it hashes. A qualified selector is matched
-      ;; against a symbol rebuilt from a var's `{:ns :name}` METADATA, whose
-      ;; parts are symbols, not strings — `=` to the reader's `ns/name` but
-      ;; not hash-equal to it — so unless the selector rebuilds it through
-      ;; `str`, every qualified selector silently stops matching at the
-      ;; ninth. Only the shipped selector can show this; a copied predicate
-      ;; could not.
-      (let [many-vars (mapv #(fake-var 'many.ns (symbol (str "t" %))) (range 9))
-            many-syms (mapv #(symbol "many.ns" (str "t" %)) (range 9))]
-        (is (= many-syms
-               (mapv (fn [test-var]
-                       (let [{test-namespace :ns test-name :name} (meta test-var)]
-                         (symbol (str test-namespace) (str test-name))))
-                     (rf.test-quiet.shadow-node-cli/select-matching-test-vars many-syms many-vars)))
-            "nine qualified selectors must select all nine of their vars")))))
-
-;; ----------------------------------------------------------------------
-;; Unmatched-selector guard: a `--test=<selector>` that
-;; matches NO test var must be rejected, not reported as a 0-test SUCCESS.
-;;
-;; `run-test-vars` over an empty set reports a 0-test success. The runner
-;; must reject unmatched selectors before running.
-;;
-;; `cli/unmatched-selectors` is the pure decision `execute-cli` branches
-;; on — `(seq unmatched) -> exit 1`. It is pinned directly here (the
-;; runner ns is `:dev/always` and forms a compile cycle, so the guard
-;; lives in the pure `-cli` ns precisely so it can be unit-pinned). Vars
-;; are the same fake `{:ns :name}`-meta stand-ins `find-matching-test-vars`
-;; reads, so this pins the REAL guard against the REAL matched-var shape.
+  ;; Nine, because eight is where ClojureScript's set representation changes:
+  ;; up to eight entries a set finds a key by `=`, above that it hashes. A
+  ;; qualified selector is matched against a symbol rebuilt from a var's
+  ;; `{:ns :name}` METADATA, whose parts are symbols, `=` to the reader's
+  ;; `ns/name` but not hash-equal to it, so unless the selector rebuilds it
+  ;; through `str`, every qualified selector silently stops matching at the
+  ;; ninth.
+  (let [many-vars (mapv #(fake-var 'many.ns (symbol (str "t" %))) (range 9))
+        many-syms (mapv #(symbol "many.ns" (str "t" %)) (range 9))]
+    (is (= many-syms
+           (mapv (fn [test-var]
+                   (let [{test-namespace :ns test-name :name} (meta test-var)]
+                     (symbol (str test-namespace) (str test-name))))
+                 (rf.test-quiet.shadow-node-cli/select-matching-test-vars many-syms many-vars))))))
 
 (deftest unmatched-selectors-guard
-  (let [a-test    (fake-var 'my.ns 'a-test)
-        b-test    (fake-var 'my.ns 'b-test)
-        all-vars  [a-test b-test]]
-    (testing "a fully-matched selection has no unmatched selectors -> runs (no exit)"
-      ;; ns selector matches: my.ns has matched vars.
-      (is (= '() (rf.test-quiet.shadow-node-cli/unmatched-selectors '[my.ns] all-vars)))
-      ;; fqn selector matches: my.ns/a-test is in the matched set.
-      (is (= '() (rf.test-quiet.shadow-node-cli/unmatched-selectors '[my.ns/a-test] [a-test]))))
-    (testing "--test=missing.ns (absent namespace) is reported unmatched -> guard exits nonzero"
-      ;; A typo'd namespace produces a non-empty unmatched set, which the
-      ;; process-level branch rejects.
-      (let [unmatched (rf.test-quiet.shadow-node-cli/unmatched-selectors '[missing.ns] [])]
-        (is (= '[missing.ns] unmatched)
-            "an absent namespace selector matches nothing -> unmatched")
-        (is (seq unmatched)
-            "non-empty unmatched -> execute-cli takes the exit-1 branch, NOT run-test-vars")))
-    (testing "--test=missing.ns/a-test (absent var) is reported unmatched -> guard exits nonzero"
-      (let [unmatched (rf.test-quiet.shadow-node-cli/unmatched-selectors '[missing.ns/a-test] [])]
-        (is (= '[missing.ns/a-test] unmatched)
-            "an absent fully-qualified selector matches nothing -> unmatched")
-        (is (seq unmatched)
-            "non-empty unmatched -> execute-cli takes the exit-1 branch")))
-    (testing "a typo'd fqn against a present ns is STILL unmatched (the ns matching some vars does not cover a wrong var name)"
-      ;; my.ns exists and has vars, but my.ns/c-test does not — a qualified
-      ;; selector must match by FQN, not be rescued by its namespace having
-      ;; OTHER matched vars. This is the subtle false-green: the matched-var
-      ;; set is non-empty (a-test/b-test), but the SELECTOR matched nothing.
-      (is (= '[my.ns/c-test]
-             (rf.test-quiet.shadow-node-cli/unmatched-selectors '[my.ns/c-test] all-vars))
-          "a qualified selector for an absent var is unmatched even when its ns has other matches"))
-    (testing "a mix of matched + unmatched reports only the unmatched, in input order"
-      (is (= '[gone.ns missing.ns/x]
-             (rf.test-quiet.shadow-node-cli/unmatched-selectors '[my.ns gone.ns my.ns/a-test missing.ns/x]
-                                      [a-test]))
-          "matched selectors drop out; unmatched ones survive in order"))))
-
-;; ----------------------------------------------------------------------
-;; Whole-suite test-count floor — the pure half.
-;;
-;; `unmatched-selectors` above guards the `--test=` path. The whole-suite
-;; path has the same hazard for a different reason: shadow-cljs's
-;; `find-test-namespaces` returns `[]` when a build's `:ns-regexp` matches
-;; nothing, silently, and `run-all-tests` over an empty set reports a 0-test
-;; success. `parse-min-tests` resolves the floor that closes it.
-;;
-;; Only the resolution is pinned in-process. The real whole-suite floor is
-;; NOT driven through `spawn-runner`: a spawn with no `--test=` selector runs
-;; the entire build — including this namespace — so a regressed guard would
-;; recurse rather than fail cleanly. The lane-level proof (zero-test build
-;; reds, ordinary build passes) belongs to the gate run, not to a child of
-;; the suite it is gating.
+  ;; A matched namespace or var drops out; an absent namespace, an absent var,
+  ;; and a wrong var name in a namespace that has other matches all survive,
+  ;; in input order.
+  (is (= '[gone.ns my.ns/c-test missing.ns/x]
+         (rf.test-quiet.shadow-node-cli/unmatched-selectors
+           '[my.ns gone.ns my.ns/a-test my.ns/c-test missing.ns/x]
+           [(fake-var 'my.ns 'a-test) (fake-var 'my.ns 'b-test)]))))
 
 (deftest min-tests-floor-resolution
-  (testing "an unset or blank RF2_MIN_TESTS resolves to the default floor"
-    ;; Default 1, not 0: the bound that can never go stale, since no build
-    ;; legitimately ships zero tests.
-    (is (= 1 rf.test-quiet.shadow-node-cli/default-min-tests))
-    (is (= rf.test-quiet.shadow-node-cli/default-min-tests (rf.test-quiet.shadow-node-cli/parse-min-tests nil)))
-    (is (= rf.test-quiet.shadow-node-cli/default-min-tests (rf.test-quiet.shadow-node-cli/parse-min-tests "")))
-    (is (= rf.test-quiet.shadow-node-cli/default-min-tests (rf.test-quiet.shadow-node-cli/parse-min-tests "   "))))
-  (testing "a non-negative integer is honoured, with surrounding whitespace trimmed"
-    (is (= 0 (rf.test-quiet.shadow-node-cli/parse-min-tests "0")) "0 explicitly disables the floor")
-    (is (= 1 (rf.test-quiet.shadow-node-cli/parse-min-tests "1")))
-    (is (= 3000 (rf.test-quiet.shadow-node-cli/parse-min-tests "3000")))
-    (is (= 3000 (rf.test-quiet.shadow-node-cli/parse-min-tests " 3000 "))))
-  (testing "a malformed value is ::invalid, never a silent fall back to the default"
-    ;; The whole point of the gate is catching silent non-execution; a typo'd
-    ;; floor quietly disabling it would be the same bug in a new place.
-    (doseq [bad ["1O" "abc" "1.5" "-1" "1e3x" "٣"]]
-      (is (= :re-frame.test-quiet.shadow-node-cli/invalid
-             (rf.test-quiet.shadow-node-cli/parse-min-tests bad))
-          (str (pr-str bad) " must be rejected, not coerced")))))
+  ;; Unset or blank is the default floor of 1; a malformed value is invalid,
+  ;; never a silent fall back that would disable the gate.
+  (is (= [1 1 0 3000
+          :re-frame.test-quiet.shadow-node-cli/invalid
+          :re-frame.test-quiet.shadow-node-cli/invalid
+          :re-frame.test-quiet.shadow-node-cli/invalid]
+         (mapv rf.test-quiet.shadow-node-cli/parse-min-tests
+               [nil "   " "0" " 3000 " "1O" "-1" "1.5"]))))
 
 ;; ----------------------------------------------------------------------
-;; NO in-process failure-exit unit test lives here, deliberately.
-;;
-;; Such a test could only assert upstream `cljs.test/successful?`'s own
-;; behaviour, and that SOME method is registered for
-;; `[:cljs.test/default :end-run-tests]` — but ClojureScript itself defines a
-;; no-op method under exactly that key (cljs/test.cljs), so neither clause
-;; would say anything about this runner.  Invoking the real defmethod in-process
-;; is not an option either: it calls `js/process.exit`.
-;;
-;; The decision is pinned end-to-end instead, by the process rows below:
-;; a green focused run exits 0, a red one exits 1, and — because
-;; `execute-cli` seeds `process.exitCode = 1` before every run — a build that
-;; LOST the runner's defmethod and fell back to ClojureScript's no-op would
-;; drain to 1 and red `real-shadow-node-green-run-is-quiet`.  Ownership of
-;; the exit signal is therefore proven, not asserted.
-
-;; ----------------------------------------------------------------------
-;; console.warn stub compatibility — the ns-load stub must not break the
-;; local capture pattern warning-assertion tests rely on.
-
-(deftest console-warn-capture-compat
-  (testing "the save/shim/restore capture pattern round-trips over the live baseline"
-    ;; Under the real :node-test build, shadow-node is :main, so the live
-    ;; `console.warn` at this point IS its silencing stub.  Warning-assertion
-    ;; tests don't depend on WHICH baseline is installed — only that the
-    ;; save -> install-recording-shim -> run -> restore pattern records the
-    ;; body's warnings and reverts cleanly.  Pinning the round-trip (rather
-    ;; than `identical?`-ing against the stub, which would require coupling
-    ;; to shadow-node and re-form the compile cycle) is the contract that
-    ;; keeps those tests working whether or not the stub is in place.
-    (let [saved    (.-warn js/console)
-          recorded (atom [])]
-      (set! (.-warn js/console) (fn [& args] (swap! recorded conj (vec args))))
-      (try
-        (js/console.warn "captured-marker" 42)
-        (is (= [["captured-marker" 42]] @recorded)
-            "the recording shim receives the warning call unchanged")
-        (finally
-          (set! (.-warn js/console) saved)))
-      (is (identical? saved (.-warn js/console))
-          "restore reverts console.warn to exactly the saved baseline")
-      ;; After restore, the recording shim is gone: a further warning does
-      ;; not leak back into the capture atom.
-      (reset! recorded [])
-      (js/console.warn "post-restore-marker")
-      (is (= [] @recorded)
-          "after restore the recording shim no longer captures (clean revert)")))
-  (testing "the silencing stub — not native console.warn — is the live baseline (shadow-node is :main)"
-    ;; The stub carries a `rf-test-quiet-silenced` marker property (set in
-    ;; shadow-node at ns-load).  Native Node `console.warn` has no such
-    ;; property, so asserting the marker is present is positive proof the
-    ;; SILENCING stub is installed — not just that the call returns nil
-    ;; (native console.warn also returns undefined while still EMITTING the
-    ;; warning text).  This fails if a regression drops the stub and the
-    ;; runner falls back to native `console.warn`, which would let
-    ;; green-path warning noise through — the runner's core operational
-    ;; contract.
-    (is (true? (.-rf-test-quiet-silenced (.-warn js/console)))
-        (str "the live console.warn must be the identifiable silencing stub"
-             " (marker present) — a missing marker means native console.warn"
-             " is in place and green-path warnings would leak"))
-    ;; And it must still accept a bare call without throwing.
-    (is (nil? (js/console.warn "stub-smoke"))
-        "the silencing stub must accept a bare call without throwing")))
-
-;; ----------------------------------------------------------------------
-;; Process-level quiet shape.
-;;
-;; This test spawns the same built `out/node-test.js` shadow-node
-;; runner this very process is executing, focused on a known-GREEN suite
-;; (`re-frame.test-quiet-green-fixture-cljs-test`, two trivially passing
-;; tests),
-;; captures its stdout, and fails if any green line other than the
-;; allowed canonical summary appears. The `console.warn` stub itself is
-;; pinned separately above because this fixture deliberately emits no warning.
+;; Process-level rows. Each spawns the same built `out/node-test.js`
+;; shadow-node runner this process is executing, through the real
+;; `shadow-node/main` -> `parse-args` -> `execute-cli` path.
 
 (def ^:private node-child-process (js/require "child_process"))
 
-(def ^:private allowed-green-line-re
-  "A non-blank green stdout line must be one of the two canonical summary
-  lines.  `Ran N tests containing M assertions.` / `K failures, J errors.`"
-  #"^(Ran \d+ tests containing \d+ assertions\.|\d+ failures, \d+ errors\.)$")
-
 (def ^:private spawn-timeout-env-var
-  "Override for the spawn ceiling, in milliseconds.  A machine running
-  several worker checkouts at once needs a larger one than a quiet CI
-  runner; see `default-spawn-timeout-ms` for why the ceiling is a
-  wall-clock backstop rather than a performance assertion."
+  "Override for the spawn ceiling, in milliseconds."
   "RF2_SPAWN_TIMEOUT_MS")
 
 (def ^:private default-spawn-timeout-ms
-  "Hard ceiling for a spawned focused runner.
-
-  THIS IS A BACKSTOP, NOT A PERFORMANCE ASSERTION.  A correctly-exiting
-  child does NOT return in well under a second on this build.
-  `out/node-test.js` is a dev-mode loader: every spawn re-`require`s the
-  whole consolidated node-test output — measured on this tree at 4201
-  modules / 484 MB — so a perfectly healthy child costs
-
-    ~10-13 s   on an idle box
-    ~30-450 s  while sibling worker checkouts saturate the machine
-               (measured: 449 s, and the child still exited 0)
-
-  A 60 s ceiling would starve a HEALTHY child to death, and the resulting
-  failure is indistinguishable at a glance from a regression: spawnSync
-  reports ETIMEDOUT with both child streams empty, and the failure count
-  tracks box load on an unchanged tree.
-
-  A generous ceiling does NOT weaken the fail-fast contract: `spawnSync`
-  kills a child that outlives its `:timeout`, and every process-level row
-  asserts the spawn error is nil, so a killed child is RED.  This constant
-  only bounds how long a wedged child may stall the suite before that
-  happens.
-
-  WHY 600 s AND NOT SOMETHING TIGHTER.  The two errors are not symmetric.
-  Too tight costs a false RED on an honest change, which burns a 15-minute
-  suite and a human diagnosis every time it fires.  Too loose costs one
-  wedged child sitting for a few extra minutes before the mechanism above
-  ends it anyway.  On an unloaded CI runner a child costs ~10 s, so
-  this ceiling is never approached there and the choice is free; it is only
-  reachable on a developer box running several checkouts, which is exactly
-  the case that must not go red.  600 s is set above the slowest HEALTHY
-  child actually measured (449 s), not guessed."
+  "Hard ceiling for a spawned focused runner. It is a backstop, not a
+  performance assertion: every spawn re-loads the whole consolidated
+  node-test build, which takes seconds on an idle box and minutes on a
+  saturated one. A killed child is still RED, because every row asserts the
+  spawn error is nil, so the ceiling only bounds how long a wedged child
+  stalls the suite. 600 s sits above the slowest healthy child measured."
   600000)
 
 (defn- resolve-spawn-timeout-ms
-  "Parse the ceiling override.  A malformed value THROWS rather than
-  falling back: `RF2_SPAWN_TIMEOUT_MS=60O` (letter O) silently restoring a
+  "Parse the ceiling override. A malformed value THROWS rather than falling
+  back: `RF2_SPAWN_TIMEOUT_MS=60O` (letter O) silently restoring a
   starvation-prone ceiling would be this defect wearing a hat."
   [raw]
   (if (or (nil? raw) (str/blank? (str raw)))
@@ -444,70 +133,41 @@
   (resolve-spawn-timeout-ms (aget js/process.env spawn-timeout-env-var)))
 
 (def ^:private spawn-max-buffer-bytes
-  "Output cap for a spawned focused runner — `spawnSync` kills the child
-  and surfaces an ENOBUFS-class error once either stream exceeds this,
-  so a runaway child cannot exhaust this process's memory."
+  "Output cap for a spawned focused runner, so a runaway child cannot exhaust
+  this process's memory."
   (* 8 1024 1024))
 
 (defn- spawn-runner
-  "Re-spawn the SAME built `out/node-test.js` shadow-node runner this
-  process is executing, with `runner-args` (a CLJS vector of string args), and
-  return `{:status :stdout :stderr :error :signal :timed-out?}`.
-
-  `process.argv[1]` is the runner script path and `process.argv[0]` the
-  node binary, so this exercises the REAL `shadow-node/main` -> `parse-args`
-  -> `execute-cli` CLI path end-to-end across a process boundary — the only
-  way to observe the `js/process.exit` codes the false-green guards branch
-  on (calling `execute-cli` in-process would tear down this runner).
-
-  `cli-options` is an optional CLJS map:
-   - `:env` — extra environment entries (merged over the parent env) the
-     child runs with;
-  A shared `:timeout`/`:maxBuffer` policy is applied to EVERY spawn so a
-  wedged or runaway child fails fast with a diagnostic rather than
-  stranding the suite. `:timed-out?` is derived from a SIGTERM result; callers
-  inspect `:error` to distinguish timeout and output-buffer failures."
+  "Re-spawn the built runner with `runner-args` and optional `:env` entries
+  merged over the parent env; return `{:status :stdout :stderr :error}`.
+  `:error` carries a spawn failure (ENOENT, ETIMEDOUT, ENOBUFS)."
   ([runner-args] (spawn-runner runner-args {}))
   ([runner-args {:keys [env]}]
-   (let [runner-script (aget js/process.argv 1)
-         child-environment (when env
-                     (let [merged-environment
-                           (js/Object.assign #js {} js/process.env)]
-                       (doseq [[environment-name environment-value] env]
-                         (aset merged-environment
-                               (name environment-name)
-                               environment-value))
-                       merged-environment))
+   (let [child-environment (when env
+                             (let [merged-environment
+                                   (js/Object.assign #js {} js/process.env)]
+                               (doseq [[environment-name environment-value] env]
+                                 (aset merged-environment
+                                       (name environment-name)
+                                       environment-value))
+                               merged-environment))
          spawn-result (.spawnSync node-child-process
                                   (aget js/process.argv 0) ; the node binary
-                                  (apply array runner-script runner-args)
+                                  (apply array (aget js/process.argv 1) runner-args)
                                   (cond-> #js {:encoding  "utf8"
                                                :timeout   spawn-timeout-ms
                                                :maxBuffer spawn-max-buffer-bytes}
                                     child-environment
-                                    (doto (aset "env" child-environment))))
-         signal (.-signal spawn-result)]
-     {:status     (.-status spawn-result)
-      :stdout     (or (.-stdout spawn-result) "")
-      :stderr     (or (.-stderr spawn-result) "")
-      ;; cljs.test spawn errors (e.g. ENOENT, ETIMEDOUT, ENOBUFS) surface
-      ;; on spawn-result.error.
-      :error      (.-error spawn-result)
-      :signal     signal
-       ;; A timeout normally yields SIGTERM. This flag is intentionally only
-       ;; a signal shorthand; `:error` carries the precise spawn failure.
-      :timed-out? (= signal "SIGTERM")})))
+                                    (doto (aset "env" child-environment))))]
+     {:status (.-status spawn-result)
+      :stdout (or (.-stdout spawn-result) "")
+      :stderr (or (.-stderr spawn-result) "")
+      :error  (.-error spawn-result)})))
 
 (defn- spawn-error-explanation
-  "Message for the `(is (nil? err) ...)` pin every process-level test makes.
-
-  A spawn killed at the ceiling is STILL A FAILURE — a run whose child never
-  started has verified nothing, and downgrading it to a skip would be a
-  fail-open gate.  But it is a failure of the BOX, not of the diff under
-  test, and a bare `spawnSync ... ETIMEDOUT` gives a reader nothing to
-  tell those apart: both child streams are empty, so it reads exactly like
-  a runner that produced no output.  So the ETIMEDOUT case names the
-  ceiling, the knob that moves it, and what the child was actually doing."
+  "Message for the `(is (nil? err) ...)` pin every process-level row makes.
+  A spawn killed at the ceiling is still a failure, but of the box rather than
+  the diff, so the ETIMEDOUT case names the ceiling and the knob that moves it."
   [err]
   (str "spawning the real runner must not error; got: " (pr-str err)
        (when (and (some? err) (= "ETIMEDOUT" (.-code err)))
@@ -522,364 +182,112 @@
               "\n  " spawn-timeout-env-var "=<ms>.  A child that never ran"
               " cannot verify the contract, so this stays RED either way."))))
 
+(defn- non-blank-lines [s]
+  (->> (str/split-lines s) (map str/trim) (remove str/blank?)))
+
+(def ^:private green-fixture-ns "re-frame.test-quiet-green-fixture-cljs-test")
+
 (deftest real-shadow-node-green-run-is-quiet
-  (testing "the real out/node-test.js entry point emits only the canonical summary on green"
-    ;; Re-running the runner focused on the green fixture exercises the real
-    ;; CLI path end-to-end.
-    (let [green-ns "re-frame.test-quiet-green-fixture-cljs-test"
-          {status :status stdout :stdout stderr :stderr err :error}
-          (spawn-runner [(str "--test=" green-ns)])]
-      (is (nil? err)
-          (spawn-error-explanation err))
-      (is (zero? status)
-          (str "the focused green run must exit 0; got " status
-               "\n--- stdout ---\n" stdout "\n--- stderr ---\n" stderr))
-      (let [non-blank (->> (str/split-lines stdout)
-                           (map str/trim)
-                           (remove str/blank?))]
-        ;; No non-summary stdout line is allowed.
-        (is (every? #(re-matches allowed-green-line-re %) non-blank)
-            (str "a green run must emit ONLY the canonical summary lines —"
-                 " any other stdout line (e.g. `Unknown arg`, a `Testing`"
-                 " banner, a leaked warning) breaks silent-on-success"
-                 ". Got non-blank lines:\n"
-                 (str/join "\n" non-blank)))
-        (is (not (str/includes? stdout "Unknown arg"))
-            (str "`Unknown arg` must never reach a green run's stdout; got:\n"
-                 stdout))
-        (is (not (str/includes? stdout "Testing "))
-            (str "no per-ns banner may leak on green; got:\n" stdout))
-        ;; The fixture ns holds exactly TWO test vars, so `Ran 2` is also the
-        ;; end-to-end proof that a SIMPLE symbol selects EVERY var in the
-        ;; namespace — `Ran 1` would mean the namespace branch selected only
-        ;; one. Its qualified-symbol sibling is the row below.
-        (is (some #(str/starts-with? % "Ran 2 tests") non-blank)
-            (str "the namespace selector must run BOTH vars in the fixture"
-                 " ns, and the `Ran ...` summary must still be present;"
-                 " got:\n" stdout))
-        (is (some #(re-matches #"0 failures, 0 errors\." %) non-blank)
-            (str "the green tally line must be present; got:\n" stdout))))))
+  ;; The green fixture holds exactly two vars, so `Ran 2` also proves a simple
+  ;; symbol selects EVERY var in its namespace; its qualified sibling is the
+  ;; row below.
+  (let [{:keys [status stdout stderr error]} (spawn-runner [(str "--test=" green-fixture-ns)])]
+    (is (nil? error) (spawn-error-explanation error))
+    (is (zero? status) (str stdout stderr))
+    (is (= ["Ran 2 tests containing 2 assertions." "0 failures, 0 errors."]
+           (non-blank-lines stdout))
+        "a green run emits only the canonical summary")))
 
 (deftest real-shadow-node-qualified-selector-runs-exactly-that-var
-  (testing "--test=<ns>/<var> runs exactly that var, not its whole namespace"
-    ;; The shipped selector's QUALIFIED-symbol branch, end to end.
-    ;; `--test=<ns>/<var>` is a documented CLI form (`--help` names it), and
-    ;; every other spawn here selects a namespace or nothing, so this row is
-    ;; its only process-level proof.  Paired with the `Ran 2` pin
-    ;; above — same fixture ns, two vars — the two rows discriminate the two
-    ;; branches: a runner treating a qualified symbol as a namespace selector
-    ;; runs both HERE, one that dropped the namespace branch runs one THERE.
-    (let [{status :status stdout :stdout stderr :stderr err :error}
-          (spawn-runner
-            ["--test=re-frame.test-quiet-green-fixture-cljs-test/a-passing-test"])]
-      (is (nil? err)
-          (spawn-error-explanation err))
-      (is (zero? status)
-          (str "a valid qualified selector must run and exit 0; got " status
-               "\n--- stdout ---\n" stdout "\n--- stderr ---\n" stderr))
-      (let [non-blank (->> (str/split-lines stdout)
-                           (map str/trim)
-                           (remove str/blank?))]
-        (is (some #(str/starts-with? % "Ran 1 tests") non-blank)
-            (str "exactly ONE var must run — `Ran 2` means the qualified"
-                 " selector was treated as a namespace selector; got:\n"
-                 stdout))
-        (is (some #(re-matches #"0 failures, 0 errors\." %) non-blank)
-            (str "the selected var passes; got:\n" stdout))))))
-
-;; ----------------------------------------------------------------------
-;; Process-level unknown-arg false-green guard.
-;;
-;; `parse-args` collects unknown args, and `execute-cli` must reject them
-;; before falling through to `run-all-tests`. These tests exercise the real
-;; process boundary where the exit code is observable.
+  ;; `Ran 2` here would mean the qualified selector was treated as a namespace
+  ;; selector.
+  (let [{:keys [status stdout stderr error]}
+        (spawn-runner [(str "--test=" green-fixture-ns "/a-passing-test")])]
+    (is (nil? error) (spawn-error-explanation error))
+    (is (zero? status) (str stdout stderr))
+    (is (= ["Ran 1 tests containing 1 assertions." "0 failures, 0 errors."]
+           (non-blank-lines stdout)))))
 
 (deftest unknown-arg-is-fatal-not-false-green
-  (testing "a misspelled selector flag is fatal, not a green full-suite run"
-    ;; `--tests=` (note the typo'd plural) is an unknown arg, not the
-    ;; `--test=` selector and must exit nonzero without running tests.
-    (let [{status :status stdout :stdout stderr :stderr err :error}
-          (spawn-runner ["--tests=re-frame.test-quiet-green-fixture-cljs-test"])]
-      (is (nil? err)
-          (spawn-error-explanation err))
-      (is (and (number? status) (not (zero? status)))
-          (str "a misspelled selector flag must exit NONZERO (not fall"
-               " through to a green full-suite run); got status " status
-               "\n--- stdout ---\n" stdout "\n--- stderr ---\n" stderr))
-      (is (str/includes? stdout "Unknown arg: --tests=re-frame.test-quiet-green-fixture-cljs-test")
-          (str "the offending unknown arg must be named; got:\n" stdout))
-      ;; It must NOT have run the suite: no canonical summary line.
-      (is (not (str/includes? stdout "Ran "))
-          (str "the suite must NOT have run on an unknown-arg parse error —"
-               " a `Ran ...` summary means it fell through to run-all-tests"
-               " (the false green); got:\n" stdout))))
-  (testing "space-separated --test and selector tokens are fatal unknown args"
-    ;; The plausible space-separated form: `--test` and `missing.ns` are
-    ;; BOTH unknown args (the parser only recognises the `--test=` glued
-    ;; form), so no selector survives.
-    (let [{status :status stdout :stdout stderr :stderr err :error}
-          (spawn-runner ["--test" "missing.ns"])]
-      (is (nil? err)
-          (spawn-error-explanation err))
-      (is (and (number? status) (not (zero? status)))
-          (str "space-separated --test <selector> must exit NONZERO; got "
-               status "\n--- stdout ---\n" stdout "\n--- stderr ---\n" stderr))
-      (is (and (str/includes? stdout "Unknown arg: --test")
-               (str/includes? stdout "Unknown arg: missing.ns"))
-          (str "both unknown tokens must be named; got:\n" stdout))
-      (is (not (str/includes? stdout "Ran "))
-          (str "the suite must NOT have run; a `Ran ...` summary means the"
-               " false-green fall-through to run-all-tests; got:\n" stdout))))
-  ;; NO clean-focused-invocation control here, deliberately. It would spawn
-  ;; the exact `--test=re-frame.test-quiet-green-fixture-cljs-test`
-  ;; invocation `real-shadow-node-green-run-is-quiet` above already spawns,
-  ;; and assert a strict subset of that row's pins — no spawn error, exit 0,
-  ;; no `Unknown arg` — for the price of another whole-bundle child start.
-  ;; That row IS the positive control that valid args are not rejected.
-  )
+  ;; `--tests=` (a typo'd plural) is an unknown arg, not the `--test=`
+  ;; selector, and must not fall through to a green whole-suite run.
+  (let [{:keys [status stdout stderr error]}
+        (spawn-runner [(str "--tests=" green-fixture-ns)])]
+    (is (nil? error) (spawn-error-explanation error))
+    (is (= 1 status) (str stdout stderr))
+    (is (str/includes? stdout (str "Unknown arg: --tests=" green-fixture-ns)) stdout)))
 
 (deftest unmatched-selector-is-fatal-at-real-runner
-  (testing "a parsed but unmatched selector exits nonzero at the real runner"
-    ;; This drives the guard across the process boundary: a well-formed
-    ;; `--test=` selector that matches no
-    ;; test var must print the ERROR + exit NONZERO, never a 0-test green.
-    (let [{status :status stdout :stdout stderr :stderr err :error}
-          (spawn-runner ["--test=definitely.absent.namespace"])]
-      (is (nil? err)
-          (spawn-error-explanation err))
-      (is (and (number? status) (not (zero? status)))
-          (str "an unmatched --test= selector must exit NONZERO (not a"
-               " 0-test green); got status " status
-               "\n--- stdout ---\n" stdout "\n--- stderr ---\n" stderr))
-      (is (str/includes? stdout "no tests matched --test= selector")
-          (str "the unmatched-selector ERROR must reach stdout; got:\n" stdout))
-      (is (str/includes? stdout "definitely.absent.namespace")
-          (str "the offending selector must be named; got:\n" stdout))
-      (is (not (str/includes? stdout "Ran "))
-          (str "no suite may have run; a `Ran ...` summary is the false"
-               " green; got:\n" stdout)))))
+  ;; A well-formed selector that matches no test var must not be a 0-test
+  ;; green.
+  (let [{:keys [status stdout stderr error]}
+        (spawn-runner ["--test=definitely.absent.namespace"])]
+    (is (nil? error) (spawn-error-explanation error))
+    (is (= 1 status) (str stdout stderr))
+    (is (str/includes? stdout "no tests matched --test= selector(s): definitely.absent.namespace")
+        stdout)))
 
-;; ----------------------------------------------------------------------
-;; console.warn buffer red replay.
-;;
-;; The shadow-node `console.warn` stub buffers warnings in a bounded ring.
-;; The `:end-run-tests` reporter replays the buffer to stderr only on a red
-;; run, restoring the diagnostic context a failing CLJS run needs.  This
-;; can only be observed across a process boundary (the replay fires just
-;; before `js/process.exit`).  We drive the REAL runner against
-;; `re-frame.test-quiet-red-warn-fixture-cljs-test`, whose warn-then-fail
-;; behaviour is gated on `RF2_TQ_RED_WARN_FIXTURE=1` (so the whole-suite
-;; run stays green): with the env var set the fixture warns + fails, and
-;; the buffered warning must surface in the red output; with it UNSET the
-;; same fixture is green and emits no warning.
-;;
-;; This row is ALSO the ordinary printed-failure/exit-status agreement pin: a
-;; red run prints its `FAIL in` block and must exit nonzero, and the unarmed
-;; control proves the exit tracks the real result rather than always being
-;; nonzero.
+;; The red-warn fixture warns and fails only when armed by an environment
+;; variable, so the whole-suite run stays green.
+(def ^:private red-warn-fixture-ns "re-frame.test-quiet-red-warn-fixture-cljs-test")
 
 (deftest red-run-replays-warnings-and-exits-nonzero
-  (testing "a red run replays the buffered console.warn diagnostic"
-    (let [red-ns "re-frame.test-quiet-red-warn-fixture-cljs-test"
-          {status :status stdout :stdout stderr :stderr err :error
-           timed-out? :timed-out?}
-          (spawn-runner [(str "--test=" red-ns)]
-                        {:env {:RF2_TQ_RED_WARN_FIXTURE "1"}})]
-      (is (nil? err)
-          (spawn-error-explanation err))
-      (is (not timed-out?)
-          "the armed fixture run must not time out")
-      (is (and (number? status) (not (zero? status)))
-          (str "the armed fixture is RED; must exit NONZERO; got " status
-               "\n--- stdout ---\n" stdout "\n--- stderr ---\n" stderr))
-      ;; The CORE pin: the warning the green-path stub withholds is
-      ;; replayed on red, so its marker text must appear in the combined
-      ;; output (the replay targets stderr).
-      (is (str/includes? (str stdout stderr) "RED-WARN-FIXTURE-MARKER")
-          (str "the buffered console.warn must be replayed on a RED run"
-               "; got\n--- stdout ---\n" stdout
-               "\n--- stderr ---\n" stderr))
-      (is (str/includes? (str stdout stderr) "[test-quiet] console.warn:")
-          (str "the replay must label the buffered warnings; got\n"
-               "--- stderr ---\n" stderr))
-      ;; It genuinely RAN — a nonzero exit with no run is a different failure.
-      (is (str/includes? stdout "Ran ")
-          (str "the suite must have actually run (a `Ran ...` summary);"
-               " got:\n" stdout))
-      ;; …and the failure was PRINTED: the printed symptom and the exit code
-      ;; must never disagree, which is the local-green-not-CI-red trap.
-      (is (str/includes? stdout "FAIL in")
-          (str "the FAIL block must reach stdout AND the exit must be"
-               " nonzero — the two must never disagree; got:\n" stdout))))
-  (testing "the SAME fixture is GREEN + quiet when unarmed (negative control)"
-    ;; Without the env arming flag the fixture passes and emits no
-    ;; warning, so the green-path quiet contract holds and the marker is
-    ;; ABSENT from stdout — proving the warning is genuinely withheld on
-    ;; green, not merely always printed.
-    (let [red-ns "re-frame.test-quiet-red-warn-fixture-cljs-test"
-          {status :status stdout :stdout stderr :stderr err :error}
-          (spawn-runner [(str "--test=" red-ns)])]
-      (is (nil? err)
-          (spawn-error-explanation err))
-      (is (zero? status)
-          (str "the unarmed fixture is GREEN; must exit 0; got " status
-               "\n--- stdout ---\n" stdout "\n--- stderr ---\n" stderr))
-      (is (not (str/includes? stdout "RED-WARN-FIXTURE-MARKER"))
-          (str "an unarmed (green) run must NOT emit the warning marker on"
-               " stdout — green stays quiet; got:\n" stdout))
-      (is (not (str/includes? stdout "FAIL in"))
-          (str "the unarmed fixture prints no failure — the nonzero exit"
-               " above tracks the REAL result; got:\n" stdout))
-      (let [non-blank (->> (str/split-lines stdout)
-                           (map str/trim)
-                           (remove str/blank?))]
-        (is (every? #(re-matches allowed-green-line-re %) non-blank)
-            (str "a green run must emit ONLY the canonical summary lines;"
-                 " got:\n" (str/join "\n" non-blank)))))))
-
-;; ----------------------------------------------------------------------
-;; Large red replay is not truncated by js/process.exit.
-;;
-;; The red-replay writes to fd 2 synchronously (`fs.writeSync`), NOT the
-;; async `js/process.stderr.write`, so `js/process.exit 1` fired immediately
-;; after it cannot drop the tail. On POSIX a pipe-backed `process.stderr` is
-;; async and `process.exit` forces exit with pending writes still queued, so a
-;; large replay (near `warn-buffer-cap` = 256 arbitrarily-sized entries) could
-;; be truncated before it reached captured CI output — the exit code stays
-;; correct (never a false green) but the tail of the diagnostic context is
-;; lost. This drives the REAL runner across a process boundary against the
-;; ring-cap-filling volume fixture and asserts the NEWEST warning (replayed
-;; LAST — the exact byte range an async write would drop) survives to the
-;; output.
-;; Synchronous fd writes make the guarantee independent of whether Node's
-;; stderr stream is synchronous for the current host and destination.
+  ;; The warning the green-path stub withholds is replayed to stderr on red,
+  ;; and the printed failure and the exit code agree.
+  (let [{:keys [status stdout stderr error]}
+        (spawn-runner [(str "--test=" red-warn-fixture-ns)]
+                      {:env {:RF2_TQ_RED_WARN_FIXTURE "1"}})]
+    (is (nil? error) (spawn-error-explanation error))
+    (is (= 1 status) (str stdout stderr))
+    (is (str/includes? stderr "[test-quiet] console.warn: RED-WARN-FIXTURE-MARKER") stderr)
+    (is (str/includes? stdout "FAIL in") stdout)))
 
 (deftest large-red-replay-is-not-truncated
-  (testing "a red replay that fills the ring with large warnings keeps its tail"
-    (let [red-ns "re-frame.test-quiet-red-warn-fixture-cljs-test"
-          {status :status stdout :stdout stderr :stderr err :error
-           timed-out? :timed-out?}
-          (spawn-runner [(str "--test=" red-ns)]
-                        {:env {:RF2_TQ_RED_REPLAY_VOLUME "1"}})
-          combined (str stdout stderr)]
-      (is (nil? err)
-          (spawn-error-explanation err))
-      (is (not timed-out?)
-          "the armed volume fixture run must not time out")
-      (is (and (number? status) (not (zero? status)))
-          (str "the armed volume fixture is RED; must exit NONZERO; got " status
-               "\n--- stdout ---\n" stdout "\n--- stderr ---\n" stderr))
-      ;; The head of the large replay is present (the replay genuinely ran and
-      ;; was large — not a trivially-short buffer that would fit a pipe anyway).
-      (is (str/includes? combined "RED-REPLAY-VOLUME-0")
-          (str "the HEAD of the large replay must be present; got\n"
-               "--- stderr ---\n" stderr))
-      ;; The CORE pin: the NEWEST warning — replayed LAST — is the exact tail
-      ;; that an async `process.stderr` + `process.exit` truncation would drop.
-      ;; Its presence proves the synchronous `fs.writeSync` replay is not
-      ;; truncated.
-      (is (str/includes? combined "RED-REPLAY-TAIL-MARKER")
-          (str "the TAIL of a large red replay must NOT be truncated by"
-               " js/process.exit — fs.writeSync makes the write synchronous"
-               "; got\n--- stdout ---\n" stdout
-               "\n--- stderr ---\n" stderr)))))
+  ;; The replay writes to fd 2 synchronously, so `js/process.exit 1` right
+  ;; after it cannot drop the tail of a ring filled with large warnings: the
+  ;; newest warning, replayed LAST, is the byte range an async write would
+  ;; lose.
+  (let [{:keys [stdout stderr error]}
+        (spawn-runner [(str "--test=" red-warn-fixture-ns)]
+                      {:env {:RF2_TQ_RED_REPLAY_VOLUME "1"}})
+        combined (str stdout stderr)]
+    (is (nil? error) (spawn-error-explanation error))
+    (is (str/includes? combined "RED-REPLAY-VOLUME-0") "the head of the large replay")
+    (is (str/includes? combined "RED-REPLAY-TAIL-MARKER") "the tail of the large replay")))
 
 ;; ----------------------------------------------------------------------
-;; Exit-code integrity: the two safeguards, one fault fixture each.
-;;
-;; `shadow-node`'s `:end-run-tests` defmethod is the only thing that turns a
-;; red cljs.test summary into a nonzero node exit, and it carries two
-;; safeguards against a run draining to a false green: the red warning replay
-;; is wrapped so a throw cannot pre-empt `js/process.exit 1`, and
-;; `execute-cli` seeds `process.exitCode = 1` before running so a run that
-;; never dispatches the defmethod still fails.
-;;
-;; An ORDINARY red or green run traverses NEITHER — both exit correctly
-;; without either safeguard, so deleting either one would leave every
-;; ordinary row green. Each
-;; safeguard therefore gets a run that ENTERS its own failure mode, driven
-;; against `re-frame.test-quiet-exit-integrity-fixture-cljs-test`, and each
-;; fixture emits a reached-state marker: a nonzero child status by itself is
-;; also what a spawn error, a timeout, a parse error, a skipped suite or an
-;; unrelated uncaught exception look like, and none of those may satisfy
-;; these rows.
+;; Exit-code integrity: the two safeguards, one fault fixture each. An
+;; ordinary red or green run traverses neither, so each fixture enters its
+;; own failure mode and emits a reached-state marker: a nonzero status alone
+;; is also what a spawn error, a parse error or an unrelated crash look like.
 
 (def ^:private exit-integrity-fixture-ns
   "re-frame.test-quiet-exit-integrity-fixture-cljs-test")
 
 (deftest red-replay-throw-cannot-mask-the-nonzero-exit
-  (testing "a red run whose warning replay THROWS still exits 1, quietly"
-    (let [{status :status stdout :stdout stderr :stderr err :error
-           timed-out? :timed-out?}
-          (spawn-runner [(str "--test=" exit-integrity-fixture-ns)]
-                        {:env {:RF2_TQ_REPLAY_THROW_FIXTURE "1"}})
-          combined (str stdout stderr)]
-      (is (nil? err)
-          (spawn-error-explanation err))
-      (is (not timed-out?)
-          "the armed replay-throw fixture run must not time out")
-      ;; A GENUINE counted failure was reached — not a parse error, not a
-      ;; skipped suite, not a namespace that failed to load.
-      (is (str/includes? stdout "Ran ")
-          (str "the suite must have actually run; got:\n" stdout))
-      (is (str/includes? stdout "FAIL in")
-          (str "a genuine counted failure must have been reached — without"
-               " one the red replay never fires at all; got:\n" stdout))
-      ;; The replay was ENTERED: its header is written before the poison.
-      (is (str/includes? combined
-                         "console.warn message(s) buffered during this run")
-          (str "the red replay must have been entered; got\n"
-               "--- stderr ---\n" stderr))
-      ;; …and ABORTED part-way: the marker buffered AFTER the poison, which a
-      ;; completed replay would print, never arrives.
-      (is (not (str/includes? combined "EXIT-INTEGRITY-REPLAY-TAIL-MARKER"))
-          (str "the replay must have THROWN part-way — the warning buffered"
-               " after the poisoned one must not have been replayed; got\n"
-               "--- stderr ---\n" stderr))
-      ;; The CORE pin. Note that STATUS alone cannot discriminate: with the
-      ;; try/catch removed the same exception escapes, node prints it and
-      ;; exits 1 too. What discriminates is that the exception was SWALLOWED
-      ;; — its message never reaches the output — so the exit is the
-      ;; deliberate `js/process.exit 1`, not a crash that happened to agree.
-      (is (= 1 status)
-          (str "a red run whose replay throws must still exit 1; got " status
-               "\n--- stdout ---\n" stdout "\n--- stderr ---\n" stderr))
-      (is (not (str/includes? combined "EXIT-INTEGRITY-REPLAY-POISON"))
-          (str "the replay exception must be swallowed by the guard, never"
-               " surfaced as an uncaught runner crash; got\n"
-               "--- stdout ---\n" stdout "\n--- stderr ---\n" stderr)))))
+  ;; Status alone cannot discriminate: without the guard the same exception
+  ;; escapes and node exits 1 too. What discriminates is that the exception
+  ;; was SWALLOWED, its message never reaching the output.
+  (let [{:keys [status stdout stderr error]}
+        (spawn-runner [(str "--test=" exit-integrity-fixture-ns)]
+                      {:env {:RF2_TQ_REPLAY_THROW_FIXTURE "1"}})
+        combined (str stdout stderr)]
+    (is (nil? error) (spawn-error-explanation error))
+    (is (= 1 status) combined)
+    (is (str/includes? combined "console.warn message(s) buffered during this run")
+        "the red replay was entered")
+    (is (not (str/includes? combined "EXIT-INTEGRITY-REPLAY-TAIL-MARKER"))
+        "the replay threw part-way")
+    (is (not (str/includes? combined "EXIT-INTEGRITY-REPLAY-POISON"))
+        "the replay exception was swallowed, not surfaced as a crash")))
 
 (deftest run-that-never-dispatches-the-exit-defmethod-drains-nonzero
-  (testing "a GREEN run whose exit defmethod is a no-op drains on the seed"
-    (let [{status :status stdout :stdout stderr :stderr err :error
-           timed-out? :timed-out?}
-          (spawn-runner [(str "--test=" exit-integrity-fixture-ns)]
-                        {:env {:RF2_TQ_NO_EXIT_DISPATCH_FIXTURE "1"}})]
-      (is (nil? err)
-          (spawn-error-explanation err))
-      (is (not timed-out?)
-          "a run draining on the seeded exit code must not hang")
-      ;; The fixture reached the state under test. Without this marker a
-      ;; nonzero status proves nothing about the seed.
-      (is (str/includes? stdout "EXIT-INTEGRITY-NO-EXIT-DISPATCH-INSTALLED")
-          (str "the fixture must have replaced the exit defmethod; got:\n"
-               stdout))
-      ;; The suite RAN and was GREEN, so nothing but the seed is left to
-      ;; explain a nonzero status: no parse error, no failure, no crash.
-      (is (str/includes? stdout "Ran ")
-          (str "the suite must have actually run; got:\n" stdout))
-      (is (str/includes? stdout "0 failures, 0 errors.")
-          (str "the run must be GREEN — a real failure would explain the"
-               " nonzero exit without the seed; got:\n" stdout))
-      (is (not (str/includes? stdout "Unknown arg"))
-          (str "no parse error may explain the exit; got:\n" stdout))
-      (is (not (str/includes? stdout "no tests matched"))
-          (str "no unmatched selector may explain the exit; got:\n" stdout))
-      ;; The CORE pin: exit 1 out of `process.exitCode`, drained after a green
-      ;; run that never called `js/process.exit`. Without `seed-failure-exit!`
-      ;; this child would exit 0 — the silent false green the seed exists to
-      ;; stop.
-      (is (= 1 status)
-          (str "a run that never dispatches the exit defmethod must drain"
-               " with the SEEDED 1, never 0; got status " status
-               "\n--- stdout ---\n" stdout "\n--- stderr ---\n" stderr)))))
+  ;; A GREEN run whose exit defmethod is a no-op: nothing but the seeded
+  ;; `process.exitCode` is left to explain a nonzero status.
+  (let [{:keys [status stdout stderr error]}
+        (spawn-runner [(str "--test=" exit-integrity-fixture-ns)]
+                      {:env {:RF2_TQ_NO_EXIT_DISPATCH_FIXTURE "1"}})]
+    (is (nil? error) (spawn-error-explanation error))
+    (is (str/includes? stdout "EXIT-INTEGRITY-NO-EXIT-DISPATCH-INSTALLED") stdout)
+    (is (str/includes? stdout "0 failures, 0 errors.") stdout)
+    (is (= 1 status) (str stdout stderr))))
