@@ -1,30 +1,7 @@
 'use strict';
-// THE LAUNCHER, END TO END — a process, not a function.
-//
-//     node implementation/ssr-node/test/serve.test.cjs
-//
-// Every other suite here drives the service in-process. This one spawns
-// `bin/serve.cjs` the way a supervisor or a JVM host would, and reads the
-// same three things they read: the ready line on stdout, `/health`, and a
-// render. It is a SMOKE test by design — one request, no `state`, the
-// well-behaved fixture — because the five guarantees are witnessed
-// elsewhere and this file's only claim is that the launcher wires them to
-// a socket and gets out of the way. Sending no `state` at all is
-// deliberate as well: it keeps the row independent of the request's
-// partition vocabulary, which `protocol.test.cjs` owns.
-//
-// ## THE READY LINE IS THE CONTRACT UNDER TEST
-//
-// A JVM witness spawns this launcher on port 0 and parses the ready line to
-// learn where to dial, so its shape is pinned here field by field rather
-// than merely parsed: a launcher that printed a perfectly good JSON object
-// under a different key would strand every reader written against the
-// README.
-//
-// ## PORT 0, ALWAYS
-//
-// Same reason as the HTTP rows elsewhere: a fixed port is a fixed
-// collision with a developer's server or a concurrent worker's.
+// The launcher end to end: spawned the way a supervisor or a JVM host spawns
+// it, read through the ready line, `/health` and one render. The ready line
+// is parsed by those hosts, so its shape is pinned key by key.
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -33,12 +10,11 @@ const { spawn, spawnSync } = require('node:child_process');
 const { fixture, post } = require('./_support.cjs');
 const manifest = require('../package.json');
 
-const PACKAGE_DIR = path.resolve(__dirname, '..');
-const LAUNCHER = path.join(PACKAGE_DIR, 'bin', 'serve.cjs');
+const LAUNCHER = path.join(__dirname, '..', 'bin', 'serve.cjs');
 
 /** Worker boot is the slow part, and a cold box is slower than this one. */
 const BOOT_MS = 20000;
-/** A graceful close is milliseconds; this is the bound the launcher is held to. */
+/** The bound a graceful close is held to. */
 const STOP_MS = 5000;
 
 const withTimeout = (p, ms, what) =>
@@ -47,11 +23,7 @@ const withTimeout = (p, ms, what) =>
     new Promise((_, reject) => setTimeout(() => reject(new Error(`${what} within ${ms} ms`)), ms).unref()),
   ]);
 
-/**
- * Spawn the launcher. `ready` resolves with the parsed ready line — found
- * by scanning stdout for the discriminator key, which is how the README
- * tells a reader to find it — or rejects if the process exits first.
- */
+/** Spawn the launcher; `ready` resolves with the parsed ready line, found by its discriminator key. */
 function launch(args) {
   const child = spawn(process.execPath, [LAUNCHER, ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
   const out = { stdout: '', stderr: '' };
@@ -81,42 +53,41 @@ test('the launcher boots on port 0, announces itself, answers /health and a rend
   const run = launch(['--module', fixture('reference'), '--port', '0', '--isolates', '1']);
   try {
     const ready = await run.ready;
-
-    // The shape, field by field — see the header.
     assert.deepStrictEqual(
       Object.keys(ready),
       ['rf.ssr-node', 'url', 'host', 'port', 'buildId', 'protocol'],
       'the ready line carries these keys, in this order, and no others',
     );
-    assert.strictEqual(ready['rf.ssr-node'], 'ready');
-    assert.strictEqual(ready.host, '127.0.0.1', 'the default host, as the OS reports the bound address');
     assert.ok(Number.isInteger(ready.port) && ready.port > 0, `port 0 must become a real port; got ${ready.port}`);
-    assert.strictEqual(ready.url, `http://127.0.0.1:${ready.port}`);
-    assert.strictEqual(ready.buildId, 'reference-build-1');
-    assert.strictEqual(ready.protocol, 1);
+    assert.deepStrictEqual(ready, {
+      'rf.ssr-node': 'ready',
+      url: `http://127.0.0.1:${ready.port}`,
+      host: '127.0.0.1',
+      port: ready.port,
+      buildId: 'reference-build-1',
+      protocol: 1,
+    });
 
     const health = await fetch(`${ready.url}/health`);
     assert.strictEqual(health.status, 200);
-    const body = await health.json();
-    assert.strictEqual(body.status, 'ok');
-    assert.strictEqual(body.buildId, ready.buildId, '/health and the ready line name the same bundle');
-    assert.strictEqual(body.isolates.total, 1, '--isolates reached the pool');
+    assert.deepStrictEqual(await health.json(), {
+      status: 'ok',
+      protocol: 1,
+      buildId: 'reference-build-1',
+      entries: ['app/root', 'app/other'],
+      isolates: { total: 1, ready: 1, busy: 0, waiting: 0, replacements: 0 },
+    });
 
-    // One render and no `state`: the fixture renders its entry id, which
-    // is all this row needs to see to know a request crossed the socket.
     const r = await post(`${ready.url}/render`, { protocol: 1, entry: 'app/root' });
     assert.strictEqual(r.status, 200, r.text);
     assert.strictEqual(r.headers.get('x-rf-ssr-build'), 'reference-build-1');
     assert.match(r.text, /^<div data-entry="app\/root"/);
 
-    const asked = Date.now();
     run.child.kill('SIGTERM');
     const { code, signal } = await withTimeout(run.exited, STOP_MS, 'the launcher did not exit');
-    assert.ok(Date.now() - asked <= STOP_MS, 'and it went within the bound');
     if (process.platform === 'win32') {
-      // Node on Windows has no graceful signal: `kill` terminates the
-      // process outright, so the graceful arm below is witnessed on the
-      // POSIX runners and only the bound is witnessed here.
+      // Windows has no graceful signal: `kill` terminates outright, so only
+      // the bound is witnessed here and the graceful arm on POSIX runners.
       assert.strictEqual(signal, 'SIGTERM');
     } else {
       assert.strictEqual(code, 0, `exit ${code} (${signal})\nstderr: ${run.out.stderr}`);
