@@ -670,10 +670,12 @@
     (is (nil? (find-keyword (str probe "-leaf"))))))
 
 (deftest register-variant-narrow-object-body-still-registers
-  ;; The control: string keys under the width cap keywordise recursively.
+  ;; The control: string keys under the width cap keywordise recursively,
+  ;; and the success envelope carries the single `:registered?` spelling.
   (rf.story-mcp.config/set-allow-writes! true)
-  (invoke "register-variant" {:variant-id "story.button/objform"
-                              :body       {"doc" "object-form body" "args" {"label" "Go"}}})
+  (is (= {:variant-id :story.button/objform :registered? true}
+         (:structuredContent (invoke "register-variant" {:variant-id "story.button/objform"
+                                                         :body       {"doc" "object-form body" "args" {"label" "Go"}}}))))
   (is (= {:doc "object-form body" :args {:label "Go"}}
          (select-keys (rf.story/variant->edn :story.button/objform) [:doc :args]))))
 
@@ -1037,7 +1039,7 @@
 
 (deftest run-variant-synchronous-wait-is-bounded-and-honest
   (rf.story/reg-variant :story.button/slow-wait {:doc "slow" :script [[:wait 3000]]})
-  (with-clean-frame [_ :story.button/slow-wait]
+  (with-clean-frame [vid :story.button/slow-wait]
     (let [t0 (System/nanoTime)
           s  (:structuredContent (invoke "run-variant" {:variant-id "story.button/slow-wait" :timeout-ms 100}))
           ms (/ (double (- (System/nanoTime) t0)) 1e6)]
@@ -1047,7 +1049,7 @@
 
 (deftest preview-variant-synchronous-wait-is-bounded-and-honest
   (rf.story/reg-variant :story.button/slow-preview {:doc "slow" :script [[:wait 3000]]})
-  (with-clean-frame [_ :story.button/slow-preview]
+  (with-clean-frame [vid :story.button/slow-preview]
     (let [t0 (System/nanoTime)
           s  (:structuredContent (invoke "preview-variant" {:variant-id "story.button/slow-preview" :timeout-ms 100}))
           ms (/ (double (- (System/nanoTime) t0)) 1e6)]
@@ -1069,7 +1071,7 @@
   ;; The worker future wraps a throw in an ExecutionException whose message is
   ;; the cause's toString, so only an exact :reason proves the wrapper was
   ;; peeled.
-  (with-clean-frame [_ :story.button/primary]
+  (with-clean-frame [vid :story.button/primary]
     ;; The throw is reachable only after phase-0 allocation, so prime a live frame.
     (invoke "run-variant" {:variant-id "story.button/primary"})
     (with-redefs [rf.story/run-variant (fn [& _] (throw (ex-info "simulated run-variant boom" {})))]
