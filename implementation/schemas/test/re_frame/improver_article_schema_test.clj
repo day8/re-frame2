@@ -36,6 +36,9 @@
 (def ^:private failed-reply
   {:status :error :error {:category :rf.http/transport}})
 
+(defn- article-state []
+  (:article (rf/app-db-value :rf/default)))
+
 (deftest cold-load-and-replies-survive-real-schema-validation
   (install-example!)
   (let [requests (atom [])]
@@ -44,22 +47,17 @@
     (rf/reg-fx :rf.http/managed (fn [_ctx args] (swap! requests conj args)))
     (testing "a cold load commits its loading status before any article exists"
       (rf/dispatch-sync [:article/load {:slug "alpha"}])
-      (is (= :loading (get-in (rf/app-db-value :rf/default) [:article :status])))
-      (is (nil? (get-in (rf/app-db-value :rf/default) [:article :data])))
-      (is (= 1 (count @requests))))
+      (is (= [:loading nil 1]
+             [(:status (article-state)) (:data (article-state)) (count @requests)])))
     (testing "the response schema stays strict even though stored data may be absent"
-      (let [decode (:decode (first @requests))]
-        (is (m/validate decode article))
-        (is (false? (m/validate decode nil)))
-        (is (false? (m/validate decode {:slug "alpha"})))))
+      (is (= [true false false]
+             (map #(m/validate (:decode (first @requests)) %) [article nil {:slug "alpha"}]))))
     (testing "a first-request failure commits without a payload"
       (rf/dispatch-sync [:article/load-failed failed-reply])
-      (is (= :error (get-in (rf/app-db-value :rf/default) [:article :status])))
-      (is (= (:error failed-reply) (get-in (rf/app-db-value :rf/default) [:article :error]))))
+      (is (= [:error (:error failed-reply)] ((juxt :status :error) (article-state)))))
     (testing "a later successful reply commits the validated article"
       (rf/dispatch-sync [:article/loaded {:status :ok :value article}])
-      (is (= {:status :loaded :data article :error nil}
-             (:article (rf/app-db-value :rf/default)))))
+      (is (= {:status :loaded :data article :error nil} (article-state))))
     (testing "the storage schema still rejects malformed non-nil payloads"
       (let [before (rf/app-db-value :rf/default)]
         (rf/dispatch-sync [:article/loaded {:status :ok :value {:slug "bad"}}])
