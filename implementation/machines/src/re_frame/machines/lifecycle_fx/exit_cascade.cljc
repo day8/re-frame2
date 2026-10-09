@@ -124,9 +124,9 @@
                ;; (4) Write the post-exit snapshot back to runtime-db. The
                ;; write is transient — the unified teardown projection runs
                ;; immediately after this and dissocs `[:rf.runtime/machines :snapshots
-               ;; actor-id]`. Tools that observe runtime-db between
-               ;; `:exit` and teardown see the `:exit`-time `:data`
-               ;; writes; the production-runtime cost is one extra
+               ;; actor-id]` — but the `:exit` fx (5) and the teardown
+               ;; steps that still read the snapshot see the `:exit`-time
+               ;; `:data` writes; the production-runtime cost is one extra
                ;; swap-runtime-db! per destroy. Machine snapshots are
                ;; durable runtime-db state. With an owner token the write
                ;; binds to A's own container and is not attributed to a

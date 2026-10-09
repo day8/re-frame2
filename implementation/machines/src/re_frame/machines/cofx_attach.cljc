@@ -203,9 +203,8 @@
   `:rf.error/cofx-name-collision` IDENTICALLY to a `reg-event` handler — but
   with `allow-sub?` TRUE, so a machine named entry may additionally declare
   the sub-valued recordable source `{:rf/sub query-v :as fact-id}`, which a
-  `reg-event` handler cannot.
-  `failing-id` is the `[machine-id-placeholder slot id]`-style label for the
-  error payload. Returns `[]` for an entry with no requires."
+  `reg-event` handler cannot. `[slot entry-id]` labels the error payload.
+  Returns `[]` for an entry with no requires."
   [slot entry-id v]
   (let [raw (entry-requires v)]
     (cond
@@ -1067,18 +1066,12 @@
   `deliver-declared-cofx`'s 6-arity so the machine ensure path mints under the
   SAME semantics as the event path: replay / `:test` (`:strict`) refuse to mint
   a declared-absent generator-backed fact (surfacing missing-required), `:live`
-  / `:explicit-live` generate. Omitting `mint-policy` falls back to the
-  router's `:live` default for the (rare) caller that has no policy to thread
-  (the pure-fn conformance/JVM fixtures, which carry no token, never reach the
-  delivery anyway since the ensure-set fast-paths empty there).
+  / `:explicit-live` generate.
 
   A no-op (returns `recorded`) when the ensure-set is empty."
-  ([machine snapshot event recorded frame-id failing-id]
-   (ensure-cofx machine snapshot event recorded frame-id failing-id
-                rf.cofx/default-mint-policy))
-  ([machine snapshot event recorded frame-id failing-id mint-policy]
-   (ensure-diet-onto (ensure-set-for machine snapshot event)
-                     recorded frame-id failing-id mint-policy)))
+  [machine snapshot event recorded frame-id failing-id mint-policy]
+  (ensure-diet-onto (ensure-set-for machine snapshot event)
+                    recorded frame-id failing-id mint-policy))
 
 (defn bootstrap-ensure-cofx
   "Ensure the BIRTH (initial-entry) ensure-set onto the in-flight `:rf.cofx`
@@ -1088,12 +1081,9 @@
   diet + the birth `:always` closure). `mint-policy` is the effective
   resolved policy, threaded identically to `ensure-cofx`. A no-op
   (returns `recorded`) when the bootstrap ensure-set is empty."
-  ([machine recorded frame-id failing-id]
-   (bootstrap-ensure-cofx machine recorded frame-id failing-id
-                          rf.cofx/default-mint-policy))
-  ([machine recorded frame-id failing-id mint-policy]
-   (ensure-diet-onto (bootstrap-ensure-set-for machine)
-                     recorded frame-id failing-id mint-policy)))
+  [machine recorded frame-id failing-id mint-policy]
+  (ensure-diet-onto (bootstrap-ensure-set-for machine)
+                    recorded frame-id failing-id mint-policy))
 
 ;; ---- lint (dev-only diagnostic) -------------------------------------------
 ;;
