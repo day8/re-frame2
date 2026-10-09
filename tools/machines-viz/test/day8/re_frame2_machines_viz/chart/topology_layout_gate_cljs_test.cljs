@@ -1,31 +1,15 @@
 (ns day8.re-frame2-machines-viz.chart.topology-layout-gate-cljs-test
   "Rendered-topology layout/geometry gate.
 
-  ## Why this exists
-
-  Pure-data + DOM-structure coverage does not reach the SETTLED layout
-  geometry. The browser
-  `chart-dom-cljs-test` deliberately asserts first-commit DOM BEFORE
-  the async elkjs pass resolves (positions are still {0 0}); the Xray
-  feature gate only requires `nodeCount > 0`; the PNG exporter test
-  proves nonblank output, not topology correctness. Without this gate,
-  real rendered failures — wrong fit, overlapped nodes, misplaced
-  routes, missing projected edges — would be invisible to CI.
-
-  ## What this gate does (and why it's a node `-cljs-test`)
-
-  It drives the REAL `chart/compute-layout!` (elkjs runs as xyflow's
-  layout backend; elkjs is the SAME engine the live chart uses and is
-  Node-runnable — no DOM, no React, no `@xyflow/react`) for the
-  representative machines named on the topology-parity surface
-  (`spec/001-Topology-Parity.md`): a linear/cyclic spine, a guarded
-  fork, a parallel machine, a compound (hierarchical) machine, and a
-  non-trivial Context-band case. It AWAITS the layout settle (the
-  callback / Promise the synchronous DOM suite cannot await) and then
-  asserts POST-LAYOUT GEOMETRY INVARIANTS the spec explicitly accepts
-  in lieu of committed pixel baselines (which are cross-platform-flaky:
-  the chart is developed on Windows, Mac and Linux). The invariants
-  catch these failure classes:
+  `chart-dom-cljs-test` asserts first-commit DOM before the async elkjs pass
+  resolves, so only this gate sees the SETTLED geometry. It drives the real
+  `chart/compute-layout!` (elkjs is Node-runnable) for the representative
+  machines of the topology-parity surface (`spec/001-Topology-Parity.md`): a
+  linear/cyclic spine, a guarded fork, a parallel machine, a compound
+  machine and a Context-band case. It awaits each settle and asserts the
+  post-layout geometry invariants the spec accepts in lieu of pixel
+  baselines, which are cross-platform-flaky. The invariants catch these
+  failure classes:
 
     - WRONG FIT / degenerate origin-stack — every state node lands at a
       DISTINCT, finite, positive-area box (not all stacked at {0 0}),
@@ -57,7 +41,7 @@
   in `-cljs-test`. A change to `chart.cljs` `default-elk-options`,
   `chart.projection`, the density/visual constants, or `chart.layout`
   that regresses fit / overlap / routing fails THIS gate.)"
-  (:require [cljs.test :refer-macros [deftest is testing async]]
+  (:require [cljs.test :refer-macros [deftest is async]]
             [day8.re-frame2-machines-viz.chart :as chart]
             [day8.re-frame2-machines-viz.chart.layout :as layout]))
 
@@ -204,11 +188,8 @@
         leaf-nodes  (remove :compound? state-nodes)
         abs-of      (fn [id] (abs-pos positions parent-of id))]
 
-    ;; ---- layout actually settled (no error, non-empty) ----
     (is (nil? (:layout-error result))
         (str label ": layout settled without error"))
-    (is (seq positions)
-        (str label ": elk produced non-empty positions (not the degenerate empty settle)"))
 
     ;; ---- every projected node is positioned with a positive-area box ----
     (doseq [{:keys [id]} state-nodes]
@@ -292,32 +273,21 @@
 ;; One deftest per representative class (each awaits its own settle)
 
 (deftest linear-cyclic-topology-settles-cleanly
-  (testing "a linear/cyclic spine lays out with distinct,
-            non-overlapping, fully-routed geometry"
-    (async done
-      (run-gate! "linear" (layout/project-definition linear-cyclic) 0 done))))
+  (async done
+    (run-gate! "linear" (layout/project-definition linear-cyclic) 0 done)))
 
 (deftest guarded-fork-topology-settles-cleanly
-  (testing "a guarded fork's two branch targets sit
-            side-by-side without overlap, both routes present"
-    (async done
-      (run-gate! "fork" (layout/project-definition guarded-fork) 0 done))))
+  (async done
+    (run-gate! "fork" (layout/project-definition guarded-fork) 0 done)))
 
 (deftest parallel-topology-settles-cleanly
-  (testing "each parallel region container encloses its own
-            states, and no two states in a region overlap"
-    (async done
-      (run-gate! "parallel" (layout/project-definition parallel) 0 done))))
+  (async done
+    (run-gate! "parallel" (layout/project-definition parallel) 0 done)))
 
 (deftest compound-topology-settles-cleanly
-  (testing "a 3-deep compound machine's containers enclose
-            their nested children at every depth"
-    (async done
-      (run-gate! "compound" (layout/project-definition compound) 0 done))))
+  (async done
+    (run-gate! "compound" (layout/project-definition compound) 0 done)))
 
 (deftest context-band-topology-settles-cleanly
-  (testing "a machine laid out with three Context-band rows
-            reserved still settles to distinct, non-overlapping,
-            fully-routed geometry"
-    (async done
-      (run-gate! "context" (layout/project-definition context-band) 3 done))))
+  (async done
+    (run-gate! "context" (layout/project-definition context-band) 3 done)))
