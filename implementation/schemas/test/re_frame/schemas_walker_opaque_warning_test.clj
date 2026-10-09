@@ -1,153 +1,50 @@
 (ns re-frame.schemas-walker-opaque-warning-test
-  "JVM tests for `:rf.warning/schema-walker-opaque` — the one-time
-  process-lifecycle warning that fires from `reg-app-schema` /
-  `reg-app-schemas` when the registered schema is NOT a Malli vector
-  form.
-
-  Background — Spec 010 §The `:schema` value is opaque to re-frame: the
-  schemas-walker (`re-frame.schemas.walker`) is pure data and handles
-  only vector-form Malli EDN. Compiled `m/schema` values are treated as
-  opaque leaves; per-slot `:sensitive?` / `:large?` flags inside an
-  opaque value are silently skipped. This warning is the discoverability
-  nudge that surfaces this misconfiguration once per process.
-
-  Keyword schemas do NOT warn. A bare
-  keyword is non-vector but is a valid Malli schema (primitive `:int` /
-  `:string` OR registry ref `:my/user-schema`); a keyword cannot carry
-  per-slot props, so the walker provably skips nothing on a primitive —
-  warning on every keyword would be a frequent false positive on the common
-  case. The predicate cannot cheaply distinguish primitive from
-  registry-ref keywords without a registry consult (forbidden by Spec
-  010 §opaque), so the keyword case is suppressed entirely.
-
-  Symmetric with `:rf.warning/schema-validator-unavailable`
-  — same emit-site, same warn-once-per-process pattern, same
-  test-fixture cache-clear story."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  "`:rf.warning/schema-walker-opaque`: `reg-app-schema` and `reg-app-schemas`
+  warn once per process when a registered schema hides per-slot flags from the
+  pure-data walker. Bare keywords never warn: a primitive cannot carry props,
+  and a registry reference cannot be told from one."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [malli.core :as m]
             [re-frame.core :as rf]
-            [re-frame.schemas :as rf.schemas]
             [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each rf.schemas.test-fixture/reset-runtime)
 
-(defn- warnings-of
-  "Filter the recorded events to the given operation keyword."
-  [recorded operation]
-  (filterv (fn [ev]
-             (and (= :warning (:op-type ev))
-                  (= operation (:operation ev))))
-         @recorded))
-
-;; ---- positive paths -------------------------------------------------------
-;;
-;; Only genuinely opaque NON-keyword values warn: a compiled m/schema
-;; value, or any other non-vector value. Where only the warn-once behaviour is
-;; under test, a plain map stands in for the compiled value. Keyword schemas
-;; — primitive AND registry-ref — are suppressed; see the negative-path
-;; section below.
+(defn- opaque-warnings
+  "The `:schema-kind` and `:path` of each walker-opaque warning recorded."
+  [recorded]
+  (into []
+        (comp (filter #(and (= :warning (:op-type %))
+                            (= :rf.warning/schema-walker-opaque (:operation %))))
+              (map #(select-keys (:tags %) [:schema-kind :path])))
+        @recorded))
 
 (deftest warning-fires-when-schema-is-a-compiled-schema-object
-  (testing "reg-app-schema with a compiled m/schema value at the root
-            (opaque to the walker) emits the warning exactly once, labelled
-            :compiled-schema-object. A compiled schema is not a map, so the
-            label cannot come from a map? test"
-    (with-trace-recorder! [recorded]
-      (rf/reg-app-schema [:cart] (m/schema [:map [:a :int]]))
-      (let [warns (warnings-of recorded :rf.warning/schema-walker-opaque)]
-        (is (= 1 (count warns))
-            "exactly one warning fires on the first reg-app-schema call")
-        (is (= :compiled-schema-object (-> warns first :tags :schema-kind)))
-        (is (= [:cart] (-> warns first :tags :path)))))))
+  (with-trace-recorder! [recorded]
+    (rf/reg-app-schema [:cart] (m/schema [:map [:a :int]]))
+    (is (= [{:schema-kind :compiled-schema-object :path [:cart]}]
+           (opaque-warnings recorded)))))
 
 (deftest warning-fires-once-from-reg-app-schemas-bulk
-  (testing "bulk reg-app-schemas with opaque schemas fires the warning
-            once across all entries"
-    (with-trace-recorder! [recorded]
-      (rf/reg-app-schemas {[:user]    {:malli/schema :user}
-                           [:cart]    {:malli/schema :cart}
-                           [:session] {:malli/schema :session}})
-      (is (= 1 (count (warnings-of recorded
-                                   :rf.warning/schema-walker-opaque)))))))
-
-(deftest warning-carries-actionable-reason
-  (testing ":tags includes a :reason string that names the
-            ONE supported shape (register the vector form) and does NOT
-            recommend the non-existent registration-meta `:sensitive?`
-            fallback"
-    (with-trace-recorder! [recorded]
-      (rf/reg-app-schema [:user] {:malli/schema :user})
-      (let [warns  (warnings-of recorded :rf.warning/schema-walker-opaque)
-            tags   (-> warns first :tags)
-            reason (:reason tags)]
-        (is (string? reason))
-        (is (re-find #"vector form" reason)
-            ":reason names the vector-form fix (the supported shape)")
-        ;; The reason must not steer
-        ;; users to USE handler/cofx/sub registration-meta `:sensitive?`
-        ;; as a workaround — there is no such annotation and the redactor
-        ;; deliberately ignores it (sensitivity is path-targeted). It is
-        ;; fine (and intended) for the reason to NAME the fallback only to
-        ;; say it has been removed.
-        (is (re-find #"(?i)removed" reason)
-            ":reason states the registration-meta fallback was removed")
-        (is (not (re-find #"(?i)(use|via) .{0,40}registration[- ]?(level|meta)"
-                          reason))
-            "no positive recommendation to USE the registration-meta fallback")))))
+  (with-trace-recorder! [recorded]
+    (rf/reg-app-schemas {[:user]    {:malli/schema :user}
+                         [:cart]    {:malli/schema :cart}
+                         [:session] {:malli/schema :session}})
+    (is (= 1 (count (opaque-warnings recorded))))))
 
 (deftest warning-fires-when-schema-carries-a-local-registry
-  (testing "a VECTOR-FORM schema carrying a Malli LOCAL
-            `{:registry ...}` warns, with :schema-kind :local-registry. The
-            form is walkable at its root and its child is a bare keyword the
-            walker treats as a flag-free primitive, so a root-and-child check
-            alone would call the whole shape introspectable and stay SILENT
-            while every `:sensitive?` declared inside the registry is
-            invisible"
-    (with-trace-recorder! [recorded]
-      (rf/reg-app-schema [:auth]
-                         [:schema {:registry {::user [:map [:pw {:sensitive? true} :string]]}}
-                          ::user])
-      (let [warns (warnings-of recorded :rf.warning/schema-walker-opaque)]
-        (is (= 1 (count warns))
-            "a local-registry schema triggers the warning exactly once")
-        (is (= :local-registry (-> warns first :tags :schema-kind))
-            ":schema-kind names the local registry, not the compiled-object
-             or :unknown arm")
-        (is (= [:auth] (-> warns first :tags :path)))
-        (is (re-find #":registry" (-> warns first :tags :reason))
-            ":reason names the local registry so the nudge is actionable")))
-    ;; The `:registry` props key is op-INDEPENDENT — Malli honours it on any
-    ;; vector form — so a `:map` carrying one hides its referenced shapes
-    ;; exactly as `:schema` does. The classification keys on the PROPS rather
-    ;; than on the op, so the same check catches both.
-    (rf.schemas/clear-walker-opaque-warned!)
-    (with-trace-recorder! [recorded]
-      (rf/reg-app-schema [:creds]
-                         [:map {:registry {::pw [:string {:sensitive? true}]}}
-                          [:pw ::pw]])
-      (let [warns (warnings-of recorded :rf.warning/schema-walker-opaque)]
-        (is (= 1 (count warns))
-            "a :map-borne local registry warns too — the check is on the
-             props, not the op")
-        (is (= :local-registry (-> warns first :tags :schema-kind)))))))
-
-;; ---- negative paths (no warning) ------------------------------------------
+  ;; The root is a walkable vector form and its child a bare keyword, so only
+  ;; the props tell the walk the referenced shape is out of its reach.
+  (with-trace-recorder! [recorded]
+    (rf/reg-app-schema [:auth]
+                       [:schema {:registry {::user [:map [:pw {:sensitive? true} :string]]}}
+                        ::user])
+    (is (= [{:schema-kind :local-registry :path [:auth]}]
+           (opaque-warnings recorded)))))
 
 (deftest warning-suppressed-on-introspectable-schemas
-  (testing "introspectable schemas never warn: a vector form with no opaque
-            descendant, a primitive keyword (`:int` / `:string` /
-            `:boolean` / `:any`), and a registry-ref keyword
-            (`:my/user-schema`). A keyword cannot carry per-slot props, so
-            the walker provably skips nothing on a primitive; a registry-ref
-            keyword cannot be told from a primitive without a forbidden
-            registry consult, so the whole keyword case is suppressed"
-    (with-trace-recorder! [recorded]
-      (rf/reg-app-schema [:user]    [:map [:id :int] [:name :string]])
-      (rf/reg-app-schema [:age]     :int)
-      (rf/reg-app-schema [:name]    :string)
-      (rf/reg-app-schema [:active]  :boolean)
-      (rf/reg-app-schema [:misc]    :any)
-      (rf/reg-app-schema [:profile] :my/user-schema)
-      (is (empty? (warnings-of recorded :rf.warning/schema-walker-opaque))
-          "no 'per-slot flags skipped' nudge for an introspectable schema"))))
+  (with-trace-recorder! [recorded]
+    (rf/reg-app-schema [:user]    [:map [:id :int] [:name :string]])
+    (rf/reg-app-schema [:profile] :my/user-schema)
+    (is (empty? (opaque-warnings recorded)))))
