@@ -1,34 +1,15 @@
 (ns day8.re-frame2-machines-viz.chart.compute-layout-error-cljs-test
-  "Pins for the `chart/compute-layout!` ELK error path.
+  "The `chart/compute-layout!` ELK error path.
 
-  ## What this guards
+  An ELK failure — a sync throw or an async reject — must reach `done-fn` as
+  the layout-error result map (so the chart paints its banner instead of
+  stacking every node at the origin) and fire exactly one
+  `:rf.error/machines-viz-elk-layout-failed` trace, the event tools read off
+  the bus. A clean layout must do neither.
 
-  `compute-layout!` surfaces an ELK failure THREE ways — the bus
-  (`:rf.error/machines-viz-elk-layout-failed`), a dev-only
-  `console.error`, AND a `:layout-error` slot on the callback result-
-  map so the chart can render an in-panel banner. Discarding the error
-  would leave the downstream `(when result ...)` guard in MachineChart
-  a no-op and every node at the default origin (stacked boxes; no
-  console output; no diagnostic).
-
-  This suite pins:
-
-    1. SYNC ELK throw → callback receives the layout-error result-map
-       (positions/edge-points empty + `:layout-error` slot present).
-    2. ASYNC ELK reject → same callback shape arrives.
-    3. The canonical `:rf.error/machines-viz-elk-layout-failed` trace
-       event fires (op-type `:error`, the right operation, the right
-       tag shape including machine-id) — and ONLY once per failure.
-    4. NEGATIVE: a successful layout does NOT emit the error trace
-       AND the callback receives a result without `:layout-error`.
-
-  ## Why this is a `-cljs-test` (node), not a DOM test
-
-  `compute-layout!` is JS-interop-heavy but the elkjs Promise + the
-  trace bus are both Node-runnable. We rebind the private
-  `chart/invoke-elk-layout!` (an indirection that exists so tests
-  can substitute the elkjs call) + `re-frame.trace/emit-error!` so
-  the suite never reaches the real elkjs runtime. No DOM needed."
+  `chart/invoke-elk-layout!` is the seam that stands in for elkjs. The async
+  tests rebind with `set!` because `with-redefs` unwinds before the Promise
+  callback runs."
   (:require [cljs.test :refer-macros [deftest is testing async]]
             [day8.re-frame2-machines-viz.chart :as chart]
             [re-frame.trace :as rf.trace]))
@@ -36,8 +17,6 @@
 ;; ---- fixtures ----------------------------------------------------------
 
 (def ^:private sample-parsed
-  "Minimal `project-definition` shape sufficient for `compute-layout!`'s
-  `->elk-input` projection. Two flat states, one transition."
   {:nodes [{:id "idle"} {:id "loading"}]
    :edges [{:id "idle->loading"
             :source "idle"
@@ -45,161 +24,88 @@
             :event-label "start"}]
    :parallel? false})
 
-(defn- silence-console!
-  "Stub `js/console.error` to a no-op for the duration of `f`. The
-  failure path under test deliberately calls `console.error` (a dev-
-  build operator affordance), so the test would
-  otherwise spam the test runner's stdout with stack traces that
-  read as failures. Returns the value of `(f)`."
-  [f]
-  (let [orig (.-error js/console)]
-    (set! (.-error js/console) (fn [& _args] nil))
-    (try (f)
-         (finally (set! (.-error js/console) orig)))))
+(def ^:private input-summary
+  "The `:input-summary` `sample-parsed` laid out `:tb` with no options yields."
+  {:node-count 2 :edge-count 1 :region-count 0 :parallel? false
+   :direction :tb :layout-option-ks []})
 
-(defn- capture-trace-emits
-  "Run `f` with `rf.trace/emit-error!` rebound to capture the (operation,
-  tags) calls into the returned atom, AND with `js/console.error`
-  silenced. Returns the atom."
-  [f]
-  (let [captured (atom [])]
-    (silence-console!
-      (fn []
-        (with-redefs [rf.trace/emit-error! (fn [op tags]
-                                          (swap! captured conj [op tags]))]
-          (f captured))))
-    captured))
+(defn- error-result [message]
+  {:positions    {}
+   :edge-points  {}
+   :edge-labels  {}
+   :layout-error {:error         {:message message :name "Error"}
+                  :input-summary input-summary}})
 
-;; ---- sync ELK throw ----------------------------------------------------
+(defn- error-trace
+  "The one `[operation tags]` emit a failure produces. The raw layout-options
+  stay off the tags; only their key-set rides on `:input-summary`."
+  [message]
+  [:rf.error/machines-viz-elk-layout-failed
+   {:elk-error     {:message message :name "Error"}
+    :machine-id    :test/machine
+    :input-summary input-summary}])
+
+;; ---- tests -------------------------------------------------------------
 
 (deftest compute-layout-sync-throw-delivers-error-result-and-emits-trace
-  (testing "When elkjs throws synchronously, `done-fn` receives the canonical
-            layout-error result-map (empty positions/edge-points +
-            :layout-error slot). The downstream `(when result ...)` guard sees
-            a TRUTHY map, so the chart reset!s layout-state and paints the
-            banner instead of silently no-op'ing. And `rf.trace/emit-error!`
-            fires ONCE with operation = :rf.error/machines-viz-elk-layout-failed,
-            tags = {:elk-error … :machine-id … :input-summary …}: the contract
-            tools (Xray Issues panel, off-box monitors) read off the bus."
-    (let [result   (atom nil)
-          captured (capture-trace-emits
-                     (fn [_]
-                       (with-redefs [chart/invoke-elk-layout!
-                                     (fn [_input]
-                                       (throw (js/Error. "elk: malformed input")))]
-                         (chart/compute-layout! sample-parsed :tb nil :test/machine
-                                                (fn [r] (reset! result r))))))
-          r        @result
-          emits    @captured]
-      (is (map? r) "callback was called with a non-nil map")
-      (is (= {} (:positions r)) "empty positions on failure")
-      (is (= {} (:edge-points r)) "empty edge-points on failure")
-      (is (some? (:layout-error r))
-          ":layout-error slot carries the failure")
-      (is (= "elk: malformed input"
-             (get-in r [:layout-error :error :message]))
-          ":layout-error :error :message carries the ELK error")
-      (is (= 2 (get-in r [:layout-error :input-summary :node-count]))
-          ":layout-error :input-summary carries the input counts")
-      (is (= 1 (count emits))
-          "exactly one error trace event per failure (no double-emit)")
-      (let [[op tags] (first emits)]
-        (is (= :rf.error/machines-viz-elk-layout-failed op)
-            "canonical operation keyword")
-        (is (= :test/machine (:machine-id tags))
-            ":machine-id carries through onto the trace tags")
-        (is (= "elk: malformed input" (get-in tags [:elk-error :message]))
-            ":elk-error :message carries the ELK error message")
-        (is (= 2 (get-in tags [:input-summary :node-count]))
-            ":input-summary carries node-count")
-        (is (= :tb (get-in tags [:input-summary :direction]))
-            ":input-summary carries direction")
-        (is (not (contains? tags :layout-options))
-            "raw caller-supplied layout-options are NOT on the trace
-            (only the key-set, on :input-summary)")))))
-
-;; ---- async ELK reject --------------------------------------------------
+  (let [result   (atom nil)
+        captured (atom [])
+        orig     (.-error js/console)]
+    ;; The failure path logs through console.error by design; keep the runner
+    ;; output clean.
+    (set! (.-error js/console) (fn [& _args] nil))
+    (try
+      (with-redefs [rf.trace/emit-error!      (fn [op tags] (swap! captured conj [op tags]))
+                    chart/invoke-elk-layout!  (fn [_input] (throw (js/Error. "elk: malformed input")))]
+        (chart/compute-layout! sample-parsed :tb nil :test/machine #(reset! result %)))
+      (finally (set! (.-error js/console) orig)))
+    (is (= (error-result "elk: malformed input") @result))
+    (is (= [(error-trace "elk: malformed input")] @captured))))
 
 (deftest compute-layout-async-reject-delivers-error-result-and-emits-trace
-  (testing "When elkjs returns a rejected Promise, the .catch handler invokes
-            `done-fn` with the same layout-error result-map shape the sync
-            branch produces, and the same
-            `:rf.error/machines-viz-elk-layout-failed` event fires once.
-
-            `with-redefs` is synchronous-scoped — it unwinds at body exit,
-            which arrives BEFORE the rejected-promise microtask runs. So the
-            stubs go in via `set!` (CLJS's mutable Var rebind), the async path
-            runs, and the originals are restored inside `done-fn`. Asserts run
-            before `(done)` so cljs.test's async machinery sees them."
-    (async done
-      (let [captured     (atom [])
-            orig-elk     chart/invoke-elk-layout!
-            orig-emit    rf.trace/emit-error!
-            orig-console (.-error js/console)]
-        (set! (.-error js/console) (fn [& _args] nil))
-        (set! chart/invoke-elk-layout!
-              (fn [_input] (js/Promise.reject (js/Error. "elk: rejected"))))
-        (set! rf.trace/emit-error!
-              (fn [op tags] (swap! captured conj [op tags])))
-        (chart/compute-layout!
-          sample-parsed :tb nil :test/machine
-          (fn [r]
-            (is (map? r))
-            (is (= {} (:positions r)))
-            (is (some? (:layout-error r)))
-            (is (= "elk: rejected"
-                   (get-in r [:layout-error :error :message])))
-            (let [emits @captured]
-              (is (= 1 (count emits))
-                  "one emit on async reject")
-              (let [[op tags] (first emits)]
-                (is (= :rf.error/machines-viz-elk-layout-failed op))
-                (is (= "elk: rejected"
-                       (get-in tags [:elk-error :message])))
-                (is (= :test/machine (:machine-id tags)))))
-            ;; Restore — async tests must clean up their globals so
-            ;; following tests start from a clean slate.
-            (set! chart/invoke-elk-layout! orig-elk)
-            (set! rf.trace/emit-error! orig-emit)
-            (set! (.-error js/console) orig-console)
-            (done)))))))
-
-;; ---- trace event emit --------------------------------------------------
-
-;; ---- negative: the happy path emits no error --------------------------
+  (async done
+    (let [captured     (atom [])
+          orig-elk     chart/invoke-elk-layout!
+          orig-emit    rf.trace/emit-error!
+          orig-console (.-error js/console)]
+      (set! (.-error js/console) (fn [& _args] nil))
+      (set! chart/invoke-elk-layout!
+            (fn [_input] (js/Promise.reject (js/Error. "elk: rejected"))))
+      (set! rf.trace/emit-error!
+            (fn [op tags] (swap! captured conj [op tags])))
+      (chart/compute-layout!
+        sample-parsed :tb nil :test/machine
+        (fn [r]
+          (is (= (error-result "elk: rejected") r))
+          (is (= [(error-trace "elk: rejected")] @captured))
+          (set! chart/invoke-elk-layout! orig-elk)
+          (set! rf.trace/emit-error! orig-emit)
+          (set! (.-error js/console) orig-console)
+          (done))))))
 
 (deftest compute-layout-happy-path-does-not-emit-error-trace
-  (testing "When elkjs resolves cleanly, NO `:rf.error/*` trace fires
-            AND the callback receives a result WITHOUT :layout-error.
-            Guards against an over-eager emit that would put the
-            Issues panel in a red state on every render. Async path
-            via `set!` (see the rationale on the reject test above)."
+  (testing "a clean elk result reaches done-fn as positions, with no
+            :layout-error and no error trace"
     (async done
       (let [captured  (atom [])
             orig-elk  chart/invoke-elk-layout!
             orig-emit rf.trace/emit-error!
-            ;; Build a minimally-shaped elk JS result (.children +
-            ;; .edges) so `elk-result->positions` walks it without
-            ;; throwing — we don't care about positions here, only
-            ;; that the success branch runs.
-            ok-result #js {:id "root"
-                           :children #js [#js {:id "idle" :x 0 :y 0
-                                               :width 100 :height 50
-                                               :children #js []}
-                                          #js {:id "loading" :x 0 :y 60
-                                               :width 100 :height 50
-                                               :children #js []}]
-                           :edges #js []}]
-        (set! chart/invoke-elk-layout! (fn [_input] (js/Promise.resolve ok-result)))
+            node      (fn [id y] #js {:id id :x 0 :y y :width 100 :height 50 :children #js []})]
+        (set! chart/invoke-elk-layout!
+              (fn [_input]
+                (js/Promise.resolve #js {:id       "root"
+                                         :children (array (node "idle" 0) (node "loading" 60))
+                                         :edges    #js []})))
         (set! rf.trace/emit-error! (fn [op tags] (swap! captured conj [op tags])))
         (chart/compute-layout!
           sample-parsed :tb nil :test/machine
           (fn [r]
-            (is (map? r))
-            (is (nil? (:layout-error r))
-                "happy path → no :layout-error")
-            (is (zero? (count @captured))
-                "happy path → no :rf.error/* emits")
+            (is (= {:positions   {"idle"    {:x 0 :y 0  :width 100 :height 50}
+                                  "loading" {:x 0 :y 60 :width 100 :height 50}}
+                    :edge-points {}
+                    :edge-labels {}}
+                   r))
+            (is (empty? @captured))
             (set! chart/invoke-elk-layout! orig-elk)
             (set! rf.trace/emit-error! orig-emit)
             (done)))))))
