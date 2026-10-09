@@ -1,27 +1,11 @@
 (ns re-frame.schema-presence-seams-test
-  "Declaration presence is KEY-presence at every core-side
-  Spec 010 validation seam.
-
-  The schemas artefact's own suite (`re-frame.schemas-presence-test`) pins
-  the meta-bearing hot path (`run-validation`) and the production boundary
-  interceptor. This namespace pins the census of core-owned consumer seams,
-  each of which tests declaration KEY-presence where a truthiness test of the
-  schema VALUE would silently skip a present nil / false token:
-
-   - **Recordable cofx** (`re-frame.cofx/validate-recordable-value!`) —
-     an `(if-let [schema (:schema meta)] …)` would skip the always-on
-     production hard error.
-   - **Sub override** (`re-frame.subs.override-schema/validate-sub-override!`)
-     — an `(and schema …)` would skip validation.
-   - **Sub return outer gate** (`re-frame.subs.memo/maybe-validate-sub!`)
-     — gating the `:schemas/validate-sub!` consult on `(:schema sub-meta)`
-     truthiness would bypass the presence-correct validator seam.
-   - **Fx-args outer gate** (`re-frame.fx` walk) — gating `validate-fx!`
-     on `(:schema meta)` truthiness would skip it.
-
-  Contract pinned: a present falsey token is delegated exactly
-  once and the surface takes its documented recovery; an omitted key
-  remains a no-op (the validator is never consulted)."
+  "Declaration presence is KEY-presence at the core-side Spec 010 validation
+  seams: a present nil / false `:schema` token reaches the validator verbatim,
+  exactly once, and the seam takes its documented recovery; an omitted key
+  never consults the validator. A truthiness test of the schema VALUE would
+  silently skip the present falsey token. The schemas artefact's own
+  `re-frame.schemas-presence-test` pins `run-validation` and the production
+  boundary interceptor."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.cofx :as rf.cofx]
@@ -46,10 +30,8 @@
   (rf.error-emit/clear-error-listeners!)
   (rf.event-emit/clear-event-listeners!)
   (rf/init! rf.substrate.plain-atom/adapter)
-  ;; `rf.registrar/clear-all!` drops the framework-standard registrations;
-  ;; `init!` re-seeds them. Reloading the schemas artefact republishes the
-  ;; late-bind validation hooks these seams reach through (mirrors
-  ;; `re-frame.always-on-validation-production-test`).
+  ;; `init!` re-seeds the framework standards `clear-all!` dropped; the reload
+  ;; republishes the late-bind validation hooks these seams reach through.
   (require 're-frame.schemas :reload)
   (rf/make-frame {:id :rf/default})
   (try
@@ -69,104 +51,61 @@
       {:validate (fn [schema _value] (swap! seen conj schema) false)})
     seen))
 
-;; The recordable-cofx validator is deliberately private (its public
-;; surface is the EP-0017 satisfaction pipeline); reach it through its var
-;; for the focused seam pin.
+;; Private: its public surface is the recordable-cofx satisfaction pipeline.
 (def ^:private validate-recordable-value!
   @#'rf.cofx/validate-recordable-value!)
 
-;; ===========================================================================
-;; Recordable cofx — present falsey token delegated; the hard error fires
-;; ===========================================================================
-
-(deftest recordable-cofx-delegates-present-falsey-tokens
+(deftest recordable-cofx-schema-is-key-presence
   (doseq [token [nil false]]
-    (testing (str "a present " (pr-str token) " :schema on a recordable "
-                  "cofx registration is delegated verbatim; the false "
-                  "verdict takes the documented production hard error")
+    (testing (pr-str token)
       (let [seen (spy-validator!)]
         (is (thrown? ExceptionInfo
               (validate-recordable-value!
                 :cofx/x {:v 1} {:schema token} :ev/x nil (constantly true)))
-            ":rf.error/cofx-value-invalid THROWS — the always-on recovery")
-        (is (= [token] @seen)
-            "the EXACT declared token reached the validator, exactly once")))))
+            "the false verdict takes the always-on hard error")
+        (is (= [token] @seen)))))
+  (let [seen (spy-validator!)]
+    (is (= {:v 1}
+           (validate-recordable-value!
+             :cofx/x {:v 1} {:doc "no schema"} :ev/x nil (constantly true))))
+    (is (= [] @seen) "an omitted :schema never consults the validator")))
 
-(deftest recordable-cofx-omitted-key-is-a-no-op
-  (testing "an ABSENT :schema key on a recordable cofx registration never
-            consults the validator and returns the value"
-    (let [seen (spy-validator!)]
-      (is (= {:v 1}
-             (validate-recordable-value!
-               :cofx/x {:v 1} {:doc "no schema"} :ev/x nil (constantly true)))
-          "value returned unchanged")
-      (is (= [] @seen) "the validator was never consulted"))))
-
-;; ===========================================================================
-;; Sub override — present falsey token delegated; recover-to-nil
-;; ===========================================================================
-
-(deftest sub-override-delegates-present-falsey-tokens
+(deftest sub-override-schema-is-key-presence
   (doseq [token [nil false]]
-    (testing (str "a present " (pr-str token) " :schema on the overridden "
-                  "sub's metadata is delegated verbatim; the false verdict "
-                  "recovers to nil (:replaced-with-default)")
+    (testing (pr-str token)
       (let [seen (spy-validator!)]
         (is (nil? (rf.subs.override-schema/validate-sub-override!
                     {:pinned :state} [:sub/x] {:schema token} nil))
-            "override value replaced with nil on the false verdict")
-        (is (= [token] @seen)
-            "the EXACT declared token reached the validator, exactly once")))))
-
-(deftest sub-override-omitted-key-is-a-no-op
-  (testing "an ABSENT :schema key passes the override value through unchecked"
-    (let [seen (spy-validator!)]
-      (is (= {:pinned :state}
-             (rf.subs.override-schema/validate-sub-override!
-               {:pinned :state} [:sub/x] {:doc "no schema"} nil)))
-      (is (= [] @seen) "the validator was never consulted"))))
-
-;; ===========================================================================
-;; Sub return outer gate (memo) — the consult itself is presence-gated
-;; ===========================================================================
+            "the false verdict recovers to nil")
+        (is (= [token] @seen)))))
+  (let [seen (spy-validator!)]
+    (is (= {:pinned :state}
+           (rf.subs.override-schema/validate-sub-override!
+             {:pinned :state} [:sub/x] {:doc "no schema"} nil)))
+    (is (= [] @seen) "an omitted :schema never consults the validator")))
 
 ;; ^:requires-debug — the consult delegates to the schemas artefact's
-;; `validate-sub!`, whose body is Spec 010 dev-only (elided under
-;; `-Dre-frame.debug=false`, where it returns true by design). The
-;; production-side presence enforcement is pinned by the boundary /
-;; recordable-cofx tests, which run under the gate untagged.
-(deftest ^:requires-debug memo-gate-consults-the-validator-for-present-falsey-tokens
+;; `validate-sub!`, whose body is dev-only (it returns true under
+;; `-Dre-frame.debug=false`).
+(deftest ^:requires-debug memo-gate-schema-is-key-presence
   (doseq [token [nil false]]
-    (testing (str "maybe-validate-sub! consults the :schemas/validate-sub! "
-                  "seam for a present " (pr-str token) " :schema; the false "
-                  "verdict recovers to nil")
+    (testing (pr-str token)
       (let [seen (spy-validator!)]
         (is (nil? (rf.subs.memo/maybe-validate-sub! 42 [:sub/x] :sub/x
-                                            {:schema token} nil))
-            "sub return replaced with nil on the false verdict")
-        (is (= [token] @seen)
-            "the EXACT declared token reached the validator, exactly once")))))
-
-(deftest memo-gate-omitted-key-is-a-no-op
-  (testing "an ABSENT :schema key returns the sub value unchecked"
-    (let [seen (spy-validator!)]
-      (is (= 42 (rf.subs.memo/maybe-validate-sub! 42 [:sub/x] :sub/x {:doc "x"} nil)))
-      (is (= 42 (rf.subs.memo/maybe-validate-sub! 42 [:sub/x] :sub/x nil nil))
-          "nil sub-meta is 'no declaration' too")
-      (is (= [] @seen) "the validator was never consulted"))))
-
-;; ===========================================================================
-;; Fx-args outer gate — through the real effect walk
-;; ===========================================================================
+                                                    {:schema token} nil))
+            "the false verdict recovers to nil")
+        (is (= [token] @seen)))))
+  (let [seen (spy-validator!)]
+    (is (= 42 (rf.subs.memo/maybe-validate-sub! 42 [:sub/x] :sub/x {:doc "x"} nil)))
+    (is (= 42 (rf.subs.memo/maybe-validate-sub! 42 [:sub/x] :sub/x nil nil))
+        "nil sub-meta is no declaration too")
+    (is (= [] @seen) "an omitted :schema never consults the validator")))
 
 ;; ^:requires-debug — the fx walk's consult delegates to the schemas
-;; artefact's `validate-fx!`, whose body is Spec 010 dev-only (elided
-;; under `-Dre-frame.debug=false`, where the fx runs unchecked by design).
-(deftest ^:requires-debug fx-gate-delegates-a-present-false-token-through-the-real-walk
-  (testing "a reg-fx registration declaring {:schema false} is validated
-            during the :fx walk (spy sees the exact false token once) and
-            the offending fx is SKIPPED (recovery :skipped); siblings and
-            the cascade are unaffected"
+;; artefact's `validate-fx!`, whose body is dev-only (the fx runs unchecked
+;; under `-Dre-frame.debug=false`).
+(deftest ^:requires-debug fx-gate-schema-is-key-presence
+  (testing "a present false token is validated during the real :fx walk and the fx is skipped"
     (let [seen     (spy-validator!)
           fx-calls (atom 0)]
       (rf/reg-fx :fxp/guarded {:schema false}
@@ -174,17 +113,14 @@
       (rf/reg-event :evp/emit
         (fn [{:keys [db]} _] {:db db :fx [[:fxp/guarded {:a 1}]]}))
       (rf/dispatch-sync [:evp/emit])
-      (is (= 0 @fx-calls) "the fx handler was skipped on the false verdict")
-      (is (= [false] @seen)
-          "the EXACT false token reached the validator, exactly once"))))
-
-(deftest fx-gate-omitted-key-is-a-no-op
-  (testing "a reg-fx registration with no :schema key runs unchecked"
+      (is (= 0 @fx-calls))
+      (is (= [false] @seen))))
+  (testing "an omitted :schema runs the fx unchecked"
     (let [seen     (spy-validator!)
           fx-calls (atom 0)]
       (rf/reg-fx :fxp/plain (fn [_ctx _args] (swap! fx-calls inc)))
-      (rf/reg-event :evp/emit
+      (rf/reg-event :evp/emit-plain
         (fn [{:keys [db]} _] {:db db :fx [[:fxp/plain {:a 1}]]}))
-      (rf/dispatch-sync [:evp/emit])
-      (is (= 1 @fx-calls) "the fx ran")
-      (is (= [] @seen) "the validator was never consulted"))))
+      (rf/dispatch-sync [:evp/emit-plain])
+      (is (= 1 @fx-calls))
+      (is (= [] @seen)))))
