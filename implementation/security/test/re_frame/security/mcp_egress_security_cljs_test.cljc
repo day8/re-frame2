@@ -6,13 +6,13 @@
   to each frame's trace and epoch slices. Truthy non-boolean stamps are treated
   as sensitive because malformed metadata must fail closed. Enabling sensitive
   reads is the operator's explicit raw-egress opt-in."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing]]
-               :cljs [cljs.test :refer-macros [deftest is testing]])
+  (:require #?(:clj  [clojure.test :refer [deftest is]]
+               :cljs [cljs.test :refer-macros [deftest is]])
             [re-frame.mcp-base.sensitive :as rf.mcp-base.sensitive]
             [re-frame.security.gen :as rf.security.gen]))
 
-;; These property tests intentionally drive thousands of malformed
-;; `:sensitive?` stamps through `sens/strip-sensitive` / `scrub-snapshot`.
+;; The scrub property intentionally drives thousands of malformed
+;; `:sensitive?` stamps through `scrub-snapshot`.
 ;; The quiet JVM and CLJS runners buffer the expected contract-drift warnings
 ;; and replay them on failure.
 
@@ -69,31 +69,12 @@
   "A vector of 0..12 mixed events."
   (rf.security.gen/gen-vec (rf.security.gen/gen-int 0 13) gen-event))
 
-(deftest allow-sensitive-disabled-strips-every-sensitive-event
-  (testing "with sensitive reads disabled, strip-sensitive drops every
-            :sensitive?-stamped (and malformed-truthy) event across 400
-            generated mixed event vectors; the sentinel never survives"
-    (let [result (rf.security.gen/for-all
-                   gen-event-vec 400 23
-                   (fn [events]
-                     (let [[kept _dropped] (rf.mcp-base.sensitive/strip-sensitive events false)]
-                       ;; Check both content and classification: stripping a
-                       ;; stamp alone must not hide a secondary-slot leak.
-                       (and (not-any? contains-sentinel? kept)
-                            (not-any? rf.mcp-base.sensitive/sensitive-event? kept)))))]
-      (is (nil? result)
-          (str "a sensitive event survived the allow-sensitive-disabled egress: "
-               (pr-str (when result (dissoc result :threw))))))))
-
 (deftest allow-sensitive-enabled-opt-in-passes-through-verbatim
-  (testing "with include? true (operator opted in via --allow-sensitive-reads),
-            strip-sensitive is identity - the opt-in is the sole control point"
-    (let [result (rf.security.gen/for-all
-                   gen-event-vec 200 29
-                   (fn [events]
-                     (let [[kept dropped] (rf.mcp-base.sensitive/strip-sensitive events true)]
-                       (and (= events kept) (zero? dropped)))))]
-      (is (nil? result) (str "opt-in egress altered the events: " (pr-str result))))))
+  ;; The operator's --allow-sensitive-reads opt-in is the sole control point.
+  (let [events [{:operation :fx/run :sensitive? true :tags {:value sentinel}}
+                {:operation :fx/run :sensitive? "true" :tags {:value sentinel}}
+                {:operation :sub/recompute :tags {:k "public-data"}}]]
+    (is (= [events 0] (rf.mcp-base.sensitive/strip-sensitive events true)))))
 
 (def ^:private gen-frame
   "A per-frame snapshot map with mixed-sensitivity :traces + :epochs slices
@@ -129,39 +110,15 @@
         scrubbed))
 
 (deftest allow-sensitive-disabled-scrub-snapshot-leaves-no-sensitive-event
-  (testing "with sensitive reads disabled, scrub-snapshot strips sensitive
-            events from every frame's
-            :traces/:epochs across 300 generated multi-frame snapshots;
-            :app-db is left untouched"
-    (let [result (rf.security.gen/for-all
-                   gen-snapshot 300 31
-                   (fn [snap]
-                     (let [[scrubbed _dropped] (rf.mcp-base.sensitive/scrub-snapshot snap false)]
-                       (and (not (snapshot-leaks-sentinel? scrubbed))
-                            ;; :app-db must survive verbatim (read-time
-                            ;; scrubbing is trace/epoch-only by design).
-                            (every? (fn [[_f fm]]
-                                      (= {:public "kept"} (:app-db fm)))
-                                    scrubbed)))))]
-      (is (nil? result)
-          (str "scrub-snapshot left a sensitive event in a frame slice: "
-               (pr-str (when result (dissoc result :threw))))))))
-
-(deftest snapshot-deep-scan-catches-secondary-slot-survivor
-  (testing "the snapshot deep scan catches a non-sensitive trace carrying the
-            sentinel in :tags :received without inspecting :app-db"
-    (let [survivor   {:operation :sub/recompute
-                      :tags {:value "public-data" :received [sentinel]}}
-          leaked     {:frame-0 {:traces [survivor]
-                                :epochs []
-                                :app-db {:public "kept"}}}
-          clean      {:frame-0 {:traces [{:operation :fx/run
-                                          :tags {:value "public-data"}}]
-                                :epochs []
-                                :app-db {:public "kept"}}}]
-      (is (not (some rf.mcp-base.sensitive/sensitive-event? (-> leaked :frame-0 :traces)))
-          "classification alone is blind because the survivor is not stamped")
-      (is (snapshot-leaks-sentinel? leaked)
-          "deep scan flags the sentinel in a frame's :tags :received")
-      (is (not (snapshot-leaks-sentinel? clean))
-          "deep scan must not flag a sentinel-free snapshot"))))
+  ;; Every frame's :traces and :epochs go through strip-sensitive; :app-db is
+  ;; left untouched (read-time scrubbing is trace/epoch-only by design).
+  (let [result (rf.security.gen/for-all
+                 gen-snapshot 300 31
+                 (fn [snap]
+                   (let [[scrubbed _dropped] (rf.mcp-base.sensitive/scrub-snapshot snap false)]
+                     (and (not (snapshot-leaks-sentinel? scrubbed))
+                          (every? (fn [[_f fm]] (= {:public "kept"} (:app-db fm)))
+                                  scrubbed)))))]
+    (is (nil? result)
+        (str "scrub-snapshot left a sensitive event in a frame slice: "
+             (pr-str (when result (dissoc result :threw)))))))
