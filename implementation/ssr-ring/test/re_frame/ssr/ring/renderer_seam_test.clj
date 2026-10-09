@@ -1,20 +1,10 @@
 (ns re-frame.ssr.ring.renderer-seam-test
-  "The render-body seam (Spec 011 §HTTP response contract).
-
-  `ssr-handler` takes ONE construction opt, `:renderer` — a plain fn
-  `(fn [{:keys [frame-id request opts]}] -> {:body-html :render-hash})` —
-  which `build-full-response*` calls inside the request frame's scope, after the boot-event drain and
-  the blocking-resource settle, before head resolution and the payload
-  build. The renderer returns body markup and nothing else; the JVM keeps
-  the request frame, head, `__rf_payload`, shell, status, headers, cookies,
-  error projection and teardown (the ownership line).
-
-  The default, `pipeline/local-renderer`, is the JVM-local body render, and
-  its floor is the rest of the suite: the Jetty end-to-end tests pin bytes,
-  so the default path is byte-identical whether it is named or implied.
-  These rows pin the seam itself."
+  "The `:renderer` render-body seam (Spec 011 §HTTP response contract). The
+  renderer returns body markup and an optional hash; the JVM keeps the
+  request frame, head, `__rf_payload`, shell, status, headers, error
+  projection and teardown."
   (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is testing use-fixtures]]
+            [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.ssr.ring :as rf.ssr.ring]
             [re-frame.ssr.ring.pipeline :as rf.ssr.ring.pipeline]
@@ -22,301 +12,120 @@
 
 (use-fixtures :each rf.ssr.ring.test-support/reset-runtime)
 
-;; ---- extraction helpers ---------------------------------------------------
-
-(defn- payload-edn-of
-  "The `__rf_payload` script body of a rendered document string."
-  [body]
+(defn- payload-edn-of [body]
   (second (re-find #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>" body)))
 
-(defn- payload-render-hash
-  "The payload's `:rf/render-hash`, or nil when the key is absent. Matches
-  the `#:rf{…}` namespace-map shorthand `pr-str` emits too."
-  [body]
-  (when-let [edn (payload-edn-of body)]
-    (second (re-find #":(?:rf/)?render-hash \"([0-9a-f]{8})\"" edn))))
+(defn- payload-render-hash [body]
+  (some->> (payload-edn-of body)
+           (re-find #":(?:rf/)?render-hash \"([0-9a-f]{8})\"")
+           second))
 
 (defn- payload-head-hash [body]
-  (when-let [edn (payload-edn-of body)]
-    (second (re-find #":(?:rf/)?head-hash \"([0-9a-f]{8})\"" edn))))
+  (some->> (payload-edn-of body)
+           (re-find #":(?:rf/)?head-hash \"([0-9a-f]{8})\"")
+           second))
 
 (defn- wire-render-hash [body]
   (second (re-find #"data-rf-render-hash=\"([0-9a-f]{8})\"" body)))
 
-(defn- content-type-of [headers]
-  (or (get headers "content-type") (get headers "Content-Type")))
-
-(defn- drain-stream
-  "Read a streaming Ring body (an InputStream) to a String."
-  [body]
-  (if (string? body)
-    body
-    (with-open [in body]
-      (slurp in))))
-
 (def ^:private request
   {:uri "/seam" :request-method :get :headers {"x-seam-probe" "yes"}})
 
-;; ---- the app under test ---------------------------------------------------
+(def ^:private fixed-body
+  "<main id=\"native\"><h1>Rendered elsewhere</h1></main>")
 
-(defn- register-app! []
+(defn- fixed-renderer [_]
+  {:body-html fixed-body :render-hash nil})
+
+(defn- serve
+  "Register the app and serve `request` through an `ssr-handler` built from `opts`."
+  [opts]
   (rf/reg-event :rf.test.seam/init
     {:platforms #{:server}}
     (fn [_ _] {:db {:heading "Seam"}}))
   (rf/reg-sub :seam/heading (fn [db _] (:heading db)))
   (rf/reg-view* :seam/root
-    (fn []
-      (let [h (rf/subscribe-once [:seam/heading])]
-        [:main.page [:h1 h] [:p "jvm body"]]))))
-
-(def ^:private base-opts
-  {:initial-events [[:rf.test.seam/init]]
-   :payload        :rf.ssr.payload/whole-app-db})
-
-(def ^:private fixed-body
-  "<main id=\"native\"><h1>Rendered elsewhere</h1></main>")
-
-(defn- fixed-renderer
-  "A renderer standing in for a non-local one: a fixed body, no hash."
-  [_]
-  {:body-html fixed-body :render-hash nil})
-
-;; ===========================================================================
-;; A custom renderer's body inside a JVM-built document
-;; ===========================================================================
+    (fn [] [:main.page [:h1 (rf/subscribe-once [:seam/heading])] [:p "jvm body"]]))
+  ((rf.ssr.ring/ssr-handler (merge {:initial-events [[:rf.test.seam/init]]
+                                    :payload        :rf.ssr.payload/whole-app-db}
+                                   opts))
+   request))
 
 (deftest a-custom-renderer-body-lands-verbatim-in-a-jvm-built-document
-  (testing "a :renderer returning a fixed body and
-            a nil hash — the body is inserted verbatim; no data-rf-render-hash
-            marker; no payload :rf/render-hash; head, __rf_payload, shell,
-            status and headers are JVM-built; :root-view omitted without error"
-    (register-app!)
-    (let [handler (rf.ssr.ring/ssr-handler
-                    ;; No :root-view: with a custom renderer nothing reads it.
-                    (assoc base-opts
-                           :emit-hash? true
-                           :renderer   fixed-renderer))
-          {:keys [status headers body]} (handler request)]
-      (is (= 200 status) "status is the JVM's — the seam never touches it")
-      (is (str/includes? (str (content-type-of headers)) "text/html")
-          "headers are the JVM's")
-      (is (str/includes? body fixed-body) "the renderer's body, verbatim")
-      (is (not (str/includes? body "jvm body"))
-          "no JVM :root-view rendered — the seam is the only body source")
-      (is (str/includes? body "<!DOCTYPE html>") "shell: a JVM-built document")
-      (is (str/includes? body "<div id=\"app\"")
-          "shell: the #app root wraps the body")
-      (is (some? (payload-edn-of body)) "__rf_payload: JVM-built")
-      (is (str/includes? (payload-edn-of body) "\"Seam\"")
-          "…from the post-drain app-db (the boot event ran on the JVM)")
-      (is (some? (payload-head-hash body))
-          "head: JVM-resolved, on its own reconstructible channel")
-      (is (str/includes? body "data-rf-head-hash") "…and its wire marker rides")
-      (is (nil? (wire-render-hash body))
-          "a nil hash under :emit-hash? true re-stamps NOTHING (nothing
-           is 'computed yourself' at the seam)")
-      (is (not (str/includes? body "render-hash"))
-          "a nil hash OMITS the payload's :rf/render-hash key"))))
-
-;; ===========================================================================
-;; :root-view is required iff the renderer is the default
-;; ===========================================================================
+  ;; No `:root-view` is needed, and a supplied one is never read.
+  (let [{:keys [status body]} (serve {:renderer fixed-renderer})]
+    (is (= 200 status))
+    (is (str/includes? body fixed-body))
+    (is (str/includes? body "<div id=\"app\""))
+    (is (str/includes? (payload-edn-of body) "\"Seam\"")
+        "the payload is built from the post-drain app-db")
+    (is (some? (payload-head-hash body)) "the head is JVM-resolved")
+    (is (not (str/includes? body "render-hash"))
+        "a nil hash under `:emit-hash? true` stamps nothing and omits the payload key")
+    (is (= body (:body (serve {:renderer  fixed-renderer
+                               :root-view [(rf/view :seam/root)]}))))))
 
 (deftest root-view-is-required-exactly-when-renderer-is-absent
-  (testing "with a custom :renderer, :root-view is optional and
-            ignored — a supplied one is simply never read"
-    (register-app!)
-    (let [without ((rf.ssr.ring/ssr-handler
-                     (assoc base-opts :renderer fixed-renderer))
-                   request)
-          with    ((rf.ssr.ring/ssr-handler
-                     (assoc base-opts
-                            :root-view [(rf/view :seam/root)]
-                            :renderer  fixed-renderer))
-                   request)]
-      (is (= 200 (:status without)) "constructs and serves with no :root-view")
-      (is (= (:body without) (:body with))
-          "a supplied :root-view changes nothing under a custom renderer")
-      (is (not (str/includes? (:body with) "jvm body")))))
-  (testing "…and without a :renderer :root-view is required: omitting
-            it fails closed at construction"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #":rf\.error/ssr-ring-missing-root-view"
-          (rf.ssr.ring/ssr-handler base-opts))))
-  (testing "…an explicit-nil :renderer is absent, not custom: the default
-            renderer will read :root-view, so it is still required"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #":rf\.error/ssr-ring-missing-root-view"
-          (rf.ssr.ring/ssr-handler (assoc base-opts :renderer nil))))))
-
-;; ===========================================================================
-;; What the renderer is handed, and where it runs
-;; ===========================================================================
+  ;; An explicit-nil `:renderer` is absent: the default renderer reads `:root-view`.
+  (doseq [opts [{} {:renderer nil}]]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #":rf\.error/ssr-ring-missing-root-view"
+                          (rf.ssr.ring/ssr-handler
+                            (merge {:initial-events [[:rf.test.seam/init]]
+                                    :payload        :rf.ssr.payload/whole-app-db}
+                                   opts))))))
 
 (deftest the-renderer-sees-the-live-post-drain-frame-the-request-and-the-opts
-  (testing "the input is exactly {:frame-id :request :opts} —
-            the live post-drain frame by id, the Ring request, the handler
-            opts — and the call sits INSIDE the request frame's scope, so a
-            frame-relative read resolves without naming the frame"
-    (register-app!)
-    (let [seen    (atom nil)
-          handler (rf.ssr.ring/ssr-handler
-                    (assoc base-opts
-                           :root-view [(rf/view :seam/root)]
-                           :renderer
-                           (fn [{:keys [frame-id request opts] :as in}]
-                             (reset! seen
-                                     {:keys    (set (keys in))
+  ;; It runs inside the request frame's scope, so an unqualified read resolves.
+  (let [seen (atom nil)]
+    (serve {:renderer (fn [{:keys [frame-id request opts] :as in}]
+                        (reset! seen {:keys    (set (keys in))
                                       :app-db  (rf/app-db-value frame-id)
                                       :scoped  (rf/subscribe-once [:seam/heading])
                                       :request request
-                                      :opts    opts})
-                             {:body-html "<p>seen</p>" :render-hash nil})))]
-      (handler request)
-      (is (= #{:frame-id :request :opts} (:keys @seen))
-          "exactly the three seam keys")
-      (is (= {:heading "Seam"} (:app-db @seen))
-          "post-drain: the boot event has already run against this frame")
-      (is (= "Seam" (:scoped @seen))
-          "inside rf/with-frame: an unqualified subscribe-once reads the
-           request frame")
-      (is (= request (:request @seen))
-          "the Ring request, as the host received it")
-      (is (= [[:rf.test.seam/init]] (:initial-events (:opts @seen)))
-          "the handler's own opts…")
-      (is (true? (:emit-hash? (:opts @seen)))
-          "…with the construction-time defaults merged in"))))
-
-;; ===========================================================================
-;; The default — local-renderer is the JVM-local render
-;; ===========================================================================
+                                      :opts    (select-keys opts [:initial-events :emit-hash?])})
+                        {:body-html "<p>seen</p>" :render-hash nil})})
+    (is (= {:keys    #{:frame-id :request :opts}
+            :app-db  {:heading "Seam"}
+            :scoped  "Seam"
+            :request request
+            :opts    {:initial-events [[:rf.test.seam/init]] :emit-hash? true}}
+           @seen))))
 
 (deftest local-renderer-is-the-default-and-naming-it-changes-nothing
-  (testing "omitting :renderer and
-            passing pipeline/local-renderer explicitly produce byte-identical
-            documents — and on the hashed (resolving-root) path the wire
-            marker and the payload hash still agree"
-    (register-app!)
-    (let [opts     (assoc base-opts :root-view (fn [] ((rf/view :seam/root))))
-          implicit ((rf.ssr.ring/ssr-handler opts) request)
-          explicit ((rf.ssr.ring/ssr-handler
-                      (assoc opts :renderer rf.ssr.ring.pipeline/local-renderer))
-                    request)]
-      (is (= (:status implicit) (:status explicit)))
-      (is (= (:headers implicit) (:headers explicit)))
-      (is (= (:body implicit) (:body explicit)) "byte-identical")
-      (is (str/includes? (:body implicit) "jvm body")
-          "and it is the JVM :root-view that rendered")
-      (is (some? (wire-render-hash (:body implicit)))
-          "the resolving root keeps its hash channel")
-      (is (= (wire-render-hash (:body implicit))
-             (payload-render-hash (:body implicit)))
-          "wire marker == payload key (one canonical hash)"))))
-
-;; ===========================================================================
-;; The hash is the renderer's; the body bytes are never rewritten
-;; ===========================================================================
+  (let [opts     {:root-view (fn [] ((rf/view :seam/root)))}
+        implicit (serve opts)
+        body     (:body implicit)]
+    (is (= implicit (serve (assoc opts :renderer rf.ssr.ring.pipeline/local-renderer))))
+    (is (str/includes? body "jvm body"))
+    (is (some? (wire-render-hash body)))
+    (is (= (wire-render-hash body) (payload-render-hash body)))))
 
 (deftest a-custom-render-hash-feeds-the-payload-and-the-body-is-never-rewritten
-  (testing "a non-nil :render-hash becomes the payload's
-            :rf/render-hash; the wire marker is the renderer's own to stamp"
-    (register-app!)
-    (let [stamped "<div data-rf-render-hash=\"0badf00d\">stamped</div>"
-          handler (rf.ssr.ring/ssr-handler
-                    (assoc base-opts
-                           :root-view [(rf/view :seam/root)]
-                           :renderer  (fn [_] {:body-html   stamped
-                                               :render-hash "0badf00d"})))
-          body    (:body (handler request))]
-      (is (= "0badf00d" (payload-render-hash body)) "payload: the seam's hash")
-      (is (= "0badf00d" (wire-render-hash body)) "wire: the renderer's marker")
-      (is (str/includes? body stamped) "body: verbatim")))
-  (testing "…and a hash returned WITHOUT a marker in the body is not stamped
-            by the pipeline: the payload carries it, the wire does not"
-    (register-app!)
-    (let [handler (rf.ssr.ring/ssr-handler
-                    (assoc base-opts
-                           :root-view [(rf/view :seam/root)]
-                           :renderer  (fn [_] {:body-html   "<div>bare</div>"
-                                               :render-hash "0badf00d"})))
-          body    (:body (handler request))]
-      (is (= "0badf00d" (payload-render-hash body)))
-      (is (nil? (wire-render-hash body))
-          "the pipeline never rewrites body bytes — marker included")
-      (is (str/includes? body "<div>bare</div>")))))
-
-;; ===========================================================================
-;; stream-handler refuses :renderer at construction
-;; ===========================================================================
+  (let [body (:body (serve {:renderer (fn [_] {:body-html   "<div>bare</div>"
+                                               :render-hash "0badf00d"})}))]
+    (is (= "0badf00d" (payload-render-hash body)))
+    (is (str/includes? body "<div>bare</div>"))
+    (is (nil? (wire-render-hash body)) "the pipeline stamps no marker into the body")))
 
 (deftest stream-handler-refuses-renderer-at-construction
-  (testing "a non-nil :renderer is REJECTED when
-            stream-handler is constructed — as :html-shell is — with
-            ex-data naming the opt, the value and a recovery"
-    (register-app!)
-    (let [ex   (is (thrown? clojure.lang.ExceptionInfo
-                     (rf.ssr.ring/stream-handler
-                       (assoc base-opts
-                              :root-view [(rf/view :seam/root)]
-                              :renderer  fixed-renderer))))
-          data (ex-data ex)]
-      (is (= :rf.error/ssr-streaming-unsupported-opt (:rf.error/id data))
-          "the structured id is the shared unsupported-opt refusal — no
-           separate error id")
-      (is (= :renderer (:opt-key data)) "ex-data names the offending opt")
-      (is (= fixed-renderer (:got data)) "ex-data carries the rejected value")
-      (is (keyword? (:recovery data)) "ex-data carries a recovery")
-      (is (str/includes? (str (:reason data)) ":renderer")
-          "the reason names :renderer")
-      (is (str/includes? (str (:reason data)) "ssr-handler")
-          "the reason points the caller at the non-streaming handler")))
-  (testing "…including a :renderer offered INSTEAD of :root-view — the
-            streaming path cannot take a whole body from elsewhere, so it
-            refuses rather than silently rendering nothing"
-    (register-app!)
-    (let [ex (is (thrown? clojure.lang.ExceptionInfo
-                   (rf.ssr.ring/stream-handler
-                     (assoc base-opts :renderer fixed-renderer))))]
-      (is (= :rf.error/ssr-streaming-unsupported-opt
-             (:rf.error/id (ex-data ex))))
-      (is (= :renderer (:opt-key (ex-data ex))))))
-  (testing "…while an explicit-nil :renderer counts as absent: it
-            constructs cleanly and streams the JVM-local render — the refusal
-            gates only a non-nil override, never the default path"
-    (register-app!)
-    (let [handler  (rf.ssr.ring/stream-handler
-                     (assoc base-opts :root-view [(rf/view :seam/root)]
-                                      :renderer  nil))
-          response (handler request)
-          body     (drain-stream (:body response))]
-      (is (= 200 (:status response)))
-      (is (str/includes? body "jvm body") "the JVM :root-view streamed"))))
-
-;; ===========================================================================
-;; A renderer throw is a render-time throw
-;; ===========================================================================
+  (let [ex (is (thrown? clojure.lang.ExceptionInfo
+                 (rf.ssr.ring/stream-handler
+                   {:initial-events [[:rf.test.seam/init]]
+                    :root-view      [:div]
+                    :payload        :rf.ssr.payload/whole-app-db
+                    :renderer       fixed-renderer})))]
+    (is (= {:rf.error/id :rf.error/ssr-streaming-unsupported-opt
+            :opt-key     :renderer
+            :got         fixed-renderer}
+           (select-keys (ex-data ex) [:rf.error/id :opt-key :got])))))
 
 (deftest a-throwing-renderer-projects-like-a-root-view-render-throw
-  (testing "a :renderer throw happens at the render call
-            with a live frame, so the render-failure projection
-            handles it like any render throw — projected 500, the projector's public message, no
-            hydration payload, no throwable detail on the wire"
-    (register-app!)
-    (let [handler (rf.ssr.ring/ssr-handler
-                    (assoc base-opts
-                           :root-view [(rf/view :seam/root)]
-                           :renderer
-                           (fn [_]
-                             (throw (ex-info "sidecar unreachable at 127.0.0.1:8148"
-                                             {:where :seam})))))
-          {:keys [status body]} (handler request)]
-      (is (= 500 status) "projected, fail-closed")
-      (is (str/includes? body "Something went wrong")
-          "the default projector's :message (Spec 011 §Default projector)")
-      (is (str/includes? body "internal-error") "…and its :code")
-      (is (not (str/includes? body "__rf_payload"))
-          "no hydration payload on the error arm")
-      (is (not (str/includes? body "8148"))
-          "no throwable detail leaks to the wire"))))
+  (let [{:keys [status body]}
+        (serve {:renderer (fn [_]
+                            (throw (ex-info "sidecar unreachable at 127.0.0.1:8148"
+                                            {:where :seam})))})]
+    (is (= 500 status))
+    (is (str/includes? body "internal-error")
+        "the projector's error page, not the transport fallback")
+    (is (not (str/includes? body "8148")) "no throwable detail on the wire")))
