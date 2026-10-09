@@ -150,6 +150,30 @@
         (pr-str (:tags v)))
     (is (= [:root :rf/redacted :age] (-> v :tags :path)))))
 
+;; A sensitive CONTAINER whose failing leaf sits under a transparent
+;; :and/:or/:multi/:orn wrapper. align-in-path cannot resolve the wrapper, so
+;; only the consumed-ancestor carry finds the sensitivity: the leaf below is
+;; NOT itself sensitive, a shape the generated property never draws.
+(deftest ancestor-sensitive-wrapper-corpus-all-redacted
+  (doseq [[label schema db]
+          [["and-ancestor"
+            [:map [:s {:sensitive? true} [:and [:map [:k :int]]]]]
+            {:s {:k sentinel}}]
+           ["or-ancestor"
+            [:map [:s {:sensitive? true} [:or [:map [:k :int]]]]]
+            {:s {:k sentinel}}]
+           ["multi-ancestor"
+            [:map [:s {:sensitive? true}
+                   [:multi {:dispatch :t} [:a [:map [:t :keyword] [:k :int]]]]]]
+            {:s {:t :a :k sentinel}}]
+           ["orn-ancestor"
+            [:map [:s {:sensitive? true} [:orn [:a [:map [:k :int]]]]]]
+            {:s {:k sentinel}}]]]
+    (let [v (failure-trace schema db)]
+      (is (= [true :rf/redacted false]
+             [(:sensitive? v) (-> v :tags :value) (contains-sentinel? v)])
+          label))))
+
 (deftest non-sensitive-collection-failure-not-over-redacted
   (let [v (failure-trace [:vector [:map [:name :string]]] [{:name 99}])]
     (is (= [false 99] [(contains? v :sensitive?) (-> v :tags :value)])
