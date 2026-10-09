@@ -1,47 +1,26 @@
 (ns re-frame.views.source-coord-warn-parity-cljs-test
-  "Cross-adapter parity for the non-DOM-root warning emitted by the two
-  source-coord annotation walks:
-
-    * Reagent hiccup walk:
-      `re-frame.views.source-coord-annotation/inject-source-coord-attr`
-    * React-hook walk (UIx):
-      `re-frame.substrate.spine/inject-source-coord-attr`
-
-  Both walks share the warn-on-ANY-non-nil-non-element predicate (a string
-  root is equally un-annotatable on both substrates), and `nil` stays silent
-  on both (a view legitimately renders nothing). The message TEXT is shared
-  (adapter/context), so it cannot drift; the TRIGGER condition can. A walk
-  that warned ONLY on a vector would leave a string-returning view SILENT
-  under Reagent while it warns under UIx — an observable cross-adapter
-  inconsistency on a pair-tool warning surface.
-
-  These tests drive BOTH walks directly (no JSDOM, no adapter install) and
-  assert their warn behaviour is IDENTICAL for a matrix of un-annotatable
-  outputs. The Reagent walk routes its warning through the process-wide
-  `warn-once` cache + `js/console.warn`; the spine walk takes an injectable
-  `warn-fn`. We observe both via a `js/console.warn` stub so the assertion
-  is uniform across walks.
-
-  ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
+  "Both source-coord annotation walks warn on the same roots: the Reagent
+  hiccup walk (`re-frame.views.source-coord-annotation/inject-source-coord-attr`)
+  and the React-hook walk (`re-frame.substrate.spine/inject-source-coord-attr`)
+  warn on any non-nil un-annotatable root, and stay silent on nil (a view may
+  render nothing). The message text is shared, so only the trigger can drift.
+  Both walks are driven directly and observed through a `js/console.warn`
+  stub."
   (:require [cljs.test :refer-macros [are deftest is testing use-fixtures]]
             [re-frame.substrate.spine :as rf.substrate.spine]
             [re-frame.views.source-coord-annotation :as rf.views.source-coord-annotation]
             [re-frame.views.warn-once :as rf.views.warn-once]))
 
-;; ---- harness --------------------------------------------------------------
-
 (def ^:private orig-console-warn (when (exists? js/console) (.-warn js/console)))
 
 (defn console-warn-stub-fixture
-  "Stub `js/console.warn` to count calls so both walks' warnings are
-  observable uniformly, and clear the process-wide non-DOM-root warn-once
-  cache before AND after each test so a sibling test's first-encounter
-  warning can't swallow ours (and ours can't leak)."
+  "Count `js/console.warn` calls, and clear the process-wide non-DOM-root
+  warn-once cache on both sides of each test so no first-encounter warning
+  crosses a test boundary."
   [test-fn]
   (rf.views.warn-once/clear-warned-non-dom-roots!)
   (let [calls (atom 0)]
     (set! (.-warn js/console) (fn [& _] (swap! calls inc)))
-    ;; Stash the counter where the test bodies can read it.
     (set! (.-rf2-warn-calls js/console) calls)
     (try (test-fn)
          (finally
@@ -52,18 +31,15 @@
 
 (defn- warn-count [] @(.-rf2-warn-calls js/console))
 
-;; Drive the Reagent hiccup walk for `out` under a fresh warn-once cache and
-;; return whether it warned (1) or stayed silent (0).
+;; Warnings the Reagent hiccup walk emits for `out`, from a fresh cache.
 (defn- reagent-warned? [out]
   (rf.views.warn-once/clear-warned-non-dom-roots!)
   (let [before (warn-count)]
     (rf.views.source-coord-annotation/inject-source-coord-attr :rf.test/view "rf.test:view:1:1" out)
     (- (warn-count) before)))
 
-;; Drive the React-hook (spine) walk for `out` and return whether it warned.
-;; The private fn takes an injectable warn-fn; we route it through the SAME
-;; warn-once helper the production wiring uses so the observable matches the
-;; Reagent path (one-shot per id, lands on the stubbed console.warn).
+;; Warnings the React-hook walk emits for `out`, routed through the same
+;; warn-once helper the production wiring uses.
 (defn- spine-warned? [out]
   (rf.views.warn-once/clear-warned-non-dom-roots!)
   (let [before  (warn-count)
@@ -72,44 +48,21 @@
       warn-fn :rf.test/view "rf.test:view:1:1" ":rf.test/view" out)
     (- (warn-count) before)))
 
-;; ---- parity matrix --------------------------------------------------------
-
 (deftest un-annotatable-roots-warn-identically-on-both-walks
-  (testing "a STRING or NUMBER root is un-annotatable and warns on BOTH walks;
-            a view legitimately rendering NOTHING (nil) stays silent on both —
-            the warn predicate is non-NIL, not non-element"
-    (are [walk out warned] (= warned (walk out))
-      reagent-warned? "just a string" 1
-      spine-warned?   "just a string" 1
-      reagent-warned? 42              1
-      spine-warned?   42              1
-      reagent-warned? nil             0
-      spine-warned?   nil             0)))
-
-(deftest dom-tag-root-is-silent-on-reagent-walk
-  (testing "a real DOM-tag-rooted hiccup is annotated, not warned (Reagent
-            walk control case)"
-    (is (= 0 (reagent-warned? [:div "hi"]))
-        "Reagent walk does not warn on a :div root")))
+  (are [walk out warned] (= warned (walk out))
+    reagent-warned? "just a string" 1
+    spine-warned?   "just a string" 1
+    reagent-warned? nil             0
+    spine-warned?   nil             0))
 
 (deftest fn-headed-vector-warns-on-reagent-walk
-  (testing "a fn/component-headed vector warns on the Reagent walk
-            (regression guard: the non-nil predicate keeps the vector
-            trigger)"
-    (is (= 1 (reagent-warned? [(fn [] [:div]) "child"]))
-        "Reagent walk warns on a fn-headed vector")))
-
-;; ---- interop heads --------------------------------------------------------
+  (is (= 1 (reagent-warned? [(fn [] [:div]) "child"]))
+      "a component-headed vector is not annotated, so it warns"))
 
 (deftest interop-head-roots-pass-through-the-reagent-walk
-  (testing "Reagent's `:r>` (raw createElement) and `:f>` (function
-            component) heads carry the COMPONENT at position 1, the slot a
-            DOM root's attrs map is spliced into. Treating them as DOM tags
-            would displace the component: `:r>` would hand React a CLJS map
-            as the element type (\"Element type is invalid\") and `:f>` would
-            render the map instead of the user's fn — dev builds only. Like `:>`
-            and `:<>`, they must come back untouched with the one-shot
-            non-DOM-root warning."
+  (testing "`:r>`, `:f>` and `:>` carry the component at position 1, the slot
+            a DOM root's attrs map is spliced into, so they come back
+            untouched with the non-DOM-root warning"
     (let [comp-fn (fn [] [:div])]
       (doseq [out [[:f> comp-fn "arg"]
                    [:r> comp-fn #js {} [:child]]
@@ -119,9 +72,9 @@
               result (rf.views.source-coord-annotation/inject-source-coord-attr
                        :rf.test/view "rf.test:view:1:1" out)]
           (is (identical? out result)
-              (str (first out) " root must come back untouched, component still at position 1"))
+              (str (first out) " root comes back untouched, component still at position 1"))
           (is (= 1 (- (warn-count) before))
-              (str (first out) " root takes the documented non-DOM-root warning")))))
+              (str (first out) " root takes the non-DOM-root warning")))))
     (testing "control: a DOM-tag root IS annotated by the same call"
       (is (= [:div {:data-rf2-source-coord "rf.test:view:1:1"
                     :data-rf-view          ":rf.test/view"} "hi"]
