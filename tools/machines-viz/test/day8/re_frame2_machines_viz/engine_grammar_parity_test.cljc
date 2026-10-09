@@ -1,40 +1,17 @@
 (ns day8.re-frame2-machines-viz.engine-grammar-parity-test
   "ENGINE-GRAMMAR PARITY tests.
 
-  machines-viz HAND-MIRRORS the runtime engine's machine-definition
-  grammar walk + target resolution: `grammar/normalise-root-targets`,
-  `grammar/reenter?`, `grammar/transition-candidates`, and the chart's
-  `resolve-target-path` each re-implement, in plain JVM-portable data,
-  what `re-frame.machines.parallel` / `re-frame.machines.transition` /
-  `re-frame.machines.grammar` do at runtime. The mirror is BY-DESIGN —
-  the viz tool is bundle-isolated from production
-  (`check-bundle-isolation` pins that nothing under implementation/ may
-  `:require` this jar, and this jar's SRC never `:require`s the engine)
-  and `grammar.cljc` is deliberately dep-free (`clojure.string` only), so
-  a shared `:require` — or a shared grammar-codec ns — would punch a hole
-  through the very isolation boundary the sentinel exists to protect.
+  machines-viz hand-mirrors the engine's machine-definition grammar — target
+  normalisation and resolution, the `:timeout` / `:choice` desugars, and the
+  recursive definition validator — because its source is bundle-isolated from
+  the runtime `machines` artefact and `grammar.cljc` requires nothing. Each
+  test feeds representative definitions through BOTH the viz copy and the
+  engine and asserts the same output. A failure means the viz drifted from the
+  engine: re-sync the copy, do not delete the test.
 
-  Because the copies are kept in sync only by hand, a silent drift — the
-  viz tool re-wiring an edge the engine resolves differently — is the
-  risk. These tests make that drift LOUD: each feeds REPRESENTATIVE
-  machine-defs through BOTH the machines-viz copy AND the engine fn and
-  asserts EQUAL OUTPUT (structural / behavioural, NOT a source-text
-  compare). If one fails, the viz grammar drifted from the engine — re-
-  sync the copy, do NOT delete the test.
-
-  This is a TEST, not the shipped tool: it MAY `:require` the engine
-  (the `day8/re-frame2-machines` dep lives ONLY on the :test alias —
-  tools/machines-viz/deps.edn). The engine-require here does NOT trip
-  `check-bundle-isolation`: that gate greps the compiled
-  examples/counter PRODUCTION BUNDLE, never the test classpath, and the
-  shipped machines-viz jar (`:clein/build :src-dirs [\"src\"]`) carries
-  no test deps.
-
-  The engine targets `rf.machines.parallel/normalise-root-targets`,
-  `rf.machines.transition/normalise-candidates`, and `rf.machines.transition/target-path` are
-  PRIVATE (`defn-`); the tests reach them through their vars
-  (`#'ns/fn`), which is the standard, drift-honest way to pin a private
-  contract from outside its namespace."
+  Only this test requires the engine: `day8/re-frame2-machines` is a
+  test-alias dependency, so the shipped jar carries none of it. Private engine
+  fns are reached through their vars."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [day8.re-frame2-machines-viz.chart.layout :as layout]
@@ -45,198 +22,72 @@
             [re-frame.machines.timeout :as rf.machines.timeout]
             [re-frame.machines.transition :as rf.machines.transition]))
 
-;; ---------------------------------------------------------------------------
-;; Private-var accessors for the engine fns the viz copies mirror.
-;;
-;; `rf.machines.parallel/normalise-root-targets`, `rf.machines.transition/normalise-candidates`,
-;; and `rf.machines.transition/target-path` are `defn-` (engine-internal). Pinning a
-;; private contract from outside its ns via its var is intentional here —
-;; the whole point is to assert the public viz copy agrees with the
-;; engine's internal resolver.
-
 (def engine-normalise-root-targets @#'rf.machines.parallel/normalise-root-targets)
 (def engine-normalise-candidates   @#'rf.machines.transition/normalise-candidates)
 (def engine-target-path            @#'rf.machines.transition/target-path)
+(def viz-resolve-target-path       @#'layout/resolve-target-path)
 
 ;; ---------------------------------------------------------------------------
-;; PARITY 1 — normalise-root-targets
-;;
-;; PARITY: mirror of re-frame.machines.parallel/normalise-root-targets —
-;; if this fails, the viz grammar drifted from the engine; re-sync, do
-;; not delete.
-;;
-;; grammar/normalise-root-targets (grammar.cljc) is byte-identical-logic
-;; to the engine's rf.machines.parallel/normalise-root-targets: a parallel-ROOT
-;; `:on` / `:after` candidate's `:target` is normalised into a vector of
-;; region-qualified absolute targets `[[<region> & <in-region-path>] …]`.
-;; Both projected/exported edges (viz) and the regions the engine moves
-;; must address the SAME regions, so the two normalisers must agree on
-;; every shape of the grammar.
-
-(def ^:private root-target-fixtures
-  "Representative parallel-root `:target` shapes spanning every arm of
-  the shared `cond`."
-  [;; nil / absent → [] (targetless / action-only)
-   nil
-   ;; a vector of KEYWORDS → ONE region-qualified target, wrapped
-   [:a :two]
-   [:region :nested :leaf]
-   ;; a single region head with no in-region path
-   [:r]
-   ;; a vector of VECTORS → MULTIPLE region-qualified targets, as-is
-   [[:a :x] [:b :y]]
-   [[:r1 :s] [:r2 :t] [:r3 :u]]
-   ;; a non-vector (e.g. a keyword) → [] (the :else arm)
-   :not-a-vector
-   ;; the empty vector — degenerate, both treat it via the (every? ...)
-   ;; arm: (every? vector? []) is true, so → (vec [])
-   []])
+;; Target normalisation and resolution
 
 (deftest normalise-root-targets-parity
-  (testing "viz grammar/normalise-root-targets agrees with the engine resolver"
-    (doseq [target root-target-fixtures]
-      (is (= (engine-normalise-root-targets target)
-             (g/normalise-root-targets target))
-          (str "root-target normalisation drifted for " (pr-str target))))))
-
-;; ---------------------------------------------------------------------------
-;; PARITY 2 — reenter?
-;;
-;; PARITY: mirror of re-frame.machines.transition's
-;; `(true? (:reenter? transition))` read — if this fails, the viz grammar
-;; drifted from the engine; re-sync, do not delete.
-;;
-;; The engine classifies a transition candidate as an EXTERNAL self /
-;; ancestor / compound-declared-descendant restart iff the candidate map
-;; opts in with `:reenter? true`, read as `(true? (:reenter? transition))`
-;; (re-frame.machines.transition). grammar/reenter? mirrors this exactly
-;; for a candidate MAP, adding a `(map? candidate)` guard so it is total
-;; over non-map candidates (a bare keyword / vector-path target — which
-;; can never carry `:reenter?` — yields false). The viz edge renders a
-;; `:reenter? true` transition DISTINCTLY from its internal default, so it
-;; must agree with the engine on which candidates are external.
-
-(def ^:private reenter-candidate-fixtures
-  "Representative candidate MAPS — the only shape the engine's
-  `(true? (:reenter? transition))` read sees (it operates on a selected
-  candidate map)."
-  [{:target :a :reenter? true}
-   {:target :a :reenter? false}
-   {:target :a}                       ;; :reenter? absent → false
-   {:target :a :reenter? nil}         ;; explicit nil → false (true? nil)
-   {:target :a :reenter? :truthy}     ;; truthy-but-not-true → false (true? only)
-   {:action :log}                     ;; internal candidate, no :reenter?
-   {}])                               ;; empty candidate
+  (testing "a parallel-root :target normalises to the same region-qualified
+            targets on both sides"
+    (doseq [target [nil                          ; targetless → []
+                    [:a :two]                    ; keywords → one target, wrapped
+                    [:region :nested :leaf]
+                    [:r]
+                    [[:a :x] [:b :y]]            ; vectors → several targets, as-is
+                    [[:r1 :s] [:r2 :t] [:r3 :u]]
+                    :not-a-vector
+                    []]]
+      (is (= (engine-normalise-root-targets target) (g/normalise-root-targets target))
+          (pr-str target)))))
 
 (deftest reenter?-parity
-  (testing "viz grammar/reenter? agrees with the engine's (true? (:reenter? transition)) read"
-    (doseq [candidate reenter-candidate-fixtures]
-      (is (= (true? (:reenter? candidate))
-             (g/reenter? candidate))
-          (str ":reenter? classification drifted for " (pr-str candidate)))))
+  (testing "only a candidate map carrying exactly `:reenter? true` restarts, as
+            the engine's `(true? (:reenter? transition))` reads it"
+    (is (= [true false false false false false false false false false]
+           (map g/reenter? [{:target :a :reenter? true}
+                            {:target :a :reenter? false}
+                            {:target :a}
+                            {:target :a :reenter? nil}
+                            {:target :a :reenter? :truthy}
+                            {:action :log}
+                            {}
+                            :a
+                            [:a :b]
+                            nil])))))
 
-  (testing "the viz (map? candidate) guard makes reenter? total over non-map candidates"
-    ;; The engine only ever reads :reenter? off a selected candidate MAP;
-    ;; the viz copy is additionally total over the bare keyword / vector-
-    ;; path target forms a candidate can take before normalisation, which
-    ;; never carry :reenter?. So these must all be false — none is an
-    ;; external restart.
-    (is (false? (g/reenter? :a)))
-    (is (false? (g/reenter? [:a :b])))
-    (is (false? (g/reenter? nil)))))
-
-;; ---------------------------------------------------------------------------
-;; PARITY 3 — transition-candidates
-;;
-;; PARITY: mirror of re-frame.machines.transition/normalise-candidates
-;; (the engine's transition-grammar normalisation) — if this fails, the
-;; viz grammar drifted from the engine; re-sync, do not delete.
-;;
-;; Both normalise a transition spec into a vector of candidate MAPS. They
-;; agree across the REPRESENTATIVE grammar a machine-def actually carries:
-;; a keyword sibling target, an absolute keyword vector-path target, a
-;; vector of candidate maps (first-guard-pass wins), and a single
-;; transition map.
-;;
-;; SCOPE NOTE (deliberate, documented divergence — NOT drift): the two
-;; differ ONLY on degenerate / non-grammar shapes the viz walker handles
-;; more permissively than the runtime normaliser:
-;;   - a MIXED vector ([:a [:x :y]] — not all maps, not all keywords):
-;;     viz mapcat-explodes it into per-element candidates; the engine
-;;     treats any non-all-maps vector as a single absolute vec-target.
-;;   - a malformed value (e.g. 42): viz → [] (drop); engine → throws.
-;; These are out of scope for THIS pair (the engine surfaces them through
-;; registration validation, not the projector). The equality assertion is
-;; pinned to the shared grammar so a drift WITHIN that region stays loud;
-;; the divergent shapes are asserted separately below so a future change
-;; that accidentally ALIGNS or further DIVERGES them is also caught.
-;;
-;; `nil` is NOT a divergence: Spec 005 §Forbidden transitions declares
-;; `nil` and `{}` RUNTIME-EQUIVALENT, so a viz walker silently dropping a
-;; nil-spelled forbidden transition (while rendering the `{}` spelling as a
-;; blocking chip) would make a reader believe an event was inherited /
-;; reachable when the engine actually blocks it. `grammar/transition-candidates`
-;; special-cases `(nil? spec) [{}]`, matching the engine, and `nil` sits in
-;; `shared-grammar-spec-fixtures` below as a genuine parity case.
-
-(def ^:private shared-grammar-spec-fixtures
-  "Transition specs on which the viz walker and the engine normaliser
-  MUST agree — the representative grammar a machine-def carries."
-  [;; a keyword sibling target
-   :authenticated
-   ;; an absolute keyword vector-path target
-   [:outer :inner :leaf]
-   ;; a vector of candidate maps (first-guard-pass wins)
-   [{:guard :g1 :target :a} {:target :b :action :log}]
-   [{:target :a} {:target :b} {:target :c}]
-   ;; a single transition map (targeted)
-   {:target :a :guard :g}
-   ;; a single transition map (internal / action-only)
-   {:action :log}
-   ;; nil ≡ {} (Spec 005 §Forbidden transitions): a
-   ;; forbidden transition spelled nil normalises identically to the
-   ;; empty-map spelling on BOTH sides.
-   nil])
+;; The viz walker and the engine normaliser agree on the transition grammar a
+;; definition carries — `nil` included, since Spec 005 §Forbidden transitions
+;; makes it `{}`'s runtime equivalent, a blocking chip. They differ only on a
+;; mixed vector, which the engine refuses at registration and the viz explodes
+;; per element; `transition-candidates-documented-divergence` pins that so a
+;; change aligning or widening it is seen.
 
 (deftest transition-candidates-parity
-  (testing "viz grammar/transition-candidates agrees with the engine normaliser across the shared grammar"
-    (doseq [spec shared-grammar-spec-fixtures]
-      (is (= (engine-normalise-candidates spec :rf.error/test-bad-value)
-             (g/transition-candidates spec))
-          (str "candidate normalisation drifted for " (pr-str spec))))))
+  (doseq [spec [:authenticated
+                [:outer :inner :leaf]
+                [{:guard :g1 :target :a} {:target :b :action :log}]
+                [{:target :a} {:target :b} {:target :c}]
+                {:target :a :guard :g}
+                {:action :log}
+                nil]]
+    (is (= (engine-normalise-candidates spec :rf.error/test-bad-value)
+           (g/transition-candidates spec))
+        (pr-str spec))))
 
 (deftest transition-candidates-documented-divergence
-  (testing "the deliberate viz-vs-engine divergences on degenerate shapes are unchanged"
-    ;; If any of these EQUALITIES start failing, the divergence shifted —
-    ;; re-read the scope note above and confirm the change is intentional
-    ;; (a viz walker that newly drops/explodes a shape differently from
-    ;; the documented contract is itself a drift signal).
-    (testing "mixed vector: viz mapcat-explodes, engine treats as one vec-target"
-      (is (= [{:target :a} {:target [:x :y]}]
-             (g/transition-candidates [:a [:x :y]])))
-      (is (= [{:target [:a [:x :y]]}]
-             (engine-normalise-candidates [:a [:x :y]] :rf.error/test-bad-value))))))
-
-;; ---------------------------------------------------------------------------
-;; PARITY 4 — resolve-target-path (chart/layout) vs target-path
-;;
-;; PARITY: mirror of re-frame.machines.transition/target-path — if this
-;; fails, the viz grammar drifted from the engine; re-sync, do not delete.
-;;
-;; The chart's resolve-target-path computes the absolute target path of a
-;; transition relative to its declaring (source) path, exactly as the
-;; engine's target-path does at runtime: `:same-state` → the declaring
-;; state's own path; a keyword → sibling at the declaring level; a
-;; vector → absolute. The chart's edges must land on the SAME node the
-;; engine transitions to. resolve-target-path is `defn-` in chart/layout;
-;; the test reaches it through its var.
-
-(def viz-resolve-target-path @#'layout/resolve-target-path)
+  (testing "mixed vector: viz mapcat-explodes, engine treats as one vec-target"
+    (is (= [{:target :a} {:target [:x :y]}]
+           (g/transition-candidates [:a [:x :y]])))
+    (is (= [{:target [:a [:x :y]]}]
+           (engine-normalise-candidates [:a [:x :y]] :rf.error/test-bad-value)))))
 
 (def ^:private target-path-fixtures
-  "[<decl/source-path> <target>] pairs spanning the shared arms:
-  `:same-state`, keyword sibling, absolute keyword vector-path, and nil
-  (internal — both return nil)."
+  "[<declaring path> <target>]: `:same-state`, a keyword sibling, an absolute
+  vector path, and nil (internal)."
   [[[:idle]              :same-state]
    [[:outer :inner]      :same-state]
    [[:idle]              :running]            ;; keyword sibling at top level
@@ -248,36 +99,20 @@
    [[:outer :inner]      nil]])
 
 (deftest resolve-target-path-parity
-  (testing "viz chart resolve-target-path agrees with the engine target-path"
+  (testing "a chart edge lands on the node the engine transitions to"
     (doseq [[decl-path target] target-path-fixtures]
       (is (= (engine-target-path decl-path target)
              (viz-resolve-target-path decl-path target))
-          (str "target-path resolution drifted for decl-path "
-               (pr-str decl-path) " target " (pr-str target))))))
+          (str (pr-str decl-path) " " (pr-str target))))))
 
 ;; ---------------------------------------------------------------------------
-;; PARITY 5 — resolve-timeout-ms vs resolve-duration-ms (EP-0029 A4)
-;;
-;; PARITY: mirror of re-frame.machines.timeout/resolve-duration-ms — if this
-;; fails, the viz duration resolver drifted from the engine; re-sync, do not
-;; delete.
-;;
-;; grammar/resolve-timeout-ms (grammar.cljc) re-states, bundle-isolated from
-;; the runtime `machines` artefact, the engine's `:timeout` duration
-;; grammar: a POSITIVE INTEGER literal ms, OR an ISO-8601 duration STRING
-;; (fixed 365-day / 30-day year/month convention, fractional seconds rounded
-;; to the nearest ms), with EVERYTHING else — the XState "5s"/"10ms"
-;; shorthand, a non-positive/non-integer number, a bare "P", a fn/vector/nil
-;; — resolving to nil. The chart / mermaid / SCXML emitters render the ms
-;; the resolver produces (`after / <ms>` label, clock glyph, SCXML delay),
-;; so a drift in the arithmetic re-times every rendered timeout relative to
-;; what the engine actually fires.
+;; The `:timeout` duration and the EP-0029 desugars. Every emitter renders the
+;; lowered `:after`, so a drift here re-times or re-routes what it draws
+;; relative to what the engine fires.
 
 (def ^:private duration-fixtures
-  "Representative :timeout durations spanning every arm: positive-integer
-  literal, each ISO-8601 component, combined components, fractional
-  seconds, case-insensitivity, and every reject-to-nil shape (XState
-  shorthand, non-positive/non-integer, degenerate ISO, wrong type)."
+  "Every resolver arm: integer ms, each ISO-8601 component (365-day year,
+  30-day month), fractional seconds, case, and every reject-to-nil shape."
   [;; positive-integer literal ms
    5000 1 999999
    ;; ISO-8601 single components
@@ -298,32 +133,12 @@
    nil [1000] :pt5s])
 
 (deftest resolve-timeout-ms-parity
-  (testing "viz grammar/resolve-timeout-ms agrees with the engine
-            rf.machines.timeout/resolve-duration-ms on every duration shape"
-    (doseq [d duration-fixtures]
-      (is (= (rf.machines.timeout/resolve-duration-ms d)
-             (g/resolve-timeout-ms d))
-          (str "timeout duration resolution drifted for " (pr-str d))))))
-
-;; ---------------------------------------------------------------------------
-;; PARITY 6 — desugar-timeouts (EP-0029 A4)
-;;
-;; PARITY: mirror of re-frame.machines.timeout/desugar-timeouts — if this
-;; fails, the viz `:timeout` → `:after` lowering drifted from the engine;
-;; re-sync, do not delete.
-;;
-;; project-definition (layout.cljc) calls g/desugar-grammar — which applies
-;; g/desugar-timeouts — as the shared ingestion boundary for all three
-;; emitters, so the emitters render the SAME lowered `:after` table the
-;; engine drives. Both lower state-level, spawn-level, root-level, nested-
-;; compound, and parallel-region `:timeout` / `:on-timeout` into the
-;; equivalent `:after` entry; the two must produce EQUAL machine-defs so a
-;; rendered timer lands on the delay the engine actually fires. (The engine
-;; short-circuits a timeout-free machine to the identical object; the viz
-;; rebuilds it value-equal — the `=` assertion covers both.)
+  (doseq [d duration-fixtures]
+    (is (= (rf.machines.timeout/resolve-duration-ms d) (g/resolve-timeout-ms d))
+        (pr-str d))))
 
 (def ^:private timeout-machine-fixtures
-  "Representative machine-defs spanning every desugar arm."
+  "A definition per `:timeout` desugar arm."
   [;; state-level timeout coexisting with :on
    {:initial :a
     :states  {:a {:timeout 1000 :on-timeout :b :on {:x :c}} :b {} :c {}}}
@@ -351,32 +166,16 @@
    {:type    :parallel
     :regions {:r1 {:initial :x :states {:x {:timeout 1000 :on-timeout :y} :y {}}}
               :r2 {:initial :p :states {:p {} :q {}}}}}
-   ;; timeout-free control (engine returns unchanged; viz rebuilds value-equal)
+   ;; timeout-free control
    {:initial :a :states {:a {:on {:x :b}} :b {:after {500 :a}}}}])
 
 (deftest desugar-timeouts-parity
-  (testing "viz grammar/desugar-timeouts agrees with the engine
-            rf.machines.timeout/desugar-timeouts across every machine shape"
-    (doseq [m timeout-machine-fixtures]
-      (is (= (rf.machines.timeout/desugar-timeouts m)
-             (g/desugar-timeouts m))
-          (str ":timeout desugar drifted for " (pr-str m))))))
-
-;; ---------------------------------------------------------------------------
-;; PARITY 7 — desugar-choices (EP-0029 A5)
-;;
-;; PARITY: mirror of re-frame.machines.choice/desugar-choices — if this
-;; fails, the viz `:type :choice` → `:always` lowering drifted from the
-;; engine; re-sync, do not delete.
-;;
-;; g/desugar-grammar also applies g/desugar-choices at the shared ingestion
-;; boundary, so the emitters render the same lowered `:always` candidate
-;; vector the engine drives. Both lower a flat, nested-compound, and
-;; region-nested `:type :choice` state into an ordinary state carrying its
-;; `:choice` candidate vector under `:always`; the two must agree.
+  (doseq [m timeout-machine-fixtures]
+    (is (= (rf.machines.timeout/desugar-timeouts m) (g/desugar-timeouts m))
+        (pr-str m))))
 
 (def ^:private choice-machine-fixtures
-  "Representative machine-defs spanning every choice-desugar arm."
+  "A definition per `:type :choice` desugar arm."
   [;; flat choice state with guarded candidates
    {:initial :gate
     :states  {:gate {:type :choice :choice [{:guard :g1 :target :a} {:target :b}]}
@@ -387,69 +186,41 @@
                       :states  {:gate {:type :choice :choice [{:target :a}]} :a {}}}}
     :regions {:r1 {:initial :rgate
                    :states  {:rgate {:type :choice :choice [{:target :a}]} :a {}}}}}
-   ;; choice-free control (engine returns unchanged; viz rebuilds value-equal)
+   ;; choice-free control
    {:initial :a :states {:a {:always [{:target :b}]} :b {}}}])
 
 (deftest desugar-choices-parity
-  (testing "viz grammar/desugar-choices agrees with the engine
-            rf.machines.choice/desugar-choices across every machine shape"
-    (doseq [m choice-machine-fixtures]
-      (is (= (rf.machines.choice/desugar-choices m)
-             (g/desugar-choices m))
-          (str ":choice desugar drifted for " (pr-str m))))))
+  (doseq [m choice-machine-fixtures]
+    (is (= (rf.machines.choice/desugar-choices m) (g/desugar-choices m))
+        (pr-str m))))
 
 ;; ---------------------------------------------------------------------------
-;; PARITY 8 — definition VALIDATION
-;;
-;; PARITY: `grammar/valid-definition?` (via `definition-defect`) must give the
-;; SAME accept/reject answer as the runtime
-;; `re-frame.machines.lifecycle-fx.validation/validate-machine!` for the
-;; PROJECTABLE structural grammar. If this fails, the viz recursive validator
-;; drifted from the engine — re-sync, do not delete.
-;;
-;; A shallow `valid-definition?` would bless every deeply-invalid
-;; definition (nested compound missing `:initial`, dangling target, unknown
-;; bare node key, …). The recursive walker mirrors the engine so a definition
-;; the runtime rejects at `reg-machine` is rejected at EVERY viz ingestion /
-;; export boundary too.
-;;
-;; The corpus below is CURATED to the SHARED structural grammar — it excludes
-;; the documented viz-vs-engine divergences (guard/action ref resolution,
-;; non-parallel root `:after`, viz-stricter root shape), which are pinned
-;; SEPARATELY in `definition-validation-documented-divergences` so a change
-;; that accidentally aligns / diverges them is also caught.
+;; Definition validation: `grammar/definition-defect` accepts and refuses what
+;; the engine's `validate-machine!` does, so a definition `reg-machine` refuses
+;; is refused at every viz ingestion and export boundary too. The corpus is the
+;; shared structural grammar; the documented divergences are pinned in
+;; `definition-validation-documented-divergences`.
 
 (defn- engine-answer
-  "The runtime `validate-machine!`'s answer for `m`, on a THREE-valued scale:
-
-    :accept      — no error;
-    :reject      — the documented structured rejection (an `ex-info` carrying
-                   an `:rf.error/id`);
-    :host-throw  — anything else. A cast that failed, a protocol miss, a
-                   `toString` that refused. Neither answer, and not a thing
-                   either side is permitted to do.
-
-  A two-valued probe cannot express that third outcome, and on CLJS actively
-  HIDES it: a `(catch :default … false)` records a host crash as a clean
-  `:reject`, so a definition that made the engine explode would look exactly
-  like one it had validated and rejected."
+  "`validate-machine!`'s answer for `m`: `:accept`, `:reject` (an ex-info
+  carrying an `:rf.error/id`), or `:host-throw` for anything else — a third
+  value, because a two-valued probe would record a host crash as a clean
+  rejection."
   [m]
   (try (rf.machines.lifecycle-fx.validation/validate-machine! m) :accept
        (catch #?(:clj Throwable :cljs :default) t
          (if (:rf.error/id (ex-data t)) :reject :host-throw))))
 
 (defn- viz-answer
-  "`grammar/definition-defect`'s answer for `m`, on the same three-valued
-  scale. The viz reports a defect by RETURNING one rather than throwing, so any
-  throw at all is a `:host-throw`."
+  "`definition-defect`'s answer for `m` on the same scale; the viz returns its
+  defect, so any throw is a `:host-throw`."
   [m]
   (try (if (nil? (g/definition-defect m)) :accept :reject)
        (catch #?(:clj Throwable :cljs :default) _t :host-throw)))
 
 (def ^:private validation-parity-corpus
-  "Representative definitions spanning the SHARED structural grammar — both the
-  viz validator and the engine must agree on each. Half are projectable (both
-  ACCEPT), half are structurally malformed (both REJECT)."
+  "Definitions spanning the shared structural grammar, projectable and
+  malformed."
   {;; ---- valid (both accept) ----
    :valid-flat       {:initial :idle :states {:idle {:on {:go :done}} :done {:final? true}}}
    :valid-compound   {:initial :o :states {:o {:initial :i :states {:i {:on {:up :sib}} :sib {}}} :top {}}}
@@ -719,221 +490,30 @@
    ;; ---- an `:after` holding nil is still a declared `:after` key ----
    :final-after-nil  {:initial :a :states {:a {:final? true :after nil}}}
    :choice-after-nil {:initial :g :states {:g {:type :choice :choice [{:target :a}] :after nil} :a {}}}
-   ;; ---- non-Named KEYS ----
-   ;;
-   ;; Every entry above spells its keys as keywords, so without these rows the
-   ;; corpus could not see either side's treatment of a key that is not
-   ;; `Named` — where a bare `(namespace k)` on both sides would THROW rather
-   ;; than reject, and a ratchet built to stop the two drifting could not fail
-   ;; on the one axis they were both wrong about. A
-   ;; definition merged from config, decoded from transit, or read off a share
-   ;; URL carries a string key as readily as a hand-written map carries a
-   ;; keyword, so this is corpus, not exotica. Both sides must REJECT.
+   ;; ---- non-Named KEYS, which a definition decoded from transit or a share
+   ;; URL carries as readily as keywords; `namespace` on one would THROW ----
    :root-string-key  {:initial :a :states {:a {}} "x" 1}
    :root-number-key  {:initial :a :states {:a {}} 7 1}
    :node-string-key  {:initial :a :states {:a {"x" 1}}}
    :node-vector-key  {:initial :a :states {:a {[1 2] 1}}}
    :nested-string-key {:initial :o :states {:o {:initial :i :states {:i {"x" 1}}}}}})
 
+;; Each corpus definition gets the engine's answer from the viz on the raw
+;; definition AND on the desugared one every boundary validates — a desugar
+;; that dropped what it could not lower would turn a refusal into an
+;; acceptance there. Neither side may answer with a host throw: two validators
+;; that both explode on a non-`Named` key would otherwise agree.
+
 (deftest definition-validation-parity
-  (testing "the viz recursive validator accepts/rejects EXACTLY what the engine
-            validate-machine! does across the shared structural grammar"
-    (doseq [[label m] validation-parity-corpus]
-      (is (= (engine-answer m) (viz-answer m))
-          (str label ": viz validator drifted from the engine "
-               "(engine " (engine-answer m) ", viz " (viz-answer m) ")")))))
+  (doseq [[label m] validation-parity-corpus
+          :let [engine (engine-answer m)]]
+    (is (not= :host-throw engine)
+        (str label ": the engine threw a host exception, not a structured rejection"))
+    (is (= engine (viz-answer m) (viz-answer (g/desugar-grammar m)))
+        (str label ": the viz answer, raw then desugared, drifted from the engine's"))))
 
-;; Agreement alone is not the contract — two validators that BOTH explode on
-;; the same input agree, and `definition-validation-parity` passes them: a bare
-;; `(namespace k)` on a non-`Named` key would throw on both sides at once and
-;; hide the divergence exactly that way. Neither side may answer `:host-throw`
-;; for anything in the corpus.
-
-(deftest definition-validation-is-total
-  (testing "neither validator answers a corpus definition with a host throw"
-    (doseq [[label m] validation-parity-corpus]
-      (is (not= :host-throw (engine-answer m))
-          (str label ": the ENGINE threw a host exception where a structured "
-               ":rf.error/machine-* rejection was the contract"))
-      (is (not= :host-throw (viz-answer m))
-          (str label ": the VIZ threw a host exception where a returned defect "
-               "was the contract")))))
-
-;; Every ingestion boundary — the share decoder, Mermaid, SCXML, AI generation
-;; and the chart projector — runs `desugar-grammar` BEFORE it validates, so the
-;; answer those boundaries give is the answer on the LOWERED definition. A
-;; desugar that dropped what it could not lower would turn a refusal into an
-;; acceptance there, while `definition-validation-parity` above, which validates
-;; the raw definition, stayed green.
-
-(deftest definition-validation-survives-the-boundary-desugar
-  (testing "the viz gives the engine's answer on the desugared definition every
-            boundary validates"
-    (doseq [[label m] validation-parity-corpus]
-      (is (= (engine-answer m) (viz-answer (g/desugar-grammar m)))
-          (str label ": the desugar changed the viz answer (engine "
-               (engine-answer m) ", viz after desugar "
-               (viz-answer (g/desugar-grammar m)) ")")))))
-
-;; The rows above compare accept / reject. A spawn refusal also carries the
-;; engine's own CATEGORY, which every export surface reports in its value-free
-;; summary, so these rows pin the category against the engine's: on the raw
-;; definition, and on the desugared one every boundary validates.
-
-(defn- engine-category
-  "The `:rf.error/id` `validate-machine!` refuses `m` with, or nil."
-  [m]
-  (try (rf.machines.lifecycle-fx.validation/validate-machine! m) nil
-       (catch #?(:clj Throwable :cljs :default) t (:rf.error/id (ex-data t)))))
-
-(def ^:private spawn-refusal-rows
-  "Corpus labels → the category the engine refuses each with."
-  {:spawn-vector  :rf.error/machine-spawn-bad-shape
-   :spawn-keyword :rf.error/machine-spawn-bad-shape
-   :spawn-bare-id :rf.error/machine-unknown-spawn-key})
-
-(def ^:private on-done-refusal-rows
-  "Corpus labels → the category the engine refuses each `:on-done` with."
-  {:leaf-on-done                  :rf.error/machine-unknown-node-key
-   :leaf-on-done-final            :rf.error/machine-unknown-node-key
-   :leaf-on-done-spawning         :rf.error/machine-unknown-node-key
-   :leaf-on-done-timeout          :rf.error/machine-unknown-node-key
-   :leaf-on-done-region           :rf.error/machine-unknown-node-key
-   :spawn-on-done-unresolved      :rf.error/machine-unresolved-target
-   :spawn-on-done-unresolved-map  :rf.error/machine-unresolved-target
-   :spawn-on-done-bad-target      :rf.error/machine-bad-target
-   :spawn-on-done-unknown-key     :rf.error/machine-unknown-node-key})
-
-(def ^:private choice-refusal-rows
-  "Corpus labels → the category the engine refuses each choice-state key with."
-  {:choice-on-done     :rf.error/machine-unknown-node-key
-   :choice-unknown-key :rf.error/machine-unknown-node-key})
-
-(def ^:private spawn-completion-refusal-rows
-  "Corpus labels → the category the engine refuses each `:spawn :on-error` /
-  `:spawn :on-done` value with."
-  {:spawn-on-error-nil          :rf.error/machine-bad-on-error-clause
-   :spawn-on-error-number       :rf.error/machine-bad-on-error-clause
-   :spawn-on-error-string       :rf.error/machine-bad-on-error-clause
-   :spawn-on-error-fn           :rf.error/machine-bad-on-error-clause
-   :spawn-on-error-empty-vector :rf.error/machine-bad-on-error-clause
-   :spawn-on-done-nil           :rf.error/machine-bad-on-done-clause
-   :spawn-on-done-number        :rf.error/machine-bad-on-done-clause
-   :spawn-on-done-string        :rf.error/machine-bad-on-done-clause
-   :spawn-on-done-empty-vector  :rf.error/machine-bad-on-done-clause})
-
-(def ^:private root-refusal-rows
-  "Corpus labels → the category the engine refuses each machine root with."
-  {:root-final             :rf.error/machine-root-slot-not-supported
-   :root-flat-on-done      :rf.error/machine-root-slot-not-supported
-   :root-two-slots         :rf.error/machine-root-slot-not-supported
-   :parallel-root-bad-tags :rf.error/machine-bad-tags})
-
-(deftest refusal-category-parity
-  (testing "the viz refuses each shape with the engine's own category, on the raw
-            definition and after the boundary desugar: a non-map :spawn and a
-            single-spawn :id; a leaf's :on-done and a transition-shaped :spawn
-            :on-done that does not resolve; a choice state's :on-done and an
-            unknown bare key on a choice state; a :spawn :on-error / :on-done
-            value that is not a transition (or, for :on-done, a fn); and a
-            malformed machine root"
-    (doseq [[group rows] [["spawn"            spawn-refusal-rows]
-                          ["on-done"          on-done-refusal-rows]
-                          ["choice"           choice-refusal-rows]
-                          ["spawn-completion" spawn-completion-refusal-rows]
-                          ["root"             root-refusal-rows]]
-            [label category] rows
-            :let [m (get validation-parity-corpus label)]]
-      (is (= category (engine-category m))
-          (str group " " label ": the engine's category"))
-      (is (= category (:category (g/definition-defect m)))
-          (str group " " label ": the viz category"))
-      (is (= category (:category (g/definition-defect (g/desugar-grammar m))))
-          (str group " " label ": the viz category after the boundary desugar")))))
-
-;; A machine root's `:spawn` registers, and a malformed one is refused with the
-;; category a state's `:spawn` would be.
-
-(def ^:private root-spawn-accept-rows
-  [:root-spawn :root-spawn-completions :parallel-root-spawn
-   :parallel-root-spawn-on-error :parallel-root-spawn-timeout])
-
-(def ^:private root-spawn-refusal-rows
-  "Corpus labels → the category the engine refuses each root `:spawn` with."
-  {:root-spawn-vector                  :rf.error/machine-spawn-bad-shape
-   :parallel-root-spawn-bare-id        :rf.error/machine-unknown-spawn-key
-   :root-spawn-on-error-number         :rf.error/machine-bad-on-error-clause
-   :parallel-root-spawn-on-done-number :rf.error/machine-bad-on-done-clause
-   :root-spawn-on-done-unresolved      :rf.error/machine-unresolved-target
-   :root-spawn-timeout-ms              :rf.error/spawn-timeout-ms-removed})
-
-(deftest root-spawn-parity
-  (testing "a well-formed root :spawn registers on both sides, flat and parallel"
-    (doseq [label root-spawn-accept-rows
-            :let [m (get validation-parity-corpus label)]]
-      (is (= :accept (engine-answer m)) (str label ": the engine accepts"))
-      (is (= :accept (viz-answer m)) (str label ": the viz accepts"))
-      (is (= :accept (viz-answer (g/desugar-grammar m)))
-          (str label ": the viz accepts after the boundary desugar"))))
-  (testing "a malformed root :spawn is refused with the engine's own category"
-    (doseq [[label category] root-spawn-refusal-rows
-            :let [m (get validation-parity-corpus label)]]
-      (is (= category (engine-category m))
-          (str label ": the engine's category"))
-      (is (= category (:category (g/definition-defect m)))
-          (str label ": the viz category"))
-      (is (= category (:category (g/definition-defect (g/desugar-grammar m))))
-          (str label ": the viz category after the boundary desugar")))))
-
-;; The refused root keys are read off the engine rather than listed here, so a
-;; key the engine starts refusing on the root is a red row until the viz
-;; refuses it too.
-
-(def ^:private engine-root-unread-keys      @#'rf.machines.lifecycle-fx.validation/root-unread-keys)
-(def ^:private engine-flat-root-unread-keys @#'rf.machines.lifecycle-fx.validation/flat-root-unread-keys)
-
-(defn- engine-offending-keys
-  "The `:offending-keys` `validate-machine!` names when it refuses `m`, or nil."
-  [m]
-  (try (rf.machines.lifecycle-fx.validation/validate-machine! m) nil
-       (catch #?(:clj Throwable :cljs :default) t (:offending-keys (ex-data t)))))
-
-(defn- flat-root-with [k] {:initial :a k nil :states {:a {}}})
-;; `:regions` is itself one of the keys only a flat root refuses, so the
-;; parallel root's own regions are merged over the probed key.
-(defn- parallel-root-with [k] (merge {k nil} {:type :parallel :regions {:r {:initial :a :states {:a {}}}}}))
-
-(deftest root-slot-refusal-parity
-  (testing "every key the engine refuses on a root, the viz refuses on that
-            root with the engine's category, naming the same keys"
-    (doseq [[root-kind k m] (concat
-                              (for [k (sort (into engine-root-unread-keys engine-flat-root-unread-keys))]
-                                [:flat k (flat-root-with k)])
-                              (for [k (sort engine-root-unread-keys)]
-                                [:parallel k (parallel-root-with k)])
-                              [[:flat :two-keys (get validation-parity-corpus :root-two-slots)]])]
-      (is (= :rf.error/machine-root-slot-not-supported (engine-category m))
-          (str root-kind " root " k ": the engine's category"))
-      (is (= :rf.error/machine-root-slot-not-supported (:category (g/definition-defect m)))
-          (str root-kind " root " k ": the viz category"))
-      (is (= :rf.error/machine-root-slot-not-supported
-             (:category (g/definition-defect (g/desugar-grammar m))))
-          (str root-kind " root " k ": the viz category after the boundary desugar"))
-      (is (= (engine-offending-keys m) (:keys (g/definition-defect m)))
-          (str root-kind " root " k ": the viz names the engine's offending keys"))))
-
-  (testing "a parallel root reads the keys only a flat root refuses"
-    (doseq [k (sort engine-flat-root-unread-keys)
-            :let [m (parallel-root-with k)]]
-      (is (= :accept (engine-answer m)) (str "parallel root " k ": the engine accepts"))
-      (is (= :accept (viz-answer m))    (str "parallel root " k ": the viz accepts")))))
-
-;; A region body follows the machine root's rule: it refuses the keys the
-;; runtime never reads there, read off the engine so a key it starts refusing
-;; is a red row until the viz refuses it too. Its own `:on` and `:on-done`
-;; resolve within the region.
-
-(def ^:private engine-region-unread-keys @#'rf.machines.lifecycle-fx.validation/region-unread-keys)
+;; A refusal also carries the engine's own CATEGORY, which every export surface
+;; reports in its value-free summary, so these rows pin it on both sides.
 
 (defn- engine-refusal
   "The ex-data `validate-machine!` refuses `m` with, or nil."
@@ -941,27 +521,112 @@
   (try (rf.machines.lifecycle-fx.validation/validate-machine! m) nil
        (catch #?(:clj Throwable :cljs :default) t (ex-data t))))
 
+(defn- categories
+  "The engine's refusal category for `m`, then the viz's on `m` and on the
+  desugared `m` every boundary validates."
+  [m]
+  [(:rf.error/id (engine-refusal m))
+   (:category (g/definition-defect m))
+   (:category (g/definition-defect (g/desugar-grammar m)))])
+
+(def ^:private refusal-categories
+  "Corpus labels → the category the engine refuses each with."
+  {;; a non-map `:spawn`, and a bare `:id`, which addresses a `:spawn-all` child
+   :spawn-vector  :rf.error/machine-spawn-bad-shape
+   :spawn-keyword :rf.error/machine-spawn-bad-shape
+   :spawn-bare-id :rf.error/machine-unknown-spawn-key
+   ;; a leaf's `:on-done`, and a transition-shaped `:spawn :on-done`
+   :leaf-on-done                  :rf.error/machine-unknown-node-key
+   :leaf-on-done-final            :rf.error/machine-unknown-node-key
+   :leaf-on-done-spawning         :rf.error/machine-unknown-node-key
+   :leaf-on-done-timeout          :rf.error/machine-unknown-node-key
+   :leaf-on-done-region           :rf.error/machine-unknown-node-key
+   :spawn-on-done-unresolved      :rf.error/machine-unresolved-target
+   :spawn-on-done-unresolved-map  :rf.error/machine-unresolved-target
+   :spawn-on-done-bad-target      :rf.error/machine-bad-target
+   :spawn-on-done-unknown-key     :rf.error/machine-unknown-node-key
+   ;; a choice state is a leaf held to the state-node key vocabulary
+   :choice-on-done     :rf.error/machine-unknown-node-key
+   :choice-unknown-key :rf.error/machine-unknown-node-key
+   ;; a `:spawn :on-error` / `:on-done` that is not a transition (or a fn)
+   :spawn-on-error-nil          :rf.error/machine-bad-on-error-clause
+   :spawn-on-error-number       :rf.error/machine-bad-on-error-clause
+   :spawn-on-error-string       :rf.error/machine-bad-on-error-clause
+   :spawn-on-error-fn           :rf.error/machine-bad-on-error-clause
+   :spawn-on-error-empty-vector :rf.error/machine-bad-on-error-clause
+   :spawn-on-done-nil           :rf.error/machine-bad-on-done-clause
+   :spawn-on-done-number        :rf.error/machine-bad-on-done-clause
+   :spawn-on-done-string        :rf.error/machine-bad-on-done-clause
+   :spawn-on-done-empty-vector  :rf.error/machine-bad-on-done-clause
+   ;; a machine-root key the runtime never reads there
+   :root-final             :rf.error/machine-root-slot-not-supported
+   :root-flat-on-done      :rf.error/machine-root-slot-not-supported
+   :root-two-slots         :rf.error/machine-root-slot-not-supported
+   :parallel-root-bad-tags :rf.error/machine-bad-tags
+   ;; the machine root's own `:spawn`, held to a state's spawn grammar
+   :root-spawn-vector                  :rf.error/machine-spawn-bad-shape
+   :parallel-root-spawn-bare-id        :rf.error/machine-unknown-spawn-key
+   :root-spawn-on-error-number         :rf.error/machine-bad-on-error-clause
+   :parallel-root-spawn-on-done-number :rf.error/machine-bad-on-done-clause
+   :root-spawn-on-done-unresolved      :rf.error/machine-unresolved-target
+   :root-spawn-timeout-ms              :rf.error/spawn-timeout-ms-removed
+   ;; `:after nil` is absent, but still a declared key on a final or choice state
+   :final-after-nil  :rf.error/machine-final-state-has-transitions
+   :choice-after-nil :rf.error/machine-choice-extra-keys})
+
+(deftest refusal-category-parity
+  (doseq [[label category] refusal-categories]
+    (is (= [category category category]
+           (categories (get validation-parity-corpus label)))
+        (str label))))
+
+;; The refused root and region-body keys are read off the engine, so a key it
+;; starts refusing there is a red row until the viz refuses it too.
+
+(def ^:private engine-root-unread-keys      @#'rf.machines.lifecycle-fx.validation/root-unread-keys)
+(def ^:private engine-flat-root-unread-keys @#'rf.machines.lifecycle-fx.validation/flat-root-unread-keys)
+(def ^:private engine-region-unread-keys    @#'rf.machines.lifecycle-fx.validation/region-unread-keys)
+
+(defn- flat-root-with [k] {:initial :a k nil :states {:a {}}})
+;; `:regions` is itself one of the keys only a flat root refuses, so the
+;; parallel root's own regions are merged over the probed key.
+(defn- parallel-root-with [k] (merge {k nil} {:type :parallel :regions {:r {:initial :a :states {:a {}}}}}))
 (defn- region-body-with [k] {:type :parallel :regions {:r {:initial :a k nil :states {:a {}}}}})
 
+(def ^:private slot-not-supported
+  (vec (repeat 3 :rf.error/machine-root-slot-not-supported)))
+
+(deftest root-slot-refusal-parity
+  (testing "every key the engine refuses on a root, the viz refuses there,
+            naming the same keys"
+    (doseq [[root-kind k m] (concat
+                              (for [k (sort (into engine-root-unread-keys engine-flat-root-unread-keys))]
+                                [:flat k (flat-root-with k)])
+                              (for [k (sort engine-root-unread-keys)]
+                                [:parallel k (parallel-root-with k)])
+                              [[:flat :two-keys (get validation-parity-corpus :root-two-slots)]])]
+      (is (= slot-not-supported (categories m)) (str root-kind " root " k))
+      (is (= (:offending-keys (engine-refusal m)) (:keys (g/definition-defect m)))
+          (str root-kind " root " k ": the offending keys"))))
+  (testing "a parallel root reads the keys only a flat root refuses"
+    (doseq [k (sort engine-flat-root-unread-keys)
+            :let [m (parallel-root-with k)]]
+      (is (= :accept (engine-answer m) (viz-answer m)) (str "parallel root " k)))))
+
 (deftest region-slot-refusal-parity
-  (testing "every key the engine refuses on a region body, the viz refuses there
-            with the engine's category, naming the same keys under the same path"
+  (testing "every key the engine refuses on a region body, the viz refuses there,
+            naming the same keys under the same path"
     (doseq [[k m] (concat (for [k (sort engine-region-unread-keys)]
                             [k (region-body-with k)])
                           [[:two-keys (get validation-parity-corpus :region-body-two-slots)]])
             :let [refusal (engine-refusal m)
                   defect  (g/definition-defect m)]]
-      (is (= :rf.error/machine-root-slot-not-supported (:rf.error/id refusal))
-          (str "region body " k ": the engine's category"))
-      (is (= :rf.error/machine-root-slot-not-supported (:category defect))
-          (str "region body " k ": the viz category"))
-      (is (= :rf.error/machine-root-slot-not-supported
-             (:category (g/definition-defect (g/desugar-grammar m))))
-          (str "region body " k ": the viz category after the boundary desugar"))
-      (is (= (:offending-keys refusal) (:keys defect))
-          (str "region body " k ": the viz names the engine's offending keys"))
-      (is (= (:path refusal) (:path defect))
-          (str "region body " k ": the viz names the engine's path")))))
+      (is (= slot-not-supported (categories m)) (str "region body " k))
+      (is (= [(:offending-keys refusal) (:path refusal)] [(:keys defect) (:path defect)])
+          (str "region body " k ": the offending keys and path")))))
+
+;; A region body's own `:on` and `:on-done` resolve within its region, and the
+;; viz names the slot the engine names.
 
 (def ^:private region-refusal-rows
   "Corpus labels → the category the engine refuses each region body with."
@@ -974,24 +639,11 @@
    :region-body-spawn             :rf.error/machine-root-slot-not-supported})
 
 (deftest region-refusal-category-parity
-  (testing "an in-region :on-done and a region body's lifecycle register on
-            both sides"
-    (doseq [label [:valid-region-on-done :valid-region-on-done-vector
-                   :valid-region-on-done-shadowing :valid-region-lifecycle]
-            :let [m (get validation-parity-corpus label)]]
-      (is (= :accept (engine-answer m)) (str label ": the engine accepts"))
-      (is (= :accept (viz-answer m)) (str label ": the viz accepts"))))
-  (testing "the viz refuses a region body with the engine's own category and slot"
-    (doseq [[label category] region-refusal-rows
-            :let [m (get validation-parity-corpus label)]]
-      (is (= category (engine-category m))
-          (str label ": the engine's category"))
-      (is (= category (:category (g/definition-defect m)))
-          (str label ": the viz category"))
-      (is (= category (:category (g/definition-defect (g/desugar-grammar m))))
-          (str label ": the viz category after the boundary desugar"))
-      (is (= (:slot (engine-refusal m)) (:slot (g/definition-defect m)))
-          (str label ": the viz names the engine's slot")))))
+  (doseq [[label category] region-refusal-rows
+          :let [m (get validation-parity-corpus label)]]
+    (is (= [category category category] (categories m)) (str label))
+    (is (= (:slot (engine-refusal m)) (:slot (g/definition-defect m)))
+        (str label ": the slot"))))
 
 ;; A region body's own `:after` never fires, and a region body is never a
 ;; choice state, so the engine refuses both. It names the region under
@@ -1011,30 +663,16 @@
    :region-body-choice-self-loop    :rf.error/machine-choice-self-loop})
 
 (deftest region-body-after-and-choice-refusal-parity
-  (testing "an ordinary region, a region body's empty :after, the parallel root's
-            own :after and a choice state inside a region register on both sides"
-    (doseq [label [:valid-parallel :valid-region-empty-after
-                   :valid-parallel-root-after :valid-region-nested-choice]
-            :let [m (get validation-parity-corpus label)]]
-      (is (= :accept (engine-answer m)) (str label ": the engine accepts"))
-      (is (= :accept (viz-answer m)) (str label ": the viz accepts"))))
-  (testing "the viz refuses a region body's :after and :choice with the engine's
-            own category, naming the region the engine names"
-    (doseq [[label category] region-body-after-choice-rows
-            :let [m       (get validation-parity-corpus label)
-                  refusal (engine-refusal m)]]
-      (is (= category (:rf.error/id refusal))
-          (str label ": the engine's category"))
-      (is (= category (:category (g/definition-defect m)))
-          (str label ": the viz category"))
-      (is (= category (:category (g/definition-defect (g/desugar-grammar m))))
-          (str label ": the viz category after the boundary desugar"))
-      (is (= [:regions (or (:region refusal) (:state refusal))] (:path (g/definition-defect m)))
-          (str label ": the viz names the engine's region")))))
+  (doseq [[label category] region-body-after-choice-rows
+          :let [m       (get validation-parity-corpus label)
+                refusal (engine-refusal m)]]
+    (is (= [category category category] (categories m)) (str label))
+    (is (= [:regions (or (:region refusal) (:state refusal))] (:path (g/definition-defect m)))
+        (str label ": the region"))))
 
-;; Every state node is held to the choice grammar a region body is, at any
-;; depth, before anything is lowered. The engine names the declaring state under
-;; `:state`; the viz names its path, whose last key is that state.
+;; Every state node is held to the choice grammar, at any depth, before
+;; anything is lowered. The engine names the declaring state under `:state`;
+;; the viz names its path, whose last key is that state.
 
 (def ^:private state-choice-refusal-rows
   "Corpus labels → the category the engine refuses each state's choice with."
@@ -1053,67 +691,16 @@
    :region-state-choice-self-loop    :rf.error/machine-choice-self-loop})
 
 (deftest state-choice-refusal-parity
-  (testing "an ordinary state, and a choice state flat, inside a compound and
-            inside a region, register on both sides"
-    (doseq [label [:valid-flat :valid-choice :valid-choice-guarded
-                   :valid-compound-nested-choice :valid-region-nested-choice]
-            :let [m (get validation-parity-corpus label)]]
-      (is (= :accept (engine-answer m)) (str label ": the engine accepts"))
-      (is (= :accept (viz-answer m)) (str label ": the viz accepts"))
-      (is (= :accept (viz-answer (g/desugar-grammar m)))
-          (str label ": the viz accepts after the boundary desugar"))))
-  (testing "the viz refuses a state's :choice with the engine's own category,
-            naming the state the engine names"
-    (doseq [[label category] state-choice-refusal-rows
-            :let [m       (get validation-parity-corpus label)
-                  refusal (engine-refusal m)]]
-      (is (= category (:rf.error/id refusal))
-          (str label ": the engine's category"))
-      (is (= category (:category (g/definition-defect m)))
-          (str label ": the viz category"))
-      (is (= category (:category (g/definition-defect (g/desugar-grammar m))))
-          (str label ": the viz category after the boundary desugar"))
-      (is (= (:state refusal) (peek (:path (g/definition-defect m))))
-          (str label ": the viz names the engine's state")))))
-
-;; An `:after` holding nil declares no delay, so the engine reads it as absent at
-;; every position an `:after` can take, and the viz projects it as absent. The
-;; key is still declared, so a final state or a choice state carrying it is
-;; refused on both sides as one carrying any `:after` is.
-
-(def ^:private after-nil-accept-rows
-  [:valid-state-after-nil :valid-compound-after-nil :valid-region-state-after-nil
-   :valid-region-body-after-nil :valid-flat-root-after-nil :valid-parallel-root-after-nil
-   :valid-after-nil-beside-timeout])
-
-(def ^:private after-nil-refusal-rows
-  "Corpus labels → the category the engine refuses each with."
-  {:final-after-nil  :rf.error/machine-final-state-has-transitions
-   :choice-after-nil :rf.error/machine-choice-extra-keys})
-
-(deftest after-nil-parity
-  (testing "an :after holding nil registers on both sides at every position"
-    (doseq [label after-nil-accept-rows
-            :let [m (get validation-parity-corpus label)]]
-      (is (= :accept (engine-answer m)) (str label ": the engine accepts"))
-      (is (= :accept (viz-answer m)) (str label ": the viz accepts"))
-      (is (= :accept (viz-answer (g/desugar-grammar m)))
-          (str label ": the viz accepts after the boundary desugar"))))
-  (testing "a final or choice state declaring :after nil is refused with the
-            engine's own category"
-    (doseq [[label category] after-nil-refusal-rows
-            :let [m (get validation-parity-corpus label)]]
-      (is (= category (engine-category m))
-          (str label ": the engine's category"))
-      (is (= category (:category (g/definition-defect m)))
-          (str label ": the viz category"))
-      (is (= category (:category (g/definition-defect (g/desugar-grammar m))))
-          (str label ": the viz category after the boundary desugar")))))
+  (doseq [[label category] state-choice-refusal-rows
+          :let [m (get validation-parity-corpus label)]]
+    (is (= [category category category] (categories m)) (str label))
+    (is (= (:state (engine-refusal m)) (peek (:path (g/definition-defect m))))
+        (str label ": the state"))))
 
 ;; An `:on` / `:after` clause is a map or nil at every position it can take. nil
 ;; is absent on both sides; any other value is refused on both with the slot's
-;; category, before anything iterates it — so neither side throws a host
-;; exception, a `:timeout` beside a malformed `:after` included.
+;; category before anything iterates it, a `:timeout` beside a malformed
+;; `:after` included.
 
 (def ^:private clause-positions
   "Position → a machine declaring `clause` in `slot` there, and the map clause
@@ -1153,60 +740,37 @@
 (deftest clause-slot-parity
   (doseq [slot                        [:on :after]
           [position [make map-clause]] clause-positions]
-    (testing (str slot " nil and a map clause register on both sides on the " position)
+    (testing (str slot " on the " position)
       (doseq [clause [nil (get map-clause slot)]
               :let [m (make slot clause)]]
-        (is (= :accept (engine-answer m)) (str (pr-str clause) ": the engine accepts"))
-        (is (= :accept (viz-answer m)) (str (pr-str clause) ": the viz accepts"))
-        (is (= :accept (viz-answer (g/desugar-grammar m)))
-            (str (pr-str clause) ": the viz accepts after the boundary desugar"))))
-    (testing (str slot " neither nil nor a map is refused on both sides on the " position
-                  " with the slot's category")
+        (is (= :accept (engine-answer m) (viz-answer m) (viz-answer (g/desugar-grammar m)))
+            (str (pr-str clause) ": registers on both sides, raw and desugared")))
       (doseq [clause [:b [:b] [1000 :b] 42 "b" #{:b} (fn [_] nil)]
-              :let [m (make slot clause)]]
-        (is (= (clause-categories slot) (engine-category m))
-            (str (pr-str clause) ": the engine's category"))
-        (is (= (clause-categories slot) (:category (g/definition-defect m)))
-            (str (pr-str clause) ": the viz category"))
-        (is (= (clause-categories slot) (:category (g/definition-defect (g/desugar-grammar m))))
-            (str (pr-str clause) ": the viz category after the boundary desugar")))))
-  (testing "a malformed :after beside a :timeout is refused as malformed on both
-            sides, not lowered"
+              :let [category (clause-categories slot)]]
+        (is (= [category category category] (categories (make slot clause)))
+            (str (pr-str clause) ": refused with the slot's category")))))
+  (testing "a malformed :after beside a :timeout is refused as malformed, not lowered"
     (doseq [[label m] malformed-after-beside-timeout]
-      (is (= :rf.error/machine-bad-after-spec (engine-category m))
-          (str label ": the engine's category"))
-      (is (= :rf.error/machine-bad-after-spec (:category (g/definition-defect m)))
-          (str label ": the viz category"))
-      (is (= :rf.error/machine-bad-after-spec (:category (g/definition-defect (g/desugar-grammar m))))
-          (str label ": the viz category after the boundary desugar")))))
+      (is (= (vec (repeat 3 :rf.error/machine-bad-after-spec)) (categories m))
+          (str label)))))
 
 (deftest definition-validation-documented-divergences
-  (testing "guard / action keyword REF resolution is a DIVERGENCE — the engine
-            rejects a dangling guard ref (runtime wiring); the viz accepts it
-            (projectable topology, no registry to resolve against)"
-    (let [m {:initial :a :states {:a {:on {:go {:target :b :guard :missing?}}} :b {}}}]
-      (is (= :reject (engine-answer m)) "engine rejects the dangling guard ref")
-      (is (= :accept (viz-answer m))    "the viz projects it — refs are runtime wiring, not topology")))
-
-  (testing "a NON-parallel root :after is a DIVERGENCE — the engine rejects it
-            (unschedulable at registration); the viz projects it as a
-            machine-root anchor"
-    (let [m {:initial :a :after {1000 :b} :states {:a {} :b {}}}]
-      (is (= :reject (engine-answer m)) "engine rejects a flat-root :after")
-      (is (= :accept (viz-answer m))    "the viz projects it as a root anchor")))
-
-  (testing "a parallel root :spawn's region-qualified target grammar is a
-            DIVERGENCE — the engine rejects a bare-keyword target; the viz
-            does not validate the parallel-root target grammar"
-    (let [m {:type :parallel :spawn {:machine-id :m :on-error :b}
-             :regions {:r {:initial :a :states {:a {} :b {}}}}}]
-      (is (= :reject (engine-answer m)) "engine rejects the unqualified target")
-      (is (= :accept (viz-answer m))    "the viz accepts it")))
-
-  (testing "viz-STRICTER root shape is a DIVERGENCE — the engine resolves a
-            missing / late root :initial lazily at runtime; the viz REQUIRES a
-            keyword root :initial + non-empty :states to have an initial-marker
-            to project"
-    (let [m {:states {:idle {}}}]
-      (is (= :accept (engine-answer m)) "engine accepts a flat machine with no root :initial")
-      (is (= :reject (viz-answer m))    "the viz rejects it (no initial to project)"))))
+  (doseq [[why m answers]
+          [["the engine resolves guard / action refs against its registry; the viz
+             has none, and refs are runtime wiring rather than topology"
+            {:initial :a :states {:a {:on {:go {:target :b :guard :missing?}}} :b {}}}
+            [:reject :accept]]
+           ["the engine cannot schedule a NON-parallel root :after; the viz
+             projects it as a machine-root anchor"
+            {:initial :a :after {1000 :b} :states {:a {} :b {}}}
+            [:reject :accept]]
+           ["the engine refuses a bare-keyword parallel-root :spawn target; the viz
+             does not validate the parallel-root target grammar"
+            {:type :parallel :spawn {:machine-id :m :on-error :b}
+             :regions {:r {:initial :a :states {:a {} :b {}}}}}
+            [:reject :accept]]
+           ["the engine resolves a missing root :initial lazily; the viz needs one
+             to draw an initial marker"
+            {:states {:idle {}}}
+            [:accept :reject]]]]
+    (is (= answers [(engine-answer m) (viz-answer m)]) why)))
