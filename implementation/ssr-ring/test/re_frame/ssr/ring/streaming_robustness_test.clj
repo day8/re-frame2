@@ -83,10 +83,10 @@
 (def ^:private stall-limit-ms 500)
 
 (defn- recording-stream-handler
-  "A `stream-handler` over a 1000-row page that records each body into
+  "A `stream-handler` over a `rows`-row page that records each body into
   `bodies`, so a test can close a body the middleware under test dropped."
-  [bodies]
-  (let [handler (stream-handler {:root-view (page-of 1000)})]
+  [bodies rows]
+  (let [handler (stream-handler {:root-view (page-of rows)})]
     (fn [request]
       (let [response (handler request)]
         (swap! bodies conj (:body response))
@@ -119,29 +119,33 @@
 
 (deftest wrap-head-dropped-body-is-reclaimed-within-the-stall-limit
   (testing "the writer, the request frame and the request slot behind a body
-            wrap-head dropped are reclaimed at the stall limit, with one
-            always-on record of the timeout"
-    (let [bodies  (atom [])
-          records (atom [])
-          app     (ring.head/wrap-head (recording-stream-handler bodies))]
-      (rf.error-emit/register-error-listener! ::stall #(swap! records conj %))
-      (try
-        (with-redefs [rf.ssr.ring.streaming/stall-timeout-ms stall-limit-ms]
-          (app {:request-method :head :uri "/"})
-          (is (= no-leak (await-no-leak! 3000)) "without the limit: 1 / 1 / 1, for ever")
-          (is (= ["java.util.concurrent.TimeoutException"]
-                 (->> @records
-                      (filter #(= :rf.error/ssr-streaming-writer-failed (:error %)))
-                      (mapv :ex-class)))))
-        (finally
-          (rf.error-emit/unregister-error-listener! ::stall)
-          (close-bodies! bodies))))))
+            wrap-head dropped are reclaimed; only a page past the 16 KiB pipe
+            waits for the stall limit, and it leaves one always-on record of
+            the timeout"
+    (doseq [[rows ex-classes] [[1000 ["java.util.concurrent.TimeoutException"]]
+                               [10   []]]]
+      (let [bodies  (atom [])
+            records (atom [])
+            app     (ring.head/wrap-head (recording-stream-handler bodies rows))]
+        (rf.error-emit/register-error-listener! ::stall #(swap! records conj %))
+        (try
+          (with-redefs [rf.ssr.ring.streaming/stall-timeout-ms stall-limit-ms]
+            (app {:request-method :head :uri "/"})
+            (is (= no-leak (await-no-leak! 3000)) "without the limit: 1 / 1 / 1, for ever")
+            (is (= ex-classes
+                   (->> @records
+                        (filter #(= :rf.error/ssr-streaming-writer-failed (:error %)))
+                        (mapv :ex-class)))
+                (str rows " rows")))
+          (finally
+            (rf.error-emit/unregister-error-listener! ::stall)
+            (close-bodies! bodies)))))))
 
 (deftest steady-slow-reader-gets-the-whole-body-over-longer-than-the-limit
   (testing "control: the limit measures no progress, not total time — a reader
             taking 4 KiB every 150 ms gets the whole page over well past it"
     (let [bodies  (atom [])
-          handler (recording-stream-handler bodies)]
+          handler (recording-stream-handler bodies 1000)]
       (try
         (with-redefs [rf.ssr.ring.streaming/stall-timeout-ms stall-limit-ms]
           (let [^InputStream in (:body (handler {:request-method :get :uri "/"}))
