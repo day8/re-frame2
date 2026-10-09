@@ -174,8 +174,8 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Shared egress-scan helpers. Every per-surface security test namespace
-;; needs the same deep sentinel scan plus the `redacted?` / `large-marker?`
-;; one-liners; keeping one copy here means a leak-class fix reaches every
+;; needs the same deep sentinel scan, and the reply suite the `large-marker?`
+;; one-liner; keeping one copy here means a leak-class fix reaches every
 ;; surface, where per-surface copies could silently drift apart.
 ;;
 ;; Each surface keeps its OWN per-file sentinel string local and calls
@@ -205,11 +205,6 @@
       x)
     (or @hit
         (boolean (re-find (re-pattern needle) (pr-str x))))))
-
-(defn redacted?
-  "True when `v` is the redaction sentinel keyword `:rf/redacted`."
-  [v]
-  (= :rf/redacted v))
 
 (defn large-marker?
   "True when `v` is a structural large-elision marker (a map carrying
