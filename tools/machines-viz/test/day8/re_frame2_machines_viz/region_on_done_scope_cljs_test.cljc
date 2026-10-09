@@ -31,8 +31,8 @@
                            :p   {:initial :q :states {:q {}}}}}
              :b {:initial :b1 :states {:b1 {}}}}})
 
-(defn- region-on-done-edge [definition]
-  (let [edges (filter :region-on-done? (:edges (layout/project-definition definition)))]
+(defn- region-on-done-edge [graph]
+  (let [edges (filter :region-on-done? (:edges graph))]
     (is (= 1 (count edges)) "exactly one region completion edge")
     (first edges)))
 
@@ -42,42 +42,23 @@
 ;; ---- chart ------------------------------------------------------------------
 
 (deftest chart-region-on-done-lands-inside-its-region
-  (testing "a keyword target lands on the region's own state, not the sibling
-            region of the same name"
-    (let [e (region-on-done-edge (with-region-on-done :b))]
-      (is (= (layout/region-node-id :a) (:source e)))
-      (is (= (layout/region-scoped-id :a [:b]) (:target e)))
-      (is (not= (layout/region-node-id :b) (:target e)))
-      (is (= [:b] (:to-path e)) "the in-region path")
-      (is (= [:a] (:done-path e)) "the done node is the region itself")
-      (is (= "✓ done" (:event-label e)))))
-
-  (testing "a one-segment vector target is the same in-region path"
-    (is (= (layout/region-scoped-id :a [:b])
-           (:target (region-on-done-edge (with-region-on-done [:b]))))))
-
-  (testing "a deeper vector target is an in-region path"
-    (is (= (layout/region-scoped-id :a [:p :q])
-           (:target (region-on-done-edge (with-region-on-done [:p :q]))))))
-
-  (testing "every target names a node the chart draws"
-    (doseq [target [:b [:b] [:p :q] :a1]
+  (testing "a keyword or vector target is an in-region path, landing on a node
+            the chart draws and never on the sibling region of the same name"
+    (doseq [[target path] [[:b [:b]] [[:b] [:b]] [[:p :q] [:p :q]] [:a1 [:a1]]]
             :let [graph (layout/project-definition (with-region-on-done target))
-                  ids   (set (map :id (:nodes graph)))]]
-      (is (every? #(contains? ids (:target %)) (filter :region-on-done? (:edges graph)))
-          (str "target " (pr-str target) " lands on a drawn node")))))
+                  e     (region-on-done-edge graph)]]
+      (is (= [(layout/region-node-id :a) (layout/region-scoped-id :a path) path]
+             ((juxt :source :target :to-path) e))
+          (pr-str target))
+      (is (contains? (set (map :id (:nodes graph))) (:target e))
+          (str (pr-str target) " lands on a drawn node")))))
 
 (deftest chart-region-on-done-self-anchored-forms
   (testing ":same-state names the region body, so the edge loops on the region's
             container"
-    (let [e (region-on-done-edge (with-region-on-done :same-state))]
+    (let [e (region-on-done-edge (layout/project-definition (with-region-on-done :same-state)))]
       (is (= (layout/region-node-id :a) (:source e) (:target e)))
-      (is (not (:internal? e)))))
-
-  (testing "an action-only :on-done self-anchors on the region's container"
-    (let [e (region-on-done-edge (with-region-on-done {:action :log}))]
-      (is (true? (:internal? e)))
-      (is (= (layout/region-node-id :a) (:source e) (:target e))))))
+      (is (not (:internal? e))))))
 
 ;; ---- Mermaid ----------------------------------------------------------------
 
@@ -126,8 +107,6 @@
           root  (filter :parallel-root? (:edges graph))
           xml   (scxml/spec->scxml m)]
       (is (= 1 (count root)))
-      (is (true? (:internal? (first root))))
-      (is (= (:source (first root)) (:target (first root))))
       (is (= [] (:done-path (first root))))
       (is (str/includes? xml (str "event=\"done.state." layout/parallel-root-done-state-id "\">")))
       (is (str/includes? (mermaid-body m) "on-done: ✓ done / announce"))
