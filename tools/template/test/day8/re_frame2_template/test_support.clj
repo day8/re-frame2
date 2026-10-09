@@ -27,11 +27,6 @@
   [^java.io.File f]
   (edn/read-string (slurp f)))
 
-(defn file-exists?
-  "True if `path` (relative to `root`) exists as a regular file."
-  [^java.io.File root path]
-  (.isFile (io/file root path)))
-
 ;; --- tmp dirs --------------------------------------------------------------
 
 (defn tmp-dir
