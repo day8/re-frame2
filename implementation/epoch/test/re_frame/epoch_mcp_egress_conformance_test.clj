@@ -1,108 +1,39 @@
 (ns re-frame.epoch-mcp-egress-conformance-test
-  "MCP-style egress conformance for `project-egress` and the whole-ring
-  composition over it. Any process-boundary forwarder must project raw epoch
-  records before egress.
+  "MCP-style egress conformance for `project-egress`, from the forwarder's side:
+  an off-box forwarder (an MCP `watch-epochs` snapshot, a `register-listener!
+  :epoch` ship!) maps `project-egress` over raw epoch records, and what it ships
+  must carry no raw sensitive bytes and no raw large payload, keep the
+  bookkeeping slots a tool navigates by, and be a fixed point of a second
+  projection. The per-leaf redaction matrix lives in `epoch_privacy_test.clj`.
 
-  This file pins the contract from the **forwarder perspective**: the
-  per-leaf redaction matrix lives in `epoch_privacy_test.clj`.
-  Here we exercise the full off-box-forwarder pattern an MCP server runs:
-
-    1. Build a realistic mixed ring (sensitive + large + bookkeeping-only
-       records, a `:halted-depth` record). `large` means BOTH
-       shapes a large value can arrive in: the app-db PATH declaration and
-       the whole-output `:large?` sub REGISTRATION stamp. The
-       second is not app-db-rooted, so a fixture that declared only paths
-       would leave this gate's own claim — no raw large bytes ANYWHERE —
-       scanning a record the shape never appears in; and the sub is RECOMPUTED, so
-       all FOUR of that shape's payload slots (current + previous, on each of
-       its two carriers) carry a real value rather than one value beside a nil.
-       `sensitive` likewise means BOTH families: the app-db path AND the
-       resource/mutation trace family, whose owner-local SCOPED KEYS are
-       classified by the resource OWNER's `:sensitive?` declaration rather than
-       by any app-db path — without a `reg-resource` here the family's
-       projector would never be reached from the gate that owns the
-       no-raw-sensitive-egress claim. And the family is inhabited across
-       OPERATIONS, not only slots: the tag vocabulary is operation-agnostic but the DEFECTS
-       are not, so the cascade drives the operation that stamps a free `:scope`
-       tag as well as the ones that carry their scope inside a key, in both the
-       identity-bearing and the scalar scope shape — and an `ensure` of a
-       SESSION-scoped owner, which is the only way an
-       identity-bearing scope reaches the fx CARRIERS rather than a family row.
-    2. Run the ring through `project-egress` (per-record forwarder shape,
-       e.g. `register-epoch-listener!` ship!) AND the whole-ring composition
-       `(mapv project-egress (epoch-history fid))` (bulk-egress shape,
-       e.g. `watch-epochs` initial snapshot).
-    3. Assert the off-box egress contract:
-         - No raw sensitive bytes anywhere in the projected output (the
-           security claim the MCP wire boundary depends on).
-         - No raw large bytes anywhere in the projected output (the
-           token-budget claim the MCP wire boundary depends on).
-         - Bookkeeping slots (`:epoch-id`, `:frame`, `:committed-at`,
-           `:event-id`, `:outcome`, `:halt-reason`, `:schema-digest`,
-           `:rf.epoch/sensitive?`) are preserved byte-for-byte.
-         - `project-egress` is pure + idempotent — calling it twice over
-           the same input is structurally identical, so a forwarder that
-           accidentally double-projects (e.g. middleware composition)
-           does not corrupt the wire shape.
-         - Ordering is deterministic (oldest-first), matching the raw
-           ring; an MCP `watch-epochs` initial snapshot relies on this
-           to set the resume-cursor's `:after-id`.
-         - No side effects: `project-egress` never mutates the
-           underlying ring, the schemas registry, or the elision registry.
-
-  Why this file lives in implementation/epoch/test rather than under an
-  MCP-server test tree: MCP-server test runners are shadow-cljs + Node
-  (`npm test` -> `out/server-test.js`), and the artefacts do not
-  statically depend on `re-frame.epoch` — the Pair runtime helpers get
-  into the running app via the `re-frame2-pair.runtime` preload, not the
-  MCP-server bundle. The framework's epoch artefact owns the projection
-  emission site (Spec Security.md §Epoch privacy posture); pinning from
-  the artefact side keeps the test on the JVM next to the contract owner.
-  An MCP-side end-to-end test is the job of the SDK-driven conformance
-  `test/end-to-end-*.cjs` paths if and when MCP-server epoch tools ship."
+  The fixtures here drive the shapes an app-db-only ring never contains: a
+  whole-output `:large?` sub (a registration stamp, not an app-db path), a
+  `:halted-depth` record, fx args on every trace-tag carrier, and the
+  resource/mutation trace family, whose owner-local scoped keys are classified
+  by the resource OWNER rather than by any app-db path."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
-            [re-frame.epoch :as rf.epoch]
+            [re-frame.epoch]
             [re-frame.frame :as rf.frame]
-            ;; `fx/reg-fx`, the plain fn, NOT the `rf/reg-fx` macro:
-            ;; see `install-resource-family!` for why the difference decides
-            ;; whether the frame's default image can still be reprojected.
+            ;; `fx/reg-fx`, the plain fn, NOT the `rf/reg-fx` macro: see
+            ;; `install-resource-family!`.
             [re-frame.fx :as rf.fx]
-            [re-frame.schemas :as rf.schemas]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace.tooling :as rf.trace.tooling]
-            ;; Side-effect requires (mirror epoch_test.clj fixture).
-            [re-frame.machines]
-            ;; Load-bearing: registers the `:rf.resource/*` events
-            ;; this fixture dispatches AND publishes the late-bound
-            ;; `:resources/project-resource-trace-egress` hook the projection
-            ;; consults from `omit-off-box-resource-trace-keys`. Without the
-            ;; hook that arm is a nil-safe no-op and the family's rows would
-            ;; egress unprojected — the gate would report green over the very
-            ;; thing it claims.
+            ;; Load-bearing: validates fx `:schema`s, which emits the
+            ;; `:where :fx-args` row `drive-fx-carriers!` needs.
+            [re-frame.schemas]
+            ;; Load-bearing: registers the `:rf.resource/*` events and publishes
+            ;; the late-bound resource egress hooks the projection consults.
             [re-frame.resources]
-            ;; `ensure` lowers into the managed-HTTP transport,
-            ;; which fails closed with `:rf.error/http-artefact-missing` unless
-            ;; this ns has published its late-bind feature probe. Test-only;
-            ;; production epoch stays http-free.
+            ;; `ensure` lowers into the managed-HTTP transport, which fails
+            ;; closed unless this ns has published its late-bind probe.
             [re-frame.http.managed]))
 
-;; ---- fixtures --------------------------------------------------------------
-;;
-;; Canonical capture/restore fixture. Snapshots the
-;; registrar at ns-load + restores around each test, fires the epoch
-;; reset-hook table (history / listeners / config-to-default), and the
-;; `:init-fn` re-applies the suite's non-default `:trace-events-keep 7`
-;; (NOT the shipped 50 = :depth) through the
-;; public `configure!` boundary — no test ns reaches into the private
-;; `state/config` var. 7 is the record count `drive-mixed-ring!` settles,
-;; so every record in the mixed ring keeps its `:trace-events`.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
-    {:adapter rf.substrate.plain-atom/adapter
-     :init-fn (fn [] (rf/configure! {:epoch-history {:trace-events-keep 7}}))}))
+    {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- helpers ---------------------------------------------------------------
 
@@ -111,142 +42,43 @@
 (def ^:private secret-password "topsecret-do-not-leak")
 (def ^:private payload-size    25000)
 
-;; The whole-output `:large?` SUB shape. A `:large?` stamp on a
-;; `reg-sub` is a REGISTRATION marker, not an app-db path declaration, so the
-;; app-db-rooted classification this fixture installs below structurally cannot
-;; reach it. A fixture inhabiting only the path shape would run the "no raw
-;; large bytes anywhere" scans below over a record with no sub-output slot in
-;; it at all, and a 25000-char payload raw at
-;; `[:trace-events <i> :tags :rf.sub/value]` would pass this very gate.
-;;
-;; The sub's output rides its input, and the cascade below RECOMPUTES it, so the
-;; two payload slots of each carrier — `:value` / `:prev-value` on the
-;; structured row, `:rf.sub/value` / `:rf.sub/prev-value` on the trace tag —
-;; hold DISTINCT large values rather than one value beside a nil. All four are
-;; projected by the shared rule and all four are pinned below, and the pinning
-;; is not decorative: with a single compute the previous-value slots are nil, a
-;; nil projects to a marker over nothing, and the whole-output scans see no
-;; difference — so deleting either previous-value projection would leave this
-;; gate GREEN. Turning off either one reds it:
-;;
-;;   - pass `:value :rf.disabled/prev-value` to `elide-sub-run-row`'s shared-rule
-;;     call (the structured row's previous-value projection off);
-;;   - pass `:rf.sub/value :rf.disabled/prev-value` in
-;;     `elide-large-sub-trace-values` (the trace tag's off).
-;;
-;; Each names its own slot, both trip the two carriers' `:bytes` agreement, and
-;; both trip the cross-cutting "no leaf of the payload's size anywhere" scans on
-;; the per-record AND the bulk whole-ring surface.
 (def ^:private large-sub-id   :sub/whole-output-large)
-;; An UNMARKED sibling sub whose value rides the same two egress slots. It is
-;; the negative control: if the elision below ever became a blanket truncation
-;; (or the fixture stopped reading subs), this value would stop arriving raw.
+;; An UNMARKED sibling sub riding the same two egress slots — the negative
+;; control that the elision is driven by the `:large?` stamp.
 (def ^:private control-sub-id :sub/unmarked-control)
 (def ^:private control-note   "mcp-egress-unmarked-control")
 
 (defn- install-mcp-style-schemas!
-  "A realistic mixed classification set: one sensitive path
-  (`[:auth :password]`) and one large path (`[:blob :payload]`) against
-  `frame-id`. Matches the shape an app exercising both privacy defences
-  would declare.
-
-  EP-0025: durable app-db classification rides the commit-plane
-  classification effects. Seeded through `elision/apply-classification-
-  effects` (`:source :effect`) — the same registry write a `reg-event`
-  returning `:sensitive` / `:large` performs. The frame container is
-  make-frame'd by each deftest before this runs. (Classification is
-  value-independent: the cascade legitimately leaves each path absent in
-  some steps, and a classified path is a harmless no-op over an absent
-  value.)"
+  "Classify `[:auth :password]` sensitive and `[:blob :payload]` large against
+  `frame-id`, plus the session identity the resource scope resolver reads, so
+  the app-db axis is never what the resource-family scans catch."
   [frame-id]
   (rf.frame/swap-runtime-db! frame-id
     (fn [rt] (rf.elision/apply-classification-effects rt
-               {:sensitive [[:auth :password]
-                            ;; The SESSION IDENTITY the named scope
-                            ;; resolver reads (`install-resource-family!`).
-                            ;; Classified here so the app-db axis is never what
-                            ;; the resource-family scans catch: any surviving
-                            ;; copy of the secret came off a resource TRACE tag,
-                            ;; which is the axis those scans own.
-                            [:auth :user :username]]
+               {:sensitive [[:auth :password] [:auth :user :username]]
                 :large     [[:blob :payload]]})))
   nil)
 
 (def ^:private mixed-ring-frame
-  "The frame every `drive-mixed-ring!` deftest makes. `:drain-depth 1` is what
-  lets the ring carry a `:halted-depth` record after two events instead of a
-  hundred; no other cascade in the ring dispatches a child,
-  so the cap changes nothing else."
+  ;; `:drain-depth 1` lets `:halt/loop` settle a `:halted-depth` record.
   {:id :test/mcp :drain-depth 1})
 
 (defn- drive-mixed-ring!
-  "Drive a deterministic, mixed cascade matrix against `frame-id`:
-    - :seed — non-sensitive bookkeeping
-    - :login — writes the sensitive path (secret value closed-over in the
-              handler so this fixture exercises the APP-DB classification
-              axis specifically; the frame-declared sensitive path is the
-              leaf the projection's wire-elision walker matches against.
-              The trigger-event event-args axis is exercised separately by
-              `re-frame.epoch-egress-redaction-cljs-test`'s
-              `trigger-event-positional-secret-fails-closed`, which drives
-              the secret IN the event vector and asserts it fails closed)
-    - :upload — writes the large path (large payload closed-over in the
-                handler for the same reason)
-    - :halt/loop — a runaway: it re-dispatches itself
-                carrying the secret in an arg its registration declares
-                `:sensitive`, so under the frame's `:drain-depth 1`
-                (`mixed-ring-frame`) it settles one `:ok` record and the
-                depth limit commits a `:halted-depth` record. `:halt-reason`
-                is a bookkeeping slot this file's byte-for-byte check
-                requires to pass through, so a `:halt-reason` carrying the
-                settled event's args raw is the one shape that could smuggle
-                event args past both checks at once
-    - :inc — non-sensitive again, AND the FIRST reading of the two subs
-             below. It takes that reading through `subscribe` (not
-             `subscribe-once`), so the cache entry outlives the cascade
-             and the read in `:read-subs` is a RECOMPUTE with a
-             previous value rather than a first run. The reading is
-             taken from the handler body, i.e. BEFORE this cascade's own
-             `:n` increment commits, which is what makes the two
-             readings see different inputs and produce two DISTINCT
-             large values (with one compute both
-             previous-value slots are nil, and deleting either
-             previous-value projection would leave this gate green)
-    - :read-subs — reads a whole-output `:large?` sub and an unmarked
-                   control sub. This is the SECOND large
-                   shape, and it is not app-db-rooted: the `:large?`
-                   stamp rides the sub's REGISTRATION, and the computed
-                   value reaches egress through two slots of the record
-                   the app-db walker never visits — the structured
-                   `:sub-runs` row (`:value` / `:prev-value`, projected by
-                   `elide-sub-run-row`) and the `:rf.sub/run` trace tag
-                   (`:rf.sub/value` / `:rf.sub/prev-value`, projected by
-                   `elide-large-sub-trace-values`). Both callers of the
-                   shared `elide-whole-output-large-slots` rule are
-                   therefore inhabited by one cascade, and all FOUR of
-                   their payload slots carry a real value
-  Driven LAST so the index-addressed assertions (`(nth _ 1)` =
-  :login, `(nth _ 2)` = :upload) address the same cascades — and
-  :halt/loop sits between :upload and :inc for the same reason, leaving
-  `(last …)` on :read-subs. Seven records against this suite's
-  `:trace-events-keep 7` means every record retains its `:trace-events`, so
-  the tag slot is present on all of them.
-  Returns the resulting `(epoch-history frame-id)` for direct comparison
-  with its whole-ring projection."
+  "Drive a mixed cascade against `frame-id` (made from `mixed-ring-frame`) and
+  return its `epoch-history`: `:login` writes the sensitive path, `:upload` the
+  large one, `:halt/loop` re-dispatches itself with the secret in a
+  `:sensitive` arg until the depth limit commits a `:halted-depth` record, and
+  `:inc` / `:read-subs` read a whole-output `:large?` sub and an unmarked control
+  sub. `:inc` subscribes (not `subscribe-once`) before its own `:n` increment
+  commits, so the read in `:read-subs` is a RECOMPUTE carrying a distinct large
+  previous value in all four payload slots."
   [frame-id]
-  (when-not (= 1 (:drain-depth (rf.frame/frame-config frame-id)))
-    (throw (ex-info "drive-mixed-ring! needs a frame made from `mixed-ring-frame`"
-                    {:frame frame-id})))
-  (rf/reg-event :seed   (fn [{:keys [db]} _] {:db {:n 0}}))
+  (rf/reg-event :seed   (fn [_ _] {:db {:n 0}}))
   (rf/reg-event :login  (fn [{:keys [db]} _] {:db (assoc-in db [:auth :password] secret-password)}))
   (rf/reg-event :upload (fn [{:keys [db]} _] {:db (assoc-in db [:blob :payload] (big-string payload-size))}))
   (rf/reg-event :halt/loop {:sensitive [[:token]]}
     (fn [_ [_ arg]] {:fx [[:dispatch [:halt/loop arg]]]}))
-  ;; The `:large?` sub's output rides `:n`, so the two readings below produce
-  ;; values of DIFFERENT sizes — the raw current / previous pair the four
-  ;; payload slots must each carry, and the reason their two markers can be
-  ;; told apart by `:bytes`.
-  (rf/reg-sub large-sub-id   {:large? true}
+  (rf/reg-sub large-sub-id {:large? true}
     (fn [db _] (big-string (* payload-size (inc (:n db 0))))))
   (rf/reg-sub control-sub-id (fn [_db _] control-note))
   (rf/reg-event :inc
@@ -268,15 +100,13 @@
   (rf/epoch-history frame-id))
 
 (defn- sub-run-row
-  "The structured `:sub-runs` row for `sub-id` in `record` — the slot
-  `elide-sub-run-row` projects."
+  "The structured `:sub-runs` row for `sub-id` in `record`."
   [record sub-id]
   (->> (:sub-runs record) (filter #(= sub-id (:sub-id %))) first))
 
 (defn- sub-run-tags
-  "The `:rf.sub/run` trace-event tags for `sub-id` in `record` — the slot
-  `elide-large-sub-trace-values` projects. A DIFFERENT slot from the row
-  above carrying the SAME computed value; eliding only one of them leaks."
+  "The `:rf.sub/run` trace-event tags for `sub-id` in `record` — a second
+  carrier of the same computed value."
   [record sub-id]
   (->> (:trace-events record)
        (filter #(and (= :rf.sub/run (:operation %))
@@ -284,42 +114,9 @@
        first
        :tags))
 
-(defn- contains-secret?
-  "Walk an arbitrary EDN value looking for the exact secret string. Used
-  as the cross-cutting 'no raw sensitive bytes anywhere in the projected
-  output' check — the MCP wire boundary's promise. Returns true when ANY
-  leaf in the structure equals (or contains as a substring) the secret."
-  [x]
-  (cond
-    (string? x) (.contains ^String x ^String secret-password)
-    (map? x)    (or (some contains-secret? (keys x))
-                    (some contains-secret? (vals x)))
-    (coll? x)   (some contains-secret? x)
-    :else       false))
-
-(defn- cedn-tokens
-  "Every CEDN-1 encoded scoped key surviving anywhere in `x`. Broader than
-  `contains-secret?`: a `state/key-id` is `identity/canonical-bytes` — a
-  REVERSIBLE PLAINTEXT encoding, not a digest — so a key-id in a trace tag
-  discloses the entry's scope + params in the clear inside a string the
-  shape-driven projector can only read as an opaque scalar. This
-  catches ANY key-id, not only one carrying this suite's secret, so any
-  emit site that carries a key-id fails here even with innocuous params.
-
-  Returns the offending tokens rather than a boolean so a failure REPORTS the
-  plaintext it found — `(is (empty? …))` prints them, `(is (not (some? …)))`
-  prints `true`, and the whole point of this class is that the leaked bytes are
-  hiding inside something that looks opaque."
-  [x]
-  (vec (re-seq #"v\[k:[^\]]*\]*" (pr-str x))))
-
 (defn- secret-leak-paths
-  "Every path in `x` whose leaf string carries the secret, each with the
-  offending value. The path-reporting counterpart of `contains-secret?` — same
-  predicate, but a failure NAMES the slot that leaked instead of printing
-  `(not (not true))`. Used by the resource-family scans, where the whole
-  diagnostic value is knowing which of a row's dozen tag slots let the bytes
-  through."
+  "Every path in `x` whose leaf string carries the secret, with the offending
+  value, so a failure names the slot that leaked."
   [x]
   (let [found (atom [])
         walk  (fn walk [path v]
@@ -335,9 +132,7 @@
     @found))
 
 (defn- count-leaf-strings-at-least
-  "Walk `x` and count leaf strings whose length is `>= n`. Used to bound
-  the 'no raw large bytes anywhere in the projected output' check — a
-  projected record MUST NOT egress the full payload as a leaf."
+  "Count the leaf strings in `x` whose length is `>= n`."
   [n x]
   (let [counter (atom 0)
         walk (fn walk [v]
@@ -348,158 +143,226 @@
     (walk x)
     @counter))
 
-;; ---- the resource/mutation trace family ------------------------------------
+(defn- cedn-tokens
+  "Every CEDN-1 encoded scoped key surviving anywhere in `x`. A `key-id` is a
+  REVERSIBLE plaintext encoding of a scoped key, so one in a trace tag discloses
+  scope + params inside a string the projector can only read as an opaque
+  scalar. Returns the tokens so a failure prints the plaintext it found."
+  [x]
+  (vec (re-seq #"v\[k:[^\]]*\]*" (pr-str x))))
+
+;; ============================================================================
+;;  The mixed ring, projected record by record
+;; ============================================================================
+
+(deftest watch-epochs-whole-ring-projection-leaks-no-raw-bytes
+  (testing "a forwarder maps `project-egress` over the ring: no raw secret and no
+            raw large payload anywhere in what it ships, while the bookkeeping
+            slots a tool navigates by survive byte-for-byte"
+    (rf/make-frame mixed-ring-frame)
+    (install-mcp-style-schemas! :test/mcp)
+    (let [raw         (drive-mixed-ring! :test/mcp)
+          ring        (mapv rf/project-egress raw)
+          bookkeeping [:epoch-id :frame :committed-at :event-id
+                       :outcome :halt-reason :schema-digest :rf.epoch/sensitive?]]
+      (is (pos? (count-leaf-strings-at-least payload-size raw))
+          "FIXTURE — the raw ring carries large leaves")
+      (is (= [] (mapcat secret-leak-paths ring))
+          "no projected record carries the secret at any path")
+      (is (zero? (count-leaf-strings-at-least payload-size ring))
+          "nor a leaf of the large payload's size")
+      (is (some :halt-reason raw)
+          "FIXTURE — a `:halt-reason` is present, so the check below compares a
+           real descriptor rather than nil against nil")
+      (is (= [] (for [[r p] (map vector raw ring)
+                      k     bookkeeping
+                      :when (not= (get r k) (get p k))]
+                  [(:epoch-id r) k (get r k) (get p k)]))
+          "every bookkeeping slot of every record survives (lists each
+           offending [epoch-id slot raw projected])")
+
+      (testing "a whole-output `:large?` sub's value and previous value are
+                marked in BOTH carriers, the structured `:sub-runs` row and the
+                `:rf.sub/run` trace tag, by one shared rule"
+        (let [raw-row (sub-run-row (last raw) large-sub-id)
+              proj    (last ring)
+              row     (sub-run-row proj large-sub-id)
+              tags    (sub-run-tags proj large-sub-id)
+              marks   [(:value row) (:rf.sub/value tags) (:prev-value row) (:rf.sub/prev-value tags)]
+              [cur cur' prev prev'] (mapv #(get-in % [:rf.size/large-elided :bytes]) marks)
+              ctrl-row  (sub-run-row proj control-sub-id)
+              ctrl-tags (sub-run-tags proj control-sub-id)]
+          (is (= [(* 2 payload-size) payload-size]
+                 (mapv count [(:value raw-row) (:prev-value raw-row)]))
+              "FIXTURE — the recompute puts two DISTINCT large values on the row")
+          (is (every? rf.elision/marker? marks)
+              "all four payload slots are markers — withheld, not dropped")
+          (is (= [cur prev] [cur' prev'])
+              "the two carriers' markers agree on `:bytes`, so they cannot drift")
+          (is (not= cur prev)
+              "and each marker measures its own value")
+          (is (= (repeat 4 control-note)
+                 [(:value ctrl-row) (:prev-value ctrl-row)
+                  (:rf.sub/value ctrl-tags) (:rf.sub/prev-value ctrl-tags)])
+              "NEGATIVE CONTROL — an unmarked sub's values ride raw in all four slots"))))))
+
+(deftest forwarder-project-egress-is-large-idempotent
+  (testing "re-projecting a projected ring is a fixed point: the marker-aware walk
+            passes a `:rf.size/large-elided` marker through rather than
+            re-marking it, so `:bytes` / `:digest` do not drift across a
+            forwarder pipeline that double-projects, and `:rf/redacted` is a
+            non-matchable scalar"
+    (rf/make-frame mixed-ring-frame)
+    (install-mcp-style-schemas! :test/mcp)
+    (let [once (mapv rf/project-egress (drive-mixed-ring! :test/mcp))]
+      (is (rf.elision/marker?
+            (get-in (some #(when (= :upload (:event-id %)) %) once) [:db-after :blob :payload]))
+          "FIXTURE — the first pass substituted a marker at the large path")
+      (is (= once (mapv rf/project-egress once))))))
+
+;; ============================================================================
+;;  The fx-args trace-tag carriers
+;; ============================================================================
+
+(defn- fx-carrier-rows
+  "Every trace row in `record` carrying an fx-args carrier, found by SLOT as the
+  projector finds them."
+  [record]
+  (filter #(or (contains? (:tags %) :rf.fx/args)
+               (contains? (:tags %) :rf.event/fx))
+          (:trace-events record)))
+
+(defn- fx-row
+  "The tags of the first `:rf.fx/handled` row in `record` for `fx-id`."
+  [record fx-id]
+  (->> (:trace-events record)
+       (filter #(and (= :rf.fx/handled (:operation %))
+                     (= fx-id (get-in % [:tags :rf.fx/id]))))
+       first
+       :tags))
+
+(defn- error-rows
+  "The trace rows of `record` whose `:operation` is `op`."
+  [record op]
+  (filterv #(= op (:operation %)) (:trace-events record)))
+
+(defn- drive-fx-carriers!
+  "Fire one cascade whose fx args carry the secret on every fx-args carrier and
+  return its raw epoch record. A well-formed entry rides `:rf.fx/args` and
+  `:rf.event/fx`; three MALFORMED entries whose head is payload are dropped
+  from the fx walk but not from the trace, so they reach `:rf.event/fx` and
+  each emits a `:rf.error/effect-map-shape` row stamping the entry on `:value`
+  and interpolating it into `:reason`; an entry failing its fx `:schema` emits
+  a `:where :fx-args` row re-stamping its args under several aliases. The
+  classified app-db path takes the same bytes, so the axes' orthogonality reads
+  off one record."
+  [frame-id]
+  (rf/reg-fx :fxp/login (fn [_ _] nil))
+  (rf/reg-fx :fxp/notify {:schema [:map [:level :keyword]]} (fn [_ _] nil))
+  (rf/reg-event :do-login
+    (fn [_ [_ pw]]
+      {:db {:auth {:password pw}}
+       :fx [[:fxp/login {:password pw}]
+            [{:password pw} {:arg 1}]
+            [[:login pw] {:arg 2}]
+            [pw {:arg 3}]
+            nil
+            [:fxp/notify {:level "not-a-keyword" :password pw}]]}))
+  (rf/dispatch-sync [:do-login secret-password] {:frame frame-id})
+  (last (rf/epoch-history frame-id)))
+
+(defn- fx-carriers
+  "Each fx-args carrier the `drive-fx-carriers!` cascade reaches, by slot."
+  [record]
+  {:rf.fx/args       (:rf.fx/args (fx-row record :fxp/login))
+   :rf.event/fx      (->> (:trace-events record)
+                          (filter #(= :rf.fx/do-fx (:operation %)))
+                          first :tags :rf.event/fx)
+   :effect-map-shape (mapv #(select-keys (:tags %) [:value :reason])
+                           (error-rows record :rf.error/effect-map-shape))
+   :fx-args-schema   (select-keys (:tags (first (error-rows record :rf.error/schema-validation-failure)))
+                                  [:rf.fx/args :received :value :explain :where :rf.fx/id])})
+
+(deftest forwarder-fx-args-tag-carriers-fail-closed
+  (testing "the fx-handler args ride several trace tags beside the structured
+            `:effects[*].args` row, and off-box cannot prove an undeclared arg
+            safe on any of them: one value, several carriers, ONE rule. Each
+            redacts in the shape that fits it — an `:rf.event/fx` entry keeps
+            its head only when that head is a keyword fx-id, the
+            `:rf.error/effect-map-shape` `:reason` is prose and redacts whole —
+            while the value-free metadata that identifies the fx survives"
+    (rf/make-frame {:id :test/mcp})
+    (install-mcp-style-schemas! :test/mcp)
+    (let [raw      (drive-fx-carriers! :test/mcp)
+          proj     (rf/project-egress raw)
+          r        :rf/redacted
+          carriers (fx-carriers raw)]
+      (is (= [] (remove (comp seq secret-leak-paths)
+                        (concat [(:rf.fx/args carriers)]
+                                (remove nil? (:rf.event/fx carriers))
+                                (mapcat vals (:effect-map-shape carriers))
+                                (vals (select-keys (:fx-args-schema carriers)
+                                                   [:rf.fx/args :received :value :explain])))))
+          "FIXTURE — every raw carrier holds the secret")
+      (is (= {:rf.fx/args       r
+              :rf.event/fx      [[:fxp/login r] r r r nil [:fxp/notify r]]
+              :effect-map-shape (repeat 3 {:value r :reason r})
+              :fx-args-schema   {:rf.fx/args r :received r :value r :explain r
+                                 :where :fx-args :rf.fx/id :fxp/notify}}
+             (fx-carriers proj)))
+      (is (= [] (secret-leak-paths proj))
+          "the whole projected record, `:effects` included, names the secret nowhere")
+      (is (= proj (rf/project-egress proj))
+          "re-projection does not drift the wire shape")
+
+      (testing "`:rf.egress/include-fx-args?` hands every carrier back verbatim and
+                lifts nothing else; `:rf.egress/include-sensitive?` lifts the
+                app-db leaf alone, so asking for sensitive app-db values never
+                hands back the fx args"
+        (let [fx-args   (rf/project-egress raw {:rf.egress/include-fx-args? true})
+              sensitive (rf/project-egress raw {:rf.egress/include-sensitive? true})]
+          (is (= [carriers r]
+                 [(fx-carriers fx-args) (get-in fx-args [:db-after :auth :password])]))
+          (is (= secret-password (get-in sensitive [:db-after :auth :password])))
+          (is (= [] (secret-leak-paths (select-keys sensitive [:trace-events :effects :trigger-event])))
+              "no trace tag, effect row or trigger arg carries the secret under
+               include-sensitive"))))))
+
+;; ============================================================================
+;;  The resource/mutation trace family
+;; ============================================================================
 ;;
-;; The SECOND sensitive family.
-;;
-;; An app-db `:sensitive` PATH is classified by the frame; a resource's
-;; owner-local SCOPED KEY `[scope resource-id params]` is classified by the
-;; resource OWNER's `:sensitive?` declaration, and once the key is copied into a
-;; trace TAG the app-db-rooted walker is structurally blind to it (Spec 015 §10).
-;; The resource family therefore owns its own family-level off-box projector
-;; (`re-frame.resources.trace-egress/project-resource-trace-egress`), which the
-;; epoch tool-pair consults through a late-bound hook. Without `reg-resource`
-;; owners in this file the projector would have no scoped key to find, and the
-;; "no raw sensitive bytes ANYWHERE" scans above would run over records the
-;; family never appears in. Five properties keep the family's egress closed,
-;; and the cascade `drive-resource-family!` drives reaches every one:
-;;
-;;   - The fail-closed default covers SEQUENTIAL values, not only MAP-valued
-;;     unknown slots, because every row below carries the sequential case: a
-;;     resource `:work/id` is `[:rf.work/resource <scoped-key> <generation>]`,
-;;     so the key — and with it a `:sensitive?` owner's scope and canonical
-;;     params — sits one level down inside a vector under a slot no roster
-;;     names. A scope TUPLE is a vector too.
-;;   - `:rf.resource/owner-released` names the released entries by scoped key,
-;;     never by `state/key-id`, which is `identity/canonical-bytes`: a
-;;     REVERSIBLE PLAINTEXT encoding, so a key-id would egress the secret in the
-;;     clear inside a string the projector correctly reads as an opaque scalar.
-;;     `:resource/key` is NAMED in the projector's vocabulary and the arm still
-;;     could not help — a named slot is no protection when the value in it is
-;;     the wrong representation.
-;;   - A correct projector must also RUN on the row. An `ensure` lowers into
-;;     effects that address the work BY its scoped key, so the same keys ride
-;;     `:rf.fx/args` / `:rf.event/fx` on `:rf.fx/*` rows, and the epoch
-;;     tool-pair picks which rows take the family projector by OPERATION
-;;     NAMESPACE (`resource-family-op?`) — which those rows fail. The carriers
-;;     are therefore reached by SLOT (`project-fx-args-egress`) rather than by
-;;     widening the op roster, which is why the scans below run over the WHOLE
-;;     record and the whole settled history rather than over the family rows.
-;;   - A projector that is right per SHAPE must be reached on the right ROWS.
-;;     The free `:scope` tag (the resolved CONCRETE scope, not the one inside a
-;;     scoped key) is not sibling-owned: the epoch tool-pair applies the
-;;     `:rf.resource/scope-resolved` projector under
-;;     `(= :rf.resource/scope-resolved (:operation ev))` — ONE operation — while
-;;     this family projector runs on every row, so on every OTHER row type that
-;;     stamps a free `:scope` this projector is what classifies it; otherwise a
-;;     `{:from-db …}` resolver's identity map would egress raw
-;;     (`trace-egress/sibling-owned-slot`'s docstring is the roster of those
-;;     row types). Seeing it takes an operation that stamps a free `:scope`
-;;     (`invalidate-tags`; `ensure` and `release-owner` do not) AND an
-;;     identity-bearing scope — `:rf.scope/global` is a SCALAR, the value that
-;;     correctly rides verbatim, so a row carrying only it proves nothing. The
-;;     cascade drives two `invalidate-tags`, one per shape.
-;;   - The same free `:scope` ONE CARRIER further out: planted by the runtime
-;;     inside the transport's `:on-success` / `:on-failure` continuation
-;;     payload, it rides `:rf.fx/args` / `:rf.event/fx` on `:rf.fx/*` rows
-;;     where the family projector never runs, so the carrier walk projects it
-;;     (the `:scope` arm of `project-embedded-keys`) rather than descending it
-;;     as a plain map. Reaching it needs BOTH of the previous two at once and
-;;     neither alone: an identity-bearing scope (the `reg-resource-scope`
-;;     resolver) on an operation that LOWERS INTO FX (an `ensure`). The cascade
-;;     drives that `ensure` last.
-;;
-;; Removing any one of these properties reds this file, naming each leaking
-;; path. The fixture notices a change in both directions, not just the leaking
-;; one: naming `:released` entries by key-id also reds the PLAIN control, since
-;; a key-id is not a scoped-key vector and the plain owner's `:released` member
-;; goes missing; while dropping the fx-carrier arm leaves the plain control
-;; GREEN, which is what proves the carrier projection discriminates by owner
-;; rather than blanket-stripping the carriers.
-;;
-;; Two relationships between them are worth knowing. `:released` is NOT in
-;; the projector's named `scoped-keys-slot` roster, so scoped keys there
-;; redact only because the shape-driven default recognises a key wherever it
-;; sits — the first two properties hold this slot up together. And most of
-;; these defects surface in the whole-record `secret-leak-paths` / `cedn-tokens`
-;; scans rather than in a per-slot assertion, which is why those scans run over
-;; the WHOLE record and the whole settled history — the per-slot assertions say
-;; WHERE, the scans say WHETHER, and only the scans cover a slot nobody has
-;; looked at yet.
+;; A resource's owner-local SCOPED KEY `[scope resource-id params]` is
+;; classified by the resource OWNER's `:sensitive?` declaration; once copied
+;; into a trace tag no app-db path can match it. The resources artefact owns
+;; the family projector, which the epoch projection reaches through late-bound
+;; hooks on two routes: by OPERATION NAMESPACE for the family's own rows, and
+;; by SLOT for the `:rf.fx/args` / `:rf.event/fx` carriers of the effects an
+;; `ensure` lowers into, which address the work by its scoped key.
 
 (def ^:private sensitive-resource-id :secret/article)
 (def ^:private plain-resource-id     :plain/article)
 (def ^:private plain-slug            "mcp-egress-plain-control")
 (def ^:private resource-owner        [:app :reader 1])
-
-;; The SESSION axis. A `reg-resource-scope` resolver derives an
-;; identity-bearing `[tier {identity}]` scope from an app-db read, which is the
-;; scope SHAPE a free `:scope` tag can leak; `:rf.scope/global` (every other
-;; owner here) is a SCALAR and rides verbatim, so it cannot show the
-;; defect. The identity IS this suite's secret, so a scope that egresses raw is
-;; caught by the same whole-record scans the rest of the family answers to.
 (def ^:private session-scope-id      :mcp/session)
 (def ^:private session-cause         [:logout :session])
 (def ^:private global-cause          [:logout :global])
 (def ^:private invalidation-tag      :mcp/article)
-
-;; The same identity-bearing scope one CARRIER further
-;; out. `invalidate-tags` stamps it as a free tag on a family row; an `ensure`
-;; of a session-scoped owner also LOWERS INTO FX, so the resolved scope reaches
-;; `:rf.fx/args` / `:rf.event/fx` inside the transport's continuation payload —
-;; rows the family projector never runs on. Its params are deliberately
-;; secret-FREE: the only thing this owner can leak is its resolved SCOPE, so a
-;; failure names that axis and nothing else.
 (def ^:private session-resource-id   :secret/session-article)
-(def ^:private session-slug          "mcp-egress-session")
 (def ^:private session-owner         [:app :reader 2])
 
 (defn- install-resource-family!
-  "Register the two resource owners the family scans need: one `:sensitive?`
-  (its scoped key's scope + params MUST tokenize off-box) and one PLAIN (its key
-  MUST ride verbatim — the two-sided over-redaction control, so redacting
-  everything fails as loudly as leaking). Plus the NAMED SCOPE RESOLVER whose
-  `{:from-db …}` reference gives the cascade an identity-bearing `[tier
-  {identity}]` scope rather than the bare `:rf.scope/global` scalar
-  both owners carry, and a no-op managed-HTTP fx so `ensure` writes its
-  `:loading` entry and emits its lifecycle rows without a request leaving the
-  box.
+  "Register a `:sensitive?` owner (its scoped key MUST tokenize off-box), a
+  PLAIN owner (its key MUST ride verbatim — the over-redaction control), a
+  named scope resolver deriving an identity-bearing `[tier {identity}]` scope
+  from the session identity seeded here, a session-scoped owner, and a no-op
+  managed-HTTP fx so `ensure` emits its rows without a request leaving the box.
 
-  `fx/reg-fx`, NOT `rf/reg-fx`, and the difference is load-bearing. `rf/reg-fx`
-  is a macro that stamps the calling namespace as the registration's provenance,
-  so overriding `:rf.http/managed` through it puts TWO source-store slots under
-  one id (`re-frame.http.managed`'s provenance-free one and this ns's) and the
-  frame's next default-image reprojection dies on `:rf.error/image-duplicate-id`.
-  That failure is swallowed per-frame by the resilient reprojection sweep, so the
-  frame silently keeps the generation it was seated with — the one assembled
-  BEFORE the `reg-resource` calls below — and every `ensure` then throws
-  `:rf.error/resource-not-registered` while `resource-meta` (read outside the
-  cascade, off the global registrar) cheerfully reports the resource present. The
-  plain fn carries no provenance, so it REPLACES the artefact's own slot and the
-  reprojection keeps working. The resources artefact's own suites hit the same
-  seam and resolve it the same way.
-
-  Two fixture preconditions worth stating out loud:
-
-  - the SESSION IDENTITY is seeded straight into the app-db partition, the
-    symmetric sibling of the runtime-db write `install-mcp-style-schemas!`
-    makes. A `dispatch` would settle another epoch record for a value that is
-    pure setup, and the cascade's record count is read below.
-  - `:trace-events-keep` is pinned to the shipped default. The suite-wide
-    `:init-fn` sets a cap sized for `drive-mixed-ring!`, and
-    `epoch.state/elide-just-crossed-trace-events` dissocs the `:trace-events` of
-    every record that slides out of that window. `drive-resource-family!` below
-    settles one record per `dispatch-sync` it makes and EVERY one of them is read
-    for its rows, so under the inherited cap this fixture's coverage would hang
-    on one driver never outgrowing a number tuned for a different driver — and
-    outgrowing it is SILENT: the oldest record's rows are simply gone, and the
-    fx-carrier scans return to reporting green over ground they no longer cover.
-    Pinning it here is what stops the cascade's LENGTH from being load-bearing;
-    the `every? (comp seq :trace-events)` fixture control in
-    `forwarder-project-egress-leaks-no-raw-resource-family-bytes` is what
-    catches the pin itself rotting."
+  `fx/reg-fx` rather than the `rf/reg-fx` macro: the macro stamps this ns as a
+  second provenance under `:rf.http/managed`, the frame's default-image
+  reprojection then dies on `:rf.error/image-duplicate-id` (swallowed), and
+  every `ensure` throws `:rf.error/resource-not-registered`."
   [frame-id]
-  (rf/configure! {:epoch-history {:trace-events-keep 50}})
   (rf.frame/swap-frame-db! frame-id assoc-in [:auth :user :username] secret-password)
   (rf.fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
   (rf/reg-resource-scope session-scope-id
@@ -515,10 +378,6 @@
     {:scope         :rf.scope/global
      :params-schema [:map [:slug :string]]}
     (fn [_params _ctx] {:request {:method :get :url "/public"}}))
-  ;; The SESSION-scoped owner, the third of the three. Its scope is
-  ;; the `{:from-db …}` reference the resolver above answers, so an `ensure` of
-  ;; it plants an identity-bearing `[tier {identity}]` scope inside the fx
-  ;; CARRIERS as well as on the family's own rows.
   (rf/reg-resource session-resource-id
     {:scope         {:from-db session-scope-id}
      :sensitive?    true
@@ -526,257 +385,55 @@
     (fn [_params _ctx] {:request {:method :get :url "/session"}}))
   nil)
 
-(defn- resource-family-row?
-  "Whether `event` is a resource/mutation-family trace row — the same
-  namespace test the epoch tool-pair's `resource-family-op?` makes when
-  deciding which rows take the family projector."
-  [event]
+(defn- drive-resource-family!
+  "Drive a real resource cascade against `frame-id`: two `ensure`s under one
+  owner (the `:sensitive?` resource with the secret in its params, the plain one
+  beside it), a `release-owner`, then two `invalidate-tags` stamping the
+  resolved scope as a FREE `:scope` tag in both shapes — the identity-bearing
+  tuple and the `:rf.scope/global` scalar — and last an `ensure` of the
+  session-scoped owner, which plants that tuple inside the fx carriers' arg
+  maps. The invalidations run after the release so no active owner refetches.
+  No reply is replayed, so no `:reply-to` continuation reaches the carriers;
+  that coverage lives in `epoch_egress_resource_trace_test`."
+  [frame-id]
+  (doseq [event [[:rf.resource/ensure {:resource sensitive-resource-id
+                                       :params   {:auth-token secret-password}
+                                       :owner    resource-owner}]
+                 [:rf.resource/ensure {:resource plain-resource-id
+                                       :params   {:slug plain-slug}
+                                       :owner    resource-owner}]
+                 [:rf.resource/release-owner {:owner resource-owner}]
+                 [:rf.resource/invalidate-tags {:scope {:from-db session-scope-id}
+                                                :tags  #{invalidation-tag}
+                                                :cause session-cause}]
+                 [:rf.resource/invalidate-tags {:scope :rf.scope/global
+                                                :tags  #{invalidation-tag}
+                                                :cause global-cause}]
+                 [:rf.resource/ensure {:resource session-resource-id
+                                       :params   {:slug "mcp-egress-session"}
+                                       :owner    session-owner}]]]
+    (rf/dispatch-sync event {:frame frame-id})))
+
+(defn- resource-family-row? [event]
   (boolean (some-> (:operation event) namespace #{"rf.resource" "rf.mutation"})))
 
-(defn- drive-resource-family!
-  "Drive a REAL resource cascade against `frame-id` and return the
-  resource-family trace rows it emitted, exactly as the producer emitted them.
-
-  Two `ensure`s under ONE shared owner — the `:sensitive?` resource with the
-  secret in its params, the PLAIN resource beside it — then a
-  `release-owner`. That yields `:rf.resource/work-started` /
-  `fetch-started` / `owner-attached` per resource plus one
-  `:rf.resource/owner-released`, and between them every slot shape a scoped
-  key rides in: a NAMED single-key slot (`:resource/key`), the
-  UNNAMED work-id whose scoped key is embedded one level down (`:work/id`),
-  the `:released` key vector, and the `:aborted`
-  work-id vector — each present twice over, once for a sensitive owner and once
-  for a plain one.
-
-  THEN two `invalidate-tags`, and they are the other axis. Every
-  operation above carries its scope INSIDE a scoped key, where the family's
-  own key projection owns it. `invalidate-tags` is the first operation here that
-  stamps the resolved CONCRETE scope as a FREE `:scope` tag, which is a slot
-  the key projection does not own: the sibling `:rf.resource/scope-resolved`
-  projector is applied by the epoch tool-pair under
-  `(= :rf.resource/scope-resolved (:operation ev))` — ONE operation — while
-  the family projector runs on all of them, so a pass-through here would
-  classify `:scope` by nobody and the resolver's identity map would egress raw
-  (`trace-egress/sibling-owned-slot`'s docstring rosters the row types that
-  stamp it). One dispatch resolves its scope
-  through the named resolver (the identity-bearing `[tier {identity}]` TUPLE,
-  the shape that can leak); the other names `:rf.scope/global` (a SCALAR, the
-  shape that must ride verbatim). Same slot, same row type, two shapes —
-  which is what makes the pair a control rather than two assertions.
-
-  FINALLY an `ensure` of the SESSION-SCOPED owner, and it is the CARRIER
-  axis. Everything above puts the
-  identity-bearing scope on rows the family OWNS. An `ensure` also LOWERS INTO
-  FX: the runtime stamps the resolved `:scope` into the `:on-success` /
-  `:on-failure` continuation arg maps `transport.http/build-managed-args`
-  builds, and those ride `:rf.fx/args` and `:rf.event/fx` on `:rf.fx/*` rows —
-  where `resource-family-op?` never looks and the app-db-rooted walk cannot
-  classify a resolver-owned value. That is a `[tier {identity}]` scope in a
-  FREE `:scope` slot one carrier further out than `invalidate-tags` reaches,
-  at four paths of this record.
-  Driven LAST so the earlier records' indices — and the release cascade's
-  `:released` / cancel-timers slots, which this owner must not join — are
-  untouched.
-
-  NOT driven, and deliberately, two things — both blocked on the SAME missing
-  machinery, an HTTP reply round-trip, which is why they are one omission and
-  not two:
-
-  - `:rf.resource/refetch-decision`. It fires once per entry an invalidation
-    MATCHES, and an entry acquires its `:tags` at SETTLE. Its `:scope` is
-    `(first resource-key)`, the same value the `:resource/key` beside it carries
-    and the same free-tag slot `:rf.resource/invalidated` proves below, so the
-    marginal coverage is a second INSTANCE of an exercised mechanism. Same
-    judgement, and for the same reason, as not adding `:rf.mutation/*` rows
-    here.
-  - a call-site `:reply-to` READ CONTINUATION. No `ensure` here
-    carries one and no reply is replayed, so the continuation reply map — with
-    its `:value` (the decoded response body), `:params`, `:error` and
-    `:correlation` — never reaches this fixture's carriers. The session `ensure`
-    above does NOT close that axis and does not pretend to: it settles no reply.
-    Note the carriers themselves ARE visible here (`fx-carrier-rows` reads the
-    RECORD by SLOT, exactly as the projector does, not through
-    `resource-family-row?`), so what is missing is the DRIVE, not the harvest.
-    The dedicated producer-driven coverage lives in
-    `epoch_egress_resource_trace_test`, which replays real replies through the
-    internal reply events.
-
-    That coverage is not only the SUCCESS reply: the failure settle,
-    `failed-handler`'s abort branch, the infinite-feed page failure and the
-    mutation failure settle each build a continuation reply through a
-    DIFFERENT handler, and each carries a whole-record canary drive there —
-    the read-failure `:error` envelope included, whose decoded error body
-    routinely echoes the submitted form fields. The rule is stated beside
-    that file's drive inventory: a new settle branch that fans out a
-    continuation gets a canary drive in the change that adds it.
-
-  The rows are harvested off the trace bus rather than read out of the settled
-  epoch records because ONE record is one dequeued event: this cascade is six
-  dispatches, so its family rows are spread across six records. Every scan
-  below wants them together, which `record-carrying-resource-rows` assembles.
-
-  The settled records carry the family rows too: epoch capture routes an
-  event by its `[:tags :frame]`, and `build-event` supplies that canonical
-  routing tag for emit sites that stamp only the `:rf.frame/id` EVIDENCE key.
-  The proof that they land — bus counted against record, over a real
-  cascade — lives in `epoch_egress_resource_trace_test`'s §(8)."
-  [frame-id]
-  (let [rows (atom [])
-        k    ::resource-family-recorder]
-    (rf.trace.tooling/register-listener!
-      k (fn [ev] (when (resource-family-row? ev) (swap! rows conj ev))))
-    (try
-      (rf/dispatch-sync [:rf.resource/ensure
-                         {:resource sensitive-resource-id
-                          :params   {:auth-token secret-password}
-                          :owner    resource-owner}]
-                        {:frame frame-id})
-      (rf/dispatch-sync [:rf.resource/ensure
-                         {:resource plain-resource-id
-                          :params   {:slug plain-slug}
-                          :owner    resource-owner}]
-                        {:frame frame-id})
-      (rf/dispatch-sync [:rf.resource/release-owner {:owner resource-owner}]
-                        {:frame frame-id})
-      ;; The free `:scope` tag, in both of its shapes. Driven AFTER
-      ;; `release-owner` on purpose: an invalidation refetches every matched
-      ;; entry that still has an active owner, and a refetch storm would settle
-      ;; records this fixture neither needs nor addresses.
-      (rf/dispatch-sync [:rf.resource/invalidate-tags
-                         {:scope {:from-db session-scope-id}
-                          :tags  #{invalidation-tag}
-                          :cause session-cause}]
-                        {:frame frame-id})
-      (rf/dispatch-sync [:rf.resource/invalidate-tags
-                         {:scope :rf.scope/global
-                          :tags  #{invalidation-tag}
-                          :cause global-cause}]
-                        {:frame frame-id})
-      ;; The free `:scope` INSIDE the fx carriers. Last, under its
-      ;; OWN owner: `release-owner` has already run, so joining `resource-owner`
-      ;; would add a third key to the release cascade's slots the assertions
-      ;; below count.
-      (rf/dispatch-sync [:rf.resource/ensure
-                         {:resource session-resource-id
-                          :params   {:slug session-slug}
-                          :owner    session-owner}]
-                        {:frame frame-id})
-      (finally (rf.trace.tooling/unregister-listener! k)))
-    @rows))
-
-(defn- invalidated-row
-  "The tags of the `:rf.resource/invalidated` row in `rows` carrying `cause`.
-  The cascade drives one invalidation per scope SHAPE and labels each with its
-  own cause, so the cause names the row on raw and projected rows alike — a
-  cause is a vector of keywords, i.e. structural attribution, so it rides
-  verbatim through the projection."
-  [rows cause]
-  (->> rows
-       (filter #(and (= :rf.resource/invalidated (:operation %))
-                     (= cause (:cause (:tags %)))))
-       first
-       :tags))
-
-(defn- record-carrying-resource-rows
-  "The frame's last REAL epoch record with the cascade's WHOLE set of family
-  rows appended to its `:trace-events` — one record carrying every row the
-  scans below want to see at once, which no single real record does (one record
-  is one dequeued event, so `drive-resource-family!`'s rows are spread across as
-  many records as it dispatches). Everything else about the record is the
-  producer's: its own trace rows, `:sub-runs`, `:effects`, bookkeeping slots and
-  frame.
-
-  The record already carries its OWN family rows, so the rows of
-  the driver's LAST dispatch appear twice here — that dispatch is the
-  session-scoped `ensure`, so it is that owner's lifecycle rows that
-  double. Harmless whichever dispatch ends up last: every scan below is
-  either a whole-set leak scan or a `first`-match lookup by
-  `[operation resource-id]`, and both read the same row either way."
-  [frame-id rows]
-  (update (last (rf/epoch-history frame-id)) :trace-events (fnil into []) rows))
-
 (defn- redacted-token?
-  "Whether `c` is the resource family's opaque egress token `{:rf/redacted
-  <payload>}`. The payload is a content-free shape summary for a sensitive
-  value or a free `:scope` tag, and a canonical digest only for a large,
-  non-sensitive one, so the token is matched by its `:rf/redacted` key and
-  never by its payload."
+  "Whether `c` is the family's opaque egress token `{:rf/redacted <payload>}`."
   [c]
   (and (map? c) (contains? c :rf/redacted)))
 
-(defn- family-row
-  "The tags of the first row in `rows` whose `:operation` is `op` and whose
-  `:resource/key` names `resource-id` (pass nil to match on `op` alone — the
-  `owner-released` row names no single resource). Position 1 of a projected
-  scoped key is the resource-id, which survives redaction for exactly this kind
-  of attribution, so the same lookup works on raw and projected rows."
-  [rows op resource-id]
-  (->> rows
-       (filter (fn [ev]
-                 (and (= op (:operation ev))
-                      (or (nil? resource-id)
-                          (= resource-id (second (:resource/key (:tags ev))))))))
-       first
-       :tags))
-
-(defn- released-member
-  "The `:released` member naming `resource-id` in a row's `tags`. Returns nil
-  when no member is a scoped-key VECTOR naming it — which is itself the
-  signature of a key-id member, since a key-id is a string."
-  [tags resource-id]
-  (first (filter #(and (vector? %) (= resource-id (second %)))
-                 (:released tags))))
-
-(defn- aborted-key
-  "The scoped key EMBEDDED at position 1 of the `:aborted` work-id naming
-  `resource-id` — `[:rf.work/resource <scoped-key> <generation>]`."
-  [tags resource-id]
-  (->> (:aborted tags)
-       (map #(nth % 1 nil))
-       (filter #(and (vector? %) (= resource-id (second %))))
-       first))
-
-;; ---- the FX-ARGS carriers --------------------------------------------------
-;;
-;; The family's keys do not stay on the family's rows. An `ensure` LOWERS INTO
-;; EFFECTS, and those effects address the work BY its scoped key, so
-;; `re-frame.fx` stamps the key into `:rf.fx/args` (on each `:rf.fx/handled`) and
-;; into `:rf.event/fx` (the whole effect vector, on `:rf.fx/do-fx`). Those rows
-;; are `rf.fx`, so `resource-family-op?` — the OPERATION-NAMESPACE routing that
-;; picks which rows take the family projector — skips them, and the
-;; app-db-rooted walk cannot classify a resolver-owned key either. Routing by
-;; operation alone would give the sharpest form of the two-carrier shape: this
-;; record's structured `:effects[*].args` slot egressing `:rf/redacted` while
-;; the `:rf.fx/args` TAG three rows above carries the same payload's secret in
-;; the clear. The projector therefore reaches these carriers by SLOT.
-
-(defn- fx-carrier-rows
-  "Every trace row in `record` carrying one of the FX-ARGS egress carriers.
-  Keyed off the SLOT rather than the operation, exactly as the projector is: the
-  same pair rides `:rf.fx/handled`, `:rf.fx/skipped-on-platform` and the
-  always-on `:rf.error/*` fx-failure traces."
-  [record]
-  (filter #(or (contains? (:tags %) :rf.fx/args)
-               (contains? (:tags %) :rf.event/fx))
-          (:trace-events record)))
-
-(defn- fx-row
-  "The tags of the first `:rf.fx/handled` row in `record` whose `:rf.fx/id` is
-  `fx-id`."
-  [record fx-id]
-  (->> (:trace-events record)
-       (filter #(and (= :rf.fx/handled (:operation %))
-                     (= fx-id (get-in % [:tags :rf.fx/id]))))
-       first
-       :tags))
+(defn- tokenized-scope?
+  "A resolved `[tier {identity}]` scope that egressed correctly: the tier
+  keyword verbatim over a tokenized identity map."
+  [s]
+  (and (vector? s) (= 2 (count s))
+       (= :rf.scope/session (first s))
+       (redacted-token? (second s))))
 
 (defn- embedded-keys-naming
-  "Every scoped-key-shaped 3-vector naming `resource-id` embedded ANYWHERE in
-  `x`, at any depth. The fx carriers bury the key one to four levels down —
-  inside a `[:rf.work/resource <key> <gen>]` work-id, inside a `[:rf.req <frame>
-  <work-id>]` request-id, inside a continuation event's arg map — so a
-  slot-addressed lookup cannot find them and this walk is what lets the
-  assertions below speak about all of them at once."
+  "Every scoped-key-shaped 3-vector naming `resource-id` embedded anywhere in
+  `x` — a named `:resource/key`, inside a work-id, a request-id, a `:released`
+  vector or a continuation arg map."
   [x resource-id]
   (let [found (atom [])
         walk  (fn walk [v]
@@ -790,22 +447,8 @@
     (walk x)
     @found))
 
-(defn- carrier-keys-naming
-  "Every scoped key naming `resource-id` embedded in ANY fx-args carrier of
-  `record`, deduplicated. The set the projection contract speaks about: after
-  projection it must be a single element, and that element must be exactly what
-  the family rows' own `:resource/key` projected to."
-  [record resource-id]
-  (into #{} (mapcat #(embedded-keys-naming (:tags %) resource-id))
-        (fx-carrier-rows record)))
-
 (defn- carrier-scopes
-  "Every value sitting under a FREE `:scope` key anywhere inside an fx-args
-  carrier of `record`. The runtime writes the resolved
-  scope into the transport's `:on-success` / `:on-failure` continuation arg
-  maps, which is FOUR paths across the two carriers of one `ensure` record —
-  found by walking rather than by index so no assertion here encodes the
-  cascade's fx order or the record's row numbering."
+  "Every value under a FREE `:scope` key inside the fx-args carriers of `record`."
   [record]
   (let [found (atom [])
         walk  (fn walk [v]
@@ -820,1183 +463,67 @@
       (walk (get tags slot)))
     @found))
 
-(defn- tokenized-scope?
-  "Whether `s` is a resolved `[tier {identity}]` scope that egressed correctly:
-  the TIER keyword verbatim (a tool still reads \"session scope\") over a
-  tokenized identity map."
-  [s]
-  (and (vector? s) (= 2 (count s))
-       (= :rf.scope/session (first s))
-       (redacted-token? (second s))))
-
-;; ============================================================================
-;;  Forwarder-shape conformance — project-egress (per-record egress)
-;; ============================================================================
-
-(deftest forwarder-project-egress-bounds-large-leaf-bytes
-  (testing "MCP `register-epoch-listener!` forwarder pattern: the projected
-            record MUST NOT egress the full large payload as a leaf
-            string — the wire-elision walker substitutes a
-            :rf.size/large-elided marker (the body `elision/->marker` builds:
-            the slot's :path, its measured :bytes, its :type, the declaration's
-            :reason / :hint, and an addressing :handle), not the raw bytes.
-            No :digest: a forwarder projects at the default
-            :rf.egress/off-box-observability boundary, and the whole-output
-            `:large?` markers pinned below carry none at ANY boundary — that
-            seam builds through `classification/large-marker`, which calls
-            `->marker` WITHOUT `include-digests?`. So :bytes is the field these
-            assertions read. An MCP forwarder downstream of the token-cap walker
-            depends on this.
-
-            The scan below is cross-cutting, but it can only
-            catch what the fixture puts in front of it. Beside the app-db
-            PATH `:upload` writes, the fixture controls in the second `let`
-            pin the SECOND shape — a whole-output `:large?` sub, whose value is
-            not app-db-rooted at all — in both of the slots it egresses
-            through. Without them a retention change (or a
-            registration that silently stopped stamping) would leave
-            this gate reporting green over ground it never covered."
-    (rf/make-frame mixed-ring-frame)
-    (install-mcp-style-schemas! :test/mcp)
-    (let [shipped (atom [])]
-      (rf/register-listener! :epoch ::forwarder
-                             (fn [record]
-                               (swap! shipped conj (rf/project-egress record))))
-      (drive-mixed-ring! :test/mcp)
-      (let [raw-leaf-count       (count-leaf-strings-at-least payload-size
-                                                              (rf/epoch-history :test/mcp))
-            projected-leaf-count (count-leaf-strings-at-least payload-size @shipped)]
-        (is (pos? raw-leaf-count)
-            "sanity: the raw ring contains at least one large leaf")
-        (is (zero? projected-leaf-count)
-            "the projected output contains zero leaf strings of the
-             large payload's size — the large path landed as a marker,
-             not as raw bytes"))
-      ;; The whole-output `:large?` SUB shape, in both slots.
-      (let [raw       (last (rf/epoch-history :test/mcp))
-            raw-row   (sub-run-row  raw large-sub-id)
-            raw-tags  (sub-run-tags raw large-sub-id)
-            proj      (last @shipped)
-            proj-row  (sub-run-row  proj large-sub-id)
-            proj-tags (sub-run-tags proj large-sub-id)]
-        ;; Fixture controls: the shape the scan above must be able to see.
-        ;; The last cascade RECOMPUTES the sub, so all four payload slots hold a
-        ;; real value and the current / previous pair are DISTINCT — with one
-        ;; compute the two previous-value slots are nil, and a nil projects to a
-        ;; marker over nothing, so deleting either previous-value projection
-        ;; outright would leave this gate green.
-        (is (= (* 2 payload-size) (count (:value raw-row)))
-            "fixture: the raw `:sub-runs` row carries the sub's full computed
-             value — the slot `elide-sub-run-row` projects")
-        (is (= payload-size (count (:prev-value raw-row)))
-            "fixture: and its PREVIOUS value, a DIFFERENT large value — the
-             recompute is what puts one there")
-        (is (= (:value raw-row) (:rf.sub/value raw-tags))
-            "fixture: the raw `:rf.sub/run` trace tag carries the SAME value —
-             the slot `elide-large-sub-trace-values` projects. The emit
-             chokepoint deliberately leaves both raw so the on-box ring keeps
-             the exact value (Xray diff / restore-epoch! need it)")
-        (is (= (:prev-value raw-row) (:rf.sub/prev-value raw-tags))
-            "fixture: and the same previous value, so the two carriers are
-             carrying one pair and the markers below are comparable")
-        (is (true? (:large? raw-tags))
-            "fixture: the emit chokepoint stamped the bare whole-output
-             `:large?` flag — a REGISTRATION marker, so the app-db-rooted
-             classification this fixture installs cannot reach it, and the flag
-             is the entire contract egress has to honour")
-        ;; Both callers of the shared rule, both slots of each, at egress.
-        (is (rf.elision/marker? (:value proj-row))
-            "`elide-sub-run-row` substituted the marker in the structured row")
-        (is (rf.elision/marker? (:prev-value proj-row))
-            "…and in that row's PREVIOUS-value slot")
-        (is (rf.elision/marker? (:rf.sub/value proj-tags))
-            "`elide-large-sub-trace-values` substituted the marker in the trace
-             tag — the slot whose omission would leak the value")
-        (is (rf.elision/marker? (:rf.sub/prev-value proj-tags))
-            "…and in that tag's PREVIOUS-value slot, the fourth and last of the
-             pair-of-pairs the one shared rule owns")
-        (is (zero? (count-leaf-strings-at-least payload-size proj))
-            "and NEITHER value survives as raw bytes anywhere in the projected
-             record — the claim the four markers exist to keep")
-        (let [bytes-at (fn [m] (get-in m [:rf.size/large-elided :bytes]))]
-          (is (= (bytes-at (:value proj-row)) (bytes-at (:rf.sub/value proj-tags)))
-              "the two CURRENT-value markers agree on `:bytes` — the structural
-               evidence that ONE shared rule produced them, so the two
-               projections cannot drift")
-          (is (= (bytes-at (:prev-value proj-row))
-                 (bytes-at (:rf.sub/prev-value proj-tags)))
-              "and so do the two PREVIOUS-value markers")
-          (is (not= (bytes-at (:value proj-row)) (bytes-at (:prev-value proj-row)))
-              "while current and previous DIFFER — each marker is measured over
-               its own value, so a projection that substituted one constant, or
-               measured the wrong slot, cannot pass"))
-        ;; Negative control: an UNMARKED sub's value rides through raw, so the
-        ;; elisions above are driven by the registration stamp and not by some
-        ;; blanket truncation on the way out.
-        (let [ctrl-row  (sub-run-row  proj control-sub-id)
-              ctrl-tags (sub-run-tags proj control-sub-id)]
-          (is (= control-note (:value ctrl-row))
-              "NEGATIVE CONTROL — the unmarked sub's row value survives raw")
-          (is (= control-note (:prev-value ctrl-row))
-              "NEGATIVE CONTROL — and so does its previous value, so the
-               previous-value substitution is driven by the `:large?` stamp and
-               not by the slot's position")
-          (is (= control-note (:rf.sub/value ctrl-tags))
-              "NEGATIVE CONTROL — and so does its trace tag value")
-          (is (= control-note (:rf.sub/prev-value ctrl-tags))
-              "NEGATIVE CONTROL — and its trace tag's previous value"))))))
-
-(deftest forwarder-project-egress-preserves-bookkeeping-slots
-  (testing "MCP forwarder pattern: the projected record's bookkeeping
-            slots are byte-identical to the raw record's. An MCP tool
-            uses :epoch-id for the resume cursor, :frame for the scoped
-            tool routing, :rf.epoch/sensitive? to display the
-            sensitivity badge — all MUST survive the projection
-            verbatim (Spec Security.md §Epoch privacy posture line 103)."
-    (rf/make-frame mixed-ring-frame)
-    (install-mcp-style-schemas! :test/mcp)
-    (drive-mixed-ring! :test/mcp)
-    (let [raw       (rf/epoch-history :test/mcp)
-          projected (mapv rf/project-egress raw)
-          bookkeeping-keys [:epoch-id :frame :committed-at :event-id
-                            :outcome :halt-reason :schema-digest
-                            :rf.epoch/sensitive?]]
-      (is (some #(some? (:halt-reason %)) raw)
-          "fixture: the ring carries a record with a `:halt-reason`, so the
-           byte-for-byte check below compares a real descriptor rather than
-           nil against nil")
-      (is (= [] (for [[r p] (map vector raw projected)
-                      k     bookkeeping-keys
-                      :when (not= (get r k) (get p k))]
-                  [(:epoch-id r) k (get r k) (get p k)]))
-          "every bookkeeping slot of every record is preserved
-           byte-identically by project-egress (lists each offending
-           [epoch-id slot raw projected])"))))
-
-(deftest forwarder-project-egress-is-pure-no-side-effects
-  (testing "MCP forwarder pattern: project-egress is a pure data
-            transform — it MUST NOT mutate the underlying ring, the
-            schemas registry, or the elision registry. A forwarder
-            running on every cascade would compound any side effect."
-    (rf/make-frame mixed-ring-frame)
-    (install-mcp-style-schemas! :test/mcp)
-    (drive-mixed-ring! :test/mcp)
-    (let [ring-before        (rf/epoch-history :test/mcp)
-          schemas-before     (rf.schemas/snapshot-schemas-by-frame)
-          ;; Hit project-egress many times — a real forwarder might
-          ;; project the same record multiple times (re-trigger, replay).
-          _                  (dotimes [_ 25]
-                               (mapv rf/project-egress ring-before))
-          ring-after         (rf/epoch-history :test/mcp)
-          schemas-after      (rf.schemas/snapshot-schemas-by-frame)]
-      (is (= ring-before ring-after)
-          "the epoch ring is unchanged — project-egress does not mutate")
-      (is (= schemas-before schemas-after)
-          "the schemas registry is unchanged"))))
-
-(deftest forwarder-project-egress-is-large-idempotent
-  (testing "MCP forwarder pattern: under :large? substitutions
-            `project-egress` is idempotent — re-projecting a record
-            whose `:large?`-declared path already carries the
-            `:rf.size/large-elided` marker MUST return a structurally-
-            equal value at that slot. The wire-elision
-            walker is marker-aware: when it encounters a value at a
-            `:large?`-declared path that already satisfies
-            `elision/marker?`, it passes the value through unchanged
-            rather than re-marking it.
-
-            Why this matters: without the guard, a second projection
-            pass would produce a new marker map whose `:bytes` reflects the
-            printed length of the previous marker (not the original
-            payload), and the `:digest` would rotate similarly. Forwarder
-            pipelines that accidentally double-project (middleware
-            composition, tool-then-watcher fan-out) would ship
-            drifting `:bytes` / `:digest` slots across passes — a
-            recordkeeping wobble, not a leak, but it breaks fingerprint-
-            based dedup and confuses consumers.
-
-            With the marker-aware walker, the large marker is
-            irreversible across passes: once `:rf.size/large-elided`,
-            always `:rf.size/large-elided` with the SAME `:bytes` /
-            `:digest` slots. Parallel to the sensitive-case guarantee."
-    (rf/make-frame mixed-ring-frame)
-    (install-mcp-style-schemas! :test/mcp)
-    (drive-mixed-ring! :test/mcp)
-    (let [raw    (rf/epoch-history :test/mcp)
-          once   (mapv rf/project-egress raw)
-          twice  (mapv rf/project-egress once)
-          thrice (mapv rf/project-egress twice)
-          ;; The :upload cascade is the third one driven (index 2):
-          ;; that record is the one whose :db-after carries the large
-          ;; payload at the frame-declared `[:blob :payload]` slot.
-          large-slot (fn [r] (get-in r [:db-after :blob :payload]))]
-      (is (rf.elision/marker? (large-slot (nth once 2)))
-          "first projection pass substitutes a marker at the large slot")
-      (is (= (large-slot (nth once 2))
-             (large-slot (nth twice 2)))
-          "second projection pass returns the SAME marker (byte-identical
-           :bytes / :digest / :path) — the walker passed it through
-           unchanged rather than re-marking the marker map")
-      (is (= (large-slot (nth once 2))
-             (large-slot (nth thrice 2)))
-          "third projection pass remains byte-identical — the large
-           marker is irreversible across passes, matching the
-           sensitive-case guarantee")
-      (is (= once twice thrice)
-          "across the full record vector, every slot is byte-identical
-           across N>=2 projection passes — project-egress is
-           uniformly idempotent under both :sensitive? and :large?
-           substitutions"))))
-
-;; ============================================================================
-;;  Bulk-egress conformance — the whole-ring composition (full ring snapshot)
-;; ============================================================================
-;;
-;; There is no whole-ring convenience door. The supported whole-ring spelling
-;; is ordinary composition, which is what a forwarder writes and what the
-;; deftest below pins.
-
-(defn- project-ring
-  "The supported whole-ring egress spelling: map `project-egress` over the
-  raw ring. This is exactly what an MCP `watch-epochs` initial snapshot does."
-  ([frame-id] (mapv rf/project-egress (rf.epoch/epoch-history frame-id)))
-  ([frame-id opts]
-   (mapv #(rf/project-egress % opts) (rf.epoch/epoch-history frame-id))))
-
-(deftest watch-epochs-whole-ring-projection-leaks-no-raw-bytes
-  (testing "MCP `watch-epochs` initial snapshot pattern: the server maps
-            `project-egress` over the ring once to emit the full ring. The
-            bulk output MUST NOT leak the raw secret OR the raw large
-            payload anywhere in its structure — the same per-record
-            guarantee, lifted to the bulk surface."
-    (rf/make-frame mixed-ring-frame)
-    (install-mcp-style-schemas! :test/mcp)
-    (drive-mixed-ring! :test/mcp)
-    (let [snapshot (project-ring :test/mcp)]
-      (is (pos? (count snapshot))
-          "sanity: the snapshot is non-empty")
-      (is (not-any? contains-secret? snapshot)
-          "the bulk snapshot does not leak the raw secret")
-      (is (zero? (count-leaf-strings-at-least payload-size snapshot))
-          "the bulk snapshot does not leak any raw large-payload bytes"))))
-
-;; ============================================================================
-;;  `:rf.egress/include-sensitive?` routes THROUGH projection, per-axis.
-;;
-;; An operator's `:include-sensitive true` opt-in routes THROUGH the
-;; projection as `{:rf.egress/include-sensitive? true}`, lifting ONLY the
-;; app-db sensitive axis. Treating it as a FULL raw epoch bypass — disabling
-;; `project-egress` wholesale — would conflate the app-db sensitive axis with
-;; EVERY other independent projection axis and ship the raw fx-args payload,
-;; the raw runtime-db partition, and an un-projected record off-box. These
-;; framework-side tests pin the per-axis
-;; contract the tool-side form-shape tests depend on: with
-;; `{:rf.egress/include-sensitive? true}` the app-db sensitive leaf is REVEALED while
-;; `:effects[*].args` / the `:rf.db/runtime` partition / large slots / the
-;; axes all stay at their fail-closed defaults. The record-level axes are pinned
-;; on both hosts in `re-frame.epoch-egress-redaction-cljs-test`; this section
-;; pins the fx-args trace-tag carriers.
-;; ============================================================================
-
-(defn- do-fx-tags
-  "The tags of `record`'s `:rf.fx/do-fx` aggregate row — the one that carries
-  the `:rf.event/fx` whole-effect-vector carrier."
-  [record]
-  (->> (:trace-events record)
-       (filter #(= :rf.fx/do-fx (:operation %)))
-       first
-       :tags))
-
-(defn- drive-payload-bearing-fx!
-  "Fire one cascade whose fx ARGS carry the secret — the shape
-  `drive-mixed-ring!` deliberately keeps out of its matrix (it exercises the
-  app-db classification axis, closing over its secret in the handler), so the
-  mixed-ring scans cannot see a carrier leak. Writes the
-  declared sensitive app-db path with the SAME bytes, so the orthogonality of
-  the two axes can be read off one record. Returns the raw epoch record."
-  [frame-id creds]
-  (rf/reg-fx :fxp/login (fn [_ _] nil))
-  (rf/reg-event :do-login
-                (fn [_ [_ c]]
-                  {:db {:auth {:password (:password c)}}
-                   :fx [[:fxp/login c]]}))
-  (rf/dispatch-sync [:do-login creds] {:frame frame-id})
-  (last (rf/epoch-history frame-id)))
-
-(deftest forwarder-fx-args-tag-carriers-fail-closed
-  (testing "an MCP forwarder shipping a record whose fx ARGS carry
-            a secret MUST NOT egress it on the TRACE-EVENT TAG CARRIERS either.
-            The identical payload rides three rows up from the structured
-            `:effects[*].args` row, under `:rf.fx/args` (the args verbatim) and
-            `:rf.event/fx` (the whole effect vector); redacting only the row
-            would let an `[:http {:body {:password …}}]` reach the wire through
-            a tag while the same bytes read `:rf/redacted` on the row below.
-            One value, two carriers, ONE rule. spec/Security.md
-            §Off-box egress says that exact value cannot be proven safe."
-    (rf/make-frame {:id :test/mcp})
-    (install-mcp-style-schemas! :test/mcp)
-    (let [creds {:password secret-password :token "tok-abc"}
-          raw   (drive-payload-bearing-fx! :test/mcp creds)
-          proj  (rf/project-egress raw)]
-
-      (testing "FIXTURE — the raw in-process ring really does carry the secret
-                on the carriers, so the scans below are not vacuous"
-        (is (contains-secret? (:trace-events raw))
-            "the raw trace events carry the secret the projection must remove")
-        (is (some? (fx-row raw :fxp/login))
-            "and the payload-bearing fx row is present to carry it"))
-
-      (testing "the whole projected record leaks nothing — the cross-cutting
-                promise the MCP wire boundary makes"
-        (is (= [] (secret-leak-paths proj))
-            "no path in the projected record names the secret — reported by
-             path, because the leak this pins is four levels down inside a
-             trace tag"))
-
-      (testing "`:rf.fx/args` — the args VERBATIM slot — fails closed, keeping
-                the value-free sibling metadata that identifies the fx"
-        (let [tags (fx-row proj :fxp/login)]
-          (is (some? tags) "FIXTURE — the fx row survived projection")
-          (is (= :rf/redacted (:rf.fx/args tags))
-              "the argument payload is the redaction sentinel")))
-
-      (testing "`:rf.event/fx` — the whole effect vector — fails closed PER
-                ENTRY, because here the structural head is INSIDE the value"
-        (let [tags (do-fx-tags proj)]
-          (is (some? tags) "FIXTURE — the :rf.fx/do-fx aggregate row is present")
-          (is (= [[:fxp/login :rf/redacted]] (:rf.event/fx tags))
-              "each entry keeps its fx-id head and redacts its args — the same
-               head-kept/payload-redacted shape `:trigger-event` takes")))
-
-      (testing "and the structured `:effects[*].args` twin fails closed too —
-                closing the asymmetry between these two carriers must not open
-                the redacted one"
-        (is (every? #(= :rf/redacted (:args %))
-                    (filter #(contains? % :args) (:effects proj)))
-            "every outcome row's args stay redacted")
-        (is (= :fxp/login (:fx-id (some #(when (= :fxp/login (:fx-id %)) %)
-                                        (:effects proj))))
-            "and its value-free :fx-id is preserved"))
-
-      (testing "re-projecting an already-projected record does not drift the
-                wire shape (the uniform idempotence Security.md requires)"
-        (let [twice (rf/project-egress proj)]
-          (is (= :rf/redacted (:rf.fx/args (fx-row twice :fxp/login))))
-          (is (= [[:fxp/login :rf/redacted]] (:rf.event/fx (do-fx-tags twice)))))))))
-
-(deftest include-fx-args-reveals-tag-carriers-but-keeps-app-db-axes
-  (testing "`{:rf.egress/include-fx-args? true}` is the trusted-local
-            opt-in for the TAG CARRIERS as well as for the structured row (one
-            fx-args keyspace, one switch), and it is ORTHOGONAL to the app-db
-            sensitive axis in BOTH directions: spec/Security.md §Off-box egress
-            requires that `:rf.egress/include-sensitive?` lift ONLY the app-db
-            axis and that the orthogonal `:rf.egress/include-fx-args?` stay at
-            its fail-closed default regardless, so asking for sensitive APP-DB
-            values must not hand back the fx-arg payload on these carriers."
-    (rf/make-frame {:id :test/mcp})
-    (install-mcp-style-schemas! :test/mcp)
-    (let [creds {:password secret-password :token "tok-abc"}
-          raw   (drive-payload-bearing-fx! :test/mcp creds)]
-
-      (testing "include-fx-args reveals the raw carriers, and does NOT lift the
-                app-db sensitive leaf"
-        (let [proj (rf/project-egress raw {:rf.egress/include-fx-args? true})]
-          (is (= creds (:rf.fx/args (fx-row proj :fxp/login)))
-              "the raw fx args ride the tag carrier under the opt-in")
-          (is (= [[:fxp/login creds]] (:rf.event/fx (do-fx-tags proj)))
-              "and the whole effect vector rides verbatim beside it")
-          (is (= :rf/redacted (get-in proj [:db-after :auth :password]))
-              "the app-db sensitive leaf STAYS redacted — orthogonal axis")))
-
-      (testing "include-sensitive reveals the app-db leaf and keeps the fx-args
-                CARRIERS redacted — not only the structured row"
-        (let [proj (rf/project-egress raw {:rf.egress/include-sensitive? true})]
-          (is (= secret-password (get-in proj [:db-after :auth :password]))
-              "`:rf.egress/include-sensitive? true` reveals the app-db leaf")
-          (is (= :rf/redacted (:rf.fx/args (fx-row proj :fxp/login)))
-              "the `:rf.fx/args` tag STAYS redacted — the fx-args keyspace is a
-               different axis and include-sensitive must not conflate them")
-          (is (= [[:fxp/login :rf/redacted]] (:rf.event/fx (do-fx-tags proj)))
-              "and so does the `:rf.event/fx` tag")
-          (is (not (contains-secret? (:trace-events proj)))
-              "so no trace event carries the fx-arg secret under include-sensitive"))))))
-
-(defn- drive-malformed-fx-head!
-  "Fire one cascade whose `:fx` mixes a WELL-FORMED keyword-headed entry with
-  three MALFORMED entries whose head is PAYLOAD rather than an fx-id — a map,
-  a vector and a string, each carrying the secret — plus the legal `nil`
-  conditional-fx no-op.
-
-  `re-frame.fx/fx-entry-ok?` REJECTS all three malformed entries (a vector
-  with a non-keyword head is a documented shape violation: it would be
-  mis-reported as an unknown fx-id) and drops them from the WALK, so only
-  `:fxp/login` ever runs. But rejection drops an entry from the walk, NOT
-  from the trace: the terminal `:rf.fx/do-fx` marker stamps `:rf.event/fx`
-  from the RAW `(:fx effects)` map, so every rejected entry still reaches
-  this carrier verbatim. That is what makes the head a leak rather than a
-  curiosity, and it is why the pin below drives a real cascade instead of
-  handing the redactor a literal.
-
-  Writes no `:db`, so the app-db classification axis cannot be what any scan
-  here catches — the only route the secret has to the wire is the carrier.
-  Returns the raw epoch record."
-  [frame-id creds]
-  (rf/reg-fx :fxp/login (fn [_ _] nil))
-  (rf/reg-event :do-malformed-fx
-                (fn [_ [_ c]]
-                  {:fx [[:fxp/login c]
-                        [{:password (:password c)} {:arg 1}]
-                        [[:login (:password c)] {:arg 2}]
-                        [(:password c) {:arg 3}]
-                        nil]}))
-  (rf/dispatch-sync [:do-malformed-fx creds] {:frame frame-id})
-  (last (rf/epoch-history frame-id)))
-
-(deftest forwarder-malformed-fx-head-redacts-whole
-  (testing "the per-entry `:rf.event/fx` projection may keep an
-            entry's HEAD only when that head is a STRUCTURAL fx-id, i.e. a
-            KEYWORD. Keeping `(first entry)` for any nonempty sequential entry
-            rests on the reasonable-looking premise that the head of an `:fx`
-            entry is an fx-id keyword, and for a MALFORMED entry it is not: the
-            head can be the payload itself, so an `[{:password …} {:arg 1}]`
-            entry would egress that map verbatim in the head slot — the secret
-            leaving the process through a fail-closed carrier, on
-            a record the `:effects` row below shows was REJECTED as an
-            effect. `keyword?` is the same predicate `re-frame.fx/fx-entry-ok?`
-            applies before it will walk an entry, so the redactor shares
-            core's notion of a structural fx-id rather than inventing a
-            second one."
-    (rf/make-frame {:id :test/mcp})
-    (install-mcp-style-schemas! :test/mcp)
-    (let [creds {:password secret-password :token "tok-abc"}
-          raw   (drive-malformed-fx-head! :test/mcp creds)
-          proj  (rf/project-egress raw)]
-
-      (testing "PRECONDITION — the malformed entries REACHED the carrier.
-                Without this the assertions below pass just as happily
-                against a path that dropped the entry upstream (the
-                vacuous-pass shape)"
-        (is (= [[:fxp/login creds]
-                [{:password secret-password} {:arg 1}]
-                [[:login secret-password] {:arg 2}]
-                [secret-password {:arg 3}]
-                nil]
-               (:rf.event/fx (do-fx-tags raw)))
-            "the RAW carrier holds all five entries verbatim, malformed heads
-             included — `do-fx` stamps the tag from the returned `:fx` map")
-        (is (= [{:fx-id :fxp/login :args :rf/redacted :outcome :ok}]
-               (:effects proj))
-            "and only the well-formed entry was WALKED — the other three were
-             rejected by `fx-entry-ok?` and executed nothing, so the trace is
-             carrying bytes the effect pipeline itself refused"))
-
-      (testing "every non-keyword head redacts WHOLE, while the keyword-headed
-                control keeps its head and the `nil` no-op rides through"
-        (is (= [[:fxp/login :rf/redacted]
-                :rf/redacted
-                :rf/redacted
-                :rf/redacted
-                nil]
-               (:rf.event/fx (do-fx-tags proj)))
-            "a map, vector or string head has no structural fx-id to keep, so
-             the whole entry becomes the sentinel; `:fxp/login` still keeps
-             its head beside them, and `nil` still carries nothing to leak"))
-
-      (testing "so no leaf of the carrier names the secret — reported BY PATH,
-                because this leak hides four levels down inside a trace tag"
-        (is (= [] (secret-leak-paths (do-fx-tags proj)))
-            "no slot of the `:rf.fx/do-fx` row's tags carries the secret"))
-
-      (testing "and the projection stays idempotent over the malformed shape — a
-                forwarder that double-projects must not drift the wire shape"
-        (is (= (:rf.event/fx (do-fx-tags proj))
-               (:rf.event/fx (do-fx-tags (rf/project-egress proj))))
-            "re-projecting is structurally identical"))
-
-      (testing "the trusted-local opt-in hands everything back — the rule
-                above belongs to the fail-closed default, not a refusal"
-        (is (= [[:fxp/login creds]
-                [{:password secret-password} {:arg 1}]
-                [[:login secret-password] {:arg 2}]
-                [secret-password {:arg 3}]
-                nil]
-               (:rf.event/fx
-                 (do-fx-tags (rf/project-egress
-                               raw {:rf.egress/include-fx-args? true}))))
-            "`:rf.egress/include-fx-args? true` hands back every entry
-             verbatim, malformed ones included")))))
-
-;; `fx-entry-ok?`'s `:rf.error/effect-map-shape` trace stamps the offending
-;; entry on `:value` AND interpolates `(pr-str pair)` into the human-facing
-;; `:reason`, so the SAME cascade above carries the secret six more times on
-;; three error rows. The epoch end projects them with `redact-fx-entry` rather
-;; than inventing a second notion of what an fx entry may disclose, so the
-;; "one value, several carriers, ONE rule" shape holds.
-
-(defn- error-rows
-  "The trace rows of `record` whose `:operation` is `op`. The error-trace
-  counterpart of `do-fx-tags`, which addresses a single aggregate row — this
-  category emits one row PER rejected entry, so the count is part of what is
-  pinned (a projection that dropped rows would otherwise read as 'clean')."
-  [record op]
-  (filterv #(= op (:operation %)) (:trace-events record)))
-
-(deftest forwarder-effect-map-shape-row-redacts-value-and-reason
-  (testing "the `:rf.error/effect-map-shape` ERROR-TRACE carrier of
-            the very bytes the test above makes fail closed on
-            `:rf.event/fx`. `fx-entry-ok?` REJECTS a malformed `:fx` entry and
-            drops it from the WALK, not from the TRACE, then stamps the rejected
-            entry on `:value` and interpolates `(pr-str pair)` into the
-            human-facing `:reason` — so unprojected, the same secret would reach
-            an MCP wire through a third carrier on the same record, by the same
-            public door.
-
-            `:value` takes `redact-fx-entry`, the SAME function the
-            `:rf.event/fx` arm applies; `:reason` redacts WHOLE, because it is
-            PROSE with the payload interpolated into it and a shape-driven
-            projector reading it as an opaque scalar structurally cannot reach
-            the bytes inside.
-
-            The category is DELIBERATELY always-on — a production build must
-            still hear about a dropped `:fx` entry — so this is asserted to keep
-            the error AUDIBLE while making the payload SAFE."
-    (rf/make-frame {:id :test/mcp})
-    (install-mcp-style-schemas! :test/mcp)
-    (let [creds {:password secret-password :token "tok-abc"}
-          raw   (drive-malformed-fx-head! :test/mcp creds)
-          proj  (rf/project-egress raw)
-          rraw  (error-rows raw  :rf.error/effect-map-shape)
-          rproj (error-rows proj :rf.error/effect-map-shape)]
-
-      (testing "PRECONDITION — the rejected entries REACHED this carrier and the
-                secret is really on BOTH slots. Without this the assertions
-                below pass just as happily against a cascade that emitted no
-                error row at all (the vacuous-pass shape)"
-        (is (= 3 (count rraw))
-            "three malformed entries were rejected, so three error rows — one
-             per entry (the `nil` no-op and the well-formed entry emit none)")
-        (is (= 3 (count (filter #(seq (secret-leak-paths (:value (:tags %)))) rraw)))
-            "every raw row's `:value` carries the secret")
-        (is (= 3 (count (filter #(seq (secret-leak-paths (:reason (:tags %)))) rraw)))
-            "every raw row's `:reason` carries the secret, interpolated into prose"))
-
-      (testing "the category stays AUDIBLE — projection redacts the payload, it
-                does not drop the row or demote the category"
-        (is (= 3 (count rproj))
-            "all three error rows survive projection"))
-
-      (testing "and both slots are projected, each in the shape that fits it"
-        (is (= [:rf/redacted :rf/redacted :rf/redacted]
-               (mapv #(:value (:tags %)) rproj))
-            "`:value` — every rejected entry here has a MAP, VECTOR or STRING
-             head, so `redact-fx-entry` finds no structural fx-id to keep and
-             redacts each WHOLE")
-        (is (= [:rf/redacted :rf/redacted :rf/redacted]
-               (mapv #(:reason (:tags %)) rproj))
-            "`:reason` — prose redacts whole; the bytes are INSIDE the string"))
-
-      (testing "so no leaf of the error rows names the secret — reported BY PATH,
-                because this leak hides four levels down inside a trace tag"
-        (is (= [] (secret-leak-paths rproj))
-            "no slot of any `:rf.error/effect-map-shape` row carries the secret"))
-
-      (testing "and the projection stays idempotent over the error rows"
-        (is (= rproj (error-rows (rf/project-egress proj) :rf.error/effect-map-shape))
-            "re-projecting is structurally identical"))
-
-      (testing "the trusted-local opt-in hands everything back — the rule
-                above belongs to the fail-closed default, not a refusal"
-        (let [opted (error-rows (rf/project-egress
-                                  raw {:rf.egress/include-fx-args? true})
-                                :rf.error/effect-map-shape)]
-          (is (= (mapv #(:value  (:tags %)) rraw)
-                 (mapv #(:value  (:tags %)) opted))
-              "`:rf.egress/include-fx-args? true` hands `:value` back verbatim")
-          (is (= (mapv #(:reason (:tags %)) rraw)
-                 (mapv #(:reason (:tags %)) opted))
-              "…and `:reason` too"))))))
-
-(defn- drive-bad-fx-args!
-  "Fire one cascade whose fx ARGS fail the fx's `:schema`, carrying the secret.
-  That drives `re-frame.schemas.validate/validate-fx!`, which emits the
-  `:rf.error/schema-validation-failure :where :fx-args` row — the row that
-  re-stamps the same args under several aliases. Returns the raw epoch record."
-  [frame-id creds]
-  (rf/reg-fx :fxp/notify
-             {:schema [:map [:level :keyword]]}
-             (fn [_ _] nil))
-  (rf/reg-event :do-bad-fx-args
-                (fn [_ [_ c]]
-                  {:fx [[:fxp/notify {:level    "not-a-keyword"
-                                      :password (:password c)}]]}))
-  (rf/dispatch-sync [:do-bad-fx-args creds] {:frame frame-id})
-  (last (rf/epoch-history frame-id)))
-
-(deftest forwarder-fx-args-schema-row-redacts-every-alias
-  (testing "the SECOND error row in this family. `validate-fx!`
-            stamps one fx's args under FOUR value-bearing slots of a single
-            `:where :fx-args` row: `:rf.fx/args`, `:received`, `:value` and
-            `:explain`. Closing `:rf.fx/args` alone would let a reader who saw
-            that slot fail closed reasonably assume the row was safe while
-            three aliases beside it carried the identical bytes.
-
-            `re-frame.schemas.validate/redact-tags` scrubs exactly this slot
-            set, but ONLY when the schema declares `:sensitive?` — an ON-BOX
-            privacy decision. Off-box cannot prove an UNDECLARED arg safe any
-            more than it can prove `:rf.fx/args` safe, so every alias fails
-            closed here under the same one switch.
-
-            `:explain` is asserted too: it is the same bytes on the same row,
-            and Spec 010 §Humanize-hook requires it and `:explain-humanized` to
-            redact symmetrically."
-    (rf/make-frame {:id :test/mcp})
-    (install-mcp-style-schemas! :test/mcp)
-    (let [creds {:password secret-password :token "tok-abc"}
-          raw   (drive-bad-fx-args! :test/mcp creds)
-          proj  (rf/project-egress raw)
-          rraw  (first (error-rows raw  :rf.error/schema-validation-failure))
-          rproj (first (error-rows proj :rf.error/schema-validation-failure))]
-
-      (testing "PRECONDITION — validation actually FIRED and every alias really
-                carries the secret. A row that never emitted, or a schema that
-                happened to pass, would make every assertion below vacuous"
-        (is (some? rraw)
-            "the fx-args validation row was emitted")
-        (is (= :fx-args (:where (:tags rraw)))
-            "…and it is the `:where :fx-args` surface, not another `:where`")
-        (is (= [:rf.fx/args :received :value]
-               (filterv #(seq (secret-leak-paths (get (:tags rraw) %)))
-                        [:rf.fx/args :received :value]))
-            "all three alias stamps carry the secret RAW")
-        (is (seq (secret-leak-paths (:explain (:tags rraw))))
-            "…and so does `:explain`, the fourth carrier"))
-
-      (testing "the row stays AUDIBLE — projection redacts, it does not drop"
-        (is (some? rproj)
-            "the validation row survives projection"))
-
-      (testing "and every alias fails closed, matching `:rf.fx/args`"
-        (is (= [:rf/redacted :rf/redacted :rf/redacted :rf/redacted]
-               (mapv #(get (:tags rproj) %)
-                     [:rf.fx/args :received :value :explain]))
-            "one rule, four carriers, one shape — redacted WHOLE, because the
-             args' structural head rides the sibling `:rf.fx/id` tag and so
-             nothing is lost with the payload"))
-
-      (testing "the row's non-payload metadata is PRESERVED — the diagnosis
-                survives, only the bytes go"
-        (is (= :fx-args (:where    (:tags rproj))) "`:where` preserved")
-        (is (= :fxp/notify (:rf.fx/id (:tags rproj))) "`:rf.fx/id` preserved")
-        (is (= :skipped (:recovery rproj)) "`:recovery` preserved"))
-
-      (testing "so no leaf of the row names the secret"
-        (is (= [] (secret-leak-paths rproj))
-            "no slot of the `:where :fx-args` row carries the secret"))
-
-      (testing "and the projection stays idempotent"
-        (is (= rproj (first (error-rows (rf/project-egress proj)
-                                        :rf.error/schema-validation-failure)))
-            "re-projecting is structurally identical"))
-
-      (testing "the trusted-local opt-in still hands every alias back verbatim"
-        (let [opted (first (error-rows (rf/project-egress
-                                         raw {:rf.egress/include-fx-args? true})
-                                       :rf.error/schema-validation-failure))]
-          (is (= (mapv #(get (:tags rraw)  %) [:rf.fx/args :received :value :explain])
-                 (mapv #(get (:tags opted) %) [:rf.fx/args :received :value :explain]))
-              "`:rf.egress/include-fx-args? true` lifts all four together"))))))
-
-;; ============================================================================
-;;  The resource/mutation trace family reaches this gate.
-;;
-;;  See the fixture block above for what the family is and why an app-db-rooted
-;;  fixture cannot see it. These two tests are the halves of one claim: the
-;;  first says a `:sensitive?` owner's scope + params never egress raw in ANY
-;;  representation, the second says a PLAIN owner's ride verbatim in the SAME
-;;  rows — so over-redaction fails as loudly as leaking, and neither half can be
-;;  satisfied by a blanket strip.
-;; ============================================================================
+(defn- invalidated-scope
+  "The `:scope` tag of the `:rf.resource/invalidated` row in `rows` carrying `cause`."
+  [rows cause]
+  (->> rows
+       (filter #(and (= :rf.resource/invalidated (:operation %))
+                     (= cause (:cause (:tags %)))))
+       first :tags :scope))
 
 (deftest forwarder-project-egress-leaks-no-raw-resource-family-bytes
-  (testing "MCP forwarder pattern over the RESOURCE trace family: a record
-            carrying the rows a real `ensure` / `release-owner` cascade emitted
-            MUST NOT egress a `:sensitive?` owner's resolved scope or canonical
-            params in ANY representation — not as the raw params map, and not
-            hidden inside a reversible CEDN-1 `key-id` string. The embedded
-            work-id key, the `:released` key vector and the free `:scope` tag
-            (reached by driving an operation that stamps one) all land in the
-            rows below."
+  (testing "a real resource cascade, projected record by record as a forwarder
+            ships it: a `:sensitive?` owner's resolved scope and canonical params
+            egress in NO representation — not raw, not inside a reversible
+            CEDN-1 key-id — while a plain owner's ride verbatim in the same rows
+            and slots, so a blanket strip fails as loudly as a leak"
     (rf/make-frame {:id :test/mcp})
     (install-mcp-style-schemas! :test/mcp)
     (install-resource-family! :test/mcp)
-    (let [rows      (drive-resource-family! :test/mcp)
-          raw-hist  (rf/epoch-history :test/mcp)
-          record    (record-carrying-resource-rows :test/mcp rows)
-          projected (rf/project-egress record)
-          proj-rows (filter resource-family-row? (:trace-events projected))
-          proj-hist (mapv rf/project-egress raw-hist)
-          ;; The same history at the trusted-local fx-args posture. The
-          ;; `:rf.fx/args` / `:rf.event/fx` carriers FAIL CLOSED
-          ;; off-box — `omit-off-box-fx-args` redacts the whole payload, as
-          ;; `elide-effect-row` does for the structured `:effects[*].args`
-          ;; twin — so at the default posture there is nothing left inside a
-          ;; carrier for the family's key projection to discriminate. The
-          ;; owner-discrimination claims below therefore
-          ;; read the carriers HERE, the one posture in which these bytes reach
-          ;; a wire at all and so the only one in which it matters whether
-          ;; a resolver-owned key inside them is tokenized. The default
-          ;; posture's own claim — that the carriers disclose NOTHING — is
-          ;; pinned by `forwarder-fx-args-tag-carriers-fail-closed` below.
-          carrier-hist (mapv #(rf/project-egress % {:rf.egress/include-fx-args? true})
-                             raw-hist)]
+    (drive-resource-family! :test/mcp)
+    (let [raw-hist     (rf/epoch-history :test/mcp)
+          proj-hist    (mapv rf/project-egress raw-hist)
+          ;; Off-box the fx-args carriers fail closed whole, so the owner
+          ;; discrimination INSIDE them is read at the trusted-local posture
+          ;; that ships them — which also opens `:effects[*].args` by design.
+          carrier-hist (mapv #(rf/project-egress % {:rf.egress/include-fx-args? true}) raw-hist)
+          proj-rows    (filter resource-family-row? (mapcat :trace-events proj-hist))
+          keys-naming  (fn [rid] (set (concat (embedded-keys-naming proj-rows rid)
+                                              (mapcat #(embedded-keys-naming
+                                                         (map :tags (fx-carrier-rows %)) rid)
+                                                      carrier-hist))))
+          sensitive    (->> proj-rows
+                            (filter #(and (= :rf.resource/work-started (:operation %))
+                                          (= sensitive-resource-id (second (:resource/key (:tags %))))))
+                            first :tags :resource/key)
+          session      (invalidated-scope proj-rows session-cause)]
+      (is (seq (mapcat secret-leak-paths raw-hist))
+          "FIXTURE — the raw records carry the secret")
+      (is (= [] (mapcat secret-leak-paths proj-hist))
+          "no projected record carries the secret at any path")
+      (is (= [] (cedn-tokens proj-hist))
+          "nor any CEDN-1 key-id")
+      (is (= [] (mapcat #(secret-leak-paths (dissoc % :effects)) carrier-hist))
+          "nor, at the fx-args posture, anywhere but the `:effects` args it opens")
 
-      ;; ---- fixture controls: the shape the scans below must be able to see --
-      (testing "FIXTURE — the cascade produced real family rows carrying the
-                real secret, so the scans are not passing over an empty set"
-        (is (seq rows) "the cascade emitted resource-family rows")
-        (is (contains-secret? rows)
-            "the RAW rows carry the secret — the projector's input is the
-             producer's own output, not an invented tag map")
-        (is (= 3 (count (filter #(= sensitive-resource-id
-                                    (second (:resource/key (:tags %))))
-                                rows)))
-            "three lifecycle rows name the :sensitive? owner (work-started /
-             fetch-started / owner-attached)")
-        (let [raw (family-row rows :rf.resource/work-started sensitive-resource-id)]
-          (is (= [:rf.scope/global sensitive-resource-id
-                  {:auth-token secret-password}]
-                 (:resource/key raw))
-              "FIXTURE — the raw `:resource/key` is the full scoped key")
-          (is (= (:resource/key raw) (nth (:work/id raw) 1))
-              "FIXTURE — and the SAME key is embedded at position 1 of the
-               `:work/id`, one level down inside a vector under a slot no
-               roster names"))
-        (is (seq (:released (family-row rows :rf.resource/owner-released nil)))
-            "FIXTURE — the release row carries a `:released` slot")
-        (testing "and its FX rows carry the same key off the family's own rows
-                  — the carriers the whole-record scan below needs
-                  to be able to see"
-          (is (seq (mapcat fx-carrier-rows raw-hist))
-              "the cascade's real records carry `:rf.fx/args` / `:rf.event/fx`
-               rows at all")
-          (is (seq (mapcat #(carrier-keys-naming % sensitive-resource-id) raw-hist))
-              "and the RAW carriers embed the `:sensitive?` owner's scoped key,
-               buried inside a work-id / request-id / continuation arg map where
-               no slot-addressed lookup reaches it")
-          (is (some #(contains-secret? (:tags %)) (mapcat fx-carrier-rows raw-hist))
-              "carrying the secret itself — so a green scan below is the
-               projector's doing, not an absent shape"))
-        (is (every? (comp seq :trace-events) raw-hist)
-            "FIXTURE — EVERY record the cascade settled retained its
-             `:trace-events`. The suite's `:trace-events-keep` elides the
-             oldest records' rows once a cascade outgrows the cap, and the scans
-             below would then read a record whose family + fx rows are simply
-             gone — green over ground they no longer cover. Pinned in
-             `install-resource-family!`; asserted here so the pin cannot rot
-             silently"))
+      (testing "a scoped key projects identically wherever it rides — family
+                rows and fx carriers alike — so per-key joins survive"
+        (is (= [true sensitive-resource-id true]
+               [(redacted-token? (first sensitive)) (second sensitive)
+                (redacted-token? (nth sensitive 2))])
+            "the sensitive key tokenizes scope and params; its resource-id survives")
+        (is (= #{sensitive} (keys-naming sensitive-resource-id)))
+        (is (= #{[:rf.scope/global plain-resource-id {:slug plain-slug}]}
+               (keys-naming plain-resource-id))
+            "the plain owner's key rides verbatim in every slot"))
 
-      ;; ---- the claim this gate owns ---------------------------------------
-      (testing "ACCEPTANCE — no raw sensitive bytes anywhere in the projected
-                record, in either representation"
-        (is (empty? (secret-leak-paths projected))
-            "the raw secret is absent from every leaf of the WHOLE projected
-             record — a failure here NAMES the leaking tag slot")
-        (is (empty? (mapcat secret-leak-paths proj-hist))
-            "and from every leaf of every REAL record the cascade settled,
-             projected as a forwarder ships it — the assembled record above
-             carries the family rows of every cascade but only the LAST one's
-             fx rows, so the `ensure` records' carriers are only seen here")
-        (is (empty? (cedn-tokens projected))
-            "and no CEDN-1 key-id egresses under ANY tag of the WHOLE record —
-             a key-id would disclose the same scope + params in the clear while
-             looking opaque, and this claim holds record-wide"))
+      (testing "a FREE `:scope` keeps its tier and tokenizes an identity map,
+                and the `:rf.scope/global` scalar rides verbatim, on the family
+                rows and inside the fx carriers alike"
+        (is (tokenized-scope? session))
+        (is (= #{session :rf.scope/global}
+               (into #{(invalidated-scope proj-rows global-cause)}
+                     (mapcat carrier-scopes carrier-hist)))))
 
-      ;; ---- per-slot, so a failure names the slot that leaked ---------------
-      (let [raw  (family-row rows :rf.resource/work-started sensitive-resource-id)
-            tags (family-row proj-rows :rf.resource/work-started
-                             sensitive-resource-id)
-            [pscope rid pparams] (:resource/key tags)
-            [marker embedded generation] (:work/id tags)]
-        (testing "the NAMED single-key slot tokenizes"
-          (is (= sensitive-resource-id rid)
-              "the resource-id (position 1) survives for attribution")
-          (is (redacted-token? pscope) "the resolved scope is tokenized")
-          (is (redacted-token? pparams) "the canonical params are tokenized"))
-        (testing "the UNNAMED work-id's EMBEDDED key tokenizes identically
-                  (reached by DEPTH, not by slot name)"
-          (is (= :rf.work/resource marker) "the work-kind marker rides verbatim")
-          (is (= (nth (:work/id raw) 2) generation)
-              "the generation rides verbatim (read off the RAW row — the
-               counter is frame-lifetime scoped, so a literal here would rot
-               the moment another test registration lands before this one)")
-          (is (= (:resource/key tags) embedded)
-              "the embedded key projects EXACTLY as the row's own
-               `:resource/key` — an unnamed slot and a named one cannot drift"))
-        (testing "the structural attribution a tool needs rides verbatim"
-          (is (= resource-owner (:owner tags)))
-          (is (= :running (:status tags)))
-          (is (= :test/mcp (:rf.frame/id tags))))
-        (is (true? (:sensitive? tags)) "the row is stamped :sensitive?"))
-
-      (let [tags     (family-row proj-rows :rf.resource/owner-released nil)
-            released (released-member tags sensitive-resource-id)
-            aborted  (aborted-key tags sensitive-resource-id)]
-        (testing "`:released` names the entry by SCOPED KEY, tokenized
-                  (a key-id here would be a string, so this lookup would
-                  return nil)"
-          (is (some? released)
-              "the sensitive owner's released entry is named by a scoped-key
-               VECTOR, not a CEDN-1 byte string")
-          (is (= sensitive-resource-id (second released))
-              "its resource-id survives")
-          (is (redacted-token? (first released)) "its scope is tokenized")
-          (is (redacted-token? (nth released 2)) "its params are tokenized"))
-        (testing "`:released` and `:aborted` agree digest-for-digest on ONE row
-                  — the same identity, projected through the same
-                  classification, so a tool's per-key joins survive redaction"
-          (is (some? aborted) "the sensitive owner's work-id rode under :aborted")
-          (is (= released aborted)))
-        (is (true? (:sensitive? tags)) "the release row is stamped :sensitive?"))
-
-      ;; ---- the FREE `:scope` tag --------------------------------------------
-      ;;
-      ;; Every slot above carries its scope INSIDE a scoped key. `:scope` is a
-      ;; tag in its own right, on a row type no other operation in this cascade
-      ;; emits. The sibling scope-resolved projector runs on ONE operation and
-      ;; the family projector runs on all of them, so the slot belongs to the
-      ;; SHAPE-driven default, which is why the pair of shapes below is one
-      ;; control and not two assertions.
-      (let [raw-tags  (invalidated-row rows      session-cause)
-            proj-tags (invalidated-row proj-rows session-cause)
-            pscope    (:scope proj-tags)]
-        (testing "FIXTURE — the session invalidation resolved a real
-                  identity-bearing scope and stamped it as a FREE tag"
-          (is (= [:rf.scope/session {:username secret-password}] (:scope raw-tags))
-              "FIXTURE — the RAW row carries the resolver's identity map one
-               level OUTSIDE any scoped key. Both other owners here are
-               `:rf.scope/global`, a SCALAR — the value that correctly rides
-               verbatim — so without this operation the tuple shape would not
-               occur anywhere in the fixture and a row carrying `:scope` would
-               prove nothing")
-          (is (= #{invalidation-tag} (set (:tags raw-tags)))))
-        (testing "the TIER survives and the IDENTITY tokenizes — the two halves
-                  of the shape rule, on one value"
-          (is (vector? pscope)
-              "the projected scope is still the 2-tuple a tool reads")
-          (is (= :rf.scope/session (first pscope))
-              "the tier keyword rides verbatim — a tool still shows
-               \"session scope\"")
-          (is (redacted-token? (second pscope))
-              "and the resolver's identity MAP tokenizes to a content-free
-               shape token")
-          (is (= #{invalidation-tag} (set (:tags proj-tags)))
-              "the invalidated tag set rides verbatim beside it — the default
-               tokenizes app payloads, not the structural attribution")))
-
-      (testing "and the SIBLING's own row is untouched — it substitutes its
-                scalar `:rf/redacted` SENTINEL, which the shape-driven default
-                rides verbatim, so `:scope` not being sibling-owned costs the
-                scope-resolved row nothing"
-        (let [tags (family-row proj-rows :rf.resource/scope-resolved nil)]
-          (is (some? tags)
-              "FIXTURE — the `{:from-db …}` reference emitted a causal
-               scope-resolved row")
-          (is (= :rf/redacted (:scope tags)))
-          (is (= :rf/redacted (:input-values tags))
-              "`:input-values` IS sibling-owned — it has no shape rule of
-               its own and must not be reached by the default")
-          (is (= session-scope-id (:resource-id tags))
-              "the resolver id survives for attribution")
-          (is (= [:username] (:inputs tags))
-              "and so do the declared input NAMES — only the VALUES redact")))
-
-      ;; ---- the FX-ARGS carriers, per slot -----------------------------------
-      (let [ensure-rec (first carrier-hist)
-            family-key (:resource/key (family-row proj-rows :rf.resource/work-started
-                                                  sensitive-resource-id))
-            managed    (fx-row ensure-rec :rf.http/managed)
-            handle     (fx-row ensure-rec :rf.resource/record-work-handle)
-            do-fx      (->> (:trace-events ensure-rec)
-                            (filter #(= :rf.fx/do-fx (:operation %)))
-                            first :tags)]
-        (testing "FIXTURE — the `ensure` record carries a
-                  `:rf.http/managed` row, a work-handle row and a
-                  `:rf.fx/do-fx` aggregate, each carrying the key"
-          (is (some? managed)   "the lowered `:rf.http/managed` fx row is present")
-          (is (some? handle)    "the `:rf.resource/record-work-handle` fx row is present")
-          (is (some? do-fx)     "the `:rf.fx/do-fx` aggregate row is present")
-          (is (some? family-key) "and the family row projected a key to compare against"))
-
-        (testing "every key embedded in EVERY carrier projects to EXACTLY what
-                  the family row's own `:resource/key` projected to — one value,
-                  two carriers, ONE rule, so the pair cannot drift"
-          (is (= #{family-key} (carrier-keys-naming ensure-rec sensitive-resource-id))))
-
-        (testing "so the carriers name the resource but disclose neither half of
-                  the identity"
-          (is (= sensitive-resource-id (nth family-key 1))
-              "the resource-id survives for attribution")
-          (is (redacted-token? (nth family-key 0)) "the resolved scope is tokenized")
-          (is (redacted-token? (nth family-key 2)) "the canonical params are tokenized"))
-
-        (testing "at THIS posture the row's NON-key payload is untouched — the
-                  family projector speaks for the family's keys, not for the fx
-                  family's args, so opting the fx-args axis in gets the args
-                  back with only the keys inside them projected"
-          (is (= {:method :get :url "/secret"} (:request (:rf.fx/args managed)))
-              "the resolver's request map rides verbatim")
-          (is (= :test/mcp (:frame-id (:rf.fx/args handle))))
-          (is (= :rf.http/managed (:transport (:rf.fx/args handle)))))
-
-        ;; The SAME three slots at the DEFAULT posture, which is what an MCP
-        ;; forwarder actually ships. Asserting the verbatim payload above
-        ;; against a default projection would pin a leak as expected
-        ;; behaviour: the structured `:effects` row redacted while the
-        ;; identical bytes egress three rows up on the tag carriers.
-        (testing "but at the OFF-BOX DEFAULT the whole carrier payload is gone —
-                  the resolver's request map is not merely key-projected, it is
-                  the `:rf/redacted` sentinel, the same value its
-                  `:effects[*].args` twin carries"
-          (let [default-rec     (first proj-hist)
-                default-managed (fx-row default-rec :rf.http/managed)
-                default-handle  (fx-row default-rec :rf.resource/record-work-handle)]
-            (is (some? default-managed)
-                "FIXTURE — the same lowered fx row is present at the default posture")
-            (is (= :rf/redacted (:rf.fx/args default-managed))
-                "the resolver's request map does NOT ride verbatim off-box")
-            (is (= :rf/redacted (:rf.fx/args default-handle))
-                "nor does the work-handle's args map")
-            (is (empty? (carrier-keys-naming default-rec sensitive-resource-id))
-                "and no scoped key survives inside a carrier to be projected at all")))
-
-        (testing "a carrier row whose key redacted is stamped :sensitive?, the
-                  same signal the family rows carry"
-          (is (true? (:sensitive? managed)))
-          (is (true? (:sensitive? handle)))
-          (is (true? (:sensitive? do-fx))))
-
-        (testing "and the structured `:effects[*].args` twin fails closed too —
-                  closing the asymmetry between these two slots must not open
-                  the redacted one. Read off
-                  the DEFAULT projection, since `ensure-rec` above is the
-                  fx-args opt-in posture, which lifts this slot by design"
-          (is (every? #(= :rf/redacted (:args %))
-                      (filter #(contains? % :args) (:effects (first proj-hist))))))
-
-        (testing "the MIXED slot: the release cascade's
-                  `:rf.resource/cancel-poll-timers` args name every timer key
-                  the released owner held, so BOTH owners' keys sit in ONE slot
-                  on ONE row and the projection must tell them apart. This is
-                  the sensitive half; the plain half is the over-redaction
-                  control in the sibling deftest below"
-          (let [cancel (fx-row (nth carrier-hist 2) :rf.resource/cancel-poll-timers)
-                keys*  (get-in cancel [:rf.fx/args :resource/keys])
-                sk     (first (filter #(= sensitive-resource-id (second %)) keys*))]
-            (is (some? cancel) "FIXTURE — the cancel-timers fx row is present")
-            (is (= #{plain-resource-id sensitive-resource-id} (set (map second keys*)))
-                "FIXTURE — both owners' keys ride the slot, and both
-                 resource-ids survive for attribution")
-            (is (redacted-token? (nth sk 0)) "the SENSITIVE key's scope tokenizes")
-            (is (redacted-token? (nth sk 2)) "and its canonical params tokenize")
-            (is (= family-key sk)
-                "digest-for-digest the same identity the family row projected —
-                 a tool's per-key joins survive across the two families"))))
-
-      ;; ---- the free `:scope` INSIDE the carriers ----------------------------
-      ;;
-      ;; Reaching this axis takes BOTH of the earlier drives at once: an
-      ;; identity-bearing scope (the `reg-resource-scope` resolver) on an
-      ;; operation that LOWERS INTO FX (the `ensure`). `invalidate-tags` above proves the free
-      ;; `:scope` on a row the family OWNS; this proves the same value one
-      ;; carrier further out, where the family projector never runs.
-      (let [sess?     (fn [r] (seq (carrier-keys-naming r session-resource-id)))
-            raw-sess  (first (filter sess? raw-hist))
-            proj-sess (first (filter sess? carrier-hist))]
-        (testing "FIXTURE — the session-scoped `ensure` lowered into fx and the
-                  runtime planted its RESOLVED scope inside both carriers"
-          (is (some? raw-sess)
-              "a real record carries the session owner's key in its fx args")
-          (is (= 4 (count (carrier-scopes raw-sess)))
-              "four paths — `:on-success` and `:on-failure` under `:rf.fx/args`,
-               and the same pair again under `:rf.event/fx`")
-          (is (every? #(= [:rf.scope/session {:username secret-password}] %)
-                      (carrier-scopes raw-sess))
-              "each one is the resolver's identity MAP, raw, on the producer's
-               own output — no assembled record, no spliced tag")
-          (is (seq (secret-leak-paths raw-sess))
-              "so the UNPROJECTED record leaks, and a green scan below is the
-               projector's doing rather than an absent shape"))
-
-        (testing "and every one of them tokenizes, tier keyword intact"
-          (is (= 4 (count (carrier-scopes proj-sess)))
-              "projection neither drops nor invents a `:scope` slot")
-          (is (every? tokenized-scope? (carrier-scopes proj-sess))
-              "`[:rf.scope/session {:rf/redacted <digest>}]` at all four")
-          (is (empty? (secret-leak-paths (dissoc proj-sess :effects)))
-              "and the whole record is clean — bar the structured
-               `:effects[*].args` slot, which this posture
-               (`:rf.egress/include-fx-args? true`) opens deliberately; the
-               default posture's whole-record scan, which covers that slot
-               too, is `forwarder-fx-args-tag-carriers-fail-closed`"))
-
-        (testing "and it projects EXACTLY as the SAME value does on a row the
-                  family OWNS — the two carriers of one scope cannot drift,
-                  which is the whole reason the carrier arm reuses the family
-                  rule instead of inventing one"
-          (is (= (:scope (invalidated-row proj-rows session-cause))
-                 (first (carrier-scopes proj-sess)))
-              "digest-for-digest identical to the free `:scope` on
-               `:rf.resource/invalidated`, so a tool's per-scope joins survive
-               across the two families"))
-
-        (testing "the scoped KEY beside it is classified too — one payload, TWO
-                  different family data, both reached"
-          (let [ck (first (carrier-keys-naming proj-sess session-resource-id))]
-            (is (= session-resource-id (nth ck 1))
-                "the resource-id survives for attribution")
-            (is (redacted-token? (nth ck 0))
-                "its scope component tokenizes as a WHOLE — a scoped key's scope
-                 is one opaque component, where the FREE slot keeps the tier, so
-                 the two digests differ by construction and only the treatments
-                 have to agree")
-            (is (redacted-token? (nth ck 2)) "and its params"))))
-
-      ;; ---- forwarder pipelines double-project; that must not re-digest ------
-      (testing "idempotent under repeated projection — a forwarder that
-                accidentally projects twice (middleware composition,
-                tool-then-watcher fan-out) MUST NOT re-hash the tokens"
-        (is (= projected (rf/project-egress projected))
-            "re-projecting an already-projected record is a fixed point")))))
-
-(deftest forwarder-project-egress-keeps-plain-resource-owner-verbatim
-  (testing "two-sided control — a PLAIN (registered, non-`:sensitive?`,
-            non-`:large?`) resource owner's scoped key rides its scope + params
-            VERBATIM off-box, in the SAME rows that tokenize the sensitive
-            owner's. Without this half, the acceptance test above could be
-            satisfied by redacting everything, which would destroy the
-            attribution every resource tool is built on. The same control
-            covers the free `:scope` tag, where the un-redacted side
-            is the `:rf.scope/global` SCALAR."
-    (rf/make-frame {:id :test/mcp})
-    (install-mcp-style-schemas! :test/mcp)
-    (install-resource-family! :test/mcp)
-    (let [rows      (drive-resource-family! :test/mcp)
-          proj-hist (mapv rf/project-egress (rf/epoch-history :test/mcp))
-          ;; The carrier halves below read the trusted-local
-          ;; fx-args posture, for the reason set out on the sibling deftest's
-          ;; `carrier-hist` binding: off-box the carriers fail closed, so
-          ;; the over-redaction control this test exists to be can only be
-          ;; stated where the args ride at all.
-          carrier-hist (mapv #(rf/project-egress % {:rf.egress/include-fx-args? true})
-                             (rf/epoch-history :test/mcp))
-          projected (rf/project-egress
-                      (record-carrying-resource-rows :test/mcp rows))
-          proj-rows (filter resource-family-row? (:trace-events projected))
-          plain-key [:rf.scope/global plain-resource-id {:slug plain-slug}]
-          tags      (family-row proj-rows :rf.resource/work-started
-                                plain-resource-id)
-          release   (family-row proj-rows :rf.resource/owner-released nil)]
-      (is (= plain-key (:resource/key tags))
-          "the plain owner's NAMED key rides verbatim — scope and params intact")
-      (is (= plain-key (nth (:work/id tags) 1))
-          "and so does the key EMBEDDED in its work-id: the shape-driven default
-           projects through the OWNER, so reaching embedded keys costs no
-           over-redaction on the ordinary row")
-      (is (= plain-key (released-member release plain-resource-id))
-          "and so does its `:released` member")
-      (is (= plain-key (aborted-key release plain-resource-id))
-          "and its `:aborted` work-id's embedded key")
-      (is (not (:sensitive? tags))
-          "a plain row is NOT stamped :sensitive?")
-      (is (empty? (cedn-tokens tags))
-          "no CEDN-1 token rides the plain row either — the emit-site rule is
-           owner-independent")
-      (testing "the plain owner's params are the real map, not a token"
-        (is (= {:slug plain-slug} (nth (:resource/key tags) 2)))
-        (is (not (redacted-token? (nth (:resource/key tags) 2)))))
-
-      ;; ---- the free `:scope` tag's un-redacted side ------------------------
-      (testing "a `:rf.scope/global` scope is a SCALAR and rides the FREE
-                `:scope` tag verbatim, on the same row type and in the same slot
-                whose identity-bearing tuple tokenizes in the acceptance test
-                above. Without this half the shape rule could be a blanket
-                strip, and every tool's scope column would read `:rf/redacted`
-                for the ordinary case"
-        (let [tags (invalidated-row proj-rows global-cause)]
-          (is (some? tags) "FIXTURE — the global invalidation row is present")
-          (is (= :rf.scope/global (:scope tags))
-              "the global scope rides verbatim")
-          (is (= #{invalidation-tag} (set (:tags tags)))
-              "and so does the invalidated tag set beside it")
-          (is (empty? (cedn-tokens tags)))
-          (is (not (:sensitive? tags))
-              "a row that redacted nothing is NOT stamped :sensitive?")))
-
-      ;; ---- and the same control on the FX-ARGS carriers --------------------
-      (let [plain-rec (second carrier-hist)       ; the PLAIN owner's `ensure`
-            release   (nth carrier-hist 2)
-            managed   (fx-row plain-rec :rf.http/managed)
-            cancel    (fx-row release :rf.resource/cancel-poll-timers)]
-        (testing "FIXTURE — the plain `ensure` lowered into fx rows too"
-          (is (some? managed) "its `:rf.http/managed` row is present")
-          (is (seq (carrier-keys-naming plain-rec plain-resource-id))
-              "and its carriers embed the plain owner's key"))
-
-        (testing "every key in every carrier of the plain cascade rides its
-                  scope + params VERBATIM — projecting the carriers costs no
-                  attribution on the ordinary row, and a blanket redaction of
-                  the carriers would fail here. Stated at the trusted-local
-                  fx-args posture: the claim is about the
-                  FAMILY projector discriminating by owner, which needs args to
-                  discriminate within"
-          (is (= #{plain-key} (carrier-keys-naming plain-rec plain-resource-id)))
-          (is (= {:method :get :url "/public"} (:request (:rf.fx/args managed)))
-              "as does the non-key payload beside it")
-          (is (not (:sensitive? managed))
-              "and a carrier row that redacted nothing is NOT stamped
-               :sensitive?"))
-
-        ;; The over-redaction control has a FLOOR, and this is it.
-        ;; "Verbatim" above is a statement about the trusted-local posture, and
-        ;; it must not be read as one about the wire: a PLAIN owner buys no
-        ;; exemption from the fx-args fail-closed rule, because the rule is not
-        ;; about owners at all — it is about a payload nothing can prove safe.
-        (testing "yet off-box the PLAIN owner's carrier payload is redacted too
-                  — the fail-closed fx-args rule is orthogonal to the family's
-                  owner classification, so a plain owner is not a way around it"
-          (let [default-managed (fx-row (second proj-hist) :rf.http/managed)]
-            (is (some? default-managed) "FIXTURE — the plain fx row is present")
-            (is (= :rf/redacted (:rf.fx/args default-managed))
-                "the plain owner's request map does NOT ride the wire verbatim")))
-
-        ;; The MIXED row — `:rf.resource/cancel-poll-timers`, whose args name
-        ;; every timer key the released owner held, so BOTH owners' keys sit in
-        ;; ONE slot — is asserted from BOTH sides. Its sensitive half lives with
-        ;; the acceptance claim above (it must RED without the key projection);
-        ;; only the plain half belongs here, where the whole point is to stay
-        ;; GREEN in both directions.
-        (testing "the sharpest form of the control: on the ONE slot carrying
-                  BOTH owners' keys, the plain key is the one left alone"
-          (is (some? cancel) "FIXTURE — the cancel-timers fx row is present")
-          (let [keys* (get-in cancel [:rf.fx/args :resource/keys])]
-            (is (= 2 (count keys*)) "FIXTURE — both owners' keys ride the slot")
-            (is (= plain-key (first (filter #(= plain-resource-id (second %)) keys*)))
-                "the PLAIN key rides verbatim beside a tokenized sibling — the
-                 projection discriminates by OWNER within a single slot, which
-                 no blanket strip and no blanket pass-through can do")))
-
-        ;; ---- the free `:scope` INSIDE the carriers, un-redacted side -------
-        ;; The acceptance test tokenizes a `[tier {identity}]`
-        ;; scope at four carrier paths; a `:rf.scope/global` scope reaches the
-        ;; SAME four paths of the plain cascade and is a SCALAR, so it must ride
-        ;; verbatim. Without this half the carrier arm could be a blanket strip
-        ;; of every `:scope` slot and every tool's scope column would read
-        ;; `:rf/redacted` for the ordinary case.
-        (testing "a `:rf.scope/global` scope rides the carriers' free `:scope`
-                  slot verbatim"
-          (is (= 4 (count (carrier-scopes plain-rec)))
-              "FIXTURE — the plain `ensure` planted a scope at the same four
-               carrier paths the session one does")
-          (is (every? #(= :rf.scope/global %) (carrier-scopes plain-rec))
-              "each rides verbatim — the scalar the shape rule must not touch")
-          (is (empty? (cedn-tokens plain-rec))))))))
+      (is (= proj-hist (mapv rf/project-egress proj-hist))
+          "re-projection is a fixed point — tokens are not re-hashed"))))
