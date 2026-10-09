@@ -1,24 +1,9 @@
 (ns re-frame.epoch-silence-receiver-public-api-test
-  "The delayed-silence receiver rule is implementable
-  through the PUBLIC API, as ONE atomic decision.
-
-  Spec 009 §The delayed-silence emission linearization law and Tool-Pair §Surface
-  behaviour against destroyed frames tell a consumer of a generation-qualified
-  `:rf.epoch.cb/silenced-on-frame-destroy` signal to decide, at receipt time,
-  whether the silence still names a current fact. The public boundary decides
-  it with the single operation this suite exercises — `rf/epoch-silence-current?`,
-  which takes the signal's tags map. A consumer composing two low-level queries
-  (a generation read, then a registry read) could not compose them
-  linearizably, so the decision is one operation.
-
-  This whole suite reaches for NO private state — only `re-frame.core` public
-  vars. The mechanics of the atomicity (mutations placed at every read seam a
-  two-query recipe would expose) are pinned by
-  `re-frame.epoch-silence-decision-atomicity-test`.
-
-  TOOTH: delete the public decision and every assertion here fails to resolve;
-  the receiver rule the signal documents has nothing to read."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  "The delayed-silence receiver rule is implementable through the PUBLIC API
+  alone: a consumer hands a real emitted signal's tags to
+  `rf/epoch-silence-current?` (Spec 009 §The delayed-silence emission
+  linearization law). No private state is read here."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             ;; Side-effect: publishes the `:epoch/*` late-bind hooks, including
             ;; `:epoch/epoch-silence-current?`.
@@ -29,33 +14,19 @@
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-(defn- silence-tags
-  "Drive a frame through one cascade so `cb` observes it, destroy it, and return
-  the emitted silence's tags — the exact map a real consumer receives."
-  [frame-id event-id cb recorder-key]
-  (rf/make-frame {:id frame-id})
-  (rf/reg-event event-id (fn [_ _] {:db {:n 0}}))
-  (let [recorded (atom [])]
-    (rf/register-listener! :trace recorder-key (fn [ev] (swap! recorded conj ev)))
-    (rf/register-listener! :epoch cb (fn [_] nil))
-    (rf/dispatch-sync [event-id] {:frame frame-id})
-    (rf/destroy-frame! frame-id)
-    (rf/unregister-listener! :trace recorder-key)
-    (->> @recorded
-         (filter #(= :rf.epoch.cb/silenced-on-frame-destroy (:operation %)))
-         first
-         :tags)))
-
-;; ---- a real emitted silence self-filters at the public boundary -----------
-
 (deftest an-unregistered-listener-discards-its-own-pending-silence
-  (testing "the drop half of registration identity, end to end through the public
-            surface: a consumer that unregisters before deciding must not act on
-            the signal"
-    (let [tags (silence-tags :test/dropped :seed-dropped ::drop-watcher ::drop-recorder)]
-      (is (some? tags) "a silence fired")
+  (let [recorded (atom [])]
+    (rf/make-frame {:id :test/dropped})
+    (rf/reg-event :seed-dropped (fn [_ _] {:db {:n 0}}))
+    (rf/register-listener! :trace ::drop-recorder (fn [ev] (swap! recorded conj ev)))
+    (rf/register-listener! :epoch ::drop-watcher (fn [_] nil))
+    (rf/dispatch-sync [:seed-dropped] {:frame :test/dropped})
+    (rf/destroy-frame! :test/dropped)
+    (let [tags (->> @recorded
+                    (filter #(= :rf.epoch.cb/silenced-on-frame-destroy (:operation %)))
+                    first
+                    :tags)]
       (is (true? (rf/epoch-silence-current? tags)) "current while registered")
       (rf/unregister-listener! :epoch ::drop-watcher)
       (is (false? (rf/epoch-silence-current? tags))
           "after the drop the signal names no live registration"))))
-
