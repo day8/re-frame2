@@ -105,100 +105,12 @@
        sort
        vec))
 
-(deftest guard-rejects-non-loopback-host
-  (testing "a POST addressed to a non-loopback Host (a public binding /
-            DNS-rebinding attempt) is rejected 403 before launch!"
-    (let [calls (atom [])]
-      (with-launch-spy calls
-        (let [resp (rf.testbed.open-in-editor-server/handle
-                     (req {:method :post
-                           :host   "app.evil.example"
-                           :origin nil
-                           :file   "/etc/passwd"}))]
-          (is (= 403 (:status resp)))
-          (is (zero? (count @calls)))))))
-  (testing "a missing Host header is also rejected"
-    (let [calls (atom [])]
-      (with-launch-spy calls
-        (let [resp (rf.testbed.open-in-editor-server/handle
-                     (req {:method :post :host nil :origin nil
-                           :file "/etc/passwd"}))]
-          (is (= 403 (:status resp)))
-          (is (zero? (count @calls))))))))
-
-;; The TCP peer is the only caller fact the client cannot forge. Host, Origin
-;; and every forwarding header are client-supplied, so the guard treats them as
-;; defence in depth on top of the transport check — never as the discriminator.
-
-(deftest guard-rejects-spoofed-loopback-host-from-remote-peer
-  (testing "a POST from a NON-loopback peer that spoofs `Host: localhost` and
-            sends no Origin — the shape a direct HTTP client can produce
-            against a testbed bound to 0.0.0.0 — is 403 before path resolution
-            and never launches"
-    (let [calls (atom [])]
-      (with-launch-spy calls
-        (let [resp (rf.testbed.open-in-editor-server/handle
-                     (req {:method :post
-                           :host   "localhost:8031"
-                           :origin nil
-                           :peer   "203.0.113.7"
-                           :file   "/etc/passwd"}))]
-          (is (= 403 (:status resp))
-              "a forged loopback Host does not admit a remote peer")
-          (is (re-find #"\"error\":\"forbidden\"" (:body resp)))
-          (is (zero? (count @calls)) "launch! was not called"))))))
-
-(deftest guard-fails-closed-on-unknown-peer
-  (testing "an absent :remote-addr is refused — a missing transport fact is
-            never read as permission"
-    (let [calls (atom [])]
-      (with-launch-spy calls
-        (let [resp (rf.testbed.open-in-editor-server/handle
-                     (req {:method :post :host "localhost:8031"
-                           :peer :absent :file "/etc/passwd"}))]
-          (is (= 403 (:status resp)))
-          (is (zero? (count @calls))))))))
-
-(deftest guard-ignores-forwarding-headers
-  (testing "X-Forwarded-For cannot launder a remote peer into a loopback one —
-            these dev servers are direct listeners, so a forwarding header is
-            just another client-supplied string"
-    (let [calls (atom [])]
-      (with-launch-spy calls
-        (let [resp (rf.testbed.open-in-editor-server/handle
-                     (-> (req {:method :post :host "localhost:8031"
-                               :peer "203.0.113.7" :file "/etc/passwd"})
-                         (assoc-in [:headers "x-forwarded-for"] "127.0.0.1")
-                         (assoc-in [:headers "x-real-ip"] "127.0.0.1")))]
-          (is (= 403 (:status resp)))
-          (is (zero? (count @calls))))))))
-
-(deftest loopback-peer?-classifies-correctly
-  (testing "the IPv4 loopback block, both IPv6 loopback spellings, and the
-            IPv4-mapped form are accepted"
-    (doseq [addr ["127.0.0.1" "127.0.0.53" "127.255.255.254"
-                  "::1" "0:0:0:0:0:0:0:1"
-                  "0000:0000:0000:0000:0000:0000:0000:0001"
-                  "::ffff:127.0.0.1" "0:0:0:0:0:ffff:7f00:1"
-                  "::1%1"]]
-      (is (#'rf.testbed.open-in-editor-server/loopback-peer? addr)
-          (str "loopback peer: " addr))))
-  (testing "everything else is refused, including values that merely LOOK
-            loopback and anything that would need name resolution"
-    (doseq [addr [nil "" "   " "0.0.0.0" "10.0.0.5" "192.168.1.5"
-                  "203.0.113.7" "2001:db8::1" "::" "0:0:0:0:0:0:0:2"
-                  "128.0.0.1" "27.0.0.1" "1127.0.0.1" "127.0.0.1.evil.example"
-                  "127malicious.example" "localhost" "127.0.0.999"
-                  "127.0.0.1, 10.0.0.5" "127.0.0.1:52344" 12345]]
-      (is (not (#'rf.testbed.open-in-editor-server/loopback-peer? addr))
-          (str "refused peer: " (pr-str addr))))))
-
-;; shadow-http 0.1.8, which serves shadow-cljs 3.4.10's `:dev-http`,
-;; sets `:remote-addr (str (.getRemoteAddress request))`: the accepted socket's
-;; `InetSocketAddress.toString`, not a bare literal. Every peer above is
-;; hand-typed in the bare shape, so on its own this suite would stay green even
-;; if the check refused every real loopback caller on that server. The peers below are
-;; BUILT the way shadow-http builds them, from real `java.net` objects.
+;; shadow-http 0.1.8, which serves shadow-cljs 3.4.10's `:dev-http`, sets
+;; `:remote-addr (str (.getRemoteAddress request))`: the accepted socket's
+;; `InetSocketAddress.toString`, not a bare literal. A suite of hand-typed bare
+;; peers would stay green even if the check refused every real loopback caller
+;; on that server, so these peers are BUILT the way shadow-http builds them,
+;; from real `java.net` objects.
 
 (defn- socket-peer
   "`:remote-addr` exactly as shadow-http renders an accepted socket's peer:
@@ -220,229 +132,185 @@
   ^InetAddress [^String host ^String literal]
   (InetAddress/getByAddress host (.getAddress (ip literal))))
 
-(deftest loopback-peer?-accepts-shadow-http-socket-renderings
-  (testing "loopback callers as shadow-http renders them are accepted: IPv4,
-            IPv6 (bracketed and expanded), an address in 127.0.0.0/8 other than
-            127.0.0.1, and renderings carrying a hostname half, which is
-            never read"
-    (doseq [addr [(ip "127.0.0.1")
-                  (ip "::1")
-                  (ip "127.0.0.53")
-                  (InetAddress/getLoopbackAddress)
-                  (named "localhost" "::1")
-                  (named "attacker.example" "127.0.0.1")]]
-      (let [peer (socket-peer addr)]
-        (is (re-find #"/.*:54321$" peer)
-            (str "control: the input is the socket rendering, not a bare literal: " peer))
-        (is (#'rf.testbed.open-in-editor-server/loopback-peer? peer)
-            (str "loopback socket peer: " peer)))))
-  (testing "…and through `handle`: the launch POST reaches `launch!` and an
-            OPTIONS gets past the peer check to the POST-only 405"
-    (doseq [peer [(socket-peer (ip "127.0.0.1")) (socket-peer (ip "::1"))]]
-      (let [calls (atom [])]
-        (with-launch-spy calls
-          (let [post      (rf.testbed.open-in-editor-server/handle
-                            (req {:method :post :host "localhost:8031"
-                                  :peer peer :file "fake_ns/core.cljs"}))
-                preflight (rf.testbed.open-in-editor-server/handle
-                            (req {:method :options :host "localhost:8031"
-                                  :origin "http://localhost:8042" :peer peer}))]
-            (is (= 200 (:status post)) (str "launch POST from " peer))
-            (is (= 1 (count @calls)) (str "launch! ran for " peer))
-            (is (= 405 (:status preflight)) (str "OPTIONS from " peer))))))))
+;; --- What `handle` answers, and what it launches --------------------------
 
-(deftest loopback-peer?-refuses-non-loopback-socket-renderings
-  (testing "a non-loopback socket peer is refused, IPv4 and IPv6 alike"
-    (doseq [addr [(ip "10.0.0.1") (ip "192.168.1.1") (ip "0.0.0.0")
-                  (ip "2606:4700:4700::1111") (ip "::") (ip "fe80::1%1")]]
-      (let [peer (socket-peer addr)]
-        (is (not (#'rf.testbed.open-in-editor-server/loopback-peer? peer))
-            (str "refused socket peer: " peer)))))
-  (testing "the HOSTNAME half never admits a peer, however loopback it reads:
-            it is a reverse lookup's answer, and the PTR record's owner
-            chooses it"
-    (doseq [peer [(socket-peer (named "localhost" "10.0.0.1"))
-                  (socket-peer (named "localhost" "2001:db8::1"))
+(defn- answer
+  "What a client sees for request `r`, and every `launch!` call it caused:
+  `[status body cors-headers launches]`."
+  [r]
+  (let [calls (atom [])]
+    (with-launch-spy calls
+      (let [resp (rf.testbed.open-in-editor-server/handle r)]
+        [(:status resp) (:body resp) (cors-headers resp) @calls]))))
+
+(defn- refused
+  "The answer to a request declined with `status` and the JSON `error` token:
+  no CORS header, and no launch."
+  [status error]
+  [status (str "{\"ok\":false,\"error\":\"" error "\"}") [] []])
+
+(defn- launched
+  "The answer to an admitted launch: a 200 naming the resolved file, no CORS
+  header, and exactly one `launch!` call carrying `file line column command`.
+  The files here resolve nowhere, so `resolve-file` hands them on unchanged."
+  [file line column command]
+  [200 (str "{\"ok\":true,\"file\":\"" file "\"}") [] [[file line column command]]])
+
+(deftest handle-answers-and-launches-per-request
+  (testing "the peer, Host, Origin, method, query and capability checks all
+            answer before `launch!`; every answer is JSON and carries no CORS
+            header of its own (shadow-cljs `:dev-http` adds its own
+            `Access-Control-Allow-Origin: *`, and the endpoint neither relies
+            on it nor adds a second value); an admitted launch reaches
+            `launch!` with its coordinate and editor command intact"
+    (doseq [[label r expected]
+            [;; Admission. The TCP peer is the boundary: Host, Origin and every
+             ;; forwarding header are strings the client writes.
+             ["a non-loopback Host (a public binding, or DNS rebinding)"
+              (req {:host "app.evil.example" :file "/etc/passwd"})
+              (refused 403 "forbidden")]
+             ["no Host header" (req {:host nil :file "/etc/passwd"}) (refused 403 "forbidden")]
+             ["a remote peer spoofing `Host: localhost` with no Origin — the shape a
+               direct HTTP client sends to a testbed bound to 0.0.0.0"
+              (req {:peer "203.0.113.7" :file "/etc/passwd"})
+              (refused 403 "forbidden")]
+             ["no :remote-addr at all: a missing transport fact is never permission"
+              (req {:peer :absent :file "/etc/passwd"})
+              (refused 403 "forbidden")]
+             ["a remote peer behind loopback X-Forwarded-For / X-Real-IP headers"
+              (update (req {:peer "203.0.113.7" :file "/etc/passwd"}) :headers assoc
+                      "x-forwarded-for" "127.0.0.1" "x-real-ip" "127.0.0.1")
+              (refused 403 "forbidden")]
+             ["a remote Origin" (req {:origin "https://evil.example" :file "/etc/passwd"})
+              (refused 403 "forbidden")]
+             ["an opaque Origin, never reflected" (req {:origin "null" :file "/etc/passwd"})
+              (refused 403 "forbidden")]
+             ["a remote socket peer whose Host, Origin and hostname half all read loopback"
+              (req {:origin "http://localhost:8042" :file "/etc/passwd"
+                    :peer   (socket-peer (named "localhost" "203.0.113.7"))})
+              (refused 403 "forbidden")]
+             ["an OPTIONS from a remote IPv6 socket peer"
+              (req {:method :options :origin "http://localhost:8042"
+                    :peer   (socket-peer (ip "2001:db8::5"))})
+              (refused 403 "forbidden")]
+             ["an OPTIONS with a remote Origin"
+              (req {:method :options :origin "https://evil.example"})
+              (refused 403 "forbidden")]
+             ["an OPTIONS to a non-loopback Host"
+              (req {:method :options :host "app.evil.example"})
+              (refused 403 "forbidden")]
+             ;; Method. A GET must never launch, and the only client posts a
+             ;; relative URL, so an admitted OPTIONS is no preflight either.
+             ["a GET" (req {:method :get :file "/etc/passwd"}) (refused 405 "method-not-allowed")]
+             ["a same-origin OPTIONS" (req {:method :options}) (refused 405 "method-not-allowed")]
+             ["an OPTIONS from another local port"
+              (req {:method :options :origin "http://localhost:8042"})
+              (refused 405 "method-not-allowed")]
+             ["an OPTIONS from a loopback IPv6 socket peer"
+              (req {:method :options :origin "http://localhost:8042"
+                    :peer   (socket-peer (ip "::1"))})
+              (refused 405 "method-not-allowed")]
+             ;; Query. A missing file is a 400; a malformed escape is a clean
+             ;; 400, never an uncaught IllegalArgumentException.
+             ["no `file` param" (req {:query "line=10&column=3"}) (refused 400 "missing-file")]
+             ["an empty `file=`" (req {:query "file=&line=10"}) (refused 400 "missing-file")]
+             ["no query string" (req {}) (refused 400 "missing-file")]
+             ["a lone `%`" (req {:query "file=%"}) (refused 400 "malformed-query")]
+             ["a `%` without two hex digits" (req {:query "file=abc%zz"})
+              (refused 400 "malformed-query")]
+             ;; Capability. A 200 claims the COORDINATE arrived: a coordinate
+             ;; for a position-blind editor is declined before Node spawns, so
+             ;; the client's coordinate-preserving `editor://` fallback runs.
+             ["a coordinate for windsurf"
+              (req {:query "file=fake_ns/core.cljs&line=27&column=9&editor=windsurf"})
+              (refused 422 "editor-position-unsupported")]
+             ;; Launches.
+             ["a same-origin POST" (req {:file "fake_ns/core.cljs"})
+              (launched "fake_ns/core.cljs" 10 nil nil)]
+             ["a POST from another local port"
+              (req {:origin "http://localhost:8042" :file "fake_ns/core.cljs"})
+              (launched "fake_ns/core.cljs" 10 nil nil)]
+             ["a POST from a loopback IPv4 socket peer"
+              (req {:peer (socket-peer (ip "127.0.0.1")) :file "fake_ns/core.cljs"})
+              (launched "fake_ns/core.cljs" 10 nil nil)]
+             ["a POST from a loopback IPv6 socket peer"
+              (req {:peer (socket-peer (ip "::1")) :file "fake_ns/core.cljs"})
+              (launched "fake_ns/core.cljs" 10 nil nil)]
+             ["a column with no line" (req {:query "file=fake_ns/core.cljs&column=7"})
+              (launched "fake_ns/core.cljs" nil 7 nil)]
+             ["a literal `+` in the path is not form-decoded to a space"
+              (req {:query "file=deep/re-frame2+wip/core.cljs&line=7"})
+              (launched "deep/re-frame2+wip/core.cljs" 7 nil nil)]
+             ["percent-escapes decode with URI semantics, and the last `file` wins"
+              (req {:query "file=a+b&file=re-frame2%2Bwip%2Fa%20b.cljs&line=10"})
+              (launched "re-frame2+wip/a b.cljs" 10 nil nil)]
+             ["an editor outside the vocabulary leaves launch-editor to auto-detect"
+              (req {:query "file=fake_ns/core.cljs&editor=emacs"})
+              (launched "fake_ns/core.cljs" nil nil nil)]
+             ["windsurf with no coordinate loses nothing, so it still launches"
+              (req {:query "file=fake_ns/core.cljs&editor=windsurf"})
+              (launched "fake_ns/core.cljs" nil nil "windsurf")]
+             ;; Every position-carrying editor keeps the endpoint at 27:9; the
+             ;; editor value is trimmed and lower-cased before the lookup.
+             ["editor=vscode" (req {:query "file=fake_ns/core.cljs&line=27&column=9&editor=vscode"})
+              (launched "fake_ns/core.cljs" 27 9 "code")]
+             ["editor=vscode-insiders"
+              (req {:query "file=fake_ns/core.cljs&line=27&column=9&editor=vscode-insiders"})
+              (launched "fake_ns/core.cljs" 27 9 "code-insiders")]
+             ["editor=%20Cursor%20"
+              (req {:query "file=fake_ns/core.cljs&line=27&column=9&editor=%20Cursor%20"})
+              (launched "fake_ns/core.cljs" 27 9 "cursor")]
+             ["editor=zed" (req {:query "file=fake_ns/core.cljs&line=27&column=9&editor=zed"})
+              (launched "fake_ns/core.cljs" 27 9 "zed")]
+             ["editor=idea" (req {:query "file=fake_ns/core.cljs&line=27&column=9&editor=idea"})
+              (launched "fake_ns/core.cljs" 27 9 "idea")]]]
+      (is (= expected (answer r)) label))))
+
+;; --- The peer, Host and Origin classifiers ---------------------------------
+
+(deftest loopback-peer?-classifies-correctly
+  (testing "accepted: the IPv4 loopback block, both IPv6 loopback spellings,
+            the IPv4-mapped form and a scope id — as a bare literal, and as
+            shadow-http renders an accepted socket, whose hostname half is
+            never read"
+    (doseq [addr ["127.0.0.1" "127.0.0.53" "::1" "0:0:0:0:0:0:0:1"
+                  "::ffff:127.0.0.1" "::1%1"
+                  (socket-peer (ip "127.0.0.1"))
+                  (socket-peer (ip "::1"))
+                  (socket-peer (named "attacker.example" "127.0.0.1"))]]
+      (is (#'rf.testbed.open-in-editor-server/loopback-peer? addr)
+          (str "loopback peer: " addr))))
+  (testing "refused: every other address, anything that would need name
+            resolution, a hostname half however loopback it reads (a PTR
+            record's owner chooses it), and any socket rendering this check
+            does not recognise"
+    (doseq [addr [nil "   " 12345 "10.0.0.5" "::" "0:0:0:0:0:0:0:2"
+                  "1127.0.0.1" "127.0.0.1.evil.example" "127malicious.example"
+                  "localhost" "127.0.0.1, 10.0.0.5" "127.0.0.1:52344"
+                  (socket-peer (ip "10.0.0.1"))
+                  (socket-peer (ip "2606:4700:4700::1111"))
+                  (socket-peer (named "localhost" "10.0.0.1"))
                   (socket-peer (named "127.0.0.1" "203.0.113.7"))
-                  (socket-peer (named "127.0.0.1.attacker.example" "192.168.1.1"))
-                  (str (InetSocketAddress/createUnresolved "localhost" 54321))]]
-      (is (not (#'rf.testbed.open-in-editor-server/loopback-peer? peer))
-          (str "refused socket peer: " peer))))
-  (testing "a rendering this check does not recognise fails closed"
-    (doseq [peer ["/" "/:54321" "/127.0.0.1" "/[::1]" "127.0.0.1/"
-                  "/127.0.0.1:54321/" "/127.0.0.1:port" "/[127.0.0.1]:54321"
-                  "/0:0:0:0:0:0:0:1:54321" "localhost/" "localhost/localhost:54321"]]
-      (is (not (#'rf.testbed.open-in-editor-server/loopback-peer? peer))
-          (str "refused unrecognised rendering: " (pr-str peer)))))
-  (testing "…and through `handle`: a remote socket peer is 403 for the launch
-            POST and an OPTIONS alike, however loopback its Host, Origin
-            and hostname half read, and never launches"
-    (let [calls (atom [])]
-      (with-launch-spy calls
-        (doseq [peer [(socket-peer (named "localhost" "203.0.113.7"))
-                      (socket-peer (ip "2001:db8::5"))]]
-          (is (= 403 (:status (rf.testbed.open-in-editor-server/handle
-                                (req {:method :post :host "localhost:8031"
-                                      :origin "http://localhost:8042"
-                                      :peer peer :file "/etc/passwd"}))))
-              (str "remote socket peer POST: " peer))
-          (is (= 403 (:status (rf.testbed.open-in-editor-server/handle
-                                (req {:method :options :host "localhost:8031"
-                                      :origin "http://localhost:8042"
-                                      :peer peer}))))
-              (str "remote socket peer OPTIONS: " peer)))
-        (is (zero? (count @calls)) "launch! was not called")))))
+                  (str (InetSocketAddress/createUnresolved "localhost" 54321))
+                  "/" "/:54321" "localhost/" "localhost/localhost:54321"]]
+      (is (not (#'rf.testbed.open-in-editor-server/loopback-peer? addr))
+          (str "refused peer: " (pr-str addr))))))
 
 (deftest peer-literal-never-hands-getByName-a-name
-  (testing "the literal is read after the LAST `/`, its port and brackets
-            removed, and the bare literal still passes through"
-    (is (= "127.0.0.1"
-           (#'rf.testbed.open-in-editor-server/peer-literal (socket-peer (ip "127.0.0.1")))))
-    (is (= "0:0:0:0:0:0:0:1"
-           (#'rf.testbed.open-in-editor-server/peer-literal (socket-peer (named "localhost" "::1")))))
-    (is (= "127.0.0.1" (#'rf.testbed.open-in-editor-server/peer-literal "127.0.0.1"))))
   (testing "a string `InetAddress/getByName` would RESOLVE rather than parse is
-            never returned. With a JVM hosts file mapping each bare value to
-            127.0.0.1, a looser filter would admit all three as loopback"
-    (doseq [s ["127.0.0.999" "1.2.3.456" ".::1"
-               "/127.0.0.999:54321" "localhost/1.2.3.456:54321"]]
+            never returned. With a JVM hosts file mapping each value to
+            127.0.0.1, a looser filter would admit it as loopback"
+    (doseq [s ["127.0.0.999" ".::1" "localhost/1.2.3.456:54321"]]
       (is (nil? (#'rf.testbed.open-in-editor-server/peer-literal s))
           (str "never reaches getByName: " (pr-str s))))))
 
-(deftest guard-options-is-not-a-preflight
-  (testing "the supported client workflow is same-origin (the client posts a
-            relative URL), so the endpoint answers no CORS preflight: an
-            admitted loopback OPTIONS takes the POST-only 405 with a JSON body
-            and never launches. The non-nil body is what keeps shadow-http's
-            nil-body → 304 rewrite off every endpoint answer"
-    (doseq [origin ["http://localhost:8042" nil]]
-      (let [calls (atom [])]
-        (with-launch-spy calls
-          (let [resp (rf.testbed.open-in-editor-server/handle
-                       (req {:method :options
-                             :host   "localhost:8031"
-                             :origin origin}))]
-            (is (= 405 (:status resp)) (str "Origin " (pr-str origin)))
-            (is (re-find #"\"error\":\"method-not-allowed\"" (str (:body resp)))
-                (str "Origin " (pr-str origin) ": the 405 carries a JSON body"))
-            (is (zero? (count @calls))))))))
-  (testing "an OPTIONS that fails admission — a remote Origin, a non-loopback
-            Host — is refused 403, also with a JSON body"
-    (let [calls (atom [])]
-      (with-launch-spy calls
-        (doseq [r [(req {:method :options :host "localhost:8031"
-                         :origin "https://evil.example"})
-                   (req {:method :options :host "app.evil.example"
-                         :origin nil})]]
-          (let [resp (rf.testbed.open-in-editor-server/handle r)]
-            (is (= 403 (:status resp)) (pr-str (:headers r)))
-            (is (re-find #"\"error\":\"forbidden\"" (str (:body resp))))))
-        (is (zero? (count @calls)) "launch! was not called")))))
-
-(deftest endpoint-answers-carry-no-cors-headers
-  (testing "no endpoint answer carries a CORS header or `vary` of its own,
-            whatever its status. shadow-cljs `:dev-http` adds its own
-            `Access-Control-Allow-Origin: *` to every response; that is
-            shadow's behaviour, and this endpoint neither relies on it nor
-            adds a second value beside it"
-    (let [calls (atom [])]
-      (with-launch-spy calls
-        (doseq [[status label r]
-                [[200 "a same-origin POST" (req {:file "fake_ns/core.cljs"})]
-                 [200 "a POST from another local port"
-                  (req {:origin "http://localhost:8042" :file "fake_ns/core.cljs"})]
-                 [400 "a POST with no file" (req {})]
-                 [403 "a remote Origin"
-                  (req {:origin "https://evil.example" :file "/etc/passwd"})]
-                 [403 "a remote peer"
-                  (req {:peer "203.0.113.7" :file "/etc/passwd"})]
-                 [405 "a GET" (req {:method :get :file "/etc/passwd"})]
-                 [405 "an OPTIONS"
-                  (req {:method :options :origin "http://localhost:8042"})]
-                 [422 "a coordinate for a position-blind editor"
-                  (req {:query "file=fake_ns/core.cljs&line=3&editor=windsurf"})]]]
-          (let [resp (rf.testbed.open-in-editor-server/handle r)]
-            (is (= status (:status resp)) (str label " answers " status))
-            (is (= [] (cors-headers resp))
-                (str label " carries no CORS header"))))))))
-
-;; Safety negatives assert both the response and absence of a launch call.
-
-(deftest guard-rejects-opaque-null-origin-post
-  (testing "an opaque Origin is rejected before launch"
-    (let [calls (atom [])]
-      (with-launch-spy calls
-        (let [resp (rf.testbed.open-in-editor-server/handle
-                     (req {:method :post
-                           :host   "localhost:8031"
-                           :origin "null"
-                           :file   "/etc/passwd"}))]
-          (is (= 403 (:status resp)) "opaque-origin POST is forbidden")
-          (is (re-find #"\"error\":\"forbidden\"" (:body resp)))
-          (is (zero? (count @calls)) "launch! was not called")
-          (is (= [] (cors-headers resp))
-              "no CORS header — the opaque origin is never reflected"))))))
-
-;; URI decoding failures must become JSON 400 responses at the Ring boundary.
-
-(deftest malformed-query-returns-clean-400
-  (testing "an incomplete percent-escape — a lone `%`, or a `%` not followed
-            by two hex digits — answers a clean 400, not an uncaught
-            IllegalArgumentException"
-    (doseq [qs ["file=%" "file=abc%zz"]]
-      (let [calls (atom [])]
-        (with-launch-spy calls
-          (let [resp (rf.testbed.open-in-editor-server/handle (req {:query qs}))]
-            (is (= 400 (:status resp)) (str qs " is a clean 400, not a throw"))
-            (is (re-find #"\"ok\":false,\"error\":\"malformed-query\"" (:body resp))
-                (str qs " names malformed-query"))
-            (is (zero? (count @calls)) (str qs " never reaches launch!"))))))))
-
-;; Query parsing uses URI semantics so a literal `+` in a path stays intact.
-
-(deftest parse-query-preserves-literal-plus
-  (testing "percent-escapes still decode with decodeURIComponent semantics"
-    (let [q (#'rf.testbed.open-in-editor-server/parse-query "file=re-frame2%2Bwip%2Fa%20b.cljs")]
-      (is (= "re-frame2+wip/a b.cljs" (get q "file"))
-          "%2B decodes to a literal +, %2F to /, %20 to a space")))
-  (testing "keys and multiple params round-trip; last value wins"
-    (let [q (#'rf.testbed.open-in-editor-server/parse-query "file=a+b&line=10&file=c+d")]
-      (is (= "c+d" (get q "file")) "last value wins, + preserved")
-      (is (= "10" (get q "line"))))))
-
-(deftest endpoint-preserves-literal-plus-through-to-launch
-  (testing "a POST whose `file` carries a literal `+` hands launch! the path
-            with the `+` intact"
-    (let [calls (atom [])]
-      (with-launch-spy calls
-        (let [resp (rf.testbed.open-in-editor-server/handle
-                     (req {:query "file=deep/re-frame2+wip/core.cljs&line=7"}))]
-          (is (= 200 (:status resp)) "the launch path is reached")
-          (is (= 1 (count @calls)) "launch! invoked once")
-          (is (str/includes? (first (first @calls)) "re-frame2+wip")
-              "the literal + survived parse-query into the abs-path launch! got")
-          (is (not (str/includes? (first (first @calls)) "re-frame2 wip"))
-              "the + was NOT form-decoded to a space"))))))
-
 (deftest loopback-host?-classifies-correctly
-  (testing "loopback hosts (with/without port, IPv4, IPv6, case)"
-    (is (#'rf.testbed.open-in-editor-server/loopback-host? "localhost"))
-    (is (#'rf.testbed.open-in-editor-server/loopback-host? "localhost:8031"))
-    (is (#'rf.testbed.open-in-editor-server/loopback-host? "LocalHost:8031"))
-    (is (#'rf.testbed.open-in-editor-server/loopback-host? "127.0.0.1"))
-    (is (#'rf.testbed.open-in-editor-server/loopback-host? "127.0.0.1:8042"))
-    (is (#'rf.testbed.open-in-editor-server/loopback-host? "127.5.6.7"))
-    (is (#'rf.testbed.open-in-editor-server/loopback-host? "::1"))
-    (is (#'rf.testbed.open-in-editor-server/loopback-host? "[::1]:8080")))
-  (testing "non-loopback hosts are rejected"
-    (is (not (#'rf.testbed.open-in-editor-server/loopback-host? "evil.example")))
-    (is (not (#'rf.testbed.open-in-editor-server/loopback-host? "app.evil.example:8031")))
-    (is (not (#'rf.testbed.open-in-editor-server/loopback-host? "10.0.0.5")))
-    (is (not (#'rf.testbed.open-in-editor-server/loopback-host? "0.0.0.0")))
-    ;; A textual 127 prefix is not an IPv4 loopback address.
-    (is (not (#'rf.testbed.open-in-editor-server/loopback-host? "127malicious.example")))
-    (is (not (#'rf.testbed.open-in-editor-server/loopback-host? nil)))
-    (is (not (#'rf.testbed.open-in-editor-server/loopback-host? "")))))
+  (testing "loopback Host values, with or without a port, IPv4 and IPv6, any case"
+    (doseq [host ["LocalHost:8031" "127.5.6.7" "::1" "[::1]:8080"]]
+      (is (#'rf.testbed.open-in-editor-server/loopback-host? host) host)))
+  (testing "everything else, a textual 127 prefix included"
+    (doseq [host ["app.evil.example:8031" "127malicious.example" "10.0.0.5" nil]]
+      (is (not (#'rf.testbed.open-in-editor-server/loopback-host? host)) (pr-str host)))))
 
 ;; File values and launch stderr may contain controls, so verify JSON round trips.
 
@@ -530,22 +398,6 @@
     (is (= "/abs/core.cljs:3:7" (#'rf.testbed.open-in-editor-server/build-file-spec "/abs/core.cljs" 3 7))))
   (testing "neither present: bare path (no spurious `:1`)"
     (is (= "/abs/core.cljs" (#'rf.testbed.open-in-editor-server/build-file-spec "/abs/core.cljs" nil nil)))))
-
-(deftest launch-passes-column-without-line-through-to-file-spec
-  (testing "end-to-end through the endpoint: a request with `column` and no
-            `line` reaches `launch!` with `line` nil / `column` 7 — parsing
-            never drops it. `build-file-spec-normalizes-column-only-to-line-1`
-            pins what `launch!` then encodes for those values"
-    (let [calls (atom [])]
-      (with-redefs [rf.testbed.open-in-editor-server/launch! (fn [& args] (swap! calls conj (vec args))
-                                   {:ok true})]
-        (let [resp (rf.testbed.open-in-editor-server/handle
-                     (req {:query "file=fake_ns/core.cljs&column=7"}))]
-          (is (= 200 (:status resp)))
-          (is (= 1 (count @calls)))
-          (let [[_abs-path line column _cmd] (first @calls)]
-            (is (nil? line) "no line param was sent")
-            (is (= 7 column) "column parsed through, not dropped upstream")))))))
 
 ;; launch-editor silently ignores missing files, so the JVM must reject them.
 
@@ -733,51 +585,6 @@
       (is (re-find #"\"error\":\"file-not-found\"" (:body resp))
           "the client-visible error names the missing file, not launch-failed"))))
 
-;; A missing query parameter is a 400; a resolved but absent file is a 422.
-
-(deftest endpoint-missing-file-param-returns-400
-  (testing "a blank or absent file parameter returns 400 before launch"
-    (let [calls (atom [])]
-      (with-launch-spy calls
-        (doseq [[label qs] [["no `file` param in the query string" "line=10&column=3"]
-                            ["an empty `file=` value"               "file=&line=10"]
-                            ["no query string at all"               nil]]]
-          (let [resp (rf.testbed.open-in-editor-server/handle (req {:query qs}))]
-            (is (= 400 (:status resp)) label)
-            (is (re-find #"\"ok\":false,\"error\":\"missing-file\"" (:body resp))
-                label)))
-        (is (zero? (count @calls))
-            "launch! was never called on any missing-file path")))))
-
-;; The query vocabulary maps to launch-editor binary names. Every pair reaches
-;; `launch!` through `handle` in endpoint-still-serves-every-position-carrying-editor
-;; (windsurf in endpoint-declines-coordinate-bearing-windsurf-request). An
-;; unknown name and an absent param reach `launch!` as nil in
-;; endpoint-passes-editor-hint-through-to-launch.
-
-(deftest editor-hint-maps-keyword-to-launch-command
-  (testing "the value is lower-cased and trimmed before lookup"
-    (is (= "cursor" (rf.testbed.open-in-editor-server/editor-hint "  Cursor  "))))
-  (testing "blank / non-string → nil (launch-editor auto-detects)"
-    (is (nil? (rf.testbed.open-in-editor-server/editor-hint "")))
-    (is (nil? (rf.testbed.open-in-editor-server/editor-hint 42)) "a non-string is rejected")))
-
-(deftest endpoint-passes-editor-hint-through-to-launch
-  (testing "an unknown editor keyword → nil command hint (auto-detect)"
-    (let [calls (atom [])]
-      (with-launch-spy calls
-        (rf.testbed.open-in-editor-server/handle
-          (req {:query "file=fake_ns/core.cljs&editor=emacs"}))
-        (is (nil? (nth (first @calls) 3))
-            "unknown editor → nil hint"))))
-  (testing "no `editor` param → nil command hint (baseline)"
-    (let [calls (atom [])]
-      (with-launch-spy calls
-        (rf.testbed.open-in-editor-server/handle
-          (req {:query "file=fake_ns/core.cljs"}))
-        (is (nil? (nth (first @calls) 3))
-            "no editor param → nil hint")))))
-
 ;; Endpoint success must mean the COORDINATE arrived.
 ;;
 ;; `launch-editor`'s `get-args.js` switches on the command basename: `code`,
@@ -795,7 +602,7 @@
 (deftest position-blind-commands-are-declared-not-guessed
   ;; The set's contents are graded against the installed dependency by
   ;; launch-editor-2-14-1-really-does-drop-these-positions, and through
-  ;; `handle` by the windsurf decline and the still-serves table below.
+  ;; `handle` by the editor rows of handle-answers-and-launches-per-request.
   (testing "position-would-be-dropped? fires only for a coordinate-BEARING
             request to a position-blind command"
     (is (true?  (rf.testbed.open-in-editor-server/position-would-be-dropped? "windsurf" 27 9)))
@@ -806,8 +613,6 @@
     (is (false? (rf.testbed.open-in-editor-server/position-would-be-dropped? "windsurf" nil nil))
         "no coordinate → nothing to lose; the endpoint's classpath resolution
          is still worth having")
-    ;; Every position-capable vocabulary command is served with 27:9 through
-    ;; `handle` in endpoint-still-serves-every-position-carrying-editor.
     (is (false? (rf.testbed.open-in-editor-server/position-would-be-dropped? nil 27 9))
         "this predicate answers for NAMED commands only. nil is auto-detect,
          whose binary launch-editor chooses from the running process list —
@@ -817,58 +622,6 @@
          launch-declines-when-the-resolved-editor-would-drop-the-position
          below, and `handle` answers that decline as it answers every launch
          failure, a 422 carrying the launch message")))
-
-(deftest endpoint-declines-coordinate-bearing-windsurf-request
-  (testing "editor=windsurf with line+column is DECLINED before Node is
-            spawned: a bare-file launch is not success for a
-            coordinate-bearing request"
-    (let [calls (atom [])]
-      (with-launch-spy calls
-        (let [resp (rf.testbed.open-in-editor-server/handle
-                     (req {:query "file=fake_ns/core.cljs&line=27&column=9&editor=windsurf"}))]
-          (is (= 422 (:status resp))
-              "a 200 here would be a false claim that 27:9 reached the editor;
-               non-2xx is the whole contract with the client: `fetch-launcher!`
-               runs the coordinate-preserving URI fallback on any non-2xx")
-          (is (re-find #"\"ok\":false" (:body resp)))
-          (is (re-find #"\"error\":\"editor-position-unsupported\"" (:body resp))
-              "the client-visible error names the capability, not launch-failed")
-          (is (zero? (count @calls))
-              "launch! was never called — no editor opens at the wrong place")))))
-  (testing "a coordinate-FREE windsurf request still uses the endpoint: it
-            loses nothing, and classpath resolution is what the URI fallback
-            cannot do"
-    (let [calls (atom [])]
-      (with-launch-spy calls
-        (let [resp (rf.testbed.open-in-editor-server/handle
-                     (req {:query "file=fake_ns/core.cljs&editor=windsurf"}))]
-          (is (= 200 (:status resp)))
-          (is (= 1 (count @calls)))
-          (is (= "windsurf" (nth (first @calls) 3))
-              "the windsurf hint still reaches launch! when no coordinate is
-               at stake — windsurf stays in the vocabulary"))))))
-
-(deftest endpoint-still-serves-every-position-carrying-editor
-  (testing "the decline must not make every editor fall back: each vocabulary
-            entry launch-editor CAN encode a position for still reaches
-            launch! with 27:9 and returns 2xx"
-    (doseq [[editor expected-cmd] [["vscode"          "code"]
-                                   ["vscode-insiders" "code-insiders"]
-                                   ["cursor"          "cursor"]
-                                   ["zed"             "zed"]
-                                   ["idea"            "idea"]]]
-      (testing (str "editor=" editor)
-        (let [calls (atom [])]
-          (with-launch-spy calls
-            (let [resp (rf.testbed.open-in-editor-server/handle
-                         (req {:query (str "file=fake_ns/core.cljs&line=27&column=9&editor=" editor)}))]
-              (is (<= 200 (:status resp) 299)
-                  "the endpoint is still preferred for this editor")
-              (is (= 1 (count @calls)) "launch! was invoked")
-              (let [[_abs line column cmd] (first @calls)]
-                (is (= expected-cmd cmd))
-                (is (= 27 line)   "the line survived to the launcher")
-                (is (= 9 column)  "the column survived to the launcher")))))))))
 
 ;; The endpoint's own `path:line:column` encoding is pinned by
 ;; `build-file-spec-normalizes-column-only-to-line-1` above, which walks all
