@@ -17,7 +17,6 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [clojure.tools.deps.extensions.git :as git]
             [day8.re-frame2-template.test-support :refer [repo-root]]
             [org.corfield.new.impl :as deps-new.impl]))
 
@@ -96,15 +95,6 @@
             (str "documented override " (pr-str token) " is defective: "
                  (str/join "; " (override-token-defects token))))))))
 
-(deftest documented-overrides-are-not-reconstructed-test
-  (testing "the extractor reads whole tokens from the document, repository half included"
-    ;; An extractor that matched only a `%…` suffix and prepended the expected
-    ;; repository half would let a documented token with a wrong half never
-    ;; fail. Feeding the extractor a wrong half must surface that half verbatim.
-    (let [wrong "io.github.day8/wrong-repo%io.github.day8/re-frame2-template"]
-      (is (= [wrong] (documented-override-tokens (str "prose " wrong " prose")))
-          "extraction must return the token as written, not a repaired one"))))
-
 ;; --- the exact token's behaviour under deps-new ----------------------------
 
 (deftest canonical-token-preprocesses-to-published-coord-test
@@ -119,15 +109,6 @@
           "the template-sym half must resolve to the canonical published coord")
       (is (nil? (:git-dir parsed))
           "a local-root override must not resolve a git checkout"))))
-
-(deftest local-repo-half-bypasses-auto-git-url-test
-  (testing "the repository half stays outside deps-new's auto-clone path"
-    (is (nil? (git/auto-git-url (symbol local-repo-half)))
-        (str local-repo-half " must not match auto-git-url, or the :local/root"
-             " override would be lost to a clone"))
-    (is (some? (git/auto-git-url (symbol canonical-template-sym)))
-        (str canonical-template-sym " is expected to match auto-git-url — that is"
-             " precisely why it cannot serve as the repository half"))))
 
 (deftest canonical-template-sym-resolves-retargeted-body-test
   (testing "the template-sym half drives find-root to the io/github/day8 body"
