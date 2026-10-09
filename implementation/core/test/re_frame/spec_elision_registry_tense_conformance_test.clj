@@ -1,155 +1,36 @@
 (ns re-frame.spec-elision-registry-tense-conformance-test
-  "The spec-content PIN that keeps `spec/Tool-Pair.md` and
-  `spec/Security.md` from teaching an app-db elision registry at
-  `[:rf/runtime :elision …]` — there is none — in CURRENT TENSE.
-
-  ## What this pins
-
-  The elision declaration registry is durable **runtime-db** state at
-  `[:rf.runtime/elision …]` — one namespaced keyword — owned by core
-  (`implementation/core/src/re_frame/elision.cljc`; see
-  [Ownership.md](../../../spec/Ownership.md) row for `:rf.runtime/elision`).
-  It is NOT the app-db `[:rf/runtime :elision …]` root (two keywords). A spec
-  that teaches the app-db path in CURRENT TENSE produces false-green
-  direct-read privacy checks: a walker reading a dead registry emits raw
-  values. Both `spec/Tool-Pair.md §Direct-read privacy` and
-  `spec/Security.md §Direct-read privacy` are the authoritative direct-read
-  privacy contract that pair / off-box tools follow, so their prose MUST name
-  the live runtime-db registry, not an app-db path.
-
-  ## Where this guard lives
-
-  This spec-content invariant lives in the core JVM suite, which owns the
-  elision registry and hosts the sibling direct-read-privacy source pins
-  (`egress_chokepoint_conformance_test`, `error_catalogue_channel_conformance_
-  test`). Retired-history framing is allowed; only a CURRENT-TENSE app-db
-  reference fails.
-
-  ## How the guard works
-
-  For each of the two spec files: scan its lines for the app-db path form
-  `[:rf/runtime :elision` and DROP any line whose sentence frames the
-  mention as retired history (`retired` / `no longer` / `legacy` / `formerly`
-  / `used to` / `briefly sat`). Any surviving line is a CURRENT-TENSE claim of
-  the dead registry and fails the gate. The regex keys on the two-keyword
-  vector `[:rf/runtime :elision`, so the live one-keyword `[:rf.runtime/elision …]`
-  form (no space after `:rf.runtime/elision`) never matches and is not
-  disturbed.
-
-  A sanity anchor (`spec-files-read-and-still-teach-the-live-registry`) fails
-  loud if either file cannot be resolved / read, or does not contain the
-  live `[:rf.runtime/elision` form at all — so a moved / renamed / gutted
-  section cannot make the absence check pass vacuously.
-
-  JVM-only (`.clj`, NOT `*-cljs-test`): it `slurp`s the repo's `spec/*.md`
-  files, which only the JVM `clojure -M:test` runner can do. This test only
-  READS the spec files — it never edits them."
-  (:require [clojure.test :refer [deftest is testing]]
-            [clojure.java.io :as io]
-            [clojure.string :as str]))
-
-;; ---------------------------------------------------------------------------
-;; Repo-root + spec-file resolution
-;; ---------------------------------------------------------------------------
-
-(def ^:private guarded-spec-files
-  "The two authoritative direct-read-privacy spec files whose prose this gate
-  pins. Relative to the repo `spec/` dir."
-  ["Tool-Pair.md" "Security.md"])
+  "`spec/Tool-Pair.md` and `spec/Security.md` carry the direct-read privacy
+  contract that pair and off-box tools follow. The elision registry is
+  runtime-db state at `[:rf.runtime/elision …]`; a spec teaching the app-db path
+  `[:rf/runtime :elision …]` in current tense sends a walker to a dead registry,
+  where it emits raw values. A mention framed as retired history is allowed."
+  (:require [clojure.java.io :as io]
+            [clojure.string :as str]
+            [clojure.test :refer [deftest is]]))
 
 (def ^:private repo-root
-  "Repo root resolved from the JVM test CWD. The core `:test` alias runs from
-  `implementation/core/`, so the repo root is `../../`; the fallback bases
-  tolerate a transitional REPL run from `implementation/` or the repo root
-  itself. Pick the first candidate whose `spec/Tool-Pair.md` exists so the
-  slurp targets real content, not a phantom path."
+  "The first candidate base holding `spec/Tool-Pair.md`. The core `:test` alias
+  runs from `implementation/core/`, so `../..` is the usual answer."
   (->> ["../.." ".." "." "../../.."]
        (map io/file)
-       (filter #(.isFile (io/file % "spec" (first guarded-spec-files))))
+       (filter #(.isFile (io/file % "spec" "Tool-Pair.md")))
        first))
 
-(defn- spec-md
-  "Slurp `spec/<file-name>` from the resolved repo root, or nil if the root did
-  not resolve."
-  [file-name]
-  (when repo-root
-    (let [f (io/file repo-root "spec" file-name)]
-      (when (.isFile f) (slurp f)))))
-
-;; ---------------------------------------------------------------------------
-;; The current-tense app-db elision-registry predicate
-;; ---------------------------------------------------------------------------
-
-(defn- retired-framing?
-  "True if the line names the app-db path inside an explicit retired-history
-  framing (so it is documentation OF the retirement, not a live claim)."
-  [line]
-  (let [l (str/lower-case line)]
-    (boolean (or (str/includes? l "retired")
-                 (str/includes? l "no longer")
-                 (str/includes? l "legacy")
-                 (str/includes? l "formerly")
-                 (str/includes? l "used to")
-                 (str/includes? l "briefly sat")))))
-
-(defn- current-tense-app-db-elision-lines
-  "Return the lines of `md` that reference the app-db elision registry path
-  `[:rf/runtime :elision …]` in a CURRENT-TENSE framing (i.e. not inside a
-  retired-history sentence)."
-  [md]
+(defn- current-tense-app-db-elision-lines [md]
   (->> (str/split-lines md)
        (filter #(re-find #"\[:rf/runtime\s+:elision" %))
-       (remove retired-framing?)))
+       (remove #(re-find #"(?i)retired|no longer|legacy|formerly|used to|briefly sat" %))))
 
-;; ---------------------------------------------------------------------------
-;; Tests
-;; ---------------------------------------------------------------------------
-
-(deftest spec-files-read-and-still-teach-the-live-registry
-  (testing "Sanity: the repo root resolved from the JVM test CWD and BOTH
-            guarded spec files were read and teach the live runtime-db
-            `[:rf.runtime/elision` registry. A nil root, an unread file, or a
-            file that does not mention the live registry would make the
-            absence check below pass vacuously — fail loud instead."
-    (is (some? repo-root)
-        (str "repo root did not resolve from the JVM test CWD — expected a "
-             "candidate whose spec/" (first guarded-spec-files) " exists "
-             "(the core :test alias runs from implementation/core/, so ../.. "
-             "is the repo root)."))
-    (doseq [file-name guarded-spec-files]
-      (let [body (spec-md file-name)]
-        (is (some? body)
-            (str "spec/" file-name " could not be read from the resolved "
-                 "repo root — a moved / renamed file would silently void this "
-                 "gate."))
-        (when body
-          (is (str/includes? body "[:rf.runtime/elision")
-              (str "spec/" file-name " does not mention the live runtime-db "
-                   "`[:rf.runtime/elision` registry at all — the direct-read "
-                   "privacy section was moved or gutted, which would make the "
-                   "current-tense-app-db absence check pass vacuously. Confirm "
-                   "the section lives here (or re-home this pin).")))))))
-
-(deftest tool-pair-spec-elision-registry-is-runtime-db-not-app-db
-  (testing "spec/Tool-Pair.md direct-read privacy does NOT teach the app-db
-            [:rf/runtime :elision] registry in current tense"
-    (let [bad (current-tense-app-db-elision-lines (spec-md "Tool-Pair.md"))]
-      (is (empty? bad)
-          (str "spec/Tool-Pair.md references the RETIRED app-db "
-               "`[:rf/runtime :elision …]` elision registry in current tense. "
-               "Per EP-0001 the registry is runtime-db state at "
-               "`[:rf.runtime/elision …]` (elision.cljc). Update the text or "
-               "frame the mention as retired history. Offending line(s): "
-               (pr-str bad))))))
-
-(deftest security-spec-elision-registry-is-runtime-db-not-app-db
-  (testing "spec/Security.md does NOT teach the app-db [:rf/runtime :elision]
-            registry in current tense"
-    (let [bad (current-tense-app-db-elision-lines (spec-md "Security.md"))]
-      (is (empty? bad)
-          (str "spec/Security.md references the RETIRED app-db "
-               "`[:rf/runtime :elision …]` elision registry in current tense. "
-               "Per EP-0001 the sensitive-rollup reads the runtime-db "
-               "`[:rf.runtime/elision :sensitive-declarations]` registry. "
-               "Update the text or frame the mention as retired history. "
-               "Offending line(s): " (pr-str bad))))))
+(deftest guarded-specs-teach-the-runtime-db-elision-registry
+  (doseq [file-name ["Tool-Pair.md" "Security.md"]]
+    ;; A nil root or unreadable file throws here, which reds the test.
+    (let [body (slurp (io/file repo-root "spec" file-name))]
+      ;; Without the live form the section has moved or been gutted, and the
+      ;; absence check below would pass vacuously.
+      (is (str/includes? body "[:rf.runtime/elision")
+          (str "spec/" file-name " no longer mentions `[:rf.runtime/elision` — "
+               "re-home this pin with the direct-read privacy section"))
+      (is (empty? (current-tense-app-db-elision-lines body))
+          (str "spec/" file-name " teaches the retired app-db "
+               "`[:rf/runtime :elision …]` registry in current tense: "
+               (pr-str (current-tense-app-db-elision-lines body)))))))
