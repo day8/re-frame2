@@ -383,7 +383,7 @@
 ;; These arms pin the DOOR's half: the kind is recognised, the resolved frame
 ;; reaches the projector, and (guard G1) an ABSENT projector throws rather than
 ;; falling through to the kindless walk. The artefact's half is pinned in
-;; `re-frame.epoch-egress-redaction-cljs-test` §8. Sibling test namespaces load
+;; `re-frame.epoch-egress-redaction-cljs-test`. Sibling test namespaces load
 ;; `re-frame.epoch`, so each arm binds the hook explicitly.
 ;; ---------------------------------------------------------------------------
 
