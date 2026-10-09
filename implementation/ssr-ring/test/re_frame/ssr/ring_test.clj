@@ -295,6 +295,7 @@
       (fn [{frame :rf.frame/id request :rf.server/request} _] (reset! seen [frame request]) {}))
     ((rf.ssr.ring/ssr-handler (assoc minimal :initial-events [[:init/capture]])) request)
     (is (= request (second @seen)))
+    (is (some? (first @seen)) "a nil frame id would make the slot read below vacuous")
     (is (nil? (rf.ssr/get-request (first @seen))) "the slot dies with the request frame")))
 
 (deftest initial-events-fn-form-derives-vector-from-request
