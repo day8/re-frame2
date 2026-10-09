@@ -1,29 +1,15 @@
 (ns day8.re-frame2-template.template-emission-test
-  "Static-parse tests for the template's emitted cljs scaffold.
+  "Static-parse tests for the emitted cljs scaffold — no shadow-cljs, no Node.
 
-   The sibling `template_test.clj` verifies the generated file *shape*.
-   It does NOT verify that the emitted cljs files would actually compile
-   against the re-frame2 framework: a rename of a public var ships green
-   from shape-only checks because the template's resource tree is a
-   string — not a compile target — at template-build time.
-
-   This test closes the gap *cheaply* — no shadow-cljs, no Node, no
-   network. For each substrate's generated app it:
-
-     1. Parses the emitted `events_test.cljs` ns form and asserts the
-        expected requires are present.
-     2. Walks every emitted `.cljs` file for each `<alias>/<symbol>`
-        reference, resolves the alias against the ns form's requires, and
-        asserts the underlying symbol is actually defined in the framework
-        source under `implementation/`. If `re-frame.core/dispatch-sync`
-        were renamed, the emitted scaffold would ship stale and this fires.
-     3. Pins the hot-reload lifecycle facts of the emitted entry namespace:
-        one `^:dev/after-load` hook that renders, `init`
-        delegating to it, and exactly one retained React root.
-
-   The behavioural companion (`emitted_test_run_test.clj`) compiles and
-   runs the same scaffold; this one catches the most likely regression
-   in seconds."
+   `template_test.clj` grades the generated tree's shape, which a rename of a
+   public framework var would pass: the template's resources are strings, not
+   a compile target. For each substrate this parses every emitted `.cljs`
+   file, resolves each `<alias>/<symbol>` and each `:refer`-ed symbol to its
+   framework namespace, and asserts the symbol is still defined in that
+   namespace's source. It also pins the emitted test's requires and strict
+   coeffect policy, and the entry namespace's hot-reload and Story-entry
+   lifecycles. The behavioural tier, `emitted_test_run_test.clj`, compiles
+   and runs the same scaffold."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]
             [clojure.string :as string]
@@ -107,28 +93,13 @@
 
 (def ^:private framework-source-roots
   "Namespace family → the source root of the coordinate that publishes it,
-  relative to the repo root. MOST SPECIFIC FIRST: `framework-ns-file`
-  takes the first family that matches, and matching is on a namespace
-  SEGMENT boundary so `re-frame.adapter.reagent` cannot swallow
-  `re-frame.adapter.reagent-slim`.
-
-  An EXPLICIT map, because a string convention that special-cased a
-  whitelist of leaves under `implementation/adapters/<leaf>` and sent
-  everything else to core would be wrong twice over. `re-frame.fresco` and
-  `re-frame.fresco.substrate` are published from `implementation/fresco`
-  — neither arm would reach them, so the lookup would answer nil and
-  `audit-framework-symbol!` would take its `(is false …)` arm: a HARD FAIL,
-  on the first emission that names them, before any API usage is evaluated.
-  And a whitelist spelling the reagent-slim file with the ns's dash
-  (`adapter/reagent-slim.cljs`) misses the file on disk, which carries the
-  CLJS underscore (`adapter/reagent_slim.cljs`), so that arm would only
-  ever answer nil too. Deriving the rel path once, from the namespace,
-  avoids both.
-
-  This map describes where the FRAMEWORK's own source lives, so it is
-  complete for every family in `implementation/` — independent of which
-  substrates the template happens to emit. The substrate-keyed sibling
-  lives in `emitted_test_run_test.clj` as `substrate-local-roots`."
+  relative to the repo root, MOST SPECIFIC FIRST: the first family matching
+  on a namespace SEGMENT boundary wins, so `re-frame.adapter.reagent` cannot
+  swallow `re-frame.adapter.reagent-slim`. An explicit map, because the root
+  is not derivable from the name (`re-frame.fresco` ships from
+  implementation/fresco, `re-frame.adapter.use-frame` from core), and complete
+  for every family in `implementation/` whichever substrates the template
+  emits. A family missing here is a hard failure in `audit-framework-symbol!`."
   [["re-frame.adapter.reagent-slim" "implementation/adapters/reagent-slim/src"]
    ["re-frame.adapter.reagent"      "implementation/adapters/reagent/src"]
    ["re-frame.adapter.uix"          "implementation/adapters/uix/src"]
@@ -314,18 +285,12 @@
 
 ;; --- The hot-reload lifecycle -----------------------------------------------
 ;;
-;; On shadow-cljs 3.4.10, a `:browser` build whose only entry point
-;; is a module `:init-fn` does NOT re-render after a hot reload. shadow loads
-;; the new code, logs "reloading code but no :after-load hooks are
-;; configured!", and `#app` goes on painting the OLD view. The `:init-fn` is
-;; called once, at bundle load. So every emitted entry namespace carries a
-;; `^:dev/after-load` hook that renders, `init` delegates to it, and the React
-;; root is created exactly once and retained across reloads. These are the
-;; facts pinned here, on the emitted `core.cljs` itself. On BOTH substrates
-;; the retained root is the adapter-owned client root: one
-;; `<adapter>/client-root` allocation, rendered through with
-;; `<adapter>/render!`. The UIx app holds no raw `uix-dom/create-root` Root
-;; of its own.
+;; On shadow-cljs 3.4.10 a `:browser` build whose only entry is a module
+;; `:init-fn` does not re-render after a hot reload: `#app` keeps painting the
+;; old view. So every emitted entry namespace carries one `^:dev/after-load`
+;; hook that renders, `init` delegates to it, and the React root — the
+;; adapter's `client-root`, rendered through its `render!` — is created once
+;; and retained across reloads.
 
 (defn- hook-body
   "The source text of the `^:dev/after-load <hook>` form: from its metadata
@@ -368,14 +333,10 @@
 
 ;; --- The Story entry --------------------------------------------------------
 ;;
-;; shadow-cljs.edn's `:dev` override boots `stories/init` in watch and
-;; compile, and a release boots `core/init`. Two facts keep that honest.
-;; `core.cljs` never names Story, so nothing a release compiles reaches it;
-;; `template_test.clj`'s contract pins that on both substrates. And
-;; `stories/init` renames the mount node BEFORE it mounts the shell, pinned
-;; here: `core/mount!` is a `^:dev/after-load` hook that runs after every
-;; save, and on a node still called `app` it renders the counter over the
-;; shell, and React logs its second-`createRoot` error in the console.
+;; The `:dev` build boots `stories/init`, a release `core/init`.
+;; `stories/init` renames the mount node BEFORE it mounts the shell, because
+;; `core/mount!` runs after every save, and on a node still called `app` it
+;; would render the counter over the shell.
 
 (deftest story-entry-lifecycle-test
   (testing "stories/init sends #/stories to the shell on a renamed node and every
