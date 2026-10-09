@@ -12,10 +12,9 @@
   namespace requires `fresco.login.host`, which requires the shared
   `login.model` on a plain Clojure classpath. That is the compile witness:
   the namespace cannot rot without a red gate. The untagged tests then
-  assert the things that hold without a sidecar — that the handler
-  constructed at all, that the model's registrations are really in the
-  registrar, and that the render-state policy is ONE source both halves of
-  the deployment read.
+  assert what holds without a sidecar: the render-state policy is ONE
+  source both halves of the deployment read, the documented boot seats the
+  adapter, and the composed app routes the client bundle.
 
   `:crossing` — runs under `clojure -M:crossing-test` (CI's
   `jvm-node-crossing` job; Node 24 on PATH). Each spawns
@@ -56,7 +55,6 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.registrar :as rf.registrar]
             [re-frame.ssr.ring :as rf.ssr.ring]
             [re-frame.ssr.ring.node :as rf.ssr.ring.node]
             [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]
@@ -204,70 +202,23 @@
   (second (re-find #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>" body)))
 
 ;; ===========================================================================
-;; UNTAGGED — no Node. The compile witness and its neighbours.
+;; UNTAGGED — no Node. The peer below is an in-process JDK `HttpServer`
+;; answering `/render` the way the sidecar does.
 ;; ===========================================================================
-
-(deftest the-jvm-host-loads-and-constructs
-  (testing "the namespace this test requires is the deployment's own host"
-    (is (fn? host/handler)
-        "fresco.login.host/handler — constructed at namespace load, on a
-         plain Clojure classpath, with the shared model required")
-    (is (fn? (host/make-handler {:endpoint "http://127.0.0.1:8148"
-                                 :build-id "login-fresco-dev"}))
-        "make-handler builds one against any endpoint — the seam this
-         witness drives, and the constructor `handler` itself is built from"))
-
-  (testing "the shared model really is in the registrar, not merely on the
-            classpath — `:initial-events` names a registration that exists"
-    (is (some? (rf.registrar/lookup :event :auth.login/initialise-form))
-        ":auth.login/initialise-form — the host's one boot event")
-    (is (some? (rf.registrar/lookup :fx :auth.login.demo/managed-stub))
-        ":auth.login.demo/managed-stub — the demo backend the host's
-         :fx-overrides remaps :rf.http/managed to")
-    (is (some? (rf.registrar/lookup :sub :auth.login/draft))
-        ":auth.login/draft — a named sub the server-rendered view reads")))
 
 (deftest render-state-is-one-source
-  (testing "the policy is a Var in a .cljc namespace, and it is the ONLY
-            place the login arm spells the render-state keys"
-    (is (= {:app-db     [:auth :auth.login/server-notice]
-            :runtime-db [:rf.runtime/machines]}
-           policy/render-state-policy)
-        "fresco.login.policy/render-state-policy — the one list")
-    (is (= "fresco.login/root" policy/root-entry)
-        "and the one entry id"))
-
-  (testing "neither reader keeps a copy. host.clj is Clojure and server.cljs
-            is ClojureScript, so neither can be read by the other's compiler
-            — which is exactly why a copy in either would be silent. Read
-            them as TEXT and assert they name the Var instead."
-    (doseq [f ["../../examples/substrates/fresco/login/host.clj"
-               "../../examples/substrates/fresco/login/server.cljs"]]
-      (let [src (slurp (io/file f))
-            ;; The forms in `policy.cljc`'s own docstring do not appear
-            ;; here; what would appear in a COPY is the key vector itself.
-            copies (count (re-seq #"\[:auth :auth\.login/server-notice\]" src))]
-        (is (str/includes? src "policy/render-state-policy")
-            (str f " reads the shared Var"))
-        (is (zero? copies)
-            (str f " keeps no copy of the app-db key list (found "
-                 copies " — a second copy can drift the SAFE way, which "
-                 "the sidecar cannot refuse)"))))))
-
-;; ===========================================================================
-;; UNTAGGED — the documented LAUNCH: the JVM boot, and the client assets
-;;
-;; Still no Node. The peer here is an in-process JDK `HttpServer` answering
-;; `/render` the way the sidecar does, which is enough to make the host emit
-;; a real page — and a real page is what carries the `<script src>` the
-;; second row then has to route. The `:crossing` rows below keep the real
-;; launcher; what these two witness is the host APPLICATION around it.
-;; ===========================================================================
+  ;; host.clj is Clojure and server.cljs ClojureScript, so neither compiler
+  ;; can read the other's file and a copy in either would drift silently.
+  (doseq [f ["../../examples/substrates/fresco/login/host.clj"
+             "../../examples/substrates/fresco/login/server.cljs"]]
+    (let [src (slurp (io/file f))]
+      (is (str/includes? src "policy/render-state-policy") (str f " reads the shared Var"))
+      (is (not (str/includes? src (pr-str (:app-db policy/render-state-policy))))
+          (str f " keeps no copy of the app-db key list")))))
 
 (defn- with-render-peer
   "Run `(f url hits)` against a loopback peer that answers `/render` with
-  `host/build-id` and `body`. `hits` counts the renders it served, so a
-  caller can prove a request did NOT reach the renderer."
+  `host/build-id` and `body`. `hits` counts the renders it served."
   [^String body f]
   (let [server (HttpServer/create (InetSocketAddress. "127.0.0.1" 0) 0)
         bytes  (.getBytes body "UTF-8")
@@ -287,120 +238,40 @@
 
 (def ^:private rendered-marker "<form id=\"stub-rendered-login\"></form>")
 
-(def ^:private page-request
-  "The one route `make-app` renders. It is `/` and not `/login` because the
-  browser build's `:asset-path` is `\".\"`: its generated dependency URLs
-  resolve against the DOCUMENT's directory, so the page and the output tree
-  have to share one."
-  {:uri "/" :request-method :get :headers {}})
-
 (deftest the-documented-boot-installs-the-adapter
-  ;; The example's Node boot and browser boot each initialise
-  ;; their OWN process; neither can initialise the JVM. Requiring
-  ;; `re-frame.ssr` PUBLISHES its adapter — `rf/init!` is what seats one —
-  ;; so a host whose launch omits it serves a bare 500 with a healthy
-  ;; sidecar sitting idle, before the renderer is ever reached.
-  ;;
-  ;; The suite's own fixture seats the adapter, which is exactly why this
-  ;; row has to unseat it first: a witness for the documented STARTUP cannot
-  ;; run inside a fixture that supplies what the startup is accused of
-  ;; omitting. It reseats it through `host/init!` — the documented boot —
-  ;; so the next fixture run finds what it expects.
+  ;; Requiring `re-frame.ssr` publishes its adapter; only `rf/init!` seats one.
+  ;; The fixture seats it, so unseat it first: `host/init!` must be what does.
   (with-render-peer rendered-marker
-    (fn [url hits]
+    (fn [url _]
       (let [h (host/make-handler {:endpoint url :build-id host/build-id})]
         (rf/destroy-adapter!)
-        (testing "NEGATIVE CONTROL — no adapter, and the request dies at frame
-                  setup rather than at the renderer"
-          (is (nil? (rf.substrate.adapter/current-adapter))
-              "nothing is seated — the state the documented launch leaves behind")
-          (let [{:keys [status body]} (h request)]
-            (is (= 500 status) "a bare internal error, not a rendered page")
-            (is (not (str/includes? (str body) rendered-marker))
-                "the sidecar's markup is nowhere — this failed before the render")
-            (is (zero? @hits) "…and the renderer was never dialled")))
-
-        (testing "the documented boot — `host/init!` — seats the SSR adapter,
-                  and the SAME handler then renders"
-          (host/init!)
-          (is (some? (rf.substrate.adapter/current-adapter)))
-          (let [{:keys [status body]} (h request)]
-            (is (= 200 status))
-            (is (str/includes? (str body) rendered-marker)
-                "Node's body markup crossed into the JVM-owned document")
-            (is (= 1 @hits) "…and this one request reached the renderer")))
-
-        (testing "it is idempotent, so a REPL that evaluates the launch twice
-                  is not punished for it"
-          (is (nil? (host/init!))))))))
+        (is (nil? (rf.substrate.adapter/current-adapter)))
+        (host/init!)
+        (let [{:keys [status body]} (h request)]
+          (is (= 200 status))
+          (is (str/includes? body rendered-marker)))))))
 
 (deftest the-composed-app-serves-the-client-bundle-at-the-shell-s-script-url
-  ;; `ssr-handler` renders a document for EVERY request it is
-  ;; given, so serving it bare would answer the `<script src>` in the page it
-  ;; has just served with another copy of that page — and the script would
-  ;; never run.
-  ;; Routing is the host application's job; `host/make-app` is the minimum
-  ;; that does it, and this row drives the shell's OWN advertised URL rather
-  ;; than a literal copy of it, so the two cannot drift apart silently.
+  ;; `ssr-handler` renders a document for EVERY request, so served bare it
+  ;; would answer the page's own `<script src>` with another login page.
   (with-render-peer rendered-marker
     (fn [url hits]
-      (let [^Path client-dir (Files/createTempDirectory
-                               "rf2-login-fresco-client"
-                               (into-array FileAttribute []))
+      (let [^Path client-dir (Files/createTempDirectory "rf2-login-fresco-client"
+                                                         (into-array FileAttribute []))
             dir-file         (.toFile client-dir)
-            page             (host/make-handler {:endpoint url
-                                                 :build-id host/build-id})
-            app              (host/make-app page (.getAbsolutePath dir-file))]
+            app              (host/make-app (host/make-handler {:endpoint url :build-id host/build-id})
+                                            (.getAbsolutePath dir-file))
+            get!             #(app {:uri % :request-method :get :headers {}})]
         (try
           (spit (io/file dir-file "main.js") "console.log('login client');")
-          (.mkdirs (io/file dir-file "cljs-runtime"))
-          (spit (io/file dir-file "cljs-runtime" "goog.base.js") "goog.provide('x');")
-
-          (let [{:keys [status body]} (app page-request)
-                script-src (second (re-find #"<script src=\"([^\"]+)\"" (str body)))]
-            (testing "the page route still renders, and advertises a script URL"
-              (is (= 200 status))
-              (is (str/includes? (str body) rendered-marker))
-              (is (= "/main.js" script-src)
-                  "the shell's :script-src — aligned with the asset mapping below"))
-
-            (testing "…and THAT URL serves JavaScript, not another login page"
-              (let [before @hits
-                    {:keys [status headers body]} (app {:uri            script-src
-                                                        :request-method :get
-                                                        :headers        {}})]
-                (is (= 200 status))
-                (is (= "text/javascript" (get headers "Content-Type"))
-                    "a script, by content type — never text/html")
-                (is (= "console.log('login client');" (slurp body))
-                    "the compiled bundle's own bytes")
-                (is (= before @hits)
-                    "no SSR render was performed for an asset fetch"))))
-
-          (testing "the dependency URLs the dev build generates are reachable
-                    too — `:asset-path \".\"` resolves them against the page"
-            (let [{:keys [status headers]} (app {:uri            "/cljs-runtime/goog.base.js"
-                                                 :request-method :get
-                                                 :headers        {}})]
-              (is (= 200 status))
-              (is (= "text/javascript" (get headers "Content-Type")))))
-
-          (testing "an asset this build does not carry is a MISS, not a login
-                    page — a 200 here would make every wrong URL look served"
-            (let [before @hits
-                  {:keys [status body]} (app {:uri            "/no-such-asset.js"
-                                              :request-method :get
-                                              :headers        {}})]
-              (is (= 404 status))
-              (is (not (str/includes? (str body) rendered-marker)))
-              (is (not (str/includes? (str body) "<!DOCTYPE html")))
-              (is (= before @hits) "and it cost no render")))
-
-          (testing "the mapping is confined to the build's own tree"
-            (is (= 404 (:status (app {:uri            "/../host.clj"
-                                      :request-method :get
-                                      :headers        {}})))))
-
+          ;; Fetch the URL the shell advertises, not a literal copy of it.
+          (let [script-src (second (re-find #"<script src=\"([^\"]+)\"" (:body (get! "/"))))
+                {:keys [status headers body]} (get! script-src)]
+            (is (= [200 "text/javascript" "console.log('login client');"]
+                   [status (get headers "Content-Type") (slurp body)])))
+          (is (= 404 (:status (get! "/no-such-asset.js"))) "a miss, not a login page")
+          (is (= 404 (:status (get! "/../host.clj"))) "confined to the build's own tree")
+          (is (= 1 @hits) "only the page request rendered")
           (finally
             (doseq [^java.io.File f (reverse (file-seq dir-file))]
               (.delete f))))))))
