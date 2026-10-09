@@ -1884,7 +1884,6 @@
         ;; drains FIFO inside the birth macrostep instead of escaping to the
         ;; outbound fx layer.
         (rf.machines.result/ok boot-snapshot (vec entry-fx))
-        0
         false))))
 
 (declare apply-initial-entry-cascade*)
