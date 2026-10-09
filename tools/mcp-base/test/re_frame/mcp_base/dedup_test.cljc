@@ -58,6 +58,14 @@
     (is (= '#{de-dupe.cache/cache-0 de-dupe.cache/cache-1}
            (set (keys (rf.mcp-base.dedup/de-dupe-eq [shared shared])))))))
 
+(deftest cache-ids-are-allocated-per-call-not-globally
+  ;; The id counter is call-local, so an intervening encode cannot shift
+  ;; this one's slot ids.
+  (let [sub         {:big [:repeated :subtree]}
+        first-cache (rf.mcp-base.dedup/de-dupe-eq [sub sub])]
+    (rf.mcp-base.dedup/de-dupe-eq {:unrelated [{:x 1} {:x 1} {:y 2} {:y 2}]})
+    (is (= first-cache (rf.mcp-base.dedup/de-dupe-eq [sub sub])))))
+
 #?(:clj
    (deftest concurrent-encodes-do-not-corrupt-each-other
      ;; A shared id counter would let parallel encodes reuse an id inside
