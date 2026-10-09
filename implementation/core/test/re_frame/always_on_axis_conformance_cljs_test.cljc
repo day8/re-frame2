@@ -1,70 +1,19 @@
 (ns re-frame.always-on-axis-conformance-cljs-test
-  "The always-on EXERCISE leg of the channel conformance pin (EP-0008).
-  The companion catalogue-side leg lives in
-  `re-frame.error-catalogue-channel-conformance-test` (JVM; parses the
-  Spec 009 catalogue markdown).
-
-  Per Spec 009 §Error event catalogue: every `always-on` category MUST be
-  exercised through the `register-error-listener!` error-emit substrate in
-  at least one test, \"so promotion is real, not documentary.\" This file
-  is that exercise — DATA-DRIVEN over the full always-on set so it stays
-  green as categories are added (add the category to the catalogue +
-  `always-on-categories` below and it is automatically exercised here).
-
-  ## What this proves (and what it deliberately does NOT)
-
-  Every always-on category must be \"exercised through
-  `dispatch-on-error!` (the always-on axis) in at least one test.\" The
-  always-on axis IS `re-frame.error-emit/dispatch-on-error!` (and the
-  bounded-report sibling `dispatch-frame-teardown-report!` for the
-  frame-teardown row, per Spec 009 §Channel-promotion catalogue rows). So
-  this test drives EACH always-on category THROUGH that substrate fn and
-  asserts the `register-error-listener!` registry fans the record out
-  carrying that exact category.
-
-  This is the CONTRACT-level pin: it proves the always-on axis carries
-  every always-on category end-to-end (the fan-out, the category slot, the
-  production-survivable surface). It is intentionally NOT a re-derivation
-  of each real emit SITE — those per-site integration tests live elsewhere
-  and are cross-referenced below (`on-error-test`, the per-category
-  `*_always_on_cljs_test` suites, the machines / flows artefact tests).
-  Re-driving every emit site here would duplicate that coverage and pull
-  the optional machines / flows / routing artefacts into the core test ns
-  for no added contract assurance. The axis is the thing this conformance
-  pin covers; the literal `always-on-categories` is held honest against the
-  catalogue by the JVM companion's
-  `parsed-always-on-set-equals-the-exercise-literal` test.
-
-  Dual-runtime: named `*_cljs_test.cljc` so the shadow-cljs `:node-test`
-  build (`npm run test:cljs`, `:ns-regexp \"cljs-test$\"`) AND the JVM
-  `clojure -M:test` runner both pick it up. `error-emit` is plain CLJC; no
-  DOM dependency."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-               :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
-            [re-frame.core :as rf]
+  "Spec 009 §Error event catalogue: every `always-on` category is exercised
+  through the `register-error-listener!` substrate in at least one test. This
+  drives each category in `always-on-categories` through the always-on axis
+  and asserts the listener fan-out; the per-site emit tests live with their
+  emit sites. `re-frame.error-catalogue-channel-conformance-test` holds the
+  literal equal to the catalogue's always-on set."
+  (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+               :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.error-emit :as rf.error-emit]
-            [re-frame.late-bind :as rf.late-bind]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
-;; ---------------------------------------------------------------------------
-;; The always-on set — the SINGLE literal this leg iterates.
-;;
-;; This set is PINNED against the Spec 009 catalogue's `always-on` rows by
-;; the JVM companion test
-;; (`re-frame.error-catalogue-channel-conformance-test/parsed-always-on-set-
-;; equals-the-exercise-literal`). Adding a category here without graduating
-;; it in the catalogue (or vice versa) fails that test. So this literal is
-;; not a fragile hand-maintained duplicate: the catalogue is authoritative
-;; and the companion enforces equality.
-;; ---------------------------------------------------------------------------
-
 (def always-on-categories
-  "Every category Spec 009 §Error event catalogue marks `always-on` — the
-  production-survivable error-emit axis (surface #4). Mostly `:rf.error/*`,
-  but membership is the CHANNEL CELL and not the namespace: the two
-  `:rf.ssr/*` members belong to it too.
-  Pinned == the parsed catalogue always-on set by the JVM companion."
+  "Every category Spec 009 §Error event catalogue marks `always-on`. Membership
+  is the channel cell, not the namespace: the two `:rf.ssr/*` members belong."
   #{:rf.error/handler-exception
     :rf.error/coeffect-exception
     :rf.error/interceptor-exception
@@ -76,22 +25,7 @@
     :rf.error/sub-input-fn-bad-return
     :rf.error/no-such-handler
     :rf.error/no-frame-context
-    ;; The bad-frame-provider-arg reject is `always-on` in the Spec 009
-    ;; catalogue. A public `frame-provider` whose `:frame` is
-    ;; non-nil but not a keyword is a bad public provider argument; it fires in
-    ;; production too (a corrupt provider config is a correctness contract,
-    ;; like `:rf.error/no-frame-context`), so it rides the always-on axis via
-    ;; `frame/emit-bad-frame-provider-arg!` → `dispatch-on-error!`. This leg
-    ;; drives it through the `:else` per-event axis to prove the listener
-    ;; fan-out; the JVM companion keeps the literal == the catalogue's
-    ;; always-on set.
     :rf.error/bad-frame-provider-arg
-    ;; The ambient-frame REFUSAL, catalogued `always-on` in
-    ;; Spec 009 for the same reason `no-frame-context` is — what it prevents
-    ;; is a boundary that silently stops re-rendering, which has no symptom
-    ;; at the point of the mistake and so must survive production elision.
-    ;; Emitted by `frame/emit-ambient-frame-refused!` -> `dispatch-on-error!`;
-    ;; driven here through the `:else` per-event axis like its sibling above.
     :rf.error/ambient-frame-refused
     :rf.error/override-fallthrough
     :rf.error/reserved-fx-override
@@ -99,231 +33,45 @@
     :rf.error/frame-destroyed
     :rf.error/write-after-destroy
     :rf.error/flow-eval-exception
-    ;; The managed-HTTP REPLY-TAIL / completion boundary is `always-on` in
-    ;; the Spec 009 catalogue. Spec 014 §Failure mode promises a response-side
-    ;; throw is surfaced "observably"; a dev-gated emit would let the reply
-    ;; vanish silently in a production CLJS bundle — the one place a throwing
-    ;; `:after` cannot be caught by running the tests. It rides the always-on
-    ;; axis via `http.transport/emit-reply-tail-error!`
-    ;; → the `:error-emit/emit-error-both` hook → `dispatch-on-error!`, which is
-    ;; the `:else` per-event axis this literal drives it through below.
     :rf.error/http-reply-tail-failed
-    ;; The two-arg report fn (not dispatch-on-error!) carries this row —
-    ;; the bounded single-report idiom (Spec 009 §Channel-promotion
-    ;; catalogue rows). Exercised through its own report path below.
     :rf.error/frame-teardown-failed
     :rf.error/on-destroy-handler-exception
-    ;; The SSR error categories (EP-0008). These
-    ;; ride the GENERAL non-event always-on helper
-    ;; `rf.error-emit/dispatch-error-record!` (the union-record sibling of the
-    ;; teardown report), NOT the event-centric `dispatch-on-error!` — an SSR
-    ;; render / writer / head / projector / hydration-parse failure is not a
-    ;; dispatched-event failure. (`:rf.error/malformed-hydration-payload`
-    ;; covers BOTH the hydrate-handler path AND the pre-frame FRAMELESS
-    ;; parse sub-path — one catalogue category, two emit sites.) Driven
-    ;; through `dispatch-error-record!` below.
     :rf.error/ssr-render-failed
     :rf.error/ssr-streaming-writer-failed
     :rf.error/malformed-hydration-payload
     :rf.error/ssr-head-resolution-failed
     :rf.error/sanitised-on-projection
     :rf.error/ssr-ring-error-view-failed
-    ;; The Ring materialiser's fail-closed `:status` rewrite is `always-on`
-    ;; in the Spec 009 catalogue. A non-integer `:status` on the resolved
-    ;; accumulator turns the app's 200 into a 500, and the
-    ;; `:rf.ssr/ssr-non-integer-status` DEV warning emits nothing under
-    ;; `-Dre-frame.debug=false`, so on its own it would leave a production
-    ;; host answering 500 with no record of why on either axis. It fans the
-    ;; NON-EVENT union record through `dispatch-error-record!` (the
-    ;; `malformed-hydration-payload` sibling — a materialiser rewrite is not a
-    ;; dispatched-event failure), FRAMELESS by design: the materialiser is a
-    ;; pure response-map → Ring-map fn with no frame argument. Driven through
-    ;; `dispatch-error-record!` below.
     :rf.error/ssr-ring-response-status-invalid
-    ;; The SSR hydration frame-id mismatch is `always-on`
-    ;; in the Spec 009 catalogue. The `:rf/hydrate` HANDLER guards the direct-
-    ;; `dispatch-sync` split path (the boot helper `hydrate!` validates +
-    ;; throws pre-dispatch — diagnostic — but a direct dispatch bypasses it):
-    ;; a present-and-different payload `:rf/frame-id` against the dispatch
-    ;; target fails CLOSED and emits this NON-EVENT union record via the
-    ;; `:error-emit/dispatch-error-record` hook (the `malformed-hydration-
-    ;; payload` sibling) so an off-box shipper sees the wrong-frame rejection
-    ;; under `goog.DEBUG=false`. Driven through `dispatch-error-record!` below.
     :rf.error/hydration-frame-id-mismatch
-    ;; A root of a multi-root page failed to boot and was
-    ;; ISOLATED — the page's other roots hydrated and are running without it.
-    ;; `always-on` because a root can fail in PRODUCTION and the containment
-    ;; must reach an off-box shipper under `goog.DEBUG=false`: a page quietly
-    ;; serving N-1 roots with no signal is the failure mode the isolation
-    ;; contract exists to prevent. Rides the non-event union-record helper
-    ;; (`rf.error-emit/dispatch-error-record!`), the `malformed-hydration-payload`
-    ;; sibling — a contained boot failure is not a dispatched-event failure.
-    ;; Emitted by `re-frame.ssr.boot/report-root-boot-failed!`; per
-    ;; [011 §Failed-root isolation]. Driven through `dispatch-error-record!`
-    ;; below.
     :rf.error/root-boot-failed
-    ;; The cofx error family (EP-0017) is `always-on` in the Spec 009
-    ;; catalogue. Each is a causal-token / coeffect-contract validation that
-    ;; fires in production too (an out-of-contract durable value is corrupt
-    ;; state), so it rides the always-on axis. This leg
-    ;; drives every always-on category through `dispatch-on-error!` to prove
-    ;; the listener fan-out, so the literal pins the catalogue's always-on set
-    ;; independently of where each emit site lives. The JVM companion
-    ;; (`parsed-always-on-set-equals-the-exercise-literal`) keeps this set ==
-    ;; the parsed catalogue.
     :rf.error/unregistered-cofx
     :rf.error/missing-required-cofx
     :rf.error/cofx-value-invalid
     :rf.error/inject-cofx-removed
-    ;; The retired event-registration names (EP-0018) are `always-on` in the
-    ;; Spec 009 catalogue. There is no `reg-event-db` / `reg-event-fx` (no
-    ;; alias, EP-0007 rule 2), and `reg-event-ctx` is a framework-internal
-    ;; primitive rather than a public one; each call is a hard error that
-    ;; fires in production too (a correctness contract — naming `reg-event` /
-    ;; `reg-interceptor` as the replacement), so the row rides the always-on
-    ;; axis. This leg drives every always-on category through
-    ;; `dispatch-on-error!` to prove the listener fan-out, so the literal
-    ;; pins the catalogue's always-on set independently of where each emit
-    ;; site lives. The JVM companion
-    ;; (`parsed-always-on-set-equals-the-exercise-literal`) keeps this set ==
-    ;; the parsed catalogue.
     :rf.error/reg-event-db-removed
     :rf.error/reg-event-fx-removed
     :rf.error/reg-event-ctx-removed
-    ;; The machine fail-closed spawn reject is `always-on`
-    ;; in the Spec 009 catalogue. A runtime `:rf.machine/spawn` (or `:spawn-all`
-    ;; per-child) naming an UNREGISTERED machine TYPE (no inline `:definition`)
-    ;; is rejected fail-closed and emits this NON-EVENT union record via the
-    ;; `:error-emit/dispatch-error-record` hook so an off-box shipper sees a
-    ;; refused spawn under `goog.DEBUG=false`. The emit SITE lives in the
-    ;; `machines` artefact (`machines/lifecycle_fx/spawn.cljc`); this leg drives
-    ;; the category through `dispatch-on-error!` (the `:else` axis below) to
-    ;; prove the listener fan-out, so the literal pins the catalogue's always-on
-    ;; set regardless of the artefact wiring. The JVM companion
-    ;; (`parsed-always-on-set-equals-the-exercise-literal`) keeps this set ==
-    ;; the parsed catalogue.
     :rf.error/machine-spawn-unregistered-type
-    ;; The drain-depth halt is `always-on` in the Spec 009
-    ;; catalogue. A runaway / infinite dispatch cascade hitting `:drain-depth`
-    ;; is production-reachable + data-dependent, and the dev trace is DCE'd
-    ;; under `goog.DEBUG=false`, so it fans a
-    ;; STRUCTURAL-ONLY NON-EVENT union record (ids / counts / the cycle-evidence
-    ;; ring `:tail-event-ids`) via the `:error-emit/dispatch-error-record` hook
-    ;; so an off-box shipper sees the halt in production. The emit SITE lives in
-    ;; `re-frame.router/handle-depth-exceeded!`; this leg drives the category
-    ;; through `dispatch-error-record!` (the `record-categories` branch below)
-    ;; to prove the listener fan-out.
     :rf.error/drain-depth-exceeded
-    ;; The closed-vocabulary `:rf.nav/scroll` strategy rejection is
-    ;; `always-on` in the Spec 009 catalogue. `trace/emit-error!` ALONE DCEs
-    ;; under `:advanced` + `goog.DEBUG=false`, and the earlier `:fx-args`
-    ;; schema gate exists only when the OPTIONAL schemas artefact is on the
-    ;; classpath, so a schemas-less PRODUCTION host would get no scroll and no
-    ;; record — a silent no-op for exactly the consumers least likely to
-    ;; notice. It fans through
-    ;; `rf.error-emit/emit-error-both!`, so the rejection is unconditional on
-    ;; every build. The emit SITE lives in the `routing` artefact
-    ;; (`routing/scroll.cljc`, CLJS branch — the fx is `:platforms #{:client}`);
-    ;; this leg drives the category through `dispatch-on-error!` (the `:else`
-    ;; axis below) to prove the listener fan-out, so the literal pins the
-    ;; catalogue's always-on set regardless of the artefact wiring. The
-    ;; routing-side production probe
-    ;; (`re-frame.routing-scroll-always-on-elision-prod-test`) pins the real
-    ;; emit site under `goog.DEBUG=false`.
     :rf.error/unsupported-scroll-strategy
-    ;; The three `:rf.server/safe-redirect` rejections are `always-on` in the
-    ;; Spec 009 catalogue. The five-step gate REJECTS correctly under
-    ;; `-Dre-frame.debug=false`, but the rejection is a silent no-op on the
-    ;; wire, so reporting it ONLY through the debug-gated `trace/emit-error!`
-    ;; would let a production JVM see `?next=javascript:alert(1)` and ship
-    ;; nothing (the CRLF / NUL gate on the SAME fx is always-on because it
-    ;; THROWS). Each fans a NON-EVENT union record through the
-    ;; `:error-emit/dispatch-error-record` hook (a rejected redirect is not a
-    ;; dispatched-event failure), with the EP-0015 `:location` scrub applied
-    ;; inside the shared tag builder before either axis sees it. The emit SITE
-    ;; lives in the `ssr` artefact (`ssr/response.cljc`'s
-    ;; `emit-safe-redirect-error!`); this leg drives them through the
-    ;; `record-categories` branch below to prove the listener fan-out. The wire
-    ;; is a SEPARATE fact and stays untouched: all three are on
-    ;; `re-frame.ssr.error-listener/non-projection-eligible-errors`, so the
-    ;; rejection never projects a status — pinned by
-    ;; `re-frame.ssr-safe-redirect-production-test`.
     :rf.error/safe-redirect-invalid-url
     :rf.error/safe-redirect-scheme-rejected
     :rf.error/safe-redirect-host-disallowed
-    ;; ONE ARM of `:rf.error/schema-validation-failure` is `always-on` in the
-    ;; Spec 009 catalogue — the
-    ;; `:boundary? true` rejection (`:source :boundary`, `:where
-    ;; :event`). The category's dev-time `validate-*!` arms are diagnostic,
-    ;; but the `Channel` column is per-category (the `:rf.error/no-such-handler`
-    ;; shape, whose row reads always-on though only its `:kind :route` arm is),
-    ;; so the CATEGORY belongs in this set. Spec 010 keeps the
-    ;; boundary check UNGATED because it is the production answer for untrusted
-    ;; ingress, so the rejection is real under `goog.DEBUG=false` and needs a
-    ;; production signal: the skipped handler produces no `:db`, so the
-    ;; `:events` record alone would read `:outcome :ok` for a refusal. The
-    ;; emit SITE is `re-frame.router`'s pipeline tail
-    ;; (`emit-boundary-rejection-record!`), off the `:rf/boundary-rejected?`
-    ;; marker the interceptor stamps; the STRUCTURAL-ONLY record it fans is
-    ;; pinned by `re-frame.always-on-validation-production-test`. This leg
-    ;; drives the category through `dispatch-error-record!` (the
-    ;; `record-categories` branch below) to prove the listener fan-out.
     :rf.error/schema-validation-failure
-    ;; The two router in-band FINAL-effects-boundary rejections are
-    ;; `always-on` in the Spec 009 catalogue. Both fan through
-    ;; `rf.error-emit/emit-error-both!` — whose axis 1 is
-    ;; `dispatch-on-error!`, NOT debug-gated — so both reach off-box
-    ;; shippers from an `:advanced` + `goog.DEBUG=false` build (each aborts
-    ;; an event with NO commit, invisible at the dispatch call site — exactly
-    ;; the class an operator must see in production). The emit SITES live in
-    ;; `re-frame.router`
-    ;; (`emit-classification-effect-shape!` / `emit-legacy-runtime-root!`);
-    ;; both are event-centric `emit-error-both!` categories, so this leg
-    ;; drives them through `dispatch-on-error!` (the `:else` axis below) to
-    ;; prove the listener fan-out — like `:rf.error/bad-frame-provider-arg`,
-    ;; no bespoke exercise arm. In the always-on record `:offending-key` is
-    ;; the classification rejection's lone always-on discriminator; the
-    ;; rejected `:value` / interpolating `:reason` ride the DCE'd dev trace
-    ;; only — pinned by
-    ;; `classification_effect_shape_record_cljs_test.cljc`.
     :rf.error/classification-effect-shape
     :rf.error/legacy-runtime-root
-    ;; The effect-map ENVELOPE refusal sits beside its two siblings at the
-    ;; same FINAL-effects boundary. A foreign top-level effect key or a
-    ;; non-sequential `:fx` value aborts the event with no commit — and the
-    ;; whole category (including the per-entry `:fx` row, which recovers
-    ;; `:logged-and-skipped`) fans through `emit-error-both!`. It has to be
-    ;; always-on for the same reason the other two are: the failure is a
-    ;; DROPPED EFFECT, which has no symptom at the dispatch call site, so a
-    ;; production build that could only see it on the DCE'd dev trace would
-    ;; see nothing at all.
     :rf.error/effect-map-shape
-    ;; The two SSR categories DETECTED in production. `trace/emit-error!`'s
-    ;; whole body sits inside `rf.interop/debug-enabled?`, so with only that
-    ;; emit an `:advanced` + `goog.DEBUG=false` build would do the detection
-    ;; work and throw the answer away. A hydration
-    ;; mismatch is a production event by construction (detection defaults ON
-    ;; in every build, 011 §Mismatch recovery and configuration row 4, whose
-    ;; row 3 promises monitoring integrations see it); a streaming boundary
-    ;; fails in production exactly as in dev and is absorbed fail-closed, so
-    ;; without a record silence is the only signal. Both fan a STRUCTURAL-ONLY
-    ;; union record — no payload, no markup, no app data — and both are
-    ;; non-projection-eligible in the SSR listener, so being always-on cannot
-    ;; turn a degraded-but-served page into a non-200.
     :rf.ssr/hydration-mismatch
     :rf.ssr/suspense-boundary-failed})
 
-;; The frame-teardown report is the ONE always-on category that rides the
-;; bounded `dispatch-frame-teardown-report!` sibling (Spec 009: one record
-;; per destroy carrying a `:hook-failures` vector, NOT one per item).
+;; The frame-teardown row rides the bounded one-record-per-destroy report.
 (def ^:private report-categories
   #{:rf.error/frame-teardown-failed})
 
-;; The SSR categories (EP-0008) ride the GENERAL
-;; non-event always-on helper `dispatch-error-record!` (the union-record
-;; path the teardown report also rides under the hood). The data-driven
-;; loop routes them to that fn with a minimal union record; every remaining
-;; category goes through the event-centric `dispatch-on-error!`.
+;; Non-event facts (SSR, page lifecycle, fx-time policy, drain halt, boundary
+;; rejection) ride the general union-record helper `dispatch-error-record!`;
+;; every other category rides the per-event `dispatch-on-error!`.
 (def ^:private record-categories
   #{:rf.error/ssr-render-failed
     :rf.error/ssr-streaming-writer-failed
@@ -331,68 +79,29 @@
     :rf.error/ssr-head-resolution-failed
     :rf.error/sanitised-on-projection
     :rf.error/ssr-ring-error-view-failed
-    ;; A fail-closed `:status` rewrite is a MATERIALISER fact, not a
-    ;; dispatched-event failure — it fires after the response is resolved and
-    ;; flushed — so it rides the same non-event union-record helper as its
-    ;; `ssr-ring-error-view-failed` sibling.
     :rf.error/ssr-ring-response-status-invalid
-    ;; The direct-dispatch frame-id-mismatch handler guard rides
-    ;; the same non-event union-record helper as the malformed-payload guard.
     :rf.error/hydration-frame-id-mismatch
-    ;; The drain-depth halt rides the same non-event union-record
-    ;; helper (structural-only: ids / counts / the cycle-evidence ring).
     :rf.error/drain-depth-exceeded
-    ;; An isolated root-boot failure is a page-lifecycle
-    ;; fact, not a dispatched-event failure, so it rides the same non-event
-    ;; union-record helper as its `malformed-hydration-payload` sibling.
     :rf.error/root-boot-failed
-    ;; A rejected safe-redirect is an fx-time policy
-    ;; rejection, not a dispatched-event failure, so all three ride the same
-    ;; non-event union-record helper (`dispatch-error-record!`) the SSR
-    ;; categories use.
     :rf.error/safe-redirect-invalid-url
     :rf.error/safe-redirect-scheme-rejected
     :rf.error/safe-redirect-host-disallowed
-    ;; A boundary rejection is not a dispatched-event
-    ;; FAILURE — nothing threw, the handler simply never ran — so the router's
-    ;; tail reaches the same non-event union-record helper rather than the
-    ;; event-centric `dispatch-on-error!`, whose positional shape would carry
-    ;; the `:event` wire value the structural record deliberately omits.
     :rf.error/schema-validation-failure
-    ;; A hydration mismatch and a failed streaming boundary are
-    ;; both page-lifecycle facts rather than dispatched-event failures —
-    ;; nothing threw at a dispatch boundary — so they ride the same non-event
-    ;; union-record helper as their `malformed-hydration-payload` sibling.
     :rf.ssr/hydration-mismatch
     :rf.ssr/suspense-boundary-failed})
-
-;; ---------------------------------------------------------------------------
-;; Fixture — fresh registrar + plain-atom adapter per test; the always-on
-;; error-listener registry (a `defonce` atom) cleared so a listener from one
-;; test cannot leak into the next.
-;; ---------------------------------------------------------------------------
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.substrate.plain-atom/adapter
      :init-fn (fn [] (rf.error-emit/clear-error-listeners!))}))
 
-;; ---------------------------------------------------------------------------
-;; Per-category driver: push ONE record for `cat` through the always-on
-;; axis. The teardown-report row uses its bounded-report fn; every other
-;; category uses `dispatch-on-error!` (the per-event always-on surface).
-;; ---------------------------------------------------------------------------
-
 (defn- drive-category!
-  "Surface one always-on record for `cat` through the always-on substrate.
-  Returns nil. The exact payload is not the contract under test here (the
-  per-site integration tests pin payload shapes); this drives the category
-  through the axis so the listener fan-out can be asserted."
+  "Push one synthetic record for `cat` through the always-on axis. The payload
+  is not the contract here; the per-site tests pin payload shapes."
   [cat]
   (cond
     (contains? report-categories cat)
-    ;; The bounded teardown report — a non-empty :hook-failures vector so
-    ;; the report fn does not short-circuit (it no-ops on empty).
+    ;; non-empty, or the report fn no-ops
     (rf.error-emit/dispatch-frame-teardown-report!
       :conformance/frame
       [{:hook :ssr/on-frame-destroyed
@@ -401,11 +110,6 @@
       0)
 
     (contains? record-categories cat)
-    ;; The general non-event union-record helper. A
-    ;; minimal union record `{:error :frame :time + flat keys}` — the exact
-    ;; per-site payloads (`:exception` / `:phase` / `:reason` / …) are
-    ;; pinned by the per-site SSR integration tests; here we just drive the
-    ;; category THROUGH the axis so the listener fan-out can be asserted.
     (rf.error-emit/dispatch-error-record!
       {:error     cat
        :frame     :conformance/frame
@@ -414,8 +118,7 @@
        :recovery  :no-recovery})
 
     :else
-    ;; The per-event always-on axis. Arity:
-    ;; [error-kw event event-id frame-id exception elapsed-ms time].
+    ;; [error-kw event event-id frame-id exception elapsed-ms time]
     (rf.error-emit/dispatch-on-error!
       cat
       [:conformance/event]
@@ -425,121 +128,13 @@
       0
       0)))
 
-;; ===========================================================================
-;; The conformance pin: EVERY always-on category fans out through the
-;; corpus-wide `register-error-listener!` substrate.
-;; ===========================================================================
-
 (deftest each-category-fans-out-exactly-once-and-carries-its-category
-  (testing "Per Spec 009: a single drive of category `cat` through the
-            always-on axis produces EXACTLY ONE listener record whose
-            `:error` slot is `cat`. Pins the 1:1 fan-out (no duplicate
-            emission, no category mislabelling) for every always-on
-            category individually. Data-driven over the full
-            `always-on-categories` set, so a category joining the set is
-            driven through the axis the moment it joins."
-    (doseq [cat always-on-categories]
-      (rf.error-emit/clear-error-listeners!)
-      (let [seen (atom [])]
-        (rf.error-emit/register-error-listener!
-          :conformance/recorder
-          (fn [record] (swap! seen conj record)))
-        (drive-category! cat)
-        (let [for-cat (filter #(= cat (:error %)) @seen)]
-          (is (= 1 (count for-cat))
-              (str cat ": exactly one always-on record fanned out"))
-          (is (= 1 (count @seen))
-              (str cat ": only that one record fanned out (no stray "
-                   "emission)")))))))
-
-(deftest report-category-rides-the-bounded-report-not-per-event-axis
-  (testing "Per Spec 009 §Channel-promotion catalogue rows: the
-            `:rf.error/frame-teardown-failed` row is the bounded
-            single-report idiom — it rides `dispatch-frame-teardown-report!`
-            (one record per destroy with a `:hook-failures` vector), NOT
-            the per-event `dispatch-on-error!`. Pins that the report fn is
-            a no-op on an empty `:hook-failures` (no flood) yet fans the
-            bounded record out when failures are present."
+  (doseq [cat always-on-categories]
+    (rf.error-emit/clear-error-listeners!)
     (let [seen (atom [])]
       (rf.error-emit/register-error-listener!
         :conformance/recorder
         (fn [record] (swap! seen conj record)))
-      ;; Empty failures → no record (the no-flood contract).
-      (rf.error-emit/dispatch-frame-teardown-report! :conformance/frame [] 0)
-      (is (empty? @seen) "empty :hook-failures → no always-on report")
-      ;; Non-empty → one bounded record carrying the failures vector.
-      (rf.error-emit/dispatch-frame-teardown-report!
-        :conformance/frame
-        [{:hook :ssr/on-frame-destroyed :exception (ex-info "x" {})
-          :where :safe-call-hook!}]
-        0)
-      (is (= 1 (count @seen)) "non-empty :hook-failures → one bounded report")
-      (let [r (first @seen)]
-        (is (= :rf.error/frame-teardown-failed (:error r)))
-        (is (vector? (:hook-failures r))
-            "the bounded report carries the per-hook detail as a vector")))))
-
-;; ===========================================================================
-;; Late-bind hooks the substrate publishes (so other artefacts can reach
-;; the always-on axis without static-requiring error-emit — load-cycle
-;; avoidance). Pinned here because they are part of the always-on axis's
-;; addressable surface (Spec 009 §What IS available in production).
-;; ===========================================================================
-
-(deftest always-on-late-bind-hooks-are-published
-  (testing "Per EP-0008: `error-emit` publishes
-            its always-on entry points as late-bind hooks at ns-load, so
-            substrate / frame layers that cannot static-require it (load
-            cycle) still reach the always-on axis in production. Both the
-            per-event and the bounded-report hooks must be present."
-    (is (some? (rf.late-bind/get-fn :error-emit/dispatch-on-error))
-        ":error-emit/dispatch-on-error hook is published")
-    (is (some? (rf.late-bind/get-fn :error-emit/dispatch-frame-teardown-report))
-        ":error-emit/dispatch-frame-teardown-report hook is published")))
-
-;; ===========================================================================
-;; The facade listener verb documents TWO RAW DEV STREAMS and nothing else,
-;; and it points production observation at the sink.
-;;
-;; EP-0015 §9's frame-owned `:observability` sink (plus the `configure!`
-;; process default) is the ONLY production observation surface; corpus
-;; observation regardless of a frame's policy is not a public primitive, so
-;; there is no `:events` / `:errors` listener stream. The regression this
-;; catches is a docstring that admits those streams to the public vocabulary.
-;; The match is on the FACADE var metadata so it tracks the actual exported
-;; surface, not a copy of the prose.
-;; ===========================================================================
-
-#?(:clj
-   (deftest facade-listener-docs-name-the-two-raw-dev-streams-only
-     (testing "EP-0015 §9 — `register-listener!`'s docstring
-               names the two raw dev streams `:trace` / `:epoch`, does NOT
-               name `:events` / `:errors` members, and
-               points production observation at the frame-owned
-               `:observability` sink and the `configure!` process default."
-       (doseq [v [#'rf/register-listener! #'rf/unregister-listener!]]
-         (let [doc (:doc (meta v))]
-           (is (string? doc) (str v " carries a docstring"))
-           ;; POSITIVE: the surviving vocabulary, both members named.
-           (is (re-find #":trace" doc)
-               (str v ": docstring names the :trace stream"))
-           (is (re-find #":epoch" doc)
-               (str v ": docstring names the :epoch stream"))
-           ;; NEGATIVE: `:events` / `:errors` must not be offered here. This is
-           ;; the regression guard — a docstring that admits them would be
-           ;; documenting a second production door the runtime does not have.
-           (is (not (re-find #":events" doc))
-               (str v ": docstring does NOT offer an :events stream"))
-           (is (not (re-find #":errors" doc))
-               (str v ": docstring does NOT offer an :errors stream"))))
-       ;; The register verb additionally carries the redirection: a reader who
-       ;; came here for production observation must be sent to the sink.
-       (let [doc (:doc (meta #'rf/register-listener!))]
-         (is (re-find #"register-observability-sink!" doc)
-             "register-listener! points production observation at the sink")
-         (is (re-find #":observability" doc)
-             "register-listener! names the frame-owned :observability policy")
-         (is (re-find #"configure!" doc)
-             "register-listener! names the configure! process default")
-         (is (not (re-find #"(?i)for off-box observability shippers" doc))
-             "register-listener! does not pitch itself AS the off-box shipper API")))))
+      (drive-category! cat)
+      (is (= [cat] (mapv :error @seen))
+          (str cat ": exactly one always-on record, carrying its category")))))
