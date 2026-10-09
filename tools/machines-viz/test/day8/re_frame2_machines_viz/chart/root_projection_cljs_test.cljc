@@ -42,11 +42,8 @@
           graph (layout/project-definition m)
           root  (root-container graph)
           twin  (node-with-id graph (layout/node-id [:twin]))]
-      (is (= "hello" (:entry root)))
-      (is (= "bye" (:exit root)))
-      (is (= #{:busy} (:tags root)))
-      (is (= ["rf/time-ms"] (:entry-requires root))
-          "the root's :entry resolves its declared requirements")
+      (is (= {:entry "hello" :exit "bye" :tags #{:busy} :entry-requires ["rf/time-ms"]}
+             (select-keys twin [:entry :exit :tags :entry-requires])))
       (is (= (select-keys twin lifecycle-keys) (select-keys root lifecycle-keys))
           "the root projects its lifecycle exactly as a state does")
       (is (= #{:a-tag} (:tags (node-with-id graph (layout/node-id [:a]))))
@@ -60,18 +57,13 @@
                  :actions lifecycle-actions
                  :regions {:r {:initial :a :states {:a {}}}}}
           root  (root-container (layout/project-definition m))]
-      (is (= "hello" (:entry root)))
-      (is (= "bye" (:exit root)))
-      (is (= #{:busy} (:tags root)))
-      (is (= ["rf/time-ms"] (:entry-requires root))))))
+      (is (= {:entry "hello" :exit "bye" :tags #{:busy} :entry-requires ["rf/time-ms"]}
+             (select-keys root [:entry :exit :tags :entry-requires]))))))
 
 (deftest root-container-without-lifecycle-carries-none
   (testing "a root declaring no lifecycle slot projects none, as a bare state does"
     (let [root (root-container (layout/project-definition {:initial :a :states {:a {}}}))]
-      (is (some? root))
-      (is (not (contains? root :entry)))
-      (is (not (contains? root :exit)))
-      (is (= #{} (:tags root))))))
+      (is (= {:tags #{}} (select-keys root [:entry :exit :tags]))))))
 
 (deftest root-lifecycle-reaches-the-renderer-data
   (testing "the frame's xyflow :data carries the root lifecycle in the keys a
@@ -81,10 +73,8 @@
                     :actions lifecycle-actions :states {:a {}}})
           graph  (projection/xyflow-graph parsed {} {})
           frame  (node-with-id graph layout/root-container-id)]
-      (is (= "hello" (:entry (:data frame))))
-      (is (= "bye" (:exit (:data frame))))
-      (is (= ["ui/busy"] (:tags (:data frame))))
-      (is (= ["rf/time-ms"] (:entryRequires (:data frame)))))))
+      (is (= {:entry "hello" :exit "bye" :tags ["ui/busy"] :entryRequires ["rf/time-ms"]}
+             (select-keys (:data frame) [:entry :exit :tags :entryRequires]))))))
 
 ;; ---- a region body's :entry / :exit / :tags --------------------------------
 
@@ -98,12 +88,9 @@
           graph  (layout/project-definition m)
           r      (node-with-id graph (layout/region-node-id :r))
           s      (node-with-id graph (layout/region-node-id :s))]
-      (is (= "r-in" (:entry r)))
-      (is (= "bye" (:exit r)))
-      (is (= #{:r-tag} (:tags r)))
-      (is (= ["rf/uuid"] (:entry-requires r)))
-      (is (not (contains? s :entry)) "a region declaring none carries none")
-      (is (= #{} (:tags s)))))
+      (is (= {:entry "r-in" :exit "bye" :tags #{:r-tag} :entry-requires ["rf/uuid"]}
+             (select-keys r [:entry :exit :tags :entry-requires])))
+      (is (= {:tags #{}} (select-keys s [:entry :tags])) "a region declaring none carries none")))
 
   (testing "a region container reads its OWN body, never a state inside the
             region that shares the region's name"
@@ -112,9 +99,7 @@
                :actions lifecycle-actions
                :regions {:r {:initial :r :states {:r {:entry :hello :tags #{:inner}}}}}})
           r (node-with-id m (layout/region-node-id :r))]
-      (is (not (contains? r :entry)))
-      (is (nil? (:entry-requires r)))
-      (is (= #{} (:tags r))))))
+      (is (= [false nil #{}] [(contains? r :entry) (:entry-requires r) (:tags r)])))))
 
 ;; ---- the root's :spawn child ----------------------------------------------
 
@@ -129,17 +114,10 @@
 (deftest flat-root-spawn-draws-its-completion-edges
   (testing "the root's :spawn :on-done / :on-error leave the machine-root chip
             and land on the top-level state a keyword target names"
-    (let [graph (layout/project-definition flat-root-spawn)
-          by-ev (into {} (map (juxt :event identity)) (spawn-edges graph))
-          done  (by-ev :rf.machine.spawn/done)
-          err   (by-ev :rf.machine.spawn/error)]
-      (is (= 2 (count (spawn-edges graph))))
-      (is (= layout/machine-root-id (:source done) (:source err)))
-      (is (= (layout/node-id [:b]) (:target done) (:target err)))
-      (is (= "✓ done" (:event-label done)))
-      (is (= "✗ error" (:event-label err)))
-      (is (true? (:on-done? done)))
-      (is (true? (:on-error? err)))
+    (let [graph (layout/project-definition flat-root-spawn)]
+      (is (= [[layout/machine-root-id (layout/node-id [:b])]
+              [layout/machine-root-id (layout/node-id [:b])]]
+             (map (juxt :source :target) (spawn-edges graph))))
       (is (some :machine-root? (:nodes graph)) "the chip the edges leave from is drawn")))
 
   (testing "they carry the flags and labels a spawning state's edges carry"
@@ -158,11 +136,10 @@
                    :spawn   {:machine-id :m :on-done (fn [{:keys [data]}] data)
                              :on-error {:action :log}}
                    :states  {:a {}}})
-          [e & more] (spawn-edges graph)]
-      (is (nil? more) "one edge: the fold draws none")
-      (is (= :rf.machine.spawn/error (:event e)))
-      (is (true? (:internal? e)))
-      (is (= layout/machine-root-id (:source e) (:target e))))))
+          mr    layout/machine-root-id]
+      (is (= [[:rf.machine.spawn/error true mr mr]]
+             (map (juxt :event :internal? :source :target) (spawn-edges graph)))
+          "one edge: the fold draws none"))))
 
 (deftest root-spawn-without-completions-draws-nothing
   (testing "a root :spawn with no completion transition draws no edge and no chip"
@@ -180,10 +157,9 @@
                              :on-error   {:target [[:r :b] [:s :y]]}}
                    :regions {:r {:initial :a :states {:a {} :b {}}}
                              :s {:initial :x :states {:x {} :y {}}}}})
-          edges (spawn-edges graph)]
-      (is (= #{[:rf.machine.spawn/done (layout/region-scoped-id :r [:b])]
-               [:rf.machine.spawn/error (layout/region-scoped-id :r [:b])]
-               [:rf.machine.spawn/error (layout/region-scoped-id :s [:y])]}
-             (set (map (juxt :event :target) edges))))
-      (is (every? #(= layout/machine-root-id (:source %)) edges))
+          mr    layout/machine-root-id]
+      (is (= #{[:rf.machine.spawn/done mr (layout/region-scoped-id :r [:b])]
+               [:rf.machine.spawn/error mr (layout/region-scoped-id :r [:b])]
+               [:rf.machine.spawn/error mr (layout/region-scoped-id :s [:y])]}
+             (set (map (juxt :event :source :target) (spawn-edges graph)))))
       (is (some :machine-root? (:nodes graph))))))
