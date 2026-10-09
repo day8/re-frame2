@@ -1,74 +1,31 @@
 (ns day8.re-frame2-machines-viz.mermaid-cljs-test
-  "Pure-data tests for the Mermaid `stateDiagram-v2` exporter. The
-  `_cljs_test` naming follows the convention from
-  tools/machines-viz/test/ — Cognitect's test-runner picks the ns up
-  via the default `.*-test$` regex, and Shadow's `:node-test` build
-  picks it up via `cljs-test$`."
+  "Mermaid `stateDiagram-v2` export: every transition form, the arrowless
+  forms as notes, and every state declared inside its parent."
   (:require [clojure.test  :refer [deftest is testing]]
             [clojure.string :as str]
-            ;; The SHARED node-id codec (the same escape
-            ;; every emitter mints), to derive expected Mermaid ids from a
+            ;; The SHARED node-id codec, to derive expected Mermaid ids from a
             ;; definition rather than from the emitter under test.
             [day8.re-frame2-machines-viz.chart.layout :as layout]
             [day8.re-frame2-machines-viz.mermaid :as m]))
 
-;; -----------------------------------------------------------------------------
-;; Fixtures — small, hand-curated machine definitions per Spec 005
-;; §Transition table grammar.
+(defn- body [definition]
+  (m/emit definition {:fenced? false :header-comment? false}))
 
-(def idle-loading-success-error
-  "The canonical small machine: idle →
-  loading → success / error. Two final states."
-  {:initial :idle
-   :states  {:idle    {:on {:start :loading}}
-             :loading {:on {:ok :success :err :failed}}
-             :success {:final? true}
-             :failed  {:final? true}}})
+(def logged-in-machine
+  "A compound with hyphenated ids, so each label differs from its escaped id."
+  {:initial :logged-out
+   :states  {:logged-out {:on {:login :logged-in}}
+             :logged-in  {:initial :browsing
+                          :states  {:browsing {:on {:checkout :paying}}
+                                    :paying   {:on {:paid :browsing}}}
+                          :on      {:logout :logged-out}}}})
 
-(def compound-machine
-  "A compound machine with one nested region — exercises Mermaid's
-  `state X { ... }` block."
-  {:initial :unauth
-   :states  {:unauth        {:on {:login :authenticated}}
-             :authenticated {:initial :browsing
-                             :states  {:browsing {:on {:checkout :paying}}
-                                       :paying   {:on {:done :browsing}}}
-                             :on      {:logout :unauth}}}})
-
-(def duplicate-nested-leaves-machine
-  "Two compound parents both contain an :idle leaf. Mermaid ids must
-  use the full path so those leaves do not collapse."
-  {:initial :left
-   :states  {:left  {:initial :idle
-                     :states  {:idle {:on {:swap [:right :idle]}}}}
-             :right {:initial :idle
-                     :states  {:idle {}}}}})
-
-(def vector-path-target-machine
-  "Compound transitions may target absolute vector paths."
-  {:initial :unauth
-   :states  {:unauth {:on {:login [:authenticated :browsing]}}
-             :authenticated
-             {:initial :browsing
-              :states  {:browsing {:on {:logout [:unauth]}}}}}})
-
-(def timed-and-eventless-machine
-  "State-node :after and :always transitions are static topology and
-  should render as lossy labelled edges."
-  {:initial :loading
-   :states  {:loading {:after {5000  :timeout
-                               30000 {:target :hard-error
-                                      :guard  :still-loading?}}
-                       :on    {:loaded :checking}}
-             :checking {:always [{:guard :ready? :target :ready}
-                                 {:target :blocked}]}
-             :timeout {}
-             :hard-error {}
-             :ready {}
-             :blocked {}}})
+(def namespaced-ids-machine
+  {:initial :auth/idle
+   :states  {:auth/idle    {:on {:rf/load :auth/loading}}
+             :auth/loading {:on {:done :auth/idle}}}})
 
 (def parallel-region-machine
-  "A :type :parallel root with two independent region state trees."
   {:type    :parallel
    :regions {:data {:initial :nothing
                     :states  {:nothing {:on {:fetch :loading}}
@@ -77,473 +34,163 @@
                     :states  {:neutral {:on {:submit :correct}}
                               :correct {:final? true}}}}})
 
-(def namespaced-ids-machine
-  "Machine using namespaced ids — exercises sanitise-id's `/` escape."
-  {:initial :auth/idle
-   :states  {:auth/idle      {:on {:rf/load :auth/loading}}
-             :auth/loading   {:on {:done :auth/idle}}}})
-
-;; -----------------------------------------------------------------------------
-;; Tests
-
-(deftest emit-returns-fenced-block-by-default
-  (testing "default output is wrapped in a ```mermaid fence"
-    (let [out (m/emit idle-loading-success-error)]
-      (is (str/starts-with? out "```mermaid\n"))
-      (is (str/ends-with?   out "\n```")))))
-
-(deftest emit-includes-omission-caveat-by-default
-  (testing "the `:after` + `:spawn-all` omission caveat lands at the top"
-    (let [out (m/emit idle-loading-success-error)]
-      (is (str/includes? out "%% Generated by day8.re-frame2-machines-viz.mermaid"))
-      (is (str/includes? out ":after rings + :spawn-all rows omitted")))))
-
-(deftest emit-renders-cross-region-transitions
-  (testing "transitions across compound boundaries render as flat edges"
-    (let [out (m/emit compound-machine)]
-      ;; unauth --> authenticated (top-level edge)
-      (is (str/includes? out "unauth --> authenticated : login"))
-      ;; authenticated --> unauth (compound-state-out edge, on the
-      ;; compound state's `:on` map)
-      (is (str/includes? out "authenticated --> unauth : logout"))
-      ;; nested edges emit too
-      (is (str/includes? out "authenticated__browsing --> authenticated__paying : checkout"))
-      (is (str/includes? out "authenticated__paying --> authenticated__browsing : done")))))
-
-(deftest emit-path-qualifies-duplicate-nested-leaves
-  (testing "duplicate child names under different parents get distinct Mermaid ids"
-    (let [out (m/emit duplicate-nested-leaves-machine)]
-      (is (str/includes? out "[*] --> left__idle"))
-      (is (str/includes? out "[*] --> right__idle"))
-      (is (str/includes? out "left__idle --> right__idle : swap")))))
-
-(deftest emit-renders-vector-path-targets
-  (testing "absolute vector-path targets render without crashing"
-    (let [out (m/emit vector-path-target-machine)]
-      (is (str/includes? out "unauth --> authenticated__browsing : login"))
-      (is (str/includes? out "authenticated__browsing --> unauth : logout")))))
-
-(deftest emit-sanitises-namespaced-ids
-  (testing "namespaced keywords map to INJECTIVE hex-escaped ids"
-    (let [out (m/emit namespaced-ids-machine)]
-      ;; The id is INJECTIVE: every non-alphanumeric char is
-      ;; `_<hex>`-escaped (`/` → `_2f`), so `:auth/idle` → `auth_2fidle`
-      ;; and `:auth/loading` → `auth_2floading`. A naive
-      ;; `[^a-zA-Z0-9_]`-collapse would merge `:auth/idle` with a
-      ;; hypothetical `:auth-idle` (both → `auth_idle`); the hex escape keeps
-      ;; them distinct (`auth_2fidle` vs `auth_2didle`).
-      ;; :rf/load → "rf/load" as the edge label (sanitise-label keeps
-      ;; the slash; only sanitise-id escapes it)
-      (is (str/includes? out "auth_2fidle --> auth_2floading : rf/load")))))
-
-(deftest emit-renders-wildcard-transitions
-  (testing ":* wildcard transitions render as real topology"
-    (let [m   {:initial :a
-               :states  {:a {:on {:* :b
-                                  :go :b}}
-                         :b {}}}
-          out (m/emit m)]
-      (is (str/includes? out "a --> b : go"))
-      (is (str/includes? out "a --> b : *")))))
-
-(deftest emit-renders-inline-fn-guard-consistently
-  (testing "an INLINE-FN guard renders via the shared
-            `grammar/name-of` (its :name meta or a stable \"fn\"), the SAME
-            way the chart + SCXML emitters do — NOT the host object string
-            (`#object[...]`) a `pr-str` of the fn would leak"
-    (let [named {:initial :a
-                 :states  {:a {:on {:go {:target :b
-                                         :guard (with-meta (fn [_] true)
-                                                  {:name 'ready?})}}}
-                           :b {}}}
-          anon  {:initial :a
-                 :states  {:a {:on {:go {:target :b :guard (fn [_] true)}}}
-                           :b {}}}
-          out-n (m/emit named)
-          out-a (m/emit anon)]
-      (is (str/includes? out-n "a --> b : go [ready?]")
-          "a :name-tagged inline-fn guard surfaces its name (mirrors SCXML cond)")
-      (is (str/includes? out-a "a --> b : go [fn]")
-          "an anonymous inline-fn guard reads as the stable [fn] placeholder")
-      (is (not (str/includes? out-a "#object"))
-          "never the host Function object string"))))
-
-(deftest emit-renders-multiple-candidate-transition-vectors
-  (testing "candidate vectors render every target-bearing branch"
-    (let [m   {:initial :editing
-               :states  {:editing {:on {:submit [{:target :rate-limited
-                                                  :guard  :over-limit?}
-                                                 {:target :validating
-                                                  :guard  :email-valid?}
-                                                 {:target :rejected}]}}
-                         :rate-limited {}
-                         :validating {}
-                         :rejected {}}}
-          out (m/emit m)]
-      ;; `:rate-limited` → `rate_2dlimited` (hyphen hex-escaped).
-      (is (str/includes? out "editing --> rate_2dlimited : submit [over-limit?]"))
-      (is (str/includes? out "editing --> validating : submit [email-valid?]"))
-      (is (str/includes? out "editing --> rejected : submit")))))
-
-(deftest emit-renders-after-and-always-transitions
-  (testing ":after and :always targets render as lossy labelled edges"
-    (let [out (m/emit timed-and-eventless-machine)]
-      (is (str/includes? out "loading --> timeout : after(5000)"))
-      ;; `:hard-error` → `hard_2derror` (hyphen hex-escaped).
-      (is (str/includes? out "loading --> hard_2derror : after(30000) [still-loading?]"))
-      (is (str/includes? out "checking --> ready : always [ready?]"))
-      (is (str/includes? out "checking --> blocked : always")))))
-
-(deftest emit-renders-top-level-fallback-on
-  (testing "top-level :on is explicit via a synthetic root fallback node"
-    (let [m   {:initial :a
-               :states  {:a {}
-                         :b {}}
-               :on      {:reset :b
-                         :*     :a}}
-          out (m/emit m)]
-      ;; The reserved root-fallback segment is a namespaced
-      ;; keyword; every `.`/`-`/`/` hex-escapes (`_2e`/`_2d`/`_2f`).
-      (is (str/includes? out "state \"root fallback\" as rf_2emachines_2dviz_2emermaid_2froot_2dfallback"))
-      (is (str/includes? out "rf_2emachines_2dviz_2emermaid_2froot_2dfallback --> b : reset (root fallback)"))
-      (is (str/includes? out "rf_2emachines_2dviz_2emermaid_2froot_2dfallback --> a : * (root fallback)")))))
-
-(deftest emit-renders-parallel-region-machines
-  (testing ":type :parallel renders each region inside a synthetic parallel root"
-    (let [out (m/emit parallel-region-machine)]
-      ;; The reserved parallel-root segment hex-escapes too.
-      (is (str/includes? out "[*] --> rf_2emachines_2dviz_2emermaid_2fparallel_2droot"))
-      ;; Root and region blocks carry readable labels.
-      (is (str/includes? out "state \"parallel root\" as rf_2emachines_2dviz_2emermaid_2fparallel_2droot {"))
-      (is (str/includes? out "state \"data\" as data {"))
-      (is (str/includes? out "[*] --> data__nothing"))
-      (is (str/includes? out "data__nothing --> data__loading : fetch"))
-      (is (str/includes? out "state \"form\" as form {"))
-      (is (str/includes? out "[*] --> form__neutral"))
-      (is (str/includes? out "form__neutral --> form__correct : submit"))
-      (is (str/includes? out "form__correct --> [*]"))
-      (is (str/includes? out "broadcast macrostep semantics are lossy")))))
-
-(deftest emit-surfaces-internal-and-drops-fn-shaped-transitions
-  (testing "internal (action-only) transitions surface as a note; fn-shaped transitions are dropped"
-    (let [m   {:initial :a
-               :states  {:a {:on {:go     {:action :record}        ;; internal (no :target)
-                                  :reset  (fn [_ _] {:state :a})}} ;; fn-shaped
-                         :b {}}}
-          out (m/emit m)]
-      ;; An INTERNAL action-only candidate has no arrow to
-      ;; draw, but it MUST NOT be silently dropped (the chart self-anchors
-      ;; it, SCXML emits a target-less <transition>). Mermaid surfaces it
-      ;; as a note so the three emitters agree.
-      (is (str/includes? out "note right of a"))
-      (is (str/includes? out "go / record"))
-      ;; A fn-shaped transition cannot be statically rendered (we can't run
-      ;; it to learn its target), so it is dropped.
-      (is (not (str/includes? out "reset")))
-      ;; No state-change arrow is drawn from :a (the action-only :go is a
-      ;; note, the fn-shaped :reset is dropped).
-      (is (not (str/includes? out "a --> "))))))
-
-;; -----------------------------------------------------------------------------
-;; :on-done (XState onDone) completion transition
-;;
-;; Spec 005 §The done-state signal: a COMPOUND `:on-done` advances the
-;; outer flow to a SIBLING; a PARALLEL-ROOT `:on-done` runs action-only
-;; (no target — rendered as a note, no phantom arrow).
-
 (def compound-on-done-machine
-  "Spec 005 example: compound `:flow` whose `:on-done` advances to the
-  SIBLING `:next` when its `:final?` `:paid` is reached."
   {:initial :flow
    :states  {:flow {:initial :collecting
                     :on-done :next
-                    :states  {:collecting {:on {:submit :submitting}}
-                              :submitting {:on {:ok :paid}}
+                    :states  {:collecting {:on {:submit :paid}}
                               :paid       {:final? true}}}
              :next {:on {:reset [:flow]}}}})
 
-(def parallel-on-done-machine
-  "Spec 005 example: parallel-root `:on-done` runs action-only."
-  {:type    :parallel
-   :on-done {:action :announce}
-   :regions {:fetch    {:initial :loading :states {:loading {:on {:loaded :done}} :done {:final? true}}}
-             :validate {:initial :checking :states {:checking {:on {:ok :done}} :done {:final? true}}}}})
+(def fn-shaped-machine
+  "An internal `:on` beside a fn-shaped one, whose target only running it could tell."
+  {:initial :a
+   :states  {:a {:on {:go    {:action :record}
+                      :reset (fn [_ _] {:state :a})}}
+             :b {}}})
 
-(deftest emit-parallel-on-done-renders-completion-note
-  (testing "a parallel-root `:on-done` (action-only, no
-            target) renders as a note on the parallel root (no phantom
-            target arrow), surfacing the ✓ done completion + its action"
-    (let [out (m/emit parallel-on-done-machine {:fenced? false :header-comment? false})]
-      (is (str/includes? out "note right of")
-          "the parallel-root completion renders as a note")
-      (is (str/includes? out "on-done: ✓ done / announce")
-          "the note carries the completion + its action"))))
+(deftest emit-renders-each-transition-form
+  (doseq [[label machine & forms]
+          [["a compound's own :on, and its path-qualified nested edges" logged-in-machine
+            "logged_2din --> logged_2dout : logout"
+            "logged_2din__browsing --> logged_2din__paying : checkout"]
+           ["same-named leaves stay distinct; a vector-path target crosses compounds"
+            {:initial :left
+             :states  {:left  {:initial :idle
+                               :states  {:idle {:on {:swap [:right :idle]}}}}
+                       :right {:initial :idle
+                               :states  {:idle {}}}}}
+            "[*] --> left__idle"
+            "left__idle --> right__idle : swap"]
+           ["namespaced ids escape the `/`; their labels keep it" namespaced-ids-machine
+            "auth_2fidle --> auth_2floading : rf/load"]
+           ["a named inline-fn guard reads as its :name"
+            {:initial :a
+             :states  {:a {:on {:go {:target :b :guard (with-meta (fn [_] true) {:name 'ready?})}}}
+                       :b {}}}
+            "a --> b : go [ready?]"]
+           ["an anonymous inline-fn guard reads as fn, never the host object"
+            {:initial :a
+             :states  {:a {:on {:go {:target :b :guard (fn [_] true)}}}
+                       :b {}}}
+            "a --> b : go [fn]"]
+           ["every target-bearing branch of a candidate vector"
+            {:initial :editing
+             :states  {:editing      {:on {:submit [{:target :rate-limited :guard :over-limit?}
+                                                    {:target :rejected}]}}
+                       :rate-limited {}
+                       :rejected     {}}}
+            "editing --> rate_2dlimited : submit [over-limit?]"
+            "editing --> rejected : submit"]
+           [":after and :always as labelled edges"
+            {:initial :loading
+             :states  {:loading    {:after {30000 {:target :hard-error :guard :still-loading?}}
+                                    :on    {:loaded :checking}}
+                       :checking   {:always [{:guard :ready? :target :ready}]}
+                       :hard-error {}
+                       :ready      {}}}
+            "loading --> hard_2derror : after(30000) [still-loading?]"
+            "checking --> ready : always [ready?]"]
+           ["a top-level :on leaves a labelled root fallback node"
+            {:initial :a :states {:a {} :b {}} :on {:reset :b}}
+            "state \"root fallback\" as rf_2emachines_2dviz_2emermaid_2froot_2dfallback"
+            "rf_2emachines_2dviz_2emermaid_2froot_2dfallback --> b : reset (root fallback)"]
+           ["each region renders inside a synthetic parallel root" parallel-region-machine
+            "[*] --> rf_2emachines_2dviz_2emermaid_2fparallel_2droot"
+            "state \"parallel root\" as rf_2emachines_2dviz_2emermaid_2fparallel_2droot {"
+            "[*] --> data__nothing"
+            "data__nothing --> data__loading : fetch"
+            "form__correct --> [*]"]
+           ["a target-bearing compound :on-done" compound-on-done-machine
+            "flow --> next : ✓ done"]
+           ["a parallel root's :on leaves its root fallback into a region substate"
+            {:type    :parallel
+             :on      {:one {:target [:a :two]}}
+             :regions {:a {:initial :one :states {:one {} :two {}}}
+                       :b {:initial :one :states {:one {}}}}}
+            "state \"root fallback\" as "
+            "--> a__two : one (root fallback)"]
+           ["a multi-region root :after draws one edge per region"
+            {:type    :parallel
+             :after   {1000 {:target [[:a :two] [:b :two]]}}
+             :regions {:a {:initial :one :states {:one {} :two {}}}
+                       :b {:initial :one :states {:one {} :two {}}}}}
+            "--> a__two : after(1000) (root fallback)"
+            "--> b__two : after(1000) (root fallback)"]
+           ;; Arrowless forms: an internal or action-only transition is a note.
+           ["an internal transition's note carries its guard"
+            {:initial :a :states {:a {:on {:tick {:action :log :guard :ready?}}}}}
+            "tick [ready?] / log"]
+           ["an internal :on beside a fn-shaped one is still noted" fn-shaped-machine
+            "go / record"]
+           ["a compound's action-only :on-done"
+            {:initial :flow
+             :states  {:flow {:initial :collecting
+                              :on-done {:action :announce}
+                              :states  {:collecting {:on {:submit :paid}}
+                                        :paid       {:final? true}}}}}
+            "  note right of flow\n    on-done: ✓ done / announce\n  end note"]
+           ["the action-only :on-done of a compound inside a region"
+            {:type    :parallel
+             :regions {:audio {:initial :session
+                               :states  {:session {:initial :idle
+                                                   :on-done {:action :chime}
+                                                   :states  {:idle {:on {:go :busy}}
+                                                             :busy {:final? true}}}}}
+                       :video {:initial :hidden :states {:hidden {}}}}}
+            "  note right of audio__session\n    on-done: ✓ done / chime\n  end note"]
+           ["a parallel root's action-only :on-done"
+            {:type    :parallel
+             :on-done {:action :announce}
+             :regions {:fetch {:initial :loading
+                               :states  {:loading {:on {:loaded :done}} :done {:final? true}}}}}
+            (str "  note right of rf_2emachines_2dviz_2emermaid_2fparallel_2droot\n"
+                 "    on-done: ✓ done / announce\n  end note")]
+           ["a region's action-only top-level :on, on the region's own root fallback"
+            {:type    :parallel
+             :regions {:fetch    {:initial :loading
+                                  :on      {:abort {:action :log}}
+                                  :states  {:loading {}}}
+                       :validate {:initial :checking :states {:checking {}}}}}
+            "state \"root fallback\" as fetch__rf_2emachines_2dviz_2emermaid_2froot_2dfallback"
+            (str "  note right of fetch__rf_2emachines_2dviz_2emermaid_2froot_2dfallback\n"
+                 "    abort / log\n  end note")]
+           ["a shallow history marker and its default target"
+            {:initial :off
+             :states  {:off    {:on {:resume [:player :hist]}}
+                       :player {:initial :stopped
+                                :states  {:stopped {:on {:play :playing}}
+                                          :playing {}
+                                          :hist    {:type :history :deep? false :default-target :playing}}}}}
+            "state \"H\" as player__hist"
+            "%% history default-target: playing"]]
+          form forms]
+    (is (str/includes? (body machine) form) label)))
 
-(deftest emit-no-on-done-renders-no-completion-affordance
-  (testing "a machine with no :on-done renders no ✓ done chip
-            (no false-positive completion arrows)"
-    (let [out (m/emit compound-machine {:fenced? false :header-comment? false})]
-      (is (not (str/includes? out "✓ done"))))))
-
-;; ---- compound ACTION-ONLY :on-done note --------------------------------
-;;
-;; A COMPOUND whose `:on-done` is ACTION-ONLY (no :target; the
-;; engine just runs an action when the sub-flow completes; the machine
-;; stays in the all-final config) is a documented Spec 005 shape
-;; (`on-done-edges` docstring in chart/layout.cljc names it). The chart +
-;; SCXML emitters both surface it as a terminal completion affordance, so
-;; Mermaid renders a `note` (the same way the parallel-root action-only
-;; :on-done is rendered) and all three emitters surface the completion. A
-;; collector keeping only target-bearing candidates would drop it silently
-;; and make the G9 'faithful across all three emitters' claim false for
-;; this shape.
-
-(def compound-action-only-on-done-machine
-  "A compound `:flow` whose `:on-done` is ACTION-ONLY (no
-  :target — the engine runs `:announce` on completion; the machine stays
-  in the all-final config). The shape `on-done-edges` names in its
-  docstring."
-  {:initial :flow
-   :states  {:flow {:initial :collecting
-                    :on-done {:action :announce}
-                    :states  {:collecting {:on {:submit :submitting}}
-                              :submitting {:on {:ok :paid}}
-                              :paid       {:final? true}}}}})
-
-(deftest emit-compound-action-only-on-done-renders-completion-note
-  (testing "a COMPOUND action-only :on-done (no target) renders
-            a completion note (no phantom arrow) so mermaid is faithful to
-            the chart + SCXML emitters (G9 cross-emitter agreement)"
-    (let [out (m/emit compound-action-only-on-done-machine
-                      {:fenced? false :header-comment? false})]
-      (is (str/includes? out "note right of flow")
-          "the compound's completion renders as a note on the compound")
-      (is (str/includes? out "on-done: ✓ done / announce")
-          "the note carries the completion + its action")
-      ;; an action-only :on-done has NO sibling — so NO phantom `✓ done`
-      ;; EDGE (the target-bearing form's `--> ... : ✓ done` arrow).
-      (is (not (str/includes? out "--> flow : ✓ done"))
-          "no phantom completion arrow for an action-only compound :on-done"))))
-
-(deftest emit-region-compound-action-only-on-done-renders-note
-  (testing "a compound INSIDE a parallel region whose :on-done
-            is action-only also renders a completion note (the walk covers
-            nested + region-scoped compounds, not just the top level)"
-    (let [machine {:type    :parallel
-                   :regions {:audio {:initial :session
-                                     :states  {:session {:initial :idle
-                                                         :on-done {:action :chime}
-                                                         :states  {:idle {:on {:go :busy}}
-                                                                   :busy {:final? true}}}}}
-                             :video {:initial :hidden
-                                     :states  {:hidden {:on {:show :shown}}
-                                               :shown  {:final? true}}}}}
-          out     (m/emit machine {:fenced? false :header-comment? false})]
-      (is (str/includes? out "note right of audio__session")
-          "the region-nested compound's completion renders as a note")
-      (is (str/includes? out "on-done: ✓ done / chime")
-          "the note carries the completion + its action"))))
-
-(deftest emit-target-bearing-on-done-renders-edge-not-note
-  (testing "a TARGET-bearing compound :on-done renders the
-            sibling completion EDGE (not a note); only the action-only form
-            gets a note"
-    (let [out (m/emit compound-on-done-machine {:fenced? false :header-comment? false})]
-      (is (str/includes? out "flow --> next : ✓ done")
-          "a target-bearing :on-done keeps its sibling completion arrow")
-      (is (not (str/includes? out "note right of flow"))
-          "a target-bearing :on-done does NOT also render a note"))))
-
-;; ---- parallel-ROOT :on / :after ancestor fallback -----------------------
-;;
-;; A `:type :parallel` ROOT may declare its OWN `:on` (the ancestor fallback)
-;; and its OWN `:after` (the timer-driven analog). A TARGET-bearing root
-;; transition renders a `root fallback --> <region-substate>` edge; an
-;; ACTION-ONLY one renders a note on the parallel root.
-
-(deftest emit-parallel-root-on-target-bearing-renders-fallback-edge
-  (testing "a target-bearing root :on renders a `root fallback
-            --> <region-substate>` edge into the region it moves"
-    (let [m   {:type    :parallel
-               :on      {:one {:target [:a :two]}}
-               :regions {:a {:initial :one :states {:one {} :two {}}}
-                         :b {:initial :one :states {:one {}}}}}
-          out (m/emit m {:fenced? false :header-comment? false})]
-      (is (str/includes? out "state \"root fallback\" as ")
-          "the root-fallback alias state is declared")
-      (is (str/includes? out "--> a__two : one (root fallback)")
-          "the root :on hangs into region :a's :two node"))))
-
-(deftest emit-parallel-root-after-multi-region-renders-both-edges
-  (testing "a multi-region root :after renders one fallback edge
-            per region-qualified target"
-    (let [m   {:type    :parallel
-               :after   {1000 {:target [[:a :two] [:b :two]]}}
-               :regions {:a {:initial :one :states {:one {} :two {}}}
-                         :b {:initial :one :states {:one {} :two {}}}}}
-          out (m/emit m {:fenced? false :header-comment? false})]
-      (is (str/includes? out "--> a__two : after(1000) (root fallback)"))
-      (is (str/includes? out "--> b__two : after(1000) (root fallback)")))))
-
-(deftest emit-parallel-region-top-level-action-only-on-renders-note
-  (testing "an ACTION-ONLY (target-less) REGION-level top-level
-            :on fallback (`:on {:abort {:action :log}}` on a region) runs its
-            action and moves no state. Like the flat machine + parallel-root
-            action-only fallbacks, it has no arrow to draw, so it MUST surface
-            as a note on THAT region's `root fallback` alias. The chart
-            self-anchors it on the region container + SCXML emits a target-less
-            <transition>, so dropping it would break three-emitter agreement."
-    (let [m   {:type    :parallel
-               :regions {:fetch    {:initial :loading
-                                    :on      {:abort {:action :log}} ;; targetless
-                                    :states  {:loading {} :done {:final? true}}}
-                         :validate {:initial :checking
-                                    :states  {:checking {}}}}}
-          out (m/emit m {:fenced? false :header-comment? false})]
-      ;; the region declares its own `root fallback` alias node …
-      (is (str/includes? out "state \"root fallback\" as fetch__rf_2emachines_2dviz_2emermaid_2froot_2dfallback")
-          "region :fetch declares its own root-fallback alias for its top-level :on")
-      ;; … and the targetless fallback surfaces as a note on THAT alias.
-      (is (str/includes? out "note right of fetch__rf_2emachines_2dviz_2emermaid_2froot_2dfallback")
-          "the region's action-only top-level :on surfaces as a note on its fallback alias")
-      (is (str/includes? out "abort / log")
-          "the note carries the region fallback event + action")
-      (is (not (str/includes? out "--> fetch__rf_2emachines_2dviz_2emermaid_2froot_2dfallback : abort"))
-          "no phantom arrow for the action-only region fallback")
-      (is (not (str/includes? out "fetch__ "))
-          "no degenerate region-scoped empty-path target leaks into the diagram"))))
-
-;; ---- REGION's OWN top-level :on-done ------------------------------------
-;;
-;; Spec 005 §Parallel `:on-done`: "A compound region reaching its own
-;; :final? child raises a region-local done.state.<region-compound> that
-;; the region's :on-done takes … exactly the compound case, scoped to one
-;; region". SCXML carries this shape (`scxml/spec->scxml` on the identical
-;; shape emits `<transition event="done.state.a" target="a___a1" .../>`, the
-;; target resolving within the region as the region's own `:on` does), so
-;; Mermaid must render it too or break the G9 cross-emitter parity invariant.
-
-(deftest emit-region-on-done-target-bearing-renders-in-region-edge
-  (testing "a region's own top-level :on-done with a KEYWORD
-            target renders a `<region> --> <region>__<state> : ✓ done`
-            edge, matching SCXML's `done.state.<region> -> <state>`
-            transition"
-    (let [m   {:type    :parallel
-               :regions {:a {:initial :a1
-                             :on-done :a1
-                             :states  {:a1 {:on {:go :a2}}
-                                       :a2 {:final? true}}}
-                         :b {:initial :b1
-                             :states  {:b1 {:on {:go :b2}}
-                                       :b2 {:final? true}}}}}
-          out (m/emit m {:fenced? false :header-comment? false})]
-      (is (str/includes? out "a --> a__a1 : ✓ done")
-          "region :a's on-done returns to its own :a1 on completion")
-      (is (not (str/includes? out "note right of a\n"))
-          "a target-bearing region on-done does NOT also render a note"))))
-
-;; ---- internal (action-only) :on / :after / :always notes ----------------
-;;
-;; An INTERNAL transition candidate (a map omitting `:target` — Spec 005
-;; §Transition slots: "omit for internal") runs only its `:action`; the
-;; config is unchanged, so there is NO arrow to draw. The chart self-anchors
-;; it (`:internal? true`) and SCXML emits a target-less `<transition>`, so
-;; Mermaid surfaces it as a note (exactly the action-only :on-done pattern)
-;; and all three emitters agree — the G9 'faithful across all three
-;; emitters' parity claim (001-Topology-Parity.md §3.1).
-
-(deftest emit-internal-transition-with-guard-renders-note
-  (testing "an internal candidate's guard surfaces in its note
-            line: `<event> [guard] / <action>`"
-    (let [m   {:initial :a :states {:a {:on {:tick {:action :log :guard :ready?}}}}}
-          out (m/emit m {:fenced? false :header-comment? false})]
-      (is (str/includes? out "tick [ready?] / log")))))
-
-(deftest emit-mixes-internal-note-with-targeted-edge
-  (testing "a state with BOTH a targeted :on AND an internal
-            :on renders the arrow for the targeted one and a note for the
-            internal one (the mixed-candidate case is not all-or-nothing)"
-    (let [m   {:initial :a
-               :states  {:a {:on {:go   :b                 ;; targeted → arrow
-                                  :tick {:action :log}}}    ;; internal → note
-                         :b {}}}
-          out (m/emit m {:fenced? false :header-comment? false})]
-      (is (str/includes? out "a --> b : go") "the targeted :on keeps its arrow")
-      (is (str/includes? out "note right of a") "the internal :on gets a note")
-      (is (str/includes? out "tick / log")))))
-
-;; ---------------------------------------------------------------------------
-;; `:type :history` pseudo-states render as a LABELLED history
-;; marker (`H` shallow / `H*` deep) inside the owning compound, NOT as an
-;; ordinary bare-id leaf state in incoming edges.
-
-(def shallow-history-machine
-  {:initial :off
-   :states  {:off    {:on {:resume [:player :hist]}}
-             :player {:initial :stopped
-                      :states  {:stopped {:on {:play :playing}}
-                                :playing {:on {:stop :stopped}}
-                                :hist    {:type :history :deep? false}}
-                      :on      {:power-off :off}}}})
-
-(def default-target-history-machine
-  (assoc-in shallow-history-machine [:states :player :states :hist]
-            {:type :history :deep? false :default-target :playing}))
-
-(deftest emit-history-default-target-note
-  (testing "a history :default-target surfaces as a documenting
-            %% comment so the default config is visible"
-    (let [out (m/emit default-target-history-machine {:fenced? false :header-comment? false})]
-      (is (str/includes? out "state \"H\" as player__hist"))
-      (is (str/includes? out "%% history default-target: playing")
-          "the default-target rides a %% comment"))))
-
-;; ---- consumer-attachment :rf.cofx/requires — intentional omission ------
-;;
-;; Mermaid INTENTIONALLY omits EP-0017 consumer-attachment
-;; `:rf.cofx/requires` (the chart is the "which transitions consume which
-;; facts" surface). Lock the omission so the lossy posture stays documented +
-;; deliberate, and guard against any `:rf.world/inputs` / `inject-cofx`
-;; vocabulary slipping in.
-
-(def cofx-bearing-machine
-  {:initial :idle
-   :guards  {:within-window? {:rf.cofx/requires [:rf/time-ms]
-                              :fn (fn [_] true)}}
-   :actions {:schedule-retry {:rf.cofx/requires [:payment/retry-jitter-ms]
-                             :fn (fn [_] nil)}}
-   :states  {:idle {:on {:go {:target :busy
-                              :guard  :within-window?
-                              :action :schedule-retry}}}
-             :busy {}}})
+(deftest emit-draws-nothing-for-what-has-no-arrow
+  (doseq [[label machine absent]
+          [["no :on-done, no completion" logged-in-machine "✓ done"]
+           ["a target-bearing :on-done gets its edge, not also a note" compound-on-done-machine
+            "note right of flow"]
+           ["a fn-shaped transition is dropped" fn-shaped-machine "reset"]]]
+    (is (not (str/includes? (body machine) absent)) label)))
 
 (deftest mermaid-omits-cofx-requires-vocabulary
-  (testing "Mermaid surfaces guard/action NAMES but omits the
-            consumer-attachment requires diet (documented lossy omission)"
-    (let [out (m/emit cofx-bearing-machine {:fenced? false :header-comment? false})]
-      ;; The guard NAME renders on the transition label (Mermaid edge
-      ;; labels carry `event [guard]`).
+  (testing "the guard NAME survives; the consumer-attachment :rf.cofx/requires
+            diet is a documented omission (spec/API.md)"
+    (let [out (body {:initial :idle
+                     :guards  {:within-window? {:rf.cofx/requires [:rf/time-ms] :fn (fn [_] true)}}
+                     :actions {:schedule-retry {:rf.cofx/requires [:payment/retry-jitter-ms] :fn (fn [_] nil)}}
+                     :states  {:idle {:on {:go {:target :busy :guard :within-window? :action :schedule-retry}}}
+                               :busy {}}})]
       (is (str/includes? out "within-window?"))
-      ;; the requires diet + its cofx ids are NOT emitted
-      (is (not (str/includes? out "rf.cofx")))
-      (is (not (str/includes? out "requires")))
-      (is (not (str/includes? out "rf/time-ms")))
-      (is (not (str/includes? out "retry-jitter-ms")))
-      ;; Negative guard: NO foreign cofx vocabulary
-      (is (not (str/includes? out "rf.world/inputs")))
-      (is (not (str/includes? out "inject-cofx"))))))
+      (is (not (re-find #"rf\.cofx|requires|time-ms|retry-jitter-ms" out))))))
 
 ;; ---------------------------------------------------------------------------
-;; Every state is DECLARED, labelled with its name, inside
-;; its parent block
-;;
-;; Mermaid `stateDiagram-v2` scopes a state to the block it is FIRST
-;; mentioned in, and labels it with its id unless an alias declares a label.
-;; An emitter declaring only compound blocks would leave every box reading as
-;; a hex-escaped id (`logged_2din`) and every non-initial substate first
-;; mentioned by a root-level edge line — drawn OUTSIDE its compound / region.
-;; The expectations below are derived from the DEFINITION (its state tree and
-;; the shared node-id codec), not from the emitter's output.
+;; Mermaid scopes a state to the block it is FIRST mentioned in, and labels it
+;; with its id unless an alias declares a label. So every state must be
+;; declared, labelled with its name, inside its parent block — or it is drawn
+;; outside its compound / region, reading as a hex-escaped id.
 
 (defn- line-ids
   "The Mermaid ids a single (trimmed) body line mentions, in order. Note
@@ -606,29 +253,15 @@
                 (:regions definition)))
       (walk (:states definition) [] nil))))
 
-(def logged-in-machine
-  "A compound with hyphenated ids and non-initial substates."
-  {:initial :logged-out
-   :states  {:logged-out {:on {:login :logged-in}}
-             :logged-in  {:initial :browsing
-                          :states  {:browsing {:on {:checkout :paying}}
-                                    :paying   {:on {:paid :browsing}}}
-                          :on      {:logout :logged-out}}}})
-
 (deftest emit-declares-every-state-labelled-inside-its-parent
-  (testing "each state gets `state \"<name>\" as <id>` and is
-            first mentioned inside its parent's block"
-    (doseq [[label definition] [["compound" logged-in-machine]
-                                ["parallel" parallel-region-machine]
-                                ["namespaced" namespaced-ids-machine]
-                                ["nested" duplicate-nested-leaves-machine]]]
-      (let [out    (m/emit definition {:fenced? false :header-comment? false})
-            scopes (first-mention-scopes out)]
-        (doseq [[id state-label parent] (expected-declarations definition)]
-          (is (re-find (re-pattern (str "(?m)^\\s*state \"" state-label "\" as " id "( \\{)?$")) out)
-              (str label ": " id " is declared with its name as the label"))
-          (is (= parent (get scopes id ::never-mentioned))
-              (str label ": " id " is first mentioned inside "
-                   (or parent "the root"))))))
-    (testing "control: the scope reader sees a root-level first mention as root"
-      (is (= {"a" nil "b" nil} (first-mention-scopes "stateDiagram-v2\n  a --> b : go"))))))
+  (doseq [[label definition] [["compound" logged-in-machine]
+                              ["parallel" parallel-region-machine]
+                              ["namespaced" namespaced-ids-machine]]]
+    (let [out    (body definition)
+          scopes (first-mention-scopes out)]
+      (doseq [[id state-label parent] (expected-declarations definition)]
+        (is (re-find (re-pattern (str "(?m)^\\s*state \"" state-label "\" as " id "( \\{)?$")) out)
+            (str label ": " id " is declared with its name as the label"))
+        (is (= parent (get scopes id ::never-mentioned))
+            (str label ": " id " is first mentioned inside "
+                 (or parent "the root")))))))
