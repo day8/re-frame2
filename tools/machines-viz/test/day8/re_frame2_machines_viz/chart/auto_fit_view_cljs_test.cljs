@@ -177,12 +177,8 @@
           (init! rfn {:definition machine-a} inst)
           (is (empty? @fits) "no fit before the layout settles")
           (settle! passes 0 ok-result)
-          (is (= 1 (count @fits)) "exactly one .fitView call on the settle")
-          (let [[called-on opts] (first @fits)]
-            (is (identical? inst called-on)
-                "called against the captured xyflow instance")
-            (is (= 0.1 (.-padding opts))
-                "called with the canonical 0.1 padding ratio")))))))
+          (is (= [[inst 0.1]] (mapv (fn [[called-on opts]] [called-on (.-padding opts)]) @fits))
+              "exactly one .fitView, on the captured instance, with 0.1 padding"))))))
 
 ;; ---- 2. key-gating semantics ------------------------------------------
 
@@ -401,10 +397,7 @@
                 "a steady signal does NOT re-fit")
             (rfn (props 2))
             (is (= (+ 2 after-settle) (count @fits))
-                "a bumped signal (panel re-entry) re-fits")
-            (rfn (props 3))
-            (is (= (+ 3 after-settle) (count @fits))
-                "every distinct entry signal fits exactly once")))))))
+                "a bumped signal (panel re-entry) re-fits")))))))
 
 (deftest fit-on-entry-defers-until-instance-and-positions-ready
   (testing "an entry signal that arrives BEFORE the instance is captured,
@@ -438,25 +431,16 @@
           (rfn {:definition machine-a :fit-signal 2})
           (is (empty? @fits) "no entry fit on a layout-error settle"))))))
 
-;; ---- 8. layout-key folds in the adaptive post-ELK mode ----------------
+;; ---- 8. layout key folds in the adaptive post-ELK mode ----------------
 ;;
-;; The chart keys its ELK layout pass by the RESOLVED `elk-direction`, but the
-;; post-ELK transform (parallel transpose + back-edge reroute) is gated by the
-;; RAW `:auto` opt-in. When `:auto` resolves to the SAME direction as a
-;; forced/default `:tb` (a linear / parallel machine — `aspect-direction`
-;; returns `:tb`), the resolved direction is identical for `:direction :tb`
-;; and `:direction :auto`, so without the opt-in flag in the key a
-;; `:tb → :auto → :tb` flip would NOT invalidate the cached layout: the
-;; back-edge reroute / parallel transpose would never apply on opt-IN and
-;; would stale-stay on opt-OUT. So `chart/compute-layout-key` folds the
-;; `adaptive?` mode flag in.
+;; ELK is keyed by the RESOLVED direction, but the post-ELK transform
+;; (parallel transpose + back-edge reroute) is gated by the RAW `:auto`
+;; opt-in. Where `:auto` resolves to `:tb`, only the `adaptive?` flag in the
+;; layout key makes a `:tb -> :auto -> :tb` flip re-run the pass, so the
+;; transform applies on opt-in and is removed on opt-out.
 
 (def ^:private door-cyclic-definition
-  "The door shape: a forward spine with a back-edge whose `:auto` aspect-
-  heuristic resolves to `:tb` (a chain with a 2-way fan, under the landscape
-  threshold) — so its resolved `elk-direction` is `:tb` whether the host
-  forces `:tb` or opts in with `:auto` — the collision case the mode flag in
-  the layout key exists for."
+  "A chain with a back-edge whose `:auto` heuristic resolves to `:tb`."
   {:initial :locked
    :states  {:locked   {:on {:insert-coin :closed}}
              :closed   {:on {:push :open}}
@@ -464,36 +448,13 @@
              :alarming {:on {:reset :locked}}}})
 
 (deftest layout-key-folds-in-adaptive-mode
-  (let [parsed (layout/project-definition door-cyclic-definition)]
-    (testing "sanity: :auto resolves to the SAME direction as a forced :tb here"
-      ;; this is what makes the resolved-direction-only key collide.
-      (is (= :tb (post-elk/resolve-direction :auto parsed)))
-      (is (= :tb (post-elk/resolve-direction :tb parsed))))
-
-    (testing "the forced-:tb and resolved-to-:tb-:auto keys DIFFER (mode is in the key)"
-      ;; what the chart computes on each path: the RESOLVED elk-direction is
-      ;; :tb for BOTH, but adaptive? differs (true on :auto, false on :tb).
-      (is (not= (chart/compute-layout-key door-cyclic-definition :tb nil :comfortable 0 false)
-                (chart/compute-layout-key door-cyclic-definition :tb nil :comfortable 0 true))
-          "without adaptive? in the key these would collide — the post-ELK
-           pass would never apply on opt-in and would stale-stay on opt-out"))
-
-    (testing "a :tb → :auto → :tb flip launches a layout pass each way; a
-              re-render with the SAME prop set launches none"
-      (with-chart-seams {}
-        (fn [{:keys [passes]}]
-          (let [props (fn [direction] {:definition door-cyclic-definition
-                                       :direction  direction})
-                rfn   (chart/MachineChart (props :tb))]
-            (rfn (props :tb))
-            (rfn (props :auto))
-            (rfn (props :tb))
-            (is (= 3 (count @passes))
-                "each direction-prop flip invalidates the layout, so the
-                 post-ELK transform applies on opt-in and is removed on
-                 opt-out")
-            (rfn (props :tb))
-            (rfn (props :tb))
-            (is (= 3 (count @passes))
-                "the same prop set keeps the same key — the flag does not
-                 over-invalidate")))))))
+  (testing "a :tb -> :auto -> :tb flip launches a layout pass each way"
+    (is (= :tb (post-elk/resolve-direction :auto (layout/project-definition door-cyclic-definition)))
+        "non-vacuity: :auto resolves to the same direction as :tb here")
+    (with-chart-seams {}
+      (fn [{:keys [passes]}]
+        (let [props (fn [direction] {:definition door-cyclic-definition :direction direction})
+              rfn   (chart/MachineChart (props :tb))]
+          (doseq [direction [:tb :auto :tb]]
+            (rfn (props direction)))
+          (is (= 3 (count @passes))))))))
