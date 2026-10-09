@@ -41,6 +41,11 @@
                        {:redirect {:status 302 :location 5}} nil)
                      [:headers "Location"]))))
 
+(deftest non-integer-status-fails-closed-to-500
+  ;; A float is a number but not a Ring status, and it is never coerced.
+  (is (= 500 (:status (rf.ssr.ring.pipeline/ssr-response->ring-response
+                        {:status 200.0 :headers []} "x")))))
+
 (deftest mixed-case-names-collapse-into-one-first-seen-key
   (is (= {"Vary" ["Accept" "Origin" "Accept-Encoding"]}
          (reduce rf.ssr.ring.headers/merge-pair-into-header-map
@@ -61,10 +66,10 @@
 
 (deftest non-string-header-value-emits-exactly-one-dev-warning
   ;; The string-valued header beside it is the no-false-positive control.
-  (let [warnings (atom 0)]
+  (let [warnings (atom [])]
     (rf/register-listener! :trace ::non-string-header-watch
       (fn [ev] (when (= :rf.ssr/ssr-non-string-header-value (:operation ev))
-                 (swap! warnings inc))))
+                 (swap! warnings conj [(:op-type ev) (select-keys (:tags ev) [:header :value-type])]))))
     (try
       (is (= {"X-Count" "5" "X-Custom" "v"}
              (reduce rf.ssr.ring.headers/merge-pair-into-header-map
@@ -72,7 +77,8 @@
                      [["X-Count" 5] ["X-Custom" "v"]])))
       (finally
         (rf/unregister-listener! :trace ::non-string-header-watch)))
-    (is (= 1 @warnings))))
+    ;; The slots are the ones the Spec 009 catalogue row lists.
+    (is (= [[:warning {:header "X-Count" :value-type "java.lang.Long"}]] @warnings))))
 
 (deftest middleware-default-match-renders-get-and-passes-other-methods-through
   (rf/reg-event :init/mw-blank {:platforms #{:server}} (fn [_ _] {}))
