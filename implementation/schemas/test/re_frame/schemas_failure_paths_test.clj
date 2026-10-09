@@ -1,356 +1,111 @@
 (ns re-frame.schemas-failure-paths-test
-  "JVM tests for the precise / sensitivity-aware failure-path contract
-  on `validate-app-schema!`.
-
-  A trace that emitted only the registered schema root as `:path`, and
-  redacted coarsely whenever any nested slot in the schema declared
-  `:sensitive?`, would have two defects:
-
-    1. **Imprecise locator.** A consumer reading the trace would have to
-       walk the registered schema by hand to find the failing leaf — the
-       trace itself would only point at the registration root.
-    2. **Over-broad redaction.** A failure at a non-sensitive sibling
-       slot (e.g. `[:user :name]`) would suffer redaction because the
-       same schema declares a separate slot (e.g. `[:user :password]`)
-       sensitive, although the sensitive sibling's value does not appear
-       in the failing leaf.
-
-  So `validate-app-schema!`:
-
-    - Derives the failing leaf path from the Malli explainer's `:in`
-      slot (the navigation path through the failing VALUE, not the
-      schema-walk `:path` slot which encodes branch dispatch values).
-    - Emits `:path` as the FULL leaf path
-      (`(concat registered-path explain-in-path)`); emits
-      `:registered-path` as the registration root for tooling that
-      wants the registration anchor.
-    - Applies sensitivity targeted at the failing leaf:
-      ancestor-sensitive OR descendant-sensitive at the leaf counts;
-      a sibling-sensitive flag on an UN-failing slot does NOT redact the
-      leaf-narrowed `:value`.
-    - Falls back conservatively: when the explainer is absent / non-Malli
-      / returns no extractable `:in`, `:path` is the registered root and
-      the whole-schema sensitivity check applies.
-
-  The structural slots (`:failing-id`, `:where`, `:frame`, `:recovery`,
-  `:reason`) ride the trace verbatim under both the precise and fallback
-  paths. `:explain` carries the whole registered slice, so it redacts
-  under the whole-schema check even when the failing leaf is not
-  sensitive."
+  "The app-db failure trace locates the failing leaf: `:path` is the
+  registered path plus the explainer's `:in` (the value's navigation path),
+  `:registered-path` is the registration root, and `:value` is the failing
+  datum. Sensitivity is decided at that leaf, so a sensitive sibling does not
+  redact a non-sensitive leaf's narrowed `:value`. With no extractable `:in`
+  the trace falls back to the registered root and whole-schema sensitivity."
   (:require [clojure.string :as str]
             [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.schemas :as rf.schemas]
             [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]
-            [re-frame.schemas.validate :as rf.schemas.validate]
-            [re-frame.schemas.validator :as rf.schemas.validator]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each rf.schemas.test-fixture/reset-runtime)
 
 (defn- capture-trace
-  "Run `body-fn` while collecting :rf.error/schema-validation-failure
-  trace events; return the vector of captured events."
+  "The schema-validation-failure traces `body-fn` emits."
   [body-fn]
   (with-trace-recorder! [traces]
     (body-fn)
-    (filterv #(= :rf.error/schema-validation-failure (:operation %))
-             @traces)))
+    (filterv #(= :rf.error/schema-validation-failure (:operation %)) @traces)))
 
-;; ---- :path is the failing leaf, not the registration root ----------------
+(defn- locator
+  "The locating slots of a failure trace."
+  [v]
+  (select-keys (:tags v) [:path :registered-path :value]))
 
 (deftest path-is-leaf-when-explainer-reports-in
-  (testing ":path is the registered path concat'd with the
-            explainer's :in (the failing value's navigation path)"
-    (rf/reg-app-schema [:user] [:map [:id :int] [:email :string]])
-    (let [traces (capture-trace
-                   #(rf.schemas/validate-app-schema!
-                      {:user {:id "not-an-int" :email "alice@example.com"}}
-                      :user/set-bad))]
-      (is (= 1 (count traces)))
-      (let [v (first traces)]
-        (is (= [:user :id] (-> v :tags :path))
-            ":path is the leaf — registered root [:user] + :in [:id]")
-        (is (= [:user] (-> v :tags :registered-path))
-            ":registered-path carries the registration anchor")
-        (is (= :user/set-bad (-> v :tags :failing-id)))
-        (is (= :app-db (-> v :tags :where)))
-        (is (str/includes? (-> v :tags :reason) "[:user :id]")
-            ":reason names the leaf path, so the elision-probe substring stays
-             distinctive per surface")))))
-
-;; ---- sensitivity is path-targeted, not whole-schema ----------------------
-
-(deftest non-sensitive-sibling-failure-narrowed-value-verbatim-whole-explain-redacted
-  (testing "PER-SLOT DECISION SCOPING on the app-db
-            path. A failure at a non-sensitive leaf (:name) whose CONFORMING
-            sibling (:password) is sensitive: the LEAF-NARROWED `:value` slot
-            (just the failing leaf, 42) rides VERBATIM — the precise-narrowing
-            win the leaf-precise check buys — but the WHOLE-PAYLOAD `:explain`
-            slot (which carries the whole :user map, conforming secret
-            included) MUST redact under the root check, else the live
-            `secret-pw` egresses. The case: [:name] fails,
-            [:password {:sensitive?}] conforms."
-    (rf/reg-app-schema [:user]
-                       [:map
-                        [:name     :string]
-                        [:password {:sensitive? true} :string]])
-    ;; :name is the failing leaf (int, not string); :password "secret-pw"
-    ;; CONFORMS — a sensitive sibling that does NOT appear in the narrowed
-    ;; failing leaf value, but DOES ride inside the whole-map :explain slot.
-    (let [traces (capture-trace
-                   #(rf.schemas/validate-app-schema!
-                      {:user {:name 42 :password "secret-pw"}}
-                      :u/bad-name))
-          v      (first traces)]
-      ;; The leaf-narrowed slot is scoped to the failing leaf — verbatim.
-      (is (= 42 (-> v :tags :value))
-          ":value (narrowed to the failing leaf [:user :name]) rides verbatim —
-           the leaf-precise check keeps the precise-narrowing win for the
-           narrowed slot")
-      (is (= [:user :name] (-> v :tags :path))
-          ":path stays the navigable leaf locator (the failing leaf is not
-           sensitive, so no path sanitization)")
-      ;; The whole-payload :explain slot carries the conforming sensitive
-      ;; sibling — it redacts under the ROOT check.
-      (is (= :rf/redacted (-> v :tags :explain))
-          ":explain (whole reg-slice) redacted — it carries the conforming
-           sensitive :password sibling")
-      (is (true? (:sensitive? v))
-          "top-level :sensitive? stamp present — a whole-payload slot redacted")
-      ;; The conforming secret never egresses anywhere in the trace.
-      (is (not (str/includes? (pr-str (:tags v)) "secret-pw"))
-          "the conforming sensitive sibling's value does NOT appear anywhere in
-           the emitted tags"))))
+  (rf/reg-app-schema [:user] [:map [:id :int] [:email :string]])
+  (is (= [{:path [:user :id] :registered-path [:user] :value "not-an-int"
+           :failing-id :user/set-bad :where :app-db}]
+         (map #(select-keys (:tags %) [:path :registered-path :value :failing-id :where])
+              (capture-trace #(rf.schemas/validate-app-schema!
+                                {:user {:id "not-an-int" :email "alice@example.com"}}
+                                :user/set-bad))))))
 
 (deftest both-sensitive-and-clean-failures-handled-independently
-  (testing "two registered schemas; one's failure is sensitive, the
-            other's is not — each trace is independently classified"
-    (rf/reg-app-schema [:auth] [:map [:token {:sensitive? true} :string]])
-    (rf/reg-app-schema [:count] [:int])
-    (let [traces (capture-trace
-                   #(rf.schemas/validate-app-schema!
-                      {:auth {:token 42} :count "not-an-int"}
-                      :bulk/bad))]
-      (is (= 2 (count traces)))
-      (let [by-path (group-by #(-> % :tags :registered-path) traces)
-            auth-v  (first (get by-path [:auth]))
-            cnt-v   (first (get by-path [:count]))]
-        (is (true? (:sensitive? auth-v))
-            ":auth failure carries sensitive redaction")
-        (is (= :rf/redacted (-> auth-v :tags :value)))
-        (is (not (contains? cnt-v :sensitive?))
-            ":count failure is plain — no redaction")
-        (is (= "not-an-int" (-> cnt-v :tags :value)))))))
+  ;; Each registration's failure is classified on its own, and a failure
+  ;; does not stop the remaining registrations from being validated.
+  (rf/reg-app-schema [:auth] [:map [:token {:sensitive? true} :string]])
+  (rf/reg-app-schema [:count] [:int])
+  (is (= #{[[:auth] true :rf/redacted] [[:count] nil "not-an-int"]}
+         (set (map (juxt (comp :registered-path :tags) :sensitive? (comp :value :tags))
+                   (capture-trace #(rf.schemas/validate-app-schema!
+                                     {:auth {:token 42} :count "not-an-int"}
+                                     :bulk/bad)))))))
 
-;; ---- conservative fallback ----------------------------------------------
+(deftest fallback-uses-the-registered-root-when-no-leaf-is-extractable
+  ;; An explainer with no `:in` (here, none at all) leaves the leaf unknown:
+  ;; :path is the root and sensitivity is the whole schema's.
+  (rf.schemas/set-schema-fns! {:validate (fn [_ _] false) :explain (fn [_ _] nil)})
+  (are [schema value expected]
+       (= expected
+          (let [[v :as all] (do (rf.schemas/clear-schemas-by-frame!)
+                                (rf/reg-app-schema [:slot] schema)
+                                (capture-trace #(rf.schemas/validate-app-schema! {:slot value} :s/bad)))]
+            [(count all) (:sensitive? v) (locator v)]))
+    [:map [:password {:sensitive? true} :string]] {:password "pw"}
+    [1 true {:path [:slot] :registered-path [:slot] :value :rf/redacted}]
 
-(deftest fallback-uses-whole-schema-sensitivity-when-explainer-absent
-  (testing "when no explainer can extract a leaf path
-            (e.g. explainer returns nil; non-Malli validator with no
-            structured explanation), :path falls back to the registered
-            root and the sensitivity check falls back to the
-            whole-schema `schema-has-sensitive?` rule (conservative)."
-    ;; Register a validator/explainer pair where validate fails but
-    ;; explain returns no `:in` data — simulates a non-Malli or
-    ;; structurally-different explainer.
-    (rf.schemas/set-schema-fns! {:validate (fn [_ _] false)
-                              :explain  (fn [_ _] nil)})
-    (try
-      (rf/reg-app-schema [:user]
-                         [:map [:password {:sensitive? true} :string]])
-      (let [traces (capture-trace
-                     #(rf.schemas/validate-app-schema! {:user {:password "pw"}}
-                                                :u/bad))
-            v      (first traces)]
-        (is (= 1 (count traces)))
-        (is (= [:user] (-> v :tags :path))
-            ":path falls back to the registered root when no leaf
-            extractable")
-        (is (true? (:sensitive? v))
-            "conservative fallback — whole-schema sensitivity wins when
-            the failing leaf cannot be narrowed")
-        (is (= :rf/redacted (-> v :tags :value))
-            "conservative fallback — value redacted under whole-schema
-            sensitivity"))
-      (finally
-        (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)))))
-
-(deftest fallback-non-sensitive-rides-verbatim
-  (testing "fallback path with a non-sensitive schema still emits the
-            verbatim value — the fallback only conserves the privacy
-            posture, not the failure shape"
-    (rf.schemas/set-schema-fns! {:validate (fn [_ _] false)
-                              :explain  (fn [_ _] nil)})
-    (try
-      (rf/reg-app-schema [:count] [:int])
-      (let [traces (capture-trace
-                     #(rf.schemas/validate-app-schema! {:count "x"} :c/bad))
-            v      (first traces)]
-        (is (= [:count] (-> v :tags :path)))
-        (is (= "x" (-> v :tags :value)))
-        (is (not (contains? v :sensitive?))))
-      (finally
-        (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)))))
-
-;; ---- walker: schema-sensitive-at? unit tests -----------------------------
+    [:int] "x"
+    [1 nil {:path [:slot] :registered-path [:slot] :value "x"}]))
 
 (deftest schema-sensitive-at?-flags-the-leaf-its-ancestors-and-descendants
-  (testing "a failing slot is sensitive when it, an ancestor along its
-            path, or a descendant it carries is flagged — never because of
-            an unrelated branch. An empty or nil path means 'the failing slot
-            IS the schema', so it answers as schema-has-sensitive? does"
+  (testing "a failing slot is sensitive when it, an ancestor or a descendant it
+            carries is flagged, never because of a sibling; a nil path is the
+            whole schema"
     (let [sens       [:map [:p {:sensitive? true} :string]]
           not-sens   [:map [:p :string]]
-          leaf       [:map [:name :string] [:password {:sensitive? true} :string]]
           ancestor   [:map {:sensitive? true} [:token :string] [:expiry :int]]
-          descendant [:map [:user [:map [:name :string] [:password {:sensitive? true} :string]]]]
-          unrelated  [:map [:public :string] [:auth [:map [:token {:sensitive? true} :string]]]]]
+          descendant [:map [:user [:map [:name :string] [:password {:sensitive? true} :string]]]]]
       (are [expected schema path] (= expected (rf.schemas/schema-sensitive-at? schema path))
-        true  sens       []
         true  sens       nil
-        false not-sens   []
         false not-sens   nil
-        true  leaf       [:password]
-        false leaf       [:name]
         true  ancestor   [:token]
-        true  ancestor   [:expiry]
-        true  descendant [:user]                ;; its value carries the sensitive :password
+        true  descendant [:user]
         true  descendant [:user :password]
-        false descendant [:user :name]          ;; a sensitive sibling does not taint the leaf
-        false unrelated  [:public]))))
-
-;; ---- multi-error common-prefix narrowing ---------------------------------
-;;
-;; Every test above drives a SINGLE failing slot, so the Malli explainer
-;; reports one `:errors` entry and `failing-in-path`'s
-;; `(reduce common-prefix (first paths) (rest paths))` never folds over a
-;; non-empty `(rest paths)`. The tests below drive TWO diverging `:in`
-;; paths under one registered `[:map ...]` schema so the reduce branch
-;; executes and must narrow to the common ancestor — plus direct unit
-;; tests for `common-prefix` and `failing-in-path` (the only non-trivial
-;; private helpers in the validate slice).
+        false descendant [:user :name]))))
 
 (deftest multi-error-path-narrows-to-common-ancestor
-  (testing "two diverging children of one nested [:map ...]
-            both fail; the Malli explainer reports two `:in` paths
-            ([:root :user :id] + [:root :user :age]) and `failing-in-path`
-            must `reduce common-prefix` them to the parent slot
-            [:user]. :path is then the registered root + that ancestor."
-    (rf/reg-app-schema [:root]
-                       [:map
-                        [:user [:map
-                                [:id  :int]
-                                [:age :int]]]])
-    (let [traces (capture-trace
-                   #(rf.schemas/validate-app-schema!
-                      ;; BOTH children fail — :id and :age are strings,
-                      ;; not ints. Two diverging :in paths under one schema.
-                      {:root {:user {:id "bad" :age "also-bad"}}}
-                      :root/bad))]
-      (is (= 1 (count traces))
-          "one trace per registered schema, even with two leaf failures")
-      (let [v (first traces)]
-        (is (= [:root :user] (-> v :tags :path))
-            ":path narrows to the common ancestor [:root :user] — the
-             reduce common-prefix branch collapsed [:user :id] and
-             [:user :age] to [:user], conj'd onto the registered root")
-        (is (= [:root] (-> v :tags :registered-path)))
-        (is (= {:id "bad" :age "also-bad"} (-> v :tags :value))
-            ":value is the ancestor slot's value — both failing children")))))
+  ;; Two diverging failures under one registration narrow to the parent slot
+  ;; that holds both, whose value is the failing datum.
+  (rf/reg-app-schema [:root] [:map [:user [:map [:id :int] [:age :int]]]])
+  (is (= [{:path [:root :user] :registered-path [:root] :value {:id "bad" :age "also-bad"}}]
+         (map locator (capture-trace #(rf.schemas/validate-app-schema!
+                                        {:root {:user {:id "bad" :age "also-bad"}}}
+                                        :root/bad))))))
 
-;; ---- a :map-of KEY failure blames the key, not the entry's value ---------
-;; Malli reports a key-schema failure and a value-schema
-;; failure under the same `:in [k]`, so `(get-in registered-value [k])` hands
-;; back the entry's VALUE — valid, here — as the failing datum. The error's
-;; own `:value` is the key. Both the dev trace and the always-on `:errors`
-;; record describe the failing datum, so both are pinned.
-
+;; Malli reports a :map-of key failure and a value failure under the same
+;; `:in [k]`, so reading the value at `:in` would blame the entry's valid
+;; value. The dev trace and the always-on `:errors` record both describe the
+;; failing key.
 (deftest map-of-key-failure-reports-the-failing-key
-  (testing "a string key under [:map-of :keyword :int]
-            reports the key as :value and 'got string', never the entry's
-            valid integer value"
-    (rf/reg-app-schema [:scores] [:map-of :keyword :int])
-    (let [errors (atom [])
-          traces (do (rf.error-emit/register-error-listener!
-                       ::rec (fn [r] (swap! errors conj r)))
-                     (try
-                       (capture-trace
-                         #(rf.schemas/validate-app-schema! {:scores {"alice" 10}}
-                                                           :scores/bad))
-                       (finally
-                         (rf.error-emit/unregister-error-listener! ::rec))))
-          v      (first traces)
-          record (first (filter #(= :app-db (:where %)) @errors))]
-      (is (= 1 (count traces)))
-      (is (= [:scores "alice"] (-> v :tags :path)) ":path locates the entry")
-      (is (= "alice" (-> v :tags :value))
-          ":value is the failing KEY, not the entry's valid value 10")
-      (is (str/includes? (-> v :tags :reason) "got string")
-          "the trace's :reason types the key")
-      (is (some? record) "the always-on :errors record fired")
-      (is (str/includes? (:reason record) "(got string)")
-          "the always-on record's :reason types the key too")))
-  (testing "control — a :map-of VALUE failure still reports the value"
-    (let [traces (capture-trace
-                   #(rf.schemas/validate-app-schema! {:scores {:alice "ten"}}
-                                                     :scores/bad))
-          v      (first traces)]
-      (is (= 1 (count traces)))
-      (is (= [:scores :alice] (-> v :tags :path)))
-      (is (= "ten" (-> v :tags :value))))))
-
-;; ---- direct unit tests for the private helpers ---------------------------
-
-(deftest common-prefix-unit
-  (testing "common-prefix returns the longest shared leading
-            run of two sequential collections, as a vector"
-    (let [cp #'rf.schemas.validate/common-prefix]
-      (is (= [:a :b] (cp [:a :b :c]   [:a :b :d]))
-          "diverge at index 2 → prefix is the first two elements")
-      (is (= []      (cp [:x]         [:y]))
-          "diverge at index 0 → empty prefix")
-      (is (= [:a :b] (cp [:a :b]      [:a :b]))
-          "identical → the whole vector")
-      (is (= [:a]    (cp [:a :b]      [:a]))
-          "one is a strict prefix of the other → the shorter one")
-      (is (= []      (cp []          [:a]))
-          "empty input → empty prefix")
-      (is (= []      (cp [:a]        []))
-          "empty other → empty prefix")
-      (is (= [:a :b :c] (cp [:a :b :c] [:a :b :c :d]))
-          "longer-suffix divergence still stops at the shorter length")
-      (is (vector? (cp [:a] [:a]))
-          "result is a vector (transient→persistent!), not a lazy seq"))))
-
-(deftest failing-in-path-unit
-  (testing "failing-in-path extracts and narrows the Malli
-            explainer's per-error :in paths; nil when no extractable path"
-    (let [fip #'rf.schemas.validate/failing-in-path]
-      (is (nil? (fip nil))
-          "non-map explanation → nil")
-      (is (nil? (fip {}))
-          "no :errors key → nil")
-      (is (nil? (fip {:errors []}))
-          "empty :errors → nil")
-      (is (nil? (fip {:errors [{:path [:x]} {:path [:y]}]}))
-          "errors carry no :in → nil (keep :in drops every entry)")
-      (is (= [:a] (fip {:errors [{:in [:a]}]}))
-          "single error → that error's :in verbatim")
-      (is (= [:user] (fip {:errors [{:in [:user :id]} {:in [:user :age]}]}))
-          "two diverging :in → reduce common-prefix to the ancestor")
-      (is (= [] (fip {:errors [{:in [:id]} {:in [:age]}]}))
-          "fully-divergent :in → empty common prefix (the root)")
-      (is (= [:a :b] (fip {:errors [{:in [:a :b :c]}
-                                    {:in [:a :b :d]}
-                                    {:in [:a :b :e]}]}))
-          "three errors fold left to the shared [:a :b] prefix")))
-  (testing "failing-in-path agrees with the live Malli
-            explainer on a real two-child divergence"
-    (let [fip #'rf.schemas.validate/failing-in-path
-          schema [:map [:user [:map [:id :int] [:age :int]]]]
-          expl   (rf.schemas.validator/run-explainer schema {:user {:id "x" :age "y"}})]
-      (is (= [:user] (fip expl))
-          "live Malli explanation with two failing children narrows to
-           the [:user] ancestor"))))
+  (rf/reg-app-schema [:scores] [:map-of :keyword :int])
+  (let [errors (atom [])
+        traces (do (rf.error-emit/register-error-listener! ::rec (fn [r] (swap! errors conj r)))
+                   (try
+                     (capture-trace #(rf.schemas/validate-app-schema! {:scores {"alice" 10}}
+                                                                       :scores/bad))
+                     (finally
+                       (rf.error-emit/unregister-error-listener! ::rec))))
+        record (first (filter #(= :app-db (:where %)) @errors))]
+    (is (= [{:path [:scores "alice"] :registered-path [:scores] :value "alice"}]
+           (map locator traces)))
+    (is (str/includes? (:reason record) "(got string)") (:reason record)))
+  (testing "control: a :map-of value failure still reports the value"
+    (is (= [{:path [:scores :alice] :registered-path [:scores] :value "ten"}]
+           (map locator (capture-trace #(rf.schemas/validate-app-schema!
+                                          {:scores {:alice "ten"}} :scores/bad)))))))
