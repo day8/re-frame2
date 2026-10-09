@@ -123,7 +123,8 @@
 (deftest compound-shows-its-tags-and-lifecycle-actions
   (testing "a compound's band paints its tag chip, its entry action with the
             requirement it declares, and its exit action, inside the header
-            ELK reserved"
+            ELK reserved; the lifecycle-free sibling shows no band and keeps
+            the plain header reservation"
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (with-mounted-chart
@@ -135,9 +136,8 @@
                 tag   (some-> band (by-testid "rf-mv-chart-state-tag-busy"))
                 entry (some-> band (by-testid "rf-mv-chart-state-entry"))
                 needs (some-> band (by-testid "rf-mv-chart-state-entry-requires"))
-                exit  (some-> band (by-testid "rf-mv-chart-state-exit"))]
-            (is (some? el) "the :player compound mounted")
-            (is (some? band) "the compound paints a lifecycle band")
+                exit  (some-> band (by-testid "rf-mv-chart-state-exit"))
+                idle  (by-testid node (str "rf-mv-chart-compound-" (layout/node-id [:idle])))]
             (is (pos? (some-> band .-offsetHeight)) "the band takes visible height")
             (is (= "media/busy" (some-> tag (.getAttribute "data-tag")))
                 "the tag chip carries the declared tag")
@@ -156,23 +156,12 @@
             (is (> (reserved-top el) plain-reserved-top)
                 "the header reservation includes the band")
             (is (<= (+ (.-offsetTop band) (.-offsetHeight band)) (reserved-top el))
-                "the band ends inside the reserved header, above the first child")))))))
-
-(deftest lifecycle-free-compound-shows-no-band
-  (testing "a compound declaring no tags and no lifecycle action shows no band
-            and keeps the plain header reservation"
-    (if-not (browser?)
-      (is true ":node-test: no DOM — browser-test runner exercises this")
-      (with-mounted-chart
-        {:machine-id :test/player :definition compound-machine}
-        (fn [node]
-          (let [el (by-testid node (str "rf-mv-chart-compound-" (layout/node-id [:idle])))]
-            (is (some? el) "the :idle compound mounted")
-            (is (nil? (any-band el)) "no lifecycle band")
-            (is (nil? (by-testid el "rf-mv-chart-state-entry")) "no entry row")
-            (is (nil? (by-testid el "rf-mv-chart-state-tags")) "no tag row")
-            (is (= plain-reserved-top (reserved-top el))
-                "the header reservation is the plain title + body-pad")))))))
+                "the band ends inside the reserved header, above the first child")
+            (is (nil? (any-band idle)) "the lifecycle-free :idle paints no band")
+            (is (nil? (by-testid idle "rf-mv-chart-state-entry")) "no entry row")
+            (is (nil? (by-testid idle "rf-mv-chart-state-tags")) "no tag row")
+            (is (= plain-reserved-top (reserved-top idle))
+                "the lifecycle-free :idle keeps the plain title + body-pad")))))))
 
 ;; ---- parallel region ------------------------------------------------------
 
@@ -193,8 +182,6 @@
                 tag      (some-> band (by-testid "rf-mv-chart-state-tag-live"))
                 entry    (some-> band (by-testid "rf-mv-chart-state-entry"))
                 needs    (some-> band (by-testid "rf-mv-chart-state-entry-requires"))]
-            (is (some? audio) "the :audio region mounted")
-            (is (some? band) "the region paints a lifecycle band")
             (is (pos? (some-> band .-offsetHeight)) "the band takes visible height")
             (is (= "audio/live" (some-> tag (.getAttribute "data-tag")))
                 "the tag chip carries the region's declared tag")
@@ -208,7 +195,6 @@
                 "the header reservation includes the band")
             (is (<= (+ (.-offsetTop band) (.-offsetHeight band)) (reserved-top audio))
                 "the band ends inside the reserved header, above the first child")
-            (is (some? video) "the :video region mounted")
             (is (nil? (any-band video)) "the lifecycle-free region paints no band")
             (is (= plain-reserved-top (reserved-top video))
                 "the lifecycle-free region keeps the plain header reservation")))))))
@@ -228,8 +214,6 @@
                 frame  (.querySelector node "[data-root-container=\"true\"]")
                 header (some-> frame (by-testid (str "rf-mv-chart-root-container-header-" id)))
                 band   (some-> header (band-of id))]
-            (is (some? frame) "the root frame mounted")
-            (is (some? band) "the frame header paints the root's lifecycle band")
             (is (pos? (some-> band .-offsetHeight)) "the band takes visible height")
             (is (= "app/booted"
                    (some-> band (by-testid "rf-mv-chart-state-tag-booted")
@@ -258,7 +242,6 @@
         {:machine-id :test/plain :definition plain-machine}
         (fn [node]
           (let [frame (.querySelector node "[data-root-container=\"true\"]")]
-            (is (some? frame) "the root frame mounted")
             (is (nil? (any-band frame)) "no lifecycle band")
             (is (= plain-reserved-top (reserved-top frame))
                 "the header reservation is the plain title + body-pad")))))))
