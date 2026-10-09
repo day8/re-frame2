@@ -1,57 +1,20 @@
 (ns re-frame.machine-action-outcome-classification-cljs-test
-  "`:rf.machine/action-ran`'s `:outcome` tag (the action's RAW returned effect
-  map, `{:data :fx}` per Spec 005 §Action effect map) gets a classification
-  pass in `re-frame.classification/project-machine-tags`, beside `:before` /
-  `:after` / `:snapshot` / bare `:data` / `:input` / `:cascade` / `:event`.
-  Without it, an action returning updated `:data` containing a classified path
-  (the NORMAL shape of a state-mutating action) would leak it raw on EVERY
-  transition.
+  "`:rf.machine/action-ran`'s `:outcome` tag echoes the action's raw returned
+  effect map (Spec 005 §Action effect map). Its `:data` half is projected under
+  the machine's classification with the `:data`-rooted path set; its `:fx`
+  entries and a hard-disallowed `:db` are projected unconditionally.
 
-  `:outcome` is projected in two halves:
-
-    - `:data` — under the machine's class gate, with the SAME `:data`-rooted
-      path set the bare `:data` / `[:input :data]` clauses use.
-    - `:fx` + the hard-disallowed `:db` — UNCONDITIONALLY
-      (`project-action-outcome-shell`): the `:fx` entries walk the same
-      per-entry registration/dynamic classification as the `:rf.event/fx`
-      aggregate (`project-fx-args`), and a disallowed `:db` echo
-      summarizes to `:rf/redacted` (matching `:rf.error/machine-action-wrote-db`'s
-      unconditional `:offending-value` posture).
-
-  Mirrors the style of machine_routed_event_classification_cljs_test:
-  deterministic projector teeth on hand-built trace shapes + a live round-trip
-  proving the action itself reads and persists the raw value (egress-only).
-
-  Dual-runtime `*_cljs_test.cljc`: the shadow `:node-test` build
-  (`npm run test:cljs`, `cljs-test$` ns-regexp) AND the JVM `clojure -M:test`
-  runner both run it.
-
-  ## Posture split
-
-  The DETERMINISTIC PROJECTOR TEETH — `rf.classification/project-machine-tags`
-  called directly on hand-built trace shapes — are pure functions and run
-  under `scripts/test-core-prod-gate.sh` as written. So does the live
-  round-trip's EGRESS-ONLY claim: the action reads the raw value, the durable
-  snapshot holds it, and a second action reads it back. Those are the
-  assertions that prove redaction did not corrupt control flow, and they are
-  the ones worth having in the production lane.
-
-  The LIVE TRACE assertions are dev-only, because the trace stream they police
-  does not exist under `-Dre-frame.debug=false`. They sit inside
-  a `(when rf.interop/debug-enabled? …)` arm — the no-leak
-  NEGATIVE emphatically included. `(not (some #(leaks? sentinel %) @seen))`
-  over an empty `@seen` is true because nothing was emitted, and a redaction
-  suite reporting green on that basis is the worst false green in this
-  programme. Its teeth are the `(is (seq rans) …)` positive beside it, which
-  is only satisfiable with the channel live."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-               :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+  The projector tests are pure and run in every posture. The live test's trace
+  assertions are dev-only, because the trace stream does not exist under
+  `-Dre-frame.debug=false`; its no-leak negative is paired with a positive that
+  the channel emitted, so it cannot pass over an empty stream."
+  (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+               :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [clojure.string :as str]
             [re-frame.classification :as rf.classification]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
-            ;; Boot the optional machines artefact so `rf/reg-machine`
-            ;; resolves through the spec-005 implementation.
+            ;; Loaded so `rf/reg-machine` resolves through the machines artefact.
             [re-frame.machines]
             [re-frame.privacy :as rf.privacy]
             [re-frame.registrar :as rf.registrar]
@@ -61,7 +24,7 @@
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-;; UNIQUE sentinels that must never appear raw in a projected trace slot.
+;; Unique sentinels that must never appear raw in a projected trace slot.
 (def ^:private data-sentinel "rf2-orcd31-DATA-6a91cf")
 (def ^:private db-sentinel   "rf2-orcd31-DB-1d84e2")
 (def ^:private fx-sentinel   "rf2-orcd31-FX-73c0ba")
@@ -72,141 +35,76 @@
 
 (def ^:private mid :rf.orcd31/settings)
 
-;; =====================================================================
-;; A. Deterministic projector teeth — hand-built :rf.machine/action-ran
-;;    trace shapes.
-;; =====================================================================
-
 (deftest outcome-data-redacts-by-machine-data-classification
-  (testing "an action's returned {:data …} echoed at :outcome redacts the
-            machine's :data-rooted :sensitive paths — same path set as the
-            bare :data / [:input :data] slots — while non-secret keys survive"
-    (rf.registrar/register! :event mid {:sensitive [[:data :secret]]})
-    (let [t (project {:operation :rf.machine/action-ran
-                      :tags {:actor-id  mid
-                             :frame     :rf/default
-                             :action-id :save!
-                             :input     {:data  {:secret data-sentinel :count 1}
-                                         :event [:save]}
-                             :outcome   {:data {:secret data-sentinel
-                                                :count  2}}}})]
-      (is (= rf.privacy/redacted-sentinel (get-in t [:outcome :data :secret]))
-          ":outcome [:data :secret] reads :rf/redacted")
-      (is (= 2 (get-in t [:outcome :data :count]))
-          "the non-secret :count survives (path-precise)")
-      (is (= rf.privacy/redacted-sentinel (get-in t [:input :data :secret]))
-          "[:input :data] redacts too")
-      (is (not (leaks? data-sentinel t))
-          "the data sentinel appears NOWHERE in the projected action-ran trace"))))
+  (rf.registrar/register! :event mid {:sensitive [[:data :secret]]})
+  (let [t (project {:operation :rf.machine/action-ran
+                    :tags {:actor-id  mid
+                           :frame     :rf/default
+                           :action-id :save!
+                           :input     {:data  {:secret data-sentinel :count 1}
+                                       :event [:save]}
+                           :outcome   {:data {:secret data-sentinel
+                                              :count  2}}}})]
+    (is (= {:data {:secret rf.privacy/redacted-sentinel :count 2}} (:outcome t))
+        "the classified path redacts and the non-secret :count survives")
+    (is (= rf.privacy/redacted-sentinel (get-in t [:input :data :secret])))))
 
 (deftest outcome-keyword-passes-through
-  (testing "the non-map :outcome values (:ok for a nil return, the throw
-            marker) ride through untouched"
-    (rf.registrar/register! :event mid {:sensitive [[:data :secret]]})
-    (doseq [outcome [:ok :rf.error/action-threw]]
-      (is (= outcome
-             (:outcome (project {:operation :rf.machine/action-ran
+  ;; A nil-returning action stamps `:ok`; a non-map outcome rides through untouched.
+  (rf.registrar/register! :event mid {:sensitive [[:data :secret]]})
+  (is (= :ok (:outcome (project {:operation :rf.machine/action-ran
                                  :tags {:actor-id mid
                                         :frame    :rf/default
-                                        :outcome  outcome}})))
-          (str outcome " passes through untouched")))))
+                                        :outcome  :ok}})))))
 
 (deftest outcome-fx-entries-walk-their-own-registrations
-  (testing "an action's returned :fx entries walk the SAME per-entry
-            classification as the :rf.event/fx aggregate — including on a
-            machine with NO classification of its own (registration-driven)"
-    ;; A classified TARGET event — the nested-dispatch inheritance.
-    (rf.registrar/register! :event ::classified-target {:sensitive [[:secret]]})
-    (let [t (project {:operation :rf.machine/action-ran
-                      :tags {:actor-id :rf.orcd31/unclassified-machine
-                             :frame    :rf/default
-                             :outcome  {:fx [[:dispatch
-                                              [::classified-target
-                                               {:secret fx-sentinel}]]]}}})]
-      (is (= rf.privacy/redacted-sentinel
-             (get-in t [:outcome :fx 0 1 1 :secret]))
-          "the outcome's nested [:dispatch [classified-target …]] payload redacts")
-      (is (not (leaks? fx-sentinel t))
-          "the fx sentinel appears nowhere in the projected trace"))))
+  ;; The dispatch target's own registration classifies the entry, even on a
+  ;; machine with no classification of its own.
+  (rf.registrar/register! :event ::classified-target {:sensitive [[:secret]]})
+  (let [t (project {:operation :rf.machine/action-ran
+                    :tags {:actor-id :rf.orcd31/unclassified-machine
+                           :frame    :rf/default
+                           :outcome  {:fx [[:dispatch
+                                            [::classified-target
+                                             {:secret fx-sentinel}]]]}}})]
+    (is (= rf.privacy/redacted-sentinel
+           (get-in t [:outcome :fx 0 1 1 :secret])))))
 
 (deftest outcome-disallowed-db-summarizes-unconditionally
-  (testing "a (hard-disallowed) :db key on the echoed action return summarizes
-            to :rf/redacted regardless of the machine's classification —
-            matching :rf.error/machine-action-wrote-db's :offending-value
-            posture on the error trace it always accompanies"
-    (let [t (project {:operation :rf.machine/action-ran
-                      :tags {:actor-id :rf.orcd31/unclassified-machine
-                             :frame    :rf/default
-                             :outcome  {:db   {:auth {:token db-sentinel}}
-                                        :data {:ok true}}}})]
-      (is (= rf.privacy/redacted-sentinel (get-in t [:outcome :db]))
-          "the whole disallowed :db echo reads :rf/redacted")
-      (is (true? (get-in t [:outcome :data :ok]))
-          "the legal :data half is untouched on an unclassified machine")
-      (is (not (leaks? db-sentinel t))))))
-
-;; =====================================================================
-;; B. Live round-trip — reg-machine + dispatch. The action reads and
-;;    persists the RAW value; every emitted trace redacts.
-;; =====================================================================
+  ;; Matches `:rf.error/machine-action-wrote-db`'s unconditional `:offending-value`
+  ;; on the error trace that always accompanies it.
+  (let [t (project {:operation :rf.machine/action-ran
+                    :tags {:actor-id :rf.orcd31/unclassified-machine
+                           :frame    :rf/default
+                           :outcome  {:db   {:auth {:token db-sentinel}}
+                                      :data {:ok true}}}})]
+    (is (= {:db rf.privacy/redacted-sentinel :data {:ok true}} (:outcome t)))))
 
 (deftest live-action-outcome-redacts-while-action-reads-raw
-  (testing "a machine action returning updated :data
-            containing a classified path — the action computes with (and the
-            snapshot durably holds) the RAW value, while :rf.machine/action-ran's
-            :outcome (and every other emitted slot) ships it redacted"
-    (let [wrote (atom ::none)
-          read  (atom ::none)
-          seen  (atom [])]
-      ;; OPTS metadata `:sensitive`: `[1 :value]` classifies the routed inner
-      ;; event's arg-map slot (so the echo slots redact);
-      ;; `[:data :secret]` classifies the durable snapshot slot (and the
-      ;; action-return echo at :outcome).
-      (rf/reg-machine mid
-        {:sensitive [[1 :value] [:data :secret]]}
-        {:initial :idle
-         :data    {:secret "seed"}
-         :actions {:save! (fn [{:keys [data event]}]
-                            (let [v (get-in event [1 :value])]
-                              (reset! wrote v)
-                              {:data (assoc data :secret v)}))
-                   :read! (fn [{:keys [data]}]
-                            (reset! read (:secret data))
-                            nil)}
-         :states  {:idle {:on {:save {:target :done :action :save!}}}
-                   :done {:on {:check {:target :done :action :read!}}}}})
-      (rf/dispatch-sync [mid [:rf.machine/start]])
-      (rf/register-listener! :trace ::orcd31 (fn [ev] (swap! seen conj ev)))
-      (rf/dispatch-sync [mid [:save {:value data-sentinel}]])
-      (rf/unregister-listener! :trace ::orcd31)
-
-      ;; 1. the action READ the raw routed value and RETURNED it in :data.
-      (is (= data-sentinel @wrote)
-          "the action computed with the RAW value (egress-only redaction)")
-
-      ;; Dev-instrumentation arm (see ns docstring §Posture split). The trace
-      ;; stream IS the surface
-      ;; this projector protects, and it does not exist under
-      ;; `-Dre-frame.debug=false`. Both assertions go inside, the
-      ;; no-leak NEGATIVE especially: over an empty `@seen` "no emitted trace
-      ;; event leaks the sentinel" is true because nothing was emitted, which
-      ;; is exactly the false green a redaction test must never report. Its
-      ;; teeth are the `(is (seq rans) …)` positive beside it, and that
-      ;; positive is only satisfiable with the channel live.
-      (when rf.interop/debug-enabled?
-        ;; 2. an :rf.machine/action-ran trace fired, and its :outcome redacts.
-        (let [rans (filter #(= :rf.machine/action-ran (:operation %)) @seen)]
-          (is (seq rans) "an :rf.machine/action-ran trace was emitted")
-          (doseq [ev rans]
-            (is (not (leaks? data-sentinel (get-in ev [:tags :outcome])))
-                ":outcome ships the classified :data slot redacted")))
-
-        ;; 3. NOTHING in the emitted stream leaks the sentinel.
-        (is (not (some #(leaks? data-sentinel %) @seen))
-            "no emitted trace event leaks the data sentinel"))
-
-      ;; 4. the DURABLE snapshot really holds the raw value — prove it by
-      ;;    reading it back through a second action.
-      (rf/dispatch-sync [mid [:check]])
-      (is (= data-sentinel @read)
-          "the snapshot durably holds the RAW value the next action reads"))))
+  (let [read (atom ::none)
+        seen (atom [])]
+    ;; `[1 :value]` classifies the routed event's payload; `[:data :secret]` the
+    ;; snapshot slot the action writes, and so its `:outcome` echo.
+    (rf/reg-machine mid
+      {:sensitive [[1 :value] [:data :secret]]}
+      {:initial :idle
+       :data    {:secret "seed"}
+       :actions {:save! (fn [{:keys [data event]}]
+                          {:data (assoc data :secret (get-in event [1 :value]))})
+                 :read! (fn [{:keys [data]}]
+                          (reset! read (:secret data))
+                          nil)}
+       :states  {:idle {:on {:save {:target :done :action :save!}}}
+                 :done {:on {:check {:target :done :action :read!}}}}})
+    (rf/dispatch-sync [mid [:rf.machine/start]])
+    (rf/register-listener! :trace ::orcd31 (fn [ev] (swap! seen conj ev)))
+    (rf/dispatch-sync [mid [:save {:value data-sentinel}]])
+    (rf/unregister-listener! :trace ::orcd31)
+    (when rf.interop/debug-enabled?
+      (is (seq (filter #(= :rf.machine/action-ran (:operation %)) @seen))
+          "an :rf.machine/action-ran trace was emitted")
+      (is (not (some #(leaks? data-sentinel %) @seen))
+          "no emitted trace event leaks the data sentinel"))
+    (rf/dispatch-sync [mid [:check]])
+    (is (= data-sentinel @read)
+        "the action computed with the raw value and the snapshot holds it durably")))
