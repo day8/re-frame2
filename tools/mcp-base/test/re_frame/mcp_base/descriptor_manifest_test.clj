@@ -78,13 +78,13 @@
 (deftest gated-keys-marks-the-gated-subset
   ;; :input-keys stays the full gate-open surface; :gated-input-keys is the
   ;; part the default profile strips, the gated set intersected with the
-  ;; keys the tool really has.
-  (is (= ["include-sensitive" "max-tokens" "variant-id"]
-         (:input-keys (rf.mcp-base.descriptor-manifest/descriptor->row gated-descriptor
-                                                                     #{"include-sensitive"}))))
+  ;; keys the tool really has. The manifest builder threads the set through.
+  (is (= {:input-keys ["include-sensitive" "max-tokens" "variant-id"] :gated-input-keys ["include-sensitive"]}
+         (select-keys (first (:tools (rf.mcp-base.descriptor-manifest/build-manifest
+                                       :story-mcp [gated-descriptor] #{"include-sensitive"})))
+                      [:input-keys :gated-input-keys])))
   (are [descriptor gated expected]
        (= expected (:gated-input-keys (rf.mcp-base.descriptor-manifest/descriptor->row descriptor gated)))
-    gated-descriptor            #{"include-sensitive"} ["include-sensitive"]
     (second sample-descriptors) #{"include-sensitive"} []
     gated-descriptor            #{}                    []
     gated-descriptor            nil                    []))
