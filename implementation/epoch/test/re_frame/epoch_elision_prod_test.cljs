@@ -1,73 +1,28 @@
 (ns re-frame.epoch-elision-prod-test
-  "Per Spec 009 §Production builds — `:advanced` +
-  `goog.DEBUG=false` runtime contract for `re-frame.epoch` (Tool-Pair
-  §Time-travel). Companion to the string-grep sentinel sweep in
-  `scripts/check-elision.cjs` (which already covers every `:rf.epoch/*`
-  keyword's literal absence); this file pins the BEHAVIOUR.
-
-  Surfaces gated by `interop/debug-enabled?` (per `epoch.cljc` body
-  inspection):
-
-  - `settle!`                — `(when interop/debug-enabled? ...)` —
-                                no epoch-record is committed; the
-                                ring buffer stays empty; listeners do
-                                not fire.
-  - `capture-event!`          — `(when interop/debug-enabled? ...)` —
-                                trace events do not accumulate in the
-                                per-cascade capture buffer.
-  - `restore-epoch!`           — `(if-not interop/debug-enabled? false ...)`
-                                — returns `false` and never invokes
-                                the restore machinery.
-  - `replace-frame-state!`    — `(if-not interop/debug-enabled? false ...)`
-                                — Pair-tool write surface returns
-                                `false` without mutating app-db.
-  - `on-frame-destroyed!`     — `(when interop/debug-enabled? ...)` —
-                                no `:rf.epoch.cb/silenced-on-frame-
-                                destroy` trace fires; no capture-buffer
-                                discard.
-
-  Surfaces deliberately NOT gated (value-layer registrar machinery —
-  registration sites survive; only the dev-side delivery elides):
-
-  - `register-epoch-listener!` / `unregister-epoch-listener!` / `clear-epoch-listeners!`
-  - `epoch-history` / `clear-history!`
-  - `configure :epoch-history`
-
-  These are safe to invoke under prod; they just have nothing to do —
-  no record is ever produced by `settle!` for them to fan out, so the
-  registry remains valid but dead-on-arrival. The test below pins both
-  halves of the contract.
-
-  Every absence below is paired with a witness that the gate is what
-  produced it: a dispatch's app-db write is read back, and where a refusal
-  would also follow from an empty ring the epoch stores are seeded directly
-  (they are value-layer machinery too) with state a dev build would act on.
+  "Per Spec 009 §Production builds — the `:advanced` + `goog.DEBUG=false`
+  runtime contract for `re-frame.epoch`: the epoch gate reads false in a
+  production build, so a dispatch commits no `:rf/epoch-record`. The gated
+  branches themselves are `.cljc` and the JVM suites pin each of them against
+  a false gate; `scripts/check-elision.cjs` pins that their `:rf.epoch/*`
+  sentinels DCE out of the bundle.
 
   Naming convention: files ending in `-elision-prod-test.cljs` are
   picked up ONLY by the `:browser-test-prod-elision` build. Running
-  under `goog.DEBUG=true` would FAIL — under dev these surfaces deliver
-  records, populate history, and accept time-travel restores."
+  under `goog.DEBUG=true` would FAIL."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.epoch :as rf.epoch]
-            [re-frame.epoch.listeners :as rf.epoch.listeners]
-            [re-frame.epoch.state :as rf.epoch.state]))
+            [re-frame.epoch]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.reagent/adapter}))
 
-;; ---- settle! commits no record under prod --------------------------------
-
 (deftest dispatch-produces-no-epoch-record-under-prod
-  (testing "Per Spec 009 §Production builds: under
-            `:advanced` + `goog.DEBUG=false`, dispatching events
-            mutates app-db as expected but `settle!` does NOT commit
-            an `:rf/epoch-record`. The whole settle! body sits inside
-            `(when interop/debug-enabled? ...)` — the per-frame
-            history vector stays empty."
+  (testing "under `:advanced` + `goog.DEBUG=false`, dispatching events
+            mutates app-db as expected but `settle!` commits no
+            `:rf/epoch-record`, so the per-frame history stays empty"
     (rf/configure! {:epoch-history {:depth 100}})
     (rf/reg-event :prod-epoch/inc
                      (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
@@ -79,130 +34,3 @@
     (is (empty? (rf/epoch-history :rf/default))
         "no records appended to per-frame history under prod —
          settle! body DCE'd; the depth-100 configure has no effect")))
-
-;; ---- listeners do not fire under prod ------------------------------------
-
-(deftest registered-epoch-cb-does-not-fire-under-prod
-  (testing "Per Spec 009 §Production builds: an installed
-            `register-epoch-listener!` listener observes NO records under
-            prod. The settle! body's notify-listeners! call does not
-            run (it sits inside the same gate as the record build)."
-    (let [seen (atom [])]
-      (rf/register-listener! :epoch ::prod-epoch-listener
-        (fn [record] (swap! seen conj record)))
-      (rf/reg-event :prod-epoch/ping
-                       (fn [{:keys [db]} _] {:db (assoc db :pinged? true)}))
-      (rf/dispatch-sync [:prod-epoch/ping])
-      (rf/dispatch-sync [:prod-epoch/ping])
-      (is (true? (:pinged? (rf/app-db-value :rf/default)))
-          "WITNESS: the dispatches ran their handler, so the silent listener
-           below had a real cascade to miss")
-      (is (empty? @seen)
-          "no records delivered to the listener under
-           :advanced + goog.DEBUG=false")
-      (rf/unregister-listener! :epoch ::prod-epoch-listener))))
-
-;; ---- restore-epoch! is a no-op returning false under prod -----------------
-
-(deftest restore-epoch-returns-false-under-prod
-  (testing "Per Spec 009 §Production builds: `restore-epoch!` is gated
-            on `interop/debug-enabled?` via an `(if-not …)`
-            early-return. Under prod it returns `false` even for a target a
-            dev build restores — the precondition checks and perform-restore
-            branch DCE entirely. An unknown epoch or frame is refused
-            whatever the gate reads, so the target here is a retained `:ok`
-            record with a restorable `:frame-state-after`, seeded straight
-            into the ring."
-    (rf.epoch.state/record! {:frame             :rf/default
-                             :epoch-id          1
-                             :event-id          :prod-epoch/seeded
-                             :outcome           :ok
-                             :frame-state-after {:rf.db/app {:restored true}}})
-    (is (= [1] (mapv :epoch-id (rf/epoch-history :rf/default)))
-        "PRECONDITION: the target is retained")
-    (is (false? (rf/restore-epoch! :rf/default 1))
-        "restore-epoch! refuses a retained :ok target under prod")
-    (is (not= {:restored true} (rf/app-db-value :rf/default))
-        "app-db was not replaced by the target's frame state")))
-
-;; ---- replay-epoch! is a no-op returning false under prod ------------------
-
-(deftest replay-epoch-returns-false-under-prod
-  (testing "`replay-epoch!` shares `restore-epoch!`'s `(if-not
-            interop/debug-enabled? false …)` early-return. Under prod it
-            returns `false` for every (frame-id, epoch-id) pair — the
-            precondition checks and the strict re-dispatch DCE entirely,
-            and no structured envelope leaks."
-    (is (false? (rf/replay-epoch! :rf/default 0))
-        "replay-epoch! returns false under prod for a never-recorded epoch")
-    (is (false? (rf/replay-epoch! :rf/default 999999 {:origin :pair}))
-        "replay-epoch! returns false under prod for any epoch-id, opts or not")
-    (is (false? (rf/replay-epoch! :rf.nonexistent/frame 0))
-        "replay-epoch! returns false under prod even for an unknown frame")))
-
-;; ---- replace-frame-state! is a no-op returning false under prod -----------
-
-(deftest replace-app-db-returns-false-under-prod
-  (testing "In production, `replace-frame-state!` is gated on `interop/debug-enabled?`
-            via an `(if-not …)` early-return. Under prod it returns
-            `false` WITHOUT mutating app-db — the dev-only Pair-tool
-            write surface is firewalled from production state."
-    (rf/reg-event :prod-epoch/seed
-                     (fn [{:keys [db]} _] {:db {:original true}}))
-    (rf/dispatch-sync [:prod-epoch/seed])
-    (is (= {:original true}
-           (rf/app-db-value :rf/default))
-        "baseline: app-db has the seeded value")
-    (is (false? (rf/replace-frame-state! :rf/default {:rf.db/app {:replaced :should-not-stick}}))
-        "replace-frame-state! returns false under prod")
-    (is (= {:original true}
-           (rf/app-db-value :rf/default))
-        "app-db is UNCHANGED under prod — Pair-tool write firewalled
-         from production state")))
-
-;; ---- the lookup machinery survives (defonce'd registries) ----------------
-
-(deftest registration-machinery-survives-under-prod
-  (testing "Per Spec 009 §Production builds: the registration / lookup
-            surface is not gated — it's value-layer machinery
-            (defonce'd atoms + plain swap! / reset!). Under prod
-            `register-epoch-listener!` returns the id; `epoch-history` returns
-            a (necessarily empty) vector; `clear-history!` and
-            `clear-epoch-listeners!` return nil. Apps that boot with these
-            calls do not crash under :advanced."
-    (is (= ::prod-survives
-           (rf/register-listener! :epoch ::prod-survives (fn [_] nil)))
-        "register-listener! :epoch returns the id under prod")
-    (is (nil? (rf/unregister-listener! :epoch ::prod-survives))
-        "unregister-listener! :epoch returns nil under prod")
-    (is (vector? (rf/epoch-history :rf/default))
-        "epoch-history returns a vector (empty) under prod")
-    (is (nil? (rf.epoch/clear-history!))
-        "clear-history! returns nil under prod")
-    (is (nil? (rf.epoch/clear-epoch-listeners!))
-        "clear-epoch-listeners! returns nil under prod")))
-
-;; ---- on-frame-destroyed! is silent under prod ----------------------------
-
-(deftest on-frame-destroyed-is-inert-under-prod
-  (testing "Per Spec 009 §Production builds:
-            `on-frame-destroyed!` is gated on `interop/debug-enabled?`.
-            Under prod it neither publishes the terminal record and
-            `:rf.epoch.cb/silenced-on-frame-destroy` nor runs the
-            exact-owner store cleanup, and frame-destroy paths that route
-            through this hook do not crash. Trace delivery is itself elided
-            under prod, so a trace listener cannot tell; the cleanup is the
-            observable. The stores are seeded for the owner whose token the
-            destroy presents, which a dev build drops."
-    (let [frame-id :prod-epoch/destroyed
-          token    #js {}]
-      (rf.epoch.state/claim-frame-owner! frame-id token)
-      (rf.epoch.state/record! {:frame frame-id :epoch-id 1 :outcome :ok})
-      (rf.epoch.state/buffer-event! frame-id {:operation :rf.event/run-start
-                                              :tags      {:rf.trace/dispatch-id ::seeded}})
-      (is (nil? (rf.epoch.listeners/on-frame-destroyed! frame-id token nil))
-          "on-frame-destroyed! returns nil under prod")
-      (is (= 1 (count (rf.epoch.state/history-for frame-id)))
-          "the owner's history survives — the gated cleanup did not run")
-      (is (= 1 (count (rf.epoch.state/buffer-for frame-id)))
-          "the owner's capture buffer survives too"))))
