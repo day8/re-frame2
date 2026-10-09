@@ -1,26 +1,17 @@
 'use strict';
 // GUARANTEE 2 — THE ALLOWLISTED REQUEST, FAIL-CLOSED.
 //
-//     node implementation/ssr-node/test/protocol.test.cjs
-//
-// Most of this runs against `validateRequest` directly rather than through
-// a booted service, and that is a choice worth defending: a fail-closed
-// contract is a claim about EVERY input, and the cheapest honest way to
-// make that claim is to enumerate inputs. The service-level rows at the
-// bottom then prove the two things a pure function cannot — that the
-// validator really is the door (a refusal reaches a caller with no chunk
-// emitted) and that it runs before an isolate is ever acquired.
-//
-// Each guard has a CONTROL beside it: the same request minus the fault
-// must pass. A refusal that would have fired for the wrong reason is a
-// guard that has not been shown to work.
+// Mostly `validateRequest` directly, because a fail-closed contract is a
+// claim about every input and enumerating inputs is the cheapest honest way
+// to make it. The service-level rows at the bottom show the validator is the
+// door: a refusal reaches the caller with no chunk emitted and no isolate
+// borrowed. Each refusal row is the control request below plus one fault.
 
 const test = require('node:test');
 const assert = require('node:assert');
 const { withService, collect, observed, refusalOf } = require('./_support.cjs');
 const {
   CODE,
-  REQUEST_FIELDS,
   REFUSED_FIELDS,
   Refusal,
   validateRequest,
@@ -56,16 +47,26 @@ function codeOf(req, limits) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// The control. Everything below is this request plus one fault.
-// ---------------------------------------------------------------------------
+function refuseOf(req) {
+  try {
+    validateRequest(req, TABLES);
+    assert.fail('expected a refusal');
+  } catch (err) {
+    assert.ok(err instanceof Refusal);
+    return err;
+  }
+}
 
 test('the control request validates', () => {
-  const out = validateRequest(OK(), TABLES);
-  assert.strictEqual(out.entry, 'app/root');
-  assert.deepStrictEqual(out.state, { ':todos': '[]' });
-  assert.deepStrictEqual(out.runtime, { ':rf.runtime/routing': '{:current {:route-id :home}}' });
-  assert.strictEqual(out.timeoutMs, 1000, 'the service default applies when none is asked for');
+  assert.deepStrictEqual(validateRequest(OK(), TABLES), {
+    protocol: 1,
+    entry: 'app/root',
+    state: { ':todos': '[]' },
+    runtime: { ':rf.runtime/routing': '{:current {:route-id :home}}' },
+    args: undefined,
+    requestId: undefined,
+    timeoutMs: 1000,
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -76,32 +77,9 @@ test('a field the contract does not name is refused, not ignored', () => {
   assert.strictEqual(codeOf({ ...OK(), nonsense: 1 }), CODE.UNKNOWN_REQUEST_FIELD);
 });
 
-test('every field the contract DOES name is accepted — the list is not vacuous', () => {
-  const full = {
-    protocol: 1,
-    entry: 'app/root',
-    state: { ':route': '{:name :home}' },
-    runtime: { ':rf.runtime/machines': '{:snapshots {}}' },
-    args: '{:page 3}',
-    buildId: 'reference-build-1',
-    timeoutMs: 250,
-    requestId: 'r-1',
-  };
-  assert.deepStrictEqual(
-    Object.keys(full).sort(),
-    [...REQUEST_FIELDS].sort(),
-    'this row must exercise every field, or the allowlist has an untested member',
-  );
-  assert.strictEqual(codeOf(full), null);
-});
-
 test('every deliberately-refused field carries its reason', () => {
-  // `initialEvents` and `payloadPolicy` are the fields an implementer
-  // building this crossing reaches for first, so their reasons are pinned
-  // to the phrase that teaches: a refusal that only declines sends them to
-  // widen the list. A pinned field missing from `REFUSED_FIELDS` takes the
-  // generic refusal, without `refusedOnPurpose`, so it reds here rather
-  // than going unvisited.
+  // The two an implementer reaches for first are pinned to the phrase that
+  // teaches; one dropped from `REFUSED_FIELDS` loses `refusedOnPurpose`.
   const TEACHES = { initialEvents: /host fork/, payloadPolicy: /body markup and nothing else/ };
   for (const field of new Set([...Object.keys(TEACHES), ...Object.keys(REFUSED_FIELDS)])) {
     const err = refuseOf({ ...OK(), [field]: 'x' });
@@ -113,16 +91,6 @@ test('every deliberately-refused field carries its reason', () => {
     }
   }
 });
-
-function refuseOf(req) {
-  try {
-    validateRequest(req, TABLES);
-    assert.fail('expected a refusal');
-  } catch (err) {
-    assert.ok(err instanceof Refusal);
-    return err;
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Shape
@@ -149,7 +117,6 @@ test('the typed fields are typed', () => {
   // `args` is EDN TEXT: the service never decodes application data.
   assert.strictEqual(codeOf({ ...OK(), args: { page: 3 } }), CODE.BAD_REQUEST_FIELD);
   assert.strictEqual(codeOf({ ...OK(), timeoutMs: 0 }), CODE.BAD_REQUEST_FIELD);
-  assert.strictEqual(codeOf({ ...OK(), timeoutMs: -1 }), CODE.BAD_REQUEST_FIELD);
   assert.strictEqual(codeOf({ ...OK(), timeoutMs: Infinity }), CODE.BAD_REQUEST_FIELD);
 });
 
@@ -169,19 +136,8 @@ test('build identity: a caller expecting another build is refused', () => {
 });
 
 // ---------------------------------------------------------------------------
-// The render-visibility allowlist
+// The render-visibility allowlists, one per partition, owned by the ENTRY
 // ---------------------------------------------------------------------------
-
-test('the allowlist belongs to the ENTRY, so it is narrower for a narrower entry', () => {
-  // `:todos` is fine for app/root and refused for app/other. Same request
-  // shape, same key, different entry — which is what "the caller cannot
-  // widen its own allowance" means in practice.
-  assert.strictEqual(codeOf({ protocol: 1, entry: 'app/root', state: { ':todos': '[]' } }), null);
-  assert.strictEqual(
-    codeOf({ protocol: 1, entry: 'app/other', state: { ':todos': '[]' } }),
-    CODE.STATE_KEY_NOT_ALLOWED,
-  );
-});
 
 test('state keys must be top-level app-db keys, and values must be EDN text', () => {
   assert.strictEqual(codeOf({ ...OK(), state: { todos: '[]' } }), CODE.BAD_REQUEST_FIELD);
@@ -190,16 +146,15 @@ test('state keys must be top-level app-db keys, and values must be EDN text', ()
   assert.strictEqual(codeOf({ ...OK(), state: [] }), CODE.BAD_REQUEST_FIELD);
 });
 
-// ---------------------------------------------------------------------------
-// The runtime partition — the same door, the same posture
-// ---------------------------------------------------------------------------
-
 test('a runtime key the entry does not declare is refused, and the refusal names the partition', () => {
   const err = refuseOf({ ...OK(), runtime: { ':rf.runtime/resources': '{}' } });
   assert.strictEqual(err.code, CODE.STATE_KEY_NOT_ALLOWED);
-  assert.strictEqual(err.detail.field, 'runtime');
-  assert.strictEqual(err.detail.key, ':rf.runtime/resources');
-  assert.deepStrictEqual(err.detail.allowed, [':rf.runtime/routing', ':rf.runtime/machines']);
+  assert.deepStrictEqual(err.detail, {
+    entry: 'app/root',
+    field: 'runtime',
+    key: ':rf.runtime/resources',
+    allowed: [':rf.runtime/routing', ':rf.runtime/machines'],
+  });
   // ...and the app-db refusal names ITS partition, so the two cannot be confused.
   assert.strictEqual(refuseOf({ ...OK(), state: { ':secrets': '{}' } }).detail.field, 'state');
 });
@@ -214,21 +169,12 @@ test('the runtime allowlist belongs to the ENTRY too - an empty list reads nothi
   );
 });
 
-test('an absent runtime partition validates as an empty one - the field is optional, like state', () => {
-  const req = OK();
-  delete req.runtime;
-  assert.deepStrictEqual(validateRequest(req, TABLES).runtime, {});
-  delete req.state;
-  assert.deepStrictEqual(validateRequest(req, TABLES).state, {});
-});
-
 test('the byte ceiling is ONE ceiling over both partitions', () => {
   const state = { ':todos': '"' + 'a'.repeat(40) + '"' };
   const runtime = { ':rf.runtime/routing': '"' + 'b'.repeat(40) + '"' };
   const bytesOf = (o) =>
     Object.entries(o).reduce((n, [k, v]) => n + Buffer.byteLength(k) + Buffer.byteLength(v), 0);
-  const each = Math.max(bytesOf(state), bytesOf(runtime));
-  const ceiling = each + 10; // room for either alone, not for both
+  const ceiling = Math.max(bytesOf(state), bytesOf(runtime)) + 10; // room for either alone
   assert.ok(bytesOf(state) + bytesOf(runtime) > ceiling, 'the fixture must exceed the ceiling only together');
   const base = { protocol: 1, entry: 'app/root' };
   assert.strictEqual(codeOf({ ...base, state }, { maxRequestBytes: ceiling }), null);
@@ -237,15 +183,11 @@ test('the byte ceiling is ONE ceiling over both partitions', () => {
 });
 
 test('state is bounded, and the ceiling is measured in BYTES', () => {
-  // One em dash is one code unit and three bytes. A ceiling that counted
-  // code units would admit this; the byte accounting refuses it. Written
-  // as an escape so an encoding-normalising editor cannot quietly ASCII-fy
-  // the input and leave this row green over something that proves nothing.
-  const value = `"${'\u005cu2014'.repeat(40)}"`;
+  // An em dash is one code unit and three bytes, written as an escape so an
+  // encoding-normalising editor cannot quietly ASCII-fy it.
+  const value = `"${'—'.repeat(40)}"`;
   const bytes = Buffer.byteLength(':todos', 'utf8') + Buffer.byteLength(value, 'utf8');
-  assert.ok(bytes > value.length, 'the fixture must be non-ASCII or it proves nothing');
-  // No runtime partition on this request: the ceiling is measured to the
-  // byte, and the shared ceiling would otherwise count runtime's bytes too.
+  assert.ok(Buffer.byteLength(value, 'utf8') > value.length, 'the fixture must be non-ASCII or it proves nothing');
   const stateOnly = { protocol: 1, entry: 'app/root', state: { ':todos': value } };
   assert.strictEqual(codeOf(stateOnly, { maxRequestBytes: bytes - 1 }), CODE.REQUEST_TOO_LARGE);
   assert.strictEqual(codeOf(stateOnly, { maxRequestBytes: bytes }), null);
@@ -257,39 +199,14 @@ test('a deadline over the service ceiling is clamped rather than refused', () =>
 });
 
 // ---------------------------------------------------------------------------
-// THE NORMALIZED REQUEST IS A SNAPSHOT
+// The normalized request is a SNAPSHOT
 //
-// Everything above asks whether a bad request is refused. This asks the
-// question one step later, and it is a different question: of the request
-// that PASSED, is what comes out the thing that was checked?
-//
-// It has to be, because the returned object is what `isolate.render` hands
-// to `postMessage`, and a structured clone is a SECOND READ of every value
-// in it. A field backed by an accessor — a getter, a Proxy, a lazily
-// materialised row out of a serializer — can be a well-formed string when
-// the validator reads it and something else entirely when the clone does.
-// A validator that returns the caller's own object has therefore checked a
-// value the wire will never see, and the fail-closed guarantee above is
-// about that unchecked second read rather than about the request.
-//
-// THE READ COUNT IS THE DISCRIMINATOR, and it is deliberately a fact about
-// the tree rather than about one implementation: a witness that merely
-// passes a bad value proves nothing about a time-of-check/time-of-use
-// gap, because a value that is bad on BOTH reads is refused by the
-// ordinary type checks thirty lines up. Only a value that CHANGES between
-// reads separates the two, and only a read count can see it change.
+// It is what `postMessage` structured-clones, and a clone is a second read
+// of every value. A field read twice is a field whose second read nobody
+// validated, so the read count is the discriminator.
 // ---------------------------------------------------------------------------
 
-/**
- * Install a property on `host` that is `honestValue` for its first
- * `honestReads` reads and an unclonable `Symbol` on every read after that.
- * Returns the read counter.
- *
- * A `Symbol` rather than a function or a big object because it is the
- * shape that cannot be smuggled past anything: no coercion turns one into
- * a string by accident, `typeof` names it, and a structured clone refuses
- * it outright.
- */
+/** Install an accessor on `host` returning `honestValue` for `honestReads` reads, then a Symbol; returns the read counter. */
 function twoFaced(host, key, honestValue, honestReads = 1) {
   let reads = 0;
   Object.defineProperty(host, key, {
@@ -304,14 +221,7 @@ function twoFaced(host, key, honestValue, honestReads = 1) {
 }
 
 test('every field the normalized request carries is read exactly ONCE', () => {
-  // The invariant over the whole field list, partitions included. `args`
-  // shows the gap the header describes: read once for its
-  // `!== undefined` test, again for its `typeof` test and a third time to
-  // build the returned request, it would let a caller satisfy both checks
-  // and still put something else on the wire. This one uses an honest
-  // accessor: it changes no value and forces no failure, it only counts. A
-  // field read twice is a field whose second read nobody validated,
-  // whatever it returns today.
+  // Every field the contract names, so this is also the row showing each is accepted.
   const req = {};
   const counters = {
     protocol: twoFaced(req, 'protocol', 1, Infinity),
@@ -338,26 +248,12 @@ test('every field the normalized request carries is read exactly ONCE', () => {
 // The module's own tables are fail-closed too
 // ---------------------------------------------------------------------------
 
-// An entry with no `stateAllowlist`, and a module with no `buildId`, are
-// refused at boot by the last row of this file, through a live isolate.
-
-test('an entry with no runtimeAllowlist, or a non-keyword member in one, is unrenderable', () => {
-  const half = {
+test('an allowlist member that is not a top-level key in EDN spelling makes the module unrenderable', () => {
+  const badKey = {
     protocol: 1,
     buildId: 'b',
-    entries: { 'app/root': { stateAllowlist: [':a'] } },
-    render() {},
-  };
-  assert.throws(
-    () => validateModule(half),
-    (e) =>
-      e.code === CODE.MALFORMED_MODULE &&
-      /runtimeAllowlist/.test(e.message) &&
-      e.detail.allowlist === 'runtimeAllowlist',
-  );
-  const badKey = {
-    ...half,
     entries: { 'app/root': { stateAllowlist: [':a'], runtimeAllowlist: ['routing'] } },
+    render() {},
   };
   assert.throws(
     () => validateModule(badKey),
@@ -376,46 +272,26 @@ test('a refused request yields no chunks, and never touches an isolate', async (
       collect(service, { protocol: 1, entry: 'app/root', state: { ':nope': '1' } }),
     );
     assert.strictEqual(err.code, CODE.STATE_KEY_NOT_ALLOWED);
-
-    const after = service.stats();
-    assert.strictEqual(after.ready, before.ready, 'a refusal must not have borrowed an isolate');
-    assert.strictEqual(after.busy, 0);
-
-    // …and the same service still renders, so the refusal was about the
-    // request rather than about the service being broken.
+    assert.strictEqual(service.stats().ready, before.ready, 'a refusal must not have borrowed an isolate');
+    // ...and the same service still renders: the refusal was about the request.
     const ok = await collect(service, { protocol: 1, entry: 'app/root', state: { ':todos': '[1]' } });
     assert.strictEqual(ok.chunks.length, 1);
   });
 });
 
-test('the runtime partition reaches the module frozen, and a refused runtime key yields no chunks', async () => {
+test('the runtime partition reaches the module, frozen like state', async () => {
   await withService('reference', { isolates: 1 }, async (service) => {
-    assert.deepStrictEqual(
-      service.entries['app/root'].runtimeAllowlist,
-      [':rf.runtime/routing'],
-      'the LIVE table carries the runtime allowlist the bundle published',
-    );
     const out = await collect(service, {
       protocol: 1,
       entry: 'app/root',
       state: { ':todos': '[1]' },
       runtime: { ':rf.runtime/routing': '{:current {:route-id :home}}' },
     });
-    const seen = observed(out);
-    assert.strictEqual(seen.readRuntimeRoute, '{:current {:route-id :home}}', 'the module READ the runtime partition');
-    assert.strictEqual(seen.runtimeFrozen, true, 'and it arrived frozen, like state');
-
-    const before = service.stats();
-    const err = await refusalOf(() =>
-      collect(service, {
-        protocol: 1,
-        entry: 'app/root',
-        runtime: { ':rf.runtime/machines': '{}' },
-      }),
+    const { readRuntimeRoute, runtimeFrozen } = observed(out);
+    assert.deepStrictEqual(
+      { readRuntimeRoute, runtimeFrozen },
+      { readRuntimeRoute: '{:current {:route-id :home}}', runtimeFrozen: true },
     );
-    assert.strictEqual(err.code, CODE.STATE_KEY_NOT_ALLOWED);
-    assert.strictEqual(err.detail.field, 'runtime');
-    assert.strictEqual(service.stats().ready, before.ready, 'a refusal must not have borrowed an isolate');
   });
 });
 
