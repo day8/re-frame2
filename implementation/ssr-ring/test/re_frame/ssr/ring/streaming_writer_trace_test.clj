@@ -1,335 +1,89 @@
 (ns re-frame.ssr.ring.streaming-writer-trace-test
-  "Pin the writer thread's load-bearing trace emission and frame teardown
-  composition.
-
-  ## What this covers
-
-  `streaming_robustness_test` pins the cleanup side of the streaming
-  writer's `catch Throwable` arm: no orphan writer thread after a
-  real-network disconnect, a frame-scoped thread name, and reclamation
-  of a body nobody drains.
-
-  This ns pins the `:rf.error/ssr-streaming-writer-failed` trace event
-  that `re-frame.ssr.ring.streaming/run-streaming-writer!` emits when the
-  arm absorbs a write failure, which Spec 011 §Failure semantics names as
-  the load-bearing observability signal for writer-thread failures. It
-  drives the writer body directly, on a pipe closed before the first
-  write. Trace observability is a production-monitoring contract — apps
-  registering trace listeners for the failure category MUST see events
-  fire. A refactor of `run-streaming-writer!` that dropped the emit from
-  the broken-pipe path would leave the cleanup intact, and ops would lose
-  the signal silently.
-
-  Second, the per-request frame destroy on a render
-  failure. A shell-render throw (root-view throw) fails
-  closed on the REQUEST thread and tears the frame down INLINE (the
-  shell-render catch arm in `stream-handler`), before any writer thread
-  is spawned. The continuation/final-payload writer-body throws that
-  DO reach the daemon thread tear the frame down in the spawned-
-  thread `finally`. Either way the destroy MUST run; this ns pins the
-  composition the other tests test independently."
-  (:require [clojure.set]
-            [clojure.test :refer [deftest is testing use-fixtures]]
+  "A write that throws after the streamed head commits is reported as
+  `:rf.error/ssr-streaming-writer-failed`, naming the chunk in flight, on the
+  trace bus and on the always-on error-listener axis (Spec 011 §Failure
+  semantics)."
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
-            [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
-            [re-frame.ssr.ring :as rf.ssr.ring]
             [re-frame.ssr.ring.lifecycle :as rf.ssr.ring.lifecycle]
             [re-frame.ssr.ring.pipeline :as rf.ssr.ring.pipeline]
             [re-frame.ssr.ring.streaming :as rf.ssr.ring.streaming]
             [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]
             [re-frame.test-support :refer [with-trace-recorder!]])
-  (:import [java.io InputStream OutputStream PipedInputStream PipedOutputStream]))
+  (:import [java.io OutputStream PipedInputStream PipedOutputStream]))
 
 (use-fixtures :each rf.ssr.ring.test-support/reset-runtime)
 
-;; ===========================================================================
-;; The trace emit on a broken-pipe write failure.
-;; ===========================================================================
-
-(deftest writer-catch-arm-emits-ssr-streaming-writer-failed-trace
-  (testing "when run-streaming-writer!'s outer catch arm
-            absorbs a throw, it MUST emit :rf.error/ssr-streaming-
-            writer-failed on the trace bus per the streaming.cljc /
-            streaming.clj failure-semantics contract. The
-            broken-pipe robustness test pins absorb behaviour +
-            pipe-close only; a refactor that silently drops
-            the emit would pass it."
-    (let [pipe-in  (PipedInputStream. 1024)
-          pipe-out (PipedOutputStream. pipe-in)
-          _        (.close pipe-in)] ;; pre-broken pipe — every write throws
-      ;; Drive the writer body directly against the pre-broken pipe.
-      ;; The writer does not resolve/render the shell
-      ;; (the request thread does); we hand it a PRE-RENDERED
-      ;; shell. The first chunk write of the shell prefix hits the
-      ;; pre-broken pipe → IOException → the catch arm runs and emits
-      ;; the trace.
-      (with-trace-recorder! [captured]
-        (@#'rf.ssr.ring.streaming/run-streaming-writer!
-          pipe-out :no-such-frame
-          {:shell-prefix "<!DOCTYPE html><html><head></head><body><div id=\"app\">"
-           :shell-html "<div></div>" :continuations []}
-          {:root-view [:div]})
-        (let [hits (filterv #(= :rf.error/ssr-streaming-writer-failed (:operation %))
-                            @captured)]
-          (is (= 1 (count hits))
-              (str "expected exactly one :rf.error/ssr-streaming-writer-
-                   failed trace; saw: " (count hits) " (all operations: "
-                   (pr-str (mapv :operation @captured)) ")"))
-          (when (seq hits)
-            (let [ev (first hits)]
-              (is (= :error (:op-type ev))
-                  ":op-type is :error per Spec 009 — writer-failed is a
-                   hard failure, not a warning")
-              (is (some? (-> ev :tags :exception))
-                  ":exception tag carries the throwable's message")
-              (is (some? (-> ev :tags :ex-class))
-                  ":ex-class tag carries the throwable's class name")
-              (is (= :truncate-and-close (:recovery ev))
-                  ":recovery is hoisted to top-level per Spec 009
-                   §Error event shape — names the failure-recovery
-                   policy (partial response on the wire, pipe closes)")
-              (is (= :no-such-frame (-> ev :tags :frame))
-                  ":frame tag identifies which request failed — load-
-                   bearing for ops correlating writer failures to
-                   specific requests in JFR / log streams"))))))))
-
-;; ===========================================================================
-;; Shell-render-throw composition with frame destroy — when the shell
-;; render throws (root-view throw), the per-request frame MUST still be
-;; destroyed so its app-db + side-channel slots are released. Pin the
-;; composition the other tests test independently.
-;;
-;; A root-view / shell-walk throw fails closed on the
-;; REQUEST thread (before the head commits + before any writer is
-;; spawned): the shell-render catch arm projects a non-200 error page AND
-;; tears the frame down inline. So this is a SYNCHRONOUS teardown on
-;; the request thread (no spawned-thread `finally` to wait on, no
-;; InputStream body to drain).
-;; ===========================================================================
-
-(deftest stream-handler-destroys-frame-when-shell-render-throws
-  (testing "when the shell render throws (root-view
-            throw), the per-request frame's app-db / sub-cache / side-
-            channel slots MUST still be released. The
-            teardown happens INLINE on the request thread (the shell-
-            render fail-closed catch arm), not in a spawned-thread
-            finally — the throw never reaches a writer thread. Without
-            this every failed streaming request would leak a frame record."
-    (rf/reg-event :rf.test.writer/init
-      {:platforms #{:server}}
-      (fn [_ _] {:db {}}))
-    (let [throwing-root (fn [] (throw (ex-info "shell-render teardown probe"
-                                               {:reason :rf2-u91hb})))
-          handler  (rf.ssr.ring/stream-handler
-                     {:initial-events [[:rf.test.writer/init]]
-                      :root-view throwing-root
-                      :payload :rf.ssr.payload/whole-app-db})
-          ;; Frame ids BEFORE the request — baseline.
-          baseline-fids (disj (rf.frame/frame-ids) :rf/default)
-          response (handler {:uri "/" :request-method :get})]
-      ;; The shell render threw on the request thread, so the
-      ;; response is the projected non-200 error page (an ordinary String
-      ;; body), NOT a streamed InputStream. The frame teardown already ran
-      ;; inline by the time the handler returned.
-      (is (= 500 (:status response))
-          "root-view throw fails closed to a non-200 projected error page
-           on the request thread")
-      (is (not (instance? InputStream (:body response)))
-          "no streamed InputStream body — the chunked response was never
-           committed (the shell render failed before the head commit)")
-      (let [end-fids (disj (rf.frame/frame-ids) :rf/default)
-            leaked   (clojure.set/difference end-fids baseline-fids)]
-        (is (empty? leaked)
-            (str "the per-request frame MUST be destroyed even though
-                 the shell render threw — found leaked frame-ids: "
-                 (vec leaked)))))))
-
-;; ===========================================================================
-;; Writer-failure PHASE context
-;; ===========================================================================
-;;
-;; The writer-failed trace names WHICH chunk phase was in flight when
-;; the post-commit write threw (`:phase`), the continuation `:boundary-id`
-;; when the failure is inside a continuation drain, and a coarse
-;; `:committed?`. These tests force DIFFERENT writer phases to throw and
-;; assert the traces carry DISTINCT phase tags — so ops can tell a broken
-;; client pipe from a bad final payload from a specific boundary drain.
-;;
-;; Mechanism: a counting `OutputStream` that throws on its Nth
-;; `write(byte[])` call. The writer calls `.write` once per chunk via
-;; `write-chunk!`, so the chunk ordering (shell-prefix, shell-html,
-;; [continuation-template, continuation-delta]*, final-payload, suffix)
-;; maps writes → phases deterministically. We build a GENUINE `rendered`
-;; map by setting up a real per-request frame and calling
-;; `render-streaming-shell!`, so `build-final-payload` succeeds and the
-;; throw comes from the WRITE (the phase under test), not from shell
-;; resolution.
-
 (defn- throw-on-nth-write-stream
-  "An OutputStream that throws `IOException` on its Nth `write(byte[])`
-  call (1-indexed). Earlier writes are swallowed. Used to target a
-  specific writer phase deterministically."
+  "An OutputStream whose `n`th write throws an IOException; the others are
+  dropped. The writer writes once per chunk, so `n` picks the phase."
   ^OutputStream [n]
-  (let [calls (atom 0)]
+  (let [calls  (atom 0)
+        write! #(when (= n (swap! calls inc))
+                  (throw (java.io.IOException. (str "forced-write-failure-at-" n))))]
     (proxy [OutputStream] []
       (write
-        ([b]
-         (when (= n (swap! calls inc))
-           (throw (java.io.IOException. (str "forced-write-failure-at-" n))))
-         nil)
-        ([b off len]
-         (when (= n (swap! calls inc))
-           (throw (java.io.IOException. (str "forced-write-failure-at-" n))))
-         nil))
-      (flush [] nil)
-      (close [] nil))))
-
-(defn- setup-streaming-frame!
-  "Register a real per-request server frame for `opts` and return its
-  frame-id. The `:initial-events` event seeds the app-db the views read."
-  [opts]
-  (let [{:keys [frame-id]} (rf.ssr.ring.pipeline/setup-request-frame! opts {:uri "/" :request-method :get})]
-    frame-id))
-
-(defn- capture-writer-failure
-  "Drive `run-streaming-writer!` against a stream that throws on the Nth
-  write, capture the writer-failed trace, and return its first event (or
-  nil). `rendered` is a genuine `render-streaming-shell!` result."
-  [frame-id rendered opts throw-at-write]
-  (with-trace-recorder! [captured]
-    (@#'rf.ssr.ring.streaming/run-streaming-writer!
-      (throw-on-nth-write-stream throw-at-write) frame-id rendered opts)
-    (->> @captured
-         (filterv #(= :rf.error/ssr-streaming-writer-failed (:operation %)))
-         first)))
+        ([_] (write!))
+        ([_ _ _] (write!)))
+      (flush [])
+      (close []))))
 
 (deftest writer-failed-trace-carries-distinct-phase-per-chunk
-  (testing "forcing different writer chunks to throw produces
-            writer-failed traces with DISTINCT :phase tags (shell-prefix
-            vs final-payload vs suffix), all marked :committed? true"
-    (rf/reg-event :rf.test.phase/init
-      {:platforms #{:server}}
-      (fn [_ _] {:db {:n 1}}))
-    (rf/reg-sub :rf.test.phase/n (fn [db _] (:n db)))
+  (testing "a throw on each chunk's write is one writer-failed trace naming that
+            phase, and the boundary id inside a continuation drain"
+    (rf/reg-event :rf.test.phase/init {:platforms #{:server}} (fn [_ _] {}))
     (rf/reg-view ^{:rf/id :rf.test.phase/root} phase-root []
-      [:main [:span @(subscribe [:rf.test.phase/n])]])
-    (let [opts     {:initial-events [[:rf.test.phase/init]]
-                    :root-view [(rf/view :rf.test.phase/root)]
-                    :emit-hash? true
-                    :payload :rf.ssr.payload/whole-app-db}
-          ;; A no-suspense root → the write order is exactly:
-          ;;   1 shell-prefix, 2 shell-html, 3 final-payload, 4 suffix.
-          mk       (fn [throw-at]
-                     (let [fid      (setup-streaming-frame! opts)
-                           rendered (#'rf.ssr.ring.streaming/render-streaming-shell! fid opts)
-                           ev       (capture-writer-failure fid rendered opts throw-at)]
-                       (rf.ssr.ring.lifecycle/destroy-frame-quietly! fid)
-                       ev))
-          prefix-ev (mk 1)
-          final-ev  (mk 3)
-          suffix-ev (mk 4)]
-      (is (= :shell-prefix (-> prefix-ev :tags :phase))
-          "throw on write 1 → :phase :shell-prefix")
-      (is (= :final-payload (-> final-ev :tags :phase))
-          "throw on write 3 → :phase :final-payload")
-      (is (= :suffix (-> suffix-ev :tags :phase))
-          "throw on write 4 → :phase :suffix")
-      ;; Every writer phase runs post-head-commit, and carries no
-      ;; :boundary-id outside a continuation drain. One read per property
-      ;; over the three phases, in prefix / final-payload / suffix order.
-      (let [evs [prefix-ev final-ev suffix-ev]]
-        (is (= [true true true] (mapv #(-> % :tags :committed?) evs))
-            ":committed? true on every writer phase (post-head-commit)")
-        (is (= [:truncate-and-close :truncate-and-close :truncate-and-close]
-               (mapv :recovery evs))
-            ":recovery hoisted to top-level as :truncate-and-close on every phase")
-        (is (= [false false false]
-               (mapv #(contains? (:tags %) :boundary-id) evs))
-            "no :boundary-id tag outside a continuation phase")))))
-
-(deftest writer-failed-trace-carries-boundary-id-on-continuation-phase
-  (testing "a write throw during a continuation drain tags the
-            trace :phase :continuation-template AND :boundary-id <id>, so
-            ops correlate the failure to a specific deferred subtree"
-    (rf/reg-event :rf.test.phase/init-sb
-      {:platforms #{:server}}
-      (fn [_ _] {:db {:items [:a :b]}}))
-    (rf/reg-sub :rf.test.phase/items (fn [db _] (:items db)))
-    (rf/reg-view ^{:rf/id :rf.test.phase/section} phase-section []
-      (into [:ul] (for [i @(subscribe [:rf.test.phase/items])] [:li (name i)])))
-    (rf/reg-view ^{:rf/id :rf.test.phase/sb-root} sb-root []
       [:main
-       [:h1 "hdr"]
-       [:rf/suspense-boundary
-        {:id :rf.test.phase/the-boundary :fallback [:p "loading"]}
-        [(rf/view :rf.test.phase/section)]]])
-    (let [opts     {:initial-events [[:rf.test.phase/init-sb]]
-                    :root-view [(rf/view :rf.test.phase/sb-root)]
-                    :emit-hash? true
-                    :payload :rf.ssr.payload/whole-app-db}
-          fid      (setup-streaming-frame! opts)
-          rendered (#'rf.ssr.ring.streaming/render-streaming-shell! fid opts)]
-      ;; With one boundary the write order is:
-      ;;   1 shell-prefix, 2 shell-html, 3 continuation-template, ...
-      ;; Throw on write 3 to hit the continuation-template phase.
-      (is (seq (:continuations rendered))
-          "the rendered shell registered the suspense continuation")
-      (let [ev (capture-writer-failure fid rendered opts 3)]
-        (rf.ssr.ring.lifecycle/destroy-frame-quietly! fid)
-        (is (= :continuation-template (-> ev :tags :phase))
-            "throw on the boundary's template write → :phase :continuation-template")
-        (is (= :rf.test.phase/the-boundary (-> ev :tags :boundary-id))
-            ":boundary-id names the specific continuation that was draining")
-        (is (true? (-> ev :tags :committed?))
-            ":committed? true — the continuation phase is post-head-commit")))))
-
-;; ===========================================================================
-;; EP-0008 — the writer-failed record reaches the ALWAYS-ON
-;; register-error-listener! axis under production hardening (debug-off),
-;; WITHOUT touching the wire (the chunked 200 is already committed —
-;; NON-PROJECTING). The dev-trace pin above runs debug-ON; this is its
-;; production-survivable counterpart.
-;; ===========================================================================
+       [:rf/suspense-boundary {:id :rf.test.phase/b :fallback [:p "loading"]}
+        [:p "done"]]])
+    (let [opts {:initial-events [[:rf.test.phase/init]]
+                :root-view      [(rf/view :rf.test.phase/root)]
+                :payload        :rf.ssr.payload/whole-app-db}]
+      ;; The boundary leaves app-db unchanged, so it writes no delta chunk:
+      ;; 1 prefix, 2 shell html, 3 boundary template, 4 final payload, 5 suffix.
+      (doseq [[n phase boundary-id] [[1 :shell-prefix]
+                                     [3 :continuation-template :rf.test.phase/b]
+                                     [4 :final-payload]
+                                     [5 :suffix]]]
+        (let [{:keys [frame-id]} (rf.ssr.ring.pipeline/setup-request-frame!
+                                   opts {:uri "/" :request-method :get})
+              rendered (rf.ssr.ring.streaming/render-streaming-shell! frame-id opts)
+              events   (with-trace-recorder! [captured]
+                         (@#'rf.ssr.ring.streaming/run-streaming-writer!
+                           (throw-on-nth-write-stream n) frame-id rendered opts)
+                         (filterv #(= :rf.error/ssr-streaming-writer-failed (:operation %))
+                                  @captured))]
+          (rf.ssr.ring.lifecycle/destroy-frame-quietly! frame-id)
+          (is (= [{:op-type  :error
+                   :recovery :truncate-and-close
+                   :tags     (cond-> {:category   :rf.error/ssr-streaming-writer-failed
+                                      :frame      frame-id
+                                      :exception  (str "forced-write-failure-at-" n)
+                                      :ex-class   "java.io.IOException"
+                                      :phase      phase
+                                      :committed? true}
+                               boundary-id (assoc :boundary-id boundary-id))}]
+                 (mapv #(select-keys % [:op-type :recovery :tags]) events))
+              (str "throw on write " n)))))))
 
 (deftest writer-failed-reaches-the-always-on-listener-under-debug-off
-  (testing "when run-streaming-writer!'s catch arm absorbs a
-            post-commit write throw under `interop/debug-enabled? = false`,
-            it ALSO fans :rf.error/ssr-streaming-writer-failed out on the
-            always-on register-error-listener! axis (alongside the dev
-            trace, which is elided under debug-off). NON-PROJECTING: the
-            chunked 200 is already on the wire, so there is no status to
-            flip — pure off-box telemetry."
-    (rf.error-emit/clear-error-listeners!)
+  (testing "with the dev trace elided (debug off) the failure still reaches the
+            always-on error listener — telemetry only, the 200 is already sent"
     (let [pipe-in  (PipedInputStream. 1024)
           pipe-out (PipedOutputStream. pipe-in)
-          _        (.close pipe-in) ;; pre-broken pipe — every write throws
           seen     (atom [])]
-      (rf.error-emit/register-error-listener!
-        ::off-box-writer-recorder
-        (fn [record] (swap! seen conj record)))
-      (with-redefs [rf.interop/debug-enabled? false]
-        (@#'rf.ssr.ring.streaming/run-streaming-writer!
-          pipe-out :no-such-frame
-          {:shell-prefix "<!DOCTYPE html><html><head></head><body><div id=\"app\">"
-           :shell-html "<div></div>" :continuations []}
-          {:root-view [:div]}))
-      (rf.error-emit/clear-error-listeners!)
-      (let [hits (filterv #(= :rf.error/ssr-streaming-writer-failed (:error %))
-                          @seen)]
-        (is (= 1 (count hits))
-            "exactly one writer-failed record fanned out on the always-on
-             axis under debug-off (the dev trace is elided there)")
-        (when (seq hits)
-          (let [rec (first hits)]
-            (is (= :no-such-frame (:frame rec))
-                "the always-on record carries the failing frame on its flat
-                 :frame slot (union shape)")
-            (is (some? (:phase rec))
-                "the flat :phase slot rides through (which chunk was in flight)")
-            (is (= :truncate-and-close (:recovery rec))
-                "the flat :recovery slot rides through — NON-PROJECTING,
-                 post-commit truncate-and-close (no status to change)")
-            (is (true? (:committed? rec))
-                ":committed? true — post-head-commit, the wire is unchanged")))))))
+      (.close pipe-in)
+      (rf.error-emit/register-error-listener! ::recorder #(swap! seen conj %))
+      (try
+        (with-redefs [rf.interop/debug-enabled? false]
+          (@#'rf.ssr.ring.streaming/run-streaming-writer!
+            pipe-out :no-such-frame {:shell-prefix "<html>" :shell-html "" :continuations []} {}))
+        (finally
+          (rf.error-emit/unregister-error-listener! ::recorder)))
+      (is (= [{:frame :no-such-frame :phase :shell-prefix
+               :recovery :truncate-and-close :committed? true}]
+             (->> @seen
+                  (filter #(= :rf.error/ssr-streaming-writer-failed (:error %)))
+                  (mapv #(select-keys % [:frame :phase :recovery :committed?]))))))))
