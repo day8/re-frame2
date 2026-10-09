@@ -1,49 +1,29 @@
 (ns re-frame.epoch-drain-serialization-test
-  "Deterministic JVM race tests — Tool-Pair state writes
-  (`restore-epoch!` / `replace-frame-state!`) MUST be serialized against the
-  frame's event drain via the core single-drainer `:drain-lock`, so a tool
-  write holds ONE serial position relative to any event transition.
+  "Tool-Pair state writes (`restore-epoch!` / `replace-frame-state!`) serialize
+  against the frame's event drain on the core `:drain-lock` (Spec 002 §Single
+  drainer per frame), so a tool write holds ONE serial position relative to any
+  event transition.
 
-  The precondition validators read the router's `:in-drain?` /
-  `:in-sync-drain?` flags, and that alone is not enough. Were the coherent
-  read / reconcile / physical write / success bookkeeping to run OUTSIDE the
-  frame's `:drain-lock`, a drain that started AFTER validation and BEFORE the
-  write could interleave between a handler's `db` read and its commit, so the
-  tool write would splice into the middle of an event transition — a
-  non-linearizable result — while the tool op still returned `true` and
-  emitted success telemetry.
-
-  These tests force that TOCTOU window open with a barrier wrapped around the
-  precondition validator: the restore/replace validates its preconditions with
-  NO drain in flight (so validation passes), THEN a concurrent `dispatch-sync`
-  starts a drain and blocks its handler mid-transition (holding `:drain-lock`),
-  THEN the tool write is released. An unserialized write would splice in and be
-  overwritten; the write blocks on `:drain-lock` and serializes AFTER the
-  drain, producing a linearizable transition whose installed value matches the
-  recorded synthetic epoch.
-
-  CLJS cannot thread-preempt, so this interleaving is JVM-only; the reentrant
-  mid-drain refusal (which CLJS DOES need) is covered on both runtimes by the
-  during-drain precondition tests. Per Spec 002 §Single drainer per frame and
-  the frame `:drain-lock` discipline (`re-frame.frame/call-serialized-with-drain!`)."
+  Each test forces the TOCTOU window open: the write validates its
+  preconditions with no drain in flight, THEN a concurrent `dispatch-sync`
+  reads db and blocks mid-transition holding `:drain-lock`, THEN the write is
+  released. An unserialized write would splice into the transition and be
+  overwritten while still returning `true`. JVM-only — CLJS cannot preempt."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.epoch :as rf.epoch]
-            [re-frame.epoch.state :as rf.epoch.state]
+            ;; Side-effect: publishes the `:epoch/*` late-bind hooks.
+            [re-frame.epoch]
             [re-frame.epoch.tool-pair :as rf.epoch.tool-pair]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            ;; machines is pulled in for parity with the rest of the epoch
-            ;; suite so the ns-load registrar snapshot the fixture restores is
-            ;; the same shape (the reconcile hooks stay nil-safe here).
+            ;; Loaded so the fixture's ns-load registrar baseline matches the
+            ;; rest of the epoch suite.
             [re-frame.machines])
   (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.substrate.plain-atom/adapter}))
-
-;; ---- orchestration helpers -------------------------------------------------
 
 (def ^:private join-timeout-ms 20000)
 
@@ -57,190 +37,108 @@
   (deref p join-timeout-ms ::timeout))
 
 (defn- target-epoch-id
-  "The epoch-id of the recorded epoch whose app-db projection equals `db`."
+  "The epoch-id of the recorded epoch whose `:db-after` equals `db`."
   [frame-id db]
   (some (fn [r] (when (= db (:db-after r)) (:epoch-id r)))
         (rf/epoch-history frame-id)))
 
-;; ---- restore-epoch! linearizability ----------------------------------------
-
 (deftest restore-epoch!-serialized-against-concurrent-drain
-  (testing "A restore whose preconditions pass with no drain in flight, then
-            races a concurrent event that reads db before the restore lands,
-            must NOT splice a mid-transition write: the outcome is a
-            linearizable schedule (the restore serializes after the event and
-            its installed value is durable), not a success that was silently
-            overwritten by the event commit."
-    (let [frame-id :drainlin/restore]
-      (rf/make-frame {:id frame-id :doc "restore drain-serialization frame"})
-      (rf/reg-event :set (fn [{:keys [db]} [_ v]] {:db {:n v}}))
-
-      ;; Barrier plumbing.
-      (let [precond-passed (promise)         ;; R -> main: check computed (:ok?)
-            handler-read   (promise)         ;; D -> main: handler read db
-            release-precond (CountDownLatch. 1) ;; main -> R: return from check
-            release-handler (CountDownLatch. 1) ;; main -> D: finish handler
-            barrier-armed?  (atom true)
-            handler-read-db (atom nil)]
-
-        ;; The racing event: reads db, publishes it, then blocks mid-transition
-        ;; holding the frame's :drain-lock until released, then commits n+1.
-        (rf/reg-event :blocked-inc
-          (fn [{:keys [db]} _]
-            (reset! handler-read-db db)
-            (deliver handler-read db)
-            (await-latch release-handler)
-            {:db {:n (inc (:n db))}}))
-
-        ;; Seed: record an epoch at {:n 1}; move current state to {:n 2}.
-        (rf/dispatch-sync [:set 1] {:frame frame-id})
-        (rf/dispatch-sync [:set 2] {:frame frame-id})
-        (let [eid-1 (target-epoch-id frame-id {:n 1})
-              orig-check rf.epoch.tool-pair/check-restore-preconditions!]
-          (is (some? eid-1) "seeded an epoch whose db-after is {:n 1}")
-          (is (= {:n 2} (rf/app-db-value frame-id)) "current db is {:n 2}")
-
-          (with-redefs
-            [rf.epoch.tool-pair/check-restore-preconditions!
-             (fn [f e]
-               (let [result (orig-check f e)]
-                 (when (compare-and-set! barrier-armed? true false)
-                   ;; Preconditions were resolved with NO drain in flight.
-                   (deliver precond-passed result)
-                   ;; Park until the concurrent drain is mid-transition.
-                   (await-latch release-precond))
-                 result))]
-
-            (let [restore-fut (future (rf/restore-epoch! frame-id eid-1))]
-              ;; 1. Restore validates preconditions (drain not yet in flight).
-              (let [pc (await-promise precond-passed)]
-                (is (= :ok (:outcome pc))
-                    "restore preconditions passed BEFORE any drain — the TOCTOU window is real"))
-              ;; 2. Start the racing drain; wait until it has read db and is
-              ;;    blocked mid-transition holding :drain-lock.
-              (let [drain-fut (future (rf/dispatch-sync [:blocked-inc] {:frame frame-id}))]
-                (is (= {:n 2} (await-promise handler-read))
-                    "the racing event read the pre-restore db {:n 2}")
-                ;; 3. Release the restore to attempt its write. It blocks on
-                ;;    :drain-lock; an unserialized write would land {:n 1}
-                ;;    immediately.
-                (.countDown release-precond)
-                ;; Give the restore a beat to park on the lock (or, were it
-                ;; unserialized, to finish).
-                (Thread/sleep 100)
-                ;; 4. Let the blocked handler commit {:n 3} and settle.
-                (.countDown release-handler)
-
-                (let [restore-result (await-future restore-fut)
-                      drain-result   (await-future drain-fut)]
-                  (is (not= ::timeout restore-result) "restore future completed (no deadlock)")
-                  (is (not= ::timeout drain-result) "drain future completed (no deadlock)")
-
-                  (is (true? restore-result) "restore reported success")
-                  ;; The event read the pre-restore state {:n 2}, so a
-                  ;; linearizable schedule places the event BEFORE the restore;
-                  ;; therefore the restore committed LAST and its value must be
-                  ;; the durable final state. An unserialized write would leave
-                  ;; {:n 3} — the restore's write erased by the event commit
-                  ;; despite the true return — which no serial order can produce.
-                  (is (= {:n 1} (rf/app-db-value frame-id))
-                      (str "restore reported success but its installed value must be "
-                           "durable; final db was "
-                           (pr-str (rf/app-db-value frame-id))
-                           " (a mid-transition splice overwritten by the event "
-                           "commit is non-linearizable)")))))))))))
-
-;; ---- replace-frame-state! partition coherence ------------------------------
+  (testing "a restore that races an event which read db first serializes after
+            that event, so its installed value is the durable final state"
+    (let [frame-id        :drainlin/restore
+          precond-passed  (promise)
+          handler-read    (promise)
+          release-precond (CountDownLatch. 1)
+          release-handler (CountDownLatch. 1)
+          barrier-armed?  (atom true)]
+      (rf/make-frame {:id frame-id})
+      (rf/reg-event :set (fn [_ [_ v]] {:db {:n v}}))
+      ;; Reads db, then blocks mid-transition holding :drain-lock, then commits n+1.
+      (rf/reg-event :blocked-inc
+        (fn [{:keys [db]} _]
+          (deliver handler-read db)
+          (await-latch release-handler)
+          {:db {:n (inc (:n db))}}))
+      (rf/dispatch-sync [:set 1] {:frame frame-id})
+      (rf/dispatch-sync [:set 2] {:frame frame-id})
+      (let [eid-1      (target-epoch-id frame-id {:n 1})
+            orig-check rf.epoch.tool-pair/check-restore-preconditions!]
+        (with-redefs
+          [rf.epoch.tool-pair/check-restore-preconditions!
+           (fn [f e]
+             (let [result (orig-check f e)]
+               (when (compare-and-set! barrier-armed? true false)
+                 (deliver precond-passed result)
+                 (await-latch release-precond))
+               result))]
+          (let [restore-fut (future (rf/restore-epoch! frame-id eid-1))]
+            (await-promise precond-passed)
+            (let [drain-fut (future (rf/dispatch-sync [:blocked-inc] {:frame frame-id}))]
+              (await-promise handler-read)
+              (.countDown release-precond)
+              ;; A beat for the restore to park on :drain-lock (or, unserialized, land).
+              (Thread/sleep 100)
+              (.countDown release-handler)
+              (let [restore-result (await-future restore-fut)]
+                (await-future drain-fut)
+                (is (true? restore-result) "restore reported success")
+                ;; The event read {:n 2} and commits {:n 3}; only the restore
+                ;; committing LAST yields {:n 1}. An unserialized write leaves {:n 3}.
+                (is (= {:n 1} (rf/app-db-value frame-id))
+                    "the restore's installed value is durable — serialized after the event")))))))))
 
 (deftest replace-frame-state!-serialized-preserves-omitted-partition
-  (testing "A partial replace-frame-state! that patches ONLY app-db, racing a
-            concurrent event that changes the OMITTED runtime-db partition,
-            must install the coherent whole frame-state AND record a synthetic
-            epoch whose :frame-state-after equals the installed value — no
-            partition update lost, no synthetic anchor describing a state that
-            was never a serial frame state."
-    (let [frame-id :drainlin/replace]
-      (rf/make-frame {:id frame-id :doc "replace drain-serialization frame"})
+  (testing "an app-db-only replace racing an event that changes the OMITTED
+            runtime-db partition installs the coherent whole frame-state, and
+            its synthetic epoch records exactly that state"
+    (let [frame-id        :drainlin/replace
+          precond-passed  (promise)
+          runtime-read    (promise)
+          release-precond (CountDownLatch. 1)
+          release-handler (CountDownLatch. 1)
+          barrier-armed?  (atom true)]
+      (rf/make-frame {:id frame-id})
       (rf/reg-event :seed
         (fn [_ _]
           {:db            {:app :v0}
            :rf.db/runtime {:rf.runtime/marker :r0}}))
-
-      (let [precond-passed  (promise)
-            runtime-read    (promise)
-            release-precond (CountDownLatch. 1)
-            release-handler (CountDownLatch. 1)
-            barrier-armed?  (atom true)]
-
-        ;; Racing event: changes ONLY the runtime-db partition (the partition
-        ;; the tool patch omits), blocking mid-transition holding :drain-lock.
-        (rf/reg-event :bump-runtime
-          (fn [{rt :rf.db/runtime} _]
-            (deliver runtime-read rt)
-            (await-latch release-handler)
-            {:rf.db/runtime {:rf.runtime/marker :r1}}))
-
-        (rf/dispatch-sync [:seed] {:frame frame-id})
-        (is (= :r0 (:rf.runtime/marker (:rf.db/runtime (rf/frame-state-value frame-id))))
-            "seeded runtime-db marker :r0")
-
-        (let [orig-check rf.epoch.tool-pair/check-replace-frame-state-preconditions!
-              history-before (count (rf/epoch-history frame-id))]
-          (with-redefs
-            [rf.epoch.tool-pair/check-replace-frame-state-preconditions!
-             (fn [f fs]
-               (let [result (orig-check f fs)]
-                 (when (compare-and-set! barrier-armed? true false)
-                   (deliver precond-passed result)
-                   (await-latch release-precond))
-                 result))]
-
-            ;; The tool patch touches ONLY app-db; runtime-db is omitted and
-            ;; must be carried forward from whatever the frame holds at write
-            ;; time (which — after serialization — is the event's :r1).
-            (let [replace-fut (future (rf/replace-frame-state! frame-id {:rf.db/app {:app :patched}}))]
-              (let [pc (await-promise precond-passed)]
-                (is (= :ok (:outcome pc))
-                    "replace preconditions passed BEFORE any drain"))
-              (let [drain-fut (future (rf/dispatch-sync [:bump-runtime] {:frame frame-id}))]
-                (is (= :r0 (:rf.runtime/marker (await-promise runtime-read)))
-                    "the racing event read the pre-replace runtime-db :r0")
-                (.countDown release-precond)
-                (Thread/sleep 100)
-                (.countDown release-handler)
-
-                (let [replace-result (await-future replace-fut)
-                      drain-result   (await-future drain-fut)]
-                  (is (not= ::timeout replace-result) "replace future completed (no deadlock)")
-                  (is (not= ::timeout drain-result) "drain future completed (no deadlock)")
-                  (is (true? replace-result) "replace reported success")
-
-                  (let [installed  (rf/frame-state-value frame-id)
-                        history    (rf/epoch-history frame-id)
-                        synthetics (filter #(= :rf.epoch/db-replaced (:event-id %)) history)
-                        synthetic  (first synthetics)]
-                    ;; The event's runtime update must NOT be lost: the omitted
-                    ;; partition carries forward the serialized-before event's :r1.
-                    (is (= :r1 (:rf.runtime/marker (:rf.db/runtime installed)))
-                        (str "the concurrent event's runtime-db update must survive the "
-                             "omitted-partition carry-forward; installed runtime-db was "
-                             (pr-str (:rf.db/runtime installed))))
-                    (is (= {:app :patched} (:rf.db/app installed))
-                        "the app-db partition holds the tool patch")
-                    (is (= 1 (count synthetics))
-                        "exactly one synthetic :rf.epoch/db-replaced record was appended")
-                    ;; The synthetic undo-anchor must describe the EXACT installed
-                    ;; transition — its :frame-state-after equals the installed
-                    ;; whole frame-state. An unserialized write would record
-                    ;; runtime :r0 here (from a stale pre-event read) while the frame holds
-                    ;; :r1, so restoring the anchor would silently revert the
-                    ;; event's runtime update.
-                    (is (= installed (:frame-state-after synthetic))
-                        (str "the synthetic epoch's :frame-state-after must equal the "
-                             "installed whole frame-state; synthetic recorded "
-                             (pr-str (:frame-state-after synthetic))
-                             " vs installed " (pr-str installed)))
-                    ;; history-before was counted after the seed; the race adds
-                    ;; exactly the drain's :bump-runtime epoch + the one synthetic.
-                    (is (= (+ history-before 2) (count history))
-                        "history grew by exactly the drain epoch + the synthetic replace epoch")))))))))))
+      ;; Changes ONLY the runtime-db partition, blocking mid-transition.
+      (rf/reg-event :bump-runtime
+        (fn [{rt :rf.db/runtime} _]
+          (deliver runtime-read rt)
+          (await-latch release-handler)
+          {:rf.db/runtime {:rf.runtime/marker :r1}}))
+      (rf/dispatch-sync [:seed] {:frame frame-id})
+      (let [orig-check     rf.epoch.tool-pair/check-replace-frame-state-preconditions!
+            history-before (count (rf/epoch-history frame-id))]
+        (with-redefs
+          [rf.epoch.tool-pair/check-replace-frame-state-preconditions!
+           (fn [f fs]
+             (let [result (orig-check f fs)]
+               (when (compare-and-set! barrier-armed? true false)
+                 (deliver precond-passed result)
+                 (await-latch release-precond))
+               result))]
+          (let [replace-fut (future (rf/replace-frame-state! frame-id {:rf.db/app {:app :patched}}))]
+            (await-promise precond-passed)
+            (let [drain-fut (future (rf/dispatch-sync [:bump-runtime] {:frame frame-id}))]
+              (await-promise runtime-read)
+              (.countDown release-precond)
+              (Thread/sleep 100)
+              (.countDown release-handler)
+              (let [replace-result (await-future replace-fut)]
+                (await-future drain-fut)
+                (is (true? replace-result) "replace reported success")
+                (let [installed (rf/frame-state-value frame-id)
+                      history   (rf/epoch-history frame-id)
+                      synthetic (first (filter #(= :rf.epoch/db-replaced (:event-id %)) history))]
+                  (is (= :r1 (:rf.runtime/marker (:rf.db/runtime installed)))
+                      "the concurrent event's runtime-db update survived the omitted-partition carry-forward")
+                  (is (= {:app :patched} (:rf.db/app installed))
+                      "the app-db partition holds the tool patch")
+                  ;; An unserialized write would record runtime :r0 here while the
+                  ;; frame holds :r1, so restoring the anchor would revert the event.
+                  (is (= installed (:frame-state-after synthetic))
+                      "the synthetic epoch's :frame-state-after equals the installed frame-state")
+                  (is (= (+ history-before 2) (count history))
+                      "history grew by exactly the drain epoch + one synthetic replace epoch"))))))))))
