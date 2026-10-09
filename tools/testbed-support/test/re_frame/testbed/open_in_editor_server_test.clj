@@ -385,21 +385,13 @@
              (rf.testbed.open-in-editor-server/launch! missing 10 5 nil))
           "missing file rejected before the node spawn"))))
 
-;; ---------------------------------------------------------------------------
-;; Real-subprocess pipe-drain regressions.
+;; --- Real node children ------------------------------------------------------
 ;;
-;; OS pipes are bounded (~64 KiB). A `launch!` that called `.waitFor` BEFORE
-;; reading either child pipe, and never read stdout at all, would let a child
-;; that filled either pipe block on the write, never reach `process.exit`, and
-;; leave the JVM timing out waiting for an exit its own undrained pipe prevents.
-;; These spawn REAL node children (the boundary the unit path never exercises
-;; — every other launch! test stubs launch! or stops at missing-file rejection)
-;; that write MORE than a pipe's worth to stdout / stderr. With stdout
-;; DISCARDed and stderr drained concurrently, each child exits and `launch!`
-;; classifies it correctly. Each test rebinds a short `*launch-timeout-ms*`
-;; budget so a wait-before-drain fails as a BOUNDED timeout result
-;; rather than hanging the suite.
-;; ---------------------------------------------------------------------------
+;; OS pipes are bounded (~64 KiB), so a `launch!` that waited before draining
+;; would leave a child that fills a pipe blocked on the write, never exiting.
+;; These spawn REAL node children that write more than a pipe's worth; each
+;; rebinds a short `*launch-timeout-ms*`, so a wedge comes back as a timeout
+;; RESULT rather than a hung suite.
 
 (defn ^:private node-available?
   "Whether a `node` binary is on PATH — the real-subprocess regressions below
@@ -413,22 +405,11 @@
            (zero? (.exitValue p))))
     (catch Throwable _ false)))
 
-;; ---------------------------------------------------------------------------
-;; A SKIP MUST NOT READ AS A PASS IN A LANE THAT ARMED THE PREREQUISITE.
-;;
-;; Every real-subprocess block below self-skips when `node` — or the pinned
-;; `launch-editor` package — is missing, so a node-less developer box stays
-;; green. That is right for a laptop and wrong for CI: the exit code cannot
-;; distinguish a run from a skip, so a CI job that installed no node deps
-;; would skip every launch-editor-backed block and report green on coverage it
-;; never had, with only a smaller assertion count to show for it.
-;;
-;; So the `jvm-tools-testbed-support` job installs the dependency AND sets
-;; `RF2_REQUIRE_NODE_PROBES`,
-;; which flips the skip into a failure: a lane that declared the prerequisite
-;; present and then reached a skip has lost the gate it exists to be, and says
-;; so instead of passing quietly.
-;; ---------------------------------------------------------------------------
+;; Every node-backed test self-skips where `node` or the pinned `launch-editor`
+;; is missing, so a node-less box stays green. The `jvm-tools-testbed-support`
+;; CI job installs both and sets `RF2_REQUIRE_NODE_PROBES`, which turns that
+;; skip into a failure: a lane that declared the prerequisite cannot pass on
+;; coverage it never had.
 
 (def ^:private node-probes-required?
   "Whether a missing node prerequisite must FAIL rather than self-skip — true
@@ -464,10 +445,6 @@
      [r# (quot (- (System/nanoTime) t0#) 1000000)]))
 
 (deftest launch-drains-huge-stdout-and-reports-success
-  ;; A child that floods STDOUT (>1 MiB) and exits 0 is a SUCCESS,
-  ;; reached promptly — never the timeout an undrained-stdout deadlock
-  ;; would manufacture. The 8 s budget bounds a wait-before-drain to a
-  ;; timeout RESULT at ~8 s (this assertion then goes red) instead of hanging.
   (if-not (node-available?)
     (skip-or-fail "node not on PATH")
     (let [f    (tmp-existing-file)
@@ -479,9 +456,6 @@
               "a >1 MiB stdout flood + exit 0 is a prompt success, not a timeout"))))))
 
 (deftest launch-drains-huge-stderr-and-reports-bounded-failure
-  ;; A child that floods STDERR (>1 MiB) and exits nonzero is a
-  ;; FAILURE carrying a BOUNDED diagnostic (never the timeout, never unbounded
-  ;; memory), plus a small-stderr control.
   (if-not (node-available?)
     (skip-or-fail "node not on PATH")
     (let [f (tmp-existing-file)]
@@ -503,9 +477,6 @@
                    (rf.testbed.open-in-editor-server/launch! (.getAbsolutePath f) nil nil nil)))))))))
 
 (deftest launch-genuine-timeout-honours-short-budget
-  ;; A child that never exits yields the timeout message
-  ;; WITHIN the (short, test-configurable) budget — proving the wait is bounded
-  ;; and the budget is honoured, not the default 10 s.
   (if-not (node-available?)
     (skip-or-fail "node not on PATH")
     (let [f (tmp-existing-file)]
@@ -518,10 +489,8 @@
                 "the short budget was honoured — nowhere near the default 10 s stall")))))))
 
 (deftest terminate!-force-kills-a-child-that-ignores-graceful-destroy
-  ;; After cleanup the child is no longer alive, INCLUDING the
-  ;; force-termination fallback when a graceful destroy does not complete (a
-  ;; child that traps SIGTERM — the force path is exercised on POSIX CI; on
-  ;; Windows `.destroy` already terminates forcibly).
+  ;; The child traps SIGTERM, so on POSIX the force-destroy fallback is what
+  ;; ends it; on Windows `.destroy` already terminates forcibly.
   (if-not (node-available?)
     (skip-or-fail "node not on PATH")
     (let [pb   (doto (ProcessBuilder. ["node" "-e"
@@ -548,19 +517,11 @@
       (is (= [422 "{\"ok\":false,\"error\":\"file-not-found\"}"] [(:status resp) (:body resp)])
           "a non-2xx, not a false 200, naming the missing file rather than launch-failed"))))
 
-;; Endpoint success must mean the COORDINATE arrived.
-;;
-;; `launch-editor`'s `get-args.js` switches on the command basename: `code`,
-;; `code-insiders`, `cursor`, `zed` and the JetBrains binaries get a position
-;; argument, everything else falls through to a bare-file launch that exits 0.
-;; Windsurf is in this endpoint's vocabulary and NOT in that switch, so without
-;; a decline the endpoint would answer 200 to a `line=27&column=9` request that
-;; opened the file at an arbitrary prior cursor position — and that 200 would
-;; suppress the client's `windsurf://…:27:9` fallback, which does carry it.
-;;
-;; The complementary client-side half (a declined answer runs the
-;; coordinate-preserving fallback exactly once; a 200 suppresses it) is
-;; `re-frame.testbed.open-in-editor-client-cljs-test`.
+;; Endpoint success must mean the COORDINATE arrived. launch-editor's
+;; `get-args.js` has no `windsurf` case, so Windsurf would open the bare file,
+;; exit 0, and a 200 would suppress the client's `windsurf://…:27:9` fallback.
+;; The client half — a decline runs that fallback once, a 200 suppresses it —
+;; is `re-frame.testbed.open-in-editor-client-cljs-test`.
 
 (deftest position-blind-commands-are-declared-not-guessed
   ;; The set's contents are graded against the installed dependency by
@@ -578,14 +539,6 @@
            (map #(apply rf.testbed.open-in-editor-server/position-would-be-dropped? %)
                 [["windsurf" 27 9] ["windsurf" 27 nil] ["windsurf" nil 9]
                  ["windsurf" nil nil] [nil 27 9]])))))
-
-;; The endpoint's own `path:line:column` encoding is pinned by
-;; `build-file-spec-normalizes-column-only-to-line-1` above, which walks all
-;; four coordinate branches; the dependency-side loss the decline exists for is
-;; pinned by `launch-editor-2-14-1-really-does-drop-these-positions` below,
-;; which asks the installed `launch-editor/get-args` and proves windsurf is
-;; invoked with the bare file. A third test asserting only
-;; `(build-file-spec "/abs/src/app.cljs" 27 9)` would witness neither.
 
 ;; Off-classpath relative coordinates fall back to the dev process cwd.
 
@@ -613,23 +566,13 @@
           (.delete (io/file tmp sub))
           (.delete tmp))))))
 
-;; ---------------------------------------------------------------------------
-;; Consumer-shaped resolution witness
-;; ---------------------------------------------------------------------------
+;; --- Real testbed coordinates ---------------------------------------------
 ;;
-;; The suite above proves the endpoint's MECHANISM with a synthetic fixture on
-;; a throwaway classpath root. The repository testbeds carry no browser-side
-;; source-root pipeline, on the premise that this endpoint resolves their
-;; coordinates itself. That premise is a
-;; claim about REAL testbed coordinates, so it is witnessed with real ones:
-;; the two source roots shadow-cljs actually puts on the dev JVM's classpath
-;; (`../tools/story/testbeds` and `../tools/xray/testbeds`), and a
-;; classpath-relative coordinate under each that exists on disk.
-;;
-;; The server carries no project-root concept at all — which is stronger than
-;; the CLJS-side condition "with Story and Xray project-root config unset",
-;; because there is no such slot here to leave unset. Nothing configures a
-;; checkout path; `launch!` is stubbed, so no editor opens.
+;; The repository testbeds carry no browser-side source-root pipeline, on the
+;; premise that this endpoint resolves their coordinates itself. That premise
+;; is about REAL coordinates, so it is witnessed with real ones, under the two
+;; source roots shadow-cljs puts on the dev JVM's classpath. Nothing configures
+;; a checkout path; `launch!` is stubbed, so no editor opens.
 
 (def ^:private repo-root
   "This repository's root, derived from the endpoint namespace's own location
@@ -685,9 +628,7 @@
                     (str tool " was accepted and reached launch! once, at the REAL on-disk "
                          "source file, line and column intact"))))))))))
 
-;; ---------------------------------------------------------------------------
-;; A page load falls through to shadow's own index handling
-;; ---------------------------------------------------------------------------
+;; --- A page load falls through to shadow's own index handling --------------
 ;;
 ;; Naming a `:handler` on a `:dev-http` entry replaces shadow's push-state
 ;; default, so a `handler` answering 404 to everything off-endpoint would make
@@ -803,26 +744,16 @@
                      (page-req :get "/a..b/" root))]
           (is (= [200 index-body] [(:status resp) (:body resp)])))))))
 
-;; ---------------------------------------------------------------------------
-;; Auto-detect is a capability question too
-;; ---------------------------------------------------------------------------
+;; --- Auto-detect is a capability question too ------------------------------
 ;;
-;; The declared-vocabulary decline above closes `editor=windsurf`. It cannot
-;; close the path where no `editor` is sent at all — which the client takes
-;; for a nil preference AND for `{:custom …}` — because launch-editor then
-;; picks the binary itself, from the running process list. Its registries
-;; reach editors `get-args.js` has no case for, so that route could still
-;; launch a bare file, exit 0, answer 200, and suppress the coordinate-
-;; preserving URI fallback.
-;;
-;; `launch-shim` therefore asks the dependency rather than predicting it. The
-;; tests below pin that in two places: the dependency really does behave this
-;; way (a probe of the installed package, which also guards the declared set
-;; against drift), and the shim really does decline it (real node children,
-;; none of which can open an editor). `handle` answers every launch failure as
-;; a 422 carrying the launch message (`json-resp-escapes-embedded-control-chars`,
-;; `endpoint-rejects-missing-file-with-422`), so a launch-time decline reaches
-;; the client as the same 422 and token the declared route emits.
+;; With no `editor` sent (a nil preference, or `{:custom …}`), launch-editor
+;; picks the binary from the running process list, and its registries reach
+;; editors `get-args.js` has no case for. So `launch-shim` asks the dependency
+;; rather than predicting it. Below: the installed dependency really behaves
+;; that way (also the declared set's drift guard), and the shim really
+;; declines it. `handle` answers every launch failure as a 422 carrying the
+;; launch message, so a launch-time decline reaches the client as the same
+;; 422 and token the declared route emits.
 
 (def ^:private implementation-dir
   "The directory `shadow-cljs watch` runs the dev server from — and the only
@@ -924,11 +855,7 @@
               (is (str/includes? argv "27")
                   (str cmd " was probed, is not a bare-file launch, and its"
                        " argv carries the requested line"))
-              ;; The COLUMN, not merely the line. `gvim` below shows the two
-              ;; are separate promises: a case can encode one and drop the
-              ;; other, so an argv that merely differs from `["F"]` and
-              ;; carries a line proves nothing about the column the caller
-              ;; asked for.
+              ;; The column too: `gvim` below encodes a line and drops the column.
               (is (str/includes? argv "9")
                   (str cmd " argv carries the requested COLUMN")))))
 
@@ -966,81 +893,33 @@
             cases differ only in the probe's verdict"
     (if-not (and (node-available?) (launch-editor-installed?))
       (skip-or-fail "node or launch-editor not installed")
-      (let [f (.getAbsolutePath (tmp-existing-file))]
+      (let [f       (.getAbsolutePath (tmp-existing-file))
+            decline {:ok false :message rf.testbed.open-in-editor-server/position-unsupported-error}]
         (with-dev-cwd*
           (fn []
-            (testing "a position-blind command the endpoint never names — the
-                      class auto-detect reaches"
-              (is (= {:ok false :message rf.testbed.open-in-editor-server/position-unsupported-error}
-                     (rf.testbed.open-in-editor-server/launch! f 27 9 "nonexistent-dir/Brackets"))))
-
-            (testing "windsurf reaches the same verdict here too, so the
-                      handler's pre-spawn fast path is an optimisation and not
-                      the only thing standing between it and a false 200"
-              (is (= {:ok false :message rf.testbed.open-in-editor-server/position-unsupported-error}
-                     (rf.testbed.open-in-editor-server/launch! f 27 9 "windsurf"))))
-
-            (testing "POSITIVE CONTROL — a position-CARRYING command is passed
-                      through to a real launch attempt. It still fails, because
-                      the binary does not exist, but NOT as the decline: the
-                      probe is discriminating, not refusing everything"
-              (is (not= rf.testbed.open-in-editor-server/position-unsupported-error
-                        (:message (rf.testbed.open-in-editor-server/launch! f 27 9 "nonexistent-dir/zed")))
-                  "a launch failure, not a capability refusal"))
-
-            (testing "a coordinate-FREE launch is never refused: there is no
-                      position to lose, so even a position-blind command
-                      reaches the launcher"
-              (is (not= rf.testbed.open-in-editor-server/position-unsupported-error
-                        (:message (rf.testbed.open-in-editor-server/launch! f nil nil "nonexistent-dir/Brackets")))
-                  "the empty coordinate argv tokens read as absent"))
-
-            ;; A COLUMN with no line is the coordinate shape every probe above
-            ;; misses: they all pass 27 AND 9. `build-file-spec` normalises it
-            ;; to `path:1:<column>`, and `position-would-be-dropped?` calls it
-            ;; a coordinate — so a shim that gated its probe on the LINE argv
-            ;; token alone, which is empty here, would skip the whole
-            ;; capability check and let a position-blind binary strip `:1:7`,
-            ;; exit 0 and win a 200.
-            (testing "COLUMN-ONLY, position-blind: refused on the same terms
-                      as a line-bearing launch. The argv line token is empty,
-                      so this is precisely the request an `if(line)` gate
-                      would wave through"
-              (is (= {:ok false :message rf.testbed.open-in-editor-server/position-unsupported-error}
-                     (rf.testbed.open-in-editor-server/launch! f nil 7 "nonexistent-dir/Brackets"))
-                  "a column alone is a coordinate the launcher can lose"))
-
-            (testing "COLUMN-ONLY POSITIVE CONTROL — the same column-only
-                      request to a position-CAPABLE command still reaches a
-                      real launch attempt. It fails (the binary does not
-                      exist) but NOT as the decline, so gating on a column too
-                      does not turn column-only into a blanket refusal"
-              (is (not= rf.testbed.open-in-editor-server/position-unsupported-error
-                        (:message (rf.testbed.open-in-editor-server/launch! f nil 7 "nonexistent-dir/zed")))
-                  "a launch failure, not a capability refusal"))
-
-            ;; PARTIAL position loss. Every case above turns on a command
-            ;; `get-args.js` has NO case for, whose argv is the bare file.
-            ;; `gvim` has a case — `['+<line>', file]` — so its argv is not
-            ;; the bare file and the total-drop test waves it through, while
-            ;; the COLUMN is gone. It is reachable by auto-detect (the Linux
-            ;; process registry maps a running `gvim` to it), so a 27:9 chip
-            ;; would land on column 1 behind a 200 that suppresses the
-            ;; coordinate-preserving `editor://` fallback.
-            (testing "COLUMN DROPPED BY AN ENCODED CASE: gvim carries the line
-                      and discards the column, so a request that asks for one
-                      is declined on the same terms as a total drop"
-              (is (= {:ok false :message rf.testbed.open-in-editor-server/position-unsupported-error}
-                     (rf.testbed.open-in-editor-server/launch! f 27 9 "nonexistent-dir/gvim"))
-                  "line 27 would arrive, column 9 would not — a 200 here would claim both did")
-              (is (= {:ok false :message rf.testbed.open-in-editor-server/position-unsupported-error}
-                     (rf.testbed.open-in-editor-server/launch! f nil 9 "nonexistent-dir/gvim"))
-                  "a column with no line normalises to 1:9, and the 9 is still lost"))
-
-            (testing "PARTIAL-DROP POSITIVE CONTROL — the SAME command with a
-                      LINE ALONE still reaches the launcher, because the
-                      coordinate it asked for survives. This is what keeps the
-                      differential a column question rather than a gvim ban"
-              (is (not= rf.testbed.open-in-editor-server/position-unsupported-error
-                        (:message (rf.testbed.open-in-editor-server/launch! f 27 nil "nonexistent-dir/gvim")))
-                  "a launch failure, not a capability refusal"))))))))
+            ;; A COLUMN alone is a coordinate (`build-file-spec` normalises it
+            ;; to `path:1:<column>`), so a probe gated on the line token alone
+            ;; would wave it through. `gvim` HAS a get-args case — `['+<line>',
+            ;; file]` — so it passes the bare-file test while the column is
+            ;; gone, and auto-detect reaches it (the Linux process registry
+            ;; maps a running `gvim`); the shim's column differential is what
+            ;; declines it. Each CONTROL still fails to launch (the binary does
+            ;; not exist) but not as the decline: the probe discriminates.
+            (doseq [[label line column command declined?]
+                    [["a position-blind command the endpoint never names — the class auto-detect reaches"
+                      27 9 "nonexistent-dir/Brackets" true]
+                     ["windsurf, so the handler's pre-spawn fast path is an optimisation, not the only guard"
+                      27 9 "windsurf" true]
+                     ["CONTROL: a position-carrying command" 27 9 "nonexistent-dir/zed" false]
+                     ["a coordinate-free launch: the empty argv tokens read as absent"
+                      nil nil "nonexistent-dir/Brackets" false]
+                     ["a column alone, position-blind" nil 7 "nonexistent-dir/Brackets" true]
+                     ["CONTROL: a column alone, position-carrying" nil 7 "nonexistent-dir/zed" false]
+                     ["gvim at 27:9: line 27 would arrive, column 9 would not"
+                      27 9 "nonexistent-dir/gvim" true]
+                     ["gvim at a column alone: it normalises to 1:9, and the 9 is still lost"
+                      nil 9 "nonexistent-dir/gvim" true]
+                     ["CONTROL: gvim with a line alone keeps the coordinate it asked for"
+                      27 nil "nonexistent-dir/gvim" false]]]
+              (is (= declined? (= decline (rf.testbed.open-in-editor-server/launch! f line column command)))
+                  (str (if declined? "declined: " "not declined: ") label)))))))))
