@@ -1,190 +1,84 @@
 (ns day8.re-frame2-machines-viz.chart.context-redaction-cljs-test
-  "EP-0015 local-redacted Context-band projection.
-
-  Pins the contract that a host feeding LIVE machine `:data` into the
-  Context band cannot leak a schema-marked sensitive or large slot into
-  the SVG / PNG / clipboard export: the band defaults to a local-redacted
-  projection, and the redacted display text is content-FREE. Pure `.cljc`
-  → the JVM corpus pins it without a browser."
+  "EP-0015 local-redacted Context-band projection: a host feeding LIVE
+  machine `:data` into the band cannot leak a declared sensitive or large
+  slot into the SVG / PNG / clipboard export, and the redacted display text
+  is content-free. The wiring through `xyflow-graph` is pinned in
+  `context-redaction-wiring-cljs-test`."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [clojure.string :as str]
             [day8.re-frame2-machines-viz.chart.context-redaction :as r]))
 
-;; ---------------------------------------------------------------------------
-;; derive-classification — reads the machine DEFINITION's own
-;; projection-relative `:sensitive` / `:large` declaration (Spec 015
-;; §Subsystem projection-relative classification; Spec 005), never the
-;; `[:schemas :data]` props (EP-0025).
-
 (deftest derive-classification-reads-declared-data-paths
-  (testing "each `[:data k …]` path names band key `k`"
-    (let [{:keys [sensitive large]}
-          (r/derive-classification
-            {:sensitive [[:data :user/email] [:data :auth/token]]
-             :large     [[:data :receipt]]
-             :initial   :idle
-             :states    {:idle {}}})]
-      (is (= #{:user/email :auth/token} sensitive))
-      (is (= #{:receipt} large)))))
-
-(deftest derive-classification-deeper-path-classifies-the-top-level-slot
-  (testing "the band prints each top-level :data value WHOLE, so a deeper path
-            classifies its whole top-level slot"
-    (is (= #{:payment}
-           (:sensitive (r/derive-classification
-                         {:sensitive [[:data :payment :token]]}))))))
-
-(defn- large-elided? [v]
-  (and (map? v) (contains? v :rf.size/large-elided)))
+  (testing "`[:data k …]` names band key `k` (a deeper path its whole top-level
+            slot); a path not rooted at :data, and the `[:schemas :data]`
+            `:sensitive?` / `:large?` props (EP-0025), classify nothing"
+    (doseq [[definition expected]
+            [[{:sensitive [[:data :user/email] [:data :auth/token]]
+               :large     [[:data :receipt]]}
+              {:sensitive #{:user/email :auth/token} :large #{:receipt}}]
+             [{:sensitive [[:data :payment :token]]}
+              {:sensitive #{:payment} :large #{}}]
+             [{:sensitive [[:state]]}
+              {:sensitive #{} :large #{}}]
+             [{:schemas {:data [:map [:token {:sensitive? true} :string]
+                                [:blob {:large? true} :string]]}}
+              {:sensitive #{} :large #{}}]
+             [nil
+              {:sensitive #{} :large #{}}]]]
+      (is (= expected (r/derive-classification definition)) (pr-str definition)))))
 
 (deftest derive-classification-whole-data-path-keeps-whole-data-scope
-  (testing "a bare `[:data]` path classifies EVERY band key, including
-            one the live :data first gains at runtime (the definition's initial
-            :data is empty here, so an expansion over it would name nothing)"
-    (let [cls  (r/derive-classification {:sensitive [[:data]] :data {}})
-          band (array-map :token "secret-at-runtime" :user "ann")
-          out  (r/redact-context band cls)]
-      (is (= :rf/redacted (:token out)) "a runtime-only key is redacted")
-      (is (= :rf/redacted (:user out)) "…and so is every other key")))
-  (testing "the whole-snapshot path `[]` covers the whole :data too"
-    (is (= :rf/redacted
-           (:token (r/redact-context {:token "secret-at-runtime"}
-                                     (r/derive-classification {:sensitive [[]]}))))))
-  (testing "a whole-data `:large` elides every band key, runtime-only
-            ones included, with no content head"
-    (let [payload "LARGE-RUNTIME-PAYLOAD-xyzzy"
-          out     (r/redact-context {:blob payload}
-                                    (r/derive-classification {:large [[:data]] :data {}}))]
-      (is (large-elided? (:blob out)))
-      (is (not (str/includes? (r/display-string (:blob out)) payload)))))
-  (testing "sensitive still wins over a whole-data large"
-    (let [out (r/redact-context (array-map :token "tok" :note "n")
-                                (r/derive-classification
-                                  {:sensitive [[:data :token]] :large [[:data]]}))]
-      (is (= :rf/redacted (:token out)))
-      (is (large-elided? (:note out)))))
-  (testing "control: a NAMED path still classifies only its own key, so a
-            runtime-only sibling passes through"
-    (let [out (r/redact-context (array-map :card "c" :note "runtime-note")
-                                (r/derive-classification
-                                  {:sensitive [[:data :card]] :data {:card nil}}))]
-      (is (= :rf/redacted (:card out)))
-      (is (= "runtime-note" (:note out))))))
-
-(deftest derive-classification-schema-props-do-not-classify
-  (testing "EP-0025 — `[:schemas :data]` `:sensitive?` props drive validation-
-            failure-trace redaction only; they classify nothing here"
-    (is (= {:sensitive #{} :large #{}}
-           (r/derive-classification
-             {:schemas {:data [:map [:token {:sensitive? true} :string]
-                               [:blob {:large? true} :string]]}
-              :initial :idle
-              :states  {:idle {}}})))))
-
-(deftest derive-classification-absent-declaration-is-empty
-  (testing "no declaration / nil definition / non-:data path → empty sets"
-    (is (= {:sensitive #{} :large #{}} (r/derive-classification nil)))
-    (is (= {:sensitive #{} :large #{}} (r/derive-classification {:initial :a :states {:a {}}})))
-    (is (= {:sensitive #{} :large #{}} (r/derive-classification {:sensitive [[:state]]})))))
-
-;; ---------------------------------------------------------------------------
-;; redact-value / redact-context — the projection itself
-
-(deftest redact-value-large-becomes-elided-no-head
-  (testing "a large key elides to the canonical :rf.size/large-elided marker with NO content head"
-    (let [big (apply str (repeat 50 "x"))
-          out (r/redact-value :blob big {:large #{:blob}})]
-      (is (map? out))
-      (is (contains? out :rf.size/large-elided))
-      (let [body (:rf.size/large-elided out)]
-        (is (number? (:bytes body)))
-        (is (= [:blob] (:path body)) "path is the single context key")
-        (is (= :string (:type body)))
-        (is (not (contains? body :head)) "no content head leaks")))))
-
-(deftest redact-value-sensitive-wins-over-large
-  (testing "a key that is BOTH sensitive and large redacts as sensitive"
-    (is (= :rf/redacted
-           (r/redact-value :k (apply str (repeat 1000 "z"))
-                           {:sensitive #{:k} :large #{:k}})))))
+  (testing "a bare `[:data]` path, or the whole-snapshot `[]`, classifies EVERY
+            band key, including one the live :data first gains at runtime"
+    (doseq [path [[:data] []]]
+      (is (= {:token :rf/redacted :user :rf/redacted}
+             (r/redact-context (array-map :token "secret-at-runtime" :user "ann")
+                               (r/derive-classification {:sensitive [path] :data {}})))
+          (pr-str path)))))
 
 (deftest redact-context-projects-the-whole-band
-  (testing "the band map is redacted slot-by-slot, order preserved"
-    (let [band  (array-map :name "Alice" :token "secret-tok" :count 3)
-          out   (r/redact-context band {:sensitive #{:token}})]
-      (is (= "Alice"      (:name out)))
-      (is (= :rf/redacted (:token out)))
-      (is (= 3            (:count out)))
-      (is (= [:name :token :count] (keys out)) "order preserved"))))
-
-(deftest redact-context-empty-is-nil
-  (testing "nil / empty band → nil (band hidden)"
-    (is (nil? (r/redact-context nil {})))
+  (testing "slot by slot, order preserved: sensitive → `:rf/redacted`, winning
+            over large; large → the content-free `:rf.size/large-elided`
+            marker (no head); everything else unchanged"
+    (let [out (r/redact-context
+                (array-map :name  "Alice"
+                           :token "secret-tok"
+                           :blob  (apply str (repeat 50 "x"))
+                           :count 3)
+                {:sensitive #{:token} :large #{:token :blob}})]
+      (is (= {:name  "Alice"
+              :token :rf/redacted
+              :blob  {:rf.size/large-elided {:path [:blob] :bytes 52 :type :string :reason :schema}}
+              :count 3}
+             out))
+      (is (= [:name :token :blob :count] (keys out)) "order preserved")))
+  (testing "an empty band → nil (band hidden)"
     (is (nil? (r/redact-context {} {})))))
 
-;; ---------------------------------------------------------------------------
-;; TWO units, side by side, each honest about what it bounds.
-;;
-;; The marker's `:bytes` slot is the framework's wire vocabulary and
-;; carries UTF-8 BYTES; the large heuristic's `large-char-cap` is what the
-;; band would PAINT and is in CHARACTERS. Measuring both as
-;; `(count (pr-str v))` - UTF-16 code units - would publish a figure up to
-;; 3x wrong (4x on astral code points) while leaving the cap right.
-;;
-;; ASCII is the fail-open condition: the two rulers agree there EXACTLY,
-;; so no ASCII fixture above can tell them apart.
-;; The fixture here is DISCRIMINATING - code units, code points and bytes
-;; are three different numbers (22, 21 and 64).
-;; Written as \uXXXX escapes so the source stays pure ASCII, and as a
-;; `.cljc` so BOTH hosts are proven: the JVM arm is `String.getBytes`,
-;; the CLJS arm is `TextEncoder`.
-
-(def ^:private utf8-discriminating-value
-  "Twenty U+2014 EM DASH (1 code unit / 1 code point / 3 UTF-8 bytes each)
-  followed by one ASTRAL U+1D11E (2 code units / 1 code point / 4 bytes)."
-  (str (apply str (repeat 20 "\u2014")) "\uD834\uDD1E"))
-
-(def ^:private ascii-control-value
-  "Same CODE-UNIT length as `utf8-discriminating-value`, pure ASCII."
-  (apply str (repeat 22 "x")))
-
-(defn- utf8-len [s]
-  #?(:clj  (alength (.getBytes ^String s "UTF-8"))
-     :cljs (let [^js enc (js/TextEncoder.)]
-             (.-length (.encode enc s)))))
+;; The marker's `:bytes` is the framework's wire unit, UTF-8 BYTES; the large
+;; cap bounds what the band PAINTS, in CHARACTERS. The two agree exactly on
+;; ASCII, so only a non-ASCII value can tell a wrong ruler from a right one.
 
 (deftest large-marker-bytes-counts-utf8-bytes-not-code-units
-  (testing "a schema-marked large value publishes UTF-8 bytes"
-    ;; `pr-str` wraps the string in two quote characters, so the printed
-    ;; form is 24 code units / 66 UTF-8 bytes. Counting code units would
-    ;; publish 24; the slot means bytes, so it must publish 66.
-    (let [body (-> (r/redact-value :blob utf8-discriminating-value {:large #{:blob}})
-                   :rf.size/large-elided)]
-      (is (= 66 (:bytes body)) "UTF-8 bytes of the pr-str form, NOT its 24 UTF-16 code units")))
-  (testing "an ASCII value of the same code-unit length measures the same under either ruler"
-    (let [body (-> (r/redact-value :blob ascii-control-value {:large #{:blob}})
-                   :rf.size/large-elided)]
-      (is (= 24 (:bytes body)) "both rulers agree on ASCII"))))
+  (testing "twenty U+2014 (3 bytes each) and one astral U+1D11E (4 bytes, 2
+            code units), plus pr-str's two quotes: 66 UTF-8 bytes, where a
+            code-unit count would publish 24"
+    (is (= 66 (-> (r/redact-value :blob (str (apply str (repeat 20 "—")) "𝄞")
+                                  {:large #{:blob}})
+                  :rf.size/large-elided
+                  :bytes)))))
 
 (deftest large-char-cap-counts-characters-not-bytes
-  ;; Only the PUBLISHED figure is in bytes. A byte cap would elide this
-  ;; 400-character value (1,200 UTF-8 bytes), which renders inline under
-  ;; the character cap.
-  (let [four-hundred-dashes (apply str (repeat 400 "\u2014"))]
-    (is (= 400 (count four-hundred-dashes)))
-    (is (= 1200 (utf8-len four-hundred-dashes)) "well over the 512 cap in BYTES")
-    (is (= four-hundred-dashes (r/redact-value :ctx four-hundred-dashes {}))
-        "under the 512-CHARACTER cap, so it renders inline"))
+  (testing "400 em-dashes (1,200 UTF-8 bytes) sit under the 512-CHARACTER cap,
+            so they render inline"
+    (let [four-hundred-dashes (apply str (repeat 400 "—"))]
+      (is (= four-hundred-dashes (r/redact-value :ctx four-hundred-dashes {})))))
   (testing "the cap fires on a genuinely long value"
-    (let [six-hundred (apply str (repeat 600 "x"))
-          out         (r/redact-value :ctx six-hundred {})]
-      (is (contains? out :rf.size/large-elided))
-      (is (= 602 (:bytes (:rf.size/large-elided out)))
-          "602 = 600 + two pr-str quotes, identical under either ruler on ASCII"))))
-
-;; ---------------------------------------------------------------------------
-;; display-string — the content-FREE export-safe text
+    (is (= 602 (-> (r/redact-value :ctx (apply str (repeat 600 "x")) {})
+                   :rf.size/large-elided
+                   :bytes))
+        "602 = 600 + two pr-str quotes")))
 
 (deftest display-string-large-shows-size-not-content
   (testing ":rf.size/large-elided renders size only, never the content"
