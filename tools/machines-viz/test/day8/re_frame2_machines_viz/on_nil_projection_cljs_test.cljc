@@ -25,9 +25,7 @@
 (deftest on-nil-projects-as-absent
   (doseq [[label [with-nil without]] pairs]
     (testing (str label ": the chart")
-      (let [projected (layout/project-definition with-nil)]
-        (is (nil? (:definition-error projected)) "the chart projects it")
-        (is (= (layout/project-definition without) projected))))
+      (is (= (layout/project-definition without) (layout/project-definition with-nil))))
     (testing (str label ": Mermaid")
       (is (= (mermaid/emit without) (mermaid/emit with-nil))))
     (testing (str label ": SCXML")
