@@ -20,91 +20,100 @@
     | complex -db (var/multi-arity/    | :reg-event-db     | FLAG (:complex)       |
     |   destructured db param)         |                   |                       |
 
-  Plus: shape-non-corruption (round-trips of untouched code), alias-agnostic
-  registrar detection, bare-head binding (a renamed bare head's `reg-event`
-  resolves through the emitted ns form, or the site flags `:binding`),
-  path-head RESOLUTION (only a head resolving to
-  re-frame.core/path lowers; custom `*/path` fns flag — rf2-8odvg reopen),
-  scan-file/scan-paths over the filesystem, write-mode line-ending fidelity,
-  and idempotence. The
+  Plus: alias-agnostic registrar detection, bare-head binding (a renamed bare
+  head's `reg-event` resolves through the emitted ns form, or the site flags
+  `:binding`), path-head RESOLUTION (only a head resolving to
+  re-frame.core/path lowers; custom `*/path` fns flag), scan-file/scan-paths
+  over the filesystem, write-mode line-ending fidelity, and idempotence. The
   RUNTIME proof that the emitted chain shapes register against the real v2
-  reg-event contract lives in the `:integration` alias
-  (test-integration/, rf2-8odvg) so this default suite stays self-contained."
+  reg-event contract lives in the `:integration` alias (test-integration/)
+  so this default suite stays self-contained."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
             [clojure.java.io :as io]
             [re-frame.migration.reg-event-codemod :as rf.migration.reg-event-codemod]))
 
-;; ---------------------------------------------------------------------------
-;; helpers
-;; ---------------------------------------------------------------------------
-
-(defn- only-finding [s]
-  (let [fs (rf.migration.reg-event-codemod/scan-string s)]
-    (is (= 1 (count fs)) (str "expected exactly one finding in: " s))
-    (first fs)))
-
 (defn- rewrite [s] (:source (rf.migration.reg-event-codemod/rewrite-string s)))
+
+(defn- outcome
+  "`[[[form action flag target] ...] source]` for one rewrite of `s`."
+  [s]
+  (let [{:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string s)]
+    [(mapv (juxt :form :action :flag :target) findings) source]))
+
+(def ^:private db-rewrite [[:reg-event-db :rewrite nil :reg-event]])
 
 ;; ---------------------------------------------------------------------------
 ;; reg-event-fx — pure rename
 ;; ---------------------------------------------------------------------------
 
 (deftest fx-renamed
-  (testing "reg-event-fx is renamed to reg-event, body untouched"
-    (let [src "(rf/reg-event-fx :todo/add\n  (fn [{:keys [db]} [_ text]]\n    {:db (assoc-in db [:todos text] true)}))"
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (= 1 (count findings)))
-      (is (= :reg-event-fx (:form (first findings))))
-      (is (= :rename (:action (first findings))))
-      (is (= :reg-event (:target (first findings))))
-      (is (str/includes? source "rf/reg-event "))
-      (is (not (str/includes? source "reg-event-fx")))
-      ;; body byte-for-byte preserved apart from the head rename
-      (is (str/includes? source "{:db (assoc-in db [:todos text] true)}")))))
-
-(deftest fx-rename-preserves-metadata-slot
-  (testing "reg-event-fx with a metadata middle slot keeps it verbatim"
-    (let [src "(rf/reg-event-fx :todo/add {:rf.cofx/requires [:rf/time-ms]}\n  (fn [{:keys [db rf/time-ms]} [_ text]] {:db db}))"
-          out (rewrite src)]
-      (is (str/includes? out "{:rf.cofx/requires [:rf/time-ms]}"))
-      (is (str/includes? out "rf/reg-event ")))))
+  (testing "reg-event-fx is renamed to reg-event; the body and a metadata slot stay verbatim"
+    (doseq [[src out]
+            [["(rf/reg-event-fx :todo/add\n  (fn [{:keys [db]} [_ text]]\n    {:db (assoc-in db [:todos text] true)}))"
+              "(rf/reg-event :todo/add\n  (fn [{:keys [db]} [_ text]]\n    {:db (assoc-in db [:todos text] true)}))"]
+             ["(rf/reg-event-fx :todo/add {:rf.cofx/requires [:rf/time-ms]}\n  (fn [{:keys [db rf/time-ms]} [_ text]] {:db db}))"
+              "(rf/reg-event :todo/add {:rf.cofx/requires [:rf/time-ms]}\n  (fn [{:keys [db rf/time-ms]} [_ text]] {:db db}))"]]]
+      (is (= [[[:reg-event-fx :rename nil :reg-event]] out] (outcome src))))))
 
 ;; ---------------------------------------------------------------------------
-;; reg-event-db — simple faithful rewrite
+;; reg-event-db — faithful rewrite to {:db BODY}
 ;; ---------------------------------------------------------------------------
 
-(deftest db-simple-update
-  (testing "simple reg-event-db -> reg-event with {:db BODY} and {:keys [db]}"
-    (let [src "(rf/reg-event-db :counter/inc\n  (fn [db _] (update db :count inc)))"
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (= :reg-event-db (:form (first findings))))
-      (is (= :rewrite (:action (first findings))))
-      (is (str/includes? source "rf/reg-event "))
-      (is (not (str/includes? source "reg-event-db")))
-      ;; db arg destructured out of the coeffects map
-      (is (str/includes? source "{:keys [db]}"))
-      ;; body wrapped as the :db effect, inner form preserved verbatim
-      (is (str/includes? source "{:db (update db :count inc)}")))))
+(deftest db-handlers-rewrite-faithfully
+  (testing "reg-event-db -> reg-event: the db param comes out of the coeffects and the LAST body form is wrapped {:db BODY}"
+    (doseq [[label src out]
+            [["simple update"
+              "(rf/reg-event-db :counter/inc\n  (fn [db _] (update db :count inc)))"
+              "(rf/reg-event :counter/inc\n  (fn [{:keys [db]} _] {:db (update db :count inc)}))"]
+             ["a -> thread ending in a builder is non-nil"
+              "(rf/reg-event-db :form/clear\n  (fn [db [_ k]]\n    (-> db\n        (assoc-in [:form k :value] \"\")\n        (assoc-in [:form k :error] nil))))"
+              "(rf/reg-event :form/clear\n  (fn [{:keys [db]} [_ k]]\n    {:db (-> db\n        (assoc-in [:form k :value] \"\")\n        (assoc-in [:form k :error] nil))}))"]
+             ["a named handler fn"
+              "(rf/reg-event-db :x/y (fn handle [db _] (assoc db :ok true)))"
+              "(rf/reg-event :x/y (fn handle [{:keys [db]} _] {:db (assoc db :ok true)}))"]
+             ["a multi-form body wraps only its last form"
+              "(rf/reg-event-db :log/it\n  (fn [_state _]\n    (js/console.log \"hi\")\n    (assoc _state :logged true)))"
+              "(rf/reg-event :log/it\n  (fn [{_state :db} _]\n    (js/console.log \"hi\")\n    {:db (assoc _state :logged true)}))"]]]
+      (is (= [db-rewrite out] (outcome src)) label))))
 
-(deftest db-thread-body
-  (testing "a (-> db ...) thread body wraps faithfully (last stage is a safe builder)"
-    (let [src "(rf/reg-event-db :form/clear\n  (fn [db [_ k]]\n    (-> db\n        (assoc-in [:form k :value] \"\")\n        (assoc-in [:form k :error] nil))))"
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (= :rewrite (:action (first findings))) "->-thread ending in assoc-in is a safe, non-nil builder")
-      (is (str/includes? source "{:keys [db]}"))
-      (is (str/includes? source "{:db (-> db"))
-      ;; the inner thread stages survive intact
-      (is (str/includes? source "(assoc-in [:form k :value] \"\")")))))
+;; A handler that binds the db value under a name OTHER than `db` (a path-scoped
+;; slice such as `state`, or an `_`-prefixed name it still reads) keeps every
+;; body reference resolved by rebinding `{name :db}`; rebinding `{:keys [db]}`
+;; there orphans the body's references (an unbound-symbol compile error). A name
+;; the body never reads — `_`, or one only inner bindings shadow — keeps the
+;; canonical `{:keys [db]}`.
 
-(deftest db-named-fn
-  (testing "a named handler fn (fn the-name [db ev] ...) still rewrites"
-    (let [src "(rf/reg-event-db :x/y (fn handle [db _] (assoc db :ok true)))"
-          out (rewrite src)]
-      (is (str/includes? out "(fn handle [{:keys [db]} _] {:db (assoc db :ok true)})")))))
+(deftest db-first-param-binds-back-only-when-referenced
+  (doseq [[label src out]
+          [["a renamed param binds back {state :db}"
+            "(rf/reg-event-db :s/set (fn [state [_ v]] (assoc state :v v)))"
+            "(rf/reg-event :s/set (fn [{state :db} [_ v]] {:db (assoc state :v v)}))"]
+           ["an ignored `_` keeps {:keys [db]}"
+            "(rf/reg-event-db :init (fn [_ _] {:count 0 :items []}))"
+            "(rf/reg-event :init (fn [{:keys [db]} _] {:db {:count 0 :items []}}))"]
+           ["a referenced `_state` binds back"
+            "(reg-event-db :y (fn [_state ev] (assoc _state :x 1)))"
+            "(reg-event :y (fn [{_state :db} ev] {:db (assoc _state :x 1)}))"]
+           ["an unreferenced `_state` keeps {:keys [db]}"
+            "(rf/reg-event-db :init (fn [_state _] {:count 0 :items []}))"
+            "(rf/reg-event :init (fn [{:keys [db]} _] {:db {:count 0 :items []}}))"]
+           ["a referenced `_db` binds back"
+            "(rf/reg-event-db :touch (fn [_db _] (assoc _db :touched true)))"
+            "(rf/reg-event :touch (fn [{_db :db} _] {:db (assoc _db :touched true)}))"]
+           ["an inner let rebinding the name shadows it: the outer param is unreferenced"
+            "(rf/reg-event-db :shadow\n  (fn [_state [_ k]]\n    (let [_state {:fresh k}]\n      (assoc _state :touched true))))"
+            "(rf/reg-event :shadow\n  (fn [{:keys [db]} [_ k]]\n    {:db (let [_state {:fresh k}]\n      (assoc _state :touched true))}))"]
+           ["an inner fn shadows locally, but a free reference still binds back"
+            "(rf/reg-event-db :map-it\n  (fn [_s _]\n    (assoc _s :xs (map (fn [_s] (inc _s)) (:xs _s)))))"
+            "(rf/reg-event :map-it\n  (fn [{_s :db} _]\n    {:db (assoc _s :xs (map (fn [_s] (inc _s)) (:xs _s)))}))"]
+           ["every use inside an inner fn: the outer param is unreferenced"
+            "(rf/reg-event-db :init\n  (fn [_s _]\n    (assoc {} :xs (mapv (fn [_s] (inc _s)) [1 2 3]))))"
+            "(rf/reg-event :init\n  (fn [{:keys [db]} _]\n    {:db (assoc {} :xs (mapv (fn [_s] (inc _s)) [1 2 3]))}))"]]]
+    (is (= [db-rewrite out] (outcome src)) label)))
 
 ;; ---------------------------------------------------------------------------
-;; reg-event-db — path interceptor chains NORMALIZED (M-70 x M-73, rf2-8odvg)
+;; path interceptor chains LOWERED to the standard factory ref (M-70 x M-73)
 ;; ---------------------------------------------------------------------------
 ;; v2 chains are reference-only (EP-0022): `rf/path` is a throwing removal stub
 ;; (:rf.error/path-removed), inline values are rejected
@@ -115,73 +124,53 @@
 ;; runtime proof these emitted shapes actually REGISTER lives in the
 ;; `:integration` alias.
 
-(deftest db-path-interceptor-normalized
-  (testing "the canonical metadata path chain lowers to the standard factory ref"
-    (let [src "(rf/reg-event-db :counter/inc\n  {:interceptors [(rf/path :counter)]}\n  (fn [db _] (update db :value inc)))"
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (= :rewrite (:action (first findings))))
-      (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:counter]]]}"))
-      ;; no executable rf/path call survives (v2 makes it a throwing stub)
-      (is (not (str/includes? source "(rf/path")))
-      (is (str/includes? source "rf/reg-event "))
-      (is (str/includes? source "{:keys [db]}"))
-      (is (str/includes? source "{:db (update db :value inc)}")))))
+(deftest path-chains-lower-to-factory-refs
+  (doseq [[label form src out]
+          [["the metadata chain"
+            :reg-event-db
+            "(rf/reg-event-db :counter/inc\n  {:interceptors [(rf/path :counter)]}\n  (fn [db _] (update db :value inc)))"
+            "(rf/reg-event :counter/inc\n  {:interceptors [[:rf.interceptor/path [:counter]]]}\n  (fn [{:keys [db]} _] {:db (update db :value inc)}))"]
+           ["positional entries keep their declaration order"
+            :reg-event-db
+            "(rf/reg-event-db :x [(rf/path :a) (rf/path :b)] (fn [db _] (assoc db :k 1)))"
+            "(rf/reg-event :x {:interceptors [[:rf.interceptor/path [:a]] [:rf.interceptor/path [:b]]]} (fn [{:keys [db]} _] {:db (assoc db :k 1)}))"]
+           ["a single bare (rf/path ...) middle slot"
+            :reg-event-db
+            "(rf/reg-event-db :x (rf/path :a) (fn [db _] (assoc db :k 1)))"
+            "(rf/reg-event :x {:interceptors [[:rf.interceptor/path [:a]]]} (fn [{:keys [db]} _] {:db (assoc db :k 1)}))"]
+           ["metadata-plus-vector merges into ONE metadata map, map entries first"
+            :reg-event-db
+            "(rf/reg-event-db :x {:interceptors [(rf/path :a)]} [(rf/path :b)]\n  (fn [db _] (assoc db :k 1)))"
+            "(rf/reg-event :x {:interceptors [[:rf.interceptor/path [:a]] [:rf.interceptor/path [:b]]]}\n  (fn [{:keys [db]} _] {:db (assoc db :k 1)}))"]
+           ["a metadata map without :interceptors gains the merged chain"
+            :reg-event-db
+            "(rf/reg-event-db :x {:doc \"d\"} [(rf/path :b)] (fn [db _] (assoc db :k 1)))"
+            "(rf/reg-event :x {:doc \"d\" :interceptors [[:rf.interceptor/path [:b]]]} (fn [{:keys [db]} _] {:db (assoc db :k 1)}))"]
+           ["vector and keyword path args flatten as v1 path did"
+            :reg-event-db
+            "(rf/reg-event-db :x {:interceptors [(rf/path [:a] :b)]} (fn [db _] (assoc db :k 1)))"
+            "(rf/reg-event :x {:interceptors [[:rf.interceptor/path [:a :b]]]} (fn [{:keys [db]} _] {:db (assoc db :k 1)}))"]
+           ["reg-event-fx with a convertible chain is a :rewrite, its handler verbatim"
+            :reg-event-fx
+            "(rf/reg-event-fx :x {:interceptors [(rf/path :a)]}\n  (fn [cofx _] {:db (:db cofx)}))"
+            "(rf/reg-event :x {:interceptors [[:rf.interceptor/path [:a]]]}\n  (fn [cofx _] {:db (:db cofx)}))"]
+           ["a chain that is already refs-only is kept byte-for-byte"
+            :reg-event-db
+            "(rf/reg-event-db :x {:interceptors [:my/ic [:rf.interceptor/path [:cart]]]}\n  (fn [db _] (assoc db :k 1)))"
+            "(rf/reg-event :x {:interceptors [:my/ic [:rf.interceptor/path [:cart]]]}\n  (fn [{:keys [db]} _] {:db (assoc db :k 1)}))"]
+           ["a renamed reg-event still carrying a v1 chain is repaired, its handler untouched"
+            :reg-event
+            "(rf/reg-event :counter/inc\n  {:interceptors [(rf/path :counter)]}\n  (fn [{:keys [db]} _] {:db (update db :value inc)}))"
+            "(rf/reg-event :counter/inc\n  {:interceptors [[:rf.interceptor/path [:counter]]]}\n  (fn [{:keys [db]} _] {:db (update db :value inc)}))"]]]
+    (is (= [[[form :rewrite nil :reg-event]] out] (outcome src)) label)))
 
-(deftest db-positional-multi-entry-order-preserved
-  (testing "multiple positional entries keep their declaration order"
-    (let [src "(rf/reg-event-db :x [(rf/path :a) (rf/path :b)] (fn [db _] (assoc db :k 1)))"
-          out (rewrite src)]
-      (is (str/includes? out "{:interceptors [[:rf.interceptor/path [:a]] [:rf.interceptor/path [:b]]]}")))))
-
-(deftest db-bare-path-call-middle-normalized
-  (testing "a single bare (rf/path ...) middle slot (v1 flattened chains) wraps into metadata"
-    (let [src "(rf/reg-event-db :x (rf/path :a) (fn [db _] (assoc db :k 1)))"
-          out (rewrite src)]
-      (is (str/includes? out "{:interceptors [[:rf.interceptor/path [:a]]]}"))
-      (is (not (str/includes? out "(rf/path"))))))
-
-(deftest db-metadata-plus-vector-merged
-  (testing "the metadata-plus-vector shape merges into ONE metadata map, map entries first"
-    (let [src "(rf/reg-event-db :x {:interceptors [(rf/path :a)]} [(rf/path :b)]\n  (fn [db _] (assoc db :k 1)))"
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (= :rewrite (:action (first findings))))
-      (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:a]] [:rf.interceptor/path [:b]]]}"))
-      ;; exactly one :interceptors key survives — the positional vector is gone
-      (is (= 1 (count (re-seq #":interceptors" source))))
-      (is (str/includes? source "{:db (assoc db :k 1)}")))))
-
-(deftest db-metadata-plus-vector-no-existing-chain
-  (testing "a metadata map WITHOUT :interceptors gains the merged chain"
-    (let [src "(rf/reg-event-db :x {:doc \"d\"} [(rf/path :b)] (fn [db _] (assoc db :k 1)))"
-          out (rewrite src)]
-      (is (str/includes? out "{:doc \"d\" :interceptors [[:rf.interceptor/path [:b]]]}")))))
-
-(deftest path-arg-variants-lower-mechanically
-  (testing "variadic, vector, and mixed path args flatten as v1 path did"
-    (doseq [[middle expected]
-            {"{:interceptors [(rf/path :a :b)]}"   "[[:rf.interceptor/path [:a :b]]]"
-             "{:interceptors [(rf/path [:a :b])]}" "[[:rf.interceptor/path [:a :b]]]"
-             "{:interceptors [(rf/path [:a] :b)]}" "[[:rf.interceptor/path [:a :b]]]"}]
-      (let [src (str "(rf/reg-event-db :x " middle " (fn [db _] (assoc db :k 1)))")
-            out (rewrite src)]
-        (is (str/includes? out expected) (str "middle slot " middle))))))
-
-(deftest fx-with-path-chain-normalized
-  (testing "reg-event-fx with a convertible chain is a :rewrite (not a bare :rename)"
-    (let [src "(rf/reg-event-fx :x {:interceptors [(rf/path :a)]}\n  (fn [cofx _] {:db (:db cofx)}))"
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (= :rewrite (:action (first findings))))
-      (is (str/includes? source "rf/reg-event "))
-      (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:a]]]}"))
-      ;; handler byte-for-byte preserved (reg-event IS reg-event-fx)
-      (is (str/includes? source "(fn [cofx _] {:db (:db cofx)})")))))
-
-(deftest already-canonical-ref-chain-kept-verbatim
-  (testing "a chain that is already refs-only is preserved byte-for-byte"
-    (let [src "(rf/reg-event-db :x {:interceptors [:my/ic [:rf.interceptor/path [:cart]]]}\n  (fn [db _] (assoc db :k 1)))"
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (= :rewrite (:action (first findings))) "handler rewrite still applies")
-      (is (str/includes? source "{:interceptors [:my/ic [:rf.interceptor/path [:cart]]]}")))))
+(deftest valid-reg-event-produces-no-finding
+  (testing "valid v2 registrations are not reported by the rescan"
+    (let [src (str "(rf/reg-event :a (fn [{:keys [db]} _] {:db db}))\n"
+                   "(rf/reg-event :b {:interceptors [:my/ic]} (fn [{:keys [db]} _] {:db db}))\n"
+                   "(rf/reg-event :c {:interceptors [[:rf.interceptor/path [:x]]]} (fn [{:keys [db]} _] {:db db}))\n"
+                   "(rf/reg-event :d {:doc \"plain metadata\"} (fn [{:keys [db]} _] {:db db}))\n")]
+      (is (= [[] src] (outcome src))))))
 
 ;; ---------------------------------------------------------------------------
 ;; custom inline interceptors — unresolved M-70 Type B (:flag :interceptors)
@@ -205,24 +194,17 @@
               :reg-event-db]
              ["a convertible path beside an underivable entry is not half-converted"
               "(rf/reg-event-db :x {:interceptors [(rf/path :a) my-ic]}\n  (fn [db _] (assoc db :k 1)))"
-              :reg-event-db]]]
-      (let [{:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)
-            f (first findings)]
-        (is (= [form :flag :interceptors] ((juxt :form :action :flag) f)) label)
-        (is (str/includes? (:note f) "M-70") label)
-        (is (= src source) (str label ": left byte-for-byte unchanged"))))))
-
-(deftest db-nil-capable-with-convertible-chain-still-gates-on-d7
-  (testing "a convertible chain does not bypass the D7 nil gate; source unchanged"
-    (let [src "(rf/reg-event-db :x {:interceptors [(rf/path :a)]}\n  (fn [db _] (when true db)))"
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (= :flag (:action (first findings))))
-      (is (= :nil-capable (:flag (first findings))))
-      (is (= src source)))))
+              :reg-event-db]
+             ["an already-renamed reg-event with an underivable entry"
+              "(rf/reg-event :x {:interceptors [my-ic]} (fn [{:keys [db]} _] {:db db}))"
+              :reg-event]]]
+      (let [{:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
+        (is (= [[form :flag :interceptors] true src]
+               [((juxt :form :action :flag) (first findings)) (str/includes? (:note (first findings)) "M-70") source])
+            label)))))
 
 ;; ---------------------------------------------------------------------------
 ;; path-head resolution — only the STANDARD constructor is mechanical
-;; (rf2-8odvg reopen)
 ;; ---------------------------------------------------------------------------
 ;; `(app.interceptors/path :tenant)` shares the simple name `path` with the
 ;; standard constructor while carrying entirely different author semantics.
@@ -231,6 +213,8 @@
 ;; or, in an ns-less fragment, by the conventional bare/dotless-alias reading.
 ;; Any other function named `path` is a custom inline interceptor: unresolved
 ;; M-70 Type B, source unchanged — never a silent rewrite.
+
+(def ^:private path-flag [[:reg-event-db :flag :interceptors :reg-event]])
 
 (deftest non-standard-path-heads-flagged
   (testing "a head named `path` that does not resolve to re-frame.core/path flags, source unchanged"
@@ -257,11 +241,7 @@
              ["bare path the ns form does not refer"
               (str "(ns app.events (:require [re-frame.core :as rf]))\n"
                    "(rf/reg-event-db :x {:interceptors [(path :a)]} (fn [db _] (assoc db :k 1)))\n")]]]
-      (let [{:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-        (is (= [:flag :interceptors] ((juxt :action :flag) (first findings)))
-            (str label " must flag"))
-        (is (= src source)
-            (str label " left byte-for-byte unchanged, never given the standard factory ref"))))))
+      (is (= [path-flag src] (outcome src)) label))))
 
 (deftest standard-path-heads-lowered
   (testing "a head that resolves to re-frame.core/path lowers, through the ns form or without one"
@@ -290,20 +270,44 @@
               "[:rf.interceptor/path [:a]]"]
              ["fully qualified, in an ns-less fragment"
               "(re-frame.core/reg-event-db :x {:interceptors [(re-frame.core/path :a)]} (fn [db _] (assoc db :k 1)))"
-              "[:rf.interceptor/path [:a]]"]]]
+              "[:rf.interceptor/path [:a]]"]
+             ;; Locals are simple symbols, so a local named `path` cannot shadow
+             ;; a qualified head, and a binding in a SIBLING form shadows nothing.
+             ["a local named `path` cannot shadow `rf/path`"
+              (str "(ns app.events (:require [re-frame.core :as rf]))\n"
+                   "(let [path app.interceptors/path]\n"
+                   "  (rf/reg-event-db :counter/inc\n"
+                   "    {:interceptors [(rf/path :counter)]}\n"
+                   "    (fn [db _] (update db :value inc))))\n")
+              "{:interceptors [[:rf.interceptor/path [:counter]]]}"]
+             ["a `path` binding in a sibling form leaves this site's bare head standard"
+              (str "(ns app.events\n"
+                   "  (:require [re-frame.core :refer [reg-event-db path]]))\n"
+                   "(defn helper [path] (str path))\n"
+                   "(reg-event-db :counter/inc\n"
+                   "  {:interceptors [(path :counter)]}\n"
+                   "  (fn [db _] (update db :value inc)))\n")
+              "{:interceptors [[:rf.interceptor/path [:counter]]]}"]]]
       (let [{:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-        (is (= :rewrite (:action (first findings))) (str label " must rewrite"))
-        (is (str/includes? source ref) (str label " must lower to the standard factory ref"))))))
+        (is (= [[:rewrite] true] [(mapv :action findings) (str/includes? source ref)]) label)))))
 
 ;; ---------------------------------------------------------------------------
-;; path-head resolution — LEXICAL SHADOWING at the call site (rf2-8odvg reopen)
+;; path-head resolution — LEXICAL SHADOWING at the call site
 ;; ---------------------------------------------------------------------------
 ;; What the ns form makes AVAILABLE is not what a bare head DENOTES. A file may
 ;; refer `re-frame.core/path` and still rebind the name around a registration,
 ;; in which case `(path :tenant)` is the local — lowering it to
 ;; [:rf.interceptor/path [:tenant]] would swap the author's semantics silently.
-;; A qualified head cannot be shadowed (locals are simple symbols), so the
-;; check applies to bare heads only.
+
+(defn- referred-path-site
+  "A registration of a bare, referred `(path k)` inside `open` ... `close`."
+  [open close k]
+  (str "(ns app.events\n"
+       "  (:require [re-frame.core :refer [reg-event-db path]]))\n"
+       open "\n"
+       "  (reg-event-db :x\n"
+       "    {:interceptors [(path " k ")]}\n"
+       "    (fn [db _] (assoc db :k 1)))" close "\n"))
 
 (deftest shadowed-bare-path-flagged-across-binding-forms
   (testing "an enclosing form that binds `path` makes a bare `(path ...)` the local: flag, source unchanged"
@@ -322,335 +326,86 @@
              ["defmethod"     "(defmethod install! :web [_ path]"       ")"]
              ["when-first"    "(when-first [path paths]"                ")"]
              ["project macro" "(app.macros/with-scope [path :tenant]"   ")"]]]
-      (let [src (str "(ns app.events\n"
-                     "  (:require [re-frame.core :refer [reg-event-db path]]))\n"
-                     open "\n"
-                     "  (reg-event-db :x\n"
-                     "    {:interceptors [(path :tenant)]}\n"
-                     "    (fn [db _] (assoc db :k 1)))" close "\n")
-            {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-        (is (= [:flag :interceptors] ((juxt :action :flag) (first findings)))
-            (str label " must flag, not lower"))
-        (is (= src source) (str label " left byte-for-byte unchanged"))))))
+      (let [src (referred-path-site open close ":tenant")]
+        (is (= [path-flag src] (outcome src)) (str label " must flag, source unchanged"))))))
 
 (deftest unrecognised-head-without-a-path-binding-still-lowers
-  (testing "the catch-all is narrow: an enclosing form that does NOT bind `path` is inert"
-    ;; Non-vacuity for the branch above — `deftest`/`testing`/`comment` and a
-    ;; `doseq` binding some OTHER name must leave the standard site mechanical.
+  (testing "the catch-all is narrow: an enclosing form that binds some OTHER name is inert"
     (doseq [[label open close]
-            [["deftest"  "(deftest registers (testing \"x\""       "))"]
-             ["comment"  "(comment"                                ")"]
-             ["defmethod other param" "(defmethod install! :web [_ opts]" ")"]
+            [["defmethod other param" "(defmethod install! :web [_ opts]" ")"]
              ["doseq other name"      "(doseq [k [:a :b]]"          ")"]]]
-      (let [src (str "(ns app.events\n"
-                     "  (:require [re-frame.core :refer [reg-event-db path]]))\n"
-                     open "\n"
-                     "  (reg-event-db :x\n"
-                     "    {:interceptors [(path :counter)]}\n"
-                     "    (fn [db _] (assoc db :k 1)))" close "\n")
-            {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-        (is (= :rewrite (:action (first findings))) (str label " must still rewrite"))
-        (is (str/includes? source "[[:rf.interceptor/path [:counter]]]")
+      (let [{:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string
+                                        (referred-path-site open close ":counter"))]
+        (is (= [[:rewrite] true]
+               [(mapv :action findings) (str/includes? source "[[:rf.interceptor/path [:counter]]]")])
             (str label " must still lower the standard head"))))))
 
-(deftest shadowing-does-not-suppress-a-qualified-head
-  (testing "a local named `path` cannot shadow `rf/path`"
-    (let [src (str "(ns app.events (:require [re-frame.core :as rf]))\n"
-                   "(let [path app.interceptors/path]\n"
-                   "  (rf/reg-event-db :counter/inc\n"
-                   "    {:interceptors [(rf/path :counter)]}\n"
-                   "    (fn [db _] (update db :value inc))))\n")
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (= :rewrite (:action (first findings))) "must still rewrite")
-      (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:counter]]]}")
-          "must still lower the standard head"))))
-
-(deftest shadowing-elsewhere-does-not-suppress-a-referred-bare-path
-  (testing "a `path` binding in a SIBLING form leaves this site's bare head standard"
-    (let [src (str "(ns app.events\n"
-                   "  (:require [re-frame.core :refer [reg-event-db path]]))\n"
-                   "(defn helper [path] (str path))\n"
-                   "(reg-event-db :counter/inc\n"
-                   "  {:interceptors [(path :counter)]}\n"
-                   "  (fn [db _] (update db :value inc)))\n")
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (= :rewrite (:action (first findings))))
-      (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:counter]]]}")))))
-
 ;; ---------------------------------------------------------------------------
-;; reg-event rescan — recovering a partially migrated tree
-;; ---------------------------------------------------------------------------
-;; The pre-rf2-8odvg codemod renamed heads while preserving v1 chains, leaving
-;; `reg-event` forms v2 rejects. A re-run must find and repair those survivors
-;; — and must NOT report anything for valid v2 registrations.
-
-(deftest reg-event-rescan-recovers-metadata-inline
-  (testing "an already-renamed reg-event with a preserved (rf/path ...) chain is repaired"
-    (let [src "(rf/reg-event :counter/inc\n  {:interceptors [(rf/path :counter)]}\n  (fn [{:keys [db]} _] {:db (update db :value inc)}))"
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (= 1 (count findings)))
-      (is (= :reg-event (:form (first findings))))
-      (is (= :rewrite (:action (first findings))))
-      (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:counter]]]}"))
-      ;; the handler is untouched — only the chain is normalized
-      (is (str/includes? source "(fn [{:keys [db]} _] {:db (update db :value inc)})")))))
-
-(deftest reg-event-rescan-flags-custom-inline
-  (testing "an already-renamed reg-event with an underivable inline entry is flagged"
-    (let [src "(rf/reg-event :x {:interceptors [my-ic]} (fn [{:keys [db]} _] {:db db}))"
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (= :reg-event (:form (first findings))))
-      (is (= :flag (:action (first findings))))
-      (is (= :interceptors (:flag (first findings))))
-      (is (= src source)))))
-
-(deftest valid-reg-event-produces-no-finding
-  (testing "valid v2 registrations are not reported by the rescan"
-    (let [src (str "(rf/reg-event :a (fn [{:keys [db]} _] {:db db}))\n"
-                   "(rf/reg-event :b {:interceptors [:my/ic]} (fn [{:keys [db]} _] {:db db}))\n"
-                   "(rf/reg-event :c {:interceptors [[:rf.interceptor/path [:x]]]} (fn [{:keys [db]} _] {:db db}))\n"
-                   "(rf/reg-event :d {:doc \"plain metadata\"} (fn [{:keys [db]} _] {:db db}))\n")
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (empty? findings))
-      (is (= src source)))))
-
-;; ---------------------------------------------------------------------------
-;; reg-event-db — renamed (non-`db`) first param  (rf2-xhfxcs.15)
-;; ---------------------------------------------------------------------------
-;; A reg-event-db whose handler binds the db value under a name OTHER than `db`
-;; (a path-scoped slice such as `c`) must keep every body reference resolved.
-;; Rebinding the param to `{:keys [db]}` while the body still says `c` produced
-;; an unresolvable-symbol compile error. The faithful transform rebinds the param
-;; `{c :db}` — db value back under its original name — and leaves the body intact.
-
-(deftest db-renamed-param-no-interceptor
-  (testing "renamed first param with no middle slot also binds {state :db}"
-    (let [src "(rf/reg-event-db :s/set (fn [state [_ v]] (assoc state :v v)))"
-          out (rewrite src)]
-      (is (str/includes? out "(fn [{state :db} [_ v]] {:db (assoc state :v v)})"))
-      (is (not (str/includes? out "{:keys [db]}"))))))
-
-(deftest db-ignored-param-keeps-keys-form
-  (testing "an ignored `_` first param keeps the canonical {:keys [db]} (nothing to rebind)"
-    (let [src "(rf/reg-event-db :init (fn [_ _] {:count 0 :items []}))"
-          out (rewrite src)]
-      (is (str/includes? out "(fn [{:keys [db]} _] {:db {:count 0 :items []}})")))))
-
-;; ---------------------------------------------------------------------------
-;; reg-event-db — `_`-prefixed first param that IS referenced  (rf2-u6m0o9)
-;; ---------------------------------------------------------------------------
-;; `_`-prefix is a CONVENTION ("I intend not to use this"), not a guarantee. A
-;; handler may legally read an `_`-prefixed binding. Rebinding such a referenced
-;; param to `{:keys [db]}` orphaned every body reference to it (unbound-symbol
-;; compile error) — the rf2-xhfxcs.15 `{S :db}` bind-back covered non-`_` names
-;; but explicitly NOT `_`-prefixed ones. A referenced `_`-name must bind back
-;; under its original name `{_state :db}`; a TRULY-unreferenced one keeps the
-;; canonical `{:keys [db]}` (nothing to rebind). The reference test respects
-;; inner shadowing.
-
-(deftest db-underscore-referenced-param-binds-back
-  (testing "the bead/H repro: `_state` referenced in the body rebinds {_state :db}, body intact"
-    (let [src "(reg-event-db :y (fn [_state ev] (assoc _state :x 1)))"
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (= :reg-event-db (:form (first findings))))
-      (is (= :rewrite (:action (first findings))) "referenced `_`-param is still a faithful rewrite")
-      (is (str/includes? source "(reg-event "))
-      (is (not (str/includes? source "reg-event-db")))
-      (is (not (str/includes? source "{:keys [db]}")))
-      ;; the param binds the db value back under `_state`, and the body keeps
-      ;; reading `_state`, now the db coeffect rather than an unbound name
-      (is (str/includes? source "(fn [{_state :db} ev] {:db (assoc _state :x 1)})")))))
-
-(deftest db-underscore-unreferenced-param-keeps-keys-form
-  (testing "an `_`-prefixed param NOT read in the body keeps {:keys [db]} (nothing to rebind)"
-    (let [src "(rf/reg-event-db :init (fn [_state _] {:count 0 :items []}))"
-          out (rewrite src)]
-      (is (str/includes? out "(fn [{:keys [db]} _] {:db {:count 0 :items []}})"))
-      (is (not (str/includes? out "{_state :db}"))))))
-
-(deftest db-underscore-db-param-referenced-binds-back
-  (testing "`_db` referenced in the body binds back {_db :db} (the other classic ignore-name)"
-    (let [src "(rf/reg-event-db :touch (fn [_db _] (assoc _db :touched true)))"
-          out (rewrite src)]
-      (is (str/includes? out "(fn [{_db :db} _] {:db (assoc _db :touched true)})"))
-      (is (not (str/includes? out "{:keys [db]}"))))))
-
-(deftest db-underscore-referenced-multiform-body
-  (testing "referenced `_`-param with a multi-form body: only LAST form wrapped, refs intact"
-    (let [src "(rf/reg-event-db :log/it\n  (fn [_state _]\n    (js/console.log \"hi\")\n    (assoc _state :logged true)))"
-          out (rewrite src)]
-      (is (str/includes? out "{_state :db}"))
-      (is (str/includes? out "(js/console.log \"hi\")"))
-      (is (str/includes? out "{:db (assoc _state :logged true)}")))))
-
-(deftest db-underscore-shadowed-in-let-not-over-rewritten
-  (testing "an inner `let` that REBINDS the `_`-name shadows it: the OUTER name is unreferenced -> {:keys [db]}"
-    ;; The body never reads the outer `_state` — every `_state` occurrence is the
-    ;; inner let-binding. So the outer param is genuinely unused; {:keys [db]} is
-    ;; correct, and the inner shadowing binding survives byte-for-byte.
-    (let [src "(rf/reg-event-db :shadow\n  (fn [_state [_ k]]\n    (let [_state {:fresh k}]\n      (assoc _state :touched true))))"
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (= :rewrite (:action (first findings))))
-      ;; outer param: no free reference -> canonical {:keys [db]}
-      (is (str/includes? source "(fn [{:keys [db]} [_ k]]"))
-      (is (not (str/includes? source "{_state :db}")))
-      ;; inner let + both inner references survive verbatim
-      (is (str/includes? source "(let [_state {:fresh k}]"))
-      (is (str/includes? source "(assoc _state :touched true)")))))
-
-(deftest db-underscore-shadowed-in-fn-still-binds-back-when-also-free
-  (testing "an inner (fn [_s] ...) shadows _s locally, but an OUTER free ref still forces bind-back"
-    ;; `_s` is read once at the top of the body (free) and also rebound inside an
-    ;; inner fn (shadowed). The free outer occurrence means the param IS
-    ;; referenced -> {_s :db}; the inner shadowing fn is preserved untouched.
-    (let [src "(rf/reg-event-db :map-it\n  (fn [_s _]\n    (assoc _s :xs (map (fn [_s] (inc _s)) (:xs _s)))))"
-          out (rewrite src)]
-      (is (str/includes? out "(fn [{_s :db} _]"))
-      ;; inner fn rebinding `_s` preserved verbatim — not over-rewritten
-      (is (str/includes? out "(fn [_s] (inc _s))")))))
-
-(deftest db-underscore-only-shadowed-in-fn-is-unreferenced
-  (testing "when EVERY `_s` occurrence is inside an inner (fn [_s] ...), the outer param is unused -> {:keys [db]}"
-    ;; last form headed by `assoc` (non-nil-capable) so the D7 gate lets the
-    ;; rewrite proceed; the only `_s` uses are inside the inner mapped fn.
-    (let [src "(rf/reg-event-db :init\n  (fn [_s _]\n    (assoc {} :xs (mapv (fn [_s] (inc _s)) [1 2 3]))))"
-          out (rewrite src)]
-      (is (str/includes? out "(fn [{:keys [db]} _]"))
-      (is (not (str/includes? out "{_s :db}")))
-      ;; inner fn preserved
-      (is (str/includes? out "(fn [_s] (inc _s))")))))
-
-;; ---------------------------------------------------------------------------
-;; reg-event-ctx — always flagged, never rewritten
+;; flagged sites — reported, never rewritten
 ;; ---------------------------------------------------------------------------
 
 (deftest ctx-flagged-never-rewritten
-  (testing "reg-event-ctx is flagged for manual review and left unchanged"
-    (let [src "(rf/reg-event-ctx :advanced/thing\n  (fn [ctx] (assoc ctx :rf/skip-handler? true)))"
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (= :reg-event-ctx (:form (first findings))))
-      (is (= :flag (:action (first findings))))
-      (is (= :ctx (:flag (first findings))))
-      ;; source is unchanged — the flag is advisory, not a rewrite
-      (is (= src source)))))
+  (let [src "(rf/reg-event-ctx :advanced/thing\n  (fn [ctx] (assoc ctx :rf/skip-handler? true)))"]
+    (is (= [[[:reg-event-ctx :flag :ctx nil]] src] (outcome src)))))
 
-;; ---------------------------------------------------------------------------
-;; D7 — nil-capable bodies are flagged, not rewritten
-;; ---------------------------------------------------------------------------
-
-(deftest nil-capable-when
-  (testing "a (when ...) body can yield nil -> FLAG :nil-capable, source unchanged"
-    (let [src "(rf/reg-event-db :maybe/set\n  (fn [db [_ v]] (when v (assoc db :v v))))"
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (= :reg-event-db (:form (first findings))))
-      (is (= :flag (:action (first findings))))
-      (is (= :nil-capable (:flag (first findings))))
-      (is (= :reg-event (:target (first findings))) "target still suggested")
-      (is (= src source)))))
+;; D7 — a body that can evaluate to nil is flagged, not rewritten, and the
+;; rewrite still suggests its target.
 
 (deftest nil-capable-bodies
-  (testing "each body shape that can evaluate to nil -> FLAG :nil-capable"
+  (testing "each body shape that can evaluate to nil -> FLAG :nil-capable, source unchanged"
     (doseq [[label src]
-            [["if without else" "(rf/reg-event-db :cond/set\n  (fn [db [_ ok?]] (if ok? (assoc db :ok true))))"]
+            [["when"            "(rf/reg-event-db :maybe/set\n  (fn [db [_ v]] (when v (assoc db :v v))))"]
+             ["if without else" "(rf/reg-event-db :cond/set\n  (fn [db [_ ok?]] (if ok? (assoc db :ok true))))"]
              ["get"             "(rf/reg-event-db :grab (fn [db [_ k]] (get db k)))"]
              ["cond"            "(rf/reg-event-db :route\n  (fn [db [_ x]] (cond (= x 1) (assoc db :a 1) (= x 2) (assoc db :b 2))))"]
              ["and"             "(rf/reg-event-db :a (fn [db _] (and (:ready? db) (assoc db :go true))))"]
              ["or"              "(rf/reg-event-db :o (fn [db _] (or (:cached db) (assoc db :fresh true))))"]
              ["literal nil"     "(rf/reg-event-db :noop (fn [db _] nil))"]
-             ["some-> thread"   "(rf/reg-event-db :s (fn [db [_ k]] (some-> db (get k) inc)))"]]]
-      (is (= :nil-capable (:flag (only-finding src))) label))))
-
-;; ---------------------------------------------------------------------------
-;; non-nil-capable bodies are NOT flagged (the rewrite proceeds)
-;; ---------------------------------------------------------------------------
+             ["some-> thread"   "(rf/reg-event-db :s (fn [db [_ k]] (some-> db (get k) inc)))"]
+             ["a convertible chain does not bypass the gate"
+              "(rf/reg-event-db :x {:interceptors [(rf/path :a)]}\n  (fn [db _] (when true db)))"]]]
+      (is (= [[[:reg-event-db :flag :nil-capable :reg-event]] src] (outcome src)) label))))
 
 (deftest not-nil-capable-db-builders
   (testing "assoc / assoc-in / update / merge / dissoc bodies are non-nil -> rewrite"
     (doseq [body ["(assoc db :x 1)" "(assoc-in db [:a :b] 1)" "(update db :n inc)"
                   "(merge db {:x 1})" "(dissoc db :x)"]]
-      (let [src (str "(rf/reg-event-db :id (fn [db _] " body "))")
-            f   (only-finding src)]
-        (is (= :rewrite (:action f)) (str "expected rewrite for body " body))))))
+      (is (= [:rewrite] (mapv :action (rf.migration.reg-event-codemod/scan-string
+                                        (str "(rf/reg-event-db :id (fn [db _] " body "))"))))
+          body))))
 
-;; ---------------------------------------------------------------------------
-;; complex reg-event-db — flagged for manual review
-;; ---------------------------------------------------------------------------
-
-(deftest complex-var-handler
-  (testing "a var/symbol handler (not a literal fn) -> FLAG :complex, unchanged"
-    (let [src "(rf/reg-event-db :x/y my-handler-fn)"
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (= :flag (:action (first findings))))
-      (is (= :complex (:flag (first findings))))
-      (is (= src source)))))
-
-(deftest complex-destructured-db-param
-  (testing "a handler whose first param is itself destructured -> FLAG :complex"
-    (let [src "(rf/reg-event-db :x/y (fn [{:keys [a b]} _] (assoc {} :a a)))"
-          f (only-finding src)]
-      (is (= :complex (:flag f))))))
-
-(deftest complex-multi-arity-handler
-  (testing "a multi-arity fn handler -> FLAG :complex (not the simple single-arity shape)"
-    (let [src "(rf/reg-event-db :x/y (fn ([db] (assoc db :one true)) ([db _] (assoc db :two true))))"
-          f (only-finding src)]
-      (is (= :complex (:flag f))))))
+(deftest complex-handlers-flagged
+  (testing "a handler that is not the simple single-arity (fn [db ev] ...) shape -> FLAG :complex, unchanged"
+    (doseq [[label src]
+            [["a var handler"           "(rf/reg-event-db :x/y my-handler-fn)"]
+             ["a destructured db param" "(rf/reg-event-db :x/y (fn [{:keys [a b]} _] (assoc {} :a a)))"]
+             ["a multi-arity handler"   "(rf/reg-event-db :x/y (fn ([db] (assoc db :one true)) ([db _] (assoc db :two true))))"]]]
+      (is (= [[[:reg-event-db :flag :complex nil]] src] (outcome src)) label))))
 
 ;; ---------------------------------------------------------------------------
 ;; alias-agnostic detection
 ;; ---------------------------------------------------------------------------
 
 (deftest alias-agnostic
-  (testing "detection works regardless of the namespace alias / fully-qualified ns"
-    (doseq [head ["rf/reg-event-db" "re-frame.core/reg-event-db" "reg-event-db" "rf2/reg-event-db"]]
-      (let [src (str "(" head " :id (fn [db _] (assoc db :x 1)))")
-            {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-        (is (= 1 (count findings)) (str "one finding for head " head))
-        (is (= :rewrite (:action (first findings))))
-        ;; the alias/ns is preserved on the renamed symbol
-        (let [ns* (when (str/includes? head "/") (subs head 0 (str/index-of head "/")))]
-          (if ns*
-            (is (str/includes? source (str ns* "/reg-event ")))
-            (is (str/includes? source "(reg-event "))))))))
+  (testing "any alias, the full namespace or a bare head is detected, and the rename keeps it"
+    (doseq [[head renamed] [["re-frame.core/reg-event-db" "re-frame.core/reg-event"]
+                            ["rf2/reg-event-db"           "rf2/reg-event"]
+                            ["reg-event-db"               "reg-event"]]]
+      (is (= [db-rewrite (str "(" renamed " :id (fn [{:keys [db]} _] {:db (assoc db :x 1)}))")]
+             (outcome (str "(" head " :id (fn [db _] (assoc db :x 1)))")))
+          head))))
 
 ;; ---------------------------------------------------------------------------
 ;; bare heads — the emitted call must resolve through the emitted ns form
 ;; ---------------------------------------------------------------------------
-;; A bare `(reg-event ...)` resolves only through what the ns form refers. These
-;; tests READ the output's ns form and check that every bare registrar call in
-;; the output — renamed or held — is referred from re-frame.core.
-
-(defn- unbound-bare-heads
-  "The bare registrar heads of `src`'s top-level calls that its ns form does
-  not refer from re-frame.core (by name or `:refer :all`); empty when every
-  bare call resolves."
-  [src]
-  (let [forms   (read-string (str "[" src "]"))
-        ns-form (first (filter #(and (seq? %) (= 'ns (first %))) forms))
-        refers  (for [clause (rest ns-form)
-                      :when  (and (seq? clause) (#{:require :use} (first clause)))
-                      spec   (rest clause)
-                      :when  (and (vector? spec) (= 're-frame.core (first spec)))
-                      :let   [opts (apply hash-map (rest spec))]]
-                  (or (:refer opts) (:only opts)))
-        bound?  (fn [sym] (some #(or (= :all %) (some #{sym} %)) refers))]
-    (vec (for [form forms
-               :let [hd (when (seq? form) (first form))]
-               :when (and (symbol? hd) (nil? (namespace hd))
-                          (str/starts-with? (name hd) "reg-event")
-                          (not (bound? hd)))]
-           hd))))
+;; A bare `(reg-event ...)` resolves only through what the ns form refers, so
+;; every bare registrar call in the output — renamed or held — must be referred
+;; from re-frame.core.
 
 (deftest bare-rename-binds-reg-event-through-the-ns-form
   (testing "an accepted bare rename adds `reg-event` to the re-frame.core refer, keeping the old name for held sites"
     (doseq [[label ns-in ns-out body-in body-out actions]
-            [["fx rename"
-              "(ns demo (:require [re-frame.core :refer [reg-event-fx]]))"
-              "(ns demo (:require [re-frame.core :refer [reg-event-fx reg-event]]))"
-              "(reg-event-fx :a (fn [cofx event] {}))"
-              "(reg-event :a (fn [cofx event] {}))"
-              [:rename]]
-             ["db rewrite"
+            [["db rewrite"
               "(ns demo (:require [re-frame.core :refer [reg-event-db]]))"
               "(ns demo (:require [re-frame.core :refer [reg-event-db reg-event]]))"
               "(reg-event-db :a (fn [db _] (assoc db :k 1)))"
@@ -694,9 +449,7 @@
               [:rename]]]]
       (let [{:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string
                                         (str ns-in "\n" body-in "\n"))]
-        (is (= actions (mapv :action findings)) label)
-        (is (= (str ns-out "\n" body-out "\n") source) label)
-        (is (= [] (unbound-bare-heads source)) (str label ": every bare call resolves"))))))
+        (is (= [actions (str ns-out "\n" body-out "\n")] [(mapv :action findings) source]) label)))))
 
 (deftest bare-rename-without-a-provable-binding-flags
   (testing "a bare rename whose `reg-event` binding cannot be proved flags, source unchanged"
@@ -713,54 +466,44 @@
               "(ns demo (:require [re-frame [core :refer [reg-event-fx]]]))"]]]
       (let [src (str ns-form "\n(reg-event-fx :a (fn [cofx event] {}))\n")
             {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-        (is (= [[:flag :binding]] (mapv (juxt :action :flag) findings)) label)
-        (is (str/includes? (:note (first findings)) "Refer `reg-event` from re-frame.core") label)
-        (is (= src source) (str label " left byte-for-byte unchanged"))))))
+        (is (= [[[:flag :binding]] true src]
+               [(mapv (juxt :action :flag) findings)
+                (str/includes? (:note (first findings)) "Refer `reg-event` from re-frame.core")
+                source])
+            label)))))
 
 ;; ---------------------------------------------------------------------------
 ;; shape non-corruption + idempotence
 ;; ---------------------------------------------------------------------------
 
-(deftest non-registrar-code-untouched
-  (testing "code with no retired registrar is returned byte-for-byte"
-    (let [src "(ns my.app)\n\n(defn foo [x] (inc x))\n\n(rf/reg-sub :s (fn [db _] (:s db)))\n;; a comment\n(rf/reg-fx :my/fx (fn [_] nil))\n"
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (empty? findings))
-      (is (= src source)))))
-
 (deftest comments-and-whitespace-preserved
   (testing "surrounding comments + blank lines survive the rewrite"
-    (let [src ";; counter events\n(rf/reg-event-db :counter/inc ; inline\n  (fn [db _] (update db :count inc)))\n\n;; trailing comment\n"
-          out (rewrite src)]
-      (is (str/includes? out ";; counter events"))
-      (is (str/includes? out "; inline"))
-      (is (str/includes? out ";; trailing comment")))))
+    (is (= ";; counter events\n(rf/reg-event :counter/inc ; inline\n  (fn [{:keys [db]} _] {:db (update db :count inc)}))\n\n;; trailing comment\n"
+           (rewrite ";; counter events\n(rf/reg-event-db :counter/inc ; inline\n  (fn [db _] (update db :count inc)))\n\n;; trailing comment\n")))))
 
 (deftest idempotent-rewrite
   (testing "running the codemod twice is a no-op the second time, whichever first-param rebind each handler took"
-    (let [src (str "(rf/reg-event-db :counter/inc (fn [db _] (update db :count inc)))\n"
-                   "(rf/reg-event-db :inc (fn [c _] (update c :n inc)))\n"
-                   "(rf/reg-event-db :y (fn [_state ev] (assoc _state :x 1)))\n"
-                   "(rf/reg-event-fx :todo/add (fn [c e] {:db (:db c)}))")
-          once (rewrite src)
-          twice (rewrite once)]
-      (is (= once twice) "second pass changes nothing")
-      (is (not (str/includes? once "reg-event-db")))
-      (is (not (str/includes? once "reg-event-fx"))))))
+    (let [once (rewrite (str "(rf/reg-event-db :counter/inc (fn [db _] (update db :count inc)))\n"
+                             "(rf/reg-event-db :inc (fn [c _] (update c :n inc)))\n"
+                             "(rf/reg-event-db :y (fn [_state ev] (assoc _state :x 1)))\n"
+                             "(rf/reg-event-fx :todo/add (fn [c e] {:db (:db c)}))"))]
+      (is (not-any? #(str/includes? once %) ["reg-event-db" "reg-event-fx"]) "the first pass rewrote every site")
+      (is (= once (rewrite once)) "second pass changes nothing"))))
 
 (deftest multiple-sites-one-file
-  (testing "a file with a mix of all forms reports each, rewrites the safe ones"
-    (let [src (str "(rf/reg-event-db :a (fn [db _] (assoc db :x 1)))\n"        ; rewrite
-                   "(rf/reg-event-fx :b (fn [c e] {:db (:db c)}))\n"           ; rename
-                   "(rf/reg-event-ctx :c (fn [ctx] ctx))\n"                    ; flag ctx
-                   "(rf/reg-event-db :d (fn [db _] (when true db)))\n")        ; flag nil
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (= 4 (count findings)))
-      (is (= [:rewrite :rename :flag :flag] (mapv :action findings)))
-      (is (= [nil nil :ctx :nil-capable] (mapv :flag findings)))
-      ;; the flagged forms are left intact in the output
-      (is (str/includes? source "reg-event-ctx"))
-      (is (str/includes? source "(when true db)")))))
+  (testing "a file with a mix of all forms reports each, rewrites the safe ones and leaves the flagged ones intact"
+    (is (= [[[:reg-event-db :rewrite nil :reg-event]
+             [:reg-event-fx :rename nil :reg-event]
+             [:reg-event-ctx :flag :ctx nil]
+             [:reg-event-db :flag :nil-capable :reg-event]]
+            (str "(rf/reg-event :a (fn [{:keys [db]} _] {:db (assoc db :x 1)}))\n"
+                 "(rf/reg-event :b (fn [c e] {:db (:db c)}))\n"
+                 "(rf/reg-event-ctx :c (fn [ctx] ctx))\n"
+                 "(rf/reg-event-db :d (fn [db _] (when true db)))\n")]
+           (outcome (str "(rf/reg-event-db :a (fn [db _] (assoc db :x 1)))\n"
+                         "(rf/reg-event-fx :b (fn [c e] {:db (:db c)}))\n"
+                         "(rf/reg-event-ctx :c (fn [ctx] ctx))\n"
+                         "(rf/reg-event-db :d (fn [db _] (when true db)))\n"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; reader-discarded source — a `#_` form holds no registration
@@ -803,23 +546,15 @@
 
 (deftest scan-file-roundtrip
   (testing "scan-file + rewrite-file! over a temp file on disk"
-    (let [tmp (java.io.File/createTempFile "regevent" ".cljc")]
+    (let [tmp (java.io.File/createTempFile "regevent" ".cljc")
+          src "(rf/reg-event-db :counter/inc (fn [db _] (update db :count inc)))\n"]
       (try
-        (spit tmp "(rf/reg-event-db :counter/inc (fn [db _] (update db :count inc)))\n")
-        (let [findings (rf.migration.reg-event-codemod/scan-file (.getPath tmp))]
-          (is (= 1 (count findings)))
-          (is (= (.getPath tmp) (str (:file (first findings))))))
-        ;; dry run does NOT write
-        (let [{:keys [changed?]} (rf.migration.reg-event-codemod/rewrite-file! (.getPath tmp) {:write? false})
-              after (slurp tmp)]
-          (is changed?)
-          (is (str/includes? after "reg-event-db") "dry run left the file unwritten"))
-        ;; write does mutate the file
-        (let [{:keys [changed?]} (rf.migration.reg-event-codemod/rewrite-file! (.getPath tmp) {:write? true})
-              after (slurp tmp)]
-          (is changed?)
-          (is (not (str/includes? after "reg-event-db")))
-          (is (str/includes? after "{:keys [db]}")))
+        (spit tmp src)
+        (is (= [(.getPath tmp)] (mapv (comp str :file) (rf.migration.reg-event-codemod/scan-file (.getPath tmp)))))
+        (is (:changed? (rf.migration.reg-event-codemod/rewrite-file! (.getPath tmp) {:write? false})))
+        (is (= src (slurp tmp)) "dry run left the file unwritten")
+        (is (:changed? (rf.migration.reg-event-codemod/rewrite-file! (.getPath tmp) {:write? true})))
+        (is (= "(rf/reg-event :counter/inc (fn [{:keys [db]} _] {:db (update db :count inc)}))\n" (slurp tmp)))
         (finally (.delete tmp))))))
 
 ;; A write changes a file only through an accepted rewrite or rename, and
@@ -898,16 +633,10 @@
                (file-bytes (io/file dir "lf-first.cljs"))))))))
 
 (deftest scan-paths-recurses-dir
-  (testing "scan-paths walks a directory for .clj/.cljc/.cljs sources"
-    (let [dir (java.io.File/createTempFile "regdir" "")]
-      (.delete dir)
-      (.mkdirs dir)
-      (try
-        (spit (io/file dir "a.cljs") "(rf/reg-event-db :a (fn [db _] (assoc db :x 1)))")
-        (spit (io/file dir "b.clj")  "(rf/reg-event-fx :b (fn [c e] {:db (:db c)}))")
-        (spit (io/file dir "c.txt")  "(rf/reg-event-db :ignored (fn [db _] db))") ; not a source ext
-        (let [findings (rf.migration.reg-event-codemod/scan-paths [(.getPath dir)])]
-          (is (= 2 (count findings)) "only .cljs + .clj scanned, .txt ignored")
-          (is (= #{:reg-event-db :reg-event-fx} (set (map :form findings)))))
-        (finally
-          (doseq [f (reverse (file-seq dir))] (.delete f)))))))
+  (testing "scan-paths walks a directory for .clj/.cljc/.cljs sources and ignores the rest"
+    (with-source-dir {"a.cljs" "(rf/reg-event-db :a (fn [db _] (assoc db :x 1)))"
+                      "b.clj"  "(rf/reg-event-fx :b (fn [c e] {:db (:db c)}))"
+                      "c.txt"  "(rf/reg-event-db :ignored (fn [db _] db))"}
+      (fn [dir]
+        (is (= [:reg-event-db :reg-event-fx]
+               (sort (map :form (rf.migration.reg-event-codemod/scan-paths [(.getPath dir)])))))))))
