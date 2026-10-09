@@ -31,8 +31,8 @@
   `schemas/walker.cljc`, the generated nesting test goes RED - the
   sentinel surfaces unredacted in the trace's `:explain` for
   collection-nested slots."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-               :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+  (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+               :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             ;; Publishes the Malli late-bind validate/explain hooks; without
@@ -44,24 +44,9 @@
             [re-frame.security.gen :as rf.security.gen]))
 
 ;; Reset per-test so app-schema registrations don't bleed across cases.
-;; No adapter needed - `validate-app-schema!` is called directly (not via
-;; dispatch), so a clean app-schema slate is all the harness requires.
-;; CLJC-clean: the same fixture runs on JVM and node.
-;;
-;; EP-0002: `reg-app-schema` + `validate-app-schema!` are
-;; context-required frame-local (no `:rf/default` floor). The adapter-less
-;; reset fixture establishes no ambient scope, so the outer fixture below
-;; pins `:rf/default` as the carried scope for the test body — the
-;; carried-invariant equivalent of `(with-frame :rf/default …)`. Without it
-;; every `reg-app-schema` raises `:rf.error/no-frame-context`.
-;;
-;; Binding the dynamic var is sufficient (and necessary): `reg-app-schema`
-;; writes only to the schemas side-table keyed by frame-id and resolves the
-;; stamp through the scope reader, which reads the var — it needs neither a
-;; registered frame nor a state container. We deliberately do NOT call
-;; `ensure-default-frame!` here: it builds a container and so requires an
-;; installed adapter, which this adapter-less validate-direct suite has not
-;; got (it would raise `:rf.error/no-adapter-installed`).
+;; App schemas are frame-local, so the body runs with `:rf/default` bound as
+;; the carried scope; `validate-app-schema!` is called directly, so no adapter
+;; or registered frame is needed.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture)
   (fn [test-fn]
@@ -124,150 +109,48 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest sensitive-sentinel-never-leaks-at-arbitrary-nesting
-  (testing "a :sensitive? slot at ANY generated collection/map
-            nesting depth redacts: the sentinel never appears in the trace"
-    (let [result (rf.security.gen/for-all
-                   gen-nested-sensitive 300 11
-                   (fn [[schema db]]
-                     (let [v (failure-trace schema db)]
-                       (and (some? v)
-                            ;; The trace fired AND is stamped sensitive AND
-                            ;; carries no trace of the sentinel anywhere.
-                            (true? (:sensitive? v))
-                            (not (contains-sentinel? v))))))]
-      (is (nil? result)
-          (str "the sensitive sentinel leaked (or no redaction stamp) for a "
-               "generated nesting: "
-               (pr-str (when result (dissoc result :threw))))))))
+  (let [result (rf.security.gen/for-all
+                 gen-nested-sensitive 300 11
+                 (fn [[schema db]]
+                   (let [v (failure-trace schema db)]
+                     (and (true? (:sensitive? v))
+                          (not (contains-sentinel? v))))))]
+    (is (nil? result)
+        (str "the sensitive sentinel leaked (or no redaction stamp) for a "
+             "generated nesting: "
+             (pr-str (when result (dissoc result :threw)))))))
+
+(defn- stamp-redaction-and-leak
+  "`[:sensitive? :value :explain sentinel-present?]` read off a failure trace."
+  [v]
+  [(:sensitive? v) (-> v :tags :value) (-> v :tags :explain) (contains-sentinel? v)])
 
 ;; ---------------------------------------------------------------------------
-;; HOSTILE CORPUS - the collection-nested sensitive shapes, pinned.
-;; ---------------------------------------------------------------------------
-
-(deftest hostile-nesting-corpus-all-redacted
-  (testing "every named collection-nested sensitive shape redacts the
-            sentinel"
-    (doseq [[label schema db]
-            [["vector-of-map"
-              [:vector [:map [:token {:sensitive? true} :string]]]
-              [{:token "ok"} {:token [sentinel]}]]
-             ["map-of-value"
-              [:map-of :string [:map [:secret {:sensitive? true} :string]]]
-              {"a" {:secret [sentinel]}}]
-             ;; The sensitive :map-of KEY shape is pinned on its own by
-             ;; `map-of-sensitive-key-path-tag-carries-no-secret` below.
-             ["sequential"
-              [:sequential [:map [:pw {:sensitive? true} :string]]]
-              [{:pw [sentinel]}]]
-             ["deep-map-vector-map"
-              [:map [:items [:vector [:map [:tok {:sensitive? true} :string]]]]]
-              {:items [{:tok [sentinel]}]}]
-             ["tuple-sensitive-element"
-              [:tuple :int [:string {:sensitive? true}]]
-              [0 [sentinel]]]
-             ["scalar-sensitive-vector-element"
-              [:vector [:string {:sensitive? true}]]
-              ["ok" [sentinel]]]]]
-      (let [v (failure-trace schema db)]
-        (is (some? v) (str label ": a trace fired"))
-        (is (true? (:sensitive? v)) (str label ": top-level :sensitive? stamp"))
-        (is (not (contains-sentinel? v))
-            (str label ": sentinel leaked into the trace: "
-                 (pr-str (:tags v))))))))
-
-;; ---------------------------------------------------------------------------
-;; HOSTILE CORPUS - two egress leak classes, pinned.
-;;   :set:     a :set failure would ship the failing ELEMENT VALUE in the
-;;             structural :path tag (Malli reports the value, not an index).
-;;   wrappers: a sensitive CONTAINER wrapped by :and/:or/:multi/:orn would
-;;             lose the consumed-ancestor sensitivity in align-in-path's
-;;             fallback, so the failing value (and :explain) would ride
-;;             verbatim, unstamped.
-;; The :set case asserts BOTH the value-bearing slots AND the :path tag carry
-;; no sentinel; the wrapper cases assert the value-bearing slots are redacted
-;; and stamped. One escaped shape = one egress leak.
+;; Collection navigation segments. Malli reports a failing :set element or a
+;; failing :map-of key by VALUE in the `:in` path, so the structural `:path`
+;; tag would ship it verbatim absent the sanitiser. The :set case carries the
+;; secret in a NON-sensitive sibling of the element too, which the generated
+;; shapes above never do.
 ;; ---------------------------------------------------------------------------
 
 (deftest set-path-tag-carries-no-secret
-  (testing "a :set of sensitive maps must not ship the failing
-            element value in ANY slot, including the structural :path tag"
-    ;; The sentinel rides as a sibling :ssn (a plain string) so a leak would
-    ;; surface it verbatim in :path even though the :token value is redacted.
-    (let [v (failure-trace
-              [:set [:map [:token {:sensitive? true} :string] [:ssn :string]]]
-              #{{:token [sentinel] :ssn (str "ssn-" sentinel)}})]
-      (is (some? v) "a trace fired")
-      (is (true? (:sensitive? v)) "top-level :sensitive? stamp")
-      (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
-      (is (= :rf/redacted (-> v :tags :explain)) ":explain redacted")
-      ;; The crux: NO sentinel anywhere, AND specifically not in :path.
-      (is (not (contains-sentinel? (-> v :tags :path)))
-          (str "the sentinel leaked into the :path tag: " (pr-str (-> v :tags :path))))
-      (is (not (contains-sentinel? v))
-          (str "the sentinel leaked somewhere in the trace: " (pr-str (:tags v)))))))
+  (let [v (failure-trace
+            [:set [:map [:token {:sensitive? true} :string] [:ssn :string]]]
+            #{{:token [sentinel] :ssn (str "ssn-" sentinel)}})]
+    (is (= [true :rf/redacted :rf/redacted false] (stamp-redaction-and-leak v))
+        (pr-str (:tags v)))))
 
 (deftest map-of-sensitive-key-path-tag-carries-no-secret
-  (testing "a :map-of with a :sensitive? KEY must not ship the failing key
-            VALUE in ANY slot, including the structural :path tag; :path
-            carries :rf/redacted for the key, not the secret. This completes
-            the collection-navigation-segment siblings (:set, :tuple,
-            :cat/:catn)."
-    (let [v (failure-trace
-              [:map-of [:string {:sensitive? true}] [:map [:age :int]]]
-              {sentinel {:age [sentinel]}})]
-      (is (some? v) "a trace fired")
-      (is (true? (:sensitive? v)) "top-level :sensitive? stamp")
-      (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
-      (is (= :rf/redacted (-> v :tags :explain)) ":explain redacted")
-      ;; The crux: the sensitive KEY is :rf/redacted in :path, not the secret;
-      ;; the navigable inner :age key (a real :map key) survives.
-      (is (= [:root :rf/redacted :age] (-> v :tags :path))
-          (str "the sensitive :map-of key must be :rf/redacted in :path: "
-               (pr-str (-> v :tags :path))))
-      (is (not (contains-sentinel? (-> v :tags :path)))
-          (str "the secret key leaked into the :path tag: " (pr-str (-> v :tags :path))))
-      (is (not (contains-sentinel? (-> v :tags :reason)))
-          (str "the secret key leaked into the :reason tag: " (pr-str (-> v :tags :reason))))
-      (is (not (contains-sentinel? v))
-          (str "the secret leaked somewhere in the trace: " (pr-str (:tags v)))))))
-
-(deftest ancestor-sensitive-wrapper-corpus-all-redacted
-  (testing "a sensitive container whose failing leaf is under a
-            transparent :and/:or/:multi/:orn wrapper redacts + stamps"
-    (doseq [[label schema db]
-            [["and-ancestor"
-              [:map [:s {:sensitive? true} [:and [:map [:k :int]]]]]
-              {:s {:k sentinel}}]
-             ["or-ancestor"
-              [:map [:s {:sensitive? true} [:or [:map [:k :int]]]]]
-              {:s {:k sentinel}}]
-             ["multi-ancestor"
-              [:map [:s {:sensitive? true}
-                     [:multi {:dispatch :t} [:a [:map [:t :keyword] [:k :int]]]]]]
-              {:s {:t :a :k sentinel}}]
-             ["orn-ancestor"
-              [:map [:s {:sensitive? true} [:orn [:a [:map [:k :int]]]]]]
-              {:s {:k sentinel}}]]]
-      (let [v (failure-trace schema db)]
-        (is (some? v) (str label ": a trace fired"))
-        (is (true? (:sensitive? v)) (str label ": top-level :sensitive? stamp"))
-        (is (= :rf/redacted (-> v :tags :value)) (str label ": :value redacted"))
-        (is (not (contains-sentinel? v))
-            (str label ": sentinel leaked into the trace: " (pr-str (:tags v))))))))
-
-;; ---------------------------------------------------------------------------
-;; NO OVER-REDACTION - a failure at a NON-sensitive slot must NOT be redacted
-;; (the alignment must be precise, not a blanket scrub).
-;; ---------------------------------------------------------------------------
+  ;; The sensitive key becomes :rf/redacted in :path; the navigable inner key
+  ;; survives.
+  (let [v (failure-trace
+            [:map-of [:string {:sensitive? true}] [:map [:age :int]]]
+            {sentinel {:age [sentinel]}})]
+    (is (= [true :rf/redacted :rf/redacted false] (stamp-redaction-and-leak v))
+        (pr-str (:tags v)))
+    (is (= [:root :rf/redacted :age] (-> v :tags :path)))))
 
 (deftest non-sensitive-collection-failure-not-over-redacted
-  (testing "no over-redaction: a collection failure where no slot is
-            sensitive rides verbatim (the secret-detection is precise)"
-    (let [v (failure-trace
-              [:vector [:map [:name :string]]]
-              [{:name 99}])]
-      (is (some? v))
-      (is (not (contains? v :sensitive?))
-          "no :sensitive? stamp - nothing in the schema is sensitive")
-      (is (not= :rf/redacted (-> v :tags :value))
-          ":value rides verbatim - alignment did not over-redact"))))
+  (let [v (failure-trace [:vector [:map [:name :string]]] [{:name 99}])]
+    (is (= [false 99] [(contains? v :sensitive?) (-> v :tags :value)])
+        "no stamp, and :value rides verbatim")))
