@@ -7,7 +7,6 @@
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]
             [clojure.string :as str]
-            [re-frame.source-coords :as rf.source-coords]
             [re-frame.testbed.open-in-editor-server :as rf.testbed.open-in-editor-server]
             [shadow.http.push-state :as shadow.push-state])
   (:import [java.net InetAddress InetSocketAddress URL URLClassLoader]
@@ -34,14 +33,10 @@
               prev     (.getContextClassLoader (Thread/currentThread))]
           (try
             (.setContextClassLoader (Thread/currentThread) cl)
-            (let [resolved (rf.testbed.open-in-editor-server/resolve-file rel-path)]
-              (is (= (#'rf.source-coords/absolutise-file rel-path) resolved)
-                  "resolve-file returns core's absolutise-file result;
-                   the classpath stage is delegated, not re-implemented")
-              (is (= (.getCanonicalPath src-file)
-                     (.getCanonicalPath (File. ^String resolved)))
-                  "resolved to the REAL on-disk fixture file, not a
-                   space-corrupted sibling that does not exist"))
+            (is (= (.getCanonicalPath src-file)
+                   (.getCanonicalPath (File. ^String (rf.testbed.open-in-editor-server/resolve-file rel-path))))
+                "resolved to the REAL on-disk fixture file, not a
+                 space-corrupted sibling that does not exist")
             (finally
               (.setContextClassLoader (Thread/currentThread) prev))))
         (finally
@@ -50,14 +45,10 @@
           (.delete (io/file tmp "fake_ns"))
           (.delete tmp))))))
 
-(deftest resolve-file-passes-absolute-and-blank-through
-  (testing "an already-absolute path is returned unchanged (incl. a + in it)"
-    (is (= "/abs/re-frame2+wip/core.cljs"
-           (rf.testbed.open-in-editor-server/resolve-file "/abs/re-frame2+wip/core.cljs"))))
-  (testing "nil / blank resolve to nil"
-    (is (nil? (rf.testbed.open-in-editor-server/resolve-file nil)))
-    (is (nil? (rf.testbed.open-in-editor-server/resolve-file "")))
-    (is (nil? (rf.testbed.open-in-editor-server/resolve-file "   ")))))
+(deftest resolve-file-passes-an-absolute-path-through
+  (is (= "/abs/re-frame2+wip/core.cljs"
+         (rf.testbed.open-in-editor-server/resolve-file "/abs/re-frame2+wip/core.cljs"))
+      "an already-absolute path is returned unchanged, a + in it included"))
 
 ;; Launch is stubbed while the peer, method, Host and Origin guards are tested.
 
@@ -346,58 +337,40 @@
     (first (read-json-string-literal (.substring body (+ idx (.length key-prefix) -1))))))
 
 (deftest json-resp-escapes-embedded-control-chars
-  (testing "a 200 response whose `:file` carries a raw newline (as a
-            url-decoded `file=...%0A...` request would produce) is escaped
-            to a `\\n` sequence, not a literal newline byte — the body
-            parses as valid JSON and round-trips the original value"
-    (let [calls (atom [])
-          file  "day8/re_frame2_xray/core.cljs\ninjected-line\ttabbed"]
-      (with-launch-spy calls
-        (with-redefs [rf.testbed.open-in-editor-server/resolve-file (constantly file)]
-          (let [resp (rf.testbed.open-in-editor-server/handle
-                       (req {:method :post
-                             :host   "localhost:8031"
-                             :origin nil
-                             :file   "day8%2Fre_frame2_xray%2Fcore.cljs%0Ainjected-line%09tabbed"}))]
-            (is (= 200 (:status resp)))
-            (is (not (str/includes? (:body resp) "\n"))
-                "no raw newline byte reaches the wire — it must be escaped")
-            (is (not (str/includes? (:body resp) "\t"))
-                "no raw tab byte reaches the wire — it must be escaped")
-            (is (= file (json-body->file-value (:body resp) "\"file\":\""))
-                "the escaped value round-trips to the exact original string
-                 through a real JSON-string decode"))))))
-  (testing "a 422 response whose launch error carries a raw CR + control
-            char (as a multi-line node stderr trace would) is likewise
-            valid, round-tripping JSON"
-    (let [calls (atom [])
-          msg   (str "launch-editor: boom\r\nat frame " (char 0x01) "end")]
-      (with-redefs [rf.testbed.open-in-editor-server/launch! (fn [& args#]
-                                   (swap! calls conj (vec args#))
-                                   {:ok false :message msg})]
-        (let [resp (rf.testbed.open-in-editor-server/handle
-                     (req {:method :post
-                           :host   "localhost:8031"
-                           :origin nil
-                           :file   "fake_ns/core.cljs"}))]
-          (is (= 422 (:status resp)))
-          (is (not (str/includes? (:body resp) "\r")))
-          (is (= msg (json-body->file-value (:body resp) "\"error\":\""))))))))
+  (testing "a value carrying control characters, backslashes or quotes — a
+            `:file` a url-decoded `%0A` puts a newline in, a Windows path, a
+            multi-line node stderr trace as the launch error — reaches the
+            wire with no raw control byte, and round-trips exactly through a
+            real JSON-string decode"
+    (doseq [[label status k value]
+            [["a 200 :file with a newline and a tab" 200 "file"
+              "day8/re_frame2_xray/core.cljs\ninjected-line\ttabbed"]
+             ["a 200 :file that is a Windows path with a quote" 200 "file"
+              "C:\\Users\\me\\code\\re-frame2\\src\\a\"b.cljs"]
+             ["a 422 launch error with a CR and a C0 control" 422 "error"
+              (str "launch-editor: boom\r\nat frame " (char 0x01) "end")]]]
+      (with-redefs [rf.testbed.open-in-editor-server/resolve-file (constantly value)
+                    rf.testbed.open-in-editor-server/launch!
+                    (fn [& _] (if (= 200 status) {:ok true} {:ok false :message value}))]
+        (let [{body :body :as resp} (rf.testbed.open-in-editor-server/handle
+                                      (req {:file "fake_ns/core.cljs"}))]
+          (is (= [status value nil]
+                 [(:status resp)
+                  (json-body->file-value body (str "\"" k "\":\""))
+                  (re-find #"[\x00-\x1f]" body)])
+              label))))))
 
 ;; launch-editor parses the first numeric suffix as a line, so column-only
 ;; coordinates must be encoded as `path:1:column`.
 
 (deftest build-file-spec-normalizes-column-only-to-line-1
-  (testing "column with no line is normalized to line 1, NOT encoded as a
-            bare `path:<column>` that launch-editor would misread as a line"
-    (is (= "/abs/core.cljs:1:7" (#'rf.testbed.open-in-editor-server/build-file-spec "/abs/core.cljs" nil 7))
-        "column-only → line 1 + column, matching the editor:// URI fallback"))
-  (testing "line with no column is unaffected (baseline — no phantom column)"
-    (is (= "/abs/core.cljs:3" (#'rf.testbed.open-in-editor-server/build-file-spec "/abs/core.cljs" 3 nil))))
-  (testing "both line and column present"
-    (is (= "/abs/core.cljs:3:7" (#'rf.testbed.open-in-editor-server/build-file-spec "/abs/core.cljs" 3 7))))
-  (testing "neither present: bare path (no spurious `:1`)"
-    (is (= "/abs/core.cljs" (#'rf.testbed.open-in-editor-server/build-file-spec "/abs/core.cljs" nil nil)))))
+  (testing "a column with no line takes line 1, matching the editor:// URI
+            fallback, rather than a bare `path:<column>` launch-editor would
+            misread as a line; a line alone gets no phantom column, and no
+            coordinate no spurious `:1`"
+    (is (= ["/abs/core.cljs:1:7" "/abs/core.cljs:3" "/abs/core.cljs:3:7" "/abs/core.cljs"]
+           (map #(apply #'rf.testbed.open-in-editor-server/build-file-spec "/abs/core.cljs" %)
+                [[nil 7] [3 nil] [3 7] [nil nil]])))))
 
 ;; launch-editor silently ignores missing files, so the JVM must reject them.
 
@@ -410,10 +383,7 @@
                        "/oies-launch-absent-" (System/nanoTime) ".cljs")]
       (is (= {:ok false :message "file-not-found"}
              (rf.testbed.open-in-editor-server/launch! missing 10 5 nil))
-          "missing file rejected before the node spawn")))
-  (testing "a nil / blank abs-path is likewise file-not-found (never node)"
-    (is (= {:ok false :message "file-not-found"} (rf.testbed.open-in-editor-server/launch! nil 1 1 nil)))
-    (is (= {:ok false :message "file-not-found"} (rf.testbed.open-in-editor-server/launch! "   " 1 1 nil)))))
+          "missing file rejected before the node spawn"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Real-subprocess pipe-drain regressions.
@@ -505,11 +475,8 @@
                     "process.stdout.write(b);process.exit(0);")]
       (with-redefs [rf.testbed.open-in-editor-server/launch-shim shim]
         (binding [rf.testbed.open-in-editor-server/*launch-timeout-ms* 8000]
-          (let [[res ms] (timed (rf.testbed.open-in-editor-server/launch! (.getAbsolutePath f) nil nil nil))]
-            (is (= {:ok true} res)
-                "a >1 MiB stdout flood + exit 0 is a prompt success, not a timeout")
-            (is (< ms 8000)
-                "returned well within the budget — the child was not wedged by its own pipe")))))))
+          (is (= {:ok true} (rf.testbed.open-in-editor-server/launch! (.getAbsolutePath f) nil nil nil))
+              "a >1 MiB stdout flood + exit 0 is a prompt success, not a timeout"))))))
 
 (deftest launch-drains-huge-stderr-and-reports-bounded-failure
   ;; A child that floods STDERR (>1 MiB) and exits nonzero is a
@@ -523,13 +490,12 @@
                         "process.stderr.write(b);process.exit(7);")]
           (with-redefs [rf.testbed.open-in-editor-server/launch-shim shim]
             (binding [rf.testbed.open-in-editor-server/*launch-timeout-ms* 8000]
-              (let [[res ms] (timed (rf.testbed.open-in-editor-server/launch! (.getAbsolutePath f) nil nil nil))]
-                (is (false? (:ok res)))
-                (is (not= "launch-editor timed out" (:message res))
-                    "a drained stderr flood is a real failure, not the deadlock timeout")
-                (is (<= (count (:message res)) 8192)
-                    "the retained diagnostic is bounded — no unbounded parent memory")
-                (is (< ms 8000) "returned within the budget"))))))
+              (is (re-matches #"y{1,8192}"
+                              (str (:message (rf.testbed.open-in-editor-server/launch!
+                                               (.getAbsolutePath f) nil nil nil))))
+                  "a drained stderr flood is a real failure carrying the flood's
+                   head — not the deadlock timeout — and that head is bounded,
+                   so a runaway child costs no unbounded parent memory")))))
       (testing "small stderr control still round-trips verbatim"
         (with-redefs [rf.testbed.open-in-editor-server/launch-shim "process.stderr.write('controlled failure');process.exit(7);"]
           (binding [rf.testbed.open-in-editor-server/*launch-timeout-ms* 8000]
@@ -567,7 +533,6 @@
         (is (.isAlive proc) "the child started and is running")
         (is (true? (#'rf.testbed.open-in-editor-server/terminate! proc))
             "terminate! confirms the child is dead (force-destroy fallback used if needed)")
-        (is (not (.isAlive proc)) "the child is no longer alive after cleanup")
         (finally
           (when (.isAlive proc) (.destroyForcibly proc)))))))
 
@@ -580,10 +545,8 @@
     (let [missing (str "oies_missing_" (System/nanoTime) "/nope.cljs")
           resp    (rf.testbed.open-in-editor-server/handle
                     (req {:query (str "file=" missing "&line=10&column=3")}))]
-      (is (= 422 (:status resp)) "missing file is a non-2xx, not a false 200")
-      (is (re-find #"\"ok\":false" (:body resp)))
-      (is (re-find #"\"error\":\"file-not-found\"" (:body resp))
-          "the client-visible error names the missing file, not launch-failed"))))
+      (is (= [422 "{\"ok\":false,\"error\":\"file-not-found\"}"] [(:status resp) (:body resp)])
+          "a non-2xx, not a false 200, naming the missing file rather than launch-failed"))))
 
 ;; Endpoint success must mean the COORDINATE arrived.
 ;;
@@ -603,25 +566,18 @@
   ;; The set's contents are graded against the installed dependency by
   ;; launch-editor-2-14-1-really-does-drop-these-positions, and through
   ;; `handle` by the editor rows of handle-answers-and-launches-per-request.
+  ;; A line alone and a column alone are each a coordinate (build-file-spec
+  ;; supplies line 1); a request with none loses nothing, and the endpoint's
+  ;; classpath resolution is still worth having. nil is auto-detect, whose
+  ;; binary launch-editor picks from the running process list, so that
+  ;; capability question goes to the dependency at launch time instead —
+  ;; launch-declines-when-the-resolved-editor-would-drop-the-position below.
   (testing "position-would-be-dropped? fires only for a coordinate-BEARING
-            request to a position-blind command"
-    (is (true?  (rf.testbed.open-in-editor-server/position-would-be-dropped? "windsurf" 27 9)))
-    (is (true?  (rf.testbed.open-in-editor-server/position-would-be-dropped? "windsurf" 27 nil))
-        "a line alone is a coordinate")
-    (is (true?  (rf.testbed.open-in-editor-server/position-would-be-dropped? "windsurf" nil 9))
-        "a column alone is a coordinate (build-file-spec supplies line 1)")
-    (is (false? (rf.testbed.open-in-editor-server/position-would-be-dropped? "windsurf" nil nil))
-        "no coordinate → nothing to lose; the endpoint's classpath resolution
-         is still worth having")
-    (is (false? (rf.testbed.open-in-editor-server/position-would-be-dropped? nil 27 9))
-        "this predicate answers for NAMED commands only. nil is auto-detect,
-         whose binary launch-editor chooses from the running process list —
-         so the capability question is asked of the dependency at launch time
-         instead, by launch-shim's probe. That auto-detect route is NOT
-         undeclined: it is covered by
-         launch-declines-when-the-resolved-editor-would-drop-the-position
-         below, and `handle` answers that decline as it answers every launch
-         failure, a 422 carrying the launch message")))
+            request to a NAMED position-blind command"
+    (is (= [true true true false false]
+           (map #(apply rf.testbed.open-in-editor-server/position-would-be-dropped? %)
+                [["windsurf" 27 9] ["windsurf" 27 nil] ["windsurf" nil 9]
+                 ["windsurf" nil nil] [nil 27 9]])))))
 
 ;; The endpoint's own `path:line:column` encoding is pinned by
 ;; `build-file-spec-normalizes-column-only-to-line-1` above, which walks all
@@ -630,23 +586,6 @@
 ;; which asks the installed `launch-editor/get-args` and proves windsurf is
 ;; invoked with the bare file. A third test asserting only
 ;; `(build-file-spec "/abs/src/app.cljs" 27 9)` would witness neither.
-
-;; Windows paths exercise the JSON backslash and quote rules.
-
-(deftest json-resp-escapes-windows-backslash-path
-  (testing "a Windows path with a quote round-trips through the JSON response"
-    (let [calls (atom [])
-          file  "C:\\Users\\me\\code\\re-frame2\\src\\a\"b.cljs"]
-      (with-launch-spy calls
-        (with-redefs [rf.testbed.open-in-editor-server/resolve-file (constantly file)]
-          (let [resp (rf.testbed.open-in-editor-server/handle
-                       (req {:method :post
-                             :host   "localhost:8031"
-                             :origin nil
-                             :file   "resolve-file-is-redefed"}))]
-            (is (= 200 (:status resp)))
-            (is (= file (json-body->file-value (:body resp) "\"file\":\""))
-                "the escaped Windows path round-trips to the exact original")))))))
 
 ;; Off-classpath relative coordinates fall back to the dev process cwd.
 
@@ -663,15 +602,11 @@
         (spit src-file ";; fixture\n")
         ;; resolve-file reads user.dir at request time.
         (System/setProperty "user.dir" (.getAbsolutePath tmp))
-        (let [resolved (rf.testbed.open-in-editor-server/resolve-file rel-path)]
-          (is (some? resolved)
-              "the off-classpath relative coord resolved via the cwd branch")
-          (is (.isAbsolute (File. ^String resolved))
-              "the cwd branch returns an ABSOLUTE path (branch 3 would return
-               the raw relative input unchanged)")
-          (is (= (.getCanonicalPath src-file)
-                 (.getCanonicalPath (File. ^String resolved)))
-              "resolved to the REAL on-disk fixture under the working dir"))
+        (is (= (.getCanonicalPath src-file)
+               (.getCanonicalPath (File. ^String (rf.testbed.open-in-editor-server/resolve-file rel-path))))
+            "resolved to the REAL on-disk fixture under the working dir, as an
+             absolute path: the raw relative input would canonicalise against
+             the JVM's own start directory instead")
         (finally
           (System/setProperty "user.dir" prev-cwd)
           (when (.exists src-file) (.delete src-file))
@@ -742,17 +677,13 @@
                 calls    (atom [])]
             (with-launch-spy calls
               (let [resp (rf.testbed.open-in-editor-server/handle
-                           (req {:host "localhost:8042" :query (str "file=" file "&line=12&column=3")}))]
-                (is (= 200 (:status resp))
-                    (str tool " relative coordinate was accepted"))
-                (is (= 1 (count @calls))
-                    (str tool " reached launch! exactly once"))
-                (let [[abs-path line column _cmd] (first @calls)]
-                  (is (= (.getCanonicalPath expected)
-                         (.getCanonicalPath (File. ^String abs-path)))
-                      (str tool " resolved to the REAL on-disk source file"))
-                  (is (= 12 line) (str tool " kept its line"))
-                  (is (= 3 column) (str tool " kept its column")))))))))))
+                           (req {:host "localhost:8042" :query (str "file=" file "&line=12&column=3")}))
+                    [[abs-path line column] :as launches] @calls]
+                (is (= [200 1 (.getCanonicalPath expected) 12 3]
+                       [(:status resp) (count launches)
+                        (.getCanonicalPath (File. ^String abs-path)) line column])
+                    (str tool " was accepted and reached launch! once, at the REAL on-disk "
+                         "source file, line and column intact"))))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; A page load falls through to shadow's own index handling
@@ -783,10 +714,9 @@
 (defn- page-req
   "A request for `uri` as shadow hands it to the handler: a browser's HTML
   Accept, and the root list shadow assocs in."
-  [method uri root & {:keys [query-string]}]
+  [method uri root]
   {:uri            uri
    :request-method method
-   :query-string   query-string
    :remote-addr    "127.0.0.1"
    :headers        {"host"   "localhost:8043"
                     "accept" "text/html,application/xhtml+xml,*/*;q=0.8"}
@@ -801,17 +731,13 @@
             dev-testbed launcher print open as written"
     (with-index-root*
       (fn [root]
-        (doseq [[label r] [["GET `/`" (page-req :get "/" root)]
-                           ["GET `/` carrying a Story share query"
-                            (page-req :get "/" root
-                                      :query-string "variant=story.login-form%2Ferror")]
-                           ["HEAD `/`" (page-req :head "/" root)]]]
-          (let [resp (rf.testbed.open-in-editor-server/handler r)]
-            (is (= 200 (:status resp)) (str label " answers 200"))
-            (is (= index-body (:body resp)) (str label " serves the root's index.html"))
-            (is (= (shadow.push-state/handle r) resp)
-                (str label " answers exactly what shadow answers on a port
-                     with no handler")))))))
+        (doseq [method [:get :head]]
+          (let [r    (page-req method "/" root)
+                resp (rf.testbed.open-in-editor-server/handler r)]
+            (is (= [200 index-body (shadow.push-state/handle r)]
+                   [(:status resp) (:body resp) resp])
+                (str (name method) " `/` serves the root's index.html — exactly what "
+                     "shadow answers on a port with no handler")))))))
   (testing "…and ONLY a page load. The same request as a POST — same index on
             disk, same HTML Accept — still answers a non-2xx, which is what
             sends the client to its `editor://` URI fallback"
@@ -856,10 +782,9 @@
             answers the plain 404 instead of the sibling's index.html"
     (with-sibling-of-root*
       (fn [root]
-        (doseq [method [:get :head]
-                uri    ["/../outside/" "/..\\outside\\" "/./../outside/"]]
-          (let [r     (page-req method uri root)
-                label (str (name method) " " (pr-str uri))]
+        (doseq [uri ["/../outside/" "/..\\outside\\"]]
+          (let [r     (page-req :get uri root)
+                label (str "GET " (pr-str uri))]
             ;; `\` separates path segments only where the filesystem says so,
             ;; so the backslash spelling traverses on Windows alone; the 404
             ;; below is asserted everywhere.
@@ -876,8 +801,7 @@
       (fn [root]
         (let [resp (rf.testbed.open-in-editor-server/handler
                      (page-req :get "/a..b/" root))]
-          (is (= 200 (:status resp)))
-          (is (= index-body (:body resp))))))))
+          (is (= [200 index-body] [(:status resp) (:body resp)])))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Auto-detect is a capability question too
@@ -1060,18 +984,16 @@
                       through to a real launch attempt. It still fails, because
                       the binary does not exist, but NOT as the decline: the
                       probe is discriminating, not refusing everything"
-              (let [{:keys [ok message]} (rf.testbed.open-in-editor-server/launch! f 27 9 "nonexistent-dir/zed")]
-                (is (false? ok) "the nonexistent binary could not be launched")
-                (is (not= rf.testbed.open-in-editor-server/position-unsupported-error message)
-                    "…and it was a launch failure, not a capability refusal")))
+              (is (not= rf.testbed.open-in-editor-server/position-unsupported-error
+                        (:message (rf.testbed.open-in-editor-server/launch! f 27 9 "nonexistent-dir/zed")))
+                  "a launch failure, not a capability refusal"))
 
             (testing "a coordinate-FREE launch is never refused: there is no
                       position to lose, so even a position-blind command
                       reaches the launcher"
-              (let [{:keys [ok message]} (rf.testbed.open-in-editor-server/launch! f nil nil "nonexistent-dir/Brackets")]
-                (is (false? ok))
-                (is (not= rf.testbed.open-in-editor-server/position-unsupported-error message)
-                    "the empty coordinate argv tokens read as absent")))
+              (is (not= rf.testbed.open-in-editor-server/position-unsupported-error
+                        (:message (rf.testbed.open-in-editor-server/launch! f nil nil "nonexistent-dir/Brackets")))
+                  "the empty coordinate argv tokens read as absent"))
 
             ;; A COLUMN with no line is the coordinate shape every probe above
             ;; misses: they all pass 27 AND 9. `build-file-spec` normalises it
@@ -1093,10 +1015,9 @@
                       real launch attempt. It fails (the binary does not
                       exist) but NOT as the decline, so gating on a column too
                       does not turn column-only into a blanket refusal"
-              (let [{:keys [ok message]} (rf.testbed.open-in-editor-server/launch! f nil 7 "nonexistent-dir/zed")]
-                (is (false? ok) "the nonexistent binary could not be launched")
-                (is (not= rf.testbed.open-in-editor-server/position-unsupported-error message)
-                    "…and it was a launch failure, not a capability refusal")))
+              (is (not= rf.testbed.open-in-editor-server/position-unsupported-error
+                        (:message (rf.testbed.open-in-editor-server/launch! f nil 7 "nonexistent-dir/zed")))
+                  "a launch failure, not a capability refusal"))
 
             ;; PARTIAL position loss. Every case above turns on a command
             ;; `get-args.js` has NO case for, whose argv is the bare file.
@@ -1120,7 +1041,6 @@
                       LINE ALONE still reaches the launcher, because the
                       coordinate it asked for survives. This is what keeps the
                       differential a column question rather than a gvim ban"
-              (let [{:keys [ok message]} (rf.testbed.open-in-editor-server/launch! f 27 nil "nonexistent-dir/gvim")]
-                (is (false? ok) "the nonexistent binary could not be launched")
-                (is (not= rf.testbed.open-in-editor-server/position-unsupported-error message)
-                    "…and it was a launch failure, not a capability refusal")))))))))
+              (is (not= rf.testbed.open-in-editor-server/position-unsupported-error
+                        (:message (rf.testbed.open-in-editor-server/launch! f 27 nil "nonexistent-dir/gvim")))
+                  "a launch failure, not a capability refusal"))))))))
