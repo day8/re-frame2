@@ -1,259 +1,73 @@
 (ns re-frame.ssr.ring.resource-payload-projection-test
-  "The NON-streaming Ring hydration payload
-  projects the resource-runtime slice INSIDE the request frame scope, so the
-  resource OWNER's coarse egress classification governs the emitted
-  `__rf_payload` (EP-0025).
-
-  THE STRUCTURAL REQUIREMENT: `pipeline/
-  build-full-response*` MUST bind `rf/with-frame` around the payload build —
-  the resources SSR projection hook (`:ssr/extend-runtime-db-projection` →
-  `re-frame.resources.ssr/project-resources-runtime-db`) resolves the current
-  frame with `frame/resolve-current-frame`. If the build ran FRAMELESS the
-  projection would see no frame at all and the scoped-key redaction the OWNER
-  claim demands (Spec 016 clause 4) would not run. This suite pins that the
-  build stays inside the frame by driving the REAL non-streaming Ring render
-  path (`build-full-response*`) end-to-end.
-
-  There is no named-scope-resolver derived-sensitivity
-  PROPAGATION. The disposition is the resource OWNER's coarse `:sensitive?`
-  / `:large?` claim ALONE (`classification/whole-entry-disposition`,
-  frame-blind) — a `{:from-db}` resolver reading a frame-sensitive `:db` input
-  does NOT upgrade a non-`:sensitive?` resource to `:redact`. Per Spec 015
-  §No propagation / Spec 016 §No derived-sensitivity propagation.
-
-  THE CONTRACT under test (mirroring
-  `re-frame.resources-derived-scope-sensitivity-cljs-test`'s end-to-end
-  projection assertions but through the actual Ring render path):
-
-    - a feed entry NOT declared `:sensitive?` under a scope derived from a
-      sensitive `:db` input SERIALIZES verbatim (data + scope/params ride) —
-      the fail-OPEN the EP names (classify the path you care about);
-    - a resource declared `:sensitive?` contributes NO ROW to the payload via
-      its OWN coarse claim — confirm-by-revert that the owner boundary, not
-      propagation, drives it. The coarse projection substitutes both
-      key components, so the entry is not addressable by anything the live
-      client derives and the row is WITHHELD rather than shipped metadata-only,
-      as for a per-slot-declared key.
-
-  The streaming-path frame-scope coverage (the daemon-writer `rf/with-frame`
-  rebinding) lives in `re-frame.ssr.ring-streaming-test`."
+  "The non-streaming render path (`build-full-response*`) projects the
+  resource-runtime slice inside the request frame, and the resource OWNER's
+  coarse `:sensitive?` claim alone decides its row (EP-0025): a frame-sensitive
+  `:db` input feeding a `{:from-db}` scope does not propagate to the resource."
   (:require [clojure.edn :as edn]
-            [clojure.string :as str]
-            [clojure.test :refer [deftest is testing use-fixtures]]
+            [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.registrar :as rf.registrar]
             [re-frame.resources.state :as rf.resources.state]
-            [re-frame.ssr.ring.lifecycle :as rf.ssr.ring.lifecycle]
             [re-frame.ssr.ring.pipeline :as rf.ssr.ring.pipeline]
             [re-frame.ssr.ring.shell :as rf.ssr.ring.shell]
             [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]
-            ;; load-bearing side-effecting requires: register the :resource +
-            ;; :resource-scope registrar kinds, the schemas walker hooks, and
-            ;; (crucially) the `:ssr/extend-runtime-db-projection` late-bind
-            ;; hook resources publishes — the body under test.
+            ;; Side-effecting: the resource registrar kinds and the
+            ;; `:ssr/extend-runtime-db-projection` hook under test.
             [re-frame.resources]
             [re-frame.resources.ssr]
             [re-frame.schemas]))
 
 (use-fixtures :each rf.ssr.ring.test-support/reset-runtime)
 
-;; ---------------------------------------------------------------------------
-;; App: a `{:from-db}` session-scoped feed resource.
-;;
-;; Mirrors the resources derived-scope-sensitivity test's `init!`: the frame
-;; declares the viewer-identity path sensitive and a named scope resolver reads
-;; it, but that sensitivity does NOT propagate to a
-;; `{:from-db}` resource (EP-0025). Whether an entry redacts is governed by the resource's
-;; OWN coarse `:sensitive?` claim alone — so the caller registers the feed
-;; resource with or without `:sensitive?` per the case under test.
-;; ---------------------------------------------------------------------------
+(def ^:private scoped-key
+  (rf.resources.state/scoped-resource-key [:rf.scope/session {:username "jake"}]
+                                          :p026f5/feed {:page 1}))
 
-(defn- register-feed-app!
-  "Register the resource-scope resolver + the `{:from-db}` feed resource into
-  the active registrar. `owner-sensitive?` toggles the resource's OWN coarse
-  `:sensitive?` claim — the ONLY thing that drives redaction under EP-0025 (no
-  derived-sensitivity propagation). The FRAME `:sensitive` classification is
-  supplied per frame by the caller via a commit-plane `:sensitive` effect run
-  through `:initial-events` at frame construction."
+(def ^:private loaded-entry
+  (merge (rf.resources.state/empty-entry :p026f5/feed scoped-key)
+         {:status :loaded :data {:articles [:a :b]} :loaded-at 1000 :stale-at 9.0e15}))
+
+(defn- render-feed-payload
+  "Render a request frame whose app-db `[:auth :user :username]` is classified
+  sensitive and whose resource cache holds one loaded `jake` feed entry; return
+  the parsed `__rf_payload`."
   [owner-sensitive?]
-  (rf.registrar/clear-kind! :resource-scope)
-  (rf.registrar/clear-kind! :resource)
-  ;; resolver reading the FRAME-SENSITIVE viewer-identity path. It does not
-  ;; propagate sensitivity to the resource (EP-0025: no inheritance arm).
   (rf/reg-resource-scope :p026f5/session
     {:inputs {:username [:db [:auth :user :username]]}}
     (fn [{:keys [username]} _ctx]
       (when username [:rf.scope/session {:username username}])))
-  ;; a session-scoped feed resource — :sensitive? per the case under test.
   (rf/reg-resource :p026f5/feed
-    (cond-> {:scope         {:from-db :p026f5/session}
-             :params-schema [:map [:page :int]]}
+    (cond-> {:scope {:from-db :p026f5/session} :params-schema [:map [:page :int]]}
       owner-sensitive? (assoc :sensitive? true))
-    (fn [{:keys [page]} _ctx]
-      {:request {:method :get :url "/feed" :params {:page page}}}))
-  (rf/reg-view* :p026f5/root
-    (fn [] [:main [:h1 "Feed"]])))
-
-(defn- loaded-feed-entry
-  "A `:loaded` durable feed entry under the session scope for `username`,
-  carrying `data` and its own scoped key (the runtime keys `:entries` on the
-  byte `key-id`; the kind-preserving scoped-key vector rides inside the
-  entry)."
-  [username page data]
-  (let [sk (rf.resources.state/scoped-resource-key [:rf.scope/session {:username username}]
-                                      :p026f5/feed {:page page})]
-    [sk (merge (rf.resources.state/empty-entry :p026f5/feed sk)
-               {:status :loaded :data data :loaded-at 1000 :stale-at 9.0e15})]))
-
-(defn- seed-feed-runtime-db!
-  "Install a single loaded feed entry into `frame-id`'s runtime-db resource
-  cache (byte-key-id `:entries` shape). `swap-runtime-db!` (NOT
-  `replace-runtime-db!`) so the frame's elision registry at
-  `[:rf.runtime/elision]` — where the frame's `:initial-events` commit-plane
-  `:sensitive` classification effect installs its declaration — is
-  PRESERVED; a wholesale replace would clobber it and the
-  derived-sensitivity classification would silently see no frame-sensitive
-  paths."
-  [frame-id username page data]
-  (let [[sk entry] (loaded-feed-entry username page data)]
-    (rf.frame/swap-runtime-db!
-      frame-id
-      assoc rf.resources.state/resources-key {:entries     {(rf.resources.state/key-id sk) entry}
-                                 :tag-index   {}
-                                 :owner-index {}})))
-
-(defn- payload-edn
-  "Parse the `__rf_payload` EDN out of a rendered (non-streaming) SSR document
-  body. The payload is a `#:rf{…}` namespace-map; `clojure.edn/read-string`
-  reads it (the namespaced keys round-trip)."
-  [body]
-  (some-> (re-find #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>" body)
-          second
-          edn/read-string))
-
-;; ===========================================================================
-;; EP-0025: NO derived-sensitivity propagation. A feed entry NOT
-;; declared :sensitive? under a scope derived from a sensitive :db input
-;; SERIALIZES verbatim through the real non-streaming Ring path — the fail-OPEN
-;; the EP names (no inheritance). The projection runs INSIDE the frame
-;; (the structural requirement); it does not redact the un-classified
-;; entry.
-;; ===========================================================================
+    (fn [{:keys [page]} _ctx] {:request {:method :get :url "/feed" :params {:page page}}}))
+  (rf/reg-event :p026f5/classify (fn [_ _] {:sensitive [[:auth :user :username]]}))
+  (rf/make-frame {:id :p026f5/req-frame :platform :server :initial-events [[:p026f5/classify]]})
+  ;; swap, not replace: the elision registry the classify event wrote must survive.
+  (rf.frame/swap-runtime-db! :p026f5/req-frame
+    assoc rf.resources.state/resources-key
+    {:entries     {(rf.resources.state/key-id scoped-key) loaded-entry}
+     :tag-index   {}
+     :owner-index {}})
+  (some->> (#'rf.ssr.ring.pipeline/build-full-response*
+            :p026f5/req-frame
+            {:root-view  [:main [:h1 "Feed"]]
+             :html-shell rf.ssr.ring.shell/default-html-shell
+             :payload    :rf.ssr.payload/whole-app-db})
+           :body
+           (re-find #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>")
+           second
+           edn/read-string))
 
 (deftest non-streaming-payload-no-inheritance-serializes-resource
-  (testing "EP-0025: a `{:from-db}` feed entry NOT declared
-            :sensitive?, under a scope derived from a FRAME-SENSITIVE :db input,
-            SERIALIZES verbatim in the non-streaming `__rf_payload` — no
-            derived-sensitivity propagation (the value the author did not
-            classify ships raw). The projection runs INSIDE `rf/with-frame`
-            (the structural requirement) but the disposition is the OWNER's
-            coarse claim ALONE — frame-blind — so a non-`:sensitive?` resource
-            is not upgraded."
-    (register-feed-app! false)
-    (let [fid :p026f5/req-frame]
-      ;; FRAME classification: the viewer-identity path is
-      ;; sensitive. Durable app-db egress classification rides the
-      ;; COMMIT-PLANE effect — a `reg-event` returns `:sensitive` alongside
-      ;; `:db`, run via `:initial-events` at frame construction, writing the
-      ;; per-frame `[:rf.runtime/elision]` registry the egress walk reads.
-      ;; The frame-sensitive path is present, but it does not propagate
-      ;; to the `{:from-db}` resource (EP-0025).
-      (rf/reg-event :p026f5/classify
-        (fn [_ _] {:sensitive [[:auth :user :username]]}))
-      (rf/make-frame {:id fid :platform       :server
-                      :doc            "per-request frame"
-                      :initial-events [[:p026f5/classify]]})
-      (try
-        ;; Seed a loaded feed entry whose session scope embeds the viewer
-        ;; identity ("jake"), with article data.
-        (seed-feed-runtime-db! fid "jake" 1 {:articles [:a :b]})
-        (let [opts     {:initial-events nil
-                        :root-view  [(rf/view :p026f5/root)]
-                        :emit-hash? true
-                        :html-shell rf.ssr.ring.shell/default-html-shell
-                        ;; whole-app-db so the test isolates the runtime-db
-                        ;; resource projection, not the app-db allowlist.
-                        :payload    :rf.ssr.payload/whole-app-db}
-              resp     (#'rf.ssr.ring.pipeline/build-full-response* fid opts)
-              body     (:body resp)
-              payload  (payload-edn body)
-              entries  (get-in payload [:rf/runtime-db
-                                        :rf.runtime/resources :entries])
-              [sk _]   (loaded-feed-entry "jake" 1 {:articles [:a :b]})]
-          (is (= 200 (:status resp)) "happy-path render emitted a 200")
-          (is (some? payload) "the __rf_payload parsed")
-          (is (= 1 (count entries))
-              "the single feed entry rides in the runtime-db slice")
-          (let [we (val (first entries))
-                wk (:resource/key we)]
-            ;; EP-0025: no inheritance — data + wire key ride VERBATIM.
-            (is (= {:articles [:a :b]} (:data we))
-                "EP-0025: the non-classified entry's DATA rides verbatim (no inheritance)")
-            (is (= :loaded (:status we)) "metadata (status) rides")
-            (is (= sk wk)
-                "EP-0025: the wire key rides verbatim (no inheritance redaction)")))
-        (finally
-          (rf.ssr.ring.lifecycle/destroy-frame-quietly! fid))))))
-
-;; ===========================================================================
-;; Confirm-by-revert: a resource declared :sensitive? is governed by its
-;; OWN coarse owner claim through the real Ring path (the owner boundary,
-;; not propagation). That costs the ROW: the coarse
-;; projection substitutes BOTH key components, so no live client can derive the
-;; entry's identity and the row is WITHHELD rather than shipped metadata-only —
-;; an installed row would be an ownerless duplicate nothing addresses and
-;; nothing collects. This is the load-bearing leak check: raw "jake" + article
-;; data must never ride, and neither does a digest standing for "jake".
-;; ===========================================================================
+  (is (= [{:resource/key scoped-key :status :loaded :data {:articles [:a :b]}}]
+         (->> (get-in (render-feed-payload false) [:rf/runtime-db :rf.runtime/resources :entries])
+              vals
+              (map #(select-keys % [:resource/key :status :data]))))))
 
 (deftest non-streaming-payload-withholds-owner-declared-sensitive-resource
-  (testing "EP-0025: a `{:from-db}` feed entry declared
-            :sensitive? contributes NO row to the non-streaming `__rf_payload`
-            — via the resource's OWN coarse claim (confirm-by-revert: the owner
-            boundary, frame-blind, not propagation). The raw viewer identity
-            (\"jake\") + data ({:articles …}) must NOT ride."
-    (register-feed-app! true)
-    (let [fid :p026f5/req-frame-sensitive]
-      (rf/reg-event :p026f5/classify
-        (fn [_ _] {:sensitive [[:auth :user :username]]}))
-      (rf/make-frame {:id fid :platform       :server
-                      :doc            "per-request frame (owner-sensitive)"
-                      :initial-events [[:p026f5/classify]]})
-      (try
-        (seed-feed-runtime-db! fid "jake" 1 {:articles [:a :b]})
-        (let [opts     {:initial-events nil
-                        :root-view  [(rf/view :p026f5/root)]
-                        :emit-hash? true
-                        :html-shell rf.ssr.ring.shell/default-html-shell
-                        :payload    :rf.ssr.payload/whole-app-db}
-              resp     (#'rf.ssr.ring.pipeline/build-full-response* fid opts)
-              body     (:body resp)
-              payload  (payload-edn body)
-              entries  (get-in payload [:rf/runtime-db
-                                        :rf.runtime/resources :entries])]
-          (is (= 200 (:status resp)) "happy-path render emitted a 200")
-          (is (some? payload) "the __rf_payload parsed")
-          (is (empty? entries)
-              (str "the coarse feed entry contributes no row to the "
-                   "runtime-db slice — stated as absence of the ROW, "
-                   "not as a metadata-only row: " (pr-str entries)))
-          ;; the confirm-by-revert control: the projection is not silently
-          ;; empty for everyone. The NON-sensitive counterpart of this exact
-          ;; render still ships its row, asserted by
-          ;; `non-streaming-payload-no-inheritance-serializes-resource` above.
-          ;;
-          ;; The raw viewer identity + article data must not ride ANYWHERE…
-          (is (not (str/includes? (pr-str payload) "jake"))
-              "EP-0025: the raw sensitive viewer identity does NOT ride")
-          (is (not (str/includes? (pr-str payload) ":articles"))
-              "EP-0025: the redacted resource DATA does NOT ride")
-          ;; …and neither does a digest standing for it. A 32-bit
-          ;; non-cryptographic digest of a low-entropy identity is enumerable,
-          ;; so such a token would itself be a small egress of what the coarse
-          ;; claim asks to hide; withholding the row removes its last carrier.
-          (is (not (str/includes? (pr-str (get payload :rf/runtime-db))
-                                  "rf/redacted"))
-              "no redaction token rides the runtime-db slice either"))
-        (finally
-          (rf.ssr.ring.lifecycle/destroy-frame-quietly! fid))))))
+  ;; The coarse claim substitutes both key components, so no client could
+  ;; address the row: it is withheld, not shipped metadata-only. Neither the
+  ;; identity, the data, nor a redaction token standing for them may ride.
+  (let [payload (render-feed-payload true)]
+    (is (= {} (get-in payload [:rf/runtime-db :rf.runtime/resources :entries])))
+    (is (not (re-find #"jake|:articles|rf/redacted" (pr-str payload))))))
