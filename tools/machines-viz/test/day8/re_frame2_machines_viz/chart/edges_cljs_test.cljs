@@ -1,18 +1,13 @@
 (ns day8.re-frame2-machines-viz.chart.edges-cljs-test
-  "CLJS tests for the MachineChart edge path-selection (G2).
+  "The ELK interop and edge path-selection the chart renders through:
+  `chart/elk-edge-points` / `elk-edge-label-pos` / `elk-result->positions`
+  lift elk's JS result, `chart/elk-layout-options` builds the root
+  `layoutOptions`, and `chart.edges/edge-path` picks the SVG path — elk route
+  or bezier fallback — that `transition-edge` paints. All pure, so pinning
+  them pins the rendered geometry without racing the async elk pass.
 
-  `chart.edges/edge-path` is the pure source-of-truth for the SVG path a
-  transition edge renders: elk bend-point route → bezier fallback. The
-  renderer (`transition-edge`) calls it, so pinning the
-  helper pins the rendered geometry without racing the async elkjs
-  layout pass (the full-mount DOM suite can't await elk).
-
-  The ns requires `chart.edges`, which `:require`s `@xyflow/react` — a
-  pure-JS module that loads fine under Node (only its React-DOM
-  COMPONENTS need a browser; `getBezierPath` is pure math). So this runs
-  under the `:node-test` build (`cljs-test$` ns-regexp) — it is NOT a
-  `-dom-cljs-test` (no DOM mount), and the JVM `clojure -M:test` runner
-  skips it (it scans .clj/.cljc only, never .cljs)."
+  `@xyflow/react` loads under Node (`getBezierPath` is pure math), so this
+  runs on `:node-test`."
   (:require [cljs.test :refer-macros [deftest is testing async]]
             [clojure.string :as str]
             [day8.re-frame2-machines-viz.chart :as chart]
@@ -25,21 +20,16 @@
 (defn- pt [x y] #js {:x x :y y})
 
 (def ^:private base-coords
-  "Source/target handle coords + handle positions shared by the cases."
   {:src-x 0 :src-y 0 :tgt-x 100 :tgt-y 200
    :src-pos "bottom" :tgt-pos "top"})
 
-;; ---- elk-edge-points: JS elk section → absolute point vector -----------
-;;
-;; `chart/elk-edge-points` is the JS-interop lift that turns one elk
-;; edge's `sections` (start → bend… → end) into the `[{:x :y} …]` vector
-;; the projector carries. It walks real elk JS objects, so it lives in
-;; chart.cljs (which `:require`s elkjs — loads under Node); these pins
-;; exercise it against synthetic section objects shaped exactly like
-;; elk's output.
+(def ^:private l-route
+  "An L-shaped route around a container corner: (0,0) → (0,120) → (160,120)
+  → (160,200)."
+  (array (pt 0 0) (pt 0 120) (pt 160 120) (pt 160 200)))
 
 (defn- ->section
-  "Build a synthetic elk edge `section` JS object."
+  "A synthetic elk edge `section`."
   [start bends end]
   #js {:startPoint start
        :bendPoints  (apply array bends)
@@ -48,118 +38,32 @@
 (defn- ->edge [sections]
   #js {:sections (apply array sections)})
 
-(deftest elk-edge-points-collapses-duplicate-seam-points
-  (testing "across two sections the first's endPoint can
-            repeat the next's startPoint; consecutive duplicates collapse
-            so the path has no zero-length segment"
-    (let [edge (->edge [(->section (pt 0 0) [] (pt 0 50))
-                        (->section (pt 0 50) [] (pt 60 50))])]
-      (is (= [{:x 0 :y 0} {:x 0 :y 50} {:x 60 :y 50}]
-             (chart/elk-edge-points edge))
-          "the shared (0,50) seam point appears once"))))
-
-(deftest elk-edge-points-nil-without-sections
-  (testing "an edge elk gave no route (no sections) lifts to
-            nil so the projector falls back to the bezier"
-    (is (nil? (chart/elk-edge-points #js {})))
-    (is (nil? (chart/elk-edge-points #js {:sections #js []})))))
-
-(deftest elk-edge-points-nil-for-degenerate-single-point
-  (testing "a section that collapses to one point is not a
-            real route (nothing to route THROUGH) → nil"
-    (let [edge (->edge [(->section (pt 5 5) [] (pt 5 5))])]
-      (is (nil? (chart/elk-edge-points edge))))))
-
-;; ---- elk-edge-label-pos: ELK's computed label placement ----------------
-;;
-;; ELK owns edge-label PLACEMENT (the label analogue of ELK owning the
-;; route via `elk-edge-points`). `elk-edge-label-pos` lifts the position
-;; ELK computed for an edge's first label into a {:x :y} map (absolute
-;; coords under `edgeCoords ROOT`), or nil when ELK placed no label
-;; (the events-as-nodes default — the edge label is empty, the text is
-;; on the event-NODE).
-
-(defn- ->edge-with-label [sections lbl]
-  #js {:sections (apply array sections)
+(defn- ->edge-with-label [lbl]
+  #js {:sections (array (->section (pt 0 0) [] (pt 0 100)))
        :labels   (array lbl)})
 
-(deftest elk-edge-label-pos-lifts-placed-position
-  (testing "ELK placed a label at (x,y); lift it to {:x :y}"
-    (let [edge (->edge-with-label
-                 [(->section (pt 0 0) [] (pt 0 100))]
-                 #js {:text "evt" :x 33 :y 77 :width 40 :height 16})]
-      (is (= {:x 33 :y 77} (chart/elk-edge-label-pos edge))))))
-
-(deftest elk-edge-label-pos-nil-without-labels
-  (testing "no labels array (or empty) → nil (geometric
-            fallback in the renderer)"
-    (is (nil? (chart/elk-edge-label-pos #js {})))
-    (is (nil? (chart/elk-edge-label-pos #js {:labels #js []})))))
-
-(deftest elk-edge-label-pos-nil-when-unplaced
-  (testing "a label ELK did NOT place (no x/y — empty-text
-            label under events-as-nodes) lifts to nil"
-    (let [edge (->edge-with-label
-                 [(->section (pt 0 0) [] (pt 0 100))]
-                 #js {:text "" :width 0 :height 0})]
-      (is (nil? (chart/elk-edge-label-pos edge))))))
-
-;; ---- elk-layout-options: the G5 cross-hierarchy switch ------------------
-;;
-;; `chart/elk-layout-options` is the pure root `layoutOptions` computation
-;; `->elk-input` `clj->js`-es onto the elk graph. The G5 capability —
-;; routing edges ACROSS nesting levels — rides entirely on whether this
-;; map carries `elk.hierarchyHandling INCLUDE_CHILDREN`. Without it elk
-;; uses `SEPARATE_CHILDREN` (lay each level out independently, no
-;; cross-hierarchy edge routes), so these pins are the regression guard
-;; for the switch. The G2 routing keys it pairs with are pinned alongside
-;; so the pairing can't silently drift.
-
-(defn- nested-parsed
-  "A parsed graph with a compound substate — `:child` carries a
-  `:parent-id`, so the graph nests."
-  []
+(defn- nested-parsed []
   {:parallel? false
    :nodes [{:id "parent" :compound? true}
            {:id "child" :parent-id "parent"}]
    :edges []})
 
 (defn- parallel-parsed
-  "A parsed graph flagged `:parallel?` (orthogonal regions) with no
-  per-node `:parent-id` — parallelism alone must enable the switch."
+  "Parallel, with no per-node `:parent-id`: parallelism alone must enable
+  the cross-hierarchy switch."
   []
   {:parallel? true
    :nodes [{:id "regionA"} {:id "regionB"}]
    :edges []})
 
-(defn- flat-parsed
-  "A plain, single-level machine — no nesting, not parallel."
-  []
+(defn- flat-parsed []
   {:parallel? false
    :nodes [{:id "a"} {:id "b"}]
    :edges []})
 
-(deftest elk-layout-options-cross-hierarchy-follows-nesting
-  (testing "G5 — a NESTED graph (a node has :parent-id, e.g. a compound
-            substate) and a PARALLEL graph (:parallel? true, even with no
-            per-node :parent-id) request cross-hierarchy routing,
-            elk.hierarchyHandling INCLUDE_CHILDREN; a FLAT, non-parallel graph
-            leaves it unset, so elk's per-level default (SEPARATE_CHILDREN)
-            stands"
-    (doseq [[label parsed expected] [["nested"   (nested-parsed)   "INCLUDE_CHILDREN"]
-                                     ["parallel" (parallel-parsed) "INCLUDE_CHILDREN"]
-                                     ["flat"     (flat-parsed)     ::absent]]]
-      (is (= expected (get (chart/elk-layout-options parsed nil :tb)
-                           "elk.hierarchyHandling" ::absent))
-          label))))
-
-;; ---- elk-layout-options: root guarded-fork ordering --------------------
-
 (defn- root-fork-parsed
-  "A parsed graph with a guarded multi-branch fork whose branches leave the
-  TOP-LEVEL source `:idle` (so the fork's container is the root, nil) — the
-  gate machine's shape. The fork pins `crossingMinimization.semiInteractive`
-  on the ROOT so the branch event-nodes' `elk.position` hints order them."
+  "A guarded fork whose branches leave the TOP-LEVEL `:idle`, so the fork's
+  container is the root."
   []
   {:parallel? false
    :nodes [{:id "idle"} {:id "high"} {:id "low"} {:id "rejected"}]
@@ -167,40 +71,85 @@
            {:id "e2" :source "idle" :target "low"      :event :chk :guard :lo?}
            {:id "e3" :source "idle" :target "rejected" :event :chk}]})
 
-(deftest elk-layout-options-root-fork-enables-semi-interactive
-  (testing "a guarded fork whose branches lay out at the ROOT
-            enables root crossingMinimization.semiInteractive so the branch
-            event-nodes' elk.position hints order them 1,2,3 (the dotted
-            evaluation-order connector then reads monotonic, not weaving)."
-    (is (= "true"
-           (get (chart/elk-layout-options (root-fork-parsed) nil :tb)
-                "elk.layered.crossingMinimization.semiInteractive")))))
+;; ---- elk-edge-points / elk-edge-label-pos ------------------------------
 
-(deftest elk-layout-options-no-root-fork-omits-semi-interactive
-  (testing "a machine with no root-level guarded fork does NOT
-            set semiInteractive, so the default full crossing-minimisation
-            stands and no non-fork layout is perturbed."
-    (doseq [parsed [(nested-parsed) (parallel-parsed) (flat-parsed)]]
-      (is (not (contains? (chart/elk-layout-options parsed nil :tb)
-                          "elk.layered.crossingMinimization.semiInteractive"))))))
+(deftest elk-edge-points-collapses-duplicate-seam-points
+  (testing "a section's endPoint repeating the next section's startPoint
+            appears once, so the path has no zero-length segment"
+    (is (= [{:x 0 :y 0} {:x 0 :y 50} {:x 60 :y 50}]
+           (chart/elk-edge-points (->edge [(->section (pt 0 0) [] (pt 0 50))
+                                           (->section (pt 0 50) [] (pt 60 50))]))))))
 
-;; ---- async REAL-ELK regression: gate fork branches order 1,2,3 ----------
-;; The projection-layer pins (elk.position hints +
-;; semiInteractive on the root-container child, pinned in
-;; projection-cljs-test) are the INPUT to ELK; this exercises the OUTPUT.
-;; Run real elkjs (`compute-layout!`, the same async pass the live chart
-;; uses) on the gate guarded fork and assert the three `:gate/check`
-;; branch event-nodes RESOLVE left-to-right in priority order (x ascending
-;; 1,2,3). This is the post-root-container layout path the synthetic
-;; bare-root option test does not exercise; without the pins ELK's
-;; LAYER_SWEEP would freely reorder the same-rank branches (landing the gate
-;; fork 3,1,2, say) and this would fail.
+(deftest elk-edge-points-nil-without-a-real-route
+  (testing "no sections, or a section collapsing to one point, is no route —
+            nil, so the projector falls back to the bezier"
+    (is (nil? (chart/elk-edge-points #js {})))
+    (is (nil? (chart/elk-edge-points (->edge [(->section (pt 5 5) [] (pt 5 5))]))))))
+
+(deftest elk-edge-label-pos-lifts-placed-position
+  (is (= {:x 33 :y 77}
+         (chart/elk-edge-label-pos
+           (->edge-with-label #js {:text "evt" :x 33 :y 77 :width 40 :height 16})))))
+
+(deftest elk-edge-label-pos-nil-without-a-placed-label
+  (testing "no labels, or a label elk did not place (no x/y — the empty-text
+            label under events-as-nodes), lifts to nil"
+    (is (nil? (chart/elk-edge-label-pos #js {})))
+    (is (nil? (chart/elk-edge-label-pos (->edge-with-label #js {:text "" :width 0 :height 0}))))))
+
+;; ---- elk-layout-options -------------------------------------------------
+
+(deftest elk-layout-options-cross-hierarchy-follows-nesting
+  (testing "a nested or parallel graph requests cross-hierarchy routing
+            (elk.hierarchyHandling INCLUDE_CHILDREN); a flat graph leaves it
+            unset so elk's per-level SEPARATE_CHILDREN default stands"
+    (doseq [[label parsed expected] [["nested"   (nested-parsed)   "INCLUDE_CHILDREN"]
+                                     ["parallel" (parallel-parsed) "INCLUDE_CHILDREN"]
+                                     ["flat"     (flat-parsed)     ::absent]]]
+      (is (= expected (get (chart/elk-layout-options parsed nil :tb)
+                           "elk.hierarchyHandling" ::absent))
+          label))))
+
+(deftest elk-layout-options-semi-interactive-only-for-a-root-fork
+  (testing "a guarded fork laid out at the ROOT enables root
+            crossingMinimization.semiInteractive so the branches' elk.position
+            hints order them 1,2,3; any other graph keeps the default"
+    (doseq [[label parsed expected] [["root fork" (root-fork-parsed) "true"]
+                                     ["no fork"   (flat-parsed)      ::absent]]]
+      (is (= expected (get (chart/elk-layout-options parsed nil :tb)
+                           "elk.layered.crossingMinimization.semiInteractive" ::absent))
+          label))))
+
+(deftest elk-layout-options-layers-host-overrides-direction-and-routing-levers
+  (testing "host :layout-options merge onto the defaults, elk.direction comes
+            from the direction arg, and the root levers hold:
+            - ORTHOGONAL routing + edgeCoords ROOT: absolute bend-points around
+              containers, which INCLUDE_CHILDREN's cross-level routes need;
+            - cycleBreaking DEPTH_FIRST: a cyclic chart ranks the forward spine
+              from the initial state near the top/left;
+            - considerModelOrder NODES_AND_EDGES: with the per-initial-edge
+              priority it pulls a region's initial state to the start of its
+              flow even in a pure-cyclic region"
+    (let [want {"elk.spacing.nodeNode"               "99"
+                "elk.direction"                      "RIGHT"
+                "elk.hierarchyHandling"              "INCLUDE_CHILDREN"
+                "elk.edgeRouting"                    "ORTHOGONAL"
+                "elk.json.edgeCoords"                "ROOT"
+                "elk.layered.cycleBreaking.strategy" "DEPTH_FIRST"
+                "elk.layered.considerModelOrder"     "NODES_AND_EDGES"}]
+      (is (= want (select-keys (chart/elk-layout-options
+                                 (nested-parsed) {"elk.spacing.nodeNode" "99"} :lr)
+                               (keys want)))))
+    (is (= "DOWN" (get (chart/elk-layout-options (flat-parsed) nil :tb) "elk.direction")))))
+
+;; ---- real elk: guarded-fork branch order --------------------------------
+;;
+;; The projection pins the INPUT to ELK (elk.position hints + semiInteractive
+;; on the root-container child); this runs real elkjs and checks the OUTPUT.
+;; Without those pins ELK's crossing minimisation reorders the same-rank
+;; branches freely.
 
 (def ^:private gate-fork-machine
-  "The gate testbed shape: `:gate/check` FORKS from `:idle` by a guarded
-  candidate vector (first guard-pass wins). `:gate/set` is a SEPARATE
-  internal action-only transition on the same source (not part of the
-  fork). Same shape the projection + chart-dom suites pin."
   {:initial :idle
    :data    {:level 0}
    :states  {:idle     {:on {:gate/set   {:action :set-level}
@@ -212,303 +161,104 @@
              :rejected {:on {:gate/reset :idle}}}})
 
 (deftest real-elk-orders-gate-fork-branches-left-to-right
-  (testing "running REAL elkjs (`compute-layout!`) on the gate
-            guarded fork resolves the three `:gate/check` branch event-nodes
-            LEFT-TO-RIGHT in priority order (x ascending: branch 1 < branch
-            2 < branch 3), the post-root-container layout the projection
-            elk.position + semiInteractive pins drive. Without the pins
-            ELK's crossing-minimisation freely reorders the same-rank
-            branches."
+  (testing "real elkjs lays the three `:gate/check` branch event-nodes out
+            left-to-right in priority order (`:tb` stacks them on x)"
     (async done
       (let [parsed   (layout/project-definition gate-fork-machine)
-            edges    (:edges parsed)
-            checks   (filter #(= :gate/check (:event %)) edges)
-            by-guard (into {} (map (juxt :guard identity) checks))
-            ev       #(projection/event-node-id (get by-guard %))
-            id1 (ev :gate-high?)   ;; priority 1
-            id2 (ev :gate-low?)    ;; priority 2
-            id3 (ev nil)]          ;; priority 3
-        ;; :tb is the chart's DOWN direction — branches stack on the X
-        ;; (within-layer) cross-axis, so priority order reads x-ascending.
+            by-guard (into {} (comp (filter #(= :gate/check (:event %)))
+                                    (map (juxt :guard identity)))
+                           (:edges parsed))
+            ev-id    #(projection/event-node-id (get by-guard %))]
         (chart/compute-layout!
           parsed :tb nil :test/gate
           (fn [result]
             (try
-              (is (map? result))
-              (is (nil? (:layout-error result))
-                  "real elk laid the fork out without error")
-              (let [pos (:positions result)
-                    x1  (get-in pos [id1 :x])
-                    x2  (get-in pos [id2 :x])
-                    x3  (get-in pos [id3 :x])]
-                (is (every? number? [x1 x2 x3])
-                    "all three branch event-nodes resolved a position")
-                (when (every? number? [x1 x2 x3])
-                  (is (< x1 x2 x3)
-                      (str "branches resolve left-to-right in priority order "
-                           "1,2,3 (x: " x1 " < " x2 " < " x3 ")"))))
+              (let [[x1 x2 x3] (map #(get-in (:positions result) [(ev-id %) :x])
+                                    [:gate-high? :gate-low? nil])]
+                ;; `<` reads nil as 0, so the number? check is load-bearing.
+                (is (and (every? number? [x1 x2 x3]) (< x1 x2 x3))
+                    (str "branches resolve left-to-right 1,2,3 (x: " x1 " " x2 " " x3 ")")))
               (finally (done)))))))))
 
-(deftest elk-layout-options-pins-the-root-layout-levers
-  (testing "every graph, flat, nested and parallel alike, carries the root
-            layout levers:
-            - G2 routing: elk.edgeRouting ORTHOGONAL (Manhattan routes around
-              containers) + edgeCoords ROOT (absolute coords so the lifted
-              bends match xyflow's frame). G5's INCLUDE_CHILDREN only pays off
-              when paired with these.
-            - cycleBreaking DEPTH_FIRST, the initial-state placement soft
-              preference: a CYCLIC statechart breaks cycles by a depth-first
-              walk from the sources (the initial state) rather than GREEDY
-              min-reversed-count, ranking the forward spine from the initial
-              state near the top/left; identical to GREEDY for acyclic graphs.
-            - considerModelOrder NODES_AND_EDGES: ELK honours the input model
-              order (nodes AND edges) as a tiebreaker through layering +
-              crossing-minimisation. It pairs with the per-initial-edge
-              elk.layered.priority.direction lever (pinned in projection's
-              initial-edge-priority-direction test) to pull the initial state
-              to the START of its region's flow even in a PURE-CYCLIC parallel
-              region, where DEPTH_FIRST + child-model-order alone SLIPS."
-    (doseq [[graph parsed] [["flat" (flat-parsed)] ["nested" (nested-parsed)] ["parallel" (parallel-parsed)]]
-            [k expected]   [["elk.edgeRouting"                    "ORTHOGONAL"]
-                            ["elk.json.edgeCoords"                "ROOT"]
-                            ["elk.layered.cycleBreaking.strategy" "DEPTH_FIRST"]
-                            ["elk.layered.considerModelOrder"     "NODES_AND_EDGES"]]]
-      (is (= expected (get (chart/elk-layout-options parsed nil :tb) k))
-          (str graph " graph: " k)))))
-
-(deftest elk-layout-options-direction-from-arg
-  (testing "elk.direction is forced from the direction arg
-            (:lr → RIGHT, :tb → DOWN), independent of the switch"
-    (is (= "RIGHT" (get (chart/elk-layout-options (flat-parsed) nil :lr)
-                        "elk.direction")))
-    (is (= "DOWN" (get (chart/elk-layout-options (flat-parsed) nil :tb)
-                       "elk.direction")))))
-
-(deftest elk-layout-options-host-overrides-merge
-  (testing "host :layout-options merge on top of the canonical
-            defaults without clobbering the G2 routing keys or the G5
-            switch"
-    (let [opts (chart/elk-layout-options
-                 (nested-parsed) {"elk.spacing.nodeNode" "99"} :tb)]
-      (is (= "99" (get opts "elk.spacing.nodeNode")) "host override applied")
-      (is (= "ORTHOGONAL" (get opts "elk.edgeRouting")) "G2 key survives")
-      (is (= "INCLUDE_CHILDREN" (get opts "elk.hierarchyHandling"))
-          "G5 switch survives"))))
-
-;; ---- elk-route case (the G2 capability) --------------------------------
+;; ---- edge-path: elk route ------------------------------------------------
 
 (deftest edge-path-routes-through-bend-points
-  (testing "when elk supplies a multi-point route, the path
-            runs THROUGH every bend (the path string mentions each
-            interior bend's coords), NOT a straight/bezier shortcut"
-    (let [;; an L-shaped route around a container corner:
-          ;; (0,0) → (0,120) → (160,120) → (160,200)
-          points (array (pt 0 0) (pt 0 120) (pt 160 120) (pt 160 200))
-          {:keys [d routed?]} (edges/edge-path
-                                (assoc base-coords :points points))]
-      (is (true? routed?) "a multi-point route is :routed?")
-      (is (str/starts-with? d "M 0,0")
-          "the path starts at the route's first point")
-      ;; the corner-rounding emits the bend vertices as quadratic control
-      ;; points, so each interior bend's coords appear verbatim in the `d`.
-      (is (str/includes? d "120") "the path bends at the y=120 corner row")
-      (is (str/includes? d "160") "the path bends at the x=160 corner column")
-      (is (str/ends-with? d "160,200")
-          "the path ends at the route's last point")
-      ;; a bezier shortcut would be a single C command; a routed path is
-      ;; a poly-path of L/Q segments.
+  (testing "a multi-point elk route renders THROUGH every bend as a
+            rounded poly-path, not a bezier shortcut"
+    (let [{:keys [d routed?]} (edges/edge-path (assoc base-coords :points l-route))]
+      (is (true? routed?))
+      (is (str/starts-with? d "M 0,0"))
+      (is (str/includes? d "120") "bends at the y=120 corner row")
+      (is (str/includes? d "160") "bends at the x=160 corner column")
+      (is (str/ends-with? d "160,200"))
       (is (str/includes? d "Q") "rounded corners use quadratic segments")
-      (is (not (str/includes? d "C"))
-          "a routed path is NOT a single bezier curve"))))
-
-(deftest edge-path-elk-label-position-beats-cross-hierarchy-anchor
-  (testing "ELK's placement wins even over the cross-hierarchy
-            source-bend heuristic (ELK reserved the channel knowing the
-            full graph; the heuristic is only the no-ELK-label fallback)"
-    (let [points (array (pt 0 0) (pt 0 120) (pt 160 120) (pt 160 200))
-          {:keys [label-x label-y]}
-          (edges/edge-path (assoc base-coords
-                                  :points points
-                                  :cross-hierarchy? true
-                                  :label-pos {:x 200 :y 10}))]
-      (is (= 200 label-x) "ELK position overrides the cross-hierarchy anchor")
-      (is (= 10 label-y)))))
+      (is (not (str/includes? d "C")) "not a single bezier curve"))))
 
 (deftest edge-path-two-point-route-is-a-straight-line
-  (testing "a degenerate two-point route (no interior bend)
-            renders a straight M…L… line, still flagged :routed?"
-    (let [points (array (pt 10 10) (pt 90 90))
-          {:keys [d routed?]}
-          (edges/edge-path (assoc base-coords :points points))]
-      (is (true? routed?))
-      (is (= "M 10,10 L 90,90" d)))))
+  (is (= {:d "M 10,10 L 90,90" :routed? true}
+         (select-keys (edges/edge-path (assoc base-coords :points (array (pt 10 10) (pt 90 90))))
+                      [:d :routed?]))))
 
-;; ---- bezier fallback (the no-bend-point case) --------------------------
+(deftest edge-path-falls-back-to-bezier-without-a-route
+  (testing "no points, or a single point, is not a route: the edge takes
+            xyflow's bezier (one C curve), not flagged :routed?"
+    (doseq [points [nil (array (pt 5 5))]]
+      (let [{:keys [d routed?]} (edges/edge-path (assoc base-coords :points points))]
+        (is (false? routed?))
+        (is (str/includes? d "C"))))))
 
-(deftest edge-path-falls-back-to-bezier-without-points
-  (testing "a simple edge with NO elk points falls back to
-            the bezier path (xyflow `getBezierPath` → a single C curve),
-            and is NOT flagged :routed?"
-    (let [{:keys [d routed?]}
-          (edges/edge-path (assoc base-coords :points nil))]
-      (is (false? routed?) "no points → not routed (bezier fallback)")
-      (is (string? d))
-      (is (str/includes? d "C")
-          "the bezier fallback is a cubic curve (C command)"))))
+;; ---- edge-path: label anchor ---------------------------------------------
 
-(deftest edge-path-single-point-route-falls-back-to-bezier
-  (testing "a single-point (or empty) route is not a real
-            route; the edge falls back to the bezier"
-    (let [{:keys [routed?]}
+(deftest edge-path-elk-label-position-beats-cross-hierarchy-anchor
+  (is (= [200 10]
+         ((juxt :label-x :label-y)
           (edges/edge-path (assoc base-coords
-                                  :points (array (pt 5 5))))]
-      (is (false? routed?) "a one-point route is too degenerate to route"))))
-
-;; ---- cross-hierarchy label placement -----------------------------------
+                                  :points l-route
+                                  :cross-hierarchy? true
+                                  :label-pos {:x 200 :y 10}))))))
 
 (deftest edge-path-cross-hierarchy-label-near-source-bend
-  (testing "when a cross-hierarchy edge has a
-            routed path, the label anchors NEAR the first bend after
-            the source handle (Stately convention), NOT at the routed
-            midpoint (which can land far from the visual origin)"
-    (let [;; L-shaped path: (0,0) → (0,120) → (160,120) → (160,200).
-          ;; midpoint of the middle segment is (80, 120); the source-
-          ;; side bend is at (0, 120). The cross-hierarchy label MUST
-          ;; sit near (0, 120), NOT (80, 120).
-          points (array (pt 0 0) (pt 0 120) (pt 160 120) (pt 160 200))
-          plain  (edges/edge-path (assoc base-coords
-                                         :points points))
-          xhier  (edges/edge-path (assoc base-coords
-                                         :points points
-                                         :cross-hierarchy? true))]
-      (is (true? (:routed? plain)))
-      (is (true? (:routed? xhier)))
-      ;; non-cross-hierarchy edge: midpoint of middle segment
-      (is (= 80 (:label-x plain)) "plain routed label at middle-segment midpoint")
-      (is (= 120 (:label-y plain)))
-      ;; cross-hierarchy edge: near the first bend (0, 120) — within 10px
-      (is (< (js/Math.abs (- (:label-x xhier) 0)) 10)
-          "cross-hierarchy label hugs the source-side bend's x")
-      (is (< (js/Math.abs (- (:label-y xhier) 120)) 10)
-          "cross-hierarchy label hugs the source-side bend's y"))))
+  (testing "a routed edge labels at its middle-segment midpoint, but a
+            cross-hierarchy one anchors near the first bend after its source,
+            where the reader sees it originate"
+    (let [plain (edges/edge-path (assoc base-coords :points l-route))
+          xhier (edges/edge-path (assoc base-coords :points l-route :cross-hierarchy? true))]
+      (is (= [80 120] ((juxt :label-x :label-y) plain)))
+      (is (< (js/Math.abs (:label-x xhier)) 10) "hugs the source-side bend's x")
+      (is (< (js/Math.abs (- (:label-y xhier) 120)) 10) "hugs the source-side bend's y"))))
 
 (deftest edge-path-cross-hierarchy-two-point-route-falls-back-to-mid
-  (testing "a routed cross-hierarchy edge with a
-            degenerate two-point route (no interior bend to anchor on)
-            falls back to the segment midpoint so the label still
-            renders SOMEWHERE on the path"
-    (let [points (array (pt 10 10) (pt 90 90))
-          {:keys [label-x label-y routed?]}
-          (edges/edge-path (assoc base-coords
-                                  :points points
-                                  :cross-hierarchy? true))]
-      (is (true? routed?))
-      (is (= 50 label-x) "midpoint x")
-      (is (= 50 label-y) "midpoint y"))))
-
-(deftest edge-path-cross-hierarchy-bezier-fallback-unchanged
-  (testing "a cross-hierarchy edge with NO route
-            (the bezier fallback before elk resolves) takes the same
-            bezier path as a same-parent edge — cross-hierarchy only
-            matters for the routed label anchor"
-    (let [plain (edges/edge-path (assoc base-coords
-                                        :points nil))
-          xhier (edges/edge-path (assoc base-coords
-                                        :points nil
-                                        :cross-hierarchy? true))]
-      (is (false? (:routed? plain)))
-      (is (false? (:routed? xhier)))
-      (is (= (:d plain) (:d xhier))
-          "bezier fallback is identical regardless of cross-hierarchy"))))
+  (testing "with no interior bend to anchor on, a cross-hierarchy label sits
+            at the segment midpoint"
+    (is (= [50 50]
+           ((juxt :label-x :label-y)
+            (edges/edge-path (assoc base-coords
+                                    :points (array (pt 10 10) (pt 90 90))
+                                    :cross-hierarchy? true)))))))
 
 ;; ---- producer → consumer bridge ----------------------------------------
 ;;
-;; The :edge-points contract has two halves, each pinned green in
-;; isolation — the producer by `elk-edge-points`, the consumer by the
-;; projection pins:
-;;
-;;   PRODUCER  `chart/elk-result->positions` keys :edge-points by the elk
-;;             edge id — `<spec-edge-id>__in` / `<spec-edge-id>__out`
-;;             (the two edges `->elk-input` splits each transition into
-;;             under the events-as-nodes paradigm).
-;;   CONSUMER  `projection/xyflow-graph` looks each segment's route up by
-;;             that same `__in` / `__out` id.
-;;
-;; A consumer that looked up the BARE canonical `<spec-edge-id>` — which
-;; the producer never emits — would miss every lookup, leave :points nil
-;; and fall back silently to the bezier (cross-hierarchy edges cutting
-;; straight across containers) while both halves stayed green. This test
-;; feeds a STUBBED elk result (shaped exactly like elkjs's output, with the
-;; `__in` / `__out` edge ids) through the real producer, then through the
-;; real consumer, and asserts the routes land on the right xyflow edges.
-
-(defn- ->elk-node-with-edges
-  "A synthetic elk result node carrying laid-out child node positions +
-  an `edges` array (each elk edge has an `id` + `sections`). Mirrors the
-  shape `elk-result->positions` walks."
-  [children elk-edges]
-  #js {:id       "root"
-       :children (apply array children)
-       :edges    (apply array elk-edges)})
-
-(defn- ->elk-edge [id sections]
-  #js {:id id :sections (apply array sections)})
+;; `->elk-input` splits each transition into `<spec-edge-id>__in` and
+;; `__out` elk edges; `elk-result->positions` keys `:edge-points` by those
+;; ids and `projection/xyflow-graph` must look routes up by the same ids. A
+;; consumer keyed on the bare spec id would miss every route and silently
+;; fall back to the bezier while each half stayed green alone.
 
 (deftest producer-consumer-bridge-routes-in-and-out-segments
-  (testing "end-to-end: a stubbed elk result whose edges use
-            the `<spec-edge-id>__in` / `<spec-edge-id>__out` ids flows
-            through `chart/elk-result->positions` (PRODUCER) into
-            `projection/xyflow-graph` (CONSUMER); the `__in` route lands
-            on the inbound xyflow edge and the `__out` route on the
-            outbound xyflow edge. (A consumer keyed on the bare id would
-            drop BOTH segments to a straight bezier.)"
-    (let [parsed     (layout/project-definition
-                       {:initial :idle
-                        :states  {:idle    {:on {:start :loading}}
-                                  :loading {}}})
-          start      (->> (:edges parsed)
-                          (filter #(= :start (:event %)))
-                          first)
-          spec-id    (:id start)
-          ;; An L-shaped __in route (source-state → event-node) and a
-          ;; distinct L-shaped __out route (event-node → target). Each
-          ;; has an interior bend so it is a genuine multi-point route,
-          ;; not a degenerate straight line.
-          in-edge    (->elk-edge
-                       (str spec-id "__in")
-                       [(->section (pt 0 0) [(pt 0 40) (pt 50 40)] (pt 50 80))])
-          out-edge   (->elk-edge
-                       (str spec-id "__out")
-                       [(->section (pt 50 80) [(pt 50 120) (pt 120 120)] (pt 120 160))])
-          elk-result (->elk-node-with-edges [] [in-edge out-edge])
-          ;; PRODUCER: lift the elk result. :edge-points is keyed by the
-          ;; elk edge ids (__in / __out).
-          {:keys [edge-points]} (chart/elk-result->positions elk-result)
-          ;; Sanity: the producer keys by the elk edge ids, NOT the bare
-          ;; canonical id (the mismatch this bridge exists to catch).
-          _          (is (contains? edge-points (str spec-id "__in")))
-          _          (is (contains? edge-points (str spec-id "__out")))
-          _          (is (not (contains? edge-points spec-id))
-                         "producer never emits a bare-canonical key")
-          ;; CONSUMER: feed the produced :edge-points straight in.
-          graph      (projection/xyflow-graph parsed {} {:edge-points edge-points})
-          xy-in      (first (filter #(= (str spec-id "__in")  (:id %)) (:edges graph)))
-          xy-out     (first (filter #(= (str spec-id "__out") (:id %)) (:edges graph)))]
-      (is (some? xy-in))
-      (is (some? xy-out))
-      (is (= [{:x 0 :y 0} {:x 0 :y 40} {:x 50 :y 40} {:x 50 :y 80}]
-             (:points (:data xy-in)))
-          "the __in route reaches the inbound edge end-to-end")
-      (is (= [{:x 50 :y 80} {:x 50 :y 120} {:x 120 :y 120} {:x 120 :y 160}]
-             (:points (:data xy-out)))
-          "the __out route reaches the outbound edge end-to-end")
-      ;; And the rendered geometry actually routes THROUGH the bends —
-      ;; the path string is a poly-path (Q segments), not a bezier (C).
-      (let [{:keys [d routed?]}
-            (edges/edge-path (assoc base-coords
-                                    :points (apply array
-                                                   (map #(pt (:x %) (:y %))
-                                                        (:points (:data xy-out))))))]
-        (is (true? routed?) "the outbound segment renders as a routed path")
-        (is (str/includes? d "Q") "routed path uses quadratic corner segments")
-        (is (not (str/includes? d "C")) "routed path is NOT a single bezier")))))
+  (let [parsed  (layout/project-definition {:initial :idle
+                                            :states  {:idle    {:on {:start :loading}}
+                                                      :loading {}}})
+        spec-id (:id (first (filter #(= :start (:event %)) (:edges parsed))))
+        result  #js {:id       "root"
+                     :children #js []
+                     :edges    (array
+                                 #js {:id       (str spec-id "__in")
+                                      :sections (array (->section (pt 0 0) [(pt 0 40) (pt 50 40)] (pt 50 80)))}
+                                 #js {:id       (str spec-id "__out")
+                                      :sections (array (->section (pt 50 80) [(pt 50 120) (pt 120 120)] (pt 120 160)))})}
+        graph   (projection/xyflow-graph parsed {} (select-keys (chart/elk-result->positions result)
+                                                                [:edge-points]))
+        points  (fn [suffix]
+                  (some #(when (= (str spec-id suffix) (:id %)) (:points (:data %))) (:edges graph)))]
+    (is (= [{:x 0 :y 0} {:x 0 :y 40} {:x 50 :y 40} {:x 50 :y 80}] (points "__in")))
+    (is (= [{:x 50 :y 80} {:x 50 :y 120} {:x 120 :y 120} {:x 120 :y 160}] (points "__out")))))
