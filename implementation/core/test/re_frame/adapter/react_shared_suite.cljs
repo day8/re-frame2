@@ -1,31 +1,15 @@
 (ns re-frame.adapter.react-shared-suite
-  "Parameterised, substrate-agnostic test suite for the React-shaped
-  adapters (UIx, and fresco's React substrate).
+  "Parameterised, substrate-agnostic test suite for the React-hook adapters
+  (UIx, and fresco's React substrate), which build their whole public surface
+  from `re-frame.substrate.spine/make-react-spine`. Each spine-shared
+  behaviour is asserted once, as a plain `assert-*` defn that takes the
+  per-adapter config map and runs `cljs.test/is` against the installed
+  adapter. The entry files generate one forwarding `deftest` per row of
+  `re-frame.adapter.react-shared-suite-tests`; the DOM entry files call the
+  browser-gated assertions directly.
 
-  WHY THIS EXISTS. The React-hook adapters wire their entire public surface
-  out of the SAME `re-frame.substrate.spine/make-react-spine` factory;
-  the only differences are
-  the substrate name string, the gensym prefixes, and which host's
-  `use-memo` / `use-callback` / `use-context` are passed in. Per-adapter
-  test files would therefore be near-byte-identical copies differing only
-  by the substrate prefix and the id keyword, with every change
-  hand-copied between them.
-
-  WHAT THIS DOES. Every spine-shared behaviour is asserted ONCE here, as
-  a plain `defn` that takes the per-adapter config map and runs
-  `cljs.test/is` / `testing` against the *installed* adapter. The
-  per-adapter entry files (`uix_react_shared_cljs_test.cljs`, fresco's
-  `substrate_react_shared_cljs_test.cljs`) are thin: a fixture installing the
-  adapter, plus one `deftest` per shared fn that forwards the config. The
-  suite cannot drift between substrates by construction — any future
-  React-hook adapter picks up the whole surface by adding one entry file.
-
-  THIS NS IS NOT A TEST FILE. Its name does NOT end in `cljs-test`, so
-  the `:node-test` build's `:ns-regexp \"cljs-test$\"` does NOT discover
-  it directly. It runs only through the per-adapter entry files, which
-  bind a real adapter. (If it ran with no adapter installed every
-  assertion would fail at the install seam — exactly why the entry-file
-  indirection is mandatory.)
+  Not itself a test file (its name does not end in `cljs-test`): every
+  assertion needs the adapter an entry file's fixture installs.
 
   CONFIG MAP. Each entry fn takes:
 
@@ -43,19 +27,6 @@
                    adapter's own published surface, NOT a cross-adapter
                    constant (UIx's is its `spec/api-manifest.edn` rows
                    minus `adapter`; Fresco publishes a different set)}
-
-  COVERAGE (for the React-hook adapters):
-    - dispose MUST (1) sub-cache walk + best-effort poison tolerance
-    - dispose MUST (2) idempotent root drain
-    - dispose MUST (3) clears the hiccup-emitter cell
-    - dispose MUST (4) post-dispose delegation throws :adapter-disposed
-    - source-coord DOM stamping: annotate / with-attrs merge /
-      user-attr-wins / fragment-exempt / format-shape split
-    - view-id (data-rf-view) stamping alongside source-coord
-    - frame-context corrupted `_currentValue` emit + recover
-    - warn-once fires EXACTLY once per id across renders, per-id, not
-      global
-    - write-after-destroy nil-container guard
 
   DOM/BROWSER TWINS. Two clusters need substrate-specific component vars
   (UIx `defui`/`$`/uix-hooks) that
@@ -85,24 +56,19 @@
             [cljs.test :refer-macros [is testing async]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.source-store :as rf.source-store]
             [re-frame.disposable :as rf.disposable]
-            [re-frame.elision :as rf.elision]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.subs :as rf.subs]
             [re-frame.late-bind :as rf.late-bind]
-            [re-frame.late-bind.directory :as rf.late-bind.directory]
-            [re-frame.machines :as rf.machines]
+            [re-frame.machines]
             [re-frame.routing :as rf.routing]
             [re-frame.ssr :as rf.ssr]
             [re-frame.schemas.malli]
-            [re-frame.http.managed :as rf.http.managed]
-            ;; Canned-stub fxs gate on explicit test-support
-            ;; require; the http-managed suite uses :fx-overrides into
-            ;; both fx ids.
-            [re-frame.http.test-support :as rf.http.test-support]
-            [re-frame.views :as rf.views]
+            [re-frame.http.managed]
+            ;; Loaded for the canned-stub fx the managed-HTTP row overrides into.
+            [re-frame.http.test-support]
+            [re-frame.views]
             [re-frame.epoch]
             [re-frame.adapter.context :as rf.adapter.context]
             [re-frame.adapter.react-test-support :as rf.adapter.react-test-support]
@@ -201,79 +167,6 @@
     (throw (ex-info "no :adapter/clear-warn-once-caches! producer is registered"
                     {:hook-key :adapter/clear-warn-once-caches!}))))
 
-(defn assert-clear-warn-idempotent-post-dispose
-  "MUST (3): the canonical chained warn-once clear stays a safe idempotent
-  no-op after dispose. `make-reset-runtime-fixture` fires it AFTER
-  disposal on every single test, so a post-dispose throw here would
-  poison every case that follows."
-  [{:keys [adapter name]}]
-  (testing (str name " — MUST (3): chained clear-warn-once-caches! idempotent post-dispose")
-    ((:dispose-adapter! adapter))
-    (is (nil? (clear-warn-once-caches!))
-        "the chained warn-once clear is a nil-returning no-op post-dispose")))
-
-(defn assert-post-dispose-delegation-throws
-  "MUST (4): after dispose-adapter!, subsequent delegation calls raise
-  :rf.error/adapter-disposed (breadcrumb owned by substrate-adapter)."
-  [{:keys [adapter name]}]
-  (testing (str name " — MUST (4): post-dispose delegation throws :adapter-disposed")
-    (rf.substrate.adapter/dispose-adapter!)
-    (is (rf.substrate.adapter/adapter-disposed?)
-        "after dispose, the disposed? breadcrumb is true")
-    (let [thrown (try (rf.substrate.adapter/make-state-container {}) nil
-                      (catch :default e e))]
-      (is (some? thrown) "delegation call after dispose threw")
-      ;; The message is a human sentence + the trailing
-      ;; [:rf.error/<id>] token; assert the token substring + the
-      ;; canonical :rf.error/id, not exact keyword-equality.
-      (is (= :rf.error/adapter-disposed (:rf.error/id (ex-data thrown)))
-          "the throw carries the canonical :rf.error/id discriminator (MUST 4)")
-      (is (re-find #"\[:rf\.error/adapter-disposed\]" (.-message thrown))
-          "the message carries the [:rf.error/adapter-disposed] token"))
-    ;; Reinstall so the fixture's :after teardown lands on clean state.
-    (rf.substrate.adapter/install-adapter! adapter)))
-
-(defn assert-dispose-idempotent-no-roots
-  "MUST (2): dispose-adapter! drains the active-roots set; a second
-  dispose is idempotent. (No real roots mounted in node-runtime.)"
-  [{:keys [adapter name]}]
-  (testing (str name " — MUST (2): dispose idempotent with no tracked roots")
-    (is (nil? ((:dispose-adapter! adapter)))
-        "dispose-adapter! returns nil even when no roots are tracked")
-    (is (nil? ((:dispose-adapter! adapter)))
-        "second dispose is idempotent — active-roots set was already drained")))
-
-(defn assert-dispose-clears-sub-caches
-  "MUST (1): dispose-adapter! walks every live frame's sub-cache and
-  disposes each cached Reaction (the spine derived-value is an
-  re-frame-owned IDisposable)."
-  [{:keys [adapter substrate-kw name]}]
-  (testing (str name " — MUST (1): dispose clears sub-caches across live frames")
-    (let [fid (mint-kw substrate-kw "walk-a")]
-      (rf/make-frame {:id fid})
-      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
-      (rf/reg-sub :n (fn [db _] (:n db)))
-      (rf/dispatch-sync [:seed] {:frame fid})
-      (let [r-a (rf/subscribe [:n] {:frame fid})]
-        (is (= 7 @r-a) "precondition: subscription is live and deref-able")
-        (let [cache          (:sub-cache (rf.frame/frame fid))
-              entries-before @cache]
-          (is (>= (count entries-before) 1)
-              "precondition: sub-cache holds at least the [:n] entry")
-          (let [disposed  (atom #{})
-                reactions (for [[_ entry] entries-before
-                                :let [r (:reaction entry)]
-                                :when r]
-                            r)]
-            (doseq [r reactions]
-              (rf.disposable/-add-on-dispose r (fn [] (swap! disposed conj r))))
-            ((:dispose-adapter! adapter))
-            (doseq [r reactions]
-              (is (contains? @disposed r)
-                  "every cached reaction fired its dispose hook"))
-            (is (= {} @cache)
-                "the frame's sub-cache atom was reset to {} by the walk")))))))
-
 (defn assert-dispose-walk-best-effort
   "MUST (1) best-effort: a throwing per-entry dispose does NOT abort the
   rest of the walk. The behaviour is spine-shared, so it is pinned on the
@@ -324,22 +217,6 @@
 ;; source-coord DOM stamping (Spec 006 §Source-coord annotation)
 ;; ===========================================================================
 
-(defn assert-source-coord-annotates-dom-root
-  "A DOM-tag-rooted reg-view*'d component carries data-rf2-source-coord
-  on its rendered root React element."
-  [{:keys [substrate-kw name]}]
-  (testing (str name " — source-coord: annotates a DOM-tag root")
-    (let [id      (mint-kw substrate-kw "sc-annotate")
-          user-fn (fn [] (React/createElement "span" #js {} "hi"))]
-      (rf/reg-view* id user-fn)
-      (let [out ((rf/view id))]
-        (is (some? out) "registered fn returned a non-nil React element")
-        (is (= "span" (.-type out)) "root element type preserved")
-        (let [attr (source-coord out)]
-          (is (string? attr) "data-rf2-source-coord present on the root element")
-          (is (str/starts-with? attr (str (namespace id) ":" (clojure.core/name id)))
-              "attribute value starts with <ns>:<sym>"))))))
-
 (defn assert-source-coord-merges-with-attrs
   "With an existing props map on the root, the wrapper merges
   data-rf2-source-coord alongside the user's props (no clobber)."
@@ -373,22 +250,6 @@
         (is (= "div" (.-type out)))
         (is (= user-attr (source-coord out))
             "user-supplied data-rf2-source-coord survives the wrap-view pass")))))
-
-(defn assert-source-coord-fragment-exempt
-  "A Fragment-rooted view is on the documented exemption list — the
-  cloneElement injection is skipped, no attribute lands."
-  [{:keys [substrate-kw name]}]
-  (testing (str name " — source-coord: Fragment root is exempt")
-    (let [id      (mint-kw substrate-kw "sc-fragment")
-          Frag    (.-Fragment React)
-          user-fn (fn [] (React/createElement
-                          Frag nil
-                          (React/createElement "p" nil "a")
-                          (React/createElement "p" nil "b")))]
-      (rf/reg-view* id user-fn)
-      (let [out ((rf/view id))]
-        (is (identical? Frag (.-type out)) "Fragment root preserved as element type")
-        (is (nil? (source-coord out)) "no data-rf2-source-coord on the Fragment root")))))
 
 (defn assert-source-coord-format-shape
   "The attribute value is exactly <ns>:<sym>:<line>:<col> — a programmatic
@@ -764,26 +625,6 @@
           (rf.substrate.spine/build-frame-provider-element nil [:fake-child-a :fake-child-b]))
         "missing frame raises :rf.error/no-frame-context (no :rf/default floor)")))
 
-(defn assert-frame-provider-nil-frame-raises-no-frame-context
-  "(build-frame-provider-element nil [...]) — explicit nil frame — is the
-  same CONFIGURATION ERROR as the missing case (EP-0002): there is no
-  `(or frame-kw :rf/default)` floor, so a nil frame raises
-  `:rf.error/no-frame-context` rather than defaulting."
-  [{:keys [name]}]
-  (testing (str name " — frame-provider core: nil frame raises no-frame-context")
-    (is (thrown-with-msg? :default #":rf.error/no-frame-context"
-          (rf.substrate.spine/build-frame-provider-element nil [:fake-child]))
-        "nil frame raises :rf.error/no-frame-context (no :rf/default floor)")))
-
-(defn assert-frame-provider-named-frame-preserved
-  "A supplied frame keyword is preserved on the provider element's value
-  slot. Sanity-check counterpart to the missing/nil-frame assertions."
-  [{:keys [name]}]
-  (testing (str name " — frame-provider core: named frame keyword preserved")
-    (let [el (rf.substrate.spine/build-frame-provider-element :tenant-a [:fake-child])]
-      (is (= :tenant-a (provider-element-frame-kw el))
-          "frame :tenant-a flows through to the provider's value slot"))))
-
 (defn assert-frame-provider-single-child-coerced-to-vector
   "(build-frame-provider-element :session child-a) — a single child (NOT
   a collection, e.g. a lone trailing `$` child) — does not throw and
@@ -892,39 +733,6 @@
       (is (some #(str/includes? % (clojure.core/name id-b)) warns) "id-b's warning fired"))))
 
 ;; ===========================================================================
-;; write-after-destroy nil-container guard
-;; ===========================================================================
-
-(defn assert-write-after-destroy-guard
-  "replace-container! with a nil container is a documented no-op +
-  :rf.error/write-after-destroy (the guard is substrate-agnostic; this
-  pins it through the installed React adapter). The category is on the
-  always-on axis (EP-0008), not a DCE'd :rf.warning — the same destroy-race
-  the dispatch/subscribe paths surface as :rf.error/frame-destroyed."
-  [{:keys [substrate-kw name]}]
-  (testing (str name " — write-after-destroy: nil container no-ops with error")
-    (let [fid      (mint-kw substrate-kw "race-frame")
-          recorded (atom [])]
-      (rf.trace.tooling/register-listener! ::wad (fn [ev] (swap! recorded conj ev)))
-      (try
-        (is (nil? (rf.substrate.adapter/replace-container! nil {:any :value}))
-            "nil container is a documented no-op, not an exception")
-        (rf/make-frame {:id fid :doc "write-after-destroy reproducer frame"})
-        (rf.frame/destroy-frame! fid)
-        (let [container (rf.frame/app-db-container fid)]
-          (is (nil? container) "app-db-container on a destroyed frame returns nil")
-          (is (nil? (rf.substrate.adapter/replace-container! container {:would-have :npe'd}))
-              "writing through the nil container is a documented no-op"))
-        (let [errs (filterv (fn [ev]
-                              (and (= :error (:op-type ev))
-                                   (= :rf.error/write-after-destroy (:operation ev))))
-                            @recorded)]
-          (is (pos? (count errs))
-              ":rf.error/write-after-destroy fired for the post-destroy write"))
-        (finally
-          (rf.trace.tooling/unregister-listener! ::wad))))))
-
-;; ===========================================================================
 ;; render-time parity contracts (Spec 001 §Hot-reload / Spec-Schemas
 ;; §`:rf/epoch-record`)
 ;; ===========================================================================
@@ -944,18 +752,6 @@
       (is (= :body-v2 @observed)
           "after re-registration, the next render mutates observed to v2"))))
 
-(defn assert-current-render-key-anonymous-fallback
-  "Render-key contract (Spec-Schemas §`:rf/epoch-record`): outside a
-  render, current-render-key returns the documented anonymous fallback
-  [:rf.view/anonymous nil] and *render-key* is nil. Substrate-agnostic —
-  pinned through each installed adapter."
-  [{:keys [name]}]
-  (testing (str name " — render-key: anonymous fallback outside any render")
-    (is (= [:rf.view/anonymous nil] (rf.views/current-render-key))
-        "current-render-key reads the anonymous fallback outside any render")
-    (is (nil? rf.views/*render-key*)
-        "*render-key* is nil outside any render cycle")))
-
 (defn assert-wrap-view-callable-dispatches-to-user-fn
   "wrap-view is a public fn (Spec 006) that returns a callable; invoking
   it runs the user fn. Pins the adapter's wrap-view seam independently of
@@ -969,75 +765,6 @@
       (is (fn? wrapped) "wrap-view returns a fn")
       (wrapped)
       (is (= :ran @out-from-fn) "the wrapped fn invokes the user fn"))))
-
-;; ===========================================================================
-;; reg-event metadata-map :interceptors superset form. `:interceptors` inside
-;; the metadata-map is the documented superset home. These assertions pin that
-;; the superset form and the rejection of a positional interceptor vector
-;; behave correctly under the installed React adapter's late-bind stack.
-;; ===========================================================================
-
-;; Chains are reference-only (EP-0022): an INLINE interceptor value in a
-;; `:interceptors` chain throws `:rf.error/inline-interceptor-removed` at
-;; registration — chain entries must be REFERENCES. `:test/noop` and
-;; `:test/ctx-probe` are registered
-;; up front via `reg-interceptor` and referenced by their bare keyword ids in
-;; the chains below. The chain is stored UNRESOLVED in handler-meta, so a
-;; referenced entry reads back as its bare keyword (NOT a resolved map) — hence
-;; `chain-id`, which returns the keyword itself for a ref entry and `:id` for
-;; the framework wrapper map at the tail.
-(defn- chain-id
-  "Authored id of a stored chain entry: the keyword itself for a reference
-  entry, `:id` for the framework wrapper map at the tail."
-  [entry]
-  (if (keyword? entry) entry (:id entry)))
-
-(defn assert-reg-event-meta-interceptors-threads-the-chain
-  "reg-event threads the metadata-map `:interceptors` superset chain into the
-  registrar's effective chain — observed under the installed adapter.
-  There is ONE registration form, whose handler wraps under the single
-  `:rf/event-handler` interceptor id (EP-0018), and full-context work is an
-  interceptor `:before`. Chains are reference-only (EP-0022), so the chain
-  entries are the authored bare-keyword refs (stored UNRESOLVED) ahead of the
-  framework wrapper. Pins the registrar + trace tier compose with the
-  React adapter's late-bind hook stack."
-  [{:keys [substrate-kw name]}]
-  (rf/reg-interceptor :test/noop {:before identity :after identity})
-  (rf/reg-interceptor :test/ctx-probe {:before identity})
-  (let [db-id  (mint-kw substrate-kw "events-db-super")
-        fx-id  (mint-kw substrate-kw "events-fx-super")
-        ctx-id (mint-kw substrate-kw "events-ctx-super")]
-    (testing (str name " — reg-event metadata-map :interceptors threads the chain (db-shaped handler)")
-      (rf/reg-event db-id
-        {:doc "Superset form." :interceptors [:test/noop]}
-        (fn [{:keys [db]} _] {:db db}))
-      (let [meta (rf/handler-meta {:source :store :kind :event :id db-id})]
-        (is (= "Superset form." (:doc meta)))
-        (is (= [:test/noop :rf/event-handler] (mapv chain-id (:interceptors meta))))))
-    (testing (str name " — reg-event metadata-map :interceptors threads the chain (fx-shaped handler)")
-      (rf/reg-event fx-id
-        {:interceptors [:test/noop]}
-        (fn [_ _] {:db {}}))
-      (is (= [:test/noop :rf/event-handler]
-             (mapv chain-id (:interceptors (rf/handler-meta {:source :store :kind :event :id fx-id}))))))
-    (testing (str name " — reg-event metadata-map :interceptors threads the chain (full-context interceptor)")
-      (rf/reg-event ctx-id
-        {:interceptors [:test/noop :test/ctx-probe]}
-        (fn [_ _] {}))
-      (is (= [:test/noop :test/ctx-probe :rf/event-handler]
-             (mapv chain-id (:interceptors (rf/handler-meta {:source :store :kind :event :id ctx-id}))))))))
-
-(defn assert-reg-event-positional-vector-rejected
-  "Supplying interceptors via the retired positional vector middle slot raises
-  `:rf.error/reg-event-bad-middle-slot` under the installed adapter."
-  [{:keys [substrate-kw name]}]
-  (testing (str name " — positional vector interceptors throw :rf.error/reg-event-bad-middle-slot")
-    (is (thrown-with-msg?
-          cljs.core/ExceptionInfo
-          #":rf\.error/reg-event-bad-middle-slot"
-          (rf/reg-event (mint-kw substrate-kw "events-vector-slot")
-            [{:id :other :before identity}]
-            (fn [{:keys [db]} _] {:db db}))))))
 
 ;; ===========================================================================
 ;; render-to-string + late-bind chain wiring
@@ -1109,48 +836,6 @@
         (finally
           ;; Reset every loaded sibling adapter slot, not just this one.
           (hook-fn nil))))))
-
-;; ===========================================================================
-;; late-bind hook publication set
-;; ===========================================================================
-
-(def ^:private expected-hook-keys
-  "Every late-bind hook the React adapters publish at ns-load. Routed
-  `:adapter/*` hooks first, then chained hooks. The reactive-atom hooks
-  are not in the set; :adapter/after-render IS. This is the UIx set."
-  #{:adapter/add-on-dispose!
-    :adapter/after-render
-    :adapter/current-frame
-    :adapter/dispose!
-    :adapter/wrap-view
-    :adapter/clear-warn-once-caches!
-    :reagent/set-hiccup-emitter!})
-
-(defn assert-adapter-publishes-expected-hook-set
-  "Every hook key the adapter publishes at ns-load is registered in the
-  late-bind table after the adapter ns has loaded.
-  A future refactor that drops or renames a hook trips this test."
-  [{:keys [name]}]
-  (testing (str name " — adapter publishes the expected late-bind hook set")
-    (doseq [k expected-hook-keys]
-      (is (some? (rf.late-bind/get-fn k))
-          (str "expected the " name " adapter to publish " k
-               " through the late-bind hook table at ns-load")))))
-
-(defn assert-adapter-hooks-cross-checked-against-directory
-  "Every hook key in expected-hook-keys appears in the authoritative
-  late-bind directory with this adapter's producer-ns listed as one of
-  its producers."
-  [{:keys [producer-ns name]}]
-  (testing (str name " — adapter hooks cross-checked against the late-bind directory")
-    (doseq [k expected-hook-keys]
-      (let [entry     (some (fn [e] (when (= k (:key e)) e)) rf.late-bind.directory/hooks)
-            producers (let [p (:producer-ns entry)]
-                        (if (sequential? p) p [p]))]
-        (is (some? entry) (str "no directory entry for " k))
-        (is (some #{producer-ns} producers)
-            (str "directory entry for " k " does not list " producer-ns
-                 " as a producer; producers: " (pr-str producers)))))))
 
 ;; ===========================================================================
 ;; copied / wrapped adapter map routes to LIVE hooks
@@ -1244,120 +929,8 @@
                    (count phase-2-ws) ": " (pr-str phase-2-ws))))))))
 
 ;; ===========================================================================
-;; routing pipeline (Spec 012)
-;;
-;; This suite requires the routing fixture to reset the route-registration
-;; counter (`rf.routing/reset-counters!`) per test — wire `:init-fn
-;; rf.routing/reset-counters!` into the entry-file fixture.
+;; with-frame through the spine-routed current-frame read
 ;; ===========================================================================
-
-(defn- route-kw
-  "Mint a substrate-scoped route id keyword."
-  [substrate-kw nm]
-  (keyword (str "route." (clojure.core/name substrate-kw)) nm))
-
-(defn- route-path
-  "Mint a substrate-scoped URL path so two adapters' suites don't collide
-  on the URL-keyed route registry."
-  [substrate-kw suffix]
-  (str "/" (clojure.core/name substrate-kw) suffix))
-
-(defn assert-routing-handle-url-change
-  "URL changes are events / reading the route is a sub (Spec 012):
-  :rf.route/handle-url-change drives the :rf/route slice; subscriptions
-  resolve; :on-match dispatches; fresh nav-token per navigation."
-  [{:keys [substrate-kw name]}]
-  (testing (str name " — routing: :rf.route/handle-url-change drives the slice")
-    (let [f          (rf.frame/make-anon-frame-record! {:doc "isolated frame for this test"})
-          home       (route-kw substrate-kw "home")
-          article    (route-kw substrate-kw "article")
-          load-ev    (mint-kw substrate-kw "article-load")
-          id-sub     (mint-kw substrate-kw "route-id")
-          params-sub (mint-kw substrate-kw "route-params")
-          art-path   (route-path substrate-kw "/articles/:id")]
-      (rf/reg-route home {} (route-path substrate-kw "/home"))
-      (rf/reg-route article
-                    {:params   [:map [:id :string]]
-                     :on-match [[load-ev]]} art-path)
-      (rf/reg-event load-ev (fn [{:keys [db]} _] {:db (assoc db :article-loaded? true)}))
-      ;; The route slice is durable routing runtime-db state (EP-0001).
-      (rf.subs/reg-runtime-sub id-sub     (fn [rt _] (get-in rt [:rf.runtime/routing :current :route-id])))
-      (rf.subs/reg-runtime-sub params-sub (fn [rt _] (get-in rt [:rf.runtime/routing :current :params])))
-
-      (rf/dispatch-sync [:rf.route/handle-url-change (route-path substrate-kw "/articles/intro") {:rf.route/cause :link}] {:frame f})
-      (is (= article (rf/subscribe-once [id-sub] {:frame f}))
-          ":rf.route/id sub resolves under the adapter")
-      (is (= {:id "intro"} (rf/subscribe-once [params-sub] {:frame f}))
-          ":rf.route/params sub resolves under the adapter")
-      (is (true? (:article-loaded? (rf/app-db-value f)))
-          ":on-match dispatched and ran")
-
-      (rf/dispatch-sync [:rf.route/handle-url-change (route-path substrate-kw "/articles/welcome") {:rf.route/cause :link}] {:frame f})
-      (is (= {:id "welcome"} (rf/subscribe-once [params-sub] {:frame f}))
-          "new params land in the slice on subsequent navigation")
-      (is (some? (get-in (:rf.db/runtime (rf/frame-state-value f)) [:rf.runtime/routing :current :nav-token]))
-          "fresh nav-token allocated on each full navigation"))))
-
-(defn assert-routing-multi-frame
-  "Multi-frame routing (Spec 012 §Multi-frame routing): two frames carry
-  independent :rf/route slices over a shared registry."
-  [{:keys [substrate-kw name]}]
-  (testing (str name " — routing: two frames carry independent :rf/route slices")
-    (let [sk2      (keyword (str (clojure.core/name substrate-kw) "2"))
-          home     (route-kw sk2 "home")
-          articles (route-kw sk2 "articles")
-          article  (route-kw sk2 "article")
-          route-sub (mint-kw sk2 "route")]
-      (rf/reg-route home     {} (route-path sk2 "/"))
-      (rf/reg-route articles {} (route-path sk2 "/articles"))
-      (rf/reg-route article  {:params [:map [:id :string]]} (route-path sk2 "/articles/:id"))
-      ;; The route slice is durable routing runtime-db state (EP-0001).
-      (rf.subs/reg-runtime-sub route-sub (fn [rt _] (get-in rt [:rf.runtime/routing :current])))
-
-      (let [left  (rf.frame/make-anon-frame-record! {:doc "left tab frame"})
-            right (rf.frame/make-anon-frame-record! {:doc "right tab frame"})]
-        (rf/dispatch-sync [:rf.route/handle-url-change (route-path sk2 "/articles") {:rf.route/cause :link}] {:frame left})
-        (rf/dispatch-sync [:rf.route/handle-url-change (route-path sk2 "/articles/intro") {:rf.route/cause :link}] {:frame right})
-
-        (let [left-route  (rf/subscribe-once [route-sub] {:frame left})
-              right-route (rf/subscribe-once [route-sub] {:frame right})]
-          (is (= articles (:route-id left-route)) "left frame's :rf/route is the collection route")
-          (is (= article  (:route-id right-route)) "right frame's :rf/route is the article route")
-          (is (= {} (:params left-route)) "left frame has no :params (collection route)")
-          (is (= {:id "intro"} (:params right-route)) "right frame has the article id"))
-
-        (rf/dispatch-sync [:rf.route/handle-url-change (route-path sk2 "/") {:rf.route/cause :link}] {:frame left})
-        (is (= home (:route-id (rf/subscribe-once [route-sub] {:frame left})))
-            "left re-navigated to home")
-        (is (= article (:route-id (rf/subscribe-once [route-sub] {:frame right})))
-            "right is unaffected by left's navigation")))))
-
-;; ===========================================================================
-;; headless runtime slice (dispatch / subs / with-frame / capture-frame /
-;; isolation / hot-reload / machines / error paths)
-;; ===========================================================================
-
-(defn assert-dispatch-sync
-  "dispatch-sync runs an event-db handler under the installed adapter."
-  [{:keys [name]}]
-  (testing (str name " — dispatch-sync runs an event-db handler")
-    (rf/reg-event :counter/init (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-event :counter/inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    (rf/dispatch-sync [:counter/init])
-    (rf/dispatch-sync [:counter/inc])
-    (rf/dispatch-sync [:counter/inc])
-    (is (= 2 (:n (rf/app-db-value :rf/default))))))
-
-(defn assert-sub-chain
-  "layer-1 + layer-2 subs return computed values under the adapter."
-  [{:keys [name]}]
-  (testing (str name " — layer-1 + layer-2 subs return computed values")
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:items [10 20 30]}}))
-    (rf/reg-sub :items     (fn [db _] (:items db)))
-    (rf/reg-sub :item-sum  {:inputs [[:items]]} (fn [[items] _] (reduce + items)))
-    (rf/dispatch-sync [:seed])
-    (is (= [10 20 30] (rf/subscribe-once [:items])))
-    (is (= 60         (rf/subscribe-once [:item-sum])))))
 
 (defn assert-with-frame-binds-current-frame
   "with-frame binds *current-frame* in the body; falls back to :rf/default
@@ -1373,118 +946,6 @@
     (testing "outside any binding the dynamic var falls back to :rf/default"
       (is (= :rf/default (rf/current-frame-id))))))
 
-(defn assert-capture-frame-survives-scope-unwind
-  "capture-frame — the ONE public HOLD primitive — captures the
-  current frame at creation time; its ops still target that frame after
-  the surrounding with-frame lexical scope has unwound."
-  [{:keys [name]}]
-  (testing (str name " — capture-frame survives scope unwind")
-    (rf/make-frame {:id :side :doc "side frame"})
-    (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
-    (rf/dispatch-sync [:seed 99] {:frame :side})
-    (let [handle (with-frame :side (rf/capture-frame))]
-      (is (= :rf/default (rf/current-frame-id)))
-      (is (= :side (:frame handle)))
-      (is (= 99 (:n (rf/app-db-value (:frame handle))))))))
-
-(defn assert-multi-frame-state-isolation
-  "Two frames carry independent app-db state, share the handler registry."
-  [{:keys [name]}]
-  (testing (str name " — two frames carry independent app-db state")
-    ;; Bundle co-load hygiene: CLAIM this test's id vocabulary
-    ;; before creating the frames — the story testbed registers the same
-    ;; canonical :counter/inc at its ns load, and sibling suites' in-test
-    ;; registrations of :counter/init / :count can leak through fixtures
-    ;; that don't restore the store; a second provenance row for any of
-    ;; them fails default-image assembly loud.
-    (doseq [[kind id] [[:event :counter/init]
-                       [:event :counter/inc]
-                       [:sub   :count]]]
-      (rf.source-store/forget-id! kind id))
-    (rf/make-frame {:id :left :doc "left frame"})
-    (rf/make-frame {:id :right :doc "right frame"})
-    (rf/reg-event :counter/init (fn [{:keys [db]} [_ n]] {:db {:count n}}))
-    (rf/reg-event :counter/inc  (fn [{:keys [db]} _] {:db (update db :count inc)}))
-    (rf/reg-sub :count (fn [db _] (:count db)))
-    (rf/dispatch-sync [:counter/init 10] {:frame :left})
-    (rf/dispatch-sync [:counter/init 100] {:frame :right})
-    (rf/dispatch-sync [:counter/inc] {:frame :left})
-    (rf/dispatch-sync [:counter/inc] {:frame :left})
-    (is (= 12  (rf/subscribe-once [:count] {:frame :left})))
-    (is (= 100 (rf/subscribe-once [:count] {:frame :right})))
-    (is (nil?  (rf/subscribe-once [:count] {:frame :rf/default})))))
-
-(defn assert-reactive-sub-tracks-changes
-  "A subscription's deref reflects post-event state. The React adapters'
-  containers are plain atoms; the subscribe layer wraps them with the
-  spine's make-derived-value (IDeref+IWatchable), NOT a Reagent reaction."
-  [{:keys [name]}]
-  (testing (str name " — a subscription's deref reflects post-event state")
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    (rf/dispatch-sync [:seed])
-    (let [r (rf/subscribe [:n])]
-      (is (= 0 @r))
-      (rf/dispatch-sync [:inc])
-      (is (= 1 @r) "the subscription observes the new value after :inc")
-      (rf/dispatch-sync [:inc])
-      (rf/dispatch-sync [:inc])
-      (is (= 3 @r))
-      (rf/unsubscribe [:n]))))
-
-(defn assert-sub-hot-reload
-  "Re-registering a sub flips the next subscribe-once to the new body."
-  [{:keys [name]}]
-  (testing (str name " — re-registering a sub flips the next subscribe-once")
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
-    (rf/reg-sub :answer (fn [db _] (:n db)))
-    (rf/dispatch-sync [:seed])
-    (is (= 7 (rf/subscribe-once [:answer])))
-    (let [_pin (rf/subscribe [:answer])]
-      (rf/reg-sub :answer (fn [db _] (* 10 (:n db))))
-      (is (= 70 (rf/subscribe-once [:answer]))
-          "the new sub body is in effect after re-registration")
-      (rf/unsubscribe [:answer]))))
-
-(defn assert-machine-transition
-  "Pure machine-transition runs under the installed adapter."
-  [{:keys [name]}]
-  (testing (str name " — pure machine-transition runs")
-    (let [m {:initial :red
-             :data    {}
-             :states  {:red    {:on {:tick {:target :green}}}
-                       :green  {:on {:tick {:target :yellow}}}
-                       :yellow {:on {:tick {:target :red}}}}}
-          {s :snapshot}
-          (rf.machines/machine-transition m {:state :red :data {}} [:tick])]
-      (is (= :green (:state s))))))
-
-(defn assert-sub-exception-recovers-to-nil
-  "A sub whose body throws emits :rf.error/sub-exception and resolves to
-  nil under :replaced-with-default recovery."
-  [{:keys [name]}]
-  (testing (str name " — a throwing sub recovers to nil + emits :rf.error/sub-exception")
-    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:items "broken"}}))
-    (rf/reg-sub :items (fn [db _] (:items db)))
-    ;; Deliberate broken sub: `items` resolves to the string "broken",
-    ;; which has no `.something` method, so the call throws a TypeError
-    ;; at runtime — exercising the :replaced-with-default recovery path.
-    ;; The `^js` hint marks the access as an extern-typed property read so
-    ;; the compiler does not emit an :infer-warning (the throw is the
-    ;; point; the type is intentionally unknowable), keeping the
-    ;; :browser-test compile warning-clean.
-    (rf/reg-sub :items-count {:inputs [[:items]]}
-      (fn [[items] _] (count (.something ^js items))))
-    (rf/dispatch-sync [:init])
-    (let [traces (atom [])]
-      (rf.trace.tooling/register-listener! ::sub-err (fn [ev] (swap! traces conj ev)))
-      (let [v (rf/subscribe-once [:items-count])]
-        (is (nil? v) "the sub returns nil under :replaced-with-default recovery"))
-      (rf.trace.tooling/unregister-listener! ::sub-err)
-      (is (some (fn [ev] (= :rf.error/sub-exception (:operation ev))) @traces)
-          "expected :rf.error/sub-exception trace"))))
-
 ;; ===========================================================================
 ;; :rf.view/rendered op
 ;; ===========================================================================
@@ -1496,50 +957,6 @@
         (when (= :rf.view/rendered (:operation ev))
           (swap! recorded conj ev))))
     recorded))
-
-(defn assert-rf-view-rendered-fires-on-render
-  ":rf.view/rendered fires on render — same emit site as every React
-  adapter (the substrate-agnostic views.cljs frame-aware-view wrapper),
-  same tag shape."
-  [{:keys [substrate-kw name]}]
-  (testing (str name " — :rf.view/rendered fires on render with the expected tag shape")
-    (let [id     (mint-kw substrate-kw "view-rendered-sample")
-          traces (record-view-rendered!)]
-      (rf/reg-view* id (fn [] (React/createElement "span" #js {} "ok")))
-      ((rf/view id))
-      (let [ev (first @traces)
-            t  (:tags ev)]
-        (is (some? ev) "an :rf.view/rendered event fired")
-        (is (= id (:rf.view/id t)) ":rf.view/id matches")
-        (is (some? (:frame t)) ":frame present")
-        (is (vector? (:rf.view/render-key t)) ":rf.view/render-key is a tuple"))
-      (rf.trace.tooling/unregister-listener! ::view-rendered-recorder))))
-
-(defn assert-rf-view-rendered-attribution-in-cascade
-  ":rf.view/rendered emitted inside a cascade carries :rf.view/cause-event-id +
-  :rf.view/cause-subs sourced from the in-flight epoch capture buffer."
-  [{:keys [substrate-kw name]}]
-  (testing (str name " — :rf.view/rendered in a cascade carries cause attribution")
-    (let [n-sub      (mint-kw substrate-kw "view-rendered-n")
-          view-id    (mint-kw substrate-kw "view-rendered-with-sub")
-          cascade-ev (mint-kw substrate-kw "view-rendered-cascade")
-          traces     (record-view-rendered!)]
-      (rf/reg-sub n-sub (fn [_ _] 1))
-      (rf/reg-view* view-id (fn [] (React/createElement "span" #js {} "x")))
-      (let [render (rf/view view-id)]
-        (rf/reg-event cascade-ev
-          (fn [_ _]
-            @(rf/subscribe [n-sub])
-            (render)
-            {}))
-        (rf/dispatch-sync [cascade-ev]))
-      (let [ev (first (filter #(some? (get-in % [:tags :rf.view/cause-event-id])) @traces))]
-        (is (some? ev) "at least one in-cascade :rf.view/rendered")
-        (when ev
-          (let [t (:tags ev)]
-            (is (= cascade-ev (:rf.view/cause-event-id t)))
-            (is (some #{n-sub} (:rf.view/cause-subs t))))))
-      (rf.trace.tooling/unregister-listener! ::view-rendered-recorder))))
 
 (defn assert-rf-view-rendered-carries-render-args
   ":rf.view/rendered carries the view's positional render args/props under
@@ -1571,45 +988,6 @@
           (is (not (contains? t :rf.view/render-args))
               "the slot is absent on a no-arg render"))
         (rf.trace.tooling/unregister-listener! ::view-rendered-recorder)))))
-
-(defn assert-rf-view-rendered-render-args-elided
-  "PRIVACY (Spec 009 §Privacy): render args are arbitrary user
-  data, so :rf.view/render-args routes through the SAME emit-time elision
-  chokepoint as every other user-data trace payload — the marks projection
-  runs `elide-wire-value` against the frame's app-db elision registry. A
-  frame-declared `:sensitive` app-db path inside a render arg must reach
-  the trace surface as the `:rf/redacted` sentinel, never raw. Marks
-  artefact must be loaded for this to apply; substrate-agnostic."
-  [{:keys [substrate-kw name]}]
-  (testing (str name " — :rf.view/render-args sensitive paths elide at emit")
-    (let [id     (mint-kw substrate-kw "view-rendered-args-sensitive")
-          traces (record-view-rendered!)]
-      ;; Declare [:auth :password] sensitive on this frame's app-db elision
-      ;; registry — the SAME registry :rf.event/db consults. EP-0025:
-      ;; durable app-db classification rides the commit-plane classification
-      ;; effects; `rf.elision/apply-classification-effects` writes a
-      ;; `:source :effect` declaration (index-free :rf/path) the walker reads
-      ;; — the same registry write a `reg-event` returning `:sensitive`
-      ;; performs. The fixture make-frames the ambient :rf/default the render
-      ;; lands in.
-      (rf.frame/swap-runtime-db! :rf/default
-        (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[:auth :password]]})))
-      (rf/reg-view* id (fn [_props] (React/createElement "span" #js {} "ok")))
-      ;; Pass a render arg whose [:auth :password] leaf mirrors the
-      ;; sensitive app-db path. The marks chokepoint elides it before
-      ;; delivery to any listener / the wire.
-      ((rf/view id) {:auth {:username "ada" :password "hunter2"}})
-      (let [ev   (first @traces)
-            t    (:tags ev)
-            args (:rf.view/render-args t)]
-        (is (some? ev) "an :rf.view/rendered event fired")
-        (is (vector? args) ":rf.view/render-args present")
-        (let [arg0 (first args)]
-          (is (= :rf/redacted (get-in arg0 [:auth :password]))
-              "the [:auth :password] leaf inside the render arg is redacted at emit")
-          (is (= "ada" (get-in arg0 [:auth :username]))
-              "a non-sensitive sibling leaf is preserved")))
-      (rf.trace.tooling/unregister-listener! ::view-rendered-recorder))))
 
 ;; ===========================================================================
 ;; make-derived-value per-arity contract
@@ -2064,118 +1442,7 @@
 
 ;; ===========================================================================
 ;; managed HTTP (Spec 014)
-;;
-;; The http-managed suite requires the entry-file fixture to call
-;; `rf.http.managed/clear-all-in-flight!` before AND after each test (see the
-;; entry file's fixture). The shared-suite fns assume a freshly
-;; reset runtime with the adapter installed.
 ;; ===========================================================================
-
-(defn assert-http-canned-success-default-reply
-  "canned-success stub dispatches the reply to a unified :reply-to (Spec 014)."
-  [{:keys [name]}]
-  (testing (str name " — canned-success unified :reply-to addressing")
-    (rf/reg-event :article/load
-      (fn [_ [_ msg reply]]
-        (if reply
-          (case (:status reply)
-            :ok    {:db {:article (:value reply)}}
-            :error {:db {:error (:error reply)}})
-          {:fx [[:rf.http/managed
-                 {:request {:method :get :url "/articles/hello"} :decode :json
-                  :reply-to [:article/load msg]}]]})))
-    (rf/dispatch-sync [:article/load {:slug "hello"}]
-                      {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
-    (is (= {:stubbed true} (:article (rf/app-db-value :rf/default)))
-        ":reply-to routed the synthesised reply back to :article/load")))
-
-(defn assert-http-canned-failure-on-failure
-  "Explicit :on-failure routes the failure reply to the named handler."
-  [{:keys [name]}]
-  (testing (str name " — canned-failure explicit :on-failure")
-    (rf/reg-event :auth/login
-      (fn [_ _]
-        {:fx [[:rf.http/managed
-               {:request {:method :post :url "/auth/login"} :on-failure [:auth/login-error]}]]}))
-    (rf/reg-event :auth/login-error (fn [{:keys [db]} [_ payload]] {:db (assoc db :auth-error payload)}))
-    (rf/dispatch-sync [:auth/login]
-                      {:fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}})
-    (let [db (rf/app-db-value :rf/default)]
-      (is (= :error (get-in db [:auth-error :status])))
-      (is (= :rf.http/transport (get-in db [:auth-error :error :kind]))
-          "default canned-failure :kind classifies as :rf.http/transport"))))
-
-(defn assert-http-canned-success-on-success
-  "Explicit :on-success routes the success reply to the named handler."
-  [{:keys [name]}]
-  (testing (str name " — canned-success explicit :on-success")
-    (rf/reg-event :article/load
-      (fn [_ _]
-        {:fx [[:rf.http/managed
-               {:request {:method :get :url "/articles/hello"} :on-success [:article/loaded]}]]}))
-    (rf/reg-event :article/loaded (fn [{:keys [db]} [_ payload]] {:db (assoc db :article payload)}))
-    (rf/dispatch-sync [:article/load]
-                      {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
-    (let [db (rf/app-db-value :rf/default)]
-      (is (= :ok (get-in db [:article :status])))
-      (is (= {:stubbed true} (get-in db [:article :value]))))))
-
-(defn assert-http-silenced-reply
-  "Explicit :on-success nil swallows the reply silently."
-  [{:keys [name]}]
-  (testing (str name " — :on-success nil swallows the reply")
-    (let [seen (atom 0)]
-      (rf/reg-event :ping
-        (fn [_ _]
-          (swap! seen inc)
-          {:fx [[:rf.http/managed {:request {:url "/ping"} :on-success nil}]]}))
-      (rf/dispatch-sync [:ping]
-                        {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
-      (is (= 1 @seen) "no reply was dispatched when :on-success is nil"))))
-
-(defn assert-http-with-request-stubs
-  "with-request-stubs installs a per-call fx."
-  [{:keys [name]}]
-  (testing (str name " — with-request-stubs installs a per-call fx")
-    (rf/reg-event :articles/list
-      (fn [_ [_ msg reply]]
-        (if reply
-          {:db {:result reply}}
-          {:fx [[:rf.http/managed {:request {:method :get :url "/articles"} :decode :json
-                                   :reply-to [:articles/list msg]}]]})))
-    (rf.http.test-support/with-request-stubs
-      {[:get "/articles"] {:reply {:ok [:hello :world]}}}
-      (fn []
-        ;; Documented wrapper form — NO manual :fx-overrides. The wrapper
-        ;; installs the :rf.http/managed override for the body's dynamic
-        ;; extent; that override is a per-scope id, so hardcoding the stub
-        ;; id here would route to an unregistered fx.
-        (rf/dispatch-sync [:articles/list])
-        (let [db (rf/app-db-value :rf/default)]
-          (is (= :ok (get-in db [:result :status])))
-          (is (= [:hello :world] (get-in db [:result :value]))))))))
-
-(defn assert-http-with-request-stubs-failure
-  "with-request-stubs synthesises a failure reply for
-  {:reply {:failure ...}}."
-  [{:keys [name]}]
-  (testing (str name " — with-request-stubs failure mapping")
-    (rf/reg-event :articles/list
-      (fn [_ [_ msg reply]]
-        (if reply
-          {:db {:result reply}}
-          {:fx [[:rf.http/managed {:request {:method :get :url "/articles"} :decode :json
-                                   :reply-to [:articles/list msg]}]]})))
-    (rf.http.test-support/with-request-stubs
-      {[:get "/articles"] {:reply {:failure {:kind :rf.http/http-4xx :status 404}}}}
-      (fn []
-        ;; Documented wrapper form — NO manual :fx-overrides (see
-        ;; assert-http-with-request-stubs).
-        (rf/dispatch-sync [:articles/list])
-        (let [db (rf/app-db-value :rf/default)]
-          (is (= :error (get-in db [:result :status])))
-          (is (= :rf.http/http-4xx (get-in db [:result :error :kind])))
-          (is (= 404 (get-in db [:result :error :status]))))))))
 
 (defn assert-http-multi-frame-reply-isolation
   "Managed requests issued from frame A reply into frame A's app-db."
@@ -2307,38 +1574,6 @@
       (is (empty? (filter #(= :error (:op-type %)) @traces))
           "match-url is pure: route-not-found does not emit error traces"))))
 
-(defn assert-xspec-headless-frame-resolution-chain
-  "#9 Reactive substrate without React-context."
-  [{:keys [name]}]
-  (testing (str name " — #9 reactive substrate without React-context")
-    (rf/make-frame {:id :alt :doc "alt frame"})
-    (is (= :rf/default (rf/current-frame-id)) "outside any with-frame the fixture's ambient :rf/default scope resolves")
-    (rf/with-frame :alt
-      (is (= :alt (rf/current-frame-id)) "with-frame's binding wins over the ambient scope"))
-    (is (= :rf/default (rf/current-frame-id)) "with-frame's binding is scoped — the ambient scope returns on exit")))
-
-(defn assert-xspec-machine-action-throws
-  "#11 Machine action throws."
-  [{:keys [name]}]
-  (testing (str name " — #11 machine action throws")
-    (rf/reg-event :seed-state (fn [{:keys [db]} _] {:db {:val :before}}))
-    (rf/dispatch-sync [:seed-state])
-    (let [machine {:initial :idle :data {}
-                   :states  {:idle {:on {:bang {:target :angry :action :boom}}} :angry {}}
-                   :actions {:boom (fn [_] (throw (ex-info "kaboom" {})))}}]
-      (rf/reg-machine :test/m machine)
-      (let [traces (collect-traces ::xspec-11)]
-        (rf/dispatch-sync [:test/m [:bang]])
-        (stop-traces ::xspec-11)
-        (let [errs (filter #(= :rf.error/machine-action-exception (:operation %)) @traces)]
-          (is (seq errs) "an action throw surfaces as :rf.error/machine-action-exception")
-          (is (some #(= :test/m (get-in % [:tags :actor-id])) errs) "the trace identifies the live actor that threw (:actor-id)")
-          (is (some #(= :boom (get-in % [:tags :action-id])) errs) "the trace identifies the action that threw"))
-        (is (not (some #(= :rf.error/handler-exception (:operation %)) @traces))
-            "the generic :rf.error/handler-exception does NOT also fire")
-        (is (= :before (:val (rf/app-db-value :rf/default)))
-            "a non-machine app-db slice is not touched when the cascade halts")))))
-
 (defn assert-xspec-machine-fx-handler-throws
   "#12 Effect handler throws inside a machine action's :fx."
   [{:keys [name]}]
@@ -2430,19 +1665,6 @@
           (is (false? (:retryable? public-error)) "default projector's :retryable? is false")
           (is (string? (:message public-error)) "default projector emits a one-sentence human :message")
           (is (= 500 (:status (rf.ssr/get-response :req))) "the projector's :status is stamped onto [:rf/response]"))))))
-
-(defn assert-xspec-hot-reload-sub-mid-cascade
-  "#18 Re-registering a sub mid-cascade."
-  [{:keys [name]}]
-  (testing (str name " — #18 re-registering a sub mid-cascade")
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
-    (rf/reg-sub :answer (fn [db _] (:n db)))
-    (rf/dispatch-sync [:seed])
-    (is (= 7 (rf/subscribe-once [:answer])) "the v1 sub computes from app-db")
-    (let [_pin (rf/subscribe [:answer])]
-      (rf/reg-sub :answer (fn [db _] (* 100 (:n db))))
-      (is (= 700 (rf/subscribe-once [:answer])) "after re-registration the new sub body is in effect")
-      (rf/unsubscribe [:answer]))))
 
 (defn assert-xspec-portable-story-fx-override
   "#19 Story decorators that override fx."
