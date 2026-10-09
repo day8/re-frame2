@@ -12,19 +12,24 @@
 (use-fixtures :each rf.schemas.test-fixture/reset-runtime)
 
 (defn- opaque-warnings
-  "The `:schema-kind` and `:path` of each walker-opaque warning recorded."
+  "The tags of each walker-opaque warning recorded."
   [recorded]
   (into []
         (comp (filter #(and (= :warning (:op-type %))
                             (= :rf.warning/schema-walker-opaque (:operation %))))
-              (map #(select-keys (:tags %) [:schema-kind :path])))
+              (map :tags))
         @recorded))
+
+(defn- kinds [warnings]
+  (mapv #(select-keys % [:schema-kind :path]) warnings))
 
 (deftest warning-fires-when-schema-is-a-compiled-schema-object
   (with-trace-recorder! [recorded]
     (rf/reg-app-schema [:cart] (m/schema [:map [:a :int]]))
-    (is (= [{:schema-kind :compiled-schema-object :path [:cart]}]
-           (opaque-warnings recorded)))))
+    (let [warnings (opaque-warnings recorded)]
+      (is (= [{:schema-kind :compiled-schema-object :path [:cart]}] (kinds warnings)))
+      ;; Spec 009's warning row: the reason names the vector-form fix.
+      (is (re-find #"vector form" (:reason (first warnings)))))))
 
 (deftest warning-fires-once-from-reg-app-schemas-bulk
   (with-trace-recorder! [recorded]
@@ -41,7 +46,7 @@
                        [:schema {:registry {::user [:map [:pw {:sensitive? true} :string]]}}
                         ::user])
     (is (= [{:schema-kind :local-registry :path [:auth]}]
-           (opaque-warnings recorded)))))
+           (kinds (opaque-warnings recorded))))))
 
 (deftest warning-suppressed-on-introspectable-schemas
   (with-trace-recorder! [recorded]
