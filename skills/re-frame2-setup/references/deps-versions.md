@@ -106,6 +106,8 @@ day8/re-frame2-story   {:git/url "https://github.com/day8/re-frame2.git" :git/sh
 
 `<SHA>` is the reviewed full commit SHA; resolve a selected tag to its commit first. For UIx, replace the Reagent coordinate with `day8/re-frame2-uix` and `:deps/root "implementation/adapters/uix"`. Per-feature artefacts use the table's paths. Leaving Story's `../re-frame2/tools/story` in `:dev` still requires a sibling checkout. Verify with `clojure -Stree -A:shadow:dev`; plain `clojure -Stree` does not resolve Story or shadow-cljs.
 
+On Windows, a project in a deeply nested directory can fail this resolution with `Filename too long` or `fatal: '$GIT_DIR' too big` before anything compiles; that is the Git library cache's path length, and the recovery is the migration skill's [Windows Git-dependency note](https://github.com/day8/re-frame2/blob/main/skills/re-frame-migration/references/setup.md#windows-git-dependencies-that-fail-before-anything-compiles).
+
 ## `package.json` and latest-from-npm
 
 re-frame2 ships no npm code, so every npm package in the scaffold is there for the substrate, the build tool or Story. The scaffold's `package.json` declares **five**, all at the versions the pinned `implementation/package.json` ships, known-good against the chosen re-frame2 VERSION:
