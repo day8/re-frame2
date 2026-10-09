@@ -9,8 +9,8 @@
   ## Why this exists separately from `streaming_robustness_test.clj`
 
   `streaming_robustness_test.clj` covers SINGLE-request
-  robustness — broken pipe, root-view throw, daemon-thread name
-  scoping, client disconnect mid-stream. Each of its tests fires one
+  robustness — a dropped or slowly read body, a head that cannot
+  materialise, a payload refused mid-stream. Each of its tests fires one
   request and observes one writer-thread lifecycle. That pins the
   per-request error contracts but leaves the parallel surface uncovered.
 
@@ -55,9 +55,7 @@
        every client aborts mid-stream (read a small prefix, close).
        Pins that the writer-thread lifecycle race — frame destroy
        firing while the writer is mid-flight — cleans up under
-       contention. The single-request disconnect test
-       proves the cleanup contract; this test proves it scales.
-       Invariants: no orphan thread, no stuck client.
+       contention. Invariants: no orphan thread, no stuck client.
 
     3. `daemon-thread-count-bounded-during-burst` — fires the burst
        and observes that the in-flight `rf2-ssr-streaming-*` thread
