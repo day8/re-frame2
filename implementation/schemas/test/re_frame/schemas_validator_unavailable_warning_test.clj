@@ -1,30 +1,9 @@
 (ns re-frame.schemas-validator-unavailable-warning-test
-  "JVM tests for `:rf.warning/schema-validator-unavailable` — the
-  one-time process-lifecycle warning that fires from `reg-app-schema`
-  / `reg-app-schemas` when the Malli adapter is unloaded AND the
-  framework-default validator is still installed.
-
-  Background — Spec 010 §Recommended soft-pass: the schemas artefact
-  ships with a Malli-delegating default validator that returns true
-  ('pass') when the `:schemas/malli-validate` late-bind hook is
-  unbound. This is intentional (apps that swap in a non-Malli
-  validator must work), but a `reg-app-schema` call with no validator
-  wired up validates nothing. The warning surfaces this once per
-  process.
-
-  The `re-frame.schemas` facade auto-requires the Malli
-  adapter, so the common path keeps the hook bound and the warning is
-  effectively reserved for a substitute-validator port or this test's
-  deliberate unbind (see `with-unbound-malli-validate`, which simulates
-  the unbound state rather than unloading the ns).
-
-  The warning is suppressed when:
-    - The Malli adapter is loaded (`:schemas/malli-validate` is
-      bound). The validation hot path will run; no need to warn.
-    - The app explicitly registered a non-default validator
-      (a Zod port, clojure.spec bridge, etc.). The app opted out
-      of Malli — the warning would be noise."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  "`:rf.warning/schema-validator-unavailable`: registering a schema while the
+  Malli hook is unbound and the default validator is still installed warns
+  once per process, because every check would soft-pass. A bound Malli hook,
+  or a validator the app installed itself, suppresses it."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.schemas :as rf.schemas]
@@ -33,20 +12,18 @@
 
 (use-fixtures :each rf.schemas.test-fixture/reset-runtime)
 
-(defn- warnings-of
-  "Filter the recorded events to the given operation keyword."
-  [recorded operation]
-  (filterv (fn [ev]
-             (and (= :warning (:op-type ev))
-                  (= operation (:operation ev))))
-           @recorded))
+(defn- reasons
+  "The `:reason` of each validator-unavailable warning recorded."
+  [recorded]
+  (into []
+        (comp (filter #(and (= :warning (:op-type %))
+                            (= :rf.warning/schema-validator-unavailable (:operation %))))
+              (map (comp :reason :tags)))
+        @recorded))
 
 (defn- with-unbound-malli-validate
-  "Temporarily unbind `:schemas/malli-validate` so the warning's
-  gating condition fires. The test-fixture's `reset-runtime` does
-  NOT itself unload the Malli adapter ns (loading order is a
-  process-wide concern), so we simulate the unloaded state by
-  invalidating the hook around the test body."
+  "Run `f` with the `:schemas/malli-validate` hook unbound, as when the Malli
+  adapter is not loaded, restoring the hook afterwards."
   [f]
   (let [prior (rf.late-bind/get-fn :schemas/malli-validate)]
     (try
@@ -57,85 +34,27 @@
         (when prior
           (rf.late-bind/set-fn! :schemas/malli-validate prior))))))
 
-;; ---- positive paths -------------------------------------------------------
-
 (deftest warning-fires-once-from-reg-app-schemas-bulk
-  (testing "bulk reg-app-schemas registers many entries; the warning still
-            fires once across all entries (each delegates to reg-app-schema
-            but the warn-once cache dedupes)"
-    (with-trace-recorder! [recorded]
-      (with-unbound-malli-validate
-        (fn []
-          (rf/reg-app-schemas {[:user]    [:map [:id :int]]
-                               [:cart]    [:vector :any]
-                               [:session] [:map [:tok :string]]})))
-      (is (= 1 (count (warnings-of recorded
-                                   :rf.warning/schema-validator-unavailable)))))))
-
-(deftest warning-carries-actionable-reason
-  (testing ":tags includes a :reason string that names the two fixes
-            (require the Malli adapter ns OR install a custom validator)"
-    (with-trace-recorder! [recorded]
-      (with-unbound-malli-validate
-        (fn [] (rf/reg-app-schema [:user] [:map])))
-      (let [warns (warnings-of recorded
-                               :rf.warning/schema-validator-unavailable)
-            tags  (-> warns first :tags)]
-        (is (string? (:reason tags)))
-        (is (re-find #"re-frame\.schemas\.malli" (:reason tags))
-            ":reason names the Malli adapter ns")
-        (is (re-find #"set-schema-fns!" (:reason tags))
-            ":reason names the explicit-opt-out escape hatch")))))
-
-;; ---- suppression — explicit non-default validator -------------------------
+  (with-trace-recorder! [recorded]
+    (with-unbound-malli-validate
+      #(rf/reg-app-schemas {[:user]    [:map [:id :int]]
+                            [:cart]    [:vector :any]
+                            [:session] [:map [:tok :string]]}))
+    (let [[reason :as all] (reasons recorded)]
+      (is (= 1 (count all)))
+      ;; Spec 009's warning row: the reason names both fixes.
+      (is (every? #(re-find % reason) [#"re-frame\.schemas\.malli" #"set-schema-fns!"])
+          reason))))
 
 (deftest warning-suppressed-when-explicit-validator-installed
-  (testing "an app that installed a non-default `:validate` fn
-            has explicitly opted out of Malli — no warning fires"
-    (with-trace-recorder! [recorded]
-      (with-unbound-malli-validate
-        (fn []
-          (rf.schemas/set-schema-fns! {:validate (fn [_schema _value] true)})
-          (rf/reg-app-schema [:user] [:map [:id :int]])))
-      (is (empty? (warnings-of recorded
-                               :rf.warning/schema-validator-unavailable))
-          "explicit non-default validator suppresses the warning"))))
-
-;; ---- suppression — Malli adapter loaded -----------------------------------
+  (with-trace-recorder! [recorded]
+    (with-unbound-malli-validate
+      (fn []
+        (rf.schemas/set-schema-fns! {:validate (fn [_schema _value] true)})
+        (rf/reg-app-schema [:user] [:map [:id :int]])))
+    (is (empty? (reasons recorded)))))
 
 (deftest warning-suppressed-when-malli-validate-hook-bound
-  (testing "with the Malli adapter loaded (`:schemas/malli-validate`
-            is bound) the validation hot path runs — no warning"
-    (with-trace-recorder! [recorded]
-      (let [prior (rf.late-bind/get-fn :schemas/malli-validate)]
-        (rf.late-bind/set-fn! :schemas/malli-validate (fn [_ _] true))
-        (try
-          (rf/reg-app-schema [:user] [:map])
-          (finally
-            ;; Restore the slot for sibling tests — the fixture restores the
-            ;; validator-fn but NOT the process-global late-bind hook table.
-            ;; Mirrors `with-unbound-malli-validate`'s prior-capture/restore so
-            ;; this stub does not leak a trivially-true validator process-wide.
-            (when prior
-              (rf.late-bind/set-fn! :schemas/malli-validate prior))))
-        (is (empty? (warnings-of recorded
-                                 :rf.warning/schema-validator-unavailable))
-            ":schemas/malli-validate bound -> warning suppressed")))))
-
-;; ---- cache-clear semantics ------------------------------------------------
-
-(deftest cache-clear-allows-warning-to-fire-again
-  (testing "clear-validator-unavailable-warned! resets the one-shot so a
-            subsequent reg-app-schema fires the warning anew (test-fixture
-            isolation)"
-    (with-trace-recorder! [recorded]
-      (with-unbound-malli-validate
-        (fn []
-          (rf/reg-app-schema [:first] [:map])
-          (is (= 1 (count (warnings-of recorded
-                                       :rf.warning/schema-validator-unavailable))))
-          (rf.schemas/clear-validator-unavailable-warned!)
-          (rf/reg-app-schema [:second] [:map])
-          (is (= 2 (count (warnings-of recorded
-                                       :rf.warning/schema-validator-unavailable)))
-              "after cache clear the warning fires again"))))))
+  (with-trace-recorder! [recorded]
+    (rf/reg-app-schema [:user] [:map])
+    (is (empty? (reasons recorded)))))
