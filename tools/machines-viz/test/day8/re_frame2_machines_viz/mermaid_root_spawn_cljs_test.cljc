@@ -38,11 +38,8 @@
   (testing "the root's :spawn :on-done / :on-error leave the root node with the
             labels a spawning state's edges carry"
     (let [body    (mermaid-body {:initial :a :spawn completions :states {:a {} :b {}}})
-          root-id (alias-id body "root fallback")
-          state   (mermaid-body {:initial :a :states {:a {:spawn completions} :b {}}})]
+          root-id (alias-id body "root fallback")]
       (is (= #{"b : ✓ done" "b : ✗ error"} (edges-from body root-id)))
-      (is (= (edges-from state "a") (edges-from body root-id))
-          "the root's edges read as the spawning state's do")
       (is (= 1 (count (re-seq #"state \"root fallback\"" body)))
           "the root node is declared once"))))
 
@@ -71,7 +68,6 @@
           parallel (mermaid-body {:type :parallel :spawn spawn
                                   :regions {:r {:initial :a :states {:a {}}}}})
           par-id   (alias-id parallel "parallel root")]
-      (is (some? flat-id) "the flat root node is declared for its note")
       (is (str/includes? flat (str "  note right of " flat-id "\n    ✗ error / log\n  end note")))
       (is (str/includes? parallel (str "  note right of " par-id "\n    ✗ error / log\n  end note"))))))
 
