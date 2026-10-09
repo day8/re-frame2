@@ -1155,8 +1155,9 @@
                        [{:assertion :rf.assert/path-equals :passed? true}
                         {:assertion :rf.assert/path-equals :passed? false :sensitive? true :reason "x"}]})
     (let [s (:structuredContent (invoke "read-failures" {:variant-id "story.button/primary" :include-sensitive true}))]
-      (is (= [2 1 :fail false] [(:total s) (count (:failures s)) (:status s) (contains? s :dropped-sensitive)])
-          "both records survive, and the zero drop count is omitted"))))
+      (is (= [2 1 :fail false]
+             [(:total s) (count (:failures s)) (:status s) (boolean (some #(contains? s %) [:dropped-sensitive :elided-large]))])
+          "both records survive, and both zero indicator counts are omitted"))))
 
 (deftest run-variant-surfaces-elided-large-indicator
   (with-clean-frame [vid :story.button/primary]
