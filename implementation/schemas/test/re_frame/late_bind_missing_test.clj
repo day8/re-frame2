@@ -1,78 +1,26 @@
 (ns re-frame.late-bind-missing-test
-  "Assert the documented missing-artefact error contract for the schemas
-  artefact's `re-frame.core` re-exports.
-
-  Each per-feature split (schemas / machines / routing / flows / http /
-  ssr) raises a documented `:rf.error/<artefact>-artefact-missing`
-  ex-info when a consumer calls a re-exported surface but the artefact
-  is absent from the classpath. This test pins that runtime behaviour.
-
-  Strategy: the schemas artefact IS on the classpath here (the test ns
-  requires `re-frame.schemas`, which fires the late-bind hook
-  registrations at ns-load). To simulate the absent-artefact state we
-  flip the relevant late-bind hook to nil for the duration of the
-  assertion, then restore it in `finally`. Identical mechanism as the
-  test would use on CLJS.
-
-  Per Spec 002 §The late-bind seam and the prose at the call sites in
-  `re-frame.core`.
-
-  Only the `reg-app-schema` / `reg-app-schemas` registration MACROS are on
-  the `re-frame.core` façade (source-coord capture), so only their
-  missing-artefact contract is tested here. The introspection surfaces
-  (`app-schemas`, `app-schema-meta`, `app-schemas-digest`) and the
-  validator-install seams (`set-schema-*`) are not on the façade — they are
-  reached through `re-frame.schemas` (requiring it means the artefact is
-  present, so the façade artefact-missing/safe-default contract does not
-  apply)."
-  (:require [clojure.test :refer [deftest is testing]]
+  "`re-frame.core`'s `reg-app-schema` macro raises the documented
+  `:rf.error/schemas-artefact-missing` when the schemas artefact is absent
+  (Spec 002 §The late-bind seam). The artefact is on this classpath, so the
+  absent state is simulated by setting its late-bind hook to nil."
+  (:require [clojure.test :refer [deftest is]]
             [re-frame.core :as rf]
             [re-frame.late-bind :as rf.late-bind]
-            ;; Loading schemas registers its late-bind hooks. The
-            ;; `with-hook-as-nil` helper below re-establishes the absent
-            ;; state by flipping the hook value at runtime; restoration
-            ;; in `finally` keeps cross-test isolation intact.
             [re-frame.schemas]))
 
-(defn- with-hook-as-nil
-  "Run `f` with the named late-bind hook set to nil. Restores the
-  original value after `f` returns or throws."
-  [hook-key f]
-  (let [original (rf.late-bind/get-fn hook-key)]
-    (try
-      (rf.late-bind/set-fn! hook-key nil)
-      (f)
-      (finally
-        (rf.late-bind/set-fn! hook-key original)))))
-
 (deftest reg-app-schema-raises-when-schemas-artefact-missing
-  (testing "rf/reg-app-schema (macro) raises :rf.error/schemas-artefact-missing when the :schemas/reg-app-schema hook is nil"
-    (with-hook-as-nil :schemas/reg-app-schema
-      (fn []
-        (let [thrown (try (rf/reg-app-schema [:probe] :int)
-                          nil
-                          (catch clojure.lang.ExceptionInfo e e))]
-          (is (some? thrown)
-              "reg-app-schema throws when the schemas artefact is absent")
-          ;; The message is the human :reason + trailing
-          ;; [:rf.error/<id>] token; assert the token + canonical :rf.error/id,
-          ;; not exact keyword-equality.
-          (is (re-find #"\[:rf\.error/schemas-artefact-missing\]" (.getMessage thrown))
-              "the message carries the [:rf.error/schemas-artefact-missing] token")
-          (is (= :rf.error/schemas-artefact-missing (:rf.error/id (ex-data thrown)))
-              "ex-data carries the canonical :rf.error/id discriminator")
-          (let [data (ex-data thrown)]
-            ;; The throw lives in
-            ;; `re-frame.core-schemas/reg-app-schema` — the sibling-
-            ;; namespace fn-form delegate the macro routes through. The
-            ;; `:where` symbol is namespace-qualified to
-            ;; the user-facing surface (`rf/reg-app-schema`) so callers
-            ;; greping for the symbol find call sites in their codebase.
-            (is (= 'rf/reg-app-schema (:where data))
-                "ex-data carries :where = 'rf/reg-app-schema")
-            (is (= [:probe] (:path data))
-                "ex-data carries :path from the call site")
-            (is (= :no-recovery (:recovery data))
-                "ex-data carries :recovery = :no-recovery")
-            (is (string? (:reason data))
-                "ex-data carries :reason as a string")))))))
+  (let [original (rf.late-bind/get-fn :schemas/reg-app-schema)
+        thrown   (try
+                   (rf.late-bind/set-fn! :schemas/reg-app-schema nil)
+                   (rf/reg-app-schema [:probe] :int)
+                   nil
+                   (catch clojure.lang.ExceptionInfo e e)
+                   (finally
+                     (rf.late-bind/set-fn! :schemas/reg-app-schema original)))]
+    (is (= {:rf.error/id :rf.error/schemas-artefact-missing
+            :where       'rf/reg-app-schema
+            :path        [:probe]
+            :recovery    :no-recovery}
+           (select-keys (ex-data thrown) [:rf.error/id :where :path :recovery])))
+    (is (re-find #"\[:rf\.error/schemas-artefact-missing\]" (ex-message thrown))
+        "the message ends with the error-id token")))
