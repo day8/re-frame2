@@ -25,7 +25,7 @@
 
 (defn- of-op [op evs] (filterv #(= op (:operation %)) evs))
 
-(deftest t2-carries-the-flow-augmented-db-between-the-flow-and-the-commit
+(deftest t2-emits-when-flow-changes-db
   ;; t1 carries what the handler returned; t2 what the flows made of it.
   (rf/reg-flow :len {:inputs [[:items]] :output-path [:item-count]} (fn [items] (count items)))
   (rf/reg-event :t2/add-items (fn [_ _] {:db {:items [:a :b :c]}}))
@@ -40,7 +40,7 @@
     (is (apply < (map idx [:rf.event/db-pending :rf.flow/computed
                            :rf.event/db-pending-post-flow :rf.event/db-changed])))))
 
-(deftest t2-omitted-when-no-flow-changed-the-db
+(deftest t2-suppressed-when-flow-makes-no-change
   ;; The second same-input dispatch skips the flow, so the post-flow db is
   ;; identical to t1. The t1 count shows the capture saw the dispatch.
   (rf/reg-flow :doubled {:inputs [[:n]] :output-path [:doubled]} (fn [n] (* 2 n)))
