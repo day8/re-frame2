@@ -86,11 +86,21 @@
   (let [warnings (atom [])]
     (rf/register-listener! :trace ::status-rewrite-trace-watch
       (fn [ev] (when (= :rf.ssr/ssr-non-integer-status (:operation ev))
-                 (swap! warnings conj (:status (:tags ev))))))
+                 (swap! warnings conj (-> (:tags ev)
+                                          (select-keys [:where :status :status-type])
+                                          (assoc :op-type (:op-type ev) :recovery (:recovery ev)))))))
     (try
       (is (= 1 (count (status-rewrite-records
                         #(rf.ssr.ring.pipeline/ssr-response->ring-response
                            {:status "404" :headers []} "x")))))
       (finally
         (rf/unregister-listener! :trace ::status-rewrite-trace-watch)))
-    (is (= (if rf.interop/debug-enabled? ["404"] []) @warnings))))
+    ;; The dev warning's slots are the ones the Spec 009 catalogue row lists.
+    (is (= (if rf.interop/debug-enabled?
+             [{:op-type     :warning
+               :where       :ssr-ring/ssr-response->ring-response
+               :status      "404"
+               :status-type "java.lang.String"
+               :recovery    :failed-closed-to-500}]
+             [])
+           @warnings))))
