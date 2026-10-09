@@ -220,7 +220,7 @@
        spawned actors have none) — never a machine DEFINITION;
     9. release the actor's resource owners — fire
        `:rf.resource/release-owner` for owner `[:machine actor-id]` (Spec 016
-       §Release authority is per owner kind, 016:290) so a resource the actor
+       §Release authority is per owner kind) so a resource the actor
        `ensure`d under its machine-owner key does not leak the owner (keep
        refetching/polling) past the actor's death. Fired LAST, once the actor
        is gone; guarded on resources being loaded (machines never depends on

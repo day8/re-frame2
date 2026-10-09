@@ -670,7 +670,7 @@
                        (assoc :rf/history cur-history)
                        (some? cur-attempts)
                        (assoc :rf/spawn-attempts cur-attempts))]
-          ;; Per Spec 005 §Parallel regions (005:1168-1171): carry the
+          ;; Per Spec 005 §Parallel regions: carry the
           ;; aggregate handled flag (true iff at least one region resolved
           ;; the event) so `parallel-machine-transition` warns exactly once
           ;; only when EVERY region declined. The caller owns parent-round

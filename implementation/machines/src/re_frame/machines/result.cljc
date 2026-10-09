@@ -134,7 +134,7 @@
 
 (defn with-handled
   "Stamp the optional `::handled?` flag onto an `:ok` Result. Per Spec 005
-  §Transition resolution / §Parallel regions (005:1168-1171): a region of
+  §Transition resolution / §Parallel regions: a region of
   a parallel-region machine reports whether its inbound event resolved to
   a transition so the parent can emit the benign
   `:rf.machine.event/unhandled-no-op` trace exactly once when EVERY region

@@ -1414,7 +1414,7 @@
 
 ;; ---- transition target shape + resolution ---------------------------------
 ;;
-;; Per Spec 005 (005:441 "the snapshot's :state slot is already validated at
+;; Per Spec 005 §Schema validation ("the snapshot's :state slot is already validated at
 ;; registration time — a transition targeting an unknown state fails
 ;; registration") and Spec-Schemas §`TransitionTarget` (`[:or :keyword
 ;; [:vector :keyword]]`): every transition slot's `:target` MUST be a keyword
@@ -1506,7 +1506,7 @@
     (nil? target)          nil
     (= :same-state target) nil
     ;; An EMPTY vector is a malformed target SHAPE, not an unresolved path:
-    ;; Spec 005 §error taxonomy (005:4250) + Spec-Schemas §TransitionTarget
+    ;; Spec 005 §Errors + Spec-Schemas §TransitionTarget
     ;; require a NON-EMPTY vector path. `[]` names no node, so it can never
     ;; be a real (resolvable-or-not) absolute path — it is a caller
     ;; typo/schema error in the same class as `{:target 42}`. Reject it via
@@ -1790,7 +1790,7 @@
       (check-node! {:state state-key} (str "state " (key-label state-key)) node))))
 
 (defn- validate-transition-targets!
-  "Per Spec 005 (005:441) + Spec-Schemas §TransitionTarget:
+  "Per Spec 005 §Schema validation + Spec-Schemas §TransitionTarget:
   reject malformed-shape and unresolved transition `:target`s at registration
   for every transition-bearing slot of every per-region / flat state node —
   `:on`, `:after`, `:always`, a compound's `:on-done`, and a `:spawn`-bearing
@@ -2422,7 +2422,7 @@
   that targets its own declaring state is rejected. Throws
   `:rf.error/machine-always-self-loop`.
 
-  Per Spec 005 (005:441) + Spec-Schemas §TransitionTarget:
+  Per Spec 005 §Schema validation + Spec-Schemas §TransitionTarget:
   every transition slot's `:target` (`:on` / `:after` / `:always` /
   compound `:on-done` / `:spawn :on-error` / transition-shaped
   `:spawn :on-done`) must be a well-formed,
@@ -2670,7 +2670,7 @@
     (doseq [[s state-node] (walk-state-nodes machine)]
       (doseq [[_ t] (:on state-node)]
         (check-transition! t s))
-      ;; Per Spec 005 §Delayed `:after` (005:1334 "exactly as for `:on`"):
+      ;; Per Spec 005 §Delayed `:after` ("exactly as for `:on`"):
       ;; `:after` entries may carry `:guard` / `:action` refs (e.g.
       ;; `{1000 {:target :timeout :guard :no-progress?}}`). A dangling
       ;; `:after` ref is failed fast here at registration rather than at

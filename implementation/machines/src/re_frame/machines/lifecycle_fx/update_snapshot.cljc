@@ -25,7 +25,7 @@
   error/status state is user-domain working memory and lives under
   `:data` (schema-covered) — not as bare snapshot-root keys. A `:db` key
   in the patch is the same hard-disallow the action-effect path enforces
-  (Spec 005:463), surfaced as `:rf.error/machine-action-wrote-db`."
+  (Spec 005 §Strict encapsulation), surfaced as `:rf.error/machine-action-wrote-db`."
   (:require [re-frame.frame :as rf.frame]
             [re-frame.machines.data-validation :as rf.machines.data-validation]
             [re-frame.machines.paths :as rf.machines.paths]
@@ -35,7 +35,7 @@
 
 ;; Per Spec 005 §Snapshot-level escape hatch the escape hatch may touch
 ;; exactly these snapshot top-level keys. `:db` is NOT among them
-;; (Spec 005:463 hard-disallow). User error/status state belongs under
+;; (the Spec 005 §Strict encapsulation hard-disallow). User error/status state belongs under
 ;; `:data` (schema-covered), not as bare snapshot-root keys.
 (def ^:private permitted-patch-keys #{:state :meta :data})
 
@@ -125,7 +125,7 @@
         owner-token (rf.frame/current-event-owner-token)]
     (when (and machine-id (map? patch))
       ;; Hard-disallow `:db` — symmetric with the action-effect path
-      ;; (Spec 005:463). Canonical id / tags per Spec 009 §Error event
+      ;; (Spec 005 §Strict encapsulation). Canonical id / tags per Spec 009 §Error event
       ;; catalogue.
       ;;
       ;; The addressed-id tag shape aligns with the action-effect path
