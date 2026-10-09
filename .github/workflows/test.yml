@@ -2625,7 +2625,7 @@ jobs:
   #
   # WHAT `with-redefs` ALREADY COVERED, stated precisely so this job is not
   # oversold. Epoch reads the gate only as `(when interop/debug-enabled? …)`
-  # inside fn bodies — a runtime Var deref — so the twelve `with-redefs`
+  # inside fn bodies — a runtime Var deref — so the `with-redefs`
   # deftests do reach epoch's own gated branches. What they cannot reach is what
   # the framework decided while it LOADED under the dev default: top-level
   # registrations, `defonce` initialisation, interceptor chains composed once at
