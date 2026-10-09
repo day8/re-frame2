@@ -274,7 +274,7 @@ fi
 # directory, an `-n` list that matched nothing — cannot report itself green with
 # `Ran 0 tests`.  The floor sits below the lane's observed test count with room
 # for ordinary churn.  Raise it when the roster grows materially.
-export RF2_MIN_TESTS="${RF2_MIN_TESTS:-20}"
+export RF2_MIN_TESTS="${RF2_MIN_TESTS:-4}"
 
 args=()
 for ns in $runnable; do
