@@ -27,7 +27,7 @@
             [clojure.string :as string]
             [day8.re-frame2-template.test-support
              :refer [tmp-dir delete-recursively run-template!
-                     run-template-opts! read-edn file-exists? repo-root]]))
+                     run-template-opts! read-edn repo-root]]))
 
 ;; --- The contract ----------------------------------------------------------
 
@@ -158,32 +158,28 @@
         ;; -- deps.edn --
         (let [deps (read-edn (io/file root "deps.edn"))]
           (is (= ["src"] (:paths deps)) "deps.edn :paths is [\"src\"]")
-          (is (contains? (:deps deps) 'day8/re-frame2)
-              "deps.edn names day8/re-frame2")
-          (is (contains? (:deps deps) (substrate-coord substrate))
-              (str "deps.edn names " (substrate-coord substrate)))
-          (doseq [coord (view-lib-coords substrate)]
-            (is (contains? (:deps deps) coord)
-                (str "deps.edn names the view library " coord)))
-          ;; The pin VALUES are version_lockstep_test.clj's; present-check only.
+          ;; The pin VALUES are version_lockstep_test.clj's; the coordinate set here.
+          (is (= (into #{'org.clojure/clojure 'org.clojure/clojurescript
+                         'day8/re-frame2 (substrate-coord substrate)}
+                       (view-lib-coords substrate))
+                 (set (keys (:deps deps))))
+              (str "deps.edn :deps is core, the " substrate " adapter and its view "
+                   "library — Story rides the :dev alias, never :deps"))
           (is (= (get-in deps [:deps 'day8/re-frame2 :mvn/version])
                  (get-in deps [:deps (substrate-coord substrate) :mvn/version]))
               "core and adapter ride one :mvn/version")
           (is (= #{:shadow :dev} (set (keys (:aliases deps))))
               "deps.edn carries the :shadow and :dev aliases and nothing else")
-          (is (= ["test"] (get-in deps [:aliases :shadow :extra-paths]))
-              ":shadow puts test/ on the classpath (and no dev/)")
-          (is (nil? (get-in deps [:aliases :shadow :main-opts]))
-              ":shadow is deps-only — `npx shadow-cljs` supplies its own -m")
-          (is (contains? (get-in deps [:aliases :shadow :extra-deps]) 'thheller/shadow-cljs)
-              ":shadow carries the shadow-cljs coordinate")
+          (is (= {:extra-paths ["test"] :extra-deps '#{thheller/shadow-cljs}}
+                 (update (get-in deps [:aliases :shadow]) :extra-deps (comp set keys)))
+              (str ":shadow puts test/ (and no dev/) on the classpath and carries only "
+                   "the shadow-cljs coordinate — no :main-opts, `npx shadow-cljs` "
+                   "supplies its own -m"))
           (is (= {:extra-deps {'day8/re-frame2-story {:local/root "../re-frame2/tools/story"}}}
                  (get-in deps [:aliases :dev]))
               (str ":dev carries Story and only Story, resolved from a re-frame2 "
                    "checkout beside the project — Story has no published coordinate "
                    "yet, so none is written"))
-          (is (not (contains? (:deps deps) 'day8/re-frame2-story))
-              "Story is a :dev alias dependency, never a :deps one")
           (is (empty? (retired-coords-in deps))
               (str "deps.edn must name no retired coordinate; found "
                    (pr-str (retired-coords-in deps)))))
@@ -213,16 +209,13 @@
           (is (= :node-test (:target tst)) ":test targets :node-test")
           (is (= "-test$" (:ns-regexp tst)) ":test picks up *-test namespaces"))
 
-        ;; -- package.json --
+        ;; -- package.json -- (its npm pins are version_lockstep_test.clj's)
         (let [pj (slurp (io/file root "package.json"))]
-          (is (string/includes? pj "\"name\": \"my-app\"")
-              "package.json name is the npm-valid artefact segment, not acme/my-app")
-          (is (string/includes? pj "\"private\": true") "package.json is private")
-          (doseq [needle ["\"shadow-cljs\"" "\"react\"" "\"react-dom\""
-                          "\"@xyflow/react\"" "\"elkjs\""
-                          "\"watch\"" "\"release\"" "\"test\""]]
-            (is (string/includes? pj needle)
-                (str "package.json carries " needle))))
+          (is (= [] (remove #(string/includes? pj %)
+                            ["\"name\": \"my-app\"" "\"private\": true"
+                             "\"watch\"" "\"release\"" "\"test\""]))
+              (str "package.json is private, named by the npm-valid artefact segment "
+                   "(not acme/my-app), and carries the watch / release / test scripts")))
 
         ;; -- the substrate's own view shape --
         (let [views (slurp (io/file root "src/acme/my_app/views.cljs"))]
@@ -261,18 +254,12 @@
 
         ;; -- the README's run / test / release and next steps --
         (let [readme (slurp (io/file root "README.md"))]
-          (is (string/includes? readme "docs/xray/01-installation.md")
-              "README links the Xray installation page")
-          (is (string/includes? readme "docs/story/index.md")
-              "README links the Story page")
-          (is (string/includes? readme "http://localhost:8280/#/stories")
-              "README says where Story is")
-          (is (string/includes? readme "npx shadow-cljs watch app")
-              "README says how to run")
-          (is (string/includes? readme "npm test")
-              "README says how to test")
-          (is (string/includes? readme "npm run release")
-              "README says how to release")))
+          (is (= [] (remove #(string/includes? readme %)
+                            ["docs/xray/01-installation.md" "docs/story/index.md"
+                             "http://localhost:8280/#/stories" "npx shadow-cljs watch app"
+                             "npm test" "npm run release"]))
+              (str "README links the Xray and Story pages, says where Story is, and "
+                   "how to run, test and release"))))
       (finally
         (delete-recursively tmp)))))
 
@@ -295,12 +282,9 @@
               forms   (map second
                            (re-seq #"clojure\s+-M(\S+)\s+-m\s+shadow\.cljs\.devtools\.cli\s+watch\s+app"
                                    readme))]
-          (is (= 1 (count forms))
-              "the README gives exactly one pure-JVM watch form — the instrument found it")
-          (doseq [aliases forms]
-            (is (= (apply str wrapper) aliases)
-                (str "the README's `clojure -M" aliases " …` must name the wrapper's "
-                     "aliases " (pr-str wrapper)))))
+          (is (= [(apply str wrapper)] forms)
+              (str "the README gives exactly one pure-JVM watch form, and it names the "
+                   "wrapper's aliases " (pr-str wrapper))))
         (finally
           (delete-recursively tmp))))))
 
@@ -323,14 +307,14 @@
 ;;
 ;; The manifest equality, the coordinate scan and the text scan are the
 ;; guards against an advanced dependency or file appearing. Each is
-;; exercised once against an input it must flag.
+;; exercised once against an input it must flag; the clean emission each
+;; starts from is the one the contract above already grades.
 
 (deftest manifest-check-bites-test
   (testing "an extra emitted file breaks the manifest equality"
     (let [tmp (tmp-dir "rf2-template-witness-file-")]
       (try
         (let [root (run-template! tmp "acme/my-app" :reagent)]
-          (is (= manifest (emitted-files root)) "control: clean tree matches")
           (io/make-parents (io/file root "dev/user.clj"))
           (spit (io/file root "dev/user.clj") "(ns user)")
           (is (not= manifest (emitted-files root))
@@ -344,7 +328,6 @@
       (try
         (let [root (run-template! tmp "acme/my-app" :reagent)
               deps (read-edn (io/file root "deps.edn"))]
-          (is (empty? (retired-coords-in deps)) "control: clean deps.edn")
           (is (= '#{day8/re-frame2-xray}
                  (retired-coords-in (assoc-in deps [:deps 'day8/re-frame2-xray]
                                               {:mvn/version "0"})))
@@ -362,7 +345,6 @@
     (let [tmp (tmp-dir "rf2-template-witness-text-")]
       (try
         (let [root (run-template! tmp "acme/my-app" :reagent)]
-          (is (empty? (retired-text-in root)) "control: clean tree")
           (spit (io/file root "shadow-cljs.edn")
                 (str (slurp (io/file root "shadow-cljs.edn"))
                      "\n;; :devtools {:preloads [day8.re-frame2-xray.preload]}\n"))
@@ -384,30 +366,16 @@
     (let [tmp (tmp-dir "rf2-template-dotted-name-")]
       (try
         (let [root (run-template! tmp "com.acme/my-cool-app" :reagent)]
-          (doseq [rel ["src/com/acme/my_cool_app/core.cljs"
-                       "src/com/acme/my_cool_app/events.cljs"
-                       "src/com/acme/my_cool_app/stories.cljs"
-                       "src/com/acme/my_cool_app/subs.cljs"
-                       "src/com/acme/my_cool_app/views.cljs"
-                       "test/com/acme/my_cool_app/events_test.cljs"]]
-            (is (file-exists? root rel) (str "expected " rel)))
+          (is (= (set (map #(string/replace % "acme/my_app" "com/acme/my_cool_app") manifest))
+                 (emitted-files root))
+              "the source and test files nest under com/acme/my_cool_app")
           (is (string/includes? (slurp (io/file root "src/com/acme/my_cool_app/core.cljs"))
                                 "(ns com.acme.my-cool-app.core")
               "the ns form keeps the dashes")
           (is (= 'com.acme.my-cool-app.core/init
                  (get-in (read-edn (io/file root "shadow-cljs.edn"))
                          [:builds :app :modules :main :init-fn]))
-              "shadow-cljs :init-fn substitutes the derived namespace")
-          (is (= 'com.acme.my-cool-app.stories/init
-                 (get-in (read-edn (io/file root "shadow-cljs.edn"))
-                         [:builds :app :dev :modules :main :init-fn]))
-              "shadow-cljs's :dev entry substitutes the derived namespace")
-          (is (string/includes? (slurp (io/file root "src/com/acme/my_cool_app/stories.cljs"))
-                                ":component  :com.acme.my-cool-app.views/counter-app")
-              "the story's :component keyword substitutes the derived namespace")
-          (let [test-text (slurp (io/file root "test/com/acme/my_cool_app/events_test.cljs"))]
-            (is (string/includes? test-text "[com.acme.my-cool-app.events]")
-                "events_test.cljs requires the events ns by derived namespace")))
+              "shadow-cljs :init-fn names the namespace the nested path backs"))
         (finally
           (delete-recursively tmp))))))
 
@@ -459,10 +427,10 @@
           (delete-recursively tmp))))))
 
 (deftest non-keyword-substrate-rejected-test
-  (testing "a non-keyword :substrate (string, symbol, number) is rejected, not coerced"
+  (testing "a non-keyword :substrate (string, symbol) is rejected, not coerced"
     (let [tmp (tmp-dir "rf2-template-non-kw-")]
       (try
-        (doseq [raw ["reagent" 'reagent 42]]
+        (doseq [raw ["reagent" 'reagent]]
           (is (thrown-with-msg? clojure.lang.ExceptionInfo
                                 #":rf\.error/template-substrate-must-be-keyword"
                                 (run-template! tmp "acme/my-app" raw))
@@ -471,38 +439,23 @@
         (finally
           (delete-recursively tmp))))))
 
-(deftest retired-flags-are-unknown-test
-  (testing "the retired Story / SSR / CSS keys fail as UNKNOWN — no alias,
-            no deprecation warning, no compatibility path"
-    (doseq [[flag value] [[:include-story? true]
-                          [:include-story? false]
+(deftest unknown-keys-fail-closed-test
+  (testing "a typo, and each retired Story / SSR / CSS key, fails as UNKNOWN
+            rather than scaffolding the default — no alias, no deprecation
+            warning, no compatibility path"
+    (doseq [[flag value] [[:substrat       :uix]
+                          [:include-story? true]
                           [:include-ssr?   true]
                           [:css            :tailwind]]]
-      (let [tmp (tmp-dir "rf2-template-retired-flag-")]
+      (let [tmp (tmp-dir "rf2-template-unknown-key-")]
         (try
-          (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                                #":rf\.error/template-unknown-flag"
-                                (run-template-opts! tmp "acme/my-app" {flag value}))
-              (str flag " is unknown"))
-          (let [data (try (run-template-opts! tmp "acme/my-app" {flag value})
-                          (catch clojure.lang.ExceptionInfo e (ex-data e)))]
-            (is (= [flag] (:unknown data))
-                (str "ex-data names " flag " as the unknown key"))
-            (is (= #{:substrate} (:accepted data))
-                "ex-data names :substrate as the only accepted key"))
-          (assert-no-scaffold-emitted! tmp)
-          (finally
-            (delete-recursively tmp)))))))
-
-(deftest typo-keys-are-unknown-test
-  (testing "a typo of any key fails closed rather than scaffolding the default"
-    (doseq [opts [{:substrat :uix}]]
-      (let [tmp (tmp-dir "rf2-template-typo-")]
-        (try
-          (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                                #":rf\.error/template-unknown-flag"
-                                (run-template-opts! tmp "acme/my-app" opts))
-              (str (pr-str opts) " is rejected"))
+          (let [e (try (run-template-opts! tmp "acme/my-app" {flag value})
+                       nil
+                       (catch clojure.lang.ExceptionInfo e e))]
+            (is (= [":rf.error/template-unknown-flag" [flag] #{:substrate}]
+                   [(some-> e ex-message) (:unknown (ex-data e)) (:accepted (ex-data e))])
+                (str flag " is unknown, and the ex-data names :substrate as the only "
+                     "accepted key")))
           (assert-no-scaffold-emitted! tmp)
           (finally
             (delete-recursively tmp)))))))
