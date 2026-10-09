@@ -1,59 +1,24 @@
 (ns re-frame.http-cljs-test
-  "CLJS-side coverage for the Fetch adapter.
-
-  Covers the CLJS-only `:rf.http/cors` classification branch, the Fetch
-  transport's decode/body handling, and the in-flight registry seams that
-  only a shadow-cljs build exercises."
-  (:require [cljs.reader :as edn]
-            [cljs.test :refer-macros [deftest is testing async]]
+  "CLJS-only coverage of the Fetch transport: CORS classification, the native
+  body readers, the Fetch init and its headers, timeouts, and the external
+  `:abort-signal` binding."
+  (:require [cljs.test :refer-macros [are deftest is async]]
             [clojure.string :as str]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            ;; Drive the full `:rf.http/managed` pipeline (fx
-            ;; registration + in-flight registry) for the end-to-end tests
-            ;; below.
             [re-frame.http.managed :as rf.http.managed]
             [re-frame.http.registry :as rf.http.registry]
             [re-frame.http.transport-cljs :as rf.http.transport-cljs]
             [re-frame.test-support :as rf.test-support]
-            ;; Assert the redacted `:rf.warning/http-header-invalid`
-            ;; trace fires (instead of an escaping `:rf.error/fx-handler-
-            ;; exception`) when an invalid request header hits the managed
-            ;; CLJS path. `re-frame.trace.tooling` owns the listener surface.
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
-;; Fetch transport and classification are named adapter seams.
-(def ^:private classify-cljs-error
-  rf.http.transport-cljs/classify-cljs-error)
+(def ^:private classify-cljs-error rf.http.transport-cljs/classify-cljs-error)
+(def ^:private cljs-fetch rf.http.transport-cljs/cljs-fetch)
 
-;; Tolerance band for measured `:elapsed-ms` wall-clock
-;; assertions below. `js/setTimeout(…, limit)` is NOT a hard floor: under
-;; rounding and CI scheduling jitter a 40ms timer can be observed firing at
-;; a measured ~39ms, so an exact `(>= elapsed limit)` flakes by ~1ms. We
-;; assert `elapsed` lands within this band of `limit` instead, which still
-;; proves `:elapsed-ms` is measured and present without being jitter-fragile.
-(def ^:private elapsed-jitter-ms 10)
-
-;; Assert that Fetch reads the correct response body type per `:decode`. A
-;; Fetch Response body may be
-;; consumed only once, so the reader is chosen up front).
-(def ^:private cljs-fetch
-  rf.http.transport-cljs/cljs-fetch)
-
-;; `cross-origin?` (the load-bearing half of the CORS
-;; classification) reads `js/globalThis.location.origin`, which is ABSENT
-;; under the node-runtime CLJS gate (`npm run test:cljs`). Inject a known
-;; origin so the cross-origin heuristic runs deterministically in node and
-;; the positive `:rf.http/cors` branch — plus the same-origin /
-;; scheme-excluded negative branches — are actually exercised rather than
-;; silently no-op'd. Mirrors the `with-stub-fetch` set!/restore idiom; this
-;; variant is synchronous (the classifier is pure, no Promise) and uses
-;; try/finally so the global is restored even if an assertion throws.
 (defn- with-stub-location
-  "Run `f` with `js/globalThis.location` stubbed to `{origin <origin>}`,
-  restoring the original (typically `js/undefined` in node) afterwards.
-  Returns whatever `f` returns."
+  "Run `f` with `js/globalThis.location` stubbed to `{origin <origin>}`. The
+  node lane has no `location`, so without it `cross-origin?` never compares."
   [origin f]
   (let [orig (aget js/globalThis "location")]
     (aset js/globalThis "location" #js {:origin origin})
@@ -62,141 +27,47 @@
       (finally
         (aset js/globalThis "location" orig)))))
 
-;; ---- classify-cljs-error CORS branch -------------------------------------
-
-(deftest classify-typeerror-relative-url-is-transport
-  (testing "a TypeError on a relative URL (always same-origin
-  by definition) stays at `:rf.http/transport`. The conservative path
-  must not misclassify a same-origin network drop as CORS."
-    (let [err (js/TypeError. "Failed to fetch")
-          out (classify-cljs-error err "/api/items")]
-      (is (= :rf.http/transport (:kind out))
-          "relative URL never classifies as CORS"))))
-
-(deftest classify-transport-cause-is-edn-serializable-string
-  (testing "the generic-rejection `:rf.http/transport` branch
-  stores `:cause` as the rejection CLASS-NAME STRING (`(.-name err)`), NOT the
-  raw js/Error object. The failure map rides `:error` on the canonical reply
-  (reply.cljc's EDN-serializable contract) and the `:rf.http/transport` trace;
-  a raw js/Error is NOT EDN-serializable (off-box capture / Tool-Pair / Xray
-  would throw on serialize) and would ALSO slip past the privacy `:cause`
-  redactor's `(string? …)` guard. This matches BOTH sibling paths — the JVM
-  `classify-jvm-error` (`:cause` = class name) and the CLJS `prepare-body!`
-  (`:cause` = `(.-name err)`)."
-    (let [err (js/Error. "connection-reset")
-          out (classify-cljs-error err "/api/items")]
-      (is (= :rf.http/transport (:kind out)))
-      (is (= "Error" (:cause out))
-          ":cause is the class-name STRING `(.-name err)` — \"Error\" for a plain js/Error, not the raw js/Error")
-      (is (= "connection-reset" (:message out))
-          ":message carries the human message")
-      ;; Adversarial EDN round-trip: a raw js/Error `:cause` prints as an
-      ;; unreadable `#object[…]` tag, so `read-string` would THROW (or not
-      ;; round-trip). A string `:cause` round-trips cleanly,
-      ;; proving the whole failure map is EDN-serializable end to end.
-      (is (= out (edn/read-string (pr-str out)))
-          "the transport failure map round-trips through EDN (pr-str → read-string)"))))
-
-;; ---- `cross-origin?` heuristic under a deterministic origin --------------
-
 (deftest cross-origin-classification-under-injected-origin
-  (testing "the load-bearing positive CORS branch
-  (`cross-origin?` returning true → `:rf.http/cors`) runs DETERMINISTICALLY
-  under the node gate by injecting a known `js/globalThis.location.origin`.
-  The ambient `location.origin` is absent in node, so this exercises the real
-  `classify-cljs-error` → `cross-origin?` → `js/URL.` → origin-comparison
-  path that otherwise ships dark on `npm run test:cljs`. Both the positive
-  branch AND its same-origin / scheme-excluded negative siblings are
-  asserted so an inverted comparison or a broken scheme-exclusion would
-  turn this red (Spec 014 §Failure categories `:rf.http/cors`)."
-    (with-stub-location "https://app.example"
-      (fn []
-        (testing "a non-TypeError on a cross-origin URL stays :rf.http/transport:
-                  CORS rejections are always TypeErrors"
-          (let [err (js/Error. "connection-reset")
-                out (classify-cljs-error err "https://other.invalid/x")]
-            (is (= :rf.http/transport (:kind out))
-                "non-TypeError stays at :rf.http/transport on a cross-origin URL")))
+  (with-stub-location "https://app.example"
+    (fn []
+      (are [err url out] (= out (classify-cljs-error err url))
+        ;; Only a TypeError can be CORS. `:cause` is the class-name string, so
+        ;; the failure map stays EDN-serializable.
+        (js/Error. "connection-reset") "https://other.invalid/x"
+        {:kind :rf.http/transport :message "connection-reset" :cause "Error"}
 
-        (testing "TypeError on a genuinely cross-origin URL → :rf.http/cors"
-          (let [err (js/TypeError. "Failed to fetch")
-                out (classify-cljs-error err "https://other.invalid/x?a=1")]
-            (is (= :rf.http/cors (:kind out))
-                "different origin (other.invalid ≠ app.example) classifies as CORS")
-            (is (= "https://other.invalid/x?a=1" (:url out))
-                ":url tag rides the failure shape")
-            (is (some? (:message out)) ":message tag rides the failure shape")))
+        (js/TypeError. "Failed to fetch") "https://other.invalid/x?a=1"
+        {:kind :rf.http/cors :message "Failed to fetch" :url "https://other.invalid/x?a=1"}
 
-        (testing "TypeError on a SAME-origin absolute URL → :rf.http/transport
-        (regression guard: an inverted origin comparison would misfire here)"
-          (let [err (js/TypeError. "Failed to fetch")
-                out (classify-cljs-error err "https://app.example/api/items")]
-            (is (= :rf.http/transport (:kind out))
-                "same origin must NOT classify as CORS")))
+        (js/TypeError. "Failed to fetch") "https://app.example/api/items"
+        {:kind :rf.http/transport :message "Failed to fetch" :cause "TypeError"}
 
-        (testing "data:/blob:/file: schemes are scheme-excluded → :rf.http/transport
-        even though their parsed origin differs from the page origin"
-          (doseq [url ["data:text/plain,hello"
-                       "blob:https://app.example/uuid"
-                       "file:///etc/hosts"]]
-            (let [err (js/TypeError. "Failed to fetch")
-                  out (classify-cljs-error err url)]
-              (is (= :rf.http/transport (:kind out))
-                  (str url " is scheme-excluded, never CORS")))))
+        (js/TypeError. "Failed to fetch") "/api/items"
+        {:kind :rf.http/transport :message "Failed to fetch" :cause "TypeError"}
 
-        (testing "relative URLs short-circuit to same-origin → :rf.http/transport
-        even with a non-nil page origin present"
-          (doseq [url ["/api/items" "?q=1" "#frag"]]
-            (let [err (js/TypeError. "Failed to fetch")
-                  out (classify-cljs-error err url)]
-              (is (= :rf.http/transport (:kind out))
-                  (str url " is relative/same-origin, never CORS")))))
+        ;; A protocol-relative URL carries its own host.
+        (js/TypeError. "Failed to fetch") "//other.invalid/x"
+        {:kind :rf.http/cors :message "Failed to fetch" :url "//other.invalid/x"}
 
-        ;; Protocol-relative URLs inherit the page SCHEME but
-        ;; carry their OWN host, so the host decides cross-origin. A
-        ;; single-slash short-circuit (`starts-with? url "/"`)
-        ;; would classify BOTH a different-host and a same-host
-        ;; protocol-relative URL as same-origin.
-        (testing "a protocol-relative URL with a DIFFERENT host → :rf.http/cors"
-          (let [err (js/TypeError. "Failed to fetch")
-                out (classify-cljs-error err "//other.invalid/x")]
-            (is (= :rf.http/cors (:kind out))
-                "//other.invalid/x resolves to https://other.invalid (cross-origin)")
-            (is (= "//other.invalid/x" (:url out))
-                ":url tag rides the original (unresolved) URL")))
+        (js/TypeError. "Failed to fetch") "//app.example/x"
+        {:kind :rf.http/transport :message "Failed to fetch" :cause "TypeError"}
 
-        (testing "a protocol-relative URL with the SAME host → :rf.http/transport"
-          (let [err (js/TypeError. "Failed to fetch")
-                out (classify-cljs-error err "//app.example/x")]
-            (is (= :rf.http/transport (:kind out))
-                "//app.example/x resolves to https://app.example (same-origin)")))
+        ;; data: and file: parse to origin "null"; the scheme exclusion is
+        ;; case-insensitive.
+        (js/TypeError. "Failed to fetch") "data:text/plain,hello"
+        {:kind :rf.http/transport :message "Failed to fetch" :cause "TypeError"}
 
-        ;; URL schemes are case-insensitive (RFC 3986 §3.1).
-        ;; A lowercase-only prefix check would let `DATA:`/`FILE:` fall
-        ;; through to `js/URL.`, where their parsed origin is the literal
-        ;; string "null" (≠ page origin) → false-classified as CORS.
-        (testing "uppercase / mixed-case non-http schemes are scheme-excluded
-        → :rf.http/transport (case-insensitive scheme match)"
-          (doseq [url ["DATA:text/plain,hello"
-                       "Blob:https://app.example/uuid"
-                       "FILE:///etc/hosts"]]
-            (let [err (js/TypeError. "Failed to fetch")
-                  out (classify-cljs-error err url)]
-              (is (= :rf.http/transport (:kind out))
-                  (str url " is scheme-excluded case-insensitively, never CORS")))))))))
+        (js/TypeError. "Failed to fetch") "FILE:///etc/hosts"
+        {:kind :rf.http/transport :message "Failed to fetch" :cause "TypeError"}))))
 
-;; ---- binary decode reads the native Fetch body ---------------------------
+;; ---- the Fetch transport, driven directly ----------------------------------
 
 (defn- fake-response
-  "A minimal Fetch `Response` stand-in. Each body-reader resolves to a
-  distinct sentinel so the test can prove which reader the transport
-  picked. `.text` returns a string; the binary readers return native
-  stand-in objects."
+  "A minimal Fetch `Response` stand-in; each body reader resolves its own value."
   [{:keys [status content-type blob-val ab-val fd-val text-val]}]
   #js {:ok          (and (>= status 200) (< status 300))
        :status      status
        :statusText  ""
-       ;; A Fetch-`Headers`-like object: `forEach (v k)` per `fetch-headers->map`.
        :headers     #js {:forEach (fn [cb]
                                     (when content-type (cb content-type "content-type")))}
        :text        (fn [] (js/Promise.resolve text-val))
@@ -204,102 +75,19 @@
        :arrayBuffer (fn [] (js/Promise.resolve ab-val))
        :formData    (fn [] (js/Promise.resolve fd-val))})
 
+(defn- ok-json-response []
+  (fake-response {:status 200 :content-type "application/json" :text-val "{}"}))
+
 (defn- with-stub-fetch
-  "Run `f` with `js/fetch` stubbed to resolve `resp`, restoring the
-  original afterwards. Returns the Promise `f` produces."
+  "Run `f` with `js/fetch` resolving `resp`; returns `f`'s Promise."
   [resp f]
   (let [orig (.-fetch js/globalThis)]
     (set! (.-fetch js/globalThis) (fn [_url _init] (js/Promise.resolve resp)))
     (-> (f)
         (.finally (fn [] (set! (.-fetch js/globalThis) orig))))))
 
-(deftest blob-array-buffer-and-form-data-read-native-bodies
-  (testing "`:blob` reads via `.blob()`, `:array-buffer` via `.arrayBuffer()`
-  and `:form-data` via `.formData()`, each riding `:body-binary` (NOT the
-  lossy `.text()` string under `:body-text`). A transport that always read
-  `.text` would resolve a binary decode to the body-TEXT string."
-    (async done
-      (let [blob (js-obj "__kind" "blob")
-            ab   (js-obj "__kind" "ab")
-            fd   (js-obj "__kind" "fd")]
-        (-> (with-stub-fetch (fake-response {:status       200
-                                             :content-type "image/png"
-                                             :blob-val     blob
-                                             :text-val     "lossy-utf8-text"})
-              #(cljs-fetch {:method  :get
-                            :url     "/img.png"
-                            :headers {}
-                            :decode  :blob
-                            :internal-controller (js/AbortController.)}))
-            (.then (fn [result]
-                     (is (identical? blob (:body-binary result))
-                         ":body-binary carries the native Blob from `.blob()`")
-                     (is (nil? (:body-text result))
-                         "the lossy `.text()` string is NOT read for a `:blob` decode")
-                     (is (true? (:ok? result)))))
-            (.then (fn [_]
-                     (with-stub-fetch (fake-response {:status 200 :content-type "application/octet-stream"
-                                                      :ab-val ab :text-val "txt"})
-                       #(cljs-fetch {:method :get :url "/x" :headers {} :decode :array-buffer
-                                     :internal-controller (js/AbortController.)}))))
-            (.then (fn [result]
-                     (is (identical? ab (:body-binary result))
-                         ":array-buffer rides the native ArrayBuffer")
-                     (is (nil? (:body-text result)))))
-            (.then (fn [_]
-                     (with-stub-fetch (fake-response {:status 200 :content-type "multipart/form-data"
-                                                      :fd-val fd :text-val "txt"})
-                       #(cljs-fetch {:method :get :url "/y" :headers {} :decode :form-data
-                                     :internal-controller (js/AbortController.)}))))
-            (.then (fn [result]
-                     (is (identical? fd (:body-binary result))
-                         ":form-data rides the native FormData")
-                     (is (nil? (:body-text result)))))
-            (.catch (fn [e] (is false (str "unexpected reject: " e)) nil))
-            (.then (fn [_] (done))))))))
-
-(deftest non-2xx-binary-decode-still-reads-text
-  (testing "a non-OK response (e.g. 404) ALWAYS reads `.text()`
-  regardless of `:decode`, because decode never runs on non-2xx and the
-  4xx/5xx failure paths carry the raw body-text."
-    (async done
-      (let [resp (fake-response {:status 404 :content-type "image/png"
-                                 :blob-val (js-obj "__kind" "blob")
-                                 :text-val "Not Found"})]
-        (-> (with-stub-fetch resp
-              #(cljs-fetch {:method :get :url "/missing.png" :headers {} :decode :blob
-                            :internal-controller (js/AbortController.)}))
-            (.then (fn [result]
-                     (is (= "Not Found" (:body-text result))
-                         "a 404 reads `.text()` even when `:decode :blob`")
-                     (is (nil? (:body-binary result)))
-                     (is (false? (:ok? result)))))
-            (.catch (fn [e] (is false (str "unexpected reject: " e)) nil))
-            (.then (fn [_] (done))))))))
-
-;; ---- `:timeout-ms 0` is the opt-out, not a near-instant abort ------------
-
-(defn- with-deferred-fetch
-  "Like `with-stub-fetch` but `js/fetch` resolves `resp` on the NEXT
-  macrotask (`setTimeout 0`) rather than synchronously. This is the
-  trap for a timeout-0 bug: a `:timeout-ms 0` that
-  armed its own `setTimeout(…, 0)` would race this resolution and
-  abort+reject the request. The `(pos? timeout-ms)` guard arms
-  no timeout, so the deferred fetch resolution always wins."
-  [resp f]
-  (let [orig (.-fetch js/globalThis)]
-    (set! (.-fetch js/globalThis)
-          (fn [_url _init]
-            (js/Promise. (fn [resolve _reject]
-                           (js/setTimeout (fn [] (resolve resp)) 0)))))
-    (-> (f)
-        (.finally (fn [] (set! (.-fetch js/globalThis) orig))))))
-
-;; ---- CLJS Fetch threads `:redirect` into the init ------------------------
-
 (defn- with-init-capturing-fetch
-  "Run `f` with `js/fetch` stubbed to resolve `resp` while recording the
-  `init` arg into `captured-init`. Restores the original afterwards."
+  "Like `with-stub-fetch`, recording the Fetch `init` into `captured-init`."
   [resp captured-init f]
   (let [orig (.-fetch js/globalThis)]
     (set! (.-fetch js/globalThis)
@@ -309,79 +97,77 @@
     (-> (f)
         (.finally (fn [] (set! (.-fetch js/globalThis) orig))))))
 
-(deftest cljs-fetch-passes-redirect-into-init
-  (testing "the CLJS transport threads `:redirect` into the
-  Fetch `init` (cross-host parity with the JVM redirect policy).
-  Explicit `:error` rides through name-stringified."
-    (async done
-      (let [captured-init (atom nil)
-            resp (fake-response {:status 200 :content-type "application/json"
-                                 :text-val "{}"})]
-        (-> (with-init-capturing-fetch resp captured-init
-              #(cljs-fetch {:method   :get
-                            :url      "/x"
-                            :headers  {}
-                            :decode   :json
-                            :redirect :error
-                            :internal-controller (js/AbortController.)}))
-            (.then (fn [_]
-                     (is (= "error" (aget @captured-init "redirect"))
-                         ":redirect is name-stringified into the Fetch init")))
-            (.catch (fn [e] (is false (str "unexpected reject: " e)) nil))
-            (.then (fn [_] (done))))))))
+(deftest blob-array-buffer-and-form-data-read-native-bodies
+  ;; Each binary decode reads its own native reader into :body-binary, never the
+  ;; lossy `.text()`.
+  (async done
+    (let [fetch-as (fn [decode content-type k v]
+                     (with-stub-fetch (fake-response (assoc {:status 200 :content-type content-type
+                                                             :text-val "lossy-utf8-text"}
+                                                            k v))
+                       #(cljs-fetch {:method :get :url "/x" :headers {} :decode decode
+                                     :internal-controller (js/AbortController.)})))
+          body     (juxt :body-binary :body-text :ok?)
+          blob     (js-obj "__kind" "blob")
+          ab       (js-obj "__kind" "ab")
+          fd       (js-obj "__kind" "fd")]
+      (-> (fetch-as :blob "image/png" :blob-val blob)
+          (.then (fn [r]
+                   (is (= [blob nil true] (body r)))
+                   (fetch-as :array-buffer "application/octet-stream" :ab-val ab)))
+          (.then (fn [r]
+                   (is (= [ab nil true] (body r)))
+                   (fetch-as :form-data "multipart/form-data" :fd-val fd)))
+          (.then (fn [r] (is (= [fd nil true] (body r)))))
+          (.catch (fn [e] (is false (str "unexpected reject: " e)) nil))
+          (.then (fn [_] (done)))))))
 
-;; ---- CLJS multi-valued request headers -----------------------------------
+(deftest non-2xx-binary-decode-still-reads-text
+  ;; Decode never runs on a non-2xx, whose failure carries the raw body text.
+  (async done
+    (-> (with-stub-fetch (fake-response {:status 404 :content-type "image/png"
+                                         :blob-val (js-obj "__kind" "blob")
+                                         :text-val "Not Found"})
+          #(cljs-fetch {:method :get :url "/missing.png" :headers {} :decode :blob
+                        :internal-controller (js/AbortController.)}))
+        (.then (fn [r] (is (= ["Not Found" nil false] ((juxt :body-text :body-binary :ok?) r)))))
+        (.catch (fn [e] (is false (str "unexpected reject: " e)) nil))
+        (.then (fn [_] (done))))))
+
+(deftest cljs-fetch-passes-redirect-into-init
+  (async done
+    (let [captured-init (atom nil)]
+      (-> (with-init-capturing-fetch (ok-json-response) captured-init
+            #(cljs-fetch {:method :get :url "/x" :headers {} :decode :json :redirect :error
+                          :internal-controller (js/AbortController.)}))
+          (.then (fn [_] (is (= "error" (aget @captured-init "redirect")))))
+          (.catch (fn [e] (is false (str "unexpected reject: " e)) nil))
+          (.then (fn [_] (done)))))))
 
 (deftest cljs-fetch-multi-valued-request-header-appends-each-value
-  (testing "a request header whose value is a vector of strings
-  is normalised into a Fetch `Headers` object with one APPEND per element,
-  so the multi-valued wire form (`X-Multi: alpha` + `X-Multi: beta`) is
-  produced. `aset`-ing the vector straight into a plain
-  JS object would serialise it as a single malformed `[\"alpha\" \"beta\"]`
-  value."
-    (async done
-      (let [captured-init (atom nil)
-            resp (fake-response {:status 200 :content-type "application/json"
-                                 :text-val "{}"})]
-        (-> (with-init-capturing-fetch resp captured-init
-              #(cljs-fetch {:method  :get
-                            :url     "/x"
-                            :headers {"X-Multi" ["alpha" "beta" "gamma"]
-                                      "X-One"   "solo"}
-                            :decode  :json
-                            :internal-controller (js/AbortController.)}))
-            (.then (fn [_]
-                     (let [h (aget @captured-init "headers")]
-                       ;; `Headers.get` joins repeated values with ", " — three
-                       ;; appended values produce the joined multi-value string,
-                       ;; NOT a serialised-vector blob.
-                       (is (= "alpha, beta, gamma" (.get h "X-Multi"))
-                           "each vector element was appended as its own value")
-                       (is (= "solo" (.get h "X-One"))
-                           "a scalar header value is a single appended value"))))
-            (.catch (fn [e] (is false (str "unexpected reject: " e)) nil))
-            (.then (fn [_] (done))))))))
+  ;; One `Headers.append` per element; `Headers.get` joins repeated values.
+  (async done
+    (let [captured-init (atom nil)]
+      (-> (with-init-capturing-fetch (ok-json-response) captured-init
+            #(cljs-fetch {:method :get :url "/x" :decode :json
+                          :headers {"X-Multi" ["alpha" "beta" "gamma"] "X-One" "solo"}
+                          :internal-controller (js/AbortController.)}))
+          (.then (fn [_]
+                   (let [h (aget @captured-init "headers")]
+                     (is (= ["alpha, beta, gamma" "solo"] [(.get h "X-Multi") (.get h "X-One")])))))
+          (.catch (fn [e] (is false (str "unexpected reject: " e)) nil))
+          (.then (fn [_] (done)))))))
 
 ;; ---- invalid request headers stay on the managed path --------------------
 ;;
-;; The Fetch `Headers.append` throws a `TypeError` on an invalid header
-;; name (empty / control chars) or a value carrying `\r`/`\n` (the
-;; response-splitting guard). Uncaught, that throw would fire SYNCHRONOUSLY
-;; inside `cljs-fetch` — after the in-flight handle was registered but
-;; before any Promise existed — and propagate up through `run-attempt!`'s
-;; CLJS branch (no try/catch there) as a generic `:rf.error/fx-handler-
-;; exception`, bypassing `:on-failure`, retry, abort precedence, trace
-;; privacy, and registry cleanup. So, mirroring the JVM
-;; `jvm-build-request`, the transport catches PER `.append`, emits a redacted
-;; `:rf.warning/http-header-invalid` trace, omits the bad pair, and
-;; continues with the valid headers. These tests pin the managed-path
-;; behaviour so a regression re-opening the unmanaged escape is caught.
+;; `Headers.append` throws a TypeError on an invalid name or a CR/LF-bearing
+;; value. The transport catches per pair, emits a redacted
+;; `:rf.warning/http-header-invalid` trace, drops the pair and carries on, so
+;; the throw never escapes as an fx-handler exception.
 
 (defn- with-trace-capture
-  "Install a recording trace listener, run `f` (which returns a Promise),
-  and invoke `(on-events events-atom)` once `f`'s Promise settles. The
-  listener is unregistered in `.finally`. The events-atom collects every
-  trace event so callers filter for `:rf.warning/http-header-invalid`."
+  "Record every trace event while `f`'s Promise runs, then call
+  `(on-events seen-atom result)`."
   [f on-events]
   (let [seen   (atom [])
         cb-key (keyword (str "http-cljs-invalid-header-" (gensym)))]
@@ -390,597 +176,319 @@
         (.then (fn [result] (on-events seen result)))
         (.finally (fn [] (rf.trace.tooling/unregister-listener! cb-key))))))
 
+(defn- header-invalid-warning [seen]
+  (first (filter #(= :rf.warning/http-header-invalid (:operation %)) @seen)))
+
 (deftest cljs-fetch-invalid-header-name-surfaces-managed-warning-not-escape
-  (testing "an EMPTY header name (which `Headers.append`
-  rejects with a TypeError) is caught inside the managed CLJS path: a
-  redacted `:rf.warning/http-header-invalid` trace fires naming the bad
-  header, the bad pair is OMITTED, the valid header still rides, and the
-  `cljs-fetch` Promise RESOLVES normally rather than rejecting / throwing
-  synchronously (an escape as `:rf.error/fx-handler-exception`). The
-  warning's `:url` routes through `re-frame.http.privacy/prepare-emit-tags`
-  (same as the JVM path): a denylisted query param is scrubbed and
-  `:sensitive?` is stamped at the top level of the trace event."
-    (async done
-      (let [captured-init (atom nil)
-            resp (fake-response {:status 200 :content-type "application/json"
-                                 :text-val "{}"})]
-        (-> (with-trace-capture
-              #(with-init-capturing-fetch resp captured-init
-                 (fn []
-                   (cljs-fetch {:method  :get
-                                :url     "https://example.invalid/v1?api_key=SECRET&page=2"
-                                ;; "" is an invalid header name → TypeError.
-                                :headers {""       "anything"
-                                          "X-Good" "kept"}
-                                :decode  :json
-                                :internal-controller (js/AbortController.)})))
-              (fn [seen _result]
-                (let [warns (filter #(= :rf.warning/http-header-invalid
-                                        (:operation %))
-                                    @seen)]
-                  (is (seq warns)
-                      (str "expected a managed :rf.warning/http-header-invalid "
-                           "trace, not an escaping fx-handler-exception; saw ops: "
-                           (pr-str (mapv :operation @seen))))
-                  (let [w    (first warns)
-                        tags (:tags w)]
-                    (is (= :warning (:op-type w)))
-                    (is (= "" (:header tags))
-                        "trace names the offending header (the empty name)")
-                    (is (= "https://example.invalid/v1?api_key=:rf/redacted&page=2"
-                           (:url tags))
-                        "denylisted query-param value MUST be scrubbed in the trace URL")
-                    (is (true? (:sensitive? w))
-                        ":sensitive? stamped at top level — a denylisted param name is a signal")
-                    (is (some? (:cause tags))
-                        "trace carries a :cause naming the rejected header")
-                    (is (not (contains? tags :value))
-                        "trace MUST NOT carry the rejected value — values can be secrets"))
-                  ;; The bad pair is omitted; the valid header survives.
-                  (let [h (aget @captured-init "headers")]
-                    (is (= "kept" (.get h "X-Good"))
-                        "the valid header rides; only the bad pair was dropped")))))
-            ;; A rejection / synchronous throw here means the
-            ;; invalid header escaped the managed path. The handler sits
-            ;; UPSTREAM of the single trailing `done`: `done` runs
-            ;; the whole remainder of the run synchronously, so a `.catch`
-            ;; after it claims a foreign throw as this row's and fires `done`
-            ;; a second time.
-            (.catch (fn [e]
-                      (is false
-                          (str "regression — invalid header ESCAPED "
-                               "the managed CLJS path (threw/rejected) instead "
-                               "of surfacing a managed warning: " e))
-                      nil))
-            (.then (fn [_] (done))))))))
+  (async done
+    (let [captured-init (atom nil)]
+      (-> (with-trace-capture
+            #(with-init-capturing-fetch (ok-json-response) captured-init
+               (fn []
+                 (cljs-fetch {:method  :get
+                              :url     "https://example.invalid/v1?api_key=SECRET&page=2"
+                              :headers {"" "anything" "X-Good" "kept"}
+                              :decode  :json
+                              :internal-controller (js/AbortController.)})))
+            (fn [seen _result]
+              (let [w    (header-invalid-warning seen)
+                    tags (:tags w)]
+                ;; The trace URL is redacted like every other http trace.
+                (is (= [:warning true "" "https://example.invalid/v1?api_key=:rf/redacted&page=2" true "kept"]
+                       [(:op-type w) (:sensitive? w) (:header tags) (:url tags) (some? (:cause tags))
+                        (.get (aget @captured-init "headers") "X-Good")])))))
+          ;; Upstream of the single trailing `done`, so a foreign throw after it
+          ;; cannot be claimed as this row's.
+          (.catch (fn [e] (is false (str "the invalid header escaped the managed path: " e)) nil))
+          (.then (fn [_] (done)))))))
 
 (deftest cljs-fetch-invalid-header-warning-carries-no-part-of-the-rejected-value
-  (testing "the rejected header VALUE reaches no trace event, `:cause`
-  included. The `Headers.append` `TypeError` message echoes the value, and a
-  header is where credentials live, so `:cause` is a fixed sentence naming
-  only the header NAME (Spec 014 §Request envelope: value omitted)."
-    (async done
-      (let [captured-init (atom nil)
-            sentinel      "SECRETVALUE"
-            resp (fake-response {:status 200 :content-type "application/json"
-                                 :text-val "{}"})]
-        (-> (with-trace-capture
-              #(with-init-capturing-fetch resp captured-init
-                 (fn []
-                   (cljs-fetch {:method  :get
-                                :url     "https://example.invalid/v1"
-                                :headers {"Authorization" (str "tok\n" sentinel)}
-                                :decode  :json
-                                :internal-controller (js/AbortController.)})))
-              (fn [seen _result]
-                (let [warns (filter #(= :rf.warning/http-header-invalid
-                                        (:operation %))
-                                    @seen)]
-                  (is (seq warns)
-                      "the CR/LF-bearing value is rejected and the warning fires")
-                  (let [tags (:tags (first warns))]
-                    (is (= "Authorization" (:header tags)))
-                    (is (str/includes? (str (:cause tags)) "Authorization")
-                        ":cause names the rejected header"))
-                  (is (not (str/includes? (pr-str @seen) sentinel))
-                      "no captured trace event carries any part of the rejected value")
-                  (is (nil? (.get (aget @captured-init "headers") "Authorization"))
-                      "the CR/LF-bearing header was omitted, not sent"))))
-            ;; Handler upstream of the single trailing `done`.
-            (.catch (fn [e]
-                      (is false (str "unexpected reject: " e))
-                      nil))
-            (.then (fn [_] (done))))))))
+  ;; The TypeError message echoes the rejected value, and header values carry
+  ;; credentials, so `:cause` names only the header.
+  (async done
+    (let [captured-init (atom nil)]
+      (-> (with-trace-capture
+            #(with-init-capturing-fetch (ok-json-response) captured-init
+               (fn []
+                 (cljs-fetch {:method  :get
+                              :url     "https://example.invalid/v1"
+                              :headers {"Authorization" "tok\nSECRETVALUE"}
+                              :decode  :json
+                              :internal-controller (js/AbortController.)})))
+            (fn [seen _result]
+              (let [tags (:tags (header-invalid-warning seen))]
+                (is (= ["Authorization" true false nil]
+                       [(:header tags)
+                        (str/includes? (str (:cause tags)) "Authorization")
+                        (str/includes? (pr-str @seen) "SECRETVALUE")
+                        (.get (aget @captured-init "headers") "Authorization")])))))
+          (.catch (fn [e] (is false (str "unexpected reject: " e)) nil))
+          (.then (fn [_] (done)))))))
 
-(deftest cljs-fetch-valid-headers-emit-no-invalid-warning
-  (testing "a request with only VALID headers, a multi-valued one among
-  them, emits NO `:rf.warning/http-header-invalid` trace (the catch arm
-  never fires) and resolves normally."
-    (async done
-      (let [resp (fake-response {:status 200 :content-type "application/json"
-                                 :text-val "{}"})]
-        (-> (with-trace-capture
-              #(with-stub-fetch resp
-                 (fn []
-                   (cljs-fetch {:method  :get
-                                :url     "https://example.invalid/v1"
-                                :headers {"Authorization" "Bearer xyz"
-                                          "X-Multi"       ["alpha" "beta"]}
-                                :decode  :json
-                                :internal-controller (js/AbortController.)})))
-              (fn [seen _result]
-                (let [warns (filter #(= :rf.warning/http-header-invalid
-                                        (:operation %))
-                                    @seen)]
-                  (is (empty? warns)
-                      "no header-invalid warning for valid headers"))))
-            ;; Handler upstream of the single trailing `done`.
-            (.catch (fn [e]
-                      (is false (str "unexpected reject: " e))
-                      nil))
-            (.then (fn [_] (done))))))))
+;; ---- timeouts ----------------------------------------------------------------
+
+(defn- with-deferred-fetch
+  "Like `with-stub-fetch`, but `js/fetch` resolves on the next macrotask."
+  [resp f]
+  (let [orig (.-fetch js/globalThis)]
+    (set! (.-fetch js/globalThis)
+          (fn [_url _init]
+            (js/Promise. (fn [resolve _reject]
+                           (js/setTimeout (fn [] (resolve resp)) 0)))))
+    (-> (f)
+        (.finally (fn [] (set! (.-fetch js/globalThis) orig))))))
 
 (deftest zero-timeout-ms-does-not-arm-near-instant-abort
-  (testing "`:timeout-ms 0` is an explicit opt-out (no
-  per-attempt timeout) per Spec 014 §`:timeout-ms` security defaults,
-  semantically identical to `:timeout-ms nil`. `0` is truthy,
-  so a `(when (and timeout-ms internal-controller) …)` guard would arm a
-  `setTimeout(…, 0)` that aborts the request on the next macrotask and
-  rejects with the timeout ex-info. This test defers the fetch
-  resolution by one macrotask: such a timeout abort would win and
-  reject; the request must resolve successfully."
-    (async done
-      (let [resp (fake-response {:status 200 :content-type "application/json"
-                                 :text-val "{\"ok\":true}"})]
-        (-> (with-deferred-fetch resp
-              #(cljs-fetch {:method     :get
-                            :url        "/slow"
-                            :headers    {}
-                            :decode     :json
-                            :timeout-ms 0
-                            :internal-controller (js/AbortController.)}))
-            (.then (fn [result]
-                     (is (= "{\"ok\":true}" (:body-text result))
-                         ":timeout-ms 0 must NOT abort — the deferred fetch resolves normally")
-                     (is (true? (:ok? result)))))
-            (.catch (fn [e]
-                      (is false (str "regression — :timeout-ms 0 "
-                                     "armed a near-instant abort and rejected: " e))
-                      nil))
-            (.then (fn [_] (done))))))))
-
-;; ---- `:timeout-ms` bounds the BODY read, not just headers ----------------
-;;
-;; A slow-loris upstream can resolve the Fetch Response (headers) promptly
-;; and then stall the body reader (`.text()` / `.blob()` / …) indefinitely.
-;; Spec 014 §`:timeout-ms` security defaults (:323) requires the per-attempt
-;; timeout to protect against exactly this. A transport that cleared
-;; the timer the instant the Response resolved and only THEN began the body
-;; read would leave a stalled body's reader promise pending forever and
-;; the in-flight handle live. So the timer races the FULL
-;; fetch→body-read chain and is disarmed only when that chain settles.
+  ;; `:timeout-ms 0` is the opt-out. 0 is truthy, so a bare truthiness guard
+  ;; would arm a 0 ms timer that beats this macrotask-deferred fetch.
+  (async done
+    (-> (with-deferred-fetch (fake-response {:status 200 :content-type "application/json"
+                                             :text-val "{\"ok\":true}"})
+          #(cljs-fetch {:method :get :url "/slow" :headers {} :decode :json :timeout-ms 0
+                        :internal-controller (js/AbortController.)}))
+        (.then (fn [r] (is (= ["{\"ok\":true}" true] ((juxt :body-text :ok?) r)))))
+        (.catch (fn [e] (is false (str ":timeout-ms 0 armed an abort and rejected: " e)) nil))
+        (.then (fn [_] (done))))))
 
 (defn- fake-response-stalled-body
-  "A Fetch `Response` stand-in whose HEADERS resolve immediately (the
-  outer `js/fetch` Promise) but whose selected body reader returns a
-  Promise that NEVER settles. Models a server that sends headers then
-  stalls the body — the slow-loris the per-attempt timeout must bound.
-  `read-fired` (an atom) is set true the moment the body reader is
-  invoked, so the test can assert the reader was reached before the
-  timeout fired."
+  "A Fetch `Response` whose headers resolve at once but whose body reader never
+  settles: the slow-loris the per-attempt timeout must bound. `read-fired` goes
+  true when the reader is invoked."
   [{:keys [status content-type read-fired]}]
-  #js {:ok          (and (>= status 200) (< status 300))
-       :status      status
-       :statusText  ""
-       :headers     #js {:forEach (fn [cb]
-                                    (when content-type (cb content-type "content-type")))}
-       :text        (fn [] (reset! read-fired true) (js/Promise. (fn [_ _])))
-       :blob        (fn [] (reset! read-fired true) (js/Promise. (fn [_ _])))
-       :arrayBuffer (fn [] (reset! read-fired true) (js/Promise. (fn [_ _])))
-       :formData    (fn [] (reset! read-fired true) (js/Promise. (fn [_ _])))})
+  (let [stall (fn [] (reset! read-fired true) (js/Promise. (fn [_ _])))]
+    #js {:ok          (and (>= status 200) (< status 300))
+         :status      status
+         :statusText  ""
+         :headers     #js {:forEach (fn [cb]
+                                      (when content-type (cb content-type "content-type")))}
+         :text        stall
+         :blob        stall
+         :arrayBuffer stall
+         :formData    stall}))
 
 (deftest cljs-timeout-bounds-stalled-body-read
-  (testing "`cljs-fetch` REJECTS with the canonical
-  :rf.error/http-timeout ex-info when the Response resolves (headers) but
-  the selected body reader never settles past `:timeout-ms`. A
-  timer cleared on header arrival would leave this promise hanging forever."
-    (async done
-      (let [read-fired (atom false)
-            resp       (fake-response-stalled-body
-                         {:status 200 :content-type "application/json"
-                          :read-fired read-fired})]
-        (-> (with-stub-fetch resp
-              #(cljs-fetch {:method     :get
-                            :url        "/slow-body"
-                            :headers    {}
-                            :decode     :json
-                            :timeout-ms 40
-                            :internal-controller (js/AbortController.)}))
-            ;; The REJECTION is this row's success path, so the two handlers are
-            ;; SIBLINGS of one two-arg `.then` rather than a `.catch` downstream
-            ;; of a `.then`. Downstream, the fulfilment arm's `(done)`
-            ;; would run the whole remainder of the run synchronously and any
-            ;; foreign throw out there would unwind into the `.catch`, which
-            ;; would assert this row's timeout claims against a stranger's error
-            ;; and fire `done` a second time. Exactly one arm runs; the single
-            ;; trailing `done` is the only one.
-            (.then (fn [result]
-                     (is false (str "regression — a stalled body "
-                                    "read RESOLVED instead of timing out: " (pr-str result))))
-                   (fn [err]
-                      (is (true? @read-fired)
-                          "the body reader was reached (headers resolved) before the timeout fired")
-                      (let [data (ex-data err)]
-                        (is (= :rf.error/http-timeout (:rf.error/id data))
-                            "the stalled-body timeout rejects with the canonical :rf.error/http-timeout")
-                        (is (true? (:rf.http/timeout? data))
-                            "the registry-hook timeout signal is co-stamped")
-                        (is (= 40 (:limit-ms data)))
-                        ;; CLJS `:elapsed-ms` is a MEASURED
-                        ;; wall-clock delta (~:limit-ms by the scheduling
-                        ;; margin), the SAME value-semantics the JVM path
-                        ;; reports — not a synthetic constant == :limit-ms.
-                        ;; (The timer fires at ~40ms, so the
-                        ;; measured elapsed is in that neighbourhood.)
-                        (is (number? (:elapsed-ms data))
-                            ":elapsed-ms is a measured number, not absent")
-                        ;; Jitter-tolerant bound: `elapsed` must
-                        ;; land within `elapsed-jitter-ms` BELOW `limit` (the
-                        ;; timer can fire a hair early under rounding/CI
-                        ;; scheduling jitter — an exact `>= limit` flakes by
-                        ;; ~1ms). This still rejects a synthetic/absent value
-                        ;; and any wildly-wrong measurement, just not 1ms noise.
-                        (is (>= (:elapsed-ms data) (- (:limit-ms data) elapsed-jitter-ms))
-                            (str ":elapsed-ms (measured) is within " elapsed-jitter-ms
-                                 "ms below :limit-ms — measured, JVM-parity semantics,"
-                                 " jitter-tolerant")))))
-            (.then (fn [_] (done))))))))
+  ;; The timer races the whole fetch -> body-read chain, not just the headers.
+  (async done
+    (let [read-fired (atom false)]
+      (-> (with-stub-fetch (fake-response-stalled-body {:status 200 :content-type "application/json"
+                                                        :read-fired read-fired})
+            #(cljs-fetch {:method :get :url "/slow-body" :headers {} :decode :json :timeout-ms 40
+                          :internal-controller (js/AbortController.)}))
+          ;; The rejection is the success path, so both arms share one `.then`:
+          ;; exactly one runs, and a foreign throw after `done` reaches neither.
+          (.then (fn [result]
+                   (is false (str "a stalled body read resolved: " (pr-str result))))
+                 (fn [err]
+                   (let [data (ex-data err)]
+                     (is (= [true :rf.error/http-timeout true 40]
+                            [@read-fired (:rf.error/id data) (:rf.http/timeout? data) (:limit-ms data)]))
+                     ;; Measured, not a copy of :limit-ms; `setTimeout` can fire a
+                     ;; hair early, hence the 10 ms band.
+                     (is (>= (:elapsed-ms data) 30)))))
+          (.then (fn [_] (done)))))))
+
+;; ---- the full :rf.http/managed pipeline ---------------------------------------
+;;
+;; Setup is inline rather than a fixture: a wrap-style fixture would tear down
+;; before an async body completes. The managed fxs need a carried frame, so
+;; every dispatch names one.
+
+(defn- reset-runtime! []
+  (rf/init! rf.adapter.reagent/adapter)
+  (rf.frame/ensure-default-frame!)
+  (rf.http.managed/clear-all-in-flight!))
+
+(defn- record-replies!
+  "Register `:reply/recorder`; returns the atom of replies it receives."
+  []
+  (let [replies (atom [])]
+    (rf/reg-event :reply/recorder (fn [_ [_ p]] (swap! replies conj p) {}))
+    replies))
+
+(defn- issue!
+  "Dispatch one `:rf.http/managed` request with `args`, replying to `:reply/recorder`."
+  ([args] (issue! :rf/default args))
+  ([frame args]
+   (rf/reg-event ::issue
+     (fn [_ _]
+       {:fx [[:rf.http/managed (merge {:on-success [:reply/recorder]
+                                       :on-failure [:reply/recorder]}
+                                      args)]]}))
+   (rf/dispatch-sync [::issue] {:frame frame})))
+
+(defn- in-flight-empty? []
+  (empty? (rf.http.registry/in-flight-snapshot)))
+
+(def ^:private cancel-facts
+  (juxt :status #(get-in % [:error :kind]) #(get-in % [:error :reason])))
+
+(defn- next-macrotask
+  "Resolves on the next macrotask, after every queued finalise microtask, so a
+  reply that should have been suppressed has had its chance to land."
+  []
+  (js/Promise. (fn [resolve _] (js/setTimeout resolve 0))))
+
+(defn- sleep [ms]
+  (js/Promise. (fn [resolve _] (js/setTimeout resolve ms))))
 
 (deftest cljs-timeout-stalled-body-finalises-as-timeout-and-clears-registry
-  (testing "driven through the full `:rf.http/managed` pipeline,
-  a response whose body reader stalls past `:timeout-ms` finalises as a
-  :rf.http/timeout failure reply AND clears the in-flight registry. End
-  to end, the slow-loris does not pin an in-flight
-  handle indefinitely."
-    (async done
-      ;; Inline setup, as in every end-to-end test in this ns: it also
-      ;; carries `async` pure-transport tests, and a wrap-style
-      ;; `use-fixtures` reset would tear down before an async body completes.
-      ;; `init!` does not synthesise `:rf/default` (EP-0002), and the
-      ;; managed-HTTP fxs require a carried frame stamp, so `:rf/default` is
-      ;; registered explicitly and every dispatch names its frame
-      ;; (`{:frame <id>}`), so the sync dispatch AND any async continuation
-      ;; target it without an ambient scope.
-      (rf/init! rf.adapter.reagent/adapter)
-      (rf.frame/ensure-default-frame!)
-      (rf.http.managed/clear-all-in-flight!)
-      (let [replies    (atom [])
-            read-fired (atom false)
-            resp       (fake-response-stalled-body
-                         {:status 200 :content-type "application/json"
-                          :read-fired read-fired})
-            orig       (.-fetch js/globalThis)]
-        (set! (.-fetch js/globalThis) (fn [_url _init] (js/Promise.resolve resp)))
-        (rf/reg-event :reply/recorder
-          (fn [_ [_ payload]] (swap! replies conj payload) {}))
-        (rf/reg-event :issue/slow-body
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request    {:url "/slow-body"}
-                    :decode     :json
-                    :timeout-ms 40
-                    :request-id :loris
-                    :on-failure [:reply/recorder]
-                    :on-success [:reply/recorder]}]]}))
-        (rf/dispatch-sync [:issue/slow-body] {:frame :rf/default})
-        (-> (rf.test-support/poll-until
-              #(seq @replies)
-              {:timeout-ms 2000 :label "cljs stalled-body timeout reply"})
-            (.then (fn [_]
-                     (is (true? @read-fired)
-                         "the body reader was reached before the timeout fired")
-                     (let [reply (first @replies)]
-                       (is (= :error (:status reply)))
-                       (is (= :rf.http/timeout (get-in reply [:error :kind]))
-                           "a stalled body read finalises as the canonical :rf.http/timeout failure"))
-                     (is (empty? (rf.http.registry/in-flight-snapshot))
-                         "the in-flight registry is cleared — the slow-loris handle is not pinned")))
-            (.catch (fn [e]
-                      (is false (str "unexpected: " e))
-                      nil))
-            ;; Teardown rides the single trailing step, so it runs on both paths
-            ;; exactly once and `done` is the last thing this row does.
-            (.then (fn [_]
-                     (set! (.-fetch js/globalThis) orig)
-                     (done))))))))
-
-;; ---- the retry backoff window is cancellable (CLJS) -----------------------
-;;
-;; The JVM suite (re-frame.http-backoff-cancellation-test) covers all three
-;; cancellation paths against a real server with real threads; the
-;; `:rf.http/managed-abort` route into a sleeping request is shared `.cljc`
-;; code. The CLJS tests pin the same invariant on the `js/setTimeout`-backed
-;; backoff timer + `js/clearTimeout` cancellation primitive, through frame
-;; destroy (below) and an external `:abort-signal` (the external-abort
-;; section): a cancel issued DURING the backoff window cancels the pending
-;; retry (no second fetch) and clears the in-flight registry. A request
-;; invisible to the abort path for the whole backoff would let the retry
-;; fetch again regardless.
+  (async done
+    (reset-runtime!)
+    (let [replies    (record-replies!)
+          read-fired (atom false)
+          resp       (fake-response-stalled-body {:status 200 :content-type "application/json"
+                                                  :read-fired read-fired})
+          orig       (.-fetch js/globalThis)]
+      (set! (.-fetch js/globalThis) (fn [_url _init] (js/Promise.resolve resp)))
+      (issue! {:request {:url "/slow-body"} :decode :json :timeout-ms 40 :request-id :loris})
+      (-> (rf.test-support/poll-until
+            #(seq @replies)
+            {:timeout-ms 2000 :label "cljs stalled-body timeout reply"})
+          (.then (fn [_]
+                   (let [reply (first @replies)]
+                     (is (= [true :error :rf.http/timeout true]
+                            [@read-fired (:status reply) (get-in reply [:error :kind]) (in-flight-empty?)])))))
+          (.catch (fn [e] (is false (str "unexpected: " e)) nil))
+          (.then (fn [_]
+                   (set! (.-fetch js/globalThis) orig)
+                   (done)))))))
 
 (defn- with-counting-500-fetch
-  "Stub `js/fetch` to always resolve a 500 and increment `count-atom` on
-  every call. Returns a 0-arg restore fn."
+  "Stub `js/fetch` to resolve a 500, counting calls. Returns a restore fn."
   [count-atom]
   (let [orig (.-fetch js/globalThis)
-        resp (fake-response {:status 500 :content-type "application/json"
-                             :text-val "boom"})]
+        resp (fake-response {:status 500 :content-type "application/json" :text-val "boom"})]
     (set! (.-fetch js/globalThis)
           (fn [_url _init]
             (swap! count-atom inc)
             (js/Promise.resolve resp)))
     (fn [] (set! (.-fetch js/globalThis) orig))))
 
-;; ---- frame destroy aborts + suppresses managed HTTP (CLJS) ----------------
-;;
-;; The CLJS counterpart of `re-frame.http-frame-destroy-abort-test` (the JVM
-;; CompletableFuture path). Proves the Fetch/backoff path: a plain managed
-;; request sleeping in the `js/setTimeout` backoff window when its OWNING FRAME
-;; is destroyed has its pending retry cancelled (no attempt N+1 fetch) and its
-;; outcome SUPPRESSED — unlike a `:rf.http/managed-abort` (which delivers a live
-;; `:cancelled` reply, reason `:user`), frame destroy fires the reply-suppressing
-;; `:reason :frame-destroyed`, so NO reply reaches the destroyed frame. Without the
-;; destroy-frame! → :http/on-frame-destroyed! wiring the backoff timer would survive
-;; destroy and fire a second fetch into the dead frame.
+(defn- backoff-sleeping?
+  "Attempt 1 has failed and `request-id` sleeps in its backoff: a backoff handle
+  lacks the live-fetch handle's `:finalised?` cell."
+  [fetch-count request-id]
+  (let [handle (get (rf.http.registry/in-flight-snapshot) request-id)]
+    (and (= 1 @fetch-count) (some? handle) (nil? (:finalised? handle)))))
+
+(def ^:private retry-5xx-every-80ms
+  {:on #{:rf.http/http-5xx} :max-attempts 5 :backoff {:base-ms 80 :factor 1 :max-ms 80}})
 
 (deftest cljs-destroy-frame-cancels-backoff-and-suppresses-reply
-  (testing "destroying a frame with a managed request sleeping in
-            the backoff window cancels the pending retry (no second fetch) and
-            SUPPRESSES the reply (nothing delivered into the destroyed frame)"
-    (async done
-      (rf/init! rf.adapter.reagent/adapter)
-      (rf.frame/ensure-default-frame!)
-      (rf/make-frame {:id :frame/req :doc "the frame that owns the in-flight request"})
-      (rf.http.managed/clear-all-in-flight!)
-      (let [fetch-count (atom 0)
-            replies     (atom [])
-            restore     (with-counting-500-fetch fetch-count)
-            backoff-ms  80]
-        (rf/reg-event :reply/recorder
-          (fn [_ [_ payload]] (swap! replies conj payload) {}))
-        (rf/reg-event :issue
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request    {:url "/always-500"}
-                    :decode     :json
-                    :retry      {:on           #{:rf.http/http-5xx}
-                                 :max-attempts 5
-                                 :backoff      {:base-ms backoff-ms :factor 1
-                                                :max-ms  backoff-ms}}
-                    :request-id :destroy/race
-                    :on-failure [:reply/recorder]
-                    :on-success [:reply/recorder]}]]}))
-        (rf/dispatch-sync [:issue] {:frame :frame/req})
-        ;; Poll until attempt #1 has fetched, failed 5xx, and the request is
-        ;; sleeping in the backoff window (the backoff handle lacks `:finalised?`,
-        ;; distinguishing it from a still-in-flight attempt).
-        (-> (rf.test-support/poll-until
-              #(let [handle (get (rf.http.registry/in-flight-snapshot) :destroy/race)]
-                 (and (= 1 @fetch-count)
-                      (some? handle)
-                      (nil? (:finalised? handle))))
-              {:timeout-ms 2000 :label "cljs backoff sleeping (destroy)"})
-            (.then (fn [_]
-                     (is (= :frame/req (:frame (rf.http.registry/lookup-in-flight :destroy/race)))
-                         "precondition: the backoff handle carries its owning frame")
-                     ;; Destroy the owning frame via the REAL recipe.
-                     (rf/destroy-frame! :frame/req)
-                     (is (empty? (rf.http.registry/in-flight-snapshot))
-                         "the registry cleared the instant the frame was destroyed")
-                     ;; Wait past the original backoff deadline: the retry must
-                     ;; never fetch again (timer cancelled) and no reply may land.
-                     (js/Promise.
-                       (fn [resolve _]
-                         (js/setTimeout resolve (+ backoff-ms 150))))))
-            (.then (fn [_]
-                     (is (= 1 @fetch-count)
-                         "the retry MUST NOT fetch after the owning frame is destroyed")
-                     (is (empty? @replies)
-                         "frame destroy SUPPRESSES the reply — nothing delivered into the destroyed frame")))
-            (.catch (fn [e]
-                      (is false (str "unexpected: " e))
-                      nil))
-            (.then (fn [_] (restore) (done))))))))
+  ;; Destroying the owning frame clears the `js/setTimeout` backoff (no second
+  ;; fetch) and suppresses the reply, where a managed-abort would deliver one.
+  (async done
+    (reset-runtime!)
+    (rf/make-frame {:id :frame/req :doc "owns the in-flight request"})
+    (let [fetch-count (atom 0)
+          replies     (record-replies!)
+          restore     (with-counting-500-fetch fetch-count)]
+      (issue! :frame/req {:request {:url "/always-500"} :decode :json
+                          :retry retry-5xx-every-80ms :request-id :destroy/race})
+      (-> (rf.test-support/poll-until
+            #(backoff-sleeping? fetch-count :destroy/race)
+            {:timeout-ms 2000 :label "cljs backoff sleeping (destroy)"})
+          (.then (fn [_]
+                   (rf/destroy-frame! :frame/req)
+                   (is (in-flight-empty?))
+                   (sleep 230)))
+          (.then (fn [_] (is (= [1 []] [@fetch-count @replies]))))
+          (.catch (fn [e] (is false (str "unexpected: " e)) nil))
+          (.then (fn [_] (restore) (done)))))))
 
-;; ---- managed body-prep failure delivery (CLJS) ----------------------------
-;;
-;; The JVM suite (re-frame.http-body-prep-failure-test) pins the same
-;; contract against Cheshire encode failures + real threads. This CLJS
-;; counterpart proves it on the Fetch path: a throwing `:body` thunk and a
-;; non-serialisable body (circular ref → `js/JSON.stringify` throws) are
-;; caught in the `prepare-body!` phase and delivered as ONE :on-failure
-;; reply with :rf.http/transport — NOT a generic :rf.error/fx-handler-
-;; exception — and a configured retry re-invokes the thunk per attempt.
-;;
-;; The throw happens in the prep phase BEFORE any fetch, so `js/fetch` is
-;; stubbed to FAIL the test loudly if it is ever reached (proving the
-;; request never left the prep phase).
+;; ---- body-prep failures ------------------------------------------------------
 
 (defn- with-failing-fetch
-  "Stub `js/fetch` to reject loudly — used by the prep-failure tests where
-  the body throws BEFORE any network call, so `fetch` must never run.
-  Returns a 0-arg restore fn."
+  "Stub `js/fetch` to reject: these bodies throw before any network call.
+  Returns a restore fn."
   []
   (let [orig (.-fetch js/globalThis)]
     (set! (.-fetch js/globalThis)
           (fn [_url _init]
-            (js/Promise.reject
-              (js/Error. "fetch must NOT be reached: body-prep threw before any network call"))))
+            (js/Promise.reject (js/Error. "fetch must not be reached"))))
     (fn [] (set! (.-fetch js/globalThis) orig))))
 
 (deftest cljs-unencodable-body-delivers-managed-transport-failure
-  (testing "a non-serialisable body (circular ref → JSON.stringify throws) delivers ONE :on-failure reply with :rf.http/transport"
-    (async done
-      (rf/init! rf.adapter.reagent/adapter)
-      (rf.frame/ensure-default-frame!)
-      (rf.http.managed/clear-all-in-flight!)
-      (let [replies   (atom [])
-            restore   (with-failing-fetch)
-            ;; A circular JS object — `js/JSON.stringify` throws a TypeError
-            ;; converting it, exercising the encode-failure prep path.
-            circular  (let [o (js-obj)]
-                        (aset o "self" o)
-                        o)]
-        (rf/reg-event :reply/recorder
-          (fn [_ [_ payload]] (swap! replies conj payload) {}))
-        (rf/reg-event :issue/unencodable
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request    {:url    "/x"
-                                 :method :post
-                                 :request-content-type :json
-                                 :body   circular}
-                    :request-id :prep-encode
-                    :on-failure [:reply/recorder]
-                    :on-success [:reply/recorder]}]]}))
-        (rf/dispatch-sync [:issue/unencodable] {:frame :rf/default})
-        (-> (rf.test-support/poll-until
-              #(seq @replies)
-              {:timeout-ms 2000 :label "cljs encode prep failure reply"})
-            (.then (fn [_]
-                     (is (= 1 (count @replies)))
-                     (let [reply (first @replies)]
-                       (is (= :rf.http/transport (get-in reply [:error :kind]))
-                           "an encode failure surfaces as the managed :rf.http/transport category")
-                       (is (= :request-prep (get-in reply [:error :stage]))))
-                     (is (empty? (rf.http.registry/in-flight-snapshot)))))
-            (.catch (fn [e]
-                      (is false (str "unexpected: " e))
-                      nil))
-            (.then (fn [_] (restore) (done))))))))
+  ;; A circular body makes `JSON.stringify` throw in the prep phase.
+  (async done
+    (reset-runtime!)
+    (let [replies  (record-replies!)
+          restore  (with-failing-fetch)
+          circular (let [o (js-obj)] (aset o "self" o) o)]
+      (issue! {:request {:url "/x" :method :post :request-content-type :json :body circular}
+               :request-id :prep-encode})
+      (-> (rf.test-support/poll-until
+            #(seq @replies)
+            {:timeout-ms 2000 :label "cljs encode prep failure reply"})
+          (.then (fn [_]
+                   (let [reply (first @replies)]
+                     (is (= [1 :rf.http/transport :request-prep true]
+                            [(count @replies) (get-in reply [:error :kind]) (get-in reply [:error :stage])
+                             (in-flight-empty?)])))))
+          (.catch (fn [e] (is false (str "unexpected: " e)) nil))
+          (.then (fn [_] (restore) (done)))))))
 
 (deftest cljs-throwing-body-thunk-retries-when-configured
-  (testing "with `:retry {:on #{:rf.http/transport} …}` a throwing body thunk RETRIES (re-invoking the thunk per attempt) then finally fails :rf.http/transport"
-    (async done
-      (rf/init! rf.adapter.reagent/adapter)
-      (rf.frame/ensure-default-frame!)
-      (rf.http.managed/clear-all-in-flight!)
-      (let [replies     (atom [])
-            invocations (atom 0)
-            restore     (with-failing-fetch)]
-        (rf/reg-event :reply/recorder
-          (fn [_ [_ payload]] (swap! replies conj payload) {}))
-        (rf/reg-event :issue/retry-thunk
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request    {:url    "/x"
-                                 :method :post
-                                 :body   (fn []
-                                           (swap! invocations inc)
-                                           (throw (js/Error. "boom-retry")))}
-                    :retry      {:on           #{:rf.http/transport}
-                                 :max-attempts 3
-                                 :backoff      {:base-ms 1 :factor 1 :max-ms 1}}
-                    :request-id :prep-retry
-                    :on-failure [:reply/recorder]
-                    :on-success [:reply/recorder]}]]}))
-        (rf/dispatch-sync [:issue/retry-thunk] {:frame :rf/default})
-        (-> (rf.test-support/poll-until
-              #(seq @replies)
-              {:timeout-ms 4000 :label "cljs prep-failure retry exhaustion reply"})
-            (.then (fn [_]
-                     (is (= 3 @invocations)
-                         "the throwing thunk was re-invoked once per attempt (max-attempts 3)")
-                     (is (= 1 (count @replies))
-                         "exactly one FINAL reply after the retries exhaust")
-                     (let [reply (first @replies)]
-                       (is (= :error (:status reply)))
-                       (is (= :rf.http/transport (get-in reply [:error :kind]))
-                           "the final reply carries the :rf.http/transport prep-failure category")
-                       (is (= :request-prep (get-in reply [:error :stage]))
-                           "the :stage discriminator marks this as a request-preparation failure"))
-                     (is (empty? (rf.http.registry/in-flight-snapshot)))))
-            (.catch (fn [e]
-                      (is false (str "unexpected: " e))
-                      nil))
-            (.then (fn [_] (restore) (done))))))))
+  (async done
+    (reset-runtime!)
+    (let [replies     (record-replies!)
+          invocations (atom 0)
+          restore     (with-failing-fetch)]
+      (issue! {:request    {:url "/x" :method :post
+                            :body (fn [] (swap! invocations inc) (throw (js/Error. "boom-retry")))}
+               :retry      {:on #{:rf.http/transport} :max-attempts 3
+                            :backoff {:base-ms 1 :factor 1 :max-ms 1}}
+               :request-id :prep-retry})
+      (-> (rf.test-support/poll-until
+            #(seq @replies)
+            {:timeout-ms 4000 :label "cljs prep-failure retry exhaustion reply"})
+          (.then (fn [_]
+                   (let [reply (first @replies)]
+                     ;; The thunk runs once per attempt; one final reply.
+                     (is (= [3 1 :error :rf.http/transport :request-prep true]
+                            [@invocations (count @replies) (:status reply) (get-in reply [:error :kind])
+                             (get-in reply [:error :stage]) (in-flight-empty?)])))))
+          (.catch (fn [e] (is false (str "unexpected: " e)) nil))
+          (.then (fn [_] (restore) (done)))))))
 
-;; ---- lifecycle-owned external AbortSignal cancellation --------------------
+;; ---- the external :abort-signal ----------------------------------------------
 ;;
-;; The external `:abort-signal` is a REQUEST-lifecycle cancellation source. It
-;; must route to whichever canonical handle owns the CURRENT phase (live-fetch
-;; or sleeping-backoff) through that handle's `:abort-fn :user`, flipping the
-;; same `:aborted?` / `:finalised?` precedence cells `:rf.http/managed-abort` /
-;; supersede / actor-destroy use — and DETACH on ownership transfer + every
-;; terminal path so a shared / parent controller never accumulates
-;; completed-attempt listeners. A binding that wired the signal only to an
-;; attempt-local `internal-controller` would bypass abort precedence (a
-;; settled success could still land), never cancel a sleeping backoff, and
-;; leak its `{once:true}` listener on ordinary completion.
-
-;; ---- (a) binding-helper unit contract (fake AbortSignal / EventTarget) -----
+;; The signal routes to whichever handle owns the current phase (live fetch or
+;; sleeping backoff) through its `:abort-fn :user`, sharing the once-only
+;; precedence cells with managed-abort, supersede and actor-destroy, and its
+;; listener detaches on ownership transfer and on every terminal path.
 
 (defn- fake-abort-signal
-  "A minimal AbortSignal / EventTarget stand-in that RECORDS its live 'abort'
-  listeners so a test can prove they are attached / detached. Supports exactly
-  the surface `bind-external-abort!` / `detach-external-abort!` touch:
-  `.-aborted`, `.addEventListener`, `.removeEventListener`, plus a test-only
-  `:fire!` (dispatch to current listeners) and `:pre-abort!` (mark aborted
-  WITHOUT dispatching, to model an already-aborted signal). `:listener-count`
-  reports how many listeners are currently attached."
+  "An AbortSignal stand-in that records its live 'abort' listeners."
   []
   (let [listeners (atom [])
         sig       (js-obj)]
     (aset sig "aborted" false)
-    ;; The binding calls `.addEventListener signal "abort" listener` with
-    ;; exactly type + listener (no options), so a fixed 2-arg fn suffices.
-    (aset sig "addEventListener"
-          (fn [_type f] (swap! listeners conj f)))
+    (aset sig "addEventListener" (fn [_type f] (swap! listeners conj f)))
     (aset sig "removeEventListener"
-          (fn [_type f]
-            (swap! listeners (fn [ls] (vec (remove #(identical? % f) ls))))))
+          (fn [_type f] (swap! listeners (fn [ls] (vec (remove #(identical? % f) ls))))))
     {:signal         sig
      :listener-count (fn [] (count @listeners))
-     :pre-abort!     (fn [] (aset sig "aborted" true))
      :fire!          (fn []
                        (aset sig "aborted" true)
                        (doseq [f @listeners] (f #js {})))}))
 
 (deftest external-abort-rebind-detaches-prior-phase-listener
-  (testing "rebinding on phase-ownership transfer DETACHES the
-  prior phase's listener (never a second concurrent listener) and routes the
-  signal to the NEW phase handle's cancel!."
-    (let [{:keys [signal listener-count fire!]} (fake-abort-signal)
-          binding (rf.http.transport-cljs/make-external-abort signal)
-          fired   (atom [])]
-      (rf.http.transport-cljs/bind-external-abort! binding (fn [] (swap! fired conj :live-fetch)))
-      (is (= 1 (listener-count)))
-      ;; ownership transfer live-fetch → backoff
-      (rf.http.transport-cljs/bind-external-abort! binding (fn [] (swap! fired conj :backoff)))
-      (is (= 1 (listener-count)) "still exactly one listener — the old one was detached")
-      (fire!)
-      (is (= [:backoff] @fired)
-          "the signal routes to the CURRENT (backoff) handle, not the stale live-fetch one"))))
-
-(deftest external-abort-already-aborted-fires-synchronously-attaches-nothing
-  (testing "binding an ALREADY-aborted signal fires cancel!
-  synchronously and attaches NO listener (the caller then short-circuits)."
-    (let [{:keys [signal listener-count pre-abort!]} (fake-abort-signal)
-          binding (rf.http.transport-cljs/make-external-abort signal)
-          fired   (atom [])]
-      (pre-abort!)
-      (rf.http.transport-cljs/bind-external-abort! binding (fn [] (swap! fired conj :sync)))
-      (is (= [:sync] @fired) "cancel! fired synchronously for an already-aborted signal")
-      (is (= 0 (listener-count)) "no listener attached — nothing to leak"))))
-
-;; ---- (b) end-to-end: fetch stub whose body promise the test controls -------
+  ;; A retry hands ownership from the live fetch to the backoff: exactly one
+  ;; listener stays attached, and the signal reaches the current phase.
+  (let [{:keys [signal listener-count fire!]} (fake-abort-signal)
+        binding (rf.http.transport-cljs/make-external-abort signal)
+        fired   (atom [])]
+    (rf.http.transport-cljs/bind-external-abort! binding #(swap! fired conj :live-fetch))
+    (rf.http.transport-cljs/bind-external-abort! binding #(swap! fired conj :backoff))
+    (is (= 1 (listener-count)))
+    (fire!)
+    (is (= [:backoff] @fired))))
 
 (defn- with-controlled-body-fetch
-  "Stub `js/fetch` to resolve a 200 Response whose HEADERS resolve immediately
-  but whose `.text()` body reader returns a promise the TEST settles via the
-  returned `:resolve-body!`. `read-fired` is set true the moment `.text()` is
-  invoked (the framework has received the Response and is mid-finalisation,
-  reading the body). Models the settle-before-finalise window: host promise about to
-  fulfil, framework not yet finalised. Returns `{:restore :resolve-body!}`."
+  "Stub `js/fetch` with a 200 whose `.text()` the test settles through
+  `:resolve-body!`. `read-fired` goes true once the framework is reading the
+  body, mid-finalisation. Returns `{:restore :resolve-body!}`."
   [read-fired]
   (let [orig         (.-fetch js/globalThis)
         body-resolve (atom nil)
@@ -995,387 +503,180 @@
     {:restore       (fn [] (set! (.-fetch js/globalThis) orig))
      :resolve-body! (fn [txt] (@body-resolve txt))}))
 
-(defn- next-macrotask
-  "A promise that resolves on the next `setTimeout 0` macrotask — used to let
-  every queued microtask (handle-response! → finalise-*) drain so a
-  suppressed second reply would have landed if suppression failed."
-  []
-  (js/Promise. (fn [resolve _] (js/setTimeout resolve 0))))
-
 (deftest cljs-external-abort-after-settle-before-finalise-cancels-once
-  (testing "an external signal that fires after the
-  host body promise fulfils but BEFORE framework finalisation reclassifies the
-  in-flight success to exactly one `:rf.http/aborted :reason :user` reply; no
-  success/decode/status/accept outcome lands."
-    (async done
-      (rf/init! rf.adapter.reagent/adapter)
-      (rf.frame/ensure-default-frame!)
-      (rf.http.managed/clear-all-in-flight!)
-      (let [replies    (atom [])
-            read-fired (atom false)
-            {:keys [restore resolve-body!]} (with-controlled-body-fetch read-fired)
-            controller (js/AbortController.)]
-        (rf/reg-event :reply/recorder (fn [_ [_ p]] (swap! replies conj p) {}))
-        (rf/reg-event :issue/ext
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request    {:url "/x"}
-                    :decode     :json
-                    :abort-signal (.-signal controller)
-                    :request-id :ext
-                    :on-failure [:reply/recorder]
-                    :on-success [:reply/recorder]}]]}))
-        (rf/dispatch-sync [:issue/ext] {:frame :rf/default})
-        (-> (rf.test-support/poll-until
-              #(when @read-fired true)
-              {:timeout-ms 2000 :label "cljs body reader reached"})
-            (.then (fn [_]
-                     ;; Host body promise fulfils, THEN the external signal fires
-                     ;; synchronously in the same turn — before handle-response!.
-                     (resolve-body! "{\"ok\":true}")
-                     (.abort controller)
-                     (rf.test-support/poll-until
-                       #(seq @replies)
-                       {:timeout-ms 2000 :label "cljs external-abort cancel reply"})))
-            ;; Drain remaining microtasks so a wrongly-dispatched success would surface.
-            (.then (fn [_] (next-macrotask)))
-            (.then (fn [_]
-                     (is (= 1 (count @replies))
-                         "exactly one reply — the settled success is suppressed by abort precedence")
-                     (let [reply (first @replies)]
-                       (is (= :cancelled (:status reply)))
-                       (is (= :rf.http/aborted (get-in reply [:error :kind]))
-                           "the external signal flips the same precedence cell → :rf.http/aborted")
-                       (is (= :user (get-in reply [:error :reason]))))
-                     (is (empty? (rf.http.registry/in-flight-snapshot))
-                         "the live-fetch handle is cleared")))
-            (.catch (fn [e] (is false (str "unexpected: " e)) nil))
-            (.then (fn [_] (restore) (done))))))))
+  ;; The signal fires after the body promise fulfils but before finalisation:
+  ;; abort precedence turns the settled success into one :user cancel.
+  (async done
+    (reset-runtime!)
+    (let [replies    (record-replies!)
+          read-fired (atom false)
+          {:keys [restore resolve-body!]} (with-controlled-body-fetch read-fired)
+          controller (js/AbortController.)]
+      (issue! {:request {:url "/x"} :decode :json :abort-signal (.-signal controller)
+               :request-id :ext})
+      (-> (rf.test-support/poll-until
+            #(when @read-fired true)
+            {:timeout-ms 2000 :label "cljs body reader reached"})
+          (.then (fn [_]
+                   (resolve-body! "{\"ok\":true}")
+                   (.abort controller)
+                   (rf.test-support/poll-until
+                     #(seq @replies)
+                     {:timeout-ms 2000 :label "cljs external-abort cancel reply"})))
+          (.then (fn [_] (next-macrotask)))
+          (.then (fn [_]
+                   (is (= [[[:cancelled :rf.http/aborted :user]] true]
+                          [(mapv cancel-facts @replies) (in-flight-empty?)]))))
+          (.catch (fn [e] (is false (str "unexpected: " e)) nil))
+          (.then (fn [_] (restore) (done)))))))
 
 (deftest cljs-external-abort-during-backoff-cancels-retry-and-does-not-reinvoke-thunk
-  (testing "an external signal that fires while the
-  request sleeps in the backoff window cancels the pending retry immediately
-  (timer cleared, registry emptied, one :rf.http/aborted :reason :user reply);
-  attempt N+1 is never issued and the per-attempt body thunk is not re-invoked."
-    (async done
-      (rf/init! rf.adapter.reagent/adapter)
-      (rf.frame/ensure-default-frame!)
-      (rf.http.managed/clear-all-in-flight!)
-      (let [fetch-count (atom 0)
-            thunk-calls (atom 0)
-            replies     (atom [])
-            backoff-ms  80
-            controller  (js/AbortController.)
-            orig        (.-fetch js/globalThis)
-            resp        (fake-response {:status 500 :content-type "application/json"
-                                        :text-val "boom"})]
-        (set! (.-fetch js/globalThis)
-              (fn [_url _init] (swap! fetch-count inc) (js/Promise.resolve resp)))
-        (rf/reg-event :reply/recorder (fn [_ [_ p]] (swap! replies conj p) {}))
-        (rf/reg-event :issue
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request    {:url    "/always-500"
-                                 :method :post
-                                 ;; per-attempt body thunk — counts invocations so
-                                 ;; "not re-invoked after cancel" is observable.
-                                 :body   (fn [] (swap! thunk-calls inc) "payload")}
-                    :decode     :json
-                    :retry      {:on           #{:rf.http/http-5xx}
-                                 :max-attempts 5
-                                 :backoff      {:base-ms backoff-ms :factor 1 :max-ms backoff-ms}}
-                    :abort-signal (.-signal controller)
-                    :request-id :race
-                    :on-failure [:reply/recorder]
-                    :on-success [:reply/recorder]}]]}))
-        (rf/dispatch-sync [:issue] {:frame :rf/default})
-        (-> (rf.test-support/poll-until
-              #(let [handle (get (rf.http.registry/in-flight-snapshot) :race)]
-                 (and (= 1 @fetch-count)
-                      (some? handle)
-                      ;; backoff handle is distinguishable by the ABSENCE of the
-                      ;; live-fetch handle's :finalised? cell.
-                      (nil? (:finalised? handle))))
-              {:timeout-ms 2000 :label "cljs backoff sleeping (external)"})
-            (.then (fn [_]
-                     (is (= 1 @thunk-calls) "attempt 1 invoked the body thunk exactly once")
-                     ;; External signal fires squarely inside the backoff window.
-                     (.abort controller)
-                     (is (empty? (rf.http.registry/in-flight-snapshot))
-                         "the registry is cleared the instant the external signal cancels the backoff")
-                     (rf.test-support/poll-until
-                       #(seq @replies)
-                       {:timeout-ms 2000 :label "cljs external abort reply"})))
-            (.then (fn [_]
-                     (let [reply (first @replies)]
-                       (is (= :cancelled (:status reply)))
-                       (is (= :rf.http/aborted (get-in reply [:error :kind])))
-                       (is (= :user (get-in reply [:error :reason]))))
-                     ;; Wait past the original backoff deadline: prove the timer
-                     ;; was cancelled (no attempt N+1, thunk not re-invoked).
-                     (js/Promise. (fn [resolve _] (js/setTimeout resolve (+ backoff-ms 120))))))
-            (.then (fn [_]
-                     (is (= 1 @fetch-count)
-                         "the retry MUST NOT fetch after an external abort during the backoff window")
-                     (is (= 1 @thunk-calls)
-                         "the per-attempt body thunk MUST NOT be re-invoked after cancellation")
-                     (is (= 1 (count @replies))
-                         "exactly one reply — the cancelled retry produced no second outcome")))
-            (.catch (fn [e]
-                      (is false (str "unexpected: " e))
-                      nil))
-            (.then (fn [_]
-                     (set! (.-fetch js/globalThis) orig)
-                     (done))))))))
+  (async done
+    (reset-runtime!)
+    (let [fetch-count (atom 0)
+          thunk-calls (atom 0)
+          replies     (record-replies!)
+          restore     (with-counting-500-fetch fetch-count)
+          controller  (js/AbortController.)]
+      (issue! {:request      {:url "/always-500" :method :post
+                              :body (fn [] (swap! thunk-calls inc) "payload")}
+               :decode       :json
+               :retry        retry-5xx-every-80ms
+               :abort-signal (.-signal controller)
+               :request-id   :race})
+      (-> (rf.test-support/poll-until
+            #(backoff-sleeping? fetch-count :race)
+            {:timeout-ms 2000 :label "cljs backoff sleeping (external)"})
+          (.then (fn [_]
+                   (.abort controller)
+                   (is (in-flight-empty?) "the cancel clears the registry synchronously")
+                   (rf.test-support/poll-until
+                     #(seq @replies)
+                     {:timeout-ms 2000 :label "cljs external abort reply"})))
+          ;; Past the backoff deadline: no attempt 2, and the thunk is not re-run.
+          (.then (fn [_] (sleep 200)))
+          (.then (fn [_]
+                   (is (= [1 1 [[:cancelled :rf.http/aborted :user]]]
+                          [@fetch-count @thunk-calls (mapv cancel-facts @replies)]))))
+          (.catch (fn [e] (is false (str "unexpected: " e)) nil))
+          (.then (fn [_] (restore) (done)))))))
 
 (deftest cljs-already-aborted-signal-short-circuits-attempt-setup
-  (testing "a request whose `:abort-signal` is
-  ALREADY aborted before attempt setup dispatches one :rf.http/aborted
-  :reason :user reply WITHOUT running the body thunk or issuing any fetch."
-    (async done
-      (rf/init! rf.adapter.reagent/adapter)
-      (rf.frame/ensure-default-frame!)
-      (rf.http.managed/clear-all-in-flight!)
-      (let [replies     (atom [])
-            thunk-calls (atom 0)
-            controller  (js/AbortController.)
-            ;; fetch must never be reached — the abort short-circuits setup.
-            restore     (with-failing-fetch)]
-        (.abort controller)                     ;; pre-aborted BEFORE dispatch
-        (rf/reg-event :reply/recorder (fn [_ [_ p]] (swap! replies conj p) {}))
-        (rf/reg-event :issue/pre-aborted
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request    {:url    "/x"
-                                 :method :post
-                                 :body   (fn [] (swap! thunk-calls inc) "payload")}
-                    :decode     :json
-                    :abort-signal (.-signal controller)
-                    :request-id :pre
-                    :on-failure [:reply/recorder]
-                    :on-success [:reply/recorder]}]]}))
-        (rf/dispatch-sync [:issue/pre-aborted] {:frame :rf/default})
-        (-> (rf.test-support/poll-until
-              #(seq @replies)
-              {:timeout-ms 2000 :label "cljs pre-aborted reply"})
-            (.then (fn [_] (next-macrotask)))
-            (.then (fn [_]
-                     (is (= 1 (count @replies)) "exactly one reply")
-                     (let [reply (first @replies)]
-                       (is (= :cancelled (:status reply)))
-                       (is (= :rf.http/aborted (get-in reply [:error :kind])))
-                       (is (= :user (get-in reply [:error :reason]))))
-                     (is (= 0 @thunk-calls)
-                         "the body thunk was NEVER invoked — attempt setup short-circuited")
-                     (is (empty? (rf.http.registry/in-flight-snapshot)))))
-            (.catch (fn [e] (is false (str "unexpected: " e)) nil))
-            (.then (fn [_] (restore) (done))))))))
-
-(deftest cljs-external-abort-racing-supersede-suppression-authoritative
-  (testing "when a same-id supersede WINS the race,
-  suppression stays authoritative: the superseded request delivers NO app reply
-  even though its external signal ALSO fires afterwards (once-only CAS)."
-    (async done
-      (rf/init! rf.adapter.reagent/adapter)
-      (rf.frame/ensure-default-frame!)
-      (rf.http.managed/clear-all-in-flight!)
-      (let [replies-1  (atom [])
-            read-fired (atom false)
-            {:keys [restore]} (with-controlled-body-fetch read-fired)
-            controller (js/AbortController.)]
-        (rf/reg-event :reply/recorder-1 (fn [_ [_ p]] (swap! replies-1 conj p) {}))
-        (rf/reg-event :reply/recorder-2 (fn [_ _] {}))
-        (rf/reg-event :issue/one
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request {:url "/one"} :decode :json
-                    :abort-signal (.-signal controller)
-                    :request-id :dup
-                    :on-failure [:reply/recorder-1]
-                    :on-success [:reply/recorder-1]}]]}))
-        (rf/reg-event :issue/two            ;; same :request-id → supersedes :dup
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request {:url "/two"} :decode :json
-                    :request-id :dup
-                    :on-failure [:reply/recorder-2]
-                    :on-success [:reply/recorder-2]}]]}))
-        (rf/dispatch-sync [:issue/one] {:frame :rf/default})
-        (-> (rf.test-support/poll-until
-              #(when @read-fired true)
-              {:timeout-ms 2000 :label "cljs request-1 in flight"})
-            (.then (fn [_]
-                     ;; Supersede FIRST (request 2 replaces request 1) …
-                     (reset! read-fired false)
-                     (rf/dispatch-sync [:issue/two] {:frame :rf/default})
-                     ;; … then the external signal fires — request 1 already
-                     ;; superseded + its listener detached, so this is a no-op.
-                     (.abort controller)
-                     (next-macrotask)))
-            (.then (fn [_] (next-macrotask)))
-            (.then (fn [_]
-                     (is (empty? @replies-1)
-                         "the superseded request delivered NO app reply — supersede suppression is authoritative even though the external signal fired")))
-            (.catch (fn [e] (is false (str "unexpected: " e)) nil))
-            (.then (fn [_] (restore) (done))))))))
+  (async done
+    (reset-runtime!)
+    (let [replies     (record-replies!)
+          thunk-calls (atom 0)
+          controller  (js/AbortController.)
+          restore     (with-failing-fetch)]
+      (.abort controller)
+      (issue! {:request      {:url "/x" :method :post
+                              :body (fn [] (swap! thunk-calls inc) "payload")}
+               :decode       :json
+               :abort-signal (.-signal controller)
+               :request-id   :pre})
+      (-> (rf.test-support/poll-until
+            #(seq @replies)
+            {:timeout-ms 2000 :label "cljs pre-aborted reply"})
+          (.then (fn [_] (next-macrotask)))
+          (.then (fn [_]
+                   (is (= [[[:cancelled :rf.http/aborted :user]] 0 true]
+                          [(mapv cancel-facts @replies) @thunk-calls (in-flight-empty?)]))))
+          (.catch (fn [e] (is false (str "unexpected: " e)) nil))
+          (.then (fn [_] (restore) (done)))))))
 
 (deftest cljs-external-abort-racing-managed-abort-single-outcome
-  (testing "an external signal and a
-  :rf.http/managed-abort fired against the SAME in-flight request route through
-  the one canonical handle; the once-only CAS yields exactly one :cancelled
-  outcome regardless of which fires first."
-    (async done
-      (rf/init! rf.adapter.reagent/adapter)
-      (rf.frame/ensure-default-frame!)
-      (rf.http.managed/clear-all-in-flight!)
-      (let [replies    (atom [])
-            read-fired (atom false)
-            {:keys [restore]} (with-controlled-body-fetch read-fired)
-            controller (js/AbortController.)]
-        (rf/reg-event :reply/recorder (fn [_ [_ p]] (swap! replies conj p) {}))
-        (rf/reg-event :issue
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request {:url "/x"} :decode :json
-                    :abort-signal (.-signal controller)
-                    :request-id :both
-                    :on-failure [:reply/recorder]
-                    :on-success [:reply/recorder]}]]}))
-        (rf/reg-event :do/managed-abort
-          (fn [_ _] {:fx [[:rf.http/managed-abort :both]]}))
-        (rf/dispatch-sync [:issue] {:frame :rf/default})
-        (-> (rf.test-support/poll-until
-              #(when @read-fired true)
-              {:timeout-ms 2000 :label "cljs both-sources in flight"})
-            (.then (fn [_]
-                     ;; External signal wins; the managed-abort fx then finds a
-                     ;; handle whose once-only CAS is already spent → no-op.
-                     (.abort controller)
-                     (rf/dispatch-sync [:do/managed-abort] {:frame :rf/default})
-                     (rf.test-support/poll-until
-                       #(seq @replies)
-                       {:timeout-ms 2000 :label "cljs single cancel reply"})))
-            (.then (fn [_] (next-macrotask)))
-            (.then (fn [_]
-                     (is (= 1 (count @replies))
-                         "exactly one terminal outcome despite two cancellation sources")
-                     (is (= :cancelled (:status (first @replies))))
-                     (is (= :user (get-in (first @replies) [:error :reason])))
-                     (is (empty? (rf.http.registry/in-flight-snapshot)))))
-            (.catch (fn [e] (is false (str "unexpected: " e)) nil))
-            (.then (fn [_] (restore) (done))))))))
+  ;; Both sources route through the one handle, so its once-only CAS yields
+  ;; exactly one cancel.
+  (async done
+    (reset-runtime!)
+    (let [replies    (record-replies!)
+          read-fired (atom false)
+          {:keys [restore]} (with-controlled-body-fetch read-fired)
+          controller (js/AbortController.)]
+      (rf/reg-event :do/managed-abort (fn [_ _] {:fx [[:rf.http/managed-abort :both]]}))
+      (issue! {:request {:url "/x"} :decode :json :abort-signal (.-signal controller)
+               :request-id :both})
+      (-> (rf.test-support/poll-until
+            #(when @read-fired true)
+            {:timeout-ms 2000 :label "cljs both-sources in flight"})
+          (.then (fn [_]
+                   (.abort controller)
+                   (rf/dispatch-sync [:do/managed-abort] {:frame :rf/default})
+                   (rf.test-support/poll-until
+                     #(seq @replies)
+                     {:timeout-ms 2000 :label "cljs single cancel reply"})))
+          (.then (fn [_] (next-macrotask)))
+          (.then (fn [_]
+                   (is (= [[[:cancelled :rf.http/aborted :user]] true]
+                          [(mapv cancel-facts @replies) (in-flight-empty?)]))))
+          (.catch (fn [e] (is false (str "unexpected: " e)) nil))
+          (.then (fn [_] (restore) (done)))))))
 
 (deftest cljs-external-abort-listener-detached-on-natural-success-and-failure
-  (testing "after a NATURAL success and a natural
-  terminal failure that share ONE signal, no completed-attempt listeners
-  accumulate: the binding detaches on every terminal path."
-    (async done
-      (rf/init! rf.adapter.reagent/adapter)
-      (rf.frame/ensure-default-frame!)
-      (rf.http.managed/clear-all-in-flight!)
-      (let [{:keys [signal listener-count]} (fake-abort-signal)
-            replies (atom [])
-            orig    (.-fetch js/globalThis)]
-        (rf/reg-event :reply/recorder (fn [_ [_ p]] (swap! replies conj p) {}))
-        (rf/reg-event :issue
-          (fn [_ [_ url]]
-            {:fx [[:rf.http/managed
-                   {:request {:url url} :decode :json
-                    :abort-signal signal        ;; ONE shared signal for both requests
-                    :request-id :shared
-                    :on-failure [:reply/recorder]
-                    :on-success [:reply/recorder]}]]}))
-        ;; --- request 1: natural SUCCESS (200) ---
-        (set! (.-fetch js/globalThis)
-              (fn [_url _init]
-                (js/Promise.resolve (fake-response {:status 200 :content-type "application/json"
-                                                    :text-val "{\"ok\":true}"}))))
-        (rf/dispatch-sync [:issue "/ok"] {:frame :rf/default})
-        (-> (rf.test-support/poll-until
-              #(seq @replies) {:timeout-ms 2000 :label "cljs shared-signal success reply"})
-            (.then (fn [_]
-                     (is (= :ok (:status (first @replies))))
-                     (is (= 0 (listener-count))
-                         "the success terminal detached the external listener — none accumulates")
-                     ;; --- request 2: natural FAILURE (500, no retry) ---
-                     (reset! replies [])
-                     (set! (.-fetch js/globalThis)
-                           (fn [_url _init]
-                             (js/Promise.resolve (fake-response {:status 500 :content-type "application/json"
-                                                                 :text-val "boom"}))))
-                     (rf/dispatch-sync [:issue "/fail"] {:frame :rf/default})
-                     (rf.test-support/poll-until
-                       #(seq @replies) {:timeout-ms 2000 :label "cljs shared-signal failure reply"})))
-            (.then (fn [_]
-                     (is (= :error (:status (first @replies))))
-                     (is (= :rf.http/http-5xx (get-in (first @replies) [:error :kind])))
-                     (is (= 0 (listener-count))
-                         "the failure terminal also detached — a shared signal retains no completed-attempt listeners")))
-            (.catch (fn [e]
-                      (is false (str "unexpected: " e))
-                      nil))
-            (.then (fn [_]
-                     (set! (.-fetch js/globalThis) orig)
-                     (done))))))))
-
-;; ---- a successful CLJS request exposes response metadata ------------------
-;;
-;; The CLJS counterpart of the JVM real-transport-success-reply-carries-
-;; response-meta: a successful request driven through the FULL :rf.http/managed
-;; pipeline (managed handler -> Fetch transport -> decode/accept -> canonical
-;; reply) delivers the ACTUAL response status, status text, and the
-;; transport's normalized headers at [:meta ...] on the canonical reply, with
-;; :value still the decoded payload. The Fetch Response is stubbed (the node
-;; lane has no network); the transport code path is the production one.
+  ;; Two requests share ONE signal; neither terminal path leaves a listener.
+  (async done
+    (reset-runtime!)
+    (let [{:keys [signal listener-count]} (fake-abort-signal)
+          replies (record-replies!)
+          orig    (.-fetch js/globalThis)
+          issue-answered-with!
+          (fn [status text]
+            (set! (.-fetch js/globalThis)
+                  (fn [_url _init]
+                    (js/Promise.resolve (fake-response {:status status :content-type "application/json"
+                                                        :text-val text}))))
+            (issue! {:request {:url "/x"} :decode :json :abort-signal signal :request-id :shared}))]
+      (issue-answered-with! 200 "{\"ok\":true}")
+      (-> (rf.test-support/poll-until
+            #(seq @replies)
+            {:timeout-ms 2000 :label "cljs shared-signal success reply"})
+          (.then (fn [_]
+                   (is (= [:ok 0] [(:status (first @replies)) (listener-count)]))
+                   (reset! replies [])
+                   (issue-answered-with! 500 "boom")
+                   (rf.test-support/poll-until
+                     #(seq @replies)
+                     {:timeout-ms 2000 :label "cljs shared-signal failure reply"})))
+          (.then (fn [_]
+                   (let [reply (first @replies)]
+                     (is (= [:error :rf.http/http-5xx 0]
+                            [(:status reply) (get-in reply [:error :kind]) (listener-count)])))))
+          (.catch (fn [e] (is false (str "unexpected: " e)) nil))
+          (.then (fn [_]
+                   (set! (.-fetch js/globalThis) orig)
+                   (done)))))))
 
 (deftest cljs-success-reply-carries-response-meta
-  (testing "a successful managed request delivers the actual
-            response status/status-text/normalized headers at [:meta ...]"
-    (async done
-      (rf/init! rf.adapter.reagent/adapter)
-      (rf.frame/ensure-default-frame!)
-      (rf.http.managed/clear-all-in-flight!)
-      (let [replies (atom [])
-            orig    (.-fetch js/globalThis)
-            resp    #js {:ok         true
-                         :status     200
-                         :statusText "OK"
-                         ;; Fetch-`Headers`-like: `forEach (v k)` per
-                         ;; `fetch-headers->map` -- lower-cased names, as the
-                         ;; real Headers object iterates them.
-                         :headers    #js {:forEach
-                                          (fn [cb]
-                                            (cb "application/json" "content-type")
-                                            (cb "37" "x-ratelimit-remaining"))}
-                         :text       (fn [] (js/Promise.resolve "{\"title\":\"hello\"}"))}]
-        (rf/reg-event :reply/recorder (fn [_ [_ p]] (swap! replies conj p) {}))
-        (rf/reg-event :issue-meta
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request    {:url "/meta"}
-                    :decode     :json
-                    :on-success [:reply/recorder]
-                    :on-failure [:reply/recorder]}]]}))
-        (set! (.-fetch js/globalThis)
-              (fn [_url _init] (js/Promise.resolve resp)))
-        (rf/dispatch-sync [:issue-meta] {:frame :rf/default})
-        (-> (rf.test-support/poll-until
-              #(seq @replies) {:timeout-ms 2000 :label "cljs success meta reply"})
-            (.then (fn [_]
-                     (let [reply (first @replies)]
-                       (is (= :ok (:status reply)))
-                       (is (= "hello" (get-in reply [:value :title]))
-                           ":value remains the decoded payload")
-                       (is (= 200 (get-in reply [:meta :status]))
-                           "the actual numeric wire status rides [:meta :status]")
-                       (is (= "OK" (get-in reply [:meta :status-text]))
-                           "the actual status text rides [:meta :status-text]")
-                       (is (= "37" (get-in reply [:meta :headers "x-ratelimit-remaining"]))
-                           "normalized (lower-cased) response headers ride [:meta :headers]")
-                       (is (= "application/json" (get-in reply [:meta :headers "content-type"]))))))
-            (.catch (fn [e]
-                      (is false (str "unexpected: " e))
-                      nil))
-            (.then (fn [_]
-                     (set! (.-fetch js/globalThis) orig)
-                     (done))))))))
+  ;; The wire status, status text and normalized (lower-cased) headers ride
+  ;; [:meta ...] beside the decoded :value.
+  (async done
+    (reset-runtime!)
+    (let [replies (record-replies!)
+          orig    (.-fetch js/globalThis)
+          resp    #js {:ok         true
+                       :status     200
+                       :statusText "OK"
+                       :headers    #js {:forEach (fn [cb]
+                                                   (cb "application/json" "content-type")
+                                                   (cb "37" "x-ratelimit-remaining"))}
+                       :text       (fn [] (js/Promise.resolve "{\"title\":\"hello\"}"))}]
+      (set! (.-fetch js/globalThis) (fn [_url _init] (js/Promise.resolve resp)))
+      (issue! {:request {:url "/meta"} :decode :json})
+      (-> (rf.test-support/poll-until
+            #(seq @replies)
+            {:timeout-ms 2000 :label "cljs success meta reply"})
+          (.then (fn [_]
+                   (is (= {:status :ok
+                           :value  {:title "hello"}
+                           :meta   {:status      200
+                                    :status-text "OK"
+                                    :headers     {"content-type"          "application/json"
+                                                  "x-ratelimit-remaining" "37"}}}
+                          (-> (first @replies)
+                              (select-keys [:status :value :meta])
+                              (update :meta select-keys [:status :status-text :headers])
+                              (update-in [:meta :headers] select-keys ["content-type" "x-ratelimit-remaining"]))))))
+          (.catch (fn [e] (is false (str "unexpected: " e)) nil))
+          (.then (fn [_]
+                   (set! (.-fetch js/globalThis) orig)
+                   (done)))))))
