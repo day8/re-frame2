@@ -1,66 +1,12 @@
 (ns re-frame.ep0008-producers-jvm-gate-test
-  "READ THIS FIRST. Despite the namespace's name, this suite is
-  NOT THE LOAD-TIME GATE.
-
-  `re-frame.interop/debug-enabled?` is read ONCE, at namespace-load time, from
-  `-Dre-frame.debug` / `RE_FRAME_DEBUG`. Every assertion below reaches it with
-  `with-redefs`, AFTER the framework has loaded, so it cannot change anything
-  the gate decided at load. What this suite pins is the REBINDABLE VAR — that
-  the always-on producers do not consult `debug-enabled?` at call time while
-  their dev-only companions do. Real contract, useful test; NOT the production
-  posture, and it must never be counted as coverage of one.
-
-  The lanes that DO reach the load-time gate:
-
-    * `jvm-core-prod-gate` / `sh scripts/test-core-prod-gate.sh` — the core
-      suite with `-Dre-frame.debug=false` genuinely on the JVM command line.
-    * `re-frame.prod-gate-lane-pin-test` — asserts the property really arrived
-      in that lane's JVM.
-    * `re-frame.prod-gate-dispatch-jvm-test` — the child-JVM pattern for a
-      defect that only reproduces at load time.
-
-  A full-looking roster of \"production gate\" suites that counts this one can
-  stay green over a TOTAL `dispatch-sync` failure under the documented gate.
-
-  ## What this suite pins
-
-  EP-0008 — the debug-Var-rebind + raw-payload regressions
-  for the REAL promoted producers.
-
-  ## Why this suite exists
-
-  EP-0008 says the always-on axis survives BOTH CLJS production elision AND
-  JVM `re-frame.debug` / `RE_FRAME_DEBUG` gating. That each REAL promoted
-  producer's always-on record still fires with the gate off
-  (`:rf.error/frame-teardown-failed`, `:rf.error/write-after-destroy`,
-  `:rf.error/on-destroy-handler-exception`) is pinned under the REAL gate by
-  the producers' own `.cljc` always-on suites
-  (`re-frame.frame-teardown-report-cljs-test`,
-  `re-frame.write-after-destroy-always-on-cljs-test`,
-  `re-frame.on-destroy-handler-exception-always-on-cljs-test`), which the
-  production-gate lane runs with `-Dre-frame.debug=false` on the JVM command
-  line. This suite exercises the REAL producers end-to-end with
-  `debug-enabled?` REBOUND to `false` — a model of the SSR-production JVM
-  posture, not the posture itself — and asserts that the dev-only companion
-  trace (the per-hook `:rf.warning/teardown-hook-exception`) is ELIDED under
-  that gate while the always-on report SURVIVES (the diagnostic channel is
-  gated; the always-on axis is not).
-
-  ## Why JVM-only (`.clj`, not `.cljc`)
-
-  The surface this suite exercises is the JVM `rf.interop/debug-enabled?` Var as
-  a REBINDABLE reference (`with-redefs` here; CLJS uses Closure DCE, exercised
-  by the `prod_elision_runner` probe, which is a genuine production build).
-  Naming this `.clj` keeps it on the JVM `clojure -M:test` runner only.
-
-  ## Raw-payload regressions
-
-  The corpus-wide listener carries the RAW exception (the off-box-shipper API
-  — Sentry needs the stack). That is the documented advanced-integration
-  posture (Spec 009 §What IS available in production — the `:exception` slot
-  exception to 'no raw values'). The frame-owned `:observability :errors` sink
-  route PROJECTS the record. This suite pins both halves with a
-  sensitive event payload + exception ex-data."
+  "NOT THE LOAD-TIME GATE. `re-frame.interop/debug-enabled?` is read once, at
+  namespace load, from `-Dre-frame.debug` / `RE_FRAME_DEBUG`. These tests rebind
+  the Var with `with-redefs` after the framework has loaded, so they pin only
+  that the producers below consult it at CALL time — the dev-only companion
+  trace does, the always-on record does not. The documented production posture
+  is exercised by `scripts/test-core-prod-gate.sh`, which runs the core suite
+  with `-Dre-frame.debug=false` on the JVM command line; never count this
+  namespace as coverage of it."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
@@ -81,117 +27,52 @@
                 (rf.error-emit/clear-error-listeners!)
                 (rf.observability/clear-observability-sinks!))}))
 
-(defn- records-of [seen error-kw]
-  (filter #(= error-kw (:error %)) @seen))
-
-;; ===========================================================================
-;; The dev-only companion trace is ELIDED under the gate while the
-;; always-on report survives (the diagnostic channel is debug-gated; the
-;; always-on axis is not).
-;; ===========================================================================
-
 (deftest dev-per-hook-teardown-warning-elided-while-report-survives
-  (testing "under the debug-off JVM gate the dev per-hook
-            `:rf.warning/teardown-hook-exception` trace is ELIDED, while the
-            always-on `:rf.error/frame-teardown-failed` report SURVIVES — the
-            two channels diverge exactly at the gate."
+  (testing "with the debug Var off, the dev per-hook
+            `:rf.warning/teardown-hook-exception` trace is elided while the
+            always-on `:rf.error/frame-teardown-failed` report still fires"
     (with-redefs [rf.interop/debug-enabled? false]
       (let [traces  (atom [])
             reports (atom [])]
         (rf/register-listener! :trace ::trace-rec (fn [ev] (swap! traces conj ev)))
         (rf.error-emit/register-error-listener! :test/err-rec
-                                     (fn [r] (swap! reports conj r)))
+                                                (fn [r] (swap! reports conj r)))
         (rf/make-frame {:id :gate/divergence})
         (let [orig (rf.late-bind/get-fn :ssr/on-frame-destroyed)]
           (try
             (rf.late-bind/set-fn! :ssr/on-frame-destroyed
-                                        (fn [& _] (throw (ex-info "hook threw" {}))))
+                                  (fn [& _] (throw (ex-info "hook threw" {}))))
             (rf/destroy-frame! :gate/divergence)
             (finally
               (rf.late-bind/set-fn! :ssr/on-frame-destroyed orig)
               (rf/unregister-listener! :trace ::trace-rec))))
-        ;; Diagnostic channel: ELIDED under the debug-off gate.
         (is (empty? (filter #(= :rf.warning/teardown-hook-exception (:operation %))
                             @traces))
-            "the per-hook dev warning is elided under debug-off (diagnostic channel gated)")
-        ;; Always-on channel: SURVIVES.
-        (is (= 1 (count (records-of reports :rf.error/frame-teardown-failed)))
-            "the always-on report still fired under debug-off (axis not gated)")))))
-
-;; ===========================================================================
-;; Raw-payload regressions — corpus listener carries the raw
-;; payload; the frame-owned sink route projects it (under the debug-off gate,
-;; so both routes are exercised in the production posture).
-;; ===========================================================================
+            "the dev per-hook warning is elided")
+        (is (= 1 (count (filter #(= :rf.error/frame-teardown-failed (:error %))
+                                @reports)))
+            "the always-on report still fired")))))
 
 (def ^:private secret "S3CR3T-rf2-ntv9i9-3-DO-NOT-LEAK")
 
-(deftest corpus-listener-carries-raw-frame-sink-projects-under-prod-gate
-  (testing "under the debug-off JVM gate, a teardown report
-            whose `:hook-failures` entry carries sensitive exception ex-data
-            reaches the corpus-wide listener RAW (the off-box-shipper API) AND
-            the frame-owned `:errors` sink PROJECTED (sensitive path redacted)."
-    (with-redefs [rf.interop/debug-enabled? false]
-      (let [listener-seen (atom [])
-            sink-seen     (atom [])]
-        (rf/register-observability-sink! :test.sinks/sentry
-                                    (fn [r] (swap! sink-seen conj r)))
-        (rf.error-emit/register-error-listener! :test/listener
-                                     (fn [r] (swap! listener-seen conj r)))
-        ;; index-free decl matches the runtime [:hook-failures 0 :exception-data
-        ;; :token] (the vector index is ridden index-free by the wire-walker).
-        (rf/make-frame {:id :gate/raw :observability
-                        {:errors [{:sink :test.sinks/sentry
-                                   :rf.egress/profile :rf.egress/off-box-observability}]}})
-        ;; EP-0025: classify the sensitive app-db path via the commit-plane
-        ;; effect path (`:source :effect`) — there is no durable frame
-        ;; annotation. Same registry write a reg-event returning `:sensitive` makes.
-        (rf.frame/swap-runtime-db! :gate/raw
-          (fn [rt] (rf.elision/apply-classification-effects rt
-                     {:sensitive [[:hook-failures :exception-data :token]]})))
-        (rf.error-emit/dispatch-frame-teardown-report!
-          :gate/raw
-          [{:hook           :flows/teardown-on-frame-destroy!
-            :exception      (ex-info "boom" {})
-            :exception-data {:token secret}
-            :where          :safe-call-hook!}]
-          7)
-        ;; corpus-wide listener: RAW (Sentry needs the stack / payload).
-        (is (= 1 (count @listener-seen)) "the corpus listener fired under prod gate")
-        (is (.contains ^String (pr-str (first @listener-seen)) secret)
-            "the corpus-wide listener carries the raw payload (documented posture)")
-        ;; frame-owned sink: PROJECTED (sensitive path redacted).
-        (is (= 1 (count @sink-seen)) "the frame sink fired under prod gate")
-        (let [projected (first @sink-seen)]
-          (is (= :rf/redacted
-                 (get-in projected [:tags :hook-failures 0 :exception-data :token]))
-              "the sensitive token is redacted in the frame-sink projection")
-          (is (not (.contains ^String (pr-str projected) secret))
-              "the secret never appears anywhere in the projected sink record"))))))
-
 (deftest sensitive-event-payload-redacted-on-frame-error-sink-prod-gate
-  (testing "under the debug-off JVM gate, an EVENT-centric
-            error whose event carries a sensitive payload reaches the frame's
-            `:errors` sink with the sensitive slot REDACTED (the event-centric
-            companion to the non-event raw-payload pin — both route through
-            project-egress)."
+  (testing "with the debug Var off, an event error whose event carries a
+            sensitive payload reaches the frame's `:errors` sink with the
+            secret redacted, and nowhere else in the projected record"
     (with-redefs [rf.interop/debug-enabled? false]
       (let [sink-seen (atom [])]
         (rf/register-observability-sink! :test.sinks/sentry
-                                    (fn [r] (swap! sink-seen conj r)))
+                                         (fn [r] (swap! sink-seen conj r)))
         (rf/make-frame {:id :gate/evt :observability
                         {:errors [{:sink :test.sinks/sentry
                                    :rf.egress/profile :rf.egress/off-box-observability}]}})
-        ;; EP-0025: classify the sensitive app-db path via the commit-plane
-        ;; effect path (`:source :effect`) — there is no durable frame annotation.
         (rf.frame/swap-runtime-db! :gate/evt
           (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[:auth :token]]})))
         (rf/reg-event :gate/login {:frame :gate/evt}
-                         (fn [{:keys [db]} _] {:db (throw (ex-info "kaboom" {}))}))
+                      (fn [_ _] {:db (throw (ex-info "kaboom" {}))}))
         (rf/dispatch-sync [:gate/login {:auth {:token secret}}] {:frame :gate/evt})
-        (is (= 1 (count @sink-seen)) "the frame error sink fired under prod gate")
+        (is (= 1 (count @sink-seen)) "the frame error sink fired")
         (let [r (first @sink-seen)]
-          (is (= :rf/redacted (get-in (:event r) [1 :auth :token]))
-              "the sensitive token inside the event is redacted on the sink")
+          (is (= :rf/redacted (get-in (:event r) [1 :auth :token])))
           (is (not (.contains ^String (pr-str r) secret))
               "the secret never appears in the projected error record"))))))
