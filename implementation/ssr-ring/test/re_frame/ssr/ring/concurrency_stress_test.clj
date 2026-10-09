@@ -323,9 +323,7 @@
 ;; Test 2 — concurrent disconnect: writer-thread lifecycle race vs frame destroy
 ;; ===========================================================================
 ;;
-;; The single-request version of this scenario is
-;; `client-disconnect-mid-stream-cleans-up`. This is the parallel
-;; counterpart: many clients abort mid-stream simultaneously, and we
+;; Many clients abort mid-stream simultaneously, and we
 ;; assert the writer-thread cleanup + `destroy-frame-quietly!` race
 ;; settles cleanly under contention.
 ;;
