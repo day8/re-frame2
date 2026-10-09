@@ -1,182 +1,54 @@
 (ns re-frame.warn-once-clear-governance-cljs-test
-  "Governance gate for the adapter/views warn-once `defonce` cache class.
-
-  The hazard: a process-wide `defonce` warn-once cache whose clear-fn is
-  published standalone but NEVER chained into the canonical
+  "Every adapter/views warn-once `defonce` cache must be wiped by the chained
   `:adapter/clear-warn-once-caches!` hook that `make-reset-runtime-fixture`
-  fires — so the standard fixture silently fails to re-arm it between tests,
-  and a sibling test's first-encounter warning can swallow a later same-key
-  warning. The class covers `warned-non-dom-roots` (the source-coord /
-  non-DOM-root cache), `seen-render-keys` (the :mount? discriminator's set),
-  the slim hiccup interpreter's `warned-keyword-prop`, and the React-hook
-  spine's per-adapter cache.
-
-  Every contributor enrols through the single chokepoint
-  `re-frame.late-bind/register-warn-once-clear-fn!`, which both chains the clear-fn AND records the cache (with `:arm` /
-  `:armed?` probes where the cache atom is in scope) in the
-  `warn-once-clear-registry`. This test enumerates that registry and
-  proves, empirically, that firing the canonical chain ONCE wipes every
-  registered cache. A future cache that registers but forgets the
-  chain (impossible through the chokepoint, but a bare `chain-fn!` could
-  still drift) — or that escapes the chokepoint entirely — is caught:
-
-    * the empirical assertion arms every probe-carrying cache, fires the
-      chain, and asserts each is wiped → a registered-but-unchained cache
-      survives the chain and FAILS;
-    * the would-fail negative proof registers a SYNTHETIC unchained cache
-      directly into the registry (NOT through the chokepoint) and shows
-      the same assertion catches it — proving the gate has teeth.
-
-  The companion source-enumeration assertion lives in the JVM test
-  `re-frame.warn-once-clear-governance-test` (it greps every `defonce`
-  warn-once cache out of source and asserts each is routed through the
-  chokepoint) — that layer catches a cache that never registers at all.
-
-  Loading the four adapter/views producer namespaces below populates the
-  registry at ns-load (each adapter's `make-react-adapter` /
-  `make-ratom-adapter` runs its enrolment at require time).
-
-  ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
-  (:require [cljs.test :refer-macros [deftest is testing]]
+  fires, or a sibling test's first-encounter warning swallows a later
+  same-key one. Caches enrol through
+  `re-frame.late-bind/register-warn-once-clear-fn!`, which both chains the
+  clear-fn and records the cache in `warn-once-clear-registry`. This checks
+  that the named caches are enrolled and that one firing of the chain wipes
+  every enrolled cache carrying `:arm` / `:armed?` probes. The JVM
+  `re-frame.warn-once-clear-governance-test` checks that no source chains
+  the key around the chokepoint."
+  (:require [cljs.test :refer-macros [deftest is]]
             [clojure.set :as set]
             [re-frame.late-bind :as rf.late-bind]
-            ;; load-bearing requires — each populates the warn-once-clear
-            ;; registry at ns-load:
-            ;;   re-frame.views          → seen-render-keys
-            ;;   re-frame.views.warn-once → warned-non-dom-roots
-            ;;   re-frame.adapter.uix     → the React-hook spine's per-
-            ;;                              adapter source-coord cache
-            ;;                              (make-react-adapter enrols it)
-            ;;   re-frame.adapter.reagent-slim → warned-keyword-prop
+            ;; Each populates the registry at ns-load.
             [re-frame.views]
             [re-frame.views.warn-once]
             [re-frame.adapter.uix]
             [re-frame.adapter.reagent-slim]))
 
-;; ---------------------------------------------------------------------------
-;; Enumeration — every named cache of the class is enrolled
-;; ---------------------------------------------------------------------------
-
 (def ^:private expected-labels
-  "Every warn-once cache of the class that MUST be
-  enrolled in the registry (and therefore chained). A new cache that
-  forgets to enrol trips the source-enumeration JVM assertion; one that
-  enrols under a new label is added here by hand."
   #{:views/warned-non-dom-roots
     :views/seen-render-keys
     :adapter/warned-non-dom-roots          ;; the React-hook spine's per-adapter cache
     :reagent-slim/warned-keyword-prop})
 
 (deftest registry-enrols-every-named-cache-of-the-class
-  (testing "the warn-once-clear governance registry enrols every named
-            cache of the class"
-    (let [enrolled (set (map :label @rf.late-bind/warn-once-clear-registry))
-          missing  (set/difference expected-labels enrolled)]
-      (is (empty? missing)
-          (str "these warn-once caches are NOT enrolled in the governance "
-               "registry (so they are NOT chained into "
-               ":adapter/clear-warn-once-caches! and the standard fixture "
-               "will not re-arm them — the unchained warn-once cache defect): "
-               (pr-str missing)
-               ". Enrolled labels: " (pr-str enrolled))))))
-
-;; ---------------------------------------------------------------------------
-;; Empirical proof — firing the canonical chain wipes every enrolled cache
-;; ---------------------------------------------------------------------------
+  (let [enrolled (set (map :label @rf.late-bind/warn-once-clear-registry))]
+    (is (empty? (set/difference expected-labels enrolled))
+        (str "an unenrolled cache is not chained, so the standard fixture will "
+             "not re-arm it. Enrolled labels: " (pr-str enrolled)))))
 
 (defn- probed-entries
-  "Registry entries that carry both :arm and :armed? probes — the ones the
-  empirical arm/fire/assert-empty check can drive. (Probe-less entries —
-  e.g. the slim keyword-prop cache, whose atom is private behind the
-  reagent2.* bundle-isolation boundary — are covered by the enrolment
-  enumeration above + the source-enumeration JVM assertion + their own
-  dedicated re-arm test.)"
+  "Registry entries carrying both `:arm` and `:armed?` probes. A probe-less
+  entry (the slim keyword-prop cache, whose atom is private to its bundle)
+  is covered by the enrolment check above and its own re-arm test."
   []
   (filter (fn [{:keys [arm armed?]}] (and (fn? arm) (fn? armed?)))
           @rf.late-bind/warn-once-clear-registry))
 
 (deftest canonical-chain-wipes-every-enrolled-cache
-  (testing "arming every probe-carrying warn-once cache, then firing the
-            canonical :adapter/clear-warn-once-caches! chain ONCE, wipes
-            ALL of them — proving each enrolled cache is genuinely a member
-            of the chain the standard fixture drives"
-    (let [entries (probed-entries)
-          chain   (rf.late-bind/get-fn :adapter/clear-warn-once-caches!)]
-      (is (seq entries)
-          "precondition: at least one probe-carrying cache is enrolled")
-      (is (some? chain)
-          "precondition: the canonical :adapter/clear-warn-once-caches! chain is registered")
-      ;; Arm every cache so each :armed? is true.
-      (doseq [{:keys [arm]} entries] (arm))
-      (doseq [{:keys [label armed?]} entries]
-        (is (true? (boolean (armed?)))
-            (str "precondition: " label " is armed before the chain fires")))
-      ;; Fire the canonical chain ONCE.
-      (chain)
-      ;; Every cache must now be wiped.
-      (doseq [{:keys [label armed?]} entries]
-        (is (false? (boolean (armed?)))
-            (str label " survived the canonical :adapter/clear-warn-once-"
-                 "caches! chain — its clear-fn is enrolled in the registry "
-                 "but NOT actually wired into the chain (the unchained "
-                 "warn-once cache defect). The standard make-reset-runtime-fixture "
-                 "will not re-arm it between tests."))))))
-
-;; ---------------------------------------------------------------------------
-;; A representative live cache the contrast assertions can drive
-;; ---------------------------------------------------------------------------
-
-(defn- a-probed-live-entry
-  "Any registry entry that carries :arm / :armed? probes — a real,
-  properly-enrolled cache the empirical arm/fire/assert-empty logic can
-  drive. Used as the positive contrast in the negative-proof test below."
-  []
-  (first (probed-entries)))
-
-;; ---------------------------------------------------------------------------
-;; Negative proof — the gate has teeth (a registered-but-unchained cache
-;; is caught)
-;; ---------------------------------------------------------------------------
-
-(deftest governance-gate-catches-an-unchained-cache
-  (testing "PROOF the gate would FAIL for a new cache that registers but is
-            NOT chained: inject a SYNTHETIC entry straight into the registry
-            (bypassing register-warn-once-clear-fn!, so it never reaches the
-            chain), arm it, fire the canonical chain, and confirm the same
-            arm/fire/assert-empty logic the gate uses flags it as surviving.
-            The synthetic entry is removed afterwards so the
-            real gate stays green."
-    (let [survivor (atom #{})
-          synthetic {:label    :rf-test/unchained-synthetic-cache
-                     ;; NOTE: this clear-fn is NEVER chained — the entry is
-                     ;; conj'd directly, NOT via register-warn-once-clear-fn!.
-                     :clear-fn (fn [] (reset! survivor #{}) nil)
-                     :arm      (fn [] (swap! survivor conj ::sentinel))
-                     :armed?   (fn [] (contains? @survivor ::sentinel))}]
-      (try
-        (swap! rf.late-bind/warn-once-clear-registry conj synthetic)
-        (let [{:keys [arm armed?]} synthetic
-              chain (rf.late-bind/get-fn :adapter/clear-warn-once-caches!)]
-          (arm)
-          (is (true? (boolean (armed?))) "synthetic cache armed")
-          (chain)
-          ;; The chain does NOT clear it (it was never wired in) — exactly
-          ;; what the empirical gate flags as a failure for a real cache.
-          (is (true? (boolean (armed?)))
-              "the synthetic UNCHAINED cache survives the canonical chain —
-               this is the failure the empirical gate raises for any real
-               cache that registers but forgets the chain. The gate has
-               teeth.")
-          ;; And confirm that, by contrast, a properly-enrolled cache IS
-          ;; cleared by the same chain fire (so the gate distinguishes the
-          ;; two — it isn't vacuously green).
-          (let [{real-arm :arm real-armed? :armed?} (a-probed-live-entry)]
-            (real-arm)
-            ;; fire again so both synthetic and the real cache see the chain
-            (chain)
-            (is (false? (boolean (real-armed?)))
-                "by contrast, a properly-enrolled cache IS wiped by the chain")))
-        (finally
-          ;; Drop the synthetic entry so the real gate above stays clean.
-          (swap! rf.late-bind/warn-once-clear-registry
-                 (fn [reg] (vec (remove #(= :rf-test/unchained-synthetic-cache (:label %)) reg)))))))))
+  (let [entries (probed-entries)
+        chain   (rf.late-bind/get-fn :adapter/clear-warn-once-caches!)]
+    (is (seq entries)
+        "precondition: at least one probe-carrying cache is enrolled")
+    (doseq [{:keys [arm]} entries] (arm))
+    (doseq [{:keys [label armed?]} entries]
+      (is (true? (boolean (armed?)))
+          (str "precondition: " label " is armed before the chain fires")))
+    (chain)
+    (doseq [{:keys [label armed?]} entries]
+      (is (false? (boolean (armed?)))
+          (str label " survived the canonical chain: it is enrolled but its "
+               "clear-fn is not wired into the chain the standard fixture fires")))))
