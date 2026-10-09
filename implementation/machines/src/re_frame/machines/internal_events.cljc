@@ -82,15 +82,7 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-;; ---- declaration accessor + boundary predicate ----------------------------
-
-(defn internal-events
-  "The machine's declared `:internal-events` as a SET (or nil when the
-  machine declares none). The single accessor both the boundary predicate
-  and the public-collision validator read, so the declaration shape has one
-  reader."
-  [machine]
-  (:internal-events machine))
+;; ---- boundary predicate ---------------------------------------------------
 
 (defn internal-event-external?
   "True iff `inner-event` (the routed inner event vector arriving at the
@@ -106,7 +98,7 @@
   only for an outside caller's `rf/dispatch`."
   [machine inner-event]
   (boolean
-    (when-let [ie (internal-events machine)]
+    (when-let [ie (:internal-events machine)]
       (and (vector? inner-event)
            (seq inner-event)
            (contains? ie (first inner-event))))))

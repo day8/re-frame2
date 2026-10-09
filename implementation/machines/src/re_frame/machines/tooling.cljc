@@ -290,10 +290,9 @@
                      (`:schema` is the machine's `[:schemas :data]` schema;
                      source coords auto-captured by the `reg-machine` macro).
 
-  Zero-arity returns `{machine-id <node>}` for every registered machine (`{}`
-  when none). The one-arity form returns the single node for `machine-id`, or
-  `nil` if it is not registered as a machine. JVM-runnable — the machine spec
-  is partition-agnostic registration metadata.
+  Returns `{machine-id <node>}` for every registered machine (`{}` when
+  none). JVM-runnable — the machine spec is partition-agnostic registration
+  metadata.
 
   Machine SELECTORS (subs over `[:rf/machine …]`) are NOT surfaced here: they
   remain ordinary subscription `:derivation` nodes
@@ -303,20 +302,16 @@
   This ships NO public accessor: it lives in the bundle-isolated tooling
   sibling and is consumed by Xray + the conformance fixtures; the public
   name is deferred until a third consumer needs it."
-  ([]
-   (reduce
-     (fn [acc machine-id]
-       (if-let [machine (machine-spec machine-id)]
-         (assoc acc machine-id
-                (node-for machine-id machine-id machine
-                          (rf.registrar/lookup :event machine-id)))
-         acc))
-     {}
-     (registered-machine-ids)))
-  ([machine-id]
-   (when-let [machine (machine-spec machine-id)]
-     (node-for machine-id machine-id machine
-               (rf.registrar/lookup :event machine-id)))))
+  []
+  (reduce
+    (fn [acc machine-id]
+      (if-let [machine (machine-spec machine-id)]
+        (assoc acc machine-id
+               (node-for machine-id machine-id machine
+                         (rf.registrar/lookup :event machine-id)))
+        acc))
+    {}
+    (registered-machine-ids)))
 
 (defn machine-instance-algebra-view
   "Return the LIVE derivation/process algebra view of a frame's machine

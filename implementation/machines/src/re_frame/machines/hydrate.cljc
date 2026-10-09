@@ -105,7 +105,7 @@
   `:rf/install-frame-state`, and shares no callback with restore.
 
   Pure / host-agnostic CLJC apart from the one arming call — the walk is a
-  pure function of `[spec snapshot]` and is tested as such."
+  pure function of `[spec snapshot]`."
   (:require [re-frame.frame :as rf.frame]
             [re-frame.machines.classification :as rf.machines.classification]
             [re-frame.machines.lifecycle-fx.resolver :as rf.machines.lifecycle-fx.resolver]
