@@ -1079,12 +1079,11 @@
   clear the whole buffer (frame destroy / drain-interrupt / depth-halt /
   rejected dispatch); see the design note above this defn.
 
-  With no run-start, no event ran to completion. The two-arity uses the
-  settling envelope id to drop that rejected dispatch's own traces and nil-id
-  orphans while retaining unrelated child markers. It returns `[]`, preventing
-  `settle!` from recording a false `:ok` epoch. The low-level one-arity has no
-  envelope id and therefore falls back to a full read-and-clear."
-  ([frame-id] (harvest-buffer-for-event! frame-id nil))
+  With no run-start, no event ran to completion. A settling envelope id drops
+  that rejected dispatch's own traces and nil-id orphans while retaining
+  unrelated child markers, and the call returns `[]`, preventing `settle!` from
+  recording a false `:ok` epoch. A nil envelope id falls back to a full
+  read-and-clear."
   ([frame-id settling-dispatch-id]
    (let [buffered-events (get @capture-buffers frame-id [])]
      (if-let [run-dispatch-id (run-start-dispatch-id buffered-events)]
@@ -1130,8 +1129,7 @@
              (swap! capture-buffers assoc frame-id remaining-events)
              (swap! capture-buffers dissoc frame-id))
            [])
-         ;; 1-arity fallback (no envelope id — a direct low-level test call):
-         ;; full read-and-clear, returning the whole buffer.
+         ;; No envelope id: full read-and-clear, returning the whole buffer.
          (do (swap! capture-buffers dissoc frame-id)
              buffered-events))))))
 
@@ -1335,7 +1333,8 @@
 ;; replacement correct WITHOUT a cross-atom clear (the split-brain a two-swap
 ;; update would allow): a replacement simply mints a new token, so a stale
 ;; OLD-generation observation is silently ignored by the token-scoped readers
-;; (`record-observation!` refuses to re-arm it; `cbs-observing-frame` skips it)
+;; (`record-observation!` refuses to re-arm it; `snapshot-terminal-observers`
+;; skips it)
 ;; and is overwritten the moment the NEW generation observes the same frame.
 ;; The frame-id is the map KEY, so `(contains? (get observed cb-id)
 ;; frame-id)` answers "did this cb ever observe the frame?" — the same
@@ -1359,7 +1358,7 @@
 ;; LINEARIZABLE, and BOUNDED. Deciding PER identity needs two kinds of evidence:
 ;;
 ;;   * delivery/re-arm (live): a successor that re-armed a cb and is STILL LIVE
-;;     leaves that cb in the live observation ledger (`cbs-observing-frame`), so
+;;     leaves that cb in the live observation ledger (`snapshot-terminal-observers`), so
 ;;     the callback is live on the successor rather than silent.
 ;;   * terminal-silence (survives cleanup): a successor that re-armed then
 ;;     DESTROYED already emitted the one truthful silence AND dropped its live
@@ -1813,12 +1812,6 @@
               (prune-terminal-silence-mark! frame-id cb-id))))
         (throw ex)))))
 
-(defn terminal-silence-marks-snapshot
-  "Read-only view of the `frame-id → {cb-id → seq}` terminal-silence ledger —
-  a boundedness probe for tests."
-  []
-  @terminal-silence-marks)
-
 (defn put-listener!
   "Install or replace `f` under `id` as a fresh listener GENERATION.
 
@@ -1986,25 +1979,6 @@
           ;; the SUCCESSOR's baseline, never falsely gating it.
           (prune-terminal-silence-mark! frame-id cb-id))))))
 
-(defn cbs-observing-frame
-  "Return the cb-ids whose CURRENT generation observed `frame-id` — the frame
-  is stamped in the cb's observation ledger with the cb's live generation
-  token. A stale OLD-generation stamp (left by a since-replaced generation that
-  never re-observed the frame) is NOT returned, so a same-id replacement never
-  silences the new callback for a frame only the OLD callback consumed, and
-  never fails to silence a frame the new callback did consume. The one-shot
-  `:rf.epoch.cb/silenced-on-frame-destroy` fan is derived from this set."
-  [frame-id]
-  (let [observed @observed-frames-by-cb
-        live     @listeners]
-    (->> observed
-         (keep (fn [[cb-id frames]]
-                 (let [token (get frames frame-id ::absent)]
-                   (when (and (not= token ::absent)
-                              (= token (:generation (get live cb-id))))
-                     cb-id))))
-         vec)))
-
 (defn snapshot-terminal-observers
   "Snapshot the destroyed `frame-id`'s owed observers from ONE consistent read of
   the listener registry and the observation ledger, returning
@@ -2012,8 +1986,8 @@
 
   `:observing` carries EACH observing cb's EXACT generation, taken from the
   OBSERVATION STAMP — never a second registry re-read. This is the exactness
-  guarantee: a two-step shape that validated a generation G through
-  `cbs-observing-frame` and then re-read the registry for the generation would
+  guarantee: a two-step shape that validated a generation G against the
+  registry and then re-read the registry for the generation would
   let a replacement landing between the two reads record a fresh generation H
   as having observed A. Deriving the generation from the same
   stamp used to qualify the observer makes that attribution impossible — a cb

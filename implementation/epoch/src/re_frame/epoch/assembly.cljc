@@ -148,14 +148,13 @@
   "True when any sensitive-declared path resolves to a non-nil leaf in
   `db`. nil-leaf paths do NOT count — the path is declared sensitive
   but the slot is empty, so the record carries no actual sensitive
-  material from this signal. `db` is `:db-before` or `:db-after`; both
-  may be nil on halted paths."
+  material from this signal. `db` is `:db-before` or `:db-after`; a nil
+  `db` holds no leaf."
   [db sensitive-paths]
-  (and (some? db)
-       (boolean
-         (some (fn [path]
-                 (some? (get-in db path)))
-               sensitive-paths))))
+  (boolean
+    (some (fn [path]
+            (some? (get-in db path)))
+          sensitive-paths)))
 
 (defn sensitive-rollup
   "Compute the record-level `:rf.epoch/sensitive?` rollup for the
@@ -275,12 +274,10 @@
    ;; Spec-Schemas §`:rf/epoch-record` — emitting `:event-id nil` on a
    ;; halt path where no `:event/run-start` trace was buffered would
    ;; violate the schema; the open-map admits the slot's absence but
-   ;; rejects a nil value. The live router halt paths already short-
-   ;; circuit on an empty buffer via `(when (seq events) ...)` in
-   ;; `settle!`, so the only path that can reach this branch with a
-   ;; trigger-less buffer is `on-frame-destroyed!`'s `:halted-destroy`
-   ;; commit; the conditional `cond->` slots make that record valid
-   ;; against the schema.
+   ;; rejects a nil value. A depth halt and a `replace-frame-state!`
+   ;; injection both assemble with no run-start buffered: each caller pins
+   ;; its own trigger afterwards, and the remaining trigger slots stay
+   ;; absent.
    (let [;; App-db projection of the canonical frame-state — the `:db-before`
          ;; / `:db-after` slots + the sensitive-rollup signal. `frame-state`
          ;; may be nil on a halted-destroy path whose pre-cascade snapshot is
