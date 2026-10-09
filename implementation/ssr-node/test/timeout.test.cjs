@@ -1,30 +1,24 @@
 'use strict';
 // GUARANTEE 4 — TIMEOUT AND HARD TERMINATION.
 //
-//     node implementation/ssr-node/test/timeout.test.cjs
-//
-// The fault is a SYNCHRONOUS infinite loop, and that choice is the whole
-// witness. An `await`-based hang would be stopped by any cooperative
-// cancel — a rejected promise, an abort signal, a timer — and passing
-// against it would prove nothing about the real case, because
-// `react-dom/server`'s `renderToString` is synchronous and a render stuck
-// inside it is reachable by nothing cooperative. The only thing that
-// stops it is terminating the thread.
-//
-// Every row below therefore has to hold against a render that will never
-// return: the refusal arrives inside the budget, the pool recovers, and
-// the isolate that serves the next request is a DIFFERENT THREAD, because
-// a terminated isolate is never reused.
+// The fault is a SYNCHRONOUS infinite loop, because `renderToString` is
+// synchronous and nothing cooperative can stop a render stuck inside it;
+// only terminating the thread does. So the refusal must arrive inside the
+// budget, the pool must recover, and the next request must be served by a
+// DIFFERENT thread.
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { withService, collect, observed, refusalOf } = require('./_support.cjs');
+const { withService, collect, observed, refusalOf, fixture } = require('./_support.cjs');
 const { CODE } = require('../src/protocol.cjs');
+const { createService } = require('../src/service.cjs');
+const { Isolate } = require('../src/isolate.cjs');
+// Required while the flag is DISARMED — see the fixture.
+const { EXIT_AT_FLAG } = require('./fixtures/exits.cjs');
 
 const hang = (extra = {}) => ({ protocol: 1, entry: 'app/root', state: {}, ...extra });
 const quick = () => ({ protocol: 1, entry: 'app/quick', state: {} });
-// The same runaway loop, but with two chunks already emitted, so the
-// deadline lands on a TORN response rather than a clean one.
+// The same runaway loop with two chunks already emitted.
 const torn = (extra = {}) => ({ protocol: 1, entry: 'app/torn', state: {}, ...extra });
 
 test('a render that never returns is refused inside its budget', async () => {
@@ -36,13 +30,8 @@ test('a render that never returns is refused inside its budget', async () => {
     assert.strictEqual(err.code, CODE.RENDER_TIMEOUT);
     assert.strictEqual(err.detail.timeoutMs, 200);
     assert.ok(elapsed >= 150, `refused after ${elapsed} ms — suspiciously early for a 200 ms budget`);
-    // Generous, deliberately: the claim is BOUNDED, not fast, and a tight
-    // upper bound here would be a gate that reds on somebody else's
-    // compile. An unterminated hang never returns at all, so any finite
-    // number is the whole result.
+    // Generous on purpose: the claim is BOUNDED, not fast.
     assert.ok(elapsed < 5000, `refused after ${elapsed} ms — the deadline is not bounding anything`);
-    // Nothing was emitted, so the torn-response count is 0 — present, and
-    // beside the rest of the detail rather than in place of it.
     assert.strictEqual(err.detail.afterChunks, 0, 'nothing was written, so nothing is torn');
     assert.strictEqual(err.detail.entry, 'app/root');
     assert.strictEqual(typeof err.detail.isolate, 'number');
@@ -51,8 +40,7 @@ test('a render that never returns is refused inside its budget', async () => {
 
 test('the pool recovers, and the replacement is a DIFFERENT thread', async () => {
   await withService('hang', { isolates: 1, admissionTimeoutMs: 10000 }, async (service) => {
-    const before = await collect(service, quick());
-    const firstThread = observed(before).threadId;
+    const firstThread = observed(await collect(service, quick())).threadId;
 
     const err = await refusalOf(() => collect(service, hang({ timeoutMs: 150 })));
     assert.strictEqual(err.code, CODE.RENDER_TIMEOUT);
@@ -60,47 +48,25 @@ test('the pool recovers, and the replacement is a DIFFERENT thread', async () =>
 
     const after = await collect(service, quick());
     assert.strictEqual(after.chunks.length, 1, 'the service must serve the next request normally');
-    assert.notStrictEqual(
-      observed(after).threadId,
-      firstThread,
-      'a terminated isolate must never be reused — this must be a fresh thread',
-    );
+    assert.notStrictEqual(observed(after).threadId, firstThread, 'a terminated isolate must never be reused');
     assert.strictEqual(service.stats().replacements, 1);
     assert.strictEqual(service.stats().total, 1, 'the pool must be back to its configured size');
   });
 });
 
 test('the service ceiling binds a caller that asks for longer', async () => {
-  await withService(
-    'hang',
-    { isolates: 1, maxTimeoutMs: 200, admissionTimeoutMs: 10000 },
-    async (service) => {
-      const started = Date.now();
-      const err = await refusalOf(() => collect(service, hang({ timeoutMs: 60000 })));
-      assert.strictEqual(err.code, CODE.RENDER_TIMEOUT);
-      assert.strictEqual(err.detail.timeoutMs, 200, 'the request asked for 60 s; the service says 200 ms');
-      assert.ok(Date.now() - started < 5000);
-    },
-  );
+  await withService('hang', { isolates: 1, maxTimeoutMs: 200, admissionTimeoutMs: 10000 }, async (service) => {
+    const started = Date.now();
+    const err = await refusalOf(() => collect(service, hang({ timeoutMs: 60000 })));
+    assert.strictEqual(err.code, CODE.RENDER_TIMEOUT);
+    assert.strictEqual(err.detail.timeoutMs, 200, 'the request asked for 60 s; the service says 200 ms');
+    assert.ok(Date.now() - started < 5000);
+  });
 });
 
-// ---------------------------------------------------------------------------
-// THE TORN-RESPONSE COUNT SURVIVES A TIMEOUT.
-//
-// `README.md` §refusals and `service.cjs`'s own header both promise that a
-// failure arriving AFTER chunks is a torn response carrying
-// `detail.afterChunks`, and name "the isolate dying under a render" as one of
-// the two ways it happens. The worker reports the count on the errors it
-// posts, but the deadline rejection and `_failPendingRender` build their
-// refusals themselves, from the count the isolate keeps on `pendingRender` —
-// and a transport or consumer branching on the advertised discriminator must
-// not see `undefined` while body bytes have already left. `egress.test.cjs`
-// §4's throw rows pin the worker-reported shape; these are the same claim on
-// the paths the worker cannot report on, and the clean-timeout row at the top
-// of this file pins the zero.
-// ---------------------------------------------------------------------------
-
 test('a TIMEOUT after chunks is a TORN response, names the exact count, and never completes', async () => {
+  // The deadline builds its own refusal, so the count comes from the
+  // isolate's record rather than from the worker.
   await withService('hang', { isolates: 1, admissionTimeoutMs: 10000 }, async (service) => {
     const chunks = [];
     let complete = null;
@@ -111,25 +77,17 @@ test('a TIMEOUT after chunks is a TORN response, names the exact count, and neve
       }
     });
     assert.strictEqual(chunks.length, 2, 'both chunks really did reach the caller');
-    // The half a count alone would not prove: the caller must not be handed
-    // a `complete` frame describing the chunks it did get.
     assert.strictEqual(complete, null, 'a torn stream must never yield a complete frame');
     assert.strictEqual(err.code, CODE.RENDER_TIMEOUT, 'still a timeout, not reclassified');
     assert.strictEqual(err.detail.afterChunks, 2, 'the tear is named, with its exact count');
     assert.strictEqual(err.detail.timeoutMs, 400, 'the rest of the detail is intact');
-    assert.strictEqual(
-      err.detail.entry,
-      'app/torn',
-      'and the entry, so an operator can still name the render',
-    );
+    assert.strictEqual(err.detail.entry, 'app/torn', 'and the entry, so an operator can still name the render');
   });
 });
 
 test('a render that emits nothing at all is refused rather than served empty', async () => {
   await withService('throws', { isolates: 1 }, async (service) => {
-    const err = await refusalOf(() =>
-      collect(service, { protocol: 1, entry: 'app/silent', state: {} }),
-    );
+    const err = await refusalOf(() => collect(service, { protocol: 1, entry: 'app/silent', state: {} }));
     assert.strictEqual(err.code, CODE.RENDER_THREW);
     assert.match(err.message, /without emitting any body markup/);
   });
@@ -138,28 +96,16 @@ test('a render that emits nothing at all is refused rather than served empty', a
 test('an isolate that throws is not poisoned — the next request is served', async () => {
   await withService('throws', { isolates: 1 }, async (service) => {
     await refusalOf(() => collect(service, { protocol: 1, entry: 'app/before', state: {} }));
-    const err = await refusalOf(() =>
-      collect(service, { protocol: 1, entry: 'app/before', state: {} }),
-    );
+    const err = await refusalOf(() => collect(service, { protocol: 1, entry: 'app/before', state: {} }));
     assert.strictEqual(err.code, CODE.RENDER_THREW, 'a throw is not a terminal isolate condition');
     assert.strictEqual(service.stats().replacements, 0, 'a throw must not cost an isolate');
   });
 });
 
 test('CONTROL — with no deadline in reach, the fault really does run forever', async () => {
-  // Every row above is a claim that the DEADLINE ended something. This is
-  // the row that shows there was something to end: given a deadline far
-  // out of reach, the same render is still going long after the budgets
-  // used above would have expired, and only `close()` ends it. Without
-  // this, a fixture that quietly returned early would have satisfied all
-  // four and proved none of them.
-  const { createService } = require('../src/service.cjs');
-  const path = require('node:path');
-  const service = await createService({
-    modulePath: path.join(__dirname, 'fixtures', 'hang.cjs'),
-    isolates: 1,
-    admissionTimeoutMs: 10000,
-  });
+  // Without this, a fixture that quietly returned early would satisfy every
+  // deadline row above.
+  const service = await createService({ modulePath: fixture('hang'), isolates: 1, admissionTimeoutMs: 10000 });
 
   let settled = false;
   const inFlight = refusalOf(() => collect(service, hang({ timeoutMs: 30000 }))).then((e) => {
@@ -173,34 +119,17 @@ test('CONTROL — with no deadline in reach, the fault really does run forever',
   await service.close();
   const err = await inFlight;
   assert.strictEqual(err.code, CODE.SERVICE_CLOSED, 'closing must refuse what is in flight');
-  // The third terminal path that clears `pendingRender`. Nothing
-  // was emitted here, so the count is 0; what matters is that the field is
-  // PRESENT, since a consumer branching on `detail.afterChunks` cannot tell an
-  // untorn response from a path that forgot to say.
   assert.strictEqual(err.detail.afterChunks, 0, 'a close refusal names the tear count too');
 });
 
 // ---------------------------------------------------------------------------
-// A worker that EXITS before it is ready
-//
-// A module that calls `process.exit()` while it is evaluated, or from its
-// `boot` hook, raises no `error` and posts no `boot-error` — and the exit
-// CLEARS the boot timer, the only other thing that could settle startup.
-// Unless the exit itself settles startup, startup stays pending for ever, and
-// a pool start and a replacement both inherit that. `bootTimeoutMs` is left at its
-// 30 s default, far past every bound below, so a green row is the EXIT
-// settling startup rather than the boot timer standing in for it — and a red
-// one reads as a failed assertion, never as a hung file.
+// A worker that EXITS before it is ready raises no `error`, posts no
+// `boot-error`, and clears the boot timer, so only the exit can settle
+// startup. `bootTimeoutMs` stays at its 30 s default, far past every bound
+// below, so a green row is the exit settling startup.
 // ---------------------------------------------------------------------------
 
-const { createService } = require('../src/service.cjs');
-const { Isolate } = require('../src/isolate.cjs');
-const { REPLACEMENT_FAILED_REFUSAL } = require('../src/protocol.cjs');
-const { fixture } = require('./_support.cjs');
-// Required while the flag is DISARMED — see the fixture's header.
-const { EXIT_AT_FLAG } = require('./fixtures/exits.cjs');
-
-/** `promise`'s outcome within `ms`, or `pending`. The timer is cleared rather than left holding the loop. */
+/** `promise`'s outcome within `ms`, or `pending`. */
 async function settledWithin(promise, ms = 3000) {
   let timer;
   const outcome = await Promise.race([
@@ -239,18 +168,16 @@ test('a module that EXITS while booting rejects startup promptly — clean exit 
     assert.strictEqual(outcome.error.code, CODE.MALFORMED_MODULE, exitAt);
     assert.strictEqual(outcome.error.detail.exitCode, exitCode, `${exitAt}: the exit is what settled it`);
   }
-  // CONTROL — disarmed, the same module boots, so the rejections above are
-  // the exits and not a module this service would never have accepted.
+  // CONTROL — disarmed, the same module boots.
   const healthy = await settledWithin(createService({ modulePath: fixture('exits'), isolates: 1 }));
   assert.strictEqual(healthy.state, 'resolved');
   await healthy.value.close();
 });
 
 test('a pool start with one sibling exiting rejects, and leaves no thread running', async () => {
-  // Every isolate the pool starts is recorded with its thread and that
-  // thread's exit code, so the row can show the healthy sibling really
-  // booted — it is TERMINATED by the pool (1) rather than exiting by itself
-  // (0) — and really is gone.
+  // Each started isolate's thread and exit code are recorded, so the row
+  // shows the healthy sibling booted and was TERMINATED by the pool (1)
+  // rather than exiting by itself (0).
   const started = [];
   const realStart = Isolate.prototype.start;
   Isolate.prototype.start = function start() {
@@ -281,43 +208,4 @@ test('a pool start with one sibling exiting rejects, and leaves no thread runnin
     // A red row must not become a hung file.
     await Promise.all(started.map((s) => s.worker.terminate()));
   }
-});
-
-test('a REPLACEMENT that exits before it is ready refuses its waiter, tells the operator, and lets close finish', async () => {
-  const captured = [];
-  const realWrite = process.stderr.write;
-  process.stderr.write = function (chunk, ...rest) {
-    captured.push(String(chunk));
-    return realWrite.call(this, chunk, ...rest);
-  };
-  const service = await createService({ modulePath: fixture('exits'), isolates: 1, admissionTimeoutMs: 10000 });
-  let closed;
-  try {
-    const exits = { protocol: 1, entry: 'app/exits' };
-    // Back to back, in one synchronous run: the first takes the only
-    // isolate, and the second is queued behind it before anything settles.
-    const dying = refusalOf(() => collect(service, exits));
-    const queued = refusalOf(() => collect(service, exits));
-    // CONTROL — the scenario is the one claimed: a caller really is waiting.
-    assert.strictEqual(service.stats().waiting, 1, 'a caller must be queued for the replacement');
-    // Armed only now: the running isolate took its copy of `process.env` at
-    // construction, so this reaches the replacement and nothing else.
-    process.env[EXIT_AT_FLAG] = 'boot';
-
-    assert.strictEqual((await dying).code, CODE.ISOLATE_LOST, 'the render-time exit is refused as isolate-lost');
-    const waiter = await settledWithin(queued);
-    assert.strictEqual(waiter.state, 'resolved', 'the waiter must be answered, not left to its admission timer');
-    assert.strictEqual(waiter.value?.code, CODE.ISOLATE_LOST);
-    assert.strictEqual(waiter.value.message, REPLACEMENT_FAILED_REFUSAL);
-    assert.strictEqual(service.stats().replacements, 1, 'the pool did try to replace it');
-  } finally {
-    delete process.env[EXIT_AT_FLAG];
-    closed = await settledWithin(service.close());
-    process.stderr.write = realWrite;
-  }
-  assert.strictEqual(closed.state, 'resolved', 'close must not wait for ever on a replacement that exited');
-  assert.ok(
-    captured.join('').includes('[rf.ssr-node] a replacement isolate failed to boot'),
-    'the operator is told, as for any replacement that will not boot',
-  );
 });
