@@ -1,26 +1,25 @@
 (ns day8.re-frame2-machines-viz.viewer-cljs-test
-  "Tests for the read-only viewer's pure decode/view-model layer.
-  The DOM mount (`run`) is browser-only and not
-  exercised here; `decode-location` + `viewer-view` are pure given a
-  URL / view-model, so they carry the coverage."
+  "The read-only viewer's pure layer: `decode-location` (URL → view-model)
+  and `viewer-view` (view-model → hiccup). The DOM mount (`run`) is
+  browser-only."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
             [cognitect.transit :as transit]
             [day8.re-frame2-machines-viz.share :as share]
             [day8.re-frame2-machines-viz.viewer :as viewer]))
 
-;; Forge a raw share-URL fragment from an arbitrary envelope (the public
-;; encoder would refuse a malformed definition, so decode-side fail-closed
-;; behaviour is exercised through a hand-crafted URL). Mirrors the encoder's
-;; transit-json → base64url step.
+(def ^:private host "https://x/viewer.html")
+
 (defn- envelope->url
+  "A share-URL carrying `envelope` verbatim — the encoder refuses a malformed
+  definition, so the decode-side refusal needs a hand-built URL."
   [envelope]
-  (let [transit-str (transit/write (transit/writer :json) envelope)
-        b64 (-> (js/btoa (js/unescape (js/encodeURIComponent transit-str)))
-                (str/replace "+" "-")
-                (str/replace "/" "_")
-                (str/replace "=" ""))]
-    (str "https://x/viewer.html#machine=" b64)))
+  (str host "#machine="
+       (-> (js/btoa (js/unescape (js/encodeURIComponent
+                                   (transit/write (transit/writer :json) envelope))))
+           (str/replace "+" "-")
+           (str/replace "/" "_")
+           (str/replace "=" ""))))
 
 (def chart-state
   {:machine-id :auth/login-flow
@@ -31,36 +30,27 @@
                           :success {:final? true}}}
    :snapshot   {:state :loading}})
 
-(deftest decode-location-ok
-  (testing "a valid share-URL decodes to :ok with MachineChart props"
-    (let [url (share/encode-share-url chart-state {:host "https://x/viewer.html"})
-          vm  (viewer/decode-location url)]
-      (is (= :ok (:status vm)))
-      (is (= :auth/login-flow (get-in vm [:props :machine-id])))
-      (is (= :loading (get-in vm [:props :current-state])))
-      (is (true? (get-in vm [:props :read-only?]))))))
-
-(deftest decode-location-empty
-  (testing "a bare URL (no fragment) decodes to :empty"
-    (is (= :empty (:status (viewer/decode-location "https://x/viewer.html"))))
-    (is (= :empty (:status (viewer/decode-location ""))))))
-
-(deftest decode-location-rejects-malformed-definition
-  (testing "a share-URL carrying a MALFORMED machine definition
-            (a non-keyword flat :initial the canonical grammar gate rejects)
-            decodes to :status :error (fail-closed) and never yields
-            MachineChart props"
-    (let [url (envelope->url
+(deftest decode-location-maps-each-url-to-its-view-model
+  (testing "a valid share-URL → read-only MachineChart props; a bare URL →
+            :empty; a malformed definition (a non-keyword :initial) fails
+            closed to :error with no props"
+    (doseq [[url expected]
+            [[(share/encode-share-url chart-state {:host host})
+              {:status :ok
+               :props  {:machine-id    :auth/login-flow
+                        :definition    (:definition chart-state)
+                        :current-state :loading
+                        :read-only?    true}}]
+             [host
+              {:status :empty}]
+             [(envelope->url
                 {:rf.machines-viz.share/v       "2"
                  :rf.machines-viz.share/chart   {:machine-id :demo
                                                  :definition {:initial "idle"
                                                               :states  {:idle {}}}}
                  :rf.machines-viz.share/created 0})
-          vm  (viewer/decode-location url)]
-      (is (= :error (:status vm))
-          "a malformed definition must not reach the :ok / MachineChart path")
-      (is (= :invalid-chart-state (:reason vm)))
-      (is (nil? (:props vm)) "no MachineChart props are produced for a malformed definition"))))
+              {:status :error :reason :invalid-chart-state}]]]
+      (is (= expected (dissoc (viewer/decode-location url) :message)) url))))
 
 (defn- child-testid
   "The `data-testid` of the child component a `[:div attrs [child & args]]`
@@ -70,15 +60,12 @@
     (get-in (apply child args) [1 :data-testid])))
 
 (deftest viewer-view-dispatches-on-status
-  (testing "viewer-view renders the right top-level shape per status"
-    ;; The view is hiccup data; assert the data-testid carried by each
-    ;; branch's child without mounting.
-    (let [ok-view    (viewer/viewer-view {:status :ok :props (dissoc chart-state :frame-id)})
-          err-view   (viewer/viewer-view {:status :error :reason :malformed-fragment :message "boom"})
-          empty-view (viewer/viewer-view {:status :empty})]
-      ;; :ok branch is a [chart-view props] component vector
+  (testing ":ok renders a [chart-view props] component; :error and :empty
+            wrap different children, told apart by testid"
+    (let [ok-view (viewer/viewer-view {:status :ok :props (dissoc chart-state :frame-id)})]
       (is (vector? ok-view))
-      (is (fn? (first ok-view)))
-      ;; :error / :empty wrap DIFFERENT children, told apart by testid
-      (is (= "rf-mv-viewer-error" (child-testid err-view)))
-      (is (= "rf-mv-viewer-empty" (child-testid empty-view))))))
+      (is (fn? (first ok-view))))
+    (is (= "rf-mv-viewer-error"
+           (child-testid (viewer/viewer-view {:status :error :reason :malformed-fragment :message "boom"}))))
+    (is (= "rf-mv-viewer-empty"
+           (child-testid (viewer/viewer-view {:status :empty}))))))
