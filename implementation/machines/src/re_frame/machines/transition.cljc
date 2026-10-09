@@ -4252,7 +4252,6 @@
   explicit rollback-target argument is threaded — the `:fail` carrying no
   payload IS the rollback.
 
-  `raise-depth` seeds the transitive `:raise` depth counter;
   `defer?` is the effective region-defer flag. When `defer?` is true (a
   nested raise-handling call, or
   a parallel region whose raises lift to the parent macrostep),
@@ -4263,7 +4262,7 @@
 
   Returns a `rf.machines.result/ok` (snapshot + fx, with `::microsteps` / `::cascade`)
   or a `rf.machines.result/fail` if an `:always` action or a handled raise threw."
-  [machine start-result raise-depth defer?]
+  [machine start-result defer?]
   (let [always-limit (get machine :always-depth-limit always-depth-limit-default)
         raise-limit  (get machine :raise-depth-limit  raise-depth-limit-default)]
     (if (rf.machines.result/fail? start-result)
@@ -4288,8 +4287,8 @@
           ;; `raised-micro` counts the `:always` iterations each dequeued
           ;; raise's nested settle ran, and `::microsteps` is their sum — every
           ;; `:always` iteration of the macrostep. `raise-depth` counts
-          ;; internal events dequeued (→ `:raise-depth-limit`, seeded from the
-          ;; transitive inbound count). `pending` is the FIFO
+          ;; internal events this drain dequeues (→ `:raise-depth-limit`).
+          ;; `pending` is the FIFO
           ;; internal-event queue — `[:raise <event-vec>]` entries kept
           ;; verbatim. `visited` tracks state-paths for the depth-abort path.
           ;; `m` is the live machine def threaded through the loop.
@@ -4305,7 +4304,7 @@
                  pending      (vec seed-raises)
                  always-depth 0
                  raised-micro 0
-                 raise-depth  raise-depth
+                 raise-depth  0
                  visited      [(:state snap-after-event)]
                  cascade      base-cascade]
             (let [snap-path (state-path (:state snap))
@@ -4476,12 +4475,11 @@
                           ;; recursion's raises (`defer-raises? true`) so they
                           ;; surface back here UN-drained and append to the
                           ;; BACK of the queue (true breadth-first FIFO; a
-                          ;; self-draining recursion would be depth-first). Pass
-                          ;; `(inc raise-depth)` as the transitive seed so the
-                          ;; nested call's depth bound continues from this
-                          ;; drain's count.
+                          ;; self-draining recursion would be depth-first). The
+                          ;; deferring call dequeues nothing, so this drain's
+                          ;; `raise-depth` counts every raise in the macrostep.
                           step-result  (machine-transition-single
-                                         m' snap ev (inc raise-depth) true)]
+                                         m' snap ev true)]
                       (if (rf.machines.result/fail? step-result)
                         step-result
                         (rf.machines.result/with-ok [snap2 fx2] step-result
@@ -4667,27 +4665,21 @@
      settling path: it calls `apply-preselected-transition` and owns both
      eventless rounds and raises at the parent whole-configuration level.
 
-  `raise-depth` is the count of `:raise` recursions already consumed
-  before reaching this call. The public entry passes 0; the queue-owning
-  `drain-to-fixed-point` passes its running count so a self-chaining
-  single-raise accumulates transitive depth against the SAME
-  `:raise-depth-limit` rather than resetting per nested call.
-  It seeds the settle loop below so raises emitted anywhere in this
-  macrostep continue counting from the inbound transitive depth.
+  `:raise-depth-limit` is counted by the one queue-owning drain: a
+  deferring call dequeues nothing, so every raise in the macrostep is
+  dequeued, and counted, by the drain that owns the queue.
 
-  **Pre-selected-match arity.** The 6-arity `[machine snapshot event
-  raise-depth defer-raises? match]` SKIPS the internal `pick-transition` and
-  applies the caller-supplied `match` (or nil no-op) directly. The 5-arity is
+  **Pre-selected-match arity.** The 5-arity `[machine snapshot event
+  defer-raises? match]` SKIPS the internal `pick-transition` and
+  applies the caller-supplied `match` (or nil no-op) directly. The 4-arity is
   its select-then-apply shorthand (`match` = `pick-transition` against
   `snapshot`). The parallel engine calls `apply-preselected-transition`
   directly instead, because its parent must apply the complete regional set
   before running any eventless stabilization."
   ([machine snapshot event]
    (require-occupiable-state! machine (:state snapshot))
-   (machine-transition-single machine snapshot event 0 false))
-  ([machine snapshot event raise-depth]
-   (machine-transition-single machine snapshot event raise-depth false))
-  ([machine snapshot event raise-depth defer-raises?]
+   (machine-transition-single machine snapshot event false))
+  ([machine snapshot event defer-raises?]
    ;; SELECT phase (flat / compound path): resolve the matching transition
    ;; against `snapshot`, then delegate to the 6-arity APPLY below. The
    ;; parallel broadcast does NOT route through here: it selects every region
@@ -4696,14 +4688,14 @@
    ;; machines and the flat raise-drain re-entry
    ;; (`drain-to-fixed-point`) select-then-apply in one call here.
    (machine-transition-single
-     machine snapshot event raise-depth defer-raises?
+     machine snapshot event defer-raises?
      (pick-transition machine (state-path (:state snapshot)) event snapshot)))
-  ([machine snapshot event raise-depth defer-raises? match]
+  ([machine snapshot event defer-raises? match]
    (let [defer? (or defer-raises? (some? (:rf/region machine)))
          seed   (apply-preselected-transition machine snapshot event match nil)]
      ;; Steps 3-5: flat/compound machines settle here. The parallel parent
      ;; calls `apply-preselected-transition` directly and owns settling across
      ;; the complete regional configuration.
      (rf.machines.result/with-handled
-       (drain-to-fixed-point machine seed raise-depth defer?)
+       (drain-to-fixed-point machine seed defer?)
        (rf.machines.result/handled? seed)))))
