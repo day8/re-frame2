@@ -14,7 +14,7 @@
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace :as rf.trace]
             [re-frame.elision]
-            [re-frame.epoch :as rf.epoch]
+            [re-frame.epoch]
             [re-frame.epoch.state :as rf.epoch.state]
             ;; Publishes the validator a sub's `:schema` check runs through;
             ;; inv-10's recompute emits no failure without it.
