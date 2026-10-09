@@ -248,6 +248,23 @@ Only once the check shows a single source of `re-frame.core` (v2) is it safe to 
 
 **Per-feature artefact not yet published.** **Not an edge case — it is M-0's route applied again.** Nothing is published, so *every* `day8/re-frame2*` coordinate is in this state, core and adapter included; a per-feature artefact is not a second publication decision. When an M-27..M-33 rule triggers, add its artefact **in this migration**, at the **coordinate kind and author-supplied pin already chosen at M-0** ([§Discovering the current VERSION](#discovering-the-current-version)) — the same `:git/sha`, or the same checkout for a `:local/root` — differing only in its own `:deps/root` / `:local/root` sub-path, which is delegated rather than restated: [`deps-versions.md` §Choosing the coordinate](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-setup/references/deps-versions.md#choosing-the-coordinate-publication-state-decides-the-shape). Do **not** leave the dep alone, defer it, or wait for the artefact to land: the rewrite and its artefact are one change, and a rewrite shipped without its module fails at the `:require` or at the first call ([`auto-cross-cutting.md` §Per-feature artefact adds](auto-cross-cutting.md#per-feature-artefact-adds-m-27-through-m-33)) — a report entry does not make the app run. Pay-as-you-go is unchanged: add an artefact only when a rule actually triggers it, never defensively.
 
+### Windows: Git dependencies that fail before anything compiles
+
+**Conditional: a tools.deps build on Windows resolving `:git/url` coordinates from a deeply nested worktree.** When the Git library cache (`GITLIBS`) sits under that long path, resolution fails inside Git before any application namespace is read — `Filename too long` while cloning into the cache, or `fatal: '$GIT_DIR' too big` while checking out. Both are **environment preparation**, not the post-M-0 compile: they hold no M-rule row and are not a re-frame2 finding. Recover with the task's own resources:
+
+```bash
+# POSIX-shell form: the variables reach this one build process and the Git processes it spawns
+GITLIBS='C:/gl/<task-id>' \
+GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.longpaths GIT_CONFIG_VALUE_0=true \
+  clojure -Sforce -A:<build-aliases> -Stree
+```
+
+- **A short, unique, task-owned `GITLIBS` root, given only to the owned build.** Set it on the command — never in a profile, with `setx`, or in global Git configuration — and give the same environment to every command of that build that resolves dependencies, the compile included.
+- **Long paths alone are not the fix.** The `GIT_CONFIG_*` variables scope `core.longpaths=true` to the Git processes the build spawns. That gets the clone through, but with it set resolution still failed at checkout with `'$GIT_DIR' too big`; only the short root cleared it.
+- **A root outside the worktree is an explicit resource boundary.** Name the path in the report, and in the task's grant where it runs under one; touch nothing beyond it — not the shared `~/.gitlibs`, not another worker's root or repositories, not `git config --global` or `--system`.
+- **Resolve fresh into an empty root** — `-Sforce` recomputes the basis rather than reusing a cached one. Reusing another cache is the fallback: its Git metadata can still point into the worktree it was copied from, so check what the copy owns and references before changing anything in it.
+- **Then carry on exactly as before.** Re-run the classpath check above under every alias the build uses, confirm each Git coordinate resolved at its intended `:git/sha`, and make the first compile with its evidence. A repaired cache waives no gate.
+
 ---
 
 **Stop and compile after M-0.** Once the classpath check passes and the plan's approved forced blocker fixes are in, make the first compile attempt before starting the rule sweep, and read what — if anything — breaks. For most codebases the dep swap does most of the work, and the attempt shows how much is left. It need not pass: a failure holds only the rows its errors touch, and the planned sweep proceeds ([`sequencing.md` §The first compile](sequencing.md#the-first-compile)).
