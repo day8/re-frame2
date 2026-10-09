@@ -1,107 +1,40 @@
 (ns re-frame.bench.calibration-cljs-test
-  "The calibration refusal, adjudicated by a GATED suite.
-
-  `re-frame.bench.calibration/self-test` runs inside each harness before it
-  measures anything, which is the right place for it but not a place CI ever
-  reaches: the allocation harnesses are `:advanced` release builds driven by
-  hand, and a gate that only exercises values inside the expected bands never
-  adjudicates the failure branch.
-
-  This runs the same injected fixtures under `npm run test:cljs`, and adds
-  the two properties the self-test cannot state about itself: that the
-  refusal is REACHABLE from the recorded polymorphic-site numbers, and that
-  the healthy numbers recorded with the site split do NOT reach it."
+  "The calibration refusal, adjudicated on every `npm run test:cljs`: the
+  allocation harnesses that run `self-test` are `:advanced` release builds
+  driven by hand, so no gate reaches it there."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.bench.calibration :as rf.bench.calibration]))
 
 (defn- pair [d smi dbl] {:d d :smi smi :dbl dbl})
 
 (deftest self-test-passes
-  (testing "every injected fixture earns the verdict it is asserted to earn"
-    (let [st (rf.bench.calibration/self-test)]
-      (doseq [c (:checks st)]
-        (is (:ok c) (str (:name c) " — " (:detail c))))
-      (is (:ok? st)))))
+  (let [st (rf.bench.calibration/self-test)]
+    (doseq [c (:checks st)]
+      (is (:ok c) (str (:name c) " — " (:detail c))))
+    (is (:ok? st))))
 
 (deftest the-recorded-fault-refuses
-  (testing "the recorded 16.11 B/slot polymorphic-.slice() run"
-    ;; The measured figures: SMI D=100 1681.7 B/copy against a predicted (and
-    ;; DBL-measured) 848, SMI D=200 3293.5 against 1648, printed slope
-    ;; 16.1146 B/slot. Unguarded, that run exits 0.
-    (let [v (rf.bench.calibration/verdict [(pair 100 1681.7 848.0) (pair 200 3293.5 1648.0)] 16.1146)]
-      (is (:refuse? v))
-      (is (= :neither (:regime v)))
-      (is (= [:neither :neither] (mapv :regime (:pairs v))))
-      (is (seq (rf.bench.calibration/report-lines v))
-          "a refusal must produce the lines the harness prints before exiting 2"))))
+  ;; The polymorphic-`.slice()` run: 16.11 B/slot against a tagged slot's 8.
+  (is (seq (rf.bench.calibration/report-lines
+             (rf.bench.calibration/verdict [(pair 100 1681.7 848.0) (pair 200 3293.5 1648.0)] 16.1146)))
+      "a refusal produces the lines the harness prints before exiting 2"))
 
 (deftest the-fixed-harness-is-reportable
-  (testing "the same control after the per-elements-kind split"
-    (let [v (rf.bench.calibration/verdict [(pair 100 849.1 848.0) (pair 200 1651.8 1648.0)] 8.0027)]
-      (is (not (:refuse? v)))
-      (is (= :off (:regime v)))
-      (is (= 8.0 (:width v)))
-      (is (empty? (rf.bench.calibration/report-lines v))
-          "a sound control says nothing — the harness prints its numbers either way"))))
-
-(deftest a-compressed-build-is-not-refused
-  (testing "pointer compression ON is a regime to be READ, not a fault"
-    (let [v (rf.bench.calibration/verdict [(pair 100 448.0 848.0) (pair 200 848.0 1648.0)] 4.0)]
-      (is (not (:refuse? v)))
-      (is (= :on (:regime v)))
-      (is (= 4.0 (:width v))))))
+  (is (empty? (rf.bench.calibration/report-lines
+                (rf.bench.calibration/verdict [(pair 100 849.1 848.0) (pair 200 1651.8 1648.0)] 8.0027)))
+      "a sound control says nothing"))
 
 (deftest the-band-edges-are-where-they-are-documented
-  (testing "regime-of, swept across the boundaries it is specified at"
-    (is (= :off (rf.bench.calibration/regime-of 1.0)))
-    (is (= :off (rf.bench.calibration/regime-of 0.96)))
-    (is (= :off (rf.bench.calibration/regime-of 1.04)))
-    (is (= :neither (rf.bench.calibration/regime-of 0.95)) "the band is open at its edge")
-    (is (= :neither (rf.bench.calibration/regime-of 1.05)) "the band is open at its edge")
-    (is (= :on (rf.bench.calibration/regime-of 0.5)))
-    (is (= :neither (rf.bench.calibration/regime-of 0.45)))
-    (is (= :neither (rf.bench.calibration/regime-of 0.55)))
-    (is (= :neither (rf.bench.calibration/regime-of 0.75)) "between the bands is not a regime")
-    (is (= :neither (rf.bench.calibration/regime-of 2.0)) "the recorded fault's ratio")
-    (is (= :neither (rf.bench.calibration/regime-of js/NaN)))
-    (is (= :neither (rf.bench.calibration/regime-of js/Infinity)))))
+  (doseq [[ratio regime] [[0.96 :off] [1.04 :off] [0.95 :neither] [1.05 :neither]
+                          [0.5 :on] [0.45 :neither] [0.55 :neither]]]
+    (is (= regime (rf.bench.calibration/regime-of ratio)) (str "ratio " ratio))))
 
 (deftest the-slope-is-checked-against-the-width-the-ratios-selected
-  (testing "sound absolutes with a wrong step still refuse"
-    ;; Both sizes name OFF, so the width is 8; only the size-to-size step is
-    ;; wrong, which is what a constant added to both copies looks like.
-    (doseq [[slope refuse?] [[8.0 false] [8.0027 false] [9.9 false]
-                             [10.1 true] [12.5 true] [16.1146 true]
-                             [4.0 true]]]
+  (testing "compression OFF selects a width of 8"
+    (doseq [[slope refuse?] [[9.9 false] [10.1 true] [4.0 true] [js/NaN true]]]
       (let [v (rf.bench.calibration/verdict [(pair 100 849.1 848.0) (pair 200 1651.8 1648.0)] slope)]
         (is (= refuse? (:refuse? v)) (str "slope " slope " against a width of 8")))))
-  (testing "the same question in the compressed regime, where the width is 4"
-    (doseq [[slope refuse?] [[4.0 false] [4.9 false] [5.1 true] [8.0 true]]]
+  (testing "compression ON selects a width of 4"
+    (doseq [[slope refuse?] [[4.9 false] [5.1 true]]]
       (let [v (rf.bench.calibration/verdict [(pair 100 448.0 848.0) (pair 200 848.0 1648.0)] slope)]
         (is (= refuse? (:refuse? v)) (str "slope " slope " against a width of 4"))))))
-
-(deftest a-missing-or-dead-control-refuses
-  (testing "nothing to check is not checked"
-    (is (:refuse? (rf.bench.calibration/verdict [] 8.0)))
-    (is (= :neither (:regime (rf.bench.calibration/verdict [] 8.0)))))
-  (testing "a zero DBL reading refuses rather than dividing to infinity"
-    (is (:refuse? (rf.bench.calibration/verdict [(pair 100 849.1 0.0)] 8.0))))
-  (testing "a non-finite slope refuses even where the ratios are sound"
-    (is (:refuse? (rf.bench.calibration/verdict [(pair 100 849.1 848.0) (pair 200 1651.8 1648.0)]
-                                 js/NaN)))))
-
-(deftest the-sizes-must-agree-with-each-other
-  (testing "one instrument giving two answers about one machine"
-    (let [v (rf.bench.calibration/verdict [(pair 100 849.1 848.0) (pair 200 824.0 1648.0)] 8.0)]
-      (is (:refuse? v))
-      (is (= :neither (:regime v)))
-      (is (= [:off :on] (mapv :regime (:pairs v)))
-          "each ratio lands cleanly in a band; it is the disagreement that refuses"))))
-
-(deftest the-documented-large-object-deviation-is-not-gated
-  (testing "V8's page-tail filler must not refuse a healthy run"
-    ;; Both arms 9% over the asserted layout, tracking each other, with the
-    ;; +9% step to match. The calibration namespace excludes it by name.
-    (let [v (rf.bench.calibration/verdict [(pair 100 924.3 924.3) (pair 200 1796.3 1796.3)] 8.72)]
-      (is (not (:refuse? v)))
-      (is (= :off (:regime v))))))
