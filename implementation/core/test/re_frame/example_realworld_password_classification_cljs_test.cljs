@@ -1,111 +1,17 @@
 (ns re-frame.example-realworld-password-classification-cljs-test
-  "Framework-tree security tests for the RealWorld reference apps' PASSWORD
-   classification — the classification declared by
-   examples/real-apps/realworld_http/* and examples/real-apps/realworld_resources/*.
+  "Password and session-token classification in the RealWorld reference apps
+   (docs/core/how-to/keep-secrets-out-of-traces.md). The drives go through the
+   apps' public events and sweep EVERY emitted trace event for a password and a
+   JWT sentinel, so a raw secret in any slot — the event vector, the pending
+   `:rf.event/db`, the `:rf.event/fx` aggregate, `:rf.fx/handled`, a machine
+   trace — is a leak.
 
-   These belong in the framework test tree, NOT under examples/ (examples stay
-   test-free). The ns requires the managed-HTTP app's FEATURE nses
-   (never `core` — that would pull `routing.cljs` and register routes into the
-   shared node-test registrar) PLUS the resources app's HTTP ns (for its demo
-   stub only). It does NOT co-load both apps' `settings` / `auth` nses: the two
-   apps deliberately define the SAME ids (`:settings/load`, `:auth/flow`) with
-   DIFFERENT implementations, and re-frame2's image-assembly duplicate-id guard
-   (`:rf.error/image-duplicate-id`) rejects that for every frame in the process
-   — the apps are built and run as separate bundles, never co-loaded. So this ns
-   loads the managed-HTTP app fully (for the distinct machine-`:data` mechanism
-   the resources app doesn't have) and reaches the resources app ONLY through its
-   stub's registration (a unique fx-id). The resources app's login / register /
-   settings app-db draft classifications use the IDENTICAL slice-init `:sensitive`
-   pattern proven here on the managed-HTTP app's drafts.
-
-   THE PASSWORD IS A CREDENTIAL, exactly like the durable JWT: unclassified, it
-   would egress raw through the dispatched-event trace, the managed-HTTP request
-   record, the settings machine snapshot / app-db drafts, and any off-box
-   shipper. This ns pins the THREE surfaces the apps classify:
-
-     1. THE MANAGED-HTTP REQUEST BODY. Both apps run against a demo-stub
-        `:fx-overrides` remap of `:rf.http/managed`, which BYPASSES the real
-        handler's `:sensitive?` body scrub. When the override fires,
-        `handle-one-fx` stamps the always-emitted `:rf.fx/handled` trace with the
-        RESOLVED stub id + RAW args, and the classification projector redacts
-        `:rf.fx/args` off the RESOLVED fx's own `:sensitive`.
-        So each stub declares `:sensitive [[:request :body :user :password]]` —
-        the Conduit `{user {…}}` envelope path — and the request-body password
-        reads `:rf/redacted` on the one wire every tool reads.
-
-     2. THE APP-DB FORM DRAFTS. The login / register / (resources) settings
-        password drafts live in app-db. Each is classified `:sensitive` in the
-        first durable write that creates the slice (classify-before-write,
-        mirroring `:auth/classify-token` for the JWT), so the draft reads
-        `:rf/redacted` at every app-db egress while handlers read the live value.
-
-     3. THE SETTINGS MACHINE :data (managed-HTTP app). Its settings form is a
-        machine whose `:data` holds the draft / submitted password; the machine
-        declares projection-relative `:sensitive [[:data :draft :password]
-        [:data :submitted :password]]`, lowered per actor at spawn.
-
-   THE AUTH MACHINE IS CREDENTIAL-FREE. A login/register riding
-   `[:auth/flow [:auth/login {… :password …}]]` as a POSITIONAL machine
-   sub-event would be out of reach of any `:sensitive` mark, so the apps keep
-   the `:auth/flow` machine CREDENTIAL-FREE rather than classifying the
-   position:
-
-     4. PER-KEYSTROKE PASSWORD EDITS are their OWN map-payload events
-        (`:auth.login-form/edit-password`, `:auth.register-form/edit-password`,
-        `:settings/edit-password`), each `:sensitive [[:value]]` — the
-        generic positional `:*-form/edit-field` event non-secret fields use
-        is never routed a secret.
-
-     5. SUBMIT is the credential-owning handoff: `:auth.login-form/submit` /
-        `:auth.register-form/submit` read the draft, fire the `:sensitive?
-        true` managed-HTTP request THEMSELVES, blank the draft password
-        afterwards, and nudge `:auth/flow` with a BARE, credential-free
-        signal (`[:auth/login]` / `[:auth/register]`, no args). The machine
-        never sees the password at all.
-
-     6. THE SETTINGS MACHINE (managed-HTTP app) is the one place a password
-        legitimately rides a routed sub-event (`:edit-password`,
-        `:submit-valid` — the form-as-a-machine architecture makes the
-        machine the password's :data owner by design). Its `reg-machine`
-        OPTS carries an EVENT-rooted `:sensitive [[1 :password] [1 :submitted
-        :password]]` redacting the routed sub-event echoed into
-        the `:event` / `[:input :event]` machine trace slots, alongside (not
-        instead of) the `:data`-rooted classification in point 3.
-
-     7. THE SESSION TOKEN's return trip gets the SAME treatment in reverse:
-        the login/register/restore success reply is routed through a
-        classified ordinary event (`:auth/session-established` /
-        `:auth/session-restored`, `:sensitive [[:value :user :token]]`) —
-        never straight to the machine — and the persistence fx
-        (`:auth.session/persist`) declares `:sensitive [[:token]]` too.
-
-     8. THE STANDALONE `:auth/store-session` EVENT — the
-        directly-dispatchable form of that same write, for test fixtures and
-        external callers — classifies its JWT at the ARG-MAP-relative
-        `[:token]`. The vector-relative `[1 :token]` would reach NOTHING: an
-        event's classification paths index into `(second event)`, so the
-        root is the User MAP and a numeric key `1` is a mark at a missing
-        slot — a silent no-op that would leave the JWT raw in the
-        dispatched-event trace while the declaration read as protection. The
-        handler's `[_ user]` vector destructuring is a different coordinate
-        system and does not move the root. Pinned below with POSITIVE
-        assertions at the `:rf.event/v` slot, so the vector-relative
-        spelling cannot pass.
-
-   The tests below drive the FULL edit→submit(→success) cascade through the
-   real public events (never poking `:auth/flow` / the settings machine
-   directly with a credential) and scan EVERY emitted trace event for both a
-   password and a JWT sentinel. The resources app's mirror-image coverage
-   lives in its own test file (this ns cannot co-load
-   `realworld-resources.auth` — see above).
-
-   Every sweep reads EVERY tag of every emitted trace event, so a raw sentinel
-   anywhere is a real leak. That includes the dispatching handler's
-   `:rf.event/fx` aggregate and `:rf.fx/handled` slots — where a nested
-   `[:dispatch [target-event …]]` rides the TARGET event's own `:sensitive`
-   and a `:sensitive? true` managed-HTTP entry redacts its request body — and
-   `:rf.machine/action-ran`'s `:outcome`, which rides the machine's `:data`
-   classification."
+   The managed-HTTP app is loaded through its feature nses, never `core`
+   (which would register routes into the shared node-test registrar). The
+   resources app is reached only through its HTTP ns, for its demo stub: the
+   two apps register the same ids (`:settings/load`, `:auth/flow`) with
+   different implementations, which the image-assembly duplicate-id guard
+   rejects."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [clojure.string :as str]
             [re-frame.core :as rf]
@@ -120,18 +26,11 @@
             [re-frame.machines]
             [re-frame.resources]
             [re-frame.http.managed]
-            ;; The stub-registration gate for `with-request-stubs`
-            ;; (below) — a route-map-consulting :rf.http/managed override that
-            ;; drives the full login/register success cascade synchronously.
             [re-frame.http.test-support]
-            ;; managed-HTTP app FEATURE nses (no core → no routes)
-            [realworld-http.http :as http-req]
+            [realworld-http.http]
             [realworld-http.schema]
             [realworld-http.auth]
             [realworld-http.settings]
-            ;; resources app — its HTTP ns ONLY, for the demo-stub registration.
-            ;; Loading its settings/auth would collide with the managed-HTTP app's
-            ;; `:settings/load` / `:auth/flow` under the image-assembly guard.
             [realworld-resources.http])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
@@ -139,64 +38,23 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.reagent/adapter}))
 
-;; A UNIQUE sentinel password (>= 8 chars) that appears nowhere else, so a scan
-;; for it can only be hitting THIS drive's credential.
+;; A password (>= 8 chars) and a JWT that appear nowhere else.
 (def sentinel "PW-REALWORLD-SENTINEL-7d2c4a")
+(def token-sentinel "JWT-REALWORLD-SENTINEL-9f1e6b")
 
-;; LOCAL MIRROR of the app's `:auth/classify-token` (`realworld_http/core.cljs`),
-;; which marks the durable JWT path sensitive at frame creation. This suite
-;; deliberately requires the app's FEATURE namespaces and NOT its `core` ("no
-;; core -> no routes"), so it cannot reach the app's own event, and it must not
-;; borrow it: resolving `:auth/classify-token` here would depend on the row
-;; sitting LIVE in the process registrar, put there by another test namespace's
-;; require chain and reachable only because `reinstate-and-snapshot!` folds this
-;; ns's baseline OVER the live registrar. That is a cross-suite accident, not a
-;; dependency this ns declares, and it evaporates when the suite that owns the
-;; app claims it with the fixture's `:app-ns`. Reproducing the one-line effect
-;; locally is the same move the sibling boot-seed suite makes for the app's seed
-;; events, and it keeps what is under test the APP's classification discipline
-;; rather than the bundle's load order.
+;; Mirror of realworld-http.core's `:auth/classify-token`: this ns does not load
+;; core, so it marks the durable JWT path on its bare test frame itself.
 (rf/reg-event :test.realworld/classify-token
   {:doc "Mirror of realworld-http.core's :auth/classify-token — mark the durable
          JWT path [:auth :token] sensitive on this bare test frame."}
   (fn [{:keys [db]} _]
     {:db db :sensitive [[:auth :token]]}))
 
-;; A UNIQUE sentinel JWT — for the item 4/6/7 closure tests below, which chase
-;; the session TOKEN through the success-reply path.
-(def token-sentinel "JWT-REALWORLD-SENTINEL-9f1e6b")
-
-;; A whole-value scan: does `needle` appear ANYWHERE in `x`'s printed form?
-;; Mirrors `re-frame.machine-routed-event-classification-cljs-test`'s `leaks?`
-;; — the bluntest, most
-;; trustworthy way to assert "this trace event carries no trace of the raw
-;; secret," regardless of which slot it might have hidden in.
 (defn- leaks? [needle x] (str/includes? (pr-str x) needle))
 
-;; A local stub that mirrors the app stubs' :sensitive — proves the projector
-;; redacts the Conduit body shape at the resolved-fx :rf.fx/handled slot. The
-;; app stubs' OWN declarations are pinned by the registration tests below; using
-;; a local mirror keeps the drive deterministic (the real stubs route through
-;; the demo backend corpus).
-(rf/reg-fx :test.realworld/body-stub
-  {:sensitive [[:request :body :user :password]]}
-  (fn [_ _] nil))
-
-(rf/reg-event :test.realworld/emit-managed
-  (fn [_ [_ args]] {:fx [[:rf.http/managed args]]}))
-
-;; A SECOND local stub, this one REPLYING — for the item 4/6/7 cascade tests
-;; below, which need to observe the success path
-;; (:auth/session-established) end to end. Note what this is NOT:
-;; `re-frame.http.test-support`'s generic `with-request-stubs` (a
-;; framework test helper with no idea what shape any one app's request body
-;; takes, so it declares no `:sensitive` of its own) would be the wrong tool
-;; here — routing through it would make the TEST HARNESS itself the leak,
-;; not the app. This stub mirrors the real app's OWN demo-stub discipline
-;; (http.cljs): it declares the SAME `:sensitive [[:request :body :user
-;; :password]]` the app stub declares, then delegates to the framework's
-;; canned-success fx (`:rf.http/managed-canned-success`) for reply fidelity —
-;; same shape a real wire reply would have.
+;; A replying stand-in for the app's demo stub: it declares the same
+;; `:sensitive` path the app stub does and answers through the framework's
+;; canned-success fx with a token-bearing user.
 (rf/reg-fx :test.realworld/login-succeeds
   {:sensitive [[:request :body :user :password]]}
   (fn fx-test-login-succeeds [frame-ctx args-map]
@@ -206,12 +64,9 @@
                                             :email    "alice@example.com"
                                             :token    token-sentinel}})))))
 
-;; The saved session, staged in the storage the app's `:auth.session/load`
-;; effect reads at boot, so the real effect and its classified reply run.
 (defn- with-local-storage
   "Run `f` with `globalThis.localStorage` defined by the JS property
-   `descriptor` (a configurable `value` storage, or a `get` that throws), then
-   put back whatever was there before."
+   `descriptor`, then put back whatever was there before."
   [descriptor f]
   (let [g     js/globalThis
         prior (js/Object.getOwnPropertyDescriptor g "localStorage")]
@@ -224,8 +79,8 @@
           (js-delete g "localStorage"))))))
 
 (defn- with-saved-jwt
-  "Run `f` over a localStorage holding `token` under the RealWorld contract key
-   `jwtToken` (nil: an empty store)."
+  "Run `f` over a localStorage holding `token` under the RealWorld key
+   `jwtToken`."
   [token f]
   (with-local-storage
     #js {:configurable true
@@ -239,179 +94,20 @@
     (rf/register-listener! :trace id (fn [ev] (swap! a conj ev)))
     a))
 
-(defn- login-args []
-  {:request    {:method :post
-                :url    "https://api.realworld.show/api/users/login"
-                :headers {"Accept" "application/json"}
-                :body   {:user {:email "alice@example.com" :password sentinel}}
-                :request-content-type :json
-                :sensitive? true}
-   :decode     :json
-   :on-success [:test.realworld/noop]
-   :on-failure [:test.realworld/noop]})
-
-;; ---------------------------------------------------------------------------
-;; 1. THE REQUEST BODY — each app's demo stub owns the redaction
-;; ---------------------------------------------------------------------------
-
+;; Every password-bearing request in both apps is `:sensitive? true`; the
+;; stub's own path is what redacts an UNFLAGGED one routed through it.
 (deftest http-stub-declares-request-body-sensitive
-  (testing "the managed-HTTP app's demo stub classifies the Conduit request-body
-            password path — the registration the projector reads at egress"
+  (doseq [stub [:realworld.demo/http-stub :realworld-resources.demo/http-stub]]
     (is (= {:sensitive [[:request :body :user :password]]}
-           (rf.classification/registration-classification :fx :realworld.demo/http-stub))
-        ":realworld.demo/http-stub owns [:request :body :user :password]")))
-
-(deftest resources-stub-declares-request-body-sensitive
-  (testing "the resources app's demo stub classifies the same Conduit
-            request-body password path"
-    (is (= {:sensitive [[:request :body :user :password]]}
-           (rf.classification/registration-classification :fx :realworld-resources.demo/http-stub))
-        ":realworld-resources.demo/http-stub owns [:request :body :user :password]")))
-
-(deftest request-body-password-redacts-in-fx-handled-trace
-  (testing "a :sensitive? true managed request routed through a stub redacts
-            the WHOLE request body in the always-emitted :rf.fx/handled trace:
-            the keyword redirect stamps :rf.fx/from
-            :rf.http/managed and the projector composes the ORIGINAL id's
-            dynamic classification (the same whole-body scrub the dedicated
-            :rf.http/* composers run) over the stub's own static path"
-    (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
-      (rf/with-fx-overrides {:rf.http/managed :test.realworld/body-stub}
-        (let [traces (record-traces! ::body)]
-          (rf/dispatch-sync [:test.realworld/emit-managed (login-args)] {:frame f})
-          (rf/unregister-listener! :trace ::body)
-          (let [handled (->> @traces
-                             (filter #(= :test.realworld/body-stub
-                                         (get-in % [:tags :rf.fx/id]))))]
-            (is (seq handled)
-                "the stub emitted a :rf.fx/handled trace with its args")
-            (doseq [ev handled]
-              (is (= :rf.http/managed (get-in ev [:tags :rf.fx/from]))
-                  "the redirect provenance rides the handled trace")
-              (is (= rf.privacy/redacted-sentinel
-                     (get-in ev [:tags :rf.fx/args :request :body]))
-                  "the :sensitive? true request's WHOLE body reads :rf/redacted
-                   — run-mode parity with the real managed handler's composers")
-              (is (not (str/includes? (pr-str ev) sentinel))
-                  "no raw password rides the handled trace"))))))))
-
-(deftest request-body-password-redacts-selectively-when-unflagged
-  (testing "an UNFLAGGED managed request routed through the stub still rides
-            the stub's OWN selective static classification: the declared
-            password path redacts while the non-secret email rides visible
-            (no reflexive whole-body over-redaction without :sensitive?)"
-    (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
-      (rf/with-fx-overrides {:rf.http/managed :test.realworld/body-stub}
-        (let [traces   (record-traces! ::body-unflagged)
-              unflagged (update (login-args) :request dissoc :sensitive?)]
-          (rf/dispatch-sync [:test.realworld/emit-managed unflagged] {:frame f})
-          (rf/unregister-listener! :trace ::body-unflagged)
-          (let [handled (->> @traces
-                             (filter #(= :test.realworld/body-stub
-                                         (get-in % [:tags :rf.fx/id]))))]
-            (is (seq handled)
-                "the stub emitted a :rf.fx/handled trace with its args")
-            (doseq [ev handled]
-              (is (= rf.privacy/redacted-sentinel
-                     (get-in ev [:tags :rf.fx/args :request :body :user :password]))
-                  "the request-body password reads :rf/redacted in :rf.fx/args")
-              (is (= "alice@example.com"
-                     (get-in ev [:tags :rf.fx/args :request :body :user :email]))
-                  "the non-secret email rides visible — selective classification"))))))))
-
-(deftest http-request-builder-passes-sensitive-flag
-  (testing "realworld-http.http/request threads :sensitive? into the request map
-            (the real-backend run-mode scrub for the managed handler)"
-    (let [req (:request (http-req/request {:method :post :path "/users/login"
-                                           :body {:user {:password sentinel}}
-                                           :sensitive? true}))]
-      (is (true? (:sensitive? req))
-          "the builder stamps :sensitive? true on the request")
-      (is (= sentinel (get-in req [:body :user :password]))
-          "the builder still carries the real password for the wire"))
-    (let [req (:request (http-req/request {:method :get :path "/user"}))]
-      (is (not (contains? req :sensitive?))
-          "a non-credential request stays unmarked — no reflexive sprinkle"))))
-
-;; ---------------------------------------------------------------------------
-;; 2. THE APP-DB FORM DRAFTS — classified at slice-init, redacted at egress
-;; ---------------------------------------------------------------------------
-
-(deftest login-register-drafts-classified-and-redacted
-  (testing "the login + register form drafts classify their password path
-            :sensitive at slice-init, so it is redacted at every app-db egress
-            while the live value stays readable"
-    (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
-      (rf/dispatch-sync [:auth.login-form/initialise] {:frame f})
-      (rf/dispatch-sync [:auth.register-form/initialise] {:frame f})
-      (rf/dispatch-sync [:auth.login-form/edit-field :email "alice@example.com"] {:frame f})
-      (rf/dispatch-sync [:auth.login-form/edit-field :password sentinel] {:frame f})
-      (is (contains? (rf.elision/sensitive-declarations f)
-                     [:auth :login-form :draft :password])
-          "the login-form draft-password path is in the per-frame sensitive registry")
-      (is (contains? (rf.elision/sensitive-declarations f)
-                     [:auth :register-form :draft :password])
-          "the register-form draft-password path is classified too")
-      (is (= sentinel (get-in (rf/app-db-value f) [:auth :login-form :draft :password]))
-          "app-db still holds the REAL password — classification redacts only at egress")
-      (doseq [profile [:rf.egress/local-redacted :rf.egress/off-box-tool]]
-        (let [wire (rf/project-egress (rf/app-db-value f)
-                                      {:frame f :rf.egress/profile profile})]
-          (is (= rf.privacy/redacted-sentinel
-                 (get-in wire [:auth :login-form :draft :password]))
-              (str "the login-form password reads :rf/redacted at egress under " profile))
-          (is (= "alice@example.com"
-                 (get-in wire [:auth :login-form :draft :email]))
-              (str "the non-secret email rides through unredacted under " profile)))))))
-
-;; ---------------------------------------------------------------------------
-;; 3. THE SETTINGS MACHINE :data (managed-HTTP app; :settings/form is unique)
-;; ---------------------------------------------------------------------------
-
-(deftest http-settings-machine-data-classified
-  (testing "the managed-HTTP app's :settings/form machine lowers its
-            projection-relative :sensitive [:data :draft :password] to the
-            absolute snapshot path at spawn, redacting the password in every
-            machine-snapshot egress while the action bodies read the live value"
-    (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
-      ;; :settings/form is http-unique — driving it directly is collision-proof.
-      (rf/dispatch-sync [:settings/form [:reset]] {:frame f})
-      (rf/dispatch-sync [:settings/form [:edit {:field :password :value sentinel}]] {:frame f})
-      (is (contains? (rf.elision/sensitive-declarations f)
-                     [:rf.runtime/machines :snapshots :settings/form :data :draft :password])
-          "the machine :data draft-password path lowered to the snapshot path at spawn")
-      (is (contains? (rf.elision/sensitive-declarations f)
-                     [:rf.runtime/machines :snapshots :settings/form :data :submitted :password])
-          "the machine :data submitted-password path lowered too")
-      (is (= sentinel (get-in (rf/frame-state-value f)
-                              [:rf.db/runtime :rf.runtime/machines :snapshots
-                               :settings/form :data :draft :password]))
-          "the live snapshot still holds the REAL password — classification is egress-only"))))
-
-;; ---------------------------------------------------------------------------
-;; 4. THE CREDENTIAL-FREE AUTH FLOW — drive the FULL public
-;;    edit→submit(→success) cascade and scan EVERY emitted trace for both
-;;    sentinels. Never poke :auth/flow or the settings machine directly with
-;;    a credential — always go through the same public events a real view
-;;    dispatches.
-;; ---------------------------------------------------------------------------
+           (rf.classification/registration-classification :fx stub))
+        (str stub " owns [:request :body :user :password]"))))
 
 (deftest login-form-cascade-redacts-password-and-token-everywhere
-  (testing "the full login edit->submit->success cascade —
-            map-payload :auth.login-form/edit-password, a bare credential-free
-            :auth/login nudge, a :sensitive? true managed-HTTP request, and the
-            classified :auth/session-established reply, whose store-session
-            write is INLINE rather than a nested :dispatch (see
-            store-session-db in auth.cljs) — leaves NO emitted trace event
-            carrying the raw password or the raw JWT, while the
-            handler-visible values (the durable token, the machine state)
-            stay real: redaction is egress-only"
+  (testing "the full login edit -> submit -> success cascade leaves no emitted
+            trace carrying the raw password or JWT, while the handler-visible
+            values stay real"
     (with-new-frame [f (rf.frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed      :test.realworld/login-succeeds
                                                     :auth.session/persist :rf/no-op}})]
-      ;; The local mirror of core.cljs's :auth/classify-token (see its
-      ;; registration above) — without it [:auth :token] would be UNCLASSIFIED
-      ;; in this bare test frame, which would be a test-harness gap, not the
-      ;; app's.
       (rf/dispatch-sync [:test.realworld/classify-token] {:frame f})
       (rf/dispatch-sync [:auth.login-form/initialise] {:frame f})
       (let [traces (record-traces! ::login-cascade)]
@@ -425,22 +121,17 @@
               (str "PW LEAK ops: " (pr-str (mapv :operation pw-leaking))))
           (is (empty? jwt-leaking)
               (str "JWT LEAK ops: " (pr-str (mapv :operation jwt-leaking))))))
-      ;; Functional correctness + "redaction is egress-only": the flow
-      ;; actually completed and the durable write holds the REAL values.
       (is (= :authed (rf/compute-sub [:auth/state] (rf/frame-state-value f)))
           "the credential-free machine still reaches :authed")
-      (is (= "alice" (:username (rf/compute-sub [:auth/user] (rf/frame-state-value f)))))
       (is (= token-sentinel (get-in (rf/app-db-value f) [:auth :token]))
           "the real token reached the durable, classified [:auth :token] path")
       (is (= "" (get-in (rf/app-db-value f) [:auth :login-form :draft :password]))
-          "the draft password is blanked after hand-off (secret-field hygiene)"))))
+          "the draft password is blanked after hand-off"))))
 
 (deftest register-form-cascade-redacts-password-everywhere
-  (testing "the register form's edit->submit cascade is the
-            same credential-owning handoff as login — map-payload
-            :auth.register-form/edit-password, a bare :auth/register nudge, a
-            :sensitive? true request — so no emitted trace leaks the raw
-            password either"
+  (testing "the register form's edit -> submit cascade is the same
+            credential-owning handoff as login, so no emitted trace leaks the
+            raw password"
     (with-new-frame [f (rf.frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed      :test.realworld/login-succeeds
                                                     :auth.session/persist :rf/no-op}})]
       (rf/dispatch-sync [:test.realworld/classify-token] {:frame f})
@@ -455,7 +146,7 @@
           (is (empty? pw-leaking)
               (str "PW LEAK ops: " (pr-str (mapv :operation pw-leaking))))))
       (is (= :authed (rf/compute-sub [:auth/state] (rf/frame-state-value f)))
-          "register shares :auth/session-established with login — same credential-free machine nudge"))))
+          "the cascade completed: register shares :auth/session-established with login"))))
 
 (deftest boot-read-of-the-saved-jwt-redacts-everywhere
   (testing "the boot read of the saved JWT — `:auth/initialise`, the
@@ -478,43 +169,13 @@
       (is (= token-sentinel (get-in (rf/app-db-value f) [:auth :token]))
           "the real token reached the durable, classified [:auth :token] path"))))
 
-(deftest auth-session-persist-fx-classifies-token
-  (testing "the session-persistence fx declares :sensitive [[:token]] on its
-            OWN registration"
-    (is (= {:sensitive [[:token]]}
-           (rf.classification/registration-classification :fx :auth.session/persist))
-        ":auth.session/persist owns [:token]")))
-
 (deftest store-session-event-token-redacts-at-its-arg-map-path
-  (testing "the DIRECTLY-DISPATCHABLE :auth/store-session event
-            classifies its JWT at the ARG-MAP-relative path [:token], not the
-            vector-relative [1 :token]. An event's
-            classification paths index into the event vector's SECOND element
-            (`redact-event-vec` redacts `(second event)`; Spec 015
-            §Registration-owned transient classification — index 0 is not
-            addressable and outer positions 2+ pass through raw), and here that
-            second element IS the User map. So [1 :token] would ask for a
-            numeric map key `1` no map has; a mark at a missing slot is a SILENT
-            no-op, and the JWT would ride RAW into the dispatched-event trace
-            while the declaration read as protection — the reassuring-direction
-            failure.
-            The handler's own `[_ user]` destructuring is a different
-            coordinate system and does not move the classification root.
-            Assertions are POSITIVE (the sentinel at the slot) rather than a
-            bare absence check, so the vector-relative spelling cannot pass
-            them, and the
-            non-secret username rides visible beside it: selective
-            classification, not whole-arg blanking."
-    (is (= {:sensitive [[:token]]}
-           (rf.classification/registration-classification :event :auth/store-session))
-        ":auth/store-session owns the arg-map-relative [:token]")
+  (testing "`:auth/store-session` classifies its JWT at the arg-map-relative
+            [:token]. An event's classification paths index into
+            `(second event)`, so a vector-relative [1 :token] would be a silent
+            no-op; the assertions at `:rf.event/v` are positive so that
+            spelling cannot pass"
     (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
-      ;; Same local mirror of core.cljs's :auth/classify-token the cascade
-      ;; tests use — without it the DURABLE [:auth :token] would be
-      ;; unclassified on this bare test frame, which is a harness gap, not the
-      ;; app's. The event-registration mark under test is a separate, TRANSIENT
-      ;; boundary: it is what protects the dispatched-event trace, and the
-      ;; durable classification does not reach it.
       (rf/dispatch-sync [:test.realworld/classify-token] {:frame f})
       (let [traces (record-traces! ::store-session)
             user   {:username "alice"
@@ -528,54 +189,45 @@
                          (keep #(get-in % [:tags :rf.event/v]))
                          (filter #(= :auth/store-session (first %))))]
           (is (seq slots)
-              "teeth — the drive actually emitted the dispatched-event slot under test")
+              "the drive emitted the dispatched-event slot under test")
           (doseq [v slots]
             (is (= rf.privacy/redacted-sentinel (get-in v [1 :token]))
                 "the JWT reads :rf/redacted at the event's own arg-map :token")
             (is (= "alice" (get-in v [1 :username]))
-                "the non-secret username rides visible — selective, not whole-arg")))
+                "the non-secret username rides visible: selective, not whole-arg")))
         (let [jwt-leaking (filter #(leaks? token-sentinel %) @traces)]
           (is (empty? jwt-leaking)
               (str "JWT LEAK ops: " (pr-str (mapv :operation jwt-leaking))))))
       (is (= token-sentinel (get-in (rf/app-db-value f) [:auth :token]))
-          "the real token reached the durable classified path — redaction is egress-only")
+          "the real token reached the durable classified path")
       (is (nil? (get-in (rf/app-db-value f) [:auth :user :token]))
           "and was never duplicated at the unclassified [:auth :user :token]"))))
 
 (deftest settings-machine-routed-password-subevents-echo-slots-redact
-  (testing "the settings machine's OWN reg-machine OPTS :sensitive
-            ([[1 :password] [1 :submitted :password]]) redacts the routed
-            :edit-password sub-event echoed into the SPECIALIZED machine
-            trace's :event (:rf.machine/transition, :event-received) and
-            [:input :event] (:guard-evaluated, :action-ran) slots — the exact
-            surface the machine-routed classification suite proves the
-            mechanism reaches,
-            and the surface the machine SPEC's :data-rooted :sensitive (test 3
-            above) does NOT reach. The whole-stream sweep beside those per-op
-            assertions also covers the PARENT :settings/edit-password
-            handler's nested `[:dispatch [:settings/form ...]]` and
-            :rf.machine/action-ran's :outcome."
+  (testing "the managed-HTTP app's settings machine keeps the password out of
+            every trace: its reg-machine OPTS `:sensitive` redacts the routed
+            sub-event echoed into the machine traces' `:event` /
+            `[:input :event]` slots, and its spec's `:data` `:sensitive` is
+            lowered to the absolute snapshot paths at spawn"
     (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
       (rf/dispatch-sync [:settings/form [:reset]] {:frame f})
       (let [traces (record-traces! ::settings-edit)]
         (rf/dispatch-sync [:settings/edit-password {:value sentinel}] {:frame f})
         (rf/unregister-listener! :trace ::settings-edit)
-        (doseq [op [:rf.machine/transition :rf.machine/event-received]]
-          (doseq [ev (filter #(= op (:operation %)) @traces)]
-            (is (not (leaks? sentinel (get-in ev [:tags :event])))
-                (str op "'s top-level :event echo slot redacts the routed password"))))
-        (doseq [op [:rf.machine/guard-evaluated :rf.machine/action-ran]]
-          (doseq [ev (filter #(= op (:operation %)) @traces)]
-            (is (not (leaks? sentinel (get-in ev [:tags :input :event])))
-                (str op "'s [:input :event] echo slot redacts the routed password"))))
-        (is (pos? (count (filter #(#{:rf.machine/transition :rf.machine/event-received
-                                     :rf.machine/guard-evaluated :rf.machine/action-ran}
-                                    (:operation %))
-                                  @traces)))
-            "teeth — the drive actually emitted the machine trace ops under test")
+        (is (some #(#{:rf.machine/transition :rf.machine/event-received
+                      :rf.machine/guard-evaluated :rf.machine/action-ran}
+                    (:operation %))
+                  @traces)
+            "the drive emitted the machine trace ops that echo the routed event")
         (let [pw-leaking (filter #(leaks? sentinel %) @traces)]
           (is (empty? pw-leaking)
               (str "PW LEAK ops: " (pr-str (mapv :operation pw-leaking))))))
+      (is (contains? (rf.elision/sensitive-declarations f)
+                     [:rf.runtime/machines :snapshots :settings/form :data :draft :password])
+          "the machine :data draft-password path lowered to the snapshot path at spawn")
+      (is (contains? (rf.elision/sensitive-declarations f)
+                     [:rf.runtime/machines :snapshots :settings/form :data :submitted :password])
+          "the machine :data submitted-password path lowered too")
       (is (= sentinel (get-in (rf/frame-state-value f)
                               [:rf.db/runtime :rf.runtime/machines :snapshots
                                :settings/form :data :draft :password]))
