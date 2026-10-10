@@ -4465,8 +4465,8 @@
        ;; `:rf.error/frame-destroyed` via the always-on listener (axis 1).
        ;; The call-site is bound so the DEV trace path inside
        ;; `emit-frame-destroyed!` carries it; the always-on record reads
-       ;; its coords off the parallel error-coord registry, not the
-       ;; dynamic call-site. `capture-op` carries `:dispatch` when
+       ;; its coords off the id's registration, not the dynamic
+       ;; call-site. `capture-op` carries `:dispatch` when
        ;; this nil-record rejection is a CAPTURED op whose pinned frame is now
        ;; fully unclaimed (realm-exact `[:event id]`); nil for an ordinary
        ;; address-directed dispatch (realm-ambiguous fallback).

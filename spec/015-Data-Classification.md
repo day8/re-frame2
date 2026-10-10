@@ -302,7 +302,7 @@ The attribution slots are **classified individually, never blanket-merged** into
 | `:failing-id` | summary | The failing interceptor / coeffect id — a registered keyword, author-typed in their own source, never derived from a payload. |
 | `:flow-id` | summary | The failing flow's id, on the same terms. |
 | `:where` | summary | A closed framework-owned discriminator (`:flow-eval`, `:app-db`, …) — two bits of "which phase", nothing more. |
-| `:source-coord` | summary | The `{:ns :file :line}` the always-on error-coord registry resolves for the failing registration — build metadata, not runtime data. |
+| `:source-coord` | summary | The `{:ns :file :line}` the reg-* macro recorded on the registration that ran — build metadata, not runtime data. |
 | `:reason` | **tree** (rides `:tags`) | Free-form prose that **interpolates app values**: the coeffect categories fold the thrown exception's own message into it. It is walked and redacted under frame classification like any other tree slot. |
 
 The four summary slots are the tight structural identifiers the producer's own contract keeps them to; they are production-surviving and are **not** privacy-gated, and passing them through the projector unchanged is what makes the flow-eval attribution survive `:rf.egress/public-error`, the profile that drops `:exception`.
