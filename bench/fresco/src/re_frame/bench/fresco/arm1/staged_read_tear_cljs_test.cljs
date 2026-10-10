@@ -177,21 +177,21 @@
            `commit-basis` reading rather than a private count, so this
            row is also the check that re-stamping strictly increases."
     (seeded!)
-    (let [warm  (render (done-row (volatile! nil)))
-          hold! (rf.bench.fresco.arm1.runtime/commit-boundary! warm (fn []))
-          cells (:cells (rf.bench.fresco.arm1.runtime/stats))]
-      (let [entry      (render (done-row (volatile! nil)))
-            at-render  (rf.bench.fresco.arm1.runtime/snapshot-of entry)
-            generation (rf.bench.fresco.arm1.runtime/generation)]
-        (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:dogfood/toggle 0])
-        (is (= [1 (inc generation) true]
-               [cells
-                (rf.bench.fresco.arm1.runtime/generation)
-                (not= at-render (rf.bench.fresco.arm1.runtime/snapshot-of entry))])
-            "RETAINED: an earlier commit holds the key, so the pre-existing
-             watch fired and the generation moved here, and the epoch sum
-             moved with it")
-        (hold!)))))
+    (let [warm       (render (done-row (volatile! nil)))
+          hold!      (rf.bench.fresco.arm1.runtime/commit-boundary! warm (fn []))
+          cells      (:cells (rf.bench.fresco.arm1.runtime/stats))
+          entry      (render (done-row (volatile! nil)))
+          at-render  (rf.bench.fresco.arm1.runtime/snapshot-of entry)
+          generation (rf.bench.fresco.arm1.runtime/generation)]
+      (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:dogfood/toggle 0])
+      (is (= [1 (inc generation) true]
+             [cells
+              (rf.bench.fresco.arm1.runtime/generation)
+              (not= at-render (rf.bench.fresco.arm1.runtime/snapshot-of entry))])
+          "RETAINED: an earlier commit holds the key, so the pre-existing
+           watch fired and the generation moved here, and the epoch sum
+           moved with it")
+      (hold!))))
 
 ;; ---------------------------------------------------------------------------
 ;; The same blind spot, inside the fence's own window
