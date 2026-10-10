@@ -941,7 +941,7 @@
                    ;; already known from the render". Against this
                    ;; substrate that is not implementable, and the failure
                    ;; is silent: a derived value starts at an `unset`
-                   ;; baseline that is never `rf=` a real value, and the
+                   ;; baseline any real value counts as moved from, and the
                    ;; render's own read went through the cold probe,
                    ;; which built no reaction at all. So
                    ;; a freshly acquired reaction whose baseline is still

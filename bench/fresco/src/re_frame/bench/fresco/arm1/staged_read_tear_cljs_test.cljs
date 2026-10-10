@@ -35,8 +35,8 @@
 
   A baseline deref at acquire — which this arm performs, and which
   answers a DIFFERENT problem (a fresh reaction whose
-  `unset` baseline is never `rf=` a real value reports movement on the
-  first later commit whatever it did) — cannot close this one. It gives
+  `unset` baseline any real value counts as moved from reports movement on
+  the first later commit whatever it did) — cannot close this one. It gives
   the cell a correct baseline and no COMPARISON: it silently adopts the
   moved value as though it had always been that.
 

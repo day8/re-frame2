@@ -628,9 +628,13 @@
 ;; measures > 128 ms, so no shippable horizon flips
 ;; it, and the row is a witness for the runner's schedule rather than a
 ;; consumer's (the sweep is in the suite's block comment). Its companion pins
-;; that `get-snap`'s escrow leg is nevertheless still reachable, because the
-;; pre-commit consistency check runs in the render's own task, before any
-;; macrotask can reap.
+;; that on this schedule `get-snap` still reports a write landing in the
+;; render→commit gap, in both states the escrow token can be in at React's
+;; pre-commit consistency check. Unspent — the check runs in the render's own
+;; task, before any macrotask can reap — it derefs the reaction the token
+;; holds. Spent by the reaper, it reads through a one-shot `subscribe-once`
+;; of the token's query, memoised in the token against the frame state it
+;; read, so the check sees the write and nothing is retained.
 (deftest use-sub-browser-runner-schedule-rebuilds
   (rf.adapter.react-shared-suite/assert-use-sub-browser-runner-schedule-rebuilds cfg))
 
