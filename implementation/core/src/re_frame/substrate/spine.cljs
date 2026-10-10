@@ -2737,7 +2737,8 @@
 
 (defn- release-provisional!
   "Release one escrow token — ONE-SHOT and REACTION-GUARDED, per the section
-  comment above. `token` is `#js [reaction frame-kw query-v spent?]`.
+  comment above. `token` is `#js [reaction frame-kw query-v spent?]`, and
+  gains a fifth slot only once spent, for `provisional-snapshot`'s memo.
 
   The `spent?` flip precedes the decrement, so the two racers for a token —
   the commit that adopts it and the macrotask drain that reaps it — cannot
@@ -2757,7 +2758,7 @@
   (js-obj))
 
 (defn- provisional-snapshot
-  "The LIVE value of the reaction an UNSPENT escrow token is holding, or
+  "The LIVE pre-commit value for the hook holding escrow `token`, or
   `no-provisional` when there is nothing live to read.
 
   This is what keeps `use-subscribe`'s pre-commit snapshot honest without
@@ -2769,32 +2770,57 @@
   measured, not hypothetical: without this read, on a concurrent lane the first
   commit would show the render's value while app-db had already moved.
 
-  But the token ALREADY holds the reaction, and holds it LIVE: that +1 is the
-  whole point of the hand-off, and it is what makes the entry still tenanted
-  when the commit arrives to adopt it. So the pre-commit read has a live source
-  available for free. Nothing new is retained — the retention is the token's,
-  not this fn's, and it ends at adoption or at the macrotask horizon, never at
-  the component's lifetime. The memo slot and `get-snap`'s closure hold a value
+  While the token is UNSPENT it already holds the reaction, and holds it LIVE:
+  that +1 is the whole point of the hand-off, and it is what makes the entry
+  still tenanted when the commit arrives to adopt it. So the read derefs that
+  reaction and retains nothing new — the retention is the token's, not this
+  fn's, and it ends at adoption or at the macrotask horizon, never at the
+  component's lifetime. The memo slot and `get-snap`'s closure hold a value
   and no handle.
 
-  `spent?` (slot 3) is load-bearing, not defensive. The reaper flips it and
-  decrements WITHOUT clearing the holder's ref, so a spent token can be pointing
-  at a reaction whose last reference has just gone. Reading only while unspent is
-  what keeps the frozen-value fallback as the answer in exactly the cases where
-  there is no live reaction to prefer to it.
+  Once the reaper has SPENT the token, its reaction is never deref'd: the
+  reaper flips `spent?` (slot 3) and decrements WITHOUT clearing the holder's
+  ref, so a spent token can be pointing at a reaction whose last reference has
+  gone. A transition render that yields past the horizon and then resumes
+  reaches its pre-commit check in exactly that state, and the check must still
+  see a write. So the read becomes a one-shot `subscribe-once` of the token's
+  query, which releases its own reference before it returns. It is memoised in
+  slot 4 against the frame-state value it read, so back-to-back calls with
+  nothing moved answer the identical value, as React's `getSnapshot` contract
+  requires. A frame that is gone has nothing live to read.
 
-  What `spent?` does NOT cover, stated rather than glossed: an eviction that
-  takes the entry out from under a still-unspent token — hot reload,
-  `clear-sub-cache!`, `destroy-frame!` — landing INSIDE a single render→commit
-  gap. The release already no-ops for that case (it is identity-guarded), and a
-  deref here would read a pull-based recompute against current sources, so the
-  VALUE stays right; only a sub body re-registered within that same gap could
-  differ. The lifetime-scale version of that hazard is what `committed-ref`
-  exists to close, and it is closed."
+  What neither read covers, stated rather than glossed: a sub body
+  re-registered INSIDE a single render→commit gap. An eviction that takes the
+  entry out from under a still-unspent token — hot reload, `clear-sub-cache!`,
+  `destroy-frame!` — leaves the release a no-op (it is identity-guarded) and
+  the deref a pull-based recompute against current sources, so the VALUE stays
+  right; and the spent-token memo is keyed on the frame state, not the
+  registry. Only a body re-registered within that one gap could differ. The
+  lifetime-scale version of that hazard is what `committed-ref` exists to
+  close, and it is closed."
   [token]
-  (if (and (some? token) (not (aget token 3)))
+  (cond
+    (nil? token)
+    no-provisional
+
+    (not (aget token 3))
     @(aget token 0)
-    no-provisional))
+
+    :else
+    (let [frame-kw (aget token 1)
+          state    (rf.frame/frame-state-value frame-kw)
+          memo     (aget token 4)]
+      (cond
+        (nil? state)
+        no-provisional
+
+        (and (some? memo) (identical? (aget memo 0) state))
+        (aget memo 1)
+
+        :else
+        (let [v (rf.subs/subscribe-once (aget token 2) {:frame frame-kw})]
+          (aset token 4 #js [state v])
+          v)))))
 
 (def ^:private provisional-horizon-ms
   "The reap horizon in milliseconds: how long an UNADOPTED provisional
@@ -3085,11 +3111,13 @@
                 ;; v1 output. React's `useSyncExternalStore` contract requires
                 ;; `getSnapshot` to read a stable, LIVE source — so `get-snap`
                 ;; reads the committed reaction stored here once `subscribe-fn`
-                ;; has run (post-commit), and before that reads the reaction the
-                ;; hook's unspent ESCROW TOKEN is holding, which is live by
-                ;; construction (the escrowed +1 is what keeps it tenanted).
-                ;; The render-phase SNAPSHOT VALUE (`render-snapshot` below) is
-                ;; the last resort, for when neither is live. Nothing here
+                ;; has run (post-commit), and before that reads through the
+                ;; hook's ESCROW TOKEN: the reaction it holds while unspent,
+                ;; which is live by construction (the escrowed +1 is what keeps
+                ;; it tenanted), or a one-shot read of the same query once the
+                ;; reaper has spent it. The render-phase SNAPSHOT VALUE
+                ;; (`render-snapshot` below) is the last resort, for when the
+                ;; hook holds no token for this key. Nothing here
                 ;; holds a handle for the component's lifetime, so a disposed
                 ;; reaction is not merely un-preferred — it is unreachable.
                 ;;
@@ -3260,12 +3288,13 @@
                 ;;
                 ;;   1. the COMMITTED reaction, once `subscribe-fn` has published
                 ;;      it under this key — the steady state;
-                ;;   2. the reaction the hook's UNSPENT ESCROW TOKEN is holding
-                ;;      (`provisional-snapshot`) — the render→commit window and
-                ;;      the key-change render, the only two moments (1) cannot
-                ;;      answer;
+                ;;   2. the hook's ESCROW TOKEN (`provisional-snapshot`) — the
+                ;;      render→commit window and the key-change render, the only
+                ;;      two moments (1) cannot answer. While the token is unspent
+                ;;      that is a deref of the reaction it holds; once the reaper
+                ;;      has spent it, a one-shot read of the same query;
                 ;;   3. `render-snapshot`, the value the render phase read, when
-                ;;      neither of those is live.
+                ;;      the hook holds no token for this key.
                 ;;
                 ;; (2) is what closes the pre-commit window. The memo returns
                 ;; a VALUE rather than a handle; but a value frozen at render
@@ -3280,8 +3309,14 @@
                 ;; bookkeeping: a same-commit layout effect or ref read sees it,
                 ;; and the ugly instance is a panel mounting as a permission
                 ;; drops.
-                ;; The escrow token already holds that reaction LIVE, so (2) costs
-                ;; a ref read and retains nothing new. See `provisional-snapshot`.
+                ;; While unspent, the escrow token already holds that reaction
+                ;; LIVE, so (2) costs a ref read and retains nothing new; once
+                ;; spent, its one-shot read releases its own reference before
+                ;; returning. Either way the window stays closed however long
+                ;; the render takes to reach its commit, so a transition render
+                ;; that yields past the reap horizon and resumes is checked as
+                ;; honestly as one that commits in its own task. See
+                ;; `provisional-snapshot`.
                 ;;
                 ;; On a BLOCKING lane React pushes no pre-commit check at all
                 ;; (`0 !== (renderLanes & 127) || pushStoreConsistencyCheck(…)`),
@@ -3294,15 +3329,14 @@
                 ;; answers.
                 ;;
                 ;; Every source here is `Object.is`-STABLE across back-to-back
-                ;; calls — each is a memoised reaction's value or a frozen one —
+                ;; calls — a memoised reaction's value, a frozen one, or the
+                ;; spent-token read memoised on the frame-state value it read —
                 ;; which is what React's "the result of getSnapshot should be
-                ;; cached" rule requires. The obvious alternative, having
-                ;; `get-snap` re-SUBSCRIBE per call, is unsafe for exactly that
-                ;; reason: on a miss each call would build a fresh reaction with a
-                ;; fresh memo cell, so a collection-returning sub yields a
-                ;; non-`Object.is` value every time — React's documented
-                ;; infinite-render-loop condition. Reading a reference something
-                ;; else already owns cannot build anything, so it cannot reach it.
+                ;; cached" rule requires. An UNMEMOISED re-subscribe per call
+                ;; would be unsafe for exactly that reason: on a miss each call
+                ;; would build a fresh reaction with a fresh memo cell, so a
+                ;; collection-returning sub yields a non-`Object.is` value every
+                ;; time — React's documented infinite-render-loop condition.
                 ;;
                 ;; The committed reaction is stored KEY-TAGGED as
                 ;; `#js [stable-key committed]`, and `get-snap` reads it ONLY
@@ -3341,8 +3375,8 @@
                                            (identical? (aget stored 0) stable-key))
                                     (let [r (aget stored 1)] (when r @r))
                                     ;; Pre-commit / key-change: prefer the LIVE
-                                    ;; reaction the escrow token is holding over
-                                    ;; the frozen render value.
+                                    ;; read through the escrow token over the
+                                    ;; frozen render value.
                                     ;; Key-tagged for the same reason
                                     ;; `committed-ref` is — across a query-v /
                                     ;; frame change the ref may still hold the
