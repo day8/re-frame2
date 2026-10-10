@@ -753,8 +753,9 @@
   "Best-effort abort every ALREADY-DETACHED handle in `handles`, in order.
   Aborts managed HTTP by the recorded frame-qualified `:request-id` through the
   `:http/abort-in-flight!` hook, so frame destroy cancels the
-  underlying in-flight request before dropping the generation high-water — a
-  surviving host reply can never match a future same-id frame. The handles are
+  underlying in-flight request. A host reply that outlives the abort still
+  never matches a future same-id frame, because the generation high-water is
+  process-wide and destroy leaves it alone. The handles are
   off the side table already (see `detach-slots!`), so an abort callback that
   churns the incarnation cannot have its successor's slot dropped by this tail.
   Never throws. Returns nil."
