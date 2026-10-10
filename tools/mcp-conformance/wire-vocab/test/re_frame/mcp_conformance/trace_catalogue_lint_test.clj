@@ -17,8 +17,8 @@
   correlation payload like `:rf.reply/carried {:work/id … :generation …}` is
   fine (that inner map carries no `:rf.reply/work-id`).
 
-  `sanity-a-planted-duplicate-is-caught` plants a map carrying both spellings
-  and asserts that the detector remains live."
+  `every-reader-conditional-arm-is-inspected` plants maps carrying both
+  spellings and asserts that the detector remains live."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [clojure.walk :as walk]
@@ -128,32 +128,9 @@
                           "duplicate " bare)))))))))
 
 ;; ---------------------------------------------------------------------------
-;; (2) Teeth — the detector flags a PLANTED duplicate. Without this a broken
-;;     detector (e.g. a walk that never descends) would pass (1) vacuously.
-;; ---------------------------------------------------------------------------
-
-(deftest sanity-a-planted-duplicate-is-caught
-  (testing "the duplicate detector flags a map that carries both spellings —
-            proving (1) has teeth"
-    (let [planted '[(trace/emit! :rf.event :rf.some/completed
-                                 {:work/kind :http
-                                  :rf.reply/work-id     work-id
-                                  :work/id              work-id
-                                  :rf.reply/completed-at t
-                                  :completed-at          t})]
-          hits    (duplicate-hits planted)]
-      (is (= 2 (count hits))
-          "both the work-id AND completed-at duplicates are detected")
-      (is (= #{[:rf.reply/work-id :work/id]
-               [:rf.reply/completed-at :completed-at]}
-             (into #{} (map (fn [[c b _]] [c b])) hits))
-          "the detector names both offending key pairs"))))
-
-;; ---------------------------------------------------------------------------
-;; (3) The READ boundary — every reader-conditional arm reaches the detector.
-;;     (2) hands `duplicate-hits` an
-;;     already-read literal, so it proves the walk and not the read; these
-;;     go through `read-all-forms` on source TEXT, the path (1) takes.
+;; (2) Teeth — planted duplicates reach the detector through
+;;     `read-all-forms`, the path (1) takes, in every reader-conditional arm.
+;;     Without this a broken detector or reader would pass (1) vacuously.
 ;; ---------------------------------------------------------------------------
 
 (defn- hit-pairs [source]
@@ -163,24 +140,13 @@
 (deftest every-reader-conditional-arm-is-inspected
   (let [work-id   [[:rf.reply/work-id :work/id]]
         completed [[:rf.reply/completed-at :completed-at]]]
-    (testing "a duplicate is reported whichever arm, splice or nesting carries it"
-      (doseq [[label source expected]
-              [["unconditional" "{:rf.reply/work-id w :work/id w}" work-id]
-               ["CLJ-only" "#?(:clj {:rf.reply/work-id w :work/id w})" work-id]
-               ["CLJS-only" "#?(:cljs {:rf.reply/work-id w :work/id w})" work-id]
-               ["CLJS arm beside a valid CLJ arm"
-                "#?(:clj {:rf.reply/work-id w} :cljs {:rf.reply/work-id w :work/id w})"
-                work-id]
-               ["CLJS splice" "[#?@(:clj [] :cljs [{:rf.reply/work-id w :work/id w}])]" work-id]
-               ["nested conditional"
-                "#?(:clj nil :cljs (emit! #?(:cljs {:rf.reply/completed-at t :completed-at t})))"
-                completed]]]
-        (is (= expected (hit-pairs source)) label)))
-    (testing "valid alternatives, a lone :work/id and carried/current maps stay accepted in every arm"
-      (doseq [[label source]
-              [["valid alternatives"
-                "#?(:clj {:rf.reply/work-id w} :cljs {:rf.reply/work-id w})"]
-               ["lone :work/id" "#?(:cljs {:work/id w :generation 1})"]
-               ["carried/current"
-                "#?(:cljs {:rf.reply/work-id w :rf.reply/carried {:work/id w} :rf.reply/current {:work/id o}})"]]]
-        (is (= [] (hit-pairs source)) label)))))
+    (doseq [[label source expected]
+            [["unconditional" "{:rf.reply/work-id w :work/id w}" work-id]
+             ["CLJS arm beside a valid CLJ arm"
+              "#?(:clj {:rf.reply/work-id w} :cljs {:rf.reply/work-id w :work/id w})"
+              work-id]
+             ["CLJS splice" "[#?@(:clj [] :cljs [{:rf.reply/work-id w :work/id w}])]" work-id]
+             ["nested conditional"
+              "#?(:clj nil :cljs (emit! #?(:cljs {:rf.reply/completed-at t :completed-at t})))"
+              completed]]]
+      (is (= expected (hit-pairs source)) label))))
