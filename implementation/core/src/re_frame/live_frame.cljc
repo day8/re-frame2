@@ -143,6 +143,10 @@
             [re-frame.frame          :as rf.frame]
             [re-frame.interop        :as rf.interop]
             [re-frame.error          :as rf.error]
+            ;; A failed live-frame refresh reports on the always-on axis
+            ;; (`reproject-live-frames-resiliently!`). Cycle-free: nothing in
+            ;; `error-emit`'s require closure reaches this ns.
+            [re-frame.error-emit     :as rf.error-emit]
             [re-frame.late-bind      :as rf.late-bind]
             ;; The targeted subscription refresh at a generation
             ;; change (§Subscription refresh at a generation change, below).
@@ -692,8 +696,8 @@
 ;; Transient and self-correcting — the swap that follows overwrites it
 ;; unconditionally, so no completed call can observe it, where a write after
 ;; the commit would corrupt the value the constructor returns. The remaining
-;; exposure is at worst one spurious `:rf.warning/reprojection-failed`
-;; diagnostic on the dev channel.
+;; exposure is at worst one spurious `:rf.error/reprojection-failed` record
+;; for a frame the swap then corrects.
 
 (defonce ^{:private true
            :doc "frame id -> the descriptor pool its CURRENT generation was
@@ -1452,39 +1456,85 @@
 ;; burst.
 ;;
 ;; The resilient sweep isolates each frame's reprojection in its OWN
-;; try/catch: a failure is DIAGNOSED (see
-;; `deferred-flush!`'s docstring for the emit-vs-swallow rationale) and the
-;; failed frame is left on its prior generation (indistinguishable from an
-;; unchanged frame to `reproject-live-frames!`'s callers), but the sweep
-;; CONTINUES to every other frame regardless of where in the enumeration
-;; order the failure fell.
+;; try/catch and CONTINUES to every other frame regardless of where in the
+;; enumeration order a failure fell. A failed frame stays on its prior
+;; generation for EVERY id, so it runs a program the registrations no longer
+;; describe — the old handler keeps running and new or re-edited ones never
+;; land. That is a silent, production-reachable freeze (a late-loaded module
+;; duplicating an id does it as surely as a hot-reload refactor), so each
+;; failure is REPORTED on the always-on error axis as
+;; `:rf.error/reprojection-failed`, beside its dev trace (Spec 009 §The
+;; promotion criterion). The sweep runs only after a `reg-*` marked the
+;; projection dirty, so a frozen frame reports once per failed refresh and
+;; plain dispatches to it never repeat the record.
+
+(defn- reprojection-failure-record
+  "The always-on `:rf.error/reprojection-failed` record for `frame-id`, whose
+  refresh threw `ex`.
+
+  A cross-namespace duplicate (`:rf.error/image-duplicate-id`) — what moving a
+  `reg-*` to another namespace leaves behind, since re-evaluating the old
+  namespace does not remove its slot — is named STRUCTURALLY: the
+  `:registration` `[kind id]`, every namespace registering it, and a `:reason`
+  naming the recovery. The assembly exception adds nothing to those, and
+  leaving it off keeps the `:reason` as the line the dev console leads with.
+  Any other cause rides as the raw `:exception`.
+
+  Every slot is a framework keyword, the frame's id, a registration id or a
+  source namespace name — structural, never a runtime value."
+  [frame-id ex]
+  (let [data (ex-data ex)
+        base {:error    :rf.error/reprojection-failed
+              :frame    frame-id
+              :recovery :kept-prior-generation
+              :time     (rf.interop/now-ms)}]
+    (if (= :rf.error/image-duplicate-id (:rf.error/id data))
+      (let [{:keys [kind id colliding-coordinates]} data
+            namespaces (vec (sort (keep :ns colliding-coordinates)))]
+        (assoc base
+               :registration [kind id]
+               :namespaces   namespaces
+               :reason       (str "Frame " (pr-str frame-id) " kept its previous handlers for"
+                                  " every id, because " (pr-str [kind id]) " is registered by"
+                                  " more than one namespace " (pr-str namespaces) ". Recover"
+                                  " with (rf/clear " (pr-str kind) " " (pr-str id) "), then"
+                                  " re-evaluate the namespace that should own the id.")))
+      (assoc base
+             :exception ex
+             :reason    (str "Frame " (pr-str frame-id) " kept its previous handlers for"
+                             " every id, because refreshing it against the current"
+                             " registrations threw.")))))
 
 (defn- reproject-live-frames-resiliently!
-  "Like `reproject-live-frames!`, but a PER-FRAME assembly failure does NOT
-  abort the sweep: the failure is diagnosed on the trace DIAGNOSTIC channel
-  (`:rf.warning/reprojection-failed`, carrying `:frame` + `:exception` — dev
-  visibility, zero production cost, gated on `rf.interop/debug-enabled?` inside
-  `rf.trace/emit-error!`) and the sweep CONTINUES to every remaining frame — the
-  failed frame is simply left on its prior generation, same as a frame whose
-  composition re-resolved unchanged. Used ONLY by the deferred (`next-tick`)
-  flush; see its docstring for why the synchronous entry points keep the
-  all-or-nothing throw-through contract instead. Returns `{frame-id
-  reload-diff}` for every frame that MOVED (a failed frame is simply absent,
-  same as an unchanged one)."
+  "Like `reproject-live-frames!`, but a PER-FRAME failure does NOT abort the
+  sweep: the failed frame stays on its prior generation, the failure is
+  reported (see [[reprojection-failure-record]]) on the always-on error axis
+  through `dispatch-error-record!` — listeners, the frame's `:observability
+  :errors` sink and the dev console fallback all receive it, in every build —
+  and on the dev trace, and the sweep CONTINUES to every remaining frame.
+  Used ONLY by the coalesced flush; see `deferred-flush!` for why the
+  synchronous entry points keep the all-or-nothing throw-through contract
+  instead.
+
+  Returns `{:moved {frame-id reload-diff} :failed {frame-id error-record}}`. A
+  frame whose composition re-resolved unchanged is in neither map, so
+  \"refresh failed\" and \"unchanged\" never read alike."
   []
-  (reduce (fn [moved id]
-            (if-let [diff (try
-                            (reproject-live-frame! id)
-                            (catch #?(:clj Throwable :cljs :default) ex
-                              (rf.trace/emit-error! :rf.warning/reprojection-failed
-                                                 {:category  :rf.warning/reprojection-failed
-                                                  :frame     id
-                                                  :exception ex
-                                                  :where     :reproject-live-frame!})
-                              nil))]
-              (assoc moved id diff)
-              moved))
-          {}
+  (reduce (fn [result id]
+            (try
+              (if-let [diff (reproject-live-frame! id)]
+                (assoc-in result [:moved id] diff)
+                result)
+              (catch #?(:clj Throwable :cljs :default) ex
+                (let [record (reprojection-failure-record id ex)]
+                  (rf.error-emit/dispatch-error-record! record)
+                  (rf.trace/emit-error! :rf.error/reprojection-failed
+                                        (-> record
+                                            (dissoc :error :time)
+                                            (assoc :exception ex
+                                                   :where :reproject-live-frame!)))
+                  (assoc-in result [:failed id] record)))))
+          {:moved {} :failed {}}
           (rf.frame/image-loaded-frame-ids)))
 
 ;; ===========================================================================
@@ -1552,16 +1602,13 @@
 ;; that never constructs a frame never roots the reprojection + assembly graph,
 ;; so `:advanced` + `goog.DEBUG=false` still trims it (`check-elision.cjs`
 ;; PROD_ABSENT_WHEN_UNUSED); an app that DOES construct a frame already roots
-;; `assemble-default` through `make-frame` itself. The
-;; hook adds NO new ALWAYS-ON error id: assembly errors never reach the
-;; always-on axis (Spec 009 §Observability channels) here — they are diagnosed
-;; on the trace DIAGNOSTIC channel only (`:rf.warning/reprojection-failed`,
-;; `reproject-live-frames-resiliently!` below), which is itself gated on
-;; `rf.interop/debug-enabled?` inside `rf.trace/emit-error!` and so carries the same
-;; ZERO production cost. And the registrar fires registration hooks ISOLATED
-;; (a hook throw is swallowed, never blocking the `reg-*`), so a reprojection-
-;; assembly failure during a dev hot reload cannot break the underlying
-;; registration EITHER WAY.
+;; `assemble-default` through `make-frame` itself. The always-on
+;; `:rf.error/reprojection-failed` record a failed refresh fans out
+;; (`reproject-live-frames-resiliently!` below) lives on that same path, so it
+;; adds nothing to an app that never constructs a frame. And the registrar
+;; fires registration hooks ISOLATED (a hook throw is swallowed, never
+;; blocking the `reg-*`), so a reprojection-assembly failure cannot break the
+;; underlying registration EITHER WAY.
 
 (defonce ^{:private true
            :doc "Process-local DIRTY flag: true when a `reg-*` source-store change
@@ -1623,7 +1670,7 @@
   in `call-with-frame-resolution`. If a `reg-*` source-store
   change has marked the projection dirty, clear the flag and run the RESILIENT
   sweep (`reproject-live-frames-resiliently!` — a per-frame assembly failure is
-  DIAGNOSED via `:rf.warning/reprojection-failed`, never thrown, so a broken
+  REPORTED as `:rf.error/reprojection-failed`, never thrown, so a broken
   unrelated frame cannot take down the dispatch / subscribe that happened to
   trigger the flush). A no-op when nothing is pending. The dirty-flag clear is
   read-then-reset so a re-entrant `reg-*` during reprojection re-arms a fresh
@@ -1654,13 +1701,9 @@
   This runs the RESILIENT sweep
   (`reproject-live-frames-resiliently!`), which isolates each frame's
   reprojection so one failure does NOT stop the others from reprojecting, and
-  DIAGNOSES the failure (`:rf.warning/reprojection-failed`, the trace
-  DIAGNOSTIC channel — dev visibility, zero production cost) instead of
-  swallowing it silently. The choice is DIAGNOSE, not RE-THROW: this is
-  a background tick with no caller to report a hard failure to, and
-  ALWAYS-ON-axis promotion is deliberately NOT added here (Spec 009
-  §Observability channels — an always-on id is for failures an app must be
-  able to react to at runtime; a dev-hot-reload assembly typo is not that).
+  REPORTS the failure (`:rf.error/reprojection-failed`, on the always-on error
+  axis and the dev trace) rather than re-throwing it: this is a background tick
+  with no caller to report a hard failure to.
 
   The dirty flag is cleared BEFORE reprojecting (read-then-reset), so a
   re-entrant `reg-*` during the flush re-arms a fresh tick rather than being

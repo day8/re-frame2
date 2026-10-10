@@ -20,6 +20,7 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core         :as rf]
+            [re-frame.error-emit   :as rf.error-emit]
             [re-frame.events       :as rf.events]
             [re-frame.frame        :as rf.frame]
             [re-frame.image        :as rf.image]
@@ -376,15 +377,16 @@
 ;; ---- deferred-flush resilience ---------------------------------------------
 ;;
 ;; `deferred-flush!` isolates each frame's reprojection, so one failure neither
-;; stops the sweep reaching the rest nor goes undiagnosed
-;; (`:rf.warning/reprojection-failed`). `rf.frame/image-loaded-frame-ids` is
+;; stops the sweep reaching the rest nor goes unreported
+;; (`:rf.error/reprojection-failed`). `rf.frame/image-loaded-frame-ids` is
 ;; fixed to put the bad frame FIRST: the real registry iterates a hash-set,
 ;; and an order with the good frame first would let an all-or-nothing sweep
 ;; pass too.
 
 (deftest deferred-flush-does-not-abort-mid-sweep-on-one-frame-failure
   (let [snapshot  @rf.source-store/kind->id->ns->descriptor
-        diagnosed (atom [])]
+        diagnosed (atom [])
+        reported  (atom [])]
     (try
       (with-redefs [rf.interop/next-tick (fn [_f] nil)]
         (rf.live-frame/flush-pending-reprojection!))
@@ -408,18 +410,24 @@
           ;; zero-match
           (rf.registrar/unregister! :event :rpf-bad/inc)
           (rf/register-listener! :trace ::rpf-rec
-            (fn [ev] (when (= :rf.warning/reprojection-failed (:operation ev))
+            (fn [ev] (when (= :rf.error/reprojection-failed (:operation ev))
                        (swap! diagnosed conj ev))))
+          (rf.error-emit/register-error-listener! ::rpf-rec
+            (fn [record] (when (= :rf.error/reprojection-failed (:error record))
+                           (swap! reported conj record))))
           (try
             ;; the JVM captures no tick, so it drives the deferred body directly
             (is (nil? (if-let [f @tick] (f) (#'rf.live-frame/deferred-flush!))))
             (finally
-              (rf/unregister-listener! :trace ::rpf-rec))))
+              (rf/unregister-listener! :trace ::rpf-rec)
+              (rf.error-emit/unregister-error-listener! ::rpf-rec))))
         (is (= ::good-v2 (resolved-handler :rpf-good/main :event :rpf-good/inc))
             "the sweep reached the good frame despite the bad one failing first")
-        ;; the warning rides the diagnostic channel, silent under
-        ;; -Dre-frame.debug=false; the reached-the-good-frame read above is the
-        ;; production-visible half of the claim
+        (is (= [:rpf-bad/main] (map :frame @reported))
+            "the always-on record names only the failed frame, in every build")
+        (is (some? (:exception (first @reported)))
+            "a cause other than a duplicate id rides as the raw exception")
+        ;; the dev trace is silent under -Dre-frame.debug=false
         (when rf.interop/debug-enabled?
           (is (= [:rpf-bad/main] (map #(get-in % [:tags :frame]) @diagnosed)))))
       (finally

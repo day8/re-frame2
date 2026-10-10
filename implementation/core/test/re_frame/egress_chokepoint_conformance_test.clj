@@ -94,6 +94,12 @@
      ;; is composed here rather than taken from the validator's message.
      re-frame.router
 
+     ;; `:rf.error/reprojection-failed`: the frame id, a registration
+     ;; `[kind id]`, the source namespace names registering it, a `:reason`
+     ;; composed from those, `:recovery`, and a host `:exception` residual
+     ;; when the cause is not a duplicate id.
+     re-frame.live-frame
+
      ;; The `:kind :route` `:rf.error/no-such-handler` miss: framework enums
      ;; plus `:url`, scrubbed by `privacy.url/redact-url-tag` before either
      ;; axis sees it. `project-egress` is the wrong instrument here: a route
