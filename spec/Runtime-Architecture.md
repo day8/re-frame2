@@ -18,7 +18,7 @@ The runtime is eight components plus a host-side **interop layer** that the CLJS
 |---|---|---|---|
 | 1 | **Registrar** | `(kind, id) → metadata` lookup. The single source for handler resolution. | [001-Registration](001-Registration.md) |
 | 2 | **Frame container** | Per-frame runtime object: `app-db` reactive container, router queue, sub-cache, lifecycle. | [002-Frames](002-Frames.md) |
-| 3 | **Router** | Per-frame FIFO event queue. Decides which event drains next. | [002-Frames §Run-to-completion](002-Frames.md#run-to-completion-dispatch-drain-semantics) |
+| 3 | **Router** | Per-frame pair of FIFO event lanes, internal and external. Decides which event drains next. | [002-Frames §Run-to-completion](002-Frames.md#run-to-completion-dispatch-drain-semantics) |
 | 4 | **Drain loop** | The execution engine: dequeue → run interceptor chain → apply effects → settle machines → invalidate sub-cache. The four Levels in [005 §Drain semantics](005-StateMachines.md#drain-semantics). | [002-Frames](002-Frames.md), [005-StateMachines](005-StateMachines.md) |
 | 5 | **Effect interpreter (`do-fx`)** | Walks the `:fx` vector in source order, dispatching each entry to its registered fx handler. | [002-Frames §`:fx` ordering](002-Frames.md#fx-ordering-and-atomicity-guarantees) |
 | 6 | **Sub-cache** | Per-frame derivation graph + memoised values. Invalidates on `app-db` change; disposes on frame destroy. | [006-ReactiveSubstrate §Subscription cache invalidation](006-ReactiveSubstrate.md#subscription-cache--contract-and-operational-semantics) |
@@ -34,7 +34,7 @@ External event ingress to settled view, in one diagram:
 ```
                                    ┌────────────────┐
    user code ──(dispatch [ev])──►  │ Router         │ ◄── :fx [[:dispatch ev]] re-enqueue
-                                   │  FIFO queue    │     (during do-fx)
+                                   │  2 FIFO lanes  │     (during do-fx)
                                    └───────┬────────┘
                                            │ dequeue (next-tick)
                                            ▼
@@ -79,7 +79,7 @@ External event ingress to settled view, in one diagram:
                                    └────────────────────────────┘
 ```
 
-The arrow that re-enters the Router from `do-fx` is what makes the loop a loop: a `:dispatch` effect appends to the same FIFO queue and is processed FIFO with whatever else has accumulated. The arrow from the drain loop's machine path is the **macrostep boundary** ([005 §Drain semantics §Level 3](005-StateMachines.md#level-3--within-a-single-machine-event)) — sub-cache invalidation fires once at the end of the cascade, not after each microstep.
+The arrow that re-enters the Router from `do-fx` is what makes the loop a loop: a `:dispatch` effect appends to the frame's internal lane, which the drain empties before it takes the next external event, so everything an event dispatches settles before the next outside event. The arrow from the drain loop's machine path is the **macrostep boundary** ([005 §Drain semantics §Level 3](005-StateMachines.md#level-3--within-a-single-machine-event)) — sub-cache invalidation fires once at the end of the cascade, not after each microstep.
 
 ## Component contracts
 
@@ -110,7 +110,7 @@ Each section below states **inputs**, **outputs**, **invariants**, and **who cal
 ```clojure
 {:id        :todo
  :app-db    <reactive-container>     ;; opaque to the core; held by the substrate adapter
- :router    {...}                    ;; FIFO queue + drain-state FSM
+ :router    {...}                    ;; internal + external FIFO lanes, drain-state FSM
  :sub-cache {...}                    ;; signal-graph cache for this frame
  :lifecycle {:created-at <ts> :destroyed? false :listeners [...]}
  :config    {...}}                   ;; the config make-frame was given (incl. :preset expansion)
@@ -127,18 +127,18 @@ Each section below states **inputs**, **outputs**, **invariants**, and **who cal
 - Frame identity is **carried, not found**: a dispatch resolves its frame from the scope it runs under, and the runtime never synthesises one from absence. There is **no** always-present `:rf/default`; a frameless dispatch fails with `:rf.error/no-frame-context` ([002 §Frame target resolution](002-Frames.md#frame-target-resolution--the-carried-invariant)).
 - Framework durable state lives in the frame's **runtime-db** partition (the `:rf.runtime/machines`, `:rf.runtime/routing`, `:rf.runtime/elision`, and `:rf.runtime/ssr` children), owned by the runtime — NOT under app-db. An app-db `:rf/runtime` root is a hard error ([Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys)).
 
-### 3. Router (per-frame FIFO)
+### 3. Router (per-frame, two FIFO lanes)
 
-**Role.** Hold dispatched events, in arrival order, until the drain loop is ready to process the next one. Per [005 §Drain semantics §Level 4](005-StateMachines.md#level-4--across-the-runtime): no priority lanes, no front-of-queue insertion at this layer, no reordering.
+**Role.** Hold dispatched events until the drain loop is ready to process the next one, in two FIFO lanes: an **internal** lane for every dispatch made synchronously inside the frame's in-flight event, whatever kind of handler makes it, and an **external** lane for everything else. The drain always dequeues from the internal lane first, so an event's family settles before the next external event (per [002 §Run-to-completion §Rules](002-Frames.md#rules) and [005 §Drain semantics §Level 4](005-StateMachines.md#level-4--across-the-runtime)). The lane is chosen by cause — where the dispatch is made — never by an envelope mark.
 
-**Inputs.** `dispatch` (back of queue), `dispatch-later` (timer fires → back of queue), `:fx [[:dispatch ev]]` from `do-fx` (back of queue, in source order), routing changes from the navigation layer ([012-Routing](012-Routing.md)).
+**Inputs.** `:fx [[:dispatch ev]]` from `do-fx` and any other dispatch made inside the in-flight event (back of the internal lane, in source order); `dispatch` from outside any event, `dispatch-later` (timer fires), async replies, other frames and other threads (back of the external lane); routing changes from the navigation layer ([012-Routing](012-Routing.md)).
 
 **Outputs.** One event at a time to the drain loop.
 
 **Invariants.**
 
 - Per-frame. Cross-frame dispatch is ordinary async — no drain spans frames ([002 §Run-to-completion §Rules](002-Frames.md#rules)).
-- FIFO. Dispatch ordering is the router's enqueue/dequeue order — identical to the order the trace events are emitted (correlate via `:rf.trace/dispatch-id`). (There is **no** `:dispatched-at` field — see [002 §`:dispatched-at` is retired](002-Frames.md#dispatched-at-is-retired).)
+- FIFO within each lane, internal lane first. Dispatch ordering is the router's enqueue/dequeue order — identical to the order the trace events are emitted (correlate via `:rf.trace/dispatch-id`). (There is **no** `:dispatched-at` field — see [002 §`:dispatched-at` is retired](002-Frames.md#dispatched-at-is-retired).)
 - The router schedules drain via the interop layer's `next-tick` (CLJS reference: `goog.async.nextTick`); the loop yields between drain cycles so the host's event loop can interleave rendering and other work.
 
 **Note on `:raise`.** `:raise` is **not** a router-layer effect. It is a machine-internal pre-commit queue, drained inside one Level-3 cascade ([005 §Drain semantics §Level 3](005-StateMachines.md#level-3--within-a-single-machine-event)). External observers see the macrostep, never the raise queue.
@@ -158,9 +158,9 @@ Each section below states **inputs**, **outputs**, **invariants**, and **who cal
 | 1 | One action's `{:data :fx}` effect map | [005 §Level 1](005-StateMachines.md#level-1--within-a-single-actions-effect-map) |
 | 2 | The action slots in one transition (`:exit`, transition `:action`, `:entry`, initial cascade) | [005 §Level 2](005-StateMachines.md#level-2--across-the-action-slots-in-one-transition) |
 | 3 | One machine event — including raise-cascade and `:always` microsteps; commits one snapshot at the end | [005 §Level 3](005-StateMachines.md#level-3--within-a-single-machine-event) |
-| 4 | The runtime-wide FIFO router; one dequeue runs to completion before the next | [005 §Level 4](005-StateMachines.md#level-4--across-the-runtime), [002 §Run-to-completion](002-Frames.md#run-to-completion-dispatch-drain-semantics) |
+| 4 | The per-frame two-lane router: internal lane before external, one dequeue runs to completion before the next | [005 §Level 4](005-StateMachines.md#level-4--across-the-runtime), [002 §Run-to-completion](002-Frames.md#run-to-completion-dispatch-drain-semantics) |
 
-**Run-to-completion guarantee.** Once an event begins draining, every event it dispatches synchronously — and every event those handlers dispatch in turn — normally drains to fixed point before any further external event for this frame is processed, and before any view re-renders. There are two terminal drain boundaries: the configured `:drain-depth` guard, and a successful exact-incarnation `destroy-frame!` claim. At the destroy boundary an authored callback already on the stack may return and only already-entered authored interceptor `:after` callbacks may unwind, but its returned context/output is inert: no later framework-owned commit, flow, effect, child dispatch, ordinary diagnostic/trailer, normal epoch settlement, or render follows. The claim cuts the remaining ordinary queue; the destroy-owned private exact-token cleanup cascade is the sole executable exception. Neither boundary inserts an intermediate render. Async effects (HTTP, timers, sockets) yield back to the loop; their replies arrive as fresh dispatches that re-engage the cascade for their own run. Bounded by `:drain-depth` (default 100; [002 §Run-to-completion §Rules](002-Frames.md#rules)) and by `:raise-depth-limit` / `:always-depth-limit` (both default 16) inside Level 3.
+**Run-to-completion guarantee.** Once an event begins draining, every event it dispatches synchronously — and every event those handlers dispatch in turn — normally drains to fixed point before any further external event for this frame is processed, and before any view re-renders. There are two drain boundaries: the configured `:drain-depth` guard, which halts a runaway family and discards only that family's remaining internal-lane work, and a successful exact-incarnation `destroy-frame!` claim, which is terminal. At the destroy boundary an authored callback already on the stack may return and only already-entered authored interceptor `:after` callbacks may unwind, but its returned context/output is inert: no later framework-owned commit, flow, effect, child dispatch, ordinary diagnostic/trailer, normal epoch settlement, or render follows. The claim cuts the remaining ordinary queue; the destroy-owned private exact-token cleanup cascade is the sole executable exception. Neither boundary inserts an intermediate render. Async effects (HTTP, timers, sockets) yield back to the loop; their replies arrive as fresh dispatches that re-engage the cascade for their own run. Each family is bounded by `:drain-depth` (default 1000 events; [002 §Run-to-completion §Rules](002-Frames.md#rules)) and by `:raise-depth-limit` / `:always-depth-limit` (both default 16) inside Level 3.
 
 **Render boundary.** Views never display an intermediate state of a drain: a synchronous run-to-completion drain cannot be split across render batches, and however many epochs it settles, they coalesce into one. The batch itself closes at the host checkpoint rather than at drain quiescence, so drains that finish before the same checkpoint may render together and only a real host yield separates renders (see [006 §Render-batch finalization](006-ReactiveSubstrate.md#render-batch-finalization--the-host-checkpoint-boundary)).
 
@@ -170,7 +170,7 @@ Each section below states **inputs**, **outputs**, **invariants**, and **who cal
 
 **Inputs.** The `:fx` vector from a handler's effects map. Per-frame and per-call `:fx-overrides` ([002 §Per-frame and per-call overrides](002-Frames.md#per-frame-and-per-call-overrides)).
 
-**Outputs.** Side-effects (HTTP, navigation, dispatch, etc.). For `:fx [[:dispatch ev]]`, append to the router queue.
+**Outputs.** Side-effects (HTTP, navigation, dispatch, etc.). For `:fx [[:dispatch ev]]`, append to the frame's internal lane.
 
 **Invariants** — the four locked rules from [002 §`:fx` ordering and atomicity guarantees](002-Frames.md#fx-ordering-and-atomicity-guarantees):
 

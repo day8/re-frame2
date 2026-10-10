@@ -20,9 +20,9 @@ Sanity-checking a mental model: tracing what happens between `(rf/dispatch ...)`
 
 ## Step by step
 
-**1. Dispatch.** `(rf/dispatch [:event-id args])` builds an envelope `{:event ... :frame ... :dispatch-id ...}` and appends it to the target frame's router queue (`dispatch!` / `enqueue-envelope!` in `router.cljc`). Returns `nil` immediately — non-blocking.
+**1. Dispatch.** `(rf/dispatch [:event-id args])` builds an envelope `{:event ... :frame ... :dispatch-id ...}` and appends it to one of the target frame's two FIFO lanes — the internal lane when the dispatch is made inside the frame's in-flight event, the external lane otherwise (`dispatch!` / `insert-envelope` in `router.cljc`). Returns `nil` immediately — non-blocking.
 
-**2. Drain scheduled.** The router schedules a drain via the substrate's microtask hook. `dispatch-sync` (`dispatch-sync!` in `router.cljc`) bypasses the queue and drains immediately — outside-the-runtime callers only (tests, REPL, `:initial-events`).
+**2. Drain scheduled.** The router schedules a drain as a next-tick task — not a microtask — through the interop layer's `next-tick`. `dispatch-sync` (`dispatch-sync!` in `router.cljc`) bypasses the queue and drains immediately — outside-the-runtime callers only (tests, REPL, `:initial-events`).
 
 **3. Drain pops envelope.** For each event, the runtime looks up the registered handler's interceptor chain.
 
@@ -118,11 +118,11 @@ Tooling (Xray, re-frame2-pair) renders click-to-jump links straight to the offen
 - **`:db` always commits before any `:fx` runs.** Within `:fx`, ordering is source order, run-to-completion. You can read the new `app-db` from a fx handler safely.
 - **Subs observe the post-`:db` state.** If a fx dispatches another event, that nested event's coeffects see the already-committed value.
 - **One bad fx does not abort the walk.** Don't write fx handlers that depend on a sibling fx having already succeeded — use a chained dispatch instead.
-- **Run-to-completion is per outer dispatch.** All synchronously-enqueued events from one drain cycle settle before the next outside `dispatch` starts. `dispatch-later` re-enters via the timer; it is not part of the original run-to-completion bracket.
+- **Run-to-completion is per outer dispatch.** All synchronously-enqueued events from one outside dispatch settle before the next outside `dispatch` starts (one drain may run several outside dispatches, each settling in turn). `dispatch-later` re-enters via the timer; it is not part of the original run-to-completion bracket.
 
 ## Deeper material
 
-Drain-depth bounds, the `:rf.epoch/*` projection of one full cycle for re-frame2-pair, microtask scheduling, the interceptor model in full: `SKILL-REDIRECT.md` → **EP — Frames (002)**, **EP — Instrumentation (009)**, **Runtime architecture**, **Tool-Pair contract (live inspection)**.
+Drain-depth bounds, the `:rf.epoch/*` projection of one full cycle for re-frame2-pair, drain scheduling, the interceptor model in full: `SKILL-REDIRECT.md` → **EP — Frames (002)**, **EP — Instrumentation (009)**, **Runtime architecture**, **Tool-Pair contract (live inspection)**.
 
 ---
 

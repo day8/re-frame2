@@ -1187,9 +1187,13 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
    [:depth             :int]
    [:queue-size        :int]
    [:last-event        {:optional true} [:vector :any]]
-   ;; Cycle evidence: the id of the last-settled event, the ring
-   ;; of the last K settled event-ids (the repeating suffix names the runaway
-   ;; cycle), and the ids dropped from the queue at the halt. Ids only.
+   ;; `:depth` and `:queue-size` count the halted FAMILY's events: the ones
+   ;; it dequeued, and the ones still in its internal lane that the halt
+   ;; discarded. Cycle evidence: the id of the last-settled event, the ring
+   ;; of the family's last K settled event-ids (the repeating suffix names
+   ;; the runaway cycle), and the ids of the family events discarded at the
+   ;; halt. Ids only. External input queued behind the family is not
+   ;; discarded and never appears here.
    [:last-event-id     {:optional true} :any]
    [:tail-event-ids    {:optional true} [:vector :any]]
    [:dropped-event-ids {:optional true} [:vector :any]]
@@ -4360,7 +4364,7 @@ The fixed, closed expansion table for `:preset` values. Each preset expands to a
    [:default     [:= {}]]                                                   ;; empty expansion
    [:test        [:map
                   [:fx-overrides [:= {:rf.http/managed :rf.http/managed-canned-success}]] ;; exact pair fixed by 002 §`:test` preset
-                  [:drain-depth  [:= 100]]]]
+                  [:drain-depth  [:= 1000]]]]
    [:story       [:map
                   [:fx-overrides [:= {:rf.http/managed :rf.http/managed-canned-success}]] ;; exact pair fixed by 002 §`:story` preset
                   [:drain-depth  [:= 16]]]]])
@@ -4423,7 +4427,7 @@ Per-frame epoch snapshot, recorded **per dequeued event** in dev builds — one 
    [:db-before     {:optional true} :any]                                   ;; OPTIONAL app-db PROJECTION of :frame-state-before — kept for cheap tool diffs; = (:rf.db/app frame-state-before)
    [:db-after      {:optional true} :any]                                   ;; OPTIONAL app-db PROJECTION of :frame-state-after — kept for cheap tool diffs; = (:rf.db/app frame-state-after)
    [:outcome       [:enum :ok                                               ;; the event's own run settled cleanly
-                          :halted-depth                                     ;; drain-depth limit tripped; halting event never ran (no whole-drain rollback) — :frame-state-before = :frame-state-after = durable last-settled frame-state
+                          :halted-depth                                     ;; a family's drain-depth budget tripped; halting event never ran (no rollback) — :frame-state-before = :frame-state-after = durable last-settled frame-state
                           :halted-destroy                                   ;; frame destroyed mid-drain
                           :halted-handler-exception]]                       ;; reserved — the reference runtime does not halt the drain on handler-exception, see §Outcomes below
    [:halt-reason   {:optional true} :any]                                   ;; structured descriptor of the halt (operation + key tags), absent on :ok
