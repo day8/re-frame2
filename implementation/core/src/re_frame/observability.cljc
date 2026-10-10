@@ -381,8 +381,8 @@
   merges onto its corpus-wide record: `:failing-id` (the interceptor / cofx
   whose id is DISTINCT from `:event-id`), `:flow-id` + `:where` (the flow-eval
   attribution, lifted so it SURVIVES an egress profile that drops
-  `:exception`), and the `:source-coord` `{:ns :file :line}` the always-on
-  error-coord registry resolves for Sentry-style shippers. The producer's own
+  `:exception`), and the `:source-coord` `{:ns :file :line}` of the
+  implementation that ran, resolved for Sentry-style shippers. The producer's own
   contract for them is `callers keep these to tight identifiers — this record
   is production-surviving and NOT privacy-gated`.
 

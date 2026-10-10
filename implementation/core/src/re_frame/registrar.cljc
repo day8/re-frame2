@@ -616,16 +616,10 @@
       {:recovery :fix-registration
        :extra    {:kind kind
                   :id   id}}))
-  ;; Always-on error-coord parallel registry (§Production
+  ;; The process-wide `[kind id]` coord index tooling reads (§Production
   ;; elision). When a public reg-* macro is on the stack `*pending-coords*`
   ;; carries the captured coord-map (slim in CLJS prod — no `:column`).
-  ;; The error-emit substrate looks coords up via
-  ;; `rf.source-coords/error-coords-for` when assembling the tight error-
-  ;; record / policy-event, so Sentry-style shippers still see source-
-  ;; line info even when public registry-meta has been stripped of
-  ;; coord-keys under `goog.DEBUG=false`. Programmatic paths
-  ;; (`*pending-coords*` nil) no-op cleanly — `remember-error-coords!`
-  ;; itself guards against nil.
+  ;; Programmatic paths (`*pending-coords*` nil) leave it untouched.
   (when-let [pc rf.source-coords/*pending-coords*]
     (rf.source-coords/remember-error-coords! kind id pc))
   ;; Pure-documentation metadata elision. Under `:advanced` +
@@ -639,7 +633,16 @@
   ;; `(:doc metadata)` — it is itself gated on `rf.interop/debug-enabled?`, so it
   ;; only fires in dev where `:doc` is still present; the strip never hides a
   ;; missing-doc warning.
-  (let [metadata (strip-pure-documentation metadata)
+  ;;
+  ;; The registration's own coordinate rides the stored descriptor (as
+  ;; metadata, so the public registry-meta stays coord-free in production) into
+  ;; the source store and every generation that selects it; error-emit reads it
+  ;; off the descriptor the failing frame resolved. A registration with no
+  ;; macro on the stack carries none — see
+  ;; `rf.source-coords/with-registration-coords`.
+  (let [metadata (-> (strip-pure-documentation metadata)
+                     (rf.source-coords/with-registration-coords
+                       rf.source-coords/*pending-coords*))
         reg      (active-registrar)
         previous (-> @reg (get kind) (get id))]
     (swap! reg assoc-in [kind id] metadata)
@@ -863,7 +866,7 @@
   ;; (see there).
   (when-let [mark-dirty! (rf.late-bind/get-fn :live-frame/mark-projection-dirty!)]
     (mark-dirty!))
-  ;; Also clear the always-on error-coord parallel registry
+  ;; Also clear the process-wide coord index
   ;; so test cases start from a clean state on both surfaces.
   (rf.source-coords/forget-error-coords!)
   ;; Clear the B4 dedup table when the trace.tooling sibling is loaded.
