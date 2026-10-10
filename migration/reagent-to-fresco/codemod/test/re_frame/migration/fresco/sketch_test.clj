@@ -1,39 +1,18 @@
 (ns re-frame.migration.fresco.sketch-test
-  "**The suggested declaration, round-tripped** (rf2-vi11).
+  "**The suggested declaration, round-tripped.**
 
-  The report's `:defhost` sketch is the one thing in the artefact a
-  migrator is invited to PASTE, and for the tool's whole life it printed a
-  declaration the destination would refuse:
-
-      (h/defhost btn Btn
-        {:callbacks {:on-pick :fn}})
-
-  `:fn` is not one of the three contracts `defhost` accepts, so pasting
-  what the tool suggested threw
-  `:rf.error/fresco-unknown-callback-contract` at mint. At a string head
-  it was worse — `(h/defhost \"button\" \"button\" …)` is not a form the
-  READER takes, let alone the door.
-
-  It survived because nothing ever read it back. The golden corpus asserts
-  the report's `:entries` and stops there, so the suggestions block — the
-  half of the report that tells a migrator what to WRITE — was ungated.
-  This namespace closes that: it builds the real report artefact over
-  every corpus case and round-trips every sketch it finds.
-
-  ## What \"acceptable to the door\" is asserted to mean
+  The report's `:defhost` sketch is the one thing in the artefact a migrator
+  is invited to PASTE, and the golden corpus asserts the report's `:entries`
+  and stops there. This namespace builds the real report artefact over every
+  corpus case and round-trips every sketch it finds.
 
   `mint-host!` is `.cljs` and this JVM cannot call it, so the door is
-  asserted through its rules rather than through its code:
-
-  1. the sketch READS — one form, no reader error;
-  2. it is `(h/defhost <name> <component> …)` with a name `def` will take;
-  3. every contract it names is in [[rf.migration.fresco.dest/callback-contracts]], which
-     `shared-rule-test` holds equal to the door's own roster;
-  4. and — the assertion that is not vacuous — FILLING the scaffold
-     yields a `:callbacks` map of exactly this site's positions, each
-     mapped to a real contract. The sketch leaves the contracts blank
-     because the tool cannot know them; [[filling-the-scaffold-mints]]
-     is what proves the blanks are blanks in the right places."
+  asserted through its rules rather than through its code: FILLING the
+  scaffold — uncommenting every position and giving it a contract — must
+  read as one form whose `:callbacks` map holds exactly this site's
+  positions, each mapped to a contract in
+  [[rf.migration.fresco.dest/callback-contracts]] (which `shared-rule-test`
+  holds equal to the door's own roster) and none of them a structural slot."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
@@ -41,10 +20,6 @@
             [re-frame.migration.fresco.codemod :as rf.migration.fresco.codemod]
             [re-frame.migration.fresco.dest :as rf.migration.fresco.dest]
             [re-frame.migration.fresco.report :as rf.migration.fresco.report]))
-
-;; ---------------------------------------------------------------------------
-;; The corpus, through the REAL report builder
-;; ---------------------------------------------------------------------------
 
 (defn- corpus-inputs []
   (->> (.listFiles (io/file "test" "corpus"))
@@ -54,56 +29,21 @@
                (first (filter #(str/starts-with? (.getName ^java.io.File %) "input.")
                               (.listFiles ^java.io.File dir)))))))
 
-(defn- corpus-report
-  "The artefact the CLI writes, over the whole corpus at once — so this
-  suite exercises `rf.migration.fresco.report/build` rather than a private helper, and sees
-  the sketches exactly as a migrator does."
+(defn- components
+  "The suggestion components of the artefact the CLI writes, over the whole
+  corpus at once — so this suite sees the sketches exactly as a migrator does."
   []
   (let [results (mapv #(rf.migration.fresco.codemod/scan-string (slurp %) (str "src/app/" (.getName ^java.io.File %)))
                       (corpus-inputs))]
-    (rf.migration.fresco.report/build {:entries          (vec (mapcat :entries results))
-                   :suggestions      (vec (mapcat :suggestions results))
-                   :files-scanned    (count results)
-                   :files-changed    0
-                   :sites-total      (reduce + 0 (map :sites results))
-                   :sites-left-alone (reduce + 0 (map :left-alone results))})))
-
-(defn- components [] (get-in (corpus-report) [:suggestions :components]))
+    (get-in (rf.migration.fresco.report/build {:entries          (vec (mapcat :entries results))
+                                               :suggestions      (vec (mapcat :suggestions results))
+                                               :files-scanned    (count results)
+                                               :files-changed    0
+                                               :sites-total      (reduce + 0 (map :sites results))
+                                               :sites-left-alone (reduce + 0 (map :left-alone results))})
+            [:suggestions :components])))
 
 (def ^:private contracts (set rf.migration.fresco.dest/callback-contracts))
-
-;; ---------------------------------------------------------------------------
-;; 1–3. The sketch is a declaration the door would take
-;; ---------------------------------------------------------------------------
-
-(defn- read-one
-  "Read the sketch as data. `clojure.edn` and not `read-string`: a report
-  is text from a consumer's tree and nothing here should be able to run."
-  [sketch]
-  (edn/read-string sketch))
-
-(deftest every-sketch-is-acceptable-to-the-door
-  (doseq [{:keys [head defhost]} (components)]
-    (testing (str "the sketch for " head)
-      (let [[_op _nm _component opts] (read-one defhost)]
-
-        (testing "names no contract outside the door's roster — this is
-                  the assertion `:fn` failed"
-          (doseq [[slot contract] (:callbacks opts)]
-            (is (contains? contracts contract)
-                (str "the sketch declares " (pr-str slot) " as " (pr-str contract)
-                     ", which the door refuses; the contracts are "
-                     (str/join ", " (map pr-str rf.migration.fresco.dest/callback-contracts))))))
-
-        (testing "declares no structural slot — `key` and `ref` are
-                  refused at mint in every spelling"
-          (doseq [slot (keys (:callbacks opts))]
-            (is (not (contains? #{"key" "ref"} (rf.migration.fresco.dest/canonical-slot slot)))
-                (str "the sketch declares the structural slot " (pr-str slot)))))))))
-
-;; ---------------------------------------------------------------------------
-;; 4. The scaffold fills — the assertion that is not vacuous
-;; ---------------------------------------------------------------------------
 
 (def ^:private commented-row
   "A scaffold row: an indented `;;` carrying exactly one token, which is a
@@ -118,41 +58,23 @@
   (str/replace sketch commented-row (str "$1$2 " (pr-str contract))))
 
 (deftest filling-the-scaffold-mints
-  ;; One contract is enough: `fill` writes the same contract into every row,
-  ;; so which one it writes changes nothing the three reads below can see.
+  ;; `fill` writes the same contract into every row, so which one it writes
+  ;; changes nothing the reads below can see. `clojure.edn`, not
+  ;; `read-string`: a report is text from a consumer's tree and nothing here
+  ;; should be able to run.
   (doseq [{:keys [head defhost event-slots fn-slots]} (components)
           :let [contract (first rf.migration.fresco.dest/callback-contracts)]]
     (testing (str "the sketch for " head " filled with " contract)
-      (let [slots (mapv edn/read-string (distinct (concat event-slots fn-slots)))
-            opts  (nth (read-one (fill defhost contract)) 3)]
-
-        (is (= (set slots) (set (keys (:callbacks opts))))
-            (str "the filled sketch declares " (pr-str (keys (:callbacks opts)))
-                 " where the site uses " (pr-str slots)))
-
-        (is (seq (:callbacks opts))
-            "a filled scaffold that declared nothing would make every
-             assertion here vacuous")
-
-        (is (every? contracts (vals (:callbacks opts)))
-            "every filled position carries a contract the door accepts")))))
-
-;; ---------------------------------------------------------------------------
-;; 5. A native tag is not a host
-;; ---------------------------------------------------------------------------
-
-(deftest a-string-head-is-never-suggested
-  (testing "W6 rewrites `[:> \"input\" …]` to `[:input …]`; there is no
-            host at a native tag, and the sketch that used to be offered
-            there — `(h/defhost \"input\" \"input\" …)` — was not even
-            readable"
-    (doseq [{:keys [head]} (components)]
       (is (not (string? (edn/read-string head)))
-          (str "a string head was offered a declaration: " head)))))
-
-;; ---------------------------------------------------------------------------
-;; 6. The text itself, where a reader will look for it
-;; ---------------------------------------------------------------------------
+          "a string head is a native tag, which W6 rewrites; there is no host to declare")
+      (let [slots (mapv edn/read-string (distinct (concat event-slots fn-slots)))
+            cbs   (:callbacks (nth (edn/read-string (fill defhost contract)) 3))]
+        (is (= (set slots) (set (keys cbs)))
+            (str "the filled sketch declares " (pr-str (keys cbs)) " where the site uses " (pr-str slots)))
+        (is (seq cbs) "a filled scaffold that declared nothing would make every assertion here vacuous")
+        (is (every? contracts (vals cbs)) "every filled position carries a contract the door accepts")
+        (is (not-any? #(contains? #{"key" "ref"} (rf.migration.fresco.dest/canonical-slot %)) (keys cbs))
+            "`key` and `ref` are structural slots the door refuses at mint in every spelling")))))
 
 (defn- sketch-for [head]
   (->> (components) (filter #(= head (:head %))) first :defhost))
