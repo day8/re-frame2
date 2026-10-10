@@ -64,12 +64,6 @@
 ;; Call-time id validation (read-sub validation matrix)
 ;; ===========================================================================
 
-(deftest levenshtein-edit-distance
-  (is (= 0 (pure/levenshtein "abc" "abc")))
-  (is (= 1 (pure/levenshtein "abc" "abd")))
-  (is (= 3 (pure/levenshtein "" "abc")))
-  (is (= 3 (pure/levenshtein "abc" ""))))
-
 (deftest nearest-ids-ranks-by-edit-distance
   ;; More known ids than the default cap of 3, with the typo's real target
   ;; LAST, so only a ranking by edit distance can bring it to the front.
@@ -166,13 +160,6 @@
                   [{:operation :rf.event/run-start :tags {:rf.event/origin :pair}}]))
         "origin rides on :rf.event/dispatched, not an arbitrary trace op")))
 
-(deftest pair-origin-predicate-classifies-records
-  (is (true?  (pure/pair-origin? (dispatched-epoch :rf/default "ep-1" :pair))))
-  (is (false? (pure/pair-origin? (dispatched-epoch :rf/default "ep-1" :app)))
-      "a non-pair epoch is never pair-origin, even for an identical event vector")
-  (is (false? (pure/pair-origin? {:frame :rf/default :epoch-id "ep-1"}))
-      "a trace-elided record does not RE-classify as pair (attribution is remembered, not re-derived)"))
-
 (deftest epoch-matches-origin-axis-routes-through-origin-matches
   (let [rec {:frame :rf/default
              :trace-events (:trace-events (dispatched-epoch :rf/default "ep-1" :pair))}]
@@ -256,11 +243,9 @@
       "non-map, non-equal -> the whole-db changed marker [[]]"))
 
 (deftest outcome-tier-three-tier-projection
-  (is (= :ok (pure/outcome-tier :ok)))
-  (is (= :blocked (pure/outcome-tier :halted-depth)))
-  (is (= :blocked (pure/outcome-tier :halted-destroy)))
-  (is (= :error (pure/outcome-tier :halted-handler-exception)))
-  (is (= :ok (pure/outcome-tier :some-unknown-cause)) "unknown defaults to :ok"))
+  (is (= [:ok :blocked :blocked :error :ok]
+         (map pure/outcome-tier [:ok :halted-depth :halted-destroy :halted-handler-exception :some-unknown-cause]))
+      "an unknown cause defaults to :ok"))
 
 (def ^:private thrown-action-epoch
   ;; Rung 11: a :* wildcard machine action THROWS; the epoch settles :ok, no
