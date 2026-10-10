@@ -11,8 +11,8 @@
   `run-all-tests` walks namespaces, the overrides are in place.
 
   Also installs a buffering `js/console.warn` stub so first-time
-  runtime warnings (`reg-view non-DOM root`, `reagent-slim
-  keyword-on-non-HTML-prop`, etc.) don't leak to test output on the
+  runtime warnings (`reg-view non-DOM root` and the like) don't leak
+  to test output on the
   success path but are not lost on a red run. The stub holds back
   warning calls in a bounded-entry ring (`warn-buffer`) instead of discarding
   it; the `:end-run-tests` reporter replays that buffer to stderr when
