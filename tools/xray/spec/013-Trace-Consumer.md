@@ -785,8 +785,7 @@ prohibitive without it.
 
 Per [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §1.1,
 the Trace tab grows a **wall-clock axis** for timer rings, retry
-waterfalls, deferred-dispatch arrivals, streaming SSR boundary
-resolutions. The axis is rendered as a vertical time-strip on the
+waterfalls and deferred-dispatch arrivals. The axis is rendered as a vertical time-strip on the
 left edge of the Trace tab; trace events plot against wall-clock time
 not just event sequence. Toggle via `t`-key chord or Settings →
 Trace → "Show wall-clock axis."

@@ -20,7 +20,7 @@ unfolds the full cascade behind it:
 
 One event in; full insight out. Every artefact carries a source-coord chip;
 click jumps the editor to the line. Every wall-clock thing (a `:after` timer,
-an HTTP retry backoff, a streaming SSR boundary) carries the wall clock as a
+an HTTP retry backoff) carries the wall clock as a
 visible axis. Every silent contract (a guard rejecting, a nav-token
 suppressing, a fx skipped-on-platform, a flow cascade-halting) surfaces
 loudly. Xray is the only place these contracts become legible.
@@ -272,7 +272,7 @@ Each row is "new in re-frame2 → new tooling story Xray tells."
 | **Six named restore failures** | Structured "this rewind won't work because X" rather than a silent no-op. |
 | **`register-epoch-listener!`** | The per-cascade listener routes the Epoch panel + the inline issue surfacing (rf2-gbz39 removed the dedicated Issues tab per Option (c)). |
 | **Schemas (Malli)** (Spec 010) | Schema-violation rows surface inline in the Epoch panel's EFFECT HANDLERS step (rf2-kt6js; rf2-gbz39 removed the Issues tab per Option (c)); **per-violation drill** with full Malli explanation + recovery-mode classification + source-coord. |
-| **SSR + hydration** (Spec 011) | **Hydration mismatch bisector** — canonical-EDN dfs to the first divergent node; server vs client side-by-side per `get-in` path; sub-attribution (which sub returned `nil` server / `:en-US` client + why). **Streaming SSR boundary timeline.** **Per-request response accumulator inspector.** **Head model inspector.** **Server error projection trace** (the security boundary visualised). |
+| **SSR + hydration** (Spec 011) | **Hydration mismatch bisector** — canonical-EDN dfs to the first divergent node; server vs client side-by-side per `get-in` path; sub-attribution (which sub returned `nil` server / `:en-US` client + why). **Per-request response accumulator inspector.** **Head model inspector.** **Server error projection trace** (the security boundary visualised). |
 | **Routing** (Spec 012) | Dedicated **Routing tab** carrying a **FLAT focused-event lens** (rf2-lq0ef) — current matched route + params/query/fragment + **Simulate-URL** input ranking every registered route via the 6-rule `:rf.route/rank` tuple with the **rank explainer** inline; per-focused-event markers `◀ current` / `◇ FROM` / `◉ TO` (rf2-nrbs9). **Nav-token timeline** (swimlanes) makes stale-clobber races literally visible; **`:on-match` chain explicit in the Epoch panel's "EFFECT HANDLERS" section**; **pending-navigation card**; **route-chain visualiser**. |
 | **`:origin` opt on dispatch** | Filter by actor via ribbon IN/OUT pills. |
 | **Data classification** (Spec 015) | Path-marked sensitive + large rendering: `[● REDACTED N]` magenta opaque + `[● ELIDED N]` yellow drillable. See [`018-Event-Spine.md`](018-Event-Spine.md) §12 for the per-surface rendering contract. |
@@ -378,7 +378,7 @@ impressive.
   Views tab + the Epoch panel's source-coord chips on the cascade.
 - **The on-call programmer triaging a production-shaped repro.** Loads the
   app, scrubs via `[‹ › »]` + L2, finds the divergence.
-- **The programmer debugging a streaming SSR / hydration mismatch.** Opens
+- **The programmer debugging an SSR hydration mismatch.** Opens
   Xray; the inline Epoch surfacing + the issues ribbon signal lead them to the
   divergent node (rf2-gbz39 removed the dedicated Issues tab per Option (c));
   the bisector and the side-by-side answer "why does the server say `nil` and

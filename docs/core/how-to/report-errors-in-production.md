@@ -243,7 +243,7 @@ The runtime groups failures from one teardown into one record. Repeated failures
 
 ### SSR categories
 
-On a [server-side rendering](../../ssr/glossary.md#ssr) host, these categories reach the same sink: `:rf.error/ssr-render-failed`, `:rf.error/ssr-streaming-writer-failed`, `:rf.error/malformed-hydration-payload`, `:rf.error/ssr-head-resolution-failed`, `:rf.error/sanitised-on-projection`, `:rf.error/ssr-ring-error-view-failed`, and `:rf.error/hydration-frame-id-mismatch`. They carry no `:event` or `:event-id`, their own keys are moved under `:tags` as above, and only some carry an `:exception`. A hydration payload that fails to parse before any frame exists produces a record with no frame, which only the process default from step 1 receives.
+On a [server-side rendering](../../ssr/glossary.md#ssr) host, these categories reach the same sink: `:rf.error/ssr-render-failed`, `:rf.error/malformed-hydration-payload`, `:rf.error/ssr-head-resolution-failed`, `:rf.error/sanitised-on-projection`, `:rf.error/ssr-ring-error-view-failed`, and `:rf.error/hydration-frame-id-mismatch`. They carry no `:event` or `:event-id`, their own keys are moved under `:tags` as above, and only some carry an `:exception`. A hydration payload that fails to parse before any frame exists produces a record with no frame, which only the process default from step 1 receives.
 
 ### Records no frame owns
 

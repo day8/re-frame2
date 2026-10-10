@@ -1,7 +1,7 @@
 # Coming from Next.js
 
 Next.js and re-frame2 SSR do the same jobs: render HTML on the server, hydrate it
-on the client, load data before the page paints, and stream slow regions later.
+on the client, and load data before the page paints.
 The main structural difference is that re-frame2 has no separate server layer. The
 [event handlers](../core/glossary.md#event-handler),
 [subscriptions](../core/glossary.md#subscription) and
@@ -30,7 +30,7 @@ the effect with `:platforms`.
 | `error.js` / `global-error.js` | The [error projector](glossary.md#error-projector) maps the failure to a sanitised public error, and a 5xx renders `ssr-handler`'s [`:error-view`](glossary.md#error-view) from that alone. |
 | The `Metadata` API / `generateMetadata` | [`reg-head`](head.md): a head model derived from app-db, a pure function of `(db, route)`. |
 | The root `layout.js` / `_document.js` document | The [page shell](glossary.md#page-shell): `default-html-shell`, adjusted with `:head`, `:body-end`, `:script-src` and `:app-element-id`, or replaced with `:html-shell`. |
-| `<Suspense fallback>` + `loading.js` (streaming) | [`ssr/boundary`](streaming.md): one component with an `:id` and a `:fallback`, whose subtree streams in as its own chunk. |
+| `<Suspense fallback>` + `loading.js` (streaming) | A route resource with `:blocking? false`: the server renders its loading state and the client fetches it after hydration ([A slow region](concepts.md#a-slow-region)). re-frame2 does not stream regions. |
 | Hydration mismatch (console warning, content flash) | A [hydration mismatch](glossary.md#hydration-mismatch) trace, from a structural hash comparison, plus a strict mode that throws in CI. That covers views that return hiccup; UIx and Fresco roots rely on React's own hydration check. |
 | `unstable_cache` / `fetch` cache | A [resource](../resources/glossary.md#resource): loaded on the server, shipped in the payload, and rendered on the client without a second fetch. |
 | `next/server` runtime, route handlers, middleware | The Ring adapter, `day8/re-frame2-ssr-ring`: `ssr-handler` returns a Ring handler, and `ssr-middleware` mounts it inside an existing Ring app. See [Ring handler](glossary.md#ring-handler). |
@@ -69,8 +69,3 @@ route change is the app's job, reading the same head model. The head's
 server-only `:rf.server/*` [effects](../core/glossary.md#effect) returned from
 handlers. Cookies are maps, and a CR, LF or NUL in a header value, redirect
 location or cookie attribute throws. See [Controlling the response](response.md).
-
-**A streaming boundary is the same form on both sides.** `ssr/boundary` defers its
-subtree on the server and renders it in the browser. A boundary that throws keeps
-its fallback while the rest of the page streams, and the final chunk carries the
-full payload, which wins over the per-region deltas. See [Streaming](streaming.md).

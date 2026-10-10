@@ -244,31 +244,6 @@ trips one on purpose.
 
 ## Advanced
 
-### Streaming handlers
-
-`stream-handler`'s response `:body` is a `java.io.InputStream` that a writer thread
-fills. `slurp` blocks until the writer closes it, so the whole streamed page arrives
-as one string, and the test asserts the order the chunks came in. This uses the
-root view with a `:region.comments` boundary from [Streaming](streaming.md):
-
-```clojure
-(deftest the-comments-stream-in-after-the-shell
-  (let [handler  (ssr.ring/stream-handler {:initial-events [[:rf/server-init]]
-                                           :root-view      (fn [] ((rf/view :app/root)))
-                                           :payload        [:articles :comments]})
-        response (handler request)
-        body     (slurp (:body response))
-        at       #(str/index-of body %)]
-    (is (= 200 (:status response)))
-    (is (< (at "data-rf2-suspense-fallback=\"1\"")    ;; the shell, with the fallback in place
-           (at "data-rf2-suspense-resolved=\"1\"")    ;; then the resolved region
-           (at "__rf_payload")))                       ;; then the final payload
-    (is (some? (read-payload body)))))                 ;; which reads like any other
-```
-
-A redirect set during the drain still comes back as a plain bodiless response,
-before any chunk is written.
-
 ### The Node renderer
 
 If you [render on Node](concepts.md#render-on-node), the renderer is one handler
