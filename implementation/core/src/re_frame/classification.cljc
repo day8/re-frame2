@@ -204,9 +204,15 @@
 
   Public because the off-box epoch egress projector
   (`re-frame.epoch.tool-pair/project-record`) reuses it to substitute the
-  marker for a whole-output `:large?`-stamped sub's `:value` / `:prev-value`."
+  marker for a whole-output `:large?`-stamped sub's `:value` / `:prev-value`.
+
+  A value that is already a marker is returned unchanged, so projecting twice
+  equals projecting once: a second marker would measure the first one rather
+  than the payload."
   [v path]
-  (rf.elision/->marker v path {:reason :classification}))
+  (if (rf.elision/marker? v)
+    v
+    (rf.elision/->marker v path {:reason :classification})))
 
 (defn- strict-prefix?
   "True when path `a` is a STRICT prefix of `b` — `b` is `a` extended by at
@@ -844,6 +850,28 @@
                                      sub-id frame-id prev-inputs)
                                    query-v frame-id prev-inputs))
           (:large? class) (assoc :large? true))))))
+
+(defn project-sub-value
+  "The egress form of `v`, subscription `query-v`'s value in frame `frame-id`:
+  the `:rf.sub/value` a `:sub/run` trace of the same query carries once
+  projected, because it is that projection (`project-sub-tags`), so a value
+  shipped outside a trace cannot drift from the trace's. The derivation-graph
+  egress projector applies it to a live sub node's `:value`.
+
+  The sub's registration classification resolves in `frame-id`'s own generation
+  (`:live-frame/call-with-frame-resolution`), so an image-local declaration
+  answers for its frame whatever generation the caller stands in. A nil
+  `frame-id` fails closed to `:rf/redacted`."
+  [v query-v frame-id]
+  (let [project #(:rf.sub/value
+                   (project-sub-tags {:rf.sub/id      (first query-v)
+                                      :rf.sub/query-v query-v
+                                      :rf.sub/value   v}
+                                     frame-id))]
+    (if-let [with-owner (when (some? frame-id)
+                          (rf.late-bind/get-fn-cached :live-frame/call-with-frame-resolution))]
+      (with-owner frame-id project)
+      (project))))
 
 (defn- frame-has-declarations?
   "True when `frame-id` carries any elision declaration (sensitive or large).
