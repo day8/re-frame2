@@ -6,7 +6,7 @@
     - aria-modal=\"true\"
     - an accessible name (either aria-label or aria-labelledby
       pointing at a heading id rendered inside the dialog)
-    - the focus trap: a function `:ref` (the `a11y/dialog-ref` closure)
+    - the focus trap: a function `:ref` (`modal-chrome`'s focus-trap ref)
       and the `:tab-index` its focus-on-open fallback needs, since a
       labelled dialog with no trap still drops keyboard users
 
@@ -58,10 +58,10 @@
 
 (defn- assert-dialog-contract!
   "The dialog node is a modal dialog with an accessible name, and it
-  attaches the `dialog-ref` focus trap plus the `:tab-index` its
-  focus-on-open fallback needs. `dialog-ref` returns a fresh closure per
-  call, so the ref is checked as a fn rather than by identity; a labelled
-  modal with no trap is an a11y regression this catches."
+  attaches the focus-trap ref plus the `:tab-index` its focus-on-open
+  fallback needs. The ref is checked as a fn here; what it does under a
+  real React root is pinned by `theme.modal-chrome-dom-cljs-test`. A
+  labelled modal with no trap is an a11y regression this catches."
   [tree dialog-testid label]
   (let [attrs       (rf.test-helpers/attrs (rf.test-helpers/find-by-testid tree dialog-testid))
         labelled-by (:aria-labelledby attrs)
