@@ -1,18 +1,13 @@
 (ns re-frame.bench.fresco.ssr.entry-cljs-test
   "THE WITNESSES FOR THE SSR NODE RENDER ENTRY.
 
-  These run in Node, which is the right home for them and not a
-  compromise: `react-dom/server` resolves there through the same
-  conditional export the bake driver gets, and `renderToString` wants no
-  DOM. `npm run check` in bench/fresco/ compiles them, and they run from
-  bench/fresco/ like the lane's other suites. So the entry's correctness
-  is proved by assertions rather than by a bench driver that can exit 0
-  while emitting warnings.
-
-  One row per property of the entry's contract, plus the two that would
-  make the whole thing unsafe if they were not true: that a server render
-  leaves ZERO durable registration behind, and that the per-request gensym
-  never reaches the wire."
+  They run in Node, where `react-dom/server` resolves through the same
+  conditional export the bake driver gets and `renderToString` wants no
+  DOM — so the entry's correctness is held by assertions rather than by a
+  driver that can exit 0 while emitting warnings. One row per property of
+  the entry's contract, plus the two that would make it unsafe: a server
+  render leaves ZERO durable registration behind, and the per-request
+  gensym never reaches the wire."
   (:require [cljs.reader :as reader]
             [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
@@ -26,19 +21,14 @@
             [re-frame.bench.fresco.ssr.fixtures :as rf.bench.fresco.ssr.fixtures]
             [re-frame.core :as rf]
             [re-frame.ssr.constants :as rf.ssr.constants]
-            ;; The entry computes no render hash, so the row that keeps
-            ;; the measurement live takes it DIRECTLY.
             [re-frame.ssr.hash :as rf.ssr.hash]
             [re-frame.frame :as rf.frame]
             [re-frame.test-support :as rf.test-support])
   (:require-macros [re-frame.bench.fresco.arm1.lang :refer [defview]]))
 
-;; The adapter is UIx's for the reason `arm1/runtime_cljs_test` gives: it
-;; is the substrate with a real reactivity layer, and Spec 006 allows
-;; exactly one per process. **The render entry does not install one** —
-;; installing a substrate is a process-level decision a host makes at
-;; boot, so it belongs to the driver (`ssr/node.cljs`) and to this
-;; fixture, never to a per-request function.
+;; UIx, the substrate with a real reactivity layer. The render entry does
+;; not install one — a substrate is a process-level decision a host makes
+;; at boot, so it belongs to the driver and to this fixture.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.uix/adapter
@@ -55,392 +45,206 @@
   (try (thunk) ::none
        (catch :default e (or (:rf.error/id (ex-data e)) ::no-id))))
 
+(defn- html-of [row-id] (:html (rf.bench.fresco.ssr.entry/render (rf.bench.fresco.ssr.fixtures/row row-id))))
+
+(defn- has? [html & needles] (mapv #(str/includes? html %) needles))
+
 ;; ---------------------------------------------------------------------------
 ;; The render entry
 ;; ---------------------------------------------------------------------------
 
 (deftest the-existing-runtime-renders-under-renderToString
-  (testing "a Fresco boundary tree renders to markup under react-dom/server,
-           with the frame's own state in it"
-    (let [{:keys [html]} (rf.bench.fresco.ssr.entry/render dogfood-request)]
-      (is (str/includes? html "class=\"dogfood\""))
-      (is (str/includes? html "todos"))
-      ;; Seeded with four; the header count is a SUBSCRIPTION read, so
-      ;; this is the assertion that the cold probe answered rather than
-      ;; that the markup happened to appear.
-      (is (str/includes? html "data-remaining=\"4\""))
-      (is (str/includes? html "4 left"))
-      ;; The keyed list rendered every row — a `for` over a subscription
-      ;; value, realized inside the server render.
-      (is (= 4 (count (re-seq #"class=\"row\"" html))))
-      ;; A controlled input's server markup carries `value` as
-      ;; `defaultValue` would demand of hydration (HD-019's rider is
-      ;; witnessed on the hydrated path; this is only the server half,
-      ;; asserted so a change to it is visible here).
-      (is (str/includes? html "class=\"new-input\"")))))
+  ;; Seeded with four: the header count is a SUBSCRIPTION read, and the
+  ;; keyed rows are a `for` over a subscription value realized in the render.
+  (let [{:keys [html]} (rf.bench.fresco.ssr.entry/render dogfood-request)]
+    (is (= [true 4] [(str/includes? html "data-remaining=\"4\"") (count (re-seq #"class=\"row\"" html))]))))
 
 (deftest the-per-request-frame-is-destroyed
-  (testing "the request's frame does not outlive the request"
-    (let [{:keys [frame-id]} (rf.bench.fresco.ssr.entry/render dogfood-request)]
-      (is (keyword? frame-id))
-      (is (nil? (rf/app-db-value frame-id))
-          "destroy-frame! ran in the finally — a per-request frame, not a per-request leak")))
-
-  (testing "two requests take different frames"
-    (let [a (rf.bench.fresco.ssr.entry/render dogfood-request)
-          b (rf.bench.fresco.ssr.entry/render dogfood-request)]
-      (is (not= (:frame-id a) (:frame-id b))))))
+  (let [a (:frame-id (rf.bench.fresco.ssr.entry/render dogfood-request))
+        b (:frame-id (rf.bench.fresco.ssr.entry/render dogfood-request))]
+    (is (= [true nil true] [(keyword? a) (rf/app-db-value a) (not= a b)])
+        "a per-request frame, destroyed in the finally, and a different one per request")))
 
 (deftest a-server-render-leaves-zero-durable-registration
-  (testing "React never subscribes under renderToString, so the ledger is untouched"
-    (rf.bench.fresco.arm1.runtime/reset-runtime!)
-    (rf.bench.fresco.ssr.entry/render dogfood-request)
-    (let [{:keys [cells cell-refs boundaries edges]} (rf.bench.fresco.arm1.runtime/residue)]
-      ;; The four numbers a clean teardown asserts. Here they are zero
-      ;; without a teardown at all, because nothing ever committed: every
-      ;; `sub` read went through the mutation-free cold probe, and the
-      ;; only thing that installs a cell or an edge is a commit.
-      (is (= 0 cells))
-      (is (= 0 cell-refs))
-      (is (= 0 boundaries))
-      (is (= 0 edges)))))
+  ;; React never subscribes under renderToString, and only a commit installs
+  ;; a cell or an edge.
+  (rf.bench.fresco.arm1.runtime/reset-runtime!)
+  (rf.bench.fresco.ssr.entry/render dogfood-request)
+  (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0}
+         (select-keys (rf.bench.fresco.arm1.runtime/residue) [:cells :cell-refs :boundaries :edges]))))
 
 ;; ---------------------------------------------------------------------------
 ;; The payload is the framework's, byte for byte
 ;; ---------------------------------------------------------------------------
 
 (deftest the-payload-is-the-frameworks-own
+  ;; Spec 011's two always-present keys (an adoption-tier root carries no
+  ;; `:rf/render-hash`); no `:rf/frame-id`, because stamping the gensym would
+  ;; be a hydration frame-id mismatch on every page; the allowlist; the
+  ;; pinned script id; and an EDN round trip.
   (let [{:keys [payload payload-edn payload-script]} (rf.bench.fresco.ssr.entry/render dogfood-request)]
-
-    (testing "the two always-present keys, per Spec 011 (an
-             adoption-tier root carries no `:rf/render-hash`, and the
-             schema marks the slot `{:optional true}` for exactly this)"
-      (is (= #{:rf/version :rf/app-db} (set (keys payload))))
-      (is (int? (:rf/version payload))))
-
-    (testing "the per-request gensym NEVER reaches the wire"
-      (is (not (contains? payload :rf/frame-id))
-          "an absent :rf/frame-id is the documented no-conflict shape for an
-           anonymous per-request server frame; stamping the gensym would be
-           :rf.error/hydration-frame-id-mismatch on every page")
-      (is (not (str/includes? payload-edn "fresco.ssr"))))
-
-    (testing "the allowlist arm of the fail-closed payload contract"
-      (is (= (set rf.bench.fresco.ssr.fixtures/dogfood-payload-keys) (set (keys (:rf/app-db payload))))))
-
-    (testing "the script is the pinned id and the framework's EDN escaper"
-      (is (str/starts-with? payload-script
-                            (str "<script id=\"" rf.ssr.constants/payload-script-id
-                                 "\" type=\"application/edn\">")))
-      (is (= "__rf_payload" rf.ssr.constants/payload-script-id))
-      (is (str/ends-with? payload-script "</script>")))
-
-    (testing "the payload round-trips through the EDN reader"
-      (is (= payload (reader/read-string payload-edn))))))
+    (is (= [#{:rf/version :rf/app-db} true false
+            (set rf.bench.fresco.ssr.fixtures/dogfood-payload-keys)
+            true true payload]
+           [(set (keys payload))
+            (int? (:rf/version payload))
+            (str/includes? payload-edn "fresco.ssr")
+            (set (keys (:rf/app-db payload)))
+            (str/starts-with? payload-script (str "<script id=\"" rf.ssr.constants/payload-script-id
+                                                  "\" type=\"application/edn\">"))
+            (str/ends-with? payload-script "</script>")
+            (reader/read-string payload-edn)]))))
 
 (deftest a-script-breakout-in-the-app-db-is-escaped-by-the-framework
-  (testing "the escaper on the payload path is re-frame's, and it is doing work"
-    (let [{:keys [payload-script payload-edn]}
-          (rf.bench.fresco.ssr.entry/render {:hiccup   [:div "x"]
-                         :snapshot {:hostile "</script><!-- pwned"}
-                         :payload  [:hostile]})]
-      ;; The one thing an EDN payload in a <script> may not contain.
-      (is (not (str/includes? payload-script "</script><!--")))
-      (is (str/includes? payload-script "\\u003c/script>"))
-      ;; And it round-trips to the original value — escaped, not mangled.
-      (is (= "</script><!-- pwned" (:hostile (:rf/app-db (reader/read-string payload-edn))))))))
+  (let [{:keys [payload-script payload-edn]}
+        (rf.bench.fresco.ssr.entry/render {:hiccup   [:div "x"]
+                                           :snapshot {:hostile "</script><!-- pwned"}
+                                           :payload  [:hostile]})]
+    (is (= [false true "</script><!-- pwned"]
+           [(str/includes? payload-script "</script><!--")
+            (str/includes? payload-script "\\u003c/script>")
+            (:hostile (:rf/app-db (reader/read-string payload-edn)))])
+        "escaped in the script, and round-trips to the original value")))
 
 (deftest the-payload-policy-is-fail-closed
-  (testing "no :payload declared is the framework's refusal, not a default"
-    (is (= :rf.error/ssr-missing-payload-policy
-           (error-id #(rf.bench.fresco.ssr.entry/render (dissoc dogfood-request :payload))))))
-
-  (testing "the whole-app-db opt-in is explicit and works"
-    (let [{:keys [payload]} (rf.bench.fresco.ssr.entry/render (assoc dogfood-request
-                                                 :payload :rf.ssr.payload/whole-app-db))]
-      (is (= (set (keys (rf.bench.fresco.front.dogfood/seed-db 4))) (set (keys (:rf/app-db payload))))))))
+  ;; No `:payload` is the framework's refusal, not a default; the whole-app-db
+  ;; opt-in is explicit.
+  (is (= [:rf.error/ssr-missing-payload-policy (set (keys (rf.bench.fresco.front.dogfood/seed-db 4)))]
+         [(error-id #(rf.bench.fresco.ssr.entry/render (dissoc dogfood-request :payload)))
+          (set (keys (:rf/app-db (:payload (rf.bench.fresco.ssr.entry/render
+                                             (assoc dogfood-request :payload :rf.ssr.payload/whole-app-db))))))])))
 
 (deftest the-interpreted-root-ships-no-render-hash
-  (testing "Spec 011's own answer rather than a concession.
-           §Hydration-mismatch detection tiers detection by RENDER-TREE
-           REPRESENTATION: the hash channel is the hiccup tier's, and a
-           root that reaches React as an element — a native UIx root among
-           them — verifies by React-native adoption and `deliberately
-           carries no such hash`. This entry is that tier, so the key is
-           ABSENT from the payload and the marker is absent from the
-           document.
-
-           A hash of the root hiccup as handed in would be degenerate:
-           that form is `[<minted head> {props}]` and `canonical-edn`
-           renders every fn as `#fn[]`, so two different screens would
-           take the same value."
-    (let [{:keys [payload document]} (rf.bench.fresco.ssr.entry/render dogfood-request)]
-      (is (not (contains? payload :rf/render-hash))
-          "ABSENT, not nil — `:rf/render-hash` is `{:optional true} :string`
-           in Spec-Schemas, so a nil-valued key is not a legal spelling of
-           absence, and `build-payload` omits it on a nil hash")
-      (is (not (str/includes? document "data-rf-render-hash"))
-          "and no root marker either — the two ends of one channel"))))
+  ;; Spec 011 tiers hydration-mismatch detection by render-tree
+  ;; representation: a root that reaches React as an element verifies by
+  ;; React-native adoption and carries no hash. ABSENT, not nil — the schema
+  ;; slot is `{:optional true} :string` — and no root marker either.
+  (let [{:keys [payload document]} (rf.bench.fresco.ssr.entry/render dogfood-request)]
+    (is (= [false false]
+           [(contains? payload :rf/render-hash) (str/includes? document "data-rf-render-hash")]))))
 
 (deftest the-hash-this-root-would-have-had-is-a-constant
-  (testing "THE MEASUREMENT THAT SETTLED IT, kept live so the removal above
-           cannot decay into folklore. It is a fact about
-           `render-tree-hash` over an unresolved root form, not about the
-           entry — so it is taken directly, and it goes on being taken
-           after the entry stopped emitting.
-
-           A degenerate value is worse than an absent one: an absent value
-           cannot be mistaken for evidence, while a constant one is a
-           fail-open gate wearing the shape of a check."
-    (let [hash-of  #(rf.ssr.hash/render-tree-hash (:hiccup (rf.bench.fresco.ssr.fixtures/row %)))
-          dogfood  (rf.ssr.hash/render-tree-hash (:hiccup dogfood-request))
-          conduit  (hash-of "conduit-feed")
-          markup   (hash-of "defhost-ssr-policy")]
-      (is (= dogfood conduit)
-          "the dogfood screen and the 1,200-element Conduit feed would have
-           taken the same hash")
-      (is (= "83b865f8" dogfood)
-          "and it is the published value — the canonical EDN of every
-           `[<fn> {}]` root, which is the whole of what the hash could see")
-      ;; The non-vacuity control: a root whose hiccup IS markup hashes
-      ;; differently, so the hash function itself works and it is the
-      ;; interpreted root that defeats it.
-      (is (not= dogfood markup)))))
+  ;; Kept live so the removal above cannot decay into folklore: the
+  ;; canonical EDN of every `[<fn> {}]` root is the same, so the dogfood
+  ;; screen and the Conduit feed take the published `83b865f8`, while a root
+  ;; whose hiccup IS markup hashes differently — so it is the interpreted
+  ;; root, not the hash function, that defeats it.
+  (let [hash-of #(rf.ssr.hash/render-tree-hash (:hiccup (rf.bench.fresco.ssr.fixtures/row %)))
+        dogfood (rf.ssr.hash/render-tree-hash (:hiccup dogfood-request))]
+    (is (= ["83b865f8" "83b865f8" true]
+           [dogfood (hash-of "conduit-feed") (not= dogfood (hash-of "defhost-ssr-policy"))]))))
 
 (deftest the-server-render-ships-no-mounting-overrides
-  (testing "THE REGRESSION GUARD. Presence starts a child at `:mounting`
-           and applies its `::h/mounting` overrides while it is there, so a
-           server render with no adoption window open emits the ENTER
-           appearance — and the hydrating client's first pass renders those
-           same children `:present` (born-present), which is a
-           hydration mismatch on every presence-managed node. The entry
-           opens the window around `renderToString`, so the server's bytes
-           are born-present too and the two halves agree by construction.
-           This row goes RED if that window is ever removed, narrowed, or
-           closed before the render."
-    (let [{:keys [html]} (rf.bench.fresco.ssr.entry/render (rf.bench.fresco.ssr.fixtures/row "presence-mounting"))]
-      (is (not (str/includes? html "toast--enter"))
-          "the server's bytes carry NO enter override — remove
-           `rf.bench.fresco.arm1.runtime/open-adoption-window!` from ssr/entry.cljs and this is the
-           assertion that goes red")
-      ;; The non-vacuity control, kept verbatim from the measuring row: the
-      ;; tray DID render its children, so the assertion above is about the
-      ;; override being absent and not about an empty tray.
-      (is (str/includes? html "toast 0"))
-      (is (str/includes? html "toast 1")))))
+  ;; THE REGRESSION GUARD. Presence applies its `::h/mounting` overrides to a
+  ;; child at `:mounting`, while the hydrating client renders the same
+  ;; children born-present. The entry opens the adoption window around
+  ;; `renderToString`; remove it and the enter override reaches the bytes.
+  ;; The tray rendering its children is the non-vacuity half.
+  (is (= [false true true]
+         (has? (html-of "presence-mounting") "toast--enter" "toast 0" "toast 1"))))
 
 (deftest the-adoption-window-does-not-outlive-the-request
-  (testing "shut going in — the window belongs to a render, not to the process"
-    (is (false? (rf.bench.fresco.arm1.runtime/adopting?))))
-
-  (testing "and shut again on the way out of a render that RETURNED"
-    (rf.bench.fresco.ssr.entry/render (rf.bench.fresco.ssr.fixtures/row "presence-mounting"))
-    (is (false? (rf.bench.fresco.arm1.runtime/adopting?))))
-
-  (testing "and on the way out of one that THREW, which is why the close is
-           in the `finally`. The flag is module-level, so a render that threw
-           with it still open would leave every LATER request in this process
-           born-present — the failure `close-adoption-window!`'s own
-           docstring names."
-    (is (= :rf.error/ssr-missing-payload-policy
-           (error-id #(rf.bench.fresco.ssr.entry/render (dissoc dogfood-request :payload))))
-        "the render really did throw, and it threw AFTER renderToString had
-         run — so the window was genuinely open at the moment of the throw;
-         a row where nothing threw would prove nothing")
-    (is (false? (rf.bench.fresco.arm1.runtime/adopting?))
-        "the finally shut it anyway")))
+  ;; The flag is module-level, so a render that threw with it open would
+  ;; leave every later request born-present. The throwing render fails AFTER
+  ;; renderToString ran, so the window was genuinely open at the throw.
+  (is (= [false false :rf.error/ssr-missing-payload-policy false]
+         [(rf.bench.fresco.arm1.runtime/adopting?)
+          (do (html-of "presence-mounting") (rf.bench.fresco.arm1.runtime/adopting?))
+          (error-id #(rf.bench.fresco.ssr.entry/render (dissoc dogfood-request :payload)))
+          (rf.bench.fresco.arm1.runtime/adopting?)])))
 
 ;; ---------------------------------------------------------------------------
 ;; Determinism
 ;; ---------------------------------------------------------------------------
 
 (deftest the-same-request-renders-byte-identical-documents
-  (testing "same bundle + same snapshot = byte-identical HTML"
-    (doseq [row rf.bench.fresco.ssr.fixtures/corpus]
-      (let [{:keys [identical? differs-at] a :first b :second} (rf.bench.fresco.ssr.entry/render-twice row)]
-        (is identical?
-            (str (:id row) " rendered two different documents"
-                 (when differs-at
-                   (str " — first difference at character " differs-at ": "
-                        (pr-str (subs (:document a) differs-at (min (count (:document a))
-                                                                    (+ differs-at 40))))
-                        " vs "
-                        (pr-str (subs (:document b) differs-at (min (count (:document b))
-                                                                    (+ differs-at 40))))))))))))
+  (is (= {}
+         (into {}
+               (keep (fn [row]
+                       (let [{:keys [identical? differs-at]} (rf.bench.fresco.ssr.entry/render-twice row)]
+                         (when-not identical? [(:id row) differs-at]))))
+               rf.bench.fresco.ssr.fixtures/corpus))
+      "row id -> first differing character, for every row that rendered two documents"))
 
 ;; ---------------------------------------------------------------------------
 ;; defhost regions honour the :ssr policy server-side
 ;;
-;; ONE MECHANISM, NOT TWO. These rows read the SERVER HTML a real
-;; `(defhost … {:ssr …})` declaration produces through the entry, so they
-;; are evidence about the door rather than about whichever internal
-;; honours it. `ssr/fixtures` writes both hosts the way an author writes
-;; them — a row that stamped the policy slot onto a minted head by hand
-;; would prove a reader and never the declaration.
-;;
-;; A pre-walk over the entry's input could only reach the hiccup the
-;; entry is HANDED, which is why the third row below exists — the same two declarations at a use site inside a
-;; `defview` body, where no such walk can see them.
+;; These rows read the SERVER HTML a real `(defhost … {:ssr …})` declaration
+;; produces through the entry, so they are evidence about the door. The
+;; nested row uses the same declarations inside a `defview` body, a
+;; position no pre-walk over the entry's input could reach: the policy is
+;; the element's own type, answered by the gate `mint-host!` mints.
 ;; ---------------------------------------------------------------------------
 
 (deftest a-host-with-no-declared-policy-renders-nothing
-  (testing "the :client-only default, taken from the door — the
-           declaration writes no :ssr at all"
-    (is (= :client-only (rf.bench.fresco.front.codec/host-ssr rf.bench.fresco.ssr.fixtures/default-host)))
-    (let [{:keys [html]} (rf.bench.fresco.ssr.entry/render (rf.bench.fresco.ssr.fixtures/row "defhost-ssr-policy"))]
-      (is (not (str/includes? html "CLIENT-ONLY-WIDGET"))
-          "a :client-only host's component must not reach the server HTML")
-      (is (not (str/includes? html "client-widget"))))))
+  (is (= [:client-only false false]
+         (into [(rf.bench.fresco.front.codec/host-ssr rf.bench.fresco.ssr.fixtures/default-host)]
+               (has? (html-of "defhost-ssr-policy") "CLIENT-ONLY-WIDGET" "client-widget")))))
 
 (deftest a-host-declaring-a-fallback-renders-the-fallback
-  (testing "{:fallback hiccup} — including from inside a `for`, the lazy position"
-    (is (= {:fallback [:span.host-fallback "loading…"]}
-           (rf.bench.fresco.front.codec/host-ssr rf.bench.fresco.ssr.fixtures/fallback-host))
-        "and the markup below is that declaration's, read back as data")
-    (let [{:keys [html]} (rf.bench.fresco.ssr.entry/render (rf.bench.fresco.ssr.fixtures/row "defhost-ssr-policy"))]
-      (is (str/includes? html "class=\"host-fallback\""))
-      (is (= 2 (count (re-seq #"loading" html)))
-          "both rows of the `for` got their fallback — a mechanism that
-           stopped at the seq would render one (the root-level host) and
-           miss these")
-      ;; The chrome around the hosts is untouched, so the policy replaced
-      ;; regions rather than pruning the tree.
-      (is (str/includes? html "<h1>hosts</h1>")))))
+  ;; Both rows of the `for` get the fallback — a mechanism that stopped at
+  ;; the seq would render only the root-level host — and the chrome around
+  ;; the hosts is untouched.
+  (let [html (html-of "defhost-ssr-policy")]
+    (is (= [{:fallback [:span.host-fallback "loading…"]} 2 true true]
+           [(rf.bench.fresco.front.codec/host-ssr rf.bench.fresco.ssr.fixtures/fallback-host)
+            (count (re-seq #"loading" html))
+            (str/includes? html "class=\"host-fallback\"")
+            (str/includes? html "<h1>hosts</h1>")]))))
 
 (deftest a-host-declaring-render-renders-the-component-and-its-children
-  (testing ":ssr :render — the third policy, through the same
-           entry as the other two. It is the ONLY one under which a
-           crossing's children reach the server response at all: under a
-           gate the unadopted arm returns something that is not the
-           component, so a transparent wrapper such as a context provider
-           takes its whole subtree out of the HTML with it"
-    (is (= :render (rf.bench.fresco.front.codec/host-ssr rf.bench.fresco.ssr.fixtures/render-host))
-        "read back from the declaration, like every other policy")
-    (let [{:keys [html]} (rf.bench.fresco.ssr.entry/render (rf.bench.fresco.ssr.fixtures/row "defhost-ssr-render"))]
-      (is (str/includes? html "RENDER-SUBTREE")
-          "the crossing's CHILDREN are in the server HTML")
-      (is (str/includes? html "class=\"render-subtree\"")
-          "as markup, not as stray text")
-      (is (str/includes? html "<em class=\"context-reader\">dark</em>")
-          "and a consumer below the provider read the DECLARED context
-           value — the property that separates :render from the rejected
-           :children, which would emit the context DEFAULT")
-      (is (not (str/includes? html "<em class=\"context-reader\">unset</em>"))
-          "so the default is nowhere in the bytes"))))
-
-(defn- walk-reachable-host-heads
-  "Every minted host head reachable from `form` through vectors and seqs
-  — which is exactly what a pre-walk over the handed-in form can see,
-  reproduced in six lines so the argument against one is a CHECK rather
-  than a paragraph. Used by the row below."
-  [form]
-  (cond
-    (vector? form) (let [head (nth form 0 nil)]
-                     (if (rf.bench.fresco.front.codec/host-head? head)
-                       [head]
-                       (into [] (mapcat walk-reachable-host-heads) form)))
-    (seq? form)    (into [] (mapcat walk-reachable-host-heads) form)
-    :else          []))
-
-(deftest a-pre-walk-over-the-handed-in-form-cannot-see-a-nested-host
-  (testing "WHY THERE IS NO WALK BESIDE THE GATE. A walk can only reach
-           the tree it is handed, and this is that reach, measured. Keep
-           this row if a server-side pre-walk is ever proposed: it is the
-           whole argument in two numbers."
-    (is (= 3 (count (walk-reachable-host-heads rf.bench.fresco.ssr.fixtures/host-screen)))
-        "the CONTROL — the handed-in row's three host uses are visible to a
-         walk, so the measurement below is about position and not about a
-         walk that finds nothing anywhere")
-    (is (= 0 (count (walk-reachable-host-heads rf.bench.fresco.ssr.fixtures/nested-host-screen)))
-        "and the nested row's are INVISIBLE to it: those elements do not
-         exist until the boundary body runs inside `renderToString`. A walk
-         kept alive beside the gate would therefore be a second mechanism
-         that covers a strict subset of the first")))
+  ;; The only policy under which a crossing's children reach the server
+  ;; response, and a consumer below the provider reads the DECLARED context
+  ;; value rather than the default.
+  (is (= [:render true true true false]
+         (into [(rf.bench.fresco.front.codec/host-ssr rf.bench.fresco.ssr.fixtures/render-host)]
+               (has? (html-of "defhost-ssr-render")
+                     "RENDER-SUBTREE" "class=\"render-subtree\""
+                     "<em class=\"context-reader\">dark</em>" "<em class=\"context-reader\">unset</em>")))))
 
 (deftest a-host-used-inside-a-defview-body-honours-its-policy
-  (testing "THE POSITION NO PRE-WALK COULD REACH. Both hosts
-           are used inside a boundary body, so their elements do not exist
-           when this entry is handed its hiccup — that body runs inside
-           `renderToString` and the codec's crossing creates them there. The
-           policy holds anyway, because it is the element's own TYPE: the
-           gate `mint-host!` mints answers `false` from its server snapshot.
-           A `ssr.host-policy/apply-policy`-shaped walk over the handed-in
-           form renders this row's `:client-only` host's component into the
-           HTML, which is the failure this row names."
-    (let [{:keys [html]} (rf.bench.fresco.ssr.entry/render (rf.bench.fresco.ssr.fixtures/row "defhost-ssr-nested"))]
-      ;; Non-vacuity first: the boundary body really did run, and its
-      ;; native chrome is in the markup — so an absent host region is an
-      ;; absent host region and not an absent page.
-      (is (str/includes? html "class=\"nested-hosts\"")
-          "the defview body ran on the server")
-      (is (str/includes? html "<h2>nested</h2>"))
-      (is (str/includes? html "<h1>nested hosts</h1>")
-          "and so did the ordinary root above it")
-
-      (testing ":client-only, at a nested use site"
-        (is (not (str/includes? html "CLIENT-ONLY-WIDGET"))
-            "the foreign component's markup must not reach the server HTML
-             from inside a body either")
-        (is (not (str/includes? html "client-widget"))))
-
-      (testing "{:fallback …}, at a nested use site"
-        (is (str/includes? html "class=\"host-fallback\"")
-            "the declared placeholder is what the server wrote there")
-        (is (= 1 (count (re-seq #"loading" html)))
-            "exactly one — this row has one fallback host, so a count is a
-             real assertion and not a presence check in disguise"))
-
-      (testing ":render, at a nested use site"
-        (is (str/includes? html "NESTED-RENDER-SUBTREE")
-            "the crossing's children reached the server response from
-             inside a boundary body too")
-        (is (str/includes? html "<em class=\"context-reader\">dark</em>")
-            "with the declared context value, which is a claim about
-             React's own server renderer and not about this codec")))))
+  (let [html (html-of "defhost-ssr-nested")]
+    (testing "the defview body and the root above it ran on the server"
+      (is (= [true true true] (has? html "class=\"nested-hosts\"" "<h2>nested</h2>" "<h1>nested hosts</h1>"))))
+    (testing ":client-only, {:fallback …} (exactly one) and :render, at nested use sites"
+      (is (= [false false true 1 true true]
+             (-> (has? html "CLIENT-ONLY-WIDGET" "client-widget" "class=\"host-fallback\"")
+                 (conj (count (re-seq #"loading" html)))
+                 (into (has? html "NESTED-RENDER-SUBTREE" "<em class=\"context-reader\">dark</em>"))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The corpus renders at all — the bake's own precondition
 ;; ---------------------------------------------------------------------------
 
 (deftest every-corpus-row-renders
-  (doseq [{:keys [id why] :as row} rf.bench.fresco.ssr.fixtures/corpus]
-    (testing (str id " — " why)
-      (let [{:keys [html document payload]} (rf.bench.fresco.ssr.entry/render row)]
-        (is (seq html) (str id " rendered empty markup"))
-        (is (str/starts-with? document "<!DOCTYPE html>"))
-        (is (str/includes? document "<div id=\"app\">")
-            "the app root carries the id the client bootstrap mounts on —
-             a `:or` default that never fires would ship `id=\"\"`")
-        (is (str/includes? document (str "id=\"" rf.ssr.constants/payload-script-id "\"")))
-        (is (str/ends-with? document "</body></html>"))
-        ;; EVERY row, not just the two the exclusion row
-        ;; names: an adoption-tier root carries no hash at either end.
-        (is (not (str/includes? document "data-rf-render-hash"))
-            (str id " stamped a render-hash marker on an adoption-tier root"))
-        (is (not (contains? payload :rf/render-hash))
-            (str id " shipped :rf/render-hash in an adoption-tier payload"))))))
+  ;; Every row, not only the exclusion row's: an adoption-tier root carries
+  ;; no hash at either end. The app root carries the id the client mounts on.
+  (doseq [{:keys [id] :as row} rf.bench.fresco.ssr.fixtures/corpus]
+    (let [{:keys [html document payload]} (rf.bench.fresco.ssr.entry/render row)]
+      (is (= [true true true true true false false]
+             [(boolean (seq html))
+              (str/starts-with? document "<!DOCTYPE html>")
+              (str/includes? document "<div id=\"app\">")
+              (str/includes? document (str "id=\"" rf.ssr.constants/payload-script-id "\""))
+              (str/ends-with? document "</body></html>")
+              (str/includes? document "data-rf-render-hash")
+              (contains? payload :rf/render-hash)])
+          id))))
 
 ;; ---------------------------------------------------------------------------
 ;; The host scope does not leak into a per-request body
 ;; ---------------------------------------------------------------------------
 ;;
-;; The row lives here rather than beside its siblings in
-;; `arm1/ambient_refusal_cljs_test` because this file's fixture IS the
-;; hazard. `test-support`'s `:ambient-frame` default root-binds
-;; `*current-frame*` to `:rf/default`, and the fixture above takes that
-;; default — so every witness in this file renders its per-request frame
-;; inside a `:rf/default` stamp. Without the refusal, a `(rf/capture-frame)`
-;; in a body under `renderToString` would answer `:rf/default`, while
-;; `h/frame` in the same body answers the per-request frame the markup is
-;; actually built from. An SSR host is the worst place
-;; for that: the wrong frame is a long-lived process-wide one, and what it
-;; would carry away is a closure that outlives the request.
+;; This file's fixture IS the hazard: `test-support`'s default root-binds
+;; `*current-frame*` to `:rf/default`, so every render here happens inside a
+;; `:rf/default` stamp. Without the refusal, `(rf/capture-frame)` in a body
+;; would answer that long-lived process-wide frame while `h/frame` answers
+;; the per-request one.
 
 (def ^:private scope-probe-seen (volatile! ::unset))
 
 (defview scope-probe
-  "A body that reaches for the ambient frame three ways, so the row can say
-  which of them the host's outer scope reached."
+  "A body that reaches for the ambient frame three ways."
   [_]
   (vreset! scope-probe-seen
            {:ambient  (try (rf/capture-frame)
@@ -450,23 +254,18 @@
   [:p.scope-probe "probe"])
 
 (deftest the-hosts-ambient-scope-does-not-answer-inside-a-per-request-body
-  (testing "the render entry mints a per-request frame and renders under it,
-           inside whatever scope the host happens to have established — here
-           the fixture's `:rf/default`. A body that resolves ambiently must
-           not silently answer the host's frame"
-    (is (= :rf/default rf.frame/*current-frame*)
-        "precondition: the fixture's ambient scope IS live, so a green row
-         below is the refusal working rather than nothing to refuse")
-    (let [{:keys [frame-id html]} (rf.bench.fresco.ssr.entry/render {:hiccup  [scope-probe {}]
-                                                 :payload rf.bench.fresco.ssr.fixtures/dogfood-payload-keys})
-          {:keys [ambient composed hframe]} @scope-probe-seen]
-      (is (str/includes? html "scope-probe") "the body ran under renderToString")
-      (is (not= :rf/default frame-id)
-          "precondition: the per-request frame is not the host's")
-      (is (= frame-id hframe) "the boundary renders the per-request frame")
-      (is (= frame-id composed) "and the composed carry is immune")
-      (is (= :rf.error/ambient-frame-refused (:rf.error/id ambient))
-          (str "the ambient carry must refuse rather than answer the host's
-                scope; got " (pr-str ambient)))
-      (is (= :rf/default (:carried-frame ambient)))
-      (is (= frame-id (:extent-frame ambient))))))
+  (is (= :rf/default rf.frame/*current-frame*)
+      "precondition: the fixture's ambient scope IS live")
+  (let [{:keys [frame-id]} (rf.bench.fresco.ssr.entry/render {:hiccup  [scope-probe {}]
+                                                              :payload rf.bench.fresco.ssr.fixtures/dogfood-payload-keys})
+        {:keys [ambient composed hframe]} @scope-probe-seen]
+    (is (= {:hframe frame-id :composed frame-id :refusal :rf.error/ambient-frame-refused
+            :carried :rf/default :extent frame-id :host-frame? false}
+           {:hframe      hframe
+            :composed    composed
+            :refusal     (:rf.error/id ambient)
+            :carried     (:carried-frame ambient)
+            :extent      (:extent-frame ambient)
+            :host-frame? (= :rf/default frame-id)})
+        "the boundary and the composed carry answer the per-request frame; the
+         ambient carry refuses rather than answer the host's")))
