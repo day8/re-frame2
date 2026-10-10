@@ -1,27 +1,28 @@
 ;; Conformance fixture: rf.http.managed/http-4xx-precedes-decode
 ;;
-;; Per Spec 014 §Classification order — status classification fires BEFORE
-;; decode. A 4xx response whose body would FAIL the configured `:decode`
-;; (the canonical case: a JSON endpoint that 404s with an HTML load-balancer
-;; error page) classifies as `:rf.http/http-4xx`, NOT `:rf.http/decode-failure`.
-;; The raw response body lands at `:body` (not a decoded value), and `:decode`
-;; never runs on the response.
+;; An `:fx-overrides` routing example shaped like Spec 014 §Classification
+;; order, where status classification fires BEFORE decode: a 4xx response
+;; whose body would FAIL the configured `:decode` (a JSON endpoint that 404s
+;; with an HTML load-balancer error page) classifies as `:rf.http/http-4xx`,
+;; NOT `:rf.http/decode-failure`, with the raw body at `:body`. Decoding
+;; first would surface that HTML 404 as `:rf.http/decode-failure` and hide
+;; the real HTTP failure category from the caller, which is why Spec 014
+;; locks the order.
 ;;
-;; Decoding first and classifying second would surface a JSON-API
-;; endpoint hitting an HTML 404 as `:rf.http/decode-failure` and
-;; hide the real HTTP failure category from the caller. The order is
-;; locked: status first, decode only on success-eligible (2xx).
-;;
-;; The fixture exercises the contract via :rf.http/managed-canned-failure
-;; configured with `:kind :rf.http/http-4xx` and the raw HTML body at
-;; `:body` — the same envelope the live fx synthesises after running the
-;; status check.
+;; The fixture supplies its own bodies for `:rf.http/managed` and
+;; `:rf.http/managed-canned-failure`, so no managed-HTTP code runs: no
+;; status is checked and nothing is decoded — the `:rf.http/http-4xx`
+;; envelope is written out in the canned-failure body. What it grades is the
+;; redirection of `:rf.http/managed` to that body, the args the body
+;; receives (`:effects-routed`) and the dispatch of the reply it writes. The
+;; managed-HTTP lifecycle is not corpus-graded — see the conformance README
+;; §Managed-HTTP lifecycle (not yet corpus-graded).
 
 {:fixture/id           :rf.http.managed/http-4xx-precedes-decode
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/fx
                          :rf.http/managed}
- :fixture/doc          "Status classification fires before decode. A 4xx response with an HTML body — issued from a handler that asked for `:decode :json` — classifies as :rf.http/http-4xx with the raw HTML at :body, NOT as :rf.http/decode-failure."
+ :fixture/doc          "Shaped like Spec 014 §Classification order (status before decode): for a GET that asked for `:decode :json`, the fixture's canned-failure body, reached through :fx-overrides, dispatches an :rf.http/http-4xx failure with the raw HTML at :body to the :on-failure target. Grades override routing, args forwarding and reply dispatch; no status check or decode runs."
 
  :fixture/registry
  {:event {:page/load        {:doc "Issue the GET that 404s with HTML."}
@@ -34,9 +35,9 @@
   {:page/load
    [[:fx [[:rf.http/managed
            {:request    {:method :get :url "/articles/missing"}
-            ;; The handler asks for :json — but the endpoint 404s with
-            ;; HTML. Per Spec 014 §Classification order, the status check
-            ;; runs first; :decode is never invoked on the 4xx body.
+            ;; The handler asks for :json; in the scenario the endpoint
+            ;; 404s with HTML, and Spec 014 §Classification order never
+            ;; runs :decode on the 4xx body.
             :decode     :json
             :on-failure [:page/load-error]}]]]]
 

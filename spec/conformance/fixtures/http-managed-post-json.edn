@@ -1,15 +1,23 @@
 ;; Conformance fixture: rf.http.managed/post-json
 ;;
-;; Per Spec 014 §Body encoding and §Request envelope. A POST with a Clojure
-;; collection body and `:request-content-type :json` — the fx serialises the
-;; body and sets `Content-Type: application/json`. The reply, synthesised by
-;; the canned-success stub, lands at the explicit `:on-success` target.
+;; An `:fx-overrides` routing example shaped like Spec 014 §Body encoding and
+;; §Request envelope: a POST with a Clojure-map body and
+;; `:request-content-type :json`, whose success reply lands at the explicit
+;; `:on-success` target.
+;;
+;; The fixture supplies its own bodies for `:rf.http/managed` and
+;; `:rf.http/managed-canned-success`, so no managed-HTTP code runs: the body
+;; is never serialised and no header is set. What it grades is the
+;; redirection of `:rf.http/managed` to the canned-success body, the args
+;; that body receives (`:effects-routed`, the request map verbatim) and the
+;; dispatch of the reply the body writes. The ;; managed-HTTP lifecycle is not corpus-graded — see the conformance README
+;; §Managed-HTTP lifecycle (not yet corpus-graded).
 
 {:fixture/id           :rf.http.managed/post-json
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/fx
                          :rf.http/managed}
- :fixture/doc          "POST /auth/login with a Clojure-map body and :request-content-type :json. The :rf.http/managed args are routed to the canned-success stub by :fx-overrides; the synthesised reply dispatches :auth/login-success."
+ :fixture/doc          "POST /auth/login with a Clojure-map body and :request-content-type :json. :fx-overrides routes the :rf.http/managed args verbatim to the fixture's canned-success body, which dispatches its own reply to :auth/login-success. Grades override routing, args forwarding and reply dispatch, not body encoding."
 
  :fixture/registry
  {:event {:auth/login         {:doc "Issue the POST."}

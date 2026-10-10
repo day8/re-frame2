@@ -1,20 +1,25 @@
 ;; Conformance fixture: rf.http.managed/accept-failure
 ;;
-;; Per Spec 014 §Failure categories — `:rf.http/accept-failure`. The user's
-;; `:accept` fn returns `{:failure user-map}` on a structurally-OK 2xx that
-;; is nevertheless a domain failure. The runtime classifies the dispatch
-;; under `:kind :rf.http/accept-failure`, with the user's verbatim failure
-;; map at `:detail` and the pre-`:accept` decoded value at `:decoded`.
+;; An `:fx-overrides` routing example shaped like Spec 014 §Failure
+;; categories — `:rf.http/accept-failure`: an `:accept` fn returning
+;; `{:failure user-map}` on a structurally-OK 2xx classifies the reply under
+;; `:kind :rf.http/accept-failure`, with the user's verbatim failure map at
+;; `:detail` and the pre-`:accept` decoded value at `:decoded`.
 ;;
-;; The fixture exercises the contract via :rf.http/managed-canned-failure
-;; configured with `:kind :rf.http/accept-failure` and matching tags, the
-;; same shape the live fx synthesises after running `:accept`.
+;; The fixture supplies its own bodies for `:rf.http/managed` and
+;; `:rf.http/managed-canned-failure`, so no managed-HTTP code runs: no
+;; `:accept` fn runs and nothing is classified — the failure envelope is
+;; written out in the canned-failure body. What it grades is the redirection
+;; of `:rf.http/managed` to that body, the args the body receives
+;; (`:effects-routed`) and the dispatch of the reply it writes. The
+;; managed-HTTP lifecycle is not corpus-graded — see the conformance README
+;; §Managed-HTTP lifecycle (not yet corpus-graded).
 
 {:fixture/id           :rf.http.managed/accept-failure
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/fx
                          :rf.http/managed}
- :fixture/doc          "An :accept fn returning {:failure user-map} on a 2xx classifies as :rf.http/accept-failure. The user's failure map sits at :detail; :decoded carries the pre-:accept decoded value. The :on-failure target receives the canonical failure envelope."
+ :fixture/doc          "Shaped like Spec 014's :rf.http/accept-failure: the fixture's canned-failure body, reached through :fx-overrides, dispatches {:status :error :error {:kind :rf.http/accept-failure :detail <user failure map> :decoded <pre-:accept value>}} to the :on-failure target. Grades override routing, args forwarding and reply dispatch; no :accept fn runs and nothing is classified."
 
  :fixture/registry
  {:event {:article/load        {:doc "Issue the GET."}

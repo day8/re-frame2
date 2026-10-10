@@ -1,21 +1,27 @@
 ;; Conformance fixture: rf.http.managed/abort-by-request-id
 ;;
-;; Per Spec 014 §Aborts — `:request-id` (internal). A `:rf.http/managed`
-;; fx with `:request-id <id>` may be cancelled by a subsequent
-;; `:rf.http/managed-abort <id>` fx. The cancelled request dispatches
-;; `:on-failure` with the canonical `{:status :cancelled :error {:kind
-;; :rf.http/aborted :reason :user :request-id <id>}}` reply.
+;; An `:fx-overrides` routing example shaped like Spec 014 §Aborts —
+;; `:request-id` (internal): a `:rf.http/managed` request issued with a
+;; `:request-id`, then a `:rf.http/managed-abort` naming that id, after which
+;; the `:on-failure` target receives the canonical `{:status :cancelled
+;; :error {:kind :rf.http/aborted :reason :user :request-id <id>}}` reply.
 ;;
-;; The fixture exercises the contract via :rf.http/managed-canned-failure
-;; configured to synthesise the canonical aborted-shape reply, modelling
-;; what the live fx would emit when the abort handle fires. The :request-id
-;; round-trips through the failure tags so handlers can correlate.
+;; The fixture supplies its own bodies for `:rf.http/managed`,
+;; `:rf.http/managed-abort` and `:rf.http/managed-canned-failure`, so no
+;; managed-HTTP code runs and nothing is cancelled: it is an override
+;; example, not a cancellation test. `:rf.http/managed` runs the fixture's
+;; no-op body under its own id; only `:rf.http/managed-abort` is redirected,
+;; to the canned-failure body, which dispatches the cancelled reply the
+;; fixture writes itself. What it grades is that redirection, the args each
+;; fx receives (`:effects-routed`) and the reply's dispatch AFTER the abort.
+;; The managed-HTTP lifecycle is not corpus-graded — see the conformance
+;; README §Managed-HTTP lifecycle (not yet corpus-graded).
 
 {:fixture/id           :rf.http.managed/abort-by-request-id
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/fx
                          :rf.http/managed}
- :fixture/doc          "A :rf.http/managed-abort fx targeting an in-flight :request-id cancels the request; the resulting :on-failure dispatch carries the canonical {:status :cancelled :error {:kind :rf.http/aborted :reason :user :request-id <id>}}. Per Spec 014 §Aborts §:request-id (internal)."
+ :fixture/doc          "A :rf.http/managed request carrying :request-id :slow/load, then a :rf.http/managed-abort naming that id. :fx-overrides redirects only the abort, to the fixture's canned-failure body, so the {:status :cancelled :error {:kind :rf.http/aborted :reason :user :request-id :slow/load}} reply reaches :on-failure after the abort, never before it. Grades override routing, args forwarding and reply dispatch, shaped like Spec 014 §Aborts §:request-id (internal); no request is cancelled."
 
  :fixture/registry
  {:event {:slow/load        {:doc "Issue a GET with a stable :request-id."}
@@ -34,11 +40,11 @@
             :decode     :json
             :on-failure [:slow/load-error]}]]]]
 
-   ;; The abort handler models the live :rf.http/managed-abort path,
-   ;; which fires the abort-fn registered against :slow/load and the
-   ;; in-flight request emits :on-failure with :rf.http/aborted. The
-   ;; fixture synthesises the failure reply via :rf.http/managed-abort
-   ;; redirecting to the canned-failure stub through :fx-overrides.
+   ;; In the Spec 014 scenario this mirrors, :rf.http/managed-abort fires
+   ;; the abort-fn registered against :slow/load and the in-flight request
+   ;; replies to :on-failure with :rf.http/aborted. Here :fx-overrides
+   ;; redirects :rf.http/managed-abort to the canned-failure body, which
+   ;; dispatches that reply itself.
    :slow/abort
    [[:fx [[:rf.http/managed-abort :slow/load]]]]
 
@@ -46,8 +52,10 @@
    [[:set [:slow :error] [:event-arg 1]]]}
 
   :fx
-  {;; The live fx is overridden to canned-failure. The canned-failure
-   ;; body dispatches the canonical aborted-shape reply to :slow/load-error.
+  {;; :rf.http/managed runs this no-op body, so issuing the request
+   ;; dispatches nothing. The canned-failure body, reached only through the
+   ;; abort's override, dispatches the aborted-shape reply to
+   ;; :slow/load-error.
    :rf.http/managed                [[:noop]]
    :rf.http/managed-abort          [[:noop]]
    :rf.http/managed-canned-failure
@@ -59,12 +67,10 @@
 
  :fixture/frame-config
  {:initial-events []
-  ;; Both :rf.http/managed and :rf.http/managed-abort are redirected to
-  ;; the canned-failure stub. The first call (from :slow/load) registers
-  ;; an in-flight handle conceptually; the second call (from :slow/abort)
-  ;; synthesises the aborted reply that the live fx would have emitted.
-  :fx-overrides {:rf.http/managed       :rf.http/managed-canned-failure
-                 :rf.http/managed-abort :rf.http/managed-canned-failure}}
+  ;; Only :rf.http/managed-abort is redirected, to the canned-failure
+  ;; body. :rf.http/managed stays on its own no-op body, so the cancelled
+  ;; reply can only follow the abort.
+  :fx-overrides {:rf.http/managed-abort :rf.http/managed-canned-failure}}
 
  :fixture/dispatches
  [[:slow/load]
@@ -79,13 +85,20 @@
 
   :trace-emissions
   [{:operation :rf.event/run-start :tags {:rf.trace/event-id :slow/load}}
-   {:operation :rf.fx/override-applied :tags {:rf.fx/from :rf.http/managed
-                                              :rf.fx/to   :rf.http/managed-canned-failure}}
-   ;; First canned-failure body dispatches the synthesised reply (the
-   ;; runtime queues it; the originator's :slow/load handler completes
-   ;; before the queued dispatch runs).
-   {:operation :rf.event/run-start :tags {:rf.trace/event-id :slow/load-error}}
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :slow/abort}}
    {:operation :rf.fx/override-applied :tags {:rf.fx/from :rf.http/managed-abort
                                               :rf.fx/to   :rf.http/managed-canned-failure}}
-   {:operation :rf.event/run-start :tags {:rf.trace/event-id :slow/load-error}}]}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :slow/load-error}}]
+
+  ;; Both matchers are order-preserving SUBSET matchers, so the trace above
+  ;; also matches a run that redirects :rf.http/managed too and dispatches a
+  ;; cancelled reply before the abort. The first entry here discriminates:
+  ;; :rf.http/managed must run under its own id.
+  :effects-routed
+  [{:fx-id :rf.http/managed
+    :args  {:request    {:method :get :url "/slow"}
+            :request-id :slow/load
+            :decode     :json
+            :on-failure [:slow/load-error]}}
+   {:fx-id :rf.http/managed-canned-failure
+    :args  :slow/load}]}}

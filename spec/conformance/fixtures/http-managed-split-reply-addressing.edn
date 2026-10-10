@@ -1,22 +1,28 @@
 ;; Conformance fixture: rf.http.managed/split-reply-addressing
 ;;
-;; Per Spec 014 §Reply addressing — the split form. Every request addresses
-;; its reply; here the success branch names its target with `:on-success`,
-;; and the runtime appends the canonical `{:status :ok :value v}` envelope
-;; as that target event's last argument. Nothing routes a reply back to the
-;; originating event implicitly: a request that supplies none of
-;; `:reply-to`, `:on-success` and `:on-failure` fails at fx-call time with
+;; An `:fx-overrides` routing example shaped like Spec 014 §Reply addressing
+;; — the split form. Every request addresses its reply; here the success
+;; branch names its target with `:on-success`, and the runtime appends the
+;; canonical `{:status :ok :value v}` envelope as that target event's last
+;; argument. Nothing routes a reply back to the originating event
+;; implicitly: a request that supplies none of `:reply-to`, `:on-success`
+;; and `:on-failure` fails at fx-call time with
 ;; `:rf.error/http-no-reply-target`.
 ;;
-;; This fixture mirrors the contract — `:rf.http/managed` is redirected to
-;; a canned-success stub (`:rf.http/managed-canned-success`) whose body
-;; synthesises the canonical reply shape per Spec 014 §Testing.
+;; The fixture supplies its own bodies for `:rf.http/managed` and
+;; `:rf.http/managed-canned-success`, so no managed-HTTP code runs: the
+;; canned-success body names the target and writes the reply itself, so no
+;; reply target is selected. What it grades is the redirection of
+;; `:rf.http/managed` to that body, the args the body receives
+;; (`:effects-routed`) and the dispatch of the reply it writes. The
+;; managed-HTTP lifecycle is not corpus-graded — see the conformance README
+;; §Managed-HTTP lifecycle (not yet corpus-graded).
 
 {:fixture/id           :rf.http.managed/split-reply-addressing
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/sub :core/fx
                          :rf.http/managed}
- :fixture/doc          "The :rf.http/managed fx, redirected via :fx-overrides to :rf.http/managed-canned-success, dispatches a {:status :ok :value {:stubbed true}} reply to the :on-success target :article/load-reply, appended as that event's last argument."
+ :fixture/doc          "Shaped like Spec 014's split reply addressing: :rf.http/managed, redirected by :fx-overrides to the fixture's canned-success body, which dispatches [:article/load-reply {:status :ok :value {:stubbed true}}] itself. Grades override routing, args forwarding and reply dispatch, not reply-target selection."
 
  :fixture/registry
  {:event {:article/load          {:doc "Initial-dispatch path — issues the managed request."}
@@ -52,9 +58,10 @@
   {:article [[:get [:article]]]}
 
   :fx
-  {;; Real fx — never invoked under the override below.
+  {;; The fixture's body for :rf.http/managed — never invoked under the
+   ;; override below.
    :rf.http/managed                [[:noop]]
-   ;; Stub fx — dispatches the canonical success reply per Spec 014 §Testing.
+   ;; The fixture's canned-success body — dispatches the reply it writes.
    :rf.http/managed-canned-success
    [[:dispatch [:article/load-reply {:status :ok :value {:stubbed true}}]]]}}
 

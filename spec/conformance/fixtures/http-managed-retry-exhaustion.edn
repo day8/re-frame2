@@ -1,20 +1,24 @@
 ;; Conformance fixture: rf.http.managed/retry-exhaustion
 ;;
-;; Per Spec 014 §Retry × `:on-failure` semantics — only the final
-;; exhausted-retries failure dispatches `:on-failure`. Intermediate
-;; retriable attempts emit `:rf.http/retry-attempt` traces but do NOT
-;; dispatch the failure handler. The user sees exactly one failure reply.
+;; An `:fx-overrides` routing example shaped like Spec 014 §Retry ×
+;; `:on-failure` semantics: only the final exhausted-retries failure
+;; dispatches `:on-failure`; intermediate retriable attempts emit
+;; `:rf.http/retry-attempt` traces but do NOT dispatch the failure handler.
 ;;
-;; The fixture models the contract with a single canned-failure invocation
-;; (the harness doesn't time real backoff delays). The trace expectation
-;; verifies the failure dispatch is to :on-failure, not the originator,
-;; for the final outcome.
+;; The fixture supplies its own bodies for `:rf.http/managed` and
+;; `:rf.http/managed-canned-failure`, so no managed-HTTP code runs: no
+;; attempt is made and nothing retries — the canned-failure body dispatches
+;; one final failure it writes itself. What it grades is the redirection of
+;; `:rf.http/managed` to that body, the args the body receives
+;; (`:effects-routed`, the `:retry` policy verbatim) and the dispatch of the
+;; reply it writes. The ;; managed-HTTP lifecycle is not corpus-graded — see the conformance README
+;; §Managed-HTTP lifecycle (not yet corpus-graded).
 
 {:fixture/id           :rf.http.managed/retry-exhaustion
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/fx
                          :rf.http/managed}
- :fixture/doc          "All :max-attempts attempts return a retriable :rf.http/http-5xx; only the final exhausted attempt dispatches :on-failure. Per Spec 014 §Retry and backoff."
+ :fixture/doc          "Shaped like Spec 014 §Retry and backoff's exhaustion case: a GET carrying a :retry policy of 3 attempts, redirected by :fx-overrides to the fixture's canned-failure body, which dispatches one final :rf.http/http-5xx failure to :on-failure. Grades override routing, args forwarding and reply dispatch; no attempt is made and nothing retries."
 
  :fixture/registry
  {:event {:flaky/load        {:doc "Issue the GET with retry policy."}
@@ -68,9 +72,9 @@
   [{:operation :rf.event/run-start :tags {:rf.trace/event-id :flaky/load}}
    {:operation :rf.fx/override-applied :tags {:rf.fx/from :rf.http/managed
                                               :rf.fx/to   :rf.http/managed-canned-failure}}
-   ;; Only one :on-failure dispatch for the final exhausted attempt;
-   ;; intermediate :rf.http/retry-attempt traces ride the live fx, not the
-   ;; canned-failure stub (which short-circuits to the final outcome).
+   ;; The canned-failure body dispatches one final failure;
+   ;; :rf.http/retry-attempt traces come only from the live fx, which does
+   ;; not run here.
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :flaky/load-error}}]
 
   :effects-routed
