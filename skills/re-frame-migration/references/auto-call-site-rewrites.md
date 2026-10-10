@@ -102,7 +102,7 @@ rg -n '\[\s*(re-frame\.[A-Za-z0-9_.-]+)' . --only-matching --multiline --replace
 
 That shape does not fail loudly after the swap, because **a CLJS map is itself callable**: invoked as a fn it is a keyword-lookup-with-default, so the two-arg call above returns its **second argument** (`[:foo 1]`) and a one-arg call returns `nil`. No compile error, no arity error, no throw — the wrong value simply flows on, and only the project's own suite surfaces it ([`runtime-smoke-test.md`](runtime-smoke-test.md#the-done-bar-is-more-than-the-local-dev-build) — fixtures and `*_test` namespaces never load at app boot).
 
-So classify each `get-handler` hit by **what happens to its result**: introspected (a key read off it, handed to a tool) → the mechanical swap above; **invoked** → **flag for the author (Type B, cite M-1)**, since no raw handler fn is exposed publicly in v2. The v2 route for the test that wanted the fn is to drive the handler through `dispatch-sync` under `make-reset-runtime-fixture` ([`MIGRATION.md` §M-52](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-52-run-test-sync-removed--use-dispatch-sync-under-make-reset-runtime-fixture)), or to hold a direct reference to the handler fn in the test namespace. If that test also changes a mock inside its body on a test frame with explicit images, follow [§Body-local mocks under explicit images](#body-local-mocks-under-explicit-images).
+So classify each `get-handler` hit by **what happens to its result**: introspected (a key read off it, handed to a tool) → the mechanical swap above; **invoked** → **flag for the author (Type B, cite M-1)**, since no raw handler fn is exposed publicly in v2. The v2 route for the test that wanted the fn is to drive the handler through `dispatch-sync` under `make-reset-runtime-fixture` ([`MIGRATION.md` §M-52](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-52-run-test-sync-removed--use-dispatch-sync-under-make-reset-runtime-fixture)), or to hold a direct reference to the handler fn in the test namespace. If that test also changes a mock inside its body on a test frame with explicit images, follow the `re-frame2` skill's [`testing.md` §Mocks under explicit images](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/cross-cutting/testing.md#mocks-under-explicit-images).
 
 **Caveat (M-1 `@app-db` → `app-db-value` is NOT semantically identical — reactivity loss):** `(rf/app-db-value :rf/default)` returns a **non-reactive snapshot** — a plain `app-db` map value, no deref, no reactive subscription (per `re-frame.core/app-db-value`'s docstring: *"current `app-db` VALUE (a plain map)… no deref, no container"*). v1's `@re-frame.db/app-db` is a **reactive** deref — `app-db` is a Reagent `ratom`, so a deref **inside a reactive context** (a `reaction`, a component render body, a `track`) subscribes that render to db changes and re-renders when `app-db` changes.
 
@@ -159,7 +159,7 @@ Same for the `uix` variant.
 
 `assert-state` maps to `assert-path-equals` per **M-62** (the fn-side mirrors the `:rf.assert/path-equals` Story event); a full-db assertion has no dedicated fn — compare directly with `(is (= expected-db (rf/app-db-value f)))`. A chained event-sequence is a `doseq` over `dispatch-sync`. `run-test-sync` is dropped in v2 — see **M-52** below to rewrite call sites.
 Also: drop `day8/re-frame-test` from the Maven coords.
-Before accepting the migrated suite, run the [test-double audit](#test-double-audit-macro-call-sites-and-compiled-arities) under M-52: a v1 `with-redefs` on `rf/dispatch` or `rf/subscribe` still compiles in v2 and intercepts nothing.
+Before accepting the migrated suite, audit its test doubles as [M-52](#m-52--run-test-sync-removed) says: a v1 `with-redefs` on `rf/dispatch` or `rf/subscribe` still compiles in v2 and intercepts nothing.
 
 ### M-52 — `run-test-sync` removed
 
@@ -187,105 +187,11 @@ body...
 
 v2's `dispatch-sync` is already settle-by-default, so the macro added nothing on the synchronicity axis; the registrar snapshot/restore half is covered by the per-test fixture every v2 suite installs.
 
-#### Body-local mocks under explicit images
+**Three v1 test-double habits compile and pass for the wrong reason in v2.** Hoisting is enough while the body only adds ids no other loaded namespace registers. Audit every double in the migrated suite against the `re-frame2` skill's [`testing.md` §Test doubles](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/cross-cutting/testing.md#test-doubles), which owns the v2 patterns:
 
-Hoisting alone is enough while the body only adds ids no other loaded namespace registers, on a frame that resolves the default image. It is not enough when the test frame runs explicit images (SKILL.md §Boot and init) and the body changes a mock that must beat a product registration. Re-registering the mock in the body is the v1 habit that fails here: a frame over explicit images resolves only what its images select, so the re-registration never reaches it, and on the default image a fresh frame fails with `:rf.error/image-duplicate-id`. Put the mock in a final image that selects no product namespace, give the test frame an `:id`, and when the body changes the mock, re-call `make-frame` on that `:id` with the new image. Same-id re-construction is the public image hot-reload: it keeps app-db, does not re-fire `:initial-events`, and evicts the cached subscriptions whose definition changed.
-
-```clojure
-(def product-image (rf/image {:id :shop/image :select-ns {:include ["shop.**"]}}))
-
-(defn mock-image [price]                    ; final and disjoint: inline, selects no namespace
-  (rf/image {:id :test/mocks :registrations {:reg-sub [[:shop/price (fn [_db _q] price)]]}}))
-
-(defn shop-frame [price]                    ; the whole config, re-supplied on every call
-  {:id :test/shop :preset :test
-   :images [product-image (mock-image price)]
-   :initial-events [[:rf/set-db {:shop/items []}]]})
-
-(deftest price-follows-the-mock
-  (rf/make-frame (shop-frame :a))
-  (rf/dispatch-sync [:shop/add "SKU-1"] {:frame :test/shop})
-  (is (= :a @(rf/subscribe [:shop/price] {:frame :test/shop})))    ; now cached
-  (rf/make-frame (shop-frame :b))           ; same :id, new :images
-  (is (= :b @(rf/subscribe [:shop/price] {:frame :test/shop})))    ; subscribe again after the swap
-  (is (= ["SKU-1"] (:shop/items (rf/app-db-value :test/shop)))))   ; app-db kept
-```
-
-- **Order the mock last.** Selected before the product image it loses silently: the product definition resolves, and `(:rf.gen/shadows (rf/frame-generation :test/shop))` names the mock as the shadowed side. Assert that report when the override matters.
-- **Keep the double out of the product image.** A namespace-authored double selected into the same image as the product registration fails frame creation with `:rf.error/image-duplicate-id`.
-- **Cleanup has two halves.** The reset fixture, or the snapshot/restore bracket above, rolls back `reg-*` writes and leaves live frames alone — restoring the registrar after a re-image leaves the frame mocked. The frame is the other half: `make-reset-runtime-fixture` clears every frame after each test (an `:async? true` suite does it in `:after`, once `done` has run); a test outside that fixture destroys its frame with `rf/destroy-frame!`.
-
-The image surface is the `re-frame2` skill's [`frames.md` §Images](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/fundamentals/frames.md#images--the-registration-set-half-ep-0023) and [`images.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/fundamentals/images.md); its contracts are [`spec/API.md` §Registration](https://github.com/day8/re-frame2/blob/main/spec/API.md#registration) (`image`, `make-frame`) and [`spec/002-Frames.md` §Image resolution and composition](https://github.com/day8/re-frame2/blob/main/spec/002-Frames.md#image-resolution-and-composition).
-
-#### Test-double audit: macro call sites and compiled arities
-
-A migrated suite can compile, and pass on the JVM, while its doubles intercept nothing. Before accepting it, classify each `with-redefs` (and any other double) by how the code under test reaches the name it replaces:
-
-- **Macro call site: use a documented seam, never a redef of the public name.** `(rf/dispatch …)`, `(rf/dispatch-sync …)` and `(rf/subscribe …)` in call position are macros. Their expansion calls an internal `^:no-doc` alias rather than the var you named, so `(with-redefs [rf/dispatch …] …)` records nothing while the real event runs. The alias is not a seam to redef either; the comment above `dispatch-impl` in [`re_frame/core.cljc`](https://github.com/day8/re-frame2/blob/main/implementation/core/src/re_frame/core.cljc) keeps it internal. Route each double to the public seam for what it checks:
-  - *which events a frame ran*: a recorder interceptor on the frame's `:interceptors` ([Spec 008 §Recording dispatched events](https://github.com/day8/re-frame2/blob/main/spec/008-Testing.md#recording-dispatched-events));
-  - *what a handler would dispatch, without running it*: a per-call `:fx-overrides {:dispatch …}` ([Spec 008 §Asserting on effects](https://github.com/day8/re-frame2/blob/main/spec/008-Testing.md#asserting-on-effects-without-firing-them));
-  - *what an event or subscription does*: a replacement registration in a final mock image, per [§Body-local mocks under explicit images](#body-local-mocks-under-explicit-images) above.
-- **Function value: give the replacement the original's arity set.** A redef does reach code that reads the function as a value while the redef is live, such as a ClojureScript `rf/dispatch` passed as a callback, or the app's own `defn`. Compiled ClojureScript calls a multi-arity or variadic `defn` through its `cljs$core$IFn$_invoke$arity$N` or `$arity$variadic` entry, and a replacement of a different shape lacks that entry: the build compiles, then the call throws `…arity$N is not a function` or the double records nothing. Mirror the original's arglists: `(fn ([ev] …) ([ev opts] …))` for `([ev] [ev opts])`, and the same `&` rest for a variadic fn.
-- **Keep a positive assertion.** Each double asserts that it was reached, as in `(is (= [[:cart/save]] @seen))`, never only an absence, so a double that intercepts nothing fails the test instead of passing it.
-- **Run the compiled suite before acceptance.** A JVM or Babashka green is not evidence for compiled callable shapes: arity entries exist only in the ClojureScript build, so the arity trap shows nowhere else. The macro trap shows on both hosts.
-
-```clojure
-(defn save! [] (rf/dispatch-sync [:cart/save]))   ; code under test: a macro call site
-
-;; v1 habit: compiles, records nothing, and :cart/save runs for real
-(with-redefs [rf/dispatch-sync (fn ([ev] (swap! seen conj ev)) ([ev _] (swap! seen conj ev)))]
-  (save!))
-
-;; v2: record through the frame's :interceptors
-(deftest save-dispatches
-  (let [seen (atom [])]
-    (rf/reg-interceptor :test/recorder
-      {:before (fn [ctx] (swap! seen conj (-> ctx :coeffects :event)) ctx)})
-    (rf/with-new-frame [_f (rf/make-frame {:interceptors [:test/recorder]})]
-      (save!)
-      (is (= [[:cart/save]] @seen)))))
-```
-
-The recorder observes and the real handler still runs. When the test must not run it, register a mock handler in a final image as well.
-
-A frame built from explicit images resolves only what its images select, so the recorder has to be selected too. Without it, `make-frame` fails with `:rf.error/unregistered-interceptor`. The recorder cannot go in a mock image's inline `:registrations`: those sections accept only `:reg-event`, `:reg-sub`, `:reg-fx` and `:reg-cofx`, and an inline `:reg-interceptor` section fails `rf/image` with `:rf.error/invalid-image`. Keep the `reg-interceptor` at the top level of the test namespace instead, and select that namespace in a final image:
-
-```clojure
-(def seen (atom []))
-
-(rf/reg-interceptor :test/recorder          ; top level of the test namespace, here shop.cart-test
-  {:before (fn [ctx] (swap! seen conj (-> ctx :coeffects :event)) ctx)})
-
-(def recorder-image (rf/image {:id :test/recorder :select-ns {:include ["shop.cart-test"]}}))
-
-(deftest save-dispatches-under-explicit-images
-  (reset! seen [])
-  (rf/with-new-frame [_f (rf/make-frame {:images [product-image recorder-image]
-                                         :interceptors [:test/recorder]})]
-    (save!)
-    (is (= [[:cart/save]] @seen))))
-```
-
-A v1 double whose job was to fail the test if a subscription is touched at all is an absence guard, not a value mock, and a throwing replacement registration does not port it. The framework recovers the throw: a throwing computation reports `:rf.error/sub-exception` and the subscription reads `nil` ([errors.md §A subscription throws](https://github.com/day8/re-frame2/blob/main/docs/core/errors.md#a-subscription-throws-or-reads-one-that-isnt-there)), and a throw moved into a parametric `:inputs` fn is recovered too, as `:rf.error/sub-input-fn-exception`, so the forbidden access passes either way. Keep the check as an observation instead. Give the guard a receipt in the final mock image of [§Body-local mocks under explicit images](#body-local-mocks-under-explicit-images), prove the receipt is reached with a forced positive control, then reset it before the product operation and assert it stayed empty. The receipt counts computation-body calls, not `subscribe` requests, and a cached slot answers without running its body ([subscriptions.md §Lifecycle](https://github.com/day8/re-frame2/blob/main/docs/core/subscriptions.md#lifecycle-a-sub-exists-only-while-something-watches)), so a cached `nil` reads as zero calls. Start the product operation from a fresh frame or after [`rf/clear-sub-cache!`](https://github.com/day8/re-frame2/blob/main/docs/api/re-frame.core.md#clear-sub-cache), because the positive control itself caches the slot.
-
-```clojure
-(defn line-total [frame qty price]          ; code under test: subscribes only when no price is supplied
-  (* qty (or price @(rf/subscribe [:shop/price] {:frame frame}))))
-
-(deftest supplied-price-skips-the-sub
-  (let [calls (atom [])
-        guard (rf/image {:id :test/guard    ; final and disjoint: records, returns nil, never throws
-                         :registrations {:reg-sub [[:shop/price (fn [_db q] (swap! calls conj q) nil)]]}})]
-    (rf/make-frame {:id :test/shop :preset :test :images [product-image guard]})
-    @(rf/subscribe [:shop/price] {:frame :test/shop})   ; forced positive control
-    (is (= [[:shop/price]] @calls))
-    (rf/clear-sub-cache! :test/shop)                    ; the control cached the slot
-    (reset! calls [])
-    (is (= 30 (line-total :test/shop 3 10)))            ; the product operation: price supplied
-    (is (= [] @calls))))                                ; no body call
-```
-
-A guard that keeps its throw can count its `:rf.error/sub-exception` records on a `:trace` listener instead ([errors.md §Test the structure](https://github.com/day8/re-frame2/blob/main/docs/core/errors.md#test-the-structure-not-the-string)); those are dev-only and count the same body calls. Either way an empty receipt is evidence only for the path the test exercised, never for a branch or a render that did not run. Keep direct tests of the application's own pure guard functions where their arguments or messages are part of the contract, and never expose registrar metadata or an internal alias to reach a registered function.
+- **A mock re-registered in the body to beat a product registration.** Under explicit images (SKILL.md §Boot and init) the re-registration never reaches the frame, and on the default image a fresh frame fails with `:rf.error/image-duplicate-id`. It moves to a final mock image.
+- **`with-redefs` on `rf/dispatch`, `rf/dispatch-sync` or `rf/subscribe`.** In call position these are v2 macros, so the redef compiles and intercepts nothing while the real event runs. A redef that does reach a function value must keep the original's arity set, which only the compiled suite checks.
+- **A throwing "fail if this subscription is touched" double.** v2 recovers a throwing subscription to `nil`, so the guard passes whether or not the forbidden access happens. It becomes a receipt.
 
 ### M-25 (async tests) — `run-test-async` + `wait-for` / `wait-for-event`
 
@@ -361,9 +267,7 @@ M-52 above covers the **synchronous** test surface (`run-test-sync` → `dispatc
 - The listener is **dev/test-only** (the `:trace` stream rides the `re-frame.trace` surface, DCE'd under `:advanced` + `goog.DEBUG=false`) — that is correct for a test runner; do **not** reach for the production observability sink (`register-observability-sink!` against an `:observability :handled-events` policy) here (its record is not trace-shaped and is for production observability, not test waits).
 - For a pure **state-observable** wait (the awaited effect lands in `app-db` rather than via a discrete event — e.g. a debounce that just updates a slice), prefer `re-frame.test-support/poll-until`, which returns a `js/Promise` that composes directly with `cljs.test/async` (`(-> (ts/poll-until pred) (.then ...) (.catch ...))`). Use the `:rf.event/run-end` listener when the contract is "*this event* fired", `poll-until` when it is "*this state* settled".
 - After the `re-frame.test` → `re-frame.test-support` require swap, also drop the `day8/re-frame-test` Maven coord (see M-25 above) — `run-test-async` / `wait-for-event` shipped from it and have no v2 successor symbol; they become the inline shapes above.
-- **The reset fixture is fn-form (sync) by default; async suites need `:async? true`.** `(ts/make-reset-runtime-fixture {:adapter adapter})` returns the synchronous fn-form fixture; an `(async …)` suite must add `:async? true` to get the `{:before :after}` map-form. The map-form `:before` establishes the ambient frame scope with a **persistent `set!`** (a dynamic binding would unwind before the async body resumes), so a **bare** `dispatch-sync` (no explicit `{:frame …}`) inside the async body drains and lands.
-- **Verify a bare test-body `dispatch-sync` actually lands.** This is the silent failure mode of a hand-rolled async fixture: one that `set!`s `*current-frame* :rf/default` but does NOT re-ensure the `:rf/default` frame silences the no-frame-context throw yet `dispatch-sync` **silently does not drain** (it resolves `:rf/default`, finds no frame record, and no-ops). The blessed `:async? true` fixture avoids this by re-installing the adapter + re-ensuring `:rf/default` every `:before` — but if you roll your own, assert a value lands; don't assume it.
-- **The fn/map mixing hazard.** A *sync* ns's fn-form-fixture teardown resets `frames` to `{}`, destroying `:rf/default` for whatever ns runs next in the shared cljs.test runtime. The `:async? true` fixture is robust (its `:before` re-ensures `:rf/default` every test); a fixture that trusts a sibling-left frame is not. And never put a fn fixture and a map fixture in the same `use-fixtures` vector — cljs.test rejects the mix.
+- **Async suites need the `:async? true` map-form reset fixture**, and a hand-rolled one can silence the no-frame-context throw while a bare `dispatch-sync` silently fails to drain. Why the map-form is required, what to verify, and the fn/map mixing hazard are the `re-frame2` skill's [`testing.md` §Async suites](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/cross-cutting/testing.md#async-cljstest-suites--async-true).
 
 ### Test-layer v1 API to v2 mapping
 
