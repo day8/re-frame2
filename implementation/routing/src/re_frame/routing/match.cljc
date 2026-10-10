@@ -156,8 +156,8 @@
   most one splat, which must be final; literal segments percent-encode
   the reserved chars (`: * { } ?`); and `{...}?` optional groups close
   with `}?`, are non-empty, non-nested, wrap a slash-prefixed sub-pattern
-  (the canonical slash-inside spelling, `{/:id}?`),
-  and contain no splats. A pattern may also OPEN with a leading optional
+  (the canonical slash-inside spelling, `{/:id}?`), follow no literal `/`
+  (`/a/{/:id}?` would emit `/a//id`), and contain no splats. A pattern may also OPEN with a leading optional
   group (`{/:base}?/about`)."
   [route-id pattern]
   (cond
@@ -462,10 +462,11 @@
   "Tokenize a canonical, validation-passed route pattern into
   segment-granularity atoms: `[:lit text]`, `:param`, `:splat`, or
   `[:opt [inner…]]`. Returns nil when the pattern is NOT segment-aligned —
-  the degenerate (grammar-permitted but pathological) shapes where an
-  optional group's boundary cuts inside a segment: raw text glued directly
-  after `}?` (`{/x}?abc`), or a group opening right after a top-level `/`
-  (`/a/{/x}?`, whose elided branch leaves an empty segment). Their
+  the degenerate shapes where an optional group's boundary cuts inside a
+  segment: raw text glued directly after `}?` (`{/x}?abc`, grammar-permitted
+  but pathological), or a group opening right after a top-level `/`
+  (`/a/{/x}?`, whose elided branch leaves an empty segment; registration
+  rejects it, and a direct caller can still pass one). Their
   languages are not unions of whole segments; `patterns-intersect?` treats
   nil as conservatively co-matchable so the Spec 012 rule-6 MUST-warn is
   never lost on them."

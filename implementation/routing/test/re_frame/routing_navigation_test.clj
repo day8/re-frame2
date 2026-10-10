@@ -21,7 +21,8 @@
   trace announces: the slice moved or stayed put, in the frame the `:frame`
   tag names, and the URL was pushed or not. A rejected request is rejected in
   both postures; only its diagnostic is dev-only."
-  (:require [clojure.test :refer [deftest is use-fixtures]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.fx :as rf.fx]
             [re-frame.interop :as rf.interop]
@@ -275,7 +276,7 @@
     (try
       (rf/reg-route :route/article
                     {:params (fn [{:keys [id]}]
-                               (clojure.string/starts-with? (or id "") "a"))} "/articles/:id")
+                               (str/starts-with? (or id "") "a"))} "/articles/:id")
       (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "aardvark"}}])
       (reset! pushed [])
       (let [before (nav-slice)

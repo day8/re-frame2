@@ -43,8 +43,9 @@
 
   `:encode` / `:decode` are inverses over the app-relative URL: for every
   path `p`, `(decode (encode p))` is `p` — a pure law, checkable on both hosts
-  without a browser. This round-trip is the property the conformance fixtures
-  pin (both shipped strategies).
+  without a browser. `decode-inverts-encode-for-every-shipped-form`
+  (`routing_url_strategy_test`) pins it for both shipped strategies and their
+  `with-base-path` forms.
 
   TWO STRATEGIES SHIP, and the line holds at two:
   - `history-url-strategy` (the DEFAULT) — HTML5 History, path-form.
@@ -427,8 +428,9 @@
 ;; registration-time `preflight-frame-config!` runs this check at the sole
 ;; frame-config commit chokepoint (`re-frame.frame/upsert-frame!`), BEFORE the
 ;; strategy can ever enter the `frames` store the consult points read. Because
-;; that is the ONE config writer into the store (pinned by the store-invariant
-;; + no-bypass tests in `routing_url_strategy_test`), the four consult points
+;; that is the ONE config writer into the store (`routing_url_strategy_test`'s
+;; `make-frame-engine-rejects-malformed-strategy-before-any-write` pins the
+;; preflight-before-write), the four consult points
 ;; are TRUSTED READS — they resolve an already-validated strategy VERBATIM and
 ;; do NOT re-validate per consult (which would cost `route-link` ~90 ns per
 ;; render). `url-strategy-from-config` keeps only a dev-only
@@ -529,8 +531,9 @@
   re-construction): the `frames` store is the one place a seated
   `:url-strategy` lives, and `re-frame.frame/upsert-frame!` — its only config
   writer — preflights BEFORE the store write, so no code path can seat an
-  unvalidated strategy (pinned by the store-invariant + no-bypass tests in
-  `routing_url_strategy_test`). The consult therefore returns the declared
+  unvalidated strategy (`routing_url_strategy_test`'s
+  `make-frame-engine-rejects-malformed-strategy-before-any-write` pins the
+  preflight-before-write). The consult therefore returns the declared
   strategy VERBATIM and pays NO per-render validation, which would cost ~30x
   the consult itself (~90 ns of `validate-url-strategy!` against a ~3 ns read
   on a declared-strategy frame — dead work re-checking an immutable,

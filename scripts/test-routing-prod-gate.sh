@@ -103,7 +103,7 @@ known_red=(
   #      payload — and a privacy or leak-suppression one certifies a guarantee
   #      the framework never executed.  Put it inside the posture arm and
   #      assert the always-on witness outside it: the PURE fn the emit site
-  #      calls (`resolver/plan-trace-tags`, `address/classify`,
+  #      calls (`resolve/plan-trace-tags`, `address/classify`,
   #      `classification/unpromoted-query-keys`, `match-url`), the declaration
   #      the trace reports (an fx's `:platforms #{:client}`), or the app-db /
   #      runtime-db state the behaviour actually is.
@@ -122,7 +122,7 @@ known_red=(
   #      atom) is not a trace at all, so it is production-visible.
   #
   #    * The `:sensitive` RETENTION (`rf/handler-meta`, both public arities),
-  #      the pure carrier scrub (`egress/redact-url-carriers` /
+  #      the pure carrier scrub (`rf.privacy.url/redact-url-carriers` /
   #      `redact-url-tag`), the in-process rawness, the lowering / re-rooting
   #      into the elision registry and the real SSR `payload-policy` consumer
   #      are production-real and run under the gate.  Only readings OFF THE

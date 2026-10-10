@@ -46,7 +46,8 @@
 (def push-url-args
   "Args of `:rf.nav/push-url` — `:rf.fx.nav/push-url-args`.
   The PATH-FORM app URL to push onto the browser history. Every emit
-  site (`navigate/…`, `decisions/…`, `url-change/…`) threads a
+  site of either history fx (`navigate/…`, `url-change/…`, and
+  `decisions/…` for the leave-block replace) threads a
   `registry/route-url` reconstruction or the requested URL string, so a
   bare `:string` is the exact shape. The strategy `:encode` that maps
   path-form → final href runs INSIDE the handler, after this gate."
