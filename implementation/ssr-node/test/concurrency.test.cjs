@@ -89,7 +89,7 @@ test('a post that THROWS leaves the isolate free, not stuck busy', async () => {
   }
 });
 
-test('a saturated pool REFUSES rather than queueing without a bottom', async () => {
+test('a saturated pool REFUSES once its admission budget expires', async () => {
   await withService('reference', { isolates: 1, admissionTimeoutMs: 20 }, async (service) => {
     const slow = collect(service, req({ state: { ':todos': '[]', ':delay': '250' } }));
     // Let the first request actually take the only isolate.
@@ -100,5 +100,30 @@ test('a saturated pool REFUSES rather than queueing without a bottom', async () 
     await slow;
     const after = await collect(service, req());
     assert.strictEqual(after.chunks.length, 1, 'saturation is back-pressure, not damage');
+  });
+});
+
+test('a full waiting line refuses the next caller at once rather than queueing it', async () => {
+  // At most one caller per isolate waits in `acquire()`. The admission
+  // budget here is ten seconds, so a refusal well inside it can only be the
+  // line's length speaking, not its timer.
+  await withService('reference', { isolates: 1, admissionTimeoutMs: 10000 }, async (service) => {
+    const slow = collect(service, req({ state: { ':todos': '[]', ':delay': '250' } }));
+    await new Promise((r) => setTimeout(r, 30));
+    const queued = collect(service, req());
+    await new Promise((r) => setTimeout(r, 10));
+    assert.strictEqual(service.stats().waiting, 1, 'the second caller must be waiting in acquire()');
+
+    const started = Date.now();
+    const err = await refusalOf(() => collect(service, req()));
+    const elapsed = Date.now() - started;
+    assert.ok(err, 'a caller past a full waiting line must be refused, not queued');
+    assert.strictEqual(err.code, CODE.SERVICE_SATURATED);
+    assert.strictEqual(err.detail.poolSize, 1);
+    assert.ok(elapsed < 200, `refused after ${elapsed} ms; it waited instead of being refused at once`);
+    assert.strictEqual(service.stats().waiting, 1, 'the refused caller must not have joined the line');
+
+    await slow;
+    assert.strictEqual((await queued).chunks.length, 1, 'the caller already waiting is still served');
   });
 });

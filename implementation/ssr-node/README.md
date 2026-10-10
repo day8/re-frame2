@@ -164,9 +164,13 @@ An isolate accepts one render at a time. A second dispatch to a busy
 isolate is a programming error and is refused; the pool never makes one,
 because it only ever hands work to an idle isolate and answers
 `:rf.ssr-node/service-saturated` when the admission budget expires with
-none free. Back-pressure, not an unbounded queue: a request that waits
-forever for capacity is a request whose outcome is being decided by the
-caller's timeout, which is the wrong process deciding.
+none free, or at once when as many callers already wait as the pool has
+isolates. Waiting is bounded twice, in time by the admission budget and in
+length by the pool size, so a burst holds at most two validated requests
+per isolate, one rendering and one waiting, and refuses the rest.
+Back-pressure, not an unbounded queue: a request that waits forever for
+capacity is a request whose outcome is being decided by the caller's
+timeout, which is the wrong process deciding.
 
 The guarantee has a second half: an isolate that is marked busy is busy
 **with something**. `render()` hands the message to `postMessage` before it
@@ -399,7 +403,7 @@ does not carry it, and has no render to have torn.
 | `:rf.ssr-node/render-timeout` | deadline expired; the isolate was terminated |
 | `:rf.ssr-node/render-threw` | the render module threw, emitted nothing, or returned a value |
 | `:rf.ssr-node/isolate-lost` | the worker died mid-render, an exception escaped the render call, or the pool could not replace a terminated isolate |
-| `:rf.ssr-node/service-saturated` | no isolate free within the admission budget |
+| `:rf.ssr-node/service-saturated` | no isolate free within the admission budget, or as many callers already waiting as the pool has isolates |
 | `:rf.ssr-node/service-closed` | the service is shutting down |
 | `:rf.ssr-node/malformed-render-module` | the bundle failed validation at boot, or its worker never became ready — past the boot deadline, or exiting before it |
 
