@@ -153,7 +153,7 @@
         ":feed/loaded populates the user-feed slice")
     (is (= 7 (sub f [:feed/count]))
         "the grand articles-count is stored for pagination")
-    (is (not (sub f [:feed/loading?]))
+    (is (= :loaded (:status (sub f [:feed/slice])))
         "a settled feed load is no longer loading")))
 
 (defn- feed-load-failure-test []

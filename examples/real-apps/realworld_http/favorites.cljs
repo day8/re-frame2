@@ -250,8 +250,6 @@
 (rf/reg-sub :feed/data {:inputs [[:feed/slice]]} (fn [[slice] _] (:data slice)))
 (rf/reg-sub :feed/error {:inputs [[:feed/slice]]} (fn [[slice] _] (:error slice)))
 (rf/reg-sub :feed/count {:inputs [[:feed/slice]]} (fn [[slice] _] (:articles-count slice 0)))
-(rf/reg-sub :feed/loading? {:inputs [[:feed/slice]]}
-  (fn [[slice] _] (#{:loading :fetching} (:status slice))))
 
 (rf/reg-sub :article/favorite-pending?
   {:doc "Is a favourite/unfavourite mutation in flight for THIS slug? The

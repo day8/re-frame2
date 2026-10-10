@@ -776,10 +776,6 @@
     {:inputs [[:rf/machine :ws/connection]]}
     (fn [[snapshot] _] snapshot))
 
-  (rf/reg-sub :ws/state
-    {:inputs [[:ws/snapshot]]}
-    (fn [[snap] _] (:state snap)))
-
   ;; One little yes/no sub per tag. Each chains off the FRAMEWORK sub
   ;; `:rf.machine/has-tag?`, which returns the snapshot's tag-containment bit
   ;; directly — so a view can ask "connected?" and get a boolean without

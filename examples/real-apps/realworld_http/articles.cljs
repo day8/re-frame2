@@ -349,7 +349,7 @@
 ;; The `:tags/data` sub is defined in `realworld-http.tags`, where the
 ;; popular-tags lifecycle lives entirely in a machine: items are read off
 ;; the `:realworld/tags` machine's `:data`, with no app-db slice. The home
-;; view's sidebar below consumes `:tags/data`.
+;; view's sidebar below consumes `:tags/data` and `:tags/error`.
 
 ;; ---- render-priority + :articles.home/render selector ----
 ;;
@@ -536,6 +536,7 @@
         on-global?    @(subscribe [:rf.machine/has-tag? :realworld/articles-home :feed/global])
         tag-filtered? @(subscribe [:rf.machine/has-tag? :realworld/articles-home :filter/tagged])
         tags          @(subscribe [:tags/data])
+        tags-error    @(subscribe [:tags/error])
         render-mode   @(subscribe [:articles.home/render])
         current-page  @(subscribe [:articles.home/current-page])
         page-count    @(subscribe [:articles.home/page-count])]
@@ -583,6 +584,8 @@
        [:div.col-md-3
         [:div.sidebar
          [:p "Popular Tags"]
+         (when tags-error
+           [:div.error-messages tags-error])
          [:div.tag-list
           (for [tag tags]
             ^{:key tag}
