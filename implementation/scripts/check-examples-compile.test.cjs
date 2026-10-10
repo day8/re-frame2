@@ -122,22 +122,10 @@ const CLEAN_OUTPUT = [
   '[:examples/login-helix] Build completed. (196 files, 195 compiled, 0 warnings, 5.47s)',
 ].join('\n');
 
-const FAILED_OUTPUT = [
-  '[:examples/login-uix] Compiling ...',
-  '[:examples/login-uix] Build failed.',
-  'The required namespace "login-uix.missing" is not available.',
-].join('\n');
-
 it('parseBuildSummaries reads the completed build ids in output order', () => {
   assert.deepStrictEqual(parseBuildSummaries(CLEAN_OUTPUT), {
     completed: [':examples/login-uix', ':examples/login-helix'],
-    failed: [],
   });
-});
-
-it('a hard "Build failed" is surfaced via parseBuildSummaries.failed', () => {
-  const { failed } = parseBuildSummaries(FAILED_OUTPUT);
-  assert.deepStrictEqual(failed, [':examples/login-uix']);
 });
 
 // A clean exit is not proof every requested build was compiled: a missing,

@@ -237,14 +237,13 @@ function verifyRoster(rows, impl = IMPL) {
 // a summary the parser cannot find is a REFUSAL rather than a pass. The same
 // judgement the bench lane's `lane_build.cjs` makes, carried here rather than
 // required across the boundary — the lane is off this package's classpath on
-// purpose. The two other readers of this line,
-// `scripts/check-examples-compile.cjs` and `scripts/compile-node-test.cjs`,
-// are deliberately not unified with it.
+// purpose. The one other reader of this line,
+// `scripts/check-examples-compile.cjs`, reads no count and is deliberately not
+// unified with it.
 // ---------------------------------------------------------------------------
 
 const ANSI_RE = /\x1B\[[0-9;]*m/g;
 const COMPLETED_RE = /\[(:[^\]\s]+)\]\s+Build completed\.[^\n]*?(\d+)\s+warnings?/g;
-const FAILED_RE = /\[(:[^\]\s]+)\]\s+Build failed/g;
 const WARNING_MARKER_RE = /-{2,}\s*WARNING #/;
 const WARNING_HEADLINE_RE = /-{2,}\s*(WARNING #[^\n]*?)\s*-{3,}\s*$/gm;
 
@@ -256,20 +255,17 @@ function stripAnsi(s) {
 function judgeBuild({ status, output }) {
   const src = stripAnsi(output);
   const completed = [];
-  const failed = [];
   let m;
   COMPLETED_RE.lastIndex = 0;
   while ((m = COMPLETED_RE.exec(src)) !== null) {
     completed.push({ build: m[1], warnings: Number(m[2]) });
   }
-  FAILED_RE.lastIndex = 0;
-  while ((m = FAILED_RE.exec(src)) !== null) failed.push(m[1]);
 
   if (status !== 0) {
     return {
       ok: false,
       reason: `shadow-cljs exited ${status}`,
-      detail: failed.length > 0 ? [`failed build(s): ${failed.join(', ')}`] : ['see the compiler output above'],
+      detail: ['see the compiler output above'],
     };
   }
   if (completed.length === 0) {

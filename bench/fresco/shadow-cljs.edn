@@ -70,14 +70,19 @@
   ;; measures. A plain `:browser` module with an `:init-fn` rather than a test
   ;; build, since `:advanced` cannot compile `:browser-test`. No `:dev-http`
   ;; — compiled and driven, never served.
+  ;;
+  ;; Warnings-fatal however it is compiled, not only through `lane_build.cjs`:
+  ;; under `:advanced` an undeclared var is `undefined` at its call site, so a
+  ;; warned build can measure a different program than the one it names.
   :fresco-bench
   {:target     :browser
    :output-dir "out/fresco-bench"
    :asset-path "."
    :js-options {:node-modules-dir "../../implementation/node_modules"}
-   :compiler-options {:optimizations   :advanced
-                      :infer-externs   :auto
-                      :closure-defines {goog.DEBUG false}}
+   :compiler-options {:warnings-as-errors true
+                      :optimizations      :advanced
+                      :infer-externs      :auto
+                      :closure-defines    {goog.DEBUG false}}
    :modules {:main {:init-fn re-frame.bench.fresco.p0-reagent-app/-main}}}
 
   ;; THE SAME LANE'S NODE PROGRAM ID. Two drivers need a program under Node:

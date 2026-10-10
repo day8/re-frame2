@@ -73,6 +73,10 @@
    :main      re-frame.test-quiet.shadow-node/main
    ;; The same two suppressions the consolidated `:node-test` build carries and
    ;; for the same reasons: test code redefines freely, and externs inference is
-   ;; irrelevant to an un-minified Node run.
-   :compiler-options {:warnings      {:redef false}
-                      :infer-externs false}}}}
+   ;; irrelevant to an un-minified Node run. Warnings-fatal like every
+   ;; `:node-test` build there, and nothing else would fail this lane on one:
+   ;; `test:tools-machines-viz` compiles through the bare shadow-cljs CLI, and a
+   ;; warning in a test namespace still lets the suite pass.
+   :compiler-options {:warnings-as-errors true
+                      :warnings           {:redef false}
+                      :infer-externs      false}}}}
