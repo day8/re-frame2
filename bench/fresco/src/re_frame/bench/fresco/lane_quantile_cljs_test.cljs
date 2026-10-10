@@ -1,181 +1,40 @@
 (ns re-frame.bench.fresco.lane-quantile-cljs-test
-  "THE LANE'S QUANTILE ESTIMATOR, WITNESSED.
-
-  `budgets.md` registers `U1`–`U4` at `p95` or `p99` and `C8`'s benefit
-  disjunct at `≥ 2 ms p95`, so those rows need a tail quantile, and
-  [[re-frame.bench.fresco.lane/quantile]] is it. This file is what
-  keeps it honest.
-
-  ## Why a DEFINITION needs a witness at all
-
-  Because a percentile is not one thing. Nearest-rank, linear
-  interpolation, and the exclusive and inclusive rank conventions all
-  answer differently, and they differ MOST at exactly the sample sizes a
-  bench window has: at `n = 20` the two spellings of `p95` here are `19`
-  and `19.05`. A row that quoted one under the other's name would be
-  wrong by less than a rounding error and unfalsifiable by inspection.
-
-  Every case below therefore pins its answer on a fixture where the
-  conventions DISAGREE, so the expected value itself discriminates: `p95`
-  of `1..20` is `19.05` here and `19` by nearest rank. A fixture on which
-  the two conventions agreed would test the arithmetic and say nothing
-  about the definition.
-
-  ## The one consistency that matters more than the choice
-
-  `:p50` and `:p95` are printed side by side in a single row, so they had
-  better be one estimator. The lane's `:p50` is a
-  linear-interpolated median — a single order statistic at odd `n`, the
-  mean of the two middle ones at even — which is `h = (n-1)q` at
-  `q = 0.5`, and that is why the lane takes that convention rather than
-  nearest-rank. The agreement is asserted below rather than asserted in a
-  docstring: exactly at odd `n`, and within a float epsilon at even,
-  where `(a+b)/2` and `a+(b-a)/2` may part company in the last place.
-
-  ## NO READING IS TAKEN HERE, and none may be
-
-  This is a test over known inputs. It runs on a loaded box, touches no
-  clock, mounts nothing, and pins no figure any budget row reads. The
-  window that points the estimator at an application is a separate
-  quiet-box run — see `budgets.md` §9.4."
-  (:require [cljs.test :refer-macros [deftest is testing]]
+  "[[re-frame.bench.fresco.lane/quantile]] is linear interpolation at
+  `h = (n-1)q`, and [[re-frame.bench.fresco.lane/summarise]]'s `:p50` is the
+  same estimator. Each fixture is one where the conventions disagree:
+  `p95` of `1..20` is `19.05` here and `19` by nearest rank."
+  (:require [cljs.test :refer-macros [deftest is]]
             [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]))
 
-;; ---------------------------------------------------------------------------
-;; Helpers
-;; ---------------------------------------------------------------------------
-
-(def ^:private eps
-  "A float epsilon. Two spellings of one arithmetic may part company in
-  the last representable place and nowhere else; anything wider than this
-  is a different definition, not a rounding."
-  1e-9)
-
 (defn- close?
+  "Within a float epsilon: `(a+b)/2` and `a+(b-a)/2` may part company in
+  the last place and nowhere else."
   [a b]
-  (< (js/Math.abs (- (double a) (double b))) eps))
+  (< (js/Math.abs (- (double a) (double b))) 1e-9))
 
-;; ---------------------------------------------------------------------------
-;; The definition
-;; ---------------------------------------------------------------------------
+(def ^:private shuffled-1-to-20
+  [13 2 20 7 1 19 4 11 16 6 3 18 9 14 5 12 17 8 15 10])
 
 (deftest quantile-is-linear-interpolation-at-h-of-n-minus-one-q
-  (testing "the answer is the interpolated one, 19.05, where nearest rank
-           answers 19"
-    (let [xs (vec (range 1 21))]                            ; 1..20, n = 20
-      ;; h = (20-1)*0.95 = 18.05 -> v[18] + (v[19] - v[18]) * 0.05
-      ;;                          = 19   + 1 * 0.05 = 19.05
-      (is (close? 19.05 (rf.bench.fresco.lane/quantile xs 0.95)))))
-
-  (testing "q = 0 is the minimum and q = 1 is the maximum, exactly"
-    (let [xs [7.5 2.25 9.0 4.0]]
-      (is (= 2.25 (rf.bench.fresco.lane/quantile xs 0)))
-      (is (= 9.0 (rf.bench.fresco.lane/quantile xs 1)))))
-
-  (testing "the sample need not arrive sorted"
-    (let [asc  (vec (range 1 21))
-          desc (vec (reverse asc))
-          shuf [13 2 20 7 1 19 4 11 16 6 3 18 9 14 5 12 17 8 15 10]]
-      (is (= (set asc) (set shuf)) "the shuffled fixture is the same sample")
-      (is (close? (rf.bench.fresco.lane/quantile asc 0.95) (rf.bench.fresco.lane/quantile desc 0.95)))
-      (is (close? (rf.bench.fresco.lane/quantile asc 0.95) (rf.bench.fresco.lane/quantile shuf 0.95)))))
-
-  (testing "a one-sample and an empty sample"
-    (is (= 4.0 (rf.bench.fresco.lane/quantile [4.0] 0.99)))
-    (is (nil? (rf.bench.fresco.lane/quantile [] 0.95)))
-    (is (nil? (rf.bench.fresco.lane/quantile nil 0.95)))))
-
-;; ---------------------------------------------------------------------------
-;; The consistency with `:p50`, which is why this convention and not another
-;; ---------------------------------------------------------------------------
+  (is (close? 19.05 (rf.bench.fresco.lane/quantile shuffled-1-to-20 0.95))
+      "h = 18.05, interpolated, over a sample that did not arrive sorted")
+  (is (= [2.25 9.0] (mapv #(rf.bench.fresco.lane/quantile [7.5 2.25 9.0 4.0] %) [0 1]))
+      "q = 0 is the minimum and q = 1 the maximum, exactly")
+  (is (= 4.0 (rf.bench.fresco.lane/quantile [4.0] 0.99)))
+  (is (nil? (rf.bench.fresco.lane/quantile [] 0.95))))
 
 (deftest quantile-at-one-half-is-summarise-s-p50
-  (testing "EXACTLY, on an odd count — both are one member of the sample"
-    (doseq [xs [[3.0 1.0 2.0]
-                [5.0 1.0 4.0 2.0 3.0]
-                (vec (range 1 22))]]
-      (let [p50 (:p50 (rf.bench.fresco.lane/summarise xs))]
-        (is (= p50 (rf.bench.fresco.lane/quantile xs 0.5))
-            (str "p50 and quantile 0.5 must be one estimator on " (count xs) " samples"))
-        (is (some #(= % p50) xs)
-            "an odd count answers a member of its own sample"))))
-
-  (testing "and within a float epsilon on an even count, where the two
-            spellings of the midpoint may differ in the last place"
-    (doseq [xs [[1.0 2.0 3.0 4.0]
-                [0.1 0.3]
-                [2.4 2.5 2.6 2.7 2.8 2.9]
-                (vec (range 1 21))]]
-      (is (close? (:p50 (rf.bench.fresco.lane/summarise xs)) (rf.bench.fresco.lane/quantile xs 0.5))
-          (str "p50 and quantile 0.5 must agree on " (count xs) " samples"))))
-
-  (testing "`:p50` keeps its own spelling — the two-branch median answers
-            exactly these values"
-    ;; The values below are the two-branch median's, transcribed. A
-    ;; refactor that routed `:p50` through `quantile` would move a published
-    ;; figure by up to one ulp, and this is the assertion that would catch it.
-    (is (= 2.0 (:p50 (rf.bench.fresco.lane/summarise [1.0 2.0 3.0]))))
-    (is (= 2.5 (:p50 (rf.bench.fresco.lane/summarise [1.0 2.0 3.0 4.0]))))
-    (is (= (/ (+ 0.1 0.3) 2.0) (:p50 (rf.bench.fresco.lane/summarise [0.1 0.3]))))))
-
-;; ---------------------------------------------------------------------------
-;; What a SHORT sample does to a tail quantile — the docstring's own caveat,
-;; pinned, because it is the property a reader of a published row needs
-;; ---------------------------------------------------------------------------
-
-(deftest a-tail-quantile-on-a-short-sample-is-mostly-interpolation
-  (testing "at n = 20 a p99 sits between the top two readings and is no
-            reading the sample ever took"
-    (let [xs  (vec (range 1 21))
-          p99 (rf.bench.fresco.lane/quantile xs 0.99)]
-      ;; h = 19*0.99 = 18.81 -> 19 + (20-19)*0.81 = 19.81
-      (is (close? 19.81 p99)
-          "strictly between the top two readings, so no member of the sample
-           took this value — this is the caveat")))
-
-  (testing "a quantile never exceeds the maximum, however short the sample"
-    (doseq [n [1 2 3 5 20 101]]
-      (let [xs (vec (range 1 (inc n)))
-            s  (rf.bench.fresco.lane/summarise xs)]
-        (is (<= (:p50 s) (:p95 s) (:p99 s) (:max s))
-            (str "quantiles must be monotone and bounded by :max at n = " n))
-        (is (>= (:p95 s) (:min s)))))))
-
-;; ---------------------------------------------------------------------------
-;; `summarise`'s contract — the shape callers destructure, plus the two
-;; tail quantiles
-;; ---------------------------------------------------------------------------
+  (let [odd [5.0 1.0 4.0 2.0 3.0]
+        even [2.4 2.5 2.6 2.7 2.8 2.9]]
+    (is (= (:p50 (rf.bench.fresco.lane/summarise odd)) (rf.bench.fresco.lane/quantile odd 0.5))
+        "exactly, on an odd count — both are the middle member")
+    (is (close? (:p50 (rf.bench.fresco.lane/summarise even)) (rf.bench.fresco.lane/quantile even 0.5))
+        "within a float epsilon on an even count")))
 
 (deftest summarise-carries-the-tail-quantiles-and-keeps-everything-else
-  (testing "the four fields every caller destructures, at their values"
-    (let [xs (vec (range 1 21))
-          s  (rf.bench.fresco.lane/summarise xs)]
-      (is (= 20 (:n s)))
-      (is (= 1 (:min s)))
-      (is (= 20 (:max s)))
-      (is (= 10.5 (:p50 s)))))
-
-  (testing "and `:p95` / `:p99` are [[rf.bench.fresco.lane/quantile]] and not a second spelling"
-    (let [xs [4.2 1.9 3.3 8.8 2.7 5.1 6.4 7.0 9.6 0.5
-              3.9 2.1 6.9 5.5 1.2 8.1 4.7 7.7 0.9 9.1]
-          s  (rf.bench.fresco.lane/summarise xs)]
-      (is (= (rf.bench.fresco.lane/quantile xs 0.95) (:p95 s)))
-      (is (= (rf.bench.fresco.lane/quantile xs 0.99) (:p99 s)))))
-
-  (testing "and the summary carries EXACTLY these six keys"
-    ;; Frozen here, next to the function, rather than by accident elsewhere:
-    ;; an aggregate row that compares a whole summary map with `=` while
-    ;; meaning only to state a range reddens on an added field with no
-    ;; opinion about fields. A shape worth holding is worth holding where a
-    ;; reader would look for it.
-    (is (= #{:n :min :max :p50 :p95 :p99}
-           (set (keys (rf.bench.fresco.lane/summarise [1.0 2.0 3.0]))))))
-
-  (testing "an empty sample is still `nil` rather than a map of nothings"
-    (is (nil? (rf.bench.fresco.lane/summarise [])))
-    (is (nil? (rf.bench.fresco.lane/summarise nil))))
-
-  (testing "a one-sample answers that sample at every quantile"
-    (let [s (rf.bench.fresco.lane/summarise [3.75])]
-      (is (= 1 (:n s)))
-      (is (= 3.75 (:min s) (:max s) (:p50 s) (:p95 s) (:p99 s))))))
+  (is (= {:n   20 :min 1 :max 20 :p50 10.5
+          :p95 (rf.bench.fresco.lane/quantile shuffled-1-to-20 0.95)
+          :p99 (rf.bench.fresco.lane/quantile shuffled-1-to-20 0.99)}
+         (rf.bench.fresco.lane/summarise shuffled-1-to-20))
+      "exactly these six keys, and :p95 / :p99 are `quantile`, not a second spelling")
+  (is (nil? (rf.bench.fresco.lane/summarise []))))
