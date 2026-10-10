@@ -61,9 +61,8 @@
               refreshing (step loaded :items/load-start)
               failed (step refreshing :items/load-failure :offline)
               recovered (step failed :items/load-success [{:id 2}])]
-          (is (= :loaded (get-in loaded [:items :status])))
-          (is (= :fetching (get-in refreshing [:items :status])))
-          (is (= data (get-in refreshing [:items :data])))
+          (is (= {:status :loaded :data data :error nil} (:items loaded)))
+          (is (= {:status :fetching :data data :error nil} (:items refreshing)))
           (is (= {:status :error :data data :error :offline} (:items failed)))
           (is (= {:status :loaded :data [{:id 2}] :error nil} (:items recovered))))))))
 
