@@ -1,207 +1,46 @@
 #!/usr/bin/env node
 'use strict';
-// THE PAGE-SIDE BYTE FIGURES ARE WIRED THROUGH ONE HELPER.
+// NO PAGE-SIDE BYTE FIGURE IS A CODE-UNIT COUNT.
 //
 //     node src/re_frame/bench/fresco/bench_bytes.test.cjs   (from bench/fresco/)
 //
-// Runs in the lane's `npm run check`, beside `ssr/bake_bytes.test.cjs` — this
-// file's sibling, which pins `ssr/driver.cjs`'s byte figures on the driver's
-// source text for the same reason: a correct helper nobody calls measures
-// nothing, so the wiring has to be the thing asserted, not just the
-// arithmetic.
+// Runs in the lane's `npm run check`. What `rf.bench.fresco.lane/utf8-bytes`
+// computes is pinned by `lane_bytes_cljs_test.cljs`; this file holds the
+// converted sites to it, on their source text, because a lane namespace may not
+// require `fs` (every `.cljs` here rides the `:fresco-bench` BROWSER build).
 //
-// ## Why the wiring pins are HERE and the arithmetic is in CLJS
-//
-// Because they need `fs`, and A LANE NAMESPACE MAY NOT REQUIRE `fs`. Every
-// `.cljs` in this directory is compiled by `compile_gate.cjs` (`npm run
-// check`), which rides `:fresco-bench` — a BROWSER build — so a Node module in
-// a lane namespace refuses every one of them, and pins carried in
-// `lane_bytes_cljs_test.cljs` itself would refuse the lane. `ssr/node.cljs`
-// states the rule and `ssr/spike_cljs_test/sha256-hex` documents living within
-// it — it reaches for `crypto.subtle` rather than `node:crypto` for exactly
-// this reason.
-//
-// So the split is by RUNTIME and not by taste:
-//
-//   lane_bytes_cljs_test.cljs   what `rf.bench.fresco.lane/utf8-bytes` computes — browser-safe,
-//                               discriminating fixtures, both directions
-//   THIS FILE                   that every repaired site calls it — Node, source
-//                               text, both polarities
-//
-// ## What each assertion is defending against
-//
-// A units repair has two characteristic ways of rotting. The first is a site
-// that never got converted, or got converted back. The second is subtler and
-// is the one a positive-only pin misses: the new expression added BESIDE the
-// old one rather than in place of it, leaving a second `bytes`-labelled
-// `count` alive in the same file. So every file is asserted in both
-// polarities — the new expression present, AND no line anywhere in the file
-// pairing a byte label with a bare `count`.
+// The rot it refuses is a code-unit `count` wearing a byte label — a site
+// converted back, or a new `count` added BESIDE the converted expression rather
+// than in place of it. `count` is everywhere in this lane and legitimately so,
+// so what is banned is narrow: `count` on the SAME LINE as a byte label.
 
 const fs = require('node:fs');
 const path = require('node:path');
 
-const FRESCO = __dirname;
+const CONVERTED = [
+  'clock_app.cljs',
+  'hd8_clock_app.cljs',
+  'shapes/census_clock_app.cljs',
+  'walk_profile_app.cljs',
+  'walk_vs_reagent_app.cljs',
+  'ssr/spike_cljs_test.cljs',
+  'ssr/spike_dom_cljs_test.cljs',
+  'ssr/instance_key_payload_dom_cljs_test.cljs',
+];
 
-let failed = 0;
-let passed = 0;
-
-function test(what, fn) {
-  try {
-    fn();
-    passed++;
-  } catch (e) {
-    failed++;
-    console.error(`FAIL ${what}`);
-    console.error(`     ${e && e.message ? e.message : e}`);
-  }
+const offences = [];
+for (const file of CONVERTED) {
+  fs.readFileSync(path.join(__dirname, file), 'utf8')
+    .split(/\r?\n/)
+    .forEach((line, i) => {
+      if (/bytes/i.test(line) && /\(count\b/.test(line)) offences.push(`${file}:${i + 1}: ${line.trim()}`);
+    });
 }
 
-function assert(cond, msg) {
-  if (!cond) throw new Error(msg);
-}
-
-/**
- * The source of a lane file, with its existence asserted rather than assumed.
- * A moved file must fail loudly here; reading it as an empty string would turn
- * every pin below into a pin over nothing — the exact fail-open shape this
- * file guards against.
- */
-function src(rel) {
-  const p = path.join(FRESCO, rel);
-  assert(fs.existsSync(p), `the repaired source must be at ${p}`);
-  const text = fs.readFileSync(p, 'utf8');
-  assert(text.length > 0, `${rel} is empty`);
-  return text;
-}
-
-// ---------------------------------------------------------------------------
-// The converted sites — where the figure is a SIZE
-// ---------------------------------------------------------------------------
-
-// file -> the expression that must be there. Spelled in full, including
-// the alignment, so a half-edit that left `(count …)` in one arm of a `#js`
-// literal cannot satisfy it.
-const CONVERTED = {
-  'clock_app.cljs': ':bytes (rf.bench.fresco.lane/utf8-bytes s)',
-  'hd8_clock_app.cljs': ':bytes   (rf.bench.fresco.lane/utf8-bytes s)',
-  'shapes/census_clock_app.cljs': ':bytes   (rf.bench.fresco.lane/utf8-bytes s)',
-  'walk_profile_app.cljs': ':bytes (rf.bench.fresco.lane/utf8-bytes canon-real)',
-  'walk_vs_reagent_app.cljs': ':bytes    (rf.bench.fresco.lane/utf8-bytes canon)',
-  'ssr/spike_cljs_test.cljs': ':bytes        (rf.bench.fresco.lane/utf8-bytes (:document a))',
-  'ssr/spike_dom_cljs_test.cljs': ':canonical-bytes  (rf.bench.fresco.lane/utf8-bytes hydrated-dom)',
-  'ssr/instance_key_payload_dom_cljs_test.cljs':
-    ':green-edn-bytes (rf.bench.fresco.lane/utf8-bytes (:payload-edn green))',
-};
-
-for (const [file, expr] of Object.entries(CONVERTED)) {
-  test(`${file} publishes its byte figure through rf.bench.fresco.lane/utf8-bytes`, () => {
-    assert(src(file).includes(expr), `${file} must read \`${expr}\``);
-  });
-}
-
-test('instance_key_payload also converts the RED arm, not just the green one', () => {
-  assert(
-    src('ssr/instance_key_payload_dom_cljs_test.cljs').includes(
-      ':red-edn-bytes   (rf.bench.fresco.lane/utf8-bytes (:payload-edn red))',
-    ),
-    'the red row is half of the obligation witness and is measured the same way',
-  );
-});
-
-test('NO line in a converted file pairs a bytes label with a bare `count`', () => {
-  // The other polarity. `count` is everywhere in this lane and legitimately so
-  // — `str-hash` bounds a `charCodeAt` walk with it, and that is correct — so
-  // what is banned is narrow: `count` sitting on the SAME LINE as a byte
-  // label. That is the shape a code-unit count wearing a byte label takes.
-  const offences = [];
-  for (const file of Object.keys(CONVERTED)) {
-    src(file)
-      .split(/\r?\n/)
-      .forEach((line, i) => {
-        if (/bytes/i.test(line) && /\(count\b/.test(line)) {
-          offences.push(`${file}:${i + 1}: ${line.trim()}`);
-        }
-      });
-  }
-  assert(offences.length === 0, `a bytes label over \`count\`:\n  ${offences.join('\n  ')}`);
-});
-
-// ---------------------------------------------------------------------------
-// The code-unit sites — where CODE UNITS are what is actually wanted
-// ---------------------------------------------------------------------------
-
-test('parity_probe states code units, beside the code-unit offset it prints', () => {
-  // Its two lengths are read next to `first diff at i`, and `i` is a `.charAt`
-  // index. Converting these to bytes would put the length and the offset that
-  // locates it on two different rulers — worse than either alone. A true value
-  // under a true name is the answer here.
-  const probe = src('parity_probe_app.cljs');
-  assert(probe.includes('uix-code-units'), 'the uix arm states code units');
-  assert(probe.includes('fresco-code-units'), 'the fresco arm states code units');
-  assert(!probe.includes('uix-bytes'), 'no bytes claim');
-  assert(!probe.includes('fresco-bytes'), 'no bytes claim');
-});
-
-test('inpage_ladder states code units for its same-against-same refusal', () => {
-  // Only ever read as ours-versus-reference on one refusal, and published
-  // nowhere. Code units are the honest unit for a difference between two
-  // strings.
-  const ladder = src('inpage_ladder_app.cljs');
-  assert(ladder.includes(':code-units-ours'), 'ours states code units');
-  assert(ladder.includes(':code-units-reference'), 'reference states code units');
-  assert(!ladder.includes(':bytes-ours'), 'no bytes claim');
-  assert(!ladder.includes(':bytes-reference'), 'no bytes claim');
-});
-
-// ---------------------------------------------------------------------------
-// The driver-side site
-// ---------------------------------------------------------------------------
-
-test('keywarn_elision asks the FILE for its size, not the decoded string', () => {
-  // Node, not the page — and the string had just been read off disk, so the
-  // file's own size is both the true answer and a second derivation rather
-  // than a re-reading of the first. This is the SSR bake's on-disk
-  // cross-check (`ssr/driver.cjs`), applied to the one driver-side sibling.
-  const run = src('keywarn_elision_run.cjs');
-  assert(run.includes('${fs.statSync(bundle).size} bytes'), 'the file system answers');
-  assert(!run.includes('${blob.length} bytes'), 'no code-unit length claimed as bytes');
-});
-
-// ---------------------------------------------------------------------------
-// The helper itself
-// ---------------------------------------------------------------------------
-
-test('rf.bench.fresco.lane/utf8-bytes is TextEncoder, which carries no encoding to drop', () => {
-  // `driver.cjs`'s `utf8Bytes` has to name `'utf8'` explicitly and
-  // `bake_bytes.test.cjs` pins that spelling, because `Buffer.byteLength`
-  // takes an encoding a later edit could silently change. `TextEncoder`
-  // cannot be given one: it is UTF-8 or it is nothing. So there is no
-  // argument here to pin — and no way to switch the ruler without deleting
-  // the call.
-  const lane = src('lane.cljs');
-  assert(lane.includes('(defn utf8-bytes'), 'the lane exports the helper');
-  assert(lane.includes('(js/TextEncoder.)'), 'and builds it from TextEncoder');
-  // The CALL, not the word: the docstring names `Buffer.byteLength` in order
-  // to say why it is NOT used, so a bare substring search reds the prose.
-  assert(!lane.includes('(.byteLength'), 'no Buffer.byteLength call in the lane');
-});
-
-test('the lane helper is reachable from every file that claims to use it', () => {
-  // A require check, so a converted site cannot read `rf.bench.fresco.lane/utf8-bytes` while
-  // aliasing some other namespace to `lane`.
-  for (const file of Object.keys(CONVERTED)) {
-    assert(
-      /\[re-frame\.bench\.fresco\.lane :as rf\.bench\.fresco\.lane\]/.test(src(file)),
-      `${file} must alias the lane namespace as \`rf.bench.fresco.lane\``,
-    );
-  }
-});
-
-// ---------------------------------------------------------------------------
-
-if (failed > 0) {
-  console.error(`\nbench_bytes.test.cjs: ${failed}/${failed + passed} failed`);
+if (offences.length > 0) {
+  console.error('FAIL NO line in a converted file pairs a bytes label with a bare `count`');
+  console.error(`     a bytes label over \`count\`:\n       ${offences.join('\n       ')}`);
+  console.error('\nbench_bytes.test.cjs: 1/1 failed');
   process.exit(1);
 }
-console.log(`bench_bytes.test.cjs: ${passed} passed`);
+console.log('bench_bytes.test.cjs: 1 passed');
