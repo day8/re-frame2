@@ -474,18 +474,15 @@
 
 (defn- wire-section
   "Wire timing section. When the surface emits per-phase wire data we
-  render the waterfall; when only synthesised round-trip is available
-  we render the single bar; when nothing is available we render the
-  documented `n/a` placeholder per the divergence allowance."
+  render the waterfall; when there is nothing to draw — no phases, or
+  phases that are all zero-length — we render the documented `n/a`
+  placeholder per the divergence allowance."
   [{:keys [wire]}]
-  (cond
-    (and wire (seq (:phases wire)))
-    (waterfall/render wire)
-
-    :else
-    [:div {:data-testid "rf-xray-managed-fx-wire-na"
-           :style {:color (:text-tertiary tokens) :font-style "italic"}}
-     "n/a — this surface does not emit per-phase wire timing today."]))
+  (or (when (seq (:phases wire))
+        (waterfall/render wire))
+      [:div {:data-testid "rf-xray-managed-fx-wire-na"
+             :style {:color (:text-tertiary tokens) :font-style "italic"}}
+       "n/a — this surface does not emit per-phase wire timing today."]))
 
 (defn- response-section
   [instance {:keys [res surface failure] :as record}]

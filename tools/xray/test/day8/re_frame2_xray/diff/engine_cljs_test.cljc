@@ -76,6 +76,17 @@
       (is (= slots (after-slots p [] (count after)))
           (pr-str before '-> after)))))
 
+(deftest r6-a-shifted-element-that-changed-inside-reads-as-changed
+  ;; Moving is not the only thing that happened to it: the row reads its
+  ;; changed subtree, and the move still rides the `(was N)` suffix.
+  (let [p (engine/project {:xs [{:a 1} {:b 1}]} {:xs [{:z 0} {:a 1} {:b 2}]})]
+    (is (= [:children 1 1]
+           [(engine/op-at p [:xs 2])
+            (engine/change-count-at p [:xs 2])
+            (engine/shifted-was-index p [:xs 2])]))
+    (is (= :same-shifted (engine/op-at p [:xs 1]))
+        "an element that only moved still reads as shifted")))
+
 (deftest gwye-10-multi-element-sequential-emptied-reports-every-removal
   ;; An emptied collection's `:-` edits replay against the SHRINKING sequence,
   ;; so they must descend; ascending ones name the wrong elements.

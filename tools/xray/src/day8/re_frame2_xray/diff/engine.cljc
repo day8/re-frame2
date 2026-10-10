@@ -1219,12 +1219,18 @@
   "Lookup the op tag at `path` in `projection`. Returns one of `:added /
   :removed / :modified / :same / :same-shifted / :children` (the last
   for container paths whose subtree differs). Returns `:same` for paths
-  with no entry."
+  with no entry.
+
+  A vector element that moved AND changed inside reads as its container
+  op, not `:same-shifted`: the move is only half of what happened to it,
+  and the move stays readable through `shifted-was-index`."
   [projection path]
-  (let [path (vec path)]
-    (or (:op (get-in projection [:path-ops path]))
-        (:op (get-in projection [:container-ops path]))
-        :same)))
+  (let [path      (vec path)
+        leaf      (:op (get-in projection [:path-ops path]))
+        container (:op (get-in projection [:container-ops path]))]
+    (if (and (= :same-shifted leaf) container)
+      container
+      (or leaf container :same))))
 
 (defn entry-at
   "Lookup the full op map at `path`. Returns `nil` for `:same` slots."
