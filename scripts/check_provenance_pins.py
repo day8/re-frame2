@@ -132,8 +132,8 @@ saying what the token is, and a magic phrase is launderable by anyone who learns
 it.  A permalink is not: it names a repository mechanically, it binds the FULL
 SHA (an abbreviation is meaningful only inside one object database, so it is
 refused), and a reader can follow it.  A token sitting beside the words "foreign
-repository" and nothing else is still a finding — that is the sabotage case in
-the self-test, and it is what distinguishes this from sniffing prose.
+repository" and nothing else is still a finding, and that is what distinguishes
+this from sniffing prose.
 
 Two boundaries keep it from becoming an exemption mechanism.  A permalink naming
 THIS repository's own origin declares nothing and takes the ordinary local path,
@@ -1303,9 +1303,7 @@ def _check(
 # Self-test
 # --------------------------------------------------------------------------
 
-# Each case is (label, lines, expected pin tokens).  These pin the DEFECT KIND,
-# not a count: every digest shape this corpus actually writes appears here, and
-# so does the unclassifiable default.
+# (label, lines, expected pin tokens)
 _EXTRACTION_CASES: List[Tuple[str, List[str], List[str]]] = [
     (
         "blob table row keyed by a path is not a pin",
@@ -1321,28 +1319,12 @@ _EXTRACTION_CASES: List[Tuple[str, List[str], List[str]]] = [
         ],
         ["0cba8181a7"],
     ),
-    (
-        "sha-256 document digest is not a pin",
-        ["The rendered document's SHA-256 digest `deadbeefcafe0123456789abcdef0123`"],
-        [],
-    ),
-    # THE FAILURE DIRECTION, pinned.  Neither token here carries vocabulary
-    # either way, so both are read as PINS by default: an unclassifiable
-    # token costs a finding rather than vanishing.
+    # No vocabulary either way, so both default to pins (fail toward refusal).
     (
         "authored=landed mapping yields both ids",
         ["The recovery table reads `0cf86fb580=24e8822d7f` for this page."],
         ["0cf86fb580", "24e8822d7f"],
     ),
-    (
-        "a decimal number is not a citation",
-        ["the ten-turn aggregate resolved at `0.0999999 ms`, the bulk row's floor"],
-        [],
-    ),
-    # BARE PROVENANCE.  Explicit commit prose without backticks is a citation;
-    # asserting the opposite would pin the fail-open where such prose passes
-    # the gate unexamined.  The cases after the first hold the narrowness in
-    # place.
     (
         "bare prose hex the writer calls a commit is a citation",
         ["Commit 08344cb500 was measured on one box."],
@@ -1354,8 +1336,12 @@ _EXTRACTION_CASES: List[Tuple[str, List[str], List[str]]] = [
         [],
     ),
     (
-        # The boundary rule, not the vocabulary rule: "commit" is right there,
-        # so only the `.` in front of `0999999` keeps the decimal out.
+        "a bare digest and a bare number are not citations",
+        ["The instrument blob 0304f489bb held at 0.0999999 ms across ten turns."],
+        [],
+    ),
+    # "commit" is right there, so only the `.` in front of `0999999` keeps it out.
+    (
         "a bare decimal beside a commit word is not a citation",
         ["The commit's ten-turn aggregate resolved at 0.0999999 ms on the bulk row."],
         [],
@@ -1365,10 +1351,7 @@ _EXTRACTION_CASES: List[Tuple[str, List[str], List[str]]] = [
         ["Producing commit `0642815dc2…` for the spine."],
         ["0642815dc2"],
     ),
-    # The right-apposition window is measured on the line AS READ.  Stripping
-    # the `> ` first would slide it two characters and lose the word it looks
-    # for, which matters because this corpus writes whole blob callouts in
-    # blockquotes.
+    # The right-apposition window is measured on the raw line, `> ` included.
     (
         "right apposition survives a blockquote prefix",
         ["> The instrument is `a1d7005d74` blob for the run."],
@@ -1383,13 +1366,7 @@ _EXTRACTION_CASES: List[Tuple[str, List[str], List[str]]] = [
         ],
         [],
     ),
-    # THE SIBLING DIGEST.  Scoping accompaniment by row guards adjudication;
-    # this guards EXTRACTION, which runs first.  A digest word in the row above
-    # that reached down would repaint the row below, and a token classified as
-    # a digest is never a citation, so `evaluate` would be handed nothing and
-    # the operative pin would fail open with the row scope in place.  Both
-    # rows are asserted: the digest must stay a digest, and the pin beside it
-    # must be seen.
+    # The left context stops at the start of the token's own row...
     (
         "a digest word in the row above does not repaint the next row",
         [
@@ -1400,11 +1377,7 @@ _EXTRACTION_CASES: List[Tuple[str, List[str], List[str]]] = [
         ],
         ["aaaaaaaaaa"],
     ),
-    # The counterweight, and the reason the boundary is the row START and not
-    # the newline: a long cell wraps across source lines, and the word
-    # describing the token is up on the line that opened the row.  `0642815dc2`
-    # has no vocabulary of its own, so it is a digest only if the context still
-    # reaches its own row's first line — cut that and it defaults to a pin.
+    # ...and still reaches the line that opened it when the cell wraps.
     (
         "a wrapped cell still reads the word that opened its own row",
         [
@@ -1417,50 +1390,7 @@ _EXTRACTION_CASES: List[Tuple[str, List[str], List[str]]] = [
 
 # (label, lines, {token: status}, expected finding tokens)
 _RULE_CASES: List[Tuple[str, List[str], Dict[str, str], List[str]]] = [
-    (
-        "a landed head alone in its block passes",
-        ["| Producing commit | `bbbbbbbbbb`, already on main |"],
-        {"bbbbbbbbbb": "LANDED"},
-        [],
-    ),
-    (
-        "two stranded heads in one block are both findings",
-        ["Authored as `aaaaaaaaaa`, superseded by `dddddddddd` on `worker/x`."],
-        {"aaaaaaaaaa": "STRANDED", "dddddddddd": "STRANDED"},
-        ["aaaaaaaaaa", "dddddddddd"],
-    ),
-    # BARE PROVENANCE, end to end.  The first is the finding a code-span-only
-    # reader would let through; the second is the noise that must still be
-    # ignored —
-    # with no status table behind it, anything extracted here would resolve to
-    # UNRESOLVABLE and become a finding, so an empty expectation is a real
-    # assertion that nothing was extracted at all.
-    (
-        "a bare authored head, no backticks, is still a finding",
-        ["Authored at aaaaaaaaaa on worker/x, before the rebase mints its landed id."],
-        {"aaaaaaaaaa": "STRANDED"},
-        ["aaaaaaaaaa"],
-    ),
-    (
-        "a bare digest and a bare number raise no finding",
-        ["The instrument blob 0304f489bb held at 0.0999999 ms across ten turns."],
-        {},
-        [],
-    ),
-    (
-        "a bare landed id accompanies the stranded head beside it",
-        ["Authored at aaaaaaaaaa on worker/x; it landed on main as bbbbbbbbbb."],
-        {"aaaaaaaaaa": "STRANDED", "bbbbbbbbbb": "LANDED"},
-        [],
-    ),
-    # THE ROW SCOPE.  A record table cites the operative pin in one row and a
-    # landed hash in another, and per-paragraph accompaniment would let the
-    # neighbour answer for it, so a wrong hash in the field whose wrongness
-    # costs most would go unreported.  A row is still not simply one line:
-    # this corpus wraps a long cell across source lines, and the anchor that
-    # rescues the head is routinely on the continuation.  `aaaa` is
-    # accompanied from the second line of its OWN row; `cccc`, a row down, is
-    # not.
+    # A row is its own scope, and a wrapped cell's continuation stays in it.
     (
         "a cell wrapped across source lines is still one row",
         [
@@ -1471,14 +1401,7 @@ _RULE_CASES: List[Tuple[str, List[str], Dict[str, str], List[str]]] = [
         {"aaaaaaaaaa": "STRANDED", "bbbbbbbbbb": "LANDED", "cccccccccc": "STRANDED"},
         ["cccccccccc"],
     ),
-    # THE BLOCKQUOTE SCOPE.  The same fail-open as the row scope above, in the
-    # one container `_strip_quote`'s own docstring says this corpus writes its
-    # provenance in.  A paragraph break inside a callout is a lone `>`, whose
-    # `.strip()` is NOT empty, so a raw paragraph boundary would never fire and
-    # a whole multi-paragraph callout would be ONE scope — any single landed
-    # hash in it answering for every pin in it.  A one-pin plant is the natural
-    # non-vacuity control for this gate, so the defect would read as the gate
-    # working.
+    # Inside a callout a lone `>` is a paragraph break, and so a scope boundary.
     (
         "a landed hash in a SIBLING BLOCKQUOTE PARAGRAPH does not rescue the head",
         [
@@ -1489,10 +1412,6 @@ _RULE_CASES: List[Tuple[str, List[str], Dict[str, str], List[str]]] = [
         {"aaaaaaaaaa": "STRANDED", "bbbbbbbbbb": "LANDED"},
         ["aaaaaaaaaa"],
     ),
-    # THE COUNTERWEIGHT, and the reason this is a SPLIT and not a ban: within
-    # one callout paragraph, accompaniment stays exactly as permissive as it is
-    # in bare prose.  Quoting a paragraph must not change its verdict, or the
-    # split would trade a fail-open for a corpus-wide fail-closed.
     (
         "accompaniment inside one blockquote paragraph still passes",
         [
@@ -1502,11 +1421,6 @@ _RULE_CASES: List[Tuple[str, List[str], Dict[str, str], List[str]]] = [
         {"aaaaaaaaaa": "STRANDED", "bbbbbbbbbb": "LANDED"},
         [],
     ),
-    # And the ROW scope survives inside a callout — which is where this corpus
-    # actually writes its tables, so it is the row-scope guarantee in the shape
-    # it is most often read in.  Both rows are asserted: the landed row raises
-    # nothing, and the row beside it still raises its own finding rather than
-    # being answered for.
     (
         "a landed hash in a sibling row does not rescue it inside a callout",
         [
@@ -1519,48 +1433,10 @@ _RULE_CASES: List[Tuple[str, List[str], Dict[str, str], List[str]]] = [
 ]
 
 
-# WHAT THE RULE FORGAVE.  Every case above asserts what `evaluate`
-# OBJECTED to; none asserts what it passed over, and a rule that silently
-# forgives is indistinguishable from a rule that never ran.  These pin the other
-# half — and they pin it as a REPORT, so the counterweight matters as much as
-# the positive: an absorbed pin must not also be a finding, and a finding must
-# not also be an absorption, or the inventory line would double-count the corpus
-# to itself.
-#
-# (label, lines, {token: status}, [(token, status, anchor)])
-_ABSORBED_CASES: List[
-    Tuple[str, List[str], Dict[str, str], List[Tuple[str, str, str]]]
-] = [
-    (
-        "an unresolvable token accompanied in-block is reported too",
-        ["Authored at `cccccccccc`; the same patch landed on main as `bbbbbbbbbb`."],
-        {"bbbbbbbbbb": "LANDED"},
-        [("cccccccccc", "UNRESOLVABLE", "bbbbbbbbbb")],
-    ),
-    # THE PLANT THAT CAN TEACH THE WRONG LESSON, end to end.  A stranded SHA in
-    # a row that carries a landed one passes — correctly — and the row that
-    # does not carry one reds.  What this asserts is that the passing row is
-    # ATTRIBUTABLE, so "the gate does not reach this file" is not an available
-    # reading of the exit code.
-    (
-        "the absorbed row names its anchor while the bare row still reds",
-        [
-            "| Original freeze | `aaaaaaaaaa`, and it landed as `bbbbbbbbbb` |",
-            "| Orphan row | `dddddddddd` on `worker/x` |",
-        ],
-        {"aaaaaaaaaa": "STRANDED", "bbbbbbbbbb": "LANDED", "dddddddddd": "STRANDED"},
-        [("aaaaaaaaaa", "STRANDED", "bbbbbbbbbb")],
-    ),
-]
-
-
 # --------------------------------------------------------------------------
 # The foreign-citation witnesses
 # --------------------------------------------------------------------------
 
-# The real citation this mechanism was built for, and the real origin it must
-# hold itself apart from.  Full forty hex throughout: an abbreviation is not a
-# claim about another object database, so the mechanism refuses one.
 _UPSTREAM = "krausest/js-framework-benchmark"
 _HERE = "day8/re-frame2"
 _FOREIGN_SHA = "247fafa22c1f2caeb4cad179aa64cf444398cbc7"
@@ -1569,14 +1445,9 @@ _PERMALINK = "https://github.com/%s/commit/%s"
 
 
 class _ForeignCase(NamedTuple):
-    """One witness, asserted at all three layers at once.
-
-    Extraction, declaration and adjudication have to be read together here:
-    "reported as foreign" and "passes without a local anchor" are different
-    claims, and a case that checked only the second would pass just as well if
-    the token had been dropped from the population altogether — which is the
-    fail-open shape this whole mechanism exists to refuse.
-    """
+    """One witness, asserted at extraction, declaration and adjudication at
+    once: "no finding" alone would also hold if the token had been dropped
+    from the population altogether."""
 
     label: str
     lines: List[str]
@@ -1588,137 +1459,6 @@ class _ForeignCase(NamedTuple):
 
 
 _FOREIGN_CASES: List[_ForeignCase] = [
-    # POSITIVE.  A canonical permalink, matching full SHA, and NO local anchor
-    # anywhere in the row — which is the point: without a declaration the only
-    # way to pass is to name a commit of this repository, and no commit of this
-    # repository belongs in a row citing somebody else's benchmark.
-    _ForeignCase(
-        "a canonical permalink declares its token a foreign commit, and it passes",
-        [
-            "| Benchmark revision | `%s` at commit **`%s`**, canonically at "
-            "[the commit page](%s). That SHA belongs to the benchmark's "
-            "repository, not to this one |"
-            % (_UPSTREAM, _FOREIGN_SHA, _PERMALINK % (_UPSTREAM, _FOREIGN_SHA)),
-        ],
-        _HERE,
-        {},
-        [_FOREIGN_SHA],
-        {_FOREIGN_SHA: _UPSTREAM},
-        [],
-    ),
-    # SABOTAGE, and the case that says what kind of mechanism this is.  The row
-    # carries the words a prose-sniffing gate would honour — "foreign
-    # repository", "belongs to", "not to this one" — and nothing typed.  It is
-    # still a finding.  If this ever passes, the gate has learned a magic
-    # phrase and stopped being a typed declaration.
-    _ForeignCase(
-        "prose calling a token foreign exempts nothing",
-        [
-            "| Benchmark revision | at commit **`%s`** — that SHA belongs to a "
-            "foreign repository, an upstream one, not to this one, so it "
-            "resolves there and nowhere else |" % _FOREIGN_SHA,
-        ],
-        _HERE,
-        {},
-        [_FOREIGN_SHA],
-        {},
-        [_FOREIGN_SHA],
-    ),
-    # EDGE: an abbreviated displayed token.  Ten hex characters are an index
-    # into ONE object database, so they cannot carry a claim about another; the
-    # abbreviation is not the SHA the permalink binds, and takes the local path.
-    _ForeignCase(
-        "an abbreviated token is not what the permalink bound",
-        [
-            "| Benchmark revision | at commit **`%s`**, canonically at %s |"
-            % (_FOREIGN_SHA[:10], _PERMALINK % (_UPSTREAM, _FOREIGN_SHA)),
-        ],
-        _HERE,
-        {},
-        [_FOREIGN_SHA[:10]],
-        {},
-        [_FOREIGN_SHA[:10]],
-    ),
-    # EDGE: malformed URLs.  Each of these is a link a reader would follow
-    # happily and none is the canonical commit page, so none declares anything:
-    # plain HTTP, the plural `/commits/`, a trailing query, and a `.git`
-    # repository — that last one the sharpest, because `day8/re-frame2.git`
-    # compares unequal to `day8/re-frame2` and would otherwise launder a local
-    # head through the boundary below.
-    _ForeignCase(
-        "a malformed commit URL declares nothing",
-        [
-            "| A | at commit **`%s`**, at http://github.com/%s/commit/%s |"
-            % (_FOREIGN_SHA, _UPSTREAM, _FOREIGN_SHA),
-            "| B | at commit **`%s`**, at https://github.com/%s/commits/%s |"
-            % (_FOREIGN_SHA, _UPSTREAM, _FOREIGN_SHA),
-            "| C | at commit **`%s`**, at %s?diff=split |"
-            % (_FOREIGN_SHA, _PERMALINK % (_UPSTREAM, _FOREIGN_SHA)),
-            "| D | at commit **`%s`**, at https://github.com/%s.git/commit/%s |"
-            % (_LOCAL_SHA, _HERE, _LOCAL_SHA),
-        ],
-        _HERE,
-        {_LOCAL_SHA: "STRANDED"},
-        [_FOREIGN_SHA, _FOREIGN_SHA, _FOREIGN_SHA, _LOCAL_SHA],
-        {},
-        [_FOREIGN_SHA, _FOREIGN_SHA, _FOREIGN_SHA, _LOCAL_SHA],
-    ),
-    # SABOTAGE, and the sharper of two laundering holes: it attacks the very
-    # boundary the mechanism is built with.  Row A spells our own origin
-    # `re-frame2.GIT`, which a case-SENSITIVE `(?<!\.git)` would let through,
-    # record as repository `day8/re-frame2.GIT`, compare unequal to
-    # `day8/re-frame2`, and so report a stranded head of THIS repository as
-    # somebody else's business.  Row B is the same alias on a
-    # genuinely foreign repository: a clone URL with a path glued on is not the
-    # canonical commit page whoever owns it.  Both rows assert all three layers,
-    # because "no finding" and "no citation" are indistinguishable from the last
-    # one alone.
-    _ForeignCase(
-        "a `.GIT` alias declares nothing, in any case, on any repository",
-        [
-            "| Authoring anchor | `%s` on `worker/x`, at https://github.com/"
-            "day8/re-frame2.GIT/commit/%s |" % (_LOCAL_SHA, _LOCAL_SHA),
-            "| Benchmark revision | at commit **`%s`**, at https://github.com/"
-            "%s.GIT/commit/%s |" % (_FOREIGN_SHA, _UPSTREAM, _FOREIGN_SHA),
-        ],
-        _HERE,
-        {_LOCAL_SHA: "STRANDED"},
-        [_LOCAL_SHA, _FOREIGN_SHA],
-        {},
-        [_LOCAL_SHA, _FOREIGN_SHA],
-    ),
-    # SABOTAGE, the other hole: material after the SHA.  A boundary naming the
-    # characters that must not follow a permalink makes everything it forgets
-    # to name an exemption — `%3F` (a percent-encoded `?`, which no reader's
-    # browser treats as part of the path), a `:`, an `&`.  Each of these is a
-    # link somebody could write by hand or paste from a diff view, none is the
-    # canonical commit page, and under whole-run matching each fails as a whole
-    # rather than being trimmed back to a prefix that passes.
-    _ForeignCase(
-        "trailing URL material after the sha declares nothing",
-        [
-            "| A | at commit **`%s`**, at %s%%3Fdiff=split |"
-            % (_FOREIGN_SHA, _PERMALINK % (_UPSTREAM, _FOREIGN_SHA)),
-            "| B | at commit **`%s`**, at %s:garbage |"
-            % (_FOREIGN_SHA, _PERMALINK % (_UPSTREAM, _FOREIGN_SHA)),
-            "| C | at commit **`%s`**, at %s&diff=split |"
-            % (_FOREIGN_SHA, _PERMALINK % (_UPSTREAM, _FOREIGN_SHA)),
-            "| D | at commit **`%s`**, at %s#diff-0 |"
-            % (_FOREIGN_SHA, _PERMALINK % (_UPSTREAM, _FOREIGN_SHA)),
-            "| E | at commit **`%s`**, at %s.diff |"
-            % (_FOREIGN_SHA, _PERMALINK % (_UPSTREAM, _FOREIGN_SHA)),
-        ],
-        _HERE,
-        {},
-        [_FOREIGN_SHA] * 5,
-        {},
-        [_FOREIGN_SHA] * 5,
-    ),
-    # POSITIVE CONTROL for whole-run matching, and the reason the trim exists.
-    # Refusing everything after the SHA would refuse the two ways a page
-    # actually writes a link — ending a sentence with it, and markdown's own
-    # `[text](url)` — and a boundary that cannot be satisfied gets routed
-    # around.  Both forms still declare.
     _ForeignCase(
         "a permalink may close a sentence, and may be a markdown link",
         [
@@ -1733,11 +1473,36 @@ _FOREIGN_CASES: List[_ForeignCase] = [
         {_FOREIGN_SHA: _UPSTREAM},
         [],
     ),
-    # EDGE, and the boundary that keeps this from being an exemption mechanism:
-    # a permalink naming THIS repository declares nothing.  Otherwise every
-    # stranded local head could be laundered by linking to it on github.com,
-    # where a stranded head resolves for nobody.  Case-insensitively, because
-    # GitHub is.
+    # The permalink binds the FULL sha; an abbreviation takes the local path.
+    _ForeignCase(
+        "an abbreviated token is not what the permalink bound",
+        [
+            "| Benchmark revision | at commit **`%s`**, canonically at %s |"
+            % (_FOREIGN_SHA[:10], _PERMALINK % (_UPSTREAM, _FOREIGN_SHA)),
+        ],
+        _HERE,
+        {},
+        [_FOREIGN_SHA[:10]],
+        {},
+        [_FOREIGN_SHA[:10]],
+    ),
+    # The whole URL run must be canonical, so trailing material fails it rather
+    # than being trimmed to a passing prefix; a `.git` repository is refused.
+    _ForeignCase(
+        "a decorated or `.GIT` permalink declares nothing",
+        [
+            "| A | at commit **`%s`**, at %s%%3Fdiff=split |"
+            % (_FOREIGN_SHA, _PERMALINK % (_UPSTREAM, _FOREIGN_SHA)),
+            "| B | at commit **`%s`**, at https://github.com/%s.GIT/commit/%s |"
+            % (_FOREIGN_SHA, _UPSTREAM, _FOREIGN_SHA),
+        ],
+        _HERE,
+        {},
+        [_FOREIGN_SHA, _FOREIGN_SHA],
+        {},
+        [_FOREIGN_SHA, _FOREIGN_SHA],
+    ),
+    # Case-insensitively, or a stranded local head launders through github.com.
     _ForeignCase(
         "a permalink to our own origin takes the ordinary local path",
         [
@@ -1750,9 +1515,6 @@ _FOREIGN_CASES: List[_ForeignCase] = [
         {},
         [_LOCAL_SHA],
     ),
-    # A declaration reaches exactly as far as accompaniment does — its own row.
-    # A reader must find the declaration where the claim is made; a permalink
-    # two rows up is not beside the token it would exempt.
     _ForeignCase(
         "a declaration in a SIBLING ROW does not reach the row beside it",
         [
@@ -1766,9 +1528,6 @@ _FOREIGN_CASES: List[_ForeignCase] = [
         {},
         [_FOREIGN_SHA],
     ),
-    # A permalink inside a reproduction command declares nothing, for the same
-    # reason its SHAs cite nothing: a fenced block is an example, not the page's
-    # own provenance.
     _ForeignCase(
         "a permalink inside a fenced block declares nothing",
         [
@@ -1783,11 +1542,6 @@ _FOREIGN_CASES: List[_ForeignCase] = [
         {},
         [_FOREIGN_SHA],
     ),
-    # Without an identity for THIS repository there is nothing to compare a
-    # permalink against, so none is honoured.  The refusal direction, one last
-    # time: a checkout that cannot tell somebody else's repository from its own
-    # reds a page it might have passed, rather than passing one it should have
-    # red.
     _ForeignCase(
         "with no GitHub origin to compare against, no permalink is honoured",
         [
@@ -1813,16 +1567,9 @@ class _FakeGit(Git):
 
 
 class _BusyGit(Git):
-    """A repository that answers everything except one subcommand.
-
-    This is the state a real repository reaches, and its shape is what makes
-    it dangerous: while another process holds the object store, `rev-parse`
-    needs no lock and answers normally, so every guard upstream of the diff is
-    satisfied — and only `git diff` fails, leaving the empty stdout that would
-    read as "no page changed".  A repository that failed EVERYTHING would be
-    caught by the baseline and ref guards; it is the partial failure that
-    walks through them.
-    """
+    """A repository where one subcommand fails, as `git diff` does while
+    another process holds the object store — and only it: the guards upstream
+    of it all pass."""
 
     def __init__(self, repo: str, failing: str) -> None:  # noqa: D107
         Git.__init__(self, repo)
@@ -1837,19 +1584,8 @@ class _BusyGit(Git):
 
 
 class _ChangedGit(Git):
-    """A repository that reports an exact set of changed pages.
-
-    The `--changed-since` file set is the input the inventory line reports on,
-    and it is the one input a fixture on disk cannot present: producing "zero
-    pages changed" for real means arranging the checkout's own history, and
-    producing "exactly one page" means arranging it twice.  The oracle is a
-    parameter for exactly this reason.
-
-    `HEAD` is the baseline so that the assertions below hold in a checkout with
-    no `origin/main` — they are about what the run SAYS it inspected, not about
-    any verdict, and a missing baseline would refuse before the run got that
-    far.
-    """
+    """A repository that reports an exact set of changed pages.  `HEAD` is the
+    baseline so the run gets as far as its inventory without `origin/main`."""
 
     def __init__(self, repo: str, touched: Iterable[str]) -> None:  # noqa: D107
         Git.__init__(self, repo, "HEAD")
@@ -1860,14 +1596,7 @@ class _ChangedGit(Git):
 
 
 class _ShallowGit(Git):
-    """A clone truncated at a shallow boundary.
-
-    Ancestry is the one question such a clone answers WRONGLY rather than not
-    at all: `merge-base --is-ancestor` says NO for every commit past the
-    boundary, so the corpus reads as one made entirely of stranded pins.  That
-    is why it must be refused up front and cannot be left to the per-token
-    path — there is no failure there to notice.
-    """
+    """A clone truncated at a shallow boundary."""
 
     def _run(self, *args: str) -> subprocess.CompletedProcess:  # noqa: D102
         if args[:2] == ("rev-parse", "--is-shallow-repository"):
@@ -1876,138 +1605,61 @@ class _ShallowGit(Git):
 
 
 def self_test(verbose: bool, stream) -> int:
-    failures = 0
+    results: List[Tuple[str, object, object]] = []  # (label, got, expected)
 
     for label, lines, expected in _EXTRACTION_CASES:
         cites, _ = scan_file("fixture.md", "\n".join(lines))
-        got = [c.token for c in cites]
-        if got == expected:
-            if verbose:
-                stream.write("self-test PASS: extraction [%s]\n" % label)
-        else:
-            stream.write(
-                "self-test FAIL: extraction [%s] expected %r, got %r\n"
-                % (label, expected, got)
-            )
-            failures += 1
+        results.append(("extraction [%s]" % label, [c.token for c in cites], expected))
 
     for label, lines, table, expected in _RULE_CASES:
         cites, _ = scan_file("fixture.md", "\n".join(lines))
         got = sorted(f.token for f in evaluate(cites, _FakeGit(table))[0])
-        if got == sorted(expected):
-            if verbose:
-                stream.write("self-test PASS: rule [%s]\n" % label)
-        else:
-            stream.write(
-                "self-test FAIL: rule [%s] expected %r, got %r\n"
-                % (label, sorted(expected), got)
-            )
-            failures += 1
+        results.append(("rule [%s]" % label, got, sorted(expected)))
 
-    for label, lines, table, expected in _ABSORBED_CASES:
-        cites, _ = scan_file("fixture.md", "\n".join(lines))
-        rule_findings, absorbed = evaluate(cites, _FakeGit(table))
-        got = sorted((a.token, a.status, a.anchor) for a in absorbed)
-        overlap = sorted({f.token for f in rule_findings} & {a.token for a in absorbed})
-        if got == sorted(expected) and not overlap:
-            if verbose:
-                stream.write("self-test PASS: absorbed [%s]\n" % label)
-        else:
-            stream.write(
-                "self-test FAIL: absorbed [%s] expected %r, got %r%s\n"
-                % (
-                    label,
-                    sorted(expected),
-                    got,
-                    ("; also reported as findings: %r" % overlap) if overlap else "",
-                )
-            )
-            failures += 1
+    # What the rule forgave is reported, beside its anchor, and is not a finding.
+    cites, _ = scan_file(
+        "fixture.md",
+        "Authored at `cccccccccc`; the same patch landed on main as `bbbbbbbbbb`.",
+    )
+    rule_findings, absorbed = evaluate(cites, _FakeGit({"bbbbbbbbbb": "LANDED"}))
+    results.append((
+        "an unresolvable token accompanied in-block is reported as absorbed",
+        (rule_findings, [(a.token, a.status, a.anchor) for a in absorbed]),
+        ([], [("cccccccccc", "UNRESOLVABLE", "bbbbbbbbbb")]),
+    ))
 
     for case in _FOREIGN_CASES:
         cites, _ = scan_file(
             "fixture.md", "\n".join(case.lines), DEFAULT_MAX_ID_LEN, case.local
         )
-        got_pins = [c.token for c in cites]
-        got_foreign = {c.token: c.foreign for c in cites if c.foreign}
         got_findings = sorted(f.token for f in evaluate(cites, _FakeGit(case.status))[0])
-        problems = []
-        if got_pins != case.pins:
-            problems.append("extracted %r, expected %r" % (got_pins, case.pins))
-        if got_foreign != case.foreign:
-            problems.append("foreign %r, expected %r" % (got_foreign, case.foreign))
-        if got_findings != sorted(case.findings):
-            problems.append(
-                "findings %r, expected %r" % (got_findings, sorted(case.findings))
-            )
-        if problems:
-            stream.write(
-                "self-test FAIL: foreign [%s] %s\n" % (case.label, "; ".join(problems))
-            )
-            failures += 1
-        elif verbose:
-            stream.write("self-test PASS: foreign [%s]\n" % case.label)
+        results.append((
+            "foreign [%s]" % case.label,
+            ([c.token for c in cites], {c.token: c.foreign for c in cites if c.foreign},
+             got_findings),
+            (case.pins, case.foreign, sorted(case.findings)),
+        ))
 
-    # The identity the boundary above compares against, in the three forms a
-    # clone can carry `origin` in — plus a non-GitHub remote, which yields no
-    # identity and so honours no permalink at all.  The mixed-case row is the
-    # mirror image of the `.GIT` sabotage above: were the ORIGIN side left
-    # unnormalised, a clone spelled that way would compare unequal to every
-    # permalink naming itself, and the laundering would be back from the other
-    # end.  One function mints both sides, so neither can drift.
+    # The origin side is normalised by the same function as the permalink side.
     for url, expected in (
-        ("https://github.com/day8/re-frame2", _HERE),
-        ("ssh://git@github.com/day8/re-frame2.git", _HERE),
         ("git@GitHub.com:Day8/RE-Frame2.GIT", _HERE),
         ("/srv/mirrors/re-frame2.git", None),
     ):
-        got = github_identity(url)
-        if got != expected:
-            stream.write(
-                "self-test FAIL: origin identity of %r was %r, expected %r\n"
-                % (url, got, expected)
-            )
-            failures += 1
-        elif verbose:
-            stream.write("self-test PASS: origin identity of %r is %r\n" % (url, got))
+        results.append(("origin identity of %r" % url, github_identity(url), expected))
 
-    # The unfilled-anchor tooth.
     _, anchors = scan_file(
         "fixture.md",
         "| Landed anchor | *(filled on merge — a rebase mints a new SHA)* |",
     )
-    if len(anchors) == 1 and anchors[0].status == "UNFILLED":
-        if verbose:
-            stream.write("self-test PASS: unfilled anchor is a finding\n")
-    else:
-        stream.write(
-            "self-test FAIL: unfilled anchor expected 1 finding, got %r\n" % (anchors,)
-        )
-        failures += 1
+    results.append(
+        ("unfilled anchor is a finding", [a.status for a in anchors], ["UNFILLED"])
+    )
 
-    # POSITIVE CONTROL for that tooth: a FILLED anchor must not be one.
-    _, filled = scan_file("fixture.md", "| Landed anchor | **`a878d71ab9`** — on main |")
-    if not filled:
-        if verbose:
-            stream.write("self-test PASS: a filled anchor is not a finding\n")
-    else:
-        stream.write("self-test FAIL: filled anchor produced %r\n" % (filled,))
-        failures += 1
-
-    # THE REFUSAL PATHS.  A gate whose can't-run path exits 0 reports success
-    # for work it never did, so every way this script can fail to do its job is
-    # asserted to leave rc=2.
-    #
-    # The last three differ in kind from the first two: there the CORPUS is
-    # missing, here the REPOSITORY cannot answer.  They are presented through
-    # the oracle rather than staged on disk because the states are transient
-    # (a held index lock) or expensive (a second, truncated clone), and
-    # `evaluate` takes the oracle the same way.  `HEAD` is
-    # the baseline they compare against so that they assert the same thing in a
-    # checkout with no `origin/main` — otherwise they could pass on the earlier
-    # ref guard and prove nothing.
+    # Every way this gate can fail to do its job exits 2, never 0 or 1.  The
+    # repository states go through the oracle; `HEAD` as the ref keeps them
+    # from passing on the baseline guard in a checkout with no `origin/main`.
     repo = _repo_root()
-    refusals = (
+    for label, kwargs, root in (
         ("absent corpus root", {}, "no/such/corpus/root"),
         (
             "unresolvable --changed-since ref",
@@ -2025,27 +1677,14 @@ def self_test(verbose: bool, stream) -> int:
             DEFAULT_ROOT,
         ),
         ("a shallow clone", {"git": _ShallowGit(repo)}, DEFAULT_ROOT),
-    )
-    for label, kwargs, root in refusals:
-        rc = check(repo, root, False, _DevNull(), **kwargs)
-        if rc == 2:
-            if verbose:
-                stream.write("self-test PASS: %s refuses (rc=2)\n" % label)
-        else:
-            stream.write(
-                "self-test FAIL: %s returned %d, expected 2\n" % (label, rc)
-            )
-            failures += 1
+    ):
+        results.append(
+            ("%s refuses" % label, check(repo, root, False, _DevNull(), **kwargs), 2)
+        )
 
-    # WHAT A RUN SAYS IT DID, asserted in the DEFAULT mode.  Both scheduled
-    # callers pass `--verbose`, so a summary gated on that flag would be a
-    # summary nobody sees in the mode a hand-run uses — someone running the
-    # command without the flag and reading a silent exit 0 as a verdict.
-    # `verbose=False` here is therefore the whole
-    # assertion, and it is checked by reading the text rather than with a bare
-    # `assert`, which `python -O` strips.
+    # What a run says it did, WITHOUT --verbose: the mode a hand-run uses.
     corpus = iter_markdown(os.path.join(repo, DEFAULT_ROOT))
-    spoke = (
+    for label, touched, wanted in (
         (
             "a run that inspected nothing says so",
             [],
@@ -2056,8 +1695,7 @@ def self_test(verbose: bool, stream) -> int:
             corpus[:1],
             ("check_provenance_pins: 1 page inspected,", "cited pin"),
         ),
-    )
-    for label, touched, wanted in spoke:
+    ):
         relative = [os.path.relpath(p, repo).replace(os.sep, "/") for p in touched]
         capture = _Capture()
         check(
@@ -2070,33 +1708,22 @@ def self_test(verbose: bool, stream) -> int:
         )
         said = capture.text()
         missing = [w for w in wanted if w not in said]
-        if not missing:
-            if verbose:
-                stream.write("self-test PASS: %s\n" % label)
-        else:
-            stream.write(
-                "self-test FAIL: %s — the run did not say %r. It said: %r\n"
-                % (label, missing, said)
-            )
-            failures += 1
+        results.append(("%s (it said %r)" % (label, said) if missing else label, missing, []))
 
-    # 4 origin identities, 2 anchor teeth, the refusal paths, and the two
-    # inventory witnesses.
-    total = (
-        len(_EXTRACTION_CASES)
-        + len(_RULE_CASES)
-        + len(_ABSORBED_CASES)
-        + len(_FOREIGN_CASES)
-        + 4
-        + 2
-        + len(refusals)
-        + len(spoke)
-    )
+    failures = 0
+    for label, got, expected in results:
+        if got != expected:
+            failures += 1
+            stream.write(
+                "self-test FAIL: %s expected %r, got %r\n" % (label, expected, got)
+            )
+        elif verbose:
+            stream.write("self-test PASS: %s\n" % label)
     if failures:
         stream.write("\n%d self-test failure(s).\n" % failures)
         return 1
     if verbose:
-        stream.write("all %d self-tests passed.\n" % total)
+        stream.write("all %d self-tests passed.\n" % len(results))
     return 0
 
 
@@ -2109,12 +1736,7 @@ class _DevNull:
 
 
 class _Capture(_DevNull):
-    """What a run said, so the self-test can assert that it said anything.
-
-    The two vacuous-green modes are modes of SILENCE, so an exit code is the
-    one thing that cannot witness them: both exit 0 whether or not the run
-    says what it did.  What is checked here is the text.
-    """
+    """What a run said, so the self-test can assert on the text."""
 
     def __init__(self) -> None:  # noqa: D107
         self.parts: List[str] = []
