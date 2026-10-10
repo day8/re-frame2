@@ -124,8 +124,8 @@
   (:require [clojure.data.json :as json]
             [clojure.string :as str]
             [re-frame.error :as rf.error]
-            [re-frame.ssr.manifest :as rf.ssr.manifest]
-            [re-frame.ssr.render-state :as rf.ssr.render-state])
+            [re-frame.ssr.render-state :as rf.ssr.render-state]
+            [re-frame.ssr.wire :as rf.ssr.wire])
   (:import [java.io IOException]
            [java.net URI URISyntaxException]
            [java.net.http HttpClient HttpClient$Version HttpConnectTimeoutException
@@ -230,7 +230,7 @@
     :build-id     — non-empty string: the deployed bundle identity
     :args         — OPTIONAL root arguments; when present, EDN the
                     sidecar's safe reader reads back EQUAL
-                    (`re-frame.ssr.manifest/edn-carryable?`)
+                    (`re-frame.ssr.wire/edn-carryable?`)
     :timeout-ms   — positive integer (default `default-timeout-ms`)
     :admission-ms — non-negative integer (default `default-admission-ms`)
     :render-state — REQUIRED; the allowlist map or projector fn of
@@ -245,7 +245,7 @@
   (endpoint-uri endpoint)
   (require-non-empty-string! :entry entry)
   (require-non-empty-string! :build-id build-id)
-  (when (and (contains? opts :args) (not (rf.ssr.manifest/edn-carryable? args)))
+  (when (and (contains? opts :args) (not (rf.ssr.wire/edn-carryable? args)))
     (throw-opt-invalid! :args args
                         (str "must be EDN the sidecar's safe reader reads back "
                              "EQUAL — no fn, host object, record, ratio, "

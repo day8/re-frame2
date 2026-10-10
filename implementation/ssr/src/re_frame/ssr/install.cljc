@@ -15,30 +15,19 @@
   > find it live and do not re-seed. Conflict is the exception, and it is
   > fail-loud (§7).
 
-  ## The three-step preflight
+  ## The preflight
 
-  [004C §10] names the S5 hydrate sequence as **manifest
-  discovery/validation -> payload install -> hydrate**. `preflight!`
-  is the first two steps as one call; `re-frame.ssr.boot/hydrate!` runs
-  the third against its verdict.
-
-  1. **Manifest** — resolve the Root Manifest (explicitly supplied, or
-     discovered positionally from a container on CLJS), validate it, and
-     read `:root-id` from its CONTENT. A container whose manifest is
-     absent or unreadable fails loud with
-     `:rf.error/root-manifest-invalid` — a hydrating root never guesses
-     identity ([004C §3]).
-  2. **Install decision** — consult the ledger (below).
-  3. *(the caller's)* **hydrate** — dispatch `:rf/hydrate`, but only on
-     the `:install` verdict.
+  Hydration preflight is two checks, both before anything is seeded:
+  `re-frame.ssr.boot/hydrate!` validates the payload's `:rf/frame-id`
+  against its explicit target, then `preflight!` takes the install
+  decision against the ledger (below). `hydrate!` dispatches `:rf/hydrate`
+  only on the `:install` verdict.
 
   ## The ledger
 
   `installed-payloads` maps a **payload id** to the record of what was
-  installed under it. A payload id IS a frame id: [004C §6] defines the
-  manifest's `:frame-payload-ids` as the render's full referenced set —
-  plan ids union provider-scoped frame ids — so the thing a root
-  \"references a payload for\" and the thing it hydrates into are one
+  installed under it. A payload id IS a frame id: the payload a root
+  references is the one for the frame it hydrates into, so the two are one
   identifier, not two.
 
   Each record carries the payload's **content digest** and the
@@ -74,13 +63,11 @@
   No reconciliation, no retry, no re-render. A conflicting root fails and
   **nothing else moves** — the installed payload and every root already
   using it are untouched, which is [004C §7]'s failure scoping, not a
-  failed-root isolation mechanism (that lives in `re-frame.ssr.boot`). There is no
-  Layer-2 per-response page registry here either: this is the CLIENT-side
-  install ledger, keyed by payload id, and it takes no position on how a
-  server assembles a page."
+  failed-root isolation mechanism (that lives in `re-frame.ssr.boot`). This
+  is the CLIENT-side install ledger, keyed by payload id, and it takes no
+  position on how a server assembles a page."
   (:require [re-frame.error :as rf.error]
-            [re-frame.ssr.hash :as rf.ssr.hash]
-            [re-frame.ssr.manifest :as rf.ssr.manifest]))
+            [re-frame.ssr.hash :as rf.ssr.hash]))
 
 ;; ---------------------------------------------------------------------------
 ;; The ledger
@@ -239,70 +226,16 @@
       (throw-payload-conflict! where payload-id arriving-digest root-id existing-claim))))
 
 ;; ---------------------------------------------------------------------------
-;; Manifest resolution (preflight step 1)
-;; ---------------------------------------------------------------------------
-
-(defn- discover-manifest
-  "CLJS-only positional discovery — the manifest is `container`'s
-  immediately following element sibling (Spec 011 §Discovery). Returns
-  nil on the JVM, where there is no DOM to read."
-  [container]
-  #?(:cljs (rf.ssr.manifest/discover container)
-     :clj  (do container nil)))
-
-(defn resolve-manifest!
-  "Preflight step 1 — resolve and VALIDATE the Root Manifest for a
-  hydrating root.
-
-  `manifest` is used verbatim when supplied (the JVM / explicit path);
-  otherwise, on CLJS, it is discovered positionally from `container`.
-  Either way the result is run through `manifest/validate!`, so a
-  hydrating root never adopts a value from outside the schema family.
-
-  A `container` that yields NO manifest fails loud with
-  `:rf.error/root-manifest-invalid` `{:missing :manifest}` — the arm
-  Spec 009 reserves for exactly this. Asking for a hydrating root's
-  manifest and finding none is not a degraded case to paper over:
-  hydrating mounts take root-id and identifier-prefix FROM the manifest
-  ([004C §3]), so there is nothing left to hydrate AS.
-
-  With neither `manifest` nor `container` there is no manifest step at
-  all and this returns `nil` — the manifest-less boot path (a host that
-  calls `hydrate!` with an explicit payload and no container)."
-  [where {:keys [manifest container]}]
-  (cond
-    (some? manifest) (rf.ssr.manifest/validate! where manifest)
-
-    (some? container)
-    (or (discover-manifest container)
-        (rf.error/throw-error!
-         :rf.error/root-manifest-invalid where
-         (str "no Root Manifest was found for this hydrating root. The "
-              "manifest is the container's IMMEDIATELY FOLLOWING element "
-              "sibling (one <script type=\"application/edn\" data-rf-root> "
-              "per root) and nothing else is searched — adjacency is what "
-              "binds a manifest to its root on a page of N roots. A "
-              "hydrating root takes its identity FROM the manifest, so "
-              "there is nothing to hydrate as. Either server-render this "
-              "root so its manifest rides the response, or mount it "
-              "client-only")
-         {:recovery :use-ui-mount
-          :extra    {:missing :manifest}}))
-
-    :else nil))
-
-;; ---------------------------------------------------------------------------
-;; preflight! — steps 1 and 2 as one call
+;; preflight! — the install decision
 ;; ---------------------------------------------------------------------------
 
 (defn preflight!
-  "Run hydration preflight for one root and -> the verdict map
+  "Take the hydration install decision for one root and -> the verdict map
 
-      {:manifest … :root-id … :payload-id … :digest … :decision … :claim …}
+      {:root-id … :payload-id … :digest … :decision … :claim …}
 
-  where `:decision` is `:install` or `:already-installed` ([004C §10]'s
-  \"manifest discovery/validation -> payload install\"; the caller runs
-  the remaining \"-> hydrate\" step, and MUST run it only on `:install`).
+  where `:decision` is `:install` or `:already-installed`; the caller runs
+  the hydrate step, and MUST run it only on `:install`.
 
   `:claim` is the ledger record this preflight WROTE, present only on the
   `:install` verdict. The caller hands it back to `release-claim!` if its
@@ -316,28 +249,20 @@
     :payload    — REQUIRED. The hydration payload this root references.
     :payload-id — REQUIRED. The id the payload installs under — the
                   frame id ([004C §6]: payload ids ARE frame ids).
-    :root-id    — the hydrating root's id, for conflict attribution.
-                  Defaults to the manifest's `:root-id`, which is where
-                  a server-rendered root's identity actually lives.
-    :manifest   — an explicit Root Manifest v1 (validated).
-    :container  — (CLJS) the root's container element; its adjacent
-                  manifest is discovered and validated.
+    :root-id    — the hydrating root's id, recorded as the payload's
+                  installer and named in a conflict.
 
-  Throws `:rf.error/root-manifest-invalid` when a `container` has no
-  discoverable manifest, and `:rf.error/frame-payload-conflict` when a
-  different payload already holds `:payload-id`. Both throw BEFORE the
-  caller hydrates, which is the whole point of a preflight."
-  [where {:keys [payload payload-id root-id] :as opts}]
-  (let [resolved-manifest (resolve-manifest! where opts)
-        resolved-root-id  (or root-id (:root-id resolved-manifest))
-        payload-digest    (payload-content-digest payload)
-        decision          (payload-install-decision! where payload-id
-                                                     payload-digest
-                                                     resolved-root-id)]
-    (cond-> {:manifest   resolved-manifest
-             :root-id    resolved-root-id
+  Throws `:rf.error/frame-payload-conflict` when a different payload
+  already holds `:payload-id` — BEFORE the caller hydrates, which is the
+  whole point of a preflight."
+  [where {:keys [payload payload-id root-id]}]
+  (let [payload-digest (payload-content-digest payload)
+        decision       (payload-install-decision! where payload-id
+                                                  payload-digest
+                                                  root-id)]
+    (cond-> {:root-id    root-id
              :payload-id payload-id
              :digest     payload-digest
              :decision   decision}
       (= :install decision)
-      (assoc :claim (claim-record payload-digest resolved-root-id)))))
+      (assoc :claim (claim-record payload-digest root-id)))))

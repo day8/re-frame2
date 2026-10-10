@@ -7,8 +7,8 @@
   `build-payload` refuses such a number with
   `:rf.error/ssr-hydration-payload-invalid`, always on.
 
-  The per-class verdicts belong to `manifest/portable-number?` and are pinned
-  in `re-frame.ssr.root-manifest-cljs-test`; NaN, infinities, `#inst` and
+  The per-class verdicts belong to `wire/portable-number?` and are pinned
+  in `re-frame.ssr.wire-cljs-test`; NaN, infinities, `#inst` and
   `#uuid` read back as what they were and ride."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]

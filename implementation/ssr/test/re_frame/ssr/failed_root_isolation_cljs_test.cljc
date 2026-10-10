@@ -9,8 +9,8 @@
 
   | Arm | Lever | Fails at |
   |---|---|---|
-  | manifest | a manifest outside the schema family | preflight step 1 |
-  | conflict | a payload id already held at a different digest | preflight step 2 |
+  | frame-id | a payload whose `:rf/frame-id` names another frame | preflight, before the ledger |
+  | conflict | a payload id already held at a different digest | preflight, at the ledger |
   | verify | a throwing `:render-tree-fn` | after the seed commits |
   | mount | a throwing `:mount-fn` | after the seed commits |
 
@@ -80,7 +80,11 @@
             (= i fail-idx) (merge lever)))
         frames)))
 
-(def ^:private manifest-lever {:manifest {:rf.root/schema-version 2}})
+;; A payload the server rendered for a different frame: the shipped builder
+;; stamps its wire `:rf/frame-id`, and `hydrate!` refuses it before the ledger.
+(def ^:private frame-id-lever
+  {:payload (rf.ssr.payload-policy/build-payload :rf.isolation/elsewhere {:count 7}
+                                                 "server-hash-1" {})})
 (def ^:private verify-lever   {:render-tree-fn (boom! "render-tree-fn")})
 (def ^:private mount-lever    {:mount-fn (boom! "mount")})
 
@@ -117,8 +121,8 @@
        (assert-isolated! (rf.ssr/hydrate-page! (root-specs frames fail-idx lever))
                          frames fail-idx (str label " @" fail-idx))))))
 
-(deftest a-root-whose-manifest-is-not-from-the-schema-family-fails-alone
-  (run-arm! "manifest" manifest-lever))
+(deftest a-root-whose-payload-names-another-frame-fails-alone
+  (run-arm! "frame-id" frame-id-lever))
 
 (deftest a-root-whose-render-tree-fn-throws-fails-alone
   (run-arm! "verify" verify-lever))
@@ -136,9 +140,7 @@
 (deftest a-root-that-fails-in-preflight-leaves-no-claim
   (testing "a later root referencing that payload installs normally"
     (let [fid (fresh-frame!)]
-      (rf.ssr/hydrate-page! [{:frame fid :root-id :page/a
-                              :payload (payload-for {:count 7})
-                              :manifest {:rf.root/schema-version 2}}])
+      (rf.ssr/hydrate-page! [(merge {:frame fid :root-id :page/a} frame-id-lever)])
       (is (= [:hydrated true]
              [(:status (first (rf.ssr/hydrate-page!
                                [{:frame fid :root-id :page/b :payload (payload-for {:count 7})}])))
@@ -225,7 +227,7 @@
   (testing "every contained root failure emits one always-on record naming
             the root, and `:phase` says whether its seed had committed"
     (let [frames  (vec (repeatedly 3 fresh-frame!))
-          specs   (-> (root-specs frames 0 manifest-lever)
+          specs   (-> (root-specs frames 0 frame-id-lever)
                       (assoc-in [2 :mount-fn] (boom! "mount")))
           records (capture-error-records! #(rf.ssr/hydrate-page! specs))]
       (is (= [{:root-id :page/r0 :frame (nth frames 0) :phase :hydrate
@@ -276,12 +278,11 @@
           "attempted once; the throwable is handed back"))))
 
 (deftest outcomes-come-back-in-input-order
-  (testing "so a caller correlates a root that died before its id could be
-            read from a manifest"
+  (testing "so a caller correlates every root, a failed one included"
     (let [frames (vec (repeatedly 3 fresh-frame!))]
       (is (= [[:page/r0 :hydrated] [:page/r1 :failed] [:page/r2 :hydrated]]
              (mapv (juxt :root-id :status)
-                   (rf.ssr/hydrate-page! (root-specs frames 1 manifest-lever))))))))
+                   (rf.ssr/hydrate-page! (root-specs frames 1 frame-id-lever))))))))
 
 (deftest an-all-healthy-page-boots-every-root
   (reg-bump!)

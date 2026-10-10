@@ -88,7 +88,7 @@
             ;; The numeric crossing rule, JVM-only: on CLJS
             ;; every number already crosses, and the client bundle (which
             ;; reaches this ns through `re-frame.ssr.hydrate`) never loads it.
-            #?(:clj [re-frame.ssr.manifest :as rf.ssr.manifest])))
+            #?(:clj [re-frame.ssr.wire :as rf.ssr.wire])))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -801,9 +801,9 @@
 ;; addresses a different order and money becomes a double — while the server
 ;; reads its own value back perfectly, same-host tests pass, and the render
 ;; hash agrees whenever the view prints the value identically or carries it
-;; only into an event. The root manifest and the ssr-node render-state wire
-;; refuse exactly these numbers; this is the same rule on the third
-;; wire (Spec 011 §Payload scope).
+;; only into an event. The ssr-node render-state wire refuses exactly these
+;; numbers; this is the same rule on the payload's wire (Spec 011 §The
+;; numeric crossing rule).
 ;;
 ;; FAIL CLOSED, ALWAYS ON, JVM ONLY. The failure is data-dependent, so a
 ;; dev-only check would leave it open precisely in production. The walk
@@ -811,8 +811,8 @@
 ;; Node door) every number is already a double and crosses unchanged, so the
 ;; check does not exist there.
 ;;
-;; NUMBERS ONLY, and the manifest's TYPE / RANGE rule (`manifest/
-;; portable-number?`), not its NaN clause and not `edn-carryable?` wholesale:
+;; NUMBERS ONLY, and the shared TYPE / RANGE rule (`wire/portable-number?`),
+;; not its NaN clause and not `edn-carryable?` wholesale:
 ;; `##NaN`, `#inst` and `#uuid` all read back as what they were, and a record
 ;; already fails LOUD at the far end. Map KEYS are walked as well as values —
 ;; an app-db keyed by a wide entity id narrows just as silently.
@@ -849,7 +849,7 @@
      [partition path v position]
      (cond
        (number? v)
-       (when-not (rf.ssr.manifest/portable-number? v)
+       (when-not (rf.ssr.wire/portable-number? v)
          (refuse-non-portable-number! partition path v position))
 
        ;; A record is left to the reader, which refuses an unknown tag LOUDLY.
@@ -880,7 +880,7 @@
      reader would read back as a DIFFERENT value — see the section comment
      above. Walks every number in `slice`, map keys and set
      members included, and throws `:rf.error/ssr-hydration-payload-invalid` on
-     the first outside `manifest/portable-number?`, naming `partition`
+     the first outside `wire/portable-number?`, naming `partition`
      (`:rf/app-db` / `:rf/runtime-db`), the path from the partition root (for
      a map key or a set member, the path of the collection holding it; a map
      key also carries `:half :key`) and the class. Returns `slice`. JVM only:

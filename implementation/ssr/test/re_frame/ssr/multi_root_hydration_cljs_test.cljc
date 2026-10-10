@@ -12,7 +12,6 @@
             [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.boot :as rf.ssr.boot]
             [re-frame.ssr.install :as rf.ssr.install]
-            [re-frame.ssr.manifest :as rf.ssr.manifest]
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]))
 
 ;; Seat the adapter this ns names, and leave the slot cold for the next ns:
@@ -39,18 +38,6 @@
   the explicit client `:frame` stands."
   [db]
   (rf.ssr.payload-policy/build-payload nil db "server-hash-1" {}))
-
-(def ^:private manifest-v1
-  {:rf.root/schema-version rf.ssr.manifest/schema-version
-   :root-id                :page/shop
-   :view-id                :app/shop-root
-   :phase                  :server})
-
-(defn- caught-error-id
-  [f]
-  (try (f) nil
-       (catch #?(:clj Exception :cljs :default) e
-         (:rf.error/id (ex-data e)))))
 
 (deftest installing-the-same-payload-twice-is-indistinguishable-from-once
   (testing "root B, booting second against the same payload, does not re-seed —
@@ -107,31 +94,6 @@
   (testing "map insertion order is not content"
     (is (= (rf.ssr.install/payload-content-digest {:rf/app-db {:a nil :b 2} :rf/version 1})
            (rf.ssr.install/payload-content-digest {:rf/version 1 :rf/app-db {:b 2 :a nil}})))))
-
-(deftest preflight-validates-an-explicit-manifest-and-takes-root-id-from-it
-  (is (= {:root-id :page/shop :decision :install :manifest manifest-v1}
-         (select-keys (rf.ssr.install/preflight! 'test {:payload    (payload-for {:count 7})
-                                                        :payload-id (fresh-frame!)
-                                                        :manifest   manifest-v1})
-                      [:root-id :decision :manifest]))))
-
-(deftest preflight-rejects-a-value-outside-the-manifest-schema-family
-  (let [fid (fresh-frame!)]
-    (is (= :rf.error/root-manifest-invalid
-           (caught-error-id
-            #(rf.ssr.install/preflight! 'test {:payload    (payload-for {:count 7})
-                                                :payload-id fid
-                                                :manifest   {:rf.root/schema-version 2}}))))
-    (is (nil? (rf.ssr.install/installed-payload fid))
-        "the payload was not claimed")))
-
-(deftest an-explicit-root-id-wins-over-the-manifests
-  (is (= :page/explicit
-         (:root-id (rf.ssr.install/preflight! 'test
-                                              {:payload    (payload-for {:count 7})
-                                               :payload-id (fresh-frame!)
-                                               :manifest   manifest-v1
-                                               :root-id    :page/explicit})))))
 
 (deftest releasing-a-claim-lets-a-fresh-lifetime-install-again
   (testing "after release, a DIFFERENT payload installs instead of conflicting"

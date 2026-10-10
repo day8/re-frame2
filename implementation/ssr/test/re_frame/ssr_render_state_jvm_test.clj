@@ -10,7 +10,7 @@
 (use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 (deftest jvm-only-values-fail-at-projection-and-their-in-domain-twins-ride
-  ;; The wire domain is `manifest/edn-carryable?`, whose own tests enumerate
+  ;; The wire domain is `wire/edn-carryable?`, whose own tests enumerate
   ;; it; a JVM-only number proves the projection applies THAT cross-host
   ;; domain rather than a looser same-host one.
   (let [sfid    :rf.ssrrs/server-values
