@@ -17,10 +17,11 @@
   - `install!` / `remove!` — attach/detach the four delegated
     listeners on a root node (defaults to the story canvas root).
   - `set-enabled!` / `enabled?` — runtime opt-in toggle (default ON).
-  - `record-dom-click!` / `record-dom-type!` / `record-dom-submit!`
-    — the impure entry points the listeners invoke. Exposed so
-    browser tests can drive the recorder via synthetic events
-    without re-installing the DOM listeners.
+  - `record-dom-click!` / `record-dom-submit!` — the impure entry
+    points the click and submit listeners invoke. Exposed so browser
+    tests can drive the recorder via synthetic events without
+    re-installing the DOM listeners. Typed text reaches the recorder
+    through the debounce buffer (`flush-type-buffer!`) instead.
 
   ## Debounce policy
 
@@ -163,12 +164,6 @@
   (when-let [t (recording-now-ms)]
     (rf.story.recorder/record-dom-event! [:dom/click selector t])))
 
-(defn record-dom-type!
-  "Append a `[:dom/type selector text t]` entry."
-  [selector text]
-  (when-let [t (recording-now-ms)]
-    (rf.story.recorder/record-dom-event! [:dom/type selector text t])))
-
 (defn record-dom-submit!
   "Append a `[:dom/submit form-selector t]` entry. The translator
   exports it as a `[:click form-selector]` step
@@ -192,7 +187,7 @@
 
   Each buffered entry is appended with its capture-time `:t` (stamped at
   BUFFER time, while `:recording?` was true) via
-  `rf.story.recorder/record-dom-event-buffered!` — NOT via `record-dom-type!`'s
+  `rf.story.recorder/record-dom-event-buffered!` — NOT via a flush-time
   `recording-now-ms` re-read. This is what lets the final
   keystroke survive a flush that fires AFTER the recording was stopped: the
   debounce timer (or the `remove!`/stop drain) can run once `:recording?` is

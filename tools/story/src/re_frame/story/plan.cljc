@@ -558,9 +558,10 @@
 
 (defn- normalize-expect
   "Lower `:checks` + `:assertions` into the `:expect` bucket. Checks are
-  the inheritable expectation form (already merged into `merged` by the
-  context pass); ordinary assertions are own-only (taken from the child
-  body only — handled by the caller passing the child's assertions)."
+  the inheritable expectation form (the caller passes the `:checks` of
+  every body in the `:extends` chain, root→child, plus the composed ones,
+  each id once); ordinary assertions are own-only (the caller passes the
+  child body's `:assertions`)."
   [checks assertions]
   {:checks     (vec (or checks []))
    :assertions (vec (or assertions []))})
@@ -1235,7 +1236,7 @@
     validated). Defaults to the framework `:sub` registrar.
   - `:global-decorators` — the project-wide global-decorators ref vector
     (or a 0-arg fn returning one) prepended to `[:world :decorators]` as
-    the outermost wrap layer). Defaults to
+    the outermost wrap layer. Defaults to
     `rf.story.config/get-global-decorators`; pure tests pass an explicit vector.
   - `:story-decorators` — a 1-arg fn `(story-id) → decorators-vec` OR a
     `{story-id → decorators-vec}` map resolving the parent story's
@@ -1245,7 +1246,10 @@
     `{story-id → story-body}` map resolving the parent story body, whose
     `:tags` feed the shared tag resolver's story-fallback layer (used only
     when the `:extends` chain declares no tags). Defaults to the Story
-    side-table `:story` kind."
+    side-table `:story` kind.
+  - `:run-args` — the ambient + per-run arg layers folded around the
+    `:extends`-merged variant arg layer, as `variant-plan` describes.
+    Absent ⇒ the variant arg layer alone."
   ([id body lookup] (compile-body id body lookup nil))
   ([id body lookup {:keys [view-lookup validator-fns sub-lookup
                            fragment-lookup check-lookup
@@ -1950,15 +1954,20 @@
   variant pins view-state), `:script`, `:expect`, `:required-runner`,
   `:tags`, `:explain` (and `:source` when coords are present).
 
-  FAILS with a structured `:rf.error/story-*` ex-info on: an unregistered
-  keyword target, a compiled plan handed back as the target
+  FAILS with a structured `:rf.error/story-*` ex-info on: a target that is
+  neither a keyword nor a map, a lookup opt that is neither a fn nor a map,
+  an unregistered keyword target, a compiled plan handed back as the target
   (`:rf.error/story-compiled-plan-target` — run the variant by its id),
-  an unregistered `:extends` parent, an `:extends` cycle,
-  a missing `[:arg key]`, an unregistered/nested `:compose` fragment, a
-  silent strict-conflict between composed fragments, `:effective-args`
-  that violate the view-args schema (`:rf.error/story-view-args-invalid`),
-  or a `:sub-overrides` value that violates its subscription's output
-  schema (`:rf.error/story-sub-override-invalid`)."
+  an unregistered `:extends` parent, an `:extends` cycle or over-long
+  chain, a missing `[:arg key]`, an unregistered/nested `:compose`
+  fragment or an unregistered check, a silent strict-conflict between
+  composed fragments, a malformed script step, an `[:assert …]` checkpoint
+  in `:setup`, an unknown assertion id or a malformed assertion opt,
+  `:network` beside an explicit `:fx-overrides` on the managed-request fx,
+  `:effective-args` that violate the view-args schema
+  (`:rf.error/story-view-args-invalid`), or a `:sub-overrides` value that
+  violates its subscription's output schema
+  (`:rf.error/story-sub-override-invalid`)."
   ([target] (variant-plan target nil))
   ([target {:keys [lookup] :as opts}]
    (let [lookup-fn    (coerce-kind-lookup :lookup lookup default-lookup)

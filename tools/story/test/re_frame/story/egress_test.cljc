@@ -6,9 +6,8 @@
             [re-frame.story.egress :as rf.story.egress]))
 
 (deftest classify-empty-is-full
-  (let [r (rf.story.egress/classify {:plan nil :cell-overrides nil :dropped nil})]
-    (is (= {:status :full :label "fully reproducible" :reasons []} r))
-    (is (true? (rf.story.egress/full? r)))))
+  (is (= {:status :full :label "fully reproducible" :reasons []}
+         (rf.story.egress/classify {:plan nil :cell-overrides nil :dropped nil}))))
 
 (deftest classify-dropped-overrides-is-partial
   (testing "share-URL overrides that no longer apply downgrade to partial"

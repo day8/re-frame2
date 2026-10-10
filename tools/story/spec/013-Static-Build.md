@@ -347,7 +347,7 @@ their `staticwebapp.config.json` under Azure, etc.).
 |---|---|
 | `:devtools/preloads` (Xray preload) | `release` builds ignore the preload slot |
 | The RHS Xray band + the per-variant Xray drive | gated on `(not static-mode?)`; Xray cannot render in a `release` build (rf2-n7lql) |
-| Mount-time `:xray` preset application + the cross-host bridges | gated on `(not static-mode?)` via `xray-preset/drive-xray?`; the watcher gate missed the deep-link path, where the variant is already selected at mount (rf2-n440v) |
+| Mount-time `:xray` preset application + the cross-host bridges | gated on `(not static-mode?)` via `xray-preset/drive-xray?`, which also covers the deep-link path, where the variant is already selected at mount |
 | Per-beat Xray focus links (evidence spine + Docs evidence excerpt) and the `focus-beat!` callback | gated on `(not static-mode?)` via `evidence-spine/focus-available?`; the evidence narrative itself is RETAINED (rf2-n440v) |
 | `shadow-cljs` websocket bridge | `release` builds don't include the dev-server connection |
 | Registrar-fingerprint poll (the 500ms `setInterval`) | gated on `(not static-mode?)`; DCEs under `:advanced` |

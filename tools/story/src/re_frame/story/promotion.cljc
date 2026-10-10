@@ -139,18 +139,17 @@
   A promotion that `:extends` its source (`extends-source?`) inherits the rest
   through the source's chain, so it carries only the source's own `:checks`
   and its composed ones; any other promotion carries the whole resolved list.
-  Without a `source-plan` (the one-argument arity, or a source that does not
-  compile here) only the source's own `:checks` ride."
-  ([source-body] (source-expectations source-body nil false))
-  ([source-body source-plan extends-source?]
-   (let [own    (:checks source-body)
-         checks (cond
-                  (nil? source-plan) own
-                  extends-source?    (distinct (concat own (composed-check-ids source-plan)))
-                  :else              (get-in source-plan [:expect :checks]))]
-     (cond-> {}
-       (seq (:assertions source-body)) (assoc :assertions (vec (:assertions source-body)))
-       (seq checks)                    (assoc :checks (vec checks))))))
+  Without a `source-plan` (a source that does not compile here) only the
+  source's own `:checks` ride."
+  [source-body source-plan extends-source?]
+  (let [own    (:checks source-body)
+        checks (cond
+                 (nil? source-plan) own
+                 extends-source?    (distinct (concat own (composed-check-ids source-plan)))
+                 :else              (get-in source-plan [:expect :checks]))]
+    (cond-> {}
+      (seq (:assertions source-body)) (assoc :assertions (vec (:assertions source-body)))
+      (seq checks)                    (assoc :checks (vec checks)))))
 
 (defn- dispatch-step?
   [step]

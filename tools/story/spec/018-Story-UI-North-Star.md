@@ -267,7 +267,7 @@ a merged fix alone.
 | Every run can produce an epoch-backed evidence tape | BUILT | `:epoch-tape` and `:narrative` on every `story/run` result (023 probe 7; `play/evidence_test.cljc`) |
 | Failures explain themselves | BUILT in data and in the UI gesture (PR #9830) | The tape, narrative and effects ride the result; a failed assertion's Tests-pane row links to its own retained Evidence beat (rf2-v5p6l; `story_assertions_test.clj`, `test_mode_pane_cljs_test.cljs`) |
 | Explicit args with honest fidelity rungs | BUILT for the rung labels, the single-parent upgrade (PR #9803) and pins composed from fragments, which the upgrade drops and names (PR #9828, rf2-yt6ak) | 023 probe 5b; `view_state_upgrade_test.clj`; `view_state_test.cljc` |
-| Generated failures promote to curated variants | BUILT (PRs #9804 and #9819), composed checks included (PR #9829, rf2-6h2z3) | `tools/story/test/re_frame/story/promotion_cljs_test.cljc` rf2-5vmog block (seven both-routes shapes and five dialog-route-only, twelve in all); `tools/story/test/re_frame/story/ui/test_mode/promotion_row_dom_cljs_test.cljs`; 023 probes 6c and 6d, re-run at `2284727767`; [`017-Testing-Story.md`](017-Testing-Story.md) §Promotion |
+| Generated failures promote to curated variants | BUILT, composed checks included | `tools/story/test/re_frame/story/promotion_cljs_test.cljc` §A promoted regression fails for the reason its source failed (seven both-routes shapes and five dialog-route-only, twelve in all); `tools/story/test/re_frame/story/ui/test_mode/promotion_row_dom_cljs_test.cljs`; 023 probes 6c and 6d, re-run at `2284727767`; [`017-Testing-Story.md`](017-Testing-Story.md) §Promotion |
 | Xray exposes runtime causality | BUILT | The per-variant Xray embed paints its panels (`xray_embed_e2e_cljs_test.cljs`); the per-cell cascade with source coordinates was walked on the login-form testbed at the research pin |
 
 Story should not copy Storybook's weaker patterns:
@@ -636,7 +636,7 @@ cap as real pain, virtualization is the named upgrade.
 | C3 | Controls — inline-validation of one edited field | **≤ 4 ms** (documented target) | TARGET | documented target; structural validate is single-field, bounded |
 | G1 | Variants-grid — visible cells before page / `+N more` | **100** | CURRENT | gate: bounded output (`bound-cells` / `grid-visible-cell-cap`); render-wired in `ui/workspace` capped-grid renderer (rf2-ba86n.18) |
 | G2 | Variants-grid — matrix dimension product (soft warn) | **warn at ≥ 12×12 = 144** | CURRENT | gate: `matrix-warn?`; render-wired advisory (rf2-ba86n.18) |
-| G3 | Variants-grid — matrix dimension product (hard cap) | **render ≤ 400; paginate beyond** | CURRENT | gate: `matrix-over-hard-cap?` / `matrix-page-count`; render-wired — grid never renders past the hard cap (rf2-ba86n.18) |
+| G3 | Variants-grid — matrix dimension product (hard cap) | **render ≤ 400; paginate beyond** | CURRENT | gate: `matrix-over-hard-cap?`; render-wired — grid never renders past the hard cap |
 | X1 | Failure → first useful evidence | **≤ 1 gesture; inline excerpt ≤ 2 beats** | CURRENT/TARGET | gate: excerpt-beat cap; one-gesture reach is a review-checklist bar |
 | X2 | Evidence-spine first paint (typical run, ≤ ~200 beats) | **≤ 100 ms** (documented target) | TARGET | documented target (React-bound; review-checklist / manual) |
 | X3 | Bundle size | **NO NEW BUDGET** — reference `npm run test:perf-bundle` + bundle-isolation | CURRENT | existing gate (reference, not duplicated) |

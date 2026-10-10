@@ -410,8 +410,9 @@ side. Details:
 Coverage: the JVM bridge is exercised by
 `re-frame.story.story-is-test` (`story-is-reports-per-assertion-pass`
 proves two `:assert-db` steps in one `:script` fire **two** separate
-reports); the pure CLJS projection by
-`re-frame.story.result-test/result->reports-one-per-assertion`.
+reports); the pure `.cljc` projection by
+`re-frame.story.result-test/result->reports-one-per-assertion`, which runs
+on the JVM.
 
 `story/assertions-passing?` remains the one-line boolean predicate for the
 `(is (story/assertions-passing? result))` pattern above; `story/is` is the

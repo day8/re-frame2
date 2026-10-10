@@ -128,7 +128,7 @@
      descendant subscribe reads the override at deref time via the
      `:subs/resolve-sub-override` core hook (consulted dev-only inside
      `subscribe`'s `interop/debug-enabled?` gate). See
-     `re-frame.story.sub-overrides` ns docstring §STATUS.
+     `re-frame.story.sub-overrides` ns docstring §Live subscribe seam.
 
      The substrate is READ off the variant, not assumed: passing a LITERAL
      `:reagent` into the seam would make `render-variant` paint a

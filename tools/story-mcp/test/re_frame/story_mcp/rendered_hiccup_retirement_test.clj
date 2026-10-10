@@ -39,7 +39,7 @@
             [re-frame.schemas :as rf.schemas]
             [re-frame.story :as rf.story]
             [re-frame.story.recorder :as rf.story.recorder]
-            [re-frame.story.render :as rf.story.render]
+            [re-frame.story.render]
             [re-frame.story-mcp.config :as rf.story-mcp.config]
             [re-frame.story-mcp.tools.registry :as rf.story-mcp.tools.registry]
             [re-frame.story-mcp.tools.wire-pipeline :as rf.story-mcp.tools.wire-pipeline]
@@ -175,9 +175,6 @@
 ;; ===========================================================================
 
 (deftest render-variant-remains-the-rendering-authority
-  (testing "render-variant's terminal status vocabulary names :rendered"
-    (is (contains? rf.story.render/statuses :rendered)
-        "render-variant must be able to report a completed render"))
   (testing "the rendering authority is a distinct fn, not a run-variant option"
     (is (some? (resolve 're-frame.story.render/render-variant))
         "render-variant is the single explicit visual-rendering API")))

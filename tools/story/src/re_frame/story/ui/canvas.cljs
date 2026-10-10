@@ -258,9 +258,9 @@
 ;; subscription overrides). At render the canvas resolves the variant's
 ;; override map (arg-substituting `[:arg key]` placeholders against the
 ;; effective args, the SAME one-level substitution the plan compiler uses)
-;; and binds it through `rf.story.sub-overrides/with-overrides*` for the view-
-;; render extent. The binding never touches app-db or `compute-sub`, so
-;; it can never satisfy a subscription assertion (`:rf.assert/sub-equals`).
+;; and hands it to the view through `sub-overrides-scope`. The override
+;; never touches app-db or `compute-sub`, so it can never satisfy a
+;; subscription assertion (`:rf.assert/sub-equals`).
 ;;
 ;; The carriage is a React context
 ;; (`re-frame.adapter.sub-override-context`), not a dynamic var — the var
@@ -271,7 +271,7 @@
 ;; `subscribe`'s `interop/debug-enabled?` gate). The override feeds only
 ;; the constant reaction the view derefs — never app-db / `compute-sub` —
 ;; so `:rf.assert/sub-equals` stays unsatisfiable by an override. See the
-;; `re-frame.story.sub-overrides` ns docstring §STATUS.
+;; `re-frame.story.sub-overrides` ns docstring §Live subscribe seam.
 
 (defn- resolve-sub-overrides
   "Return the variant's resolved `:sub-overrides` map (exact query vectors →

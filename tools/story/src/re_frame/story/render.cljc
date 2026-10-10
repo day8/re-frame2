@@ -84,20 +84,6 @@
             [re-frame.story.plan        :as rf.story.plan]))
 
 ;; ===========================================================================
-;; Render statuses
-;; ===========================================================================
-
-(def statuses
-  "The four `render-variant` statuses (spec/017 §Args — P1 render API):
-
-  - `:rendered`     — the active view was prepared + rendered;
-  - `:invalid-args` — the POST-override effective args violate the view-arg
-                      schema (render stopped BEFORE the view call);
-  - `:cannot-run`   — no host can render (the bare JVM, or Story disabled);
-  - `:error`        — the host render fn threw."
-  #{:rendered :invalid-args :cannot-run :error})
-
-;; ===========================================================================
 ;; Host-render hook
 ;; ===========================================================================
 
