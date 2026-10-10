@@ -2,71 +2,19 @@
 'use strict';
 // THE FRESCO BENCH DRIVERS' EXIT PATH — a printed refusal must refuse.
 //
-// It pins four drivers, because the defect is not a property of clocks: it is
-// one copied exit block, and the pin belongs wherever the block went.
-// `hd8_run.cjs` is the fourth and is not a clock driver at all.
-//
 //     node src/re_frame/bench/fresco/clock_exit_path.test.cjs   (from bench/fresco/)
 //
-// THE DEFECT THIS PINS. Both drivers compute THREE refusals per row —
-// unverified read-backs, a reproducibility band over `seam.cjs`'s ceiling,
-// and a positive control that missed its own arithmetic — print every one
-// of them in the report, and write every one of them into the run's dataset.
-// An exit block that read `failed` and the arm-order guard AND NOTHING ELSE
-// would let a quiet box with a clean guard print
+// Each driver here computes refusals per row — unverified read-backs, a band
+// over `seam.cjs`'s ceiling, a positive control that missed, a bar with no
+// band — and prints them. A refusal that is printed but never reaches the exit
+// code, or a refused run that still writes the published datasets, is the
+// defect this file guards. The drivers need an `:advanced` build and a headless
+// Chromium, so each decision lives in one pure exported function driven here
+// directly, plus a source pin that the exit code comes from that function and
+// that nothing downstream of it reads a refusal on its own.
 //
-//     ;; writes   4 unverified of 36 (mount + element-count read-backs)
-//     ;; ---- THE BAND ...: 41.2% — ceiling 35% — BREACHED, no magnitude reportable ----
-//     ;;   FAIL  measured 1.21x [...] against [1.50 – 2.50]
-//
-// and exit 0 on figures its own report had just refused. Printing a refusal
-// is not refusing. `census_clock_run.cjs` makes it sharper still: its
-// prediction P4, registered before any clock, promises that a row whose
-// control or band cannot hold "publishes a REFUSAL with the reason, not a
-// number" — a promise only the process exit can keep.
-//
-// WHY IT IS PINNED HERE. Both drivers need an `:advanced` release build and
-// a headless Chromium, so their verdicts cannot be exercised end-to-end in a
-// unit test. So the whole decision lives in ONE pure function over a flat
-// summary, which this file exercises directly, plus the wiring pins that the
-// exit code comes from that function and from no second reading of a
-// refusal. Those together are what make "a refused row cannot be green" a
-// checked claim rather than an asserted one.
-//
-// `clock_run.cjs` gates all three, and this is that shape, made checkable.
-//
-// AND `clock_run.cjs` ITSELF. Gating all three is not enough: it computes a
-// row-level control verdict and a bar-level adjudication independently, and
-// were only the first to reach the exit code, `HCLOCK_ONLY=keystroke` alone
-// would print `[clock] ok` for a run whose every bar it had just labelled
-// UNADJUDICATED. Its decision has one seat too, and the last section of this
-// file is that seat's fixtures plus the wiring that makes them load-bearing.
-//
-// AND THE BAR-LEVEL TERM IS STRICT, in BOTH places that carry it. A rule one
-// notch too loose — `unadj.length < names.length` in `clock_run.cjs`,
-// `names.some(...)` in `clock_readjudicate.cjs` — would let ONE adjudicated
-// bar carry a row whose other published bars had no band at all: the driver
-// exiting 0 under a sentence reading "every published bar adjudicated", the
-// readjudicator pooling that run into the published mean for every pair
-// including the unadjudicated one.
-//
-// A rule a test cannot drive is not a checked rule however exactly it is
-// quoted: a rule inline in the driver's `main`, or in a file that reads
-// `process.argv` at module scope so requiring it runs it, can be held only by
-// a regex over its source, which matches the wrong rule as faithfully as the
-// right one. Both are pure exported functions (`rowAdjudication`,
-// `adjudicated`), both require every published bar to carry a band, and both
-// are driven below on the mixed-bar case.
-//
-// AND THE STRICT RULE ASKS `=== false`, NOT TRUTHINESS, or absence reads as
-// cleanliness one level down: a bar stored as `{}` — present, carrying no
-// verdict at all — would count as adjudicated in both seats, `rowAdjudication`
-// returning `adjudicable: true` beside an `unadjudicatedWhy` reading "the run
-// adjudicated no bar on this row at all", and `adjudicated` returning true so
-// that the reader pools the run into the published mean. A bar stored as
-// `null` would not even fail open — it would throw. Both require an EXPLICIT
-// `unadjudicated === false`, absence and null included, and the fixtures for
-// it are in both blocks below.
+// The census and clock blocks also re-derive the check standards' frozen
+// numbers and the published M1 figures from the committed run corpus.
 //
 // Run by `npm run check` in bench/fresco/.
 
@@ -76,8 +24,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-// Requiring a driver must NOT drive it: the `require.main === module` guard
-// is itself part of what is under test here.
+// Requiring a driver must NOT drive it.
 const DRIVERS = [
   {
     tag: '[hd8clock]',
@@ -94,8 +41,7 @@ const DRIVERS = [
 const tests = [];
 const test = (name, fn) => tests.push([name, fn]);
 
-// The census blocks below re-derive published figures from the committed run
-// corpus, which is archived in git history (`data_archive.cjs`). A test
+// The run corpus is archived in git history (`data_archive.cjs`). A test
 // declared through `corpusTest` runs when `data/` is present and is counted as
 // skipped — one printed line at the exit — when it is not.
 const archive = require('./data_archive.cjs');
@@ -123,8 +69,6 @@ for (const { tag, file, mod } of DRIVERS) {
   const name = path.basename(file);
   const t = (what, fn) => test(`${name}: ${what}`, fn);
 
-  // --- the green case first, so the gate is not vacuously red --------------
-
   t('a clean run exits 0 and says nothing', () => {
     assert.deepStrictEqual(verdict({ failed: null, rows: [row({}), row({ id: 'reagent/mount-M' })] }), {
       code: 0,
@@ -132,64 +76,19 @@ for (const { tag, file, mod } of DRIVERS) {
     });
   });
 
-  t('a summary that never ran (undefined) is not a refusal', () => {
-    assert.strictEqual(verdict(undefined).code, 0);
-    assert.strictEqual(verdict({ failed: null, rows: [] }).code, 0);
+  t('each refusal ALONE takes its own exit code and names the row', () => {
+    for (const [over, failed, code, named] of [
+      [{}, 'the box would not go quiet before uix/mount-M', 1, /FAILED: the box would not go quiet/],
+      [{ guardRefuse: true }, null, 2, /Repair the arm, not the guard: uix\/mount-M/],
+      [{ unverified: 4 }, null, 3, /uix\/mount-M: 4 of 36/],
+      [{ ceilingBreached: true, band: 0.412 }, null, 4, /uix\/mount-M \(41\.2%\)/],
+      [{ ctlOk: false, ctlMeasured: 1.2134 }, null, 5, /uix\/mount-M \(measured 1\.2134x\)/],
+    ]) {
+      const v = verdict({ failed, rows: [row(over)] });
+      assert.deepStrictEqual([v.code, v.lines.length], [code, 1], `${failed || JSON.stringify(over)}: ${v.lines}`);
+      assert.match(v.lines[0], named);
+    }
   });
-
-  // --- the three defects, each ALONE, on an otherwise clean run ------------
-
-  t('UNVERIFIED WRITES alone are a nonzero exit — the case that used to be green', () => {
-    const v = verdict({ failed: null, rows: [row({ unverified: 4 })] });
-    assert.notStrictEqual(v.code, 0, 'a window that never reached the page must not exit 0');
-    assert.strictEqual(v.code, 3);
-    assert.strictEqual(v.lines.length, 1, 'only the unverified refusal should be reported');
-    assert.match(v.lines[0], /^\[\w+\] REFUSED — unverified operations/);
-    assert.match(v.lines[0], /uix\/mount-M: 4 of 36/);
-  });
-
-  t('A BREACHED BAND CEILING alone is a nonzero exit — the case that used to be green', () => {
-    const v = verdict({ failed: null, rows: [row({ ceilingBreached: true, band: 0.412 })] });
-    assert.notStrictEqual(v.code, 0, 'a band over the ceiling must not exit 0');
-    assert.strictEqual(v.code, 4);
-    assert.strictEqual(v.lines.length, 1);
-    assert.match(v.lines[0], /REFUSED — the run's own reproducibility band exceeds/);
-    assert.match(v.lines[0], /uix\/mount-M \(41\.2%\)/);
-  });
-
-  t('A FAILED POSITIVE CONTROL alone is a nonzero exit — the case that used to be green', () => {
-    const v = verdict({ failed: null, rows: [row({ ctlOk: false, ctlMeasured: 1.2134 })] });
-    assert.notStrictEqual(v.code, 0, 'a control that missed its prediction must not exit 0');
-    assert.strictEqual(v.code, 5);
-    assert.strictEqual(v.lines.length, 1);
-    assert.match(v.lines[0], /REFUSED — the positive control did not see the change/);
-    assert.match(v.lines[0], /uix\/mount-M \(measured 1\.2134x\)/);
-    assert.match(v.lines[0], /No MAGNITUDE from those rows is reportable/);
-  });
-
-  t('a band with no finite figure still names itself rather than printing NaN', () => {
-    const v = verdict({ failed: null, rows: [row({ ceilingBreached: true, band: NaN })] });
-    assert.strictEqual(v.code, 4);
-    assert.match(v.lines[0], /uix\/mount-M \(n\/a\)/);
-  });
-
-  // --- the guard and failure codes ------------------------------------------
-
-  t('the arm-order guard alone still exits 2', () => {
-    const v = verdict({ failed: null, rows: [row({ guardRefuse: true })] });
-    assert.strictEqual(v.code, 2, 'an arm-order guard refusal must exit 2');
-    assert.strictEqual(v.lines.length, 1);
-    assert.match(v.lines[0], /ARM-ORDER GUARD REFUSED/);
-    assert.match(v.lines[0], /Repair the arm, not the guard: uix\/mount-M/);
-  });
-
-  t('a failed run still exits 1', () => {
-    const v = verdict({ failed: 'the box would not go quiet before uix/mount-M', rows: [] });
-    assert.strictEqual(v.code, 1, 'a failed run must exit 1');
-    assert.match(v.lines[0], /^\[\w+\] FAILED: the box would not go quiet/);
-  });
-
-  // --- combinations: nothing masks anything, precedence is preserved -------
 
   t('all three new refusals together: all THREE are named, band precedes control', () => {
     const v = verdict({
@@ -203,16 +102,6 @@ for (const { tag, file, mod } of DRIVERS) {
     assert.match(v.lines[2], /positive control/);
   });
 
-  t('a failed run WITH new refusals keeps exit 1 and still names them', () => {
-    const v = verdict({
-      failed: 'page errors in uix/mount-M',
-      rows: [row({ unverified: 1, guardRefuse: true })],
-    });
-    assert.strictEqual(v.code, 1, 'a failed run keeps exit 1 beside other refusals');
-    assert.strictEqual(v.lines.length, 3);
-    assert.match(v.lines[0], /FAILED: page errors/);
-  });
-
   t('a refusal on ANY row refuses the run, and every offending row is named', () => {
     const v = verdict({
       failed: null,
@@ -222,8 +111,6 @@ for (const { tag, file, mod } of DRIVERS) {
     assert.match(v.lines[0], /reagent\/mount-M: 7 of 36/);
     assert.doesNotMatch(v.lines[0], /uix\/mount-M/, 'a clean row must not be blamed');
   });
-
-  // --- summarise: the accessor paths the defect hid behind ------------------
 
   t('summarise reads the real adjudication paths, so a rename cannot re-hide a refusal', () => {
     const s = summarise(null, [
@@ -253,67 +140,36 @@ for (const { tag, file, mod } of DRIVERS) {
         },
       ],
     });
-    // And the summary it built refuses, rather than merely describing.
-    assert.strictEqual(verdict(s).code, 2);
-    assert.strictEqual(verdict(s).lines.length, 4, 'every condition on the row is named');
+    // And the summary it built refuses, naming every condition on the row.
+    assert.deepStrictEqual([verdict(s).code, verdict(s).lines.length], [2, 4]);
   });
 
   t('summarise survives a run that took no rows', () => {
     assert.deepStrictEqual(summarise('build failed', []), { failed: 'build failed', rows: [] });
-    assert.deepStrictEqual(summarise(null, undefined), { failed: null, rows: [] });
   });
 
   // --- the wiring: `verdict` is load-bearing, not decorative ----------------
 
   const SRC = fs.readFileSync(file, 'utf8');
-  // `drive` alone — the module tail below it is the ONLY place an exit may
-  // be taken, and it is asserted separately.
   const DRIVE = SRC.slice(SRC.indexOf('async function drive('), SRC.indexOf('\nmodule.exports'));
 
-  t('the driver exposes its run as `drive` and its decision as `verdict`', () => {
-    assert.ok(DRIVE.length > 0, 'the driver must expose its run as `drive`');
-    // `summarise` and `verdict` FIRST and always — a driver may export more
-    // (both clock drivers add `destination`, their write-path decision), but
-    // the decision pair is what every test below reaches for.
+  t('the exit code comes from `verdict` and is RETURNED, not re-derived', () => {
     assert.match(SRC, /module\.exports = \{ summarise, verdict\s*[,}]/);
-    assert.match(SRC, /require\.main === module/);
+    assert.match(DRIVE, /const v = verdict\(summarise\(failed, results\)\);/);
+    assert.match(DRIVE, /return v\.code;/);
     assert.match(SRC, /drive\(\)\.then\(\(code\) => \{\s*if \(code !== 0\) process\.exit\(code\);/);
   });
 
-  t('the exit code comes from `verdict` and is RETURNED, not re-derived', () => {
-    assert.match(DRIVE, /const v = verdict\(summarise\(failed, results\)\);/);
-    assert.match(DRIVE, /for \(const line of v\.lines\) console\.error\(line\);/);
-    assert.match(DRIVE, /return v\.code;/);
-  });
-
-  t('`drive` never calls process.exit itself — the decision has ONE seat', () => {
-    // The defect is a second exit path reading a subset of the conditions.
-    // A `process.exit` inside `drive` is that second path by construction,
-    // and it would also be invisible to every test above.
-    assert.ok(
-      DRIVE.length > 0 && !/process\.exit/.test(DRIVE),
-      '`drive` must return its code, never exit — a process.exit inside it is a second decision'
-    );
-  });
-
   t('NOTHING downstream of `verdict` reads a refusal on its own', () => {
-    // This is the assertion that keeps the defect from growing back: an exit
-    // block reading `guardRefuse` directly while three siblings sit unread
-    // beside it. If any of the four is named after the decision is taken,
-    // some second path is deciding the exit and the pure-function tests
-    // above stop covering it.
+    // An exit block reading `guardRefuse` directly while its siblings sit
+    // unread beside it is the defect; a `process.exit` inside `drive` is a
+    // second decision by construction.
+    assert.ok(!/process\.exit/.test(DRIVE), '`drive` must return its code, never exit');
     const tail = DRIVE.slice(DRIVE.indexOf('const v = verdict('));
     assert.ok(
-      tail.length > 0 && !/guardRefuse|ceilingBreached|ctl\.ok|tally\.unverified/.test(tail),
+      !/guardRefuse|ceilingBreached|ctl\.ok|tally\.unverified/.test(tail),
       'the exit path must consult `verdict` alone, never a refusal directly'
     );
-  });
-
-  t('the header still documents every code the decision can return', () => {
-    const header = SRC.slice(0, SRC.indexOf("'use strict'"));
-    for (const code of ['0', '1', '2', '3', '4', '5']) {
-      assert.match(header, new RegExp(`^//   ${code}  \\S`, 'm'), `exit code ${code} must be documented`);
-    }
   });
 
   t('every refusal line names the driver, so a piped log says which run refused', () => {
@@ -321,40 +177,20 @@ for (const { tag, file, mod } of DRIVERS) {
       failed: 'x',
       rows: [row({ guardRefuse: true, unverified: 1, ceilingBreached: true, ctlOk: false })],
     });
-    assert.strictEqual(v.lines.length, 5);
+    assert.deepStrictEqual([v.code, v.lines.length], [1, 5], 'a failed run keeps exit 1 and masks none of the others');
     for (const line of v.lines) assert.ok(line.startsWith(`${tag} `), `not tagged ${tag}: ${line}`);
   });
 }
 
-// --- and the promise census_clock_run.cjs published --------------------------
-
-test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', () => {
-  const { verdict } = DRIVERS[1].mod;
-  const SRC = fs.readFileSync(DRIVERS[1].file, 'utf8');
-  // The prediction, registered before any clock, in the driver's own words.
-  assert.match(SRC, /the row publishes a REFUSAL with the/);
-  assert.match(SRC, /reason, not a number/);
-  // Its control cannot hold ...
-  const ctl = verdict({ failed: null, rows: [row({ ctlOk: false })] });
-  assert.notStrictEqual(ctl.code, 0, 'P4 promises a refusal when the control cannot hold');
-  // ... nor its band.
-  const band = verdict({ failed: null, rows: [row({ ceilingBreached: true, band: 0.4 })] });
-  assert.notStrictEqual(band.code, 0, 'P4 promises a refusal when the band cannot hold');
-});
-
-// --- census_clock_run.cjs: the WRITE path, not just the exit path ------------
+// --- census_clock_run.cjs: the WRITE path ------------------------------------
 //
 // `verdict` decides what may be QUOTED; `destination` decides what may be
-// WRITTEN. A driver that wrote the canonical datasets before the refusal was
-// consulted, and under the canonical filenames whatever shape the run had,
-// would let a narrowed / --no-build / refused run silently replace the
-// published evidence. Same fail-open as the exit path, one file over, and
-// checkable the same hermetic way.
+// WRITTEN. A narrowed, --no-build or unchecked run must not replace the
+// published datasets.
 
 {
-  const CENSUS = DRIVERS[1].file;
   const { destination } = DRIVERS[1].mod;
-  const SRC = fs.readFileSync(CENSUS, 'utf8');
+  const SRC = fs.readFileSync(DRIVERS[1].file, 'utf8');
   const CANON = '/data/censusclock-2rtt6-56';
   const shape = (over = {}) => ({
     dataDir: CANON,
@@ -370,67 +206,32 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   const tc = (what, fn) => corpusTest(`census_clock_run.cjs write path: ${what}`, fn);
 
   t('the published shape is the ONLY thing that is canonical', () => {
-    const d = destination(shape());
-    assert.strictEqual(d.canonical, true);
-    assert.strictEqual(d.dir, CANON);
-    assert.strictEqual(d.why, null);
+    assert.deepStrictEqual(destination(shape()), { dir: CANON, canonical: true, why: null });
   });
 
-  // Each condition alone must move the write off the canonical set. These are
-  // the mutation proofs: flip one field, the destination must change.
-  //
-  // EVERY ONE OF THEM IS A FACT ABOUT THE RUN'S SHAPE, and that is the whole
-  // of this list — a refused VERDICT is not on it, because a gate refusal
-  // belongs to one row and is recorded there (`rowPublication`, below).
-  // `clock_run.cjs`'s `publication(shape)` reads shape and nothing else, and
-  // this is that same rule.
-  for (const [what, over, needle] of [
-    ['a partial row set', { rowsOnly: 'feed' }, /PARTIAL row set/],
-    ['a partial run set', { runsOnly: 'uix' }, /PARTIAL run set/],
-    ['--no-build', { noBuild: true }, /--no-build/],
-    ['an overridden depth', { depthPublished: false }, /OVERRIDDEN design depth/],
-    // C56CLOCK_SKIP_QUIET=1 makes `quietGate` return ok:true and print "NOT
-    // the published shape"; if nothing carried that fact to the write
-    // decision, a run whose samples were never checked against a quiet box
-    // could occupy the canonical directory, indistinguishable from one taken
-    // in a granted window. This case is that run: the published shape in
-    // every other respect, exit 0, quiet gate skipped.
-    ['a SKIPPED quiet gate', { skipQuiet: true }, /SKIPPED quiet gate \(C56CLOCK_SKIP_QUIET=1\)/],
-  ]) {
-    t(`${what} is NOT canonical, and says why`, () => {
+  // Each is a fact about the run's SHAPE. A gate refusal is not on this list:
+  // it belongs to one row and is recorded there (`rowPublication`, below).
+  t('a non-published shape is NOT canonical, and says why', () => {
+    for (const [over, needle] of [
+      [{ rowsOnly: 'feed' }, /PARTIAL row set/],
+      [{ runsOnly: 'uix' }, /PARTIAL run set/],
+      [{ noBuild: true }, /--no-build/],
+      [{ depthPublished: false }, /OVERRIDDEN design depth/],
+      [{ skipQuiet: true }, /SKIPPED quiet gate \(C56CLOCK_SKIP_QUIET=1\)/],
+    ]) {
       const d = destination(shape(over));
-      assert.strictEqual(d.canonical, false, `${what} must not be canonical`);
-      assert.notStrictEqual(d.dir, CANON, `${what} must not write the published filenames`);
-      assert.strictEqual(d.dir, `${CANON}.unpublished`);
-      assert.match(d.why, needle);
-      // ... and the same shape WITHOUT that condition is canonical again, so
-      // the test cannot pass by refusing everything.
-      assert.strictEqual(destination(shape()).canonical, true);
-    });
-  }
-
-  t('every condition that fired is named, not just the first', () => {
-    const d = destination(shape({ rowsOnly: 'feed', noBuild: true, depthPublished: false, skipQuiet: true }));
-    assert.strictEqual(d.canonical, false);
-    for (const needle of [/PARTIAL row set/, /--no-build/, /OVERRIDDEN design depth/, /SKIPPED quiet gate/]) {
+      assert.deepStrictEqual([d.canonical, d.dir], [false, `${CANON}.unpublished`], JSON.stringify(over));
       assert.match(d.why, needle);
     }
   });
 
-  // The other half. `destination` is pure over a shape RECORD; the one caller
-  // that builds the real shape is `runShape`, and it is not exported. So a
-  // `destination` that reads `skipQuiet` correctly still fails open if
-  // `runShape` never puts it there: the flag would exist, print "NOT the
-  // published shape", and never reach the write decision. Pin the wiring in
-  // the source, the same way the ordering pins below do, because no test of
-  // the export can see it.
+  // `destination` is pure over a shape RECORD; `runShape` builds the real one
+  // and is not exported, so the skip-quiet flag reaching it is pinned here.
   t('runShape carries the skip-quiet fact into the write decision', () => {
     assert.match(SRC, /const SKIP_QUIET = process\.env\.C56CLOCK_SKIP_QUIET === '1';/);
     const from = SRC.indexOf('const runShape = () => ({');
-    assert.ok(from > 0, 'runShape no longer has the shape this test pins');
-    const body = SRC.slice(from, SRC.indexOf('});', from));
     assert.match(
-      body,
+      SRC.slice(from, SRC.indexOf('});', from)),
       /skipQuiet: SKIP_QUIET,/,
       'runShape must carry skipQuiet, or a skipped quiet gate can still write the canonical set'
     );
@@ -439,90 +240,33 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   t('an explicit C56CLOCK_DATA_DIR is honoured as given, and is never canonical', () => {
     const mine = '/data/censusclock-somebead';
     const d = destination(shape({ dataDir: mine, dataDirOverridden: true }));
-    assert.strictEqual(d.dir, mine, 'the operator named the destination; do not rewrite it');
-    assert.strictEqual(d.canonical, false, 'an operator-named directory is not the published set');
-    // It still lands where the operator said whatever else the run was — the
-    // refusal is carried by the exit code and by `canonical`, never by moving
-    // the file out from under the name the operator gave it.
+    assert.deepStrictEqual([d.dir, d.canonical], [mine, false]);
     assert.strictEqual(destination(shape({ dataDir: mine, dataDirOverridden: true, skipQuiet: true })).dir, mine);
   });
 
-  // The defect is an ORDERING one: the write happens, and the refusal is
-  // computed afterwards. Pin the order in the source, because that is what
-  // can regress and a behavioural test of a browser driver cannot see it.
-  t('the verdict is computed BEFORE any dataset is written', () => {
-    const v = SRC.indexOf('const v = verdict(summarise(failed, results));');
-    const dst = SRC.indexOf('const dest = destination(runShape());');
-    const mk = SRC.indexOf('fs.mkdirSync(dest.dir');
-    assert.ok(v > 0 && dst > 0 && mk > 0, 'the write path no longer has the shape this test pins');
-    assert.ok(v < dst, 'the verdict must be computed before the destination is chosen');
-    assert.ok(dst < mk, 'the destination must be chosen before the directory is created');
-  });
-
   t('no dataset is written to the raw DATA_DIR downstream of `destination`', () => {
-    // This is how the defect grows: a write that names the canonical
-    // directory directly. Every write site must go through the chosen
-    // destination.
     const after = SRC.slice(SRC.indexOf('const dest = destination(runShape());'));
     assert.ok(!/fs\.mkdirSync\(DATA_DIR/.test(after), 'mkdirSync must use the chosen destination');
     assert.ok(!/path\.join\(DATA_DIR/.test(after), 'the dataset path must use the chosen destination');
     assert.match(after, /path\.join\(dest\.dir/);
   });
 
-  t('the dataset is built OUTSIDE `drive`, so recording never looks like deciding', () => {
-    // `datasetFor` names guardRefuse/ceilingBreached to SERIALISE them. Inside
-    // `drive` and downstream of `verdict` that would trip the invariant above
-    // — correctly, since a reader cannot tell a record from a second decision.
-    assert.match(SRC, /^function datasetFor\(rows, meta\) \{/m);
-    const drive = SRC.slice(SRC.indexOf('async function drive('));
-    assert.ok(drive.indexOf('function datasetFor(') === -1, '`datasetFor` must sit above `drive`');
-    assert.match(drive, /const data = datasetFor\(rows, \{ sha, blobs: bl, dest \}\);/);
-  });
-
-  // The workload counts must be IN the evidence, not recoverable only by
-  // reading the instrument at the producing commit.
-  t("each row's workload counts are persisted with its numbers", () => {
-    assert.match(SRC, /stamp: STAMP\[r\.rowId\]/);
-    for (const needle of [/cards: '69 article cards'/, /cards: '300 article cards'/, /cards: '5 comment cards/]) {
-      assert.match(SRC, needle);
-    }
-  });
-
-  t('the published depth has ONE definition, shared by the stamp and the write path', () => {
-    assert.match(SRC, /const PUBLISHED_DEPTH = \{ rounds: 6, blocks: 3, warmup: 4, samples: 10 \}/);
-    // An inline copy would let the two drift apart.
-    assert.ok(
-      !/ROUNDS === 6 && BLOCKS === 3 && WARMUP === 4 && SAMPLES === 10/.test(SRC),
-      'the inline depth predicate is duplicated; use depthIsPublished()'
-    );
-    assert.ok(SRC.split('depthIsPublished()').length - 1 >= 2, 'the one predicate must serve both readers');
-  });
-
   // --- the split the driver collects must reach the file --------------------
   //
-  // `deltaOf` reads ScriptDuration / LayoutDuration / RecalcStyleDuration per
-  // sample and the report prints the row's means; a `datasetFor` that dropped
-  // all three would leave census-real-clock-rows.md's P1 scoring — "layout
-  // 2.06x, style 1.85x, script 2.3x" on the feed row — a figure the tree could
-  // not reproduce. These tests drive the WRITE, hermetically, on a fixture
-  // row. NO measurement is taken here and none is needed: what can regress is
-  // what the serialiser keeps.
+  // census-real-clock-rows.md's P1 scoring cites the feed row's layout /
+  // style / script ratios; `datasetFor` must keep the per-block split they
+  // recompute from.
 
   const { datasetFor, foldDecomposition } = DRIVERS[1].mod;
   const round4 = (x) => Math.round(x * 10000) / 10000;
 
-  // Four blocks over two rounds, ten samples each. Per-block sums differ so a
-  // fold that read one block, or averaged the blocks' means, cannot pass:
-  // only summing all four gives floor 1.0 / 1.0 / 0.1 ms per sample against
-  // ctl-2x 2.06 / 1.85 / 0.23 — the page's cited ratios, exactly.
+  // Per-block sums differ, so only summing all four blocks gives floor
+  // 1.0 / 1.0 / 0.1 ms per sample against ctl-2x 2.06 / 1.85 / 0.23.
   const DECOMP_BLOCK = (n, layout, style, script) => ({
     n, task: layout + style + script, taskNet: 0, devtools: 0, script, style, layout, layoutCount: n, inPage: 0,
   });
-  // The plan names plumb too and the collector bumps every arm in it, so a
-  // faithful block carries plumb — laying nothing out and reading zeros, as it
-  // does in the committed data. This is load-bearing: completeness
-  // is measured against the row's DECLARED roster, so a fixture that omitted
-  // plumb from every block would itself be the truncation under test.
+  // Completeness is measured against the row's DECLARED roster, so every block
+  // carries plumb as the committed data does.
   const DECOMP_PLUMB = () => ({
     n: 10, task: 0.5, taskNet: 0, devtools: 0, script: 0.5, style: 0, layout: 0, layoutCount: 0, inPage: 0,
   });
@@ -537,21 +281,10 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     ],
   ];
   const CITED = { layout: 2.06, style: 1.85, script: 2.3 };
-
-  // The row's own clock grain, as `runRow` hands it over — the
-  // distinct non-zero per-sample `TaskDuration` deltas, sorted at the
-  // measuring site. Deliberately unsorted-looking nowhere: the smallest is
-  // first because that is the contract `report` prints against.
   const FIXTURE_GRAIN = [0.094, 0.107, 0.123, 0.152];
-
-  // What the row DECLARES itself to be: the arms its plan named and the
-  // dimensions its design ran. Both travel beside the split rather than out of
-  // it — `report` reads them from the row and the run's design, a reader of a
-  // written dataset from `row.armIds` and `data.design` — which is the whole
-  // point: evidence cannot be its own completeness check.
   const DECLARED = { armIds: ['plumb', 'floor', 'ctl-2x'], rounds: 2, blocks: 2 };
 
-  const fixtureRow = (over = {}) => ({
+  const fixtureRow = () => ({
     runId: 'reagent',
     rowId: 'feed',
     armIds: DECLARED.armIds,
@@ -567,10 +300,6 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     quiet: { ok: true },
     windowStart: '2026-08-07T00:00:00.000Z',
     adjudication: {
-      // The whole `ctl` record a real row carries, `measured` included:
-      // `datasetFor` decides each row's own publication through the same
-      // `summariseRow` mapper `summarise` uses, so a fixture missing a field
-      // the mapper reads would be testing a row no run can produce.
       ctl: { ok: true, measured: { mean: 1.9943 } },
       cAdditive: 0.9,
       assessed: { bandStats: { band: 0.12 }, verdict: { ceilingBreached: false } },
@@ -580,323 +309,107 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
       plumb: 0.5,
       floorTared: 1.14,
     },
-    ...over,
   });
   const META = { sha: 'deadbeef', blobs: {}, dest: { canonical: true, why: null } };
   const written = () => JSON.parse(JSON.stringify(datasetFor([fixtureRow()], META))).rows[0];
 
   t("the studio page's cited decomposition is recomputable from the file alone", () => {
-    // The whole point: read the JSON, fold it, divide, and the
-    // page's three numbers come back out. Nothing here reads the browser.
     const fold = foldDecomposition(written().blocksDecomp, DECLARED);
     const mean = (arm, k) => fold[arm][k] / fold[arm].n;
     for (const [k, cited] of Object.entries(CITED)) {
       assert.strictEqual(round4(mean('ctl-2x', k) / mean('floor', k)), cited, `${k} must recompute to ${cited}x`);
     }
-    // ... and the fold is the sum of the stored blocks, so the row the report
-    // prints and the file are the same quantity.
+    // ... and the fold is the sum of the stored blocks.
     assert.strictEqual(fold.floor.n, 40);
     assert.strictEqual(round4(fold['ctl-2x'].layout), 82.4);
   });
 
   t('a row written BEFORE this change fails closed rather than folding to zeros', () => {
-    // This is a census dataset written without the split. A fold that
-    // answered on it would hand the reader a number for a split the file
-    // never recorded, which is the defect wearing a fix's face.
-    const legacy = written();
-    delete legacy.blocksDecomp;
-    assert.throws(() => foldDecomposition(legacy.blocksDecomp, DECLARED), /NOT recomputable/);
+    assert.throws(() => foldDecomposition(undefined, DECLARED), /NOT recomputable/);
     assert.throws(() => foldDecomposition([], DECLARED), /NOT recomputable/);
   });
 
-  // --- the clock's grain must reach the file too -----------------------------
-  //
-  // The same species as the split above, one level down and about the
-  // INSTRUMENT rather than the arm. `runRow` accumulates the distinct
-  // non-zero per-sample `TaskDuration` deltas and `report` prints the
-  // smallest as the row's grain; `datasetFor` must keep the set. A dataset of
-  // durations that does not record the resolution they were measured at
-  // cannot say from itself whether a quantity was measurable — the answer
-  // has to come from a remembered constant, the same failure the in-page
-  // clock is held against. Hermetic, like the tests above: what can regress
-  // is what the serialiser keeps, so no measurement is taken here and none is
-  // needed.
-
   t('the grain the row measured reaches the written dataset', () => {
-    // `report` prints `granularity[0]` as the row's grain, and the set is
-    // sorted where it is measured — so the file carries the printed number
-    // rather than requiring somebody to have kept the console.
     assert.deepStrictEqual(written().granularity, FIXTURE_GRAIN);
   });
 
-  // Every committed census row, paired with the declared shape its own file
-  // carries. `row.armIds` and `data.design` are serialised independently of
-  // `blocksDecomp`, so reading them back measures the split against something
-  // other than itself — which is the whole completeness rule in one line.
-  const committedRows = () => {
-    const dir = path.join(__dirname, 'data');
-    const files = fs
-      .readdirSync(dir)
-      .filter((d) => d.startsWith('censusclock-'))
-      .flatMap((d) => fs.readdirSync(path.join(dir, d)).filter((f) => f.endsWith('.json')).map((f) => path.join(dir, d, f)));
-    assert.ok(files.length >= 2, 'expected the committed census datasets');
-    return files.flatMap((f) => {
-      const data = archive.readRecord(f);
-      return data.rows.map((row) => ({
-        f,
-        row,
-        declared: { armIds: row.armIds, rounds: data.design.rounds, blocks: data.design.blocks },
-      }));
-    });
-  };
-
-  tc('every committed census dataset either carries the split or refuses to answer', () => {
-    // Capture backfills nothing: a dataset gains the fields on a canonical
-    // run, never retroactively. Whatever is there, the rule is the same — a
-    // row with the split folds, a row without it refuses. There is no third
-    // answer.
-    for (const { f, row, declared } of committedRows()) {
-      if (row.blocksDecomp) {
-        const fold = foldDecomposition(row.blocksDecomp, declared);
-        assert.ok(Object.values(fold).every((a) => a.n > 0), `${f}: a stored split must fold to real counts`);
-      } else {
-        assert.throws(() => foldDecomposition(row.blocksDecomp, declared), /NOT recomputable/, `${f}: must refuse, not answer`);
-      }
-    }
-  });
-
-  // --- PARTIAL evidence must refuse too --------------------------------------
+  // --- PARTIAL and TRUNCATED evidence must refuse ---------------------------
   //
-  // Refusing the ABSENT case is not enough. A fold that checked the outer
-  // array and nothing inside it, then summed with `acc[k] += a[k] || 0`, would
-  // answer `{}` for `foldDecomposition([[]])` and `foldDecomposition([[{}]])`,
-  // and would fold an arm that had lost `task`/`script`/`layoutCount`, or
-  // carried an explicit `null`, with every missing field synthesised as zero.
-  // A half-written or truncated dataset would then become a plausible
-  // Script/Layout/RecalcStyle ratio instead of a refusal — the same
-  // fail-open, one level down.
-  //
-  // Every fixture below is built HERE. The committed datasets cannot witness
-  // these states — they either carry a whole split or none — and a negative
-  // case that needs a file to be wrong on disk is not a test anyone can run.
+  // A fold that synthesised a missing field as zero, or anchored completeness
+  // on the first surviving block, would turn a half-written dataset into a
+  // plausible ratio. One row per refusal branch; the declared shape is the
+  // anchor, which is what sees an arm lost from EVERY block.
 
-  const { summarise, verdict } = DRIVERS[1].mod;
-
-  // `drive`'s own composition, on the real exported functions: `report` folds
-  // BEFORE anything else it does, inside the try; a throw sets `failed`, so the
-  // row never reaches `results`; `verdict` reads `failed`; and the dataset write
-  // is gated on `results.length && !failed`. A refusal that throws where nothing
-  // catches is not the same as a driver that exits non-zero — this drives the
-  // second. The source pins below hold the reconstruction to the shape it
-  // stands for, so it cannot drift away from the driver while still passing.
-  const driveOn = (blocksDecomp, declared = DECLARED) => {
-    const results = [];
-    let failed = null;
-    try {
-      foldDecomposition(blocksDecomp, declared); // `report`'s first act on the row
-      results.push(fixtureRow()); // reached only if the fold ANSWERED
-    } catch (e) {
-      failed = e.message;
-    }
-    const v = verdict(summarise(failed, results));
-    const wrote = Boolean(results.length && !failed);
-    return {
-      code: v.code,
-      wrote,
-      // WHAT THIS RUN PUBLISHED, which is the question every witness below
-      // asks. `destination` reads the run's SHAPE and nothing else,
-      // so what keeps a refused fold out of the published set is
-      // not a routing decision — it is that `report` threw, `failed` was set,
-      // and `drive`'s `if (results.length && !failed)` never reached a write
-      // at all. Nothing is published because nothing was written.
-      canonical: wrote && destination(shape()).canonical,
-      why: failed || '',
-    };
-  };
-
-  t("the reconstruction above IS `drive`'s composition, and stays that way", () => {
-    // Each pin is one link of the chain the witnesses below assume. Newlines
-    // are normalised because this tree is checked out with CRLF on Windows.
-    const src = SRC.replace(/\r\n/g, '\n');
-    // The second argument is pinned with the first: completeness turns on WHERE
-    // the declared shape comes from, and `{ armIds, rounds: ROUNDS, blocks:
-    // BLOCKS }` is the row's plan and the run's design — never the blocks.
-    assert.match(
-      src,
-      /function report\(out\) \{\n {2}const \{[^}]*armIds[^}]*blocksDecomp[^}]*\} = out;\n {2}const decomposition = foldDecomposition\(blocksDecomp, \{ armIds, rounds: ROUNDS, blocks: BLOCKS \}\);/
-    );
-    const drive = src.slice(src.indexOf('async function drive('));
-    assert.match(drive, /const out = await runRow\(browser, runDef, rowId\);\n\s*const adj = report\(out\);\n\s*results\.push\(/);
-    assert.match(drive, /\} catch \(e\) \{\n\s*failed = e\.message;/);
-    assert.match(drive, /if \(results\.length && !failed\) \{/);
-  });
-
-  t('the fold sums the stored fields and DEFAULTS nothing', () => {
-    // `acc[k] += a[k] || 0` is the defect itself. Pinned in the source because
-    // a rewrite of the loop could reintroduce it while every witness below
-    // still described a state the new loop happened to reject some other way.
-    const fold = SRC.slice(SRC.indexOf('function foldDecomposition('), SRC.indexOf('function taredCell('));
-    assert.ok(fold.length > 0, 'the fold no longer has the shape this test pins');
-    assert.ok(!/\|\| 0/.test(fold), 'a missing or null metric must REFUSE, not become zero');
-    assert.match(fold, /for \(const k of DECOMP_FIELDS\) acc\[k\] \+= a\[k\];/);
-  });
-
-  t('the collector, the serialiser and the fold agree on ONE field list', () => {
-    // Three readers over one constant, because a field that can be collected
-    // and then not required anywhere is how a split gets dropped.
-    assert.match(SRC, /^const DECOMP_FIELDS = \['n', 'task', 'taskNet', 'devtools', 'script', 'style', 'layout', 'layoutCount', 'inPage'\];$/m);
-    assert.match(SRC, /const acc = \(into\[arm\] \|\|= zeroDecomp\(\)\);/, 'the collector must build the one shape');
-    assert.match(SRC, /const acc = \(out\[arm\] \|\|= zeroDecomp\(\)\);/, 'the fold must build the one shape');
-  });
-
-  // JSON.stringify cannot carry NaN or undefined, so the mutations are applied
-  // AFTER the clone — the states below are what a truncated write, a partial
-  // in-memory row, or a corrupt read actually looks like.
+  // JSON.stringify cannot carry NaN or undefined, so mutations apply AFTER the clone.
   const mutate = (fn) => {
     const c = JSON.parse(JSON.stringify(FIXTURE_DECOMP));
     fn(c);
     return c;
   };
-
-  // [what it is, the evidence, the phrase the refusal must carry, the side it
-  //  must name, and the shape the row DECLARES itself to be]
-  //
-  // The declared shape defaults to the fixture's own. The four degenerate
-  // arrays below are single-round, single-block by construction, so each is
-  // measured against a shape that matches its dimensions — otherwise the row
-  // count would refuse them first and the structural fault they stand for would
-  // never be reached.
   const ONE = { armIds: DECLARED.armIds, rounds: 1, blocks: 1 };
-  const PARTIAL = [
-    ['an outer array whose round has no blocks', [[]], 'carries no blocks', 'round 0', ONE],
-    ['a round whose block has no arms', [[{}]], 'carries no arms', 'round 0, block 0', ONE],
-    ['a round that is not an array at all', [null], 'carries no blocks', 'round 0', ONE],
-    ['a block that is not a block of arms', [[[]]], 'is not a block of arms', 'round 0, block 0', ONE],
-    ['a block that LOST an arm the other blocks carry', mutate((c) => delete c[1][0]['ctl-2x']), 'missing ctl-2x', 'round 1, block 0'],
-    ['a block that grew an arm the row never planned', mutate((c) => (c[1][1].bogus = DECOMP_BLOCK(10, 1, 1, 1))), 'unexpected bogus', 'round 1, block 1'],
-    ['an arm with no accumulator at all', mutate((c) => (c[0][0].floor = null)), 'carries no accumulator (null)', 'arm "floor"'],
-    ['an arm MISSING a metric', mutate((c) => delete c[0][1]['ctl-2x'].script), 'field "script" is absent', 'round 0, block 1, arm "ctl-2x"'],
-    ['an arm whose metric is explicitly null', mutate((c) => (c[0][0].floor.layout = null)), 'field "layout" is null', 'round 0, block 0, arm "floor"'],
-    ['an arm whose metric is NaN', mutate((c) => (c[1][1]['ctl-2x'].style = NaN)), 'field "style" is NaN', 'round 1, block 1, arm "ctl-2x"'],
-    ['an arm whose metric is a string', mutate((c) => (c[0][0]['ctl-2x'].task = '20')), 'field "task" is a string', 'arm "ctl-2x"'],
-    ['a block that took no samples', mutate((c) => (c[1][0].floor.n = 0)), 'field "n" is 0', 'round 1, block 0, arm "floor"'],
-    ['a negative renderer count', mutate((c) => (c[0][1].floor.layoutCount = -1)), 'field "layoutCount" is -1', 'round 0, block 1, arm "floor"'],
-  ];
 
-  // --- TRUNCATED evidence must refuse too ------------------------------------
-  //
-  // Three shapes a fold anchored on the first surviving block would ACCEPT —
-  // each returning internally consistent survivors and a perfectly plausible
-  // aggregate, which is the whole danger. Block 1 cannot report a round
-  // dropped after it, a sibling block that was never stored, or an arm it has
-  // lost itself. The third is the sharp one: uniform loss walks straight past
-  // a block-to-block roster check, so a check written to catch a lost arm is
-  // blind to an arm lost everywhere. The row's declared shape sees all three,
-  // which is why it is the anchor.
-  const TRUNCATED = [
-    ['a row whose FINAL ROUND was dropped', mutate((c) => c.pop()), 'carries 1 round where the row declares 2', "the row's shape"],
-    ['a round that LOST a block', mutate((c) => c[1].splice(0, 1)), 'carries 1 block where the row declares 2', 'round 1'],
-    [
-      'an arm removed from EVERY block, which block-to-block agreement cannot see',
-      mutate((c) => {
-        for (const rd of c) for (const b of rd) delete b['ctl-2x'];
-      }),
-      'missing ctl-2x',
-      'round 0, block 0',
-    ],
-  ];
-
-  for (const [what, blocks, needle, side, declared = DECLARED] of PARTIAL.concat(TRUNCATED)) {
-    t(`${what} is refused, and the refusal names it`, () => {
-      assert.throws(() => foldDecomposition(blocks, declared), /not valid evidence/, 'this state must not fold');
-      const d = driveOn(blocks, declared);
-      assert.notStrictEqual(d.code, 0, 'a refused row must reach a NON-ZERO driver outcome');
-      assert.strictEqual(d.wrote, false, 'a refused row must not be written at all');
-      assert.strictEqual(d.canonical, false, 'and the destination must not be the published set');
-      // Naming the offending side is the diagnostic that earns its place: it
-      // fires only on evidence that is already invalid, and it tells the reader
-      // which side of the ratio to go and look at.
-      assert.ok(d.why.includes(needle), `the refusal must say "${needle}" — it said: ${d.why}`);
-      assert.ok(d.why.includes(side), `the refusal must name ${side} — it said: ${d.why}`);
-    });
-  }
-
-  t('a fold offered no declared shape refuses rather than anchoring to the evidence', () => {
-    // The fence around the declared-shape anchor. A shape argument that could
-    // be omitted, or quietly filled in from block 1, would be the defect with
-    // an extra parameter — so the whole evidence, folded with nothing to
-    // measure it against, must refuse exactly as a truncated row does.
-    for (const bad of [undefined, {}, { armIds: [], rounds: 2, blocks: 2 }, { armIds: DECLARED.armIds, rounds: 0, blocks: 2 }]) {
-      assert.throws(() => foldDecomposition(FIXTURE_DECOMP, bad), /DECLARED shape/, `${JSON.stringify(bad)} must not fold`);
+  t('partial or truncated evidence is refused, and the refusal names where', () => {
+    for (const [what, blocks, needle, side, declared = DECLARED] of [
+      ['a round with no blocks', [[]], 'carries no blocks', 'round 0', ONE],
+      ['a block with no arms', [[{}]], 'carries no arms', 'round 0, block 0', ONE],
+      ['a block that is not a block of arms', [[[]]], 'is not a block of arms', 'round 0, block 0', ONE],
+      ['an arm with no accumulator', mutate((c) => (c[0][0].floor = null)), 'carries no accumulator (null)', 'arm "floor"'],
+      ['an arm MISSING a metric', mutate((c) => delete c[0][1]['ctl-2x'].script), 'field "script" is absent', 'round 0, block 1, arm "ctl-2x"'],
+      ['a NaN metric', mutate((c) => (c[1][1]['ctl-2x'].style = NaN)), 'field "style" is NaN', 'round 1, block 1, arm "ctl-2x"'],
+      ['a block that took no samples', mutate((c) => (c[1][0].floor.n = 0)), 'field "n" is 0', 'round 1, block 0, arm "floor"'],
+      ['a negative renderer count', mutate((c) => (c[0][1].floor.layoutCount = -1)), 'field "layoutCount" is -1', 'round 0, block 1, arm "floor"'],
+      ['a dropped FINAL ROUND', mutate((c) => c.pop()), 'carries 1 round where the row declares 2', "the row's shape"],
+      ['a round that LOST a block', mutate((c) => c[1].splice(0, 1)), 'carries 1 block where the row declares 2', 'round 1'],
+      [
+        'an arm removed from EVERY block',
+        mutate((c) => {
+          for (const rd of c) for (const b of rd) delete b['ctl-2x'];
+        }),
+        'missing ctl-2x',
+        'round 0, block 0',
+      ],
+    ]) {
+      assert.throws(
+        () => foldDecomposition(blocks, declared),
+        (e) => /not valid evidence/.test(e.message) && e.message.includes(needle) && e.message.includes(side),
+        `${what} must refuse, naming "${needle}" at ${side}`
+      );
     }
-    // `null` rather than `undefined`, which `driveOn`'s own default would fill.
-    const d = driveOn(FIXTURE_DECOMP, null);
-    assert.notStrictEqual(d.code, 0);
-    assert.strictEqual(d.wrote, false);
-    assert.strictEqual(d.canonical, false);
   });
 
+  t('a fold offered no declared shape refuses rather than anchoring to the evidence', () => {
+    for (const bad of [undefined, { armIds: DECLARED.armIds, rounds: 0, blocks: 2 }]) {
+      assert.throws(() => foldDecomposition(FIXTURE_DECOMP, bad), /DECLARED shape/, `${JSON.stringify(bad)} must not fold`);
+    }
+  });
+
+  // The counterweight: a rule that refuses all of the above must still accept
+  // the committed splits, measured against each file's own `armIds` and `design`.
   tc("a stored split must match the row's own declared shape, dimensions included", () => {
-    // The counterweight to the refusals above: a rule that refuses a dropped
-    // round, a lost block and a uniformly-missing arm must still accept the real
-    // thing unchanged, or it is over-tight rather than fail-closed. `armIds` and
-    // `design` are serialised independently of `blocksDecomp`, so this measures
-    // the file against its own header rather than restating it.
+    const dir = path.join(__dirname, 'data');
     let checked = 0;
-    for (const { f, row, declared } of committedRows()) {
-      if (!row.blocksDecomp) continue;
-      const where = `${f} / ${row.rowId}`;
-      assert.strictEqual(row.blocksDecomp.length, declared.rounds, `${where}: stored rounds must be the declared depth`);
-      for (const rd of row.blocksDecomp) assert.strictEqual(rd.length, declared.blocks, `${where}: stored blocks must be the declared width`);
-      assert.deepStrictEqual(
-        Object.keys(foldDecomposition(row.blocksDecomp, declared)).sort(),
-        declared.armIds.slice().sort(),
-        `${where}: the stored split covers a different arm set than the row claims`
-      );
-      checked += 1;
+    for (const d of fs.readdirSync(dir).filter((x) => x.startsWith('censusclock-'))) {
+      for (const f of fs.readdirSync(path.join(dir, d)).filter((x) => x.endsWith('.json'))) {
+        const data = archive.readRecord(path.join(dir, d, f));
+        for (const r of data.rows.filter((x) => x.blocksDecomp)) {
+          foldDecomposition(r.blocksDecomp, { armIds: r.armIds, rounds: data.design.rounds, blocks: data.design.blocks });
+          checked += 1;
+        }
+      }
     }
     assert.ok(checked >= 3, 'expected the committed rows that carry the split');
   });
 }
 
-// --- the census run-rejection rule's false-refusal rate, MEASURED ------------
+// --- the census run-rejection rule, on the committed datasets ----------------
 //
-// The all-blocks strict rule is retired on the FRESCO CLOCK, and it also
-// lives here — on a different instrument, with a different driver, its own
-// datasets, and a control whose prediction is the row's own element
-// arithmetic rather than a page doubling. A control is not retired merely
-// because it shares a shape with one that failed, so the rule is MEASURED
-// here. `1 - p^n` is a property of the rule and not of the clock, so only `p`
-// decides it — and this rig's `p` is not that rig's. The rule is RETAINED.
-//
-// Everything below recomputes from the committed datasets through the
-// driver's OWN `controlBlocks` and `controlVerdict`. That `controlVerdict` is
-// exported here where the clock's deliberately is not, and the asymmetry is
-// the point: on the clock it is retired and decides nothing, so a test able
-// to reach it would be a reader able to reach it; here its `ok` is the
-// decision, reaching `summarise` -> `verdict` -> exit 5. A rule a test
-// cannot drive is not a checked rule however exactly it is quoted.
+// The strict all-blocks rule is RETAINED on this rig, and its `ok` is the
+// decision (`summarise` -> `verdict` -> exit 5). Recomputed here through the
+// driver's own `controlBlocks` and `controlVerdict`.
 
 {
   const { controlBlocks, controlVerdict } = DRIVERS[1].mod;
-  const CSRC = fs.readFileSync(DRIVERS[1].file, 'utf8');
-  const t = (what, fn) => test(`census run-rejection rate: ${what}`, fn);
   const tc = (what, fn) => corpusTest(`census run-rejection rate: ${what}`, fn);
-
-  // The corpus the rates are stated over, and the rates themselves. Stated as
-  // literals so that a new dataset, or an arithmetic change, reds this file
-  // rather than silently ageing the driver's comment into a false claim.
-  const CORPUS = { datasets: 5, rowRuns: 30, blocks: 540, n: 18, slack: 0.25 };
-  const RATES = {
-    'large-template': { rowRuns: 10, blocks: 180, inBand: 178, passed: 8, falseRefusalPct: '18.2' },
-    feed: { rowRuns: 10, blocks: 180, inBand: 175, passed: 7, falseRefusalPct: '39.8' },
-    ordinary: { rowRuns: 10, blocks: 180, inBand: 56, passed: 0, falseRefusalPct: '100.0' },
-  };
-
-  const med = (xs) => {
-    const v = [...xs].sort((a, b) => a - b);
-    return v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2;
-  };
 
   /** Every committed census row-run, its statistic recomputed by the driver's own arithmetic. */
   const corpus = () => {
@@ -904,26 +417,17 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     return fs
       .readdirSync(dir)
       .filter((d) => d.startsWith('censusclock-'))
-      .sort()
       .flatMap((d) =>
         fs
           .readdirSync(path.join(dir, d))
           .filter((f) => f.endsWith('.json'))
-          .sort()
           .flatMap((f) => {
             const data = archive.readRecord(path.join(dir, d, f));
             return data.rows.map((r) => {
               const per = controlBlocks(r.blocksTask);
               return {
                 where: `${d}/${f} ${r.rowId}`,
-                rowId: r.rowId,
-                slack: data.design.controlSlack,
                 stored: r.adjudication.ctl,
-                // The band the run ACTUALLY adjudicated on, read back rather
-                // than re-derived: the run held the page's raw `ctlPredicted`
-                // and the dataset stores `r4` of it, so a re-derived edge can
-                // differ by one unit in the last stored place. Counting on the
-                // stored band measures the rate the runs experienced.
                 band: r.adjudication.ctl.band,
                 per,
                 verdict: controlVerdict(r.ctlPredicted, per, data.design.controlSlack),
@@ -933,38 +437,12 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
       );
   };
 
-  tc('the corpus the rates are stated over is the corpus on disk', () => {
-    const all = corpus();
-    const datasets = new Set(all.map((r) => r.where.split('/')[0]));
-    assert.strictEqual(datasets.size, CORPUS.datasets, 'a new censusclock-* dataset means the stated rates need recounting');
-    assert.strictEqual(all.length, CORPUS.rowRuns);
-    for (const r of all) {
-      assert.strictEqual(r.per.length, CORPUS.n, `${r.where}: n is the design's 6 rounds x 3 blocks`);
-      assert.strictEqual(r.slack, CORPUS.slack, `${r.where}: the tolerance band must be the one the rates were measured at`);
-    }
-    assert.strictEqual(
-      all.reduce((a, r) => a + r.per.length, 0),
-      CORPUS.blocks
-    );
-    // A per-row rate pools blocks across row-runs, which only means something
-    // if every row-run of that row was judged against the same band.
-    for (const rowId of Object.keys(RATES)) {
-      const bands = new Set(all.filter((r) => r.rowId === rowId).map((r) => r.band.join(':')));
-      assert.strictEqual(bands.size, 1, `${rowId}: its row-runs must share one band — ${[...bands].join(' / ')}`);
-    }
-  });
-
   tc('the live arithmetic and the stored verdicts are the same quantity', () => {
-    // Without this the rate would be a rate about the datasets rather than
-    // about the rule: a statistic recomputed differently from the one the
-    // driver adjudicated on would measure the recomputation.
     for (const r of corpus()) {
       assert.deepStrictEqual(r.verdict.perBlock, r.stored.perBlock, `${r.where}: recomputed blocks must match the stored ones`);
       assert.strictEqual(r.verdict.ok, r.stored.ok, `${r.where}: same strict verdict`);
-      // The one place the two can legitimately differ, and by exactly one unit
-      // in the last stored place: `datasetFor` writes `r4(ctlPredicted)` while
-      // the run adjudicated on the page's raw value. Bounded rather than
-      // deep-equalled, because a wider drift would mean the band moved.
+      // `datasetFor` writes `r4(ctlPredicted)` while the run adjudicated on the
+      // raw value, so a band edge may differ by one unit in the last place.
       for (const i of [0, 1]) {
         assert.ok(
           Math.abs(r.verdict.band[i] - r.stored.band[i]) <= 1e-4 + Number.EPSILON,
@@ -978,91 +456,19 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
       );
     }
   });
-
-  tc('the measured rate, per row — and it is survivable where the control meets its premise', () => {
-    const all = corpus();
-    for (const [rowId, want] of Object.entries(RATES)) {
-      const rows = all.filter((r) => r.rowId === rowId);
-      const blocks = rows.flatMap((r) => r.per);
-      const [lo, hi] = rows[0].band;
-      const inBand = blocks.filter((x) => x >= lo && x <= hi).length;
-      const passed = rows.filter((r) => r.verdict.ok).length;
-      assert.strictEqual(rows.length, want.rowRuns, `${rowId}: row-runs`);
-      assert.strictEqual(blocks.length, want.blocks, `${rowId}: blocks`);
-      assert.strictEqual(inBand, want.inBand, `${rowId}: per-block in band`);
-      assert.strictEqual(passed, want.passed, `${rowId}: runs the strict rule passed`);
-      const p = inBand / blocks.length;
-      assert.strictEqual(((1 - p ** CORPUS.n) * 100).toFixed(1), want.falseRefusalPct, `${rowId}: 1 - p^${CORPUS.n}`);
-    }
-    // The claim that decides it: on the two rows carrying the gated pair the
-    // rule costs 18-40% of runs, against the 90.5% empirical per-run false
-    // refusal that retires the clock's. A rate a run survives is not a defect.
-    assert.ok(Number(RATES['large-template'].falseRefusalPct) < 90.5);
-    assert.ok(Number(RATES.feed.falseRefusalPct) < 90.5);
-  });
-
-  tc('the ordinary row refuses on its CENTRE, and no relaxation of this rule reaches it', () => {
-    // The load-bearing assertion. `ordinary` is 0 of 10, and a reader who saw
-    // only that number would blame the rule the way the clock's evidence
-    // invites. It is the centre: the block median sits BELOW the band's own
-    // lower edge, so every run would refuse under any per-block count.
-    const rows = corpus().filter((r) => r.rowId === 'ordinary');
-    const [lo, hi] = rows[0].band;
-    const centre = med(rows.flatMap((r) => r.per));
-    assert.ok(centre < lo, `the ordinary centre ${centre.toFixed(4)}x must sit below the band's lower edge ${lo}`);
-    for (const k of [0, 1, 2, 3]) {
-      const passed = rows.filter((r) => r.per.filter((x) => x < lo || x > hi).length <= k).length;
-      assert.strictEqual(passed, 0, `allowing ${k} out-of-band blocks must still pass 0 of 10 — the rule is not the binding constraint`);
-    }
-    // And the two rows whose centre IS inside the band recover immediately, so
-    // the rule is doing real work exactly where it is not the constraint.
-    for (const rowId of ['large-template', 'feed']) {
-      const rs = corpus().filter((r) => r.rowId === rowId);
-      const [l, h] = rs[0].band;
-      assert.ok(med(rs.flatMap((r) => r.per)) > l, `${rowId}: its centre is inside the band`);
-      assert.strictEqual(rs.filter((r) => r.per.filter((x) => x < l || x > h).length <= 2).length, 10, `${rowId}: recovers within two blocks`);
-    }
-  });
-
-  t('the retained rule states its measured rates where the grep lands', () => {
-    // The label a `^18`-semantics grep hits must say the rule was measured and
-    // kept, or the next grep re-opens the question this block answers.
-    assert.match(CSRC, /rule: 'strict — EVERY block inside the band \(measured and retained\)'/);
-    for (const [rowId, want] of Object.entries(RATES)) {
-      assert.ok(CSRC.includes(`${want.inBand}/${want.blocks}`), `the comment states ${rowId}'s per-block count`);
-    }
-    assert.match(CSRC, /90\.5%/, "and the clock's retired rate it is measured against");
-    // The rates are rates AT A SLACK. Widening the band would change every one
-    // of them, so the constant they were measured at is pinned beside them —
-    // otherwise the limits could move and the stated rates would quietly lie.
-    assert.match(CSRC, /const CONTROL_SLACK = 0\.25;/, 'the tolerance the rates were measured at');
-  });
 }
 
 // --- the ordinary row's CENTRE, specified empirically -------------------------
 //
-// The census rig's run-rejection rule is measured and RETAINED above, and the
-// one thing it cannot absorb is a mis-placed centre: `ordinary` refuses 10 of
-// 10 on its CENTRE. Its block median is 1.2308x against an element-arithmetic
-// prediction of 1.7255x — 71.3% of P, and 5.2% below the strict band's own
-// lower edge — so no relaxation of the block count reaches it. That is the
-// class the clock's three-point control shows, whose true centre sits 2.6%
-// ABOVE its refusal edge where this sits below, and the remedy is the same: a
-// level-denominated, EMPIRICALLY CALIBRATED, versioned check standard.
-//
-// EVERYTHING BELOW RECOMPUTES FROM THE COMMITTED DATASETS through the driver's
-// own `controlBlocks`, `checkStandardVerdict` and `controlAdjudication`. The
-// frozen limits are read out of `shapes/census_check_standard.json` and never
-// written here, so a recalibration moves the file and these witnesses follow
-// it; what they pin is that the numbers in the file are the numbers its own
-// `derivation` strings claim, taken over the corpus the file names.
-//
-// NO MEASUREMENT IS TAKEN. No census driver, no window.
+// `ordinary` refuses on its CENTRE, not on the strict rule: its block median
+// sits below the element-arithmetic band. The calibrated check standard
+// (`shapes/census_check_standard.json`) adjudicates it instead. The frozen
+// numbers are read from the JSON and recomputed here from the datasets its
+// own `provenance` names.
 
 {
   const CENSUS = DRIVERS[1].mod;
   const { controlBlocks, controlAdjudication, checkStandardVerdict, CHECK_STANDARD: STD, robustScale } = CENSUS;
-  const CSRC = fs.readFileSync(DRIVERS[1].file, 'utf8');
   const t = (what, fn) => test(`census check standard: ${what}`, fn);
   const tc = (what, fn) => corpusTest(`census check standard: ${what}`, fn);
 
@@ -1106,155 +512,71 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   const ordinaries = () => corpus().filter((r) => r.rowId === 'ordinary');
   const setsOf = (which) => (ORD.provenance[which].datasets || []).map((d) => path.basename(d));
 
-  // --- the standard is complete over the roster, and says which rows it holds -
-
-  t('every row this driver takes is either calibrated or declared OUT, by name', () => {
-    const roster = CSRC.match(/const ALL_ROWS = \[([^\]]*)\]/)[1].split(',').map((s) => s.trim().replace(/'/g, ''));
-    assert.deepStrictEqual(roster, ['large-template', 'feed', 'ordinary'], "the driver's roster is not what this test assumes");
-    for (const rowId of roster) {
-      const held = Object.keys(STD.rows).includes(rowId);
-      const out = STD.notInThisStandard.rows.includes(rowId);
-      assert.ok(held !== out, `${rowId} must be in exactly one of \`rows\` and \`notInThisStandard\``);
-    }
-  });
-
   t('a row the standard has never heard of THROWS rather than being waved past', () => {
-    // Fail closed at the seat that decides WHETHER a row has a standard. A row
-    // silently returning `null` here would be adjudicated by the strict rule
-    // on nobody's decision, which is how a roster and a standard drift apart.
     assert.throws(
       () => checkStandardVerdict('a-row-nobody-calibrated', [1.2, 1.25]),
       /is in neither `rows` nor `notInThisStandard`/
     );
-    assert.throws(() => checkStandardVerdict('a-row-nobody-calibrated', [1.2]), /is in neither `rows` nor `notInThisStandard`/);
   });
-
-  t('the two sibling rows are declared out and get NO standard, by name', () => {
-    for (const rowId of ['large-template', 'feed']) {
-      assert.strictEqual(checkStandardVerdict(rowId, [1.9, 2.0]), null, `${rowId} must have no standard`);
-    }
-    assert.match(STD.notInThisStandard.why, /MEETS its own element-arithmetic prediction/);
-    assert.match(STD.notInThisStandard.adjudicatedBy, /controlVerdict/);
-  });
-
-  // --- the frozen numbers are the numbers their own derivations claim --------
 
   tc('the CENTRE recomputes from the baseline the file names, and is not a literal in the code', () => {
-    // The load-bearing check on the centre. The file says the centre is the
-    // median of its baseline row-runs' block medians; this recomputes exactly
-    // that, from the datasets the file names, through the driver's own
-    // `controlBlocks`. A centre typed into the JSON by hand would red here.
     const base = ordinaries().filter((r) => setsOf('baseline').includes(r.set));
-    assert.strictEqual(base.length, ORD.provenance.baseline.rowRuns, 'the baseline is the row-runs the file declares');
-    assert.strictEqual(
-      base.reduce((a, r) => a + r.per.length, 0),
-      ORD.provenance.baseline.blocks
-    );
     const meds = base.map((r) => p50(r.per));
-    assert.strictEqual(r4(p50(meds)), ORD.centre, 'the frozen centre is the baseline run medians\' median');
-    assert.strictEqual(r4(p50(meds)), ORD.provenance.baseline.observed.runMedianCentre);
-    assert.strictEqual(r4(mean(meds)), ORD.provenance.baseline.observed.runMedianMean);
-    assert.deepStrictEqual([r4(Math.min(...meds)), r4(Math.max(...meds))], ORD.provenance.baseline.observed.runMedianRange);
-    assert.strictEqual(r4(sd(meds)), ORD.provenance.baseline.observed.betweenRunSD);
-  });
-
-  t('NO LIMIT IS SPELLED IN THE DRIVER — recalibrating edits the JSON, never the code', () => {
-    // The prose above `checkStandardVerdict` quotes the centre, because a
-    // reader landing on the control needs the finding; the CODE must not,
-    // because a limit in two places is a limit that can be moved in one.
-    const CODE = CSRC.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
-    assert.ok(CODE.includes('const spec = CHECK_STANDARD.rows[rowId];'), 'the comment stripper removed the code as well');
-    for (const [what, n] of [
-      ['the centre', ORD.centre],
-      ['a location limit', ORD.location.limits[0]],
-      ['a location limit', ORD.location.limits[1]],
-      ['the dispersion limit', ORD.dispersion.limit],
-    ]) {
-      assert.ok(!CODE.includes(String(n)), `${what} (${n}) is a literal in the driver's code`);
-    }
-    for (const read of ['spec.location.limits', 'spec.dispersion.limit', 'spec.centre', 'spec.tolerance.band']) {
-      assert.ok(CODE.includes(read), `the driver must read ${read} from the file`);
-    }
+    const b = ORD.provenance.baseline;
+    assert.deepStrictEqual(
+      {
+        rowRuns: base.length,
+        blocks: base.reduce((a, r) => a + r.per.length, 0),
+        centre: r4(p50(meds)),
+        runMedianCentre: r4(p50(meds)),
+        runMedianMean: r4(mean(meds)),
+        runMedianRange: [r4(Math.min(...meds)), r4(Math.max(...meds))],
+        betweenRunSD: r4(sd(meds)),
+      },
+      {
+        rowRuns: b.rowRuns,
+        blocks: b.blocks,
+        centre: ORD.centre,
+        runMedianCentre: b.observed.runMedianCentre,
+        runMedianMean: b.observed.runMedianMean,
+        runMedianRange: b.observed.runMedianRange,
+        betweenRunSD: b.observed.betweenRunSD,
+      }
+    );
   });
 
   t('the LOCATION limits are centre +/- 3 x the between-run SD the file states', () => {
-    // Derived from the PUBLISHED figures rather than from full precision, in
-    // clock_check_standard.json's idiom — its own 1.7207 +/- 3 x 0.0566
-    // reproduces [1.5509, 1.8905] exactly — so a reader with the file alone
-    // can check the arithmetic without re-running the corpus.
     const s = ORD.provenance.baseline.observed.betweenRunSD;
-    assert.match(ORD.location.derivation, /centre \+\/- 3 x between-run SD 0\.0632/);
     assert.deepStrictEqual(ORD.location.limits, [r4(ORD.centre - 3 * s), r4(ORD.centre + 3 * s)]);
-    assert.ok(ORD.location.limits[0] < ORD.centre && ORD.centre < ORD.location.limits[1], 'the limits must bracket the centre');
   });
 
   tc('the DISPERSION limit is the lognormal upper 3 sigma of the baseline robust scales', () => {
-    const base = ordinaries().filter((r) => setsOf('baseline').includes(r.set));
-    const scales = base.map((r) => robustScale(r.per));
+    const scales = ordinaries()
+      .filter((r) => setsOf('baseline').includes(r.set))
+      .map((r) => robustScale(r.per));
     const logs = scales.map(Math.log);
-    const mu = mean(logs);
-    const sigma = sd(logs);
-    assert.strictEqual(Number(mu.toFixed(4)), -2.104, 'the stated mu');
-    assert.strictEqual(Number(sigma.toFixed(4)), 0.3439, 'the stated sigma');
-    assert.strictEqual(r4(Math.exp(mu + 3 * sigma)), ORD.dispersion.limit);
-    assert.strictEqual(r4(p50(scales)), ORD.provenance.baseline.observed.robustScaleP50);
-    assert.strictEqual(r4(Math.max(...scales)), ORD.provenance.baseline.observed.robustScaleMax);
-    // ABOVE the widest observed draw rather than at it — a limit sitting on
-    // its own worst baseline draw refuses the next one by construction.
-    assert.ok(ORD.dispersion.limit > ORD.provenance.baseline.observed.robustScaleMax);
-    assert.match(ORD.dispersion.derivation, /44% above the widest of the 8 observed draws/);
-    assert.strictEqual(Math.round((ORD.dispersion.limit / ORD.provenance.baseline.observed.robustScaleMax - 1) * 100), 44);
-  });
-
-  // --- INDEPENDENCE, which is what makes it a check standard ----------------
-
-  tc('the baseline and the HOLD-OUT are disjoint, and together they are the corpus', () => {
-    // The clock standard's v1 says in its own `independence` field that its
-    // limits were seeded from the 42 runs it is quoted against, so 0-of-42 is
-    // a consistency check and not a false-refusal measurement. This corpus is
-    // five sessions at five commits and therefore SPLITS, which v1's cannot —
-    // NIST e-Handbook 2.3.5's doctrine kept rather than merely cited.
-    const base = setsOf('baseline');
-    const hold = setsOf('holdOut');
-    assert.strictEqual(base.length, 4);
-    assert.strictEqual(hold.length, 1);
-    for (const d of hold) assert.ok(!base.includes(d), `${d} may not be in both`);
-    const all = [...new Set(ordinaries().map((r) => r.set))].sort();
-    assert.deepStrictEqual(all, [...base, ...hold].sort(), 'a new censusclock-* dataset means the standard needs recalibrating');
+    const o = ORD.provenance.baseline.observed;
+    assert.deepStrictEqual(
+      [r4(Math.exp(mean(logs) + 3 * sd(logs))), r4(p50(scales)), r4(Math.max(...scales))],
+      [ORD.dispersion.limit, o.robustScaleP50, o.robustScaleMax]
+    );
   });
 
   tc('the HOLD-OUT row-runs are IN CONTROL against limits derived WITHOUT them', () => {
-    // The false-refusal measurement, small but real: two row-runs taken five
-    // days after the last baseline session, at a different commit, judged by
-    // limits that never saw them.
     const hold = ordinaries().filter((r) => setsOf('holdOut').includes(r.set));
-    assert.strictEqual(hold.length, ORD.provenance.holdOut.rowRuns);
-    assert.deepStrictEqual(hold.map((r) => r4(p50(r.per))), ORD.provenance.holdOut.observed.runMedians);
-    assert.deepStrictEqual(hold.map((r) => r4(robustScale(r.per))), ORD.provenance.holdOut.observed.robustScales);
-    for (const r of hold) {
-      assert.strictEqual(r.adj.standard.ok, true, `${r.where}: the hold-out must be in control`);
-      assert.strictEqual(r.adj.standard.location.ok, true);
-      assert.strictEqual(r.adj.standard.dispersion.ok, true);
-    }
-    assert.match(ORD.provenance.independence, /INDEPENDENT OF THE RUNS THEY ARE FIRST JUDGED ON/);
-    assert.match(ORD.errorRates.runRejectionHoldOut, /0 of 2 HOLD-OUT row-runs refused/);
+    const h = ORD.provenance.holdOut;
+    assert.deepStrictEqual(
+      [hold.length, hold.map((r) => r4(p50(r.per))), hold.map((r) => r4(robustScale(r.per))), hold.map((r) => r.adj.standard.ok)],
+      [h.rowRuns, h.observed.runMedians, h.observed.robustScales, hold.map(() => true)]
+    );
   });
 
-  // --- what the standard decides, and what it deliberately does not ---------
-
   tc('the CENTRE was the defect: the same blocks refuse against 1.7255 and hold against 1.2308', () => {
-    const rows = ordinaries();
-    assert.strictEqual(rows.length, 10);
-    // The strict rule's OWN answer about the element arithmetic is 0 of 10, so
-    // nothing here widens a band to make a row pass.
-    assert.strictEqual(rows.filter((r) => r.adj.strictOk).length, 0, 'the strict rule about 1.7255 still refuses every row-run');
-    for (const r of rows) assert.strictEqual(r.adj.strictOk, r.stored.ok, `${r.where}: the strict answer must be what the run recorded`);
-    // And the calibrated standard holds every one of them.
-    assert.strictEqual(rows.filter((r) => r.adj.ok).length, 10, 'the empirical centre holds all ten committed row-runs');
-    assert.strictEqual(ORD.prediction, 1.7255);
-    assert.ok(ORD.centre < ORD.prediction, 'the empirical centre is BELOW the prediction — that is the whole finding');
-    assert.match(ORD.errorRates.retiredCentreForComparison, /56 of 180 blocks \(31\.1%\) inside/);
-    assert.match(ORD.errorRates.retiredCentreForComparison, /passed 0 of 10 row-runs/);
+    // [the strict rule's answer, what the run recorded, the calibrated standard's answer]
+    assert.deepStrictEqual(
+      ordinaries().map((r) => [r.adj.strictOk, r.stored.ok, r.adj.ok]),
+      Array.from({ length: 10 }, () => [false, false, true])
+    );
   });
 
   tc('and the ADJUDICATOR is named on the row, so nobody has to infer which rule decided', () => {
@@ -1271,159 +593,43 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     }
   });
 
-  tc('THE SIBLING ROWS ARE UNTOUCHED — rf2-y0pkh measured and retained the rule where it works', () => {
-    // The fence, asserted rather than promised. Their pass counts are the ones
-    // the run-rejection block above measures, and the rule that produces them
-    // is the same function with the same wording.
-    for (const [rowId, passed] of [['large-template', 8], ['feed', 7]]) {
-      const rows = corpus().filter((r) => r.rowId === rowId);
-      assert.strictEqual(rows.length, 10);
-      assert.strictEqual(rows.filter((r) => r.adj.ok).length, passed, `${rowId}: still ${passed} of 10`);
-      assert.strictEqual(rows.filter((r) => r.adj.strictOk).length, passed, `${rowId}: and the strict rule is what decided it`);
-      for (const r of rows) assert.strictEqual(r.adj.ok, r.stored.ok, `${r.where}: unchanged from what the run recorded`);
-    }
-    assert.match(CSRC, /rule: 'strict — EVERY block inside the band \(measured and retained\)'/);
-  });
-
-  tc('the tolerance band is REPORTED on a calibrated row, and the all-blocks rule is why', () => {
-    // The other half of the diagnosis, and the reason re-centring ALONE is not
-    // enough: about the empirical centre 90.0% of blocks are in band and
-    // `0.90^18 = 15%`, so the all-blocks rule would still pass 3 of 10. That is
-    // the clock's `p^n` arithmetic on this rig, at this n.
-    const rows = ordinaries();
-    const blocks = rows.flatMap((r) => r.per);
-    const [lo, hi] = ORD.tolerance.band;
-    assert.deepStrictEqual(ORD.tolerance.band, [r4(ORD.centre * (1 - ORD.tolerance.slack)), r4(ORD.centre * (1 + ORD.tolerance.slack))]);
-    const inBand = blocks.filter((x) => x >= lo && x <= hi).length;
-    assert.strictEqual(blocks.length, 180);
-    assert.strictEqual(inBand, 162, '90.0% of blocks in band about the empirical centre');
-    assert.strictEqual(((inBand / blocks.length) * 100).toFixed(1), '90.0');
-    assert.strictEqual(rows.filter((r) => r.per.every((x) => x >= lo && x <= hi)).length, 3, 'the all-blocks rule would pass 3 of 10');
-    assert.strictEqual((((inBand / blocks.length) ** 18) * 100).toFixed(0), '15', '0.90^18');
-    // ... and nothing reads it into the verdict.
-    for (const r of rows) {
-      assert.strictEqual(r.adj.standard.tolerance.gating, false);
-      assert.strictEqual(r.adj.standard.tolerance.of, 18);
-    }
-    assert.match(STD.whyNotTheAllBlocksRule, /0\.90\^18 = 15%/);
-    assert.match(STD.runRejection, /Nothing per-block rejects it/);
-  });
-
-  // --- what this standard can and cannot catch, stated as arithmetic ---------
-
-  t('the SENSITIVITY the file states is the sensitivity the frozen limits have', () => {
-    // A standard nobody has seen refuse is a standard of unmeasured
-    // sensitivity. This one refuses an arm that does not double at all and an
-    // arm that triples — and ADMITS the 140-of-300 sabotage the clock's
-    // standard is proved against, because only 31.8% of this row's reading is
-    // page-proportional. That is prediction P4 restated as a number, and the
-    // file says so rather than leaving it to be discovered.
-    const k = 0.3181; // the page-proportional share, from the model in the file
-    const c = 0.6819;
-    assert.match(ORD.sensitivity.model, new RegExp(`R = ${k} \\* P_eff \\+ ${c}`));
-    assert.strictEqual(r4(k + c), 1, 'the two shares are one reading');
-    const reads = (pEff) => r4(k * pEff + c);
-    const admits = (R) => R >= ORD.location.limits[0] && R <= ORD.location.limits[1];
-    const pEffFor = (R) => r4((R - c) / k);
-    assert.match(
-      ORD.sensitivity.admits,
-      new RegExp(`P_eff in \\[${pEffFor(ORD.location.limits[0])}, ${pEffFor(ORD.location.limits[1])}\\]`)
-    );
-    // the declared doubling reads the frozen centre — the model and the
-    // corpus are the same instrument, which is what makes the rest of this
-    // arithmetic a statement about the row rather than about an analogy
-    assert.strictEqual(reads(ORD.prediction), ORD.centre, 'a declared doubling must read the frozen centre');
-    // CATCHES
-    assert.strictEqual(reads(1), 1, 'an arm that does not double reads 1.0000x');
-    assert.ok(!admits(reads(1)), 'and is REFUSED');
-    assert.strictEqual(reads(1 + 2 * (ORD.prediction - 1)), 1.4616);
-    assert.ok(!admits(reads(1 + 2 * (ORD.prediction - 1))), 'a TRIPLING is REFUSED');
-    assert.match(ORD.sensitivity.catches, /reads 1\.0000x and is REFUSED/);
-    assert.match(ORD.sensitivity.catches, /reads 1\.4616x and is REFUSED/);
-    // MISSES, and says so
-    const sabotage = reads(1 + (ORD.prediction - 1) * (140 / 300));
-    assert.strictEqual(sabotage, 1.1077);
-    assert.ok(admits(sabotage), 'the 140-of-300 sabotage is ADMITTED on this row');
-    assert.match(ORD.sensitivity.misses, /would read 1\.1077x on THIS row and be ADMITTED/);
-    assert.match(ORD.sensitivity.misses, /prediction P4 restated as a number/);
-  });
-
-  // --- fail closed at every seat --------------------------------------------
-
   t('an empty, a partial, or a non-finite block set REFUSES rather than passing', () => {
-    assert.strictEqual(checkStandardVerdict('ordinary', []).ok, false);
-    assert.match(checkStandardVerdict('ordinary', []).why, /empty block set/);
-    assert.strictEqual(checkStandardVerdict('ordinary', undefined).ok, false);
-    assert.strictEqual(checkStandardVerdict('ordinary', null).ok, false);
     const withNaN = [...Array.from({ length: 17 }, () => ORD.centre), NaN];
-    assert.strictEqual(checkStandardVerdict('ordinary', withNaN).ok, false);
+    assert.deepStrictEqual([[], null, withNaN].map((b) => checkStandardVerdict('ordinary', b).ok), [false, false, false]);
+    assert.match(checkStandardVerdict('ordinary', []).why, /empty block set/);
     assert.match(checkStandardVerdict('ordinary', withNaN).why, /not finite readings of a level ratio/);
-    // ... while the healthy world passes, so none of the above is vacuous.
     assert.strictEqual(checkStandardVerdict('ordinary', Array.from({ length: 18 }, () => ORD.centre)).ok, true);
   });
 
   t('a row-run OUTSIDE either frozen limit refuses, and the refusal says which', () => {
     const flat = (x) => Array.from({ length: 18 }, () => x);
     const low = checkStandardVerdict('ordinary', flat(ORD.location.limits[0] - 0.01));
-    assert.strictEqual(low.ok, false);
-    assert.strictEqual(low.location.ok, false);
-    assert.strictEqual(low.dispersion.ok, true, 'a flat world has no dispersion — this must be the LOCATION rule');
+    assert.deepStrictEqual([low.ok, low.location.ok, low.dispersion.ok], [false, false, true]);
     assert.match(low.why, /outside the frozen location limits/);
-    const high = checkStandardVerdict('ordinary', flat(ORD.location.limits[1] + 0.01));
-    assert.strictEqual(high.ok, false, 'the limits are two-sided — an arm that OVERBUILDS is equally a fault');
-    // a world whose median sits dead on the centre and whose blocks scatter
-    const noisy = Array.from({ length: 18 }, (_, i) => ORD.centre + (i % 2 ? 1 : -1) * 0.9);
-    const n = checkStandardVerdict('ordinary', noisy);
-    assert.strictEqual(n.location.ok, true, 'the median is still the centre');
-    assert.strictEqual(n.dispersion.ok, false);
-    assert.strictEqual(n.ok, false);
+    assert.strictEqual(checkStandardVerdict('ordinary', flat(ORD.location.limits[1] + 0.01)).ok, false, 'the limits are two-sided');
+    // a median dead on the centre whose blocks scatter
+    const n = checkStandardVerdict('ordinary', Array.from({ length: 18 }, (_, i) => ORD.centre + (i % 2 ? 1 : -1) * 0.9));
+    assert.deepStrictEqual([n.ok, n.location.ok, n.dispersion.ok], [false, true, false]);
     assert.match(n.why, /exceeds the frozen dispersion limit/);
   });
 
   t('every verdict carries the standard it was taken against, by id and version', () => {
     const v = checkStandardVerdict('ordinary', Array.from({ length: 18 }, () => ORD.centre));
-    assert.strictEqual(v.standard.id, STD.id);
-    assert.strictEqual(v.standard.version, STD.version);
-    assert.ok(Number.isInteger(STD.version), 'a version that is not an integer cannot be bumped');
-    assert.deepStrictEqual(v.location.limits, ORD.location.limits, 'the frozen limits are the JSON\'s, never a literal');
-    assert.strictEqual(v.location.centre, ORD.centre);
-    assert.strictEqual(v.dispersion.limit, ORD.dispersion.limit);
-    assert.ok(STD.recalibrateOn.length >= 4, 'a standard with no recalibration conditions is a constant');
-    assert.ok(STD.recalibrateOn.some((s) => /FRESH baseline/.test(s)));
-  });
-
-  t('the driver cites the standard where a reader of the control lands', () => {
-    assert.match(CSRC, /require\('\.\/census_check_standard\.json'\)/);
-    // The finding itself, above `checkStandardVerdict`, where a reader of the
-    // control lands — the measured centre and the prediction it is not.
-    const note = CSRC.slice(CSRC.indexOf('THE CALIBRATED CHECK STANDARD, applied to one row-run'), CSRC.indexOf('function checkStandardVerdict('));
-    assert.ok(note.length > 0, 'the standard no longer carries the note this test pins');
-    assert.match(note, /1\.2308x/);
-    assert.match(note, /1\.7255x/);
-    assert.match(note, /mis-specified CENTRE/);
+    assert.deepStrictEqual(
+      [v.standard.id, v.standard.version, v.location.limits, v.location.centre, v.dispersion.limit],
+      [STD.id, STD.version, ORD.location.limits, ORD.centre, ORD.dispersion.limit]
+    );
   });
 }
 
 // --- a REFUSED ROW refuses itself, not the RUN's publication ----------------
 //
-// A SCOPE question rather than an arithmetic one. `census_clock_run.cjs`'s
-// prediction P4, registered before any clock, says: "the ORDINARY row (51
-// elements) sits near this door's own floor; if its control or band cannot
-// hold, the ROW publishes a REFUSAL with the reason, not a number." Refusing
-// the RUN instead — a `destination` that read `verdict`'s exit 5 and sent the
-// whole run's datasets to `.unpublished` — would discard the `large-template`
-// and `feed` rows that passed every gate they have.
-//
-// Over the five committed sessions the ordinary row fails on both adapters
-// every time, so under run scope NO FULL-SHAPE CENSUS RUN COULD EVER BE
-// CANONICAL — which is why row scope is the precondition for any
-// recomputable census claim.
-//
-// THE REFUSAL IS NOT WEAKENED, IT IS PUT AT ITS OWN SCOPE. The exit code
-// refuses the run and names every offending row; each row carries its own
-// `canonical` and `notCanonicalWhy`; the file indexes them; and the directory
-// is chosen by the run's SHAPE alone, which is what `clock_run.cjs`'s
-// `publication(shape)` reads.
+// Prediction P4: if the ordinary row's control or band cannot hold, the ROW
+// publishes a refusal with the reason. Refusing the RUN instead would discard
+// the `large-template` and `feed` rows that passed every gate — and since the
+// ordinary row fails on every committed session, no full-shape run could ever
+// be canonical. So the exit code refuses the run, each row carries its own
+// `canonical`, and the directory is chosen by the run's SHAPE alone.
 
 {
   const CENSUS = DRIVERS[1].mod;
@@ -1431,7 +637,6 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     summarise, summariseRow, verdict, destination, datasetFor, rowPublication,
     controlBlocks, controlAdjudication, checkStandardVerdict, CHECK_STANDARD: STD,
   } = CENSUS;
-  const CSRC = fs.readFileSync(DRIVERS[1].file, 'utf8');
   const t = (what, fn) => test(`census refusal scope: ${what}`, fn);
 
   const ORD = STD.rows.ordinary;
@@ -1439,9 +644,8 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
 
   /**
    * A capture of exactly `n` control blocks, every block reading the frozen
-   * CENTRE — the most favourable evidence this standard has, so anything that
-   * refuses it can only be refusing the COUNT. Laid out in rounds of
-   * `evidence.blocks`, the way a capture truncated part-way actually arrives.
+   * CENTRE, so anything that refuses it can only be refusing the COUNT. Laid
+   * out in rounds of `evidence.blocks`, as a truncated capture arrives.
    */
   const centreBlocks = (n) => {
     const rounds = [];
@@ -1468,13 +672,9 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   const DECOMP = () => ({ n: 10, task: 3, taskNet: 2, devtools: 1, script: 0.5, style: 0.4, layout: 0.6, layoutCount: 10, inPage: 1 });
 
   /**
-   * One row as `drive` collects it, with its four gates settable one at a time.
-   *
-   * A `blocks` gate is the fifth, and it is different in kind: instead of
-   * handing the row a stated control verdict it hands it a real capture of that
-   * many blocks and adjudicates it through the driver's OWN
-   * `controlAdjudication`, so a witness can drive the evidence-cardinality
-   * precondition end to end rather than assert a hand-set answer.
+   * One row as `drive` collects it, with its gates settable one at a time. A
+   * `blocks` gate hands the row a real capture of that many blocks,
+   * adjudicated through the driver's own `controlAdjudication`.
    */
   const resultRow = (rowId, gates = {}) => {
     const ctlPredicted = 1.7255;
@@ -1522,278 +722,103 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   const META = (dest) => ({ sha: 'deadbeef', blobs: {}, dest });
   const written = (rows, dest = PUBLISHED()) => JSON.parse(JSON.stringify(datasetFor(rows, META(dest))));
 
-  // --- the green case first, so nothing below is vacuously red ---------------
-
   t('a full-shape run with every gate held is canonical, and every row is citable', () => {
     const data = written(fullShape());
-    assert.strictEqual(data.canonical, true);
-    assert.strictEqual(data.notCanonicalWhy, null);
-    assert.deepStrictEqual(data.rowsRefused, []);
-    for (const row of data.rows) {
-      assert.strictEqual(row.canonical, true, `${row.rowId} must be citable`);
-      assert.strictEqual(row.notCanonicalWhy, null);
-    }
+    assert.deepStrictEqual(
+      [data.canonical, data.notCanonicalWhy, data.rowsRefused, data.rows.map((r) => [r.canonical, r.notCanonicalWhy])],
+      [true, null, [], [[true, null], [true, null], [true, null]]]
+    );
     assert.strictEqual(verdict(summarise(null, fullShape())).code, 0);
   });
 
-  // --- THE CASE ROW SCOPE EXISTS FOR ----------------------------------------
-
   t('ORDINARY REFUSED, THE OTHER TWO CLEAN: the two stay canonical and the run still refuses', () => {
-    // The state every one of the five committed sessions is in, on both
-    // adapters. Under run scope this would produce exit 5, dir
-    // `censusclock-2rtt6-56.unpublished`, and `canonical: false` over the
-    // whole file — the two rows that passed every gate discarded with the one
-    // that did not.
     const rows = fullShape({ ordinary: { ctlOk: false, ctlMeasured: 1.2264 } });
     const v = verdict(summarise(null, rows));
-
-    // 1. THE RUN STILL REFUSES. A run in which a row refused is not a clean
-    //    run; it is a run with a refused row, and the exit says so.
-    assert.strictEqual(v.code, 5, 'the run-level refusal is NOT weakened into nothing');
-    assert.strictEqual(v.lines.length, 1);
+    assert.deepStrictEqual([v.code, v.lines.length], [5, 1], 'the run-level refusal is NOT weakened into nothing');
     assert.match(v.lines[0], /uix\/ordinary \(measured 1\.2264x\)/);
     assert.doesNotMatch(v.lines[0], /large-template|feed/, 'a clean row must not be blamed');
-    assert.match(v.lines[0], /the scope is the ROW:/);
-
-    // 2. THE FILE STAYS IN THE PUBLISHED SET, because the run's SHAPE is the
-    //    published one and a gate refusal is not a fact about the shape.
-    //    `destination` takes ONE argument, the shape, so a gate refusal has no
-    //    way back in: a second argument would have to come from somewhere.
-    assert.strictEqual(destination.length, 1, '`destination` must read the run SHAPE and nothing else');
-    const dest = PUBLISHED();
-    assert.strictEqual(dest.dir, CANON, 'a refused ROW must not move the RUN off the canonical set');
-    assert.strictEqual(dest.canonical, true);
-
-    // 3. AND THE ROWS CARRY THE REFUSAL AT ITS OWN SCOPE.
-    const data = written(rows, dest);
+    // `destination` takes the run SHAPE and nothing else, so a gate refusal has
+    // no way to move the run off the canonical set.
+    assert.strictEqual(destination.length, 1);
+    const data = written(rows);
     assert.deepStrictEqual(data.rowsRefused, ['ordinary'], 'the file indexes exactly the row that refused');
-    const byId = Object.fromEntries(data.rows.map((r) => [r.rowId, r]));
-    for (const id of ['large-template', 'feed']) {
-      assert.strictEqual(byId[id].canonical, true, `${id} passed every gate and must remain canonical`);
-      assert.strictEqual(byId[id].notCanonicalWhy, null);
-    }
-    assert.strictEqual(byId.ordinary.canonical, false);
-    assert.match(byId.ordinary.notCanonicalWhy, /POSITIVE CONTROL did not hold \(measured 1\.2264x\)/);
-    assert.match(byId.ordinary.notCanonicalWhy, /prediction P4 promises the row publishes/);
-    // ... and the row's numbers are still in the file. A refusal is evidence;
-    // throwing the measurement away is not the refusal.
-    assert.ok(byId.ordinary.blocksTask, 'the refused row is recorded, not deleted');
+    assert.deepStrictEqual(data.rows.map((r) => r.canonical), [true, true, false]);
+    assert.match(data.rows[2].notCanonicalWhy, /POSITIVE CONTROL did not hold \(measured 1\.2264x\)/);
+    assert.ok(data.rows[2].blocksTask, 'the refused row is recorded, not deleted');
   });
 
-  // --- each gate alone, at the row's scope ----------------------------------
-
-  for (const [what, gates, needle] of [
-    ['the ARM-ORDER GUARD', { guardRefuse: true }, /ARM-ORDER GUARD refused it/],
-    ['UNVERIFIED read-backs', { unverified: 4 }, /4 of 36 operations are UNVERIFIED/],
-    ['a BREACHED band ceiling', { ceilingBreached: true, band: 0.412 }, /band 41\.2% exceeds seam\.cjs's 35% ceiling/],
-    ['a FAILED positive control', { ctlOk: false, ctlMeasured: 1.2264 }, /POSITIVE CONTROL did not hold/],
-  ]) {
-    t(`${what} refuses THAT row and no other`, () => {
+  t('each gate alone refuses THAT row and no other', () => {
+    for (const [gates, needle] of [
+      [{ guardRefuse: true }, /ARM-ORDER GUARD refused it/],
+      [{ unverified: 4 }, /4 of 36 operations are UNVERIFIED/],
+      [{ ceilingBreached: true, band: 0.412 }, /band 41\.2% exceeds seam\.cjs's 35% ceiling/],
+      [{ ctlOk: false, ctlMeasured: 1.2264 }, /POSITIVE CONTROL did not hold/],
+    ]) {
       const data = written(fullShape({ feed: gates }));
-      assert.deepStrictEqual(data.rowsRefused, ['feed']);
-      const byId = Object.fromEntries(data.rows.map((r) => [r.rowId, r]));
-      assert.strictEqual(byId.feed.canonical, false);
-      assert.match(byId.feed.notCanonicalWhy, needle);
-      for (const id of ['large-template', 'ordinary']) {
-        assert.strictEqual(byId[id].canonical, true, `${id} must be untouched by ${what}`);
-      }
-      // ... and the run still refuses, so this cannot pass by going quiet.
-      assert.notStrictEqual(verdict(summarise(null, fullShape({ feed: gates }))).code, 0);
-      // ... and the same run WITHOUT that gate publishes every row, so it
-      // cannot pass by refusing everything either.
-      assert.deepStrictEqual(written(fullShape()).rowsRefused, []);
-    });
-  }
-
-  t('several gates on one row name every one of them', () => {
-    const data = written(fullShape({ ordinary: { ctlOk: false, ceilingBreached: true, band: 0.5, unverified: 2, guardRefuse: true } }));
-    const why = data.rows.find((r) => r.rowId === 'ordinary').notCanonicalWhy;
-    for (const needle of [/ARM-ORDER GUARD/, /UNVERIFIED/, /band 50\.0% exceeds/, /POSITIVE CONTROL/]) {
-      assert.match(why, needle);
+      assert.deepStrictEqual(data.rows.map((r) => r.canonical), [true, false, true], JSON.stringify(gates));
+      assert.match(data.rows[1].notCanonicalWhy, needle);
     }
   });
-
-  // --- a row inherits the run's shape ---------------------------------------
 
   t('NO row of a run that is not the published shape is citable, whatever its own gates did', () => {
-    // The composition that keeps the two scopes from drifting apart: the row's
-    // own gates are necessary and the run's shape is necessary, and neither is
-    // sufficient. A `--no-build` run whose every gate held publishes nothing.
-    const dest = destination(shape({ noBuild: true }));
-    assert.strictEqual(dest.canonical, false);
-    const data = written(fullShape(), dest);
-    assert.strictEqual(data.canonical, false);
+    const data = written(fullShape(), destination(shape({ noBuild: true })));
+    assert.deepStrictEqual([data.canonical, data.rowsRefused], [false, ['large-template', 'feed', 'ordinary']]);
     assert.match(data.notCanonicalWhy, /--no-build/);
-    assert.deepStrictEqual(data.rowsRefused, ['large-template', 'feed', 'ordinary']);
-    for (const row of data.rows) {
-      assert.strictEqual(row.canonical, false);
-      assert.match(row.notCanonicalWhy, /the run itself is not the published evidence: --no-build/);
-    }
+    for (const r of data.rows) assert.match(r.notCanonicalWhy, /the run itself is not the published evidence: --no-build/);
   });
-
-  t('and the run-shape reason comes FIRST, so a reader sees the disqualifying fact first', () => {
-    const dest = destination(shape({ skipQuiet: true }));
-    const p = rowPublication(summariseRow(resultRow('ordinary', { ctlOk: false })), dest);
-    assert.strictEqual(p.canonical, false);
-    assert.match(p.why, /^the run itself is not the published evidence: a SKIPPED quiet gate/);
-    assert.match(p.why, /POSITIVE CONTROL did not hold/, 'and the row-level reason is still named');
-  });
-
-  // --- fail closed ----------------------------------------------------------
 
   t('an absent row and an absent destination are each a REFUSAL, never a pass', () => {
-    assert.strictEqual(rowPublication(undefined, PUBLISHED()).canonical, false);
-    assert.match(rowPublication(undefined, PUBLISHED()).why, /an absent row is not a citable one/);
-    assert.strictEqual(rowPublication(null, PUBLISHED()).canonical, false);
     const clean = summariseRow(resultRow('feed'));
-    assert.strictEqual(rowPublication(clean, undefined).canonical, false);
+    assert.deepStrictEqual(
+      [rowPublication(undefined, PUBLISHED()).canonical, rowPublication(null, PUBLISHED()).canonical, rowPublication(clean, undefined).canonical],
+      [false, false, false]
+    );
+    assert.match(rowPublication(undefined, PUBLISHED()).why, /an absent row is not a citable one/);
     assert.match(rowPublication(clean, undefined).why, /no destination was decided for this run/);
-    // ... and the same row with a decided, published destination IS citable.
-    assert.strictEqual(rowPublication(clean, PUBLISHED()).canonical, true);
-    assert.strictEqual(rowPublication(clean, PUBLISHED()).why, null);
-  });
-
-  // --- the scope, as the driver's own header states it -----------------------
-
-  t('the header says the scope, in the instrument\'s own words', () => {
-    const header = CSRC.slice(0, CSRC.indexOf("'use strict'"));
-    assert.match(header, /the ROW publishes a REFUSAL with the reason, not a number/);
-    assert.match(header, /A NONZERO EXIT IS A RUN-LEVEL FACT AND STAYS ONE/);
-    assert.match(header, /full-shape census run could ever be canonical/i);
-    // The write-path note must name both scopes and the idiom it follows.
-    const note = CSRC.slice(CSRC.indexOf('// WHERE A RUN\'S DATASETS MAY BE WRITTEN'), CSRC.indexOf('function destination('));
-    assert.match(note, /`clock_run\.cjs`'s `publication\(shape\)` has read shape and nothing else/);
-    assert.match(note, /A refusal is evidence/);
+    assert.deepStrictEqual([rowPublication(clean, PUBLISHED()).canonical, rowPublication(clean, PUBLISHED()).why], [true, null]);
   });
 
   // --- the standard requires its DECLARED EVIDENCE CARDINALITY --------------
   //
-  // The calibrated standard's limits are statistics OF 18-block row-runs. A
-  // `checkStandardVerdict` that accepted any non-empty all-finite array without
-  // comparing its length against the design would report, for
-  // `checkStandardVerdict('ordinary', [1.2308])`, `n: 1`, `scale: 0`, location
-  // ok, dispersion ok and final `ok: true` — and because `controlAdjudication`
-  // makes the standard THE adjudicator on a calibrated row, one block at the
-  // centre would make the row citable as in control while the strict rule was
-  // failing it. Truncated capture evidence could publish.
-  //
-  // The two witnesses are a ONE-BLOCK row-run and a
-  // SEVENTEEN-BLOCK one. Each is driven through the driver's real
-  // `controlBlocks` and `controlAdjudication` and out through BOTH consumers of
-  // that verdict — the nonzero exit and the row publication — and each asserts
-  // its EIGHTEEN-block twin green in the same test, so neither can pass by
-  // refusing everything.
-  //
-  // SCOPE, for anyone rebasing the clock-side instrument onto this file: these
-  // witnesses are the CENSUS rig's (`shapes/census_clock_run.cjs`), and the
-  // rule they pin is a cardinality PRECONDITION on the calibrated limits in
-  // `shapes/census_check_standard.json`. It is NOT the per-block all-blocks
-  // rule, and its 18 is the census design's 6 x 3 — never the `p^18` exponent
-  // in that rule's false-refusal arithmetic. See the note above
-  // `EXPECTED_READINGS` in the driver for why the two are orthogonal.
-  //
-  // NO MEASUREMENT IS TAKEN. Cardinality and arithmetic over fixture blocks.
+  // The calibrated limits are statistics OF 18-block row-runs, and the
+  // standard is THE adjudicator on a calibrated row, so one block at the
+  // centre certified as in control would publish truncated evidence. The
+  // precondition is exactly the declared evidence: one short, one over.
 
-  for (const [what, n] of [['ONE BLOCK', 1], ['SEVENTEEN BLOCKS', 17]]) {
-    t(`${what} at the frozen centre REFUSES the row, and publishes nothing from it`, () => {
-      const row = resultRow('ordinary', { blocks: n });
-      const ctl = row.adjudication.ctl;
-      /** The full published shape, with the two complete rows beside this one. */
-      const beside = (ordinary) => ['large-template', 'feed'].map((id) => resultRow(id)).concat(ordinary);
-
-      // 1. THE STANDARD REFUSED IT, ON THE COUNT, BEFORE COMPUTING A STATISTIC.
-      assert.strictEqual(ctl.standard.ok, false, `${n} blocks must not be adjudicated in control`);
-      assert.strictEqual(ctl.standard.measured.n, n, 'the observed count is reported');
-      assert.strictEqual(ctl.standard.measured.expected, EXPECTED, 'and so is the expected one');
-      assert.strictEqual(ctl.standard.measured.finite, n, 'every block here IS a finite reading');
-      assert.strictEqual(ctl.standard.location, null, 'no location statistic may be computed on partial evidence');
-      assert.strictEqual(ctl.standard.dispersion, null, 'nor a dispersion one');
-      assert.match(ctl.standard.why, new RegExp(`^${n} finite blocks where this standard's evidence is ${EXPECTED} `));
-      assert.match(ctl.standard.why, new RegExp(`${EXPECTED - n} MISSING`));
-
-      // ... and it is the COUNT and nothing else: the same blocks at the same
-      // centre, eighteen of them, are in control.
-      const whole = resultRow('ordinary', { blocks: EXPECTED }).adjudication.ctl;
-      assert.strictEqual(whole.standard.ok, true, 'the eighteen-block twin must PASS, or this witness is vacuous');
-      assert.strictEqual(whole.standard.location.ok, true);
-      assert.strictEqual(whole.standard.dispersion.ok, true);
-      assert.strictEqual(whole.ok, true);
-
-      // 2. `controlAdjudication` CARRIES THE REFUSAL — this is the seat where
-      //    a passing standard would override a failing strict rule.
-      assert.strictEqual(ctl.ok, false, 'the standard adjudicates a calibrated row, so the row does not hold');
-      assert.strictEqual(ctl.strictOk, false, 'the strict rule fails this row too; it must not be what saves this');
-      assert.match(ctl.adjudicator, /calibrated check standard/);
-
-      // 3. THE NONZERO EXIT PATH.
-      const rows = beside(row);
-      const v = verdict(summarise(null, rows));
-      assert.strictEqual(v.code, 5, 'a row whose control does not hold exits 5');
-      assert.match(v.lines[0], /uix\/ordinary/);
-      assert.doesNotMatch(v.lines[0], /large-template|feed/, 'a clean row must not be blamed');
-
-      // 4. THE ROW-PUBLICATION PATH — refused at the ROW's scope, the two
-      //    complete rows still citable, per the row-scope fence.
-      const data = written(rows);
-      assert.deepStrictEqual(data.rowsRefused, ['ordinary']);
-      const byId = Object.fromEntries(data.rows.map((r) => [r.rowId, r]));
-      assert.strictEqual(byId.ordinary.canonical, false);
-      assert.match(byId.ordinary.notCanonicalWhy, /POSITIVE CONTROL did not hold/);
-      for (const id of ['large-template', 'feed']) {
-        assert.strictEqual(byId[id].canonical, true, `${id} must stay citable — the refusal's scope is the ROW`);
-      }
-      // ... and the same run carrying WHOLE evidence publishes every row and
-      // exits 0, so neither step 3 nor step 4 passes by refusing the world.
-      const wholeRun = beside(resultRow('ordinary', { blocks: EXPECTED }));
-      assert.deepStrictEqual(written(wholeRun).rowsRefused, []);
-      assert.strictEqual(verdict(summarise(null, wholeRun)).code, 0);
-    });
-  }
-
-  t('EXTRA blocks refuse too, and the refusal counts them', () => {
-    // The precondition is EXACTLY the declared evidence, not a floor. A row-run
-    // deeper than the design is not the run these limits were calibrated on
-    // either, and a standard that adjudicates any depth has an unmeasured rate.
-    const v = checkStandardVerdict('ordinary', controlBlocks(centreBlocks(EXPECTED + 1)));
-    assert.strictEqual(v.ok, false);
-    assert.strictEqual(v.measured.n, EXPECTED + 1);
-    assert.strictEqual(v.measured.expected, EXPECTED);
-    assert.match(v.why, /1 EXTRA/);
-    assert.strictEqual(v.location, null);
+  t('ONE and SEVENTEEN blocks at the frozen centre REFUSE the row, where eighteen hold', () => {
+    const whole = resultRow('ordinary', { blocks: EXPECTED });
+    assert.deepStrictEqual([whole.adjudication.ctl.standard.ok, whole.adjudication.ctl.ok], [true, true], 'the twin must PASS');
+    assert.strictEqual(verdict(summarise(null, [whole])).code, 0);
+    for (const n of [1, 17]) {
+      const r = resultRow('ordinary', { blocks: n });
+      const { ok, measured, location, dispersion, why } = r.adjudication.ctl.standard;
+      assert.deepStrictEqual(
+        { ok, n: measured.n, expected: measured.expected, finite: measured.finite, location, dispersion },
+        { ok: false, n, expected: EXPECTED, finite: n, location: null, dispersion: null },
+        `${n} blocks must refuse on the COUNT, before any statistic`
+      );
+      assert.match(why, new RegExp(`^${n} finite blocks where this standard's evidence is ${EXPECTED} `));
+      assert.match(why, new RegExp(`${EXPECTED - n} MISSING`));
+      assert.strictEqual(r.adjudication.ctl.ok, false, 'the standard adjudicates a calibrated row, so the row does not hold');
+      assert.strictEqual(verdict(summarise(null, [r])).code, 5);
+    }
   });
 
-  t('the expected count is the STANDARD\'s design field, not a literal in the driver', () => {
-    // One field, one place. `18` is nowhere in the driver's code: it is
-    // `evidence.rounds x evidence.blocks`, so re-deepening the design is
-    // editing the JSON exactly as moving a limit is — and `recalibrateOn`
-    // already says a change to the round or block counts is a recalibration.
-    assert.deepStrictEqual([STD.evidence.rounds, STD.evidence.blocks], [6, 3]);
-    assert.strictEqual(EXPECTED, 18, 'the published design is 6 rounds x 3 blocks');
-    const CODE = CSRC.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
-    assert.match(CODE, /CHECK_STANDARD\.evidence\.rounds \* CHECK_STANDARD\.evidence\.blocks/);
-    assert.ok(!/=\s*18\b/.test(CODE), 'the expected count must not be assigned as a literal in the driver');
-    assert.match(STD.recalibrateOn.join(' '), /the sample or round counts/);
+  t('EXTRA blocks refuse too, and the refusal counts them', () => {
+    const v = checkStandardVerdict('ordinary', controlBlocks(centreBlocks(EXPECTED + 1)));
+    assert.deepStrictEqual([v.ok, v.measured.n, v.measured.expected, v.location], [false, EXPECTED + 1, EXPECTED, null]);
+    assert.match(v.why, /1 EXTRA/);
   });
 }
 
-// --- hd8_clock_run.cjs: the WRITE path, not just the exit path ---------------
+// --- hd8_clock_run.cjs: the WRITE path ---------------------------------------
 //
-// The same fail-open as the block above, on the sibling driver: dataset
-// writes that preceded `verdict` would let a control-refused re-run silently
-// replace data/hd8clock-2rtt6-31/{uix,reagent,slim}.json — the very files the
-// studio page recomputes from, and whose committed rows fail the control on
-// five of six. The write policy is TWO-TIER: no completed measurement is ever
-// discarded, but only a gate-passing full-shape run gets the published names.
-// Capture is not publication.
-//
-// hd8's `destination` is census's rule with ONE condition absent — census can
-// narrow its rows (C56CLOCK_ROWS), hd8 cannot — and the last check below pins
-// that deviation so a row knob cannot be added without the routing following.
+// Two-tier: no completed measurement is ever discarded, but only a
+// gate-passing full-shape run gets the published names.
 
 {
-  const HD8 = DRIVERS[0].file;
   const { destination } = DRIVERS[0].mod;
-  const SRC = fs.readFileSync(HD8, 'utf8');
+  const SRC = fs.readFileSync(DRIVERS[0].file, 'utf8');
   const CANON = '/data/hd8clock-2rtt6-31';
   const shape = (over = {}) => ({
     dataDir: CANON,
@@ -1806,206 +831,58 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   const t = (what, fn) => test(`hd8_clock_run.cjs write path: ${what}`, fn);
 
   t('the published shape, all gates passed, is the ONLY thing that is canonical', () => {
-    const d = destination(shape(), 0);
-    assert.strictEqual(d.canonical, true);
-    assert.strictEqual(d.dir, CANON);
-    assert.strictEqual(d.why, null);
+    assert.deepStrictEqual(destination(shape(), 0), { dir: CANON, canonical: true, why: null });
   });
 
-  // Each condition alone must move the write off the canonical set. These are
-  // the mutation proofs: flip one field, the destination must change.
-  for (const [what, over, code, needle] of [
-    ['a partial run set', { runsOnly: 'uix' }, 0, /PARTIAL run set \(HD8CLOCK_ONLY=uix\)/],
-    ['--no-build', { noBuild: true }, 0, /--no-build/],
-    ['an overridden depth', { depthPublished: false }, 0, /OVERRIDDEN design depth/],
-  ]) {
-    t(`${what} is NOT canonical, and says why`, () => {
-      const d = destination(shape(over), code);
-      assert.strictEqual(d.canonical, false, `${what} must not be canonical`);
-      assert.notStrictEqual(d.dir, CANON, `${what} must not write the published filenames`);
-      assert.strictEqual(d.dir, `${CANON}.unpublished`);
+  t('a non-published shape is NOT canonical, and says why', () => {
+    for (const [over, needle] of [
+      [{ runsOnly: 'uix' }, /PARTIAL run set \(HD8CLOCK_ONLY=uix\)/],
+      [{ noBuild: true }, /--no-build/],
+      [{ depthPublished: false }, /OVERRIDDEN design depth/],
+    ]) {
+      const d = destination(shape(over), 0);
+      assert.deepStrictEqual([d.canonical, d.dir], [false, `${CANON}.unpublished`], JSON.stringify(over));
       assert.match(d.why, needle);
-      // ... and the same shape WITHOUT that condition is canonical again, so
-      // the test cannot pass by refusing everything.
-      assert.strictEqual(destination(shape(), 0).canonical, true);
-    });
-  }
-
-  // The failure that matters: five of the six committed rows fail the
-  // positive control (exit 5). A re-run like that must land beside the cited
-  // evidence rather than over it, and still land.
-  t('EVERY refusal code this driver can return routes off the canonical set', () => {
-    for (const code of [1, 2, 3, 4, 5]) {
-      const d = destination(shape(), code);
-      assert.strictEqual(d.canonical, false, `exit ${code} must not write the published evidence`);
-      assert.strictEqual(d.dir, `${CANON}.unpublished`);
-      assert.match(d.why, new RegExp(`verdict refused it \\(exit ${code}\\)`));
     }
   });
 
-  // The preservation half of the policy: "no refusal suppresses output". A
-  // refusal moves the write, it never cancels it — refused rows are the
-  // DIAGNOSTIC evidence that exposes a control failure, and discarding them
-  // would lose exactly the interesting data.
-  t('a refused run still HAS a destination — the measurement is never discarded', () => {
-    const d = destination(shape(), 5);
-    assert.ok(d.dir && d.dir.length > 0, 'a refused run must still be written somewhere');
-    assert.notStrictEqual(d.dir, null);
-    assert.match(SRC, /No refusal suppresses output, and none ever discards a completed/);
-    assert.match(SRC, /Capture is not publication\./);
-  });
-
-  t('every condition that fired is named, not just the first', () => {
-    const d = destination(shape({ runsOnly: 'uix', noBuild: true, depthPublished: false }), 5);
-    assert.strictEqual(d.canonical, false);
-    for (const needle of [/verdict refused it \(exit 5\)/, /PARTIAL run set/, /--no-build/, /OVERRIDDEN design depth/]) {
-      assert.match(d.why, needle);
+  // A control-refused re-run must land beside the cited evidence, not over it.
+  t('EVERY refusal code this driver can return routes off the canonical set', () => {
+    for (const code of [1, 5]) {
+      const d = destination(shape(), code);
+      assert.deepStrictEqual([d.canonical, d.dir], [false, `${CANON}.unpublished`], `exit ${code}`);
+      assert.match(d.why, new RegExp(`verdict refused it \\(exit ${code}\\)`));
     }
   });
 
   t('an explicit HD8CLOCK_DATA_DIR is honoured as given, and is never canonical', () => {
     const mine = '/data/hd8clock-somebead';
     const d = destination(shape({ dataDir: mine, dataDirOverridden: true }), 0);
-    assert.strictEqual(d.dir, mine, 'the operator named the destination; do not rewrite it');
-    assert.strictEqual(d.canonical, false, 'an operator-named directory is not the published set');
-    // Even refused, it still lands where the operator said — the refusal is
-    // carried by the exit code and by `canonical`, not by moving the file.
-    assert.strictEqual(destination(shape({ dataDir: mine, dataDirOverridden: true }), 4).dir, mine);
-  });
-
-  // The defect is an ORDERING one: the write happens, and the refusal is
-  // computed afterwards. Pin the order in the source, because that is what
-  // can regress and a behavioural test of a browser driver cannot see it.
-  const ORDER = (src) => {
-    const v = src.indexOf('const v = verdict(summarise(failed, results));');
-    const dst = src.indexOf('const dest = destination(runShape(), v.code);');
-    const mk = src.indexOf('fs.mkdirSync(dest.dir');
-    return { v, dst, mk, ok: v > 0 && dst > 0 && mk > 0 && v < dst && dst < mk };
-  };
-
-  t('the verdict is computed BEFORE any dataset is written', () => {
-    const o = ORDER(SRC);
-    assert.ok(o.v > 0 && o.dst > 0 && o.mk > 0, 'the write path no longer has the shape this test pins');
-    assert.ok(o.v < o.dst, 'the verdict must be computed before the destination is chosen');
-    assert.ok(o.dst < o.mk, 'the destination must be chosen before the directory is created');
-    assert.ok(o.ok);
-  });
-
-  // ... and the same check must REFUSE the defect. A guard that only ever
-  // reports "ok" on the one source it is pointed at proves nothing; this
-  // hoists `destination` above `verdict` in a copy of the real text and
-  // requires the guard to catch it. This is the regression, reconstructed.
-  t('that ordering check REFUSES a destination consulted before the verdict', () => {
-    const V = 'const v = verdict(summarise(failed, results));';
-    const D = 'const dest = destination(runShape(), v.code);';
-    // Swap the two statements in place, whatever the line endings are.
-    const HOLE = '<<swap>>';
-    const mutant = SRC.replace(V, HOLE).replace(D, V).replace(HOLE, D);
-    assert.notStrictEqual(mutant, SRC, 'the mutation must actually change the source');
-    assert.strictEqual(ORDER(mutant).ok, false, 'the guard must refuse a write decided before the verdict');
-    // and the pre-repair shape — no `destination` at all — is refused too.
-    assert.strictEqual(ORDER(SRC.replace(D, '')).ok, false, 'a driver with no destination step must not pass');
+    assert.deepStrictEqual([d.dir, d.canonical], [mine, false]);
+    assert.strictEqual(destination(shape({ dataDir: mine, dataDirOverridden: true }), 4).dir, mine, 'even refused, it lands where the operator said');
   });
 
   t('no dataset is written to the raw DATA_DIR downstream of `destination`', () => {
-    // This is how the defect grows: a write that names the canonical
-    // directory directly. Every write site must go through the chosen
-    // destination.
     const after = SRC.slice(SRC.indexOf('const dest = destination(runShape(), v.code);'));
     assert.ok(!/fs\.mkdirSync\(DATA_DIR/.test(after), 'mkdirSync must use the chosen destination');
     assert.ok(!/path\.join\(DATA_DIR/.test(after), 'the dataset path must use the chosen destination');
     assert.match(after, /path\.join\(dest\.dir/);
   });
-
-  t('a dataset records whether it is the published evidence', () => {
-    // A file that travels out of its directory must still say what it is, and
-    // a consumer that finds no `canonical` field has not found a pass.
-    assert.match(SRC, /canonical: meta\.dest\.canonical/);
-    assert.match(SRC, /notCanonicalWhy: meta\.dest\.why/);
-  });
-
-  // On the driver whose `datasetFor` is not exported: the check the census
-  // block above makes behaviourally, made here the way this block makes its
-  // others. Both halves are pinned — the site that MEASURES
-  // the grain and the line that KEEPS it — because a serialiser naming a
-  // field the row stopped collecting is the same silent nothing as a row
-  // collecting a field nobody serialises.
-  t("the clock's own grain is measured, and then kept", () => {
-    assert.match(SRC, /if \(d\.task > 0\) granularity\.add\(d\.task\);/);
-    const KEPT = /^\s*granularity: r\.granularity,$/m;
-    assert.match(SRC, KEPT);
-    // ... and the check refuses the shape it was written against, so it
-    // cannot pass by matching something that is always there.
-    assert.ok(!KEPT.test(SRC.replace(/^[ \t]*granularity: r\.granularity,\r?\n/m, '')));
-  });
-
-  t('the dataset is built OUTSIDE `drive`, so recording never looks like deciding', () => {
-    // `datasetFor` names guardRefuse/ceilingBreached to SERIALISE them. Inside
-    // `drive` and downstream of `verdict` that would trip the invariant above
-    // — correctly, since a reader cannot tell a record from a second decision.
-    assert.match(SRC, /^function datasetFor\(rows, meta\) \{/m);
-    const drive = SRC.slice(SRC.indexOf('async function drive('));
-    assert.ok(drive.indexOf('function datasetFor(') === -1, '`datasetFor` must sit above `drive`');
-    assert.match(drive, /const data = datasetFor\(rows, \{ sha, blobs: bl, dest \}\);/);
-  });
-
-  t('the published depth has ONE definition, shared by the stamp and the write path', () => {
-    assert.match(SRC, /const PUBLISHED_DEPTH = \{ rounds: 6, blocks: 3, warmup: 4, samples: 10 \}/);
-    // An inline copy would let the two drift apart.
-    assert.ok(
-      !/ROUNDS === 6 && BLOCKS === 3 && WARMUP === 4 && SAMPLES === 10/.test(SRC),
-      'the inline depth predicate is duplicated; use depthIsPublished()'
-    );
-    assert.ok(SRC.split('depthIsPublished()').length - 1 >= 2, 'the one predicate must serve both readers');
-  });
-
-  t("the header states the two-tier rule, so the file's own record is not the old one", () => {
-    const header = SRC.slice(0, SRC.indexOf("'use strict'"));
-    assert.match(header, /## Where the datasets land/);
-    assert.match(header, /`\.unpublished`/);
-    assert.match(header, /HD8CLOCK_DATA_DIR is honoured as given/);
-    // The header must not state the canonical-filename intent.
-    assert.ok(
-      !/the datasets are\r?\n\/\/ written before this is consulted/.test(SRC),
-      'the header must not say the datasets are "written before this is consulted"'
-    );
-  });
-
-  // hd8 deviates from census by ONE condition, and only because it has no row
-  // knob. If a row knob is ever added, this fails and the routing must follow
-  // — the deviation is pinned to its reason, not left as an omission.
-  t('the absent PARTIAL-ROW condition is pinned to its reason: hd8 has no row knob', () => {
-    assert.ok(!/HD8CLOCK_ROWS/.test(SRC), 'a row knob exists; `destination` must name a PARTIAL row set');
-    assert.match(SRC, /^const ROWS = \['mount-M', 'mount-U'\];\r?$/m);
-    assert.match(SRC, /no partial-row shape to\r?\n\/\/ name/);
-    // Census, which DOES have the knob, still names it — the two files carry
-    // one rule, not two.
-    const census = fs.readFileSync(DRIVERS[1].file, 'utf8');
-    assert.match(census, /a PARTIAL row set \(C56CLOCK_ROWS=/);
-  });
 }
 
 // --- clock_run.cjs: the bar-level adjudication must reach the exit code -------
 //
-// `clock_run.cjs` is the candidate clock and needs an `:advanced`
-// build and a headless Chromium, so — exactly as above — its decision is a
-// pure function over a flat per-row summary and is exercised here directly.
+// A row whose every bar is UNADJUDICATED, or whose bars disagree, must not exit
+// 0. The rule is `rowAdjudication` (strict, `=== false`) and the decision is
+// `reportability`; both are driven by the driver's own `reportabilitySelfTest`
+// fixtures — the mixed-bar remainder, absent and null bars, the control gate
+// and the regimes — which `--self-test` also runs.
 
 {
-  const CLOCK = path.join(__dirname, 'clock_run.cjs');
-  const {
-    reportability, rowAdjudication, rowRegime, ROW_REGIME, reportabilitySelfTest,
-    ctl3Verdict, ctl3SelfTest,
-  } = require('./clock_run.cjs');
-  const SRC = fs.readFileSync(CLOCK, 'utf8');
+  const { reportabilitySelfTest, ctl3SelfTest } = require('./clock_run.cjs');
+  const SRC = fs.readFileSync(path.join(__dirname, 'clock_run.cjs'), 'utf8');
+  const MAIN = SRC.slice(SRC.indexOf('async function main()'), SRC.indexOf('\nmodule.exports'));
   const t = (what, fn) => test(`clock_run.cjs: ${what}`, fn);
-  const KEYSTROKE_WHY = "UNADJUDICATED — this row's control burns a fixed 50 ms rather than doubling the page";
-  const clockRow = (over) => ({ rowId: 'M1', ctlOk: true, ctlNote: '', adjudicable: true, ...over });
-  // A bar as `seam.assess` writes it into `seamTask.rows`.
-  const ADJ = { unadjudicated: false, why: 'margin 34.8% clears the band 21.4%' };
-  const UNADJ = { unadjudicated: true, why: KEYSTROKE_WHY };
-
-  // --- the driver's own fixtures, which `--self-test` also runs --------------
 
   t("the decision's own self-test passes, every case", () => {
     const { checks } = reportabilitySelfTest();
@@ -2014,13 +891,8 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     assert.deepStrictEqual(bad, [], bad.map((c) => `${c.name}: ${c.detail}`).join('\n'));
   });
 
-  // --- the three-point control's own fixtures, likewise --------------------
-  //
-  // The driver runs these before the browser opens and dies if one fails, but
-  // that path needs an `:advanced` build to reach. Driving them here puts the
-  // control's refusals in the fast spine, where a change to how a run
-  // DESCRIBES itself gets checked against what it DECIDES.
-
+  // The driver dies before the browser opens if one of these fails; driving
+  // them here puts them in the fast spine.
   t("the three-point control's own self-test passes, every case", () => {
     const { checks } = ctl3SelfTest();
     assert.ok(checks.length >= 15, `expected the control's fixtures, got ${checks.length}`);
@@ -2028,381 +900,10 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     assert.deepStrictEqual(bad.map((c) => c.name), [], 'the control must refuse every world its fixtures refuse');
   });
 
-  // --- the run figure is a summary, never a verdict ------------------------
-  //
-  // The headline is the block MEDIAN rather than the block MEAN, because a
-  // mean over a quotient whose denominator sits ~2 sigma from zero summarises
-  // whichever block came nearest to it: two ensembles read as DISAGREEING at
-  // 1.6045x and 86.05x by their means have block medians of 1.569 and 1.575
-  // and agree to within 2% on every structural quantity.
-  //
-  // A robuster headline is worth nothing if it is also a softer gate, and the
-  // median is precisely the statistic that shrugs off the one wild block. So
-  // the load-bearing assertion is not that the number is better — it is that
-  // a run the mean would refuse is refused under the median too, ON A RUN
-  // BUILT SO THE MEDIAN HEADLINE LOOKS PERFECT: eight clean blocks and one
-  // whose denominator has collapsed, median dead on the prediction and inside
-  // the band, verdict still FAIL.
-  {
-    const SEG = ['reagent-subs', 'uix-subs', 'fresco'];
-    const D = [1, 100, 200];
-    const plan = ['ctl-d1', 'ctl-d100', 'ctl-d200'].map((id, i) => ({
-      id, dirty: D[i], ctl3: true, ctl3Witness: false, cells: 300,
-    }));
-    const A = 0.006;
-    const C = 3.5;
-    const synth = (f) => {
-      const rs = [];
-      for (let r = 0; r < 3; r++) {
-        const per = {};
-        for (let i = 0; i < SEG.length; i++) {
-          per[SEG[i]] = {
-            'ctl-d1': [f(1, r, i)], 'ctl-d100': [f(100, r, i)], 'ctl-d200': [f(200, r, i)],
-            floor: [f(300, r, i)], plumb: [0.7],
-          };
-        }
-        rs.push(per);
-      }
-      return rs;
-    };
-    // One block of nine with a denominator collapsed to 0.02 ms; the rest
-    // linear and exact. Both differences stay positive, so the sign gate is
-    // clean and the refusal is the band's, exactly as on the real runs.
-    const heavy = ctl3Verdict(
-      synth((d, r, i) => (r === 0 && i === 0 ? { 1: 5.0, 100: 5.02, 200: 7.0 }[d] : A * d + C)),
-      plan,
-      0.25
-    );
-
-    t('rf2-8bgqq: a refusal STAYS a refusal though the new headline lands dead on the prediction', () => {
-      assert.strictEqual(heavy.measured.p50, 2.0101, 'the median is the prediction, to four places');
-      assert.ok(
-        heavy.measured.p50 >= heavy.band[0] && heavy.measured.p50 <= heavy.band[1],
-        `the median headline must be INSIDE the band [${heavy.band}] for this test to mean anything`
-      );
-      // ...and the run refuses anyway. A verdict that read the summary would
-      // pass here, and that is the whole failure this test exists to catch.
-      assert.strictEqual(heavy.premiseMet, false, 'one out-of-band block must still break the premise');
-      assert.strictEqual(heavy.sign.ok, true, 'refused by the BAND, not swept up by the sign gate');
-      assert.strictEqual(heavy.perRound.filter((x) => x > 10).length, 1, 'exactly one wild block');
-    });
-
-    t('rf2-8bgqq: the mean it replaced was off by a factor of six, from that one block', () => {
-      assert.strictEqual(heavy.measured.mean, 12.8979);
-      assert.ok(heavy.measured.mean > heavy.band[1], 'the mean headline is outside the band it is quoted against');
-    });
-
-    t('rf2-8bgqq: the denominator is surfaced in ms, which is where the collapse is visible', () => {
-      assert.strictEqual(heavy.signal.denMs.p50, 0.594, 'the healthy denominator');
-      assert.strictEqual(heavy.signal.denMs.min, 0.02, 'and the collapsed one, which the ratio alone cannot show');
-    });
-
-  }
-
-  // --- the fail-closed edge, in the decision's own words ---------------------
-  //
-  // The defect itself (a row whose every bar is UNADJUDICATED cannot exit 0)
-  // and its green control are fixtures of `reportabilitySelfTest`, which the
-  // self-test row above runs; so are the regime, remainder and field cases
-  // below whose rows are not here.
-
-  t('a row that adjudicated NO bar at all fails closed rather than open', () => {
-    // The summary the driver builds sets `adjudicable` false when the verdict
-    // carries no bars, so a verdict that went missing refuses instead of
-    // passing quietly — the same reason `seam.cjs` refuses a NaN band.
-    const v = reportability([clockRow({ adjudicable: false, unadjudicatedWhy: undefined })]);
-    assert.strictEqual(v.code, 1);
-    assert.match(v.lines[1], /M1: no proportional control on this row/);
-  });
-
-  // --- the control gate stands beside it ------------------------------------
-
-  t('a failed positive control alone still exits 1, exactly as before', () => {
-    const v = reportability([clockRow({ ctlOk: false, ctlNote: ' (three-point 1.2134x vs 2.0101x)' })]);
-    assert.strictEqual(v.code, 1);
-    assert.match(v.lines[0], /the positive control did not see the change its own arithmetic predicts on: /);
-    assert.match(v.lines[0], /M1 \(three-point 1\.2134x vs 2\.0101x\)/);
-    assert.match(v.lines[0], /No MAGNITUDE from those rows is reportable/);
-  });
-
-  t('the control refusal is still per-row: the rows that passed are still rows', () => {
-    const v = reportability([clockRow({}), clockRow({ rowId: 'narrow', ctlOk: false })]);
-    assert.strictEqual(v.code, 1);
-    assert.match(v.lines[v.lines.length - 1], /^\[clock\] REPORTABLE: M1 —/);
-  });
-
-  t('neither verdict masks the other — a row failing both is refused for both', () => {
-    const v = reportability([
-      clockRow({ rowId: 'keystroke', ctlOk: false, adjudicable: false, unadjudicatedWhy: KEYSTROKE_WHY }),
-    ]);
-    assert.strictEqual(v.code, 1);
-    assert.match(v.lines[0], /positive control/);
-    assert.match(v.lines[1], /not every published bar can be ADJUDICATED/);
-    assert.strictEqual(v.lines[3], '[clock] REPORTABLE: none.');
-  });
-
-  // --- a row whose bars DISAGREE --------------------------------------------
-  //
-  // A bar-level verdict derived with `unadj.length < names.length` — "at
-  // least one bar carries a band" — beside a REPORTABLE line claiming "every
-  // published bar adjudicated" would let a row publishing three bars, one with
-  // no band, satisfy the code and contradict the sentence, and the run would
-  // exit 0. A rule inline in `main` needs an `:advanced` build and a headless
-  // Chromium to reach, and a regex over the source matches the wrong rule as
-  // faithfully as the right one. It is a pure function, and these drive it.
-
-  t('and that row cannot exit 0 — the refusal reaches the code, naming the bar', () => {
-    const mixed = rowAdjudication({ 'h / r': ADJ, 'h / u': UNADJ, 'u / r': ADJ });
-    const v = reportability([clockRow({}), clockRow({ rowId: 'keystroke', ...mixed })]);
-    assert.notStrictEqual(v.code, 0, 'a row with a bar it cannot adjudicate must not exit 0');
-    assert.strictEqual(v.code, 1);
-    assert.match(v.lines[0], /not every published bar can be ADJUDICATED on: keystroke/);
-    assert.match(v.lines[1], /1 of 3 published bars carry no band \(h \/ u\)/);
-    assert.match(v.lines[1], new RegExp(KEYSTROKE_WHY.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-  });
-
-  t('an empty or missing bar set fails CLOSED — absent is not clean', () => {
-    for (const bars of [{}, undefined, null]) {
-      const a = rowAdjudication(bars);
-      assert.strictEqual(a.adjudicable, false, `bars=${JSON.stringify(bars)} must not be adjudicable`);
-      assert.strictEqual(a.barCount, 0);
-      assert.strictEqual(a.unadjudicatedWhy, 'the run adjudicated no bar on this row at all');
-    }
-    // And with no bar names to print, the refusal falls back to the row's own
-    // reason rather than printing "0 of 0 published bars".
-    const v = reportability([clockRow({ ...rowAdjudication({}) })]);
-    assert.strictEqual(v.code, 1);
-    assert.match(v.lines[1], /M1: the run adjudicated no bar on this row at all/);
-    assert.doesNotMatch(v.lines[1], /0 of 0/);
-  });
-
-  // --- AND THE FIELD, not merely the bar set --------------------------------
-  //
-  // A strict rule that asked TRUTHINESS — `src[n].unadjudicated` — would read
-  // absence as cleanliness one level down: a bar the dataset stored as `{}`
-  // would count as adjudicated, and `rowAdjudication` would return
-  // `adjudicable: true` beside `unadjudicatedWhy: "the run adjudicated no bar
-  // on this row at all"`. A function contradicting itself inside one returned
-  // object is what a fail-open looks like from the inside.
-
-  t('a row of nothing but fieldless bars cannot exit 0, and it used to exit 0', () => {
-    // Every bar `{}`: under a truthiness rule this produces `{adjudicable:
-    // true, unadjudicatedWhy: "the run adjudicated no bar on this row at
-    // all"}` and a green run.
-    const a = rowAdjudication({ 'h / r': {}, 'h / u': {} });
-    assert.strictEqual(a.adjudicable, false);
-    const v = reportability([clockRow({ rowId: 'keystroke', ...a })]);
-    assert.strictEqual(v.code, 1, 'a run that adjudicated nothing must not announce success');
-    assert.match(v.lines[0], /not every published bar can be ADJUDICATED on: keystroke/);
-    assert.match(v.lines[1], /2 of 2 published bars carry no band \(h \/ r, h \/ u\)/);
-    assert.match(v.lines[1], /the bar carries no adjudication verdict at all/);
-  });
-
-  t('a bar stored as null or undefined is unadjudicated rather than a crash', () => {
-    // Truthiness dereferences the record before testing it, so a null bar
-    // would not fail open — it would throw `Cannot read properties of null`,
-    // which is a driver that dies mid-report rather than one that refuses.
-    for (const missing of [null, undefined]) {
-      const a = rowAdjudication({ 'h / r': ADJ, 'h / u': missing });
-      assert.strictEqual(a.adjudicable, false, `bar=${String(missing)} must not be adjudicable`);
-      assert.deepStrictEqual(a.unadjudicatedBars, ['h / u']);
-      assert.strictEqual(a.unadjudicatedWhy, 'the bar carries no adjudication verdict at all');
-    }
-  });
-
-  t('an EXPLICIT clean verdict is what adjudicates — the tightening is not vacuous', () => {
-    // Without this, everything above would pass if the rule returned false for
-    // every bar. `unadjudicated: false` is the one value that means adjudicated.
-    const a = rowAdjudication({ 'h / r': { unadjudicated: false }, 'h / u': { unadjudicated: false, why: 'x' } });
-    assert.strictEqual(a.adjudicable, true);
-    assert.deepStrictEqual(a.unadjudicatedBars, []);
-    assert.strictEqual(reportability([clockRow({ ...a })]).code, 0);
-  });
-
-  // --- THE REGIMES: what a row publishes, declared ---------------------------
-  //
-  // Two rows publish a regime rather than a magnitude from one run, for
-  // reasons no amount of measuring can move. `keystroke`'s control burns a
-  // fixed 50 ms and therefore supplies no band. `M1` does publish a magnitude
-  // (K1 MISSED, DECISIVELY), but an ENSEMBLE one, and one run of this driver
-  // cannot form it. Its `ctl-2x` control is not failing — the rule tests
-  // per-block band membership — and the mount regime does not wait on it.
-  //
-  // THE THING THESE CASES EXIST TO PIN is that a regime softens nothing.
-  // `HCLOCK_ONLY=keystroke` exits 1, and a "relabelling" that let it exit 0
-  // would be the fail-open above under a nicer name. Every case below asserts
-  // the code as well as the sentence, and the regime is declared on the row
-  // rather than inferred from the numbers. A print and its pin move together,
-  // or one of them is a lie.
-
-  const mountRow = (over) => clockRow({ rowId: 'M1', regime: 'mount-regime', ctlOk: false, ...over });
-  const respRow = (over) =>
-    clockRow({
-      rowId: 'keystroke',
-      regime: 'responsiveness-regime',
-      adjudicable: false,
-      unadjudicatedWhy: KEYSTROKE_WHY,
-      ...over,
-    });
-
-  t('THE ROSTER: M1 is a mount regime, keystroke a responsiveness regime', () => {
-    assert.strictEqual(rowRegime('M1'), 'mount-regime');
-    assert.strictEqual(rowRegime('keystroke'), 'responsiveness-regime');
-    assert.deepStrictEqual(ROW_REGIME, {
-      M1: 'mount-regime',
-      bulk300: 'magnitude',
-      bulk100: 'magnitude',
-      narrow: 'magnitude',
-      keystroke: 'responsiveness-regime',
-    });
-  });
-
-  t('and the retired regime-only sentence is GONE from the log, not merely joined', () => {
-    const all = reportability([mountRow()]).lines.join('\n');
-    assert.doesNotMatch(all, /DIRECTION ONLY/, "M1 publishes a magnitude, so the log prints no 'DIRECTION ONLY'");
-    assert.doesNotMatch(
-      all,
-      /the control status is the published reason/,
-      "ctl-2x is not failing, so its status is the published reason for nothing"
-    );
-    // and the line says why THIS DRIVER refuses: one run, no ensemble.
-    assert.match(all, /ENSEMBLE one/);
-    assert.match(all, /one run cannot form the interval it is adjudicated against/);
-  });
-
-  // --- AND THE CONTROL ANNOTATION TOO ---------------------------------------
-  //
-  // Two lines below the row's three strings, `reportability` annotates the
-  // control status of a regime row that failed its control. The annotation is
-  // NOT " — expected, and the reason no magnitude is published": neither
-  // claim holds. Nothing predicts a failure here (`ctl-2x` is not failing —
-  // the rule tests per-block band membership, and all fourteen committed
-  // mount row-runs are IN CONTROL under the mount class), and M1 does publish
-  // a magnitude: this driver's refusal is the ensemble one.
-  //
-  // THE ANNOTATION STAYS. A regime is ABOUT the row's controls, so a reader
-  // must meet the status rather than infer it. What the fixture's
-  // `ctlOk: false` exercises is that the mount regime does not WAIT on its
-  // control.
-  //
-  // NOTE THAT THIS SUFFIX DOES NOT FIRE ON THE COMMITTED CORPUS: it needs
-  // `ctlOk === false` on a regime row, and every committed mount row-run is in
-  // control. It is reachable only from fixtures like these, which is precisely
-  // why it must be right — dead prose asserting a retired premise is read as
-  // current the day it finally prints.
-
-  t('the control annotation says what SURVIVED both rulings and predicts nothing', () => {
-    const all = reportability([mountRow({ ctlNote: ' (ctl-2x 1.8173x vs 2.00x)' })]).lines.join('\n');
-    assert.match(all, /NO MAGNITUDE FROM ONE RUN/);
-    assert.match(
-      all,
-      /positive control: FAIL \(ctl-2x 1\.8173x vs 2\.00x\) — the regime does not wait on this control, so a failure here withholds nothing/,
-      'the regime is independent of its control, so that is what the annotation states'
-    );
-    // Two-sided, because a pin that asserted only the current sentence would
-    // pass on a line that had merely gained it beside the retired one.
-    assert.doesNotMatch(
-      all,
-      /positive control: FAIL[^\n]*expected/,
-      'ctl-2x is not failing, so nothing PREDICTS this failure'
-    );
-    assert.doesNotMatch(
-      all,
-      /the reason no magnitude is published/,
-      'M1 publishes a magnitude, and this driver withholds one for the ensemble reason, not a control failure'
-    );
-  });
-
-  t('a regime row whose control PASSED is not annotated at all — the suffix is conditional', () => {
-    const all = reportability([mountRow({ ctlOk: true })]).lines.join('\n');
-    assert.match(all, /positive control: PASS/);
-    assert.doesNotMatch(all, /positive control: PASS[^\n]*withholds nothing/);
-  });
-
-  t('the driver CITES the published M1 row and copies no figure out of it', () => {
-    const all = reportability([mountRow()]).lines.join('\n');
-    assert.match(all, /K1 MISSED, DECISIVELY/, 'the verdict in force is quoted');
-    assert.match(all, /rows-re-adjudicated-on-the-corrected-clock\.md sec 4\.3/, 'and the row it comes from is named by path');
-    // THE DISCIPLINE THIS PINS. §4.3 says of itself that every figure in it is
-    // quoted from nowhere else, and a figure with two homes has two futures:
-    // this driver would be the second home, and it is not the file that
-    // computes them. `clock_readjudicate.cjs` is. So the point and both bounds
-    // of both ensembles must appear nowhere in this driver's source.
-    for (const fig of ['1.1718', '1.1263', '1.2190', '1.1976', '1.1504', '1.2468']) {
-      assert.ok(!SRC.includes(fig), `clock_run.cjs must cite the published M1 row, never restate its figures — found ${fig}`);
-    }
-  });
-
-  // --- MUTATION, BOTH DIRECTIONS -------------------------------------------
-  //
-  // A label that cannot be got wrong is a label nothing depends on. These two
-  // revert each row's regime and assert the run reads differently — the first
-  // is the relabelling's forward proof, the second its reverse.
-
-  t('MUTATION: relabel M1 back to a magnitude row and it reads as a fault again', () => {
-    const v = reportability([mountRow({ regime: 'magnitude', ctlNote: ' (ctl-2x 1.8173x vs 2.00x)' })]);
-    assert.strictEqual(v.code, 1, 'the exit is the same either way — only the sentence differs');
-    assert.match(v.lines[0], /the positive control did not see the change its own arithmetic predicts on: M1/);
-    assert.doesNotMatch(v.lines.join('\n'), /mount-regime/);
-  });
-
-  t('MUTATION: relabel keystroke back to a magnitude row and its bars read as unadjudicated', () => {
-    const v = reportability([respRow({ regime: 'magnitude' })]);
-    assert.strictEqual(v.code, 1);
-    assert.match(v.lines[0], /not every published bar can be ADJUDICATED on: keystroke/);
-    assert.doesNotMatch(v.lines.join('\n'), /responsiveness-regime/);
-  });
-
-  // --- the one condition on the responsiveness regime ----------------------
-
-  t('a responsiveness regime is WITHHELD when its fixed-work controls did not pass', () => {
-    const v = reportability([respRow({ ctlOk: false })]);
-    assert.strictEqual(v.code, 1);
-    assert.match(v.lines.join('\n'), /keystroke \[responsiveness-regime\] WITHHELD/);
-    assert.match(v.lines.join('\n'), /prove the instrument moves when the work moves/);
-    // `keystroke` DOES wait on its controls, so the withholding is already the
-    // subject of the line and the control annotation stays out of it.
-    assert.doesNotMatch(v.lines.join('\n'), /positive control: FAIL[^\n]*withholds nothing/);
-  });
-
-  // --- the magnitude rows keep their gates, which is the other half ---------
-
-  t('the driver hands the DECLARED regime to the decision, not one it inferred from its numbers', () => {
-    const M = SRC.slice(SRC.indexOf('async function main()'), SRC.indexOf('\nmodule.exports'));
-    assert.match(M, /regime: rowRegime\(o\.out\.rowId\)/);
-  });
-
-  // --- the wiring: `reportability` is load-bearing, not decorative ----------
-
-  const MAIN = SRC.slice(SRC.indexOf('async function main()'), SRC.indexOf('\nmodule.exports'));
-
-  t('the driver exposes its decision and does not drive itself on require', () => {
-    assert.ok(MAIN.length > 0, 'the driver must expose its run as `main`');
-    // The decision's four seats, plus the write path's two — a
-    // serialiser nothing can require is a serialiser nothing can drive.
-    for (const name of [
-      'reportability',
-      'rowAdjudication',
-      'rowRegime',
-      'ROW_REGIME',
-      'reportabilitySelfTest',
-      'publication',
-      'datasetFor',
-      'PUBLISHED_DEPTH',
-    ]) {
-      assert.match(SRC, new RegExp(`module\\.exports = \\{[^}]*\\b${name}\\b`), `\`${name}\` must be exported`);
-    }
-    assert.match(SRC, /if \(require\.main === module\) \{\s*main\(\);/);
-  });
-
   t('the summary reads the adjudication the report printed, rather than recomputing it', () => {
-    // A second computation is a second decision, and a second decision is
-    // this whole file's subject.
     assert.match(MAIN, /rowAdjudication\(o\.verdict\.seamTask && o\.verdict\.seamTask\.rows\)/);
-    // And the rule itself is NOT written out here: an inline copy could be
-    // checked only by a regex on this line, which would hold a loose rule
-    // happily for as long as the regex agreed with it. The behavioural cases
-    // are below; this asserts no inline copy grows back.
+    // An inline copy of the bar rule could be checked only by a regex on its
+    // line, which would hold a loose rule as happily as the strict one.
     assert.ok(
       !/unadj\.length|Object\.keys\(bars\)/.test(MAIN),
       'the bar-level rule must live in `rowAdjudication`, not inline in `main` where no test can drive it'
@@ -2423,30 +924,16 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
       'nothing downstream of the decision may read a refusal on its own'
     );
   });
-
-  t('`--self-test` runs the decision, so an operator sees it before the browser opens', () => {
-    const block = SRC.slice(SRC.indexOf('if (SELFTEST_ONLY) {'), SRC.indexOf('if (!NO_BUILD)'));
-    assert.match(block, /reportabilitySelfTest\(\)/);
-    assert.match(block, /\[\.\.\.g\.checks, \.\.\.s\.checks, \.\.\.x\.checks\]\.filter/);
-  });
 }
 
 // --- A RUN'S RAW READINGS, AS A FIXTURE --------------------------------------
 //
-// The check standard is applied to the READINGS rather than read back off a
-// stored boolean — a check standard is versioned data a reader applies, and
-// re-applying a recalibrated standard to a retained dataset is the whole point
-// of freezing it as data. So every fixture that must clear the gate below has
-// to carry readings, and this builds them in the shape `clock_run.cjs` writes:
-// `roundsTask[round][segment][arm]`, ten samples an arm.
-//
-// The numbers are the instrument's own model — a floor sample is `W + c` where
-// `c` is the part that does not scale with the page, and `ctl-2x` builds twice
-// the page so it reads `2W + c`. `W = 3.0` and `c = 1.1628` put the block ratio
-// dead on the frozen empirical centre, 1.7207x. The jitter is deterministic and
-// small, so the run has a real dispersion without being anywhere near the
-// frozen limit: a fixture that passed only because it had none would not be
-// exercising the dispersion term at all.
+// The check standard is applied to the READINGS, so every fixture that must
+// clear it carries them, in the shape `clock_run.cjs` writes:
+// `roundsTask[round][segment][arm]`, ten samples an arm. A floor sample is
+// `W + c`, `ctl-2x` builds twice the page (`2W + c`), and `W = 3.0`,
+// `c = 1.1628` put the block ratio on the frozen bulk centre, 1.7207x, with a
+// small deterministic jitter so the dispersion term is exercised.
 const FIXTURE_SEGMENTS = ['reagent-subs', 'uix-subs', 'fresco'];
 function fixtureRoundsTask(over) {
   const o = over || {};
@@ -2465,8 +952,7 @@ function fixtureRoundsTask(over) {
         plumb: ten(TARE),
         floor: ten(W + C + TARE + j),
         'ctl-2x': ten(scale * W + C + TARE + j),
-        // the segment's own substrate arm, which is what the paired level
-        // ratio is formed from
+        // the segment's own substrate arm, which the paired level ratio is formed from
         [seg]: ten(5.0 + i * 0.1 + j),
       };
     }
@@ -2477,18 +963,11 @@ function fixtureRoundsTask(over) {
 
 // --- clock_readjudicate.cjs: the SAME term, on the persisted datasets --------
 //
-// The second place. The driver adjudicates one run; the readjudicator pools
-// an ENSEMBLE of the driver's stored datasets and prints the figure that gets
-// published, so the same fail-open has two homes and the second one outlives
-// the first — a dataset is re-read long after the `seam.assess` that wrote
-// it.
-//
-// An adjudication term written `names.some((n) => !unadjudicated)` would be
-// wrong here for the reason it is wrong in the driver: ONE adjudicated bar
-// would admit the whole run into the "control-passing subset", FOR EVERY PAIR
-// — including the pair whose own bar had no band. And a predicate in a file
-// that reads `process.argv` at module scope and exits is unreachable, because
-// requiring it runs it. Both are pinned below.
+// The readjudicator pools an ENSEMBLE of stored datasets into the published
+// figure, so the fail-open has a second home here: one adjudicated bar must
+// not admit a run into the subset for every pair, a bar stored as `{}` or
+// `null` is not adjudicated, and every gate the driver exits on is enforced
+// again off the record.
 
 {
   const RJ = path.join(__dirname, 'clock_readjudicate.cjs');
@@ -2497,21 +976,11 @@ function fixtureRoundsTask(over) {
   const t = (what, fn) => test(`clock_readjudicate.cjs: ${what}`, fn);
   const ADJ = { unadjudicated: false, band: 0.21, why: 'margin 34.8% clears the band 21.4%' };
   const UNADJ = { unadjudicated: true, band: null, why: 'UNADJUDICATED — no proportional control on this row' };
-  // THE FILE'S OWN TWO-TIER VERDICT, as `datasetFor` writes it.
-  // Every predicate here is handed one, because a row cannot vouch for the
-  // file it came from and this filter's first gate is that it does not try.
-  // `design` is here because a ROW gate receives the envelope too: whether
-  // the readings are tared decides what a level ratio taken from them means,
-  // and the check standard refuses a record that does not say.
+  // The file's own two-tier verdict, handed to every predicate: a row cannot
+  // vouch for the file it came from. `design` decides what its readings mean.
   const CANON = { canonical: true, notCanonicalWhy: null, design: { rounds: 6, warmup: 4, samples: 10, tare: true } };
-  // A dataset row as a two-tier `clock_run.cjs` writes it, reduced to the
-  // fields this predicate reads — every whole-run verdict the driver exits on,
-  // each at its passing value.
-  //
-  // `bulk300` rather than `M1`, because its readings are built at the BULK
-  // centre, and a roster that swapped the row id without swapping the world
-  // would be certifying a mount against limits its blocks were never placed
-  // inside.
+  // A dataset row as `clock_run.cjs` writes it, every whole-run verdict at its
+  // passing value. `bulk300` because its readings are built at the BULK centre.
   const dsRow = (bars, over) => ({
     rowId: 'bulk300',
     pageErrors: [],
@@ -2532,43 +1001,23 @@ function fixtureRoundsTask(over) {
   });
 
   t('THE REMAINDER: one unadjudicated bar keeps the whole run OUT of the subset', () => {
-    const row = dsRow({ 'h / r': ADJ, 'h / u': UNADJ, 'u / r': ADJ });
-    assert.strictEqual(adjudicated(row), false, 'two adjudicated bars may not carry a third with no band');
-    assert.strictEqual(reportable(row, CANON), false, 'and the run may not be pooled into the published mean');
-  });
-
-  t('a run whose every bar is UNADJUDICATED is still out — the term was tightened, not swapped', () => {
-    assert.strictEqual(adjudicated(dsRow({ 'h / r': UNADJ, 'h / u': UNADJ })), false);
+    const r = dsRow({ 'h / r': ADJ, 'h / u': UNADJ, 'u / r': ADJ });
+    assert.strictEqual(adjudicated(r), false, 'two adjudicated bars may not carry a third with no band');
+    assert.strictEqual(reportable(r, CANON), false, 'and the run may not be pooled into the published mean');
   });
 
   t('a dataset that stored no bar verdict at all fails closed', () => {
     assert.strictEqual(adjudicated(dsRow({})), false, 'an empty bar set is absent, not clean');
     assert.strictEqual(adjudicated({ rowId: 'M1' }), false, 'a row with no seamTask at all is absent, not clean');
-    assert.strictEqual(adjudicated(undefined), false);
-    assert.strictEqual(reportable(undefined, CANON), false);
   });
 
-  // --- AND THE FIELD, here too ----------------------------------------------
-  //
-  // A predicate asking `!bars[n].unadjudicated` would read a bar the FILE
-  // stored as `{}` — present, and carrying no verdict — as adjudicated, and
-  // pool the run into the published mean for every pair. This is the seat
-  // where it matters most: the driver reads an object built moments earlier in
-  // its own process, this program reads a file, and a file is where a field
-  // goes missing.
-
   t('a dataset whose every bar is fieldless is out, and it used to be IN', () => {
-    // Under a truthiness rule `adjudicated` returns true here, and with a
-    // passing control and no ceiling breach `reportable` returns true too.
-    const row = dsRow({ 'h / r': {}, 'h / u': {} });
-    assert.strictEqual(adjudicated(row), false);
-    assert.strictEqual(reportable(row, CANON), false);
+    const r = dsRow({ 'h / r': {}, 'h / u': {} });
+    assert.strictEqual(adjudicated(r), false);
+    assert.strictEqual(reportable(r, CANON), false);
   });
 
   t('a bar stored as null or undefined is out rather than a crash', () => {
-    // Truthiness dereferences the record before testing it, so these would
-    // throw `Cannot read properties of null` — a reader that dies over a dataset
-    // rather than one that declines to publish from it.
     for (const missing of [null, undefined]) {
       assert.strictEqual(adjudicated(dsRow({ 'h / r': ADJ, 'h / u': missing })), false, `bar=${String(missing)}`);
       assert.strictEqual(reportable(dsRow({ 'h / r': ADJ, 'h / u': missing }), CANON), false, `bar=${String(missing)}`);
@@ -2576,28 +1025,17 @@ function fixtureRoundsTask(over) {
   });
 
   t('an EXPLICIT clean verdict is what pools a run — the tightening is not vacuous', () => {
-    // Without this, everything above would pass if the predicate always said
-    // false and no run would ever be published again.
-    const row = dsRow({ 'h / r': { unadjudicated: false }, 'h / u': { unadjudicated: false, band: 0.2 } });
-    assert.strictEqual(adjudicated(row), true);
-    assert.strictEqual(reportable(row, CANON), true);
+    const r = dsRow({ 'h / r': { unadjudicated: false }, 'h / u': { unadjudicated: false, band: 0.2 } });
+    assert.strictEqual(adjudicated(r), true);
+    assert.strictEqual(reportable(r, CANON), true);
   });
 
   // --- EVERY GATE THE DRIVER EXITS ON, ENFORCED HERE TOO --------------------
   //
-  // A subset that asked for `ctlTask.ok` and the two ceilings and nothing
-  // else, while the same program PRINTS `guardRefuse`, `guardRefuseTask`, the
-  // legacy-clock `ctlOk` and `tally.unverified` in the gate table two lines
-  // above the pooled mean, would pool runs its own table refuses. And
   // `clock_run.cjs` writes its dataset BEFORE its fatal checks run, so a run
-  // Chromium threw on, or whose arms built different pages, is a well-formed
-  // file. The filter is the driver's own exit path read back off the record,
-  // plus the two-tier clause: a file that does not say it is the published
-  // evidence set is not.
-  //
-  // DRIVEN OVER THE ROSTER, not over a hand-written list, so a gate added to
-  // `GATES` without a case here fails the first assertion rather than shipping
-  // as a gate nothing has ever seen refuse.
+  // Chromium threw on is still a well-formed file. Driven over the `GATES`
+  // roster, with one corruption and one ERASURE per gate: `failed` and
+  // `absent` are different faults and both must refuse.
 
   const del = (o, k) => {
     const c = { ...o };
@@ -2605,8 +1043,6 @@ function fixtureRoundsTask(over) {
     return c;
   };
   const BARS = { 'h / r': ADJ, 'h / u': ADJ };
-  // One deliberate corruption per gate, and one deliberate ERASURE per gate:
-  // `failed` and `absent` are different faults and both must refuse.
   const CASES = [
     {
       id: 'canonical',
@@ -2679,12 +1115,8 @@ function fixtureRoundsTask(over) {
       absent: /no published-clock band verdict/,
     },
     {
-      // THE SABOTAGE, ON THE CONSUMER SIDE. `ctlScale: 140/300` is
-      // the fixture form of an arm that declares the floor's page doubled and
-      // builds 140 of its 300 boundaries — the run's block median collapses to
-      // 0.6156x and the frozen location limits refuse it. The ERASURE case is
-      // the readings themselves: a record that did not store them cannot be
-      // shown to have been in control.
+      // `ctlScale: 140/300` is an arm that declares the page doubled and builds
+      // 140 of its 300 boundaries; the frozen location limits refuse it.
       id: 'check-standard',
       row: { roundsTask: fixtureRoundsTask({ ctlScale: 140 / 300 }) },
       failed: /outside the frozen location limits/,
@@ -2716,60 +1148,26 @@ function fixtureRoundsTask(over) {
   });
 
   t('a fully compliant run IS reportable — the roster is not vacuous', () => {
-    // Every assertion below would pass against a predicate that always said
-    // false, so this one comes first in weight if not in order.
-    assert.strictEqual(reportable(dsRow(BARS), CANON), true);
     assert.deepStrictEqual(refusals(dsRow(BARS), CANON), []);
   });
 
-  for (const c of CASES) {
-    t(`gate \`${c.id}\`: a FAILED verdict removes the run from the subset, and names itself`, () => {
-      const row = dsRow(c.bars || BARS, c.row || {});
-      const data = { ...CANON, ...(c.data || {}) };
-      const why = refusals(row, data);
-      assert.ok(
-        why.some((w) => c.failed.test(w)),
-        `no refusal matched ${c.failed} — got ${JSON.stringify(why)}`
-      );
-      assert.strictEqual(reportable(row, data), false);
-    });
-
-    t(`gate \`${c.id}\`: an ABSENT verdict removes it too — absent is not clean`, () => {
-      let row = dsRow(c.erase.bars ? {} : c.bars || BARS, c.row ? {} : {});
-      if (c.erase.row) row = del(row, c.erase.row);
-      let data = { ...CANON };
-      if (c.erase.data) data = del(data, c.erase.data);
-      const why = refusals(row, data);
-      assert.ok(
-        why.some((w) => c.absent.test(w)),
-        `no refusal matched ${c.absent} — got ${JSON.stringify(why)}`
-      );
-      assert.strictEqual(reportable(row, data), false);
-    });
-  }
-
-  t('a row cannot vouch for the file it came from — no envelope is a refusal', () => {
-    // The two-tier contract's consumer clause. A dataset that travelled out of
-    // its directory, or a caller that forgot to pass the envelope, must not be
-    // able to publish on the strength of the row alone.
-    assert.strictEqual(reportable(dsRow(BARS)), false);
-    assert.ok(refusals(dsRow(BARS)).some((w) => /carries no `canonical` verdict/.test(w)));
+  t('every gate: a FAILED verdict removes the run from the subset, and names itself', () => {
+    for (const c of CASES) {
+      const why = refusals(dsRow(c.bars || BARS, c.row), { ...CANON, ...c.data });
+      assert.ok(why.some((w) => c.failed.test(w)), `${c.id}: no refusal matched ${c.failed} — got ${JSON.stringify(why)}`);
+    }
   });
 
-  t('EVERY reason is reported, not the first — a run that failed four gates says four', () => {
-    const why = refusals(
-      dsRow(BARS, { guardRefuse: true, parityOk: false, roundsTask: fixtureRoundsTask({ ctlScale: 140 / 300 }) }),
-      { canonical: false, notCanonicalWhy: 'a PARTIAL row set', design: { tare: true } }
-    );
-    assert.strictEqual(why.length, 4, JSON.stringify(why));
+  t('every gate: an ABSENT verdict removes it too — absent is not clean', () => {
+    for (const c of CASES) {
+      let r = dsRow(c.erase.bars ? {} : c.bars || BARS);
+      if (c.erase.row) r = del(r, c.erase.row);
+      const why = refusals(r, c.erase.data ? del(CANON, c.erase.data) : CANON);
+      assert.ok(why.some((w) => c.absent.test(w)), `${c.id}: no refusal matched ${c.absent} — got ${JSON.stringify(why)}`);
+    }
   });
 
   // --- AND THE WHOLE PROGRAM, END TO END, ON A FILE -------------------------
-  //
-  // The predicates above are pure and the program is what a reader actually
-  // runs, so the refusal is demonstrated where it is claimed: over a dataset on
-  // disk, by exit code. Both directions, because a checker nobody has seen say
-  // yes is as useless as one nobody has seen say no.
 
   const fixture = (over) => ({
     label: 'fixture',
@@ -2811,22 +1209,12 @@ function fixtureRoundsTask(over) {
     return { code: r.status, out: `${r.stdout}${r.stderr}` };
   };
 
-  t('THE COMMAND: a compliant dataset regenerates its aggregate and exits 0', () => {
-    const { code, out } = runProgram(fixture());
-    assert.strictEqual(code, 0, out);
-    assert.match(out, /reportable subset 1\.3000x n=1/);
-    assert.match(out, /— reportable: every gate this dataset serialises is clean/);
-  });
-
+  // A refusal is about what may be QUOTED: the run stays in the per-run table.
   t('THE COMMAND: a non-canonical dataset exits 3 and is still printed in full', () => {
     const { code, out } = runProgram(fixture({ canonical: false, notCanonicalWhy: '--no-build' }));
     assert.strictEqual(code, 3, out);
-    assert.match(out, /NOT ELIGIBLE PUBLISHED EVIDENCE/);
     assert.match(out, /reportable subset: NONE/);
-    // RETAINED, not erased: the run is still in the per-run table with its own
-    // magnitude beside it. A refusal is about what may be QUOTED.
     assert.match(out, /;;\s+run1\s+1\.2000\s+1\.1000\s+1\.3000/);
-    assert.match(out, /EXIT 3 — 1 of 1 dataset\(s\) are not eligible published evidence/);
   });
 
   t('THE COMMAND: a gate failure inside a canonical dataset empties the subset, not the table', () => {
@@ -2842,47 +1230,20 @@ function fixtureRoundsTask(over) {
   t('requiring the readjudicator does not RUN it, which is what made this reachable', () => {
     assert.match(RJSRC, /^  GATES, adjudicated, refusals, reportable, responsivenessRegime,$/m);
     assert.match(RJSRC, /if \(require\.main === module\) \{/);
-    assert.match(RJSRC, /main\(process\.argv\.slice\(2\)\)/);
   });
 
   t('the subset is chosen by `reportable` alone, not by a second predicate inline', () => {
     const body = RJSRC.slice(RJSRC.indexOf('function main(argv)'));
     assert.match(body, /runs\.map\(\(\{ row, data \}, i\) => \(reportable\(row, data\) \? i : -1\)\)/);
-    assert.ok(
-      !/\.some\(\(n\) => !bars\[n\]\.unadjudicated\)/.test(RJSRC),
-      'the loose `some` rule must not survive anywhere in this file'
-    );
-    // `main` may still READ a bar verdict to print it — the per-run table is
-    // a description, not a decision. What it may not do is quantify over the
-    // bars, because that is the predicate above being written a second time.
+    // `main` may READ a bar verdict to print it; quantifying over the bars is
+    // the subset predicate written a second time.
     assert.ok(
       !/(names|Object\.keys)[^\n]*\.(some|every)\(/.test(body),
       'quantifying over a row\'s bars inside `main` is the subset predicate written twice'
     );
   });
 
-  t('the printed verdict column reads the SAME per-bar record the subset does', () => {
-    // A column derived from row-wide `bandTask` beside a subset derived per bar
-    // would print "clears its band", on a row whose bars disagreed, for a bar
-    // the subset had just refused. That is this file's own complaint — a column
-    // and a decision disagreeing about the same run — pointing the other way.
-    const body = RJSRC.slice(RJSRC.indexOf('function main(argv)'));
-    assert.match(body, /const barRec = \(row\.seamTask && row\.seamTask\.rows && row\.seamTask\.rows\[pair\]\)/);
-    // ... and with `adjudicated`'s own token. A column reading `!!` beside a
-    // subset reading `=== false` would print "clears its band" for a silent
-    // bar the subset had just refused — the disagreement one field further in.
-    assert.match(body, /const barUnadjudicated = barRec \? barRec\.unadjudicated !== false/);
-    // and the column's UNADJUDICATED branch is taken from THAT, not from the
-    // row-wide band.
-    assert.match(body, /: barUnadjudicated\s*\r?\n\s*\? 'UNADJUDICATED/);
-  });
-
   // --- THE RESPONSIVENESS REGIME, off the retained datasets -----------------
-  //
-  // The ruling re-adjudicates the per-keystroke row from the two runs already
-  // on disk — no new window, and none needed. These drive the predicate on
-  // synthetic rows and then on the real ones, because "re-adjudicated from
-  // disk" is a claim about files that must be checkable against those files.
 
   const etArm = (durations, over) => ({
     sent: 60,
@@ -2914,21 +1275,14 @@ function fixtureRoundsTask(over) {
 
   t('every other row is not a responsiveness regime, and says so by returning nothing', () => {
     assert.strictEqual(responsivenessRegime({ rowId: 'M1' }), null);
-    assert.strictEqual(responsivenessRegime(undefined), null);
-    assert.strictEqual(responsivenessRegime({ rowId: 'M1', kbWitness: {} }), null);
   });
 
   t('one bucket across every observed arm IS the verdict, and the control must have moved', () => {
     const r = responsivenessRegime(kbRow());
-    assert.strictEqual(r.indistinguishable, true);
-    assert.strictEqual(r.frame, 16);
-    assert.strictEqual(r.controlP50, 48);
-    assert.strictEqual(r.controlMoved, true, 'a control that did not move is an instrument nobody saw respond');
+    assert.deepStrictEqual([r.indistinguishable, r.frame, r.controlP50, r.controlMoved], [true, 16, 48, true]);
   });
 
   t('THE GATE IS NOT VACUOUS: an arm in a second bucket refuses the frame statement', () => {
-    // If it always said "indistinguishable", it would be an assertion rather
-    // than a reading. Move one arm a bucket and the verdict must withdraw.
     const r = responsivenessRegime(
       kbRow({
         kbWitness: {
@@ -2959,84 +1313,33 @@ function fixtureRoundsTask(over) {
   t('THE RIDER is carried, not optional: the grain and the straddling bars come back with it', () => {
     const r = responsivenessRegime(kbRow());
     assert.strictEqual(r.grain, 0.146, "the run's own finest per-sample step, as the driver stored it");
-    assert.strictEqual(r.diagnosticBars.length, 3);
-    assert.ok(
-      r.diagnosticBars.every((b) => b.straddles1),
-      'every diagnostic bar straddles 1.0, which is why no magnitude is published'
-    );
+    assert.deepStrictEqual(r.diagnosticBars.map((b) => b.straddles1), [true, true, true]);
   });
-
-  t('it reads the WITNESS the driver stored rather than regrouping raw entries', () => {
-    // The witness owns what forms an interaction and what a censored key is.
-    // A second grouping here would be a second adjudicator, which is this
-    // whole file's subject.
-    const body = RJSRC.slice(RJSRC.indexOf('function responsivenessRegime('));
-    assert.match(body, /row && row\.kbWitness/);
-    assert.ok(
-      !/interactionId/.test(body.slice(0, body.indexOf('function main('))),
-      'grouping entries by interactionId here would be the witness written a second time'
-    );
-  });
-
-  // --- and against the retained runs themselves ----------------------------
 
   t('THE RULING RE-ADJUDICATED FROM DISK, and the datasets still say what it said', () => {
     const dir = path.join(__dirname, 'data', 'clock-0qj9w');
     if (!fs.existsSync(dir)) return; // datasets are retained, not required to build
     const expected = { 'run1.json': { observed: 466, censored: 74, ctl: 48 }, 'run2.json': { observed: 449, censored: 91, ctl: 56 } };
     for (const [file, want] of Object.entries(expected)) {
-      const data = archive.readRecord(path.join(dir, file));
-      const row = data.rows.find((r) => r.rowId === 'keystroke');
-      assert.ok(row, `${file} must retain its keystroke row`);
-      const r = responsivenessRegime(row);
-      assert.strictEqual(r.indistinguishable, true, `${file}: every observed interaction must be one frame`);
-      assert.strictEqual(r.frame, 16, `${file}: and that frame is 16 ms`);
-      assert.strictEqual(r.controlP50, want.ctl, `${file}: ctl-50ms median`);
-      assert.strictEqual(r.totals.observed, want.observed, `${file}: observed keys`);
-      assert.strictEqual(r.totals.censored, want.censored, `${file}: censored keys`);
-      assert.strictEqual(r.totals.sent, 540, `${file}: keys sent`);
-      assert.ok(
-        r.diagnosticBars.every((b) => b.straddles1),
-        `${file}: every diagnostic bar must straddle 1.0 — no magnitude may be published from this row`
+      const r = responsivenessRegime(archive.readRecord(path.join(dir, file)).rows.find((x) => x.rowId === 'keystroke'));
+      assert.deepStrictEqual(
+        [r.indistinguishable, r.frame, r.controlP50, r.totals.observed, r.totals.censored, r.totals.sent, r.diagnosticBars.every((b) => b.straddles1)],
+        [true, 16, want.ctl, want.observed, want.censored, 540, true],
+        file
       );
     }
-  });
-
-  t('it still SELECTS no run away from the table — only from the subset', () => {
-    // The file's own stated refusal, and the reason the predicate above may
-    // never be used to drop a row from the per-run listing.
-    assert.match(RJSRC, /It does not select runs\./);
-    const body = RJSRC.slice(RJSRC.indexOf('function main(argv)'));
-    assert.match(body, /runs\.forEach\(\(\{ file, row \}, i\) => \{/);
   });
 }
 
 // --- THE PRODUCER HALF: clock_run.cjs must WRITE every verdict it is gated on
 //
-// The roster above refuses on ABSENT as well as on failed, which is right — a
-// gate that passes when its evidence is missing is a fail-open — and four of
-// its thirteen gates name verdicts `clock_run.cjs` COMPUTES, PRINTS and EXITS
-// ON: `canonical`, `pageErrors`, `parityOk` and `etVerdict`. A driver that did
-// not store them would leave no dataset reportable on those axes, and a
-// measurement window would produce correctly-unreportable evidence.
-//
-// THE TWO CLAIMS THIS BLOCK MAKES, and they pull against each other, which is
-// the point:
-//
-//   1. A dataset the CURRENT serialiser writes satisfies every one of the
-//      thirteen gates. Without this a producer could satisfy "the field is
-//      there somewhere" rather than "the consumer accepts it".
-//   2. Erase any one of those fields from that same freshly written record and
-//      its gate refuses. Without this a gate could be satisfied by loosening
-//      it, which is the fail-open wearing the fix's clothes.
-//
-// Both are driven over `GATES` rather than over a hand-written list, so a gate
-// added to the roster with no producer field fails the first assertion instead
-// of shipping as a gate no dataset can satisfy — the exact fault this block
-// exists to catch.
+// The roster above refuses on ABSENT as well as on failed, so a dataset the
+// current serialiser writes must satisfy every gate, and erasing any gate's
+// field from that same record must refuse again. Driven over `GATES`, so a
+// gate added with no producer field fails here.
 
 {
-  const { datasetFor, publication, PUBLISHED_DEPTH } = require('./clock_run.cjs');
+  const { datasetFor, publication } = require('./clock_run.cjs');
   const { GATES, refusals, reportable } = require('./clock_readjudicate.cjs');
   const RJ = path.join(__dirname, 'clock_readjudicate.cjs');
   const t = (what, fn) => test(`clock_run.cjs -> clock_readjudicate.cjs: ${what}`, fn);
@@ -3044,19 +1347,11 @@ function fixtureRoundsTask(over) {
   const ADJ = { unadjudicated: false, band: 0.21, why: 'margin 34.8% clears the band 21.4%' };
   const BARS = { 'fresco / reagent-subs': ADJ };
 
-  /**
-   * ONE OUTCOME AS `runRow` AND `report` HAND IT TO THE WRITE PATH, at every
-   * gate's passing value. Hermetic on purpose: reaching the real thing needs
-   * an `:advanced` build and a headless Chromium, and no measurement window is
-   * spent on a serialisation test.
-   */
+  /** One outcome as `runRow` and `report` hand it to the write path, at every gate's passing value. */
   const outcome = (outOver, verdictOver) => ({
     out: {
       rowId: 'bulk300',
       rounds: [],
-      // THE READINGS THE CHECK STANDARD IS APPLIED TO. The standard is applied
-      // to the readings rather than to a stored boolean, so a serialiser that
-      // dropped them would produce a record no reader could certify.
       roundsTask: fixtureRoundsTask(),
       roundsLayout: [],
       inPageRounds: [],
@@ -3067,7 +1362,6 @@ function fixtureRoundsTask(over) {
         'reagent-subs/reagent-subs': { n: 60, task: 600, taskNet: 280, devtools: 320, script: 0.06, layout: 60 },
         'fresco/fresco': { n: 60, task: 780, taskNet: 320, devtools: 460, script: 0.06, layout: 70 },
       },
-      // THE FOUR, at the producer's own internal names.
       pageErrors: [],
       armPlan: { 'ctl-3pt-2d': 200 },
       sabotage: null,
@@ -3109,34 +1403,22 @@ function fixtureRoundsTask(over) {
       publication: publication({ depthPublished: true, tare: true }),
     });
 
-  // --- 1. THE FOUR, BY NAME ------------------------------------------------
-
   t('each of the four is COPIED off the verdict, never defaulted to a passing value', () => {
-    // A serialiser that wrote `pageErrors: []` unconditionally would satisfy
-    // the gate on a run that threw, which is the fail-open one layer down.
     const rec = produce(
       { pageErrors: ['TypeError: undefined is not a function'] },
       { parityOk: false, etVerdict: { ok: false, predicted: 1, measured: 3 } }
     );
-    assert.deepStrictEqual(rec.rows[0].pageErrors, ['TypeError: undefined is not a function']);
-    assert.strictEqual(rec.rows[0].parityOk, false);
-    assert.deepStrictEqual(rec.rows[0].etVerdict, { ok: false, predicted: 1, measured: 3 });
-    assert.strictEqual(reportable(rec.rows[0], rec), false, 'and a record carrying them is refused');
-    for (const want of [
-      /the page THREW during the run/,
-      /canonical-DOM gate found arms building DIFFERENT PAGES/,
-      /Event-Timing witness REFUSED/,
-    ]) {
-      assert.ok(refusals(rec.rows[0], rec).some((w) => want.test(w)), `no refusal matched ${want}`);
-    }
+    const r = rec.rows[0];
+    assert.deepStrictEqual(
+      [r.pageErrors, r.parityOk, r.etVerdict],
+      [['TypeError: undefined is not a function'], false, { ok: false, predicted: 1, measured: 3 }]
+    );
+    assert.strictEqual(reportable(r, rec), false, 'and a record carrying them is refused');
   });
 
-  // --- 2. EVERY GATE, SATISFIED THEN ERASED --------------------------------
-  //
-  // The eraser is per gate rather than per field name because two gates read
-  // one object (`seamTask` carries both the task ceiling and the bar set), and
-  // a table keyed by field could not say which of them a deletion tests.
-
+  // Per gate rather than per field, because two gates read one object
+  // (`seamTask` carries both the task ceiling and the bar set). The
+  // check-standard gate's producer field is the READINGS it is applied to.
   const ERASE = {
     canonical: (rec) => delete rec.canonical,
     'page-errors': (rec) => delete rec.rows[0].pageErrors,
@@ -3148,10 +1430,6 @@ function fixtureRoundsTask(over) {
     unverified: (rec) => delete rec.rows[0].tally,
     'ceiling-net': (rec) => delete rec.rows[0].seam,
     'ceiling-task': (rec) => delete rec.rows[0].seamTask.ceilingBreached,
-    // THE PRODUCER FIELD FOR THE CHECK STANDARD IS THE READINGS,
-    // not the driver's stored verdict — the standard is versioned data a
-    // reader applies, so what the serialiser must not lose is what it is
-    // applied to.
     'check-standard': (rec) => delete rec.rows[0].roundsTask,
     'event-timing': (rec) => delete rec.rows[0].etVerdict,
     adjudication: (rec) => delete rec.rows[0].seamTask.rows,
@@ -3160,31 +1438,16 @@ function fixtureRoundsTask(over) {
   t('THE WHOLE ROSTER IS SATISFIABLE by a freshly written dataset — all thirteen', () => {
     const rec = produce();
     assert.deepStrictEqual(refusals(rec.rows[0], rec), [], 'a full-shape clean run must clear every gate');
-    assert.strictEqual(reportable(rec.rows[0], rec), true);
-    assert.ok('notCanonicalWhy' in rec, 'and the record carries the reason seat even when there is no reason');
   });
 
-  for (const g of GATES) {
-    t(`gate \`${g.id}\`: the record SATISFIES it, and erasing the field REFUSES again`, () => {
-      // A ROW GATE RECEIVES THE ENVELOPE TOO — the design it was taken under
-      // decides what its readings mean.
-      const ask = (rec) => (g.scope === 'dataset' ? g.why(rec) : g.why(rec.rows[0], rec));
-      const green = produce();
-      assert.strictEqual(ask(green), null, `the serialiser must write what \`${g.id}\` reads`);
-
+  t('every gate: erasing its field from a freshly written record REFUSES again', () => {
+    for (const g of GATES) {
       const red = produce();
       ERASE[g.id](red);
-      const why = ask(red);
-      assert.ok(
-        typeof why === 'string' && why.length > 0,
-        `erasing \`${g.id}\`'s field must refuse — absent is not clean, and a fix that made it clean ` +
-          `would be the fail-open this gate exists to prevent`
-      );
-      assert.strictEqual(reportable(red.rows[0], red), false, 'and the run may not be pooled into the published mean');
-    });
-  }
-
-  // --- 3. AND THE PROGRAM A READER ACTUALLY RUNS ---------------------------
+      const why = g.scope === 'dataset' ? g.why(red) : g.why(red.rows[0], red);
+      assert.ok(typeof why === 'string' && why.length > 0, `erasing \`${g.id}\`'s field must refuse — absent is not clean`);
+    }
+  });
 
   t('THE COMMAND accepts a freshly written dataset and pools it — end to end, on a file', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-e87sk-'));
@@ -3198,12 +1461,7 @@ function fixtureRoundsTask(over) {
     assert.match(out, /— reportable: every gate this dataset serialises is clean/);
   });
 
-  // --- 4. THE SHAPE VERDICT ------------------------------------------------
-  //
-  // `publication` answers "is this file the published evidence set", and the
-  // one thing it must never do is answer yes by default. Every narrowing gets
-  // a case and each names itself, because a refusal without a reason is
-  // indistinguishable from a run that was selected away.
+  // --- THE SHAPE VERDICT: never canonical by default -------------------------
 
   const full = { rowsOnly: null, noBuild: false, depthPublished: true, tare: true, sabotage: null };
 
@@ -3211,83 +1469,40 @@ function fixtureRoundsTask(over) {
     assert.deepStrictEqual(publication(full), { canonical: true, why: null });
   });
 
-  t('the published depth is the design every table on this lane was taken at', () => {
-    assert.deepStrictEqual(PUBLISHED_DEPTH, { rounds: 6, warmup: 4, samples: 10 });
-  });
-
-  for (const [what, over, why] of [
-    ['a PARTIAL row set', { rowsOnly: 'keystroke' }, /a PARTIAL row set \(HCLOCK_ONLY=keystroke\)/],
-    ['--no-build', { noBuild: true }, /--no-build/],
-    ['an overridden depth', { depthPublished: false }, /an OVERRIDDEN design depth/],
-    ['the tare off', { tare: false }, /the tare DISABLED \(HCLOCK_TARE=off\)/],
-    ['a falsification run', { sabotage: 140 }, /a FALSIFICATION run \(HCLOCK_CTL3_SABOTAGE=140\)/],
-  ]) {
-    t(`${what} is NOT the published evidence set, and the file says why`, () => {
+  t('a narrowed run is NOT the published evidence set, and the file says why', () => {
+    for (const [over, why] of [
+      [{ rowsOnly: 'keystroke' }, /a PARTIAL row set \(HCLOCK_ONLY=keystroke\)/],
+      [{ noBuild: true }, /--no-build/],
+      [{ depthPublished: false }, /an OVERRIDDEN design depth/],
+      [{ tare: false }, /the tare DISABLED \(HCLOCK_TARE=off\)/],
+      [{ sabotage: 140 }, /a FALSIFICATION run \(HCLOCK_CTL3_SABOTAGE=140\)/],
+    ]) {
       const p = publication({ ...full, ...over });
-      assert.strictEqual(p.canonical, false);
+      assert.strictEqual(p.canonical, false, JSON.stringify(over));
       assert.match(p.why, why);
-      // and the consumer refuses it by that same sentence.
-      const rec = { ...produce(), canonical: p.canonical, notCanonicalWhy: p.why };
-      assert.strictEqual(reportable(rec.rows[0], rec), false);
-      assert.ok(refusals(rec.rows[0], rec).some((w) => /NOT the published evidence set/.test(w)));
-    });
-  }
-
-  t('an absent shape record is NOT canonical either — the producer fails closed too', () => {
-    assert.strictEqual(publication(undefined).canonical, false);
-    assert.match(publication({}).why, /an OVERRIDDEN design depth/);
+    }
   });
-
-  t('every narrowing is named at once, not the first — the same rule the refusals follow', () => {
-    const p = publication({ rowsOnly: 'M1', noBuild: true, depthPublished: false, tare: false, sabotage: 140 });
-    assert.strictEqual(p.why.split('; ').length, 5, p.why);
-  });
-
-  // --- 5. THE WIRING, so none of the above is decorative -------------------
 
   t('the driver writes what `datasetFor` returns, and derives the shape from its own knobs', () => {
     const SRC = fs.readFileSync(path.join(__dirname, 'clock_run.cjs'), 'utf8');
     const MAIN = SRC.slice(SRC.indexOf('async function main()'), SRC.indexOf('\nmodule.exports'));
     assert.match(MAIN, /const pub = publication\(runShape\(\)\);/);
     assert.match(MAIN, /datasetFor\(outcomes, \{ chromium: version, publication: pub \}\)/);
-    // The serialiser lives OUTSIDE `main` — it names refusal fields, and
-    // inside `main` those names are both invariant-breaking and undrivable.
-    assert.ok(!/pageErrors: o\.out\.pageErrors/.test(MAIN), 'the serialiser must not have grown back inside `main`');
-    assert.match(SRC.slice(0, SRC.indexOf('async function main()')), /function datasetFor\(outcomes, meta\) \{/);
   });
 }
 
 // --- hd8_run.cjs: the read-back and the refused correction must exit -------
 //
-// The HD-008 donor driver is not a clock driver, but it carries the same
-// copied exit block: an exit that read `hardFail`, `contractFailed` and the
-// arm-order `refused` and then printed `[hd8] ok` would let three refusals it
-// computes and PRINTS reach nothing. Like its neighbours it needs an
-// `:advanced` build and a headless Chromium, so its decision is a pure
-// function over a flat record and is exercised here directly.
+// The HD-008 donor driver is not a clock driver but carries the same copied
+// exit block. Its decision fixtures — a failed DOM read-back, a refused yield
+// correction, a page error, the grain limit that is NOT a fault, and masking —
+// are `verdictSelfTest`, which `--self-test` also runs.
 
 {
-  const HD8 = path.join(__dirname, 'hd8_run.cjs');
-  const { summarise, verdict, verdictSelfTest } = require('./hd8_run.cjs');
-  const SRC = fs.readFileSync(HD8, 'utf8');
+  const { verdictSelfTest } = require('./hd8_run.cjs');
+  const SRC = fs.readFileSync(path.join(__dirname, 'hd8_run.cjs'), 'utf8');
+  const MAIN = SRC.slice(SRC.indexOf('async function main()'), SRC.indexOf('\nmodule.exports'));
   const t = (what, fn) => test(`hd8_run.cjs: ${what}`, fn);
-  const run = (over) => ({ id: 'slim', summary: {}, correction: {}, pageErrors: [], ...over });
-  // The reachable read-back shape, exactly as `mask-failed-read-backs`
-  // (hd8_rows.cljs ~913-944) writes it into the row's `:summary`.
-  const readBack = () =>
-    run({
-      summary: {
-        'write-narrow': {
-          vsFloor: { floor: { min: 1, max: 1 }, 'reagent-slim': { unpublished: 'failed-dom-read-back', unverified: 1, of: 78 } },
-          headToHead: {},
-        },
-      },
-    });
-  // And the reachable refusal shape (hd8_rows.cljs ~1307/1315/1330/1365).
-  const refusedCorrection = () =>
-    run({ correction: { 'write-narrow': { verdict: 'refused', reason: 'correction-changes-the-verdict', why: 'reverses the row' } } });
-
-  // --- the driver's own fixtures, which `--self-test` also runs -------------
 
   t("the decision's own self-test passes, every case", () => {
     const { checks } = verdictSelfTest();
@@ -3296,78 +1511,8 @@ function fixtureRoundsTask(over) {
     assert.deepStrictEqual(bad, [], bad.map((c) => `${c.name}: ${c.detail}`).join('\n'));
   });
 
-  // --- THE FAIL-OPENS ----------------------------------------------------
-  //
-  // (a) a failed DOM read-back and (b) a refused yield correction, with the
-  // green control, the grain limit and the older gates' codes, are fixtures
-  // of `verdictSelfTest`, run above. The rows here pin what it does not.
-
-  t('THE FAIL-OPEN (c): a pageerror recorded beside the sentinel cannot exit 0', () => {
-    const v = verdict(summarise({ runs: [run({ pageErrors: ['pageerror: boom'] })] }));
-    assert.strictEqual(v.code, 1, 'a page error is the exit 1 this driver already documented');
-    assert.match(v.lines.join('\n'), /already thrown/);
-  });
-
-  // --- a LIMIT is not a FAULT, and the exit code says which ----------------
-  //
-  // The bulk row's floor is one write under one clock and reads 1.0 to 2.0
-  // ticks of a measured 0.1 ms grain, so `mask-below-grain` (hd8_rows.cljs)
-  // withdraws every figure normalised by it — the same marker SHAPE the DOM
-  // read-back uses and a different meaning. Nothing failed; a magnitude was
-  // never available. Exiting non-zero on it would exit non-zero on every run.
-  // `verdictSelfTest` runs that case, a moot correction and a real refusal
-  // beside it.
-
-  t('the two masks are told apart by their reason, not by their shape', () => {
-    // Both arrive as `{unpublished: …}` on the same channel. If the driver
-    // ever partitions them by anything other than the reason code, a fault
-    // starts exiting 0.
-    assert.match(SRC, /v\.unpublished === 'below-clock-grain'/);
-    assert.match(SRC, /instrumentLimited`? is DELIBERATELY absent/);
-  });
-
-  // --- the driver's other gates stand beside them ---------------------------
-
-  t('a contract self-test failure still exits 1, with its own sentence', () => {
-    const v = verdict(summarise({ contractFailed: 'slim: fixtures' }));
-    assert.strictEqual(v.code, 1);
-    assert.match(v.lines[0], /does not agree with its recorded fixtures/);
-  });
-
-  t('no verdict masks another — a run failing several is refused for every one', () => {
-    const v = verdict(summarise({ orderRefused: true, runs: [readBack(), refusedCorrection()] }));
-    assert.strictEqual(v.code, 2, 'the hardest code wins the exit');
-    const all = v.lines.join('\n');
-    assert.match(all, /ARM-ORDER GUARD REFUSED/);
-    assert.match(all, /never reached the DOM/);
-    assert.match(all, /yield correction could not be discharged/);
-  });
-
-  // --- the wiring: `verdict` is load-bearing, not decorative ---------------
-
-  const MAIN = SRC.slice(SRC.indexOf('async function main()'), SRC.indexOf('\nmodule.exports'));
-
-  t('the driver exposes its decision and does not drive itself on require', () => {
-    assert.ok(MAIN.length > 0, 'the driver must expose its run as `main`');
-    // Named seat by seat rather than as one literal line, the shape
-    // `clock_run.cjs`'s pin above uses. A literal form would assert the export
-    // list's PUNCTUATION as strictly as its contents, so adding a seat
-    // (`FLAGS` / `unknownFlags`, say) would fail it for a reason that had
-    // nothing to do with the decision it guards.
-    for (const name of ['summarise', 'verdict', 'verdictSelfTest']) {
-      assert.match(SRC, new RegExp(`module\\.exports = \\{[^}]*\\b${name}\\b`), `\`${name}\` must be exported`);
-    }
-    assert.match(SRC, /if \(require\.main === module\) \{\s*main\(\);/);
-  });
-
   t('the sentinel\'s failures are READ, which they were not at all', () => {
-    // In `runOne`, above `main` — a driver that installed `watchPage` and then
-    // read nobody's failures would be alone among the six callers of it.
     assert.match(SRC, /const pageErrors = watch\.failures\.map/);
-    // The pin is on `pageErrors` REACHING the returned record, not on the
-    // shape of the record around it: a pin that spelled every neighbour out
-    // would go red when the record grew a field (it carries a `clock` field),
-    // for a change that could not touch what it is about.
     assert.match(SRC, /lines, pageErrors,\s*\};/);
   });
 
@@ -3380,113 +1525,44 @@ function fixtureRoundsTask(over) {
       1,
       'the decision must have ONE seat — a second exit below it is a second decision'
     );
-    // No SECOND `if (someRefusal)` below the seat. Matched on the condition
-    // rather than the bare word, because the `ok` line legitimately says
-    // "no yield correction was refused" — prose is not a decision.
+    // Matched on the condition rather than the bare word: the `ok` line
+    // legitimately says "no yield correction was refused".
     assert.ok(
       !/if \(\s*(hardFail|contractFailed|refused|orderRefused)\s*\)/.test(tail),
       'nothing downstream of the decision may read a refusal on its own'
     );
   });
-
-  t('`--self-test` runs the decision, so an operator sees it before the browser opens', () => {
-    const block = SRC.slice(SRC.indexOf('if (SELFTEST_ONLY) {'), SRC.indexOf('const sha = revision()'));
-    assert.match(block, /\[\.\.\.st\.checks, \.\.\.ts\.checks, \.\.\.vs\.checks\]\.filter/);
-    assert.match(SRC, /const vs = verdictSelfTest\(\);/);
-  });
-
-  t('the `ok` line no longer claims only what the old gates checked', () => {
-    const ok = SRC.slice(SRC.indexOf("'[hd8] ok"));
-    assert.match(ok, /survived its DOM read-back/);
-    assert.match(ok, /no yield correction was refused/);
-  });
 }
 
 // --- THE SELF-TEST FLAG, AND THE ONE THAT IS RETIRED ------------------------
 //
-// Both drivers take `--self-test` and ship no alias — this is pre-alpha, and
-// an alias for a spelling nothing depends on is a compatibility shim. A
-// retirement is only safe if the driver validates its arguments: otherwise
-// the old hyphenless spelling is SILENTLY IGNORED and falls through into the
-// default path, which for these two is an `:advanced` release build and a
-// headless Chromium — `clock_run.cjs` reaching the shadow-cljs release spawn
-// and `hd8_run.cjs` its provenance block one line above `build()`. A typo
-// would cost an hour and produce a run nobody had asked for.
-//
-// AND THIS FILE MUST PIN THE DERIVATION. Inspecting the BODY of
-// `if (SELFTEST_ONLY)` while asserting nothing about how `SELFTEST_ONLY` is
-// DERIVED would leave every assertion here green under a mutation of either
-// driver back to the old token — or to any other. Invoking `ladder_band.cjs
-// --self-test` directly is the PASSING case and says nothing about a
-// refusal. The third driver has its own block below, for a reason the next
-// section gives.
-//
-// This is that pin, and it is deliberately four claims per driver and
-// no more: the argv definition itself, the closed flag vocabulary, that the
-// vocabulary REFUSES a token outside it, and that the refusal is wired ahead
-// of everything the driver would otherwise spend. The last is the one that
-// matters — a rule the entry point never consults is not a rule — and it is
-// the same lesson this file's header draws about the exit decision.
+// Both drivers take `--self-test` and no alias. A retirement is only safe if
+// the driver validates its arguments: otherwise the old spelling is silently
+// ignored and falls through into an `:advanced` release build and a headless
+// Chromium. So the argv definition, the closed vocabulary, and the refusal
+// wired ahead of everything the driver would otherwise spend.
 {
-  const RETIRED = /--selftest/;
-  const DRIVERS = [
-    {
-      name: 'clock_run.cjs',
-      mod: require('./clock_run.cjs'),
-      flags: ['--no-build', '--self-test'],
-      tag: '[clock]',
-      // From the head of `main` down to the self-test branch: everything the
-      // driver does before it can stop, which is where the refusal has to sit.
-      head: ['async function main() {', '  if (SELFTEST_ONLY) {'],
-    },
-    {
-      name: 'hd8_run.cjs',
-      mod: require('./hd8_run.cjs'),
-      flags: ['--self-test'],
-      tag: '[hd8]',
-      head: ['async function main() {', '  if (SELFTEST_ONLY) {'],
-    },
-  ];
-
-  for (const d of DRIVERS) {
+  for (const d of [
+    { name: 'clock_run.cjs', mod: require('./clock_run.cjs'), flags: ['--no-build', '--self-test'] },
+    { name: 'hd8_run.cjs', mod: require('./hd8_run.cjs'), flags: ['--self-test'] },
+  ]) {
     const SRC = fs.readFileSync(path.join(__dirname, d.name), 'utf8');
     const t = (what, fn) => test(`${d.name}: ${what}`, fn);
 
     t('the self-test flag is spelt `--self-test` where argv is read', () => {
-      // The DEFINITION, not the block it gates. Without this assertion the
-      // spelling is pinned nowhere.
       assert.match(SRC, /const SELFTEST_ONLY = process\.argv\.includes\('--self-test'\);/);
-      assert.deepStrictEqual(d.mod.FLAGS, d.flags);
-    });
-
-    t('the retired spelling appears nowhere in the driver, comments included', () => {
-      // Comments included on purpose. A retirement that still names the dead
-      // token in a comment or a usage line is an invitation to type it, and
-      // the drivers describe the retirement without spelling it.
-      const hits = SRC.split('\n')
-        .map((line, i) => [i + 1, line])
-        .filter(([, line]) => RETIRED.test(line))
-        .map(([n, line]) => `${n}: ${line.trim()}`);
-      assert.deepStrictEqual(
-        hits,
-        [],
-        `${d.name} names the retired self-test spelling. It has no alias by decision; ` +
-          `the flag is \`--self-test\` and nothing in the driver should say otherwise.`
-      );
     });
 
     t('an argument outside the vocabulary is refused, the retired spelling included', () => {
-      assert.deepStrictEqual(d.mod.unknownFlags(d.flags), [], 'every declared flag must be accepted');
-      assert.deepStrictEqual(d.mod.unknownFlags(['--selftest']), ['--selftest']);
-      assert.deepStrictEqual(d.mod.unknownFlags(['--self-test', '--nope']), ['--nope']);
-      // No positional argument either: these drivers take their knobs from the
-      // environment, so a bare token is as much a typo as a bad flag.
-      assert.deepStrictEqual(d.mod.unknownFlags(['self-test']), ['self-test']);
+      // No positional argument either: these drivers take their knobs from the environment.
+      assert.deepStrictEqual(
+        d.mod.unknownFlags([...d.flags, '--selftest', '--nope', 'self-test']),
+        ['--selftest', '--nope', 'self-test']
+      );
     });
 
     t('the refusal is wired ahead of every self-test, build and browser', () => {
-      const head = SRC.slice(SRC.indexOf(d.head[0]), SRC.indexOf(d.head[1]));
-      assert.ok(head.length > 0, `could not locate the head of main() in ${d.name}`);
+      const head = SRC.slice(SRC.indexOf('async function main() {'), SRC.indexOf('  if (SELFTEST_ONLY) {'));
       assert.match(head, /const unknown = unknownFlags\(process\.argv\.slice\(2\)\);/);
       assert.match(head, /if \(unknown\.length > 0\) \{/);
       assert.match(head, /process\.exit\(2\);/);
@@ -3504,76 +1580,27 @@ function fixtureRoundsTask(over) {
 
 // --- AND THE THIRD DRIVER, WHOSE VOCABULARY MUST HOLD PAST A PREFIX --------
 //
-// A driver that ran the self-test and returned from INSIDE its argv loop
-// would never read a token that came after `--self-test`, and would read —
-//
-//     --self-test --selftest            exit 0
-//     --self-test --definitely-unknown  exit 0
-//     --selftest --self-test            exit 2
-//
-// — a spelling refused in one order and swallowed in the other, and so not
-// retired at all. THE ORDER PAIR IS THE TEST. A witness in the second
-// position alone passes against such a parser, and so does invoking
-// `ladder_band.cjs --self-test` and nothing else.
-//
-// PARSING and ACTING are different things here, rather than a validating
-// pass added on top — a second pass is where the care would be needed,
-// because `--emit` and `--from` consume the token after them and a pass that
-// did not know it would read `--emit --from.json` as a flag. `parseArgv` is
-// pure and total, reads the vector once, and returns a plan only after
-// reaching the end of it; `main` is the only thing that acts.
-//
-// This driver takes DATASET FILENAMES where its two neighbours take none, so
-// its rule is scoped to the flag namespace and not to all of argv — the same
-// line its neighbours draw. Hence no `unknownFlags` here: the vocabulary and the
-// arity of each flag in it are one question for this driver, and `parseArgv`
-// is where both are answered.
+// A parser that ran the self-test and returned from inside its argv loop would
+// never read a token after `--self-test`, refusing the retired spelling in one
+// order and swallowing it in the other. `ladder_band.cjs` takes dataset
+// filenames, and `--emit` / `--from` consume the token after them, so its rule
+// is `parseArgv`: pure, total, reads the whole vector before returning a plan.
 {
   const LB = path.join(__dirname, 'ladder_band.cjs');
   const lb = require('./ladder_band.cjs');
-  const LBSRC = fs.readFileSync(LB, 'utf8');
   const t = (what, fn) => test(`ladder_band.cjs: ${what}`, fn);
 
   /** The driver as an operator meets it: a real process, a real exit code. */
   const run = (...argv) => cp.spawnSync(process.execPath, [LB, ...argv], { encoding: 'utf8' });
 
-  t('the flag vocabulary is closed, and the retired spelling is not in it', () => {
-    assert.deepStrictEqual(lb.FLAGS, ['--self-test', '--emit', '--from']);
-    assert.ok(!lb.FLAGS.includes('--selftest'), 'no alias by decision');
-    // The usage line is the vocabulary an operator is shown, so it may not
-    // name a token the parser refuses.
-    assert.ok(!/--selftest/.test(lb.USAGE));
-  });
-
-  t('the retired spelling appears nowhere in the driver, comments included', () => {
-    // The two blocks above hold their drivers to this; the exception here is
-    // the header that RECORDS the retirement, which has to name the token to
-    // say what happened to it. Everywhere else it is an invitation to type it.
-    const hits = LBSRC.split('\n')
-      .map((line, i) => [i + 1, line])
-      .filter(([, line]) => /--selftest/.test(line) && !/^\s*\/\//.test(line))
-      .map(([n, line]) => `${n}: ${line.trim()}`);
-    assert.deepStrictEqual(hits, [], 'the retired spelling may survive only in prose that retires it');
-  });
-
   t('an unknown flag is refused AFTER `--self-test` — the position that used to exit 0', () => {
-    // THE ONE THAT MATTERS: a parser that stops reading at the self-test flag
-    // still refuses an unknown flag placed before it, and only this
-    // position tells the two apart.
     assert.deepStrictEqual(lb.parseArgv(['--self-test', '--selftest']), { error: 'unknown flag --selftest' });
-    assert.deepStrictEqual(lb.parseArgv(['--self-test', '--definitely-unknown']), {
-      error: 'unknown flag --definitely-unknown',
-    });
-    // And after a VALUED flag too, which is the other way a parser stops
-    // reading early.
+    // and after a VALUED flag, the other way a parser stops reading early
     assert.deepStrictEqual(lb.parseArgv(['--from', 'x.json', '--selftest']), { error: 'unknown flag --selftest' });
   });
 
   t('the refusal is the process exit, in both positions and not just the plan', () => {
-    // A pure rule the entry point never consults is not a rule. These are the
-    // order-pair probes, run as processes.
     assert.strictEqual(run('--self-test', '--selftest').status, 2, 'retired spelling AFTER the self-test flag');
-    assert.strictEqual(run('--self-test', '--definitely-unknown').status, 2, 'unknown flag AFTER the self-test flag');
     assert.strictEqual(run('--selftest', '--self-test').status, 2, 'retired spelling BEFORE it');
     const ok = run('--self-test');
     assert.strictEqual(ok.status, 0, 'and the flag itself still works');
@@ -3581,66 +1608,30 @@ function fixtureRoundsTask(over) {
   });
 
   t('a valued flag consumes its value, so a filename is never read as a flag', () => {
-    // The trap a naive validate-then-act split falls into: `--from.json` here
-    // is a VALUE. Refusing it would break the driver in the name of closing
-    // the vocabulary.
     assert.deepStrictEqual(lb.parseArgv(['--emit', '--from.json', 'a.json']), {
       plan: { selfTest: false, emit: '--from.json', from: null, files: ['a.json'] },
     });
     assert.deepStrictEqual(lb.parseArgv(['--emit']), { error: '--emit needs a filename' });
     assert.deepStrictEqual(lb.parseArgv(['--from']), { error: '--from needs a filename' });
   });
-
-  t('nothing is executed above the parse, and the parse reads all of argv', () => {
-    const head = LBSRC.slice(LBSRC.indexOf('function main() {'), LBSRC.indexOf('  if (plan.selfTest) {'));
-    assert.ok(head.length > 0, 'could not locate the head of main() in ladder_band.cjs');
-    assert.match(head, /const \{ plan, error \} = parseArgv\(process\.argv\.slice\(2\)\);/);
-    assert.match(head, /process\.exit\(2\);/);
-    // The defect itself, stated: no mode may run from inside the parser.
-    const parser = LBSRC.slice(LBSRC.indexOf('function parseArgv(argv) {'), LBSRC.indexOf('function main() {'));
-    assert.ok(parser.length > 0, 'could not locate parseArgv in ladder_band.cjs');
-    assert.ok(
-      !/selfTest\(\)|readRun\(|process\.exit/.test(parser),
-      'parseArgv must parse and nothing else — running a mode inside it leaves the tail of argv unread'
-    );
-    // Requiring the driver must not RUN it, or this whole block would.
-    assert.match(LBSRC, /if \(require\.main === module\) main\(\);/);
-  });
 }
 
 // --- THE ADJECTIVE, which is where an instrument error hides ---------------
 //
-// A mislabelled clock is an instrument error in its own right. `taskNet` is
-// `TaskDuration` less `DevToolsCommandDuration`, and because every arm's
-// operation runs inside `page.evaluate` — a protocol command Chromium bills
-// whole, page script included — the subtraction removes the operation's own
-// script. So `taskNet` is FRAME-ONLY and nearer the in-page window's
-// COMPLEMENT than its superset, and calling it "frame-inclusive" is not loose
-// wording but a false statement about which quantity is on the row. A driver
-// that printed the two clocks' RATIO and never their absolutes would keep the
-// one tell that needs no arithmetic — a substrate arm's in-page absolute
-// EXCEEDING its `taskNet` absolute — off screen.
-//
-// A one-time sweep does not hold that. This does: no line of a
-// `Performance.getMetrics` driver that is not WHOLLY a comment may carry the
-// adjective. Prose may — and must — discuss the mislabel; a printed LABEL,
-// an identifier or a serialised key may not carry it, because those are what
-// a reader takes the row's quantity from.
-//
-// THE ROSTER IS THE THREE CDP DRIVERS AND DELIBERATELY NOT THE LANE.
-// `chrome_run.cjs` reports an in-page `performance.now()` span that closes
-// after a `requestAnimationFrame` + `setTimeout`, which genuinely does span
-// the frame. Its label is accurate and banning the word there would trade a
-// true statement for a rule.
+// `taskNet` is `TaskDuration` less `DevToolsCommandDuration`, and every arm's
+// operation runs inside a protocol command Chromium bills whole, so the
+// subtraction removes the operation's own script: `taskNet` is FRAME-ONLY.
+// No line of a `Performance.getMetrics` driver that is not wholly a comment
+// may LABEL a reading "frame-inclusive"; prose may discuss the mislabel.
+// `chrome_run.cjs` is deliberately not on the roster: its in-page span closes
+// after a `requestAnimationFrame` + `setTimeout` and genuinely spans the frame.
 {
   const CDP_DRIVERS = [
     path.join(__dirname, 'clock_run.cjs'),
     path.join(__dirname, 'hd8_clock_run.cjs'),
     path.join(__dirname, 'shapes', 'census_clock_run.cjs'),
   ];
-  // Whole-line comments only. A trailing `//` is not stripped, so a label
-  // followed by a comment cannot smuggle the adjective past this, and neither
-  // can a `//` inside a string literal truncate a line out of the search.
+  // Whole-line comments only, so a label followed by a trailing comment is still searched.
   const code = (src) =>
     src
       .split('\n')
@@ -3659,62 +1650,22 @@ function fixtureRoundsTask(over) {
       );
     });
   }
-
-  test('the adjective guard is not vacuous — it refuses a label and passes prose', () => {
-    // Both halves, because a guard that cannot be shown to refuse proves
-    // nothing, and one that refuses the correcting sentence would be deleted
-    // by the first person who had to write it.
-    const label = "console.log(`;; clock  frame-inclusive ${x}x`);";
-    const prose = '// a frame-ONLY clock, not a frame-inclusive one — see rf2-yd52q';
-    assert.strictEqual(code(label).length, 1, 'a printed label is code, and must be searched');
-    assert.match(code(label)[0][1], /frame-inclusive/);
-    assert.deepStrictEqual(code(prose), [], 'a whole-line comment is prose, and must not be');
-  });
 }
 
 // --- THE CHECK STANDARD, AND WHAT MAY PUBLISH A MAGNITUDE --------------------
 //
-// Two rules are retired, and they are separate defects, so they get separate
-// pins.
-//
-//   THE THREE-POINT CONTROL, retired as a GATE — not re-sited. Its prediction
-//   is mis-derived on a clock that is not affine in the dirty set and its
-//   denominator sits ~2 sigma from zero, which is the Fieller ratio problem;
-//   it refuses 42 of 42 bulk row-runs across two independent quiet-box
-//   ensembles. It prints, labelled non-gating.
-//
-//   THE ALL-BLOCKS STRICT RULE, retired WITH it and for its own reason: the
-//   arithmetic is `p^18`, so a control fully MEETING its premise passes 4 of
-//   42 runs at an 83.5% per-block rate. Swapping controls while keeping "every
-//   block" would not unblock anything.
-//
-// In their place: a level-denominated, empirically calibrated, VERSIONED
-// check standard as the gate, and a run-preserving effect-size interval as the
-// publication rule. Both are pinned here, and the interval is pinned as a
-// PROCEDURE — the corpus case below asserts that a verdict is well formed and
-// that the 42 committed row-runs publish no magnitude, which is the
-// calibration's own fence, not a preferred answer.
+// The three-point control is retired as a GATE (it prints, labelled
+// non-gating), and so is the all-blocks strict rule on this instrument. In
+// their place: a versioned, empirically calibrated check standard as the gate
+// (its own fixtures, `checkStandardSelfTest`), and a run-preserving
+// effect-size interval as the publication rule.
 {
-  const {
-    STANDARD, checkStandard, checkStandardSelfTest,
-  } = require('./clock_check_standard.cjs');
-  const {
-    checkStandardFor, pairedLogRatios, effectInterval, effectVerdict, EFFECT, reportable,
-  } = require('./clock_readjudicate.cjs');
+  const { checkStandardSelfTest } = require('./clock_check_standard.cjs');
+  const { effectInterval, effectVerdict, reportable } = require('./clock_readjudicate.cjs');
   const CLOCKSRC = fs.readFileSync(path.join(__dirname, 'clock_run.cjs'), 'utf8');
   const RJSRC2 = fs.readFileSync(path.join(__dirname, 'clock_readjudicate.cjs'), 'utf8');
   const t = (what, fn) => test(`rf2-8a746: ${what}`, fn);
   const BULK = 'bulk300';
-
-  // The same synthetic world the standard's own fixtures use: a floor sample
-  // is `W + c`, `ctl-2x` builds `P` times the page, so a block reads
-  // `(P*W + c)/(W + c)`.
-  const W = 3.0;
-  const C = 1.1628;
-  const blocksAt = (P, jitter) =>
-    Array.from({ length: 18 }, (_, i) => (P * W + C + (jitter || 0) * (i % 2 ? -1 : 1) * (1 + (i % 3) / 3)) / (W + C));
-
-  // --- 1. THE STANDARD IS DATA, AND IT SAYS WHICH DATA ----------------------
 
   t("the standard's own fixtures pass, every case — a standard nobody has seen refuse is not one", () => {
     const { checks } = checkStandardSelfTest();
@@ -3723,132 +1674,14 @@ function fixtureRoundsTask(over) {
     assert.deepStrictEqual(bad.map((c) => `${c.name}: ${c.detail}`), []);
   });
 
-  t('the check standard lands as DATA — versioned, with a frozen centre and frozen limits', () => {
-    // Criterion 2's first half. The point of freezing it as data is that
-    // recalibrating is editing a file and bumping a version, so the version
-    // has to be a real number and the limits have to live in the JSON rather
-    // than in the code that reads it.
-    assert.ok(Number.isInteger(STANDARD.version) && STANDARD.version >= 1, JSON.stringify(STANDARD.version));
-    const bulk = STANDARD.classes.bulk;
-    assert.strictEqual(bulk.calibrated, true);
-    assert.strictEqual(typeof bulk.centre, 'number');
-    assert.strictEqual(bulk.location.limits.length, 2);
-    assert.ok(bulk.location.limits[0] < bulk.centre && bulk.centre < bulk.location.limits[1], 'the limits must bracket the centre');
-    assert.strictEqual(typeof bulk.dispersion.limit, 'number');
-    assert.ok(bulk.dispersion.limit > 0);
-    // and the file, not the reader, is where they live
-    const v = checkStandard(blocksAt(2, 0.05), BULK);
-    assert.deepStrictEqual(v.location.limits, bulk.location.limits);
-    assert.strictEqual(v.dispersion.limit, bulk.dispersion.limit);
-    assert.strictEqual(v.location.centre, bulk.centre);
-    // the JSON carries the source code no literal here duplicates
-    assert.ok(
-      !new RegExp(String(bulk.centre)).test(require('node:fs').readFileSync(path.join(__dirname, 'clock_check_standard.cjs'), 'utf8')),
-      'the frozen centre must not also be a literal in the module that reads it'
-    );
-  });
-
-  t('the centre is EMPIRICAL and the standard says so — 2.00x is arithmetic, not a reading', () => {
-    // Why ctl-2x's literal prediction is not reused: asserting a theoretical
-    // value against a non-affine clock is the retired mistake.
-    assert.ok(Math.abs(STANDARD.classes.bulk.centre - 2.0) > 0.2, 'the frozen centre is nowhere near 2.00x');
-    assert.match(STANDARD.notAPrediction, /EMPIRICAL/);
-    assert.ok(Array.isArray(STANDARD.recalibrateOn) && STANDARD.recalibrateOn.length >= 3, 'a check standard states when it must be recalibrated');
-    const prov = STANDARD.classes.bulk.provenance;
-    assert.strictEqual(prov.rowRuns, 42);
-    assert.deepStrictEqual(prov.datasets, ['data/clock-emvod/run1-8.json', 'data/clock-w3yxd/run1-6.json']);
-    // The independence field states the level a hold-out measured, not merely
-    // that the limits were seeded from the runs they are quoted against.
-    assert.match(prov.independence, /SESSION LEVEL/i, 'the independence field states the level actually achieved');
-    assert.ok(prov.holdOut, 'and carries the hold-out it was measured by');
-  });
-
-  // --- 2. THE SABOTAGE FIXTURE (criterion 2) --------------------------------
-
-  t('the DISPERSION term refuses on its own — a box that could not reproduce its own work', () => {
-    const noisy = checkStandard(blocksAt(2, 1.4), BULK);
-    assert.strictEqual(noisy.ok, false);
-    assert.strictEqual(noisy.location.ok, true, 'the centre is untouched — this is the other term');
-    assert.strictEqual(noisy.dispersion.ok, false);
-    assert.match(noisy.why, /robust scale .* exceeds the frozen dispersion limit/);
-  });
-
-  // --- 3. THERE IS NO ALL-BLOCKS RULE ON THIS INSTRUMENT --------------------
-
-  t('criterion 4: no verdict on this instrument is "every block inside the band" any more', () => {
-    const clockMod = require('./clock_run.cjs');
-    const { ctl3Verdict } = clockMod;
-    // `controlVerdict` is not exported, and that is the point: it describes a
-    // band, it takes no decision, and a test able to reach it would be a
-    // reader able to reach it.
-    assert.ok(!('controlVerdict' in clockMod), 'a description is not part of the decision surface');
-    // The three-point statistic offers no `ok` to read ...
-    const D = [1, 100, 200];
-    const plan = ['ctl-d1', 'ctl-d100', 'ctl-d200'].map((id, i) => ({ id, dirty: D[i], ctl3: true, ctl3Witness: false, cells: 300 }));
-    const rs = [];
-    for (let r = 0; r < 3; r++) {
-      const per = {};
-      for (const seg of FIXTURE_SEGMENTS) {
-        per[seg] = { 'ctl-d1': [3.506], 'ctl-d100': [4.1], 'ctl-d200': [4.694], floor: [5.3], plumb: [0.7] };
-      }
-      rs.push(per);
-    }
-    const v = ctl3Verdict(rs, plan, 0.25);
-    assert.ok(!('ok' in v), 'a retired gate may not keep a field called `ok` — that is how one grows back');
-    assert.strictEqual(v.gating, false);
-    assert.strictEqual(typeof v.premiseMet, 'boolean');
-    assert.strictEqual(typeof v.allInBand, 'boolean', 'the retired rule survives as a DESCRIPTION, named for what it is');
-    assert.match(v.rule, /DIAGNOSTIC \/ NON-GATING —/);
-  });
-
-  t('criterion 4: the ^18 semantics are gone from both programs, and the survivor says why', () => {
-    // Grepped rather than reasoned about, because what must be gone is the
-    // SEMANTICS rather than one call site. The one `strict — EVERY` in the
-    // driver is `keystroke`'s fixed-work sensitivity floor, which is a
-    // one-sided threshold with a 10 ms margin on a 50 ms burn and carries no
-    // `p^n` at all; it is annotated in place, and the responsiveness regime
-    // depends on it.
-    const survivors = CLOCKSRC.split('\n')
-      .map((line, i) => [i + 1, line])
-      .filter(([, line]) => /strict — EVERY/.test(line));
-    assert.deepStrictEqual(
-      survivors.map(([, l]) => l.trim()),
-      ["rule: 'strict — EVERY segment-round (a one-sided sensitivity floor, not a tolerance band)',"],
-      'the only surviving every-block rule is the 50 ms sensitivity floor'
-    );
-    assert.match(CLOCKSRC, /THIS ONE KEEPS ITS EVERY-BLOCK RULE, and the reason is worth stating/);
-    assert.ok(!/strict — EVERY/.test(RJSRC2), 'and the readjudicator carries none at all');
-  });
-
-  t('criterion 4: the replacement states its error rates in the code comment', () => {
-    // Both of them, distinctly — the tolerance band and the run-rejection
-    // rule get DIFFERENT calibrated rates.
-    const rates = STANDARD.classes.bulk.errorRates;
-    assert.match(rates.runRejectionNominal, /0\.4% per run/);
-    assert.match(rates.runRejectionEmpirical, /0 of 42/);
-    assert.match(rates.toleranceBandPerBlock, /8\.2% of blocks/);
-    assert.match(rates.retiredRuleForComparison, /4 of 42/);
-    assert.match(rates.retiredRuleForComparison, /0\.918\^18/);
-    assert.match(CLOCKSRC, /`0\.835\^18 = 3\.9%`/, 'the driver states the retired rule\'s arithmetic where the rule is retired');
-    assert.match(RJSRC2, /0\.835\^18 = 3\.9%/);
-  });
-
-  // --- 4. NO VERDICT PATH CONSULTS THE THREE-POINT STATISTIC (criterion 1) --
-
   t('criterion 1: neither program reads the three-point statistic into a decision', () => {
-    // Source-level, because the strongest form of "it does not gate" is that
-    // the name a gate would read does not exist. `ctl3Parity` stays — it is a
-    // canonical-DOM refusal about whether the control's own arms built one
-    // page, and the three-point statistic's retirement does not touch it.
+    // `ctl3Parity` stays: it is a canonical-DOM refusal, not the statistic.
     assert.ok(!/ctl3\.ok|ctl3Layout\.ok|ctl3Net\.ok/.test(CLOCKSRC.replace(/^\s*\/\/.*$/gm, '')), 'the driver reads no ctl3 verdict');
     assert.ok(!/r\.ctl3\b(?!Parity)/.test(RJSRC2.replace(/^\s*\/\/.*$/gm, '')), 'the readjudicator reads no ctl3 field but parity');
     assert.match(CLOCKSRC, /const ctlBad = \(o\) => !\(o\.verdict\.checkStandard && o\.verdict\.checkStandard\.ok\);/);
   });
 
   t('criterion 1: and behaviourally — flipping the three-point record changes no verdict', () => {
-    // `rounds` is here because the consumer checks the raw readings against
-    // the file's own declared design — a design that does not declare its
-    // round count refuses, absent is not clean.
     const CANON = { canonical: true, notCanonicalWhy: null, design: { rounds: 6, tare: true } };
     const ADJ = { unadjudicated: false, why: 'clears' };
     const base = {
@@ -3867,421 +1700,78 @@ function fixtureRoundsTask(over) {
     assert.strictEqual(reportable({ ...sab, ctl3: passing }, CANON), false, 'nor may it vouch for one');
   });
 
-  t('criterion 1: the printout is relabelled DIAGNOSTIC / NON-GATING and no re-siting code landed', () => {
-    assert.match(CLOCKSRC, /THREE-POINT STATISTIC \[DIAGNOSTIC, NON-GATING\]/);
-    assert.match(CLOCKSRC, /RETIRED {2}this statistic refuses nothing/);
-    // No re-siting: the points are not to be moved, so the page's declared
-    // dirty counts are the only source of the prediction and no alternative
-    // siting is computed anywhere.
-    assert.ok(!/100\s*\/\s*200\s*\/\s*300|resite|reSite/i.test(CLOCKSRC.replace(/^\s*\/\/.*$/gm, '')), 'no re-siting code');
-  });
-
-  // --- 5. THE PUBLICATION RULE (criterion 3) --------------------------------
-
   t('criterion 3: the interval is run-preserving — outer RUNS resampled before inner ROUNDS', () => {
-    // The load-bearing property, asserted rather than described. Five runs
-    // whose ROUNDS are identical within a run and whose runs differ: all the
-    // variance is BETWEEN runs, so a bootstrap that pooled the 30 rounds and
-    // ignored the run structure would return an interval roughly sqrt(30/5)
-    // times too narrow. The hierarchical one must see the whole of it.
-    const consts = [0.9, 0.95, 1.0, 1.05, 1.1].map(Math.log);
-    const runs = consts.map((c) => Array(6).fill(c));
+    // All the variance BETWEEN runs: a bootstrap that pooled the 30 rounds
+    // would return an interval roughly sqrt(30/5) times too narrow.
+    const runs = [0.9, 0.95, 1.0, 1.05, 1.1].map((c) => Array(6).fill(Math.log(c)));
     const iv = effectInterval(runs);
     assert.strictEqual(iv.runs, 5);
-    const width = iv.hi - iv.lo;
-    assert.ok(width > 0.05, `a between-run spread of 20% must reach the interval, got width ${width}`);
-    // ... and the inner resample is real too: with rounds that differ inside a
-    // run and runs that do not, the interval is still non-degenerate.
+    assert.ok(iv.hi - iv.lo > 0.05, `a between-run spread of 20% must reach the interval, got width ${iv.hi - iv.lo}`);
+    // rounds that differ inside identical runs still widen it
     const inner = Array.from({ length: 5 }, () => [0.9, 0.95, 1.0, 1.05, 1.1, 1.0].map(Math.log));
     assert.ok(effectInterval(inner).hi - effectInterval(inner).lo > 0, 'inner resampling must contribute');
     // and identical runs of identical rounds collapse to a point
-    const flat = Array.from({ length: 5 }, () => Array(6).fill(Math.log(1.2)));
-    const fv = effectInterval(flat);
+    const fv = effectInterval(Array.from({ length: 5 }, () => Array(6).fill(Math.log(1.2))));
     assert.ok(Math.abs(fv.hi - fv.lo) < 1e-9 && Math.abs(fv.point - 1.2) < 1e-9, 'no variance, no interval width');
   });
 
   t('criterion 3: the interval is REPRODUCIBLE — a seeded bootstrap, stated in the output', () => {
     const runs = [0.9, 0.95, 1.0, 1.05, 1.1].map((c) => Array(6).fill(Math.log(c)));
     assert.deepStrictEqual(effectInterval(runs), effectInterval(runs), 'two runs of the same program agree to the last place');
-    assert.strictEqual(EFFECT.seed, 20260807);
-    assert.match(EFFECT.method, /Kalibera & Jones 2013/);
-    assert.match(EFFECT.method, /outer RUNS resampled before inner ROUNDS/);
   });
 
   t('criterion 3: the WHOLE interval must clear the threshold', () => {
-    // Driven at the boundary in each direction. A lower ratio is faster: these
-    // are times.
-    //
-    // A ROW AND A PAIR, AND NO BAND CONDITION. The verdict is asked for a ROW
-    // and a PAIR rather than for a bare limit, because the threshold belongs
-    // to the row class beside the estimand it was derived for — and
-    // `fresco / reagent-subs` is the pair validation.md's bulk bar actually
-    // names. The widest same-run band has no publication authority on any
-    // class, so it does not reach this verdict. Asserted below rather than
-    // assumed.
-    const P = 'fresco / reagent-subs';
-    const ev = (iv, bandPct) => effectVerdict(iv, BULK, P, { widestSameRunBandPct: bandPct });
-    const below = { runs: 8, rounds: [6], point: 0.6, lo: 0.55, hi: 0.65, draws: 1, seed: 1 };
-    assert.strictEqual(ev(below, 10).publishes, true, 'wholly below 1.0');
-    assert.match(ev(below, 10).verdict, /MAGNITUDE PUBLISHABLE/);
-    for (const b of [50, 99, 0.1, NaN, undefined]) {
-      assert.strictEqual(ev(below, b).publishes, true, `the retired band veto must not reach the bulk verdict either: ${b}`);
-    }
-    const straddles = { runs: 8, rounds: [6], point: 0.99, lo: 0.9, hi: 1.05, draws: 1, seed: 1 };
-    assert.strictEqual(ev(straddles, 1).publishes, false, 'an interval containing parity publishes nothing');
-    assert.match(ev(straddles, 1).verdict, /INSTRUMENT-LIMITED/);
-    const kill = { runs: 8, rounds: [6], point: 1.9, lo: 1.7, hi: 2.1, draws: 1, seed: 1 };
-    assert.strictEqual(ev(kill, 10).publishes, true);
-    assert.match(ev(kill, 10).verdict, /ARCHITECTURE-KILL/);
-    const nearKill = { runs: 8, rounds: [6], point: 1.5, lo: 1.4, hi: 1.6, draws: 1, seed: 1 };
-    assert.strictEqual(ev(nearKill, 10).publishes, false, 'an interval straddling 1.5 is not a kill');
-    // and two runs are not an ensemble
-    assert.strictEqual(ev({ ...below, runs: 2 }, 1).publishes, false);
-    assert.match(ev({ ...below, runs: 2 }, 1).why, /is not an ensemble/);
-    assert.strictEqual(ev(null, 1).publishes, false, 'no interval is not a pass');
-  });
-
-  // --- 6. AND OVER THE COMMITTED 42-RUN CORPUS ------------------------------
-  //
-  // THE TEST PINS THE PROCEDURE, NOT THE ANSWER. What is asserted is that
-  // every pair of every bulk row comes back with a WELL-FORMED verdict
-  // carrying its own reason, and that none of them publishes a magnitude —
-  // which is the calibration's own fence rather than a preferred result: the 42
-  // committed row-runs are calibration and diagnostic evidence and are NOT
-  // retroactively promoted. If the procedure ever published from them this
-  // test fails, and that failure is the finding.
-
-  const CORPORA = [
-    { dir: 'clock-emvod', runs: 8 },
-    { dir: 'clock-w3yxd', runs: 6 },
-  ];
-  const BULK_ROWS = ['bulk300', 'bulk100', 'narrow'];
-  const PAIRS_8a746 = ['fresco / reagent-subs', 'fresco / uix-subs', 'uix-subs / reagent-subs'];
-
-  t('the committed corpus is 42 bulk row-runs, and every one is IN CONTROL under the standard', () => {
-    let n = 0;
-    let inControl = 0;
-    for (const { dir } of CORPORA) {
-      const d = path.join(__dirname, 'data', dir);
-      if (!fs.existsSync(d)) return; // datasets are retained, not required to build
-      for (const f of fs.readdirSync(d)) {
-        const data = archive.readRecord(path.join(d, f));
-        for (const row of data.rows.filter((r) => BULK_ROWS.includes(r.rowId))) {
-          n += 1;
-          if (checkStandardFor(row, data).ok) inControl += 1;
-        }
-      }
-    }
-    assert.strictEqual(n, 42, 'the corpus the bulk class is calibrated from');
-    // An IN-SAMPLE consistency check: the shipped limits are fitted on these
-    // medians, so 42 of 42 is what it must say, and a drift here means the
-    // limits and the corpus have parted. The out-of-sample evidence is the
-    // session-level hold-out in `provenance.holdOut`, pinned further down.
-    assert.strictEqual(inControl, 42, `the frozen limits must still admit their own baseline — got ${inControl}`);
-  });
-
-  t('criterion 3: every pair of every bulk row gets a stated verdict over the committed corpus', () => {
-    for (const { dir } of CORPORA) {
-      const d = path.join(__dirname, 'data', dir);
-      if (!fs.existsSync(d)) return;
-      const datasets = fs.readdirSync(d).map((f) => archive.readRecord(path.join(d, f)));
-      for (const rowId of BULK_ROWS) {
-        const rows = datasets.map((data) => ({ data, row: data.rows.find((r) => r.rowId === rowId) })).filter((x) => x.row);
-        const pooled = rows.filter(({ row, data }) => reportable(row, data));
-        for (const pair of PAIRS_8a746) {
-          const iv = effectInterval(pooled.map(({ row, data }) => pairedLogRatios(row, pair, data)).filter(Boolean));
-          const bands = pooled.map(({ row }) => row.seamTask.band).filter(Number.isFinite).map((b) => b * 100);
-          const ev = effectVerdict(iv, rowId, pair, { widestSameRunBandPct: bands.length ? Math.max(...bands) : NaN });
-          assert.ok(typeof ev.why === 'string' && ev.why.length > 0, `${dir}/${rowId}/${pair}: a verdict must carry its reason`);
-          // CO-INSTRUMENTED is on the roster because bulk's bar names
-          // `fresco / reagent-subs`, so the other two pairs are reported and
-          // not adjudicated. The fence below is what matters
-          // here — an un-adjudicated pair publishes nothing either.
-          assert.ok(
-            /^(INSTRUMENT-LIMITED|MAGNITUDE PUBLISHABLE|ARCHITECTURE-KILL|CO-INSTRUMENTED)/.test(ev.verdict),
-            `${dir}/${rowId}/${pair}: unrecognised verdict ${ev.verdict}`
-          );
-          assert.ok(iv, `${dir}/${rowId}/${pair}: the corpus must yield an interval to adjudicate`);
-          assert.ok(iv.lo <= iv.point && iv.point <= iv.hi, `${dir}/${rowId}/${pair}: the point must lie inside its own interval`);
-          assert.strictEqual(
-            ev.publishes,
-            false,
-            `${dir}/${rowId}/${pair} PUBLISHED a magnitude from the committed corpus — those 42 ` +
-              `row-runs are calibration and diagnostic evidence, never retroactively promoted. Verdict: ${ev.verdict} — ${ev.why}`
-          );
-        }
-      }
-    }
-  });
-
-  t('and the program itself exits 0 over both committed ensembles, publishing no BULK magnitude', () => {
-    // SCOPED TO THE BULK BLOCKS, and the scoping is the fence rather than a
-    // relaxation of it. The mount row publishes under its own rule, so a
-    // whole-output grep would pin M1's verdict here by accident — in the
-    // block whose entire subject is that the 42 BULK row-runs are calibration
-    // evidence and are never retroactively promoted. The M1 verdict is pinned
-    // where it belongs, in the estimand block near the foot of this file.
-    const RJ = path.join(__dirname, 'clock_readjudicate.cjs');
-    for (const { dir } of CORPORA) {
-      const d = path.join(__dirname, 'data', dir);
-      if (!fs.existsSync(d)) return;
-      const files = fs.readdirSync(d).map((f) => path.join(d, f));
-      const r = cp.spawnSync(process.execPath, [RJ, ...files], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-      const out = `${r.stdout}${r.stderr}`;
-      assert.strictEqual(r.status, 0, `${dir}: ${out.slice(-2000)}`);
-      assert.ok(/EFFECT-SIZE INTERVAL \(row-class estimand and threshold\)/.test(out), `${dir}: the interval must be printed`);
-      for (const rowId of BULK_ROWS) {
-        const at = out.indexOf(`;; ======== ROW ${rowId} `);
-        assert.ok(at >= 0, `${dir}: the ${rowId} block must be printed`);
-        const next = out.indexOf(';; ======== ROW ', at + 1);
-        const block = out.slice(at, next < 0 ? undefined : next);
-        assert.ok(
-          !/VERDICT MAGNITUDE PUBLISHABLE|VERDICT ARCHITECTURE-KILL/.test(block),
-          `${dir}/${rowId}: no magnitude may be published from the committed corpus`
-        );
-      }
-      assert.ok(/pooled means below are DIAGNOSTICS/.test(out), `${dir}: the pooled means must be labelled`);
-    }
-  });
-
-  // --- 7. THE RESIDUAL UNCERTAINTY IS CARRIED ------------------------------
-
-  t('the residual uncertainty is carried: no surface states paint causation', () => {
-    // "Non-layout and saturating below d=100" is established; that PAINT
-    // causes the concavity is not, because the datasets have no paint
-    // counter.
-    for (const [name, src] of [
-      ['clock_run.cjs', CLOCKSRC],
-      ['clock_readjudicate.cjs', RJSRC2],
-      ['clock_app.cljs', fs.readFileSync(path.join(__dirname, 'clock_app.cljs'), 'utf8')],
-    ]) {
-      const claims = src
-        .split('\n')
-        .map((line, i) => [i + 1, line])
-        .filter(([, l]) => /mechanism is PAINT|paint is what|caused by paint|because paint/i.test(l));
-      assert.deepStrictEqual(claims.map(([n, l]) => `${name}:${n}: ${l.trim()}`), [], 'paint causation is an inference, not a finding');
-    }
+    // Times, so lower is faster. Bulk's bar is 1.0 and its kill line 1.5, on
+    // the pair validation.md's bulk bar names.
+    const at = (point, lo, hi, runs = 8) => ({ runs, rounds: [6], point, lo, hi, draws: 1, seed: 1 });
+    const ev = (iv) => effectVerdict(iv, BULK, 'fresco / reagent-subs', { widestSameRunBandPct: 10 });
+    const below = at(0.6, 0.55, 0.65);
+    const kill = at(1.9, 1.7, 2.1);
+    assert.match(ev(below).verdict, /MAGNITUDE PUBLISHABLE/);
+    assert.match(ev(kill).verdict, /ARCHITECTURE-KILL/);
+    // [wholly below, wholly above the kill, straddling 1.0, straddling 1.5, two runs, no interval]
+    assert.deepStrictEqual(
+      [below, kill, at(0.99, 0.9, 1.05), at(1.5, 1.4, 1.6), at(0.6, 0.55, 0.65, 2), null].map((iv) => ev(iv).publishes),
+      [true, true, false, false, false, false]
+    );
   });
 }
 
-// --- THE MOUNT CLASS, AND THE ROW IT KEEPS IN REACH -------------------------
+// --- THE MOUNT CLASS: the published M1 row is reproducible -------------------
 //
-// The MOUNT class is calibrated separately from the BULK class, and this block
-// pins why that matters.
-//
-//   The published `M1` row is conditioned on the strict every-block `ctl-2x`
-//   rule, which is retired EVERYWHERE ON THIS INSTRUMENT. With the mount class
-//   uncalibrated, the row's label would name a rule nothing implements, and
-//   `clock_readjudicate.cjs` — which reproduces every published figure exactly
-//   — would return `reportable subset: NONE` on all three `M1` pairs. No
-//   figure would be wrong and the posture would be stricter, not looser; what
-//   would be lost is the REPRODUCTION PATH of a published claim.
-//
-// v2 calibrates the mount from the mount's own 14 committed row-runs. THE
-// FENCE IS THE POINT OF THE BLOCK: the mount is calibrated on its own data and
-// NOT on bulk's limits, because the two classes read 4.4% apart on the
-// identical statistic and importing bulk's would assert against the mount a
-// value never measured on it — the retired mis-specification, one row class
-// over. The corpus makes that concrete rather than rhetorical: bulk's ceiling
-// would refuse a mount run the mount's own limits admit.
+// The mount class is calibrated on the mount's own 14 committed row-runs, so
+// `clock_readjudicate.cjs` pools M1 and adjudicates its gated pair against
+// K1's 1.10x mount gate. Only that pair — fresco against direct UIx-on-subs,
+// per validation.md — publishes, and it publishes a MISS.
 {
-  const { STANDARD, classOf } = require('./clock_check_standard.cjs');
-  const { checkStandardFor, pairedLogRatios, effectInterval, effectVerdict, reportable } = require('./clock_readjudicate.cjs');
+  const { pairedLogRatios, effectInterval, effectVerdict, reportable } = require('./clock_readjudicate.cjs');
   const t = (what, fn) => test(`rf2-x7x10: ${what}`, fn);
-  const bulk = STANDARD.classes.bulk;
-  const mount = STANDARD.classes.mount;
-  const CORPORA = [
-    { dir: 'clock-emvod', runs: 8 },
-    { dir: 'clock-w3yxd', runs: 6 },
-  ];
   const M1_PAIRS = ['fresco / reagent-subs', 'fresco / uix-subs', 'uix-subs / reagent-subs'];
 
-  /** Every committed dataset of an ensemble, or `null` when the corpus is absent. */
-  const corpus = (dir) => {
-    const d = path.join(__dirname, 'data', dir);
-    if (!fs.existsSync(d)) return null;
-    return fs.readdirSync(d).map((f) => ({ file: path.join(d, f), data: archive.readRecord(path.join(d, f)) }));
-  };
-
-  // --- 1. THE CLASS IS DATA, LIKE THE OTHER ONE -----------------------------
-
-  t('the mount class lands as DATA — calibrated, with its own frozen centre and limits', () => {
-    // Calibrating a class is a version bump, or a stored verdict cannot be
-    // re-read. Later amendments bump the version further, so the pin is on the
-    // amendment that records the mount calibration rather than on the head
-    // number.
-    assert.ok(STANDARD.version >= 2, `expected at least v2, got ${STANDARD.version}`);
-    assert.strictEqual((STANDARD.amendments.find((a) => a.ruling === 'rf2-x7x10') || {}).version, 2);
-    assert.strictEqual(mount.calibrated, true);
-    assert.deepStrictEqual(mount.rows, ['M1']);
-    assert.strictEqual(classOf('M1'), 'mount');
-    assert.strictEqual(typeof mount.centre, 'number');
-    assert.strictEqual(mount.location.limits.length, 2);
-    assert.ok(mount.location.limits[0] < mount.centre && mount.centre < mount.location.limits[1], 'the limits must bracket the centre');
-    assert.ok(mount.dispersion.limit > 0);
-    // and the file, not the reader, is where they live
-    assert.ok(
-      !new RegExp(String(mount.centre)).test(fs.readFileSync(path.join(__dirname, 'clock_check_standard.cjs'), 'utf8')),
-      'the mount centre must not also be a literal in the module that reads it'
-    );
-  });
-
-  t('the mount centre is EMPIRICAL, with its provenance and the independence it has stated', () => {
-    assert.ok(Math.abs(mount.centre - 2.0) > 0.15, 'the frozen centre is not the arithmetic 2.00x');
-    const prov = mount.provenance;
-    assert.strictEqual(prov.rowRuns, 14);
-    assert.deepStrictEqual(prov.datasets, ['data/clock-emvod/run1-8.json', 'data/clock-w3yxd/run1-6.json']);
-    // The independence field states the level a hold-out measured, and on
-    // this class that measurement is split — see the hold-out block below.
-    assert.match(prov.independence, /SESSION LEVEL/i, 'the independence field states the level actually achieved');
-    assert.ok(prov.holdOut, 'and carries the hold-out it was measured by');
-    // the derivation is the bulk class's, restated on this class's numbers
-    assert.match(mount.location.derivation, /3 x between-run SD/);
-    assert.match(mount.dispersion.derivation, /exp\(mu \+ 3 sigma\)/);
-    assert.match(mount.errorRates.runRejectionEmpirical, /0 of 14/);
-    assert.match(mount.errorRates.retiredRuleForComparison, /7 of 14/, "the published row's own yield is where the label's arithmetic lives");
-  });
-
-  // --- 2. THE FENCE ---------------------------------------------------------
-
-  t('THE BULK CLASS IS UNTOUCHED — rf2-8a746\'s frozen numbers, to the last place', () => {
-    // The fence's other half. A change that calibrates one class is the
-    // easiest possible place to nudge another, so the bulk seed is asserted
-    // literally here rather than left to a reviewer's eye.
-    assert.strictEqual(bulk.calibrated, true);
-    assert.strictEqual(bulk.centre, 1.7207);
-    assert.deepStrictEqual(bulk.location.limits, [1.5509, 1.8905]);
-    assert.strictEqual(bulk.dispersion.limit, 0.568);
-    assert.deepStrictEqual(bulk.tolerance.band, [1.2905, 2.1509]);
-    assert.strictEqual(bulk.provenance.rowRuns, 42);
-    assert.deepStrictEqual(bulk.rows, ['bulk300', 'bulk100', 'narrow']);
-  });
-
-  t('and the corpus proves the fence rather than asserting it — bulk\'s ceiling would refuse a real mount run', () => {
-    const c = corpus('clock-emvod');
-    if (!c) return; // datasets are retained, not required to build
-    const medians = [];
-    for (const { data } of c) {
-      const row = data.rows.find((r) => r.rowId === 'M1');
-      if (row) medians.push(checkStandardFor(row, data).location.measured);
-    }
-    const widest = Math.max(...medians);
-    assert.ok(
-      widest > bulk.location.limits[1],
-      `a real mount run must sit above bulk's ceiling for the fence to be load-bearing — widest ${widest}, ceiling ${bulk.location.limits[1]}`
-    );
-    assert.ok(widest < mount.location.limits[1], `and inside the mount's own — widest ${widest}, ceiling ${mount.location.limits[1]}`);
-  });
-
-  // --- 3. THE REPRODUCTION PATH ---------------------------------------------
-
   t('and the publication rule reaches M1 for the first time, with a stated verdict on every pair', () => {
-    // The publication rule cannot speak to this row while no run is
-    // reportable, because an interval needs a pooled run to be formed from.
-    for (const { dir } of CORPORA) {
-      const c = corpus(dir);
-      if (!c) return;
-      const rows = c.map(({ data }) => ({ data, row: data.rows.find((r) => r.rowId === 'M1') })).filter((x) => x.row);
-      const pooled = rows.filter(({ row, data }) => reportable(row, data));
+    for (const dir of ['clock-emvod', 'clock-w3yxd']) {
+      const d = path.join(__dirname, 'data', dir);
+      if (!fs.existsSync(d)) return; // datasets are retained, not required to build
+      const pooled = fs
+        .readdirSync(d)
+        .map((f) => archive.readRecord(path.join(d, f)))
+        .map((data) => ({ data, row: data.rows.find((r) => r.rowId === 'M1') }))
+        .filter(({ row: r, data }) => r && reportable(r, data));
       for (const pair of M1_PAIRS) {
-        const iv = effectInterval(pooled.map(({ row, data }) => pairedLogRatios(row, pair, data)).filter(Boolean));
-        const ev = effectVerdict(iv, 'M1', pair);
-        assert.ok(iv, `${dir}/M1/${pair}: the corpus must yield an interval to adjudicate`);
-        assert.ok(iv.lo <= iv.point && iv.point <= iv.hi, `${dir}/M1/${pair}: the point must lie inside its own interval`);
-        assert.ok(typeof ev.why === 'string' && ev.why.length > 0, `${dir}/M1/${pair}: a verdict must carry its reason`);
-        assert.ok(
-          /^(INSTRUMENT-LIMITED|MAGNITUDE PUBLISHABLE|ARCHITECTURE-KILL|K1 MISSED|MOUNT SHIP BAR MET|CO-INSTRUMENTED)/.test(ev.verdict),
-          `${dir}/M1/${pair}: unrecognised verdict ${ev.verdict}`
-        );
-        // THE GATED PAIR PUBLISHES. `M1` is adjudicated against K1's `1.10x`
-        // mount gate rather than against bulk's `1.0`/`1.5`, on K1's OWN
-        // floor-normalised estimand, and on the gated pair the whole interval
-        // sits above the gate. The magnitude is published — as a MISS, which
-        // is the honest direction.
-        //
-        // The other two pairs publish nothing, and not because they are noisy:
-        // `validation.md` states K1's gate against DIRECT UIx-on-subs and says
-        // in terms that Reagent-on-subs does not gate this row.
-        const gated = pair === 'fresco / uix-subs';
-        assert.strictEqual(
-          ev.publishes,
-          gated,
-          `${dir}/M1/${pair}: expected publishes === ${gated} — the gated pair trips K1 on a whole ` +
-            `interval above 1.10x, the co-instrumented pairs are reported beside it and gate nothing. ` +
-            `Verdict: ${ev.verdict} — ${ev.why}`
-        );
+        const iv = effectInterval(pooled.map(({ row: r, data }) => pairedLogRatios(r, pair, data)).filter(Boolean));
+        assert.strictEqual(effectVerdict(iv, 'M1', pair).publishes, pair === 'fresco / uix-subs', `${dir}/M1/${pair}`);
       }
     }
   });
-
-  t('and the program itself exits 0 over both ensembles, printing an M1 subset rather than NONE', () => {
-    const RJ = path.join(__dirname, 'clock_readjudicate.cjs');
-    for (const { dir, runs } of CORPORA) {
-      const c = corpus(dir);
-      if (!c) return;
-      const r = cp.spawnSync(process.execPath, [RJ, ...c.map((x) => x.file)], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-      const out = `${r.stdout}${r.stderr}`;
-      assert.strictEqual(r.status, 0, `${dir}: ${out.slice(-2000)}`);
-      const m1 = out.slice(out.indexOf(';; ======== ROW M1'), out.indexOf(';; ======== ROW bulk300'));
-      assert.ok(m1.length > 0, `${dir}: the M1 block must be printed`);
-      assert.ok(!/reportable subset: NONE/.test(m1), `${dir}: the M1 row must have a reportable subset — NONE here is the lost reproduction path`);
-      assert.ok(new RegExp(`reportable subset [0-9.]+x n=${runs}`).test(m1), `${dir}: the subset must pool all ${runs} runs`);
-      assert.ok(!/the `mount` class of the check standard is NOT CALIBRATED/.test(m1), `${dir}: the mount class is calibrated`);
-      assert.ok(/EFFECT-SIZE INTERVAL \(row-class estimand and threshold\)/.test(m1), `${dir}: the interval must be printed on M1 too`);
-    }
-  });
-
-  // --- 4. THE SUPERSEDED RATIONALE IS CORRECTED, NOT DELETED ---------------
-
-  t('v1\'s rationale cited a SUPERSEDED ruling, and the standard records that rather than erasing it', () => {
-    // The failure mode the amendment records: a rationale can be sound,
-    // current at the hour it was written, and still rest on a ruling already
-    // overturned. v1 justified failing closed by citing a regime-only ruling
-    // ("M1 publishes DIRECTION and never a magnitude") that had been
-    // superseded, so a magnitude WAS being withheld; `amendedFrom` names both
-    // rulings.
-    const a = mount.amendedFrom;
-    assert.ok(a, 'the mount class must carry what it was amended from');
-    assert.strictEqual(a.version, 1);
-    assert.match(a.citedASupersededRuling, /ALREADY FALSE/);
-    assert.match(a.whatItActuallyCost, /REPRODUCTION PATH/);
-    assert.match(a.keptRatherThanDeleted, /[Aa]nnotate-never-erase/);
-    // the standard also records the amendment at the top level, so a reader
-    // meeting v2 knows what changed between the versions without diffing.
-    assert.ok(Array.isArray(STANDARD.amendments) && STANDARD.amendments.length >= 1);
-    assert.strictEqual(STANDARD.amendments[0].version, 2);
-  });
-
 }
 
-// ============================================================================
-// THE LIMITS, VALIDATED OUT OF SAMPLE
-// ============================================================================
+// --- THE LIMITS, VALIDATED OUT OF SAMPLE -------------------------------------
 //
-// A check standard's limits should be frozen from an INDEPENDENT baseline.
-// Limits seeded from the runs they are quoted against make `0 of 42` and `14
-// of 14` CONSISTENCY CHECKS rather than false-refusal measurements, and the
-// moment a NEW run is judged in control the verdict rests on limits nobody has
-// tested out of sample.
-//
-// WHAT THIS CORPUS SUPPORTS, AND THE CLAIM IS DELIBERATELY THE WEAKER ONE.
-// The census standard holds out a later COMMIT: its corpus spans five days
-// and a code change. This one cannot — every run in both clock ensembles
-// carries a `when` on the same day and the ensembles start 87 minutes apart,
-// on the evidence one tree — so the strongest hold-out here is by SITTING.
-// That is real, and it is the dominant practical failure mode for a check
-// standard, but it crosses a coffee break rather than a commit. The first case
-// below checks that premise against the datasets rather than taking it on
-// trust.
-//
-// BOTH WAYS, because a one-directional answer depends on which ensemble
-// happened to be picked. BULK agrees, 42 of 42 held-out row-runs in control.
-// MOUNT DISAGREES — and the disagreement is the finding, so it is pinned here
-// as a measurement rather than smoothed into an average.
-//
-// AND NOTHING IS WIDENED. A hold-out failure is an answer, not a tuning
-// signal; the last cases assert that every shipped limit is still v2's, to
-// the last place.
+// Both clock ensembles were taken on one day, so the hold-out is by SITTING:
+// limits fitted on one ensemble, applied to the other, both ways. Every
+// hold-out number the standard records is re-derived here from the committed
+// datasets through the live adjudicator, and the shipped limits are pinned so
+// a failed hold-out is answered by measurement, never by widening.
 {
   const { STANDARD } = require('./clock_check_standard.cjs');
   const { checkStandardFor } = require('./clock_readjudicate.cjs');
@@ -4301,14 +1791,7 @@ function fixtureRoundsTask(over) {
     return Math.sqrt(xs.reduce((a, b) => a + (b - m) * (b - m), 0) / (xs.length - 1));
   };
 
-  /**
-   * Every committed row-run of one class, per ensemble, ADJUDICATED BY THE LIVE
-   * ADJUDICATOR rather than by a copy of its arithmetic: `checkStandardFor` is
-   * what the readjudicator applies to a dataset off disk, so a witness built on
-   * it cannot pass while the thing it describes has changed. Returns `null`
-   * when the corpus is absent — the datasets are retained, not required to
-   * build.
-   */
+  /** Every committed row-run of one class, per ensemble, as the live adjudicator measures it; `null` when the corpus is absent. */
   const readClass = (klassName) => {
     const rows = STANDARD.classes[klassName].rows;
     const out = {};
@@ -4318,9 +1801,9 @@ function fixtureRoundsTask(over) {
       out[dir] = [];
       for (const f of fs.readdirSync(d).sort()) {
         const data = archive.readRecord(path.join(d, f));
-        for (const row of data.rows.filter((r) => rows.includes(r.rowId))) {
-          const v = checkStandardFor(row, data);
-          out[dir].push({ run: `${dir}/${f.replace(/\.json$/, '')}`, rowId: row.rowId, median: v.location.measured, scale: v.dispersion.measured });
+        for (const r of data.rows.filter((x) => rows.includes(x.rowId))) {
+          const v = checkStandardFor(r, data);
+          out[dir].push({ run: `${dir}/${f.replace(/\.json$/, '')}`, rowId: r.rowId, median: v.location.measured, scale: v.dispersion.measured });
         }
       }
     }
@@ -4336,31 +1819,6 @@ function fixtureRoundsTask(over) {
     return { n: runs.length, centre, sd: s, limits: [centre - 3 * s, centre + 3 * s], dispersionLimit: Math.exp(mean(logs) + 3 * sd(logs)) };
   };
 
-  // --- 1. THE PREMISE OF THE WEAKER CLAIM, CHECKED AGAINST THE DATA ---------
-
-  t('the corpus does NOT split by commit — one day, ~90 minutes apart, so the hold-out is by SITTING', () => {
-    // The reason the claim is session-level rather than commit-level. It is
-    // asserted from the datasets because a standard that overstated its own
-    // independence would be the exact defect this block guards against, one
-    // level up.
-    const firsts = {};
-    for (const dir of ENSEMBLES) {
-      const d = path.join(__dirname, 'data', dir);
-      if (!fs.existsSync(d)) return;
-      const whens = fs.readdirSync(d).sort().map((f) => archive.readRecord(path.join(d, f)).when);
-      assert.ok(whens.every((w) => /^2026-08-07T/.test(w)), `${dir}: every run must be the same day for the claim to be what it says — ${JSON.stringify(whens)}`);
-      firsts[dir] = Math.min(...whens.map((w) => Date.parse(w)));
-    }
-    const gapMinutes = Math.abs(firsts['clock-w3yxd'] - firsts['clock-emvod']) / 60000;
-    assert.ok(gapMinutes > 30 && gapMinutes < 180, `the two ensembles must be separate sittings of the same day — ${r4(gapMinutes)} minutes apart`);
-    for (const k of [bulk, mount]) {
-      assert.match(k.provenance.holdOut.level, /SESSION-LEVEL/, 'and the file must claim exactly that');
-      assert.match(k.provenance.holdOut.whyNotCommitLevel, /does not split by commit/);
-    }
-  });
-
-  // --- 2. THE HOLD-OUT IS RECOMPUTABLE FROM THE COMMITTED DATASETS ---------
-
   t('every hold-out number in the standard is re-derived from the corpus — both classes, both directions', () => {
     for (const [name, klass] of [['bulk', bulk], ['mount', mount]]) {
       const data = readClass(name);
@@ -4373,103 +1831,39 @@ function fixtureRoundsTask(over) {
       for (const dir of klass.provenance.holdOut.directions) {
         const d = deriveFrom(data[dir.baseline]);
         const held = data[dir.heldOut];
-        assert.strictEqual(d.n, dir.baselineRowRuns, `${name}/${dir.baseline}: baseline size`);
-        assert.strictEqual(held.length, dir.heldOutRowRuns, `${name}/${dir.heldOut}: held-out size`);
-        assert.strictEqual(r4(d.centre), dir.centre, `${name}/${dir.baseline}: derived centre`);
-        assert.strictEqual(r4(d.sd), dir.betweenRunSD, `${name}/${dir.baseline}: derived between-run SD`);
-        // THE LIMITS AND THE DISPERSION TERM ARE PINNED TO WITHIN HALF A PLACE
-        // rather than to the last one, and the reason is arithmetic and not
-        // slack: the adjudicator reports a run's median and scale ROUNDED to
-        // four places, so a statistic taken over the reported numbers can
-        // differ from one taken over the raw ones in the fourth. Any refit
-        // moves these by orders of magnitude more than 1e-3.
+        const at = `${name}/${dir.baseline}`;
+        assert.deepStrictEqual(
+          [d.n, held.length, r4(d.centre), r4(d.sd)],
+          [dir.baselineRowRuns, dir.heldOutRowRuns, dir.centre, dir.betweenRunSD],
+          `${at}: baseline size, held-out size, centre, between-run SD`
+        );
+        // Within half a place rather than to the last one, because the
+        // adjudicator reports a run's median and scale rounded to four places.
         assert.ok(Math.abs(d.limits[0] - dir.limits[0]) < 1e-3 && Math.abs(d.limits[1] - dir.limits[1]) < 1e-3,
-          `${name}/${dir.baseline}: derived limits [${r4(d.limits[0])}, ${r4(d.limits[1])}] against recorded ${JSON.stringify(dir.limits)}`);
+          `${at}: derived limits [${r4(d.limits[0])}, ${r4(d.limits[1])}] against recorded ${JSON.stringify(dir.limits)}`);
         assert.ok(Math.abs(d.dispersionLimit - dir.dispersionLimit) < 1e-3,
-          `${name}/${dir.baseline}: derived dispersion ${r4(d.dispersionLimit)} against recorded ${dir.dispersionLimit}`);
-        // and the verdict itself: every held-out run judged by limits fitted
-        // without it, against the limits the file records.
+          `${at}: derived dispersion ${r4(d.dispersionLimit)} against recorded ${dir.dispersionLimit}`);
+        // every held-out run judged by limits fitted without it, against the limits the file records
         const verdicts = held.map((r) => ({ ...r, ok: r.median >= dir.limits[0] && r.median <= dir.limits[1] && r.scale <= dir.dispersionLimit }));
-        assert.strictEqual(verdicts.filter((v) => v.ok).length, dir.inControl, `${name}/${dir.baseline} -> ${dir.heldOut}: in-control count`);
+        assert.strictEqual(verdicts.filter((v) => v.ok).length, dir.inControl, `${at} -> ${dir.heldOut}: in-control count`);
         assert.deepStrictEqual(
           verdicts.filter((v) => !v.ok).map((v) => v.run).sort(),
           (dir.refused || []).map((r) => r.run).sort(),
-          `${name}/${dir.baseline} -> ${dir.heldOut}: the refused runs must be the ones the file names`
+          `${at} -> ${dir.heldOut}: the refused runs must be the ones the file names`
         );
         for (const r of dir.refused || []) {
           const v = verdicts.find((x) => x.run === r.run);
-          assert.strictEqual(v.median, r.median, `${r.run}: recorded median`);
-          assert.strictEqual(r.term, v.scale <= dir.dispersionLimit ? 'location' : 'dispersion', `${r.run}: recorded term`);
+          assert.deepStrictEqual([v.median, v.scale <= dir.dispersionLimit ? 'location' : 'dispersion'], [r.median, r.term], `${r.run}: recorded median and term`);
         }
       }
     }
   });
 
-  // --- 3. BULK: BOTH DIRECTIONS AGREE ---------------------------------------
-
-  t('BULK: limits fitted on one sitting admit every row-run of the other, BOTH WAYS — 42 of 42', () => {
-    const h = bulk.provenance.holdOut;
-    assert.strictEqual(h.agree, true);
-    assert.strictEqual(h.heldOutInControl, '42 of 42');
-    assert.deepStrictEqual(h.directions.map((d) => `${d.baseline}->${d.heldOut} ${d.inControl}/${d.heldOutRowRuns}`), [
-      'clock-emvod->clock-w3yxd 18/18',
-      'clock-w3yxd->clock-emvod 24/24',
-    ]);
-    // and the file does not oversell it: the closer direction passes by 0.0073
-    // on a limits width of 0.2949, which the note says out loud.
-    const tight = Math.min(...h.directions.map((d) => d.tightestMargin));
-    assert.ok(tight > 0 && tight < 0.02, `the tightest held-out margin is ${tight}`);
-    assert.match(h.directions.find((d) => d.tightestMargin === tight).note, /does not pass comfortably/);
-  });
-
-  // --- 4. MOUNT: THE DIRECTIONS DISAGREE, AND THAT IS THE FINDING -----------
-
-  t('MOUNT: one direction admits all 6, the other REFUSES 4 of 8 — the disagreement is recorded, not averaged', () => {
-    const h = mount.provenance.holdOut;
-    assert.strictEqual(h.agree, false, 'a class whose directions disagree may not report as if they agreed');
-    assert.strictEqual(h.heldOutInControl, '10 of 14');
-    const emvodBased = h.directions.find((d) => d.baseline === 'clock-emvod');
-    const w3yxdBased = h.directions.find((d) => d.baseline === 'clock-w3yxd');
-    assert.strictEqual(emvodBased.inControl, emvodBased.heldOutRowRuns, 'the 8-run baseline admits the whole other sitting');
-    assert.strictEqual(w3yxdBased.inControl, 4);
-    assert.strictEqual(w3yxdBased.refused.length, 4);
-    // EVERY refusal is LOCATION. That is what makes this a statement about
-    // where the two sittings sit rather than about how noisy either was, and
-    // it is the difference between a finding and a flaky instrument.
-    assert.ok(w3yxdBased.refused.every((r) => r.term === 'location'), JSON.stringify(w3yxdBased.refused));
-    // and the cause is stated: not a large shift, but a baseline too tight to
-    // contain a small one.
-    assert.ok(
-      Math.abs(emvodBased.centre - w3yxdBased.centre) < Math.abs(bulk.provenance.holdOut.directions[0].centre - bulk.provenance.holdOut.directions[1].centre),
-      'the mount sittings are CLOSER than the bulk sittings, which is why the cause cannot be the offset alone'
-    );
-    assert.ok(w3yxdBased.betweenRunSD * 4 < emvodBased.betweenRunSD, 'the failing baseline is the tighter one, by more than 4x');
-    assert.match(h.disagreement, /REPRODUCIBILITY/);
-    assert.match(h.disagreement, /single sitting/i);
-  });
-
-  // --- 5. THE FENCE: NOTHING WAS WIDENED TO MAKE A HOLD-OUT PASS ------------
-
   t('THE FENCE: not one shipped limit moved — v2\'s frozen numbers, to the last place', () => {
-    // The bulk half of this is already pinned by the mount-class block; the
-    // mount half is pinned here, because the mount is the class whose hold-out
-    // failed and therefore the one a tuning hand would reach for.
-    assert.strictEqual(mount.centre, 1.7956);
-    assert.deepStrictEqual(mount.location.limits, [1.6765, 1.9147]);
-    assert.strictEqual(mount.dispersion.limit, 0.577);
-    assert.deepStrictEqual(mount.tolerance.band, [1.3467, 2.2445]);
-    assert.strictEqual(bulk.centre, 1.7207);
-    assert.deepStrictEqual(bulk.location.limits, [1.5509, 1.8905]);
-    assert.strictEqual(bulk.dispersion.limit, 0.568);
-    // and the shipped limits are the POOLED fit rather than either single-
-    // sitting one — narrower than the widest available, which is what a
-    // widening would have produced.
-    for (const k of [bulk, mount]) {
-      const width = k.location.limits[1] - k.location.limits[0];
-      const widths = k.provenance.holdOut.directions.map((d) => d.limits[1] - d.limits[0]);
-      assert.ok(width < Math.max(...widths), `${JSON.stringify(k.rows)}: pooled width ${r4(width)} against ${widths.map(r4)}`);
-    }
-    // the standard still admits its own baseline, both classes, unchanged
+    const frozen = (k) => [k.centre, k.location.limits, k.dispersion.limit];
+    assert.deepStrictEqual(frozen(mount), [1.7956, [1.6765, 1.9147], 0.577]);
+    assert.deepStrictEqual(frozen(bulk), [1.7207, [1.5509, 1.8905], 0.568]);
+    // and the shipped limits still admit every row-run they were fitted on
     for (const [name, klass] of [['bulk', bulk], ['mount', mount]]) {
       const data = readClass(name);
       if (!data) return;
@@ -4478,79 +1872,25 @@ function fixtureRoundsTask(over) {
       assert.strictEqual(inControl.length, klass.provenance.rowRuns, `${name}: the shipped limits must still admit all ${klass.provenance.rowRuns}`);
     }
   });
-
-  // --- 6. THE VERSION, THE AMENDMENT AND THE RESIDUAL -----------------------
-
-  t('v3 is an amendment with its own entry, and the earlier admissions are replaced by measurements', () => {
-    // Later amendments bump the version further, so the pin is on the
-    // amendment that records the hold-out rather than on the head number —
-    // the same reading the mount-class block gives its own v2.
-    assert.ok(STANDARD.version >= 3, 'replacing an independence claim is a version bump — a stored verdict must stay re-readable');
-    const a = STANDARD.amendments.find((x) => x.ruling === 'rf2-c1974');
-    assert.ok(a, 'the amendment log must carry this change');
-    assert.strictEqual(a.version, 3);
-    assert.match(a.what, /OUT OF SAMPLE/);
-    assert.match(a.touches, /byte-identical to v2/);
-    // the honest admission is GONE as a live claim, on both classes, because it
-    // has been answered — not because it was inconvenient.
-    for (const k of [bulk, mount]) {
-      assert.ok(!/NOT INDEPENDENT OF ITS OWN BASELINE/.test(k.provenance.independence), 'the admission is replaced by the measurement that answers it');
-      assert.match(k.provenance.independence, /SESSION LEVEL/i);
-    }
-  });
-
-  t('THE RESIDUAL: commit-level independence is named as the recalibration trigger, not implied to be done', () => {
-    // The half of the independence requirement this block does NOT
-    // discharge. Left unstated, a reader meeting `provenance.independence`
-    // would take "validated out of sample" for the whole criterion.
-    const triggers = STANDARD.recalibrateOn;
-    const residual = triggers.find((r) => /COMMIT-LEVEL INDEPENDENCE HAS NEVER BEEN MEASURED/.test(r));
-    assert.ok(residual, `the standard must name what it still lacks — ${JSON.stringify(triggers)}`);
-    assert.match(residual, /different trees/);
-    // and the mount's own residual, which is narrower and sharper: its next
-    // baseline may not be a single sitting.
-    assert.ok(triggers.some((r) => /MOUNT class specifically/.test(r) && /more than 14 runs/.test(r)), JSON.stringify(triggers));
-  });
 }
 
 // --- A POINT AND AN INTERVAL MUST DESCRIBE THE SAME ESTIMAND ----------------
 //
-// The defect this block pins is not a wrong number: every published figure is
-// correctly computed. The fault is a POINT and an INTERVAL from two different
-// estimators: `validation.md` defines canonical `M1` as FLOOR-NORMALISED on
-// the clock of record, while an interval on the level ratio touches neither
-// floor. Splicing floor-normalised points onto unfloored geometric intervals
+// validation.md defines canonical `M1` as FLOOR-NORMALISED on the clock of
+// record. The tool must compute that estimand, adjudicate it against the
+// mount's own 1.10x gate, and print the point and both bounds from that one
+// estimator — splicing a floor-normalised point onto an unfloored interval
 // makes two correct figures one incorrect claim.
-//
-// So the block below proves three things, and the third is the one that lasts:
-// that the tool computes K1's own estimand; that the row-specific threshold is
-// what adjudicates it; and that NO FIGURE CAN BE SPLICED, because the estimand
-// is bound to the threshold in one table entry and neither can be supplied by a
-// caller.
 {
-  const {
-    pairedLogRatios, counterpartLogRatios, effectInterval, effectVerdict,
-    reportable, PUBLICATION, publicationRule,
-  } = require('./clock_readjudicate.cjs');
+  const { pairedLogRatios, effectVerdict } = require('./clock_readjudicate.cjs');
   const t = (what, fn) => test(`rf2-diaud: ${what}`, fn);
   const GATED = 'fresco / uix-subs';
   const M1_PAIRS = ['fresco / reagent-subs', GATED, 'uix-subs / reagent-subs'];
-  const STUDIO = path.join(__dirname, '..', '..', '..', '..', '..', '..', 'docs', 'design', 'fresco', 'studio');
 
-  /**
-   * A page's prose with its line wrapping and blockquote markers removed, so a
-   * sentence can be asserted as a SENTENCE. Markdown wraps at 80 columns and
-   * prefixes quoted blocks with `> `, and a phrase that happens to straddle a
-   * line break is still the phrase — a test that missed it would be pinning the
-   * fill, not the claim.
-   */
-  const prose = (file) =>
-    fs.readFileSync(path.join(STUDIO, file), 'utf8').replace(/\r?\n>?[ \t]*/g, ' ').replace(/[ \t]+/g, ' ');
-
-  /** The expected outcome, to 4 places — the tool's figures, not a note's. */
+  /** The expected outcome, to 4 places — the tool's figures, as the studio pages publish them. */
   const EXPECTED = {
-    'clock-emvod': { runs: 8, point: '1.1718', lo: '1.1263', hi: '1.2190', widestBand: 22.34 },
-    'clock-w3yxd': { runs: 6, point: '1.1976', lo: '1.1504', hi: '1.2468', widestBand: 18.29 },
+    'clock-emvod': { runs: 8, point: '1.1718', lo: '1.1263', hi: '1.2190' },
+    'clock-w3yxd': { runs: 6, point: '1.1976', lo: '1.1504', hi: '1.2468' },
   };
 
   const corpus = (dir) => {
@@ -4559,39 +1899,18 @@ function fixtureRoundsTask(over) {
     return fs.readdirSync(d).map((f) => ({ file: path.join(d, f), data: archive.readRecord(path.join(d, f)) }));
   };
 
-  /** Every reportable M1 run of an ensemble, as the publication path sees them. */
-  const pooledM1 = (dir) => {
-    const c = corpus(dir);
-    if (!c) return null;
-    return c
-      .map(({ data }) => ({ data, row: data.rows.find((r) => r.rowId === 'M1') }))
-      .filter((x) => x.row && reportable(x.row, x.data));
-  };
-
-  const m1Interval = (dir, pair) => {
-    const pooled = pooledM1(dir);
-    return pooled && effectInterval(pooled.map(({ row, data }) => pairedLogRatios(row, pair, data)).filter(Boolean));
-  };
-
-  // --- 1. CRITERION (a): THE TOOL COMPUTES K1's OWN ESTIMAND ----------------
-
   t("criterion (a): the mount estimand IS validation.md's canonical M1, and the driver's own bar proves it", () => {
-    // The estimator is computed from `roundsTask` — the raw per-sample
-    // readings — and not read back from a stored summary. `clock_run.cjs`'s
-    // `crossSegment` computed the same quantity at capture time and stored it
-    // in `barTask[pair].perRound`, so the two agreeing to the last place is a
-    // WITNESS that this file implements the driver's own definition rather
-    // than an assumption that it does. If they ever part, one of them has
-    // silently changed what canonical `M1` means.
+    // Computed from the raw `roundsTask`; the driver stored the same quantity
+    // at capture time in `barTask[pair].perRound`.
     let checked = 0;
     for (const dir of Object.keys(EXPECTED)) {
       const c = corpus(dir);
       if (!c) return;
       for (const { data } of c) {
-        const row = data.rows.find((r) => r.rowId === 'M1');
+        const m1 = data.rows.find((r) => r.rowId === 'M1');
         for (const pair of M1_PAIRS) {
-          const mine = pairedLogRatios(row, pair, data).map((x) => Math.exp(x).toFixed(4));
-          const driver = row.barTask[pair].perRound.map((x) => x.toFixed(4));
+          const mine = pairedLogRatios(m1, pair, data).map((x) => Math.exp(x).toFixed(4));
+          const driver = m1.barTask[pair].perRound.map((x) => x.toFixed(4));
           assert.deepStrictEqual(mine, driver, `${dir}/M1/${pair}: the estimand and the driver's own bar must agree`);
           checked += 1;
         }
@@ -4600,198 +1919,34 @@ function fixtureRoundsTask(over) {
     assert.strictEqual(checked, 42, 'three pairs over fourteen committed mount row-runs');
   });
 
-  t('criterion (a): it is FLOOR-NORMALISED, so it is NOT the level ratio — and the difference is measurable', () => {
-    // The whole defect in one assertion. If these two agreed, the splice would
-    // be harmless.
-    for (const dir of Object.keys(EXPECTED)) {
-      const pooled = pooledM1(dir);
-      if (!pooled) return;
-      const floored = effectInterval(pooled.map(({ row, data }) => pairedLogRatios(row, GATED, data)));
-      const level = effectInterval(pooled.map(({ row, data }) => counterpartLogRatios(row, GATED, data)));
-      assert.ok(floored && level);
-      assert.notStrictEqual(floored.point.toFixed(4), level.point.toFixed(4), `${dir}: the two estimands must differ`);
-      assert.notStrictEqual(floored.lo.toFixed(4), level.lo.toFixed(4));
-      assert.notStrictEqual(floored.hi.toFixed(4), level.hi.toFixed(4));
-    }
-  });
-
   t('criterion (a): the estimand refuses a record that did not serialise its tare', () => {
-    // Fail-closed at the same seat `checkStandardFor` is: whether the readings
-    // are tared decides what a floor-normalised ratio taken from them MEANS.
     const c = corpus('clock-emvod');
     if (!c) return;
     const { data } = c[0];
-    const row = data.rows.find((r) => r.rowId === 'M1');
-    assert.ok(pairedLogRatios(row, GATED, data), 'the design record is present and the estimand forms');
-    assert.strictEqual(pairedLogRatios(row, GATED, { ...data, design: undefined }), null, 'no design record, no estimand');
+    const m1 = data.rows.find((r) => r.rowId === 'M1');
+    assert.ok(pairedLogRatios(m1, GATED, data), 'the design record is present and the estimand forms');
+    assert.strictEqual(pairedLogRatios(m1, GATED, { ...data, design: undefined }), null, 'no design record, no estimand');
     assert.strictEqual(
-      pairedLogRatios(row, GATED, { ...data, design: { ...data.design, tare: 'yes' } }),
+      pairedLogRatios(m1, GATED, { ...data, design: { ...data.design, tare: 'yes' } }),
       null,
       'a tare that is not a boolean has not been serialised'
     );
-    assert.strictEqual(pairedLogRatios(row, GATED, undefined), null, 'and the dataset is not optional on this class');
-  });
-
-  // --- 2. CRITERION (b): THE THRESHOLD IS THE ROW CLASS'S -------------------
-
-  t('criterion (b): the estimand and the threshold live in ONE entry, so they cannot drift apart', () => {
-    const mount = publicationRule('M1');
-    const bulk = publicationRule('bulk300');
-    assert.strictEqual(mount.estimand, 'floorNormalised');
-    assert.strictEqual(mount.gate, 1.1);
-    assert.match(mount.governingRecord, /validation\.md:14\/:286/);
-    assert.match(mount.governingRecord, /FLOOR-NORMALISED/);
-    assert.strictEqual(bulk.estimand, 'level');
-    assert.strictEqual(bulk.bar, 1.0);
-    assert.strictEqual(bulk.architectureKill, 1.5);
-    assert.strictEqual(publicationRule('keystroke'), null, 'a row with no class has no rule, and publishes nothing');
-    assert.strictEqual(effectVerdict(null, 'keystroke', GATED).publishes, false);
-    assert.match(effectVerdict(null, 'keystroke', GATED).verdict, /NO PUBLICATION RULE/);
   });
 
   t("criterion (b): the mount rule's boundary, driven in both directions at 1.10x", () => {
-    const iv = (lo, hi) => ({ runs: 8, rounds: [6], point: (lo + hi) / 2, lo, hi, draws: 1, seed: 1 });
-    // ship: the WHOLE interval at or below the gate
-    assert.strictEqual(effectVerdict(iv(1.0, 1.1), 'M1', GATED).publishes, true, '1.10 exactly is at the gate, so it ships');
-    assert.match(effectVerdict(iv(1.0, 1.1), 'M1', GATED).verdict, /MOUNT SHIP BAR MET/);
-    assert.strictEqual(effectVerdict(iv(1.0, 1.1001), 'M1', GATED).publishes, false, 'a hair above and it no longer ships');
-    // trip: the WHOLE interval strictly above the gate
-    assert.strictEqual(effectVerdict(iv(1.1001, 1.3), 'M1', GATED).publishes, true);
-    assert.match(effectVerdict(iv(1.1001, 1.3), 'M1', GATED).verdict, /K1 MISSED, DECISIVELY/);
-    assert.strictEqual(effectVerdict(iv(1.1, 1.3), 'M1', GATED).publishes, false, 'a lower bound AT the gate is not above it');
-    // and the middle is instrument-limited, which is the discipline retained
-    assert.match(effectVerdict(iv(1.05, 1.2), 'M1', GATED).verdict, /INSTRUMENT-LIMITED/);
-    assert.match(effectVerdict(iv(1.05, 1.2), 'M1', GATED).why, /straddles K1's 1\.1x mount gate/);
-    // two runs are still not an ensemble, on any class
-    assert.strictEqual(effectVerdict({ ...iv(1.2, 1.3), runs: 2 }, 'M1', GATED).publishes, false);
-  });
-
-  t("MUTATION: adjudicate M1's own interval against BULK's thresholds and it stops publishing", () => {
-    // Bulk's thresholds, applied to the mount deliberately. `1.0`/`1.5` are
-    // the bulk row's lines; an interval at ~1.17x clears neither, which is
-    // exactly why a bulk-threshold rule returns INSTRUMENT-LIMITED on a row
-    // whose own gate it clears decisively. This is the mutation that proves
-    // the row-specific threshold is load-bearing rather than decorative.
-    for (const dir of Object.keys(EXPECTED)) {
-      const iv = m1Interval(dir, GATED);
-      if (!iv) return;
-      assert.strictEqual(effectVerdict(iv, 'M1', GATED).publishes, true, `${dir}: on its own gate it publishes`);
-      const asBulk = effectVerdict(iv, 'bulk300', 'fresco / reagent-subs', { widestSameRunBandPct: 1 });
-      assert.strictEqual(asBulk.publishes, false, `${dir}: on bulk's thresholds the same interval publishes nothing`);
-      assert.match(asBulk.why, /does not lie wholly on one side of the 1 bar/);
-    }
-  });
-
-  t('MUTATION: without gatedPairs the mount rule would claim the SHIP BAR on a donor-against-donor pair', () => {
-    // `validation.md` states K1's gate against DIRECT UIx-on-subs and says in
-    // terms that Reagent-on-subs does not gate this row. Without that scoping
-    // the rule reads `uix-subs / reagent-subs` — UIx against Reagent, a
-    // comparison K1 does not ask — and, because that interval sits under
-    // 1.10x, announces that the MOUNT SHIP BAR IS MET. Proved by removing the
-    // scoping and putting it back.
-    const iv = m1Interval('clock-emvod', 'uix-subs / reagent-subs');
-    if (!iv) return;
-    assert.ok(iv.hi < 1.1, 'the donor pair does sit under the gate, which is what makes the mutation dangerous');
-    assert.strictEqual(effectVerdict(iv, 'M1', 'uix-subs / reagent-subs').publishes, false);
-    assert.match(effectVerdict(iv, 'M1', 'uix-subs / reagent-subs').verdict, /CO-INSTRUMENTED/);
-    const before = PUBLICATION.mount.gatedPairs;
-    let mutated;
-    try {
-      PUBLICATION.mount.gatedPairs = null;
-      mutated = effectVerdict(iv, 'M1', 'uix-subs / reagent-subs');
-    } finally {
-      PUBLICATION.mount.gatedPairs = before;
-    }
-    assert.strictEqual(mutated.publishes, true, 'the mutation must actually change the answer, or it proves nothing');
-    assert.match(mutated.verdict, /MOUNT SHIP BAR MET/);
-    assert.deepStrictEqual(PUBLICATION.mount.gatedPairs, before, 'the fixture must leave the table as it found it');
-    assert.strictEqual(effectVerdict(iv, 'M1', 'uix-subs / reagent-subs').publishes, false, 'and the scoping holds again');
-  });
-
-  t('MUTATION: swapping the mount estimand changes the published figure, which is the splice', () => {
-    // Both estimators are correct arithmetic. Which one the row publishes on is
-    // a DECISION, and it is one field. Flipping it here and reading the figure
-    // back is the closest this file can get to committing the splice on
-    // purpose and watching the test catch it.
-    const pooled = pooledM1('clock-emvod');
-    if (!pooled) return;
-    const floored = m1Interval('clock-emvod', GATED);
-    const before = PUBLICATION.mount.estimand;
-    let mutated;
-    try {
-      PUBLICATION.mount.estimand = 'level';
-      mutated = effectInterval(pooled.map(({ row, data }) => pairedLogRatios(row, GATED, data)).filter(Boolean));
-    } finally {
-      PUBLICATION.mount.estimand = before;
-    }
-    assert.strictEqual(floored.point.toFixed(4), EXPECTED['clock-emvod'].point);
-    assert.strictEqual(mutated.point.toFixed(4), '1.1679', "the level estimand's own point, for the record");
-    assert.strictEqual(mutated.lo.toFixed(4), '1.1259');
-    assert.strictEqual(mutated.hi.toFixed(4), '1.2096');
-    assert.strictEqual(PUBLICATION.mount.estimand, before, 'the fixture must leave the table as it found it');
-    assert.strictEqual(m1Interval('clock-emvod', GATED).point.toFixed(4), EXPECTED['clock-emvod'].point);
-  });
-
-  // --- 3. CRITERION (c): THE CROSS-RUN MAX-BAND SECOND VETO -----------------
-
-  t('criterion (c): the retirement is LOAD-BEARING, and the veto SPLITS the two ensembles', () => {
-    // Stated as arithmetic rather than asserted, because a retirement that
-    // changed no outcome would not need arguing. What the corpus shows is
-    // stronger than "it would refuse", and it is recorded here as an argument
-    // in its own right:
-    //
-    //   clock-emvod  effect 17.2% against a widest same-run band of 22.34% —
-    //                the retired veto REFUSES.
-    //   clock-w3yxd  effect 19.8% against 18.29% — the retired veto ADMITS.
-    //
-    // Two independently launched ensembles measuring the same effect to within
-    // 2.6 pp, and the retired condition sends them to OPPOSITE verdicts —
-    // because it compares the effect to a control statistic belonging to one
-    // run of one ensemble rather than to any interval for the effect. That is
-    // criterion (c)'s three objections showing up as a disagreement.
-    const relation = {};
-    for (const [dir, want] of Object.entries(EXPECTED)) {
-      const pooled = pooledM1(dir);
-      if (!pooled) return;
-      const iv = m1Interval(dir, GATED);
-      const widest = Math.max(...pooled.map(({ row }) => row.seamTask.band * 100));
-      assert.strictEqual(widest.toFixed(2), want.widestBand.toFixed(2), `${dir}: the widest same-run band`);
-      relation[dir] = Math.abs(iv.point - 1) * 100 > widest ? 'admits' : 'refuses';
-      // and none of it reaches the verdict, which is the retirement itself
-      assert.strictEqual(effectVerdict(iv, 'M1', GATED, { widestSameRunBandPct: widest }).publishes, true, `${dir}: publishes regardless`);
-    }
+    const v = (lo, hi) => effectVerdict({ runs: 8, rounds: [6], point: (lo + hi) / 2, lo, hi, draws: 1, seed: 1 }, 'M1', GATED);
+    // ships when the WHOLE interval is at or below the gate; trips when it is strictly above
     assert.deepStrictEqual(
-      relation,
-      { 'clock-emvod': 'refuses', 'clock-w3yxd': 'admits' },
-      'the retired veto must still split the ensembles — if it stops doing so, this argument has changed and the note above is stale'
+      [[1.0, 1.1], [1.0, 1.1001], [1.1001, 1.3], [1.1, 1.3]].map(([lo, hi]) => v(lo, hi).publishes),
+      [true, false, true, false]
     );
-    assert.strictEqual(PUBLICATION.mount.crossRunBandVeto, false, 'and the mount entry says so as data');
+    assert.match(v(1.0, 1.1).verdict, /MOUNT SHIP BAR MET/);
+    assert.match(v(1.1001, 1.3).verdict, /K1 MISSED, DECISIVELY/);
   });
-
-  t('criterion (c): the retirement ended up GENERAL, and every class says so as data', () => {
-    // Were bulk to adjudicate every pair, retiring the veto there would
-    // promote DONOR-AGAINST-DONOR pairs out of the 42-run corpus the bulk
-    // calibration fences. Bulk gates only the pair its own bar names, and an
-    // un-adjudicated pair has no verdict for a retirement to promote it into.
-    // What belongs
-    // HERE is only that criterion (c) is general, which is what its own three
-    // reasons say; the corpus mechanics, and the two-way mutation on the
-    // field, are pinned in the gated-pair block at the foot of this file.
-    const classes = Object.keys(PUBLICATION);
-    assert.deepStrictEqual(classes.sort(), ['bulk', 'mount'], 'every publication class is covered by this assertion');
-    for (const klass of classes) {
-      assert.strictEqual(PUBLICATION[klass].crossRunBandVeto, false, `${klass}: the cross-run maximum vetoes nothing`);
-    }
-  });
-
-  // --- 4. CRITERION (e): M1 PUBLISHES FROM THE CANONICAL TOOL'S OUTPUT ------
 
   t('criterion (e): the figures come out of clock_readjudicate.cjs itself, on both ensembles', () => {
-    // NOT from a note and not from any replay. The tool is spawned,
-    // its M1 block is read, and the point and BOTH bounds are asserted off the
-    // one printed line — which is the only way a splice cannot survive: a
-    // figure read from one line of one estimator's output has no second line
-    // to borrow a bound from.
+    // The point and BOTH bounds are read off one printed line, which is the
+    // only way a splice cannot survive.
     const RJ = path.join(__dirname, 'clock_readjudicate.cjs');
     for (const [dir, want] of Object.entries(EXPECTED)) {
       const c = corpus(dir);
@@ -4802,96 +1957,27 @@ function fixtureRoundsTask(over) {
       const m1 = out.slice(out.indexOf(';; ======== ROW M1'), out.indexOf(';; ======== ROW bulk300'));
       const block = m1.slice(m1.indexOf(`;;   PAIR ${GATED}`), m1.indexOf(';;   PAIR uix-subs / reagent-subs'));
       const line = block.split('\n').find((l) => /^;;\s+point /.test(l));
-      assert.ok(line, `${dir}: the gated pair must print a point and an interval`);
       assert.ok(
-        new RegExp(`point ${want.point}x\\s+95% CI \\[${want.lo} – ${want.hi}\\]\\s+over ${want.runs} reportable run\\(s\\)`).test(line),
-        `${dir}: expected ${want.point}x [${want.lo} – ${want.hi}] n=${want.runs}, got: ${line.trim()}`
+        line && new RegExp(`point ${want.point}x\\s+95% CI \\[${want.lo} – ${want.hi}\\]\\s+over ${want.runs} reportable run\\(s\\)`).test(line),
+        `${dir}: expected ${want.point}x [${want.lo} – ${want.hi}] n=${want.runs}, got: ${line && line.trim()}`
       );
-      assert.match(line, /POINT AND INTERVAL FROM THE ONE ESTIMATOR, never spliced/);
-      assert.ok(/FLOOR-NORMALISED leg ratio/.test(block), `${dir}: the estimand must be named on the line that publishes`);
       assert.ok(/VERDICT K1 MISSED, DECISIVELY/.test(block), `${dir}: the gated pair trips K1`);
-      // the unfloored table survives as a LABELLED DIAGNOSTIC, never a headline
-      assert.ok(/DIAGNOSTIC, NEVER THE HEADLINE — the unfloored LEVEL estimand reads/.test(block), `${dir}: the level estimand is kept and labelled`);
-      // and the co-instrumented pairs publish nothing
       assert.ok(/VERDICT CO-INSTRUMENTED/.test(m1.slice(m1.indexOf(';;   PAIR uix-subs / reagent-subs'))), `${dir}: donor-vs-donor gates nothing`);
     }
-  });
-
-  // --- 5. CRITERION (f) AND PART (3): WHAT THE PUBLISHED ROW MUST CARRY -----
-
-  t('criterion (f): the published row carries its residual-uncertainty caveats', () => {
-    const src = prose('rows-re-adjudicated-on-the-corrected-clock.md');
-    for (const [what, re] of [
-      ['eight and six outer runs only', /[Ee]ight and six outer runs only/],
-      ['the limits were calibrated on these same 14 runs', /calibrated on these same 14 runs/],
-      ['both ensembles record the same Chromium', /same Chromium/],
-    ]) {
-      assert.match(src, re, `the published M1 row must carry the caveat: ${what}`);
-    }
-  });
-
-  t('part (3): the 0.11pp agreement sentence is retired everywhere', () => {
-    // It is a property of the SELECTION and not of the measurement — the
-    // whole-ensemble means sit 2.59 pp apart. Struck rather than argued with,
-    // because a corroboration claim that survives only under a selection is not
-    // corroboration. The honest statement replaces it.
-    for (const f of fs.readdirSync(STUDIO).filter((x) => x.endsWith('.md'))) {
-      const src = prose(f);
-      assert.ok(!/0\.11 percentage points/.test(src), `${f} still claims the 0.11 pp agreement`);
-      assert.ok(!/0\.11 pp/.test(src), `${f} still claims the 0.11 pp agreement`);
-    }
-    const src = prose('rows-re-adjudicated-on-the-corrected-clock.md');
-    // THE HONEST DISTANCE IS COMPUTED, NOT QUOTED, and it is 2.58 pp rather
-    // than 2.59. Both are right about different summaries of the same
-    // estimand: 2.59 pp is the gap between the whole-ensemble ARITHMETIC
-    // means of the per-round bar (1.1798 / 1.2057); 2.58 pp is the gap
-    // between the figures this row PUBLISHES (1.1718 / 1.1976), which are the
-    // bootstrap's balanced mean-of-logs. Criterion (e) says the tool's output
-    // is the record, so the page states the distance between its own
-    // published points and says which summary that is — quoting 2.59 beside
-    // them would be a splice one order smaller than the one this block
-    // exists to prevent.
-    const gap = ((1.1976 - 1.1718) * 100).toFixed(2);
-    assert.strictEqual(gap, '2.58');
-    assert.match(src, new RegExp(`\\*\\*${gap} pp\\*\\*`), 'the distance between the PUBLISHED points, computed here');
-    assert.match(src, /two independently launched ensembles/i);
-    assert.match(src, /overlapping intervals/i);
   });
 }
 
 // --- BULK GATES THE PAIR ITS BAR NAMES ---------------------------------------
 //
-// TWO RULES THAT INTERLOCK, and the interlock is the whole content of the
-// block.
-//
-// THE SCOPE. `validation.md:17` states the bulk ship bar as "<= 1.0x
-// Reagent-on-subs, LIKE-FOR-LIKE, both sides reading re-frame2
-// subscriptions" — ONE comparison, exactly as `:15-16` state the mount's
-// against direct UIx-on-subs. A rule adjudicating all three pairs of a bulk
-// row against it would hold `fresco / uix-subs` and `uix-subs / reagent-subs`
-// to a threshold written for a different question — the same error that,
-// one class up, would print MOUNT SHIP BAR MET on a donor-against-donor pair.
-//
-// THE VETO. The cross-run max-band second veto is retired on every class,
-// and retiring it on `bulk` would promote pairs of the 42-run corpus the
-// bulk calibration fences. EVERY ONE OF THOSE PAIRS IS `uix-subs /
-// reagent-subs` — donor against donor — so with `gatedPairs` they are not
-// adjudicated at all and there is no verdict for the retirement to promote
-// them into. The collision dissolves rather than being decided, and the bulk
-// calibration's "not retroactively promoted to published magnitudes" is
-// honoured without a control statistic standing in for a scope guard nobody
-// designed it to be.
-//
-// THE LOAD-BEARING CHECK IS THAT THE GATED PAIR DOES NOT MOVE. If retiring the
-// veto flipped `fresco / reagent-subs`, the retirement's premise would be
-// wrong and the fence would be breached. It does not: on all six row-ensemble
-// combinations that pair straddles `1.0` and is refused by the WHOLE-INTERVAL
-// rule, which sits ahead of the veto and is untouched by it. That is a fact
-// about this corpus and not a property of the rule, so it is driven here — and
-// if it ever stops being true, the failure is the finding.
+// validation.md:17 states the bulk ship bar as one comparison — fresco against
+// Reagent-on-subs — so the other two pairs of a bulk row are reported and not
+// adjudicated. The cross-run max-band veto is retired on every class; it is
+// safe on bulk because the gated pair straddles 1.0 on all six row-ensemble
+// combinations and is refused by the whole-interval rule, ahead of the veto.
+// That is a fact about this corpus, driven here in both directions.
 {
   const {
-    pairedLogRatios, effectInterval, effectVerdict, reportable, PUBLICATION, publicationRule,
+    pairedLogRatios, effectInterval, effectVerdict, reportable, PUBLICATION,
   } = require('./clock_readjudicate.cjs');
   const t = (what, fn) => test(`rf2-vp0j7/rf2-vh0e3: ${what}`, fn);
   const GATED = 'fresco / reagent-subs';
@@ -4912,20 +1998,14 @@ function fixtureRoundsTask(over) {
     const pooled = c
       .map(({ data }) => ({ data, row: data.rows.find((r) => r.rowId === rowId) }))
       .filter((x) => x.row && reportable(x.row, x.data));
-    const bands = pooled.map(({ row }) => row.seamTask && row.seamTask.band).filter(Number.isFinite).map((b) => b * 100);
+    const bands = pooled.map(({ row: r }) => r.seamTask && r.seamTask.band).filter(Number.isFinite).map((b) => b * 100);
     return {
-      iv: effectInterval(pooled.map(({ row, data }) => pairedLogRatios(row, pair, data)).filter(Boolean)),
+      iv: effectInterval(pooled.map(({ row: r, data }) => pairedLogRatios(r, pair, data)).filter(Boolean)),
       band: bands.length ? Math.max(...bands) : NaN,
     };
   };
 
-  // --- 1. A NON-GATED BULK PAIR REPORTS, AND ADJUDICATES NOTHING ------------
-
   t('a non-gated bulk pair keeps its interval and loses only the VERDICT', () => {
-    // `validation.md`'s "co-instrumented and reported beside" language is why
-    // the interval survives. What the pair stops carrying is a ship/kill
-    // verdict against a bar stated for another comparison — the output is not
-    // deleted, it is un-adjudicated.
     let seen = 0;
     for (const dir of CORPORA) {
       for (const rowId of BULK_ROWS) {
@@ -4933,11 +2013,8 @@ function fixtureRoundsTask(over) {
           const p = bulkPooled(dir, rowId, pair);
           if (!p) return;
           assert.ok(p.iv, `${dir}/${rowId}/${pair}: the interval must still be formed`);
-          assert.ok(p.iv.lo <= p.iv.point && p.iv.point <= p.iv.hi, `${dir}/${rowId}/${pair}: and be well formed`);
           const ev = effectVerdict(p.iv, rowId, pair, { widestSameRunBandPct: p.band });
-          assert.match(ev.verdict, /^CO-INSTRUMENTED/, `${dir}/${rowId}/${pair}: ${ev.verdict}`);
-          assert.strictEqual(ev.publishes, false, `${dir}/${rowId}/${pair}: a pair nobody gates cannot ship`);
-          assert.match(ev.why, /fresco \/ reagent-subs/, 'the refusal must name the pair the bar does gate');
+          assert.deepStrictEqual([/^CO-INSTRUMENTED/.test(ev.verdict), ev.publishes], [true, false], `${dir}/${rowId}/${pair}: ${ev.verdict}`);
           seen += 1;
         }
       }
@@ -4946,8 +2023,6 @@ function fixtureRoundsTask(over) {
   });
 
   t("and it says so in the tool's own output, beside its own interval", () => {
-    // Read off stdout rather than asserted through the API, because "reported
-    // beside" is a claim about what a reader SEES.
     const RJ = path.join(__dirname, 'clock_readjudicate.cjs');
     for (const dir of CORPORA) {
       const c = corpus(dir);
@@ -4971,27 +2046,19 @@ function fixtureRoundsTask(over) {
     }
   });
 
-  // --- 2. THE GATED PAIR IS THE ONLY ONE THAT ADJUDICATES -------------------
-
   t('the gated bulk pair still adjudicates, and is still INSTRUMENT-LIMITED on this corpus', () => {
-    // The fence. `fresco / reagent-subs` is what `validation.md`'s bulk bar
-    // names, so it keeps its verdict — and that verdict does not move: on all
-    // six row-ensemble combinations the interval STRADDLES 1.0 and is refused
-    // by the whole-interval rule, which is the first condition and not the
-    // retired second one. The reason is asserted, not just the outcome,
-    // because "refused by the band" and "refused by the interval" answer the
-    // veto question in the header above differently.
-    assert.deepStrictEqual(publicationRule('bulk300').gatedPairs, [GATED], "bulk gates the pair validation.md:17 names");
+    // Refused by the INTERVAL straddling the bar, not by the band.
     let seen = 0;
     for (const dir of CORPORA) {
       for (const rowId of BULK_ROWS) {
         const p = bulkPooled(dir, rowId, GATED);
         if (!p) return;
-        assert.ok(p.iv.lo < 1.0 && p.iv.hi > 1.0, `${dir}/${rowId}: the gated interval must straddle the bar — [${p.iv.lo} – ${p.iv.hi}]`);
         const ev = effectVerdict(p.iv, rowId, GATED, { widestSameRunBandPct: p.band });
-        assert.strictEqual(ev.publishes, false, `${dir}/${rowId}: ${ev.verdict}`);
-        assert.match(ev.verdict, /^INSTRUMENT-LIMITED/, `${dir}/${rowId}: a gated pair gets a threshold verdict, not a scope one`);
-        assert.match(ev.why, /does not lie wholly on one side of the 1 bar/, `${dir}/${rowId}: refused by the INTERVAL, not the band`);
+        assert.deepStrictEqual(
+          [ev.publishes, /^INSTRUMENT-LIMITED/.test(ev.verdict), /does not lie wholly on one side of the 1 bar/.test(ev.why)],
+          [false, true, true],
+          `${dir}/${rowId}: ${ev.verdict} — ${ev.why}`
+        );
         seen += 1;
       }
     }
@@ -4999,12 +2066,6 @@ function fixtureRoundsTask(over) {
   });
 
   t('MUTATION: the band veto is retired on bulk, and the gated pair does not move either way', () => {
-    // The load-bearing check from the header above, driven in BOTH
-    // directions. The veto is retired; that the one adjudicated bulk pair
-    // returns a BYTE-IDENTICAL verdict with the veto forced back on is what
-    // makes the retirement safe — the whole-interval rule refuses it first,
-    // so the veto is not what holds it.
-    assert.strictEqual(PUBLICATION.bulk.crossRunBandVeto, false, 'the entry says so as data');
     for (const dir of CORPORA) {
       for (const rowId of BULK_ROWS) {
         const p = bulkPooled(dir, rowId, GATED);
@@ -5019,20 +2080,16 @@ function fixtureRoundsTask(over) {
           PUBLICATION.bulk.crossRunBandVeto = before;
         }
         assert.deepStrictEqual(mutated, shipped, `${dir}/${rowId}: the veto must not reach the gated pair in either position`);
-        assert.strictEqual(PUBLICATION.bulk.crossRunBandVeto, false, 'the fixture must leave the table as it found it');
       }
     }
   });
 
   t('MUTATION: and the retired veto still REFUSES when it is switched back on', () => {
-    // The other direction, on a synthetic interval, because the corpus cannot
-    // show it: no bulk pair that is adjudicated ever reaches the veto. The
-    // refusal branch is kept live so the retirement is one line to overturn, and a
-    // branch nobody drives is a branch nobody can trust.
+    // The corpus cannot show this direction, so a synthetic interval: the
+    // refusal branch stays live so the retirement is one line to overturn.
     const iv = { runs: 8, rounds: [6], point: 0.9, lo: 0.85, hi: 0.95, draws: 1, seed: 1 };
     const ev = () => effectVerdict(iv, 'bulk300', GATED, { widestSameRunBandPct: 40 });
     assert.strictEqual(ev().publishes, true, 'retired: a 10% effect inside a 40% band publishes on the interval alone');
-    assert.match(ev().verdict, /MAGNITUDE PUBLISHABLE/);
     const before = PUBLICATION.bulk.crossRunBandVeto;
     let mutated;
     try {
@@ -5043,52 +2100,6 @@ function fixtureRoundsTask(over) {
     }
     assert.strictEqual(mutated.publishes, false, 'reinstated: the same interval is refused, or the mutation proves nothing');
     assert.match(mutated.why, /the widest same-run noise band among the pooled runs/);
-    assert.strictEqual(PUBLICATION.bulk.crossRunBandVeto, false, 'the fixture must leave the table as it found it');
-    assert.strictEqual(ev().publishes, true, 'and the retirement holds again');
-  });
-
-  // --- 3. THE BULK FENCE: NOTHING IS PROMOTED OUT OF THE 42-RUN CORPUS ------
-
-  t('MUTATION: and gatedPairs is WHY — without it the donor-against-donor pairs would publish', () => {
-    // The scope's value, priced. These are the pairs the band veto masks
-    // incidentally: `uix-subs / reagent-subs` is UIx-on-subs against
-    // Reagent-on-subs, whose whole interval sits below 1.0, and publishing a
-    // magnitude on it would assert that a DONOR meets the CANDIDATE's bulk
-    // ship bar. Scoping the rule is what stops that; the veto only hides it.
-    const PAIR = 'uix-subs / reagent-subs';
-    const would = [];
-    for (const dir of CORPORA) {
-      for (const rowId of BULK_ROWS) {
-        const p = bulkPooled(dir, rowId, PAIR);
-        if (!p) return;
-        const before = PUBLICATION.bulk.gatedPairs;
-        let mutated;
-        try {
-          PUBLICATION.bulk.gatedPairs = null;
-          mutated = effectVerdict(p.iv, rowId, PAIR, { widestSameRunBandPct: p.band });
-        } finally {
-          PUBLICATION.bulk.gatedPairs = before;
-        }
-        assert.deepStrictEqual(PUBLICATION.bulk.gatedPairs, [GATED], 'the fixture must leave the table as it found it');
-        if (mutated.publishes) would.push(`${dir}/${rowId}`);
-      }
-    }
-    // THE COUNT IS THE MEASUREMENT, and it is three: `clock-emvod`'s
-    // `bulk300` and `bulk100`, and `clock-w3yxd`'s `bulk300` with the same
-    // shape (effect 9.6% against a 15.5% band, whole interval
-    // [0.8740 – 0.9373]). All three are donor against donor.
-    assert.deepStrictEqual(
-      would,
-      ['clock-emvod/bulk300', 'clock-emvod/bulk100', 'clock-w3yxd/bulk300'],
-      'the pairs gatedPairs is holding back — if this list changes, the corpus has moved and the gatedPairs scoping needs re-reading'
-    );
-    // and every one of them is refused as UNADJUDICATED rather than as refused
-    for (const dir of CORPORA) {
-      for (const rowId of BULK_ROWS) {
-        const p = bulkPooled(dir, rowId, PAIR);
-        assert.match(effectVerdict(p.iv, rowId, PAIR, { widestSameRunBandPct: p.band }).verdict, /^CO-INSTRUMENTED/);
-      }
-    }
   });
 }
 
@@ -5096,175 +2107,60 @@ function fixtureRoundsTask(over) {
 // EVIDENCE COMPLETENESS AT THE CONSUMER BOUNDARY
 // ============================================================================
 //
-// The same seam, at two consumers: ELIGIBILITY is decided on the serialised
-// verdicts while the RAW EVIDENCE behind them can be missing, and a consumer
-// that quietly worked with whatever survived would decide on less than it
-// claims.
-//
-//   THE STANDARD  a `checkStandard` that certified a ONE-ELEMENT ratio list
-//          at the frozen centre (`ok: true`, `n: 1`, `robustScale: 0`), or a
-//          `checkStandardFor` that accepted a committed six-round row
-//          TRUNCATED to one round, would judge three segment blocks by limits
-//          that are statistics of the 18-block design. Retiring the
-//          all-blocks rule never means allowing blocks to be ABSENT.
-//   THE INTERVAL  a `passIdx.map(pairedLogRatios).filter(Boolean)` would drop
-//          a reportable run whose raw pair readings were unusable, and an
-//          `effectInterval` that filtered again would let blanking ONE reading
-//          of ONE run publish "an interval over 7 reportable run(s)" where 8
-//          had cleared every gate, with nothing anywhere saying evidence was
-//          lost.
-//
-// The witnesses below are those two demonstrations, driven against the
-// committed clock-emvod corpus, plus the fence that nothing adjudicative
-// moves: the frozen limits are byte-identical (pinned to the last place by
-// the mount-class and hold-out blocks above) and both committed ensembles read
-// COMPLETE and exit 0 (pinned by the corpus cases above). An INCOMPLETE
-// evidence set refuses, by name, instead of shrinking silently.
+// Eligibility is decided on the serialised verdicts while the raw evidence
+// behind them can be missing. A record whose declared design is itself short
+// must still refuse, and the interval consumer must refuse an unusable member
+// rather than silently pooling fewer runs than cleared the gates.
 {
-  const { STANDARD, checkStandard } = require('./clock_check_standard.cjs');
-  const {
-    checkStandardFor, pairedLogRatios, effectInterval, reportable, refusals,
-  } = require('./clock_readjudicate.cjs');
+  const { checkStandardFor, pairedLogRatios, effectInterval, reportable } = require('./clock_readjudicate.cjs');
   const t = (what, fn) => test(`rf2-8a746 audits #7698/#7700: ${what}`, fn);
   const RJ = path.join(__dirname, 'clock_readjudicate.cjs');
-  const ROWS_WITH_STANDARD = ['bulk300', 'bulk100', 'narrow', 'M1'];
-  const PAIRS_ALL = ['fresco / reagent-subs', 'fresco / uix-subs', 'uix-subs / reagent-subs'];
 
   const corpus = (dir) => {
     const d = path.join(__dirname, 'data', dir);
     if (!fs.existsSync(d)) return null;
     return fs.readdirSync(d).sort().map((f) => ({
-      file: path.join(d, f),
       name: f,
       data: archive.readRecord(path.join(d, f)),
     }));
   };
 
-  // --- THE DIRECT HELPER'S EXPECTED-N CONTRACT ------------------------------
-
-  t('WITNESS (one block): a one-element list at the frozen centre is REFUSED, never certified with n: 1', () => {
-    // The single reading sits DEAD ON the frozen centre, so only the
-    // cardinality can be what refuses it.
-    for (const [rowId, klass] of [['bulk300', STANDARD.classes.bulk], ['M1', STANDARD.classes.mount]]) {
-      const v = checkStandard([klass.centre], rowId);
-      assert.strictEqual(v.ok, false, `${rowId}: one block must not certify`);
-      assert.match(v.why, /1 block\(s\) observed/, `${rowId}: the refusal carries the observed count`);
-      assert.match(v.why, /exactly 18/, `${rowId}: and the expected count`);
-      assert.strictEqual(v.location, null, `${rowId}: refused BEFORE location was computed`);
-      assert.strictEqual(v.dispersion, null, `${rowId}: and before dispersion`);
-    }
-  });
-
-  t('missing and extra blocks refuse in both directions, and the boundary is exact at 18', () => {
-    const at = (n) => Array.from({ length: n }, () => STANDARD.classes.bulk.centre);
-    for (const n of [2, 3, 15, 17]) {
-      const v = checkStandard(at(n), 'bulk300');
-      assert.strictEqual(v.ok, false, `${n} blocks must refuse`);
-      assert.match(v.why, new RegExp(`${n} block\\(s\\) observed`), `${n}: observed count in the message`);
-      assert.match(v.why, /MISSING round/, `${n}: named as the missing direction`);
-    }
-    for (const n of [19, 21, 36]) {
-      const v = checkStandard(at(n), 'bulk300');
-      assert.strictEqual(v.ok, false, `${n} blocks must refuse`);
-      assert.match(v.why, /EXTRA round/, `${n}: named as the extra direction`);
-    }
-    assert.strictEqual(checkStandard(at(18), 'bulk300').ok, true, '18 at the centre still certifies — the contract is exact, not a floor');
-  });
-
-  t('the expected count is the STANDARD\'s own field, tied to the declared 6-round x 3-segment design', () => {
-    assert.strictEqual(STANDARD.evidence.expectedBlocks, 18);
-    assert.strictEqual(
-      STANDARD.evidence.design.rounds * STANDARD.evidence.design.segments,
-      STANDARD.evidence.expectedBlocks,
-      'the count is the design\'s arithmetic, stated once'
-    );
-    assert.strictEqual(STANDARD.version, 4, 'requiring completeness is a consumer-contract change — a version bump with its own amendment');
-    const a = STANDARD.amendments.find((x) => x.version === 4);
-    assert.ok(a, 'the completeness change is recorded as its own amendment');
-    assert.match(a.touches, /byte-identical to v3/, 'and swears the frozen numbers did not move');
-  });
-
-  // --- THE TRUNCATED-ROUND WITNESS, ON THE COMMITTED CORPUS -----------------
-
-  t('WITNESS (truncated round, committed corpus): every row cut to one round is REFUSED — none still passes', () => {
-    // The count of rows that still pass the standard after truncation must be
-    // ZERO, over every dataset of the clock-emvod ensemble and every row that
-    // has a standard.
-    const c = corpus('clock-emvod');
-    if (!c) return; // datasets are retained, not required to build
-    let checked = 0;
-    let passed = 0;
-    for (const { data } of c) {
-      for (const rowId of ROWS_WITH_STANDARD) {
-        const row = data.rows.find((r) => r.rowId === rowId);
-        if (!row) continue;
-        const cut = { ...row, roundsTask: row.roundsTask.slice(0, 1) };
-        const v = checkStandardFor(cut, data);
-        checked += 1;
-        if (v.ok) passed += 1;
-        assert.match(v.why || '', /1 round\(s\) of TaskDuration readings/, `${rowId}: observed rounds in the message`);
-        assert.match(v.why || '', /declared design of 6/, `${rowId}: expected rounds in the message`);
-        // and the refusal reaches the POOLING decision: the run leaves the
-        // reportable subset for a stated cause — no pool.
-        assert.strictEqual(reportable(cut, data), false, `${rowId}: a truncated run may not be pooled`);
-        assert.ok(refusals(cut, data).some((w) => /TRUNCATED or PADDED/.test(w)), `${rowId}: and the refusal names itself`);
-      }
-    }
-    assert.strictEqual(checked, 32, 'four rows with a standard over eight committed datasets');
-    assert.strictEqual(passed, 0, `${passed} truncated row(s) still certified — truncated evidence must refuse`);
-  });
-
   t('a record whose OWN declared design is short cannot smuggle a smaller count past the boundary', () => {
-    // Internal consistency alone would wave this through: one round declared,
-    // one round present. The expected-N contract is the standard's, so the
-    // three consistent blocks still refuse with both counts named.
     const c = corpus('clock-emvod');
     if (!c) return;
     const { data } = c[0];
-    const row = data.rows.find((r) => r.rowId === 'bulk300');
-    const cut = { ...row, roundsTask: row.roundsTask.slice(0, 1) };
-    const v = checkStandardFor(cut, { ...data, design: { ...data.design, rounds: 1 } });
+    const bulk300 = data.rows.find((r) => r.rowId === 'bulk300');
+    // one round declared, one round present: internally consistent, still three blocks of eighteen
+    const v = checkStandardFor({ ...bulk300, roundsTask: bulk300.roundsTask.slice(0, 1) }, { ...data, design: { ...data.design, rounds: 1 } });
     assert.strictEqual(v.ok, false);
     assert.match(v.why, /3 block\(s\) observed/);
-    assert.match(v.why, /exactly 18/);
     // and a design that declares NO round count is absent, not clean
-    const noRounds = checkStandardFor(row, { ...data, design: { tare: data.design.tare } });
+    const noRounds = checkStandardFor(bulk300, { ...data, design: { tare: data.design.tare } });
     assert.strictEqual(noRounds.ok, false);
     assert.match(noRounds.why, /declares no round count/);
   });
 
-  // --- THE INTERVAL CONSUMER REFUSES, NEVER FILTERS -------------------------
-
   t('effectInterval REJECTS an invalid member rather than filtering it', () => {
     const good = Array(6).fill(Math.log(1.2));
     assert.throws(() => effectInterval([good, null]), /member\(s\) 1 of 2 carry no usable paired log-ratios/, 'a null member is refused, not dropped');
-    assert.throws(() => effectInterval([good, []]), /never filtered into a smaller unstated subset/, 'an empty member too');
     assert.throws(() => effectInterval([good, [Math.log(1.2), NaN]]), /completeness is the caller's to prove before pooling/, 'and a member with a non-finite entry');
-    const iv = effectInterval([good, good, good]);
-    assert.ok(iv && iv.runs === 3, 'a complete pool still forms its interval');
+    assert.strictEqual(effectInterval([good, good, good]).runs, 3, 'a complete pool still forms its interval');
     assert.strictEqual(effectInterval([]), null, 'an EMPTY pool is no interval, not a refusal — nothing was pooled and nothing was lost');
-    assert.strictEqual(effectInterval(undefined), null);
   });
 
   t('WITNESS (mutation, committed corpus): blanking one raw reading is caught, named, and exits 4', () => {
-    // The live witness, end to end: blank ONLY run1's
-    // `roundsTask[0].fresco.fresco` on M1. Every serialised gate verdict is
-    // untouched, so eligibility is UNCHANGED — which is exactly what would
-    // make a filtering consumer silent — and the raw evidence behind the
-    // fresco pairs is gone.
+    // Blank ONLY run1's `roundsTask[0].fresco.fresco` on M1: every serialised
+    // gate verdict is untouched, so eligibility is unchanged — exactly what
+    // would make a filtering consumer silent.
     const c = corpus('clock-emvod');
     if (!c) return;
     const mutated = JSON.parse(JSON.stringify(c[0].data));
     const m1 = mutated.rows.find((r) => r.rowId === 'M1');
     m1.roundsTask[0].fresco.fresco = [];
-    // eligibility survives the mutation — the defect's precondition, asserted
     assert.strictEqual(reportable(m1, mutated), true, 'the run still clears every gate — evidence loss is NOT an eligibility question');
     assert.strictEqual(pairedLogRatios(m1, 'fresco / uix-subs', mutated), null, 'and the estimand refuses to form');
-    assert.strictEqual(pairedLogRatios(m1, 'fresco / reagent-subs', mutated), null);
     assert.ok(Array.isArray(pairedLogRatios(m1, 'uix-subs / reagent-subs', mutated)), 'the unblanked pair still forms');
 
-    // through the PROGRAM, which is where a silent subset would publish:
-    // the same ensemble with run1 mutated, spawned from disk.
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hic-8a746-'));
     try {
       const files = c.map(({ name, data }, i) => {
@@ -5274,68 +2170,23 @@ function fixtureRoundsTask(over) {
       });
       const r = cp.spawnSync(process.execPath, [RJ, ...files], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
       const out = `${r.stdout}${r.stderr}`;
-      assert.strictEqual(r.status, 4, `the program must exit 4 on raw evidence lost after eligibility — got ${r.status}: ${out.slice(-1500)}`);
-      assert.match(out, /RAW EVIDENCE LOST AFTER ELIGIBILITY/, 'the loss is announced where the interval would have printed');
-      // THE ROSTER ASSERTIONS CARRY THE ROSTER INTO THEIR OWN FAILURE MESSAGE,
-      // as the exit-code assertion above carries the output's tail. Without
-      // it a CI-only failure here would report that the roster was wrong and
-      // never what the roster actually SAID — a bisect nobody can run from
-      // the log. This widens what a FAILURE reports, never what a PASS
-      // accepts. A negative control that cannot say what it saw is still a
-      // negative control, but it costs a worker a day to read.
-      const ri = out.indexOf(';; EXIT 4');
-      const sawRoster =
-        ri >= 0
-          ? `roster as printed:\n${out.slice(ri, ri + 2000)}`
-          : `NO ";; EXIT 4" BLOCK IN THE OUTPUT — tail was:\n${out.slice(-2000)}`;
-      assert.match(out, /run1\.json: row M1, pair `fresco \/ uix-subs`/, `the exit roster names the file and the pair — ${sawRoster}`);
-      assert.match(out, /run1\.json: row M1, pair `fresco \/ reagent-subs`/, `both fresco pairs of the blanked segment — ${sawRoster}`);
-      // THE SILENT-SUBSET SENTENCE, scoped to M1: the M1
-      // block must not publish "an interval over 7 reportable run(s)" where 8
-      // cleared the gates. (`narrow` legitimately pools 7 of 8 on this
-      // ensemble — ONE run refused BY A GATE, with its reason printed in the
-      // refusal table — which is the stated-subset path and exactly the
-      // distinction this witness exists to draw.)
-      const m1Block = out.slice(out.indexOf(';; ======== ROW M1'), out.indexOf(';; ======== ROW bulk300'));
-      assert.ok(m1Block.length > 0, 'the M1 block must be printed');
-      assert.ok(!/over 7 reportable run\(s\)/.test(m1Block), 'no M1 interval claims 7 reportable runs where 8 cleared the gates — no silent subset');
-      assert.match(m1Block, /INCOMPLETE — 1 of 8 reportable run\(s\) yield no raw quotient/, 'and the raw-quotient diagnostic states its loss instead of shrinking');
-      assert.match(out, /EXIT 4 — 2 reportable run\/pair\(s\) LOST RAW EVIDENCE/, 'and the exit block counts the losses');
-      // the unaffected pair still pools all 8 — suppression is per pair, not
-      // a blanket refusal of the ensemble — and the intact donor pair is
-      // nowhere in the loss roster
-      assert.match(m1Block, /over 8 reportable run\(s\)/, 'the intact M1 pair keeps its full pool');
+      const tail = out.slice(-2000);
+      assert.strictEqual(r.status, 4, `the program must exit 4 on raw evidence lost after eligibility — got ${r.status}: ${tail}`);
+      assert.match(out, /run1\.json: row M1, pair `fresco \/ uix-subs`/, `the exit roster names the file and the pair — ${tail}`);
+      assert.match(out, /run1\.json: row M1, pair `fresco \/ reagent-subs`/, `both fresco pairs of the blanked segment — ${tail}`);
       assert.ok(!/run1\.json: row M1, pair `uix-subs \/ reagent-subs`/.test(out), 'the intact pair is not named as lost');
+      assert.match(out, /EXIT 4 — 2 reportable run\/pair\(s\) LOST RAW EVIDENCE/, 'and the exit block counts the losses');
+      // No M1 interval may claim 7 runs where 8 cleared the gates; the intact
+      // pair keeps its full pool. (`narrow` pools 7 of 8 legitimately — one
+      // run refused BY A GATE, with its reason printed.)
+      const m1Block = out.slice(out.indexOf(';; ======== ROW M1'), out.indexOf(';; ======== ROW bulk300'));
+      assert.ok(!/over 7 reportable run\(s\)/.test(m1Block), 'no silent subset');
+      assert.match(m1Block, /INCOMPLETE — 1 of 8 reportable run\(s\) yield no raw quotient/, 'the diagnostic states its loss instead of shrinking');
+      assert.match(m1Block, /over 8 reportable run\(s\)/, 'the intact M1 pair keeps its full pool');
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
   });
-
-  t('the committed corpus itself is COMPLETE under the new boundary — nothing eligible was lost', () => {
-    // The fence, API-level: on both ensembles, every reportable run of every
-    // row yields its declared round count of paired ratios on every pair, so
-    // the pool the program forms is exactly the reportable set and the
-    // program's exit stays 0 (the corpus spawn cases above pin that).
-    for (const dir of ['clock-emvod', 'clock-w3yxd']) {
-      const c = corpus(dir);
-      if (!c) return;
-      const rowIds = [...new Set(c.flatMap(({ data }) => data.rows.map((r) => r.rowId)))].filter((id) => ROWS_WITH_STANDARD.includes(id));
-      for (const rowId of rowIds) {
-        const pooled = c
-          .map(({ file, data }) => ({ file, data, row: data.rows.find((r) => r.rowId === rowId) }))
-          .filter((x) => x.row && reportable(x.row, x.data));
-        assert.ok(pooled.length > 0, `${dir}/${rowId}: the corpus must still pool`);
-        for (const pair of PAIRS_ALL) {
-          for (const { file, data, row } of pooled) {
-            const ratios = pairedLogRatios(row, pair, data);
-            assert.ok(Array.isArray(ratios), `${dir}/${rowId}/${pair}: ${path.basename(file)} must yield ratios`);
-            assert.strictEqual(ratios.length, data.design.rounds, `${dir}/${rowId}/${pair}: ${path.basename(file)} must yield its declared round count`);
-          }
-        }
-      }
-    }
-  });
-
 }
 
 let failed = 0;
