@@ -951,9 +951,8 @@
   rows in `trace_view_cljs_test` call THIS instead and supply the four
   reads themselves.
 
-  `feed` is the whole `:rf.xray/trace-feed` map — only `:rows` and
-  `:empty-kind` are rendered (the `:envelope` / `:bands` / `:outcome`
-  slots are not, per `install!` below).
+  `feed` is the whole `:rf.xray/trace-feed` map; its `:rows` and
+  `:empty-kind` are rendered.
 
   `instance` is OPTIONAL and is the ALREADY-TOKENISED per-mount
   name — `Panel` below runs [[instance-token]] once and hands the result
