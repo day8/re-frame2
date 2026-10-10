@@ -303,30 +303,26 @@ def scan(root: Path) -> tuple[list[str], list[str]]:
 # self-test
 #
 # One fixture per way this gate can fail: OPEN on a claim it should catch, or
-# CLOSED on prose it should pass.  The count is deliberately not written down
-# — a written count drifts, and the cases name themselves as they run, which
-# is the copy that cannot.  Each is written into a
-# throwaway tree with its own git repository, because the corpus is derived
-# from `git ls-files` and a fixture that skipped that would not exercise the
-# code path the real run takes.
+# CLOSED on prose it should pass.  Each is written into a throwaway tree with
+# its own git repository, because the corpus is derived from `git ls-files`.
 # ---------------------------------------------------------------------------
 
 _GOOD_BUDGETS = "| S7 | Warm allocation | no publishable claim | allocation instrument | floor |\n"
 _GOOD_BASELINE = "| Warm allocation | No fitted series clears the registered quality floor | x | y |\n"
 
 
-def _make_tree(tmp: Path, *, budgets: str, baseline: str, design: str, publication: str) -> Path:
+def _make_tree(tmp: Path, *, budgets: str = _GOOD_BUDGETS, baseline: str = _GOOD_BASELINE,
+               design: str = "The floor arm reads 24,108 B per write.\n",
+               publication: str = "Nothing to see here.\n") -> Path:
     root = tmp / "tree"
-    (root / "docs" / "design" / "fresco" / "product" / "lanes").mkdir(parents=True)
     (root / "docs" / "core").mkdir(parents=True)
-    # The two premise files are written at the addresses `PREMISES` names
-    # rather than at hardcoded paths: a hardcoded copy here would go stale
-    # when a premise file moves, and red every fixture with PREMISE GONE.
-    for rel, _, _ in PREMISES:
+    (root / "docs" / "design" / "fresco").mkdir(parents=True)
+    # Written at the addresses `PREMISES` names, so a moved premise file does
+    # not red every fixture with PREMISE GONE.
+    for (rel, _, _), body in zip(PREMISES, (budgets, baseline)):
         path = root.joinpath(*rel.split("/"))
         path.parent.mkdir(parents=True, exist_ok=True)
-    root.joinpath(*PREMISES[0][0].split("/")).write_text(budgets, encoding="utf-8")
-    root.joinpath(*PREMISES[1][0].split("/")).write_text(baseline, encoding="utf-8")
+        path.write_text(body, encoding="utf-8")
     (root / "docs" / "design" / "fresco" / "record.md").write_text(design, encoding="utf-8")
     (root / "docs" / "core" / "guide.md").write_text(publication, encoding="utf-8")
     subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
@@ -338,148 +334,42 @@ def _run_self_tests() -> int:
     import tempfile
 
     failures = 0
-    cases = []
-
-    # 1. THE SEEDED VIOLATION, which must be red.
-    cases.append(
-        (
-            "an unqualified figure on the publication surface is RED",
-            dict(
-                budgets=_GOOD_BUDGETS,
-                baseline=_GOOD_BASELINE,
-                design="The floor arm reads 24,108 B per write.\n",
-                publication="Each boundary costs about 2,031 B/boundary/write in a warm page.\n",
-            ),
-            "UNQUALIFIED ALLOCATION CLAIM",
-        )
-    )
-
-    # 2. The same figure, qualified in its own paragraph: GREEN. The rule is
-    #    *no claim without its qualification*, and this is the half that
-    #    proves the gate is not simply banning the digits.
-    cases.append(
-        (
-            "the same figure WITH its qualification is GREEN",
-            dict(
-                budgets=_GOOD_BUDGETS,
-                baseline=_GOOD_BASELINE,
-                design="The floor arm reads 24,108 B per write.\n",
-                publication=(
-                    "An early window read about 2,031 B/boundary/write, but no fitted series\n"
-                    "clears the quality floor, so this is not a claim.\n"
-                ),
-            ),
-            None,
-        )
-    )
-
-    # 2a. THE CROSS-SIBLING FAIL-OPEN. A whole Markdown table is one
-    #     blank-line block, so scoping qualification to the block would let a
-    #     DIFFERENT row's honest `quality floor unmet` certify this figure.
-    #     Both halves of the rule are fixtured, in both shapes, because a
-    #     change that simply stopped honouring qualification would pass the
-    #     red pair and quietly delete case 2.
-    cases.append(
-        (
-            "a figure whose QUALIFIER IS IN ANOTHER TABLE ROW is RED",
-            dict(
-                budgets=_GOOD_BUDGETS,
-                baseline=_GOOD_BASELINE,
-                design="The floor arm reads 24,108 B per write.\n",
-                publication=(
-                    "| Product cost | 2,031 B/boundary/write |\n"
-                    "| Separate instrument | quality floor unmet |\n"
-                ),
-            ),
-            "UNQUALIFIED ALLOCATION CLAIM",
-        )
-    )
-
-    # 2b. The same leak in a tight list, which shares the blank-line block for
-    #     the same reason.
-    cases.append(
-        (
-            "a figure whose QUALIFIER IS IN ANOTHER LIST ITEM is RED",
-            dict(
-                budgets=_GOOD_BUDGETS,
-                baseline=_GOOD_BASELINE,
-                design="The floor arm reads 24,108 B per write.\n",
-                publication=(
-                    "- Product cost: 2,031 B/boundary/write\n"
-                    "- Separate instrument: quality floor unmet\n"
-                ),
-            ),
-            "UNQUALIFIED ALLOCATION CLAIM",
-        )
-    )
-
-    # 2c. A row that qualifies ITSELF still passes: the unit is the row, not
-    #     the digits.
-    cases.append(
-        (
-            "a table row qualified IN ITS OWN CELLS is GREEN",
-            dict(
-                budgets=_GOOD_BUDGETS,
-                baseline=_GOOD_BASELINE,
-                design="The floor arm reads 24,108 B per write.\n",
-                publication=(
-                    "| Product cost | 2,031 B/boundary/write, off a window the "
-                    "instrument refused |\n"
-                    "| Separate instrument | measured |\n"
-                ),
-            ),
-            None,
-        )
-    )
-
-    # 2d. ...and a list item's qualification may be on its WRAPPED line, which
-    #     is the case that stops the claim unit from becoming a per-line scan.
-    cases.append(
-        (
-            "a list item qualified on its own WRAPPED line is GREEN",
-            dict(
-                budgets=_GOOD_BUDGETS,
-                baseline=_GOOD_BASELINE,
-                design="The floor arm reads 24,108 B per write.\n",
-                publication=(
-                    "- Product cost: an early window read 2,031 B/boundary/write,\n"
-                    "  but no fitted series clears the quality floor, so it is not\n"
-                    "  a claim.\n"
-                    "- Separate instrument: measured.\n"
-                ),
-            ),
-            None,
-        )
-    )
-
-    # 3. The premise moving is RED, so the gate cannot outlive its own reason.
-    cases.append(
-        (
-            "a cleared quality floor is RED, demanding re-authorisation",
-            dict(
-                budgets="| S7 | Warm allocation | 1,655 B/boundary/write | instrument | MET |\n",
-                baseline=_GOOD_BASELINE,
-                design="The floor arm reads 24,108 B per write.\n",
-                publication="Nothing to see here.\n",
-            ),
-            "PREMISE MOVED",
-        )
-    )
-
-    # 4. A design record with no figure at all trips the positive control,
-    #    which is what stops a green from meaning "the scan read nothing".
-    cases.append(
-        (
-            "a design record with no figure trips the POSITIVE CONTROL",
-            dict(
-                budgets=_GOOD_BUDGETS,
-                baseline=_GOOD_BASELINE,
-                design="Prose about allocation with no figure in it at all.\n",
-                publication="Nothing to see here.\n",
-            ),
-            "POSITIVE CONTROL ABSENT",
-        )
-    )
+    cases = [
+        ("an unqualified figure on the publication surface is RED",
+         dict(publication="Each boundary costs about 2,031 B/boundary/write in a warm page.\n"),
+         "UNQUALIFIED ALLOCATION CLAIM"),
+        # The half that proves the gate is not simply banning the digits.
+        ("the same figure WITH its qualification is GREEN",
+         dict(publication=(
+             "An early window read about 2,031 B/boundary/write, but no fitted series\n"
+             "clears the quality floor, so this is not a claim.\n")),
+         None),
+        # A whole table or tight list is ONE blank-line block, so scoping
+        # qualification to the block would let a DIFFERENT row certify this figure.
+        ("a figure whose QUALIFIER IS IN ANOTHER TABLE ROW is RED",
+         dict(publication=(
+             "| Product cost | 2,031 B/boundary/write |\n"
+             "| Separate instrument | quality floor unmet |\n")),
+         "UNQUALIFIED ALLOCATION CLAIM"),
+        ("a figure whose QUALIFIER IS IN ANOTHER LIST ITEM is RED",
+         dict(publication=(
+             "- Product cost: 2,031 B/boundary/write\n"
+             "- Separate instrument: quality floor unmet\n")),
+         "UNQUALIFIED ALLOCATION CLAIM"),
+        ("a list item qualified on its own WRAPPED line is GREEN",
+         dict(publication=(
+             "- Product cost: an early window read 2,031 B/boundary/write,\n"
+             "  but no fitted series clears the quality floor, so it is not\n"
+             "  a claim.\n"
+             "- Separate instrument: measured.\n")),
+         None),
+        ("a cleared quality floor is RED, demanding re-authorisation",
+         dict(budgets="| S7 | Warm allocation | 1,655 B/boundary/write | instrument | MET |\n"),
+         "PREMISE MOVED"),
+        ("a design record with no figure trips the POSITIVE CONTROL",
+         dict(design="Prose about allocation with no figure in it at all.\n"),
+         "POSITIVE CONTROL ABSENT"),
+    ]
 
     for name, kwargs, expected in cases:
         with tempfile.TemporaryDirectory() as tmp:
