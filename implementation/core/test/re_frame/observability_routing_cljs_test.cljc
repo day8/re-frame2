@@ -13,6 +13,7 @@
             [re-frame.elision :as rf.elision]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.event-emit :as rf.event-emit]
+            [re-frame.events :as rf.events]
             [re-frame.frame :as rf.frame]
             [re-frame.observability :as rf.observability]
             [re-frame.source-coords :as rf.source-coords]
@@ -162,11 +163,21 @@
 ;; Each event plants its own source-coord so the `:source-coord` equality
 ;; compares values rather than two nils.
 
+(defn- reg-event-at!
+  "Register an event as a macro registration whose call site is `coord`: the
+  reg-* macro's `*pending-coords*` binding around the fn form. The record's
+  `:source-coord` is the registration coordinate of the descriptor that ran."
+  [coord id metadata handler]
+  (binding [rf.source-coords/*pending-coords* coord]
+    (rf.events/reg-event id metadata handler)))
+
 (deftest error-sink-record-carries-producer-component-attribution
   (testing "a throwing interceptor and a throwing coeffect supplier each deliver a
             record whose :failing-id names the failing component, distinct from
             :event-id, with the producer's :source-coord, and :reason on :tags"
-    (let [seen (atom [])]
+    (let [seen       (atom [])
+          attr-coord {:ns 'kuky65.attr :file "test/kuky65/attr.cljc" :line 4242}
+          cofx-coord {:ns 'kuky65.cofx :file "test/kuky65/cofx.cljc" :line 77}]
       (rf/register-observability-sink! :test.sinks/attribution
                                        (fn [record] (swap! seen conj record)))
       (rf/make-frame {:id :obs/attr :observability
@@ -174,21 +185,20 @@
                                  :rf.egress/profile :rf.egress/off-box-observability}]}})
       (rf/reg-interceptor :kuky65/boom-after
                           {:after (fn [_ctx] (throw (ex-info "after boom" {})))})
-      (rf/reg-event :kuky65/with-throwing-interceptor
-                    {:frame :obs/attr :interceptors [:kuky65/boom-after]}
-                    (fn [{:keys [db]} _] {:db (assoc db :x 1)}))
+      (reg-event-at! attr-coord :kuky65/with-throwing-interceptor
+                     {:frame :obs/attr :interceptors [:kuky65/boom-after]}
+                     (fn [{:keys [db]} _] {:db (assoc db :x 1)}))
       (rf/reg-cofx :kuky65/boom-cofx
                    (fn [] (throw (ex-info "cofx supplier boom" {}))))
-      (rf/reg-event :kuky65/needs-boom-cofx
-                    {:frame :obs/attr :rf.cofx/requires [:kuky65/boom-cofx]}
-                    (fn [{:keys [db]} _] {:db db}))
+      (reg-event-at! cofx-coord :kuky65/needs-boom-cofx
+                     {:frame :obs/attr :rf.cofx/requires [:kuky65/boom-cofx]}
+                     (fn [{:keys [db]} _] {:db db}))
       (doseq [[error event-id failing-id coord]
               [[:rf.error/interceptor-exception :kuky65/with-throwing-interceptor :kuky65/boom-after
-                {:ns 'kuky65.attr :file "test/kuky65/attr.cljc" :line 4242}]
+                attr-coord]
                [:rf.error/coeffect-exception :kuky65/needs-boom-cofx :kuky65/boom-cofx
-                {:ns 'kuky65.cofx :file "test/kuky65/cofx.cljc" :line 77}]]]
+                cofx-coord]]]
         (testing (name error)
-          (rf.source-coords/remember-error-coords! :event event-id coord)
           (rf/dispatch-sync [event-id] {:frame :obs/attr})
           (let [r (error-of-kind error @seen)]
             (is (= [event-id failing-id coord nil]
@@ -207,12 +217,10 @@
       (classify-sensitive! :obs/reason [:reason])
       (rf/reg-cofx :kuky65/classified-boom-cofx
                    (fn [] (throw (ex-info "supplier leaked hunter2 into its message" {}))))
-      (rf/reg-event :kuky65/classified-reason-event
-                    {:frame :obs/reason :rf.cofx/requires [:kuky65/classified-boom-cofx]}
-                    (fn [{:keys [db]} _] {:db db}))
-      (rf.source-coords/remember-error-coords!
-        :event :kuky65/classified-reason-event
-        {:ns 'kuky65.reason :file "test/kuky65/reason.cljc" :line 11})
+      (reg-event-at! {:ns 'kuky65.reason :file "test/kuky65/reason.cljc" :line 11}
+                     :kuky65/classified-reason-event
+                     {:frame :obs/reason :rf.cofx/requires [:kuky65/classified-boom-cofx]}
+                     (fn [{:keys [db]} _] {:db db}))
       (try (rf/dispatch-sync [:kuky65/classified-reason-event] {:frame :obs/reason})
            (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ nil))
       (let [r (error-of-kind :rf.error/coeffect-exception @seen)]

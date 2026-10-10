@@ -177,8 +177,8 @@
          ;; Production elision: the binding-value rides
          ;; an outer `interop/debug-enabled?` gate so Closure DCEs the
          ;; dev coords (with `:column`) under `:advanced + goog.DEBUG=false`.
-         ;; The bound coords are still captured at runtime via the
-         ;; parallel `error-coords-by-id` registry (see
+         ;; The bound coords are still captured at runtime, as the
+         ;; stored descriptor's registration coordinate (see
          ;; `re-frame.source-coords`).
          `(do
             (binding [re-frame.source-coords/*pending-coords* ~coord-form]

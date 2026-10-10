@@ -24,8 +24,8 @@
           :time         <millis>
           :exception    <ex>
           :elapsed-ms   <int>
-          :source-coord {:ns :file :line}  ;; absent if the failing
-                                           ;; handler was registered
+          :source-coord {:ns :file :line}  ;; the implementation that ran;
+                                           ;; absent if it was registered
                                            ;; programmatically
                                            ;; (no macro capture)
           }
@@ -35,11 +35,12 @@
     door for off-box observability shippers (Sentry, Honeybadger,
     Rollbar): those observe production errors through a frame's
     `:observability :errors` sink, which delivers a PROJECTED
-    `:rf.observe/error` record (Spec 015). The `:source-coord` slot
-    rides the always-on parallel
-    `error-coords-by-id` registry so it survives CLJS `:advanced` +
-    `goog.DEBUG=false` builds where public registry-meta carries no
-    coord-keys.
+    `:rf.observe/error` record (Spec 015). The `:source-coord` slot is
+    the registration coordinate of the descriptor the failing frame
+    resolved (`rf.source-coords/registration-coords`), so it names the
+    implementation that ran even when several are live for one id, and it
+    survives CLJS `:advanced` + `goog.DEBUG=false` builds where public
+    registry-meta carries no coord-keys.
 
   Observability is the only concern here — there is no app-steering
   recovery policy. Recovery is framework-owned: the per-category typed
@@ -62,6 +63,7 @@
             [re-frame.emit-substrate :as rf.emit-substrate]
             [re-frame.interop        :as rf.interop]
             [re-frame.late-bind      :as rf.late-bind]
+            [re-frame.registrar      :as rf.registrar]
             [re-frame.source-coords  :as rf.source-coords]
             [re-frame.trace          :as rf.trace]))
 
@@ -274,13 +276,13 @@
 
 ;; ---- kind-aware source-coord lookup --------------------------------------
 ;;
-;; The always-on `error-coords-by-id` parallel registry is keyed by
-;; `[registry-kind id]` — the SAME `kind` the public reg-* macro path
-;; stamped at registration (`re-frame.registrar/register!` →
-;; `remember-error-coords!`). A `reg-sub` stores coords under `[:sub
-;; sub-id]`; a `reg-event-*` under `[:event event-id]`. So the lookup
-;; MUST pivot on the registry kind the failing `id` was registered with,
-;; not assume `:event`.
+;; The coordinate is the registration coordinate of the descriptor that ran:
+;; the failing frame's own resolution of `[registry-kind id]`, read inside
+;; that frame's resolution scope so an image-selected implementation answers
+;; for its own record (`rf.source-coords/registration-coords`). A `reg-sub`
+;; resolves under `[:sub sub-id]`; a `reg-event-*` under `[:event event-id]`.
+;; So the lookup MUST pivot on the registry kind the failing `id` was
+;; registered with, not assume `:event`.
 ;;
 ;; The error categories carry that kind: a `:rf.error/sub-*` record's
 ;; `:event-id` slot holds a SUB id (the call sites in `subs.cljc` /
@@ -312,7 +314,7 @@
 
 (def ^:private sub-error-categories
   "Categories whose `:event-id` slot carries a SUB id — their source
-  coords live under `[:sub sub-id]` in the always-on registry, so
+  coords come from the `[:sub sub-id]` descriptor, so
   `dispatch-on-error!` resolves them there rather than under the
   `[:event …]` default. Covers the parametric input-fn failures and the
   reactive sub-exception; `[:sub …]` is the ONLY lookup realm for them, so a
@@ -388,12 +390,27 @@
       (and (= :rf.error/frame-destroyed error-kw)
            (= :subscribe op))))
 
+(defn- executed-coord
+  "The registration coordinate of the `[kind id]` descriptor `frame-id`
+  resolves — the implementation the failing frame runs — or nil. Read inside
+  the frame's resolution scope (`:live-frame/call-with-frame-resolution`), so
+  two frames running different images' implementations of one id each report
+  their own; with no frame, the lookup reads whatever resolution is in scope.
+  Both hooks are late-bound; an unbound one reads the ambient resolution."
+  [kind id frame-id]
+  (let [read #(rf.source-coords/registration-coords (rf.registrar/lookup kind id))]
+    (if-let [with-owner (when (some? frame-id)
+                          (rf.late-bind/get-fn-cached :live-frame/call-with-frame-resolution))]
+      (with-owner frame-id read)
+      (read))))
+
 (defn- error-source-coord
   "Resolve the `{:ns :file :line}` source-coord for the failing `id` of an
   `error-kw` category, pivoting on the registry kind the `id` was
-  registered with. Returns nil when no coords were captured
-  (programmatic registration that bypassed the macro path, or an id that
-  was never registered) — the caller `cond->`s the slot in, so nil means
+  registered with, from the descriptor `frame-id` resolves ([[executed-coord]]).
+  Returns nil when that descriptor carries no coords
+  (programmatic registration that bypassed the macro path, or an id the
+  frame does not resolve) — the caller `cond->`s the slot in, so nil means
   the `:source-coord` slot is ABSENT from the record rather than nil.
 
     - `:rf.error/sub-*` categories → look under `[:sub id]`.
@@ -416,24 +433,24 @@
           `[:sub]`-then-`[:event]`, which keeps the router-dispatch
           caller correct (the event-id misses `[:sub]` then hits `[:event]`).
     - every other category → look under `[:event id]`."
-  [error-kw id op]
+  [error-kw id op frame-id]
   (when id
-    (cond
-      (contains? sub-error-categories error-kw)
-      (rf.source-coords/error-coords-for :sub id)
+    (let [coord-in #(executed-coord % id frame-id)]
+      (cond
+        (contains? sub-error-categories error-kw)
+        (coord-in :sub)
 
-      (= :rf.error/frame-destroyed error-kw)
-      (case op
-        (:dispatch :dispatch-sync) (rf.source-coords/error-coords-for :event id)
-        :subscribe                 (rf.source-coords/error-coords-for :sub id)
-        ;; `op` absent — the ordinary address-directed core router DISPATCH
-        ;; emitter (the subs SUBSCRIBE emitter stamps `:op :subscribe`
-        ;; and resolves realm-exact via the `:subscribe` case above).
-        (or (rf.source-coords/error-coords-for :sub id)
-            (rf.source-coords/error-coords-for :event id)))
+        (= :rf.error/frame-destroyed error-kw)
+        (case op
+          (:dispatch :dispatch-sync) (coord-in :event)
+          :subscribe                 (coord-in :sub)
+          ;; `op` absent — the ordinary address-directed core router DISPATCH
+          ;; emitter (the subs SUBSCRIBE emitter stamps `:op :subscribe`
+          ;; and resolves realm-exact via the `:subscribe` case above).
+          (or (coord-in :sub) (coord-in :event)))
 
-      :else
-      (rf.source-coords/error-coords-for :event id))))
+        :else
+        (coord-in :event)))))
 
 (defn- redact-event-by-registration
   "Apply the dispatched event's REGISTRATION-owned `:sensitive` / `:large` marks
@@ -556,16 +573,16 @@
    (dispatch-on-error! error-kw event event-id frame-id exception elapsed-ms time attrs true))
   ([error-kw event event-id frame-id exception elapsed-ms time attrs route-frame?]
    (when (rf.trace/continuation-live?)
-     (let [;; Always-on error-coord registry: source-coords
-           ;; for the failing handler/sub ride the always-on parallel
-           ;; registry (NOT the public registry-meta — which is stripped of
-           ;; coord-keys under CLJS `:advanced + goog.DEBUG=false`). The
-           ;; lookup here surfaces `{:ns :file :line}` for Sentry-style
-           ;; shippers in BOTH dev AND production. Returns nil for
-           ;; programmatic registrations that bypassed the macro path —
+     (let [;; Source-coords for the failing handler/sub ride the descriptor
+           ;; the failing frame resolved (NOT the public registry-meta —
+           ;; which is stripped of coord-keys under CLJS
+           ;; `:advanced + goog.DEBUG=false`). The lookup here surfaces
+           ;; `{:ns :file :line}` of the implementation that ran, for
+           ;; Sentry-style shippers in BOTH dev AND production. Returns nil
+           ;; for programmatic registrations that bypassed the macro path —
            ;; that's fine; the slot is absent from the record rather than nil.
            ;;
-           ;; The lookup is KIND-AWARE: the registry is keyed
+           ;; The lookup is KIND-AWARE: descriptors resolve
            ;; by `[registry-kind id]`, so a sub-id (`:rf.error/sub-*`
            ;; categories) must resolve under `[:sub …]`, not the hardcoded
            ;; `[:event …]`. For the realm-ambiguous `:rf.error/frame-destroyed`
@@ -575,7 +592,7 @@
            ;; is attributed to the correct realm. See [[error-source-coord]] /
            ;; [[sub-error-categories]].
            source-coord (try
-                          (error-source-coord error-kw event-id (:op attrs))
+                          (error-source-coord error-kw event-id (:op attrs) frame-id)
                           (catch #?(:clj Throwable :cljs :default) e
                             (when (rf.trace/continuation-live?)
                               (throw e))))]

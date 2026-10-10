@@ -55,8 +55,8 @@
      `:advanced` + `goog.DEBUG=false` and DCEs the dev branch — only
      the slim prod coords literal survives into the bundle. The bound
      coords are STILL captured at runtime via `*pending-coords*` so
-     `registrar/register!`'s `remember-error-coords!` hook (always-on)
-     populates the parallel error-coord registry; only the public
+     `registrar/register!` (always-on) attaches them to the stored
+     descriptor as its registration coordinate; only the public
      registry-meta merge is suppressed in prod (see
      [[rf.source-coords/merge-coords]])."
      [form-meta file ns-sym body-form]

@@ -34,14 +34,16 @@
        coords-form additionally DCEs (the slim prod coords-form omits
        `:column` entirely).
 
-    2. **Always-on error-coord registry**: [[remember-error-coords!]]
-       populates [[error-coords-by-id]] at registration time. The
+    2. **The registration's own coordinate, always-on**:
+       `registrar/register!` attaches the captured coord-map to the
+       descriptor it stores ([[with-registration-coords]]), and the
        error-emit substrate (`re-frame.error-emit/dispatch-on-error!`)
-       looks up coords via [[error-coords-for]] when assembling the
-       tight error-record and the structured policy-event — so
-       Sentry/Honeybadger/Rollbar shippers still see source-line info
-       in production builds where the trace surface is gone. This
-       channel survives `goog.DEBUG=false` by construction.
+       reads it back off the descriptor the failing frame resolved
+       ([[registration-coords]]) when assembling the tight error-record —
+       so Sentry/Honeybadger/Rollbar shippers see the source line of the
+       implementation that ran, in production builds where the trace
+       surface is gone. This channel survives `goog.DEBUG=false` by
+       construction.
 
   The DOM-annotation hook (per Tool-Pair §Source-mapping) is the dev-only
   piece, gated separately."
@@ -97,14 +99,14 @@
   `goog.DEBUG=false` builds (and JVM SSR with `re-frame.debug=false`)
   this fn returns `user-meta` unchanged regardless of any pending
   coords binding. Coord-keys are stripped from the public registry-meta
-  in production; the always-on `error-coords-by-id` parallel registry
-  (see [[remember-error-coords!]]) carries them through to the
-  error-emit substrate for Sentry-style observability."
+  in production; the registration's own coordinate (see
+  [[with-registration-coords]]) carries them through to the error-emit
+  substrate for Sentry-style observability."
   [user-meta]
   (if-not rf.interop/debug-enabled?
-    ;; Production: strip the coord-keys from public meta. The always-on
-    ;; error-coords parallel registry retains them for error-emit
-    ;; observability — see [[remember-error-coords!]] / [[error-coords-for]].
+    ;; Production: strip the coord-keys from public meta. The descriptor's
+    ;; registration coordinate retains them for error-emit observability —
+    ;; see [[with-registration-coords]] / [[registration-coords]].
     (or user-meta {})
     (let [coords *pending-coords*]
       (if coords
@@ -473,49 +475,91 @@
         acc))
     spec inline-source))
 
-;; ---- always-on error-coord registry --------------------------------------
+;; ---- the registration's own coordinate (always-on) -----------------------
 ;;
-;; The parallel registry that retains source-coords in production builds.
-;; Populated unconditionally at registration time via [[remember-error-
-;; coords!]]; the error-emit substrate reads it via [[error-coords-for]]
-;; when assembling the tight error-record passed to corpus-wide listener
-;; fans (Sentry / Honeybadger / Rollbar). Survives `:advanced` +
-;; `goog.DEBUG=false` — the namespace and the atom are unconditional;
-;; only the dev-side merge into public registry-meta is elided.
+;; One `[kind id]` can have several live implementations — two namespaces each
+;; registering it, chosen per frame by images — so the coordinate an error
+;; record reports belongs to the DESCRIPTOR that ran, not to the id.
+;; `registrar/register!` attaches the coord-map the reg-* macro captured to the
+;; descriptor it stores, and the same descriptor value lands in the source store
+;; and from there in every sealed generation that selects it; the error-emit
+;; substrate reads it back off the descriptor the failing frame resolves.
+;;
+;; It rides as Clojure METADATA on the descriptor map rather than as a key,
+;; because the public registry-meta strips coords in production (Policy A) and a
+;; key would surface through `rf/handler-meta` there. Metadata survives
+;; `:advanced` + `goog.DEBUG=false`, takes no part in descriptor equality, and
+;; follows every `assoc` / `dissoc` assembly applies. A registration made with
+;; no macro on the stack carries none, so its errors report no coordinate rather
+;; than another registration's.
+
+(def ^:private registration-coords-key ::registration-coords)
+
+(defn with-registration-coords
+  "Return `descriptor` carrying `coords` as its registration coordinate, or
+  carrying none when `coords` is nil — so a re-registration never inherits the
+  coordinate of a descriptor it was built from. A non-map `descriptor` is
+  returned unchanged. Pure."
+  [descriptor coords]
+  (cond
+    (not (map? descriptor))
+    descriptor
+
+    coords
+    (vary-meta descriptor assoc registration-coords-key coords)
+
+    (contains? (meta descriptor) registration-coords-key)
+    (vary-meta descriptor dissoc registration-coords-key)
+
+    :else
+    descriptor))
+
+(defn registration-coords
+  "The coord-map the reg-* macro captured for the registration `descriptor`
+  records — `{:ns :file :line}`, plus `:column` in dev — or nil (a
+  programmatic registration, an image-inline entry, a framework standard).
+  Pure."
+  [descriptor]
+  (get (meta descriptor) registration-coords-key))
+
+;; ---- the process-wide `[kind id]` coord index -----------------------------
+;;
+;; The coordinate of the LAST macro registration of each `[kind id]`, kept for
+;; tooling that resolves an id outside any frame (Story's element inspector
+;; falls back to it for a view's `:file` when production elision has stripped
+;; the public meta). Error emission does not read it: with several live
+;; implementations of one id it names whichever namespace registered last.
 
 (defonce
-  ^{:doc "kind → id → coords-map. Atomic. Per-process. Mirrors the
-          registrar shape so error-emit can pivot on `(kind, id)`. The
-          values are coord-maps (`:rf/source-coord-meta` per
-          Spec-Schemas — `:ns` / `:file` / `:line`; `:column` is dev-
-          only). Survives production elision so Sentry-style shippers
-          see source-line info even when the trace surface is gone."}
+  ^{:doc "kind → id → coords-map. Atomic. Per-process. The values are
+          coord-maps (`:rf/source-coord-meta` per Spec-Schemas — `:ns` /
+          `:file` / `:line`; `:column` is dev-only). Last macro registration
+          wins. Survives production elision."}
   error-coords-by-id
   (atom {}))
 
 (defn remember-error-coords!
-  "Store coord-map under `[kind id]` in the always-on parallel registry.
-  Called by `re-frame.registrar/register!` from any path where
-  `*pending-coords*` is bound (the public reg-* macro path). In CLJS
-  production builds the coord-map's `:column` slot is absent — the
-  prod-side macro emission omits it; only `:ns`/`:file`/`:line` ride
-  through. Returns the stored coord-map."
+  "Store coord-map under `[kind id]` in the process-wide index. Called by
+  `re-frame.registrar/register!` from any path where `*pending-coords*` is
+  bound (the public reg-* macro path). In CLJS production builds the
+  coord-map's `:column` slot is absent — the prod-side macro emission omits
+  it; only `:ns`/`:file`/`:line` ride through. Returns the stored coord-map."
   [kind id coords]
   (when (and kind id coords)
     (swap! error-coords-by-id assoc-in [kind id] coords))
   coords)
 
 (defn error-coords-for
-  "Look up the stored source-coord map for `[kind id]`. Returns nil when
-  no coords were captured for that pair (programmatic registration, REPL
-  eval that bypassed the macro path). The error-emit substrate uses this
-  to stamp `:source-coord` on the tight record + policy-event in BOTH
-  dev AND production."
+  "Look up the coord-map of the last macro registration of `[kind id]`.
+  Returns nil when none was captured for that pair (programmatic
+  registration, REPL eval that bypassed the macro path). For an error
+  record's coordinate read [[registration-coords]] off the descriptor that
+  ran instead."
   [kind id]
   (get-in @error-coords-by-id [kind id]))
 
 (defn forget-error-coords!
-  "Clear the parallel registry. Test fixtures use this between cases.
+  "Clear the process-wide coord index. Test fixtures use this between cases.
   Mirrors `registrar/clear-all!`."
   []
   (reset! error-coords-by-id {})
@@ -595,8 +639,8 @@
 ;; PRODUCTION KEEPS THIS PATH. The production-elision gate drops the DEV
 ;; coord-form — the one carrying `:column` — and keeps
 ;; [[prod-coords-form]], which absolutises `:file` exactly as the dev
-;; branch does, so the always-on error-coord registry can still name a
-;; source line in the builds that actually break. A release bundle
+;; branch does, so an error record can still name a source line in the
+;; builds that actually break. A release bundle
 ;; therefore carries the BUILDING MACHINE's directory layout, once per
 ;; macro-driven registration. That is the contract rather than an
 ;; oversight, and `spec/Privacy.md` §What the production bundle itself

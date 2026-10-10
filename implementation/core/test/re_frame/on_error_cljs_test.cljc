@@ -16,7 +16,10 @@
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.error-emit :as rf.error-emit]
+            [re-frame.events :as rf.events]
+            [re-frame.registrar :as rf.registrar]
             [re-frame.source-coords :as rf.source-coords]
+            [re-frame.subs :as rf.subs]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
@@ -175,7 +178,8 @@
 ;; knows its realm stamps the public `:op` onto the record, and the source-coord
 ;; lookup pivots on it — `:dispatch` / `:dispatch-sync` under `[:event id]`,
 ;; `:subscribe` under `[:sub id]` — so the realm-blind `[:sub]`-then-`[:event]`
-;; fallback can never take the other realm's coord.
+;; fallback can never take the other realm's coord. Each realm's coord is the
+;; registration coordinate of that realm's descriptor.
 ;; ============================================================================
 
 (def ^:private event-coord
@@ -185,12 +189,19 @@
   {:ns 're-frame.on-error-cljs-test.collide-subs :file "collide_subs.cljc" :line 22})
 
 (defn- seed-coords!
-  "Forget every error coord, then remember `event-coord` / `sub-coord` for `id`
-  in each realm named in `realms`."
+  "Clear `id` from both realms, then register it in each realm named in
+  `realms` — an event at `event-coord`, a sub at `sub-coord` — each as a macro
+  registration: the reg-* macro's `*pending-coords*` binding around the fn
+  form."
   [id realms]
-  (rf.source-coords/forget-error-coords!)
-  (when (:event realms) (rf.source-coords/remember-error-coords! :event id event-coord))
-  (when (:sub realms) (rf.source-coords/remember-error-coords! :sub id sub-coord)))
+  (rf.registrar/unregister! :event id)
+  (rf.registrar/unregister! :sub id)
+  (when (:event realms)
+    (binding [rf.source-coords/*pending-coords* event-coord]
+      (rf.events/reg-event id (fn [{:keys [db]} _] {:db db}))))
+  (when (:sub realms)
+    (binding [rf.source-coords/*pending-coords* sub-coord]
+      (rf.subs/reg-sub id (fn [db _] db)))))
 
 (defn- precheck-superseded-records
   "Pin a `capture-frame` api to a live frame, destroy it and reseat a same-id
