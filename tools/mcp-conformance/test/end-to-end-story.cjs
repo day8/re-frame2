@@ -80,9 +80,9 @@ const CLOJURE = process.env.STORY_MCP_CMD
 
 // Canonical tool-name list — sourced from story-mcp's own fixture so
 // this conformance harness and the upstream
-// `tools/story-mcp/test/stdio-roundtrip.js` / JVM `tools_test.clj`
-// agree on the expected `tools/list` response without three hand-
-// maintained lists drifting. A registry change updates one file.
+// `tools/story-mcp/test/stdio-roundtrip.js` agree on the expected
+// `tools/list` response without two hand-maintained lists drifting.
+// A registry change updates one file.
 const EXPECTED_TOOLS = JSON.parse(
   fs.readFileSync(path.join(STORY_MCP_CWD, 'test', 'fixtures', 'tool-names.json'), 'utf8'),
 ).names;

@@ -370,7 +370,6 @@
   "Write-category descriptors for the in-ns tools (register /
   unregister), in spec/002-Tool-Registry.md order."
   [{:name           "register-variant"
-    :category       :write
     :description    (str "Register a variant programmatically. GATED behind `:rf.story-mcp/allow-writes?` (default false). Enables the self-healing loop: write story → run → read failures → fix. "
                          "Examples: "
                          "1. Object body (preferred): {:variant-id \":story.cart/probe\" :body {:doc \"...\" :args {:label \"OK\"}}} -> {:variant-id :story.cart/probe :registered? true}. "
@@ -396,7 +395,6 @@
     :handler     tool-register-variant}
 
    {:name           "unregister-variant"
-    :category       :write
     :description    (str "Unregister a registered variant. GATED behind `:rf.story-mcp/allow-writes?` (default false). Symmetric to `register-variant`. "
                          "Examples: "
                          "1. Registered: {:variant-id \":story.cart/probe\"} -> {:variant-id :story.cart/probe :unregistered? true}. "
