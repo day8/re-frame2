@@ -24,7 +24,28 @@
   macrotask later**, which a `setTimeout 0` horizon would break and is
   the only thing about the horizon that is a design property rather than
   a measurement. Setting the horizon to 0 turns this row red;
-  raising it to 32 does not."
+  raising it to 32 does not.
+
+  ## Why row 1 runs the race on a clock that stands still
+
+  On Node's real clock two things that are not the horizon decide the
+  race. One is wall-clock time: a reaper's horizon runs from its own
+  arming, so every millisecond the host spends before the probe fires
+  counts against it. The other is Node's timer lists — one per
+  duration, each drained whole when its turn comes, and taken in the
+  order of their oldest pending timer. A 0 ms timer an earlier row left
+  pending puts the probe's list, probe included, in front of a reaper
+  already past its horizon; a 4 ms one puts the reaper's list first and
+  the row goes red with nothing about the horizon changed. Under this
+  lane the probe fires more than 4 ms after its own arming, with the
+  reaper already overdue, so on a real clock the row reports which of
+  those timers is older.
+
+  So the row records the timers the render arms instead of arming them,
+  adds the probe, and fires them as a clock that does not move during
+  the render would: by delay, ties in arm order. Both properties above
+  hold there — at a horizon of 0 the reaper ties the probe and was
+  armed first, so the row goes red; at 32 it stays green."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
@@ -34,8 +55,8 @@
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.uix/adapter
-     ;; The horizon rows are `async` — a reap horizon is not observable
-     ;; inside one synchronous test body.
+     ;; The map shape, because the claimed-entry row is `async` — it
+     ;; waits the real horizon out.
      :async?  true
      :init-fn (fn [] (rf.bench.fresco.arm1.runtime/reset-runtime!) (rf.bench.fresco.arm1.runtime/reset-body-runs!))}))
 
@@ -53,43 +74,56 @@
   (rf.bench.fresco.arm1.runtime/render-body frame-id (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))]) {})
   (rf.bench.fresco.arm1.runtime/last-reads))
 
+(defn- armed-by
+  "Calls `f` with `setTimeout` recording each timer instead of arming it,
+  and answers `[result timers]`: every timer `f` armed, as
+  `[delay-ms callback]` in arm order."
+  [f]
+  (let [real    (.-setTimeout js/globalThis)
+        !timers (volatile! [])]
+    (set! (.-setTimeout js/globalThis)
+          (fn [callback ms] (vswap! !timers conj [(or ms 0) callback]) nil))
+    (try
+      [(f) @!timers]
+      (finally (set! (.-setTimeout js/globalThis) real)))))
+
+(defn- fire-on-a-still-clock!
+  "Fires `timers` as a clock that does not move while they are armed
+  fires them: by delay, ties in arm order (`sort-by` is stable)."
+  [timers]
+  (run! (fn [[_ callback]] (callback)) (sort-by first timers)))
+
 ;; ---------------------------------------------------------------------------
 ;; 1 — the reap horizon is past a bare `setTimeout 0`
 ;; ---------------------------------------------------------------------------
 
 (deftest an-unclaimed-entry-survives-a-bare-macrotask-and-not-the-horizon
-  (async done
-    (seeded!)
-    (testing "**The race the hydration door has to win**.
-             An entry is minted in the RENDER and claimed in the COMMIT,
-             and `hydrateRoot` puts a scheduler turn between the two. A
-             reaper armed at `setTimeout 0` inside the render would
-             evict the entry before React ever calls its `subscribe` —
-             the boundary would end up subscribed to a detached entry, and
-             its next render would miss the cache, mint a second one, and
-             hand `useSyncExternalStore` a different `subscribe` to tear
-             down and rebuild.
+  (seeded!)
+  (testing "**The race the hydration door has to win**.
+           An entry is minted in the RENDER and claimed in the COMMIT,
+           and `hydrateRoot` puts a scheduler turn between the two. A
+           reaper armed at `setTimeout 0` inside the render would
+           evict the entry before React ever calls its `subscribe` —
+           the boundary would end up subscribed to a detached entry, and
+           its next render would miss the cache, mint a second one, and
+           hand `useSyncExternalStore` a different `subscribe` to tear
+           down and rebuild.
 
-             The horizon is asserted as the RACE, not as its integer: a
-             timer armed AFTER the reaper's, for zero, must still find the
-             entry cached"
-      (let [entry (one-body-run!)]
-        (is (some? entry) "the render minted an entry")
-        (is (zero? (.-refs entry)) "unclaimed — no commit has run")
-        (is (= 1 (:entries (rf.bench.fresco.arm1.runtime/stats))) "and it is in the cache")
-        (js/setTimeout
-          (fn []
-            (is (= 1 (:entries (rf.bench.fresco.arm1.runtime/stats)))
-                "one bare macrotask later it is STILL cached — a commit
-                 arriving here would find the entry its render minted")
-            (js/setTimeout
-              (fn []
-                (is (zero? (:entries (rf.bench.fresco.arm1.runtime/stats)))
-                    "and the horizon is bounded, not disabled: an entry
-                     nothing claimed is still evicted")
-                (done))
-              8))
-          0)))))
+           The horizon is asserted as the RACE, not as its integer: a
+           timer armed AFTER the reaper's, for zero, must still find the
+           entry cached"
+    (let [[entry timers] (armed-by one-body-run!)
+          probe          [0 (fn []
+                              (is (= 1 (:entries (rf.bench.fresco.arm1.runtime/stats)))
+                                  "one bare macrotask later it is STILL cached — a commit
+                                   arriving here would find the entry its render minted"))]]
+      (is (some? entry) "the render minted an entry")
+      (is (zero? (.-refs entry)) "unclaimed — no commit has run")
+      (is (= 1 (:entries (rf.bench.fresco.arm1.runtime/stats))) "and it is in the cache")
+      (fire-on-a-still-clock! (conj timers probe))
+      (is (zero? (:entries (rf.bench.fresco.arm1.runtime/stats)))
+          "and the horizon is bounded, not disabled: an entry
+           nothing claimed is still evicted"))))
 
 (deftest a-claimed-entry-is-never-reaped-at-any-horizon
   (async done
