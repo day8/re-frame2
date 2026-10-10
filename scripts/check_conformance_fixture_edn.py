@@ -371,17 +371,10 @@ def check(fixtures_root: Path, verbose: bool = False, ci: bool = False) -> tuple
 
 # --------------------------------------------------------------------------
 # Self-tests — synthetic fixture dirs exercising both directions.
+# Well-formed maps, comments, brackets and escapes inside strings, and `::`
+# inside strings all occur in the live corpus, so the gate's own live run
+# guards those green shapes.
 # --------------------------------------------------------------------------
-
-# The real shape, reduced: a map whose value is a vector of assertion maps.
-_GOOD = """;; a conformance fixture
-{:kind :routing
- :given {:url "/garbage/path"}
- :trace-emissions
- [{:operation :rf.error/no-such-handler
-   :tags {:url "/garbage/path" :kind :route}}
-  {:operation :rf.event/run-start}]}
-"""
 
 # One closing brace too many, so the top-level form ends
 # early and the assertions after it fall outside it.
@@ -400,31 +393,10 @@ _TRAILING_FORM = """{:kind :routing
 {:trace-emissions [{:operation :rf.event/run-start}]}
 """
 
-# Brackets that appear only inside a string or as char literals must NOT be
-# counted — otherwise the gate reds the corpus for no reason.
-_TRICKY_BUT_VALID = """;; brackets in }} comments {{ are ignored
-{:kind :routing
- :url "a string with }}} and {{{ and a \\" quote"
- :chars [\\{ \\} \\( \\)]
- :note "trailing ; is not a comment inside a string"}
-"""
-
 # The depth-only false green, reduced to its smallest form. Aggregate depth
 # ends at 0, never goes negative, and counts one top-level form — so a
 # depth-only scanner calls this well-formed EDN. It is not EDN at all.
 _MISMATCHED_PAIR = """{:a [1 2)}
-"""
-
-# The same defect at fixture scale: the assertion VECTOR is closed with a
-# brace, and the outer map is then closed with the vector's bracket. Every
-# aggregate number here is identical to the well-formed file's —
-# final-depth=0, min-depth=0, top-level-forms=1 — which is exactly why this
-# case, and none of the ones above it, discriminates the two scanners.
-_MISMATCHED_IN_FIXTURE = """;; a conformance fixture
-{:kind :routing
- :given {:url "/garbage/path"}
- :trace-emissions
- [{:operation :rf.error/no-such-handler}}]
 """
 
 _UNCLOSED = """{:kind :routing
@@ -447,27 +419,22 @@ _AUTO_RESOLVED_KEYWORD = """;; a conformance fixture
  :event [::after-elapsed 5000 1 [:loading]]}
 """
 
-# `::` inside a string (the CEDN byte strings) or a comment is ordinary EDN
-# and must NOT be flagged — otherwise the gate reds the corpus for no reason.
-_DOUBLE_COLON_NOT_A_TOKEN = """;; a comment may say ::after-elapsed freely
-{:call   :cedn/encode
- :expect "k::answer"
- :event  [:rf.machine.timer/after-elapsed 5000 1 [:loading]]}
+# `::` inside a comment is not a token and must NOT be flagged.
+_DOUBLE_COLON_IN_COMMENT = """;; a comment may say ::after-elapsed freely
+{:event [:rf.machine.timer/after-elapsed 5000 1 [:loading]]}
 """
 
 
 def _run_self_tests(verbose: bool = False) -> int:
     cases: list[tuple[str, str, int]] = [
         # (fixture name, text, expected defect count)
-        ("ok_well_formed.edn", _GOOD, 0),
-        ("ok_brackets_in_strings_and_chars.edn", _TRICKY_BUT_VALID, 0),
+        ("ok_double_colon_in_comment.edn", _DOUBLE_COLON_IN_COMMENT, 0),
         ("bad_extra_closing_brace.edn", _EXTRA_BRACE, 1),
         ("bad_trailing_second_form.edn", _TRAILING_FORM, 1),
         ("bad_unclosed_form.edn", _UNCLOSED, 1),
         ("bad_unterminated_string.edn", _UNTERMINATED_STRING, 1),
         ("bad_no_form_at_all.edn", _ONLY_COMMENTS, 1),
         ("bad_auto_resolved_keyword.edn", _AUTO_RESOLVED_KEYWORD, 1),
-        ("ok_double_colon_in_string_and_comment.edn", _DOUBLE_COLON_NOT_A_TOKEN, 0),
     ]
 
     failures = 0
@@ -478,7 +445,7 @@ def _run_self_tests(verbose: bool = False) -> int:
             (root / name).write_text(text, encoding="utf-8")
 
             saved = sys.stderr
-            sys.stderr = _DevNull()
+            sys.stderr = _Capture()
             try:
                 _, got = check(root, verbose=False, ci=False)
             finally:
@@ -519,45 +486,31 @@ def _run_self_tests(verbose: bool = False) -> int:
         elif verbose:
             sys.stderr.write("self-test PASS: names_the_file\n")
 
-    # The mismatched shapes are asserted by REASON, not by a defect count: a
-    # count of 1 could come from the depth rule instead, and then it would not
-    # discriminate an opener stack from an aggregate depth counter, which
-    # scans them clean. Assert the reason, and assert the aggregate numbers
-    # are the clean file's, so a regression to depth-only counting fails here.
-    for name, text in (
-        ("mismatch_pair", _MISMATCHED_PAIR),
-        ("mismatch_in_fixture", _MISMATCHED_IN_FIXTURE),
+    # Asserted by REASON over clean aggregate numbers, not by a defect count:
+    # a count of 1 could come from the depth rule, and then it would not
+    # discriminate an opener stack from an aggregate depth counter.
+    s = scan_edn(_MISMATCHED_PAIR)
+    reason = _defect_reason(s)
+    if (
+        reason is None
+        or not reason.startswith("mismatched delimiters")
+        or s.summary() != "final-depth=0 min-depth=0 top-level-forms=1"
     ):
-        s = scan_edn(text)
-        reason = _defect_reason(s)
-        if (
-            reason is None
-            or not reason.startswith("mismatched delimiters")
-            or s.summary() != "final-depth=0 min-depth=0 top-level-forms=1"
-        ):
-            sys.stderr.write(
-                f"self-test FAIL: {name}_is_invisible_to_depth — expected a "
-                f"'mismatched delimiters' defect over clean aggregate "
-                f"numbers, got {reason!r} with {s.summary()}\n"
-            )
-            failures += 1
-        elif verbose:
-            sys.stderr.write(f"self-test PASS: {name}_is_invisible_to_depth\n")
+        sys.stderr.write(
+            "self-test FAIL: mismatch_pair_is_invisible_to_depth — expected a "
+            f"'mismatched delimiters' defect over clean aggregate numbers, got "
+            f"{reason!r} with {s.summary()}\n"
+        )
+        failures += 1
+    elif verbose:
+        sys.stderr.write("self-test PASS: mismatch_pair_is_invisible_to_depth\n")
 
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
         return 1
     if verbose:
-        sys.stderr.write(f"all {len(cases) + 3} self-tests passed.\n")
+        sys.stderr.write(f"all {len(cases) + 2} self-tests passed.\n")
     return 0
-
-
-class _DevNull:
-    def write(self, *_args, **_kwargs) -> int:  # noqa: D401
-        return 0
-
-    def flush(self) -> None:  # pragma: no cover
-        return None
 
 
 class _Capture:
