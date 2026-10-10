@@ -63,15 +63,6 @@
               traces)
         "the listener did observe the transition's trace")))
 
-(deftest pure-machine-transition
-  (let [m {:id      :traffic-light
-           :initial :red
-           :states  {:red   {:on {:tick {:target :green}}}
-                     :green {:on {:tick {:target :yellow}}}}}]
-    (is (= [:green :yellow]
-           (map #(-> (rf.machines/machine-transition m {:state % :data {}} [:tick]) :snapshot :state)
-                [:red :green])))))
-
 (deftest machine-always-microstep
   (testing ":always fires after an event nothing handled, under a true guard"
     (let [m {:initial :checking

@@ -1,11 +1,19 @@
 (ns re-frame.features-cljs-test
   "`(rf/features)` — every optional feature with its coordinate data and live
-  `:loaded?` status. The in-tree test build loads every per-feature artefact,
-  so an absent feature is simulated by setting its late-bind probe key to nil."
+  `:loaded?` status. This namespace requires every per-feature artefact, so an
+  absent feature is simulated by setting its late-bind probe key to nil."
   (:require #?(:clj  [clojure.test :refer [deftest is]]
                :cljs [cljs.test :refer-macros [deftest is]])
+            [re-frame.epoch]
             [re-frame.features :as rf.features]
-            [re-frame.late-bind :as rf.late-bind]))
+            [re-frame.flows]
+            [re-frame.http.managed]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.machines]
+            [re-frame.resources]
+            [re-frame.routing]
+            [re-frame.schemas]
+            [re-frame.ssr]))
 
 (defn- with-probe-absent
   "Run `f` with `feature`'s late-bind probe key set to nil, restoring it after."
