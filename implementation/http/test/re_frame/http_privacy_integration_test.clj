@@ -231,6 +231,46 @@
               :meta  {:token "public"}}
              (:value (delivered-reply)))))))
 
+;; A mark below a `:map-of` the walk reaches before any named slot is written
+;; without the key it sits under, and a declared path rides a map key only once
+;; its first named segment has matched, so the body fails closed off-box. Under
+;; a named slot the same `:map-of` keeps per-key classification.
+
+(def ^:private keyed-users-body "{\"a\":{\"id\":1,\"token\":\"SECRET\"}}")
+
+(deftest root-map-of-decoder-is-omitted-off-box
+  (assert-omitted-off-box [:map-of :string user-schema] keyed-users-body
+                          {"a" {:id 1 :token "SECRET"}}))
+
+(deftest map-of-under-a-root-vector-decoder-is-omitted-off-box
+  (assert-omitted-off-box [:vector [:map-of :string user-schema]] (str "[" keyed-users-body "]")
+                          [{"a" {:id 1 :token "SECRET"}}]))
+
+(defn- assert-classified-off-box
+  "The row for a `decode` whose every mark an extracted path reaches: stamped
+  `:classify`, its off-box body is `expected`, and the app still receives the
+  raw body `delivered`."
+  [decode body expected delivered]
+  (let [[ev] (managed-trace! (respond 200 "application/json" body)
+                             (fn [base] {:request  {:url (str base "/users")}
+                                         :decode   decode
+                                         :reply-to [:test/ok]})
+                             :rf.http/replied)]
+    (is (= :classify (get-in ev [:tags :rf.http/off-box-body])))
+    (is (= expected (get-in (off-box ev) [:tags :value])))
+    (is (= delivered (:value (delivered-reply))))))
+
+(deftest map-of-under-a-named-slot-keeps-per-key-classification
+  (assert-classified-off-box [:map [:accounts [:map-of :string user-schema]]]
+                             (str "{\"accounts\":" keyed-users-body "}")
+                             {:accounts {"a" {:id 1 :token :rf/redacted}}}
+                             {:accounts {"a" {:id 1 :token "SECRET"}}}))
+
+(deftest root-vector-of-maps-keeps-per-element-classification
+  (assert-classified-off-box [:vector user-schema] "[{\"id\":1,\"token\":\"SECRET\"}]"
+                             [{:id 1 :token :rf/redacted}]
+                             [{:id 1 :token "SECRET"}]))
+
 (deftest response-body-whole-body-sensitive-decode-schema-redacts-all
   (let [[ev] (managed-trace! (respond 200 "application/json" "\"opaque-token-value\"")
                              (fn [base] {:request    {:url (str base "/refresh")}

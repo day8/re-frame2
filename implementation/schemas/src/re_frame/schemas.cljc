@@ -128,9 +128,16 @@
 ;; classification; frame commit effects own that policy.
 (rf.late-bind/set-fn! :schemas/extract-large-paths-from-schema     extract-large-paths-from-schema)
 (rf.late-bind/set-fn! :schemas/extract-sensitive-paths-from-schema extract-sensitive-paths-from-schema)
-;; Whether those extractors saw every mark: a schema with an opaque
-;; descendant can carry marks neither of them reaches.
-(rf.late-bind/set-fn! :schemas/schema-has-opaque-child? schema-has-opaque-child?)
+;; Whether the marks those extractors return reach every marked slot of a value
+;; matched index-free: a schema with an opaque descendant can carry marks
+;; neither of them sees, and a mark below a `:map-of` no named slot anchors
+;; sits under a key no extracted path names. The facade's
+;; `schema-has-opaque-child?` answers opacity alone, for the validation
+;; surfaces, which see such a mark through Malli's `:in` path.
+(rf.late-bind/set-fn! :schemas/schema-has-opaque-child?
+                      (fn [schema]
+                        (or (schema-has-opaque-child? schema)
+                            (rf.schemas.walker/schema-has-unanchored-map-of-mark? schema))))
 ;; Whether a schema names a registry schema by qualified keyword, whose marks
 ;; the extractors never see. A walker public published as a hook only, off the
 ;; facade: validation surfaces keep such a reference walkable.
