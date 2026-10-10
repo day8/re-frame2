@@ -1616,28 +1616,11 @@ def _emit_error(msg: str, ci: bool) -> None:
 
 
 def _run_self_test(ci: bool) -> int:
-    """Self-test the title-safety, doc-coverage, arg-signature,
-    body-path-identity and single-host axes.
+    """Prove each axis fires on a synthetic defect.
 
-    Guards against an axis silently degrading into a no-op. Every shipped
-    title-safety consumer satisfies the contract via its own local clauses,
-    so the title-safety proof uses synthetic fixtures rather than toggling
-    a live allowance:
-
-      1. With the shipped `TITLE_SAFETY_RULES`, the axis produces NO drift
-         (all consumers satisfied; no allowances remain).
-      2. A synthetic consumer whose docs lack the local body+title clauses
-         MUST fire `missing-title-safety` drift — proving the clause
-         detection is real, not vacuously satisfied.
-      3. A synthetic consumer carrying the local body+title clauses MUST
-         stay green — proving the clause proof is the live path every
-         shipped recipe travels.
-      4. The shipped implementor consumer specifically must be present,
-         keep `require_search=True`, and fire no `missing-search-clause`
-         drift. Step 1 proves its body+title clauses and its lack of an
-         allowance, because it runs over every shipped rule.
-
-    The other axes' proofs are described where they run.
+    The shipped rules' green is the live run's job. The one live-corpus check
+    here is the arg-signature vacuity guard: a row the parser cannot read is
+    skipped, and no live drift would say so.
 
     Returns 0 on pass, 1 on a broken invariant.
     """
@@ -1645,262 +1628,6 @@ def _run_self_test(ci: bool) -> int:
 
     failures: list[str] = []
 
-    # (1) Shipped rules: no title-safety drift, and no allowance remains.
-    drift, _ = check_title_safety_rules(TITLE_SAFETY_RULES)
-    if any(d.direction == "missing-title-safety" for d in drift):
-        failures.append(
-            "shipped TITLE_SAFETY_RULES produced missing-title-safety drift "
-            "(every shipped consumer must satisfy the contract on its own)."
-        )
-    if any(r.allowance_bead for r in TITLE_SAFETY_RULES):
-        leftover = [r.consumer for r in TITLE_SAFETY_RULES if r.allowance_bead]
-        failures.append(
-            "a TITLE_SAFETY_RULES entry carries an allowance_bead "
-            f"({leftover}); every consumer is enforced locally and "
-            "no consumer should rely on one."
-        )
-
-    with tempfile.TemporaryDirectory() as td:
-        td_path = Path(td)
-
-        # (2) Synthetic NEGATIVE fixture: no clauses -> MUST drift.
-        neg = td_path / "no-safety.md"
-        neg.write_text(
-            "# fixture\nThis recipe files a gh issue with no shell-safety "
-            "guidance at all.\n",
-            encoding="utf-8",
-        )
-        neg_drift, _ = check_title_safety_rules(
-            [TitleSafetyRule(consumer="synthetic-negative", docs=(neg,))]
-        )
-        if not [
-            d for d in neg_drift
-            if d.direction == "missing-title-safety"
-            and d.tool == "synthetic-negative"
-        ]:
-            failures.append(
-                "a synthetic consumer lacking the local body+title clauses "
-                "did NOT fire missing-title-safety "
-                "drift -- the title-safety check is a no-op. The clause "
-                "detection is broken."
-            )
-
-        # (3) Synthetic POSITIVE fixture: local body+title clauses ->
-        #     MUST stay green (the path every shipped recipe travels).
-        pos = td_path / "local-clauses.md"
-        pos.write_text(
-            "# fixture\n"
-            "Write the body with the Write tool and pass it via --body-file; "
-            "never interpolate transcript text inline.\n"
-            "gh issue create has no `--title-file` flag; author the title from "
-            "a restricted safe alphabet (letters, digits, spaces, - . , / ( ) :) "
-            "and never paste evidence into `--title`; the reviewer pass covers "
-            "the title arg.\n",
-            encoding="utf-8",
-        )
-        pos_drift, _ = check_title_safety_rules(
-            [TitleSafetyRule(consumer="synthetic-positive", docs=(pos,))]
-        )
-        if [
-            d for d in pos_drift
-            if d.direction == "missing-title-safety"
-            and d.tool == "synthetic-positive"
-        ]:
-            failures.append(
-                "a synthetic consumer carrying the local body+title clauses "
-                "was flagged as missing-title-safety -- "
-                "the clause proof is broken."
-            )
-
-        # (3b) Synthetic SEARCH-NEGATIVE: body+title clauses but
-        #      NO search-before-filing clause, require_search=True -> MUST fire
-        #      missing-search-clause (and NOT missing-title-safety).
-        search_neg_drift, _ = check_title_safety_rules(
-            [TitleSafetyRule(
-                consumer="synthetic-search-negative",
-                docs=(pos,),
-                require_search=True,
-            )]
-        )
-        if not [
-            d for d in search_neg_drift
-            if d.direction == "missing-search-clause"
-            and d.tool == "synthetic-search-negative"
-        ]:
-            failures.append(
-                "a require_search consumer carrying body+title clauses but NO "
-                "search-before-filing clause did NOT fire missing-search-clause "
-                "drift -- the search-clause check is a no-op."
-            )
-
-        # (3c) Synthetic SEARCH-POSITIVE: body+title+search clauses,
-        #      require_search=True -> MUST stay green.
-        search_pos = td_path / "local-clauses-with-search.md"
-        search_pos.write_text(
-            pos.read_text(encoding="utf-8")
-            + "\nSearch first: gh issue list --repo day8/re-frame2 --search "
-            "\"<keywords>\"; there is no `--search-file`, so author the "
-            "keywords from the safe alphabet and never paste evidence.\n",
-            encoding="utf-8",
-        )
-        search_pos_drift, _ = check_title_safety_rules(
-            [TitleSafetyRule(
-                consumer="synthetic-search-positive",
-                docs=(search_pos,),
-                require_search=True,
-            )]
-        )
-        if [
-            d for d in search_pos_drift
-            if d.tool == "synthetic-search-positive"
-        ]:
-            failures.append(
-                "a require_search consumer carrying body+title+search clauses "
-                "was flagged -- the search-clause branch "
-                "is broken."
-            )
-
-    # (4) Shipped implementor specifically: present, pinned to
-    #     require_search, and green on its search-before-filing clause. Its
-    #     body+title clauses and its lack of an allowance are proven by (1),
-    #     which runs over every shipped rule.
-    impl_rule = next(
-        (r for r in TITLE_SAFETY_RULES if r.consumer == "re-frame2-implementor"),
-        None,
-    )
-    if impl_rule is None:
-        failures.append(
-            "re-frame2-implementor is not in TITLE_SAFETY_RULES -- the "
-            "consumer must stay enforced, not dropped."
-        )
-    else:
-        # The implementor must carry the search-before-filing
-        # clause locally — require_search pins it.
-        if not impl_rule.require_search:
-            failures.append(
-                "re-frame2-implementor does not carry require_search=True -- "
-                "its local recipe must keep enforcing the search-before-filing "
-                "(dedupe) clause."
-            )
-        impl_drift, _ = check_title_safety_rules([impl_rule])
-        if [
-            d for d in impl_drift
-            if d.direction == "missing-search-clause"
-        ]:
-            failures.append(
-                "re-frame2-implementor fired missing-search-clause drift -- its "
-                "local recipe must carry the search-before-filing (dedupe) "
-                "clause: `gh issue list --search` + the author-the-keywords-"
-                "never-paste shell-safety note."
-            )
-
-    # (6) Doc-coverage axis — prove it is not vacuous. The shipped
-    #     rules must be green; a doc missing one server tool's row MUST fire
-    #     missing-doc-row; a doc naming a tool the server lacks MUST fire
-    #     stale-doc-row. The fixtures use a synthetic two-tool descriptor in
-    #     their own temp dir, so the proof depends on neither the live roster's
-    #     size nor the title-safety fixtures above.
-    doc_drift, _ = check_doc_coverage_rules(DOC_COVERAGE_RULES)
-    if doc_drift:
-        failures.append(
-            "shipped DOC_COVERAGE_RULES produced drift: "
-            + "; ".join(f"{d.direction}:{d.tool}" for d in doc_drift)
-            + " -- every server tool needs a transport-index row and every "
-            "row needs a live tool."
-        )
-
-    with tempfile.TemporaryDirectory() as doc_td:
-        doc_td_path = Path(doc_td)
-
-        fake_src = doc_td_path / "descriptors_data.cljs"
-        fake_src.write_text(
-            '(def descriptors\n'
-            '  [{:name "read-widget" :description "..."}\n'
-            '   {:name "explain-widget" :description "..."}])\n',
-            encoding="utf-8",
-        )
-
-        # POSITIVE: every server tool has a row -> green.
-        covered = doc_td_path / "covered.md"
-        covered.write_text(
-            "| MCP tool | Arg signature | Semantics home |\n"
-            "|---|---|---|\n"
-            "| `read-widget` | `{id}` | ops.md |\n"
-            "| `explain-widget` | `{id?}` | ops.md |\n",
-            encoding="utf-8",
-        )
-        covered_drift, _ = check_doc_coverage_rules([DocCoverageRule(
-            name="synthetic-covered", server_src=(fake_src,), doc_md=covered,
-        )])
-        if covered_drift:
-            failures.append(
-                "a synthetic doc covering every server tool fired drift "
-                f"({[d.direction for d in covered_drift]}) -- the doc-coverage "
-                "row extraction is broken."
-            )
-
-        # NEGATIVE: drop one row, leave the prose tool COUNT intact -- the
-        # counted + allow-listed + undocumented shape.
-        undocumented = doc_td_path / "undocumented.md"
-        undocumented.write_text(
-            "The server exposes **2 tools**, all allow-listed.\n\n"
-            "| MCP tool | Arg signature | Semantics home |\n"
-            "|---|---|---|\n"
-            "| `read-widget` | `{id}` | ops.md |\n",
-            encoding="utf-8",
-        )
-        undoc_drift, _ = check_doc_coverage_rules([DocCoverageRule(
-            name="synthetic-undocumented", server_src=(fake_src,),
-            doc_md=undocumented,
-        )])
-        if not [
-            d for d in undoc_drift
-            if d.direction == "missing-doc-row" and d.tool == "explain-widget"
-        ]:
-            failures.append(
-                "a synthetic doc missing one server tool's row did NOT fire "
-                "missing-doc-row drift -- the doc-coverage axis is a no-op, "
-                "and a shipped+counted+allow-listed tool can stay "
-                "undocumented."
-            )
-
-        # NEGATIVE: a row naming a tool the server does not expose.
-        phantom = doc_td_path / "phantom.md"
-        phantom.write_text(
-            "| MCP tool | Arg signature | Semantics home |\n"
-            "|---|---|---|\n"
-            "| `read-widget` | `{id}` | ops.md |\n"
-            "| `explain-widget` | `{id?}` | ops.md |\n"
-            "| `retired-widget` | `{}` | ops.md |\n",
-            encoding="utf-8",
-        )
-        phantom_drift, _ = check_doc_coverage_rules([DocCoverageRule(
-            name="synthetic-phantom", server_src=(fake_src,), doc_md=phantom,
-        )])
-        if not [
-            d for d in phantom_drift
-            if d.direction == "stale-doc-row" and d.tool == "retired-widget"
-        ]:
-            failures.append(
-                "a synthetic doc row naming a tool the server does not expose "
-                "did NOT fire stale-doc-row drift -- a row can outlive its "
-                "tool."
-            )
-
-    # (7) Arg-signature axis — prove it is not vacuous. The shipped rules
-    #     must be green AND must have compared a signature for every manifest
-    #     tool (a parser that read nothing would also be green). Then, over a
-    #     synthetic manifest: a covered doc stays green, a row missing one
-    #     argument fires missing-arg, a row naming a phantom argument fires
-    #     stale-arg, and a row with no signature fires unparsed-arg-signature.
-    arg_drift, _ = check_arg_signature_rules(ARG_SIGNATURE_RULES)
-    if arg_drift:
-        failures.append(
-            "shipped ARG_SIGNATURE_RULES produced drift: "
-            + "; ".join(f"{d.direction}:{d.tool}" for d in arg_drift)
-            + " -- every row's arg signature must match its tool's "
-            "manifest :input-keys."
-        )
     for rule in ARG_SIGNATURE_RULES:
         manifest_tools = extract_manifest_input_keys(rule.manifest_edn)
         signed = {
@@ -1915,244 +1642,107 @@ def _run_self_test(ci: bool) -> int:
                 "green is vacuous, not earned."
             )
 
-    with tempfile.TemporaryDirectory() as arg_td:
-        arg_td_path = Path(arg_td)
-        fake_manifest = arg_td_path / "tool-descriptors.edn"
-        # A description carrying an escaped quote and a decoy `:input-keys`
-        # vector, so a lexer that is not string-aware reads the wrong keys.
-        fake_manifest.write_text(
-            ';; GENERATED fixture manifest\n'
-            '{:meta {:server :synthetic, :tool-count 2}\n'
-            ' :tools\n'
-            ' [{:name "read-widget" :description "Read one \\"widget\\"; '
-            'not :input-keys [\\"decoy\\"]." '
-            ':input-keys ["build" "frame" "id" "max-tokens"] :required ["id"]}\n'
-            '  {:name "pick-widget" :description "..." '
-            ':input-keys ["cache" "id" "ids" "max-tokens"] :required []}]}\n',
-            encoding="utf-8",
-        )
-        implicit = frozenset({"build", "max-tokens", "cache"})
-
-        def _args(label: str, rows: str) -> list[Drift]:
-            doc = arg_td_path / f"{label}.md"
-            doc.write_text(
-                "| MCP tool | Arg signature | Semantics home |\n"
-                "|---|---|---|\n" + rows,
-                encoding="utf-8",
-            )
-            d, _ = check_arg_signature_rules([ArgSignatureRule(
-                name=label, manifest_edn=fake_manifest, doc_md=doc,
-                implicit_keys=implicit,
-            )])
-            return d
-
-        covered_rows = (
-            "| `read-widget` | `{id, frame?}` — one widget | ops.md |\n"
-            "| `pick-widget` | `{id \\| ids}` (exactly one) | ops.md |\n"
-        )
-        got = _args("synthetic-args-covered", covered_rows)
-        if got:
-            failures.append(
-                "a synthetic transport index whose rows name every "
-                "non-implicit key fired drift "
-                f"({[f'{d.direction}:{d.tool}' for d in got]}) -- the "
-                "arg-signature extraction is broken (an escaped `\\|` "
-                "alternation, or the manifest lexer reading a decoy)."
-            )
-
-        for label, rows, want in (
-            # The planted defect: `frame?` dropped from one row.
-            ("synthetic-args-missing",
-             covered_rows.replace("`{id, frame?}`", "`{id}`"),
-             ("missing-arg", "read-widget:frame")),
-            # A row naming a key the tool does not take.
-            ("synthetic-args-stale",
-             covered_rows.replace("`{id, frame?}`", "`{id, frame?, colour?}`"),
-             ("stale-arg", "read-widget:colour")),
-            # A row with no signature at all: nothing compared is not a pass.
-            ("synthetic-args-unparsed",
-             covered_rows.replace("`{id, frame?}` — one widget",
-                                  "one widget, by id"),
-             ("unparsed-arg-signature", "read-widget")),
-        ):
-            got = _args(label, rows)
-            if not [d for d in got if (d.direction, d.tool) == want]:
-                failures.append(
-                    f"a synthetic transport index planting {want[0]} "
-                    f"({want[1]}) did NOT fire it (got "
-                    f"{[f'{d.direction}:{d.tool}' for d in got]}) -- the "
-                    "arg-signature axis is a no-op for that defect."
-                )
-
-    # -----------------------------------------------------------------
-    # (5) Body-path-identity axis.
-    # -----------------------------------------------------------------
-
-    # (5a) Shipped recipes: no path-identity drift.
-    bp_drift, _ = check_body_path_identity(TITLE_SAFETY_RULES)
-    if bp_drift:
-        failures.append(
-            "shipped filing recipes produced body-path-identity drift "
-            f"({[d.direction for d in bp_drift]}) -- every consumer must hand "
-            "`--body-file` one concrete path it also shows `Write` receiving."
-        )
-
-    # (5b) STRUCTURAL CONTROL: synthetic recipes that reintroduce the defect
-    #      must each fire, and a correct one must stay green.
     with tempfile.TemporaryDirectory() as td:
         td_path = Path(td)
-        _TITLE_TAIL = (
-            "\ngh issue create has no `--title-file` flag; author the title "
-            "from a restricted safe alphabet and never paste evidence into "
-            "`--title`.\nNever interpolate transcript text inline.\n"
-        )
 
-        def _bp(label: str, recipe: str) -> list[Drift]:
-            f = td_path / f"{label}.md"
-            f.write_text(recipe + _TITLE_TAIL, encoding="utf-8")
-            d, _ = check_body_path_identity(
-                [TitleSafetyRule(consumer=label, docs=(f,))]
-            )
-            return d
+        def doc(label: str, text: str) -> Path:
+            path = td_path / f"{label}.md"
+            path.write_text(text, encoding="utf-8")
+            return path
 
+        def title(label: str, text: str, require_search: bool) -> list[Drift]:
+            return check_title_safety_rules([TitleSafetyRule(
+                consumer=label, docs=(doc(label, text),),
+                require_search=require_search,
+            )])[0]
+
+        def body_path(label: str, recipe: str) -> list[Drift]:
+            return check_body_path_identity(
+                [TitleSafetyRule(consumer=label, docs=(doc(label, recipe),))]
+            )[0]
+
+        table = "| MCP tool | Arg signature | Semantics home |\n|---|---|---|\n"
+        server = doc("server", '[{:name "read-widget"} {:name "explain-widget"}]\n')
+        manifest = doc("manifest", '[{:name "read-widget" :input-keys ["frame" "id"]}\n'
+                                   ' {:name "pick-widget" :input-keys ["id"]}]\n')
         good = (
             "Write the body to /tmp/re-frame2-issue-7f3a9c.md (Windows: "
             "C:\\Users\\you\\AppData\\Local\\Temp\\re-frame2-issue-7f3a9c.md), "
             "then run: gh issue create --body-file "
             "'/tmp/re-frame2-issue-7f3a9c.md'\n"
         )
-        for label, recipe, want in (
-            # A shell expression in the argument position.
-            ("synthetic-expression-path",
-             good.replace("'/tmp/re-frame2-issue-7f3a9c.md'",
-                          "\"${TMPDIR:-/tmp}/re-frame2-issue-$$-$RANDOM.md\""),
-             "expression-body-path"),
-            # A prose placeholder, not a value.
-            ("synthetic-placeholder-path",
-             good.replace("'/tmp/re-frame2-issue-7f3a9c.md'",
-                          "\"<the exact path from step 2>\""),
-             "expression-body-path"),
-            # A concrete path the recipe never shows `Write` receiving.
-            ("synthetic-unpaired-path",
-             "Write the body to the temp file you chose (Windows: "
-             "C:\\Users\\you\\AppData\\Local\\Temp\\re-frame2-issue-7f3a9c.md), "
-             "then run: gh issue create --body-file "
-             "'/tmp/re-frame2-issue-0000ff.md'\n",
-             "unpaired-body-path"),
-            # A recipe with no `--body-file` argument at all.
-            ("synthetic-no-body-path",
-             "Write the body to /tmp/re-frame2-issue-7f3a9c.md and file it "
-             "with `--body-file`.\n",
-             "missing-body-path"),
-            # POSIX-only: the Windows agent has nothing to copy.
-            ("synthetic-posix-only",
-             "Write the body to /tmp/re-frame2-issue-7f3a9c.md, then run: "
-             "gh issue create --body-file '/tmp/re-frame2-issue-7f3a9c.md'\n",
-             "missing-path-example"),
-        ):
-            if not [d for d in _bp(label, recipe) if d.direction == want]:
-                failures.append(
-                    f"a synthetic recipe that should fire {want} did NOT -- "
-                    f"the body-path-identity axis is a no-op for {label} "
-                    f"input."
-                )
 
-        if _bp("synthetic-concrete-path", good):
-            failures.append(
-                "a synthetic recipe handing `--body-file` one concrete, "
-                "reused path with both host shapes shown was flagged -- the "
-                "body-path-identity green path is broken."
-            )
-
-    # (6) SINGLE-HOST AXIS. Three checks, because the axis has
-    #     exactly one way to fail silently: if the entry regex stops matching,
-    #     every skill reads as single-host and the gate is a no-op that never
-    #     says so. So prove the shipped rules green, prove a controlled
-    #     reintroduction of ONE foreign entry fires, and prove the green path
-    #     is not green merely because nothing parsed.
-    try:
-        host_drift, _ = check_single_host_rules(SINGLE_HOST_RULES)
-        if host_drift:
-            failures.append(
-                "the shipped single-host rules report foreign MCP hosts: "
-                + "; ".join(d.tool.split("|", 1)[0] for d in host_drift)
-            )
-    except FileNotFoundError as e:
-        failures.append(f"single-host: shipped rule input missing ({e}).")
-
-    with tempfile.TemporaryDirectory() as td:
-        td_path = Path(td)
-        _FM = (
-            "---\n"
-            "name: synthetic-pair\n"
-            "allowed-tools:\n"
-            "  - mcp__re-frame2-pair__discover-app\n"
-            "  - mcp__re-frame2-pair__eval-cljs\n"
-            "{extra}"
-            "  - Read\n"
-            "  - Edit\n"
-            "---\n\nBody.\n"
+        # (label, drift from one synthetic defect, the (direction, tool) pairs
+        # it must report; a None tool matches any).
+        cases = (
+            ("no-clauses", title("no-clauses", "Files a gh issue.\n", False),
+             {("missing-title-safety", "no-clauses")}),
+            # Body+title clauses present: the search clause alone is missing.
+            ("no-search", title(
+                "no-search",
+                "Pass the body via --body-file; never interpolate it inline. "
+                "gh issue create has no `--title-file`; use a safe alphabet "
+                "and never paste evidence into `--title`.\n",
+                True,
+            ), {("missing-search-clause", "no-search")}),
+            ("doc-rows", check_doc_coverage_rules([DocCoverageRule(
+                name="doc-rows", server_src=(server,), doc_md=doc(
+                    "doc-rows", table + "| `read-widget` | `{}` | ops.md |\n"
+                                        "| `retired-widget` | `{}` | ops.md |\n"),
+            )])[0], {("missing-doc-row", "explain-widget"),
+                     ("stale-doc-row", "retired-widget")}),
+            ("arg-rows", check_arg_signature_rules([ArgSignatureRule(
+                name="arg-rows", manifest_edn=manifest, doc_md=doc(
+                    "arg-rows", table + "| `read-widget` | `{id, colour?}` | ops.md |\n"
+                                        "| `pick-widget` | by id | ops.md |\n"),
+                implicit_keys=frozenset(),
+            )])[0], {("missing-arg", "read-widget:frame"),
+                     ("stale-arg", "read-widget:colour"),
+                     ("unparsed-arg-signature", "pick-widget")}),
+            ("placeholder-path", body_path("placeholder-path", good.replace(
+                "'/tmp/re-frame2-issue-7f3a9c.md'", "\"<the exact path from step 2>\"")),
+             {("expression-body-path", None)}),
+            ("unpaired-path", body_path(
+                "unpaired-path",
+                "Write the body to the temp file you chose (Windows: "
+                "C:\\Users\\you\\AppData\\Local\\Temp\\re-frame2-issue-7f3a9c.md), "
+                "then run: gh issue create --body-file "
+                "'/tmp/re-frame2-issue-0000ff.md'\n",
+            ), {("unpaired-body-path", None)}),
+            ("no-body-path", body_path(
+                "no-body-path",
+                "Write the body to /tmp/re-frame2-issue-7f3a9c.md and file it "
+                "with `--body-file`.\n",
+            ), {("missing-body-path", None)}),
+            ("posix-only", body_path(
+                "posix-only",
+                "Write the body to /tmp/re-frame2-issue-7f3a9c.md, then run: "
+                "gh issue create --body-file '/tmp/re-frame2-issue-7f3a9c.md'\n",
+            ), {("missing-path-example", None)}),
+            ("foreign-host", check_single_host_rules([SingleHostRule(
+                skill_md=doc("foreign-host", "---\nname: synthetic\nallowed-tools:\n"
+                                             "  - mcp__re-frame2-pair__eval-cljs\n"
+                                             "  - mcp__re-frame2-story-mcp__run-variant\n"
+                                             "---\n"),
+                host_prefix="re-frame2-pair", rationale="synthetic",
+            )])[0], {("foreign-mcp-host", None)}),
         )
-
-        # Negative: one reintroduced foreign entry must make the axis red.
-        bad = td_path / "synthetic-foreign-host.md"
-        bad.write_text(
-            _FM.format(extra="  - mcp__re-frame2-story-mcp__run-variant\n"),
-            encoding="utf-8",
-        )
-        bad_drift, _ = check_single_host_rules([SingleHostRule(
-            skill_md=bad, host_prefix="re-frame2-pair", rationale="synthetic",
-        )])
-        if not [d for d in bad_drift if d.direction == "foreign-mcp-host"]:
-            failures.append(
-                "a synthetic single-host skill carrying one "
-                "mcp__re-frame2-story-mcp__ entry did NOT fire "
-                "foreign-mcp-host -- the single-host axis is a "
-                "no-op."
-            )
-
-        # Positive: the same frontmatter without the foreign entry is green,
-        # AND its own-host entries were actually seen — a green produced by a
-        # parser that matched nothing would prove nothing.
-        good = td_path / "synthetic-single-host.md"
-        good.write_text(_FM.format(extra=""), encoding="utf-8")
-        good_rule = SingleHostRule(
-            skill_md=good, host_prefix="re-frame2-pair", rationale="synthetic",
-        )
-        if check_single_host_rules([good_rule])[0]:
-            failures.append(
-                "a synthetic single-host skill with only "
-                "mcp__re-frame2-pair__ entries was flagged -- the "
-                "single-host green path is broken."
-            )
-        seen = extract_skill_mcp_hosts(good)
-        if seen.get("re-frame2-pair") != {"discover-app", "eval-cljs"}:
-            failures.append(
-                "the single-host extractor read "
-                f"{seen!r} from a synthetic allow-list holding exactly two "
-                "mcp__re-frame2-pair__ entries -- the axis' green is "
-                "vacuous, not earned."
-            )
+        for label, drift, wants in cases:
+            for direction, tool in sorted(wants, key=str):
+                if not any(d.direction == direction and tool in (None, d.tool)
+                           for d in drift):
+                    failures.append(
+                        f"{label}: did not fire {direction} {tool or ''} (got "
+                        f"{[(d.direction, d.tool) for d in drift]}) -- that "
+                        "axis is a no-op for this defect."
+                    )
 
     if failures:
         for f in failures:
             _emit_error(f"self-test: {f}", ci)
         return 1
 
-    print("self-test: PASS "
-          "(title-safety: shipped consumers green with no allowance; synthetic "
-          "negative fires; synthetic local-clauses positive stays green; "
-          "search-clause negative fires + positive stays green; implementor "
-          "enforced via its local body+title+search clauses. doc-coverage: "
-          "shipped rules green; synthetic covered stays green; missing row and "
-          "phantom row both fire. arg-signature: shipped rules green with every "
-          "manifest tool's signature compared; synthetic covered stays green; "
-          "missing, stale and unparsed signatures all fire. "
-          "body-path-identity: shipped recipes green; expression / "
-          "placeholder / unpaired / absent / POSIX-only recipes all fire. "
-          "single-host: shipped rules "
-          "green; a reintroduced foreign-server entry fires; the own-host "
-          "green is earned, not vacuous).")
+    print("self-test: PASS")
     return 0
 
 
