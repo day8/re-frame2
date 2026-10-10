@@ -10,7 +10,9 @@
   - a caller `:on-click` runs first, and pre-empts the framework only by
     calling preventDefault;
   - the click and the `:prefetch :intent` warm-ups dispatch into the frame
-    that RENDERED the link, however long after render they fire.
+    that RENDERED the link, however long after render they fire, and refuse
+    once that frame incarnation is destroyed rather than reaching a successor
+    made under the same id.
 
   These cases call the bare `route-link-render` fn against a synthetic event
   object, so the test has no DOM dependency.
@@ -19,6 +21,7 @@
   click-rules paragraph."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.trace.tooling :as rf.trace.tooling]
             [re-frame.routing :as rf.routing]
@@ -308,3 +311,56 @@
                       (catch :default e (ex-data e)))]
         (is (= [:rf.error/route-link-bad-prefetch v] ((juxt :rf.error/id :value) data))
             (str "prefetch " (pr-str v) " must throw"))))))
+
+;; ---- the rendering incarnation is pinned ----------------------------------
+
+(defn- observed
+  "Run `thunk` and answer what it did: the `:rf.route/*` events it dispatched,
+  as `[event-id frame]` off the `:rf.event/dispatched` trace, and the event ids
+  of the always-on `:rf.error/frame-destroyed` refusals it fanned."
+  [thunk]
+  (let [dispatched (atom [])
+        refused    (atom [])
+        trace-key  (keyword (gensym "pin-trace-"))
+        error-key  (keyword (gensym "pin-error-"))]
+    (rf.trace.tooling/register-listener!
+      trace-key
+      (fn [ev]
+        (let [v (-> ev :tags :rf.event/v)]
+          (when (and (= :rf.event/dispatched (:operation ev))
+                     (vector? v)
+                     (#{:rf.route/url-requested :rf.route/prefetch} (first v)))
+            (swap! dispatched conj [(first v) (-> ev :tags :frame)])))))
+    (rf.error-emit/register-error-listener!
+      error-key
+      (fn [record]
+        (when (= :rf.error/frame-destroyed (:error record))
+          (swap! refused conj (:event-id record)))))
+    (try (thunk)
+         {:dispatched @dispatched :refused @refused}
+         (finally
+           (rf.trace.tooling/unregister-listener! trace-key)
+           (rf.error-emit/unregister-error-listener! error-key)))))
+
+(deftest a-retained-link-refuses-once-its-incarnation-is-gone
+  (testing "a link rendered under a frame, clicked and hovered after that frame
+            is destroyed and another made under the same id, dispatches nothing
+            into the successor: the click and the prefetch both refuse with
+            :rf.error/frame-destroyed"
+    (rf/reg-route :route/cart {} "/cart")
+    (rf/make-frame {:id :route/owner})
+    (let [render  #(second (rf/with-frame :route/owner
+                             (rf.routing.link/route-link-render {:to :route/cart :prefetch :intent})))
+          fire!   (fn [attrs]
+                    ((:on-click attrs) (mk-event {}))
+                    ((:on-mouse-enter attrs) (mk-event {})))
+          retained (render)]
+      (rf/destroy-frame! :route/owner)
+      (rf/make-frame {:id :route/owner})
+      (is (= {:dispatched [] :refused [:rf.route/url-requested :rf.route/prefetch]}
+             (observed #(fire! retained))))
+      (testing "while a link rendered under the successor navigates and warms it"
+        (is (= {:dispatched [[:rf.route/url-requested :route/owner]
+                             [:rf.route/prefetch :route/owner]]
+                :refused    []}
+               (observed #(fire! (render)))))))))

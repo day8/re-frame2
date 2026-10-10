@@ -9,11 +9,12 @@
   Internal namespace; the public facade is `re-frame.routing`. The
   facade owns the `views/reg-view*` (CLJS) / `registrar/register!`
   (JVM/SSR) wiring so a `:reload` re-wires both on a fresh registrar."
-  (:require [re-frame.router :as rf.router]
-            [re-frame.frame :as rf.frame]
+  (:require [re-frame.frame :as rf.frame]
             [re-frame.routing.address :as rf.routing.address]
             [re-frame.routing.registry :as rf.routing.registry]
-            [re-frame.routing.strategy :as rf.routing.strategy]))
+            [re-frame.routing.strategy :as rf.routing.strategy]
+            #?@(:cljs [[re-frame.capture-frame :as rf.capture-frame]
+                       [re-frame.router :as rf.router]])))
 
 (def prefetch-intent-value
   "The ONE accepted `:prefetch` behaviour value on a route-link (Spec 012
@@ -200,16 +201,32 @@
    (merge {:url path-url} (select-keys props rf.routing.address/policy-keys))])
 
 #?(:cljs
+   (defn- dispatch-to-render-frame!
+     "Dispatch a link's `payload` through `frame-api` with `:source :router`
+     (routing-substrate attribution). `frame-api` is the `capture-frame` bundle
+     of the frame incarnation that RENDERED the link, so the dispatch lands
+     there however long after render it fires, and once that incarnation is
+     destroyed core's capture fence refuses it (`:rf.error/frame-destroyed`)
+     rather than resolving the id again and driving a same-id successor.
+
+     A caller that hands a bare frame id instead names an ADDRESS, and the
+     dispatch goes to whichever frame holds that id when it fires."
+     [frame-api payload]
+     (if (keyword? frame-api)
+       (rf.router/dispatch! payload {:source :router :frame frame-api})
+       ((:dispatch frame-api) payload {:source :router}))))
+
+#?(:cljs
    (defn- compose-intent-handler
      "Build one intent-event handler that runs a caller-supplied handler of the
-     same name FIRST (compose, not replace) and then dispatches `payload` to the
-     `render-frame` with `:source :router` (rf2 routing-substrate attribution).
+     same name FIRST (compose, not replace) and then dispatches `payload`
+     through the render-time `frame-api` (`dispatch-to-render-frame!`).
      Reused at every `prefetch-intent-keys` position so the credible-intent
      triggers share one composition + dispatch law."
-     [caller-handler render-frame payload]
+     [caller-handler frame-api payload]
      (fn [e]
        (when caller-handler (caller-handler e))
-       (rf.router/dispatch! payload {:source :router :frame render-frame}))))
+       (dispatch-to-render-frame! frame-api payload))))
 
 #?(:cljs
    (defn- prefetch-intent-attrs
@@ -217,10 +234,10 @@
      link does not opt in. Warms the destination on credible user intent — at
      every `prefetch-intent-keys` position, and NEVER on render / viewport
      (Governing Law 1). Each handler composes with a caller-supplied handler of
-     the same name (read from `props`) and dispatches `[:rf.route/prefetch …]` to
-     the render-time-captured `render-frame`, exactly as the delayed click
+     the same name (read from `props`) and dispatches `[:rf.route/prefetch …]`
+     through the render-time `frame-api`, exactly as the delayed click
      handler targets its frame. Per Spec 012 §Route-plan prefetch."
-     [props render-frame]
+     [props frame-api]
      (when-let [payload (prefetch-payload props)]
        ;; Map over the class rather than writing the positions out a second
        ;; time: `prefetch-intent-keys` is the ONE enumeration of the
@@ -228,7 +245,7 @@
        ;; anchor with no second edit here.
        (into {}
              (map (fn [k]
-                    [k (compose-intent-handler (get props k) render-frame payload)]))
+                    [k (compose-intent-handler (get props k) frame-api payload)]))
              prefetch-intent-keys))))
 
 #?(:cljs
@@ -289,27 +306,29 @@
      without statically requiring routing.
 
      `e` is the native click event; `on-click` is the caller-supplied
-     `:on-click` (or nil); `render-frame` is the render-time-captured frame id;
-     `payload` and `native?` come from `url-requested-payload` /
-     `native-anchor?` (`link-model` bundles both for the view side).
+     `:on-click` (or nil); `frame-api` is the `capture-frame` bundle of the
+     frame incarnation that rendered the link; `payload` and `native?` come
+     from `url-requested-payload` / `native-anchor?` (`link-model` bundles both
+     for the view side).
 
      Runs the caller `:on-click` first; then, unless the anchor is native (new
      tab / download), the caller already prevented the default, or the click is
      not a plain primary-button click (a modifier-key or auxiliary-button click
      keeps the browser's open-in-new-tab affordance), calls `.preventDefault`
-     and dispatches `payload` to the captured render frame with `:source
-     :router` (so the L2 epoch timeline tags the cascade as a routing-substrate
-     dispatch). `:frame render-frame` is an explicit
-     dispatch opt — the router targets the rendering frame verbatim even though
-     the render scope has unwound by click time, so the dispatch
-     always lands on the CURRENTLY-committed frame (retarget-safe)."
-     [e on-click render-frame payload native?]
+     and dispatches `payload` through `frame-api` with `:source :router` (so the
+     L2 epoch timeline tags the cascade as a routing-substrate dispatch). The
+     render scope has unwound by click time, and the captured bundle is what
+     still names the rendering frame: it lands on that incarnation, and once
+     the incarnation is destroyed the click is refused with
+     `:rf.error/frame-destroyed` like every other retained callback, never
+     navigating a same-id successor (`dispatch-to-render-frame!`)."
+     [e on-click frame-api payload native?]
      (when on-click (on-click e))
      (when (and (not native?)
                 (not (.-defaultPrevented e))
                 (plain-left-click? e))
        (.preventDefault e)
-       (rf.router/dispatch! payload {:source :router :frame render-frame}))))
+       (dispatch-to-render-frame! frame-api payload))))
 
 #?(:cljs
    (defn route-link-render
@@ -366,6 +385,11 @@
            render-frame (rf.frame/require-current-frame!
                           :route-link
                           {:where 're-frame.routing.link/route-link-render})
+           ;; The click and the prefetch warm-ups dispatch through the frame
+           ;; api captured HERE, which pins the rendering frame's incarnation:
+           ;; a retained anchor whose incarnation was destroyed refuses rather
+           ;; than navigating a successor made under the same id.
+           frame-api (rf.capture-frame/make-capture-frame render-frame nil)
            ;; The rendered `:href` is encoded
            ;; through the RENDER-TIME frame's `:url-strategy` (default
            ;; path-form). A hash app renders `#/active`; a history app renders
@@ -391,18 +415,19 @@
            native? (native-anchor? props)
            ;; EP-0037 R3: `:prefetch :intent` warms the destination's resources
            ;; on credible user intent (hover / focus / touch). The handlers
-           ;; compose with caller-supplied ones of the same name and dispatch to
-           ;; the SAME render-time-captured frame the click handler targets, so a
-           ;; prefetch warms the frame that rendered the link, never a sibling.
+           ;; compose with caller-supplied ones of the same name and dispatch
+           ;; through the SAME render-time frame api the click handler uses, so
+           ;; a prefetch warms the frame that rendered the link, never a sibling
+           ;; and never a same-id successor.
            ;; `:prefetch` is stripped from `base-attrs` as a link-behaviour key
            ;; (`href-attrs` / `rf.routing.address/link-behavior-keys`), so it never reaches
            ;; the `<a>`. Per Spec 012 §Route-plan prefetch.
-           intent-attrs (prefetch-intent-attrs props render-frame)
+           intent-attrs (prefetch-intent-attrs props frame-api)
            attrs (merge
                    (assoc base-attrs
                           :on-click
                           (fn [e]
-                            (activate-link! e on-click render-frame payload native?)))
+                            (activate-link! e on-click frame-api payload native?)))
                    ;; compose the prefetch intent handlers OVER the base attrs
                    ;; (they wrap any caller-supplied intent handler); nil when
                    ;; the link did not opt into `:prefetch :intent`.
@@ -465,13 +490,14 @@
 ;;   `activate-link!` — CLJS only. THE router-attributed click decision (run the
 ;;                      caller `:on-click`, defer on defaultPrevented / native? /
 ;;                      modifier / auxiliary-button, else preventDefault + dispatch
-;;                      to the captured render frame with `:source :router`).
+;;                      through the render-time frame api with `:source :router`).
 ;;                      DEFINED ABOVE, beside the click predicates it reads,
 ;;                      because `rf/route-link`'s own `:on-click` calls it too —
 ;;                      it is the shared click law first and a view seam second.
 ;;
-;; The view side captures its render frame and threads it through both hooks;
-;; it owns nothing but the anchor's markup + passthrough attrs.
+;; The view side hands `link-model` its render frame id and `activate-link!` the
+;; frame api it captured for that frame's incarnation; it owns nothing but the
+;; anchor's markup + passthrough attrs.
 
 (defn link-model
   "The `:routing/link-model` seam (PURE, both hosts). Given a link `target`
@@ -573,11 +599,11 @@
      from `prefetch-payload`, or nil) at one credible-intent position — the
      intent-position counterpart of `activate-link!` for the click. Runs the
      caller-supplied intent handler FIRST (compose, not replace), then
-     dispatches to the render-time-captured `render-frame` with `:source
-     :router` (routing-substrate attribution, retarget-safe by explicit
-     `:frame`). A nil `payload` (the link did not opt into `:prefetch :intent`)
-     still runs the caller handler and dispatches nothing — passive by
-     construction.
+     dispatches through `frame-api`, the `capture-frame` bundle of the
+     incarnation that rendered the link, with `:source :router`
+     (`dispatch-to-render-frame!`). A nil `payload` (the link did not opt
+     into `:prefetch :intent`) still runs the caller handler and dispatches
+     nothing — passive by construction.
 
      NO in-repo caller, and no late-bind hook publishes it: there is no
      `:routing/prefetch-on-intent!` seam. `rf/route-link` does NOT route
@@ -594,10 +620,10 @@
      route because its anchors carry intents as vectors its own lowering
      walks; a view artefact that installs real handler functions instead
      wants this composition, and would otherwise write it again."
-     [e caller-handler render-frame payload]
+     [e caller-handler frame-api payload]
      (when caller-handler (caller-handler e))
      (when payload
-       (rf.router/dispatch! payload {:source :router :frame render-frame}))))
+       (dispatch-to-render-frame! frame-api payload))))
 
 ;; The façade owns the `:route/link` registration:
 ;;

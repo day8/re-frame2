@@ -36,8 +36,12 @@
     definitions, and the packaging graph stays
     `fresco -> core late-bind <- routing` (Conventions §Packaging).
   - **Owned here: render-time capture and render-time
-    refusal.** The frame is captured at RENDER (a click fires after the
-    render scope has unwound); a missing routing artefact fails at the
+    refusal.** The frame INCARNATION is captured at RENDER — the
+    boundary's pinned `capture-frame` bundle rides the navigate vector — so
+    a click firing after the render scope has unwound lands on the
+    incarnation that painted the link, and refuses with
+    `:rf.error/frame-destroyed` once that incarnation is gone rather than
+    navigating a successor seated under the same id; a missing routing artefact fails at the
     LINK SITE with `:rf.error/routing-artefact-missing`; and the
     route-click one-intent law holds — the click produces the one
     routing intent, see `on-click-roster!`.
@@ -81,7 +85,8 @@
   One click, one semantic event — the navigation, or the app intent that
   cancelled it. See intent.cljs, `navigate-head` and `navigate-handler`,
   for the click-time half."
-  (:require [re-frame.fresco.impl.error :refer [fail!]]
+  (:require [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.error :refer [fail!]]
             [re-frame.fresco.impl.intent :as rf.fresco.impl.intent]
             [re-frame.late-bind :as rf.late-bind]))
 
@@ -224,6 +229,13 @@
   on the link model's payload, as they do on `rf/route-link`, and never
   reach the anchor.
 
+  The navigate vector's `:frame` is the boundary's pinned `capture-frame`
+  bundle — its frame memo row's `:ops`, the same bundle the ambient
+  dispatch closes over — so routing's `activate-link!` dispatches through
+  the incarnation the link rendered under, exactly as every lowered
+  callback does. The bundle is memoised per incarnation, so two renders of
+  one link stay `=`.
+
   `:prefetch :intent` additionally fills routing's credible-intent
   positions with its `[:rf.route/prefetch {…}]` vector, which lowers like
   any other in-band intent; the positions and the vector both come off the
@@ -253,7 +265,7 @@
                      (merge (prefetch-attrs prefetch prefetch-keys))
                      (assoc :href href
                             :on-click [rf.fresco.impl.intent/navigate-head
-                                       {:frame    frame-kw
+                                       {:frame    (:ops (rf.fresco.impl.collector/frame-row frame-kw))
                                         :payload  payload
                                         :native?  native?
                                         :veto     on-click}]))]
