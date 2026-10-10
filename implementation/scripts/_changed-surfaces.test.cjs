@@ -2526,12 +2526,14 @@ pinnedRoster(
 );
 
 // The readers whose job gates on an output OTHER than the JVM tier: path ->
-// suite -> job -> the output that job's `if:` reads. The `examples/` and
-// `tools/` rows are nested inside their own tree's arm.
+// suite -> job -> the output that job's `if:` reads. The `examples/`,
+// `tools/` and `skills/` rows are nested inside their own tree's arm.
 const PROSE_PINS_ARMING_OTHER_LANES = [
   ['docs/core/testing/views.md', 'uix_component_recipe_docs_pin_test.clj', 'jvm-uix', 'adapter_diagnostic'],
   ['docs/core/how-to/use-uix-or-slim.md', 'uix_consumer_deps_recipe_test.clj', 'jvm-uix', 'adapter_diagnostic'],
   ['docs/skills/re-frame2-setup.md', 'setup_drift_test.clj', 'skills-structural', 'skills_structural'],
+  ['docs/core/fresco/20-migration-from-reagent.md', 'census_test.clj', 'jvm-migration-fresco-codemod', 'migration_fresco_codemod'],
+  ['skills/reagent-fresco-migration/references/procedure.md', 'census_test.clj', 'jvm-migration-fresco-codemod', 'migration_fresco_codemod'],
   ['spec/Conventions.md', 'uix_consumer_deps_recipe_test.clj', 'jvm-uix', 'adapter_diagnostic'],
   ['spec/009-Instrumentation.md', 'infinite_trace_ops_test.clj', 'mcp-conformance-wire-vocab', 'mcp_conformance'],
   ['examples/substrates/uix/counter/core.cljs', 'uix_consumer_deps_recipe_test.clj', 'jvm-uix', 'adapter_diagnostic'],
@@ -2583,6 +2585,7 @@ test('prose no suite reads still arms NOTHING — the narrowing (rf2-61ar)', () 
   // codemod subtree: each arm is the PAGE, not its tree.
   for (const file of [
     'docs/core/intro.md',
+    'docs/core/fresco/01-getting-started.md',
     'docs/api/re-frame.core.md',
     'docs/ssr/testing.md',
     'docs/design/fresco/draft-guide/REWRITE-NOTES.md',
@@ -2971,10 +2974,11 @@ const DECLARED_NO_SURFACE_OUTPUT = {
   'docs/EP': DOCS_YML,
   'docs/async': DOCS_YML,
   // `docs/core` is DELIBERATELY ABSENT, for the reason `docs/ssr` is below:
-  // two of its pages carry a test.yml reader — testing/views.md and
-  // how-to/use-uix-or-slim.md, both read by jvm-uix suites — and an arm
-  // setting `adapter_diagnostic` to schedule them, so one armed file arms the
-  // tree. Its other pages arm no output, and the gates that read them are
+  // three of its pages carry a test.yml reader — testing/views.md and
+  // how-to/use-uix-or-slim.md, read by jvm-uix suites, and
+  // fresco/20-migration-from-reagent.md, read by the Fresco codemod's
+  // census_test.clj — each with an arm scheduling its job, so one armed file
+  // arms the tree. Its other pages arm no output, and the gates that read them are
   // always-on or lint.yml's own: docs.yml stages the tree and runs
   // mkdocs --strict; check_doc_slugs.py validates its links and anchors from
   // the unconditional verify-readme-links job; lint.yml runs api-manifest

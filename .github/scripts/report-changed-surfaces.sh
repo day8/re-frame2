@@ -1733,11 +1733,20 @@ else
         # The tree is narrowed for the reason the `docs/api` pages above are:
         # `docs/core/**` is on lint.yml's `paths:` filter, so its api-manifest
         # doc-guide gates already watch it, and no other page in it has a
-        # test.yml reader. Arming the tree would queue the four adapter probes
-        # for every guide edit. Add a page here when a new `jvm-uix` suite
-        # names one; a page whose reader runs in an `implementation_jvm` lane
-        # belongs in an arm above instead.
+        # test.yml reader outside the arm below. Arming the tree would queue the
+        # four adapter probes for every guide edit. Add a page here when a new
+        # `jvm-uix` suite names one; a page whose reader runs in an
+        # `implementation_jvm` lane belongs in an arm above instead.
         adapter_diagnostic=true
+        ;;
+      docs/core/fresco/20-migration-from-reagent.md)
+        # One named page, NOT `docs/core/fresco/*`. The codemod's
+        # census_test.clj reads this page's census verdict table and requires
+        # it to give every census class the codemod's own verdict, and it runs
+        # in jvm-migration-fresco-codemod, which gates on this output. The
+        # suite is a seconds-long pure JVM run, so arming it per edit of this
+        # page costs little; the other Fresco guide pages have no reader.
+        migration_fresco_codemod=true
         ;;
       docs/skills/re-frame2-setup.md)
         # One named file, NOT `docs/skills/*`. This is the docs-site page for
@@ -2729,6 +2738,12 @@ else
         # instead would schedule the implementation's own heavy lanes for a diff
         # that cannot reach them, and still not run this fixture.
         skills_structural=true
+        # The codemod's census_test.clj reads this file's census route table
+        # and requires it to route every census class the codemod emits, so an
+        # edit here schedules that seconds-long JVM lane too.
+        case "$file" in
+          skills/reagent-fresco-migration/references/procedure.md) migration_fresco_codemod=true ;;
+        esac
         ;;
       docs/tools/playground/*|docs/cljs/playground.js|docs/cljs/playground.css|scripts/playground-sci-input-digest.mjs)
         # The docs/cljs live-cell playground (CM6 + Scittle
