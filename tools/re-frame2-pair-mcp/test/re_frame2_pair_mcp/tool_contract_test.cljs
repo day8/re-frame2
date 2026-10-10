@@ -10,6 +10,7 @@
   (:require [cljs.test :refer-macros [deftest is async]]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.server :as server]
+            [re-frame2-pair-mcp.tools.get-re-frame2-pair-instructions :as instructions]
             [re-frame2-pair-mcp.tools.registry :as registry]))
 
 (def ^:private fs (js/require "fs"))
@@ -54,3 +55,18 @@
               (registry/contract-fingerprint
                 (map #(cond-> % (= "dispatch" (:name %)) edit) registry/tool-descriptors)))
         (str change " reads as a different contract"))))
+
+(deftest the-reply-names-the-commit-the-server-was-built-from
+  ;; `:tool-contract` cannot see a behaviour change, so the skill checks
+  ;; `:built-from` by ancestry. Only `npm run build` bakes a commit in; this
+  ;; test build sets no define, so it reports the default.
+  (async done
+    (-> (server/handle-call-for-tests {} "get-re-frame2-pair-instructions" #js {} nil)
+        (.then (fn [result]
+                 (let [reply (tu/extract-edn result)]
+                   (is (= instructions/built-from (:built-from reply))
+                       "the reply carries the baked-in commit as :built-from")
+                   (is (= "unknown" (:built-from reply))
+                       "a build given no commit reports \"unknown\""))))
+        (.catch (fn [e] (is false (str "get-re-frame2-pair-instructions rejected: " (.-message e)))))
+        (.then (fn [_] (done))))))
