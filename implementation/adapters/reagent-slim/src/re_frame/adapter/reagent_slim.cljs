@@ -13,6 +13,9 @@
   (:require [reagent2.core             :as r]
             [reagent2.ratom            :as ratom]
             [reagent2.dom.client       :as rdc]
+            [reagent2.impl.component   :as component]
+            [re-frame.adapter.context  :as rf.adapter.context]
+            [re-frame.error            :as rf.error]
             [re-frame.substrate.spine   :as rf.substrate.spine]
             [re-frame.views            :as rf.views]))
 
@@ -111,6 +114,36 @@
   Idempotent: a second call, or a call after `rf/destroy-adapter!` has
   already released the Root, does nothing. Returns nil."
   (:unmount-client-root! spine-fns))
+
+;; ---- static export --------------------------------------------------------
+;;
+;; reagent2's static serializer walks through a context Provider without
+;; applying its value, and a view it renders resolves its frame through
+;; `rf.views/current-frame`, which there reads the ambient `with-frame` alone.
+;; A frame Provider naming any other frame would render its subtree against
+;; the wrong frame, so the check installed here refuses it.
+
+(defn- check-static-frame-provider
+  [provider value]
+  (when (or (identical? provider rf.adapter.context/frame-context)
+            (identical? provider (.-Provider rf.adapter.context/frame-context)))
+    (let [scoped  (rf.adapter.context/coerce-context-value value)
+          ambient (rf.views/current-frame)]
+      (when (not= scoped ambient)
+        (throw
+          (rf.error/thrown-ex-info
+            :rf.error/static-markup-provider-frame
+            'reagent2.dom.server/render-to-static-markup
+            (str "A frame-provider scopes frame " (pr-str scoped)
+                 ", but static markup renders its subtree against "
+                 (if (some? ambient)
+                   (str "the ambient frame " (pr-str ambient))
+                   "no frame")
+                 "; run the export inside (rf/with-frame " (pr-str scoped) " …).")
+            {:recovery :export-under-the-provided-frame
+             :extra    {:frame scoped :ambient-frame ambient}}))))))
+
+(component/set-static-provider-check! check-static-frame-provider)
 
 (def adapter
   "The reagent-slim adapter map. Pass to `(rf/init! ...)` to install, using

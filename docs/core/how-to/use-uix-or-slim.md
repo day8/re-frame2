@@ -228,7 +228,7 @@ A `r/dom-node` call becomes a `:ref` callback, since React 19 removed `findDOMNo
 
 Slim handles two kinds of "render to HTML" differently:
 
-- **Static HTML export** (clipboard exports, report HTML, anything outside the React lifecycle) uses `render-to-static-markup` in `reagent2.dom.server`, a ClojureScript tree walk with no `react-dom/server` and no hydration attributes. This is where the HTML-export saving comes from: stock Reagent's `render-to-string` pulls in the roughly 50 KB `react-dom/server` module, while the serializer is about 3–4 KB.
+- **Static HTML export** (clipboard exports, report HTML, anything outside the React lifecycle) uses `render-to-static-markup` in `reagent2.dom.server`, a ClojureScript tree walk with no `react-dom/server` and no hydration attributes. This is where the HTML-export saving comes from: stock Reagent's `render-to-string` pulls in the roughly 50 KB `react-dom/server` module, while the serializer is about 3–4 KB. The walk runs no React, so three shapes raise a typed error instead of exporting: a render that reads its component instance, a `frame-provider` naming a frame other than the one the export runs under (wrap the export in `rf/with-frame` instead), and a foreign React component.
 - **SSR that the client hydrates** works under slim as it does under stock Reagent. The server render is `day8/re-frame2-ssr`'s ([Server-side rendering](../../ssr/concepts.md)), not the adapter's, and the client adopts it with `render!` and `{:hydrate? true}`. As for Reagent, pass `ssr/hydrate!` a `:render-tree-fn` so it can check the server's render-tree hash.
 
 ## What carries over, what doesn't

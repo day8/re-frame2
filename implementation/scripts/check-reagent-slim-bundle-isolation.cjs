@@ -194,8 +194,7 @@ const REACT_DOM_SERVER_SENTINELS = [
 // Sentinel counts in the fixture release bundle (recorded for the
 // re-derivation contract — if these drop to 0 in a slim build that DOES
 // exercise SSR, re-pick from another serializer-owned literal, e.g.
-// 'static-markup-empty-vector', 'static-markup-bad-element', or the
-// 'reagent-react-component' opaque-subtree placeholder):
+// 'static-markup-empty-vector' or 'static-markup-bad-element'):
 //   counterSlimPrerender   : 1
 //   static-markup-bad-tag  : 3
 //
@@ -606,8 +605,8 @@ function main() {
       console.error('let get DCE-eliminated (the host-global write is the DCE anchor — keep');
       console.error('it writing the prerender result, not a literal). If the SSR exercise IS');
       console.error('still present and intentional, a serializer sentinel string may have');
-      console.error('changed: re-derive from reagent2.dom.server (the ex-info type literals');
-      console.error('or the reagent-react-component placeholder). See IMPL-SPEC §8 + S3-005.');
+      console.error('changed: re-derive from reagent2.dom.server (the ex-info type literals).');
+      console.error('See IMPL-SPEC §8 + S3-005.');
       console.error('Reproduce with: cd implementation && npm run test:reagent-slim:bundle-isolation');
     }
     if (!c5.ok) {

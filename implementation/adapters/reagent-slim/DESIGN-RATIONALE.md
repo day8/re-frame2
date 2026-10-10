@@ -212,7 +212,7 @@ The split aligns with re-frame2's separation of concerns. SSR-with-hydration is 
 
 If your app imports `reagent.dom.server/render-to-string` for hydrate-able SSR: migrate to the `day8/re-frame2-ssr` seam. The seam's API is documented in the SSR adapter's spec.
 
-If your app imports `reagent.dom.server/render-to-static-markup` for HTML export: change the require to `reagent2.dom.server`. A view that reads its component instance in render, relies on a context Provider's value, or renders a foreign React component does not export the way it renders in the browser; IMPL-SPEC §8.1 sets out the three limits. Behavioural parity with React's `renderToStaticMarkup` is covered by a parity test suite (R-004 in Stage 2's risk register) — any intentional differences (attribute ordering, void-tag handling) are documented in the parity test's known-difference allow-list (`reagent2.dom.server` parity suite).
+If your app imports `reagent.dom.server/render-to-static-markup` for HTML export: change the require to `reagent2.dom.server`. A view that reads its component instance in render, a `frame-provider` naming a frame other than the one the export runs under, and a foreign React component each raise a typed error instead of exporting; IMPL-SPEC §8.1 sets out the three limits. Behavioural parity with React's `renderToStaticMarkup` is covered by a parity test suite (R-004 in Stage 2's risk register) — any intentional differences (attribute ordering, void-tag handling) are documented in the parity test's known-difference allow-list (`reagent2.dom.server` parity suite).
 
 ---
 
