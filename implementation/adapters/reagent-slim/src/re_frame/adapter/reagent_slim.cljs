@@ -13,7 +13,6 @@
   (:require [reagent2.core             :as r]
             [reagent2.ratom            :as ratom]
             [reagent2.dom.client       :as rdc]
-            [reagent2.impl.template    :as template]
             [re-frame.substrate.spine   :as rf.substrate.spine]
             [re-frame.views            :as rf.views]))
 
@@ -164,13 +163,3 @@
                                    (binding [ratom/*ratom-context* (js-obj)]
                                      @container)))
      :after-render      r/after-render}))
-
-;; ---- warn-once cache reset wiring -----------------------------------------
-;;
-;; The slim template interpreter has its own keyword-prop warning cache in
-;; addition to the spine cache. Enrol its public reset function here so test
-;; fixtures re-arm both caches. Keeping this wiring in the adapter avoids a
-;; `reagent2.*` to `re-frame.*` dependency; the private cache intentionally has
-;; no arm-state probe.
-(rf.substrate.spine/install-clear-warn-once-step! template/clear-warned-keyword-prop!
-                                     {:label :reagent-slim/warned-keyword-prop})
