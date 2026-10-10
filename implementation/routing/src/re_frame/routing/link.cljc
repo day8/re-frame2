@@ -593,38 +593,6 @@
      :prefetch      (prefetch-payload target)
      :prefetch-keys prefetch-intent-keys}))
 
-#?(:cljs
-   (defn prefetch-on-intent!
-     "Dispatch a prefetch `payload` (the `[:rf.route/prefetch {address}]` vector
-     from `prefetch-payload`, or nil) at one credible-intent position — the
-     intent-position counterpart of `activate-link!` for the click. Runs the
-     caller-supplied intent handler FIRST (compose, not replace), then
-     dispatches through `frame-api`, the `capture-frame` bundle of the
-     incarnation that rendered the link, with `:source :router`
-     (`dispatch-to-render-frame!`). A nil `payload` (the link did not opt
-     into `:prefetch :intent`) still runs the caller handler and dispatches
-     nothing — passive by construction.
-
-     NO in-repo caller, and no late-bind hook publishes it: there is no
-     `:routing/prefetch-on-intent!` seam. `rf/route-link` does NOT route
-     through here — its
-     `prefetch-intent-attrs` composes the same behaviour from
-     `compose-intent-handler` at every `prefetch-intent-keys` position. It is
-     routing's one statement of the intent-dispatch law, for a view artefact
-     that needs it to call directly.
-
-     `link-model` carries `:prefetch` / `:prefetch-keys`, and
-     `re-frame.fresco`'s route-link honours the key from there, so this fn is
-     not the ONLY way to honour `:prefetch :intent`. It serves the consumer
-     shape the seam keys do not: a closure-based one. Fresco takes the data
-     route because its anchors carry intents as vectors its own lowering
-     walks; a view artefact that installs real handler functions instead
-     wants this composition, and would otherwise write it again."
-     [e caller-handler frame-api payload]
-     (when caller-handler (caller-handler e))
-     (when payload
-       (dispatch-to-render-frame! frame-api payload))))
-
 ;; The façade owns the `:route/link` registration:
 ;;
 ;;   #?(:cljs (def route-link (views/reg-view* :route/link {} route-link-render))

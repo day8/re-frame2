@@ -339,16 +339,14 @@
                 ;; In-place request -- PATCH the current location. Route + path
                 ;; params are carried from the current slice and never accepted
                 ;; in-place (changing params is a destination). Query base:
-                ;; `:query` replaces wholesale ({} clears); `:query-merge` folds
-                ;; over the current query (below); otherwise the current query is
-                ;; carried unchanged.
+                ;; `:query` replaces wholesale ({} clears); otherwise the current
+                ;; query is the base, which `:query-merge` folds over (below).
                 :else
                 {:route-id     (:route-id current)
                  :path-params  (or (:params current) {})
-                 :query-params (cond
-                                 (contains? request :query)       (:query request)
-                                 (contains? request :query-merge) (or (:query current) {})
-                                 :else                             (or (:query current) {}))})
+                 :query-params (if (contains? request :query)
+                                 (:query request)
+                                 (or (:query current) {}))})
               ;; Fragment: an explicit `:fragment` (present, even nil) wins --
               ;; the request's fragment overrides a URL-embedded one, and
               ;; `:fragment nil` clears. Otherwise a DESTINATION uses the

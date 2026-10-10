@@ -204,21 +204,14 @@
   Spec 009) when `metadata` carries a BARE key outside the reserved set —
   the common typo case (`:on-matched` for `:on-match`). Namespaced keys
   (`:myapp/analytics-id`) are host/app extension points and always pass
-  (Spec 012 §Reserved route-metadata keys). A non-map `metadata` is also
-  rejected here so the failure names the route at the authoring boundary
-  rather than NPE-ing downstream.
+  (Spec 012 §Reserved route-metadata keys). `metadata` is already a map:
+  `reg-route` refuses a non-map before it gets here.
 
   The thrown error names every offending key under `:keys` and carries
   the reserved set under `:reserved` so the message is actionable —
   authors see exactly which key is wrong and what the valid vocabulary
   is. Fails in dev AND prod (it is a caller bug, not user input)."
   [id metadata]
-  (when-not (map? metadata)
-    (throw (route-error
-             :rf.error/route-bad-metadata
-             'rf/reg-route
-             (str "route " id "'s metadata must be a map, got " (pr-str (type metadata)))
-             {:route-id id :value metadata})))
   (let [accepted (accepted-route-keys)
         bad (into []
                   (comp (map key)
@@ -366,8 +359,7 @@
 
 (defn- keyword-type-form?
   "True when a Malli param/query slot type-form `tf` denotes a BARE / OPTIONED
-  (unbounded) `:keyword` value — the shapes `normalize-type-form` reduces to
-  `:rf.route/keyword-unbounded`: bare `:keyword`, an optioned `[:keyword {…}]`,
+  (unbounded) `:keyword` value: bare `:keyword`, an optioned `[:keyword {…}]`,
   or either wrapped in `[:maybe …]`. A `[:enum :a :b …]` keyword allowlist is
   NOT matched (its head is `:enum`, not `:keyword`) — it round-trips via the
   enum prism and stays supported. The `:keyword` twin of
@@ -660,10 +652,11 @@
 
 (def ^:private coercible-scalar-type-forms
   "The bare Malli scalar type keywords `coerce-by-type-form` knows how
-  to coerce a URL string into. `:keyword` is handled separately (it
-  rewrites to `:rf.route/keyword-unbounded`); `:string` is a deliberate
-  passthrough. Used to recognise the *optioned* form `[:int {…}]` as the
-  same coercion as the bare `:int`.
+  to coerce a URL string into. `:keyword` is absent: `reg-route` rejects an
+  unbounded `:keyword` slot (`reject-keyword-route-schema!`), and a bounded
+  one is an `[:enum …]`. `:string` is a deliberate passthrough. Used to
+  recognise the *optioned* form `[:int {…}]` as the same coercion as the
+  bare `:int`.
 
   `:double` is DELIBERATELY absent: a floating-point value has
   no canonical-EDN identity (`re-frame.identity/bad-number?` rejects
@@ -680,12 +673,6 @@
 
   Handled shapes:
   - bare scalar `:int` / `:uuid` / `:boolean` → itself.
-  - bare `:keyword` → `:rf.route/keyword-unbounded` (no enum allowlist;
-    stays a string at coerce time — the unbounded-intern guard).
-    Because `reg-route` rejects a bare / optioned `:keyword` :params / :query
-    slot fail-loud (`reject-keyword-route-schema!`), this
-    mapping is a defensive no-op passthrough — unreachable for a
-    registered route's coercion table.
   - `[:enum :a :b …]` / `[:enum {…opts} :a :b …]` with all-keyword
     choices → `[:rf.route/enum-keyword {token kw …} {kw token …}]` (the
     bounded allowlist and its inverse). A choice's token is its
@@ -693,8 +680,7 @@
     `:sort/desc` → `sort/desc` — so a qualified choice keeps its identity
     on the wire and `[:enum :a/x :b/x]` has two tokens, not one.
   - **optioned scalar** `[:int {…}]` / `[:uuid {…}]` / `[:boolean {…}]` →
-    the bare scalar token; **optioned** `[:keyword {…}]`
-    → `:rf.route/keyword-unbounded`. Ordinary Malli properties on an
+    the bare scalar token. Ordinary Malli properties on an
     otherwise-supported scalar do not disable URL-string coercion: if
     they did, `[:int {:min 1}]` would validate `\"2\"` against `[:int …]`
     and 404 every valid deep link.
@@ -711,9 +697,6 @@
   Malli `:params`/`:query` validation has the final say on the type."
   [raw]
   (cond
-    (= :keyword raw)
-    :rf.route/keyword-unbounded
-
     (contains? coercible-scalar-type-forms raw)
     raw
 
@@ -736,10 +719,7 @@
 
         ;; Optioned scalar `[:int {…}]` etc. The Malli
         ;; properties map (or its absence) does not change the coercion —
-        ;; the head type drives it. `[:keyword {…}]` stays unbounded.
-        (= :keyword head)
-        :rf.route/keyword-unbounded
-
+        ;; the head type drives it.
         (contains? coercible-scalar-type-forms head)
         head
 
@@ -768,8 +748,7 @@
 
   Each slot's type-form is reduced to a canonical coercion token by
   `normalize-type-form`: bare scalars, **optioned** scalars
-  (`[:int {…}]`), `[:enum …]` keyword allowlists, bare/optioned
-  `:keyword` (→ `:rf.route/keyword-unbounded`), and `[:maybe inner]`
+  (`[:int {…}]`), `[:enum …]` keyword allowlists, and `[:maybe inner]`
   wrappers all map to the right coercion; an unsupported form stays in the
   table verbatim so its slot remains a declared key (string-passthrough at
   coerce time, with the Malli validator having the final say)."
@@ -872,9 +851,6 @@
     throws). This is what makes the canonical Spec 012 `:uuid` PATH route
     (`{:path \"/articles/:id\" :params [:map [:id :uuid]]}`) round-trip a
     real UUID URL to `{:id #uuid \"...\"}` rather than 404.
-  - `:rf.route/keyword-unbounded` — declared as `:keyword` with no enum
-    constraint. **Stays as string** (no intern; the unbounded keyword-
-    interning DoS surface is precisely what this guards against).
   - `[:rf.route/enum-keyword {token kw} {kw token}]` — declared as
     `[:enum :a :b ...]`. A value matching a declared choice's token decodes
     to that declared keyword; others stay string. Nothing is interned, so
@@ -909,16 +885,6 @@
 
     (= :boolean type-form)
     (case v "true" true "false" false v)
-
-    (= :rf.route/keyword-unbounded type-form)
-    ;; `:keyword` without an enum allowlist stays as string —
-    ;; permitting `(keyword v)` here would open the unbounded keyword-interning
-    ;; DoS surface. Authors who want keyword values
-    ;; must declare an `[:enum ...]` allowlist. `reg-route` rejects a
-    ;; bare / optioned `:keyword` slot, so this token never
-    ;; enters a registered route's coerce table — the branch is a
-    ;; defensive no-op passthrough (identical to `:else`).
-    v
 
     (and (vector? type-form) (= :rf.route/enum-keyword (first type-form)))
     ;; Enum allowlist gate — a URL value naming a declared choice's token

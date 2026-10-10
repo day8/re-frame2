@@ -572,10 +572,10 @@
 
 ;; NOTE — there is deliberately no late-bind seam for `:prefetch :intent`.
 ;; `rf/route-link` reaches `rf.routing.link/prefetch-payload`
-;; and `prefetch-intent-keys` by direct call, and `prefetch-on-intent!` not at
-;; all — see that fn's docstring for what composes the intent handlers in its
-;; place. No view artefact consumes any of the three through the hook table,
-;; so publishing them would only promise reachability that does not exist. Per Spec
+;; and `prefetch-intent-keys` by direct call and composes the intent handlers
+;; itself (`prefetch-intent-attrs`); a view artefact reads the same pair off
+;; `:routing/link-model`. No view artefact consumes either through a hook of
+;; its own, so publishing one would only promise reachability that does not exist. Per Spec
 ;; 012 §Route-plan prefetch the law lives in `re-frame.routing.link`; a
 ;; view artefact that needs it should land a real reader first and publish
 ;; only the keys it reads.

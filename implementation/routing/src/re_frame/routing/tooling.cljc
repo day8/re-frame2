@@ -7,18 +7,17 @@
   application runtime code reads.
 
   Loading contract:
-    - CLJS consumers needing the surface call
-      `re-frame.routing.tooling/<name>` directly. Apps that load the
-      routing artefact but never attach a tool can DCE the body wholesale (the
-      sibling ns is loaded only when a test fixture, tool, or dev preload
-      requires it; the `re-frame.routing` facade never `:require`s it).
-    - JVM consumers keep an ergonomic `re-frame.routing/<name>` alias (gated
-      under `#?(:clj ...)`). The alias adds no browser bundle surface. The
-      whole routing artefact is already bundle-isolated
-      from production builds (the counter example never `:require`s
-      `re-frame.routing`), so this sibling can never reach a no-routing
-      app's bundle; the bundle-isolation gate noted at the foot of this ns
-      additionally proves no stray `:require` ever pulled the body in.
+    - Consumers on both hosts call `re-frame.routing.tooling/<name>`
+      directly; `re-frame.routing` carries no alias for either name. Apps that
+      load the routing artefact but never attach a tool can DCE the body
+      wholesale (the sibling ns is loaded only when a test fixture, tool, or
+      dev preload requires it; the `re-frame.routing` facade never
+      `:require`s it).
+    - The whole routing artefact is already bundle-isolated from production
+      builds (the counter example never `:require`s `re-frame.routing`), so
+      this sibling can never reach a no-routing app's bundle; the
+      bundle-isolation gate noted at the foot of this ns additionally proves
+      no stray `:require` ever pulled the body in.
 
   READ-ONLY over the registry. Like `re-frame.subs.tooling` over the sub
   registrar and `re-frame.flows.tooling` over the flow registry, this ns
@@ -254,25 +253,19 @@
   - `:source` / `:doc` — present when the registration carried them (source
                      coords auto-captured by `reg-route`).
 
-  Zero-arity returns the map for every registered route (`{}` when none). The
-  one-arity form returns the single node for `route-id`, or `nil` if it is not
-  registered. JVM-runnable — the route registration metadata is
+  Returns the map for every registered route (`{}` when none). JVM-runnable — the route registration metadata is
   partition-agnostic.
 
   There is NO public accessor (EP-0014 §Open Issues, issue 1): this lives
   in the bundle-isolated tooling sibling and is consumed by Xray + the
   conformance fixtures; the public name is deferred until a third consumer
   needs it. There is no `re-frame.core/route-algebra-view` facade export."
-  ([]
-   (let [routes (rf.registrar/registrations :route)]
-     (reduce-kv
-       (fn [acc route-id route-meta]
-         (assoc acc route-id (node-for route-id route-meta)))
-       {}
-       routes)))
-  ([route-id]
-   (when-let [route-meta (rf.registrar/lookup :route route-id)]
-     (node-for route-id route-meta))))
+  []
+  (reduce-kv
+    (fn [acc route-id route-meta]
+      (assoc acc route-id (node-for route-id route-meta)))
+    {}
+    (rf.registrar/registrations :route)))
 
 (defn route-slice-algebra-view
   "Return the LIVE derivation/process algebra view of a frame's route slice
