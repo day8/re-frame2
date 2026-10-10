@@ -41,6 +41,7 @@
   §Event intent as data."
   (:require [re-frame.frame :as rf.frame]
             [re-frame.fresco.impl.error :refer [fail!]]
+            [re-frame.fresco.impl.frames :as rf.fresco.impl.frames]
             [re-frame.late-bind :as rf.late-bind]))
 
 ;; ---------------------------------------------------------------------------
@@ -58,7 +59,7 @@
   render's dynamic extent beside `*dispatch*`; `nil` outside a render.
   `re-frame.fresco.impl.route-link/route-link` reads it at render time,
   because a browser click fires after the extent has unwound and the
-  frame's pinned bundle must travel as data."
+  frame must travel as data."
   nil)
 
 (def ^:private ambient-frame-refusal
@@ -466,8 +467,7 @@
     :else                veto))
 
 (defn- unwrap-navigate
-  "The map inside `[navigate-head {…}]` — `:frame` (the rendering
-  incarnation's pinned `capture-frame` bundle), `:payload`, `:native?`
+  "The map inside `[navigate-head {…}]` — `:frame`, `:payload`, `:native?`
   and `:veto` (docs/design/fresco/decisions.md HD-027). Not validated:
   `route-link` mints this form and nothing else writes it, so a render
   pays nothing per link to re-read a map the library constructed. Not a
@@ -485,13 +485,22 @@
   the veto and otherwise stands aside, so the browser follows the anchor's
   real `href` rather than throwing at a detached click; `route-link`
   proved routing present at RENDER, so absence here is transient. Design
-  record: docs/design/fresco/decisions.md HD-027."
+  record: docs/design/fresco/decisions.md HD-027.
+
+  The frame is pinned HERE as well, and for the same reason. The vector
+  carries the frame keyword, because it is data; the closure carries the
+  `capture-frame` bundle of the incarnation live at lowering
+  (`frames/pinned-ops`), and routing dispatches through it, so a click
+  fired after that incarnation is destroyed refuses with
+  `:rf.error/frame-destroyed` like every other lowered callback, never
+  navigating a successor seated under the same id."
   [k v]
   (let [{:keys [frame payload native? veto]} (unwrap-navigate k v)
-        veto-fn (lower-veto k veto)]
+        frame-api (rf.fresco.impl.frames/pinned-ops frame)
+        veto-fn   (lower-veto k veto)]
     (fn fresco-navigate [e]
       (if-some [activate (rf.late-bind/get-fn :routing/activate-link!)]
-        (activate e veto-fn frame payload native?)
+        (activate e veto-fn frame-api payload native?)
         (when veto-fn (veto-fn e)))
       nil)))
 

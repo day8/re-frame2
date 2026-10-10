@@ -141,6 +141,22 @@
         (swap! !frame-ops assoc frame-kw fresh)
         fresh))))
 
+(defn pinned-ops
+  "The `capture-frame` bundle pinned to the incarnation `frame-kw` names
+  right now, for a lowering that must carry its frame past the render: the
+  memo row's own bundle when the row describes that incarnation — which it
+  does inside every boundary body, whose ambient dispatch was just read
+  through `frame-row` — else a fresh `rf/capture-frame`, which pins the same
+  incarnation. Read-only on the table, because a row is minted only by
+  `frame-row`, whose caller supplies the dispatch closure the row pairs
+  with."
+  [frame-kw]
+  (let [row (get @!frame-ops frame-kw)]
+    (if (and (some? (:incarnation row))
+             (identical? (:incarnation row) (rf.frame/frame-incarnation-token frame-kw)))
+      (:ops row)
+      (rf/capture-frame frame-kw))))
+
 (defn forget-frame-ops!
   "Drop the memoised rows — RESET, HYGIENE AND RETENTION.
 

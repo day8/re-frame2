@@ -82,10 +82,7 @@
         on-click  (:on-click attrs)]
     (is (rf.fresco.impl.intent/navigate-head? on-click) "the click position carries the navigate head")
     (let [{:keys [frame payload native? veto]} (second on-click)]
-      (is (= frame-id (:frame frame)) "the frame was captured at render, as data")
-      (is (identical? (:ops (rf.fresco.impl.collector/frame-row frame-id)) frame)
-          "…as the boundary's own capture-frame bundle, pinned to the
-           incarnation live at render")
+      (is (= frame-id frame) "the frame was captured at render, as data")
       (is (= [:rf.route/url-requested {:url "/profile/jane"}]
              payload)
           "the payload is routing's own url-requested synthesis, in band")
