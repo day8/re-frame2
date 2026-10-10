@@ -43,8 +43,7 @@
   closed vocabularies below are MIRRORED as literal data, exactly as
   `resources-helpers` mirrors the reserved runtime-db keys. The mirror is
   the bundle-isolation-safe price of not adding a require edge into the
-  reply substrate; a drift would be caught by the closed-vocabulary
-  wiring test. It DOES `:require` `re-frame.trace` for the contract-owned
+  reply substrate; a test pins the mirrored statuses as literals. It DOES `:require` `re-frame.trace` for the contract-owned
   canonical RAW trace-event frame reader (`trace-event-frame`) — the
   same trace-CONTRACT reader the rest of Xray consumes (`self-noise`,
   `trace-collector`, `runtime`); that is a read of
@@ -88,8 +87,7 @@
 ;; The closed vocabularies (MIRRORED from re-frame.reply — Managed-Effects
 ;; §Status taxonomy / §The reply map). Closed by design: a managed-async
 ;; completion is exactly one of these statuses. Mirrored as literal data so
-;; Xray never requires the substrate (bundle isolation); the wiring test pins
-;; the mirror against the substrate's `re-frame.reply/statuses` set.
+;; Xray never requires the substrate (bundle isolation).
 ;; ---------------------------------------------------------------------------
 
 (def reply-statuses
@@ -106,36 +104,10 @@
                      `:stale? true` + `:rf.reply/stale-reason`; NO app-state mutation."
   #{:ok :partial :error :cancelled :stale})
 
-(def work-statuses
-  "The operational work-status vocabulary — `:rf.reply/work-status` on a reply
-  map, the same values under the bare `:status` a
-  durable work-ledger row carries (the cross-record spelling — Managed-Effects
-  §The uniform reply envelope) (mirror of `re-frame.reply/work-statuses`).
-  Narrower / more operational than reply `:status`: `:timed-out` is an error
-  work-status (timeout is an error KIND + a work status, NOT a top-level reply
-  status); `:suppressed` is the stale terminal."
-  #{:completed :failed :timed-out :suppressed :cancelled})
-
-(def work-kinds
-  "The `:work/kind` vocabulary across the managed-async families
-  (Managed-Effects §Work-id correlation — the work-id tuple heads). The
-  family a work id / reply belongs to. `:resource` covers mutations too —
-  a mutation reuses the resource work-id head and is distinguished by the
-  ledger row's `:work/kind :mutation`, so both `:resource` and `:mutation`
-  appear as kinds on rows."
-  #{:http :resource :mutation :route :machine :timer})
-
 (defn reply-status?
   "True iff `status` is a member of the closed reply-status vocabulary."
   [status]
   (contains? reply-statuses status))
-
-(def terminal-reply-statuses
-  "The reply statuses that are TERMINAL for the attempt (the work settled,
-  one way or another). All five reply statuses are terminal — a reply map
-  is only produced at completion. `:running` is a ledger/issuance status,
-  NOT a reply status (issuance has no reply map yet)."
-  reply-statuses)
 
 ;; ---------------------------------------------------------------------------
 ;; Reply-map field readers (Managed-Effects §The reply map). A reply map is
@@ -177,8 +149,8 @@
   (or (:rf.reply/work-id m) (:work/id m)))
 
 (defn work-kind-of
-  "Read the work-kind family tag off a reply map or trace tags (one of
-  `work-kinds`). Prefer the reply-envelope spelling
+  "Read the work-kind family tag off a reply map or trace tags (`:http` /
+  `:resource` / `:mutation` / `:route` / `:machine` / `:timer`). Prefer the reply-envelope spelling
   `:rf.reply/work-kind` (the reply MAP single-roots the work
   identity there — Managed-Effects §The uniform reply envelope; a family
   trace row stamps it too). Fall back to the bare `:work/kind`
@@ -214,103 +186,8 @@
       :rf.work/timer    :timer
       nil)))
 
-(defn resolve-work-kind
-  "The work-kind for a reply map / row: the explicit work-kind when present
-  (`:rf.reply/work-kind` on a reply map / trace row, or the bare `:work/kind`
-  the ledger row keeps), else inferred from the work-id tuple head. Pure."
-  [m]
-  (or (work-kind-of m)
-      (infer-work-kind (work-id-of m))))
-
 ;; ---------------------------------------------------------------------------
-;; The uniform reply row (the ONE vocabulary). Projects a
-;; reply map (Managed-Effects §The reply map) into a render-safe row that
-;; reads the SAME across every family. PRIVACY: the wire-bearing slots
-;; (`:value` / `:error` / `:correlation` / `:meta`) are summarized; the
-;; identity facts ride verbatim.
-;; ---------------------------------------------------------------------------
-
-(defn reply-row
-  "Project ONE uniform reply map into a render-safe row reading the
-  canonical EP-0011 envelope facts (Managed-Effects §The reply map /
-  §Status taxonomy). The SINGLE vocabulary a panel renders regardless of
-  the family the reply came from:
-
-      {:work-id      [:rf.work/http :article/by-id 1]   ; the attempt identity
-       :work-kind    :http                              ; explicit or inferred
-       :status       :ok                                ; closed reply status
-       :work-status  :completed                         ; operational work status
-       :attempt      1
-       :frame        <frame-id>
-       :started-at   …  :completed-at … :deadline-at …  ; durable causal ms
-       :value        <summary>   ; PRIVACY — summarized (nil for :error/:stale)
-       :error        <summary>   ; PRIVACY — summarized (failure envelope)
-       :error-kind   :rf.http/timeout                   ; the family error :kind
-       :correlation  <summary>   ; PRIVACY — request-id / nav-token side-bag
-       :stale?       false
-       :stale-reason nil
-       :cancelled?   false
-       :cancel-reason nil
-       :delivered?   true        ; false ⇔ a stale/suppressed reply not dispatched
-       :meta         <summary>}  ; PRIVACY — family-specific data
-
-  `:delivered?` is the EP-0011 delivery-vs-non-delivery fact (Managed-
-  Effects §Tracing): a `:stale` reply is NOT delivered to the app target
-  (`:delivered? false`) unless the trace row carries an explicit
-  `:rf.reply/delivered? true` wire fact, which this projection honors;
-  every non-stale terminal reply is delivered.
-
-  PRIVACY: `:value` / `:error` / `:correlation` / `:meta` are summarized
-  via `resources-helpers/summarize` (the runtime already elided sensitive /
-  large slots on the wire). Pure."
-  [reply]
-  (let [work-id      (work-id-of reply)
-        status       (:status reply)
-        error        (:error reply)
-        ;; the runtime emits the delivered? fact on the trace row when it
-        ;; differs from the derivable default; absent ⇒ derive it (a stale
-        ;; reply is non-delivered, everything else delivered).
-        delivered?   (cond
-                       (contains? reply :rf.reply/delivered?) (boolean (:rf.reply/delivered? reply))
-                       (= status :stale)                      false
-                       :else                                  true)]
-    {:work-id       work-id
-     :work-kind     (resolve-work-kind reply)
-     :status        status
-     ;; The reply MAP single-roots the operational work status as
-     ;; `:rf.reply/work-status` (Managed-Effects §The uniform reply envelope);
-     ;; prefer it, falling back to the bare `:work/status`/`:work-status`.
-     :work-status   (or (:rf.reply/work-status reply) (:work/status reply) (:work-status reply))
-     :attempt       (:attempt reply)
-     ;; The reply MAP's frame is the canonical EP-0002 carried-frame stamp
-     ;; `:rf.frame/id` — UNIFORM across every family on the reply map
-     ;; (Managed-Effects §The reply map — "there is no second frame spelling";
-     ;; HTTP's reply builder maps its internal `:frame` ctx ONTO `:rf.frame/id`
-     ;; on the dispatched map). This reply-map layer is distinct from the raw
-     ;; trace-event layer (where HTTP rows ride the bare `[:tags :frame]`
-     ;; carve-out — see `work-event-row`), so the canonical raw-event reader
-     ;; `trace-event-frame` does not apply to a reply map. It reads no
-     ;; `:frame-id` / bare `:frame` reply-map alias.
-     :frame         (:rf.frame/id reply)
-     :started-at    (:started-at reply)
-     :completed-at  (:completed-at reply)
-     :deadline-at   (:deadline-at reply)
-     :value         (when (contains? reply :value) (rh/summarize (:value reply)))
-     :error         (when (some? error) (rh/summarize error))
-     :error-kind    (when (map? error) (:kind error))
-     :correlation   (when (contains? reply :correlation) (rh/summarize (:correlation reply)))
-     :stale?        (boolean (:stale? reply))
-     ;; The reply-map spelling is `:rf.reply/stale-reason` /
-     ;; `:rf.reply/cancel-reason` (Managed-Effects §The uniform reply
-     ;; envelope); prefer them, falling back to the bare keys.
-     :stale-reason  (or (:rf.reply/stale-reason reply) (:stale/reason reply))
-     :cancelled?    (boolean (:cancelled? reply))
-     :cancel-reason (or (:rf.reply/cancel-reason reply) (:cancel/reason reply))
-     :delivered?    delivered?
-     :meta          (when (contains? reply :meta) (rh/summarize (:meta reply)))}))
-
-;; ---------------------------------------------------------------------------
-;; Status presentation — ONE colour-class + label mapping for the five reply
+;; Status presentation — ONE colour-class mapping for the five reply
 ;; statuses, shared across every family panel + the Trace tab so a `:stale`
 ;; HTTP reply and a `:stale` resource reply render the SAME badge
 ;; (Cross-Cutting F.11 — the unified cross-surface STALE badge).
@@ -332,25 +209,11 @@
    :cancelled :cancellation
    :stale     :suppression})
 
-(def status->label
-  "Short human label for a reply `:status` — uppercase badge text."
-  {:ok        "OK"
-   :partial   "PARTIAL"
-   :error     "ERROR"
-   :cancelled "CANCELLED"
-   :stale     "STALE"})
-
 (defn status-class
   "The colour class for a reply `:status` (one of `:success` / `:partial` /
   `:failure` / `:cancellation` / `:suppression`), or nil for a non-status."
   [status]
   (get status->class status))
-
-(defn status-label
-  "The badge label for a reply `:status`, or the bare status name for an
-  unknown status."
-  [status]
-  (get status->label status (some-> status name)))
 
 ;; ---------------------------------------------------------------------------
 ;; The cross-family reply trace operation vocabulary (Managed-Effects
@@ -362,22 +225,6 @@
 ;; / delivery\" uniformly across families instead of memorising each family's
 ;; op set.
 ;; ---------------------------------------------------------------------------
-
-(def reply-phases
-  "The closed set of reply-envelope lifecycle PHASES a managed-async family
-  trace row can represent (Managed-Effects §Tracing):
-
-    - `:issued`         — issuance/start (work-ledger row created; carries
-                          `:work/id`, frame, owner/cause, target summary).
-    - `:retry`          — a retry / intermediate transition (a new attempt).
-    - `:cancel-requested`— cancellation-requested (reason + whether a host
-                          handle existed); opportunistic, not yet terminal.
-    - `:completed`      — completion classified as one of the five reply
-                          statuses (the row carries the `:status`).
-    - `:stale-suppressed`— stale suppression (the correctness boundary —
-                          carried/current correlation; reply NOT delivered).
-    - `:delivered`      — delivery-or-explicit-non-delivery of the reply."
-  #{:issued :retry :cancel-requested :completed :stale-suppressed :delivered})
 
 (def ^:private op->phase
   "Map each family's emitted trace `:operation` onto the reply-envelope
@@ -543,7 +390,9 @@
 
 (defn phase-of
   "The reply-envelope lifecycle phase a family trace `:operation` represents
-  (one of `reply-phases`), or nil for a non-managed-async op. Reads the
+  (Managed-Effects §Tracing) — `:issued`, `:retry`, `:cancel-requested`,
+  `:completed`, `:stale-suppressed` or `:delivered` — or nil for a
+  non-managed-async op. Reads the
   explicit `op->phase` table first; falls back to the `suffix->phase`
   heuristic so a family op not yet enumerated is still classified
   (Managed-Effects §Tracing — families emit FROM the envelope facts).
@@ -557,14 +406,6 @@
                            :cljs (not= -1 (.indexOf nm needle)))
                     phase))
                 suffix->phase)))))
-
-(defn reply-trace-op?
-  "True iff `operation` is a managed-async reply-envelope trace op — one
-  that maps onto a reply-envelope `phase-of`. Lets a panel filter the trace
-  stream to the cross-family work/reply rows without memorising each
-  family's op set."
-  [operation]
-  (boolean (phase-of operation)))
 
 ;; ---------------------------------------------------------------------------
 ;; Cross-family trace-row projection. A managed-async trace row (any family)
@@ -837,20 +678,11 @@
 ;; query.
 ;; ---------------------------------------------------------------------------
 
-(def ledger-key
-  "Reserved runtime-db key for the frame work ledger (Managed-Effects
-  §Work-ledger integration / Conventions §Reserved runtime-db keys —
-  `:rf.runtime/work-ledger`). Mirror of `resources-helpers/work-ledger-key`,
-  named here as the cross-family vocabulary's own home so a work/reply
-  consumer reads one place. Bundle-isolation-safe literal."
-  :rf.runtime/work-ledger)
-
 (def non-terminal-work-statuses
   "The non-terminal ledger statuses an attempt moves through while still live
   (Managed-Effects §Work-ledger integration — issuance writes a `:running`
   row; `:abort-requested` is non-terminal until the transport settles). A
-  ledger row in one of these IS live work. Complement of `work-statuses`'s
-  terminal members."
+  ledger row in one of these IS live work."
   #{:queued :running :abort-requested})
 
 (defn live?
@@ -954,7 +786,7 @@
 
   Answers the operator's \"what is the app waiting on, and why\" across every
   family with ONE join. `ledger` is the frame's work-ledger map (read off the
-  runtime-db at `ledger-key`); `trace-buffer` supplies the latest phase, and
+  runtime-db at `:rf.runtime/work-ledger`); `trace-buffer` supplies the latest phase, and
   must be THAT frame's rows (`trace-buffer-for-frame`), since the work-id it
   joins on is frame-local. Pure.
 
@@ -975,11 +807,3 @@
                                :latest-op    (:operation ph))
                     row)))))))
 
-(defn live-work-tally-by-kind
-  "Count live (still-running) work per `:work-kind` across the ledger — the
-  active managed-effects dashboard headline (Cross-Cutting F-C4). Returns
-  `{:resource 2 :http 1 …}`. Pure."
-  [ledger]
-  (->> (live-work ledger)
-       (group-by :work-kind)
-       (reduce-kv (fn [m k rows] (assoc m k (count rows))) {})))
