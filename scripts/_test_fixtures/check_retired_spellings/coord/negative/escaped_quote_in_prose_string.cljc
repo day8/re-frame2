@@ -12,9 +12,9 @@
 
   Both delimiters must be real (a backslash-escaped `\"` is a character
   inside a literal, not a boundary of one), so every line below stays green.
-  That this does not blunt the rule is proven by the positives in the
-  same phase — `coord/positive/assertion_string_{front,arm1}.cljc` fire,
-  and their delimiters are real.")
+  That this does not blunt the rule is proven by the positive in the
+  same phase — `coord/positive/assertion_string_front.cljc` fires,
+  and its delimiters are real.")
 
 (def retirement-note
   (str "rf2-hic-007 moved the 42 coordinates; the assertion that used "
