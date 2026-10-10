@@ -54,6 +54,7 @@
     :rf.error/reg-event-ctx-removed
     :rf.error/machine-spawn-unregistered-type
     :rf.error/drain-depth-exceeded
+    :rf.error/reprojection-failed
     :rf.error/unsupported-scroll-strategy
     :rf.error/safe-redirect-invalid-url
     :rf.error/safe-redirect-scheme-rejected
@@ -70,7 +71,7 @@
   #{:rf.error/frame-teardown-failed})
 
 ;; Non-event facts (SSR, page lifecycle, fx-time policy, drain halt, boundary
-;; rejection) ride the general union-record helper `dispatch-error-record!`;
+;; rejection, a failed live-frame refresh) ride the general union-record helper `dispatch-error-record!`;
 ;; every other category rides the per-event `dispatch-on-error!`.
 (def ^:private record-categories
   #{:rf.error/ssr-render-failed
@@ -82,6 +83,7 @@
     :rf.error/ssr-ring-response-status-invalid
     :rf.error/hydration-frame-id-mismatch
     :rf.error/drain-depth-exceeded
+    :rf.error/reprojection-failed
     :rf.error/root-boot-failed
     :rf.error/safe-redirect-invalid-url
     :rf.error/safe-redirect-scheme-rejected
