@@ -25,15 +25,15 @@
 
   ## Ring radius
 
-  Radius is half the node's longer dimension plus a breathing gap so
-  the ring sits clearly OUTSIDE the node's border, then scaled by the
-  rendered zoom (the node rect is already zoom-scaled by xyflow, so a
-  proportional gap keeps the ring crisp at any zoom level).")
+  Radius is half the node's longer dimension plus a fixed breathing gap
+  so the ring sits clearly OUTSIDE the node's border. The node rect is
+  already zoom-scaled by xyflow, so the radius tracks zoom through the
+  rect alone; the gap stays a constant on-screen width.")
 
 (def ring-gap-px
-  "Breathing gap (px, at 1x zoom) between the node's bounding box and
-  the inside edge of the countdown ring. Keeps the ring clear of the
-  node's border + box-shadow affordance."
+  "Breathing gap (px) between the node's bounding box and the inside
+  edge of the countdown ring. Keeps the ring clear of the node's border
+  + box-shadow affordance."
   6)
 
 (def min-ring-radius-px
@@ -48,43 +48,37 @@
    (+ (or top 0) (/ (double (or height 0)) 2.0))])
 
 (defn ring-radius
-  "Radius for a ring around a node rect of `width` × `height`,
-  rendered at `zoom` (defaults to 1.0). Half the longer dimension +
-  a zoom-scaled breathing gap, floored at `min-ring-radius-px`.
+  "Radius for a ring around a node rect of `width` × `height`: half the
+  longer dimension + `ring-gap-px`, floored at `min-ring-radius-px`.
 
   Pure fn — JVM-runnable."
-  ([rect] (ring-radius rect 1.0))
-  ([{:keys [width height]} zoom]
-   (let [z   (if (and zoom (pos? zoom)) (double zoom) 1.0)
-         w   (double (or width 0))
-         h   (double (or height 0))
-         ;; The node rect from getBoundingClientRect is ALREADY scaled
-         ;; by xyflow's zoom, so half the longer measured side is the
-         ;; on-screen half-extent; we add a proportional gap.
-         half (/ (max w h) 2.0)
-         r    (+ half (* z ring-gap-px))]
-     (max (double min-ring-radius-px) r))))
+  [{:keys [width height]}]
+  (let [w (double (or width 0))
+        h (double (or height 0))]
+    ;; The node rect from getBoundingClientRect is ALREADY scaled by
+    ;; xyflow's zoom, so half the longer measured side is the on-screen
+    ;; half-extent.
+    (max (double min-ring-radius-px)
+         (+ (/ (max w h) 2.0) ring-gap-px))))
 
 (defn node->ring
   "Project a single bearing node into the ring's overlay-local
-  geometry. Takes the node's viewport rect, the overlay container's
-  viewport rect, and the rendered `zoom`. Returns `{:cx :cy :r}` in
-  coordinates relative to the overlay container's top-left, or nil
-  when either rect is missing / degenerate.
+  geometry. Takes the node's viewport rect and the overlay container's
+  viewport rect. Returns `{:cx :cy :r}` in coordinates relative to the
+  overlay container's top-left, or nil when either rect is missing /
+  degenerate.
 
-  Pure fn — JVM-runnable. The CLJS overlay calls this once per ring
-  after reading the rects off the DOM."
-  ([node-rect container-rect] (node->ring node-rect container-rect 1.0))
-  ([node-rect container-rect zoom]
-   (when (and node-rect container-rect
-              (pos? (or (:width node-rect) 0))
-              (pos? (or (:height node-rect) 0)))
-     (let [[ncx ncy] (rect-center node-rect)
-           cx-origin (or (:left container-rect) 0)
-           cy-origin (or (:top container-rect) 0)]
-       {:cx (- ncx cx-origin)
-        :cy (- ncy cy-origin)
-        :r  (ring-radius node-rect zoom)}))))
+  Pure fn — JVM-runnable."
+  [node-rect container-rect]
+  (when (and node-rect container-rect
+             (pos? (or (:width node-rect) 0))
+             (pos? (or (:height node-rect) 0)))
+    (let [[ncx ncy] (rect-center node-rect)
+          cx-origin (or (:left container-rect) 0)
+          cy-origin (or (:top container-rect) 0)]
+      {:cx (- ncx cx-origin)
+       :cy (- ncy cy-origin)
+       :r  (ring-radius node-rect)})))
 
 ;; The canonical node-id → testid helper is `overlay-anchor/node->testid`
 ;; (the shared overlay seam); `after_rings` calls it directly. This ns
@@ -94,7 +88,7 @@
   "Pure projection: for each `{:node-id ...}`-bearing ring spec, merge
   in the computed `{:cx :cy :r}` resolved from the supplied
   `rects-by-node-id` map (`{node-id {:left :top :width :height}}`) +
-  the overlay `container-rect` + `zoom`. Drops any ring whose node has
+  the overlay `container-rect`. Drops any ring whose node has
   no measured rect (node off-screen / not yet mounted / compound
   parent without a leaf).
 
@@ -106,11 +100,11 @@
   `countdown-ring` glyph needs (`:fraction :color :cancelled?
   :tooltip :testid`) plus the `:node-id` to position it. The output
   preserves those keys and adds `:cx :cy :r`."
-  [ring-specs rects-by-node-id container-rect zoom]
+  [ring-specs rects-by-node-id container-rect]
   (vec
     (keep
       (fn [{:keys [node-id] :as spec}]
         (when-let [rect (get rects-by-node-id node-id)]
-          (when-let [geom (node->ring rect container-rect zoom)]
+          (when-let [geom (node->ring rect container-rect)]
             (merge spec geom))))
       (or ring-specs []))))

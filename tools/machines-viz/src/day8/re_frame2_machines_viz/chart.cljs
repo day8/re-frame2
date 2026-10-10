@@ -249,17 +249,7 @@
       (assoc "elk.direction" (elk-direction-str direction))
       (cond-> (or (:parallel? parsed)
                   (some :parent-id (:nodes parsed)))
-        (assoc "elk.hierarchyHandling" "INCLUDE_CHILDREN"))
-      ;; A guarded fork whose branches lay out at the ROOT (the gate
-      ;; machine's `:gate/check` 3-way leaves the top-level `:idle`)
-      ;; enables root `crossingMinimization.semiInteractive` so the branch
-      ;; event-nodes' `elk.position` hints (projection/->elk-children) are
-      ;; honoured and the dotted evaluation-order connector reads as a clean
-      ;; monotonic line instead of weaving. Only nodes carrying a position
-      ;; hint are constrained, so this never perturbs a non-fork root layout;
-      ;; absent (the default) for any machine without a root-level fork.
-      (cond-> (contains? (projection/fork-branch-container-ids parsed) nil)
-        (assoc "elk.layered.crossingMinimization.semiInteractive" "true"))))
+        (assoc "elk.hierarchyHandling" "INCLUDE_CHILDREN"))))
 
 (defn compute-layout-key
   "The memo key the chart uses to decide whether to re-run the ELK layout
@@ -316,9 +306,8 @@
 
   The EDGES are projected by the pure `projection/->elk-edges` (so the
   JVM corpus pins the edge-feed). They carry the events-as-nodes
-  `__in` / `__out` split + optional MEASURED edge-label dims (the
-  edge-label analogue of the node measure; nil since the transition text
-  rides on the event-NODE — see `projection/->elk-edge`). Feeding edges
+  `__in` / `__out` split, each with an empty label, since the transition
+  text rides on the event-NODE — see `projection/->elk-edge`. Feeding edges
   INTO elk (alongside the spacing + label-placement keys in
   `default-elk-options`) is what makes elk's Layered algorithm route the
   edges AROUND node boxes instead of the renderer drawing geometric paths
@@ -345,12 +334,7 @@
        ;; branchy forks to `:lr`, where the cross axis is Y, not X.
        :children (clj->js (projection/->elk-children parsed measured-dims chart-vc
                                                      context-rows direction))
-       ;; Edge-label dims share the `measured-dims` map (it is keyed by
-       ;; elk-edge-id for any labelled edge); under events-as-nodes the
-       ;; transition text is on the event-node so this is normally a no-op,
-       ;; but threading it keeps the edge-feed symmetric with the node-feed
-       ;; and ready for a labelled edge type.
-       :edges (clj->js (projection/->elk-edges parsed measured-dims))})
+       :edges (clj->js (projection/->elk-edges parsed))})
 
 (defn elk-edge-points
   "Lift one elk edge's routed bend-points into a flat `[{:x :y} …]`
@@ -1259,13 +1243,10 @@
             ;; flows to the projector unchanged, so every non-opted machine
             ;; lays out the same with or without the adaptive subsystem.
             adaptive?     (post-elk/adaptive? direction)
-            ;; The direction ELK is actually fed. On the opt-in path the
-            ;; `:auto` sentinel resolves to the per-machine heuristic
-            ;; (`:tb`/`:lr`); otherwise `direction` passes straight through
-            ;; (so `:tb`/`:lr` force their own direction).
-            elk-direction (if adaptive?
-                            (post-elk/resolve-direction direction parsed)
-                            direction)
+            ;; The direction ELK is actually fed: `:auto` resolves to the
+            ;; per-machine heuristic (`:tb`/`:lr`), and `:tb`/`:lr` force
+            ;; their own direction.
+            elk-direction (post-elk/resolve-direction direction parsed)
             ;; Trigger an elk layout pass when the (definition,
             ;; direction, layout-options, density) tuple changes. Keep the
             ;; previous positions during in-flight layout to avoid an

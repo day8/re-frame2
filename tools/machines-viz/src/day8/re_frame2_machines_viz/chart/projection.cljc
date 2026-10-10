@@ -405,8 +405,9 @@
 
 (defn fork-branch-container-ids
   "The SET of container ids (the `:parent-id` each fork's branch
-  event-nodes lay out under; `nil` == the root container) that hold at
-  least one guarded multi-branch fork. A container in this set gets
+  event-nodes lay out under; a top-level fork's is the root-container
+  frame, `layout/root-container-id`) that hold at least one guarded
+  multi-branch fork. A container in this set gets
   `elk.layered.crossingMinimization.semiInteractive = true` so the
   `elk.position` hints on its fork-branch event-nodes are honoured; every
   other container keeps the default (full crossing-minimisation), so the
@@ -575,27 +576,26 @@
   allocates, so feeding its measured DOM size back would be circular).
   When `measured-dims` is nil / empty (the first pass) every leaf falls
   back to the floor."
-  ([n] (elk-child n nil))
-  ([n measured-dims]
-   (merge
-     {:id     (:id n)
-      :labels [{:text (:label n)}]}
-     (cond
-       ;; the synthetic machine-root node is a compact root-context chip,
-       ;; not a full state box; it lays out at content size
-       ;; (`max measured floor`) against a small floor so it does not push
-       ;; the main state column apart like a peer state.
-       (:machine-root? n)
-       (let [m (get measured-dims (:id n))]
-         {:width  (max machine-root-node-min-width  (or (:width  m) 0))
-          :height (max machine-root-node-min-height (or (:height m) 0))})
+  [n measured-dims]
+  (merge
+    {:id     (:id n)
+     :labels [{:text (:label n)}]}
+    (cond
+      ;; the synthetic machine-root node is a compact root-context chip,
+      ;; not a full state box; it lays out at content size
+      ;; (`max measured floor`) against a small floor so it does not push
+      ;; the main state column apart like a peer state.
+      (:machine-root? n)
+      (let [m (get measured-dims (:id n))]
+        {:width  (max machine-root-node-min-width  (or (:width  m) 0))
+         :height (max machine-root-node-min-height (or (:height m) 0))})
 
-       (:compound? n)
-       {:width  compound-node-min-width
-        :height compound-node-min-height}
+      (:compound? n)
+      {:width  compound-node-min-width
+       :height compound-node-min-height}
 
-       :else
-       (leaf-elk-size (get measured-dims (:id n)))))))
+      :else
+      (leaf-elk-size (get measured-dims (:id n))))))
 
 (defn elk-event-child
   "Build an elk.js child descriptor for a SYNTHETIC event-node. The
@@ -609,14 +609,13 @@
   against the `event-node-elk-{width,height}` floor. `measured-dims` is
   the optional `{node-id {:width :height}}` map; nil on the first pass
   falls back to the floor."
-  ([parsed-edge] (elk-event-child parsed-edge nil))
-  ([parsed-edge measured-dims]
-   (let [id (event-node-id parsed-edge)
-         m  (get measured-dims id)]
-     {:id     id
-      :width  (max event-node-elk-width  (or (:width  m) 0))
-      :height (max event-node-elk-height (or (:height m) 0))
-      :labels [{:text (or (:event-label parsed-edge) "")}]})))
+  [parsed-edge measured-dims]
+  (let [id (event-node-id parsed-edge)
+        m  (get measured-dims id)]
+    {:id     id
+     :width  (max event-node-elk-width  (or (:width  m) 0))
+     :height (max event-node-elk-height (or (:height m) 0))
+     :labels [{:text (or (:event-label parsed-edge) "")}]}))
 
 (defn order-state-children
   "Order a container's STATE children so the initial state LEADS its local
@@ -827,8 +826,7 @@
   Both density keys are density-dependent (`chart-{compact,regular,cosy}`),
   so a fixed literal would reserve the wrong header gap in the non-regular
   densities (children crowding the strip in `:cosy`, over-spaced in
-  `:compact`). Pass the resolved density map (`vc/chart-for-density`);
-  defaults to `vc/chart` (regular) so the nil-arity stays stable.
+  `:compact`). Pass the resolved density map (`vc/chart-for-density`).
 
   `reserve-initial-marker?` (default false) widens ONLY the LEFT side.
   `->elk-children` sets it per-container for every container whose own
@@ -847,7 +845,6 @@
   ELK child, so neither grows the box via `INCLUDE_CHILDREN`; without the
   reservation a band would overlap the first child ELK laid out at the plain
   reserved content edge. A container painting no band passes 0."
-  ([] (container-elk-padding vc/chart false 0))
   ([chart-vc] (container-elk-padding chart-vc false 0))
   ([chart-vc reserve-initial-marker?]
    (container-elk-padding chart-vc reserve-initial-marker? 0))
@@ -1062,32 +1059,9 @@
 ;; the event-NODE (`xyflow-graph` event-nodes; the event-node is the
 ;; events-as-nodes analogue of a Stately edge label and is ALREADY
 ;; measured + ELK-laid-out via `elk-event-child` + the measure pass). So
-;; the `__in` / `__out` edges themselves carry NO visible label, and ELK
-;; must reserve NO label channel for them — feeding label dims onto BOTH
-;; the event-node AND its incident edges would double-budget the same
-;; text.
-;;
-;; `->elk-edge` therefore takes an optional `label-dims` map but uses it
-;; ONLY for an edge that genuinely renders its OWN label in the renderer
-;; (none today under events-as-nodes; the parameter keeps the helper
-;; honest + future-proof — a labelled edge type added later threads its
-;; MEASURED `{:width :height}` here so ELK's `edgeLabels.placement`
-;; reserves space). A nil entry emits an empty zero-size label, which
-;; ELK treats as no label to place. This is the edge-label analogue of
-;; the node measure pass: dims flow from the rendered DOM into the ELK
-;; input rather than being a renderer-side heuristic.
-
-(defn elk-edge-label
-  "Build the elk edge `labels` entry for an edge. `text` is the visible
-  label string (\"\" when the label rides on the event-node, which is the
-  events-as-nodes default). `dims` is the optional MEASURED
-  `{:width :height}` of the rendered label; nil emits a zero-size label
-  ELK treats as nothing to place. Returns a single-label vector (elk's
-  `labels` is always an array)."
-  [text dims]
-  [(cond-> {:text (or text "")}
-     (and dims (pos? (:width dims 0)) (pos? (:height dims 0)))
-     (assoc :width (:width dims) :height (:height dims)))])
+;; each `__in` / `__out` edge carries one empty, zero-size label: ELK
+;; budgets no space for it, where feeding label dims onto BOTH the
+;; event-node AND its incident edges would double-budget the same text.
 
 (def initial-edge-priority-direction
   "The `elk.layered.priority.direction` value set on an INITIAL state's
@@ -1117,61 +1091,49 @@
 
   The `__out` edge is OMITTED for an internal transition (no `:target`)
   — its event-node hangs with no outgoing arrow per the Stately
-  convention.
+  convention. Each edge carries the empty label the section comment
+  above describes.
 
-  `label-dims` is the optional `{elk-edge-id {:width :height}}` map of
-  MEASURED rendered-label boxes, threaded through from the measure pass
-  the same way `->elk-children` threads node `measured-dims`. Keyed by
-  the elk edge id (`<spec-id>__in` / `__out`). Under events-as-nodes the
-  visible text is on the event-NODE so these entries are normally absent
-  and the edges carry empty labels — see the section comment above.
-
-  `initial-ids` is the optional SET of state node-ids that are
-  `:initial?`. When the `__in` edge LEAVES an initial state, it carries
+  `initial-ids` is the SET of state node-ids that are `:initial?`. When
+  the `__in` edge LEAVES an initial state, it carries
   `elk.layered.priority.direction = 1` (the
   `initial-edge-priority-direction` lever) so ELK pulls the initial state
   toward flow-start — fixing the parallel/pure-cyclic regions where the
   soft initial-on-top preference slips. Empty / nil leaves every edge
   unset."
-  ([e] (->elk-edge e nil nil))
-  ([e label-dims] (->elk-edge e label-dims nil))
-  ([e label-dims initial-ids]
-   (let [ev-id     (event-node-id e)
-         in-id     (str (:id e) "__in")
-         out-id    (str (:id e) "__out")
-         ;; the `__in` edge LEAVES the source state; when that state is
-         ;; initial, pull it to flow-start via ELK's direction priority.
-         ;; Only the OUTGOING edge from the initial gets it (the `__out`
-         ;; event→target edge is unaffected).
-         from-initial? (contains? (or initial-ids #{}) (:source e))]
-     (cond-> [(cond-> {:id      in-id
-                       :sources [(:source e)]
-                       :targets [ev-id]
-                       :labels  (elk-edge-label "" (get label-dims in-id))}
-                from-initial?
-                (assoc :layoutOptions
-                       {"elk.layered.priority.direction"
-                        initial-edge-priority-direction}))]
-       (not (:internal? e))
-       (conj {:id      out-id
-              :sources [ev-id]
-              :targets [(:target e)]
-              :labels  (elk-edge-label "" (get label-dims out-id))})))))
+  [e initial-ids]
+  (let [ev-id     (event-node-id e)
+        ;; the `__in` edge LEAVES the source state; when that state is
+        ;; initial, pull it to flow-start via ELK's direction priority.
+        ;; Only the OUTGOING edge from the initial gets it (the `__out`
+        ;; event→target edge is unaffected).
+        from-initial? (contains? (or initial-ids #{}) (:source e))]
+    (cond-> [(cond-> {:id      (str (:id e) "__in")
+                      :sources [(:source e)]
+                      :targets [ev-id]
+                      :labels  [{:text ""}]}
+               from-initial?
+               (assoc :layoutOptions
+                      {"elk.layered.priority.direction"
+                       initial-edge-priority-direction}))]
+      (not (:internal? e))
+      (conj {:id      (str (:id e) "__out")
+             :sources [ev-id]
+             :targets [(:target e)]
+             :labels  [{:text ""}]}))))
 
 (defn ->elk-edges
   "Project ALL parsed edges into the flat elk `edges` vector
   `chart.cljs/->elk-input` `clj->js`-es onto the elk root graph. The
   events-as-nodes split (`->elk-edge`) means N parsed transitions emit
-  up to 2N elk edges. `label-dims` (optional measured-label map) is
-  forwarded to every `->elk-edge`.
+  up to 2N elk edges.
 
   The set of `:initial?` node-ids is derived once from `:nodes` and
   forwarded to every `->elk-edge` so an initial state's outgoing `__in`
   edge carries ELK's flow-start direction priority."
-  ([parsed] (->elk-edges parsed nil))
-  ([{:keys [edges nodes]} label-dims]
-   (let [initial-ids (into #{} (comp (filter :initial?) (map :id)) nodes)]
-     (vec (mapcat #(->elk-edge % label-dims initial-ids) edges)))))
+  [{:keys [edges nodes]}]
+  (let [initial-ids (into #{} (comp (filter :initial?) (map :id)) nodes)]
+    (vec (mapcat #(->elk-edge % initial-ids) edges))))
 
 ;; ---- graph projection (parsed + positions → xyflow nodes/edges) ---------
 

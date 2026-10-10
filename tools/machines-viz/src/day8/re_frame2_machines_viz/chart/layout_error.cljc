@@ -57,7 +57,7 @@
    :region-count     (count (filter :region? (:nodes parsed)))
    :parallel?        (boolean (:parallel? parsed))
    :direction        direction
-   :layout-option-ks (vec (sort (keys (or layout-options {}))))})
+   :layout-option-ks (vec (sort (keys layout-options)))})
 
 (defn error->data
   "Adapter: turn a thrown value into a CLJS map fit for an error

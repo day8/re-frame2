@@ -305,14 +305,6 @@
   [definition]
   (nil? (definition-defect definition)))
 
-(def summary-type-vocabulary
-  "The CLOSED `:type` vocabulary `definition-summary` may emit — deliberately
-  the set `re-frame.error/diag-value-summary` and
-  `machines-viz.share/value-free-summary` already share, so a tool reading a thrown `ex-data` from any of the three reads
-  ONE diagnostic vocabulary."
-  #{:map :vector :seq :set :keyword :symbol :string :number :boolean :nil
-    :fn :scalar})
-
 (defn- defect-summary
   "The value-free projection of a `definition-defect`.
 
@@ -351,7 +343,8 @@
 
   Shape:
 
-    {:type         <member of `summary-type-vocabulary`>
+    {:type         :map | :vector | :seq | :set | :keyword | :symbol
+                   | :string | :number | :boolean | :nil | :fn | :scalar
      :count        <int>   ;; counted collection / string
      :parallel     <bool>  ;; map only
      :state-count  <int>   ;; map with a map `:states`

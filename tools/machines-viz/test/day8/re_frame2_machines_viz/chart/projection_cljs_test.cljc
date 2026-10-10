@@ -603,9 +603,9 @@
         tick  (first (:edges (layout/project-definition internal-self-machine)))]
     (is (= [(half (str (:id start) "__in") (:source start) (ev start))
             (half (str (:id start) "__out") (ev start) (:target start))]
-           (projection/->elk-edge start)))
+           (projection/->elk-edge start nil)))
     (is (= [(half (str (:id tick) "__in") (:source tick) (ev tick))]
-           (projection/->elk-edge tick))
+           (projection/->elk-edge tick nil))
         "an internal transition has no target, so no __out half")))
 
 (deftest elk-edges-derives-initial-set-and-prioritises-each-region-initial

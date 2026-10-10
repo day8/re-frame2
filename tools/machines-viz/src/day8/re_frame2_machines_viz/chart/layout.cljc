@@ -63,16 +63,17 @@
 ;; only — never the executable `:fn` or any `:source-*` snippet.
 
 (defn- node-at-in-states
-  "Descend `states` (a `:states` map) along `path` (a vec of state-ids),
-  returning the raw state-node map or nil. Each step reads the child off
-  the current node's `:states`."
+  "Descend `states` (a `:states` map) along `path` (a NON-EMPTY vec of
+  state-ids — `raw-node-at` answers an empty path itself), returning the
+  raw state-node map or nil. Each step reads the child off the current
+  node's `:states`."
   [states path]
   (loop [node  {:states states}
          p     (seq path)]
     (cond
-      (nil? p)   (when (not= node {:states states}) node)
+      (nil? p)    node
       (nil? node) nil
-      :else      (recur (get-in node [:states (first p)]) (next p)))))
+      :else       (recur (get-in node [:states (first p)]) (next p)))))
 
 (defn raw-node-at
   "Return the RAW (pre-projection) state-node map for the projected `node`
