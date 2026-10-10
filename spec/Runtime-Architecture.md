@@ -95,7 +95,7 @@ Each section below states **inputs**, **outputs**, **invariants**, and **who cal
 
 **Invariants.**
 
-- One global registry; not per-frame. Frames isolate state, not behaviour.
+- One global source store; not per-frame. Each frame `make-frame` constructs resolves through its own sealed resolved image generation, assembled from that store.
 - Surgical re-registration is the only mutation primitive — replace the slot atomically, emit a `:rf.registry/handler-replaced` trace, in-flight events keep the old fn (per [001 §Hot-reload semantics](001-Registration.md#hot-reload-semantics)).
 - Reserved namespaces ([Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)) are protected; user registrations under them warn.
 
