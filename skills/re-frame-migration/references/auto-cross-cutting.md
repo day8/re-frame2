@@ -2,7 +2,7 @@
 
 Type A — cross-cutting mechanical rewrites the agent applies without asking. Covers framework-keyword renames, interceptor-list cleanup, view / hiccup rewrites, dropped public-surface drops, init wiring, and per-feature artefact adds.
 
-For the *why* of each rule, see [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md). This leaf is a shape catalogue, not a rationale. For per-call-site mechanical rewrites (namespaces, effect-map, dispatch shapes), see [`auto-call-site-rewrites.md`](auto-call-site-rewrites.md). For judgment-call rewrites, see [`guided-handlers-state.md`](guided-handlers-state.md), [`guided-views-m11.md`](guided-views-m11.md) (the M-11 view conversion) and [`guided-interceptors-subs.md`](guided-interceptors-subs.md).
+For the *why* of each rule, see [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md). This leaf is how to find and apply each rewrite, not a rationale; where a section links its corpus rule for the rewrite itself, apply the corpus's. For per-call-site mechanical rewrites (namespaces, effect-map, dispatch shapes), see [`auto-call-site-rewrites.md`](auto-call-site-rewrites.md). For judgment-call rewrites, see [`guided-handlers-state.md`](guided-handlers-state.md), [`guided-views-m11.md`](guided-views-m11.md) (the M-11 view conversion) and [`guided-interceptors-subs.md`](guided-interceptors-subs.md).
 
 ## Contents
 
@@ -14,7 +14,7 @@ For the *why* of each rule, see [`MIGRATION.md`](https://github.com/day8/re-fram
 - Event interceptor chains → metadata `:interceptors` (M-70 — mechanical; **loud-at-runtime, not loud-at-compile**: structural grep up front)
 - View / hiccup rewrites (M-22, M-24)
 - M-26 drift-sweep drops (mechanical half)
-- Init / adapter (M-40 — **Type B**; shape is here, the decision is asked-first)
+- Init / adapter (M-40 — the boot sequence; the adapter choice is Type B unless one adapter is on the classpath)
 - Per-feature artefact adds (M-27 through M-33)
 
 ---
@@ -208,72 +208,23 @@ For a named effects handler that consumes the trimmed vector, preserve its contr
 
 ## Event interceptor chains → metadata `:interceptors` (M-70 — mechanical; loud-at-runtime, not loud-at-compile)
 
-v2's `reg-event` puts per-event interceptor chains in the registration metadata map under `:interceptors` — and under EP-0022 that chain carries **interceptor references**, never inline interceptor values. Bare interceptors, positional vectors, and metadata-plus-vector forms all compile but throw at registration / ns-load; an inline value anywhere in the metadata chain throws `:rf.error/inline-interceptor-removed`. So the rewrite is two-step: **register each interceptor value once with `reg-interceptor`, then reference it by that id in the chain.** The registration id has to agree with the value's own `:id`, so run the checks after the examples on each value before you lift it. Move each chain into metadata, by reference:
+The rewrite — each chain moves into the registration metadata under `:interceptors` as interceptor **references**, each value registered once with `reg-interceptor` — its three v1 source shapes, which lifts are Type A and which need a naming decision, and the two run-time hazards (an ns-load throw that aborts the namespace, and an id reference that carries no load order) are [`MIGRATION.md` §M-70](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-70-event-interceptor-chains-use-registered-interceptor-refs-in-metadata-interceptors). This section is how to find every site and apply it.
 
-```clojure
-;; Every REWRITE below is the preserving case: each value's own :id already
-;; equals the id it is registered under (mw/with-progress-completion carries
-;; :id :app/with-progress-completion, and audit carries :id :app/audit).
+1. **Find the sites by shape.** A missed site compiles clean, so grep every registration up front — never march the wall:
 
-;; SEARCH — bare interceptor (Var, inline ->interceptor, path, …)
-(rf/reg-event-db :save-progress mw/with-progress-completion
- <handler>)
+   ```bash
+   # Candidate reg-event-* registrations, from the project root (a source root
+   # outside it goes beside `.`); a hit = bare interceptor, positional vector, or
+   # metadata map followed by a vector. STRUCTURAL — flag ANY chain shape, not
+   # only rf/unwrap.
+   rg -n -U -t clojure '\(\s*(\S+/)?reg-event-(db|fx|ctx)\s+\S+' .
+   ```
 
-;; REWRITE — register the interceptor value once, then reference it by id.
-;; The db handler also reshapes under the one form reg-event:
-;;   (fn [db ev] new-db) → (fn [{:keys [db]} ev] {:db new-db})
-(rf/reg-interceptor :app/with-progress-completion mw/with-progress-completion)
-(rf/reg-event :save-progress
- {:interceptors [:app/with-progress-completion]}    ;; ref by id — NOT the inline value
- (fn [{:keys [db]} ev] {:db <handler-body>}))
-
-;; SEARCH — positional vector
-(rf/reg-event-db :save-progress
- [mw/with-progress-completion audit]
- <handler>)
-
-;; REWRITE — register both values once, then reference both by id, in order
-(rf/reg-interceptor :app/with-progress-completion mw/with-progress-completion)
-(rf/reg-interceptor :app/audit audit)
-(rf/reg-event :save-progress
- {:interceptors [:app/with-progress-completion :app/audit]}   ;; refs, not values
- (fn [{:keys [db]} ev] {:db <handler-body>}))
-
-;; SEARCH — metadata + positional vector
-(rf/reg-event-db :save-progress
- {:doc "Track save progress."}
- [mw/with-progress-completion]
- <handler>)
-
-;; REWRITE — merge the chain into the existing metadata map, as a ref
-(rf/reg-interceptor :app/with-progress-completion mw/with-progress-completion)
-(rf/reg-event :save-progress
- {:doc "Track save progress."
-  :interceptors [:app/with-progress-completion]}    ;; ref by id
- (fn [{:keys [db]} ev] {:db <handler-body>}))
-```
-
-**Moving the chain into metadata is mechanical. Lifting a value with `reg-interceptor` is mechanical only in the preserving case.** `reg-interceptor` accepts an existing interceptor value only when the value's own `:id`, if it has one, equals the registration id; otherwise it throws `:rf.error/invalid-interceptor` ([Spec 001 §Interceptors — `reg-interceptor`](https://github.com/day8/re-frame2/blob/main/spec/001-Registration.md#interceptors--reg-interceptor-the-interceptor-registrar)). So `(def progress {:id :enrich :after f})` followed by `(rf/reg-interceptor :app/progress progress)` compiles, then fails at load. Check each value before lifting it:
-
-1. **Read the value's own `:id`** where the value is defined, or at the constructor call that builds it, not at the chain site.
-2. **Preserving case — lift mechanically.** The `:id` is a stable literal, the same on every load, and no other value carries it. Register the value under exactly that id and reference that id: `mw/x` / `[mw/x]` / `{:doc ...} [mw/x]` → `(rf/reg-interceptor :app/x mw/x)` + metadata `:interceptors [:app/x]`, where `mw/x` carries `:id :app/x`.
-3. **Missing, mismatched or shared generated `:id` — stop; this is Type B.** The value has no `:id`, or its `:id` differs from the id you would register, or one constructor stamps the same `:id` on several distinct values. Each needs a naming decision: see [MIGRATION.md M-70](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-70-event-interceptor-chains-use-registered-interceptor-refs-in-metadata-interceptors), whose Type B half is naming an interceptor that lacks a stable id, and the one-registration-per-id contract in [`orchestrating-a-large-migration.md` §2](orchestrating-a-large-migration.md#2-the-wave-0-id-contract--coordinate-without-sharing-files). Write an explicit plan and get it approved before editing. The plan names each registration id and says how each value's own `:id` comes to match it. It keeps each chain's order, each function's identity and behaviour, each interceptor's attachment scope (the same events, or the same frame chain), and the definition-load obligation in the callout below. Never choose a name silently, strip or replace a value's `:id` in passing, or register distinct values under their shared constructor `:id`: a second registration under an id already registered from the same namespace silently replaces the first, so every event that referenced the first now runs the second.
-
-**This rule is loud-at-runtime — but NOT loud-at-compile**, so a clean compile is not acceptance. The throw fires at ns-load / first page-load, so a missed site **compiles clean** and only detonates at boot — where it **aborts the offending ns's load** (everything after it, incl. a boot machine's `reg-machine`, never registers → the app hangs). The compiler can't find them: **grep every `reg-event-*` site up front and inspect the post-id SHAPES** (do NOT march-the-wall), and the **boot smoke-test** ([`runtime-smoke-test.md`](runtime-smoke-test.md)) surfaces any survivor's throw on the console:
-
-```bash
-# Candidate reg-event-* registrations, from the project root (a source root
-# outside it goes beside `.`); a hit = bare interceptor, positional vector, or
-# metadata map followed by a vector. STRUCTURAL — flag ANY chain shape, not
-# only rf/unwrap.
-rg -n -U -t clojure '\(\s*(\S+/)?reg-event-(db|fx|ctx)\s+\S+' .
-```
-
-The search finds candidates, not the set: accept each hit as [M-8 step 1](auto-call-site-rewrites.md#effect-map-consolidation-m-8) does — a head that resolves to `re-frame.core` through the file's `ns` form, in live code — then read its slots.
-
-Detect **by slot-shape, not by interceptor identity** — a real worker missed a bare `mw/complete-progress` by anchoring on `unwrap`; flag any bare, vector, or metadata-plus-vector chain shape. (An existing metadata map with `:interceptors [...]` is already canonical; a metadata map without `:interceptors` and no following vector is fine.)
-
-> **An interceptor id-reference is NOT a load-order dependency — keep the defining ns loaded.** Moving a chain to `{:interceptors [:app/x]}` replaces a direct **value** reference (`mw/x` — which made `mw`'s namespace a compile-time `:require` dependency of this ns) with a **runtime id lookup** (`:app/x`). The id is just a keyword; it creates **no** load-order edge to the namespace whose `reg-interceptor` registers it. So if the migration also **drops that ns's `:require`** — because, with the value gone, `mw` now "looks dead" — the defining ns's `reg-interceptor` may not have run when THIS ns registers its events. `reg-event` / `make-frame` **validate their `:interceptors` refs at registration**, so the boot throws `:rf.error/unregistered-interceptor` (per [`spec/002-Frames.md` §Validation and resolution timing](https://github.com/day8/re-frame2/blob/main/spec/002-Frames.md#validation-and-resolution-timing); re-guarded again at dispatch-time chain assembly). **The fix:** every ns that references an interceptor id MUST still guarantee the defining ns **LOADS first** — either keep a **side-effecting `:require`** of the interceptor-registry ns (`(:require [app.interceptors])`, even though no symbol from it is used anymore), OR **load all interceptor-registering nses early from a foundational ns the whole app requires**, before any `reg-event` references them. "Dropping the require because the value isn't used anymore" is exactly the trap: the value is gone, but the **load-order obligation it used to carry is not**. (Same hazard for the M-17 `reg-global-interceptor` → frame-config `:interceptors` fold — see [`guided-interceptors-subs.md` §M-17](guided-interceptors-subs.md#m-17--reg-global-interceptor-in-a-multi-frame-app).)
+   The search finds candidates, not the set: accept each hit as [M-8 step 1](auto-call-site-rewrites.md#effect-map-consolidation-m-8) does — a head that resolves to `re-frame.core` through the file's `ns` form, in live code — then read its slots. Detect **by slot-shape, not by interceptor identity** — a real worker missed a bare `mw/complete-progress` by anchoring on `unwrap`. An existing metadata map with `:interceptors [...]` is already canonical; a metadata map without `:interceptors` and no following vector is fine.
+2. **Read each value's own `:id` where the value is defined**, or at the constructor call that builds it, not at the chain site — that read decides the corpus's case. A preserving value lifts in the Type A sweep.
+3. **A missing, mismatched or shared `:id` is held.** Write an explicit plan and get it approved before editing. The plan names each registration id and says how each value's own `:id` comes to match it, keeps each chain's order, each function's identity and behaviour, each interceptor's attachment scope (the same events, or the same frame chain) and the load order below, and follows the one-registration-per-id contract in [`orchestrating-a-large-migration.md` §2](orchestrating-a-large-migration.md#2-the-wave-0-id-contract--coordinate-without-sharing-files).
+4. **Keep each defining namespace loaded.** Where a chain's value disappears, the namespace that registers it can look dead; keep a side-effecting `:require` of it (`(:require [app.interceptors])`) in every namespace that references its ids, or load every interceptor-registering namespace early from a foundational namespace the whole app requires. Same for the M-17 fold — see [`guided-interceptors-subs.md` §M-17](guided-interceptors-subs.md#m-17--reg-global-interceptor-in-a-multi-frame-app).
+5. **Verify at boot.** A survivor throws at namespace load; the [boot smoke-test](runtime-smoke-test.md) surfaces it on the console.
 
 ---
 
@@ -353,19 +304,7 @@ rf/trace-api-version → drop (no replacement)
 
 ## Init / adapter (M-40)
 
-> **M-40 is Type B — ask first.** MIGRATION.md classifies M-40 as a judgment call: the rewrite shape below is mechanical *given* a chosen adapter, but the agent must surface every `(rf/init!)` call site and let the author confirm which adapter the app boots against (the codebase may run more than one substrate, or boot SSR-side against a different adapter). Do not apply it silently as part of the Type A sweep — present the call sites and the proposed adapter, then apply on confirmation. The shape lives in this leaf only because it pairs with M-38's mechanical ns rename.
-
-> **Single-substrate ⇒ mechanical fast-path** (the same shape M-17 / M-11 carry for single-frame apps). Once M-0 has committed **exactly one** adapter artefact to the classpath (the common case — `day8/re-frame2-reagent` and nothing else), `(rf/init! <adapter>)` is unambiguous: there is only one adapter to install, so there is no real choice to make. Don't stall on the Type-B "ask first" gate for a solo-adapter app — the gate exists for the **multi-substrate / ambiguous-root** cases (a codebase running more than one substrate, a `.cljc` app with platform-branched roots, or an SSR boot that installs a different adapter than the browser boot). Confirm "single adapter on the classpath?" and, if yes, apply the rewrite mechanically (still under the sweep-level announcement, Cardinal rule 4). MIGRATION.md says the same — "single-substrate apps are mechanical, mixed-substrate or `.cljc` apps with platform branches need per-site direction" ([§M-40](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-40-rfinit-requires-an-explicit-adapter-spec-map)).
-
-```clojure
-;; SEARCH
-(rf/init!)
-
-;; REWRITE — after the author confirms the adapter
-(rf/init! reagent/adapter) ; or uix/adapter, per the confirmed substrate
-```
-
-The adapter value is the `adapter` Var from the substrate adapter ns (e.g. `(:require [re-frame.adapter.reagent :as reagent])` → `reagent/adapter`), verified against `re-frame.core/init!`'s docstring (`implementation/core/src/re_frame/core.cljc` — "Pass the adapter spec map directly"). Pair with M-38's substrate-ns rename so the symbol resolves; non-map / nil args raise `:rf.error/no-adapter-specified`.
+The rewrite — `(rf/init!)` → `(rf/init! <adapter>)`, the `adapter` Var of the substrate's adapter namespace — and its Type are [`MIGRATION.md` §M-40](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-40-rfinit-requires-an-explicit-adapter-spec-map). It is Type B because the author confirms which adapter each call site boots, and the corpus makes the single-substrate case mechanical. So confirm how many adapter artefacts M-0 put on the classpath: with exactly one, apply the rewrite in the Type A sweep under the sweep-level announcement (Cardinal rule 4); with more than one substrate, a `.cljc` root branched by platform, or an SSR boot installing a different adapter from the browser's, put each call site to the author. Pair it with M-38's namespace rename so the adapter symbol resolves.
 
 #### Boot-sequence invariant — `init!` must run *before* the first dispatch and the first render
 
@@ -429,16 +368,9 @@ The adapter value is the `adapter` Var from the substrate adapter ns (e.g. `(:re
     (js/document.getElementById "app")))
 ```
 
-Either way, **the render is wrapped in `frame-provider` (its `{:frame …}` SCOPE-only shape) for the app frame**, so every descendant that reads frame context from React resolves against it — a `reg-view` view does; an unregistered plain fn has no `:contextType` and gets nothing from the provider (next paragraph). (The frame already exists from `make-frame`, so you scope it with `{:frame …}` rather than ensure it; the sibling `frame-root {:id …}` component *ensures* a named frame — create-if-absent, reuse-no-reseed — which this boot shape doesn't need because `make-frame` already created it.) If the v1 boot used `(reagent.dom/render …)`, that mount call is itself a React-19 rewrite (M-42 mount-path half → the adapter's own `client-root` handle + `render!`, exactly as above — the migrated app requires neither `reagent.dom.client` nor `reagent2.dom.client`, because the adapter owns the React root and the coordinate is chosen in `deps.edn`); the **ordering** rule and the provider wrap are independent of which mount API the app lands on.
+Either way, **the render is wrapped in `frame-provider` (its `{:frame …}` SCOPE-only shape) for the app frame**, so every descendant that reads frame context from React resolves against it — a `reg-view` view does; an unregistered plain fn has no `:contextType` and gets nothing from the provider (next paragraph). (The frame already exists from `make-frame`, so you scope it with `{:frame …}` rather than ensure it; the sibling `frame-root {:id …}` component *ensures* a named frame — create-if-absent, reuse-no-reseed — which this boot shape doesn't need because `make-frame` already created it.) A v1 `(reagent.dom/render …)` mount is M-42's mount-path rewrite to the adapter's `client-root` handle, as above; the **ordering** rule and the provider wrap are independent of which mount API the app lands on.
 
-> **The provider scopes the tree; it does not repair it — this boot shape completes M-40, not M-11.** A component reads the provider's frame only through the `:contextType` that `reg-view` installs; an unregistered plain Reagent fn has no `:contextType`, so the root provider gives it no frame. The synchronous boot scope cannot stand in for one either: `with-frame`'s binding does not cross a React component boundary, and it has unwound before React renders. So run M-11's whole-tree identification under this provider and apply its per-site remedies ([`guided-views-m11.md` §M-11](guided-views-m11.md#m-11--plain-reagent-fns-under-any-frame-including-the-defaultsingle-frame)). Each child of the provider is one of four cases, and only one needs a repair:
->
-> - **A registered child** (`reg-view`) resolves the app frame through the provider. Nothing to do.
-> - **An unregistered plain fn calling ambient `rf/subscribe` / `rf/dispatch`** raises `:rf.error/no-frame-context` when it renders, root provider or not. It needs its own M-11 repair: convert it to `reg-view`, or carry its frame explicitly.
-> - **A plain fn that targets its frame explicitly** — a `{:frame app-frame}` opt on each op, or a targeted `(rf/capture-frame app-frame)` — never consults the provider. Leave it as written.
-> - **A pure presentational fn** (no `subscribe` / `dispatch`) reads no frame. Leave it a plain fn: M-11 is not a blanket conversion.
->
-> A deliberately callable renderer, or a Form-3 lifecycle contract, is still M-11's per-site decision rather than this recipe's, because converting it changes how its callers invoke it.
+> **The provider scopes the tree; it does not repair it — this boot shape completes M-40, not M-11.** An unregistered plain Reagent fn under the root provider still has no frame, and the synchronous boot scope has unwound before React renders. So run M-11's whole-tree identification under this provider and apply its per-site decision ([`guided-views-m11.md` §M-11](guided-views-m11.md#m-11--plain-reagent-fns-under-any-frame-including-the-defaultsingle-frame)) — only the subscribing plain fns need a repair, and M-11 is not a blanket conversion.
 
 > **The boot kick is the SYNCHRONOUS sibling of a larger no-frame-context class — the async one needs a DIFFERENT fix.** Wrapping the synchronous boot dispatch in `with-frame` works only because the dispatch runs *while the binding is live*. A bare `dispatch` / `subscribe` that runs **after** boot from an async callback registered outside any view — a module-level `addEventListener` (popstate / hashchange), a `setTimeout` / `setInterval` / `requestAnimationFrame` timer, a `window 'error'` handler, a JS-lib lifecycle callback — raises the same `:rf.error/no-frame-context`, but a registration-time `with-frame` does **not** survive into the callback; the frame must be re-established **inside** it. See [`guided-views-m11.md` §The async listener timer and error-handler class](guided-views-m11.md#the-async-listener-timer-and-error-handler-class).
 
@@ -450,7 +382,7 @@ Either way, **the render is wrapped in `frame-provider` (its `{:frame …}` SCOP
 
 | Artefact (rule) | Namespace(s) to require — fires the load-time hooks | If the artefact / require is absent |
 |---|---|---|
-| `day8/re-frame2-schemas` (M-27) | `re-frame.schemas` — the one require, on CLJS and the JVM. The façade itself requires the Malli adapter `re-frame.schemas.malli`, so loading it installs the default validator; add no separate adapter require | Artefact or `re-frame.schemas` require absent: `rf/reg-app-schema` throws `:rf.error/schemas-artefact-missing`, so missing validation is loud. With the façade loaded, a registered schema validates in dev builds by default, and only an **explicit validator override** stops it: `(re-frame.schemas/set-schema-fns! {:validate nil})` makes schemas inert data, and a custom `:validate` replaces Malli. When schemas validate nothing in a dev build, look for a `set-schema-fns!` call, not a missing adapter require |
+| `day8/re-frame2-schemas` (M-27) | `re-frame.schemas` — the one require, on CLJS and the JVM (it loads the Malli adapter itself) | Loud: `rf/reg-app-schema` throws `:rf.error/schemas-artefact-missing`. Schemas that validate nothing in a dev build point at an explicit `set-schema-fns!` override, not a missing require — corpus M-27 |
 | `day8/re-frame2-machines` (M-28) | `re-frame.machines` — take the alias, `[re-frame.machines :as rf.machines]` | Only `reg-machine` / `defmachine` are façade exports, and they throw `:rf.error/machines-artefact-missing`. The non-registration helpers are **not** on `rf/` at all: call `rf.machines/make-machine-handler` and `rf.machines/machine-transition` in the owning namespace. Neither machine QUERY has an accessor — enumerate with `(into {} (filter (fn [[_ m]] (:rf/machine? m))) (rf/registrations {:source :store :kind :event}))`, and a single machine's spec likewise has none — read it as `(:rf/machine (rf/handler-meta {:source :store :kind :event :id id}))`, per corpus M-28. A stale `rf/make-machine-handler` is an unresolved var, not a late-bind throw |
 | `day8/re-frame2-routing` (M-29) | `re-frame.routing` — take the alias, `[re-frame.routing :as rf.routing]` | `reg-route` is the façade export and throws `:rf.error/routing-artefact-missing`; the `:rf.route/*` framework events resolve to `:rf.error/no-such-handler`. The two bidirectional URL helpers are **not** façade exports: call `rf.routing/match-url` / `rf.routing/route-url` in the owning namespace, per corpus M-29 |
 | `day8/re-frame2-flows` (M-30) | `re-frame.flows` | `reg-flow` throws `:rf.error/flows-artefact-missing`; without the load-time hooks the `:rf.fx/reg-flow` runtime fx **silently no-ops** |

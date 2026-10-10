@@ -1,8 +1,8 @@
 # auto-call-site-rewrites
 
-Type A — per-call-site mechanical rewrites the agent applies without asking. Covers namespace requires, effect-map consolidation, and dispatch-shape changes. The agent walks call sites, applies the search→rewrite shapes verbatim, and cites the rule id (`M-N`) in the migration report.
+Type A — per-call-site mechanical rewrites the agent applies without asking. Covers namespace requires, effect-map consolidation, and dispatch-shape changes. The agent finds the call sites, applies each rule's rewrite, and cites the rule id (`M-N`) in the migration report.
 
-For the *why* of each rule, see [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md). This leaf is a shape catalogue, not a rationale. For cross-cutting renames (keywords, interceptor lists, views, init, per-feature artefacts), see [`auto-cross-cutting.md`](auto-cross-cutting.md). For judgment-call rewrites, see [`guided-handlers-state.md`](guided-handlers-state.md), [`guided-views-m11.md`](guided-views-m11.md) (the M-11 view conversion) and [`guided-interceptors-subs.md`](guided-interceptors-subs.md).
+For the *why* of each rule, see [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md). This leaf is how to find and apply each rewrite, not a rationale; where a section links its corpus rule for the rewrite itself, apply the corpus's. For cross-cutting renames (keywords, interceptor lists, views, init, per-feature artefacts), see [`auto-cross-cutting.md`](auto-cross-cutting.md). For judgment-call rewrites, see [`guided-handlers-state.md`](guided-handlers-state.md), [`guided-views-m11.md`](guided-views-m11.md) (the M-11 view conversion) and [`guided-interceptors-subs.md`](guided-interceptors-subs.md).
 
 ## Announce each multi-file sweep, then proceed
 
@@ -482,36 +482,11 @@ For the dominant case — a query vector `[:id arg1 arg2]` — this reduces to `
 
 ## Effect-map consolidation (M-8)
 
-The single highest-impact mechanical rewrite. The transformation is structural.
-
-```clojure
-;; SEARCH
-{:db   ...
- :dispatch       <event-vec>}
-
-{:dispatch-later <map-or-vec-of-maps>}
-
-{:dispatch-n     [<event-vec> ...]}
-
-{:db   ...
- :<user-fx-id>   <args>}
-
-;; REWRITE — fold every key outside the closed seven into :fx
-{:db ...
- :fx [[:dispatch <event-vec>]]}
-
-{:fx [[:dispatch-later <map>] ...]}           ; one entry per map in the original vector;
-                                              ; rename each map's :dispatch key → :event (M-8)
-
-{:fx [[:dispatch <e1>] [:dispatch <e2>] ...]} ; one entry per event-vec
-
-{:db ...
- :fx [[:<user-fx-id> <args>]]}
-```
+The single highest-impact mechanical rewrite. The rewrite itself — which top-level keys fold into `:fx`, how a value or a vector of values becomes `:fx` rows, the `:dispatch-later` key rename, the order a fold around an existing `:fx` keeps, the v1 entries already inside `:fx`, and what a missed key does at run time — is [`MIGRATION.md` §M-8](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-8-effect-map-keys-consolidated--only-db-and-fx-at-the-top-level). This section is how to find every site and apply it.
 
 **Procedure** (sweep first, then per-handler rewrite):
 
-1. **Enumerate the app's OWN `reg-fx` ids first — this is what makes the sweep complete.** Collect the full custom fx-id set — `:datadog/log`, a toast fx, an analytics ping, an rAF helper like `::dispatch-after-paint`, anything the app ever returned as a top-level effect. These project-specific ids are the easy-to-miss half of the rule: M-8 folds **every** top-level key outside the closed seven (`:db`, `:rf.db/runtime`, `:fx`, `:sensitive`, `:large`, `:clear-sensitive`, `:clear-large`), not just the framework keys. The set takes two passes — a text search that finds **candidates**, then a read that **accepts** them. The search alone is not the set.
+1. **Enumerate the app's OWN `reg-fx` ids first — this is what makes the sweep complete.** Collect the full custom fx-id set — `:datadog/log`, a toast fx, an analytics ping, an rAF helper like `::dispatch-after-paint`, anything the app ever returned as a top-level effect. These project-specific ids are the easy-to-miss half of the rule: M-8 folds **every** top-level key outside the closed set, not just the framework keys. The set takes two passes — a text search that finds **candidates**, then a read that **accepts** them. The search alone is not the set.
    - **Candidates.** Run from the project root (the skill's shell search verb is `rg` — see SKILL.md `allowed-tools`):
 
      ```bash
@@ -524,55 +499,19 @@ The single highest-impact mechanical rewrite. The transformation is structural.
      - The call must be live code: not on a `;` comment line, not inside a string, not under `#_`, not in a `(comment …)` block.
      - Resolve the id against the **registering** namespace: `::x` is `:<that-ns>/x`, and `::a/x` is `x` under whatever namespace the alias `a` names in that `ns` form. A non-keyword id (a symbol, a `doseq` over a map) is a data-driven registration — follow it to the literal ids.
 2. Add the built-ins to that set: `:dispatch`, `:dispatch-later`, `:dispatch-n`, `:http`, navigation effects.
-3. For each `reg-event-fx` body, walk the returned effect map literal.
-4. For each top-level key outside the closed seven (`:db`, `:rf.db/runtime`, `:fx`, `:sensitive`, `:large`, `:clear-sensitive`, `:clear-large` stay where they are — folding one of those into `:fx` is itself a break):
-   - In the discovered set → rewrite per the rules above. Compare resolved ids: a `::` key in the returned map resolves against the returning namespace, the same way step 1 resolves the registration.
-   - Not in the set → **flag** (might be a destructure key, not an effect).
-5. **If `:fx` already exists, fold around it in v1's run order.** v1 guarantees only that a truthy `:db` runs first; every other key ran in the map's iteration order — observed behaviour, not contract — which is source order for a literal of at most 8 entries (an array map) and hash order from 9 up (a hash map). So in a literal of 8 or fewer, put each folded entry before the existing rows when its key comes before `:fx` and after them when it comes after, keeping source order on each side; the existing rows keep their order and payloads:
+3. For each event handler body, walk the returned effect map literal. For each top-level key outside the corpus's closed set:
+   - In the discovered set → rewrite it per the corpus. Compare resolved ids: a `::` key in the returned map resolves against the returning namespace, the same way step 1 resolves the registration.
+   - Not in the set → **flag** it, and leave it in place (it might be a destructure key or a typo'd fx-id).
+4. **Where `:fx` already exists**, fold in v1's run order as the corpus describes. Where the source cannot show that order, hold that site alone ([`SKILL.md`](../SKILL.md) cardinal rule 2), naming the missing fact — which side of the existing rows each folded effect must run on — and ask instead of appending.
+5. **Entries a v1 app already wrote inside `:fx`.** The candidates for the `:dispatch-later` pass are every `:dispatch-later` token — `rg -n -t clojure ':dispatch-later\b' .`, with step 1's path rule — and only live code counts, by step 1's Accept read. Classify each row's argument as the corpus lists, and hold the rows it routes to review (cardinal rule 2).
 
-   ```clojure
-   {:db db :demo/log log :fx [[:demo/send a] [:demo/send b]] :demo/ping p}   ; v1: log, send, send, ping
-   ;; →
-   {:db db :fx [[:demo/log log] [:demo/send a] [:demo/send b] [:demo/ping p]]}
-   ```
-
-   Where the source can't prove the order — the map is built at run time (`assoc`, `merge`, `cond->`, a helper's return value) or the literal has more than 8 entries — hold that site alone ([`SKILL.md`](../SKILL.md) cardinal rule 2): name the missing fact, which side of the existing rows each folded effect must run on, and ask instead of appending.
-
-**Edge case → flag**: an unknown top-level key. Could be a destructure or a typo'd fx-id.
-
-**Why a missed custom fx breaks the whole event** — a registered fx left as a *top-level* key (instead of inside `:fx`) is not in v2's closed top-level set, and the runtime does **not** drop it and carry on. At the router's FINAL-effects boundary, immediately before the commit, a foreign top-level key **refuses the event**: no `:db`, no `:rf.db/runtime`, no classification install, **no `:fx`** — no partial commit — and `:rf.error/effect-map-shape` (recovery `:fix-effect`) is emitted **in-band** on the **always-on** error channel. It is not a throw (a throw there would abandon the rest of the drained queue), so `dispatch` returns normally and nothing reaches `window.onerror`; the record reaches your `:observability :errors` sink, and in a **dev browser build with no sink declared** it additionally prints to the console. In a production build the record still fans out to the sink — only the trace's `:value` / `:reason` detail is dead-code-eliminated — so this is diagnosable in prod, unlike the dev-only trace it used to be.
-
-The shape is valid Clojure, so **the compile is still clean** and march-the-wall still cannot find it — but the miss is now loud at the first execution of that handler, and it takes the handler's legal siblings down with it (the `:db` write the author expected is rolled back too). A boot smoke-test catches any site on the boot path immediately; a `dispatch-sync`-then-observe test catches the rest, and re-reading the `:db` write no longer passes vacuously, because `:db` does not commit either. This is why step 1 enumerates the app's own fx ids: an unrecognised custom top-level key is exactly this refusal.
-
-**Not to be confused with a malformed entry *inside* `:fx`.** `{:fx [[:good a] :oops]}` is a well-shaped envelope with one bad row: that entry is dropped, its **siblings still run**, and the event commits. The envelope is transactional pre-commit; the do-fx plane stays best-effort post-commit.
-
-**Entries a v1 app already wrote inside `:fx` need a pass too.** v1 supported the `:fx` vector, so an app can carry v1-shaped entries that the top-level fold never touches:
-
-- `[:dispatch-later {:ms n :dispatch ev}]` — rename the map's `:dispatch` key to `:event` (`{:ms n :event ev}`), per MIGRATION.md M-8. This one is **silent**: the v2 fx reads only `:ms` and `:event`, so the entry is accepted and the event you meant is never dispatched; the only trace is an `:rf.error/no-such-handler` record with `:event-id nil` when the timer fires, naming neither the handler nor the key. v1 also accepted a collection of maps here, and the v2 fx takes one map, so read each row's argument rather than grepping for the key. The candidates are every `:dispatch-later` token — `rg -n -t clojure ':dispatch-later\b' .`, with step 1's path rule — and only live code counts, by step 1's Accept read; quoted data no handler returns is not a row either, nor is a `:dispatch` key outside a `:dispatch-later` map. Classify each row's argument; the census closes on that read, never on a search that comes back empty:
-    - A map literal → rename it as above.
-    - A collection of maps → one row per map in its place, as the SEARCH/REWRITE block above folds a top-level vector, keeping order, delays, events and metadata, each renamed. A `(when …)` entry becomes a `(when …)` row, which `:fx` skips when nil as v1 skipped the entry: `[:dispatch-later [(when retry? {:ms 50 :dispatch [:retry]}) {:ms 100 :dispatch [:done]}]]` → `(when retry? [:dispatch-later {:ms 50 :event [:retry]}]) [:dispatch-later {:ms 100 :event [:done]}]`.
-    - A name bound in the handler (`let`), as the argument or one of its elements → resolve it through its binding, then classify the value.
-    - Anything else — a handler parameter, a helper's return value, a collection built at run time → hold that row alone ([`SKILL.md`](../SKILL.md) cardinal rule 2) and name the missing fact: whether it yields a map or a collection, and whether its maps carry `:dispatch`.
-- `[:dispatch-n [e1 e2]]` — v2 ships no `:dispatch-n` fx; expand to `[:dispatch e1] [:dispatch e2]`.
-- `[:deregister-event-handler id]` (top-level or in `:fx`) — v2 ships no such fx (M-26). Call `(rf/clear :event id)` where the deregistration is decided, or register a project fx that calls it.
-
-An unregistered fx id inside `:fx` is not silent — it emits `:rf.error/no-such-fx` when the entry runs — but it is still compile-clean, so sweep for it rather than waiting for the error.
+**Verify.** A missed top-level key compiles clean and refuses its whole event at first execution, `:db` write included, so the compile cannot find it. A boot smoke-test catches the sites on the boot path; a `dispatch-sync`-then-observe test catches the rest, and re-reading the `:db` write is a real check because a refused event commits nothing.
 
 ---
 
 ## Effect-handler arity (M-51)
 
-The other half of the effect-side sweep: M-8 moves effects *into* `:fx`, M-51 fixes the **handlers** that receive them. Every v2 fx handler is **binary** — the unary v1 form and the arity-detect shim behind it are cut, so every app that registered its own `reg-fx` (custom `:datadog/log`, toasts, analytics, and the `http-fx` / `async-flow-fx` shims) has sites here.
-
-```clojure
-;; SEARCH — a reg-fx whose handler is a one-arg fn literal
-(rf/reg-fx :http-xhrio
-  (fn [request] ...))                ;; unary v1
-
-;; REWRITE — prepend an unused first parameter
-(rf/reg-fx :http-xhrio
-  (fn [_ request] ...))              ;; binary; `m` ignored
-```
+The other half of the effect-side sweep: M-8 moves effects *into* `:fx`, M-51 fixes the **handlers** that receive them — every app that registered its own `reg-fx` (custom `:datadog/log`, toasts, analytics, and the `http-fx` / `async-flow-fx` shims) has sites here. The rewrite (`(fn [args] …)` → `(fn [_ args] …)`), the frame capture an async-dispatching handler needs, and why a miss is silent on CLJS are [`MIGRATION.md` §M-51](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-51-reg-fx-handlers-are-binary--rewrite-unary-handlers-to-take-an-unused-first-arg). A miss compiles and runs with no error, so sweep every site up front — never march the wall; its sequencing position is [`sequencing.md`](sequencing.md) row 14a.
 
 Sweep shape (`rg -U`, because the `fn` often sits on the line *after* `reg-fx` — a line-oriented grep misses those; the optional newline keeps same-line handlers, and the parameter class admits a destructured `(fn [{:keys [url]}]` — the canonical http-fx v1 shape — while excluding `_`, so an already-rewritten `(fn [_ request]` drops out):
 
@@ -582,12 +521,10 @@ rg -U 'reg-fx[^\n]*\n?[^\n]*\(fn \[[^]\s_][^]]*\]'
 
 Then cross-check the hit count against `(rf/registrations {:source :store :kind :fx})` at the REPL — every id whose `:ns` is one of the app's namespaces must be a sweep hit or a handler you have confirmed binary — so a zero is a proven zero, not a shape the pattern missed (a `(fn` alone on its own line, say). The sweep also matches a converted handler whose first parameter is named rather than `_` (`(fn [m request]`); skip those.
 
-**This is Type A but SILENT-fail, so grep exhaustively up front — never march the wall.** A unary handler parses and compiles fine; on CLJS there is no arity check, so v2's context-map binds to `args` and the real fx args are **silently dropped**. Details on the failure-visibility axis: [`breaking-changes.md` §Failure-visibility axis](breaking-changes.md#failure-visibility-axis--loud-fail-vs-silent-fail-orthogonal-to-type-ab); sequencing position is [`sequencing.md`](sequencing.md) row 14a.
+**Before each rewrite, check two things the blanket `_`-prepend gets wrong:**
 
-**Two things the blanket `_`-prepend gets wrong — check both before rewriting:**
-
-1. **Cross-file direct callers.** A converted fx handler often doubles as a plain fn (`log!`, `track!`) called directly by other namespaces. Re-arity-ing the fn silently breaks every one of them. Grep for callers outside the handler's own file; if there are any, **wrap instead of re-arity** — `(rf/reg-fx :id (fn [_ req] (existing-fn req)))`. The full statement of this hazard is the M-51 cross-file-caller note in [`breaking-changes.md` §Failure-visibility axis](breaking-changes.md#failure-visibility-axis--loud-fail-vs-silent-fail-orthogonal-to-type-ab).
-2. **Async handlers need the frame, not just the arity.** The ignore-`m` rewrite is correct for sync-only handlers. A handler that dispatches from an async callback should take `m` and capture the frame — `(rf/capture-frame (:frame m))` — per [`MIGRATION.md` §M-51](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-51-reg-fx-handlers-are-binary--rewrite-unary-handlers-to-take-an-unused-first-arg), which carries the full before/after and the rationale.
+1. **Callers outside the handler's own file.** Search for direct calls to the handler fn from other namespaces. If there are any, wrap at the registration instead of re-arity-ing the fn, as the corpus's cross-file-caller note says.
+2. **Async dispatch.** A handler that dispatches from a callback takes `m` and captures the frame, per the corpus's frame-aware form; the ignore-`m` rewrite is correct only for sync-only handlers.
 
 ---
 
