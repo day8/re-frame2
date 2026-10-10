@@ -70,7 +70,6 @@
   (:require [clojure.string :as str]
             #?(:clj  [clojure.edn :as edn]
                :cljs [cljs.reader :as edn])
-            [re-frame.story.assertions   :as rf.story.assertions]
             [re-frame.story.predicates   :as rf.story.predicates]
             [re-frame.story.requirements :as rf.story.requirements]))
 
@@ -500,12 +499,3 @@
   expectations variant reads as an expectation, not a state snapshot or a
   captured regression."
   "expects")
-
-(defn assertions-known?
-  "True iff every atom in `atoms` is a recognised P1 assertion id
-  (`re-frame.story.assertions/assertion-id-known?`). Pure data → bool.
-  The dialog asserts this before offering the snippet so an authored
-  expectation can never reference an id plan construction would reject."
-  [atoms]
-  (every? (fn [a] (rf.story.assertions/assertion-id-known? (rf.story.assertions/assertion-atom-id a)))
-          (or atoms [])))

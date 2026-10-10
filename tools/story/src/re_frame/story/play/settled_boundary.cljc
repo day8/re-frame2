@@ -68,8 +68,8 @@
   `:dom`-requiring `[:click …]` under a `:headless` runner — the boundary
   REFUSES with a `:cannot-run` refusal map (`cannot-run-refusal`) rather
   than under-flushing and passing falsely. A flush that times out reports
-  `:cannot-run` or `:error` per the caller's policy; it MUST NEVER report
-  a silent pass.
+  `:cannot-run` (reason `:flush-timeout`); it MUST NEVER report a silent
+  pass.
 
   This namespace is `.cljc` and stays free of `re-frame` view / DOM
   requires beyond the framework `re-frame.router/dispatch-sync!` fn, so the
@@ -232,20 +232,12 @@
 
 (defn flush-timeout-result
   "Build the result for a richer-boundary flush that exceeded its declared
-  maximum (the hooks' `:timeout-ms`). Per spec/017 a flush timeout reports
-  `:cannot-run` or `:error` per the caller's policy — NEVER a silent pass.
-  `policy` is `:cannot-run` (default) or `:error`. `dispatch-and-settle!`
-  calls this with the default `:cannot-run` policy when the flush phase
-  exceeds `:timeout-ms`."
-  ([required provided step] (flush-timeout-result required provided step :cannot-run))
-  ([required provided step policy]
-   (case policy
-     :error {:status :error
-             :error  (str "settled-boundary flush for " required
-                          " exceeded its declared maximum")
-             :step   step}
-     ;; default :cannot-run
-     (cannot-run-refusal required provided step :flush-timeout))))
+  maximum (the hooks' `:timeout-ms`): a fail-closed `:cannot-run` refusal,
+  reason `:flush-timeout` — NEVER a silent pass (spec/017).
+  `dispatch-and-settle!` calls this when the flush phase exceeds
+  `:timeout-ms`."
+  [required provided step]
+  (cannot-run-refusal required provided step :flush-timeout))
 
 ;; ---- the flush phase -----------------------------------------------------
 

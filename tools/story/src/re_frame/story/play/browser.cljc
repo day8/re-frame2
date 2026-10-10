@@ -493,15 +493,6 @@
 ;; DISPATCH  (one entry the runner calls per browser-tier assertion atom)
 ;; ===========================================================================
 
-(defn browser-assertion?
-  "True iff `assertion-atom` is one of the browser-tier oracle assertions
-  this ns evaluates (`re-frame.story.assertions/browser-assertion-ids`).
-  Pure data → data — the runner uses this to route an atom here rather than
-  to the dispatched `:rf.assert/*` handler path."
-  [assertion-atom]
-  (contains? rf.story.assertions/browser-assertion-ids
-             (rf.story.assertions/assertion-atom-id assertion-atom)))
-
 (defn eval-browser-assertion
   "Evaluate ONE browser-tier oracle assertion atom against `ctx`, returning
   the ONE assertion-record shape (spec/017 §Visual, a11y, and browser

@@ -73,15 +73,6 @@
            {:recovery :add-test-check-or-use-a-gen-fn
             :extra    {:missing-var sym}}))))
 
-(defn available?
-  "True iff `org.clojure/test.check` is resolvable on the classpath right now.
-  Lets a caller branch to the dependency-free `gen-fn` path when the optional
-  adapter is absent, without catching an exception."
-  []
-  #?(:clj  (boolean (try (requiring-resolve 'clojure.test.check.generators/generate)
-                         (catch Throwable _ nil)))
-     :cljs false))
-
 (defn gen->gen-fn
   "Turn a `clojure.test.check` generator `g` (of an event PROGRAM) into the
   pure `(fn [seed] event-program)` `re-frame.story.generate/check-property!`

@@ -536,15 +536,7 @@
       (is (rf.story.sub-overrides/miss? (rf.story.sub-overrides/resolve ovr [:other 7])))))
   (testing "an override whose VALUE is nil is a genuine hit (sentinel is distinct)"
     (let [ovr {[:login/user] nil}]
-      (is (rf.story.sub-overrides/overridden? ovr [:login/user]))
-      (is (nil? (rf.story.sub-overrides/resolve ovr [:login/user])))))
-  (testing "read surfaces the override and skips real-read; misses fall through"
-    (let [ovr {[:login/state] :error}]
-      (is (= :error (rf.story.sub-overrides/with-overrides* ovr
-                      #(rf.story.sub-overrides/read [:login/state]
-                                           (fn [] (throw (ex-info "should not run" {})))))))
-      (is (= :real  (rf.story.sub-overrides/with-overrides* ovr
-                      #(rf.story.sub-overrides/read [:login/other] (fn [] :real))))))))
+      (is (nil? (rf.story.sub-overrides/resolve ovr [:login/user]))))))
 
 ;; ===========================================================================
 ;; Assertion-atom fold (spec/017 §Assertions — one atom, two positions)

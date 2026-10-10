@@ -73,14 +73,15 @@ A story or variant can fix either one:
 (rf.story/reg-variant :story.login-form/phone
   {:extends    :story.login-form/idle
    :viewport   :mobile-portrait        ; or {:width 390 :height 844}
-   :background :paper})                ; or a CSS colour such as "#fafafa"
+   :background :paper})                ; or a hex colour such as "#fafafa"
 ```
 
 The preset ids are `:full`, `:mobile-portrait`, `:mobile-landscape`, `:tablet`,
 `:desktop` and `:desktop-wide` for the viewport, and `:light`, `:dark`,
 `:paper`, `:midnight` and `:transparent` for the background. A body's value
 beats the toolbar's choice, so the picker has no effect on a variant that fixes
-its own. An id Story does not know falls back to Full, or to Light.
+its own. A body value Story does not recognise is ignored: the toolbar's
+choice applies, and with no choice there, Full or Light.
 
 ## Try a mode
 

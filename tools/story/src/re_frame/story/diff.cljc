@@ -51,8 +51,7 @@
   (`rf.story.fingerprint/run-hash-input-keys`) the `:same?` judgement compares —
   nothing outside it. `:sub-runs` is deliberately NOT in that slice
   (over-recomputed evidence, not a determinism input), so it carries NO
-  `diff-runs` facet; `diff-sub-runs` exists only as a standalone diagnostic
-  fn.
+  `diff-runs` facet.
 
   ## A readable diff, not a data dump
 
@@ -98,9 +97,7 @@
   `diff-schema-violations`, `diff-warnings`, `diff-trace-ops`,
   `diff-sub-overrides`, `diff-fidelity` — plus the coarse `diverging-slice-keys`
   fallback and the assembler (`diff-runs`) are pure data → data: two
-  run-results in, a readable diff out. `diff-sub-runs` is pure too but is
-  diagnostic-only — not wired into `diff-runs` (it is outside the `:same?`
-  slice). `diff-run-artifacts` is the thin replay-then-`diff-runs` wrapper for
+  run-results in, a readable diff out. `diff-run-artifacts` is the thin replay-then-`diff-runs` wrapper for
   the artifact inputs."
   (:require [clojure.set                  :as set]
             [re-frame.story.artifact      :as rf.story.artifact]
@@ -214,10 +211,10 @@
     (keyed-delta :path (leaf-paths baseline) (leaf-paths current))))
 
 ;; ===========================================================================
-;; MULTISET DELTA  (effects / sub-runs — emission-ordered evidence rows)
+;; MULTISET DELTA  (effects — emission-ordered evidence rows)
 ;; ===========================================================================
 ;;
-;; Effects and sub-runs are ordered vectors of rows. A semantic difference
+;; Effects are an ordered vector of rows. A semantic difference
 ;; is a row one run emitted and the other did not — a MULTISET delta (a row
 ;; emitted twice on one side and once on the other IS a difference). Both
 ;; sides are canonical, so equal rows compare `=`.
@@ -261,22 +258,6 @@
   :only-current […]}` (the rows one run emitted and the other did not)."
   [baseline current]
   (multiset-delta (:effects baseline) (:effects current)))
-
-(defn diff-sub-runs
-  "DIAGNOSTIC-ONLY multiset delta over the two runs' projected `:sub-runs`
-  rows — the subscription / view facts, when available. Pure data → data;
-  `nil` when the sub-run multisets match (including when both runs carry no
-  sub-runs), else `{:only-baseline […] :only-current […]}`.
-
-  NOT part of the `:same?` judgement and NOT registered in `facet-fns`.
-  `:sub-runs` is deliberately excluded from
-  `rf.story.fingerprint/run-hash-input-keys` — sub-runs are over-recomputed evidence,
-  not a determinism input — so a `:sub-runs`-only delta does NOT make
-  `diff-runs` report `:same? false`, exactly as the determinism gate and the
-  golden verdict treat it. This fn exists for callers that want to inspect the
-  view-fact delta directly; it deliberately does not flow through `diff-runs`."
-  [baseline current]
-  (multiset-delta (:sub-runs baseline) (:sub-runs current)))
 
 ;; ===========================================================================
 ;; SCHEMA-VIOLATION DELTA  (by surface selector)
@@ -377,7 +358,7 @@
 ;; (`re-frame.story.play.evidence/warnings`) — one record per emitted
 ;; warning, in tape order. A semantic difference is a warning one run raised
 ;; and the other did not, so the delta is the same MULTISET shape as effects
-;; / sub-runs (a warning raised twice on one side and once on the other IS a
+;; (a warning raised twice on one side and once on the other IS a
 ;; difference). Both sides are noise-stripped, so equal records compare `=`.
 
 (defn diff-warnings
@@ -559,9 +540,7 @@
     so it is NOT registered here: a `:sub-runs`-only
     delta does not perturb the `:same?` slice, so a facet for it could never
     fire through `diff-runs` (it would be dead code that overstated coverage
-    and disagreed with the determinism gate / golden verdict). `diff-sub-runs`
-    exists as a standalone diagnostic fn (call it directly), NOT as part of
-    the `:same?` judgement."
+    and disagreed with the determinism gate / golden verdict)."
   (array-map
     :status            diff-status
     :app-db            (fn [b c] (diff-app-db (:app-db b) (:app-db c)))
@@ -675,9 +654,9 @@
   Both runs are projected through `re-frame.story.fingerprint/canonicalize`
   to strip the per-run noise (frame ids, timestamps, epoch / dispatch /
   trace ids) BEFORE diffing, so the result shows the SEMANTIC differences —
-  not volatile drift. The diff covers app-db deltas, effects, schema
-  violations, the trace op spine, subscription / view facts, and the
-  top-level status.
+  not volatile drift. The diff covers the facets `facet-fns` lists: the
+  top-level status, app-db deltas, assertion and check verdicts, effects,
+  schema violations, warnings and the trace op spine.
 
   Returns `{:same? true}` when the two runs are behaviourally identical,
   else `{:same? false :facets #{…} <facet> <delta> …}` carrying ONLY the

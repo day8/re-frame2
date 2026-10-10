@@ -49,16 +49,16 @@
 
   ## Where it runs
 
-  `apply-preset!` is invoked from `re-frame.story.ui.shell` after the
-  variant's frame is allocated (per the variant-selection edge in the
-  shell's `selection-watcher`). The variant-id arg lets the preset
-  resolve the body via the registrar and dispatch into the right
-  frame.
+  `re-frame.story.ui.shell` calls `on-variant-selected!`, and through it
+  `apply-preset!`, on every variant-selection edge: from its
+  `selection-watcher`, and from its mount-time block for a variant that
+  is already selected. The variant-id arg lets the preset resolve the
+  story and variant bodies via the registrar.
 
   ## Pure / impure split
 
   This namespace is `.cljc` so the pure helpers (`resolve-preset`,
-  `merge-preset`) run on both JVM and CLJS. The Xray-driving side
+  `merge-preset`, `lower-filters`) run on both JVM and CLJS. The Xray-driving side
   effects are CLJS-only.
 
   ## Elision
@@ -135,19 +135,14 @@
   Both axes are normalised to a vector, so the result is always the
   full `{:in [...] :out [...]}` shape Xray's `:active-filters` slot
   expects — a preset that declares only `:out` does not leave `:in`
-  nil in the live slot.
-
-  An entry that is ALREADY a map passes through verbatim, so a
-  hand-written typed pill (`{:kind :machine :params {…}}`) survives
-  the boundary un-double-wrapped. Returns nil for a non-map input."
+  nil in the live slot. Every entry is an event-id keyword, because the
+  `XrayPreset` schema admits nothing else on either axis."
   [filters]
-  (when (map? filters)
-    (reduce (fn [acc axis]
-              (assoc acc axis
-                     (mapv #(if (map? %) % {:pattern %})
-                           (get filters axis []))))
-            {}
-            [:in :out])))
+  (reduce (fn [acc axis]
+            (assoc acc axis (mapv (fn [event-id] {:pattern event-id})
+                                  (get filters axis []))))
+          {}
+          [:in :out]))
 
 ;; ---- preset application (CLJS-only) --------------------------------------
 
@@ -498,10 +493,10 @@
        1. `:open?` true → `mount/open!`.
        2. `:panel` set → dispatch `:rf.xray/select-tab` into `:rf/xray`.
        3. `:filters` set → lower to Xray pills, seed
-          `:rf.xray/filters`, and hydrate the live `:rf/xray` slot.
+          `:rf.xray/filters`, and hydrate the live `:rf/xray` slot (or
+          park the pills until that frame exists).
 
-     Returns the resolved preset (or nil) so the shell can log /
-     debug-introspect what fired.
+     Returns the resolved preset, or nil.
 
      No-op in a published static export (`drive-xray?`).
      Every one of the three steps targets an Xray that a `release` build

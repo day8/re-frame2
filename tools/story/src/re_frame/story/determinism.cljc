@@ -300,7 +300,7 @@
     routed THROUGH that hook's `:dispatch!` — they wrap it, never replace
     it — so the adapter dispatch path still runs on every replay).
 
-  Returns one of three statuses (never a flaky verdict):
+  Returns one of four statuses (never a flaky verdict):
 
   - `{:status :cannot-run :reason :determinism-plan-target …}` — the target
     is a normalized variant plan. Pure pre-flight: no
@@ -308,6 +308,10 @@
   - `{:status :cannot-run :reason :determinism-wall-clock-wait …}` — the
     program contains a bare `[:wait ms]`; the gate REFUSES rather than run
     it flakily. This is computed BEFORE any replay (pure pre-flight).
+  - a replay's own `:cannot-run` or `:error` result, with `:runs N
+    :results [run-result …]` added — a replay that refused or errored is
+    not a determinism question, so the gate surfaces it instead of
+    comparing.
   - `{:status :deterministic :run-hash <hash> :runs N :hashes [...]}` — every
     replay canonicalized `=`.
   - `{:status :non-deterministic :divergence {…} :runs N :hashes [...]

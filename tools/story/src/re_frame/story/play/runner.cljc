@@ -127,12 +127,6 @@
     :assert :assert-db :assert-dom
     :click :type :focus})
 
-(def assertion-step-types
-  "Steps whose outcome contributes to the play's pass/fail status —
-  including the `[:assert …]` in-script checkpoint, which
-  evaluates a `:rf.assert/*` atom at this exact point in the script."
-  #{:assert :assert-db :assert-dom})
-
 (def async-yield-step-types
   "Steps that put work on an async queue the runner cannot directly
   flush — `:click` / `:type` / `:focus` (synthetic DOM events whose
@@ -679,11 +673,6 @@
     :cannot-run (str "CANNOT-RUN (" total " steps)")
     (str status)))
 
-(defn assertion?
-  "True iff the step is an assertion-class step."
-  [step]
-  (contains? assertion-step-types (step-type step)))
-
 ;; ---- step-result builders (pure) ----------------------------------------
 
 (defn step-pass
@@ -921,14 +910,3 @@
     name   (assoc :name name)
     result (assoc :passed? (:passed? result)
                   :message (:message result))))
-
-;; ---- helper: was-failure? --------------------------------------------
-
-(defn any-failure?
-  "True iff `state` carries at least one failed assertion / exception
-  result. Used by the UI banner."
-  [{:keys [results]}]
-  (boolean
-    (some (fn [r] (or (false? (:passed? r))
-                      (some? (:exception r))))
-          results)))

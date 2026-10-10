@@ -60,10 +60,11 @@
   [variant-id]
   (let [app-db (:app-db (run-variant variant-id))
         pins   (get-in (rf.story.render/prepare-render variant-id)
-                       [:render-inputs :sub-overrides])]
-    (rf.story.sub-overrides/with-overrides* pins
-      #(rf.story.sub-overrides/read [:login/email]
-                                    (fn [] (rf/compute-sub [:login/email] app-db))))))
+                       [:render-inputs :sub-overrides])
+        v      (rf.story.sub-overrides/resolve pins [:login/email])]
+    (if (rf.story.sub-overrides/miss? v)
+      (rf/compute-sub [:login/email] app-db)
+      v)))
 
 (defn- upgrade!
   "Take the upgrade the View-State section offers for `:story.upgrade/pinned`

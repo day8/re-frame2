@@ -782,9 +782,9 @@ derivation could never produce" gap: an override that violates the sub's
 own output contract is reported, not silently shown. A sub with no
 `:schema`, or an override that conforms, surfaces unchanged.
 
-The pure data → data resolver fns (`resolve` / `read` / `overridden?`)
-remain JVM-runnable for the plan-compiler and resolver tests; the LIVE
-render carriage is the React context above, not the dynamic-var `read`.
+The pure data → data resolver fns (`resolve` / `miss?`) are
+JVM-runnable for the plan-compiler and resolver tests; the LIVE render
+carriage is the React context above.
 
 ### Network stubs
 
@@ -3614,7 +3614,7 @@ default 2, minimum 2) and the `:hooks` / `:frame-config` threaded to
 `replay-run-artifact`.
 
 A normalized variant plan is **refused** with `:cannot-run :reason
-:determinism-plan-target`, before any replay (rf2-3x7nj.31.2). The artifact
+:determinism-plan-target`, before any replay. The artifact
 `determinism/->artifact` builds from a plan is a program projection
 (`[:world :setup]` ⧺ the primary `:script`, the frame `:fx-overrides`,
 `:network`) — the promotion API route (§Promotion) — and NOT the variant's
@@ -3880,9 +3880,7 @@ determinism input — so a `:sub-runs`-only delta does not perturb the `:same?`
 judgement, exactly as the determinism gate and the golden verdict treat it.
 Wiring a `:sub-runs` facet into `diff-runs` would make it dead code (it could
 never fire on a pure sub-runs delta) and would let the diff overstate coverage
-relative to the slice it shares with the gate. `diff-sub-runs` survives as a
-standalone **diagnostic** fn for callers that want to inspect the view-fact
-delta directly; it is not part of the `:same?` judgement.
+relative to the slice it shares with the gate.
 
 **The non-empty-`:facets` invariant.** A `:same? false` diff ALWAYS carries a
 non-empty `:facets`. The per-surface facets above cover every run-slice slot,
@@ -3907,8 +3905,6 @@ The facet diff fns (`diff-app-db`, `diff-assertions`, `diff-checks`,
 `diff-effects`, `diff-schema-violations`, `diff-warnings`, `diff-trace-ops`,
 `diff-sub-overrides`, `diff-fidelity`) and the assembler
 (`diff-runs`) are pure data → data — two run-results in, a readable diff out
-(the diagnostic-only `diff-sub-runs` is pure too but is not wired into
-`diff-runs` — it is outside the `:same?` slice)
 — and run under
 `clojure -M:test` with no runtime; only the artifact-replay entry path is
 impure, and when both inputs are run-results `diff-run-artifacts` is itself
@@ -4001,7 +3997,7 @@ baseline. `:run-result` is the optional retained source slice (captured with
   carry `:meta`, `:keep-run-result`, and the replay opts (`:frame` /
   `:hooks` / `:frame-config`). A normalized variant plan is REFUSED with
   `:rf.error/golden-bad-target` by `capture-golden`, `golden-match?` and
-  `compare-golden` alike (rf2-3x7nj.31.2): the artifact built from a plan is
+  `compare-golden` alike: the artifact built from a plan is
   not the variant's run (§Determinism gate), so capture a variant's golden
   from the run-result of `story/run` on its id and match it against another
   such run-result.
@@ -4029,7 +4025,7 @@ baseline. `:run-result` is the optional retained source slice (captured with
 ### Pure / JVM-testable
 
 The slice + capture + match / report logic (`behavioural-slice`,
-`slice-canonical`, `make-golden`, `golden?`, `golden-match?`,
+`slice-canonical`, `make-golden`, `golden-match?`,
 `compare-golden`) is pure data → data — a run-result in, a golden / verdict
 out — and runs under `clojure -M:test` with no runtime. The only impurity is
 the artifact capture path, which replays into a fresh frame via the

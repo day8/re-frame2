@@ -81,13 +81,10 @@
 
 ;; ---- status ordering -----------------------------------------------------
 
-(def statuses
-  "The reproducibility statuses, highest fidelity first. A classifier that
-  collects several reasons takes the LOWEST status any reason implies — one
-  view-only reason makes the whole artifact view-only."
-  [:full :partial :view-only])
-
 (def ^:private status-rank
+  "The reproducibility statuses ranked highest fidelity first. A classifier
+  that collects several reasons takes the LOWEST status any reason implies —
+  one view-only reason makes the whole artifact view-only."
   {:full 0 :partial 1 :view-only 2})
 
 (defn worse
@@ -106,12 +103,13 @@
 ;; ---- pure: function / EDN-round-trip detection ---------------------------
 
 (defn contains-fn?
-  "True iff `x` (walked recursively through maps / vectors / sets / seqs)
-  carries a function value anywhere. Pure. Rides the SAME `Canonicalise`
-  fold the plan-hash uses (`rf.story.fingerprint/canonical-form`): a genuine fn
-  canonicalises to the `:rf/opaque-fn` sentinel, so detecting the sentinel
-  in the canonical form is exactly detecting a fn in the original — across
-  JVM and CLJS, without a host-specific `fn?`/`function` walk here."
+  "True iff `x` carries a function value anywhere. Pure. Walks `x`'s
+  canonical form (`rf.story.fingerprint/canonical-form`, the SAME
+  `Canonicalise` fold the plan-hash uses), in which every map, set, vector
+  and seq is a tagged vector and every genuine fn is the `:rf/opaque-fn`
+  sentinel — so finding the sentinel in that tree is exactly finding a fn
+  in `x`, across JVM and CLJS, without a host-specific `fn?`/`function`
+  walk here."
   [x]
   (let [canon (rf.story.fingerprint/canonical-form x)]
     (loop [stack [canon]]
@@ -121,9 +119,7 @@
         (let [[h & t] stack]
           (cond
             (= h rf.story.fingerprint/opaque-fn) true
-            (map? h)        (recur (into (vec t) (concat (keys h) (vals h))))
             (sequential? h) (recur (into (vec t) h))
-            (set? h)        (recur (into (vec t) h))
             :else           (recur (vec t))))))))
 
 (defn edn-round-trips?
@@ -270,9 +266,3 @@
     {:status  status
      :label   (status-labels status)
      :reasons reasons}))
-
-(defn full?
-  "Convenience predicate: is the classified artifact fully reproducible?
-  Pure. `report` is a `classify` return."
-  [report]
-  (= :full (:status report)))

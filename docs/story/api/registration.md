@@ -179,7 +179,7 @@ Every body is a closed map. An unknown or misspelt key throws `:rf.error/<kind>-
 | `:platforms` | A subset of `#{:client :server}`; `#{:client}` by default. Shown in Explain and Docs mode. |
 | `:modes` | Mode ids. Shown in Docs mode; the shell applies the modes chosen in the toolbar. |
 | `:viewport` | A viewport preset id (`:full`, `:mobile-portrait`, `:mobile-landscape`, `:tablet`, `:desktop`, `:desktop-wide`) or `{:width w :height h}`. |
-| `:background` | A background preset id (`:light`, `:dark`, `:paper`, `:midnight`, `:transparent`) or a CSS colour string. |
+| `:background` | A background preset id (`:light`, `:dark`, `:paper`, `:midnight`, `:transparent`) or a hex colour string (`#rgb`, `#rrggbb` or `#rrggbbaa`). |
 | `:xray-panel` | The Xray panel the right rail opens on: `:epoch` (default), `:app-db`, `:views`, `:trace`, `:machines` or `:routing`. |
 | `:xray` | A preset for the full Xray shell: `{:open? bool :panel panel-id :filters {:out [event-id ...] :in [event-id ...]}}`. Its `:panel` also picks the right rail's panel when the body names no `:xray-panel`. |
 | `:dispatch-console?` | `true` opens the Dispatch console by default. |

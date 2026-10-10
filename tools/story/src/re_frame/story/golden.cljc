@@ -68,7 +68,7 @@
   ## Pure / JVM-testable
 
   The slice + canonical capture + the match / report logic
-  (`behavioural-slice`, `slice-canonical`, `make-golden`, `golden?`,
+  (`behavioural-slice`, `slice-canonical`, `make-golden`,
   `slice-keys-current?`, `golden-match?`, `compare-golden`) are pure data →
   data: a run-result in,
   a golden / verdict out — so they run under `clojure -M:test` with no
@@ -161,15 +161,6 @@
             :slice-keys  rf.story.fingerprint/run-hash-input-keys}
      (seq meta)      (assoc :golden/meta meta)
      keep-run-result (assoc :run-result (behavioural-slice run)))))
-
-(defn golden?
-  "True iff `x` is a `:rf.test/golden` slice — the `:golden/kind` tag plus a
-  frozen `:canonical` value. Pure data → data."
-  [x]
-  (boolean
-    (and (map? x)
-         (= golden-kind (:golden/kind x))
-         (contains? x :canonical))))
 
 ;; ===========================================================================
 ;; CAPTURE  (run-result → golden; artifact → fresh-frame replay)

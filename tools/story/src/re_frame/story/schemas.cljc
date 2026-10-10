@@ -1007,20 +1007,7 @@
               "pick one play surface per variant")}
     (fn [body]
       (not (and (contains? body :script)
-                (contains? body :plays))))]
-   ;; P1 ships NO `:resolve-conflicts` escape hatch. The
-   ;; variant owns its end-state: a strict-conflict field set directly in
-   ;; the variant body wins, and the only hard error is two composed
-   ;; fragments conflicting while the variant is silent — resolved by the
-   ;; variant stating the wanted value, NOT by a stale-prone resolution
-   ;; map (spec/017 §Conflict resolution). Reject `:resolve-conflicts` at
-   ;; the schema so the absence is enforced, not merely undocumented.
-   [:fn {:error/message
-         (str ":resolve-conflicts is not a P1 slot — the variant owns its "
-              "end-state. State the wanted strict-conflict value directly "
-              "in the variant body (spec/017 §Conflict resolution).")}
-    (fn [body]
-      (not (contains? body :resolve-conflicts)))]])
+                (contains? body :plays))))]])
 
 ;; ---- :rf/fragment + :rf/check --------------------------------------------
 

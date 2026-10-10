@@ -40,9 +40,8 @@
 
   ## Purity / elision
 
-  The pure resolver fns (`resolve` / `read` / `overridden?` / `miss?`)
-  are data → data, so they are JVM-runnable and the test suite needs no
-  host. The CLJS-only render-path carriage (the override-context
+  The pure resolver fns (`resolve` / `miss?`) are data → data, so they
+  are JVM-runnable and the test suite needs no host. The CLJS-only render-path carriage (the override-context
   Provider + the `:subs/resolve-sub-override` hook publication below)
   reads the plan's `[:world :render :sub-overrides]` map; production
   bundles elide the whole runtime, and the core consult is gated on
@@ -60,21 +59,18 @@
 
   Two design facts define the seam:
 
-    1. The carriage is a React CONTEXT, not the dynamic var. A
+    1. The carriage is a React CONTEXT, not a dynamic var. A
        `binding`-bound dynamic var does NOT survive into a view's
-       DEFERRED React render — the canvas binds it during the
-       override-scope component's own render, but the view's
-       `@(rf/subscribe)` runs later, in its own reaction, with the
-       binding already unwound (empirically confirmed under
+       DEFERRED React render — a binding made during the
+       override-scope component's own render has unwound by the time
+       the view's `@(rf/subscribe)` runs, in its own reaction (empirically confirmed under
        react-dom/server — a parent-render binding reads `:unbound` in a
        child component's render). React mutates a context's
        `_currentValue` as Provider boundaries are entered/exited during
        render, so a descendant read sees the closest enclosing
        Provider's value — exactly how `re-frame.adapter.context`
        propagates the frame-id. The render path wraps the variant view
-       in `re-frame.adapter.sub-override-context`'s Provider; the
-       `*overrides*` dynamic var serves ONLY as a JVM / pure-test
-       convenience (the resolver tests bind it directly).
+       in `re-frame.adapter.sub-override-context`'s Provider.
     2. The consult is SUBSTITUTIVE but dev-only + honesty-bounded. It
        sits inside `subscribe`'s `rf.interop/debug-enabled?` gate (DCEs
        under `:advanced` + `goog.DEBUG=false`), and the override feeds
@@ -84,26 +80,14 @@
 
   Core schema-validates a hit against the subscription's declared
   `:schema`, matching Spec 010 §`:sub-return`."
-  (:refer-clojure :exclude [resolve read])
+  (:refer-clojure :exclude [resolve])
   #?(:cljs (:require [re-frame.adapter.sub-override-context :as rf.adapter.sub-override-context]
                      [re-frame.interop :as rf.interop]
                      [re-frame.late-bind :as rf.late-bind])))
 
 ;; ============================================================================
-;; Render-path override binding
+;; Pure resolver
 ;; ============================================================================
-;;
-;; The renderer binds the active variant's resolved override map for the
-;; dynamic extent of its render so a `read`-through subscribed value can
-;; consult it. Unbound (the default, and always in production) every
-;; lookup misses and the view reads its real subscription.
-
-(def ^:dynamic *overrides*
-  "The active variant's resolved `:sub-overrides` map for the dynamic
-  extent of a Story render — `{query-vector value}`, exact query vectors
-  after `[:arg key]` substitution. Unbound (`nil`) outside a Story render
-  and in production; every lookup then misses."
-  nil)
 
 (def ^:private miss
   "Sentinel returned by `resolve` when a query vector has no override. A
@@ -132,68 +116,13 @@
     (get overrides query-v)
     miss))
 
-(defn overridden?
-  "True iff `query-v` has an exact-match override in `overrides`. Distinct
-  from a `nil`-valued override, which is a genuine hit."
-  [overrides query-v]
-  (and (map? overrides) (contains? overrides query-v)))
-
-(defn read
-  "Render-path read for a subscribed `query-v` against the dynamic-var
-  `*overrides*`: return the override value when one is registered for the
-  active extent, otherwise call `real-read` (a 0-arg thunk that performs
-  the genuine subscription) and return its value.
-
-  This is the resolve-or-fall-through helper for callers that already
-  hold an explicit thunk and a dynamic-var binding (JVM / pure tests).
-  The LIVE render path does NOT route through `read` — it routes through
-  the React-context carriage + the `:subs/resolve-sub-override` core hook
-  (see the ns docstring §Live subscribe seam and
-  `resolve-sub-override-hit` below),
-  because the dynamic var does not survive into a view's deferred render.
-
-  `real-read` is invoked ONLY on a miss, so subscribing to a non-
-  overridden query is exactly as it would be without overrides — no extra
-  work, no behavioural change."
-  [query-v real-read]
-  (let [v (resolve *overrides* query-v)]
-    (if (miss? v) (real-read) v)))
-
-(defn with-overrides*
-  "Run `thunk` with `*overrides*` bound to `overrides` (a
-  `{query-vector value}` map, typically the plan's
-  `[:world :render :sub-overrides]`). Returns `thunk`'s value. The
-  function form behind the `with-overrides` macro — callers that already
-  have a thunk (or are on a host where the macro is awkward) use this
-  directly."
-  [overrides thunk]
-  (binding [*overrides* overrides]
-    (thunk)))
-
-#?(:clj
-   (defmacro with-overrides
-     "Evaluate `body` with `*overrides*` bound to `overrides` for its
-     dynamic extent. Sugar over `with-overrides*`. The Story render path
-     wraps the variant's view render in this; outside the binding (and in
-     production) `*overrides*` is nil and `read` always falls through.
-
-     This dynamic-var binding is the JVM / pure-test convenience form. The
-     live render path surfaces an override via the
-     React-context carriage (`re-frame.adapter.sub-override-context`) +
-     the `:subs/resolve-sub-override` core hook, NOT this binding — the
-     dynamic var does not survive into a view's deferred render. See the
-     ns docstring §Live subscribe seam."
-     [overrides & body]
-     `(binding [*overrides* ~overrides]
-        ~@body)))
-
 ;; ============================================================================
 ;; Live render-path carriage — React context + the core subscribe hook
 ;; (CLJS only)
 ;; ============================================================================
 ;;
-;; The dynamic var above cannot reach a view's DEFERRED render (the
-;; binding unwinds first). The carriage that DOES survive is the React
+;; A dynamic var cannot reach a view's DEFERRED render (the binding
+;; unwinds first). The carriage that DOES survive is the React
 ;; context in `re-frame.adapter.sub-override-context` (mirroring how
 ;; `re-frame.adapter.context` propagates the frame-id). The Story render
 ;; path wraps the variant view in that context's Provider; the resolver

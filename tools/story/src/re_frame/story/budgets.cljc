@@ -187,11 +187,3 @@
   which point the grid MUST paginate rather than render all cells."
   [axis-sizes]
   (> (matrix-product axis-sizes) matrix-hard-cap))
-
-(defn matrix-page-count
-  "G3 — pure: how many pages of `grid-visible-cell-cap` cells a matrix of
-  `total` cells spans. A matrix at or under one page is `1`; the result is
-  the ceiling of `total / grid-visible-cell-cap` (minimum 1). Lets the UI
-  show a deterministic `page X of N` affordance without rendering all cells."
-  [total]
-  (max 1 (long (Math/ceil (/ (double (max 0 total)) grid-visible-cell-cap)))))

@@ -22,10 +22,10 @@
 
   ## The capability tokens
 
-  Each token names one proof surface. `capability-tokens` is the closed
-  P1 set. `:reactive-counts` is the reactive recompute / over-render count
-  surface (spec/017 §1a, §Runner kinds). It needs no instrumentation seam
-  of its own: Spec 009 emits the underlying
+  Each token names one proof surface. `browser-tokens`, the richest
+  runner's set, is the closed P1 set. `:reactive-counts` is the reactive
+  recompute / over-render count surface (spec/017 §1a, §Runner kinds). It
+  needs no instrumentation seam of its own: Spec 009 emits the underlying
   signals — one `:rf.sub/run` per true sub recompute and one
   `:rf.view/rendered` per view render, both carried into the epoch tape
   and projected at settle time (`re-frame.epoch.capture/project-all`). The
@@ -90,31 +90,6 @@
   distinct, so this ns names its own refusal rather than borrowing the
   boundary one."
   (:require [re-frame.story.play.evidence :as rf.story.play.evidence]))
-
-;; ===========================================================================
-;; CAPABILITY TOKENS  (spec/017 §Runner kinds and capabilities)
-;; ===========================================================================
-;;
-;; Each token names ONE proof surface. The set is closed for P1; a further
-;; proof surface (a `:network-record` token, say) would extend it.
-
-(def capability-tokens
-  "The closed P1 set of capability tokens. A token names one proof surface
-  a runner either can or cannot produce. `:reactive-counts` is the reactive
-  recompute / over-render count surface (spec/017 §1a); it has a real seam
-  — the `re-frame.story.play.evidence/reactive-counts` projection over the
-  `:rf.sub/run` / `:rf.view/rendered` rows Spec 009 already lands in the
-  tape — and is advertised by the `:cljs-reactive` runner."
-  #{:app-db          ; final app-db / event / cofx state — the headless floor
-    :effects         ; emitted effect rows
-    :schema          ; schema-validation-failure trace evidence
-    :trace           ; trace-event stream (warnings, dispatched, caused, …)
-    :pure-subs       ; compute-sub against the snapshot (no reactive cache)
-    :hiccup-structure ; render-to-string / hiccup tree + text + handler wiring
-    :reactive-counts ; reactive recompute / over-render counts (:cljs-reactive)
-    :dom             ; DOM events, focus, visibility, browser APIs
-    :pixels          ; real-browser layout / screenshots / pixel diffs
-    :a11y-engine})   ; axe-style accessibility engine
 
 ;; ===========================================================================
 ;; COST-ORDERED CONCRETE RUNNERS  (spec/017 §Runner kinds and capabilities)
