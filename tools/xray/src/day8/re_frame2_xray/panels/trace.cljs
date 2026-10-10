@@ -1202,17 +1202,12 @@
   ;; (`:no-focus` / `:no-epoch` / `:focused` / `:epoch-evicted`) and looks
   ;; up the record. `h/project-feed-from-epoch` projects that record's
   ;; `:trace-events` into the feed shape. The flat panel
-  ;; reads only `:rows` + `:empty-kind`; the `:envelope` / `:bands` /
-  ;; `:outcome` slots are covered by the band-projection helper tests,
-  ;; and the view does not render them.
+  ;; reads `:rows` + `:empty-kind`.
   ;;
   ;; Shape of `:rf.xray/trace-feed`:
   ;;
   ;;     {:rows       [<row> ...]   ;; the epoch's domino trail, oldest-first
   ;;                                ;; (the flat list the panel renders)
-  ;;      :envelope   [<row> ...]   ;; the :rf.epoch/* ops (not rendered)
-  ;;      :outcome    <:ok/:blocked/:error-or-nil>  ;; (not rendered)
-  ;;      :bands      [{:id :label :rows :count :empty?} ...]  ;; (not rendered)
   ;;      :total      <int>         ;; the epoch's trace-event count
   ;;      :rendered   <int>         ;; same as :total (no filtering)
   ;;      :epoch-id   <int-or-nil>  ;; the focused epoch's id

@@ -34,8 +34,9 @@
 
   ## Per-mode body
 
-  Topology mounts the `chart/svg` SVG renderer (no live highlight —
-  Static is event-INDEPENDENT). Sim mounts the Sim rail. Instances
+  Topology mounts `topology/body`, the same MachineChart the Dynamic
+  panel renders, with no live highlight (Static is event-INDEPENDENT).
+  Sim mounts the Sim rail. Instances
   doesn't render a body (the click is the surface). Cascade doesn't
   render a body either (the pill itself is the surface).
 

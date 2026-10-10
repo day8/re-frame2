@@ -84,7 +84,7 @@
             [re-frame.trace :as rf.trace]))
 
 ;; ---------------------------------------------------------------------------
-;; The closed vocabularies (MIRRORED from re-frame.reply — Managed-Effects
+;; The closed reply-status vocabulary (MIRRORED from re-frame.reply — Managed-Effects
 ;; §Status taxonomy / §The reply map). Closed by design: a managed-async
 ;; completion is exactly one of these statuses. Mirrored as literal data so
 ;; Xray never requires the substrate (bundle isolation).
