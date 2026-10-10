@@ -7,6 +7,7 @@
   `re-frame.event-emit-elision-prod-test`."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.event-emit :as rf.event-emit]
             [re-frame.flows :as rf.flows]
             [re-frame.frame :as rf.frame]
@@ -64,6 +65,26 @@
         "one record per processed event, carrying only the tight keys")
     (is (number? (:time (first @seen))))
     (is (nat-int? (:elapsed-ms (first @seen))))))
+
+(deftest listener-reports-a-throwing-effect-as-ok-beside-its-error-record
+  ;; `:ok` certifies the commit and a completed `:fx` walk, not that every
+  ;; effect succeeded: the throw is its own record on the errors stream, and
+  ;; the sibling after it still runs.
+  (let [seen   (record-events!)
+        errors (atom [])
+        after  (atom 0)]
+    (rf/reg-fx :fx/boom (fn [_ _] (throw (ex-info "fx boom" {}))))
+    (rf/reg-fx :fx/after (fn [_ _] (swap! after inc)))
+    (rf/reg-event :evt/fx-throws
+      (fn [{:keys [db]} _] {:db (assoc db :n 1) :fx [[:fx/boom nil] [:fx/after nil]]}))
+    (rf.error-emit/register-error-listener! :test/recorder #(swap! errors conj %))
+    (try
+      (rf/dispatch-sync [:evt/fx-throws])
+      (finally (rf.error-emit/unregister-error-listener! :test/recorder)))
+    (is (= [:ok] (mapv :outcome @seen)))
+    (is (= [:rf.error/fx-handler-exception] (mapv :error @errors)))
+    (is (= 1 (:n (rf/app-db-value :rf/default))) "the state committed")
+    (is (= 1 @after) "the sibling after the throw still ran")))
 
 (deftest listener-marks-handler-exception-as-error-outcome
   (let [seen (record-events!)]
