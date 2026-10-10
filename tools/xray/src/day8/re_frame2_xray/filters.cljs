@@ -312,8 +312,7 @@
         (error-override/apply-error-overrides scoped filtered error-overrides?))))
 
   ;; The 'N events hidden by filters' message model. Composes the raw +
-  ;; filtered event-bundle lists and the active filter state into the pure
-  ;; `hidden/summary` record the events ribbon renders against. Counts
+  ;; filtered event-bundle lists into the pure `hidden/summary` record the events ribbon renders against. Counts
   ;; over the L2 visible-row set (`l2-visible?`) so N matches the rows
   ;; the user sees.
   ;;
@@ -322,25 +321,20 @@
   ;; frame, then pills/mutes are measured against that scope. This means
   ;; switching frames NEVER inflates "hidden" — each frame's events count
   ;; only against their own frame's baseline, so picking a frame never
-  ;; makes another frame's events look "hidden by filters". The summary
-  ;; carries no `:frame` cause; only pill/mute suppression is the cause
-  ;; and the count.
+  ;; makes another frame's events look "hidden by filters". Only pill/mute
+  ;; suppression is counted.
   (rf/reg-sub :rf.xray/hidden-by-filters
     {:inputs [[:rf.xray/event-bundles]
               [:rf.xray/filtered-event-bundles]
-              [:rf.xray/active-filters]
               [:rf.xray/view-scope-frame]
-              [:rf.xray/muted-event-ids]
               [:rf.xray/show-ungrouped?]]}
-    (fn [[raw filtered filters view-scope-frame muted show-ungrouped?] _query]
+    (fn [[raw filtered view-scope-frame show-ungrouped?] _query]
       (let [;; Scope the raw baseline to the VIEW-SCOPE frame so frame
             ;; selection is a view scope, not counted as suppression.
             frame-scoped (matcher/filter-event-bundles-by-view-scope raw view-scope-frame)
             raw-n        (count (filterv #(l2-visible? % show-ungrouped?) frame-scoped))
             filtered-n   (count (filterv #(l2-visible? % show-ungrouped?) filtered))]
-        (hidden/summary raw-n filtered-n
-                        {:filters filters
-                         :muted   muted}))))
+        (hidden/summary raw-n filtered-n))))
 
   ;; Popup state — three slots so the open / trigger / draft tiers
   ;; are individually subscribable.

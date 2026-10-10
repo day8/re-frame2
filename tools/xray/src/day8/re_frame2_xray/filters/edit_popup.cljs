@@ -183,10 +183,7 @@
   "Hydrate a stored pill into the user-editable draft shape. nil pill
   → empty draft."
   [{:keys [pattern] :as _pill}]
-  {:pattern (cond
-              (nil? pattern)         ""
-              (keyword? pattern)     (str pattern)
-              :else                  (str pattern))})
+  {:pattern (str pattern)})
 
 ;; ---- view ----------------------------------------------------------------
 
