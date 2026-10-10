@@ -332,10 +332,8 @@
                      for a singleton, the `<type>#<n>` / explicit
                      `:fixed-actor-id` for a spawned actor).
   - `:source-form` — `{:kind :reg-machine :id <type-id>}` — the TYPE the
-                     instance resolves to (a keyword `:rf/machine-type` for a
-                     registered-type spawn; the type-id keyed by the spec for
-                     an inline `:definition` spawn). Singletons are their own
-                     type.
+                     instance resolves to (the `:rf/machine-type` keyword).
+                     Singletons are their own type.
   - `:inputs` / `:evaluation` / `:spawns?` — derived from the RESOLVED type
                      spec (a spawned actor's reactions are its type's), exactly
                      as the static view.
@@ -374,21 +372,16 @@
              (let [machine-type (:rf/machine-type snapshot)
                    ;; A singleton snapshot carries no `:rf/machine-type`; its
                    ;; spec is the registered machine under its own id. A
-                   ;; spawned actor resolves its TYPE spec from the snapshot
-                   ;; (registered-type keyword → registrar; inline-definition
-                   ;; map → verbatim) via the leaf resolver.
+                   ;; spawned actor resolves its TYPE spec from the snapshot's
+                   ;; registered-type keyword via the leaf resolver.
                    spawned?     (some? machine-type)
                    spec         (if spawned?
                                   (rf.machines.lifecycle-fx.resolver/spec-from-snapshot snapshot)
                                   (machine-spec actor-id))
                    ;; The source-id whose coords / source-form we inherit: the
-                   ;; registered type keyword (a keyword `:rf/machine-type`,
-                   ;; else the actor-id itself for a singleton). An inline
-                   ;; `:definition` spawn has no registered type — key its
-                   ;; source-form by the actor-id.
-                   source-id    (if (keyword? machine-type)
-                                  machine-type
-                                  actor-id)]
+                   ;; registered type keyword, or the actor-id itself for a
+                   ;; singleton.
+                   source-id    (or machine-type actor-id)]
                (if spec
                  (assoc acc actor-id
                         (-> (node-for actor-id source-id spec

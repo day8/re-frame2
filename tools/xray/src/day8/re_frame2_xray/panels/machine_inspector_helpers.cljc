@@ -808,16 +808,14 @@
          ;; `:machine-id` is the LIVE instance address, and
          ;; `definitions` is keyed by REGISTERED machine ids, so a SPAWNED
          ;; actor's `<type>#<n>` address never matches. Fall back to the TYPE
-         ;; its snapshot carries at `:rf/machine-type` — the slot the runtime
-         ;; itself resolves a spawned actor through (`spec-from-snapshot`): a
-         ;; keyword names a registered type, a map is an inline definition.
-         ;; A birth or no-op record carries no stamped snapshot and stays
-         ;; without a definition.
+         ;; its snapshot carries at `:rf/machine-type` — the registered type
+         ;; keyword the runtime itself resolves a spawned actor through
+         ;; (`spec-from-snapshot`). A birth or no-op record carries no stamped
+         ;; snapshot and stays without a definition.
          attach-def
          (fn [base]
            (let [defn-> (or (get defs (:machine-id base))
-                            (let [t (:rf/machine-type (or (:after base) (:before base)))]
-                              (if (map? t) t (get defs t))))]
+                            (get defs (:rf/machine-type (or (:after base) (:before base)))))]
              (cond-> base
                defn-> (assoc :definition defn->))))
          order  (fn [ev] (or (:id ev) (:time ev) 0))

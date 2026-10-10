@@ -240,7 +240,7 @@
 ;; elision bundle.
 
 (rf.fx/reg-fx :rf.machine/spawn
-  {:doc "Spawn a machine instance. Per Spec 005 §Declarative :spawn (sugar over spawn). Args carry `:machine-id` or an inline `:definition`, and optional `:id-prefix`, `:fixed-actor-id`, `:data` and `:start` (Spec 005 §Spawn-spec keys)."}
+  {:doc "Spawn a machine instance. Per Spec 005 §Declarative :spawn (sugar over spawn). Args name a registered machine by `:machine-id`, with optional `:id-prefix`, `:fixed-actor-id`, `:data` and `:start` (Spec 005 §Spawn-spec keys)."}
   spawn-fx)
 
 (rf.fx/reg-fx :rf.machine/destroy
@@ -482,8 +482,8 @@
 (rf.late-bind/set-fn! :machines/actor-resolvable?      rf.machines.lifecycle-fx.resolver/resolvable?)
 ;; The epoch restore version-drift precondition resolves a SPAWNED actor's
 ;; CURRENT definition the same way dispatch does: from the
-;; snapshot's `:rf/machine-type` (a registered TYPE keyword resolved through
-;; the registrar, or an inline `:definition` spec map carried verbatim).
+;; snapshot's `:rf/machine-type` (the registered TYPE keyword, resolved
+;; through the registrar).
 ;; `machine-version-mismatch` reads the resolved spec's
 ;; `[:meta :rf/snapshot-version]` so a spawned actor whose TYPE was hot-reloaded
 ;; forward surfaces `:rf.epoch/restore-version-mismatch` instead of silently

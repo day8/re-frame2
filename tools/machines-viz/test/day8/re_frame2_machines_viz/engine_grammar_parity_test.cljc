@@ -231,12 +231,6 @@
    :valid-timeout    {:initial :a :states {:a {:timeout 1000 :on-timeout :b} :b {}}}
    :valid-choice     {:initial :g :states {:g {:type :choice :choice [{:target :a} {:target :b}]} :a {} :b {}}}
    :valid-spawn      {:initial :a :states {:a {:spawn {:machine-id :child} :on {:go :b}} :b {}}}
-   ;; An inline :definition is addressed by :id-prefix or
-   ;; :fixed-actor-id (the controls for `:spawn-inline-unaddressed` below).
-   :valid-spawn-inline-prefix {:initial :a :states {:a {:spawn {:definition {:initial :x :states {:x {}}}
-                                                                 :id-prefix  :kid}}}}
-   :valid-spawn-inline-fixed  {:initial :a :states {:a {:spawn {:definition     {:initial :x :states {:x {}}}
-                                                                 :fixed-actor-id :kid-1}}}}
    :valid-spawn-all  {:initial :a :states {:a {:spawn-all {:children [{:id :c1 :machine-id :m}]
                                                            :on-all-complete [:done]}
                                                :on {:go :b}} :b {}}}
@@ -350,9 +344,13 @@
    :spawn-neither    {:initial :a :states {:a {:spawn {}}}}
    :spawn-both       {:initial :a :states {:a {:spawn {:machine-id :m :definition {:initial :x :states {:x {}}}}}}}
    :spawn-unknown    {:initial :a :states {:a {:spawn {:machine-id :m :bogus 1}}}}
-   ;; The engine refuses an UNADDRESSED inline :definition (neither
-   ;; :id-prefix nor :fixed-actor-id); the viz must too.
+   ;; A spawned child is a registered type: the engine refuses an inline
+   ;; :definition however it is addressed; the viz must too.
    :spawn-inline-unaddressed {:initial :a :states {:a {:spawn {:definition {:initial :x :states {:x {}}}}}}}
+   :spawn-inline-prefix      {:initial :a :states {:a {:spawn {:definition {:initial :x :states {:x {}}}
+                                                               :id-prefix  :kid}}}}
+   :spawn-inline-fixed       {:initial :a :states {:a {:spawn {:definition     {:initial :x :states {:x {}}}
+                                                               :fixed-actor-id :kid-1}}}}
    ;; A state spawns ONE child: a vector of specs, or any other non-map, is
    ;; refused. N children is `:spawn-all`.
    :spawn-vector     {:initial :a :states {:a {:spawn [{:machine-id :child}]}}}
@@ -533,6 +531,12 @@
   "Corpus labels → the category the engine refuses each with."
   {;; a non-map `:spawn`, and a bare `:id`, which addresses a `:spawn-all` child
    :spawn-vector  :rf.error/machine-spawn-bad-shape
+   ;; an inline `:definition`, however addressed, and no `:machine-id`
+   :spawn-inline-unaddressed :rf.error/machine-spawn-bad-shape
+   :spawn-inline-prefix      :rf.error/machine-spawn-bad-shape
+   :spawn-inline-fixed       :rf.error/machine-spawn-bad-shape
+   :spawn-both               :rf.error/machine-spawn-bad-shape
+   :spawn-neither            :rf.error/machine-spawn-bad-shape
    :spawn-keyword :rf.error/machine-spawn-bad-shape
    :spawn-bare-id :rf.error/machine-unknown-spawn-key
    ;; a leaf's `:on-done`, and a transition-shaped `:spawn :on-done`

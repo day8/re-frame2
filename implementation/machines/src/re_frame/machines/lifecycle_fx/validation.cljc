@@ -15,8 +15,8 @@
     - `validate-schemas!` — machine-level `:schemas` map:
       closed sub-key set (`:data` / `:events` / `:output` / `:tags` /
       `:meta`); `:input` and unknown keys fail loud.
-    - `validate-spawn!` — single `:spawn` `:machine-id` xor
-      `:definition`.
+    - `validate-spawn!` — single `:spawn` shape: one spawn-spec map
+      naming a registered machine by `:machine-id`.
     - `validate-spawn-all!` — `:spawn-all` shape.
     - `validate-no-spawn-timeout-ms!` — rejects the unsupported
       `:timeout-ms` slot on `:spawn` / `:spawn-all`.
@@ -196,44 +196,24 @@
                   :slot       slot-key
                   :timeout-ms (:timeout-ms spec)}))))))
 
-(defn- spawn-id-xor-definition-error
-  "The XOR check shared by single `:spawn` and each `:spawn-all` child:
-  a spawn-spec must declare EXACTLY ONE of `:machine-id` /
-  `:definition`. Returns a `:reason` string when the spec violates the XOR
-  (neither key, or both keys), or nil when exactly one is present. Per Spec
-  005 §`:spawn` (the spec-table key cell \"exactly one of these\") +
-  Spec-Schemas §`:rf/state-node` — \"exactly one of `:machine-id` or
-  `:definition`\" is a registration-time constraint. (A both-set spec would
-  otherwise initialise a child from the inline `:definition` while stamping
-  `:rf/machine-type` from the registered `:machine-id` — a lazy-resolution /
-  restore type mismatch.)"
-  [spec]
-  (let [has-id?  (contains? spec :machine-id)
-        has-def? (contains? spec :definition)]
-    (cond
-      (and has-id? has-def?)
-      "declares BOTH :machine-id and :definition — exactly one is allowed (they are XOR)"
-      (and (not has-id?) (not has-def?))
-      "declares NEITHER :machine-id nor :definition — exactly one is required"
-      :else nil)))
+(def ^:private registered-type-reason
+  "a spawned child is a registered machine type: register the child with reg-machine and spawn it by :machine-id")
 
-(defn- inline-spawn-address-error
-  "An inline `:definition` spawn-spec must carry an ADDRESS:
-  `:id-prefix` (the base its `<prefix>#<n>` id is minted from) or
-  `:fixed-actor-id` (the address itself). A `:machine-id` spawn needs
-  neither, because its prefix defaults to that registered TYPE; an inline
-  definition has no type to default to, so an unaddressed one would reach
-  the id allocator with a nil prefix and crash there, after registration
-  had accepted it. Returns a `:reason` string for an unaddressed inline spec,
-  else nil. Shared by single `:spawn` and each `:spawn-all` child, and run
-  after the XOR check."
+(defn- spawn-machine-id-error
+  "A spawn-spec names a registered machine TYPE by `:machine-id`, so the
+  spawned actor's `:rf/machine-type` is a keyword and every snapshot and join
+  slot stays EDN (Spec 005 §Spawn-spec keys). Returns a `:reason` string for
+  a spec carrying an inline `:definition`, or one with no `:machine-id`, else
+  nil. Shared by single `:spawn` and each `:spawn-all` child."
   [spec]
-  (when (and (contains? spec :definition)
-             (not (or (:id-prefix spec) (:fixed-actor-id spec))))
-    (str "carries an inline :definition but no address — give it :id-prefix "
-         "(the base its <prefix>#<n> id is minted from) or :fixed-actor-id (the "
-         "address itself); only a :machine-id spawn defaults its prefix, to that "
-         "registered type")))
+  (cond
+    (contains? spec :definition)
+    (str "declares an inline :definition — " registered-type-reason)
+
+    (not (contains? spec :machine-id))
+    (str "declares no :machine-id — " registered-type-reason)
+
+    :else nil))
 
 (def ^:private known-spawn-all-block-keys
   "The closed BARE key vocabulary a `:spawn-all` block map may declare. Any
@@ -255,9 +235,9 @@
   Error categories:
     - `:rf.error/machine-spawn-all-bad-shape` — a child spawn-spec is
       missing `:id`; or `:spawn-all` is not a map; or the join-event
-      slots are missing per the required-iff rules; or no `:machine-id`
-      / `:definition`; or an inline `:definition` with neither
-      `:id-prefix` nor `:fixed-actor-id`; or the `:join` value is outside the closed
+      slots are missing per the required-iff rules; or a child with no
+      `:machine-id`, or one carrying an inline `:definition`; or the
+      `:join` value is outside the closed
       `:all` / `:any` enum; or an unknown bare key on the block (e.g.
       `:cancel-on-decision?`).
     - `:rf.error/machine-spawn-all-duplicate-id` — two children share an
@@ -320,12 +300,9 @@
                      "each child spawn-spec must declare an :id keyword"
                      {:state state-key
                       :child c})))
-          ;; A child spawn-spec must declare EXACTLY ONE of
-          ;; `:machine-id` / `:definition` (XOR). A child carrying BOTH keys
-          ;; would otherwise materialise a different machine type on restore
-          ;; than the one that spawned it.
-          (when-let [reason (or (spawn-id-xor-definition-error c)
-                                (inline-spawn-address-error c))]
+          ;; A child spawn-spec names a registered machine type by
+          ;; `:machine-id`; an inline `:definition` is refused.
+          (when-let [reason (spawn-machine-id-error c)]
             (throw (validation-error
                      :rf.error/machine-spawn-all-bad-shape
                      (str "each child spawn-spec " reason)
@@ -1098,14 +1075,12 @@
 
 (defn- validate-spawn!
   "Per Spec 005 §`:spawn` + Spec-Schemas §`:rf/state-node`: a
-  single `:spawn`-bearing state node's spawn-spec must declare EXACTLY ONE of
-  `:machine-id` / `:definition`. Rejects both-set and neither-set at
-  registration with `:rf.error/machine-spawn-bad-shape` (fail-closed) —
-  without this gate a malformed spec would defer to a late actor-id
-  allocation failure (neither) or a silent type mismatch on restore (both).
-  An inline `:definition` must also carry `:id-prefix` or `:fixed-actor-id`
-  (`inline-spawn-address-error`), refused with the same id. A `:spawn` that
-  is not a map — a vector of specs, XState's multi-`invoke` spelling — is
+  single `:spawn`-bearing state node's spawn-spec names a registered machine
+  type by `:machine-id`. A spec with no `:machine-id`, or one carrying an
+  inline `:definition`, is refused at registration with
+  `:rf.error/machine-spawn-bad-shape` (fail-closed), its reason naming the
+  fix: register the child with `reg-machine` and spawn it by `:machine-id`.
+  A `:spawn` that is not a map — a vector of specs, XState's multi-`invoke` spelling — is
   refused with the same id too: a state spawns at most one child, and N
   children is `:spawn-all`.
   `:spawn-all` children are checked by `validate-spawn-all!`
@@ -1123,8 +1098,7 @@
                     ":on-all-complete [...]}}).")
                {:state state-key
                 :spawn spawn})))
-    (when-let [reason (or (spawn-id-xor-definition-error spawn)
-                          (inline-spawn-address-error spawn))]
+    (when-let [reason (spawn-machine-id-error spawn)]
       (throw (validation-error
                :rf.error/machine-spawn-bad-shape
                (str ":spawn spec " reason ".")
@@ -2042,13 +2016,16 @@
   #{:data :schemas :internal-events :guards :actions :region-order
     :doc :sensitive :large :schema :raise-depth-limit :always-depth-limit})
 
-(def ^:private retired-spawn-spec-keys
-  "Retired spawn-spec keys that carry their OWN dedicated retired-key rejection
-  (`validate-no-spawn-timeout-ms!` → `:rf.error/spawn-timeout-ms-removed`). They
-  are excluded from the generic unknown-key detection so the SPECIFIC removal
-  diagnostic wins (naming the replacement) instead of the generic
+(def ^:private spawn-spec-keys-with-own-refusal
+  "Spawn-spec keys a DEDICATED check refuses with a diagnostic that names the
+  fix — `:timeout-ms` (`validate-no-spawn-timeout-ms!` →
+  `:rf.error/spawn-timeout-ms-removed`, naming `:timeout` / `:on-timeout`)
+  and `:definition` (`validate-spawn!` / `validate-spawn-all!` →
+  `:rf.error/machine-spawn-bad-shape` / `:rf.error/machine-spawn-all-bad-shape`,
+  naming `reg-machine` + `:machine-id`). They are excluded from the generic
+  unknown-key detection so the SPECIFIC diagnostic wins over the generic
   `:rf.error/machine-unknown-spawn-key`."
-  #{:timeout-ms})
+  #{:timeout-ms :definition})
 
 (def ^:private known-spawn-spec-keys
   "The closed BARE key vocabulary a single `:spawn` spec may declare, projected
@@ -2063,7 +2040,7 @@
   reference-site slots the compiler co-locates on EVERY map node (a `:spawn` map
   included, per Spec-Schemas §`MachineElementEntry` / the reference-site coord
   note) — accepted (they are absent in production)."
-  #{:machine-id :definition :data :id-prefix :on-done :on-error
+  #{:machine-id :data :id-prefix :on-done :on-error
     :start :fixed-actor-id :timeout :on-timeout
     :source-coords :source-code})    ;; DEBUG-only macro-stamped coord slots
 
@@ -2190,11 +2167,10 @@
   [state-key state-node]
   (let [check! (fn [spec where valid-keys]
                  (when (map? spec)
-                   ;; The retired `:timeout-ms` slot has its OWN dedicated
-                   ;; rejection (`:rf.error/spawn-timeout-ms-removed`, naming the
-                   ;; replacement); exclude it from the generic unknown-key scan
-                   ;; so that SPECIFIC diagnostic wins.
-                   (let [known     (into valid-keys retired-spawn-spec-keys)
+                   ;; Keys with their OWN dedicated refusal (naming the fix)
+                   ;; are excluded from the generic unknown-key scan so that
+                   ;; SPECIFIC diagnostic wins.
+                   (let [known     (into valid-keys spawn-spec-keys-with-own-refusal)
                          offending (unknown-bare-keys spec known)]
                      (when (seq offending)
                        (throw (validation-error
@@ -2392,11 +2368,10 @@
 
   Per Spec 005 §`:spawn` + Spec-Schemas §`:rf/state-node`:
   every single `:spawn`-bearing state node — and every `:spawn-all` child —
-  must declare EXACTLY ONE of `:machine-id` / `:definition` (XOR), and an
-  inline `:definition` must carry `:id-prefix` or `:fixed-actor-id`. Throws
+  names a registered machine type by `:machine-id`. Throws
   `:rf.error/machine-spawn-bad-shape` (single `:spawn`) /
-  `:rf.error/machine-spawn-all-bad-shape` (child) on both-set, neither-set,
-  or an unaddressed inline definition.
+  `:rf.error/machine-spawn-all-bad-shape` (child) on a spec with no
+  `:machine-id` or one carrying an inline `:definition`.
 
   Every `:spawn` / `:spawn-all` rejects the unsupported `:timeout-ms` slot;
   spawn-level `:timeout` / `:on-timeout` is supported.

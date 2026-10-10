@@ -84,19 +84,14 @@
    [[:rf.machine/spawn-all-init
      {:rf/parent-id :rf/transition-pure
       :rf/invoke-id [:hydrating]
-      :join-state   {:children  {:cfg  :load-config#1
-                                 :flag :load-feature-flags#1
-                                 :user :load-user-profile#1}
-                     :done      #{}
-                     :failed    #{}
-                     :resolved? false
-                     :spec      {:children         [{:id :cfg  :machine-id :load-config}
-                                                    {:id :flag :machine-id :load-feature-flags}
-                                                    {:id :user :machine-id :load-user-profile}]
-                                 :join             :all
-                                 :on-all-complete  [:hydrate/done]
-                                 :on-any-failed    [:hydrate/failed]}
-                     :invoke-id [:hydrating]}
+      :join-state   {:children       {:cfg  :load-config#1
+                                      :flag :load-feature-flags#1
+                                      :user :load-user-profile#1}
+                     :fixed-children #{}
+                     :done           #{}
+                     :failed         #{}
+                     :resolved?      false
+                     :invoke-id      [:hydrating]}
       ;; The prepared per-child spawn args, in declaration order — byte-for-byte
       ;; the args of the three :rf.machine/spawn fxs below. The init fx
       ;; preflights THESE, so its admission decision sees exactly what each

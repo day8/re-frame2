@@ -45,7 +45,8 @@ machine's `:data` holds no functions, atoms or host objects
 ## Resume work after restoring
 
 Load the machines artefact and register the current machine definitions before
-installing the saved state. A restored actor's snapshot makes it addressable,
+installing the saved state — spawned children's types as well as singletons, since
+a child's snapshot names its type by keyword. A restored actor's snapshot makes it addressable,
 but a previously open socket or in-flight HTTP request is not recreated:
 restoring does not replay the entry effect that opened it.
 

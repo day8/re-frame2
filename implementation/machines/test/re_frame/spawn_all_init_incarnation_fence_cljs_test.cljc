@@ -53,7 +53,6 @@
                   :done      #{}
                   :failed    #{}
                   :resolved? false
-                  :spec      {:join :all :on-all-complete [:all/done]}
                   :invoke-id [:forking]}
    :child-args   (mapv (fn [{:keys [machine-id spawned-id child-id]}]
                          {:machine-id            machine-id

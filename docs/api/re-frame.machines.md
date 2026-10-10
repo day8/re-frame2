@@ -139,7 +139,7 @@ The machines guide teaches the model, starting from [The table](../machines/conc
 | `:rf.error/machine-parallel-on-done-target` | A parallel root's `:on-done` has a `:target`. |
 | `:rf.error/machine-parallel-region-order-required` | `:regions` has more than eight entries and there is no `:region-order`. |
 | `:rf.error/machine-parallel-region-order-mismatch` | `:region-order` does not name every region exactly once. |
-| `:rf.error/machine-spawn-bad-shape` | A spawn spec does not have exactly one of `:machine-id` and `:definition`, or an inline `:definition` has neither `:id-prefix` nor `:fixed-actor-id`. |
+| `:rf.error/machine-spawn-bad-shape` | A spawn spec has no `:machine-id`, or carries an inline `:definition`. Register the child with `reg-machine` and spawn it by `:machine-id`. |
 | `:rf.error/machine-unknown-spawn-key` | A spawn spec carries an unknown bare key, or a `:spawn-all` child declares `:on-error`. |
 | `:rf.error/machine-bad-on-done-clause` | An `:on-done` has the wrong form: a spawn's must be a fn or a transition, and a `:spawn-all` child's must be a fn. |
 | `:rf.error/machine-bad-on-error-clause` | A spawn's `:on-error` is not a transition. |
@@ -285,9 +285,9 @@ A state's `:spawn` map accepts these application keys:
 
 | Key | Value and default |
 |---|---|
-| `:machine-id` / `:definition` | Exactly one: a registered machine id, or an inline machine map. |
+| `:machine-id` | Required: the registered machine to spawn. |
 | `:data` | A replacement initial-data map, or `(fn [{:keys [snapshot event]}] data-map)` evaluated on state entry after the transition action. Omit it to use the definition's `:data`. |
-| `:id-prefix` | Keyword prefix for generated actor ids. Defaults to `:machine-id`; inline definitions need this or `:fixed-actor-id`. |
+| `:id-prefix` | Keyword prefix for generated actor ids. Defaults to `:machine-id`. |
 | `:fixed-actor-id` | Explicit keyword address. Replaces an existing actor at that address, running its exits first. |
 | `:start` | Optional first trigger vector; defaults to `[:rf.machine.spawn/spawned]`. Initial entry runs before this trigger. |
 | `:on-done` | Optional transition, or `(fn [{:keys [data result]}] new-data)` that returns the parent's whole next data map. See [completion](#final-states-and-on-done). |
@@ -364,7 +364,7 @@ These are the subscriptions and effects the machines artefact registers. They ar
 ### `[:rf.machine/spawn spawn-spec]`
 
 - **Kind**: effect (reserved fx-id)
-- **Payload**: a `spawn-spec` map with exactly one of `:machine-id` (a registered machine to instantiate) or `:definition` (an inline spec map), plus the optional keys below.
+- **Payload**: a `spawn-spec` map with a `:machine-id` (the registered machine to instantiate), plus the optional keys below.
 - **Description**: Starts a new instance of a machine, called an actor. Emit it from any event handler's `:fx`, including a machine action's. A declarative `:spawn` state node emits it for you.
     - Choose by lifetime. When a child should live exactly as long as one state of a parent machine, put `:spawn` on that state: leaving the state, or destroying the parent, destroys the child. Emit this effect yourself when the actor's lifetime is not one state, such as a logger started with the session. Nothing tracks an actor you spawn this way; it lives until a [`:rf.machine/destroy`](#rfmachinedestroy-actor-id) names it.
     - A supplied `:data` map replaces the machine's initial `:data`; omitting it uses the definition's data. The runtime adds the actor's own id to it as `:rf/self-id`.
@@ -373,8 +373,8 @@ These are the subscriptions and effects the machines artefact registers. They ar
     - `:start` is an event vector dispatched to the new actor as `[<spawned-id> <start>]`. Without it, the runtime dispatches `[<spawned-id> [:rf.machine.spawn/spawned]]`. Either way the actor's initial `:entry` actions run first.
     - A declarative `:spawn` state node accepts the same keys plus `:on-done`, `:on-error`, `:timeout` and `:on-timeout`, and stores the child's id in the parent's `:data` at `[:rf/spawned <invoke-id>]`. See [Actors](../machines/actors.md#spawn-spec-keys).
 - **Errors**:
-    - `:rf.error/machine-spawn-unregistered-type`: `:machine-id` names no registered machine and there is no `:definition`. Nothing is spawned.
-    - `:rf.error/machine-spawn-bad-shape`: an inline `:definition` names neither `:id-prefix` nor `:fixed-actor-id`, so the actor would have no id. The effect handler throws, the effect runner reports it as `:rf.error/fx-handler-exception`, and nothing is spawned.
+    - `:rf.error/machine-spawn-unregistered-type`: `:machine-id` names no registered machine. Nothing is spawned.
+    - `:rf.error/machine-spawn-bad-shape`: the spec has no `:machine-id`, or carries an inline `:definition`. The effect handler throws, the effect runner reports it as `:rf.error/fx-handler-exception`, and nothing is spawned.
     - `:rf.error/machine-spawn-all-duplicate-id`: the generated `<prefix>#<n>` id is already held by a live actor, as when two parent machines spawn one type without distinct `:id-prefix` values. Nothing is spawned.
 - **Example**:
   ```clojure
@@ -611,7 +611,7 @@ These are the handlers this namespace registers for the reserved `:rf.machine/*`
   ```
 - **Description**: The handler for `:rf.machine/spawn`. Installs the new actor's snapshot at `[:rf.runtime/machines :snapshots <spawned-id>]` in the spawning frame's `runtime-db`.
     - It stores the machine type in the snapshot under `:rf/machine-type`, so the runtime and epoch restore can rebuild the actor from `runtime-db` alone. The actor has no event-handler registration of its own; it exists while that snapshot does.
-    - A `:machine-id` that names no registered machine, with no inline `:definition`, emits `:rf.error/machine-spawn-unregistered-type` and installs nothing.
+    - A `:machine-id` that names no registered machine emits `:rf.error/machine-spawn-unregistered-type` and installs nothing.
 
 #### `re-frame.machines/spawn-all-init-fx`
 
@@ -620,7 +620,7 @@ These are the handlers this namespace registers for the reserved `:rf.machine/*`
   ```clojure
   (re-frame.machines/spawn-all-init-fx fx-ctx args)
   ```
-- **Description**: The handler for `:rf.machine/spawn-all-init`, which the runtime emits beside the per-child `:rf.machine/spawn` effects when a `:spawn-all` state is entered. It seeds the join state at `[:rf.runtime/machines :spawned <parent> <invoke-id>]` as `{:children {…} :done #{} :failed #{} :resolved? false :spec …}`. When a child reaches a final state, `:error? true` or not, the result is folded into the join state and resolves the join; children dispatch nothing to the parent themselves.
+- **Description**: The handler for `:rf.machine/spawn-all-init`, which the runtime emits beside the per-child `:rf.machine/spawn` effects when a `:spawn-all` state is entered. It seeds the join state at `[:rf.runtime/machines :spawned <parent> <invoke-id>]` as `{:children {…} :fixed-children #{…} :done #{} :failed #{} :resolved? false …}` — data only; the join's callbacks and resolution events are read from the parent's current definition when a child completes. When a child reaches a final state, `:error? true` or not, the result is folded into the join state and resolves the join; children dispatch nothing to the parent themselves.
 
 #### `re-frame.machines/destroy-machine-fx`
 

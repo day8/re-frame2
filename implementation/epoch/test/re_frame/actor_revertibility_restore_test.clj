@@ -52,16 +52,14 @@
      version (assoc :meta {:rf/snapshot-version version}))))
 
 (defn- parent
-  "Spawns a `child-type` (a registered machine-id, or an inline definition)
-  as `:rev/child#1` on `:go`, and destroys it on `:drop`."
+  "Spawns the registered `child-type` as `:rev/child#1` on `:go`, and destroys
+  it on `:drop`."
   [child-type]
   {:initial :idle
    :data    {}
    :states  {:idle {:on {:go   {:action (fn [_]
                                           {:fx [[:rf.machine/spawn
-                                                 (if (map? child-type)
-                                                   {:id-prefix :rev/child :definition child-type}
-                                                   {:id-prefix :rev/child :machine-id child-type})]]})}
+                                                 {:id-prefix :rev/child :machine-id child-type}]]})}
                          :drop {:action (fn [_]
                                           {:fx [[:rf.machine/destroy :rev/child#1]]})}}}}})
 
@@ -128,10 +126,11 @@
                  (select-keys [:machine-id :machine-type :version-recorded :version-current])))
           "the trace names the instance id and the TYPE"))))
 
-(deftest restore-spawned-actor-inline-definition-version-match-succeeds
+(deftest restore-spawned-actor-resolves-its-type-keyword
   (rf/make-frame {:id :test/main})
-  (let [alive-epoch (spawn-child! (child 1))]
-    (is (map? (:rf/machine-type (snapshot :rev/child#1)))
-        "precondition: the snapshot carries the inline definition")
+  (rf/reg-machine :rev/child (child 1))
+  (let [alive-epoch (spawn-child! :rev/child)]
+    (is (= :rev/child (:rf/machine-type (snapshot :rev/child#1)))
+        "precondition: the snapshot names its registered TYPE")
     (is (true? (rf/restore-epoch! :test/main alive-epoch))
-        "an inline definition resolves from the snapshot itself")))
+        "the TYPE keyword resolves through the registrar")))

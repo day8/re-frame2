@@ -1,12 +1,14 @@
 (ns re-frame.spawn-all-prepared-unregister-cljs-test
-  "An admitted `:spawn-all` child installs from its invoke's prepared result even
-  when the registrar diverges from it mid-drain: validated once, live through its
-  pinned prepared definition, while an undisturbed sibling keeps the
-  hot-reloadable TYPE keyword.
+  "An admitted `:spawn-all` child installs from its invoke's prepared snapshot
+  even when the registrar changes mid-drain, validated once. A registrar change
+  between preflight and install is ordinary hot reload: an unregistered child
+  installs and is inert, answering `:rf.error/no-such-handler` like any live
+  actor whose type was unregistered, and a re-registered child runs the current
+  definition. Every child's type reference is its `:machine-id` keyword.
 
   The mid-drain mutator is the child's own `[:schemas :data]` validator, which runs
-  after the preflight retained the definition and before the install; trace
-  listeners deliver post-drain, so they cannot reach that window."
+  after the preflight and before the install; trace listeners deliver
+  post-drain, so they cannot reach that window."
   (:require
    #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
@@ -52,7 +54,7 @@
   (let [fired (atom false)]
     #(when (compare-and-set! fired false true) (f))))
 
-(deftest unregister-between-preflight-and-install-still-installs-the-admitted-child
+(deftest unregister-between-preflight-and-install-installs-an-inert-child
   (let [pre-install (atom 0)
         unregister! (once #(rf.registrar/unregister! :event :sa/b))]
     (rf/reg-machine :sa/a booting-child)
@@ -72,21 +74,30 @@
                                 [:rf.runtime/machines :spawned :sup/unreg [:forking]])
                         [:children :rf/prepared]))
         "a live join naming both children, its prepared scratch consumed")
+    (is (= [:sa/a :sa/b]
+           (mapv #(:rf/machine-type (rf.machines.test-support/snapshot %)) [:sa/a#1 :sa/b#1]))
+        "both children installed, each naming its TYPE keyword")
     (rf/reg-machine :sa/a hot-reloaded-child)
     (rf/dispatch-sync [:sa/a#1 [:go]])
     (rf/dispatch-sync [:sa/b#1 [:go]])
-    (is (= [:hot-reloaded :working] (mapv rf.machines.test-support/machine-state [:sa/a#1 :sa/b#1]))
-        "both are live: the keyword child follows a hot reload, the pinned child runs its prepared definition")))
+    (is (= [:hot-reloaded :idle] (mapv rf.machines.test-support/machine-state [:sa/a#1 :sa/b#1]))
+        "the registered child follows a hot reload; the unregistered child is inert")
+    (is (seq (filterv #(= :sa/b#1 (get-in % [:tags :rf.trace/event-id]))
+                      (rf.machines.test-support/events-of :rf.error/no-such-handler)))
+        "the inert child answers :rf.error/no-such-handler")))
 
-(deftest reregister-to-unrelated-v2-mid-drain-keeps-one-coherent-authority
-  ;; v2 names none of v1's states, so a child resolved through v2 would never
-  ;; reach v1's :ready.
+(deftest reregister-mid-drain-runs-the-current-definition
+  ;; v2 keeps v1's initial :idle but routes the bootstrap elsewhere: the
+  ;; child, prepared from v1, takes v2's transitions from its first event.
   (let [reregister! (once #(rf/reg-machine :sa/swap
-                             {:initial :v2-initial
+                             {:initial :idle
                               :data    {}
-                              :states  {:v2-initial {:on {:rf.machine.spawn/spawned :v2-boot}}
-                                        :v2-boot    {}}}))]
+                              :states  {:idle    {:on {:rf.machine.spawn/spawned :v2-boot}}
+                                        :v2-boot {}}}))]
     (rf/reg-machine :sa/swap (assoc booting-child :schemas {:data [:fn (fn [_] (reregister!) true)]}))
     (rf/reg-machine :sup/swap (parent-over [{:id :c :machine-id :sa/swap}]))
     (rf/dispatch-sync [:sup/swap [:start]])
-    (is (= :ready (rf.machines.test-support/machine-state :sa/swap#1)))))
+    (is (= :sa/swap (:rf/machine-type (rf.machines.test-support/snapshot :sa/swap#1)))
+        "the child names its TYPE keyword")
+    (is (= :v2-boot (rf.machines.test-support/machine-state :sa/swap#1))
+        "the bootstrap ran under v2, the current definition")))

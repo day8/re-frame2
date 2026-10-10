@@ -353,8 +353,10 @@ map replaces the child definition's defaults, so merge defaults explicitly
 when they are needed. The function receives `{:snapshot ... :event ...}`
 after the parent's transition action has run.
 
-Use `:definition` for an inline child instead of `:machine-id`. An inline
-child needs an `:id-prefix` or `:fixed-actor-id` to name its instances. The
+A child is always a registered machine, named by `:machine-id`; register it
+with `reg-machine` beside its parent. The child's snapshot names its type by
+that keyword, so it saves, restores and crosses the server-render boundary as
+plain data, and follows hot reload like any other machine. The
 [spawn reference](../api/re-frame.machines.md#declarative-spawn-and-spawn-all)
 records every key and default.
 
@@ -453,7 +455,7 @@ Inside a machine state, prefer declarative `:spawn`. From an ordinary event
 handler — when the number or timing of children is not one state node — emit
 the fx.
 
-An unregistered `:machine-id` (and no `:definition`) fails closed:
+An unregistered `:machine-id` fails closed:
 **no** snapshot, **no** id, **no** `:start`. The runtime raises
 `:rf.error/machine-spawn-unregistered-type`.
 
