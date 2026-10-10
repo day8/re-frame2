@@ -362,10 +362,9 @@
       ;; §Frame identity) and the frame check cannot see it; core's sub
       ;; classification also fails a frameless read closed to `:sensitive?
       ;; true`. Past this point each one would be counted as a redacted
-      ;; HOST event and cost a `:rf.xray/note-sensitive-suppressed`
-      ;; dispatch into `:rf/xray` — 126 in one mount, past the router's
-      ;; depth cap. The sub-id in Xray's reserved namespace is the identity
-      ;; the missing frame would have carried.
+      ;; HOST event — 126 in one mount, all added to the REDACTED count
+      ;; with no host data redacted. The sub-id in Xray's reserved
+      ;; namespace is the identity the missing frame would have carried.
       (or (self-noise/xray-internal-event? event)
           (self-noise/xray-internal-event-id? (get-in event [:tags :rf.sub/id])))
       nil
