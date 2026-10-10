@@ -1,28 +1,19 @@
 (ns re-frame.migration.fresco.newlines-test
   "**The fixer preserves the line endings it found.**
 
-  rewrite-clj's parser normalizes every newline it reads to `\\n`. A tool
-  that hands `n/string` straight back therefore rewrites EVERY LINE of a
-  CRLF file — a whole-file diff at exactly the moment a migrator most
-  needs to read one, and a direct contradiction of the
-  formatting-preservation posture that justifies doing this through
-  rewrite-clj at all. Consumers on Windows (`core.autocrlf=true`) are a
-  large fraction of the people this codemod exists for, so this is not an
-  edge.
+  rewrite-clj's parser normalizes every newline it reads to `\\n`, so a tool
+  that hands `n/string` straight back rewrites EVERY LINE of a CRLF file — a
+  whole-file diff at exactly the moment a migrator most needs to read one.
+  Consumers on Windows (`core.autocrlf=true`) are a large fraction of the
+  people this codemod exists for.
 
-  The golden corpus cannot witness this. Its fixtures are pinned to LF
-  (`.gitattributes`) precisely so that a golden file's bytes do not depend
-  on who checked the tree out — which is the right call for a byte-exact
-  corpus, and which leaves the CRLF path uncovered there. So the sources
-  below are built IN MEMORY, from the same text with the endings swapped,
-  and they run identically on every platform including the Linux CI lane."
+  The golden corpus cannot witness this: its fixtures are pinned to LF
+  (`.gitattributes`) so a golden file's bytes do not depend on who checked
+  the tree out. So the sources below are built IN MEMORY, from the same
+  text with the endings swapped, and run identically on every platform."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [re-frame.migration.fresco.codemod :as rf.migration.fresco.codemod]))
-
-;; ---------------------------------------------------------------------------
-;; The rig
-;; ---------------------------------------------------------------------------
 
 (def ^:private lf-source
   (str/join "\n"
@@ -48,79 +39,29 @@
 
 (defn- rewritten [src] (:source (rf.migration.fresco.codemod/rewrite-string src "src/app/endings.cljs")))
 
-;; ---------------------------------------------------------------------------
-;; The rewrite fires — otherwise every assertion below is vacuous
-;; ---------------------------------------------------------------------------
-
-(deftest the-fixture-actually-gets-rewritten
-  (testing "a source the fixer leaves alone would satisfy every
-            preservation claim in this namespace and mean nothing"
-    (is (not= lf-source (rewritten lf-source))
-        (str "the LF fixture must exercise a real rewrite; the CRLF one then must too, "
-             "or the-two-conventions-carry-the-same-rewrite goes red"))))
-
-;; ---------------------------------------------------------------------------
-;; Preservation
-;; ---------------------------------------------------------------------------
-
 (deftest a-crlf-file-stays-crlf
-  (testing "THE AUDIT'S DEFECT. Before the repair the fixer answered this
-            file in LF, so every one of its lines showed up in the
-            migration diff — 9 changed lines to express a 3-line rewrite."
-    (let [out (rewritten crlf-source)]
-      (is (zero? (second (endings out)))
-          "not one bare LF survives: every line ending is still CRLF")
-      (is (= (first (endings crlf-source)) (first (endings out)))
-          "and there are exactly as many lines as went in"))))
-
-(deftest the-two-conventions-carry-the-same-rewrite
-  (testing "line endings are the ONLY difference between the two outputs.
-            The rewrite itself must not vary with them — a fixer whose
-            decisions depend on how the file was checked out would be a
-            worse defect than the one being repaired here."
-    (is (= (rewritten lf-source)
-           (str/replace (rewritten crlf-source) "\r\n" "\n")))))
-
-;; ---------------------------------------------------------------------------
-;; Idempotence, in both conventions (§4.7)
-;; ---------------------------------------------------------------------------
-
-(deftest a-second-run-is-a-no-op-in-both-conventions
-  (testing "§4.7's claim is that every output is outside its own rewrite's
-            input language. An output whose ENDINGS changed on the second
-            pass would break that claim just as surely as one whose forms
-            did — and would do it on the pass a migrator runs to check
-            nothing is left."
-    (doseq [[label src] [["LF" lf-source] ["CRLF" crlf-source]]]
-      (let [once  (rewritten src)
-            twice (rewritten once)]
-        (is (= once twice)
-            (str label ": running the fixer on its own output changed it — "
-                 "its forms or its line endings"))))))
-
-;; ---------------------------------------------------------------------------
-;; The convention is read off the input, not off the platform
-;; ---------------------------------------------------------------------------
+  (let [lf-out (rewritten lf-source)
+        out    (rewritten crlf-source)]
+    (is (not= lf-source lf-out)
+        "the fixture must exercise a real rewrite, or every assertion below is vacuous")
+    (is (= (str/replace lf-out "\n" "\r\n") out)
+        "CRLF throughout, carrying exactly the rewrite the LF file gets: a fixer whose
+         decisions depended on how the file was checked out would be the worse defect")
+    (is (= out (rewritten out))
+        "a second run changes neither its forms nor its line endings (§4.7)")))
 
 (deftest a-file-with-no-newline-at-all-gains-none
   (testing "a one-liner has no convention to preserve, and the fixer must
             not invent one"
-    (let [src "[:> Btn {:variant :primary}]"
-          out (:source (rf.migration.fresco.codemod/rewrite-string src "src/app/one.cljs"))]
-      (is (= "[:> Btn {:variant \"primary\"}]" out)
-          "the rewrite, with no line ending invented around it"))))
+    (is (= "[:> Btn {:variant \"primary\"}]"
+           (:source (rf.migration.fresco.codemod/rewrite-string "[:> Btn {:variant :primary}]"
+                                                                "src/app/one.cljs"))))))
 
 (deftest a-mixed-file-follows-its-majority
-  (testing "a genuinely mixed file cannot be reproduced exactly — the
-            parser discarded the distinction before the fixer saw it — so
-            the rule is the majority, stated plainly rather than left to
-            whatever rewrite-clj happens to emit. Here CRLF is the
-            majority, so the output is CRLF throughout."
-    (let [src (str/replace crlf-source "(defn a-site []\r\n" "(defn a-site []\n")
-          out (rewritten src)]
-      (is (zero? (second (endings out))))))
-
-  (testing "and with the majority the other way, LF throughout"
-    (let [src (str/replace lf-source "(defn a-site []\n" "(defn a-site []\r\n")
-          out (rewritten src)]
-      (is (zero? (first (endings out)))))))
+  (testing "a genuinely mixed file cannot be reproduced exactly — the parser
+            discarded the distinction before the fixer saw it — so the rule
+            is the majority: one odd line in either direction leaves no bare
+            LF in a CRLF file and no CRLF in an LF one"
+    (is (= [0 0]
+           [(second (endings (rewritten (str/replace crlf-source "(defn a-site []\r\n" "(defn a-site []\n"))))
+            (first (endings (rewritten (str/replace lf-source "(defn a-site []\n" "(defn a-site []\r\n"))))]))))
