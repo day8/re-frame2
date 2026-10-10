@@ -314,28 +314,13 @@ def check(repo_root: Path, verbose: bool = False) -> int:
 
 
 # --------------------------------------------------------------------------
-# Self-tests — fixture-driven, mirroring scripts/check_doc_slugs.py's style
-# but generated into a temp dir so the self-test leaves zero scratch files in
-# the repo tree (the fixtures are trivial enough to mint in-process; there is
-# nothing for a human to hand-edit, so committing static copies would just be
-# a second source of truth that can drift from the generator below).
-#
-# Each fixture is a self-contained mini-repo: a mkdocs.yml at the root (so the
-# repo-root guard accepts it) plus a docs/EP/ tree.
+# Self-tests — one hermetic mini docs/EP/ tree per defect kind.
 # --------------------------------------------------------------------------
 
 
-def _write_fixture(root: Path, ep_files: dict[str, str], readme: str) -> None:
-    ep_dir = root / "docs" / "EP"
-    ep_dir.mkdir(parents=True, exist_ok=True)
-    (root / "mkdocs.yml").write_text("site_name: fixture\n", encoding="utf-8")
-    for name, body in ep_files.items():
-        (ep_dir / name).write_text(body, encoding="utf-8")
-    (ep_dir / "README.md").write_text(readme, encoding="utf-8")
-
-
-def _build_self_test_fixtures(base: Path) -> None:
-    """Generate the fixtures under base so the self-tests are hermetic."""
+def _run_self_tests(verbose: bool = False) -> int:
+    import contextlib
+    import io
 
     def ep(
         num: str,
@@ -354,160 +339,60 @@ def _build_self_test_fixtures(base: Path) -> None:
             f"{created_line}{resolution_line}\n## Abstract\n\nx\n"
         )
 
-    def index(*rows: str) -> str:
-        head = (
-            "# EPs\n\n## Index\n\n"
-            "| EP | Title | Status | Summary |\n"
-            "|----|-------|--------|---------|\n"
-        )
-        return head + "".join(rows) + "\n"
-
     def row(num: str, status: str, fname: str | None = None) -> str:
         fname = fname or f"EP-{num}-fixture.md"
         return f"| [EP-{num}]({fname}) | Fixture | {status} | s. |\n"
 
-    # in_sync: index matches each EP's Status: line.
-    _write_fixture(
-        base / "in_sync",
-        {"EP-0001-fixture.md": ep("0001", "accepted"),
-         "EP-0002-fixture.md": ep("0002", "proposal"),
-         "EP-0006-fixture.md": ep("0006", "proposal", "standards-track"),
-         "EP-0007-fixture.md": ep("0007", "superseded-by EP-0008", "process"),
-         "EP-0008-fixture.md": ep("0008", "active", "process"),
-         "EP-0030-fixture.md": ep(
-             "0030", "final", "standards-track", "2026-07-16", "final 2026-07-19"
-         )},
-        index(
-            row("0001", "accepted"),
-            row("0002", "proposal"),
-            row("0006", "proposal"),
-            row("0007", "superseded-by EP-0008"),
-            row("0008", "active"),
-            row("0030", "final"),
-        ),
+    # Each fixture carries exactly one defect.
+    cases = (
+        ("status_mismatch", {"EP-0001-fixture.md": ep("0001", "accepted")},
+         [row("0001", "proposal")]),
+        ("missing_row", {"EP-0001-fixture.md": ep("0001", "accepted"),
+                         "EP-0002-fixture.md": ep("0002", "final")},
+         [row("0001", "accepted")]),
+        ("orphan_row", {"EP-0001-fixture.md": ep("0001", "accepted")},
+         [row("0001", "accepted"), row("0002", "final")]),
+        ("invalid_status", {"EP-0006-fixture.md": ep("0006", "done", "standards-track")},
+         [row("0006", "done")]),
+        ("missing_type_new_ep", {"EP-0006-fixture.md": ep("0006", "proposal")},
+         [row("0006", "proposal")]),
+        ("invalid_type", {"EP-0006-fixture.md": ep("0006", "proposal", "banana")},
+         [row("0006", "proposal")]),
+        ("missing_created", {"EP-0030-fixture.md": ep(
+            "0030", "final", "standards-track", resolution="final 2026-07-19")},
+         [row("0030", "final")]),
+        ("invalid_created", {"EP-0030-fixture.md": ep(
+            "0030", "final", "standards-track", "2026-02-30", "final 2026-07-19")},
+         [row("0030", "final")]),
+        ("missing_resolution", {"EP-0030-fixture.md": ep(
+            "0030", "accepted", "standards-track", "2026-07-16")},
+         [row("0030", "accepted")]),
+        ("missing_supersession_target", {"EP-0007-fixture.md": ep(
+            "0007", "superseded-by EP-0099", "process")},
+         [row("0007", "superseded-by EP-0099")]),
+        ("index_number_mismatch", {"EP-0001-fixture.md": ep("0001", "final")},
+         [row("0002", "final", "EP-0001-fixture.md")]),
     )
-
-    # status_mismatch: EP says accepted, index says proposal.
-    _write_fixture(
-        base / "status_mismatch",
-        {"EP-0001-fixture.md": ep("0001", "accepted")},
-        index(row("0001", "proposal")),
-    )
-
-    # missing_row: EP file exists but has no index row.
-    _write_fixture(
-        base / "missing_row",
-        {"EP-0001-fixture.md": ep("0001", "accepted"),
-         "EP-0002-fixture.md": ep("0002", "final")},
-        index(row("0001", "accepted")),
-    )
-
-    # orphan_row: index links an EP file that does not exist.
-    _write_fixture(
-        base / "orphan_row",
-        {"EP-0001-fixture.md": ep("0001", "accepted")},
-        index(row("0001", "accepted"), row("0002", "final")),
-    )
-
-    # invalid_status: README matches the invalid value, but EP-0009 rejects it.
-    _write_fixture(
-        base / "invalid_status",
-        {"EP-0006-fixture.md": ep("0006", "done", "standards-track")},
-        index(row("0006", "done")),
-    )
-
-    # missing_type_new_ep: EP-0006+ must carry a Type: line.
-    _write_fixture(
-        base / "missing_type_new_ep",
-        {"EP-0006-fixture.md": ep("0006", "proposal")},
-        index(row("0006", "proposal")),
-    )
-
-    # invalid_type: Type is a closed EP-0009 vocabulary.
-    _write_fixture(
-        base / "invalid_type",
-        {"EP-0006-fixture.md": ep("0006", "proposal", "banana")},
-        index(row("0006", "proposal")),
-    )
-
-    # missing_created: current-shape EPs always record their creation date.
-    _write_fixture(
-        base / "missing_created",
-        {"EP-0030-fixture.md": ep(
-            "0030", "final", "standards-track", resolution="final 2026-07-19"
-        )},
-        index(row("0030", "final")),
-    )
-
-    # invalid_created: Created is the stable ISO date, not free text.
-    _write_fixture(
-        base / "invalid_created",
-        {"EP-0030-fixture.md": ep(
-            "0030", "final", "standards-track", "2026-02-30", "final 2026-07-19"
-        )},
-        index(row("0030", "final")),
-    )
-
-    # missing_resolution: once ruled, a current-shape EP records chronology.
-    _write_fixture(
-        base / "missing_resolution",
-        {"EP-0030-fixture.md": ep(
-            "0030", "accepted", "standards-track", "2026-07-16"
-        )},
-        index(row("0030", "accepted")),
-    )
-
-    # missing_supersession_target: relationship status must resolve.
-    _write_fixture(
-        base / "missing_supersession_target",
-        {"EP-0007-fixture.md": ep(
-            "0007", "superseded-by EP-0099", "process"
-        )},
-        index(row("0007", "superseded-by EP-0099")),
-    )
-
-    # index_number_mismatch: the visible EP label names the linked document.
-    _write_fixture(
-        base / "index_number_mismatch",
-        {"EP-0001-fixture.md": ep("0001", "final")},
-        index(row("0002", "final", "EP-0001-fixture.md")),
-    )
-
-
-def _run_self_tests(verbose: bool = False) -> int:
-    cases: list[tuple[str, int]] = [
-        ("in_sync", 0),
-        ("status_mismatch", 1),
-        ("missing_row", 1),
-        ("orphan_row", 1),
-        ("invalid_status", 1),
-        ("missing_type_new_ep", 1),
-        ("invalid_type", 1),
-        ("missing_created", 1),
-        ("invalid_created", 1),
-        ("missing_resolution", 1),
-        ("missing_supersession_target", 1),
-        ("index_number_mismatch", 1),
-    ]
     failures = 0
     with tempfile.TemporaryDirectory(prefix="ep_status_sync_selftest_") as tmp:
-        base = Path(tmp)
-        _build_self_test_fixtures(base)
-        for fixture, expected in cases:
-            root = base / fixture
-            saved_stderr = sys.stderr
-            sys.stderr = _DevNull()
-            try:
+        for fixture, eps, rows in cases:
+            root = Path(tmp) / fixture
+            ep_dir = root / "docs" / "EP"
+            ep_dir.mkdir(parents=True)
+            for name, body in eps.items():
+                (ep_dir / name).write_text(body, encoding="utf-8")
+            (ep_dir / "README.md").write_text(
+                "| EP | Title | Status | Summary |\n"
+                "|----|-------|--------|---------|\n" + "".join(rows),
+                encoding="utf-8")
+            with contextlib.redirect_stderr(io.StringIO()):
                 got = check(root, verbose=False)
-            finally:
-                sys.stderr = saved_stderr
-            if got == expected:
+            if got == 1:
                 if verbose:
                     sys.stderr.write(f"self-test PASS: {fixture} (defects={got})\n")
             else:
                 sys.stderr.write(
-                    f"self-test FAIL: {fixture} expected defects={expected}, "
-                    f"got {got}\n"
+                    f"self-test FAIL: {fixture} expected defects=1, got {got}\n"
                 )
                 failures += 1
     if failures:
@@ -516,14 +401,6 @@ def _run_self_tests(verbose: bool = False) -> int:
     if verbose:
         sys.stderr.write(f"all {len(cases)} self-tests passed.\n")
     return 0
-
-
-class _DevNull:
-    def write(self, *_args, **_kwargs) -> int:
-        return 0
-
-    def flush(self) -> None:  # pragma: no cover
-        return None
 
 
 def main(argv: list[str]) -> int:
