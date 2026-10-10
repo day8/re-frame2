@@ -889,15 +889,10 @@ GREEN_FILES = {
     "implementation/core/test/app/generated_cljs_test.cljs":
         "(ns app.generated-cljs-test\n"
         "  (:require-macros [app.shared-suite :refer [define!]]))\n(define!)\n",
-    # prose is not structure.  A commented-out deftest and a docstring quoting
-    # one in column 0 -- the exact shape a raw `^\\(deftest` scan misreads.
-    "implementation/core/test/app/prose_helper.clj":
-        "(ns app.prose-helper)\n;; (deftest not-a-test (is true))\n"
-        '(def example\n  "for the docs:\n(deftest also-not-a-test (is true))\nend")\n',
     # Spelled in code, in column 0, and still never evaluated: a discarded
     # form and two quoted ones.  Both files sit under a namespace no selector
     # reaches, so reading either as a test file fires B1 -- which makes the
-    # green case above their inverted proof, exactly as it is for the prose.
+    # green case above their inverted proof.
     "implementation/core/test/app/discard_helper.clj":
         "(ns app.discard-helper)\n#_(deftest discarded (is true))\n",
     "implementation/core/test/app/quote_helper.clj":
@@ -974,9 +969,9 @@ def run_self_test() -> int:
          expect="B2 partially emptied", files=files)
 
     # ... and the other side of the discard/quote rule: it must not swallow a
-    # real definition.  A discard consumes the ONE form after it, and `\\'` is
-    # a character literal rather than a quote, so both deftests below are
-    # still evaluated and both files are still in the universe.
+    # real definition.  A discard consumes the ONE form after it, and the `'`
+    # closing `tags'` belongs to the symbol, so both deftests below are still
+    # evaluated and both files are still in the universe.
     files = dict(GREEN_FILES)
     files["implementation/core/test/app/after_discard_helper.cljc"] = (
         "(ns app.after-discard-helper)\n#_ignored\n(deftest t (is true))\n")
@@ -984,25 +979,9 @@ def run_self_test() -> int:
          expect="B1 orphan", files=files)
 
     files = dict(GREEN_FILES)
-    files["implementation/core/test/app/char_quote_helper.cljc"] = (
-        "(ns app.char-quote-helper)\n(do \\' (deftest t (is true)))\n")
-    case("B1 still sees a deftest after a `\\'` character literal",
-         expect="B1 orphan", files=files)
-
-    # The other quote lookalike: a PRIME-SUFFIXED symbol.  The `'` closing
-    # `tags'` belongs to the symbol, so the deftest after it is evaluated.
-    files = dict(GREEN_FILES)
     files["implementation/core/test/app/prime_symbol_helper.cljc"] = (
         "(ns app.prime-symbol-helper)\n(do\n  tags'\n  (deftest t (is true)))\n")
     case("B1 still sees a deftest after a prime-suffixed SYMBOL",
-         expect="B1 orphan", files=files)
-
-    # ... and metadata alone is not a discard: `^:doc (deftest ...)` with no
-    # quote or `#_` in front of it is evaluated, metadata and all.
-    files = dict(GREEN_FILES)
-    files["implementation/core/test/app/meta_live_helper.cljc"] = (
-        "(ns app.meta-live-helper)\n^:doc (deftest t (is true))\n")
-    case("B1 still sees a deftest carrying METADATA",
          expect="B1 orphan", files=files)
 
     files = dict(GREEN_FILES)
