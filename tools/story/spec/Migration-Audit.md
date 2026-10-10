@@ -152,7 +152,7 @@ Same shape as helix. All 3 assertions = (B). KEEP IN PLACE.
 | 3 | Per-category: `status` mirror = 'error' | A | Reply→handler→app-db. → same target. |
 | 4 | Per-category: `failure-kind` mirror = `:rf.http/<kind>` | A | Same end-to-end round-trip. → same target. |
 
-**Migrated subtotal: 18 of 18 observations = 100%. DROP this spec entirely.** Spec 014's eight `:rf.http/*` categories already deserve full CLJS unit coverage; this spec is observational scaffolding that should live in `implementation/http/test/`.
+**Migrated subtotal: 18 of 18 observations = 100%. DROP this spec entirely.** Spec 014's seven `:rf.http/*` categories already deserve full CLJS unit coverage; this spec is observational scaffolding that should live in `implementation/http/test/`.
 
 ### `testbeds/long_flow_w_failure/spec.cjs` (Spec 013 flow-failure atomicity)
 > **Contract update (rf2-u0zz5).** A flow throw now ABORTS the whole event
