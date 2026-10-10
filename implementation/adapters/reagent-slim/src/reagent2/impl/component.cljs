@@ -482,9 +482,9 @@
                                 prev-state))))))
 
     (when-let [did-catch-fn (:component-did-catch spec)]
-      ;; Error-boundary logging half — user fn: (this error info).
-      ;; Per IMPL-SPEC §6.4. Stateful fallback is the user's
-      ;; responsibility (reset! a state-atom from inside the callback).
+      ;; Error-boundary callback — user fn: (this error info). Per
+      ;; IMPL-SPEC §6.4. The fallback reads the :cljsHasError marker the
+      ;; getDerivedStateFromError below sets, never a flag set in here.
       (set! (.-componentDidCatch prototype)
             (fn [error info]
               (this-as this
