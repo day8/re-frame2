@@ -46,9 +46,10 @@ existing `_is_excluded` refuses the gate fixture trees, the docs-gate
 roots and `tools/*/spec/`.  What it must NOT take, and why, is written on that
 function.
 
-All three rosters are GIT-TRACKED, so an untracked scratch file dropped anywhere
-in the tree cannot red the gate on an author's machine while CI, running on a
-clean clone, stays green.  The root roster is
+The root and beside-source rosters are GIT-TRACKED, so an untracked scratch
+file dropped there cannot red the gate on an author's machine while CI, running
+on a clean clone, stays green.  The README roster walks the filesystem
+(`_iter_readmes`), so an untracked README.md is scanned.  The root roster is
 additionally NON-RECURSIVE (see `_iter_root_markdown`), so it cannot grow into
 `implementation/`, `tools/`, `node_modules` or any generated tree.
 
@@ -120,9 +121,11 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -407,9 +410,10 @@ def _github_dedupe(slug: str, occurrences: dict[str, int]) -> str:
     the two.
 
     The `while` loop is load-bearing, not defensive: a document with
-    `## Errors`, `## Errors`, `## Errors-1` renders ids `errors`,
-    `errors-1`, and `errors-1-1` — the third heading's natural slug
-    collides with the second's generated one and gets bumped again.
+    `## Errors-1`, `## Errors`, `## Errors` renders ids `errors-1`,
+    `errors`, and `errors-2` — the third heading's first candidate,
+    `errors-1`, is the first heading's natural slug, so it is bumped
+    again.
     """
     original = slug
     while slug in occurrences:
@@ -861,12 +865,38 @@ def _run_self_tests(verbose: bool = False) -> int:
             "beside source and not an untracked note\n"
         )
 
+    # A --repo-root outside any git work tree is a setup error: `main` exits 2
+    # with a one-line message, never a traceback.  The ceiling stops git from
+    # finding a repository above the temporary directory.
+    with tempfile.TemporaryDirectory() as non_git_dir:
+        non_git_root = Path(non_git_dir)
+        (non_git_root / "mkdocs.yml").write_text("site_name: non-git\n", encoding="utf-8")
+        saved_stderr = sys.stderr
+        saved_ceiling = os.environ.get("GIT_CEILING_DIRECTORIES")
+        sys.stderr = _DevNull()
+        os.environ["GIT_CEILING_DIRECTORIES"] = str(non_git_root.resolve().parent)
+        try:
+            non_git_exit = main(["--repo-root", str(non_git_root)])
+        finally:
+            sys.stderr = saved_stderr
+            if saved_ceiling is None:
+                os.environ.pop("GIT_CEILING_DIRECTORIES", None)
+            else:
+                os.environ["GIT_CEILING_DIRECTORIES"] = saved_ceiling
+    if non_git_exit != 2:
+        sys.stderr.write(
+            f"self-test FAIL: a non-git --repo-root exited {non_git_exit}, not 2\n"
+        )
+        failures += 1
+    elif verbose:
+        sys.stderr.write("self-test PASS: a non-git --repo-root is a setup error (exit 2)\n")
+
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
         return 1
     if verbose:
-        # `+ 2`: the two PASS lines after the fixture loop.
-        sys.stderr.write(f"all {len(cases) + 2} self-tests passed.\n")
+        # `+ 3`: the three PASS lines after the fixture loop.
+        sys.stderr.write(f"all {len(cases) + 3} self-tests passed.\n")
     return 0
 
 
@@ -942,11 +972,17 @@ def main(argv: list[str]) -> int:
     else:
         check_external = args.check_external
 
-    findings = check(
-        repo_root,
-        verbose=args.verbose and not args.ci,
-        check_external=check_external,
-    )
+    try:
+        findings = check(
+            repo_root,
+            verbose=args.verbose and not args.ci,
+            check_external=check_external,
+        )
+    except RuntimeError as exc:
+        # `git ls-files` failed: the rosters cannot be read, which is a setup
+        # error rather than a finding.
+        sys.stderr.write(f"error: {exc}\n")
+        return 2
     return 0 if findings == 0 else 1
 
 
