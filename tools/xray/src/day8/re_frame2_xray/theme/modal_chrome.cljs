@@ -79,11 +79,12 @@
 (defn- focus-trap-ref
   "The dialog's default `:ref`, and ONE fn for every render of every
   modal. React detaches a ref that changed between renders and attaches
-  the new one, and the focus contract's detach restores focus to the
-  opener while its attach focuses the dialog's first control — so a ref
-  made fresh on each render would drag focus back to that first control
-  whenever an open dialog re-rendered. A ref that never changes is
-  attached once, when the dialog mounts.
+  the new one, and ReactDOM puts focus back where it was once the
+  commit's DOM work is done — so a ref made fresh on each render would
+  attach with focus already inside the dialog, capture no opener, and
+  drop focus to `<body>` when the dialog closed. A ref that never
+  changes is attached once, when the dialog mounts, and detached once,
+  when it unmounts.
 
   Each mount builds its own `a11y/dialog-ref` closure, so stacked
   dialogs keep separate state, and returns that closure's unmount call
