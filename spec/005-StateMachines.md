@@ -4357,7 +4357,7 @@ No `:db`, no `[:rf.runtime/machines :snapshots]` plumbing, no fx interpretation 
 
 Tests handler-level integration (snapshot read/write at `[:rf.runtime/machines :snapshots <id>]`, `:data`-to-`:db` lowering, fx composition) without going near the dispatch pipeline. **Possible only because `make-machine-handler` is a pure factory** — no registration, and no frame: the db-arg names a frame id only to stamp traces.
 
-The handler resolves its id from the inbound event vector's first element (`:drawer/editor`), reads `(get-in db [:rf.runtime/machines :snapshots :drawer/editor])` for the current snapshot, and writes the next snapshot back at the same location.
+The handler resolves its id from the inbound event vector's first element (`:drawer/editor`), reads the current snapshot at `[:rf.runtime/machines :snapshots :drawer/editor]` in the `:rf.db/runtime` coeffect, and returns the next snapshot at the same path under its `:rf.db/runtime` effect.
 
 ### Level 3 — registered in a test frame
 

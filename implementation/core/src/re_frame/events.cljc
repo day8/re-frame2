@@ -103,8 +103,7 @@
   metadata-map `:interceptors` chain carries an INLINE interceptor value. Per
   EP-0022 §Event and frame chain grammar: chains carry REFERENCES only. The
   earliest, clearest fail point for a stale inline value (an `->interceptor*`
-  result, a `(path …)` / `(redact-interceptor …)` value, a value-Var) — a typo
-  dies at `reg-event`, not at first dispatch. Mirrors the dispatch-time
+  result, a value-Var) — a typo dies at `reg-event`, not at first dispatch. Mirrors the dispatch-time
   `interceptor-registry/resolve-chain` rejection with the same error id —
   both delegate to the ONE shared `rf.error/throw-inline-interceptor-removed!`
   passing this site's `:where 'rf/reg-event`, reason, and ex-data."
