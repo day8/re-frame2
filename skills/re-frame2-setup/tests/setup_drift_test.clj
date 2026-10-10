@@ -19,7 +19,7 @@
 (ns setup-drift-test
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [clojure.test :refer [deftest is testing run-tests]]))
+            [clojure.test :refer [deftest is run-tests]]))
 
 (def ^:private setup-root (-> *file* io/file .getAbsoluteFile .getParentFile .getParentFile))
 (def ^:private repo-root (-> setup-root .getParentFile .getParentFile))
