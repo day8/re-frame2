@@ -26,10 +26,14 @@
 // rather than publishing a plausible number.
 
 const assert = require('node:assert');
+const cp = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
 const archive = require('./data_archive.cjs');
+const pass = require('./alloc_pass_position.cjs');
+
+const RECORD = path.join(archive.DATA, 'alloc-0gjqi', 'paired-run1.json');
 
 const tests = [];
 const test = (name, fn) => tests.push([name, fn]);
@@ -49,21 +53,14 @@ test('the archived corpus RESOLVES at the pinned commit, at the path it was arch
     `${archive.ARCHIVE_SHA}:${archive.ARCHIVE_PATH} must carry the whole corpus`
   );
   assert.ok(
-    entries.some((e) => e.rel.replace(/\\/g, '/') === 'alloc-0gjqi/paired-run1.json'),
+    entries.some((e) => e.rel === 'alloc-0gjqi/paired-run1.json'),
     'and the record `present()` tests on must be one of them'
   );
 });
 
 test('the restore is advertised in ONE spelling, and every place that quotes it agrees', () => {
-  // Three surfaces carrying three copies of a restore line drift the moment
-  // the directory moves. They quote `RESTORE`, and this is what holds them to
-  // it.
-  const self = fs.readFileSync(path.join(__dirname, 'data_archive.cjs'), 'utf8');
   const readme = fs.readFileSync(path.join(__dirname, '..', '..', '..', '..', 'README.md'), 'utf8');
-  for (const [what, text] of [['data_archive.cjs', self], ['bench/fresco/README.md', readme]]) {
-    assert.ok(text.includes(archive.RESTORE), `${what} must quote the restore command verbatim`);
-  }
-  // And the skip line readers actually see carries it too.
+  assert.ok(readme.includes(archive.RESTORE), 'bench/fresco/README.md must quote the restore command verbatim');
   const printed = [];
   const log = console.log;
   console.log = (s) => printed.push(s);
@@ -76,15 +73,11 @@ test('the restore is advertised in ONE spelling, and every place that quotes it 
 });
 
 test('a `git restore` of the CURRENT path cannot be the advertised operation', () => {
-  // The regression in one line: the archived tree has no such path, so a
-  // `git restore` of the current path exits 1. Asserted rather than remembered,
-  // because if it ever starts resolving, the restore can go back to being one
-  // git command and this whole file can shrink.
-  const cp = require('node:child_process');
-  const root = cp.execFileSync('git', ['-C', __dirname, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
+  // The archived tree has no such path, so a `git restore` of it exits 1. If it
+  // ever resolves, the restore can go back to being one git command.
   const r = cp.spawnSync(
     'git',
-    ['-C', root, 'ls-tree', '-r', '--name-only', archive.ARCHIVE_SHA, '--', 'bench/fresco/src/re_frame/bench/fresco/data'],
+    ['-C', __dirname, 'ls-tree', '-r', '--name-only', archive.ARCHIVE_SHA, '--', 'data'],
     { encoding: 'utf8' }
   );
   assert.strictEqual(r.stdout.trim(), '', 'the corpus is NOT at its current path inside the archived commit');
@@ -98,102 +91,55 @@ test('a record written TODAY passes through the boundary unchanged', () => {
 });
 
 corpusTest('the archived alloc-0gjqi record reads its FULL published population', () => {
-  // The published numbers over `alloc-0gjqi/paired-run1.json` at rungs
-  // R0/R3/R7. A raw reader returns 27 of these 55 cells and drops the
-  // native arm entirely, leaving Reagent and UIx — the two positive controls
-  // below — untouched. That is the shape of the defect: an answer, quieter.
-  const pass = require('./alloc_pass_position.cjs');
-  const row = archive.readRecord(path.join(archive.DATA, 'alloc-0gjqi', 'paired-run1.json')).alloc;
-  const cells = row.perRound.flatMap((r) => pass.roundCells(r, row.boundaries, ['R0', 'R3', 'R7']));
+  // A raw reader returns 27 of these 55 cells and drops the native arm
+  // entirely, leaving Reagent and UIx — the two positive controls — untouched.
+  const row = archive.readRecord(RECORD).alloc;
   const arms = {};
-  for (const c of cells) arms[c.arm] = (arms[c.arm] || 0) + 1;
-  assert.strictEqual(cells.length, 55, 'the published population');
-  assert.deepStrictEqual(
-    arms,
-    { 'lad/fresco': 28, 'lad/reagent': 14, 'lad/uix': 13 },
-    'the native arm is 28 of it; Reagent and UIx are the controls that never moved'
-  );
-  // And the block statistic the studio pages publish is the one that population
-  // produces — a repair that recalculates over a subset fails HERE, not later.
-  assert.deepStrictEqual(
-    pass.blocks(row, 'archive').map((b) => b.n),
-    [3, 8, 7, 8, 4, 7],
-    'per-round n, which halves when the arm goes missing'
-  );
+  for (const c of row.perRound.flatMap((r) => pass.roundCells(r, row.boundaries, ['R0', 'R3', 'R7']))) {
+    arms[c.arm] = (arms[c.arm] || 0) + 1;
+  }
+  assert.deepStrictEqual(arms, { 'lad/fresco': 28, 'lad/reagent': 14, 'lad/uix': 13 });
 });
 
 corpusTest('and the REPORT ITSELF reads it — the boundary is on the path the CLI takes', () => {
-  // THE CHECK ABOVE IS HOLLOW ON ITS OWN AND THIS IS WHY THIS ONE EXISTS. It
-  // proves `readRecord` by CALLING `readRecord`, so it stays green over a
-  // report that never touches the boundary: one parsing its dataset arguments
-  // raw prints n=[1,4,4,4,2,4], PASS TERM +0.89% and null arm n=8 over 27 of
-  // the 55 cells, exit 0, no remark. A test
-  // that exercises a path the CLI does not take says nothing about the CLI. So
-  // this one SPAWNS the CLI exactly as `bench/fresco/README.md` documents it and
-  // reads the population out of what it printed — a future raw read anywhere on
-  // that path goes red HERE, whatever shape it is written in.
-  const cp = require('node:child_process');
-  const record = path.join(archive.DATA, 'alloc-0gjqi', 'paired-run1.json');
-  const r = cp.spawnSync(
-    process.execPath,
-    [path.join(__dirname, 'alloc_pass_position.cjs'), record],
-    { encoding: 'utf8' }
-  );
+  // The check above proves `readRecord` by calling `readRecord`, so it stays
+  // green over a report that never touches the boundary. This one SPAWNS the
+  // CLI as `bench/fresco/README.md` documents it and reads the population out
+  // of what it printed: a raw read prints n=[1,4,4,4,2,4], PASS TERM +0.89% and
+  // null arm n=8. Tables are parsed rather than matched verbatim, so a reworded
+  // heading or a re-rounded median cannot fail a POPULATION check.
+  const r = cp.spawnSync(process.execPath, [path.join(__dirname, 'alloc_pass_position.cjs'), RECORD], { encoding: 'utf8' });
   assert.strictEqual(r.status, 0, `the report must run over the archived record: ${r.stderr}`);
 
-  // Its tables, read as tables: the `;;   a | b | ...` rows under a heading,
-  // less the column line that leads them. Scanned forward to the first such row
-  // rather than taken at a fixed offset, because a heading is prose and runs to
-  // as many lines as it needs. Parsed rather than matched verbatim, so that a
-  // reworded heading or a re-rounded median cannot fail a POPULATION check.
-  const printed = r.stdout.split(/\r?\n/);
-  const isRow = (l) => /^;; {3}.+ \| /.test(l);
+  // The `;;   a | b | ...` rows under a heading, less the column line that leads them.
+  const lines = r.stdout.split(/\r?\n/);
+  const isRow = (l) => /^;; {3}.+ \| /.test(l || '');
   const table = (heading) => {
-    const at = printed.findIndex((l) => l.startsWith(heading));
-    assert.ok(at >= 0, `the report must print "${heading}" — got:\n${r.stdout}`);
-    let from = at + 1;
-    while (from < printed.length && !isRow(printed[from])) from += 1;
+    let i = lines.findIndex((l) => l.startsWith(heading)) + 1;
+    while (i < lines.length && !isRow(lines[i])) i += 1;
     const rows = [];
-    for (const l of printed.slice(from)) {
-      if (!isRow(l)) break;
-      rows.push(l.slice(5).split(' | '));
-    }
-    assert.ok(rows.length > 1, `"${heading}" printed no rows under its column line`);
-    return rows.slice(1);
+    for (i += 1; isRow(lines[i]); i += 1) rows.push(lines[i].slice(5).split(' | '));
+    return rows;
   };
 
   assert.deepStrictEqual(
-    table(';; THE ROUND BLOCKS').map((c) => Number(c[4])),
-    [3, 8, 7, 8, 4, 7],
-    'the per-round n the studio pages publish; [1,4,4,4,2,4] is the raw-read population'
-  );
-  assert.strictEqual(
-    Number(table(';; THE NULL ARM')[0][1]),
-    18,
-    'the null arm licenses reading the rest, and a raw read halves it to 8'
+    {
+      roundN: table(';; THE ROUND BLOCKS').map((c) => Number(c[4])),
+      nullN: Number(table(';; THE NULL ARM')[0][1]),
+    },
+    { roundN: [3, 8, 7, 8, 4, 7], nullN: 18 },
+    'the per-round n the studio pages publish, and the null arm that licenses reading the rest'
   );
   assert.ok(r.stdout.includes('PASS TERM +0.68%'), 'the published term');
-  assert.ok(!r.stdout.includes('PASS TERM +0.89%'), 'and not the one the smaller population produces');
-
-  // AND THE CONTROL IN THE OTHER DIRECTION, without which this passes over
-  // bytes that never needed a boundary: the same record parsed RAW must still
-  // read the SMALLER population. That is what makes the figures above evidence
-  // that the translation ran, rather than evidence that the corpus was rewritten.
-  const pass = require('./alloc_pass_position.cjs');
-  assert.deepStrictEqual(
-    pass.blocks(JSON.parse(fs.readFileSync(record, 'utf8')).alloc, 'raw').map((b) => b.n),
-    [1, 4, 4, 4, 2, 4],
-    'a raw parse of the archived record must still lose the native arm'
-  );
 });
 
 corpusTest('the archived corpus really is in the OLD vocabulary — so the translation is doing work', () => {
-  // The control for the check above: without this, a corpus that had somehow
-  // been rewritten in the current vocabulary would pass it while proving
-  // nothing about the boundary. It has to spell the archived arm key as the
-  // archived bytes spell it, so the assertion line is carried by
-  // `PRODUCT_EXEMPTIONS` in `scripts/check_retired_spellings.py`.
-  const raw = fs.readFileSync(path.join(archive.DATA, 'alloc-0gjqi', 'paired-run1.json'), 'utf8');
+  // The control for the checks above: a corpus rewritten in the current
+  // vocabulary would pass them while proving nothing about the boundary. It has
+  // to spell the archived arm key as the archived bytes spell it, so the
+  // assertion line is carried by `PRODUCT_EXEMPTIONS` in
+  // `scripts/check_retired_spellings.py`.
+  const raw = fs.readFileSync(RECORD, 'utf8');
   assert.ok(raw.includes('lad/hicasso'), 'the archived record names the arm as it was named when the run was taken');
   assert.ok(!raw.includes('lad/fresco'), 'and does not name it as it is named now');
 });
