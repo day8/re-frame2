@@ -129,46 +129,36 @@
         ;; boundary mounts, reads a query whose module has not registered
         ;; its subs, and stays mounted while it does.
         (rf.bench.fresco.arm1.runtime/render-body f (reader q-first seen) {})
-        (is (nil? @seen)
-            "the recovery contract: an unregistered read emits
-             `:rf.error/no-such-sub` and derefs to nil")
-        (let [entry    (rf.bench.fresco.arm1.runtime/last-reads)
-              hits     (volatile! 0)
-              release! (rf.bench.fresco.arm1.runtime/commit-boundary! entry (fn [] (vswap! hits inc)))]
-          (is (= 1 (:cells (rf.bench.fresco.arm1.runtime/stats)))
-              "and the COMMIT is what makes it a problem: the boundary now
-               holds a cell for the key, so the read is a pure deref of
-               whatever that cell caught — and what it caught is the
-               recovery")
+        (let [first-read @seen
+              entry      (rf.bench.fresco.arm1.runtime/last-reads)
+              hits       (volatile! 0)
+              release!   (rf.bench.fresco.arm1.runtime/commit-boundary! entry (fn [] (vswap! hits inc)))]
+          (is (= [nil 1] [first-read (:cells (rf.bench.fresco.arm1.runtime/stats))])
+              "the recovery contract: an unregistered read derefs to nil — and
+               the COMMIT is what makes it a problem: the boundary now holds a
+               cell for the key, so the read is a pure deref of whatever that
+               cell caught, and what it caught is the recovery")
 
           ;; THE FIRST REGISTRATION. No previous handler, so no replacement
           ;; hook fires, no sub-cache entry is evicted, and no reaction is
           ;; disposed anywhere in the substrate.
           (rf/reg-sub (first q-first) (fn [db _] (:v db)))
-
-          (testing "the next render computes against the registration that
-                    now exists"
-            (rf.bench.fresco.arm1.runtime/render-body f (reader q-first seen) {})
-            (is (= 1 @seen)
-                "1, not nil: the cell dropped the recovery, so the read falls
-                 through to `subscribe-once`, which resolves the handler that
-                 is registered NOW"))
-
-          (settle!
-            (fn []
-              (testing "and the durable attachment is built against it, so
-                        later writes notify"
+          (rf.bench.fresco.arm1.runtime/render-body f (reader q-first seen) {})
+          (let [next-read @seen]
+            (settle!
+              (fn []
                 (let [before @hits]
                   (rf.frame/replace-app-db! f {:v 2})
-                  (is (pos? (- @hits before))
-                      "the boundary was notified — without the repair the cell
-                       is deaf for the life of the mount, because the watch it
-                       installed is on a reaction the registration never
-                       reaches")))
-              (rf.bench.fresco.arm1.runtime/render-body f (reader q-first seen) {})
-              (is (= 2 @seen) "and it reads the registered handler over the new db")
-              (release!)
-              (done))))))))
+                  (rf.bench.fresco.arm1.runtime/render-body f (reader q-first seen) {})
+                  (is (= [1 true 2] [next-read (pos? (- @hits before)) @seen])
+                      "1, not nil: the cell dropped the recovery, so the next
+                       render falls through to `subscribe-once` and resolves
+                       the handler registered NOW; and the durable attachment
+                       is built against it, so a later write notifies —
+                       without the repair the cell is deaf for the life of
+                       the mount"))
+                (release!)
+                (done)))))))))
 
 (deftest deliberately-a-cell-that-keeps-the-recovery-answers-nil-forever
   (testing "the failure the row above repairs, stated as its own assertion
@@ -185,17 +175,11 @@
             ;; This is exactly what the cell would keep if the first
             ;; registration were not an event.
             held     (rf.bench.fresco.arm1.runtime/cell-reaction [f q-held])]
-        (is (some? held)
-            "precondition: the commit acquired a reaction, and it is the
-             substrate's uncached nil-recovery")
         (rf/reg-sub (first q-held) (fn [db _] (:v db)))
-        (is (nil? @held)
+        (is (= [nil nil] [@held (rf.bench.fresco.arm1.runtime/cell-reaction [f q-held])])
             "the held recovery answers nil where the live registration answers
-             1 — and it will answer nil after every later write too, because
-             it derives from nothing")
-        (is (nil? (rf.bench.fresco.arm1.runtime/cell-reaction [f q-held]))
-            "which is why the cell drops the reference instead: the repair is
-             to stop reading through it, not to re-read it")
+             1, and will after every later write too, because it derives from
+             nothing — which is why the cell drops the reference instead")
         (release!)))))
 
 (deftest a-first-registration-in-the-render-commit-gap-moves-the-snapshot
@@ -225,32 +209,30 @@
     (let [seen (volatile! :unread)
           f    (make-frame! ::gap {:v 1})]
       (rf.bench.fresco.arm1.runtime/render-body f (reader q-gap seen) {})
-      (is (nil? @seen) "the body ran against no registration")
-      (let [entry     (rf.bench.fresco.arm1.runtime/last-reads)
-            at-render (rf.bench.fresco.arm1.runtime/snapshot-of entry)
-            epoch     (rf.bench.fresco.arm1.runtime/registry-epoch)
-            hits      (volatile! 0)]
+      (let [first-read @seen
+            entry      (rf.bench.fresco.arm1.runtime/last-reads)
+            at-render  (rf.bench.fresco.arm1.runtime/snapshot-of entry)
+            epoch      (rf.bench.fresco.arm1.runtime/registry-epoch)
+            hits       (volatile! 0)]
         ;; THE REGISTRATION, inside the gap: after the body returned and
         ;; before React's effect acquires the edge.
         (rf/reg-sub (first q-gap) (fn [db _] (:v db)))
-        (is (> (rf.bench.fresco.arm1.runtime/registry-epoch) epoch)
-            "precondition: the arm counted the registration — the term the
-             rest of this row turns on actually moved")
-        (let [release! (rf.bench.fresco.arm1.runtime/commit-boundary! entry (fn [] (vswap! hits inc)))]
-          (is (not= at-render (rf.bench.fresco.arm1.runtime/snapshot-of entry))
-              "the snapshot MOVED across the commit, so React's
-               post-`subscribe` re-check sees a tear and schedules the
-               re-render the boundary needs to stop painting `nil`")
-          (is (zero? @hits)
-              "and it is the tear check that does it, not a notification —
-               a `reg-sub` reaches `flush!` by no route")
-          (is (= 1 @(rf.bench.fresco.arm1.runtime/cell-reaction [f q-gap]))
-              "and the cell the commit acquired holds the REAL handler, so
-               the render React just scheduled reads the right value")
-          (testing "which the re-render then does, at once rather than at
-                    the next write"
-            (rf.bench.fresco.arm1.runtime/render-body f (reader q-gap seen) {})
-            (is (= 1 @seen) "1, not nil: the delayed paint is gone"))
+        (let [moved?   (> (rf.bench.fresco.arm1.runtime/registry-epoch) epoch)
+              release! (rf.bench.fresco.arm1.runtime/commit-boundary! entry (fn [] (vswap! hits inc)))
+              tear?    (not= at-render (rf.bench.fresco.arm1.runtime/snapshot-of entry))
+              held     @(rf.bench.fresco.arm1.runtime/cell-reaction [f q-gap])
+              notified @hits]
+          (rf.bench.fresco.arm1.runtime/render-body f (reader q-gap seen) {})
+          (is (= {:first-read nil :epoch-moved true :tear true :hits 0 :held 1 :re-render 1}
+                 {:first-read first-read :epoch-moved moved? :tear tear?
+                  :hits notified :held held :re-render @seen})
+              "the body ran against no registration; the arm counted the
+               registration; the snapshot MOVED across the commit, so React's
+               re-check sees a tear and schedules the re-render — the tear
+               check and not a notification, since a `reg-sub` reaches
+               `flush!` by no route; the cell the commit acquired holds the
+               REAL handler; and the re-render reads 1, not nil, at once
+               rather than at the next write")
           (release!))))))
 
 ;; ---------------------------------------------------------------------------
@@ -275,19 +257,20 @@
           hits  (volatile! 0)
           release! (rf.bench.fresco.arm1.runtime/commit-boundary! entry (fn [] (vswap! hits inc)))
           before   (rf.bench.fresco.arm1.runtime/snapshot-of entry)
-          held     (rf.bench.fresco.arm1.runtime/cell-reaction [f q-live])]
-      (is (= 1 @seen) "the control: a registered key, read and committed")
-      (is (some? held) "and holding its reaction")
+          held     (rf.bench.fresco.arm1.runtime/cell-reaction [f q-live])
+          control  [@seen (some? held)]]
       (rf/reg-sub :firstreg/nobody-reads-this (fn [db _] (:v db)))
-      (is (= before (rf.bench.fresco.arm1.runtime/snapshot-of entry))
-          "the snapshot did not move: nothing about an unrelated first
-           registration is in this key's contribution")
-      (is (zero? @hits) "and nothing notified the boundary")
-      (is (identical? held (rf.bench.fresco.arm1.runtime/cell-reaction [f q-live]))
-          "and the cell still holds the SAME reaction — an unrelated
-           registration is not a reason to rebuild an attachment")
+      (is (= [[1 true] before 0 true]
+             [control
+              (rf.bench.fresco.arm1.runtime/snapshot-of entry)
+              @hits
+              (identical? held (rf.bench.fresco.arm1.runtime/cell-reaction [f q-live]))])
+          "the control is a registered key, read, committed and holding its
+           reaction; the unrelated first registration then leaves its
+           snapshot where it was, notifies nothing, and leaves the cell
+           holding the SAME reaction — an unrelated registration is not a
+           reason to rebuild an attachment")
       (release!))))
 
 ;; Neither half buys a React hook or a per-boundary object: a registrar hook
-;; is not a React hook, and the shell's two hooks and its enumerated
-;; absences are pinned once, in `runtime_cljs_test`'s hook-ledger rows.
+;; is not a React hook.
