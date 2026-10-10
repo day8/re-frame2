@@ -5,8 +5,7 @@ Operational detail for **M-0 — the dep-coord swap**, the precondition for ever
 ## Contents
 
 - The coord swap (M-0)
-- Per-build-tool shapes
-- Coords to detect
+- Which dependency file the build reads
 - Picking the substrate-adapter artefact
 - Pin the migration corpus before reading it
 - Discovering the current VERSION
@@ -22,16 +21,7 @@ The two gates that bracket this one are their own leaves, loaded at their own ph
 
 Run this only after the [floor gate](floor-gate.md) returns **GO**. Carry every GO-state edit the gate identified — the dep-coord swap, the React/Reagent bump, any component-lib bumps, and the shadow-cljs/CLJS toolchain bump (Check 4) — into this one dep-file pass, so the post-M-0 compile runs against the fully-current toolchain (an older shadow-cljs detonates the first compile with the cryptic `NoSuchFieldError`, Check 4). The skill makes the `package.json` edits and runs the install (cardinal rule 5).
 
-### The swap itself
-
-v1 ships as `re-frame/re-frame`. v2 ships as a **pair** of artefacts at the same VERSION:
-
-- `day8/re-frame2` — the core (registry, drain, dispatch, subscribe, fx, the substrate-adapter contract).
-- `day8/re-frame2-<substrate>` — the substrate adapter (`-reagent` or `-uix`). v1 codebases use Reagent universally, so default to `day8/re-frame2-reagent`.
-
-The two artefacts ship in lockstep — every adapter artefact is versioned identically to core. Mixing versions across them is unsupported.
-
-The `re-frame.core` namespace name and your `(:require [re-frame.core :as rf])` lines are **unchanged**. Only the dep coord moves.
+What M-0 swaps — the v1 coordinate forms to detect, the core plus one substrate adapter, every `day8/re-frame2*` artefact on one route at one pin, the Leiningen routes, the unchanged `re-frame.core` requires — is [`MIGRATION.md` §M-0](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-0-bump-the-dependency-coordinate-to-day8re-frame2). The per-artefact coordinate shapes are the setup skill's [`deps-versions.md` §Choosing the coordinate](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-setup/references/deps-versions.md#choosing-the-coordinate-publication-state-decides-the-shape). This leaf is how to apply the swap: which file the build reads, where the pin comes from, and how to prove the classpath and the coordinates clean.
 
 ### Neutralize the re-frame-10x preload as part of M-0
 
@@ -46,42 +36,11 @@ So, in the same M-0 dep-file edit:
 
 The point at M-0 is narrow: clear the dead 10x preload **now** so the post-M-0 compile gate is reachable — don't leave it blocking the immediate "stop and compile" step. The Xray restore is **post-M-40** (its preload auto-opens after `(rf/init!)`, so it can't mount until boot wiring is in place — a sequencing detail, not a downgrade to optional). For a 10x app the restore is a standard step whose done-state is the app on Xray; see [`xray-replaces-10x.md`](xray-replaces-10x.md) for the restore and the 10x-present/no-10x rule.
 
-## Per-build-tool shapes
+## Which dependency file the build reads
 
-### `deps.edn` (tools.deps)
-
-```clojure
-;; Before
-{:paths ["src"]
- :deps  {re-frame/re-frame {:mvn/version "1.4.5"}}}
-
-;; After
-{:paths ["src"]
- :deps  {day8/re-frame2         {:mvn/version "<VERSION>"}
-         day8/re-frame2-reagent {:mvn/version "<VERSION>"}}}
-```
-
-### `project.clj` (Leiningen)
-
-```clojure
-;; Before
-:dependencies [[re-frame "1.4.5"]]
-
-;; After
-:dependencies [[day8/re-frame2         "<VERSION>"]
-               [day8/re-frame2-reagent "<VERSION>"]]
-```
+`deps.edn`, `project.clj` and `bb.edn` are each read by their own tool; edit every one that carries a `re-frame/re-frame` coordinate. `shadow-cljs.edn` is the case to read before editing.
 
 ### `shadow-cljs.edn`
-
-```clojure
-;; Before
-{:dependencies [[re-frame/re-frame "1.4.5"]]}
-
-;; After
-{:dependencies [[day8/re-frame2         "<VERSION>"]
-                [day8/re-frame2-reagent "<VERSION>"]]}
-```
 
 **Shadow picks ONE dependency source, and it is not additive — read its mode before you edit anything.** `shadow-cljs` branches on two top-level keys in `shadow-cljs.edn`, in this order:
 
@@ -92,31 +51,6 @@ The point at M-0 is narrow: clear the dead 10x preload **now** so the post-M-0 c
 | neither key present | standalone (**the default**) | **`shadow-cljs.edn`'s own `:dependencies` / `:source-paths`.** A `deps.edn` beside it is used by REPL/tooling but not by this build. |
 
 So a `shadow-cljs.edn` with **no** `:deps` key is the standalone case — editing `deps.edn` alone leaves the build resolving v1. Edit the file the selected mode reads; do not edit both "to be safe", which only hides which classpath is live. (Verified against shadow-cljs 3.4.10's own CLI: the tools.deps branch is taken only when `:deps` is truthy, and the classpath command branches identically.)
-
-### `bb.edn` (Babashka)
-
-```clojure
-;; Before
-{:deps {re-frame/re-frame {:mvn/version "1.4.5"}}}
-
-;; After
-{:deps {day8/re-frame2         {:mvn/version "<VERSION>"}
-        day8/re-frame2-reagent {:mvn/version "<VERSION>"}}}
-```
-
-**Both `day8/re-frame2-*` lines get the same `<VERSION>` value.** The lockstep contract.
-
-## Coords to detect
-
-v1 has shipped under three coord forms over time — match any of them:
-
-```clojure
-re-frame/re-frame {:mvn/version "1.x.x"}     ; deps.edn / shadow-cljs.edn — current canonical form
-re-frame          {:mvn/version "1.x.x"}     ; deps.edn / shadow-cljs.edn — older shorter form
-[re-frame "1.x.x"]                            ; project.clj — Lein vector form
-```
-
-All three become `day8/re-frame2` + the matching adapter artefact.
 
 ## Picking the substrate-adapter artefact
 
@@ -157,19 +91,9 @@ These three are **read-only provenance checks** — allow-listed (the scoped `Ba
 
 ## Discovering the current VERSION
 
-**The author picks the target VERSION; the skill never auto-selects "latest".** The kickoff prompt names a specific `<v2-version>` string — that's the contract. If `<v2-version>` is unset (the author left a placeholder), **stop and ask** before editing any dep file.
+**The author supplies the route and the pin; the skill never picks either.** The rule — never invent a pin, never guess "latest", and today's routes while nothing is published (a pinned `:git/sha` per artefact, or a `:local/root` sibling checkout) — is [`MIGRATION.md` §M-0](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-0-bump-the-dependency-coordinate-to-day8re-frame2), which also says a first release is not a precondition. Stop and ask before editing any dependency file only when the kickoff prompt supplies **no consumption route at all**; once it supplies one, apply every rule exactly as you would against a published target.
 
-For the author's reference (so they can pick), three sources of authoritative version info:
-
-1. **`VERSION` file** in the local pinned `day8/re-frame2` checkout (`<path-to-re-frame2>/VERSION`) — the string used for the next release.
-2. **`CHANGELOG.md`** in the pinned checkout — released versions with summaries; the most recent non-Unreleased entry is the latest released version.
-3. **GitHub releases page** (`https://github.com/day8/re-frame2/releases`) — for cross-referencing tags, but the local pinned checkout is the authoritative source for *this* migration.
-
-If the author wants the bleeding edge, they can use a `:git/url` + `:git/sha` coord instead of `:mvn/version` — but they still type the SHA into the kickoff prompt; the skill does not pick. Niche; default to released `:mvn/version`. If the author is migrating against an **unpublished** re-frame2 from a **sibling checkout** (a `:local/root` coord per artefact), the re-frame2-setup skill carries the copy-pasteable recipe with the verified per-artefact paths: [`deps-versions.md` §The `:local/root` sibling-checkout dev route](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-setup/references/deps-versions.md#the-localroot-sibling-checkout-dev-route-pre-publish).
-
-**Never invent a version; never silently pick `latest`** — newly published packages may be broken or malicious, and unpinned coords make the migration non-reproducible. Record the chosen `<v2-version>` in the migration report.
-
-**If nothing is published to Clojars yet** (pre-publication): the migration is still fully doable — a first release is **not** a precondition. When no `:mvn/version` resolves, the author consumes re-frame2 via a **`:local/root`** sibling-checkout coord ([`deps-versions.md` §The `:local/root` sibling-checkout dev route](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-setup/references/deps-versions.md#the-localroot-sibling-checkout-dev-route-pre-publish)) or a **`:git/url` + `:git/sha`** coord, and the migration proceeds normally — apply every M/O-rule exactly as you would against a published target. Do **not** leave the dep alone, and do **not** stop and wait for a release. The guardrails are unchanged: never invent a version, never silently pick `latest`, and the author still supplies the pin or route — the skill never picks it for them. "Stop and ask" applies only when the author has supplied **no consumption route at all** (no `:mvn/version`, no `:git/sha`, no `:local/root`), *not* merely because nothing is on Clojars yet. Record the chosen route — the sibling-checkout path or the pinned SHA — in the migration report, exactly as a `<v2-version>` would be recorded.
+To help the author choose, the pinned `day8/re-frame2` checkout carries `VERSION` (the next release string) and `CHANGELOG.md`, and `https://github.com/day8/re-frame2/releases` lists the tags. A `:git/sha` must name a pushed commit ([§The consumability done-gate](#the-consumability-done-gate)). Record the chosen route and pin — the SHA, the sibling-checkout path, or a `<v2-version>` once one resolves — in the migration report.
 
 ## The consumability done-gate
 
@@ -221,8 +145,8 @@ In practice most v1 codebases add **none** of these: state machines, flows, mana
 
 ```clojure
 ;; deps.edn after M-0, before any decision about the library
-{:deps {day8/re-frame2         {:mvn/version "<VERSION>"}
-        day8/re-frame2-reagent {:mvn/version "<VERSION>"}
+{:deps {day8/re-frame2         {…}                   ; the route and pin M-0 chose
+        day8/re-frame2-reagent {…}
         some.org/rf-addon      {:mvn/version "0.4.2"         ; its existing pin, unchanged
                                 :exclusions [re-frame/re-frame]}}}
 ```

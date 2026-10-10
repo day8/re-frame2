@@ -27,6 +27,14 @@ These are not up for re-litigation. A future authoring pass MUST preserve these 
 
 The skill does **not** duplicate the rule content. Leaves point at MIGRATION.md by rule id (`M-N` / `O-N`). When the author asks "is `X` covered?", the leaf says which rule; the agent reads the full text from MIGRATION.md.
 
+**Every rule fact has one owner, and the other side links to it.**
+
+- **The corpus owns WHAT** — the transformation, the Type of each case, the detection surface (what to look for) and the hazard (what a miss does).
+- **The skill owns HOW** — the workflow and sequencing, the search mechanics (the commands and the acceptance read that turns a hit into a site), and the verification that proves a rewrite landed.
+- **General re-frame2 framework facts** — images, registration semantics, sub recovery, machine lifecycle, the frame provider, test doubles — are owned by `spec/` or the `re-frame2` skill, and the corpus and this skill both point there.
+
+A leaf keeps only what it adds and links for the rest; a link from the corpus into a leaf is always for HOW. Copies drift because nothing ties them together, and the gates pin names rather than meaning, so a passing gate does not show two copies agree. So before folding a fix, census every copy of the fact (two token axes, with a control taken from a copy you know exists), fix the fact at its owner, and cut any other copy to a link.
+
 This extends to the O-16 / O-17 **companion docs** the README's O-16 / O-17 sections point to (`migration/from-re-frame-v1/async-flow-fx-to-reg-machine.md` / `http-fx-to-managed-http.md`): those companions are the **sole full owners** of the `async-flow-fx` / `http-fx` translation guides (mapping, worked examples, escalation, reporting), and the packaged `references/async-flow-to-machines.md` / `references/http-fx-to-managed-http.md` leaves are **router leaves** — framing + "load the author-pinned corpus" + spec/sibling links only, no full-guide sections. A packaged leaf that re-grows a mapping table, worked example, escalation list, or reporting protocol is a **shadow guide** that drifts from the corpus (which is exactly what happened before this decision was enforced: the leaves and the companions gave contradictory answers on whether a retired add-on can remain). The `scripts/check_skill_migration_o1617_router_drift.py` gate makes that re-growth a build failure.
 
 **Why**: MIGRATION.md is maintained as part of the spec corpus. Drift between the skill and the spec would manifest as confusing dual sources. The skill is consumer; the spec is producer.

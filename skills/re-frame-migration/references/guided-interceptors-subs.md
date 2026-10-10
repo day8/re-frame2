@@ -28,7 +28,7 @@ For handler- / db-seeding- / error-handler-shaped Type B rewrites, see [`guided-
 
 > **Judgement call — multi-namespace or multi-lifecycle globals are NOT pure Type-A.** When the v1 `reg-global-interceptor` calls are spread across **multiple namespaces**, or registered at **different lifecycles** (e.g. one at ns-load, another *deferred* until after some external dependency has initialised — its interceptor body depends on that init having run), folding them into a single frame-config `:interceptors` vector forces a **single registration site and a single activation moment**. That can change ordering (activating a deferred interceptor too early) — a behavioural decision, not a mechanical rewrite. **Surface it to the author** (where the combined frame declaration should live, when it should run relative to the external init), rather than auto-applying. Even a single-frame app trips this judgement case when the globals had staggered lifecycles.
 
-> **An interceptor id-reference is NOT a load-order dependency.** Folding `reg-global-interceptor` values into a frame's `{:interceptors [:app/audit :app/recorder]}` replaces direct **value** references (which made the defining ns a `:require` dependency) with **id lookups** — keywords that create **no** load-order edge to the ns whose `reg-interceptor` registers them. If the migration then drops that ns's `:require` because the value "looks dead", the `reg-interceptor` may not have run when this `make-frame` validates its refs at registration — the boot throws `:rf.error/unregistered-interceptor`. Keep a side-effecting `:require` of the interceptor-registry ns (or load all interceptor-registering nses early from a foundational ns the whole app requires), before any `reg-event` / `make-frame` references them. "Dropping the require because the value isn't used anymore" is the trap. Full version (and the same hazard for the M-70 chain-shape rewrite): [`auto-cross-cutting.md` §M-70](auto-cross-cutting.md#event-interceptor-chains--metadata-interceptors-m-70--mechanical-loud-at-runtime-not-loud-at-compile).
+> **An interceptor id-reference is NOT a load-order dependency.** Folding `reg-global-interceptor` values into a frame's `{:interceptors [:app/audit :app/recorder]}` swaps value references for id references, which is M-70's load-order hazard: the hazard is [`MIGRATION.md` §M-70](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-70-event-interceptor-chains-use-registered-interceptor-refs-in-metadata-interceptors), and keeping the registering namespace loaded is step 4 of [`auto-cross-cutting.md` §M-70](auto-cross-cutting.md#event-interceptor-chains--metadata-interceptors-m-70--mechanical-loud-at-runtime-not-loud-at-compile).
 
 **Identify**: every `(rf/reg-global-interceptor ...)` AND the codebase has any non-default frame declaration.
 
@@ -67,55 +67,9 @@ Present the categorisation per call site with the proposed rewrite; the author c
 
 ## M-71 — the v1 signal-function `reg-sub` form (3-arity) → v2 `input-fn`s
 
-**Mental model — v1 *signal function* → v2 *`input-fn`*.** v1's two-function
-`reg-sub` form took a **signal function**: a fn from the outer query vector to
-**live `subscribe` reactions** that the runtime then deref'd for the
-computation fn. re-frame2 keeps that capability but moves the fn
-into the registration metadata map under **`:inputs`**, and redefines it as a
-pure **producer**: a fn from the outer query vector to a **vector of query
-vectors** (plain data — *not* reactions). The runtime resolves those query
-vectors in the same frame and hands the resolved **values** to the computation
-fn, always as a vector. Two things move: where the fn *sits*, and what it
-*returns* — reactions become query-vector data.
+The rewrite — the v1 signal fn becomes an `:inputs` producer in the registration metadata, returning a vector of query vectors instead of live reactions — the producer contract, the cases by what the signal fn does (vector, map or single-signal return, an `app-db` read, an extra argument, lifecycle or effects), the four conditions that make a vector or single-signal site Type A, and the errors a bad producer raises are [`MIGRATION.md` §M-71](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-71-v1-signal-functions--v2-input-fns-vector-of-query-vectors). Cite it as **M-71**, not M-18 (the `reg-sub-raw` removal above). This section is how to find the sites and apply them.
 
-```clojure
-;; v1 — a positional signal fn returning live reactions
-(rf/reg-sub :id
-  (fn [[_ id]] [(rf/subscribe [:x id]) (rf/subscribe [:y])])
-  (fn [[x y] _] …))
-
-;; v2 — an :inputs producer returning query vectors (data)
-(rf/reg-sub :id
-  {:inputs (fn [[_ id]] [[:x id] [:y]])}
-  (fn [[x y] _] …))
-```
-
-This is **intentionally breaking** vs v1, and it is the dedicated rule
-**M-71** — cite it as **M-71** in reports (it is *not* the `reg-sub-raw`
-removal, which is **M-18** above). The authoritative rule text + rationale is
-[`MIGRATION.md` §M-71](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-71-v1-signal-functions--v2-input-fns-vector-of-query-vectors);
-the design rationale is the [Parametric Subscription Inputs spec](https://github.com/day8/re-frame2/blob/main/spec/006-ReactiveSubstrate.md#subscription-input-producers--app-db-reader-static-parametric-input-fn).
-
-**The `:inputs` producer contract** (all four facts are the break — a v1 signal
-fn could violate every one):
-
-- It **receives only the outer query vector** — no `db` arg, no extra args. (v1
-  signal fns sometimes took extra args; v2 `input-fn`s do not.)
-- It **must return a vector of query vectors** — `[[:a x] [:b]]`. A bare
-  query vector (`[:a x]`), a bare keyword (`:a`), or a map is rejected.
-- It **must not call `subscribe`**, deref `app-db`, dispatch, mutate, or do IO —
-  it returns *descriptions* of inputs, and the runtime resolves them.
-- It **must not choose its dependency topology from `app-db`** — that would
-  break the fixed-topology-per-cache-entry invariant. Thread any state-derived
-  parameter through the **outer query vector** at the call site instead.
-
-**Identify:** every `reg-sub` call with **two trailing fn forms and no `:<-`
-between them** — `(rf/reg-sub :id (fn [q] …) (fn [inputs q] …))`. The first fn
-is the v1 signal fn. (A single trailing fn is the unchanged layer-1
-`(fn [db q] …)` app-db reader — it does not trip M-71. A `:<- [q] :<- [q]`
-chain is a *static* input list and does not trip M-71 either, but it is no
-longer unchanged: it is **M-75**'s mechanical Type A rewrite to
-`{:inputs [q q]}`.)
+**Identify:** every `reg-sub` call with **two trailing fn forms and no `:<-` between them** — `(rf/reg-sub :id (fn [q] …) (fn [inputs q] …))`. The first fn is the v1 signal fn. (A single trailing fn is the unchanged layer-1 `(fn [db q] …)` app-db reader; a `:<-` chain is M-75's static input list.) Sweep every signal-fn site up front, including named functions and aliases, rather than relying on two literal `fn` forms in a grep.
 
 > **A signal fn coming from `re-frame.alpha` lands here too.** An alpha-namespace
 > `reg-sub` whose signal fn called `(sub [:x id])` is removed by **M-23** at the
@@ -124,182 +78,30 @@ longer unchanged: it is **M-75**'s mechanical Type A rewrite to
 > rewrite in [`auto-call-site-rewrites.md` §M-23](auto-call-site-rewrites.md#m-23--re-framealpha-removal-mechanical-half).
 > Inside the signal fn, `(sub [:x id])` becomes the bare query **vector** `[:x id]`
 > (returned inside the input-fn's vector), never a `(subscribe [:x id])` call —
-> that would throw `:rf.error/sub-input-fn-bad-return`. Classify and reshape per
-> the cases below.
+> that would throw `:rf.error/sub-input-fn-bad-return`. Classify it like any
+> other site, below.
 
-**Compile-clean does not mean registration-clean.** Under **M-75**, the
-positional `(reg-sub :id signal-fn computation-fn)` form is retired: it throws
-`:rf.error/reg-sub-bad-args` at registration / namespace load, before the
-signal fn runs. Returning query vectors from that positional fn does not make
-the registration valid; move it into the metadata map's `:inputs` slot too.
-
-There is a second failure stage after that move. A registration shaped as
-`(reg-sub :id {:inputs signal-fn} computation-fn)` is accepted, but a producer
-that still returns live reactions fails at **first subscribe / materialization**
-with `:rf.error/sub-input-fn-bad-return` and recovers to a `nil`-yielding
-reaction. **M-75 fixes the declaration position; M-71 fixes its meaning.** Both
-changes are required for a v1 signal-fn site. Inspect registration errors at
-boot and materialize the rewritten subscription; compiling alone covers
-neither stage. Sweep every signal-fn site up front, including named functions
-and aliases, rather than relying on two literal `fn` forms in a grep.
-
-**Decision-shape — first prefer a literal `:inputs` vector.** If the signal fn's
-inputs do **not** depend on the outer query vector, the inputs are static —
-list them literally, the same as v1's preferred static form. A literal is
-exactly a constant producer, it is the form a tool can read as a static edge,
-and it is the best style whenever it applies.
-
-```clojure
-(rf/reg-sub :dashboard
-  {:inputs [[:totals] [:alerts]]}
-  (fn [[totals alerts] _]
-    {:totals totals :alerts alerts}))
-```
-
-When the inputs **do** depend on the outer query vector, give `:inputs` a
-producer fn instead. **Classify by what the v1 signal fn returns** — the three
-v1 return shapes each rewrite differently:
-
-### 1. Vector-returning (the common case) — drop the `subscribe`, return query vectors
-
-**Type A** once the site meets the four conditions under
-[*Classify each site*](#classify-each-site--the-case-decides-the-type) below.
-Strip the `(rf/subscribe …)` wrappers; return the bare query vectors. The
-computation fn already destructures a vector of inputs in the same order — it is
-**unchanged**. The order is the source vector's own, so there is nothing to
-choose.
-
-Before/after: [`MIGRATION.md` §M-71 case 1](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-71-v1-signal-functions--v2-input-fns-vector-of-query-vectors).
-
-### 2. Map-returning — pick an EXPLICIT input order, switch to vector destructuring
-
-**Type B** — the order is the author's choice. v2 does **not** accept a map
-return. Choose an explicit input order, return a
-**vector of query vectors** in that order, and change the computation fn from
-**map destructuring to vector destructuring** to match.
-
-> **Do NOT rely on source-map iteration order.** A v1 map of signals had no
-> meaningful order — Clojure map iteration order is not a contract. Pick a
-> deliberate order yourself and preserve it across the `input-fn` *and* the
-> computation fn's destructure. Reading the order off the source map's literal
-> key sequence is a latent bug.
-
-Before/after: [`MIGRATION.md` §M-71 case 2](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-71-v1-signal-functions--v2-input-fns-vector-of-query-vectors).
-
-### 3. Single-signal-returning — wrap in a vector of ONE query vector
-
-**Type A** under the same four conditions as case 1. This is a bare single
-signal, not a vector return, and the bracket it gains is forced rather than
-chosen. v2 has **no scalar single-input form**. A v1 signal fn that returned one bare
-reaction becomes an `:inputs` producer returning `[[:item/by-id id]]` — a
-**vector of one query vector**, not the bare query vector. The computation fn
-destructures a one-element vector: `(fn [[item] _] …)`.
-
-```clojure
-;; v1 — signal fn returns ONE bare reaction
-(rf/reg-sub :item/title
-  (fn [[_ id]]
-    (rf/subscribe [:item/by-id id]))
-  (fn [item _]
-    (:title item)))
-
-;; v2 — an :inputs producer returning a vector of ONE query vector
-(rf/reg-sub :item/title
-  {:inputs (fn [[_ id]]
-             [[:item/by-id id]])}
-  (fn [[item] _]                            ;; the declared list always arrives as a vector
-    (:title item)))
-```
-
-The two extra brackets are load-bearing: `[:item/by-id id]` is **one query
-vector** (rejected as a scalar return); `[[:item/by-id id]]` is **a vector
-containing one query vector** (the only accepted single-input spelling). `[:x :y]`
-is *never* read as an `input-fn` return — only as a single query vector *inside*
-`[[:x :y]]`.
-
-### The BREAK — what v2 rejects
-
-v1 signal functions could do all of the following; v2 `input-fn`s reject every
-one. These are the shapes to flag, not silently "fix":
-
-| v1 signal-fn shape | v2 status |
-|---|---|
-| Returns a live reaction (`(rf/subscribe …)`) | **Rejected** — return the query vector instead (cases 1–3 above). |
-| Returns a **map** of inputs | **Rejected** — pick an explicit order + vector destructure (case 2). |
-| Returns a **bare keyword** (`:viewer/current`) | **Rejected** — no shorthand; spell it `[[:viewer/current]]`. |
-| Returns a **scalar query vector** (`[:item id]`) | **Rejected** — wrap it: `[[:item id]]` (case 3). |
-| Receives **extra args** beyond the outer query vector | **Rejected** — the `input-fn` receives only `query-v`. Drop a parameter the body never reads; one it reads must travel in the outer query vector (Type B). |
-| Reads `app-db` to choose inputs | **Rejected** — thread the parameter through the outer query vector (below). |
-
-A bad return signals `:rf.error/sub-input-fn-bad-return`; an `input-fn` that
-throws signals `:rf.error/sub-input-fn-exception`; a malformed `reg-sub`
-registration shape signals `:rf.error/reg-sub-bad-args` (see
-[`error-events.md`](error-events.md) →
-[Spec 009 §Error event catalogue](https://github.com/day8/re-frame2/blob/main/spec/009-Instrumentation.md#error-event-catalogue)).
-
-### `app-db`-reading signal fn — FLAG, don't auto-rewrite
-
-If the v1 signal fn **derefs `app-db`** (or otherwise picks inputs from state),
-the `input-fn` cannot read `app-db`. **Flag for human review.** The rewrite is
-to thread the state-derived parameter through the **outer query vector at the
-call site** — so each concrete cache entry has stable dependencies:
-
-```clojure
-;; at the call site, the param comes from another subscribe
-(let [article-id @(rf/subscribe [:current-route/article-id])
-      page       @(rf/subscribe [:article/page article-id])]
-  …)
-```
-
-The graph stays dynamic at the view boundary (where React already manages
-subscription lifecycle), and each `[:article/page article-id]` cache entry has
-fixed inputs for its lifetime. See
-[Spec 006 §No app-db-dependent topology](https://github.com/day8/re-frame2/blob/main/spec/006-ReactiveSubstrate.md#subscription-input-producers--app-db-reader-static-parametric-input-fn).
-
-### Other-substrate cases (non-app-db reactive source, lifecycle, side effects)
-
-If the signal-fn body is doing something a `reg-sub-raw` would (subscribing to a
-non-app-db reactive source, managing reaction lifecycle, or side-effecting),
-that is the **M-18** `reg-sub-raw` decision tree above — route to the matching
-path (fx-driven state, state machine, or move the side effect into a handler),
-not an `input-fn`.
+**Prefer a literal `:inputs` vector.** When the signal fn's inputs do not depend
+on the outer query vector, list them literally — `{:inputs [[:totals] [:alerts]]}`.
+A literal is a constant producer, and it is the form a tool reads as a static
+edge.
 
 ### Classify each site — the case decides the type
 
-M-71 is split by case, the way M-42 is. A vector-returning (case 1) or
-single-signal (case 3) site is **Type A** once it shows all four of the
-corpus's conditions
-([`MIGRATION.md` §M-71](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-71-v1-signal-functions--v2-input-fns-vector-of-query-vectors)):
+Classify each site by the corpus's cases and its four conditions. Sweep a site
+that shows all four with the other Type A rewrites — announce, apply, record —
+with no author decision. Every other site joins the end-of-sweep Type-B batch:
+a map return (the author picks the order), an `app-db`-reading signal fn (the
+author threads the parameter through the call sites), an extra argument the
+body reads, a lifecycle, effect or custom-reaction body (routed like M-18
+above), and any signal fn you cannot read.
 
-- the membership and order of its inputs are fixed by the signal fn's own code;
-- each query vector is built from the outer query vector and constants alone;
-- the fn reads no state, owns no reaction lifecycle and has no side effects;
-- the computation fn receives the same values in the same positions as in v1 —
-  case 3 adds only the bracket.
-
-Sweep those with the other Type A rewrites: announce, apply, and record them in
-the report. They need no author decision. A typical site is a fixed pair of
-inputs:
-
-```clojure
-;; v1
-(rf/reg-sub :example/sum
-  (fn [_] [(rf/subscribe [:example/left]) (rf/subscribe [:example/right])])
-  (fn [[left right] _] (+ left right)))
-
-;; v2 — the same inputs, the same order, the same computation
-(rf/reg-sub :example/sum
-  {:inputs [[:example/left] [:example/right]]}
-  (fn [[left right] _] (+ left right)))
-```
-
-These cases are **Type B**, presented in the end-of-sweep batch and applied only
-on the author's decision: a **map return** (case 2 — the author picks the
-order), an **`app-db`-reading** signal fn (the author threads the parameter
-through call sites), an extra argument the body reads, a lifecycle, effect or
-custom-reaction body, and any signal fn you cannot read. Every site, either
-type, still needs M-75's move into `:inputs` and a materialized check, because a
-compile proves neither.
+**Verify both stages.** Every site, either type, also needs M-75's move into
+`:inputs`. The positional form throws `:rf.error/reg-sub-bad-args` at namespace
+load, and a producer that still returns live reactions fails only at first
+materialization, with `:rf.error/sub-input-fn-bad-return`. Read the boot
+console for registration errors and materialize each rewritten subscription;
+a compile covers neither stage.
 
 ---
 
