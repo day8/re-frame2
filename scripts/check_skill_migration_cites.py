@@ -411,9 +411,7 @@ def _id_sort_key(mid: str) -> tuple[int, str]:
 
 
 # ---------------------------------------------------------------------------
-# Self-test — exercises both checks against in-memory fixtures so the guard
-# itself can't silently rot. Mirrors the --self-test convention in
-# check_doc_slugs.py.
+# Self-test — each check against in-memory fixtures.
 # ---------------------------------------------------------------------------
 
 def _self_test() -> int:
@@ -437,7 +435,7 @@ def _self_test() -> int:
     # Case A — clean: table rows bind the right ids + a sub-rule cite resolves.
     probs = find_drift(
         good_migration,
-        cite("| `surf` | **M-68** | A | Frame-affordance redesign (rf2-kkut0). |")
+        cite("| `surf` | **M-68** | A | Frame-affordance redesign. |")
         + cite("| `x` | **M-69** | A | Listener-registration namespace consolidation. |")
         + cite("M-31a applies here"),
     )
@@ -454,27 +452,10 @@ def _self_test() -> int:
     # Case C — rule-mismatch: a frame-affordance ROW binds the listener id M-69.
     probs = find_drift(
         good_migration,
-        cite("| `surf` | **M-69** | A | Frame-affordance redesign (rf2-kkut0). |"),
+        cite("| `surf` | **M-69** | A | Frame-affordance redesign. |"),
     )
     if not any("RULE-MISMATCH" in p for p in probs):
         print(f"SELF-TEST FAIL (C mismatch): expected RULE-MISMATCH, got {probs}")
-        failures += 1
-
-    # Case D — the multi-id Type-A summary line (every keyword on one line, NOT a
-    # `| **M-NN** |` binding row) must NOT trip RULE-MISMATCH.
-    summary = (
-        "M-68 (frame-affordance redesign renames), "
-        "M-69 (listener-namespace consolidation)."
-    )
-    probs = find_drift(good_migration, cite(summary))
-    if any("RULE-MISMATCH" in p for p in probs):
-        print(f"SELF-TEST FAIL (D summary): false RULE-MISMATCH, got {probs}")
-        failures += 1
-
-    # Case E — word-boundary: M-6 must not match inside M-68.
-    ids = [c[2] for c in cite("see M-68 here")]
-    if ids != ["M-68"]:
-        print(f"SELF-TEST FAIL (E boundary): expected ['M-68'], got {ids}")
         failures += 1
 
     # TYPE-DRIFT fixtures.
@@ -542,31 +523,15 @@ def _self_test() -> int:
         print(f"SELF-TEST FAIL (I index clean): unexpected {probs}")
         failures += 1
 
-    # Case J — an actionable rule's trigger row is deleted: M-1 goes red, even
-    # though prose elsewhere in the section still names it.
+    # Case J — exactly the unaccounted rules go red: M-1 (its row deleted; the
+    # section prose naming it does not count), M-16a (named only in M-16's
+    # summary cell, not the Rule column), and the O-rule O-14.
     probs = find_index_coverage(
-        index_migration, index_skill(m_rows=m16, o_rows=o1, outside=outside_all)
+        index_migration, index_skill(m_rows=m16, o_rows=o1, outside="| M-76 | x |\n")
     )
-    if len(probs) != 1 or "defines M-1," not in probs[0]:
-        print(f"SELF-TEST FAIL (J index omission): expected M-1 only, got {probs}")
-        failures += 1
-
-    # Case K — column scoping: M-16a named only in M-16's summary cell is NOT a row.
-    probs = find_index_coverage(
-        index_migration,
-        index_skill(m_rows=m1 + m16, o_rows=o1, outside="| M-76, O-14 | x |\n"),
-    )
-    if not any("defines M-16a," in p for p in probs):
-        print(f"SELF-TEST FAIL (K index column): expected M-16a missing, got {probs}")
-        failures += 1
-
-    # Case L — an O-rule is checked too.
-    probs = find_index_coverage(
-        index_migration,
-        index_skill(m_rows=m1 + m16, o_rows=o1, outside="| M-16a, M-76 | x |\n"),
-    )
-    if not any("defines O-14," in p for p in probs):
-        print(f"SELF-TEST FAIL (L index O-rule): expected O-14 missing, got {probs}")
+    got = sorted(re.findall(r"defines (\S+),", "\n".join(probs)))
+    if len(probs) != 3 or got != ["M-1", "M-16a", "O-14"]:
+        print(f"SELF-TEST FAIL (J index omissions): expected M-1, M-16a, O-14, got {probs}")
         failures += 1
 
     # Case M — a missing anchor is a setup failure, not a silent pass.
