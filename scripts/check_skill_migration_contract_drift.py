@@ -1359,7 +1359,7 @@ M1_FLAG_NSES = [
     "re-frame.substrate.reagent", "re-frame.substrate.uix",
     "re-frame.substrate.context", "re-frame.substrate.spine",
     # Exact public names are not subtree exemptions; there is no Helix adapter.
-    "re-frame.schemas.cache", "re-frame.http.retry", "re-frame.ssr.ring.trust",
+    "re-frame.schemas.walker", "re-frame.http.retry", "re-frame.ssr.ring.trust",
     "re-frame.adapter.context", "re-frame.adapter.helix",
 ]
 # The M-1 scan MUST NOT flag these (the public-surface exceptions — the
@@ -1399,8 +1399,8 @@ M1_MIXED_REQUIRES = (
     ("private beside public", "(:require [re-frame.db :as db] [re-frame.core :as rf])",
      ["re-frame.db"]),
     ("several private imports", "(:require [re-frame.schemas :as s] "
-     "[re-frame.schemas.cache :as cache] [re-frame.http.retry :as retry])",
-     ["re-frame.schemas.cache", "re-frame.http.retry"]),
+     "[re-frame.schemas.walker :as walker] [re-frame.http.retry :as retry])",
+     ["re-frame.schemas.walker", "re-frame.http.retry"]),
     ("wrapped libspec", "(:require [\n re-frame.core :as rf]\n"
      "[\n re-frame.db :as db])", ["re-frame.db"]),
     ("public controls", "(:require [re-frame.core :as rf] "
