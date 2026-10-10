@@ -3,8 +3,8 @@
 // GENERATOR for `javascript_url.edn`, the external anchor for the
 // `javascript:` URL rule in the SSR hiccup emitters.
 //
-// WHY THIS EXISTS. The markup `re-frame.ssr/render-to-string` and the
-// streaming shell walk paint is hydrated by a Reagent-tier client, which
+// WHY THIS EXISTS. The markup `re-frame.ssr/render-to-string` paints is
+// hydrated by a Reagent-tier client, which
 // paints through react-dom. react-dom's `setProp` swaps a `javascript:` URL in
 // `href`, `src`, `action`, `formAction` and `xlinkHref` (and in `data` on an
 // `<object>`) for a URL that throws, before it ever reaches `setAttribute`.

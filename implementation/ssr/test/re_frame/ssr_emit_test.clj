@@ -1,15 +1,14 @@
 (ns re-frame.ssr-emit-test
   "Spec 011 §XSS at output boundaries and the hiccup emitters' wire rules,
-  driven through the public walkers — `emit/render-to-string` and the
-  streaming `streaming/render-shell` — rather than the per-attribute helper
-  `ssr_attr_filter_test` calls directly. The walkers compose `attr-string`
-  inside their own element arms, so a walker that bypassed it would pass
-  every per-attribute test while leaking a hostile prop onto the wire."
+  driven through the public walker `emit/render-to-string` rather than the
+  per-attribute helper `ssr_attr_filter_test` calls directly. The walker
+  composes `attr-string` inside its own element arms, so a walker that
+  bypassed it would pass every per-attribute test while leaking a hostile
+  prop onto the wire."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.ssr.emit :as rf.ssr.emit]
-            [re-frame.ssr.streaming :as rf.ssr.streaming]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
             [re-frame.ssr.ui-tree :as rf.ssr.ui-tree]))
 
@@ -21,28 +20,25 @@
   (assoc node :rf.ui/tree-version 1))
 
 (defn- assert-emitters-agree
-  "All three SSR paths — the sync hiccup emitter, the streaming shell walker
-  and the structural-tree serialiser — emit the same raw-text body
+  "Both SSR paths — the sync hiccup emitter and the structural-tree
+  serialiser — emit the same raw-text body
   `expected-inner` for a `tag` carrying the single string `content`."
   [tag content expected-inner]
   (let [tag-name (name tag)
         expected (str "<" tag-name ">" expected-inner "</" tag-name ">")]
     (is (= expected (rf.ssr.emit/render-to-string [tag content] {}))
         (str "sync render-to-string byte-mismatch for <" tag-name ">"))
-    (is (str/includes? (:shell-html (rf.ssr.streaming/render-shell [:div [tag content]]))
-                       expected)
-        (str "streaming render-shell byte-mismatch for <" tag-name ">"))
     (is (= expected (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag tag :children [content]})))
         (str "emit-ui-tree byte-mismatch for <" tag-name ">"))))
 
 ;; ===========================================================================
-;; Strip-prop XSS rule through both hiccup walkers
+;; Strip-prop XSS rule through the hiccup walker
 ;; ===========================================================================
 
-(deftest hostile-props-are-stripped-on-both-walkers
+(deftest hostile-props-are-stripped
   (testing "One row per strip class (handler, fn value, prototype-pollution
             key) and per element arm (open/close, void, nested descent), each
-            pinned to the exact markup on both walkers"
+            pinned to the exact markup"
     (doseq [[label tree expected]
             [["a kebab handler beside a child"
               [:div {:on-click "alert(1)" :id "x"} [:p "shell body"]]
@@ -68,9 +64,7 @@
               [:div {:ontouchstart "alert(document.cookie)" :id "x"} [:p "body"]]
               "<div id=\"x\"><p>body</p></div>"]]]
       (is (= expected (rf.ssr.emit/render-to-string tree {}))
-          (str "render-to-string — " label))
-      (is (= expected (:shell-html (rf.ssr.streaming/render-shell tree)))
-          (str "render-shell — " label)))))
+          (str "render-to-string — " label)))))
 
 (deftest render-to-string-strips-props-through-registered-view-root
   (testing "A view whose root DOM element carries a hostile handler still
@@ -133,18 +127,6 @@
   (is (= "<DIV>x</DIV>" (rf.ssr.emit/render-to-string [:DIV "x"] {}))
       "case-folding classifies; it does not make a non-void tag void"))
 
-(deftest render-shell-void-classification-is-case-insensitive
-  (is (= "<div><BR><Img src=\"/a.png\"></div>"
-         (:shell-html (rf.ssr.streaming/render-shell
-                        [:div [:BR] [:Img {:src "/a.png"}]])))))
-
-(deftest render-shell-raw-text-is-case-insensitive
-  (is (= "<div><STYLE>p > a { margin: 0 }</STYLE><Script>if (a < b) { x() }</Script></div>"
-         (:shell-html (rf.ssr.streaming/render-shell
-                        [:div
-                         [:STYLE "p > a { margin: 0 }"]
-                         [:Script "if (a < b) { x() }"]])))))
-
 ;; ===========================================================================
 ;; The Reagent-native interop head `:>` cannot be rendered without React on
 ;; the JVM; it fails loud rather than dumping component + props as raw text.
@@ -156,13 +138,6 @@
                               [:> some-component {:secret "leak-me"} [:span "child"]] {})
                             (catch clojure.lang.ExceptionInfo e e))]
     (is (= :rf.error/ssr-reagent-native-head (:rf.error/id (ex-data thrown))))))
-
-(deftest render-shell-rejects-reagent-native-head
-  (let [some-component (fn [_props] [:div "react"])]
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                          #":rf.error/ssr-reagent-native-head"
-                          (rf.ssr.streaming/render-shell
-                            [:div [:> some-component {:prop "v"}]])))))
 
 ;; ===========================================================================
 ;; Root-attrs (the `data-rf-render-hash` marker) thread past fragment and seq
@@ -246,8 +221,8 @@
            (rf.ssr.emit/render-to-string [:div {:data-x "a&b\"<>'"}] {})))))
 
 ;; ===========================================================================
-;; A Var head (`#'component`) is `ifn?` but not `fn?` on the JVM; both walkers
-;; resolve it as a component.
+;; A Var head (`#'component`) is `ifn?` but not `fn?` on the JVM; the walker
+;; resolves it as a component.
 ;; ===========================================================================
 
 (defn var-component [label] [:span label])
@@ -259,10 +234,6 @@
          (rf.ssr.emit/render-to-string [#'var-component "ok"] {:render-hash "deadbeef"}))
       "the root marker threads through the Var head onto its resolved root"))
 
-(deftest render-shell-var-headed-component
-  (is (= "<span>streamed</span>"
-         (:shell-html (rf.ssr.streaming/render-shell [#'var-component "streamed"])))))
-
 ;; ===========================================================================
 ;; A malformed head fails loud; stringifying the vector would ship its
 ;; children raw (`[nil "<script>…"]`).
@@ -273,16 +244,13 @@
                         #":rf.error/invalid-hiccup-head"
                         (rf.ssr.emit/render-to-string [nil "<script>alert(1)</script>"] {}))))
 
-(deftest collection-heads-are-malformed-on-both-paths
+(deftest collection-heads-are-malformed
   (testing "A collection head is `ifn?` (it looks up its argument) but is not
             a component"
     (let [el [{:a "<b>"} :a]]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
                             #":rf.error/invalid-hiccup-head"
-                            (rf.ssr.emit/render-to-string el {})))
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                            #":rf.error/invalid-hiccup-head"
-                            (rf.ssr.streaming/render-shell el))))))
+                            (rf.ssr.emit/render-to-string el {}))))))
 
 ;; ===========================================================================
 ;; `:dangerouslySetInnerHTML` renders as the element's raw body, in the order
@@ -290,7 +258,7 @@
 ;; over any children.
 ;; ===========================================================================
 
-(deftest dangerously-set-inner-html-renders-raw-on-both-paths
+(deftest dangerously-set-inner-html-renders-raw
   (doseq [[label tree expected]
           [["the other attributes stay; the body is not re-escaped"
             [:section [:p {:id "a" :dangerouslySetInnerHTML {:__html "a &amp; b"}}]]
@@ -305,9 +273,7 @@
             [:br {:dangerouslySetInnerHTML {:__html "<b>x</b>"}}]
             "<br>"]]]
     (is (= expected (rf.ssr.emit/render-to-string tree {}))
-        (str "render-to-string — " label))
-    (is (= expected (:shell-html (rf.ssr.streaming/render-shell tree)))
-        (str "render-shell — " label))))
+        (str "render-to-string — " label))))
 
 ;; Any value answering `:__html` by lookup supplies the body: the Reagent
 ;; bridge's `unsafe-html` value relies on it (pinned on CLJS by
@@ -327,14 +293,11 @@
             [:div {:dangerouslySetInnerHTML "<b>x</b>"} "ignored"]
             "<div></div>"]]]
     (is (= expected (rf.ssr.emit/render-to-string tree {}))
-        (str "render-to-string — " label))
-    (is (= expected (:shell-html (rf.ssr.streaming/render-shell tree)))
-        (str "render-shell — " label))))
+        (str "render-to-string — " label))))
 
 ;; ===========================================================================
-;; Form-2 components. Both walkers resolve a component head through the one
-;; `emit/resolve-component-head`, so the arity rows assert through the sync
-;; emitter and the streaming walker's use of the resolver is pinned once.
+;; Form-2 components. The walker resolves a component head through
+;; `emit/resolve-component-head`.
 ;; ===========================================================================
 
 (deftest emit-renders-form-2-component
@@ -344,8 +307,6 @@
           form2-arg    (fn [_outer-value]
                          (fn [value] [:p (str "v=" value)]))]
       (is (= "<div>hello</div>" (rf.ssr.emit/emit-element [form2-closed "hello"])))
-      (is (= "<div>hello</div>"
-             (:shell-html (rf.ssr.streaming/render-shell [form2-closed "hello"]))))
       (is (= "<p>v=7</p>" (rf.ssr.emit/emit-element [form2-arg 7])))))
 
   (testing "A component still a fn after the Form-2 unwrap fails loud"

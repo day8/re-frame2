@@ -1,5 +1,5 @@
 (ns re-frame.ssr-keyword-head-contract-test
-  "The ONE render-tree head grammar, pinned on the JVM emitters.
+  "The ONE render-tree head grammar, pinned on the JVM emitter.
 
   A keyword head in a render tree is a DOM / custom element on EVERY
   host. It is never a view reference. Views are referenced by callable
@@ -19,8 +19,7 @@
   would stay green.
 
   There is no registry probe. These tests are the corpus-wide statement
-  of the rule on the two JVM emitters — the standard emitter and the
-  streaming shell walker.
+  of the rule on the JVM emitter.
 
   ## The child spelling
 
@@ -59,7 +58,6 @@
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
             [re-frame.ssr.emit :as rf.ssr.emit]
-            [re-frame.ssr.streaming :as rf.ssr.streaming]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
 ;; The view body, held as a plain fn so the SAME implementation backs all
@@ -193,15 +191,6 @@
   (testing "the dotted `:rf.<area>/*` sub-namespaces are reserved too"
     (is (some? (head-error #(rf.ssr.emit/render-to-string % nil) [:rf.ssr/nope]))))
 
-  (testing "the streaming walker rejects it identically — it has its
-            own keyword branch, so a one-sided guard would re-fork the
-            hosts"
-    (let [data (head-error #(:shell-html (rf.ssr.streaming/render-shell %))
-                           [:rf/suspense-boundry {:id :x}])]
-      (is (= {:rf.error/id :rf.error/invalid-hiccup-head
-              :recovery    :use-a-recognised-reserved-head-or-an-unreserved-keyword}
-             (select-keys data [:rf.error/id :recovery])))))
-
   (testing "an ORDINARY namespaced keyword is NOT reserved — the guard is
             scoped to `:rf/*` and must not capture app namespaces, which
             are exactly the heads that render as custom elements"
@@ -212,16 +201,3 @@
         "`:rfid/widget` starts with `rf` but is NOT the reserved scheme —
          the check must match the `rf` namespace exactly or an `rf.` dotted
          prefix, not a bare string prefix")))
-
-(deftest both-emitters-agree-on-the-same-head
-  (testing "the two JVM emitters are separate implementations;
-            pin that they produce the SAME bytes for the same head,
-            so an edit to one cannot silently re-fork them. The scalar-child
-            rows are a delegation pin: the walker's scalar arm delegates to
-            the standard emitter rather than implementing the spelling twice"
-    (doseq [tree [[:dashboard/card :revenue]
-                  [(rf/view :dashboard/card) :revenue]
-                  [:div 'a/b]]]
-      (is (= (rf.ssr.emit/render-to-string tree nil)
-             (:shell-html (rf.ssr.streaming/render-shell tree)))
-          (str "emitter/walker divergence on " (pr-str tree))))))

@@ -108,18 +108,6 @@
     (is (str/includes? body "<div>bare</div>"))
     (is (nil? (wire-render-hash body)) "the pipeline stamps no marker into the body")))
 
-(deftest stream-handler-refuses-renderer-at-construction
-  (let [ex (is (thrown? clojure.lang.ExceptionInfo
-                 (rf.ssr.ring/stream-handler
-                   {:initial-events [[:rf.test.seam/init]]
-                    :root-view      [:div]
-                    :payload        :rf.ssr.payload/whole-app-db
-                    :renderer       fixed-renderer})))]
-    (is (= {:rf.error/id :rf.error/ssr-streaming-unsupported-opt
-            :opt-key     :renderer
-            :got         fixed-renderer}
-           (select-keys (ex-data ex) [:rf.error/id :opt-key :got])))))
-
 (deftest a-throwing-renderer-projects-like-a-root-view-render-throw
   (let [{:keys [status body]}
         (serve {:renderer (fn [_]

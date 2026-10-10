@@ -2,8 +2,8 @@
   "Shared JVM test scaffolding for the ssr-ring suite.
 
   This namespace single-sources ephemeral Jetty lifecycle, JDK HTTP requests,
-  streaming-thread leak detection, and per-test runtime reset. Timeouts and
-  polling cadence are explicit at call sites.
+  and per-test runtime reset. Timeouts and polling cadence are explicit at call
+  sites.
 
   Independence note: requiring this ns does NOT co-load any test
   namespace (it depends only on production `re-frame.*` source +
@@ -195,43 +195,3 @@
                                 (map (fn [[k v]] [k (vec v)]))
                                 (into {})))
       base)))
-
-;; ===========================================================================
-;; Streaming-writer daemon-thread leak detector
-;; ===========================================================================
-
-(def daemon-thread-name-prefix
-  "Name prefix the streaming writer (`stream-handler`) gives each
-  per-request daemon thread (`rf2-ssr-streaming-<frame-id>`). Leak
-  detection scopes by this prefix so it never counts unrelated threads."
-  "rf2-ssr-streaming-")
-
-(defn live-streaming-threads
-  "Return the vector of currently-live Threads whose name begins with
-  `daemon-thread-name-prefix` — i.e. streaming-writer daemon threads
-  still alive. Empty when the no-leak teardown has settled."
-  []
-  (->> (Thread/getAllStackTraces)
-       (.keySet)
-       (filter (fn [^Thread t]
-                 (and (.isAlive t)
-                      (some-> (.getName t)
-                              (.startsWith daemon-thread-name-prefix)))))
-       vec))
-
-(defn await-no-streaming-threads!
-  "Poll until no `rf2-ssr-streaming-*` thread is alive, or `timeout-ms`
-  elapses. RETURNS the final seq of live threads — empty on success,
-  non-empty (the leaked threads) on timeout — so a caller's assertion
-  can name the offenders in its failure message. Does NOT throw on
-  timeout.
-
-  `poll-ms` is explicit so each caller states its own cadence."
-  [timeout-ms poll-ms]
-  (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
-    (loop []
-      (let [alive (live-streaming-threads)]
-        (cond
-          (empty? alive)                           []
-          (>= (System/currentTimeMillis) deadline) alive
-          :else (do (Thread/sleep (long poll-ms)) (recur)))))))

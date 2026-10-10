@@ -12,7 +12,6 @@
   a textarea's LF) to show they round-trip to the authored string."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.ssr.emit :as rf.ssr.emit]
-            [re-frame.ssr.streaming :as rf.ssr.streaming]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
             [re-frame.ssr.ui-tree :as rf.ssr.ui-tree])
   (:import [java.io StringReader]
@@ -31,10 +30,7 @@
             (str "the parse produced no <" tag "> element: " (pr-str html)))
     (.getTextContent (.item elements 0))))
 
-(defn- shell [hiccup]
-  (:shell-html (rf.ssr.streaming/render-shell hiccup)))
-
-(deftest non-streaming-hiccup-preserves-a-leading-newline
+(deftest hiccup-preserves-a-leading-newline
   (testing "every EXTRA authored LF survives (one is eaten, the rest remain)"
     (is (= "<pre>\n\n\ncode</pre>" (rf.ssr.emit/render-to-string [:pre "\n\ncode"]))))
   (testing "text is still escaped alongside the compensation"
@@ -45,7 +41,7 @@
   (testing "tag-name case is normalised for classification, not for emission"
     (is (= "<PRE>\n\ncode</PRE>" (rf.ssr.emit/render-to-string [:PRE "\ncode"])))))
 
-(deftest non-streaming-hiccup-vacuity-controls
+(deftest hiccup-vacuity-controls
   (testing "no leading LF, or a non-newline-eating element: no compensation"
     (is (= "<pre>code</pre>" (rf.ssr.emit/render-to-string [:pre "code"])))
     (is (= "<div>\ncode</div>" (rf.ssr.emit/render-to-string [:div "\ncode"]))))
@@ -61,7 +57,7 @@
     (is (= "<pre>\n<b>x</b></pre>" (rf.ssr.emit/render-to-string [:pre "\n" [:b "x"]]))
         "an element sibling is a multi-child body")))
 
-(deftest all-three-ssr-paths-agree
+(deftest both-ssr-paths-agree
   (doseq [[tag body] [["pre" "\ncode"] ["listing" "\nl"] ["textarea" "\nt"]
                       ["pre" "code"] ["div" "\ncode"]]]
     (let [hiccup   [(keyword tag) body]
@@ -70,9 +66,7 @@
                     :children           [body]}
           from-s5  (rf.ssr.ui-tree/emit-ui-tree tree)]
       (is (= from-s5 (rf.ssr.emit/render-to-string hiccup))
-          (str "S5 serialiser vs sync hiccup emitter on <" tag ">"))
-      (is (= from-s5 (shell hiccup))
-          (str "S5 serialiser vs streaming hiccup emitter on <" tag ">")))))
+          (str "S5 serialiser vs sync hiccup emitter on <" tag ">")))))
 
 (def ^:private react-dom-static-markup
   "react-dom/server 19.2 `renderToStaticMarkup` output, measured, for the same
@@ -88,8 +82,6 @@
   (doseq [[tag [authored expected-bytes]] react-dom-static-markup]
     (let [hiccup [(keyword tag) authored]]
       (is (= expected-bytes (rf.ssr.emit/render-to-string hiccup))
-          (str "<" tag "> non-streaming: byte parity with react-dom/server"))
-      (is (= expected-bytes (shell hiccup))
-          (str "<" tag "> streaming: byte parity with react-dom/server"))
+          (str "<" tag ">: byte parity with react-dom/server"))
       (is (= authored (parsed-text-content tag expected-bytes))
           (str "<" tag "> react-dom's bytes parse to the authored string")))))

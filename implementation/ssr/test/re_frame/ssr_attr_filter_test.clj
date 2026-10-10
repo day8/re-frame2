@@ -8,7 +8,6 @@
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.ssr.head.emit :as rf.ssr.head.emit]
             [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]
-            [re-frame.ssr.streaming :as rf.ssr.streaming]
             [re-frame.ssr.emit :as rf.ssr.emit]))
 
 (deftest attr-string-strips-event-handler-props
@@ -70,14 +69,11 @@
 
 (deftest structural-slots-drop-on-every-emitter-that-shares-the-roster
   (testing "The drop lives in the shared roster rather than one emitter, so
-            the body, streaming and head emitters all read it"
+            the body and head emitters both read it"
     (is (= "<li>1</li><li>2</li>"
            (rf.ssr.emit/render-to-string
              (into [:<>] (for [i [1 2]] [:li {:key i} i])) {}))
         "the canonical keyed-list idiom")
-    (is (= "<main><div>x</div></main>"
-           (:shell-html
-             (rf.ssr.streaming/render-shell [:main [:div {:key "k"} "x"]]))))
     (is (= "<meta name=\"a\" content=\"b\">"
            (rf.ssr.head.emit/head-model->html
              {:meta [{:key "m1" :name "a" :content "b"}]}))
@@ -99,8 +95,6 @@
   (is (= "<div id=\"a\">x</div>"
          (rf.ssr.emit/render-to-string [:div {:children "c" :id "a"} "x"] {}))
       "the body emitter drops the prop and keeps the real children")
-  (is (= "<div></div>"
-         (:shell-html (rf.ssr.streaming/render-shell [:div {:children "v"}]))))
   (is (= "<meta name=\"a\">"
          (rf.ssr.head.emit/head-model->html
            {:meta [{:dangerouslySetInnerHTML {:__html "<b>x</b>"} :name "a"}]}))))
