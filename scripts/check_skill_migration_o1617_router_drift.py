@@ -340,51 +340,14 @@ def run(*, verbose: bool, ci: bool) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Self-test — exercises the leaf/companion classifiers against in-memory
-# fixtures so the guard can't silently rot. Mirrors the --self-test convention
-# in the sibling scripts/check_skill_*.py guards.
+# Self-test — the leaf/companion classifiers against fixture files.
 # ---------------------------------------------------------------------------
 
 def _self_test() -> int:
-    failures = 0
+    import tempfile
 
-    def expect_leaf(text: str, *, dirty: bool, label: str) -> None:
-        nonlocal failures
-        import tempfile
-
-        with tempfile.TemporaryDirectory() as td:
-            # Point CORPUS_DIR check at a real existing companion by writing one.
-            comp = Path(td) / "async-flow-fx-to-reg-machine.md"
-            comp.write_text("# c\n", encoding="utf-8")
-            leaf = Path(td) / "async-flow-to-machines.md"
-            leaf.write_text(text, encoding="utf-8")
-            # Temporarily point module globals at the fixture dirs.
-            global SKILL_REFERENCES, CORPUS_DIR
-            saved_ref, saved_corpus = SKILL_REFERENCES, CORPUS_DIR
-            SKILL_REFERENCES, CORPUS_DIR = Path(td), Path(td)
-            try:
-                got = bool(
-                    check_leaf(leaf, "async-flow-fx-to-reg-machine.md")
-                )
-            finally:
-                SKILL_REFERENCES, CORPUS_DIR = saved_ref, saved_corpus
-        if got != dirty:
-            print(f"SELF-TEST FAIL ({label}): expected dirty={dirty}, got {got}")
-            failures += 1
-
-    def expect_companion(text: str, *, dirty: bool, label: str) -> None:
-        nonlocal failures
-        import tempfile
-
-        with tempfile.TemporaryDirectory() as td:
-            comp = Path(td) / "async-flow-fx-to-reg-machine.md"
-            comp.write_text(text, encoding="utf-8")
-            got = bool(check_companion(comp, "async-flow-to-machines.md"))
-        if got != dirty:
-            print(f"SELF-TEST FAIL ({label}): expected dirty={dirty}, got {got}")
-            failures += 1
-
-    # A clean router leaf (thin, routes, no shadow sections, no tracker id).
+    global CORPUS_DIR
+    companion_name = "async-flow-fx-to-reg-machine.md"
     clean_leaf = (
         "# O-16 — translate `async-flow-fx` to state machines\n\n"
         "Intro prose. `reg-machine` is the successor.\n\n"
@@ -394,40 +357,6 @@ def _self_test() -> int:
         "[`async-flow-fx-to-reg-machine.md`]"
         "(../../../migration/from-re-frame-v1/async-flow-fx-to-reg-machine.md).\n"
     )
-    expect_leaf(clean_leaf, dirty=False, label="LEAF clean router")
-
-    # Shadow guide — a re-grown `## Detection` section.
-    expect_leaf(
-        clean_leaf + "\n## Detection\n\nGrep for the coord.\n",
-        dirty=True,
-        label="LEAF shadow ## Detection",
-    )
-    # Shadow guide — a mapping table row.
-    expect_leaf(
-        clean_leaf + "\n| a | b | c |\n",
-        dirty=True,
-        label="LEAF mapping-table row",
-    )
-    # Shadow guide — a fenced clojure worked example.
-    expect_leaf(
-        clean_leaf + "\n```clojure\n(rf/reg-machine :x {})\n```\n",
-        dirty=True,
-        label="LEAF clojure fence",
-    )
-    # Tracker id in leaf prose.
-    expect_leaf(
-        clean_leaf + "\nSee rf2-abcde for context.\n",
-        dirty=True,
-        label="LEAF tracker id",
-    )
-    # Missing corpus-companion route.
-    expect_leaf(
-        "# O-16\n\nNo route here.\n",
-        dirty=True,
-        label="LEAF no route",
-    )
-
-    # A clean, forced-framed full owner.
     clean_companion = (
         "# O-16. Convert async-flow-fx flows to reg-machine\n\n"
         "## Acting is forced; the conversion path is the opt-in part\n\n"
@@ -436,38 +365,43 @@ def _self_test() -> int:
         "| a | b |\n|---|---|\n| x | y |\n\n"
         "## Reporting\n\nList the sites.\n"
     )
-    expect_companion(clean_companion, dirty=False, label="COMPANION clean owner")
-
-    # Stale framing — the 'still loads' claim.
-    expect_companion(
-        clean_companion.replace(
+    cases = (
+        ("LEAF clean router", check_leaf, clean_leaf, False),
+        ("LEAF shadow ## Detection", check_leaf,
+         clean_leaf + "\n## Detection\n\nGrep for the coord.\n", True),
+        ("LEAF mapping-table row", check_leaf, clean_leaf + "\n| a | b | c |\n", True),
+        ("LEAF clojure fence", check_leaf,
+         clean_leaf + "\n```clojure\n(rf/reg-machine :x {})\n```\n", True),
+        ("LEAF tracker id", check_leaf, clean_leaf + "\nSee rf2-abcde for context.\n", True),
+        ("LEAF no route", check_leaf, "# O-16\n\nNo route here.\n", True),
+        ("COMPANION clean owner", check_companion, clean_companion, False),
+        ("COMPANION still-loads", check_companion, clean_companion.replace(
             "It **fails to compile**",
-            "the `:async-flow` fx still loads, so it **fails to compile**",
-        ),
-        dirty=True,
-        label="COMPANION still-loads",
+            "the `:async-flow` fx still loads, so it **fails to compile**"), True),
+        ("COMPANION no forced framing", check_companion, clean_companion.replace(
+            "It **fails to compile** the moment re-frame2 is on the classpath.",
+            "It is superseded."), True),
+        ("COMPANION no Reporting", check_companion,
+         clean_companion.replace("## Reporting\n\nList the sites.\n", ""), True),
     )
-    # Stale framing — the opt-in heading.
-    expect_companion(
-        clean_companion.replace(
-            "## Acting is forced; the conversion path is the opt-in part",
-            "## Why the rewrite is opt-in",
-        ),
-        dirty=True,
-        label="COMPANION opt-in heading",
-    )
-    # Missing forced framing.
-    expect_companion(
-        clean_companion.replace("It **fails to compile** the moment re-frame2 is on the classpath.", "It is superseded."),
-        dirty=True,
-        label="COMPANION no forced framing",
-    )
-    # Missing owner section (no Reporting).
-    expect_companion(
-        clean_companion.replace("## Reporting\n\nList the sites.\n", ""),
-        dirty=True,
-        label="COMPANION no Reporting",
-    )
+
+    failures = 0
+    saved_corpus = CORPUS_DIR
+    with tempfile.TemporaryDirectory() as td:
+        # check_leaf resolves the companion under CORPUS_DIR, so one must exist.
+        CORPUS_DIR = Path(td)
+        companion = CORPUS_DIR / companion_name
+        companion.write_text("# c\n", encoding="utf-8")
+        try:
+            for label, check, text, dirty in cases:
+                path = companion if check is check_companion else CORPUS_DIR / "leaf.md"
+                path.write_text(text, encoding="utf-8")
+                got = bool(check(path, companion_name))
+                if got != dirty:
+                    print(f"SELF-TEST FAIL ({label}): expected dirty={dirty}, got {got}")
+                    failures += 1
+        finally:
+            CORPUS_DIR = saved_corpus
 
     if failures:
         print(f"self-test: {failures} failure(s).")
