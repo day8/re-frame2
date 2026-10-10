@@ -368,9 +368,6 @@
    {:key         :machines/reg-machine
     :producer-ns 're-frame.machines
     :description "Register a state machine definition (plain-fn surface)."}
-   {:key         :machines/make-machine-handler
-    :producer-ns 're-frame.machines
-    :description "Create the event-handler that drives a machine instance."}
    {:key         :machines/machine-transition
     :producer-ns 're-frame.machines
     :description "Apply a transition to a machine instance."}

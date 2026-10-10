@@ -5,8 +5,9 @@
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.cofx :as rf.cofx]
-            [re-frame.machines :as rf.machines]
+            [re-frame.machines]
             [re-frame.machines.cofx-attach :as rf.machines.cofx-attach]
+            [re-frame.machines.lifecycle-fx.registration :as rf.machines.lifecycle-fx.registration]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom])
   (:import [clojure.lang ExceptionInfo]))
@@ -38,7 +39,7 @@
            ["a bare (unqualified) :as"       {:rf/sub [:a/x] :as :bare}]
            ["a key other than :rf/sub / :as" {:rf/sub [:a/x] :as :app/x :bogus 1}]]]
     (is (= :rf.error/cofx-request-invalid
-           (error-id #(rf.machines/make-machine-handler (capturing [source] :app/x (atom nil)))))
+           (error-id #(rf.machines.lifecycle-fx.registration/make-machine-handler (capturing [source] :app/x (atom nil)))))
         label)))
 
 (deftest sub-fact-resolves-live-and-replays-verbatim

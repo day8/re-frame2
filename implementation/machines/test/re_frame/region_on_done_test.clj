@@ -8,7 +8,8 @@
   refs in any of its candidates."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines :as rf.machines]
+            [re-frame.machines]
+            [re-frame.machines.lifecycle-fx.registration :as rf.machines.lifecycle-fx.registration]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
@@ -74,7 +75,7 @@
 
 (defn- refusal
   [m]
-  (try (rf.machines/make-machine-handler m) nil
+  (try (rf.machines.lifecycle-fx.registration/make-machine-handler m) nil
        (catch clojure.lang.ExceptionInfo e (assoc (ex-data e) ::message (ex-message e)))))
 
 (deftest region-on-done-targets-are-checked-at-registration

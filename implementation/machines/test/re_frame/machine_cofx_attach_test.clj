@@ -5,8 +5,9 @@
   (:require [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
-            [re-frame.machines :as rf.machines]
+            [re-frame.machines]
             [re-frame.machines.cofx-attach :as rf.machines.cofx-attach]
+            [re-frame.machines.lifecycle-fx.registration :as rf.machines.lifecycle-fx.registration]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom])
   (:import [clojure.lang ExceptionInfo]))
@@ -27,7 +28,7 @@
                   (rf.machines.cofx-attach/index-ensure-sets m) snap event))))
 
 (defn- registration-error-id [machine]
-  (try (rf.machines/make-machine-handler machine) nil
+  (try (rf.machines.lifecycle-fx.registration/make-machine-handler machine) nil
        (catch ExceptionInfo e (:rf.error/id (ex-data e)))))
 
 (deftest inline-requires-is-refused-at-registration
