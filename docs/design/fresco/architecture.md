@@ -409,8 +409,11 @@ string retained per unique key
 
 **The commit basis, and the two windows of invariant 5.** `generation/commit-basis`
 is the flush generation plus the frame's own physical-install epoch
-(`frame/frame-commit-epoch`) plus the registry epoch, three terms because each
-sees a movement the other two cannot. The generation moves only through a
+(`frame/frame-commit-epoch`) plus the registry epoch plus the retired epochs of
+destroyed frames, four terms because each sees a movement the others cannot.
+The retired term is what carries a same-id reincarnation: the successor's
+install epoch restarts at zero, and destroying the predecessor added its final
+epoch plus one, so the basis is monotone across the transition. The generation moves only through a
 committed cell's watch — `flush!` runs from `mark-dirty!`, whose only caller is
 the watch `acquire-cell!` installs at commit — so a key nothing holds yet can
 move without moving it by one. The install epoch is a counter bumped at both of
@@ -449,19 +452,17 @@ sibling (`a-write-landing-in-the-render-to-commit-gap-heals-the-boundary`).
 **A cell's stamp is a basis reading, floored.** `flush!` re-stamps each dirty
 cell rather than incrementing it, so the stamp stays comparable with a staged
 key's live reading; it floors the re-stamp at one above the stamp the cell
-carried, because across a same-id frame reincarnation the frame term restarts
-and the basis alone can land on the number the cell already holds — measured in
-Chromium at 3 → 3, the notification delivered and ignored, the predecessor's
-value left on screen. The floor can only raise a stamp, so the sum stays
-monotone. The ruling and the paint-order witness are on
+carried, so a flush that notifies a reader always moves the number that
+reader's React re-reads, even where the basis has not moved past the old stamp
+— a notification delivered with an unmoved number is ignored, and the
+predecessor's value stays on screen. The floor can only raise a stamp, so the
+sum stays monotone. The ruling and the paint-order witness are on
 [invariants.md](product/invariants.md#the-callback-and-frame-incarnation-rule-rf2-hic-013).
-The generation term is load-bearing across that same reincarnation read from
-the staged side (rf2-6c12m.19): the frame term ties, the staged key moved no
-watch, and what bumps the generation is the microtask rewire of any other cell
-the frame holds — `staged_reincarnation_basis_cljs_test` shows the boundary
-corrected with the term and frozen without it. A frame holding no other cell
-ties either way; that axis is Spec 006 invariant 5's `:node-key` axis, not the
-basis's.
+Read from the staged side, the same reincarnation is carried by the retired
+term: a staged key rendered under the predecessor and committed under the
+successor sees `basis@commit` exceed `basis@render` whether or not the frame
+holds any other cell — `staged_reincarnation_basis_cljs_test` takes both
+postures, through a body and through a `native/use-sub` one-key entry.
 
 **The other two axes, and which half of each the basis carries.** A `:sub`
 registration and a same-id reincarnation split by whether the boundary already
