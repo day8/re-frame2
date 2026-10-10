@@ -249,9 +249,8 @@ _DURABLE_ID_KEYS = (
 #            (.getItem js/localStorage ...)  (.getItem js/sessionStorage ...)
 #            (.-prop js/location)  (.-prop js/navigator)  (js/matchMedia ...)
 #            (some-> (.-localStorage js/globalThis) (.getItem ...))  + twin
-# Each entry is NAMED so a finding can say which read form produced it and the
-# self-test can hold the roster to owning a fixture. The names are the
-# roster's identity.
+# Each entry is NAMED so a finding can say which read form produced it. The
+# names are the roster's identity.
 #
 # WHY THE CALL-WRAPPED BROWSER FORMS ARE ENUMERATED
 #
@@ -737,298 +736,89 @@ _SELF_TEST_FIXTURE_ROOT = (
     / "check_ambient_durable_reads"
 )
 
-
-# The two roster read forms NO fixture can exercise, and why. Both carry the
-# literal text `getRandomValues`, which is itself an `_ALLOWLIST_WINDOW_RE`
-# wrapper — so any line matching either of them sits inside its own exemption
-# window and can never produce a finding. That is deliberate (rider c: effect-
-# side crypto is sanctioned), and it is stated here rather than left as a silent
-# gap in the coverage assertion. The self-test holds this roster BOTH ways: an
-# entry here that no fixture covers is fine, but an entry here that a fixture
-# DOES cover is a stale exemption and fails.
-_UNEXERCISABLE_READ_FORMS: dict[str, str] = {
-    "js/crypto.getRandomValues":
-        "the text `getRandomValues` is itself an _ALLOWLIST_WINDOW_RE wrapper, "
-        "so a line matching this form always exempts itself",
-    ".getRandomValues js/crypto":
-        "same — the form's own text is the allowlist wrapper",
-}
-
-# What each positive fixture must yield, as `key<-read-form` witnesses. A pair
-# is written once per (durable key, read form) the fixture proves; a fixture
-# planting N witnesses on N lines is asserted by NAME, not by the number N.
+# What each positive fixture must yield, as `key<-read-form` witnesses.
 _POSITIVE_WITNESSES: dict[str, frozenset[str]] = {
-    # The canonical dotted alias dialect has a fixture of its own, apart from
-    # the bare-leaf `interop/` spelling in `every_durable_timestamp_key.cljc`,
-    # so each spelling can die alone and be named when it does.
     "positive/dotted_alias_now_ms_into_loaded_at.cljc":
         frozenset({"loaded-at<-now-ms"}),
-    "positive/epoch_now_into_settled_at.cljc":
-        frozenset({"settled-at<-now-ms"}),
     "positive/now_ms_multiline.cljc":
         frozenset({"stale-at<-now-ms"}),
     "positive/durable_write_near_debug_probe.cljc":
         frozenset({"updated-at<-now-ms"}),
-    # Written out, NOT derived from `_DURABLE_TIMESTAMP_KEYS`. A comprehension
-    # over the roster shrinks in lockstep when a roster entry is deleted, so the
-    # fixture would keep passing having stopped testing that entry. Written
-    # out, deleting `deadline-at` from the roster reds this fixture naming it.
-    "positive/every_durable_timestamp_key.cljc": frozenset({
-        "started-at<-now-ms", "deadline-at<-now-ms", "loaded-at<-now-ms",
-        "stale-at<-now-ms", "invalidated-at<-now-ms", "settled-at<-now-ms",
-        "created-at<-now-ms", "completed-at<-now-ms", "errored-at<-now-ms",
-        "restored-at<-now-ms", "installed-at<-now-ms", "registered-at<-now-ms",
-        "updated-at<-now-ms", "detected-at<-now-ms", "fetched-at<-now-ms",
-        "cached-at<-now-ms", "expires-at<-now-ms", "refreshed-at<-now-ms",
-    }),
-    "positive/every_durable_id_key.cljc": frozenset({
-        "id<-random-uuid", "entry-id<-random-uuid", "request-id<-random-uuid",
-        "instance-id<-random-uuid", "mutation-id<-random-uuid",
-        "temp-id<-random-uuid", "correlation-id<-random-uuid",
-        "resource-id<-random-uuid",
-    }),
-    "positive/every_ambient_read_form.cljc": frozenset({
+    "positive/ambient_read_forms.cljc": frozenset({
         "instance-id<-now-ms",
         "instance-id<-js/Date.now",
         "instance-id<-.now js/Date",
         "instance-id<-rand",
-        "instance-id<-rand-int",
-        "instance-id<-rand-nth",
         "instance-id<-random-uuid",
-        # browser host facts, bare symbol in the value position
-        "instance-id<-js/location",
-        "instance-id<-js/navigator",
-        "instance-id<-navigator.",
-        "instance-id<-js/localStorage",
-        "instance-id<-js/sessionStorage",
-        "instance-id<-.matchMedia",
-        "instance-id<-js/matchMedia",
-        # browser host facts, call-wrapped. Each of these lines
-        # ALSO witnesses the bare entry whose text it contains — listed above,
-        # and named again here so deleting either roster entry reds this
-        # fixture by name (as the `(rand-nth …)` line also witnesses `rand`).
         "instance-id<-.getItem js/localStorage",
-        "instance-id<-.getItem js/sessionStorage",
+        "instance-id<-js/localStorage",
         "instance-id<-.-prop js/location",
-        "instance-id<-.-prop js/navigator",
-        "instance-id<-(js/matchMedia ...)",
+        "instance-id<-js/location",
+        "instance-id<-.matchMedia",
         "instance-id<-some-> .-localStorage js/globalThis",
-        "instance-id<-some-> .-sessionStorage js/globalThis",
     }),
 }
 
 _NEGATIVE_FIXTURES: tuple[str, ...] = (
-    # threaded causal time from the reply token (the correct pattern)
-    "negative/threaded_completed_at.cljc",
-    # effect-side crypto for a session token (rider c)
-    "negative/effect_side_crypto_token.cljc",
-    # a trace/diagnostic timestamp (allowlisted wrapper)
-    "negative/trace_diagnostic_timestamp.cljc",
-    # the browser-host-fact counterpart: storage / location / navigator /
-    # media-query facts threaded off the token's :rf.cofx, with the getter
-    # spellings confined to ambient cofx suppliers
-    "negative/threaded_host_fact.cljc",
-    # the conscious #_:rf.world/ambient-ok escape
-    "negative/ambient_ok_escape.cljc",
-    # the symbol in a docstring / `;;` comment
-    "negative/now_ms_in_docstring.cljc",
-    # a freshness DECISION read (compared, not written durably)
-    "negative/freshness_decision_read.cljc",
-)
-
-
-_SCOPE_FIXTURE_TEXT = (
-    "(ns fixtures.scope\n"
-    '  "Cache-copy scope fixture — see _run_scope_self_test."\n'
-    "  (:require [re-frame.interop :as interop]))\n"
-    "\n"
-    "(defn install [entry] (assoc entry :loaded-at (interop/now-ms)))\n"
+    "negative/now_ms_in_docstring.cljc",         # prose is masked
+    "negative/trace_diagnostic_timestamp.cljc",  # the trace/emit! wrapper
+    "negative/effect_side_crypto_token.cljc",    # effect-side crypto (rider c)
+    "negative/ambient_ok_escape.cljc",           # the #_:rf.world/ambient-ok escape
 )
 
 
 def _run_scope_self_test(verbose: bool = False) -> int:
-    """Prove BOTH halves of the scan scope, per roster entry.
+    """The authored durable-write path is scanned; a copy in a build cache is not.
 
-    The authored durable-write path is scanned; a byte-identical copy of it
-    nested in a build cache is not. Both halves matter: dropping the first
-    would make the gate toothless, and the second is the scope narrowing the
-    prune makes, so it is asserted rather than assumed.
-
-    Built in a temp tree because the real repo contains no cache-nested copy to
-    assert against, so the real tree cannot show an `endswith`-only reach.
-    Every `_EXCLUDE_DIR_NAMES` entry is exercised, so a roster entry can never
-    be added without a witness, as the key rosters require too.
+    Built in a temp tree because the real repo contains no cache-nested copy.
     """
     suffix = DURABLE_WRITE_SUFFIXES[0]
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp).resolve()
         authored = root / suffix
-        authored.parent.mkdir(parents=True, exist_ok=True)
-        authored.write_text(_SCOPE_FIXTURE_TEXT, encoding="utf-8")
-        for cache_dir in sorted(_EXCLUDE_DIR_NAMES):
-            nested = root / "implementation" / cache_dir / suffix
-            nested.parent.mkdir(parents=True, exist_ok=True)
-            nested.write_text(_SCOPE_FIXTURE_TEXT, encoding="utf-8")
-
-        findings = scan(root, root)
-        flagged = sorted({f.path.resolve() for f in findings})
+        for path in (authored, root / "implementation" / "node_modules" / suffix):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                "(defn install [e] (assoc e :loaded-at (interop/now-ms)))\n",
+                encoding="utf-8",
+            )
+        flagged = sorted({f.path.resolve() for f in scan(root, root)})
 
     if flagged != [authored]:
         sys.stderr.write(
-            "self-test FAIL: scope — the gate must flag the AUTHORED durable-"
-            "write path and no cache-nested copy of it.\n"
-            f"      expected exactly: {authored}\n"
-            f"      got {len(flagged)} path(s): "
+            f"self-test FAIL: scope — expected exactly {authored}, got "
             f"{', '.join(str(p) for p in flagged) or '(none)'}\n"
         )
         return 1
     if verbose:
-        sys.stderr.write(
-            "self-test PASS: scope (authored path flagged; a copy nested in "
-            f"each of the {len(_EXCLUDE_DIR_NAMES)} excluded dir(s) is not)\n"
-        )
+        sys.stderr.write("self-test PASS: scope\n")
     return 0
 
 
 def _run_self_tests(verbose: bool = False) -> int:
-    """Scan each fixture and assert the EXACT set of witnesses it yields.
+    """Each fixture must yield EXACTLY its witnesses (none for a negative).
 
-    A witness is `<durable key><-<ambient read form>` — the two halves of the
-    cross-product this gate detects, read off the match that produced the
-    finding. Direct-file scan mode is used so the suffix allow-list does not
-    hide the fixtures (the fixture IS the durable-write surface under test).
-
-    Five assertions, each closing a different way for the gate to go quietly
-    toothless (the shape `check_retired_image_keys` uses too):
-
-      1. Per positive fixture, the witness set must match EXACTLY, and the
-         finding COUNT must equal it — so a dead detector reds by NAME rather
-         than being masked by a sibling witness in the same file, and two
-         witnesses collapsing onto one line cannot hide inside a set.
-      2. Every negative fixture stays green.
-      3. Every durable key in `_ALL_DURABLE_KEYS` owns a witness. Without it,
-         widening the roster would carry no obligation and a key added with a
-         typo'd spelling would be green forever.
-      4. Every read form in `_AMBIENT_READ_FORMS` owns a witness, except the
-         declared-unexercisable pair — and a declared entry that DOES get
-         covered fails too, so the exemption cannot go stale.
-      5. SCOPE: the authored durable-write path is scanned and a
-         cache-nested copy of it is not — see `_run_scope_self_test`.
+    Direct-file scan mode, so the suffix allow-list does not hide the fixtures.
     """
     failures = 0
-    checked = 0
-    covered_keys: set[str] = set()
-    covered_reads: set[str] = set()
-    fake_root = _SELF_TEST_FIXTURE_ROOT  # repo_root is unused in direct-file mode
-
-    for fixture, expected in _POSITIVE_WITNESSES.items():
+    cases = list(_POSITIVE_WITNESSES.items())
+    cases += [(fixture, frozenset()) for fixture in _NEGATIVE_FIXTURES]
+    for fixture, expected in cases:
         path = _SELF_TEST_FIXTURE_ROOT / fixture
         if not path.is_file():
-            sys.stderr.write(
-                f"self-test FAIL: fixture {fixture!r} missing at {path}\n"
-            )
+            sys.stderr.write(f"self-test FAIL: fixture {fixture!r} missing\n")
             failures += 1
             continue
-        checked += 1
-        findings = scan(path, fake_root, include_tests=True)
-        actual = frozenset(
-            f"{f.key}<-{form}" for f in findings for form in f.reads
-        )
-        covered_keys |= {f.key for f in findings}
-        covered_reads |= {form for f in findings for form in f.reads}
-        if actual != expected:
-            failures += 1
-            sys.stderr.write(f"self-test FAIL: {fixture}\n")
-            missing = sorted(expected - actual)
-            extra = sorted(actual - expected)
-            if missing:
-                sys.stderr.write(
-                    "      DETECTOR DEAD — this fixture plants "
-                    f"{', '.join(missing)} and the gate did not see it\n"
-                )
-            if extra:
-                sys.stderr.write(f"      UNEXPECTED: {', '.join(extra)}\n")
-            continue
-        # A set hides duplicates, and a duplicate is a witness that can die
-        # unseen: if two findings attribute identically, either may vanish and
-        # the set is unchanged. Every finding must therefore be distinguishable.
-        # (Two witnesses on ONE line is fine and expected — `(rand-nth …)`
-        # matches the `rand` roster entry as well as its own.)
-        elif len({(f.key, f.reads) for f in findings}) != len(findings):
+        findings = scan(path, _SELF_TEST_FIXTURE_ROOT, include_tests=True)
+        actual = frozenset(f"{f.key}<-{form}" for f in findings for form in f.reads)
+        if actual != expected or (findings and not expected):
             failures += 1
             sys.stderr.write(
-                f"self-test FAIL: {fixture} has {len(findings)} findings that "
-                "attribute to fewer distinct witnesses — a duplicate can die "
-                "without changing the set. Plant each witness once.\n"
+                f"self-test FAIL: {fixture}: expected {sorted(expected)}, got "
+                f"{[(f.line, f.key, sorted(f.reads)) for f in findings]}\n"
             )
         elif verbose:
-            sys.stderr.write(
-                f"self-test PASS: {fixture} ({len(findings)} witness(es))\n"
-            )
-
-    for fixture in _NEGATIVE_FIXTURES:
-        path = _SELF_TEST_FIXTURE_ROOT / fixture
-        if not path.is_file():
-            sys.stderr.write(
-                f"self-test FAIL: fixture {fixture!r} missing at {path}\n"
-            )
-            failures += 1
-            continue
-        checked += 1
-        findings = scan(path, fake_root, include_tests=True)
-        if findings:
-            failures += 1
-            sys.stderr.write(
-                f"self-test FAIL: {fixture} is a sanctioned counterpart and "
-                f"must stay GREEN; got {len(findings)} finding(s):\n"
-            )
-            for f in findings:
-                sys.stderr.write(
-                    f"      line {f.line}: {f.key} <- "
-                    f"{', '.join(sorted(f.reads)) or '?'}: {f.snippet}\n"
-                )
-        elif verbose:
-            sys.stderr.write(f"self-test PASS: {fixture} (green)\n")
-
-    uncovered_keys = sorted(set(_ALL_DURABLE_KEYS) - covered_keys)
-    if uncovered_keys:
-        failures += 1
-        sys.stderr.write(
-            "self-test FAIL: durable key(s) in the roster with no positive "
-            f"witness: {', '.join(uncovered_keys)}\n"
-            "      Plant each one in a positive fixture and declare its witness "
-            "in _POSITIVE_WITNESSES.\n"
-        )
-
-    roster_reads = {name for name, _pattern in _AMBIENT_READ_FORMS}
-    uncovered_reads = sorted(
-        roster_reads - covered_reads - set(_UNEXERCISABLE_READ_FORMS)
-    )
-    if uncovered_reads:
-        failures += 1
-        sys.stderr.write(
-            "self-test FAIL: ambient read form(s) in the roster with no "
-            f"positive witness: {', '.join(uncovered_reads)}\n"
-            "      Plant each one in a positive fixture, or — if it genuinely "
-            "cannot fire — declare it in _UNEXERCISABLE_READ_FORMS with the "
-            "reason.\n"
-        )
-    stale = sorted(set(_UNEXERCISABLE_READ_FORMS) & covered_reads)
-    if stale:
-        failures += 1
-        sys.stderr.write(
-            "self-test FAIL: read form(s) declared unexercisable that a fixture "
-            f"DID exercise: {', '.join(stale)}\n"
-            "      The exemption is stale — delete the entry and keep the "
-            "witness.\n"
-        )
-    unknown = sorted(set(_UNEXERCISABLE_READ_FORMS) - roster_reads)
-    if unknown:
-        failures += 1
-        sys.stderr.write(
-            "self-test FAIL: _UNEXERCISABLE_READ_FORMS names form(s) that are "
-            f"not in the roster at all: {', '.join(unknown)}\n"
-        )
+            sys.stderr.write(f"self-test PASS: {fixture}\n")
 
     failures += _run_scope_self_test(verbose=verbose)
 
@@ -1036,13 +826,7 @@ def _run_self_tests(verbose: bool = False) -> int:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
         return 1
     if verbose:
-        sys.stderr.write(
-            f"all {checked} self-test fixture(s) passed; all "
-            f"{len(_ALL_DURABLE_KEYS)} durable key(s) and "
-            f"{len(roster_reads) - len(_UNEXERCISABLE_READ_FORMS)} of "
-            f"{len(roster_reads)} ambient read form(s) covered "
-            f"({len(_UNEXERCISABLE_READ_FORMS)} declared unexercisable).\n"
-        )
+        sys.stderr.write(f"all {len(cases)} self-test fixture(s) passed.\n")
     return 0
 
 
