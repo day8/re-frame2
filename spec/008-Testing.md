@@ -232,6 +232,8 @@ The recipe:
 
 Timer-semantics sleeps (grace-period elapse, throttle/debounce window) are *not* settles — keep their explicit `Thread/sleep` / `js/setTimeout` and annotate the intent locally; `poll-until` is for *settles*, not *windows*.
 
+**The fixture frame resolves the live registrar.** The ambient `:rf/default` is seated by test support, not by `make-frame`, so it carries no resolved image generation and resolves the live registrar: the latest registration of an id wins there, which is why a test double registered in the test body reaches it. It assembles no image, so no image rule — the duplicate-id check included — runs for it: both registrations stay in the source store, and a default-image frame made over them still fails with `:rf.error/image-duplicate-id`. So a suite can pass on the fixture frame while a production `(rf/make-frame {})` over the same registrations fails at construction, loudly and at boot. The property belongs to the construction path, not the id: `(rf/make-frame {:id :rf/default})` seals a generation like any other frame, and a frame `make-frame` built before the double keeps its prior generation and reports one `:rf.error/reprojection-failed` ([002 §Image resolution and composition](002-Frames.md#image-resolution-and-composition)). To override on a constructed frame, use `:fx-overrides` (per call or per frame) or compose a later image ([§Hermetic-frame testing](#hermetic-frame-testing--a-fresh-frame-composed-from-images)).
+
 When NOT to use Pattern 5:
 
 - **Multi-frame setups** (Xray, Story, cross-frame tests) — Pattern 1 / 2 with an explicit `rf/with-frame` per frame is clearer; there is no single ambient frame to lean on.

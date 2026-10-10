@@ -346,8 +346,8 @@
   very next dispatch / subscribe in the SAME tick, not only after the deferred
   `next-tick` flush happens to run. This is stronger than the EP-0023 §Default
   Image Semantics guarantee (\"reprojected at the next macrotask boundary\"):
-  \"reprojected before the next resolution\" — with `make-frame` as the ONE
-  constructor, every frame is image-loaded, and the
+  \"reprojected before the next resolution\" — every frame `make-frame`
+  constructs is image-loaded, and the
   register-then-dispatch-sync sequence (tests, REPL, setup code) must not race
   the deferred tick. Coalescing holds: a synchronous `reg-*` burst
   sets one flag and is flushed ONCE, by whichever comes first — this read or

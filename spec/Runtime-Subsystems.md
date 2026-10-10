@@ -227,11 +227,11 @@ This completes the ownership picture for framework-owned state:
 | **Host-transient subsystem state** (abort handles, timers, caches) | the **frame** (keyed per-frame, beside the frame value) | torn down on `destroy-frame!`; never serialized | §Host-transient subsystem state below |
 | **Operational environment** (registrar, adapter, capabilities) | the **process** | created at boot; lives for the process | §The operational environment (this section) |
 
-### Resolution is process-global; frame target is carried
+### The environment is process-global; resolution is frame-derived
 
-The registrar, the installed adapter, and the capability map are **process-global singletons** — every frame in the process resolves event / subscription / fx / cofx handlers against the same registrar, renders through the same adapter, and reads the same capability map. A frame supplies the *state* a resolved handler runs against (its app-db / runtime-db) and the *resolved image generation* it was assembled with; it does not supply a separate registrar (per [002 §Frame addressing](002-Frames.md#frames-reference-realms)).
+The registrar's source store, the installed adapter, and the capability map are **process-global singletons** — every `reg-*` writes to the one source store, and every frame in the process renders through the same adapter and reads the same capability map. Handler resolution is **frame-derived**: a frame resolves event / subscription / fx / cofx handlers through its own *resolved image generation*, which `make-frame` assembles from that source store, and supplies the *state* a resolved handler runs against (its app-db / runtime-db) (per [002 §Frame addressing](002-Frames.md#frames-reference-realms)).
 
-This is **operational resolution, not a frame-target fallback.** "Which registrar / adapter / capability map does this operation use?" is answered by the process singletons. "Which frame does this dispatch target?" is a **separate** question: `dispatch`, `subscribe`, and other frame-scoped operations still require an explicit frame, a carried frame, or an established frame scope, and still fail with `:rf.error/no-frame-context` per [EP-0002](../docs/EP/EP-0002-frame-target-resolution.md) / [002 §Frame target resolution](002-Frames.md#frame-target-resolution--the-carried-invariant) when no frame is known. The runtime never synthesises a frame from absence.
+This is **operational resolution, not a frame-target fallback.** "Which source store / adapter / capability map does this operation use?" is answered by the process singletons, and "which handler does this id resolve to?" by the targeted frame's generation. "Which frame does this dispatch target?" is a **separate** question: `dispatch`, `subscribe`, and other frame-scoped operations still require an explicit frame, a carried frame, or an established frame scope, and still fail with `:rf.error/no-frame-context` per [EP-0002](../docs/EP/EP-0002-frame-target-resolution.md) / [002 §Frame target resolution](002-Frames.md#frame-target-resolution--the-carried-invariant) when no frame is known. The runtime never synthesises a frame from absence.
 
 <a id="what-a-realm-owns"></a>
 ### What the process owns; what the frame owns
@@ -343,7 +343,7 @@ The grading column keeps every subsystem's host-transient half honest: the confo
 - [EP-0024](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md) — the one-frame-value / one-registry / one-teardown-path ownership backbone the host-transient state and its teardown hang off.
 - [EP-0013](../docs/EP/EP-0013-app-values-and-runtime-realms.md) — the runtime-realm container model record (status `superseded-by EP-0023`).
 - [EP-0006](../docs/EP/EP-0006-runtime-subsystem-contract.md) — owns the durable five-clause contract; §The host-transient grading column complements it, not a second contract.
-- [002 §Frame addressing](002-Frames.md#frames-reference-realms) — the frame id is the whole public address; resolution is process-global.
+- [002 §Frame addressing](002-Frames.md#frames-reference-realms) — the frame id is the whole public address; resolution is frame-derived.
 - [Spec-Schemas §`:rf/host-transient-descriptor`](Spec-Schemas.md#rfhost-transient-descriptor-ep-0013) — the host-transient-descriptor shape.
 - [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) — the framework-owned `:rf.*` reserved-namespace table (the `:rf.capability/*` row is reserved here).
 - [Ownership](Ownership.md) — the contract-surface → owning-Spec map; consult before naming a new runtime subsystem.
