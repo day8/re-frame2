@@ -17,10 +17,10 @@
 
   ## The claim, and why it is about the event loop rather than the clock
 
-  After a same-id reincarnation `commit-basis` ties — the frame term
-  restarts and neither other term is a frame fact — so `getSnapshot`
-  ties, React schedules nothing, and the committed fiber goes on holding
-  the PREDECESSOR's value. The correction is
+  After a same-id reincarnation a mounted boundary's `getSnapshot` is
+  unchanged — it sums its cells' stamps, and only a flush re-stamps a
+  cell — so React schedules nothing, and the committed fiber goes on
+  holding the PREDECESSOR's value. The correction is
   `re-frame.fresco.impl.collector/invalidate-cell!`'s deferred phase,
   and it is a `queueMicrotask` rather than a `setTimeout 0` for one
   reason: the HTML event loop drains the microtask checkpoint in full
@@ -248,7 +248,7 @@
                   (testing "the tear is REAL and is asserted while it exists —
                             synchronously after the successor seats the
                             committed DOM still shows the predecessor's value,
-                            because `commit-basis` tied and React was told
+                            because no cell was re-stamped and React was told
                             nothing"
                     (is (= "A-live" (text handle))))
 
@@ -320,9 +320,9 @@
   ;; contributes a LIVE `commit-basis` read for a key no cell holds: React
   ;; compares the number the fiber captured at render against a fresh
   ;; `getSnapshot` immediately after `subscribe` returns, and re-renders on a
-  ;; difference. The worry is that the difference is zero — a
-  ;; reincarnation restarts the frame's install epoch, so basis@render and
-  ;; basis@commit can be the same number across it.
+  ;; difference. A reincarnation restarts the frame's install epoch, so the
+  ;; difference rests on the basis's retired-epoch term, which destroying
+  ;; the predecessor advanced.
   (async done
     (if-not (rf.fresco.impl.mount/browser?)
       (do (skip! ":node-test has no rendering opportunity") (done))

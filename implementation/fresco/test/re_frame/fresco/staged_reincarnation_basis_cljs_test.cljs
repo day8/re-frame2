@@ -1,53 +1,31 @@
 (ns re-frame.fresco.staged-reincarnation-basis-cljs-test
-  "A STAGED KEY ACROSS A SAME-ID REINCARNATION — the one scenario in which
-  the generation term of `commit-basis` carries something the frame's
-  install epoch does not.
+  "A STAGED KEY ACROSS A SAME-ID REINCARNATION — the boundary that rendered
+  under the predecessor and commits under the successor.
 
-  `commit-basis` is three monotone terms: this runtime's flush
-  generation, the frame's own install epoch, and the registry epoch. The
-  generation moves only through `flush!`, and every path that reaches
-  `flush!` — the cell watch, and the microtask rewire after a disposal —
-  is a path on which the frame's install epoch has already moved. So the
-  generation looks redundant, and this row asks whether it is.
+  A boundary that rendered a STAGED key — no cell yet, so its snapshot is
+  the live `commit-basis` — and whose commit lands after the frame was
+  destroyed and remade under the same id compares `basis@render` with
+  `basis@commit`. The frame's install epoch RESTARTS at zero with the
+  successor, so if the successor's install count happens to equal the
+  predecessor's at render, that term ties. A tie is the predecessor's
+  value left on screen until the next write to the key — on a tenant
+  switch, another tenant's data, with no trace left by the time anyone
+  looks.
 
-  ## Where the two terms part company
-
-  The frame epoch RESTARTS at zero when a frame is destroyed and remade
-  under the same id. A boundary that rendered a STAGED key — no cell yet,
-  so its snapshot is the live basis — and whose commit lands after such a
-  reincarnation compares `basis@render` with `basis@commit`, and if the
-  successor's install count happens to equal the predecessor's at render,
-  the frame term ties. Nothing the boundary read moved the generation:
-  the key had no cell, so no watch, so no flush.
-
-  What does move it is the SIDE EFFECT of the reincarnation on any OTHER
-  cell the frame holds: its reaction is disposed with the frame,
-  `invalidate-cell!` rewires it at the microtask checkpoint and marks it
-  dirty, and that flush bumps the generation — one number, runtime-wide,
-  that the staged boundary's snapshot then reads through the basis. So
-  the staged boundary's `basis@commit` differs from its `basis@render`
-  by exactly the generation term, React's post-subscribe re-read sees
-  the store moved, and the boundary that painted the predecessor's value
-  is re-rendered against the successor.
-
-  Drop the term and that boundary keeps the predecessor's value on screen
-  until the next write to its key — on a tenant switch, another tenant's
-  data, with no trace left by the time anyone looks. That is the P0 class
-  `generation.cljs` names, and it is why the term is in the sum.
-
-  ## What this row does and does not claim
-
-  It claims the term is LOAD-BEARING: with it, the number moves; without
-  it — removing `@!generation` from the sum turns this row red — the
-  number ties. It does not claim the term is a complete repair. A frame
-  holding NO other cell at the reincarnation has nothing to rewire, so no
-  flush bumps the generation and the basis ties with or without the term;
-  that half of the `:node-key` axis is the one `commit-basis`'s docstring
-  concedes and is not this row's to close.
+  The basis carries the transition in its retired-epoch term: destroying a
+  frame folds its install epoch plus one into the sum, so the number after
+  any reincarnation strictly exceeds every number a boundary could have
+  read under the predecessor. That holds whether or not the frame holds
+  other cells, and the rows below take both postures — one where another
+  committed cell's microtask rewire also bumps the generation, and one
+  where nothing else on the frame moves at all — each through a Fresco
+  body and through a `native/use-sub` one-key entry, with a quiet gap as
+  the negative control.
 
   The harness is the commit seam, as in `reincarnation_cells_cljs_test`:
-  `render-body` is the render, `commit-boundary!` is React's `subscribe`,
-  and `snapshot-of` is the number React compares."
+  `render-body` (or `hook-entry` + `hook-read`) is the render,
+  `commit-boundary!` is React's `subscribe`, and `snapshot-of` is the
+  number React compares."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
@@ -111,6 +89,68 @@
   (let [value (rf.fresco.impl.collector/render-body frame-id (fn [_] (rf.fresco.impl.collector/sub [:staged/who])) {})
         entry (rf.fresco.impl.collector/last-reads)]
     {:value value :entry entry :at-render (rf.fresco.test.runtime/snapshot-of entry)}))
+
+(defn- render-staged-hook!
+  "The `native/use-sub` render of the same staged key: the one-key entry a
+  hook hands `useSyncExternalStore`, and the value it reads before React
+  has called `subscribe`. Answers the same three things `render-staged!`
+  does."
+  []
+  (let [sub-key [frame-id [:staged/who]]
+        entry   (rf.fresco.impl.collector/hook-entry sub-key)
+        value   (rf.fresco.impl.collector/hook-read sub-key)]
+    {:value value :entry entry :at-render (rf.fresco.test.runtime/snapshot-of entry)}))
+
+(defn- staged-commit-across
+  "Render the staged key through `render!` under incarnation A, run `gap!`,
+  then commit, on a frame holding NO other cell. Answers what was painted,
+  the cell count at render, the two snapshots React compares, and what the
+  committed key reads afterwards."
+  [render! gap!]
+  (let [epoch-a (incarnate! "A" 3)
+        {:keys [value entry at-render]} (render!)
+        cells   (:cells (rf.fresco.test.runtime/residue))
+        epoch-b (gap! epoch-a)
+        release (rf.fresco.impl.collector/commit-boundary! entry (fn []))
+        result  {:painted   value
+                 :cells     cells
+                 :epochs    [epoch-a epoch-b]
+                 :at-render at-render
+                 :at-commit (rf.fresco.test.runtime/snapshot-of entry)
+                 :now       (rf.fresco.impl.collector/hook-read [frame-id [:staged/who]])}]
+    (release)
+    result))
+
+(defn- assert-reincarnation-moves-the-staged-number [render!]
+  (let [{:keys [painted cells epochs at-render at-commit now]}
+        (staged-commit-across render! #(reincarnate-to-epoch! "B" %))]
+    (is (= ["A" 0] [painted cells])
+        "precondition: the render painted the predecessor and the frame holds no other cell")
+    (is (apply = epochs)
+        "precondition: the successor's install epoch ties the predecessor's at render")
+    (is (not= at-render at-commit)
+        (str "basis@render " at-render " vs basis@commit " at-commit
+             ": a tie here is the predecessor's value left on screen"))
+    (is (= "B" now) "and the committed key answers for the successor")))
+
+(defn- assert-a-quiet-gap-leaves-the-staged-number-alone [render!]
+  (let [{:keys [painted at-render at-commit]}
+        (staged-commit-across render! (fn [epoch] epoch))]
+    (is (= "A" painted))
+    (is (= at-render at-commit)
+        "with nothing in the gap the number ties, so React schedules no re-render")))
+
+(deftest a-staged-body-on-a-frame-holding-no-other-cell-sees-the-reincarnation
+  (assert-reincarnation-moves-the-staged-number render-staged!))
+
+(deftest a-staged-use-sub-entry-on-a-frame-holding-no-other-cell-sees-the-reincarnation
+  (assert-reincarnation-moves-the-staged-number render-staged-hook!))
+
+(deftest a-quiet-gap-leaves-a-staged-body-snapshot-equal
+  (assert-a-quiet-gap-leaves-the-staged-number-alone render-staged!))
+
+(deftest a-quiet-gap-leaves-a-staged-use-sub-snapshot-equal
+  (assert-a-quiet-gap-leaves-the-staged-number-alone render-staged-hook!))
 
 (deftest a-staged-key-committed-across-a-same-id-reincarnation-sees-the-store-move
   (async done
