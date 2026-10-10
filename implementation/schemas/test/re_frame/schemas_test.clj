@@ -45,14 +45,14 @@
     (rf/make-frame {:id :test/main})
     (rf/make-frame {:id :test/other})
     (rf/reg-app-schema [:n] {:frame :test/other} [:int])
-    (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "not-an-int")}))
-    (let [failing-frames (fn []
+    (rf/reg-event :n/break (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
+    (let [failing-frames (fn [n]
                            (with-trace-recorder! [traces]
-                             (rf/dispatch-sync [:n/break] {:frame :test/main})
+                             (rf/dispatch-sync [:n/break n] {:frame :test/main})
                              (mapv (comp :frame :tags) (failures traces))))]
-      (is (= [] (failing-frames)))
+      (is (= [] (failing-frames "not-an-int")))
       (rf/reg-app-schema [:n] {:frame :test/main} [:int])
-      (is (= [:test/main] (failing-frames))))))
+      (is (= [:test/main] (failing-frames "still-not-an-int"))))))
 
 ;; ---- event, sub-return, fx-args and recordable cofx through dispatch -------
 
