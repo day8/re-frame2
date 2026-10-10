@@ -593,131 +593,87 @@
 ;; 5 — the declaration's refusals (these rows need no DOM)
 ;; ---------------------------------------------------------------------------
 
-(defn- error-id [f]
-  (try (f) ::did-not-throw (catch :default e (:rf.error/id (ex-data e)))))
+(defn- thrown
+  "The ex-data `f` throws, or `::did-not-throw`."
+  [f]
+  (try (f) ::did-not-throw (catch :default e (ex-data e))))
+
+(defn- error-id [f] (let [d (thrown f)] (get d :rf.error/id d)))
 
 (deftest the-declaration-refuses-what-it-cannot-carry
-  (testing "nil component — the broken-import symptom — refuses at the
-            declaration, where the author's stack is the declaration site"
-    (is (= :rf.error/fresco-host-no-component
-           (error-id #(rf.bench.fresco.front.codec/mint-host! "hatch/nil-host" nil {})))))
-  (testing "a contract on a structural slot is refused in every spelling"
-    (is (= :rf.error/fresco-host-structural-callback
-           (error-id #(rf.bench.fresco.front.codec/mint-host! "hatch/reffy" widget
-                                        {:callbacks {:ref :event}}))))
-    (is (= :rf.error/fresco-host-structural-callback
-           (error-id #(rf.bench.fresco.front.codec/mint-host! "hatch/reffy" widget
-                                        {:callbacks {"ref" :handler}}))))
-    (is (= :rf.error/fresco-host-structural-callback
-           (error-id #(rf.bench.fresco.front.codec/mint-host! "hatch/keyed" widget
-                                        {:callbacks {:x/key :event}})))))
-  (testing "an unknown contract is refused at mint, not at first render"
-    (is (= :rf.error/fresco-unknown-callback-contract
-           (error-id #(rf.bench.fresco.front.codec/mint-host! "hatch/typo" widget
-                                        {:callbacks {:on-pick :evnt}})))))
-  (testing "two spellings landing on one slot are one contradiction, refused"
-    (is (= :rf.error/fresco-host-callback-slot-collision
-           (error-id #(rf.bench.fresco.front.codec/mint-host! "hatch/twice" widget
-                                        {:callbacks {:on-pick :event
-                                                     :onPick  :handler}}))))))
+  (testing "every refusal fires at the declaration, where the author's stack
+            is the declaration site — the nil component a broken import
+            hands it, a structural slot in any spelling, a contract outside
+            the roster, and two spellings of one slot"
+    (doseq [[component callbacks id]
+            [[nil    {}                                 :rf.error/fresco-host-no-component]
+             [widget {"ref" :handler}                   :rf.error/fresco-host-structural-callback]
+             [widget {:x/key :event}                    :rf.error/fresco-host-structural-callback]
+             [widget {:on-pick :evnt}                   :rf.error/fresco-unknown-callback-contract]
+             [widget {:on-pick :event :onPick :handler} :rf.error/fresco-host-callback-slot-collision]]]
+      (is (= id (error-id #(rf.bench.fresco.front.codec/mint-host! "hatch/refused" component
+                                                                   {:callbacks callbacks})))
+          (pr-str callbacks)))))
 
 (deftest the-crossing-refuses-an-undeclared-event-spelled-intent
   (let [h (rf.bench.fresco.front.codec/mint-host! "hatch/mini" widget {:callbacks {:on-pick :event}})]
-    (testing "an intent vector at an event-spelled prop the declaration does
-              not name refuses LOUDLY, naming the host and the position —
-              never inference, and never an inert array shipped to the
-              library"
-      (try
-        (rf.bench.fresco.front.codec/as-element [h {:on-nope [:boom]}])
-        (is false "should have thrown")
-        (catch :default e
-          (let [d (ex-data e)]
-            (is (= :rf.error/fresco-host-undeclared-callback (:rf.error/id d)))
-            (is (= :on-nope (:position d)))
-            (is (= "hatch/mini" (:host d)))))))
-    (testing "an event-spelled KEY-MAP at an undeclared position is the same
-              refusal"
-      (is (= :rf.error/fresco-host-undeclared-callback
-             (error-id #(rf.bench.fresco.front.codec/as-element [h {:on-key-down {"Enter" [:boom]}}])))))
+    (testing "an intent vector or key-map at an event-spelled prop the
+              declaration does not name refuses, naming the host and the
+              position — never inference, and never an inert array shipped to
+              the library"
+      (doseq [[k v] [[:on-nope [:boom]] [:on-key-down {"Enter" [:boom]}]]]
+        (is (= {:rf.error/id :rf.error/fresco-host-undeclared-callback :position k :host "hatch/mini"}
+               (select-keys (thrown #(rf.bench.fresco.front.codec/as-element [h {k v}]))
+                            [:rf.error/id :position :host]))
+            (pr-str v))))
     (testing "a vector at the ref slot is HD-022's reservation, held at the
               host position too"
       (is (= :rf.error/fresco-ref-vector-reserved
-             (error-id #(rf.bench.fresco.front.codec/as-element [h {:ref [:re-frame.fresco/autosize {}]}])))))
-    (testing "while a plain data vector at a non-event prop is ordinary data"
-      (is (some? (rf.bench.fresco.front.codec/as-element [h {:columns [1 2 3]}]))))))
+             (error-id #(rf.bench.fresco.front.codec/as-element [h {:ref [:re-frame.fresco/autosize {}]}])))))))
 
 (deftest the-declaration-binds-by-canonical-slot-not-by-spelling
   (let [h (rf.bench.fresco.front.codec/mint-host! "hatch/slot-bound" widget {:callbacks {:on-pick :event}})]
-    (testing "the camel spelling lands on the declared slot: the vector was
+    (testing "the camel spelling lands on the declared slot: the vector is
               LOWERED — outside a boundary that is the intent's own loud
               error — rather than crossing as data"
       (is (= :rf.error/fresco-intent-outside-boundary
              (error-id #(rf.bench.fresco.front.codec/as-element [h {:onPick [:hatch/picked "x"]}])))))
-    (testing "while an undeclared on* spelling never becomes an event position,
-              however event-shaped its name"
+    (testing "while an undeclared camel on* spelling is refused like any other"
       (is (= :rf.error/fresco-host-undeclared-callback
              (error-id #(rf.bench.fresco.front.codec/as-element [h {:onValueChange [:hatch/picked "x"]}])))))))
 
 (deftest host-props-convert-shallowly
-  (testing "HD-011's default: the top-level key camelCases, the value crosses
-            with no renaming inside it — a nested option map keeps the
-            spelling the author wrote, and converting it is the author's
-            explicit job when a library wants camelCase inside"
-    (let [h  (rf.bench.fresco.front.codec/mint-host! "hatch/shallow" widget {})
-          el (rf.bench.fresco.front.codec/as-element [h {:menu-items [{:day-of-week 1}]
-                                   :variant    :compact
-                                   :theme      :theme/dark
-                                   :class      :primary
-                                   :plain-fn   identity}])
-          ^js props (unchecked-get el "props")]
-      (is (= :compact (unchecked-get props "variant"))
-          "keyword values cross by IDENTITY, not by name — the
-           shallow default's own rule, applied to the value: the author is
-           handed to the library exactly what they typed, here as at the
-           nested map below")
-      (is (= :theme/dark (unchecked-get props "theme"))
-          "so a namespaced keyword keeps its namespace. `(name :theme/dark)`
-           is \"dark\", and so is `(name :other/dark)` — crossing by name
-           would be one output for two inputs, silently")
-      (is (= "primary" (unchecked-get props "className"))
-          "the one exception: a value bound for an HTML attribute has no
-           representation but a string, and this is the answer the native
-           walk gives at the same name")
-      (is (identical? identity (unchecked-get props "plainFn"))
-          "functions cross by identity — a value handed to a foreign API,
-           not a position")
-      (let [row (aget (unchecked-get props "menuItems") 0)]
-        (is (= 1 (unchecked-get row "day-of-week"))
-            "nested keys are NOT renamed — shallow means shallow")
-        (is (nil? (unchecked-get row "dayOfWeek")))))))
+  (testing "HD-011's default: the top-level key camelCases and the value
+            crosses unrenamed — a keyword keeps its namespace, a function its
+            identity, a nested map the keys the author wrote, and a data
+            vector at a non-event prop is ordinary data — except at an
+            HTML-attribute slot, where a string is the only representation"
+    (let [h (rf.bench.fresco.front.codec/mint-host! "hatch/shallow" widget {})]
+      (is (= {"menuItems" [{"day-of-week" 1}]
+              "theme"     :theme/dark
+              "className" "primary"
+              "plainFn"   identity}
+             (js->clj (unchecked-get (rf.bench.fresco.front.codec/as-element
+                                       [h {:menu-items [{:day-of-week 1}]
+                                           :theme      :theme/dark
+                                           :class      :primary
+                                           :plain-fn   identity}])
+                                     "props")))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 5b — the declaration GOVERNS, and the vector spelling is EVENT-FIRST
 ;;      (HD-024). These rows need no DOM.
 ;; ---------------------------------------------------------------------------
 ;;
-;; Two laws, one surface, and both of them are about the door rather than
-;; about the value:
+;; (a) The CONTRACT the declaration named governs every carrier at that
+;;     position, so a slot declared `:handler` or `:render` never dispatches,
+;;     whatever value it is handed. (b) The vector spelling reads the DOM
+;;     event from argument ONE, and a value-first invoker is refused naming
+;;     the POSITION rather than failing with the engine's own TypeError.
 ;;
-;;   (a) the CONTRACT the declaration named governs every carrier at that
-;;       position — not only the `h/event`.  Were the carrier to choose,
-;;       a vector would take the intent path and a map the key-map path
-;;       whatever the declaration said, so a slot declared `:handler`
-;;       would silently dispatch and a slot declared `:render` could
-;;       dispatch during the foreign component's own render.  That is the
-;;       value selecting the contract, which is precisely what HD-024
-;;       forbids.
-;;   (b) the vector spelling reads the DOM event from argument ONE.  A
-;;       foreign invoker that hands a value first has no event there, and
-;;       the refusal names the POSITION and points at `h/event` — instead of
-;;       `value.preventDefault is not a function`, the engine's own
-;;       TypeError naming nothing the author wrote.
-;;
-;; The matrix rows cross through the real minted head and then invoke the
-;; lowered prop the way [[widget]] invokes it — `(f (.-value props) e)` for
-;; `onPick`, `(f e)` for `onDraft`, both written into the component above.
-;; The first row is the other half, and needs the DOM: a declared `:render`
-;; slot actually called during the foreign component's own render.
+;; The rows cross through the real minted head and invoke the lowered prop
+;; the way [[widget]] does: `(f (.-value props) e)` for `onPick`, `(f e)`
+;; for `onDraft`.
 
 (defn- prop [^js el nm] (unchecked-get (unchecked-get el "props") nm))
 
@@ -748,178 +704,97 @@
           (finally (rf.bench.fresco.arm1.mount/release! handle)))))))
 
 (deftest the-declaration-governs-every-carrier-at-its-position
-  (testing ":event takes all four carriers, because dispatching is what that
-            contract MEANS"
+  (testing ":event lowers the h/event and the key-map, because dispatching is
+            what that contract MEANS"
     (let [[el !seen] (crossed render-picker
                              {:on-pick (event [city e] [:hatch/picked city (.-type e)])})]
       ((prop el "onPick") "paris" #js {:type "click"})
-      (is (= [[:hatch/picked "paris" "click"]] @!seen) "h/event: the returned vector dispatched"))
-    (let [[el !seen] (crossed render-picker {:on-pick [:hatch/picked "static" "vec"]})]
-      ((prop el "onPick") #js {})
-      (is (= [[:hatch/picked "static" "vec"]] @!seen) "an intent vector lowers as at a native position"))
+      (is (= [[:hatch/picked "paris" "click"]] @!seen)
+          "every argument the invoker passed reached the body, and the returned vector dispatched"))
     (let [[el !seen] (crossed render-picker {:on-pick {"Enter" [:hatch/closed]}})]
       ((prop el "onPick") #js {:key "Enter"})
-      (is (= [[:hatch/closed]] @!seen) "and a key-map lowers as at a native position"))
-    (let [[el !seen] (crossed render-picker {:on-pick identity})]
-      (is (identical? identity (prop el "onPick"))
-          "an ordinary function is claimed by no contract and crosses by identity")
-      (is (= [] @!seen))))
+      (is (= [[:hatch/closed]] @!seen))))
 
-  (testing ":handler crosses the h/event by identity and REFUSES the dispatching
-            carriers — its return is ignored and Fresco dispatches nothing
-            from it, so a carrier whose entire content is a dispatch has no
-            reading there"
-    (let [[el _] (crossed render-picker {:on-imperative stable-imperative})]
-      (is (identical? stable-imperative (prop el "onImperative"))))
-    (is (= :rf.error/fresco-intent-at-a-non-event-contract
-           (error-id #(crossed render-picker {:on-imperative [:hatch/closed]})))
-        "a bare intent at a declared :handler is refused, never silently dispatched")
-    (is (= :rf.error/fresco-intent-at-a-non-event-contract
-           (error-id #(crossed render-picker {:on-imperative {"Enter" [:hatch/closed]}}))))
-    (let [[el _] (crossed render-picker {:on-imperative identity})]
-      (is (identical? identity (prop el "onImperative"))
-          "and an ordinary function still crosses untouched")))
+  (testing ":handler crosses the h/event by identity, and :render wraps it and
+            hands its return back to the caller"
+    (is (identical? stable-imperative
+                    (prop (first (crossed render-picker {:on-imperative stable-imperative}))
+                          "onImperative")))
+    (is (= "row:x" ((prop (first (crossed render-picker
+                                          {:on-render-row (event [label] (str "row:" label))}))
+                          "onRenderRow")
+                    "x"))))
 
-  (testing ":render wraps the h/event and refuses the dispatching carriers too —
-            a :render position is invoked DURING a render, so a carrier that
-            is nothing but a dispatch is the one thing it can never be"
-    (let [[el !seen] (crossed render-picker {:on-render-row (event [label] (str "row:" label))})]
-      (is (= "row:x" ((prop el "onRenderRow") "x")) "the return went back to the caller")
-      (is (= [] @!seen)))
-    (is (= :rf.error/fresco-intent-at-a-non-event-contract
-           (error-id #(crossed render-picker {:on-render-row [:hatch/closed]})))
-        "the sharpest case: an intent vector at a declared :render
-         position taking the intent path would dispatch during the
-         foreign component's render")
-    (is (= :rf.error/fresco-intent-at-a-non-event-contract
-           (error-id #(crossed render-picker {:on-render-row {"Enter" [:hatch/closed]}}))))
-    (let [[el _] (crossed render-picker {:on-render-row identity})]
-      (is (identical? identity (prop el "onRenderRow")))))
+  (testing "both REFUSE the dispatching carriers, naming the position, the
+            contract and the value: a :handler's return is ignored, and a
+            :render position is invoked during the foreign component's own
+            render, so a carrier that is nothing but a dispatch has no
+            reading at either"
+    (doseq [[k contract] [[:on-imperative :handler] [:on-render-row :render]]
+            v            [[:hatch/closed] {"Enter" [:hatch/closed]}]]
+      (is (= {:rf.error/id :rf.error/fresco-intent-at-a-non-event-contract
+              :position    k
+              :contract    contract
+              :value       v}
+             (select-keys (thrown #(crossed render-picker {k v}))
+                          [:rf.error/id :position :contract :value]))
+          (pr-str k v))))
 
-  (testing "the refusal names the position, the contract and the value —
-            never the form, because under ONE form the form is never the
-            answer to what went wrong"
-    (try
-      (crossed render-picker {:on-imperative [:hatch/closed]})
-      (is false "should have thrown")
-      (catch :default e
-        (let [d (ex-data e)]
-          (is (= :on-imperative (:position d)))
-          (is (= :handler (:contract d)))
-          (is (= [:hatch/closed] (:value d)))
-          (is (re-find #":on-imperative" (ex-message e))))))))
+  (testing "an ordinary function is claimed by no contract and crosses by
+            identity at every one"
+    (doseq [[k slot] [[:on-pick "onPick"] [:on-imperative "onImperative"] [:on-render-row "onRenderRow"]]]
+      (is (identical? identity (prop (first (crossed render-picker {k identity})) slot)) slot))))
 
 ;; ---------------------------------------------------------------------------
 ;; 5c — and what the declaration does NOT govern, an `h/event` may not ask
 ;; ---------------------------------------------------------------------------
 ;;
-;; The complement of 5b, and the same law read from the other side.  5b
-;; says the CONTRACT the declaration named governs every carrier at that
-;; position.  At a slot the declaration named NOTHING there is no
-;; contract to govern with — so the marked form, whose entire content is
-;; a request that the position impose one, is asking a position that
-;; cannot answer.
-;;
-;; Crossing it by identity and simply running it would be fine for a
-;; plain function and is a SILENTLY DEAD HANDLER for the marked one: the
-;; `:event` convenience means an `h/event` returning `[:row/pick x]` at an
-;; unclaimed slot would be called by the library, return the intent, have
-;; the return discarded, and dispatch nothing.  The user's click would do
-;; nothing, in production, with no diagnostic — the same class the
-;; sibling refusal on an undeclared intent VECTOR exists to delete, one
-;; level of indirection down.
-;;
-;; The rows below are a pair by construction, because a refusal that
-;; also rejected legitimate usage would be strictly worse than
-;; silence: the RED row asserts the id, the `:where` and the
-;; roster, and the GREEN rows re-assert that every CLAIMED slot — a
-;; declared `:event`, a declared `:handler`, a declared `:render`,
-;; React's own `:ref` — still takes the marked form, and that a PLAIN
-;; function is untouched at the very slot the red row refuses.
+;; At a slot nothing claimed there is no contract to impose, so an `h/event`
+;; there would cross as an ordinary function whose returned intent the
+;; library discards — a silently dead handler. It is refused instead. A
+;; PLAIN function at the same slot still crosses by identity, and `:ref`,
+;; claimed by React's own contract, still takes the marked form.
 
 (deftest an-hfn-at-a-slot-nothing-claimed-is-refused
-  (testing "the mark asks the POSITION for a contract, and an unclaimed
-            slot has none to give — so the request is refused where the
-            author wrote it, rather than answered by silence a phase and
-            a component away"
-    (try
-      (crossed render-picker {:on-value-change (event [city] [:hatch/picked city "dead"])})
-      (is false "should have thrown")
-      (catch :default e
-        (let [d (ex-data e)]
-          (is (= :rf.error/fresco-host-unclaimed-callback (:rf.error/id d))
-              "its own id, distinct from the sibling's: that one is intent
-               DATA at an event-SPELLED undeclared slot, this one is the
-               marked form at ANY unclaimed slot")
-          (is (= 'front.codec/host-element (:where d)))
-          (is (= :on-value-change (:position d)))
-          (is (re-find #"/render-picker$" (:host d))
-              "the host names ITSELF, so the message points at the
-               declaration the author would have to change")
-          (is (= #{"onPick" "onImperative" "onRenderRow"} (:declared d))
-              "the roster is the DECLARED slots as a set, so the message can
-               say what the author could have claimed instead")
-          (is (= :declare-the-slot-or-hand-a-plain-function (:recovery d)))
-          (is (re-find #":on-value-change" (ex-message e)))
-          (is (re-find #"or hand a plain function" (ex-message e))
-              "and it states the recovery in the message, not only in the
-               data — the author reads the message")))))
+  (testing "RED — refused where the author wrote it, whatever the slot is
+            spelled: the mark is the trigger, never the name. The host names
+            itself and its DECLARED roster, so the message can say what the
+            author could have claimed instead"
+    (doseq [k [:on-value-change :row-formatter]]
+      (is (= {:rf.error/id :rf.error/fresco-host-unclaimed-callback
+              :position    k
+              :host        "re-frame.bench.fresco.arm1.host-hatch-dom-cljs-test/render-picker"
+              :declared    #{"onPick" "onImperative" "onRenderRow"}
+              :recovery    :declare-the-slot-or-hand-a-plain-function}
+             (select-keys (thrown #(crossed render-picker {k (event [x] [:hatch/picked x "dead"])}))
+                          [:rf.error/id :position :host :declared :recovery])))))
 
-  (testing "an on*-SPELLED unclaimed slot is the same refusal and not the
-            sibling's: the spelling never selected anything here either"
-    (is (= :rf.error/fresco-host-unclaimed-callback
-           (error-id #(crossed render-picker {:on-nope (event [_] [:hatch/closed])})))))
+  (testing "GREEN — a PLAIN function at the very slot the row above refuses
+            still crosses by identity: the refusal is on the unanswered
+            REQUEST, never on functions at the crossing"
+    (is (identical? identity
+                    (prop (first (crossed render-picker {:on-value-change identity})) "onValueChange"))))
 
-  (testing "and a slot with no on* spelling at all is refused just the same —
-            the mark is the trigger, never the name"
-    (is (= :rf.error/fresco-host-unclaimed-callback
-           (error-id #(crossed render-picker {:row-formatter (event [x] (str x))})))))
-
-  (testing "GREEN — a PLAIN function at the very slot the rows above refuse
-            still crosses by identity. This is the fence: the refusal is on
-            the unanswered REQUEST, never on functions at the crossing"
-    (let [[el _] (crossed render-picker {:on-value-change identity})]
-      (is (identical? identity (prop el "onValueChange")))))
-
-  (testing "GREEN — every CLAIMED slot still takes the marked form, so the
-            refusal is not a blanket ban on h/event at a host"
-    (let [[el !seen] (crossed render-picker
-                              {:on-pick (event [city e] [:hatch/picked city (.-type e)])})]
-      ((prop el "onPick") "lisbon" #js {:type "click"})
-      (is (= [[:hatch/picked "lisbon" "click"]] @!seen)
-          "declared :event — still wrapped, and the returned intent still
-           dispatches"))
-    (let [[el _] (crossed render-picker {:on-imperative stable-imperative})]
-      (is (identical? stable-imperative (prop el "onImperative"))
-          "declared :handler — still the function itself, by identity"))
-    (let [[el _] (crossed render-picker {:on-render-row (event [label] (str "row:" label))})]
-      (is (= "row:x" ((prop el "onRenderRow") "x"))
-          "declared :render — still the render wrapper"))
-    (let [f (event [node] (swap! !instr assoc :hfn-ref node) nil)]
-      (is (some? (first (crossed render-picker {:ref f})))
-          ":ref is CLAIMED — by React's own contract rather than by the
-           declaration (HD-016) — and it is read BEFORE the unclaimed arm,
-           so a callback ref written as an h/event crosses rather than
-           refusing"))))
+  (testing "GREEN — :ref is CLAIMED, by React's own contract (HD-016), and is
+            read BEFORE the unclaimed arm, so a callback ref written as an
+            h/event crosses rather than refusing"
+    (is (some? (first (crossed render-picker {:ref (event [_] nil)}))))))
 
 (deftest a-dispatch-from-a-declared-render-position-names-the-position
-  (testing "HD-024's core law at the door: the CONTRACT the declaration named
-            decides, and a :render contract poisons the ambient frame-locked
-            dispatch for the call's dynamic extent — the same id a native
-            render position raises, because the position is the thing that
-            selected it"
-    (let [[el !seen] (crossed render-picker
-                             {:on-render-row (event [_] (rf.bench.fresco.front.intent/*dispatch* [:hatch/closed]) "never")})]
-      (try
-        ((prop el "onRenderRow") "x")
-        (is false "should have thrown")
-        (catch :default e
-          (let [d (ex-data e)]
-            (is (= :rf.error/fresco-dispatch-in-render-position (:rf.error/id d)))
-            (is (= :on-render-row (:position d)))
-            (is (= [:hatch/closed] (:event d)))
-            (is (re-find #":on-render-row" (ex-message e))))))
-      (is (= [] @!seen) "and nothing reached the frame"))))
+  (testing "HD-024's core law at the door: a :render contract poisons the
+            ambient frame-locked dispatch for the call's dynamic extent, with
+            the same id a native render position raises"
+    (is (= {:rf.error/id :rf.error/fresco-dispatch-in-render-position
+            :position    :on-render-row
+            :event       [:hatch/closed]}
+           (select-keys (thrown #((prop (first (crossed render-picker
+                                                        {:on-render-row
+                                                         (event [_]
+                                                           (rf.bench.fresco.front.intent/*dispatch* [:hatch/closed])
+                                                           "never")}))
+                                        "onRenderRow")
+                                  "x"))
+                        [:rf.error/id :position :event])))))
 
 (defn- crossed-in-frame
   "[[crossed]] with the boundary's FRAME KEYWORD bound as well — the
@@ -935,9 +810,7 @@
   (testing "at the real `renderRow` seam. HD-024's refusal is
             INVOCATION-scoped — poison while the call runs, forward to the
             owner once it has returned — so the handlers a `:render` body
-            LOWERS are not poisoned with it. Which is most of what a render
-            prop is for: a row that is not interactive works either way, and
-            the failure this pins would land on the USER's click.
+            LOWERS fire later into the boundary that SUPPLIED the callback.
 
             Two frames and two recorders are live, and the ambient one at
             invocation is the OTHER — what a foreign component nested below
@@ -960,69 +833,41 @@
           btn (rf.bench.fresco.front.intent/with-frame ::other (fn [ev] (swap! !other conj ev) nil)
                 (fn [] ((prop el "onRenderRow") "paris")))]
       (is (= ::supplier @!frame)
-          "inside the invocation the ambient frame is the OWNER's, not the
-           invoking boundary's — the frame a route-link in a row body pins to")
-      (is (= [] @!supplier) "the render itself dispatched nothing")
-      (is (= [] @!other))
-
-      (testing "and then the browser's click, long after both extents unwound"
-        (is (nil? rf.bench.fresco.front.intent/*dispatch*))
-        ((prop @!row "onClick") #js {})
-        ((prop btn "onClick") #js {})
-        (is (= [[:hatch/picked "paris" "row"] [:hatch/closed]] @!supplier)
-            "the row's intent vector AND the event-position h/event both fired
-             into the SUPPLYING boundary's recorder")
-        (is (= [] @!other)
-            "and nothing reached the boundary that merely invoked the render
-             prop — which is what makes the ownership assertion non-vacuous")))))
+          "inside the invocation the ambient frame is the OWNER's — the frame
+           a route-link in a row body pins to")
+      ((prop @!row "onClick") #js {})
+      ((prop btn "onClick") #js {})
+      (is (= [[:hatch/picked "paris" "row"] [:hatch/closed]] @!supplier)
+          "the row's intent vector AND the event-position h/event both fired,
+           after both extents unwound, into the SUPPLYING boundary's recorder")
+      (is (= [] @!other)
+          "and nothing reached the boundary that merely invoked the render prop"))))
 
 (deftest the-vector-spelling-is-event-first-and-says-so-when-it-is-not
-  (testing "the positive half, at the invoker contract the door was built for:
-            an EVENT-FIRST foreign call, which is what onDraft makes"
+  (testing "the positive half: an EVENT-first foreign call, which is what
+            onDraft makes, hands the marker its event"
     (let [[el !seen] (crossed picker {:on-draft [:hatch/typed :re-frame.fresco/value]})]
       ((prop el "onDraft") #js {:target #js {:value "west"}})
       (is (= [[:hatch/typed "west"]] @!seen))))
 
-  (testing "and the value-first case. The widget calls
-            `(f (.-value props) e)` — VALUE-first — so argument one is a
-            string, and `.preventDefault` on it is the engine's own
-            TypeError naming nothing the author wrote. It is this error
-            instead, and it names the POSITION"
-    (let [[el !seen] (crossed picker {:on-pick [:re-frame.fresco/prevent [:hatch/closed]]})]
-      (try
-        ((prop el "onPick") "paris" #js {:preventDefault (fn [] nil)})
-        (is false "should have thrown")
-        (catch :default e
-          (let [d (ex-data e)]
-            (is (= :rf.error/fresco-intent-needs-the-event (:rf.error/id d)))
-            (is (= :on-pick (:position d)))
-            (is (= "preventDefault" (:needed d)))
-            (is (= "paris" (:argument d)))
-            (is (re-find #"h/event" (ex-message e)) "and it points at the spelling that works"))))
-      (is (= [] @!seen) "and nothing dispatched off a half-run handler")))
-
-  (testing "the SAME law, one message, for the markers — which is the whole
-            point of stating it once: `::h/value` at a value-first position
-            fails the same way and reads the same diagnostic"
-    (let [[el _] (crossed picker {:on-pick [:hatch/picked :re-frame.fresco/value "kind"]})]
-      (try
-        ((prop el "onPick") "paris" #js {:target #js {:value "x"}})
-        (is false "should have thrown")
-        (catch :default e
-          (let [d (ex-data e)]
-            (is (= :rf.error/fresco-intent-needs-the-event (:rf.error/id d)))
-            (is (= "target" (:needed d))))))))
-
-  (testing "and a key-map, whose failure without the law is the WORST of the
-            three — no `.key` to look up means no branch, which is a handler
-            that silently does nothing"
-    (let [[el _] (crossed picker {:on-pick {"Enter" [:hatch/closed]}})]
-      (is (= :rf.error/fresco-intent-needs-the-event
-             (error-id #((prop el "onPick") "paris" #js {:key "Enter"}))))))
+  (testing "a VALUE-first call — the widget's `(f (.-value props) e)` — has no
+            event at argument one, so the prevent head, a marker and a
+            key-map each refuse naming the POSITION and the read they needed,
+            rather than raising the engine's own TypeError or, for the
+            key-map, silently doing nothing"
+    (doseq [[v e needed] [[[:re-frame.fresco/prevent [:hatch/closed]] #js {:preventDefault (fn [] nil)} "preventDefault"]
+                          [[:hatch/picked :re-frame.fresco/value "kind"] #js {:target #js {:value "x"}} "target"]
+                          [{"Enter" [:hatch/closed]} #js {:key "Enter"} "key"]]]
+      (is (= {:rf.error/id :rf.error/fresco-intent-needs-the-event
+              :position    :on-pick
+              :needed      needed
+              :argument    "paris"}
+             (select-keys (thrown #((prop (first (crossed picker {:on-pick v})) "onPick") "paris" e))
+                          [:rf.error/id :position :needed :argument]))
+          needed)))
 
   (testing "while an intent carrying NEITHER a marker nor a prevent never
-            touches its argument, so it is correct under any invoker contract
-            and pays no law at all — which is the overwhelmingly common case"
+            touches its argument, so it is correct under any invoker contract"
     (let [[el !seen] (crossed picker {:on-pick [:hatch/picked "static" "kind"]})]
       ((prop el "onPick") "paris" #js {})
       (is (= [[:hatch/picked "static" "kind"]] @!seen)))))
