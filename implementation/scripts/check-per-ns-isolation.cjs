@@ -221,6 +221,12 @@ const SUMMARY_RE = /^Ran (\d+) tests? containing (\d+) assertions?\./m;
 // so it prints this and exits 1 before running anything.
 const UNMATCHED_SELECTOR_RE = /^ERROR: no tests matched --test= selector/m;
 
+// The runner's executed-test floor (shadow_node.cljs `:end-run-tests`): a run
+// that executes fewer tests than its floor (1 for a `--test=` run) prints this
+// after the cljs.test summary and exits 1, so the summary alone would read as
+// a red that ran tests.
+const UNDER_FLOOR_RE = /^ERROR: this run executed (\d+) test\(s\), below the floor of (\d+)/m;
+
 function parseSummary(text) {
   const m = SUMMARY_RE.exec(text);
   if (!m) return null;
@@ -255,6 +261,16 @@ function classifyRun(run, { bundleMoved } = {}) {
   if (UNMATCHED_SELECTOR_RE.test(text)) {
     return { kind: 'roster', summary, reason: 'the selector matched no test var — renamed or deleted namespace' };
   }
+  const underFloor = UNDER_FLOOR_RE.exec(text);
+  if (underFloor) {
+    // The selector matched, then nothing executed: an empty or skipped run
+    // says nothing about the namespace's fixtures.
+    return {
+      kind: 'environment',
+      summary,
+      reason: `the runner refused the run: it executed ${underFloor[1]} test(s), below its floor of ${underFloor[2]}`,
+    };
+  }
   if (summary === null) {
     // Module load links EVERY test namespace, so a crash before the summary
     // cannot be specific to the selected one — see the header.
@@ -262,8 +278,9 @@ function classifyRun(run, { bundleMoved } = {}) {
   }
   if (run.status === 0) {
     if (summary.tests === 0) {
-      // Belt to the runner's own braces: a green that ran nothing certifies
-      // nothing, and this gate must not report it as coverage.
+      // The runner's floor turns a zero-test run red, so this green is
+      // reachable only if that floor is lost; a green that ran nothing
+      // certifies nothing, and this gate must not report it as coverage.
       return { kind: 'environment', summary, reason: 'exited green having run 0 tests' };
     }
     return { kind: 'green', summary, reason: null };
@@ -531,8 +548,13 @@ function runSelfTest() {
   assert(kindOf({ status: null }) === 'environment',
     'a killed process (null exit) is ENVIRONMENT, never a silent pass');
 
-  // 8. A green that ran nothing certifies nothing.
+  // 8. A run that executed nothing certifies nothing, whether the runner's
+  //    floor turned it red or a lost floor let it exit green.
   const EMPTY_GREEN = 'Ran 0 tests containing 0 assertions.\n0 failures, 0 errors.\n';
+  const UNDER_FLOOR_OUT =
+    EMPTY_GREEN + 'ERROR: this run executed 0 test(s), below the floor of 1 for a --test= run.\n';
+  assert(kindOf({ status: 1, stdout: UNDER_FLOOR_OUT }) === 'environment',
+    'a run the floor refused for executing 0 tests is ENVIRONMENT, not an isolation red');
   assert(kindOf({ status: 0, stdout: EMPTY_GREEN }) === 'environment',
     'a zero-test green is refused, not counted as coverage');
   assert(kindOf({ status: 0, stdout: 'no summary here\n' }) === 'environment',
