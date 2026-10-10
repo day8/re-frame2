@@ -1,23 +1,13 @@
 (ns re-frame.bench.fresco.front.dogfood-cljs-test
   "THE DOGFOOD STATE LAYER, and the front half composed end to end.
 
-  Two things are being proved. First, that the events and subscriptions
-  the three renderings share behave — which is worth its own tests
-  precisely because all three renderings depend on them and none of them
-  owns them. Second, and the reason this file is not merely a state
-  test: that the front half **composes**. An intent written in the
-  authoring spelling, lowered by the intent module through the codec's
-  prop walk, invoked as the browser would invoke it, reaches a real
-  re-frame2 event handler and moves a real app-db.
-
-  **No dependency index is part of that composition.** The screen's
+  The events and subscriptions all three renderings share, and the proof
+  that the front half composes: an intent in the authoring spelling,
+  lowered through the codec's prop walk and invoked as the browser would,
+  reaches a real event handler and moves a real app-db. The screen's
   narrow and broad writes against the arm's dependency edges are
   `the-table-answers-the-screens-own-narrow-and-broad-writes` in
-  `arm1/cell_table_laws_cljs_test`, where the fused doors and a substrate
-  that actually notifies make the claim against real notifications
-  rather than against a value algebra.
-
-  Nothing here mounts a screen; the arms do."
+  `arm1/cell_table_laws_cljs_test`. Nothing here mounts a screen."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.bench.fresco.front.codec :as rf.bench.fresco.front.codec]
             [re-frame.bench.fresco.front.dogfood :as rf.bench.fresco.front.dogfood]
@@ -30,12 +20,11 @@
 
 (def ^:private frame-id ::dogfood)
 
-(defn- seeded!
-  "A frame with `n` to-dos."
-  ([] (seeded! 3))
-  ([n]
-   (rf.bench.fresco.front.dogfood/make-frame! frame-id n)
-   frame-id))
+(def ^:private new-key rf.bench.fresco.front.dogfood/new-draft-key)
+
+(defn- seeded! []
+  (rf.bench.fresco.front.dogfood/make-frame! frame-id 3)
+  frame-id)
 
 (defn- read-sub [query]
   (rf/with-frame frame-id (deref (rf/subscribe query))))
@@ -44,170 +33,112 @@
   (rf/with-frame frame-id (rf/dispatch-sync event))
   nil)
 
-(defn- frame-dispatch
-  "The frame-locked dispatch a boundary would resolve once, from the
-  substrate's single internal context, and bind ambiently."
-  []
-  (fn [event] (send! event)))
+(defn- title [id] (:title (read-sub [:dogfood/todo id])))
 
-;; ---------------------------------------------------------------------------
-;; The shape
-;; ---------------------------------------------------------------------------
+(defn- visible [] (read-sub [:dogfood/visible-ids]))
 
-(deftest the-seeded-shape-is-the-one-the-screen-is-written-against
-  (let [db (rf.bench.fresco.front.dogfood/seed-db 3)]
-    (is (= [0 1 2] (:order db)))
-    (is (= 3 (count (:todos db))))
-    (is (= {:id 1 :title "todo 1" :done? false} (get-in db [:todos 1])))
-    (is (= {} (:drafts db)))
-    (is (= :all (:filter db)))
-    (is (= 3 (:next-id db)))))
+(defn- lowered
+  "The element the codec builds for `hiccup` under the frame-locked
+  dispatch a boundary would bind, and its `prop` handler."
+  [hiccup prop]
+  (let [el (rf.bench.fresco.front.intent/with-frame send!
+                                                    (fn [] (rf.bench.fresco.front.codec/as-element hiccup)))]
+    [el (aget (.-props el) prop)]))
 
 (deftest the-subscriptions-read-what-the-screen-needs
-  (seeded! 3)
-  (is (= [0 1 2] (read-sub [:dogfood/visible-ids])))
-  (is (= 3 (read-sub [:dogfood/remaining])))
-  (is (= "todo 1" (:title (read-sub [:dogfood/todo 1]))))
-  (is (false? (read-sub [:dogfood/done? 1])))
-  (is (= "" (read-sub [:dogfood/draft 1])) "an untouched draft reads as empty, not nil")
-  (is (= :all (read-sub [:dogfood/filter]))))
-
-;; ---------------------------------------------------------------------------
-;; The write shapes that are also the bulk witnesses
-;; ---------------------------------------------------------------------------
+  (seeded!)
+  (is (= [[0 1 2] 3 "todo 1" false "" :all]
+         [(visible) (read-sub [:dogfood/remaining]) (title 1) (read-sub [:dogfood/done? 1])
+          (read-sub [:dogfood/draft 1]) (read-sub [:dogfood/filter])])
+      "an untouched draft reads as empty, not nil"))
 
 (deftest the-narrow-write-touches-one-row-and-the-header
-  (seeded! 3)
+  (seeded!)
   (send! [:dogfood/toggle 1])
-  (is (true? (read-sub [:dogfood/done? 1])))
-  (is (false? (read-sub [:dogfood/done? 0])))
-  (is (false? (read-sub [:dogfood/done? 2])))
-  (is (= 2 (read-sub [:dogfood/remaining])))
-  (is (= [0 1 2] (read-sub [:dogfood/visible-ids])) "under :all the list is unchanged"))
+  (is (= [false true false 2 [0 1 2]]
+         [(read-sub [:dogfood/done? 0]) (read-sub [:dogfood/done? 1]) (read-sub [:dogfood/done? 2])
+          (read-sub [:dogfood/remaining]) (visible)])))
 
 (deftest the-broad-write-rebuilds-the-list
-  (seeded! 3)
+  (seeded!)
   (send! [:dogfood/toggle 1])
-  (send! [:dogfood/set-filter :active])
-  (is (= [0 2] (read-sub [:dogfood/visible-ids])))
-  (send! [:dogfood/set-filter :done])
-  (is (= [1] (read-sub [:dogfood/visible-ids])))
-  (send! [:dogfood/set-filter :all])
-  (is (= [0 1 2] (read-sub [:dogfood/visible-ids]))))
+  (is (= [[0 2] [1] [0 1 2]]
+         (mapv (fn [f] (send! [:dogfood/set-filter f]) (visible)) [:active :done :all]))))
 
 (deftest keyed-insert-delete-and-reorder-move-the-order-and-nothing-else
-  (seeded! 3)
+  (seeded!)
   (testing "insert appends and mints the next id"
-    (send! [:dogfood/edit-draft rf.bench.fresco.front.dogfood/new-draft-key "milk"])
+    (send! [:dogfood/edit-draft new-key "milk"])
     (send! [:dogfood/create])
-    (is (= [0 1 2 3] (read-sub [:dogfood/visible-ids])))
-    (is (= "milk" (:title (read-sub [:dogfood/todo 3])))))
+    (is (= [[0 1 2 3] "milk"] [(visible) (title 3)])))
   (testing "delete removes the row and its draft"
     (send! [:dogfood/edit-draft 1 "half-typed"])
     (send! [:dogfood/remove 1])
-    (is (= [0 2 3] (read-sub [:dogfood/visible-ids])))
-    (is (nil? (read-sub [:dogfood/todo 1])))
-    (is (= "" (read-sub [:dogfood/draft 1]))))
-  (testing "reorder moves one id and preserves every other position"
-    (send! [:dogfood/move 3 0])
-    (is (= [3 0 2] (read-sub [:dogfood/visible-ids])))
-    (send! [:dogfood/move 3 2])
-    (is (= [0 2 3] (read-sub [:dogfood/visible-ids])))
-    (testing "an out-of-range target clamps rather than corrupting the list"
-      (send! [:dogfood/move 0 99])
-      (is (= [2 3 0] (read-sub [:dogfood/visible-ids]))))))
-
-;; ---------------------------------------------------------------------------
-;; Drafts — HD-009's claim, as code
-;; ---------------------------------------------------------------------------
+    (is (= [[0 2 3] nil ""] [(visible) (read-sub [:dogfood/todo 1]) (read-sub [:dogfood/draft 1])])))
+  (testing "reorder moves one id, and an out-of-range target clamps"
+    (is (= [[3 0 2] [0 2 3] [2 3 0]]
+           (mapv (fn [[id to]] (send! [:dogfood/move id to]) (visible)) [[3 0] [3 2] [0 99]])))))
 
 (deftest one-parametric-sub-and-named-events-serve-every-draft-instance
-  (seeded! 3)
+  (seeded!)
   (send! [:dogfood/edit-draft 0 "zero"])
   (send! [:dogfood/edit-draft 2 "two"])
-  (send! [:dogfood/edit-draft rf.bench.fresco.front.dogfood/new-draft-key "new"])
-  (testing "three instances, one subscription"
-    (is (= "zero" (read-sub [:dogfood/draft 0])))
-    (is (= "two" (read-sub [:dogfood/draft 2])))
-    (is (= "new" (read-sub [:dogfood/draft rf.bench.fresco.front.dogfood/new-draft-key])))
-    (is (= "" (read-sub [:dogfood/draft 1])) "an instance nobody typed into"))
-  (testing "commit is by explicit caller revision, never by value equality"
-    (send! [:dogfood/commit 0])
-    (is (= "zero" (:title (read-sub [:dogfood/todo 0]))))
-    (is (= "" (read-sub [:dogfood/draft 0])) "and only then is the draft cleared"))
-  (testing "cancel discards without touching the to-do"
-    (send! [:dogfood/cancel 2])
-    (is (= "" (read-sub [:dogfood/draft 2])))
-    (is (= "todo 2" (:title (read-sub [:dogfood/todo 2]))))))
+  (send! [:dogfood/edit-draft new-key "new"])
+  (is (= ["zero" "two" "new" ""] (mapv #(read-sub [:dogfood/draft %]) [0 2 new-key 1]))
+      "three instances, one subscription, and one nobody typed into")
+  (send! [:dogfood/commit 0])
+  (is (= ["zero" ""] [(title 0) (read-sub [:dogfood/draft 0])])
+      "commit writes the draft and only then clears it")
+  (send! [:dogfood/cancel 2])
+  (is (= ["" "todo 2"] [(read-sub [:dogfood/draft 2]) (title 2)])
+      "cancel discards without touching the to-do"))
 
 (deftest an-empty-draft-creates-and-commits-nothing
-  (seeded! 3)
+  (seeded!)
   (send! [:dogfood/create])
-  (is (= [0 1 2] (read-sub [:dogfood/visible-ids])))
   (send! [:dogfood/commit 1])
-  (is (= "todo 1" (:title (read-sub [:dogfood/todo 1])))))
-
-;; ---------------------------------------------------------------------------
-;; The front half, composed: authoring spelling → codec → browser → app-db
-;; ---------------------------------------------------------------------------
+  (is (= [[0 1 2] "todo 1"] [(visible) (title 1)])))
 
 (deftest a-lowered-intent-reaches-a-real-event-handler
-  (seeded! 3)
-  (let [el (rf.bench.fresco.front.intent/with-frame (frame-dispatch)
-                              (fn [] (rf.bench.fresco.front.codec/as-element
-                                      [:button {:on-click [:dogfood/toggle 1]} "toggle"])))
-        on-click (aget (.-props el) "onClick")]
-    (is (false? (read-sub [:dogfood/done? 1])))
+  (seeded!)
+  (let [[_ on-click] (lowered [:button {:on-click [:dogfood/toggle 1]} "toggle"] "onClick")]
     (on-click #js {:target #js {}})
-    (is (true? (read-sub [:dogfood/done? 1])) "the click moved app-db")
-    (is (= 2 (read-sub [:dogfood/remaining])))))
+    (is (= [true 2] [(read-sub [:dogfood/done? 1]) (read-sub [:dogfood/remaining])])
+        "the click moved app-db")))
 
 (deftest the-controlled-field-carries-its-value-through-the-marker
-  (seeded! 3)
-  (let [el (rf.bench.fresco.front.intent/with-frame (frame-dispatch)
-                              (fn [] (rf.bench.fresco.front.codec/as-element
-                                      [:input {:value (read-sub [:dogfood/draft rf.bench.fresco.front.dogfood/new-draft-key])
-                                               :on-input [:dogfood/edit-draft rf.bench.fresco.front.dogfood/new-draft-key
-                                                          :re-frame.fresco/value]}])))
-        on-input (aget (.-props el) "onInput")]
-    (is (= "" (aget (.-props el) "value")))
-    (on-input #js {:target #js {:value "mi"}})
-    (is (= "mi" (read-sub [:dogfood/draft rf.bench.fresco.front.dogfood/new-draft-key])))
-    (on-input #js {:target #js {:value "milk"}})
-    (is (= "milk" (read-sub [:dogfood/draft rf.bench.fresco.front.dogfood/new-draft-key])))))
+  (seeded!)
+  (let [[el on-input] (lowered [:input {:value    (read-sub [:dogfood/draft new-key])
+                                        :on-input [:dogfood/edit-draft new-key :re-frame.fresco/value]}]
+                               "onInput")]
+    (is (= ["" "mi" "milk"]
+           (into [(aget (.-props el) "value")]
+                 (map (fn [typed]
+                        (on-input #js {:target #js {:value typed}})
+                        (read-sub [:dogfood/draft new-key])))
+                 ["mi" "milk"])))))
 
 (deftest the-form-submits-once-and-prevents-the-browsers-navigation
-  (seeded! 3)
-  (send! [:dogfood/edit-draft rf.bench.fresco.front.dogfood/new-draft-key "milk"])
-  (let [!prevented (atom false)
-        el (rf.bench.fresco.front.intent/with-frame (frame-dispatch)
-                              (fn [] (rf.bench.fresco.front.codec/as-element
-                                      [:form {:on-submit [:dogfood/create]}])))
-        on-submit (aget (.-props el) "onSubmit")]
+  (seeded!)
+  (send! [:dogfood/edit-draft new-key "milk"])
+  (let [!prevented   (atom false)
+        [_ on-submit] (lowered [:form {:on-submit [:dogfood/create]}] "onSubmit")]
     (on-submit #js {:target #js {} :preventDefault (fn [] (reset! !prevented true))})
-    (is (true? @!prevented))
-    (is (= [0 1 2 3] (read-sub [:dogfood/visible-ids])))
-    (is (= "milk" (:title (read-sub [:dogfood/todo 3]))))
-    (is (= "" (read-sub [:dogfood/draft rf.bench.fresco.front.dogfood/new-draft-key])))))
+    (is (= [true [0 1 2 3] "milk" ""]
+           [@!prevented (visible) (title 3) (read-sub [:dogfood/draft new-key])]))))
 
 (deftest the-key-map-commits-on-enter-cancels-on-escape-and-is-silent-mid-composition
-  (seeded! 3)
+  (seeded!)
   (send! [:dogfood/edit-draft 1 "renamed"])
-  (let [el (rf.bench.fresco.front.intent/with-frame (frame-dispatch)
-                              (fn [] (rf.bench.fresco.front.codec/as-element
-                                      [:input {:on-key-down {"Enter"  [:dogfood/commit 1]
-                                                             "Escape" [:dogfood/cancel 1]}}])))
-        on-key-down (aget (.-props el) "onKeyDown")]
-    (testing "a composing Enter commits nothing"
-      (on-key-down #js {:key "Enter" :isComposing true :target #js {}})
-      (is (= "todo 1" (:title (read-sub [:dogfood/todo 1]))))
-      (is (= "renamed" (read-sub [:dogfood/draft 1])) "and the draft survives"))
-    (testing "a settled Enter commits"
-      (on-key-down #js {:key "Enter" :target #js {}})
-      (is (= "renamed" (:title (read-sub [:dogfood/todo 1])))))
-    (testing "Escape discards the next draft"
-      (send! [:dogfood/edit-draft 1 "second thoughts"])
-      (on-key-down #js {:key "Escape" :target #js {}})
-      (is (= "" (read-sub [:dogfood/draft 1])))
-      (is (= "renamed" (:title (read-sub [:dogfood/todo 1])))))))
-
+  (let [[_ on-key-down] (lowered [:input {:on-key-down {"Enter"  [:dogfood/commit 1]
+                                                        "Escape" [:dogfood/cancel 1]}}]
+                                 "onKeyDown")]
+    (on-key-down #js {:key "Enter" :isComposing true :target #js {}})
+    (is (= ["todo 1" "renamed"] [(title 1) (read-sub [:dogfood/draft 1])])
+        "a composing Enter commits nothing, and the draft survives")
+    (on-key-down #js {:key "Enter" :target #js {}})
+    (is (= "renamed" (title 1)) "a settled Enter commits")
+    (send! [:dogfood/edit-draft 1 "second thoughts"])
+    (on-key-down #js {:key "Escape" :target #js {}})
+    (is (= ["" "renamed"] [(read-sub [:dogfood/draft 1]) (title 1)])
+        "Escape discards the next draft")))
