@@ -12,7 +12,7 @@ Four files under `implementation/routing/test/re_frame/recipes/` — one applica
 
 | suite | lane | what it owns |
 |---|---|---|
-| `re-frame.recipes.async-nav-l0-cljs-test` | `:node-test` | every rule of all three recipes — first as pure functions, then through a real frame — plus the clobber control and the structural row that names the guard on the route |
+| `re-frame.recipes.async-nav-l0-cljs-test` | `:node-test` | every rule of all three recipes through a real frame, with the settle-merge also read as a pure function |
 | `re-frame.recipes.async-nav-guard-dom-cljs-test` | `:browser-test` | the one claim no model row can make: the browser's own Back button, and the address bar the guard puts back |
 | `re-frame.recipes.async-nav-doc-test` | JVM `:test` | **this page.** Every `:optimistic` target printed below is read as data and matched against the ones the application registers, so a snippet teaching a shape the runtime rejects reds here rather than in a reader's application |
 
@@ -89,7 +89,7 @@ One boolean sub on one route key:
 
 Read **positively** — `true` means leaving is fine. A guard that answered the dirty flag directly is the classic polarity bug: it reads as though it works and blocks exactly when it should allow. And **strictly boolean**, because a non-boolean fails closed with `:rf.error/can-leave-non-boolean`, so a guard answering `nil` for "no editor open" would deny every navigation in the application. `not` is written rather than `if` for that reason.
 
-`dirty?` is one *definition*, called by the guard sub, by the badge's sub and by the save handler. R-A6's failure in its navigation form is two recomputations of "is this dirty?" drifting apart, and one definition is what makes that impossible. A materialised flow is the other honest answer, buys a value a tool can see, and costs a registration and a boot event; it is not paid for here.
+`dirty?` is one *definition*, called by the guard sub and by the badge's sub. R-A6's failure in its navigation form is two recomputations of "is this dirty?" drifting apart, and one definition is what makes that impossible. A materialised flow is the other honest answer, buys a value a tool can see, and costs a registration and a boot event; it is not paid for here.
 
 `:bypass-leave? true` on the save-and-close path states an intent that saving would have satisfied anyway. It skips *this* route's `:can-leave` for *this* navigation; the target's `:can-enter` still runs, because an "enter anyway" flag would be a hole straight through the auth gate.
 
@@ -115,12 +115,12 @@ The browser row therefore asserts both sides of the asymmetry: after a real `his
 
 | trap | decided by | how it reds |
 |---|---|---|
-| late settle clobbering a touched field (R-C1) | `l0`, guarded row plus the control | the control writes the very same payload as a whole slice and shows the keystrokes gone |
-| a reply that cannot name its request (R-C2) | `l0`, structurally and behaviourally | the reply target is asserted to carry the slug; drop the slug and the cross-article row cannot distinguish anything |
+| late settle clobbering a touched field (R-C1) | `l0`, the guarded row | a reply arriving after the user typed a title keeps the typed title, seeds the untouched body, and takes the payload whole as the baseline |
+| a reply that cannot name its request (R-C2) | `l0`, behaviourally | two articles' replies arrive out of order and the abandoned article's late reply changes nothing; drop the slug and the row cannot tell them apart |
 | status colliding across instances (R-C5) | `l0` | two rows in flight, one rejected — the neighbour must stay pending and error-free |
-| a guard read negatively, or non-boolean | `l0` | `can-leave?` is asserted `boolean?` in both positions, and the route's `:can-leave` key is asserted present on the editor and absent on the list |
+| a guard read negatively, or non-boolean | `l0` | `can-leave?` reads exactly `true` clean and exactly `false` dirty, and a saved draft then leaves freely |
 | a blocked Back leaving the URL moved | `browser` | `location.pathname` after a real `history.back()` |
-| a prompt that is not ordinary view code | `browser` | the negative control asserts NO prompt node exists until something is pending |
+| a prompt that is not ordinary view code | `browser` | the prompt node exists while a navigation is parked, and after `Stay` — still dirty, nothing pending — no prompt node exists |
 | **this page** printing an `:optimistic` target the runtime rejects | `doc-test`, JVM | the published target is read as data; the `[id params]` vector fails the shape row *and* is absent from the set the application registers |
 
 Every one of those has its second direction. The clobber row's twin asserts that with nothing touched the recipe **is** the naive write — which is why the defect survives every load that beats the typist, and why a witness that only tested the happy path would be green forever. The prompt rows assert both presence and absence. The `Stay` row asserts the work is still in the field afterwards, because cancelling the leave must not also cancel the edits it was protecting.
@@ -135,7 +135,7 @@ Every one of those has its second direction. The clobber row's twin asserts that
 
     **The conclusion below is untouched by any of that.** There was no witness to elevate when this recipe was written, which is precisely why it was written rather than elevated.
 
-    So the settle-merge recipe was **written**, not elevated, and its control row is what makes the class reachable. The corpus defect itself (`examples/real-apps/realworld_resources/article_editor.cljs`, bd `rf2-y4mgw`) was left untouched *by this bead* — fixing an example was that bead's work, and this one is a recipe. It has since been fixed there, by commit `d8bf3be425` under `rf2-czvc`, about ninety minutes after this page landed; the editor now seeds leafwise through `seed-slice`.
+    So the settle-merge recipe was **written**, not elevated, and its rows are what make the class reachable. The corpus defect itself (`examples/real-apps/realworld_resources/article_editor.cljs`, bd `rf2-y4mgw`) was left untouched *by this bead* — fixing an example was that bead's work, and this one is a recipe. It has since been fixed there, by commit `d8bf3be425` under `rf2-czvc`, about ninety minutes after this page landed; the editor now seeds leafwise through `seed-slice`.
 
 2. **The dirty-nav guard's "wiring point" in `rf2-hic-042` is the real-history seam, not a guard slot.** The `:can-leave` key has shipped since Spec 012 and its semantics are covered by `routing_can_leave_test.clj`. What PR #8031 actually contributed to this bead is the `:url-bound?` browser arrangement described above — which is the wiring point that matters, because it is the only one that can hold a *real* Back button. Nothing in `routing_conduct_dom_cljs_test.cljs` was edited.
 
