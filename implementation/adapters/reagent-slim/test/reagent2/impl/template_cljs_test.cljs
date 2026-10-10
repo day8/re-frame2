@@ -206,21 +206,19 @@
       (finally
         (set! (.-warn js/console) orig)))))
 
-(deftest warn-once-keyword-prop-fires-once-per-non-html-pair
-  (let [calls (atom [])]
-    (with-warn-spy calls
-      #(doseq [[k v] [[:rf2-warn-test-k1 :rf2-v1]
-                      [:rf2-warn-test-k1 :rf2-v1]
-                      [:rf2-warn-test-k1 :rf2-v1b]
-                      [:class :rf2-warn-test-html]
-                      [:data-foo :rf2-warn-test-data]
-                      [:aria-label :rf2-warn-test-aria]]]
-         (template/convert-prop-value k v)))
-    (is (= 2 (count @calls))
-        "a repeated pair is silent, a fresh value warns again, HTML attrs never warn")
-    (is (every? #(re-find % (first @calls)) [#"rf2-warn-test-k1" #"rf2-v1"])
-        "the warning names the prop and the value")
-    (is (re-find #"rf2-v1b" (second @calls)))))
+(deftest keyword-prop-on-interop-head-passes-through-silently
+  (testing "[:> Provider {:value <keyword>} …] hands React the keyword itself
+            and logs nothing"
+    (let [calls    (atom [])
+          provider (.-Provider (react/createContext nil))
+          el       (atom nil)]
+      (with-warn-spy calls
+        #(reset! el (template/as-element
+                      [:> provider {:value :tenant/keyword-prop-probe} [:div "x"]])))
+      (is (empty? @calls) (str "no console warning. Saw: " (pr-str @calls)))
+      (is (keyword-identical? :tenant/keyword-prop-probe
+                              (gobj/get (.-props ^js @el) "value"))
+          "the keyword reaches React unchanged"))))
 
 ;; ---------------------------------------------------------------------------
 ;; as-element — primitive cases

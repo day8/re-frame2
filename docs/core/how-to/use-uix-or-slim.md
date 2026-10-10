@@ -216,6 +216,8 @@ Your app depends on exactly one of `day8/re-frame2-reagent` and `day8/reagent-sl
 3. Change `reagent.*` requires in your views to `reagent2.*` (for example `reagent2.core` for `reagent.core`).
 4. If you call Reagent's DOM API directly rather than the adapter's `client-root` / `render!`, replace `reagent.dom/render` with `reagent2.dom.client/create-root` plus `render`, and `reagent.dom/unmount-component-at-node` with `reagent2.dom.client/unmount`.
 
+A keyword prop value on a component head (`[:> Provider {:value :tenant/a}]`) reaches the component as the keyword itself under slim, where stock Reagent passes its name, a string without the namespace. `:class`, `:id`, `:role`, `data-*` and `aria-*` become strings under both, so write `(name v)` only where a component wants a string for some other prop.
+
 A `r/dom-node` call becomes a `:ref` callback, since React 19 removed `findDOMNode`. The worked example is [`examples/substrates/reagent_slim/counter/`](../../../examples/substrates/reagent_slim/counter), whose events, subs, and views are identical to the stock Reagent counter's.
 
 !!! note "Form-3 components under slim"

@@ -802,7 +802,7 @@ Per DECISION-2 + S3-002 + rf2-ygknv finding 1: keyword/symbol prop-value stringi
 
 - **Native DOM/string tags** — every prop on a real DOM element is an HTML attribute whose value is a string, so keyword/symbol values stringify for **any** prop name. `[:button {:type :button}]` reaches React with `props.type === "button"`; `[:a {:target :_blank}]` → `props.target === "_blank"`. This matches both React DOM and the pure server serializer (`dom/server.cljs`), which stringifies every attribute value — closing the SSR/static-vs-client parity gap where the live path used to pass a raw keyword into React DOM.
 
-- **Custom/interop components** — keyword/symbol values stringify only for the documented HTML-attribute prop names (`:class`, `:id`, `:role`, `:data-*`, `:aria-*`); other named values pass through unchanged (with a one-shot dev warning). So `[:> Provider {:value :rf/foo}]` preserves the `:rf/foo` keyword for the React-context Provider.
+- **Custom/interop components** — keyword/symbol values stringify only for the documented HTML-attribute prop names (`:class`, `:id`, `:role`, `:data-*`, `:aria-*`); other named values pass through unchanged. So `[:> Provider {:value :rf/foo}]` preserves the `:rf/foo` keyword for the React-context Provider.
 
 The static HTML-attribute set (used for the interop/non-native path):
 
@@ -820,10 +820,7 @@ Implementation (target threaded from `convert-props` as `native?`):
    (cond
      (named? v) (if (html-attr-name? k)
                   (name v)               ; stringify for HTML attrs
-                  (do                     ; non-HTML: pass through; warn in dev
-                    (when ^boolean js/goog.DEBUG
-                      (warn-once-keyword-prop! k v))
-                    v))
+                  v)                     ; non-HTML: pass through
      ...))
   ;; 3-arg: target-aware. Native DOM tag → stringify every named value.
   ([k v native?]
@@ -831,8 +828,6 @@ Implementation (target threaded from `convert-props` as `native?`):
      (name v)
      (convert-prop-value k v))))
 ```
-
-The dev-mode warn-once cache (interop path only) is a `defonce`-d atom keyed by `[k (name v)]` to avoid spamming. The warning includes the prop key, the keyword value, and the migration: "if you intended a string, call (name v) at the call site; if you intended a keyword as a React-context value or a custom prop, the value is now passed through unchanged."
 
 ### §7.3 Tag parsing — `:div.cls#id` shorthand
 
@@ -1161,7 +1156,7 @@ Per the bead description and Stage 2 §5 risk register R-001..R-007.
 | `reagent2.ratom` | `ratom_cljs_test.cljs` | RAtom + Reaction lifecycle; protocol satisfaction; equality memoisation; `IDisposable` reify; cross-substrate cache-wiring contract. |
 | `reagent2.dom.client` | `dom/client_cljs_test.cljs` | `render` against a stub root (hiccup lowering, deref capture, re-render and unmount disposal); `create-root` / `hydrate-root` only as bound fns, and `unmount` only on a nil root; the flush-views! determinism contract per §4.6; React-19 `act` cooperation (a spy on `react.act` proves the drain routes through it — rf2-6r9j.35). |
 | `reagent2.dom.server` | `dom/server_cljs_test.cljs` + `dom/parity_cljs_test.cljs` + `dom/boolean_attr_react_parity_cljs_test.cljs` + `dom/server_subscribe_ssr_cljs_test.cljs` | render-to-static-markup output for representative corpus; parity against `react-dom/server` per §8.7; the boolean attribute-value classes, over a candidate space taken from react-dom's own `possibleStandardNames`; the SSR non-reactive deref branch. |
-| `reagent2.impl.template` | `impl/template_cljs_test.cljs` (+ the reserved-head and keyword-prop-warn-once siblings) | hiccup → React-element shapes; narrowed convert-prop-value (R-001); kebab-camel cache; tag parsing; sequence-children handling; `:>` / `:<>` / `:r>` / `:f>` interop. |
+| `reagent2.impl.template` | `impl/template_cljs_test.cljs` (+ the reserved-head siblings) | hiccup → React-element shapes; narrowed convert-prop-value (R-001); kebab-camel cache; tag parsing; sequence-children handling; `:>` / `:<>` / `:r>` / `:f>` interop. |
 | `reagent2.impl.component` | `impl/component_cljs_test.cljs` (runtime) + `impl/component_test.clj` (the JVM-side `reg-view` expansion, §5.2) | create-class 7-key cap (R-002); throw-on-unsupported-key per banned key; lifecycle method mapping per §6.4; `:component-did-catch` error-boundary integration per §6.5; `:get-snapshot-before-update` pairing per §6.6; and, on the JVM, that `reg-view`'s expansion carries no form tag with reagent-slim on the classpath. |
 | `reagent2.impl.batching` | `impl/batching_cljs_test.cljs` (+ `re_frame/adapter/reagent_slim_after_render_dom_cljs_test.cljs` for the real-DOM half) | microtask scheduling; dirty-flag dedup; cascade non-flattening per §4.5 (a component re-queued during its own `forceUpdate` gets a fresh turn rather than joining the current drain) — and the witness earns that word, observing the call count at each TURN BOUNDARY (1, then 2, then 3) rather than only at the end, because a final count of 3 is reached by a flattening drain too and cannot tell three turns from one (rf2-e6up); flush! synchronous drain; the after-render queue — registration order, and per-callback throw isolation on both the microtask path and `flush!` (rf2-p27yih); and `rea-schedule` wiring, i.e. that a Reaction dependency change drains through the schedule fn the batching ns installs at load. **This cell used to credit the pair with "React 19 transition cooperation (R-005)"; neither file exercises any transition API** (corrected under rf2-6fxq, re-derived at tip 2026-09-11) — `transition` appears in neither, and §12.5 R-005, which owns that risk, already records its transition half as accepted rather than covered. The focused file drives fake components whose `forceUpdate` body is synchronous, so it can pin call ORDER but not commit timing; the `-dom-` sibling reads `textContent` from INSIDE the callback on a real React 19 root and is what pins the post-COMMIT promise (rf2-cdoo). |
 | `reagent2.impl.diag` | `impl/diag_cljs_test.cljs` | the EP-0015-safe value summary (§2.10) — shape only, never the value. |

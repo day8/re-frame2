@@ -203,8 +203,7 @@
 ;; ---- warn-once clear-fn governance registry ------------------------------
 ;;
 ;; Every process-wide `defonce` warn-once cache in the adapter / views
-;; family (`warned-non-dom-roots`, the `seen-render-keys` set,
-;; the slim hiccup interpreter's `warned-keyword-prop` cache, and the
+;; family (`warned-non-dom-roots`, the `seen-render-keys` set, and the
 ;; React-hook spine's per-adapter source-coord cache) must be wiped by the
 ;; standard `make-reset-runtime-fixture` between tests — otherwise a sibling
 ;; test's first-encounter warning silently swallows a later test's same-key
