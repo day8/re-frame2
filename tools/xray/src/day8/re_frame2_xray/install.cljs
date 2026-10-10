@@ -62,12 +62,10 @@
 ;; re-read — so for every frame that is not the current target the
 ;; round-trip would compute the same db value it already had.
 ;;
-;; Under load that is not merely wasteful, it is destructive. A host
-;; burst produces epochs faster than `:rf/xray`'s own drain settles, so
-;; the queue would pass the depth-100 cap and the router would DROP
-;; events with `:recovery :no-recovery` — whatever happens to be behind
-;; the flood, including Xray's OWN chrome events (on the Story
-;; feature-load gate, `:rf.xray.edn-inspector/clear-width`).
+;; Under load that waste scales with epoch count. Each pump dispatch is
+;; made outside any `:rf/xray` event, so it joins that frame's external
+;; lane and roots a family of its own: `:drain-depth` never halts a
+;; burst of them, and the cost is one `:rf/xray` event per epoch.
 ;;
 ;; So the pump coalesces the way the sibling stream does:
 ;; `trace-collector/request-mirror-sync!` coalesces the trace mirror onto
@@ -159,8 +157,8 @@
   re-fires off the standard app-db-write reactive path.
 
   ONE DISPATCH PER FRAME PER TASK, not one per epoch — see the
-  §task-coalesced epoch pump block above for why an un-coalesced form
-  would overflow `:rf/xray`'s own queue.
+  §task-coalesced epoch pump block above for what an un-coalesced form
+  would cost.
 
   Idempotent via the `epoch-cb-registered?` sentinel."
   []

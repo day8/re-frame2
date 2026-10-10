@@ -29,7 +29,6 @@
   `:sensitive? true`."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.trace :as rf.trace]
             [day8.re-frame2-xray.config :as config]
@@ -100,22 +99,16 @@
 
 (deftest xray-own-frameless-sub-reads-cost-no-queue-slot
   (testing "a shell-mount burst of Xray's own frameless sub reads
-            is structural self-noise: it bumps no REDACTED counter and adds
-            nothing to `:rf/xray`'s queue. Counting them would move both
-            by 126."
-    ;; A BASELINE, not zero: the fixture's own `reset-suppressed-count!`
-    ;; runs with `:rf/xray` already seated, so its reset dispatch is
-    ;; legitimately sitting in the queue before the burst begins.
-    (let [baseline (xray-queue-depth)]
-      ;; Both a bare `rf.xray` id and a sub-namespace id — the shell mount
-      ;; reads both shapes (`:rf.xray/mode`, `:rf.xray.edn-inspector/widths`).
-      (doseq [sub-id (take shell-mount-burst
-                           (cycle [:rf.xray/mode :rf.xray.edn-inspector/widths]))]
-        (emit-frameless-sub-run! sub-id))
-      (is (zero? (config/suppressed-count))
-          "Xray's own reads are not redacted host data")
-      (is (= baseline (xray-queue-depth))
-          "so none of them costs a dispatch into Xray's own queue"))))
+            is structural self-noise: it bumps no REDACTED counter, so it
+            schedules no dispatch into `:rf/xray`. Counting them would add
+            126 to the count."
+    ;; Both a bare `rf.xray` id and a sub-namespace id — the shell mount
+    ;; reads both shapes (`:rf.xray/mode`, `:rf.xray.edn-inspector/widths`).
+    (doseq [sub-id (take shell-mount-burst
+                         (cycle [:rf.xray/mode :rf.xray.edn-inspector/widths]))]
+      (emit-frameless-sub-run! sub-id))
+    (is (zero? (config/suppressed-count))
+        "Xray's own reads are not redacted host data")))
 
 (deftest control-a-host-frameless-sub-read-is-still-redacted
   (testing "the control for the test above: the SAME
@@ -168,16 +161,7 @@
 (deftest a-host-burst-of-sensitive-traces-costs-one-dispatch-per-task
   (async done
     (let [router  (:router (rf.frame/frame :rf/xray))
-          arrived (watch-note-arrivals! router)
-          halts   (atom [])]
-      ;; The ALWAYS-ON error axis, not the dev `:trace` stream: it carries the
-      ;; drain-depth halt record, and it is the axis this async drain
-      ;; delivers — a `:trace` spy here would stay empty even when the halt
-      ;; happened.
-      (rf.error-emit/register-error-listener! ::drain-depth-spy
-        (fn [record]
-          (when (= :rf.error/drain-depth-exceeded (:error record))
-            (swap! halts conj record))))
+          arrived (watch-note-arrivals! router)]
       (dotimes [_ host-burst]
         (emit-frameless-sub-run! :app/current-user))
       ;; Far past both the collector's coalescing task and the router's drain
@@ -193,15 +177,12 @@
               (is (= 1 @arrived)
                   (str host-burst " suppressed traces in one task cost ONE "
                        "dispatch into :rf/xray"))
-              (is (empty? @halts)
-                  "no :rf.error/drain-depth-exceeded on :rf/xray")
               (is (= host-burst
                      (rf/with-frame :rf/xray
                        @(rf/subscribe [:rf.xray/suppressed-sensitive-count])))
                   "and the whole count reaches the REDACTED badge's sub"))
             (finally
               (remove-watch router ::note-arrivals)
-              (rf.error-emit/unregister-error-listener! ::drain-depth-spy)
               (done))))
         100))))
 

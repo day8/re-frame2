@@ -206,11 +206,9 @@
   ;;
   ;; ONE DISPATCH PER FRAME PER TASK, not one per epoch. The
   ;; collector coalesces a same-tick burst into a single dispatch per
-  ;; distinct frame — an un-coalesced form would overflow `:rf/xray`'s own
-  ;; queue past the depth-100 cap under load, and the events the router
-  ;; then dropped would be Xray's own chrome events. The arg means "this
-  ;; frame recorded"; for a non-target frame this reducer is a no-op
-  ;; re-read that costs a queue slot per task rather than per epoch.
+  ;; distinct frame. The arg means "this frame recorded"; for a
+  ;; non-target frame this reducer is a no-op re-read that costs a
+  ;; queue slot per task rather than per epoch.
   ;; `:rf.trace/no-emit? true` — the dispatch must not itself emit a
   ;; trace event (the listener is part of Xray's instrumentation loop;
   ;; a self-emit would re-enter the listener).
