@@ -21,7 +21,7 @@ the keys it excludes, and walks through the canonical Form-3 use case
 | `:component-did-update` | Fires after every re-render commit (not the first). Receives `(this prev-argv prev-state snapshot)`. The fourth arg is the value returned by `:get-snapshot-before-update` if set, else `nil`. |
 | `:component-will-unmount` | Fires once, just before unmount. The canonical disposal seam — release timers, listeners, JS-library instances. |
 | `:get-snapshot-before-update` | Fires just before commit, with `(this prev-argv prev-state)`. Returns any value; that value is passed as the 4th arg to `:component-did-update`. Use to capture pre-commit DOM measurements (e.g. scroll position) for restoration after the commit. |
-| `:component-did-catch` | Error-boundary callback. Fires with `(this error info)` when a descendant throws during render. Logging-only — re-frame2 ships only the `componentDidCatch` half of React's error-boundary contract. Apps that want stateful fallback rendering pair this with a local `(reagent2.core/atom)` flipped from inside the callback. |
+| `:component-did-catch` | Error-boundary callback. Fires with `(this error info)` when a descendant throws during render. Declaring it also marks the component's state `:cljsHasError true` when a descendant throws, and the render shows its fallback by reading that marker — see the worked example in §4. |
 | `:display-name` | A string used by React DevTools and error messages. Compile-time only — zero runtime cost. |
 
 **`prev-argv`, not `prevProps`.** The two update callbacks receive the component's
@@ -474,21 +474,19 @@ resolving to an object containing a `view` (the imperative handle);
 ### Worked example — error boundary (closely mirrors Dash8/rf8 `reagent-error-boundary`)
 
 ```clojure
-(defn error-boundary [_]
-  (let [error (r/atom nil)]
-    (r/create-class
-      {:display-name "error-boundary"
+(def error-boundary
+  (r/create-class
+    {:display-name "error-boundary"
 
-       :component-did-catch
-       (fn [_this err info]
-         (js/console.error "Caught render error:" err info)
-         (reset! error err))
+     :component-did-catch
+     (fn [_this err info]
+       (js/console.error "Caught render error:" err info))
 
-       :reagent-render
-       (fn [child]
-         (if @error
-           [:div.fallback "Something went wrong."]
-           child))})))
+     :reagent-render
+     (fn [child]
+       (if (:cljsHasError (r/state (r/current-component)))
+         [:div.fallback "Something went wrong."]
+         child))}))
 ```
 
 `:component-did-catch` is the one cap key for which there is no Form-1
@@ -498,11 +496,13 @@ function components cannot implement it. The reagent-slim cap permits
 genuine load-bearing use case that no alternative covers (see
 `DESIGN-RATIONALE.md` §4 and rf2-kfpf §6).
 
-reagent-slim ships logging-only error boundaries (the React 19 contract
-has two halves — `getDerivedStateFromError` for state, `componentDidCatch`
-for logging — and the four audited apps use only the second). Apps that
-want stateful fallback rendering pair `:component-did-catch` with a local
-`r/atom` as shown above.
+Declaring `:component-did-catch` installs both halves of React 19's
+boundary contract: a static `getDerivedStateFromError` that marks the
+component's state `:cljsHasError true`, and `componentDidCatch`, which calls
+your fn. The render must read the marker. React re-renders the boundary from
+the marked state before `componentDidCatch` runs, so a render that waits for
+a flag set inside `:component-did-catch` renders the throwing child again,
+and the error escapes the boundary.
 
 ---
 
@@ -671,7 +671,7 @@ native equivalent and stay on reagent-slim Form-3 — which is exactly why the
 | `:component-did-update` | after every commit but the first, per update | **No native answer — stays on reagent-slim Form-3, or is redesigned** (skill: `reagent-fresco-migration`, [`catalog-reject.md`](../../../skills/reagent-fresco-migration/references/catalog-reject.md) MIG-36). If the hook exists **only** to read changed data and re-render, the data is a **subscription** and the view is Form-1 (§6.3) — the lifecycle disappears. |
 | `:get-snapshot-before-update` + `:component-did-update` (paired) | measure the previous DOM pre-commit → restore post-commit | **No native equivalent — stays on reagent-slim Form-3.** A ref's attach runs *after* React has mutated the DOM, so it cannot read the pre-mutation geometry; the pre-commit half of the protocol has no native door. This paired protocol (scroll restoration, §5) is exactly why the cap keeps `:get-snapshot-before-update`. |
 | `:component-will-unmount` | just before unmount (dev StrictMode replays attach → detach → attach) | **Host teardown** (dispose the chart, remove the exact listener you added) → the callback ref's **returned cleanup**, which must be **symmetric and replay-safe**: it releases the exact resource its matching attach acquired, so a balanced pair (add-then-remove a listener, increment-then-decrement a counter, push-then-pop) stays correct as React replays attach → detach → attach. What corrupts state is an *unpaired* teardown, not a balanced one — blanket idempotency is not required. **Domain work** (release an owned resource, mark a draft abandoned) **re-homes OUT of the view**: the causal *end* events that end the resource's life release it. There is **no dispatch-at-unmount**, and a ref cleanup is not a place to smuggle one in. |
-| `:component-did-catch` | on a descendant render/lifecycle throw | The shipped **`h/error-boundary`** `{:fallback :reset-key :on-error}` when **error-only reporting** is enough: `:fallback` is hiccup or a `(fn [error] hiccup)`, `:on-error` fires once per caught failure, and changing `:reset-key` (compared `=`) clears the caught error and re-mounts the children — the retry is the caller's to schedule. The one thing it drops is React's second callback arg — the `info`/`componentStack`; reagent-slim Form-3's `:component-did-catch (this error info)` still hands you that. So if you need the component stack (grouped crash logging, error fingerprinting), or the closed prop roster otherwise does not fit, the view **stays on reagent-slim Form-3** (`:component-did-catch` + a local `r/atom`, §4) or is redesigned. React catches only render/lifecycle throws below the boundary — not event-handler or async errors, which keep their typed paths. |
+| `:component-did-catch` | on a descendant render/lifecycle throw | The shipped **`h/error-boundary`** `{:fallback :reset-key :on-error}` when **error-only reporting** is enough: `:fallback` is hiccup or a `(fn [error] hiccup)`, `:on-error` fires once per caught failure, and changing `:reset-key` (compared `=`) clears the caught error and re-mounts the children — the retry is the caller's to schedule. The one thing it drops is React's second callback arg — the `info`/`componentStack`; reagent-slim Form-3's `:component-did-catch (this error info)` still hands you that. So if you need the component stack (grouped crash logging, error fingerprinting), or the closed prop roster otherwise does not fit, the view **stays on reagent-slim Form-3** (`:component-did-catch` and the `:cljsHasError` marker, §4) or is redesigned. React catches only render/lifecycle throws below the boundary — not event-handler or async errors, which keep their typed paths. |
 
 Every row preserves the phase, frequency, and dependency semantics of the hook
 it replaces. The three "stays on reagent-slim Form-3" rows are the honest holds:
