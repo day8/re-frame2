@@ -161,8 +161,9 @@ identity. Per Spec 012 §Lowering onto the uniform reply envelope."})
   declared `:rf.cofx/requires [:rf/time-ms]` reply fact (NOT an ambient
   clock read) and threads it here; it rides verbatim through
   `rf.routing.reply/suppress` onto the stale reply and is stamped on the trace
-  when present, so route completion time tracks the HTTP / resource /
-  mutation families that carry `:completed-at`. Absent ⇒ omitted
+  when present, as the resource and mutation families stamp
+  `:completed-at` on their stale replies (an HTTP stale reply carries
+  none). Absent ⇒ omitted
   (a route loader that did not source a completion time).
 
   `:target` is the (optional) normalized
@@ -241,8 +242,8 @@ identity. Per Spec 012 §Lowering onto the uniform reply envelope."})
                          ;; where `rf.routing.reply/suppress` placed it). The
                          ;; uniform reply-envelope view ties the stale route
                          ;; reply to the actual replayed completion token —
-                         ;; the same `:completed-at` the HTTP / resource /
-                         ;; mutation families carry. Absent ⇒ omitted.
+                         ;; the same `:completed-at` the resource and
+                         ;; mutation stale replies carry. Absent ⇒ omitted.
                          (some? (:completed-at reply))
                          (assoc :completed-at (:completed-at reply))))
     ;; Return the full suppression outcome for the caller's
