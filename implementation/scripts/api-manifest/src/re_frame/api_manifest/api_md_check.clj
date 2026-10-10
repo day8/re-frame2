@@ -18,13 +18,19 @@
 
   WHAT COUNTS AS A VAR-ROW. API.md mixes var-rows (one public fn / macro /
   Var) with keyword-addressed-registration rows (events / subs / fx /
-  cofx) and schema rows. Only the first kind carries a `:tier` for a
-  *var*. A row is a var-row iff:
-    - its first table cell is a single back-tick-quoted identifier, and
-    - its `M/Fn` cell begins with `Fn`, `M`, or `Var`
-      (the closed set of var-kind markers API.md uses).
-  Keyword rows (`:rf.http/managed`, `:rf/route`, …) and prose-celled rows
-  are skipped — they are not vars and carry no Tier-for-a-var.
+  cofx), configure-key rows and schema rows. Only the first kind carries a
+  `:tier` for a *var*. In a table with a `Tier` column the first cell alone
+  decides: a row is a var-row iff that cell is a single back-tick-quoted
+  symbol (`reg-event`, `rf.adapter.uix/adapter`). Keyword
+  (`:rf.http/managed`), list (`(rf/configure! …)`) and vector
+  (`[:rf.interceptor/path …]`) first cells, and prose cells, name something
+  else and are skipped.
+
+  A var-row must then be classifiable: its `M/Fn` cell begins with `Fn`,
+  `M` or `Var`, and its Tier cell carries a closed-vocabulary tier word. A
+  var-row that fails either is an `:unclassifiable-row` problem naming its
+  line, because a dropped row would be checked against nothing while the
+  check reported OK.
 
   QUALIFIER RESOLUTION. API.md writes some var names
   namespace-qualified (`rf.adapter.uix/adapter`,
@@ -56,12 +62,10 @@
       its knowingly-unmanifested allowlist (`:api-md-known-unmanifested`)
       is keyed by bare var-name.
 
-  TIER ALIASES. A handful of API.md rows state a tier in the Tier cell as
-  prose-with-the-tier-word (e.g. `— (fx-id; follows the advanced HTTP
-  artefact)`) or a dash (`—`, for non-var registration rows that slipped
-  the var-row filter). We extract the first recognised closed-vocabulary
-  tier token from the cell; a cell with NO recognised tier token (`—`
-  only) is treated as a non-var row and skipped."
+  TIER WORDS. A Tier cell may state its tier inside prose; the first
+  recognised closed-vocabulary tier word in the cell is the tier. A var-row
+  whose Tier cell carries none (a bare `—`, or a misspelling such as
+  `frnt-porch`) is unclassifiable."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [re-frame.api-manifest.gen :as rf.api-manifest.gen]
@@ -69,7 +73,7 @@
 
 (def ^:private min-var-rows
   "Non-vacuous extracted-row floor for the spec/API.md projection. A parser /
-   table-shape / tier-header / marker-cell drift that collapses extraction
+   table-shape / tier-header drift that collapses extraction
    toward zero would otherwise let `check!` report a VACUOUS OK while most of
    API.md's public-var references go unchecked against the manifest. The
    floor sits well below the live count so it trips ONLY on a near-total
@@ -107,18 +111,18 @@
 
 (defn- var-kind-token
   "The var-kind marker token beginning the `M/Fn` cell, or nil when the cell
-   is a keyword-registration or prose cell. `Fn` / `M` / `Var` is the
-   CLOSED set of var-kind markers API.md's `M/Fn` cell uses — a cell
-   whose marker drifts outside it is not recognised and the row disappears
-   from the parse, which is the collapse the non-vacuity floor catches."
+   carries none. `Fn` / `M` / `Var` is the CLOSED set of var-kind markers
+   API.md's `M/Fn` cell uses, so a var-row whose marker drifts outside it
+   (`Macro`) is unclassifiable."
   [cell]
   (second (re-find #"^(Fn|M|Var)\b" (str/trim cell))))
 
-(defn- var-kind-marker?
-  "True when the M/Fn cell denotes a VAR row (a fn / macro / Var), as
-   opposed to a keyword-registration or prose cell."
-  [cell]
-  (boolean (var-kind-token cell)))
+(def ^:private var-ident-re
+  "A first cell naming ONE var: a single back-ticked symbol, bare or
+   namespace-qualified. Its first character rules out the other shapes a
+   Tier table's first cell takes: a keyword (`:`), a list (`(`), a vector
+   (`[`), a map, a string or a tagged form."
+  #"`([^\s`:(\[{\"#\d][^\s`]*)`")
 
 (def ^:private kind-markers
   "The `M/Fn` cell's leading marker -> the manifest `:kind` it states,
@@ -189,57 +193,68 @@
 
 (defn parse-var-rows
   "Pure var-row parser over `[[line-no line-text] ...]` indexed API.md lines,
-   separate from `parse-api-md-var-rows` so parser DISAPPEARANCE is
-   unit-testable with synthetic lines, like the pure `reconcile` core.
-   Returns the `[{:var :qualifier :tier :kind :line :raw}
-   ...]` vector — exactly the fields `reconcile` reads, and nothing else.
+   separate from `parse-api-md-var-rows` so the parser is unit-testable with
+   synthetic lines, like the pure `reconcile` core. Returns
 
-   A row whose `M/Fn` cell is NOT a recognised var-kind marker (`var-kind-
-   marker?` — e.g. the marker drifted to an unknown spelling like `Macro`) is
-   SKIPPED: it never becomes a var-row. That disappearance is silent by
-   construction, which is why `floor-violation` refuses a green once
-   extraction collapses."
+     {:var-rows [{:var :qualifier :tier :kind :line :raw} ...]
+      :problems [{:kind :unclassifiable-row :line :raw :kind-cell :tier-cell} ...]}
+
+   — each var-row carries exactly the fields `reconcile` reads. A row whose
+   first cell names one var (`var-ident-re`) but whose `M/Fn` marker or Tier
+   word cannot be read is a problem rather than a skip (see the ns
+   docstring's WHAT COUNTS AS A VAR-ROW)."
   [indexed-lines]
   (loop [remaining-lines   indexed-lines
          tier-column-index nil
-         parsed-rows       (transient [])]
+         var-rows          (transient [])
+         problems          (transient [])]
     (if-let [[[line-number line-text] & remaining] (seq remaining-lines)]
       (let [row-cells (table-row-cells line-text)]
         (cond
           ;; A non-table line ends the current table's column context.
           (nil? row-cells)
-          (recur remaining nil parsed-rows)
+          (recur remaining nil var-rows problems)
 
           (header-row? row-cells)
-          (recur remaining (tier-col-index row-cells) parsed-rows)
+          (recur remaining (tier-col-index row-cells) var-rows problems)
 
           (separator-row? row-cells)
-          (recur remaining tier-column-index parsed-rows)
+          (recur remaining tier-column-index var-rows problems)
 
           :else
-          (let [first-cell       (first row-cells)
-                kind-cell        (second row-cells)
-                identifier-match (re-matches #"`([^`]+)`" (str/trim first-cell))]
-            (if (and tier-column-index identifier-match (var-kind-marker? kind-cell)
-                     (< tier-column-index (count row-cells)))
-              (if-let [documented-tier
-                       (first-tier-token (nth row-cells tier-column-index))]
-                (let [[qualifier bare] (parse-first-cell-ident (second identifier-match))]
-                  (recur remaining tier-column-index
-                         (conj! parsed-rows {:var       bare
-                                             :qualifier qualifier
-                                             :tier      documented-tier
-                                             :kind      (get kind-markers (var-kind-token kind-cell))
-                                             :line      line-number
-                                             :raw       (second identifier-match)})))
-                (recur remaining tier-column-index parsed-rows))
-              (recur remaining tier-column-index parsed-rows)))))
-      (persistent! parsed-rows))))
+          (let [[_ ident] (when tier-column-index
+                            (re-matches var-ident-re (first row-cells)))]
+            (if-not ident
+              (recur remaining tier-column-index var-rows problems)
+              (let [kind-cell (get row-cells 1)
+                    tier-cell (get row-cells tier-column-index)
+                    kind      (some-> kind-cell var-kind-token kind-markers)
+                    tier      (some-> tier-cell first-tier-token)]
+                (if (and kind tier)
+                  (let [[qualifier bare] (parse-first-cell-ident ident)]
+                    (recur remaining tier-column-index
+                           (conj! var-rows {:var       bare
+                                            :qualifier qualifier
+                                            :tier      tier
+                                            :kind      kind
+                                            :line      line-number
+                                            :raw       ident})
+                           problems))
+                  (recur remaining tier-column-index var-rows
+                         (conj! problems {:kind      :unclassifiable-row
+                                          :line      line-number
+                                          :raw       ident
+                                          :kind-cell kind-cell
+                                          :tier-cell tier-cell}))))))))
+      {:var-rows (persistent! var-rows)
+       :problems (persistent! problems)})))
 
 (defn parse-api-md-var-rows
-  "Parse spec/API.md and return `[{:var <bare-name> :qualifier <ns-or-alias
-   or nil> :tier <kw> :line <n> :raw <first-cell>} ...]` for every VAR-row
-   found in any table that has a `Tier` column. `:qualifier` is the
+  "Parse spec/API.md into `parse-var-rows`' `{:var-rows :problems}`: a
+   `{:var <bare-name> :qualifier <ns-or-alias or nil> :tier <kw> :kind <kw>
+   :line <n> :raw <first-cell>}` var-row for every VAR-row found in any table
+   that has a `Tier` column, and an `:unclassifiable-row` problem for every
+   var-row it cannot classify. `:qualifier` is the
    namespace/alias prefix for a qualified row (`uix-adapter`,
    `re-frame.interop`) or nil for a bare row — preserved so qualified rows can
    resolve strictly against the manifest `[namespace var]` index.
@@ -247,15 +262,14 @@
    We track the CURRENT table's `Tier` column index (from its header row)
    and read the tier from EXACTLY that cell — not by scanning every cell,
    which would pick up tier words that appear in prose Notes cells. A
-   var-row is a row whose first cell is one back-tick identifier and whose
-   second cell is a var-kind marker; a table with no `Tier` column
-   contributes no rows (its surface is keyword-registrations / schemas).
+   var-row is a row whose first cell is one back-ticked symbol; a table with
+   no `Tier` column contributes no rows (its surface is keyword-registrations
+   / schemas).
 
-   The pure loop is `parse-var-rows`, so parser
-   DISAPPEARANCE — a deleted row, or a row whose M/Fn marker drifted to an
-   unknown spelling and is therefore SKIPPED — is unit-testable against
-   synthetic lines; `floor-violation` turns a collapsed extraction into a
-   failure rather than a silent green."
+   The pure loop is `parse-var-rows`, so the parser is unit-testable against
+   synthetic lines; `floor-violation` turns a collapsed extraction (a
+   table-shape or tier-header drift) into a failure rather than a silent
+   green."
   []
   (with-open [r (io/reader @api-md-file)]
     (parse-var-rows
@@ -347,18 +361,20 @@
         ;; API.md var-rows the sidecar marks as knowingly-unmanifested
         ;; (post-v1-lib surfaces the reference impl does not yet ship).
         known-unmanifested (set (:api-md-known-unmanifested (rf.api-manifest.gen/read-sidecar)))
-        api-rows   (parse-api-md-var-rows)
+        {api-rows       :var-rows
+         unclassifiable :problems} (parse-api-md-var-rows)
         extracted  (count api-rows)
         ;; Non-vacuous floor: if extraction has collapsed
-        ;; (table-shape / tier-header / marker drift), an empty `problems`
+        ;; (table-shape / tier-header drift), an empty `problems`
         ;; seq below would report a VACUOUS OK with most of API.md unchecked.
         ;; Detect that BEFORE the tier reconcile so a near-collapse fails
         ;; loudly rather than passing green.
         floor      (floor-violation extracted)
-        problems   (reconcile {:rows               rows
-                               :api-rows           api-rows
-                               :known-unmanifested known-unmanifested
-                               :aliases            adapter-aliases})
+        problems   (concat unclassifiable
+                           (reconcile {:rows               rows
+                                       :api-rows           api-rows
+                                       :known-unmanifested known-unmanifested
+                                       :aliases            adapter-aliases}))
         api-md-lines (read-api-md-lines)
         ;; Var-row reconciliation cannot see retired keyword vocabulary in
         ;; API.md prose, so the `:rf.world/inputs`, reply-envelope
@@ -398,10 +414,15 @@
       :else
       (do (binding [*out* *err*]
             (println "DRIFT: spec/API.md var-rows disagree with spec/api-manifest.edn.")
-            (println "Each API.md var-row's Tier and M/Fn kind must match the manifest")
-            (println "(regenerate the manifest + reconcile the sidecar/API.md). Problems:")
-            (doseq [{:keys [kind raw line api-tier manifest-tiers api-kind manifest-kinds]} problems]
+            (println "Each API.md var-row must state a Fn / M / Var marker and a tier word, and")
+            (println "its Tier and M/Fn kind must match the manifest (regenerate the manifest +")
+            (println "reconcile the sidecar/API.md). Problems:")
+            (doseq [{:keys [kind raw line api-tier manifest-tiers api-kind manifest-kinds
+                            kind-cell tier-cell]} problems]
               (case kind
+                :unclassifiable-row
+                (println (format "  L%-4d UNCLASSIFIABLE: `%s` M/Fn cell %s, Tier cell %s"
+                                 line raw (pr-str kind-cell) (pr-str tier-cell)))
                 :missing
                 (println (format "  L%-4d MISSING: `%s` (API.md, tier %s) has no manifest row"
                                  line raw api-tier))

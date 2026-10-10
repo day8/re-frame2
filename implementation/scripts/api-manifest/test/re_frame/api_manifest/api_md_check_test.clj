@@ -56,21 +56,43 @@
 
 (deftest parse-var-rows-reads-the-leading-kind-marker
   ;; The M/Fn cell is graded by its leading marker; an unknown spelling
-  ;; (`Macro`) drops the row silently, which is the collapse the floor catches.
-  (is (= [[3 "reg-event" :macro] [4 "adapter" :var] [5 "frame-root" :fn]]
-         (map (juxt :line :var :kind)
-              (rf.api-manifest.api-md-check/parse-var-rows
-                [[1 "| API | M/Fn | Signature | Status | Tier | Spec |"]
-                 [2 "|---|---|---|---|---|---|"]
-                 [3 "| `reg-event` | M/Fn (CLJS) | sig | v1 | front-porch | 001 |"]
-                 [4 "| `adapter` | Var (map) | sig | v1 | adapter | 006 |"]
-                 [5 "| `frame-root` | Fn (Reagent component) | sig | v1 | front-porch | 002 |"]
-                 [6 "| `render!` | Macro | sig | v1 | advanced | 006 |"]])))))
+  ;; (`Macro`) is a problem naming its line, not a dropped row.
+  (let [{:keys [var-rows problems]}
+        (rf.api-manifest.api-md-check/parse-var-rows
+          [[1 "| API | M/Fn | Signature | Status | Tier | Spec |"]
+           [2 "|---|---|---|---|---|---|"]
+           [3 "| `reg-event` | M/Fn (CLJS) | sig | v1 | front-porch | 001 |"]
+           [4 "| `adapter` | Var (map) | sig | v1 | adapter | 006 |"]
+           [5 "| `frame-root` | Fn (Reagent component) | sig | v1 | front-porch | 002 |"]
+           [6 "| `render!` | Macro | sig | v1 | advanced | 006 |"]])]
+    (is (= [[3 "reg-event" :macro] [4 "adapter" :var] [5 "frame-root" :fn]]
+           (map (juxt :line :var :kind) var-rows)))
+    (is (= [{:kind :unclassifiable-row :line 6 :raw "render!"
+             :kind-cell "Macro" :tier-cell "advanced"}]
+           problems))))
+
+(deftest parse-var-rows-flags-a-var-row-it-cannot-classify
+  ;; The first cell alone decides that a row names a var. A var-row whose
+  ;; tier or marker cannot be read is a problem; keyword, list and vector
+  ;; first cells name something else and are skipped.
+  (let [{:keys [var-rows problems]}
+        (rf.api-manifest.api-md-check/parse-var-rows
+          [[1 "| API | M/Fn | Signature | Status | Tier | Spec |"]
+           [2 "|---|---|---|---|---|---|"]
+           [3 "| `reg-event` | M | sig | v1 | front-porch | 001 |"]
+           [4 "| `subscribe` | Fn | sig | v1 | frnt-porch | 006 |"]
+           [5 "| `reg-sub` | registers a subscription | sig | v1 | front-porch | 006 |"]
+           [6 "| `(rf/configure! {:trace-buffer {:events-retained N}})` | — | sig | v1 | — (configure key) | 009 |"]
+           [7 "| `[:rf.interceptor/path <path-vector>]` | interceptor reference | sig | v1 | front-porch | 001 |"]
+           [8 "| `:rf.http/managed` | fx | sig | v1 | — (fx-id) | 014 |"]])]
+    (is (= [3] (map :line var-rows)))
+    (is (= [[:unclassifiable-row 4 "subscribe"] [:unclassifiable-row 5 "reg-sub"]]
+           (map (juxt :kind :line :raw) problems)))))
 
 (deftest live-api-md-names-qualified-var-rows
   ;; Without qualified rows in the live table, the strict qualifier
   ;; resolution would guard nothing.
-  (is (seq (filter :qualifier (rf.api-manifest.api-md-check/parse-api-md-var-rows)))))
+  (is (seq (filter :qualifier (:var-rows (rf.api-manifest.api-md-check/parse-api-md-var-rows))))))
 
 (deftest extraction-floor-trips-only-on-a-collapse
   (is (some? (rf.api-manifest.api-md-check/floor-violation 49)))
@@ -78,4 +100,4 @@
   ;; The floor guards a near-total collapse, never ordinary retirement churn,
   ;; so it must sit well below the live count.
   (is (nil? (rf.api-manifest.api-md-check/floor-violation
-              (long (* 0.9 (count (rf.api-manifest.api-md-check/parse-api-md-var-rows))))))))
+              (long (* 0.9 (count (:var-rows (rf.api-manifest.api-md-check/parse-api-md-var-rows)))))))))
