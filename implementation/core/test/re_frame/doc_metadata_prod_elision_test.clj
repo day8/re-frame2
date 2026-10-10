@@ -3,7 +3,7 @@
   registration-metadata key. With the debug gate off, `rf/handler-meta` carries
   no `:doc`; every load-bearing key (`:schema`, `:tags`, …) is retained. In dev,
   `:doc` is retained for tooling. The CLJS bundle-string absence of `:doc`
-  rides `scripts/check-elision.cjs`.
+  rides `implementation/scripts/check-elision.cjs`.
 
   ## Posture split
 

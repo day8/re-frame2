@@ -66,8 +66,10 @@
   on every run of `re-frame.bench.calibration-cljs-test`, which is what makes
   it a checked behaviour rather than an unvisited branch.
 
-  `.cljc` because `re-frame.bench.read-attribution` is JVM Clojure and the
-  other two harnesses are ClojureScript; unlike
+  Its requirers are the two ClojureScript harnesses,
+  `re-frame.bench.read-attribution-cljs` and `re-frame.bench.write-attribution`,
+  and `re-frame.bench.calibration-cljs-test`; the JVM
+  `re-frame.bench.read-attribution` carries no SMI/DBL control. Unlike
   `re-frame.bench.order-guard`'s rule this one has a single expression, since
   nothing outside `implementation/core` needs it."
   (:require [clojure.string :as str]))

@@ -6,6 +6,7 @@
   choice leaf settles on birth."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.machines]
             [re-frame.machines.choice :as rf.machines.choice]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
