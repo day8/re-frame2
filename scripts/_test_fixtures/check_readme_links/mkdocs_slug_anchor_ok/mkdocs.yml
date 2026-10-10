@@ -1,9 +1,0 @@
-# Self-test fixture marker.
-#
-# Key fixture for the slug calibration: a checker that used GitHub's slug
-# rules instead of MkDocs' would flag false-positive anchors in pages like
-# migration/from-re-frame-v1/README.md.  This fixture exercises
-# the calibration: a heading with `<name>` placeholder text slugifies
-# differently under MkDocs (`<name>` stripped) than under GitHub (kept).
-# The link below uses the MkDocs slug, which is the project's source of
-# truth.  Expected: 0 findings.

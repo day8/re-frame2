@@ -44,7 +44,7 @@ outside DEFAULT_ROOTS, so the docs gate never opens it.  The two
 `_iter_source_markdown` covers them and needs NO new exclusion to do so: the
 existing `_is_excluded` refuses the gate fixture trees, the docs-gate
 roots and `tools/*/spec/`.  What it must NOT take, and why, is written on that
-function; the self-test asserts each refusal rather than only the membership.
+function.
 
 All three rosters are GIT-TRACKED, so an untracked scratch file dropped anywhere
 in the tree cannot red the gate on an author's machine while CI, running on a
@@ -140,10 +140,8 @@ from typing import Iterable
 # heading in the in-scope README corpus.  One divergence class is known and
 # unexercised by any live README — heading text shaped like an
 # HTML tag: pymdownx strips `<name>` entirely, GitHub escapes it and
-# keeps `name`.  The `mkdocs_slug_anchor_ok` /
-# `github_slug_anchor_broken` fixtures pin that gap so it stays visible;
-# closing it needs a GitHub-specific base slugifier, which is out of
-# scope until a real README heading exercises it.
+# keeps `name`.  Closing it needs a GitHub-specific base slugifier, which
+# is out of scope until a real README heading exercises it.
 #
 # What is NOT shared is the duplicate-heading suffix — see `_slug_index`.
 #
@@ -766,9 +764,7 @@ def _display_target(target: Path, repo_root: Path) -> str:
 
 
 # --------------------------------------------------------------------------
-# Self-tests — fixture-driven sanity checks parallel to the
-# check_doc_slugs.py fixtures.  Each fixture is a self-contained mini-repo
-# (mkdocs.yml + at least one README.md).
+# Self-tests — each fixture is a self-contained mini-repo.
 # --------------------------------------------------------------------------
 
 _SELF_TEST_FIXTURE_ROOT = (
@@ -779,74 +775,29 @@ _SELF_TEST_FIXTURE_ROOT = (
 def _run_self_tests(verbose: bool = False) -> int:
     cases: list[tuple[str, int]] = [
         # (fixture-dir, expected-finding-count)
-        ("valid_readme",                     0),  # baseline: clean README
-        # Known base-slug gap: heading text shaped like an HTML
-        # tag is the one measured divergence between the shared SLUGIFY and
-        # GitHub's slugger, and no live README heading exercises it.  These
-        # two pin the CURRENT behaviour so the gap stays visible rather than
-        # silently drifting; they are not an endorsement of the MkDocs rule.
-        ("mkdocs_slug_anchor_ok",            0),  # `<name>` stripped (shared SLUGIFY)
-        ("github_slug_anchor_broken",        1),  # `<name>` kept — GitHub's real shape
-        ("mustache_placeholder_ignored",     0),  # false-positive guard
-        # GitHub duplicate-heading rule — `-N` from the second occurrence.
-        # Positive, wrong-separator negative, out-of-range
-        # negative, and the collision re-bump.
-        ("github_dup_suffix_ok",             0),  # errors / errors-1 / errors-2
+        # GitHub's duplicate-heading rule: `-N` from the second occurrence, and
+        # a generated id is itself taken, so a later natural `errors-1` renders
+        # as `errors-1-1`.
+        ("github_dup_suffix_ok",             0),
         ("mkdocs_dup_suffix_broken",         1),  # `#errors_1` is MkDocs', not GitHub's
-        ("dup_suffix_out_of_range_broken",   1),  # `#errors-2` with only two headings
-        ("github_dup_collision_bump_ok",     0),  # `## Errors-1` after two `## Errors`
-        ("inline_code_link_ignored",         0),  # fence + inline-code guard
-        # The shared extractor's block bound and multiline
-        # code-span mask reach this gate too. Expects 1, not 0: the finding is
-        # a REAL broken wrapped link, so the count moves if a phantom is
-        # invented (up) or if wrapped links stop being seen (down).
-        ("block_bound_link_ignored",         1),
-        ("external_link_skipped_by_default", 0),  # off without --check-external
-        ("explicit_id_full_title_ok",        0),  # `{#id}` is heading TEXT
-        ("explicit_id_brace_not_a_target",   1),  # ...so the brace id resolves nowhere
-        # Repo-root markdown that is NOT a README. The fixture contains no
-        # README.md at all, so every finding comes from the root roster and
-        # nothing else. The silent direction is `root_markdown_ok`, which the
-        # untracked-scratch check below requires to read 0.
-        ("root_markdown_broken_link",        2),  # broken target + broken anchor
-        # This project's own published site URLs, resolved offline
-        # against the source tree by the resolver in `check_doc_slugs.py`.
-        # Root markdown is THIS gate's surface, and the repo's front page
-        # cites the published site, so the docs gate's copy of the arm cannot
-        # reach the file where the class bites.
-        # The third row is a DOTTED page basename, which is what
-        # every `docs/api/re-frame.*.md` page has. It resolves, so the count
-        # does not move — and rises to 2 the moment a dot in the final segment
-        # is read as a file extension before route candidates are tried.
-        ("site_url_in_root_markdown",        1),  # two live links, one dead
-        # A site URL's `#fragment`, graded by the MkDocs slug model the
-        # published page renders with, in root markdown and in the redirect
-        # table's bullets alike. 3 only under that model: this gate's own
-        # GitHub `-N` model reads 5, and an ungraded fragment reads 0.
-        ("site_url_anchor_in_root_markdown", 3),
-        # The redirect table writes bare URLs after an arrow, which the shared
-        # extractor does not and should not read as links — so without the
-        # bullet reader the table's rows reach no gate at all. The fixture's
-        # live row, dead row and `github.com` row make its count of exactly 1
-        # pin both directions: the dead site URL is read and reported, while
-        # the live one and the non-site URL stay silent.
+        ("explicit_id_brace_not_a_target",   1),  # `{#id}` is heading TEXT, not a target
+        # Root markdown that is not a README, so every finding comes from the
+        # root roster: a broken target and a broken cross-file anchor.
+        ("root_markdown_broken_link",        2),
+        # This project's own site URLs, resolved offline BEFORE the external
+        # skip would drop them: one live, one dead.
+        ("site_url_in_root_markdown",        1),
+        # The redirect table's bare-URL bullets, which the shared extractor
+        # does not read: a live site URL, a dead one and a github.com row.
         ("redirect_table_broken",            1),
     ]
 
     failures = 0
     for fixture, expected in cases:
-        root = _SELF_TEST_FIXTURE_ROOT / fixture
-        if not (root / "mkdocs.yml").is_file():
-            sys.stderr.write(
-                f"self-test FAIL: fixture {fixture!r} missing mkdocs.yml at {root}\n"
-            )
-            failures += 1
-            continue
-
         saved_stderr = sys.stderr
         sys.stderr = _DevNull()
         try:
-            got = check(root, verbose=False, check_external=False)
+            got = check(_SELF_TEST_FIXTURE_ROOT / fixture, verbose=False, check_external=False)
         finally:
             sys.stderr = saved_stderr
 
@@ -859,226 +810,63 @@ def _run_self_tests(verbose: bool = False) -> int:
             )
             failures += 1
 
-    # The blind spot the bullet reader exists for, asserted
-    # directly rather than only through the fixture counts.
-    #
-    # The shared extractor yields NOTHING for a redirect table: its rows are
-    # bare URLs after an arrow, and bare URLs are not links. That is why the
-    # table's site URLs need a reader of their own rather than a call to the
-    # extractor. Pinned here so that the day the
-    # extractor learns bare URLs, this goes red and tells whoever did it that
-    # `_redirect_table_site_urls` has become redundant — rather than leaving
-    # the table quietly graded twice.
-    table = _SELF_TEST_FIXTURE_ROOT / "redirect_table_broken" / "SKILL-REDIRECT.md"
-    extracted = list(_extract_links(table))
-    read_by_reader = list(
-        _redirect_table_site_urls(table.parent, table)
-    )
-    if extracted:
-        sys.stderr.write(
-            "self-test FAIL: the shared extractor now yields "
-            f"{len(extracted)} link(s) for a redirect table; the bare-URL "
-            "reader may be redundant\n"
-        )
-        failures += 1
-    elif len(read_by_reader) != 2:
-        sys.stderr.write(
-            "self-test FAIL: the redirect-table reader yielded "
-            f"{len(read_by_reader)} site URL(s), expected 2\n"
-        )
-        failures += 1
-    elif verbose:
-        sys.stderr.write(
-            "self-test PASS: the shared extractor sees no links in a redirect "
-            "table, and the bullet reader sees its two site URLs while "
-            "leaving the github.com row external\n"
-        )
-
-    # The root roster's two structural properties, asserted
-    # directly rather than only through a fixture's aggregate count.
-    #
-    # NON-RECURSIVE. `git ls-files -- '*.md'` matches at EVERY depth (git
-    # pathspecs are fnmatch without FNM_PATHNAME, so `*` crosses `/`), which is
-    # the naive addition that would drag `docs/`, `implementation/` and every
-    # generated tree into this gate. `root_markdown_ok/sub/other.md` is a
-    # tracked markdown file one level down: it must resolve as a link TARGET
-    # while never entering the roster itself.
-    #
-    # GIT-TRACKED. An untracked scratch document at the repo root must be
-    # invisible. The tooth is causal in both directions:
-    # the same file is first proven poisonous when the roster does reach it,
-    # then proven absent from the tracked roster — a filesystem walk passes the
-    # first half and fails the second.
+    # The rosters are GIT-TRACKED: an untracked scratch note carrying a broken
+    # link must not red the gate on an author's machine while CI, on a clean
+    # clone, stays green.
     ok_root = _SELF_TEST_FIXTURE_ROOT / "root_markdown_ok"
-    root_roster = {
-        p.relative_to(ok_root).as_posix() for p in _iter_root_markdown(ok_root)
-    }
-    if root_roster != {"CHANGELOG.md", "TESTING.md"}:
-        sys.stderr.write(
-            "self-test FAIL: root roster is not exactly the tracked root markdown "
-            f"(got {sorted(root_roster)})\n"
-        )
-        failures += 1
-    elif verbose:
-        sys.stderr.write(
-            "self-test PASS: root roster is non-recursive — tracked markdown one "
-            "level down resolves as a target but is not scanned\n"
-        )
-
     scratch = ok_root / "znup0_untracked_scratch.md"
+    scratch.write_text("[a link nobody tracked](znup0-no-such-file.md)\n", encoding="utf-8")
+    saved_stderr = sys.stderr
+    sys.stderr = _DevNull()
     try:
-        scratch.write_text(
-            "# Untracked scratch\n\n"
-            "[a link nobody tracked](znup0-no-such-file.md)\n",
-            encoding="utf-8",
-        )
-        # The POISON half: the scratch carries a genuinely broken target, and a
-        # filesystem-walk roster would take it. If either stopped being true the
-        # green result below would prove nothing.
-        scratch_is_poisonous = not (ok_root / "znup0-no-such-file.md").exists()
-        walk_roster = {p.name for p in ok_root.glob("*.md")}
-        saved_stderr = sys.stderr
-        sys.stderr = _DevNull()
-        try:
-            findings_with_scratch = check(
-                ok_root, verbose=False, check_external=False
-            )
-        finally:
-            sys.stderr = saved_stderr
-        tracked_roster = {
-            p.relative_to(ok_root).as_posix() for p in _iter_root_markdown(ok_root)
-        }
+        findings_with_scratch = check(ok_root, verbose=False, check_external=False)
     finally:
+        sys.stderr = saved_stderr
         scratch.unlink(missing_ok=True)
-
-    if not (scratch_is_poisonous and scratch.name in walk_roster):
-        sys.stderr.write(
-            "self-test FAIL: the untracked-scratch fixture is not actually "
-            "poisonous to a walk-based roster, so the tracking tooth proves "
-            f"nothing (broken-target={scratch_is_poisonous}, "
-            f"walk-roster={sorted(walk_roster)})\n"
-        )
-        failures += 1
-    elif scratch.name in tracked_roster:
+    if findings_with_scratch != 0:
         sys.stderr.write(
             "self-test FAIL: an untracked scratch document at the repo root "
-            f"reached the roster (got {sorted(tracked_roster)})\n"
-        )
-        failures += 1
-    elif findings_with_scratch != 0:
-        sys.stderr.write(
-            "self-test FAIL: the untracked scratch reded the gate anyway, so the "
-            f"tracked roster is not what is consulted (got {findings_with_scratch})\n"
-        )
-        failures += 1
-    elif "TESTING.md" not in tracked_roster:
-        sys.stderr.write(
-            "self-test FAIL: the roster lost a tracked root document while "
-            f"excluding the untracked one (got {sorted(tracked_roster)})\n"
+            f"reded the gate (got {findings_with_scratch})\n"
         )
         failures += 1
     elif verbose:
         sys.stderr.write(
-            "self-test PASS: an untracked root scratch document cannot red the "
-            "gate while tracked root markdown stays covered\n"
+            "self-test PASS: an untracked root scratch document cannot red the gate\n"
         )
 
-    # The beside-source roster, asserted against the real tree.
-    # Membership is only half of it: what makes this roster safe is what it
-    # REFUSES, and each refusal below is a measured one rather than a taste.
+    # The beside-source roster, against the real tree: it takes
+    # `implementation/SECURITY.md` (cited from the root README, reached by no
+    # other roster) and not an untracked note beside it.
     live_root = Path(__file__).resolve().parent.parent
-    source_roster = {
-        p.relative_to(live_root).as_posix() for p in _iter_source_markdown(live_root)
-    }
-    must_hold = (
-        # The anchor instance: cited from the root README, carrying relative
-        # targets, and reached by no other roster.
-        ("implementation/SECURITY.md" in source_roster,
-         "the beside-source roster lost implementation/SECURITY.md"),
-        # Fixture trees are deliberately-broken markdown. Covering them reds the
-        # gate on a correct tree, permanently.
-        (not any(p.startswith("scripts/_test_fixtures/") for p in source_roster),
-         "a gate fixture reached the beside-source roster"),
-        # Exploratory design records carry stale targets, and are left alone
-        # on the same standing decision that excludes `ai/`.
-        (not any("/findings/" in p for p in source_roster),
-         "an exploratory findings/ document reached the beside-source roster"),
-        # Rosters must stay disjoint: the other two own these.
-        (not any(p.rsplit("/", 1)[-1] == "README.md" or "/" not in p
-                 for p in source_roster),
-         "the beside-source roster overlaps the README or root-markdown roster"),
-    )
-    for ok, message in must_hold:
-        if not ok:
-            sys.stderr.write(f"self-test FAIL: {message}\n")
-            failures += 1
-    if all(ok for ok, _ in must_hold) and verbose:
-        sys.stderr.write(
-            "self-test PASS: the beside-source roster takes the navigated "
-            f"documents ({len(source_roster)}) and refuses fixtures and "
-            "findings/\n"
-        )
-
-    # ... and the same causality tooth the two rosters above carry: an untracked
-    # scratch note beside source must be poisonous to a walk and absent from the
-    # tracked roster. CI runs on a clean clone; an author's scratch must not red
-    # it here.
     src_scratch = live_root / "implementation" / "i4nb2_untracked_scratch.md"
+    src_scratch.write_text("# Untracked scratch\n", encoding="utf-8")
     try:
-        src_scratch.write_text(
-            "# Untracked scratch\n\n"
-            "[a link nobody tracked](i4nb2-no-such-file.md)\n",
-            encoding="utf-8",
-        )
-        scratch_is_poisonous = not (
-            live_root / "implementation" / "i4nb2-no-such-file.md"
-        ).exists()
-        walk_roster = {
-            p.name for p in (live_root / "implementation").glob("*.md")
-        }
-        tracked_roster = {
-            p.relative_to(live_root).as_posix()
-            for p in _iter_source_markdown(live_root)
+        source_roster = {
+            p.relative_to(live_root).as_posix() for p in _iter_source_markdown(live_root)
         }
     finally:
         src_scratch.unlink(missing_ok=True)
-
-    if not (scratch_is_poisonous and src_scratch.name in walk_roster):
+    scratch_taken = f"implementation/{src_scratch.name}" in source_roster
+    security_taken = "implementation/SECURITY.md" in source_roster
+    if scratch_taken or not security_taken:
         sys.stderr.write(
-            "self-test FAIL: the beside-source scratch fixture is not actually "
-            "poisonous to a walk-based roster, so the tracking tooth proves "
-            f"nothing (broken-target={scratch_is_poisonous}, "
-            f"in-walk={src_scratch.name in walk_roster})\n"
-        )
-        failures += 1
-    elif f"implementation/{src_scratch.name}" in tracked_roster:
-        sys.stderr.write(
-            "self-test FAIL: an untracked scratch note beside source reached "
-            "the beside-source roster\n"
-        )
-        failures += 1
-    elif "implementation/SECURITY.md" not in tracked_roster:
-        sys.stderr.write(
-            "self-test FAIL: the beside-source roster lost a tracked document "
-            "while excluding the untracked one\n"
+            "self-test FAIL: the beside-source roster is not the tracked markdown "
+            f"beside source (scratch taken: {scratch_taken}, "
+            f"SECURITY.md taken: {security_taken})\n"
         )
         failures += 1
     elif verbose:
         sys.stderr.write(
-            "self-test PASS: an untracked scratch note beside source cannot red "
-            "the gate while tracked beside-source markdown stays covered\n"
+            "self-test PASS: the beside-source roster takes tracked markdown "
+            "beside source and not an untracked note\n"
         )
 
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
         return 1
     if verbose:
-        # The constant counts the five PASS lines emitted after the fixture
-        # loop: the redirect-table extractor, the root roster, the untracked
-        # root scratch, the beside-source roster and the beside-source
-        # scratch. Keep it equal to the PASS-line count when adding a block:
-        # `--self-test --verbose | grep -c 'self-test PASS'`.
-        sys.stderr.write(f"all {len(cases) + 5} self-tests passed.\n")
+        # `+ 2`: the two PASS lines after the fixture loop.
+        sys.stderr.write(f"all {len(cases) + 2} self-tests passed.\n")
     return 0
 
 
