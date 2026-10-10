@@ -1,7 +1,7 @@
 (ns reagent2.impl.template-reserved-head-cljs-test
   "The client half of the reserved-head guard: every `:rf/*` / `:rf.<area>/*`
   hiccup head throws `:rf.error/invalid-hiccup-head` rather than painting a
-  phantom element, as the JVM emitters do. The guard runs in `parse-tag` AND
+  phantom element, as the JVM emitter does. The guard runs in `parse-tag` AND
   ahead of the tag cache, because `:rf/x` shares its cache key with the
   string head \"rf/x\"."
   (:require [cljs.test :refer-macros [deftest is testing]]
@@ -27,10 +27,10 @@
                         [:rf.error/id :recovery :head :element]))
         "the id, recovery, head and whole vector the Spec 009 row promises on both hosts"))
 
-  (testing ":rf/suspense-boundary is server-streaming-only on the client"
+  (testing ":rf/suspense-boundary is a reserved head like any other"
     (let [data (head-error [:rf/suspense-boundary {:id 1}])]
       (is (= :rf.error/invalid-hiccup-head (:rf.error/id data))
-          "the recognised SERVER marker still has no client meaning")))
+          "no :rf/* head has a client meaning")))
 
   (testing "a dotted rf.<area> namespace is reserved too"
     (is (= :rf.error/invalid-hiccup-head
