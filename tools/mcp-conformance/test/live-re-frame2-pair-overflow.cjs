@@ -331,7 +331,8 @@ runWithWatchdog(
 
     // 7. Belt-and-braces: the wire response itself must fit under
     // the cap. This is the recursion-safety property pinned by
-    // `wire_cap_test.cljs/apply-cap-overflow-payload-is-itself-under-cap`.
+    // `apply-cap-overflow-payload-is-itself-under-cap` in
+    // tools/mcp-base/test/re_frame/mcp_base/cap_test.clj.
     // The marker is small by construction (a hint string plus four
     // scalar keys) — < 1KB / ~250 tokens — but a future change to
     // the hint table or marker shape could blow that. Catch it here.
