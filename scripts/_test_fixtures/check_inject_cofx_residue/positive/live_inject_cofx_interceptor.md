@@ -1,6 +1,6 @@
 # SSR loader wiring (positive fixture)
 
-Replicates the rf2-d8mvke.3 stale current-surface example: a live,
+A stale current-surface example: a live,
 copy-pasteable `inject-cofx` interceptor entry inside a fenced code block on a
 non-migration page. The gate MUST fire on the fenced line.
 
@@ -14,4 +14,10 @@ loader:
     {:fx [[:rf.machine/spawn {:machine-id :pdp/load}]]}))
 ```
 
-That is the retired interceptor shape and should be flagged.
+That is the retired interceptor shape and should be flagged, as should the
+`inject-cofx*` fn form:
+
+```clojure
+(def my-chain
+  [(rf/inject-cofx* :now)])
+```
