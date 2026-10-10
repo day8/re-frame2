@@ -194,7 +194,8 @@
   read the actual response status and headers on success, exactly as the
   failure paths expose them on the `:error` map. `:headers` is the
   SAME cross-host normalized shape the failure maps carry (lower-cased
-  names; string value, or vector-of-strings for a multi-valued header) —
+  names; string value, a repeated header comma-folded into one string,
+  a repeated Set-Cookie a vector of its lines) —
   never a second representation. When nil/absent (a canned stub that
   supplied none, or a synthetic caller), `:meta` is OMITTED rather than
   fabricated (Managed-Effects: omit optional fields when absent). `:meta`

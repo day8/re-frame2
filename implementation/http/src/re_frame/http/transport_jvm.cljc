@@ -203,28 +203,22 @@
      payloads, privacy redactor) on a single canonical shape across
      hosts.
 
-     Per-header value shape is `string` for the
-     single-value case and `vector-of-strings` for the multi-valued
-     case (the spec's `string → string (or string → vector of strings
-     for multi-valued)` branch). A comma-join
-     (`(str/join \",\" vs)`) would be wrong for `Set-Cookie`: cookie values
-     legally embed commas (e.g. `Expires=Wed, 21 Oct 2026 ...`), so
-     comma-joining N `Set-Cookie:` lines would produce a single unparseable
-     string. RFC 6265 §3 forbids comma-folding `Set-Cookie` for exactly
-     this reason; RFC 7230 §3.2.2 generalises the rule (header values
-     containing literal commas must not be folded into a single field).
-     Vector-on-multi preserves the original lines verbatim — every
-     `Set-Cookie:` line is its own element and downstream consumers can
-     parse each independently. Single-valued headers (the 99% case)
-     keep the string shape so the common path doesn't pay a vector
-     allocation or destructuring tax."
+     A header sent once is its string value. A repeated header folds
+     into one string, its values joined by `\", \"` in wire order — the
+     combination RFC 9110 §5.3 defines, and exactly what Fetch's `Headers`
+     delivers on CLJS, which offers no way to unfold it. `Set-Cookie` is
+     the exception: cookie values legally embed commas (e.g.
+     `Expires=Wed, 21 Oct 2026 ...`), so RFC 6265 §3 forbids folding it,
+     and a repeated `Set-Cookie` is a vector of its verbatim lines — the
+     lines CLJS recovers through `Headers.getSetCookie()`."
      [^java.net.http.HttpHeaders hh]
      (into {}
-           (for [[k vs] (.map hh)]
-             [(str/lower-case k)
-              (if (= 1 (count vs))
-                (first vs)
-                (vec vs))]))))
+           (for [[k vs] (.map hh)
+                 :let [k (str/lower-case k)]]
+             [k (cond
+                  (= 1 (count vs))   (first vs)
+                  (= "set-cookie" k) (vec vs)
+                  :else              (str/join ", " vs))]))))
 
 #?(:clj
    (defn- charset-of
