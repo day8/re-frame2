@@ -300,9 +300,9 @@ event, and schedules a task-coalesced
 `:rf.xray/note-sensitive-suppressed` into `:rf/xray` carrying that
 task's per-frame counts, so the sub fires on the standard app-db write
 path within one task, with no dependency on sibling subs recomputing.
-It is one dispatch per task, never one per bump (rf2-p03xh), so a host
-burst of sensitive traces cannot carry `:rf/xray`'s queue past the
-router's drain depth.
+It is one dispatch per task, never one per bump, so a host burst of
+sensitive traces costs `:rf/xray` one event per task rather than one
+per trace.
 
 Counters MUST reset alongside the trace surface; see
 [§Retroactive scrub](#retroactive-scrub-on-profile-narrowing) below.
@@ -390,10 +390,11 @@ sync; the queued task runs once, calls `refresh-trace-rings!`, and
 the wholesale snapshot lands in `:trace-buffer`.
 
 The coalescer caps the mirror cascade depth at **1 regardless of
-trace volume**. The router's `drain-depth-default` (= 100) can never
-gate the mirror under saturation — a synthetic load of 1000 trace
-events landing in one JS task produces ONE mirror dispatch, not
-1000.
+trace volume**. The router's `:drain-depth` budget (default 1000 per
+family) can never gate the mirror under saturation — a synthetic
+load of 1000 trace events landing in one JS task produces ONE mirror
+dispatch, not 1000, and that dispatch runs from a task, so it roots a
+family of its own.
 
 **What is *not* guaranteed — host-dependent, do not build on it.**
 Beyond the task boundary itself, nothing about the refresh's timing is

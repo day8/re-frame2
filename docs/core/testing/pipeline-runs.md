@@ -162,7 +162,7 @@ Most test frames want HTTP redirected to a stub and generated facts strict. `{:p
   (is (= :loaded (:sync-status (rf/app-db-value f)))))
 ```
 
-The preset expands to `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}`, `:rf.cofx/mint-policy :strict` and `:drain-depth 100`, the framework default. The canned stub is registered by `re-frame.http.test-support`, which the test namespace above already requires. Your own keys win over the expansion, key by key rather than deep: a frame that passes its own `:fx-overrides` replaces the preset's, HTTP redirect included. To keep both, add the redirect to your map, `{:preset :test :fx-overrides {:todo.storage/save (fn [_ _] nil) :rf.http/managed :rf.http/managed-canned-success}}`. Use `with-request-stubs` when a test needs different replies per route.
+The preset expands to `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}`, `:rf.cofx/mint-policy :strict` and `:drain-depth 1000`, the framework default. The canned stub is registered by `re-frame.http.test-support`, which the test namespace above already requires. Your own keys win over the expansion, key by key rather than deep: a frame that passes its own `:fx-overrides` replaces the preset's, HTTP redirect included. To keep both, add the redirect to your map, `{:preset :test :fx-overrides {:todo.storage/save (fn [_ _] nil) :rf.http/managed :rf.http/managed-canned-success}}`. Use `with-request-stubs` when a test needs different replies per route.
 
 ## Asserting on what would dispatch
 
@@ -277,7 +277,7 @@ Because the handler itself can't be replaced, a passing test says that the produ
 | An override of `:rf.machine/spawn`, `:rf.machine/destroy`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow` or `:rf.route/with-nav-token` is ignored; `:rf.error/reserved-fx-override` | These effects install framework state, and stubbing them would leave runtime-db inconsistent | Let the real effect run and assert on the resulting state |
 | A test runs on the live clock despite `:rf.cofx`; `:rf.warning/unknown-dispatch-opt` in the trace | A misspelt opt such as `:rf/cofx` is ignored | Spell it `:rf.cofx` |
 | `:rf.error/missing-required-cofx` or `:rf.error/unregistered-cofx` | A declared fact the runtime can't supply, or nothing registers it | Supply it under `:rf.cofx`, or register the cofx |
-| `dispatch-sync` stops with partly advanced state; `:rf.error/drain-depth-exceeded` | A handler re-dispatches itself, or a stubbed reply re-fires its request | Break the cycle; see [A runaway drain](#a-runaway-drain-halts-at-drain-depth) |
+| `dispatch-sync` stops with partly advanced state; `:rf.error/drain-depth-exceeded` | A handler re-dispatches itself, or a stubbed reply re-fires its request | Break the cycle; see [A runaway family](#a-runaway-family-halts-at-drain-depth) |
 
 ## Advanced
 
@@ -348,9 +348,9 @@ A logging or analytics [interceptor](../glossary.md#interceptor) that runs on ev
 
 A parameterized reference such as `[:rf.interceptor/path [:todos]]` is matched by the whole vector. The value is `nil` (remove) or another registered reference (replace). The same key in the `dispatch-sync` opts wins over the frame's.
 
-### A runaway drain halts at `:drain-depth`
+### A runaway family halts at `:drain-depth`
 
-If a handler re-dispatches itself, or a stubbed reply re-fires the request that caused it, the drain stops when it exceeds `:drain-depth` and emits `:rf.error/drain-depth-exceeded` (tags `:depth`, `:queue-size`, `:last-event`). Events that already ran keep their committed `:db`, the remaining queued events are discarded, and nothing is rolled back, so a test that hits the cap reads partly advanced state. If a `dispatch-sync` seems to loop, check your error listener for that error.
+If a handler re-dispatches itself, or a stubbed reply re-fires the request that caused it, the event's family stops when it reaches `:drain-depth` with events still queued, and the runtime emits `:rf.error/drain-depth-exceeded` (tags `:depth`, `:queue-size`, `:last-event-id`, `:tail-event-ids`). A family is the event you dispatched plus every event it dispatches, transitively, and the count restarts with each event from outside. Events that already ran keep their committed `:db`, the family's remaining queued events are discarded, and nothing is rolled back, so a test that hits the cap reads partly advanced state. The drain then carries on with any event queued from outside. If a `dispatch-sync` seems to loop, check your error listener for that error.
 
 ### `with-new-frame` or `with-frame`
 

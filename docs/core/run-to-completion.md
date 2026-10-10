@@ -2,7 +2,7 @@
 
 The runtime processes dispatched events until the queue is empty, and only then
 renders, once. [Effects](effects.md#run-to-completion) introduces the idea with a
-live demo. This page covers the operational details: what happens when a drain runs
+live demo. This page covers the operational details: what happens when a dispatch cycle runs
 away, how `dispatch-sync` differs from `dispatch`, and what `destroy-frame!` does to
 a running drain.
 
@@ -10,14 +10,17 @@ a running drain.
 
 If a handler dispatches an event whose handler dispatches the first one again, the
 drain would never finish. Each frame has a **`:drain-depth`**, the maximum number of
-events one drain may process (default `100`). When a drain reaches it, the runtime
-stops and emits an always-on [error record](glossary.md#error-record):
+events one *family* may run (default `1000`). A family is one event dispatched from
+outside, such as a click, a timer or an HTTP reply, plus every event it dispatches,
+transitively. The count restarts with each event from outside, so a long queue of user
+input never reaches it. When a family reaches the limit with events still queued, the
+runtime halts that family and emits an always-on [error record](glossary.md#error-record):
 
 ```clojure
 {:error             :rf.error/drain-depth-exceeded
  :frame             :app
- :depth             100                        ; events already settled this drain
- :queue-size        7                          ; events dropped, unrun
+ :depth             1000                       ; events this family already settled
+ :queue-size        7                          ; the family's queued events, dropped unrun
  :last-event-id     :todo/sync                 ; id of the last event that ran
  :tail-event-ids    [:todo/sync :todo/save …]  ; recent ids; the repeating run names the cycle
  :dropped-event-ids [:todo/save …]
@@ -29,17 +32,19 @@ The record carries event ids only, never event arguments. In dev builds the trac
 stream also gets a `:rf.error/drain-depth-exceeded` trace with the full last event and
 a readable `:reason`.
 
-The [commit](glossary.md#commit) is per event, not per drain: every event the drain
-already settled keeps its app-db write and its epoch. The runtime discards the
-remaining queued events and leaves the frame at the last settled state. In Xray you'll
-see the settled rows followed by a single `:halted-depth` marker.
+The [commit](glossary.md#commit) is per event, not per family: every event the family
+already settled keeps its app-db write and its epoch, and nothing is rolled back. The
+runtime discards only the family's remaining queued events, so the frame stays at the
+last settled state, and then the drain carries on with the next event from outside
+under a fresh budget: a runaway never swallows user input. In Xray you'll see the
+family's settled rows followed by a single `:halted-depth` marker.
 
 !!! note "The bound is per-frame and tunable"
 
     Set `:drain-depth` in the frame config. The `:story` frame preset uses `16`, so
-    a runaway demo fails fast; the `:test` preset sets the default `100` explicitly.
-    Raise it only when a frame legitimately fans out wide — a drain that needs
-    hundreds of synchronous events is usually a cycle.
+    a runaway demo fails fast; the `:test` preset sets the default `1000` explicitly.
+    Raise it only when one event legitimately fans out wide — a family that needs
+    more than a thousand synchronous events is usually a cycle.
 
 ## Destroy ends the drain
 

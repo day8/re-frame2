@@ -369,7 +369,7 @@ it accepts:
    :on-destroy     [:todo/cleanup]              ;; dispatched once during teardown
    :fx-overrides   {:todo.storage/save stub-fn} ;; per-frame effect replacements
    :interceptors   [:my-app/logger]             ;; interceptor ids prepended to every event
-   :drain-depth    100                          ;; run-to-completion depth limit
+   :drain-depth    1000                         ;; per-family event budget
    :preset         :test})                      ;; :default, :test or :story
 ```
 
@@ -382,9 +382,11 @@ Notes:
    usually with test doubles, so the frame never touches storage or the network.
 3. **`:interceptors`** prepends [interceptor](glossary.md#interceptor) ids to every
    event in the frame; see [Interceptors](interceptors.md).
-4. **`:drain-depth`** caps the [run-to-completion](run-to-completion.md) drain.
+4. **`:drain-depth`** caps how many events one family runs: an event from outside
+   plus everything it dispatches ([run to completion](run-to-completion.md#when-the-drain-wont-stop)).
+   The default is 1000.
 5. **`:preset`** expands into a bundle of defaults. `:test` stubs `:rf.http/managed`,
-   sets `:drain-depth` to 100, and makes coeffect minting strict; `:story` stubs HTTP
+   sets `:drain-depth` to 1000, and makes coeffect minting strict; `:story` stubs HTTP
    and sets `:drain-depth` to 16. Your own keys win, and `(rf/frame-meta :todos/work)`
    shows the result.
 
