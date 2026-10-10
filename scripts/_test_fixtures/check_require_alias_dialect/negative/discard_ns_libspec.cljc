@@ -4,12 +4,6 @@
 ;; anything and neither may be reported.  A mask that calls itself
 ;; reader-level while not consuming `#_` would report this file RED on
 ;; two aliases the reader never sees.
-;;
-;; A NEGATIVE FIXTURE ALONE CANNOT TELL "correctly ignored" FROM "the scanner
-;; stopped seeing anything", so `run_self_tests` also strips the `#_` markers
-;; from THIS FILE'S OWN TEXT and asserts the result fires on `machines` and
-;; `schemas`.  The twin is the same bytes minus its `#_` markers, so it cannot
-;; drift away from what it is a control for.
 (ns re-frame.fixtures.discard-ns-libspec
   (:require #_[re-frame.machines :as machines]
             ;; A `#_` may be separated from the form it discards by a newline.

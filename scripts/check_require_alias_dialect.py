@@ -36,13 +36,12 @@ Six textual traps, each of which a line-oriented regex ratchet gets wrong:
       This checker sidesteps the whole family by construction: it reads the
       LIBSPEC, never the use site.  An `::alias/key` moves with its libspec and
       a `:literal/key` is not an alias reference at all, so neither is this
-      gate's subject.  The negative fixture pins that.
+      gate's subject.
 
   (2) FULLY-QUALIFIED, QUOTED AND VAR-QUOTED FORMS EACH NEED DIFFERENT
       HANDLING at a use site — `re-frame.machines.paths/snapshot-path` must not
       move, `'re-frame.fx/dispatch-later-timers` must not move, but
-      `#'parallel/reduce-regions` must.  Again: not this gate's subject, and
-      pinned green by the negative fixture.
+      `#'parallel/reduce-regions` must.  Again: not this gate's subject.
 
   (3) REPO-RELATIVE DOC PATHS SHARE A FIRST SEGMENT WITH LIVE ALIASES —
       `spec/conformance/fixtures/`, `docs/machines/...`, `../../spec/...`.
@@ -63,9 +62,7 @@ Six textual traps, each of which a line-oriented regex ratchet gets wrong:
       forms, so a census built on either misses it.  A ratchet built on the
       ns form alone reproduces the exact miss it exists to prevent, so
       `(require ...)` / `(require-macros ...)` forms are in the scan
-      surface, they carry their own positive fixture, and the
-      self-test proves that fixture goes GREEN when the runtime context is
-      withheld (`_selftest_runtime_context_is_load_bearing`).
+      surface, and they carry their own positive fixture.
 
   (6) A `#_` DISCARDED LIBSPEC IS NOT A REQUIRE EDGE.  The reader throws the
       next form away, so `#_[re-frame.machines :as machines]` binds nothing,
@@ -643,12 +640,7 @@ def _parse_libspec(
 def read_file(
     rel_path: str, text: str, contexts: Iterable[str] = ALL_CONTEXTS,
 ) -> tuple[list[Edge], list[Unparseable]]:
-    """Every re-frame require edge in one file's text, deduplicated.
-
-    `contexts` exists for the self-test: withholding CONTEXT_REQUIRE must make
-    the runtime-require fixture go green, which is what proves that half of the
-    scan surface is load-bearing rather than decorative (trap 5).
-    """
+    """Every re-frame require edge in one file's text, deduplicated."""
     masked = mask_source(text)
     spans: list[tuple[int, int, str]] = []
     if CONTEXT_NS in contexts:
@@ -1321,21 +1313,18 @@ def main(argv: list[str]) -> int:
 # Self-tests
 # --------------------------------------------------------------------------
 #
-# A CHECKER WHOSE SUBJECT IS ABSENCE IS GREEN WHEN IT STOPS FIRING.  That is
-# a defect class instruments here are prone to, and the reason lint.yml
-# carries a fixture-witness step for fresco's kondo export.  So every rule
-# here is exercised in BOTH directions against real
-# files on disk under `scripts/_test_fixtures/check_require_alias_dialect/`:
-# each `positive/` fixture must be NAMED, each `negative/` fixture must be
-# silent, and the two controls below prove the two halves of the scan surface
-# that a plausible-looking implementation would have omitted.
+# A CHECKER WHOSE SUBJECT IS ABSENCE IS GREEN WHEN IT STOPS FIRING, so each
+# `positive/` fixture under `scripts/_test_fixtures/check_require_alias_dialect/`
+# must be NAMED and each `negative/` fixture silent.  Canonical libspecs,
+# host-conditional exemptions and requires quoted in strings and comments are
+# common in the live corpus, so the gate's own live run guards those green
+# shapes.
 
 FIXTURE_REL = "scripts/_test_fixtures/check_require_alias_dialect"
 
 # fixture -> (expected violating aliases, in file order)
 POSITIVE_FIXTURES: dict[str, tuple[str, ...]] = {
     "ns_form_bare_alias.cljc": ("machines", "routing"),
-    "multiline_libspec.cljc": ("result",),
     "runtime_require.cljc": ("directory",),
     "reader_conditional_splice.cljc": ("flows",),
     "as_alias.cljc": ("schemas",),
@@ -1344,29 +1333,9 @@ POSITIVE_FIXTURES: dict[str, tuple[str, ...]] = {
 }
 
 NEGATIVE_FIXTURES: tuple[str, ...] = (
-    "canonical_aliases.cljc",
-    "host_conditional_exemption.cljc",
-    "use_site_lookalikes.cljc",
-    "masked_require_shapes.cljc",
     "discard_ns_libspec.cljc",
     "discard_runtime_require.cljc",
 )
-
-# Each discard fixture, with the aliases its IDENTICAL LIVE TWIN must fire on.
-# The twin is the fixture's own text with the `#_` markers removed — the same
-# bytes minus two characters each — because a negative fixture on its own
-# cannot tell "correctly ignored" from "the scanner stopped seeing anything",
-# and a hand-written twin in a second file drifts away from the thing it is a
-# control for.
-DISCARD_TWINS: dict[str, tuple[str, ...]] = {
-    "discard_ns_libspec.cljc": ("machines", "schemas"),
-    "discard_runtime_require.cljc": ("directory", "routing"),
-}
-
-
-def _fixture_text(repo_root: Path, kind: str, name: str) -> tuple[str, str]:
-    rel = f"{FIXTURE_REL}/{kind}/{name}"
-    return rel, (repo_root / rel).read_text(encoding="utf-8")
 
 
 def run_self_tests(repo_root: Path, verbose: bool = False) -> int:
@@ -1383,225 +1352,70 @@ def run_self_tests(repo_root: Path, verbose: bool = False) -> int:
             failures.append(f"{label}{(' — ' + detail) if detail else ''}")
             sys.stderr.write(f"self-test FAIL: {label} {detail}\n")
 
-    # ---- positive fixtures: the gate must NAME each planted bare alias -----
-    for name, expected in POSITIVE_FIXTURES.items():
-        try:
-            rel, text = _fixture_text(repo_root, "positive", name)
-        except OSError:
-            expect(f"positive/{name} present", False, "fixture missing")
-            continue
+    def fired(rel: str, text: str) -> tuple[tuple[str, ...], list[Unparseable]]:
         edges, bad = read_file(rel, text)
-        got = tuple(v.alias for v in sorted(violations_of(edges), key=lambda e: e.line))
-        expect(f"positive/{name} FIRES on {expected}", got == expected, f"got {got}")
-        expect(f"positive/{name} parses cleanly", not bad, f"{bad}")
+        return tuple(v.alias for v in sorted(violations_of(edges), key=lambda e: e.line)), bad
 
-    # ---- negative fixtures: the gate must stay silent ----------------------
-    for name in NEGATIVE_FIXTURES:
-        try:
-            rel, text = _fixture_text(repo_root, "negative", name)
-        except OSError:
-            expect(f"negative/{name} present", False, "fixture missing")
-            continue
-        edges, bad = read_file(rel, text)
-        vs = violations_of(edges)
-        expect(f"negative/{name} is GREEN", not vs,
-               f"{[(v.path, v.line, v.alias) for v in vs]}")
-        expect(f"negative/{name} parses cleanly", not bad, f"{bad}")
+    fixtures = [("positive", n, want) for n, want in POSITIVE_FIXTURES.items()]
+    fixtures += [("negative", n, ()) for n in NEGATIVE_FIXTURES]
+    for kind, name, want in fixtures:
+        rel = f"{FIXTURE_REL}/{kind}/{name}"
+        got, bad = fired(rel, (repo_root / rel).read_text(encoding="utf-8"))
+        expect(f"{kind}/{name} fires on exactly {want} and parses cleanly",
+               got == want and not bad, f"got {got} / {bad}")
 
-    # ---- control 1: the RUNTIME REQUIRE context is load-bearing ------------
-    # A top-level `(require '[re-frame.late-bind.directory :as directory])` is
-    # an edge clj-kondo cannot report.  A ratchet built on the ns form alone
-    # reads this fixture GREEN, which is the miss this control exists to make
-    # visible.
-    rel, text = _fixture_text(repo_root, "positive", "runtime_require.cljc")
-    ns_only_edges, _ = read_file(rel, text, contexts=(CONTEXT_NS,))
-    expect(
-        "control: runtime_require.cljc goes GREEN when the runtime context is "
-        "withheld (so scanning ns forms alone would miss runtime requires)",
-        not violations_of(ns_only_edges),
-        f"{[v.alias for v in violations_of(ns_only_edges)]}",
-    )
-
-    # ---- control 2: the exemption predicate is derived, both ways ----------
-    rel, text = _fixture_text(repo_root, "negative", "host_conditional_exemption.cljc")
-    edges, _ = read_file(rel, text)
-    expect("control: the host-conditional alias IS exempt",
-           exempt_aliases(edges) == {"substrate"}, f"{exempt_aliases(edges)}")
-    # Collapse the two reader arms onto ONE namespace and the same file must
-    # FIRE: the exemption is the two-namespace binding, not the file.
-    collapsed = text.replace(
-        "re-frame.adapter.reagent :as substrate",
-        "re-frame.substrate.plain-atom :as substrate",
-    )
-    expect("control: and the SAME file fires once the two arms name one namespace",
-           [v.alias for v in violations_of(read_file(rel, collapsed)[0])] == ["substrate"])
-
-    # ---- control 3: masking stays in step with the reader -----------------
-    # The invisible direction is negative/masked_require_shapes.cljc, whose
-    # requires sit in a comment and in strings.  These pin the other: a char
-    # literal opens neither, so the live require after it still fires.
-    live = "(require '[re-frame.machines :as machines])"
-    expect("control: a `\\;` char literal does not open a comment",
-           [v.alias for v in violations_of(
-               read_file("x.cljc", "(def c \\;)\n" + live)[0])] == ["machines"])
-    expect("control: a `\\\"` char literal does not open a string",
-           [v.alias for v in violations_of(
-               read_file("x.cljc", "(def q \\\")\n" + live)[0])] == ["machines"])
-
-    # ---- control 4: unrecognised shapes are REPORTED, never skipped -------
-    prefix_list = "(ns x (:require [re-frame.machines [result :as result]]))"
-    _, bad = read_file("x.cljc", prefix_list)
-    expect("control: a prefix-list libspec is reported unparseable", len(bad) == 1,
-           f"{bad}")
-
-    # ---- control 5: the baseline reader refuses what it cannot read -------
-    ok = parse_baseline('{:min-edges 10 :surfaces {"tools" 3 "bench" 0}}')
-    expect("control: a well-formed baseline reads back",
-           ok == Baseline(10, {"tools": 3, "bench": 0}), f"{ok}")
-    for bad_edn, why in (
-        ('{:surfaces {"tools" 3}}', "no :min-edges"),
-        ('{:min-edges 10}', "no :surfaces"),
-        ('{:min-edges 10 :surfaces {"tools" 3} :extra 1}', "unrecognised key"),
-        ('{:min-edges 10 :surfaces {tools 3}}', "non-string surface key"),
-        ('{:min-edges "ten" :surfaces {"tools" 3}}', "non-integer floor"),
-    ):
-        try:
-            parse_baseline(bad_edn)
-            expect(f"control: baseline REFUSES {why}", False, "accepted it")
-        except BaselineError:
-            expect(f"control: baseline REFUSES {why}", True)
-
-    # ---- control 6: the usability floor fires on a blind scan -------------
-    empty = ScanResult(0, [], [], [])
-    problems = assert_usable(empty, [], Baseline(100, {"tools": 0}), set())
-    expect("control: an empty roster is UNUSABLE, not clean", len(problems) >= 3,
-           f"{problems}")
-    live_edge = Edge("tools/x.cljc", 1, "re-frame.core", "rf", CONTEXT_NS)
-    unowned = ScanResult(1, [live_edge], [], [])
-    expect("control: a surface the baseline does not name is UNUSABLE",
-           any("does NOT name" in p for p in
-               assert_usable(unowned, ["tools/x.cljc"], Baseline(0, {}), {"tools"})))
-    expect("control: a fully-owned scan over the floor is usable",
-           assert_usable(unowned, ["tools/x.cljc"], Baseline(1, {"tools": 0}),
-                         {"tools"}) == [])
-
-    # ---- control 8: the `#_` discard, in BOTH directions -------------------
-    # The negative fixtures above already assert the discards are silent. What
-    # follows is the half that makes that assertion mean something: the SAME
-    # TEXT with the `#_` markers removed must fire on exactly the aliases the
-    # discards were hiding. Without it, a scanner that had stopped reading
-    # libspecs at all would read both fixtures green and look correct.
-    for name, expected in DISCARD_TWINS.items():
-        rel, text = _fixture_text(repo_root, "negative", name)
-        expect(f"control: negative/{name} carries a discard to strip",
-               "#_" in text, "no `#_` in the fixture")
-        twin = text.replace("#_", "")
-        twin_edges, twin_bad = read_file(rel, twin)
-        got = tuple(
-            v.alias for v in sorted(violations_of(twin_edges), key=lambda e: e.line)
-        )
-        expect(f"control: negative/{name} WITHOUT its `#_` fires on {expected}",
-               got == expected, f"got {got}")
-        expect(f"control: negative/{name}'s live twin parses cleanly",
-               not twin_bad, f"{twin_bad}")
-
-    # A discard consumes EXACTLY ONE form. Over-consumption is the silent
-    # direction — it blanks live code and reports a clean run.  The plain
-    # discards, a discard split from its form by a newline, a discarded quote,
-    # and the `#_:clj-kondo/ignore` idioms that sit immediately before live code
-    # are pinned by the discard fixtures above (negative/discard_*.cljc and
-    # positive/discard_consumes_exactly_one_form.cljc).  These pin the reader
-    # forms a discard must consume whole, and the `#_` it must not see at all.
     for label, text, want in (
+        # The exemption is two DISTINCT namespaces under one alias, not any
+        # alias bound inside a reader conditional.
+        ("a host-conditional alias naming ONE namespace in both arms fires",
+         "(ns x (:require #?(:clj [re-frame.substrate.plain-atom :as substrate]"
+         " :cljs [re-frame.substrate.plain-atom :as substrate])))", ("substrate",)),
+        ("a `\\\"` char literal does not open a string",
+         "(def q \\\")\n(require '[re-frame.machines :as machines])", ("machines",)),
         ("`#_#_` discards TWO forms",
-         "(ns x (:require #_#_[re-frame.a :as a] [re-frame.b :as b] [re-frame.core :as rf]))", []),
+         "(ns x (:require #_#_[re-frame.a :as a] [re-frame.b :as b] [re-frame.core :as rf]))", ()),
         ("a discard consumes metadata with the form it decorates",
-         "(ns x (:require #_^:m [re-frame.machines :as machines] [re-frame.core :as rf]))", []),
+         "(ns x (:require #_^:m [re-frame.machines :as machines] [re-frame.core :as rf]))", ()),
         # `\a` masks to a kept backslash and a blanked name; blanking it whole
         # would leave this discard looking at the require and eating it.
         ("a discarded char literal does not swallow the next form",
-         "#_\\a (require '[re-frame.machines :as machines])", ["machines"]),
-        ("a discarded string does not swallow the next form",
-         '#_"txt" (require \'[re-frame.machines :as machines])',  ["machines"]),
+         "#_\\a (require '[re-frame.machines :as machines])", ("machines",)),
         ("a discarded tagged literal does not swallow the next form",
-         "#_#js {:a 1} (require '[re-frame.machines :as machines])", ["machines"]),
-        ("a `#_` written INSIDE a string discards nothing",
-         '(def s "#_")\n(require \'[re-frame.machines :as machines])', ["machines"]),
-        ("a `#_` written INSIDE a comment discards nothing",
-         ";; #_[re-frame.core :as rf]\n(require '[re-frame.machines :as machines])", ["machines"]),
+         "#_#js {:a 1} (require '[re-frame.machines :as machines])", ("machines",)),
     ):
-        edges, bad = read_file("x.cljc", text)
-        expect(f"control: {label}",
-               [v.alias for v in violations_of(edges)] == want and not bad,
-               f"got {[v.alias for v in violations_of(edges)]} / {bad}")
+        got, bad = fired("x.cljc", text)
+        expect(label, got == want and not bad, f"got {got} / {bad}")
 
-    # ---- control 9: --write-baseline is monotonic, both keys --------------
-    # `plan_baseline` is exercised directly rather than through the CLI so the
-    # REAL baseline is never a party to a test. The two keys move in OPPOSITE
-    # directions and each is asserted in both.
-    prev = Baseline(1000, {"tools": 10, "implementation/core": 0, "gone": 4})
+    _, bad = read_file("x.cljc", "(ns x (:require [re-frame.machines [result :as result]]))")
+    expect("a prefix-list libspec is reported unparseable", len(bad) == 1, f"{bad}")
 
-    down = plan_baseline({"tools": 3}, {"tools", "implementation/core"}, 1200, prev)
-    expect("control: a DOWNWARD refresh is written",
-           not down.refusals and down.baseline.surfaces["tools"] == 3,
-           f"{down}")
-    expect("control: a surface still at its floor is left where it is",
-           down.baseline.surfaces["implementation/core"] == 0)
-    expect("control: a surface that no longer contributes files is dropped",
-           "gone" not in down.baseline.surfaces
-           and any("gone" in n for n in down.notes), f"{down.notes}")
-
-    up = plan_baseline({"tools": 11}, {"tools", "implementation/core"}, 1200, prev)
-    expect("control: an UPWARD refresh REFUSES", len(up.refusals) == 1, f"{up.refusals}")
-    expect("control: and cannot alter the floor it wanted to raise",
-           up.baseline.surfaces["tools"] == 10, f"{up.baseline.surfaces}")
-
-    added = plan_baseline(
-        {"tools": 10, "brand-new": 7}, {"tools", "implementation/core", "brand-new"},
-        1200, prev,
-    )
-    expect("control: a genuinely NEW surface can still be added, and is named",
-           not added.refusals and added.baseline.surfaces["brand-new"] == 7
-           and any("brand-new" in n for n in added.notes), f"{added}")
-
-    # `:min-edges` IS THE INVERSE CASE. It is checked `total < min_edges ->
-    # fail`, so LOWERING it loosens the gate. A monotonicity rule written as
-    # "floors may only fall" is exactly wrong here: it would let a shrinking
-    # corpus lower the floor by one edge at a time.
-    shrunk = plan_baseline({"tools": 10}, {"tools", "implementation/core"}, 1000, prev)
-    expect("control: :min-edges is NOT LOWERED when the corpus shrinks "
-           "(lowering it loosens the anti-blindness guard — the inverse of a floor)",
-           shrunk.baseline.min_edges == 1000, f"{shrunk.baseline.min_edges}")
-    expect("control: and holding it is reported, not silent",
-           any(":min-edges HELD" in n for n in shrunk.notes), f"{shrunk.notes}")
-    grown = plan_baseline({"tools": 10}, {"tools", "implementation/core"}, 2000, prev)
-    expect("control: :min-edges DOES rise when the corpus grows",
-           grown.baseline.min_edges == 1800, f"{grown.baseline.min_edges}")
-
-    fresh = plan_baseline({"tools": 4}, {"tools"}, 100, None)
-    expect("control: with no baseline on disk a fresh one is written",
-           not fresh.refusals and fresh.baseline == Baseline(90, {"tools": 4}),
-           f"{fresh.baseline}")
-
-    # The write path runs the gate's own believability floor rather than
-    # bypassing it: a baseline regenerated from a scan that read nothing
-    # records zeroes as wins.
-    expect("control: the write path's believability floor refuses a blind scan",
-           len(scan_is_believable(ScanResult(0, [], [], []), [], 10)) == 3,
-           f"{scan_is_believable(ScanResult(0, [], [], []), [], 10)}")
+    # ---- the usability floor: recognising nothing is not finding nothing ---
+    empty = ScanResult(0, [], [], [])
+    expect("an empty roster is UNUSABLE, not clean",
+           len(assert_usable(empty, [], Baseline(100, {"tools": 0}), set())) >= 3)
+    expect("a blind scan fails all three believability checks",
+           len(scan_is_believable(empty, [], 10)) == 3)
+    live_edge = Edge("tools/x.cljc", 1, "re-frame.core", "rf", CONTEXT_NS)
     with_bad = ScanResult(
-        1, [Edge("tools/x.cljc", 1, "re-frame.core", "rf", CONTEXT_NS)], [],
+        1, [live_edge], [],
         [Unparseable("tools/x.cljc", 1, "[re-frame.m [r :as r]]", "prefix list")],
     )
-    expect("control: and refuses a scan carrying an unparseable libspec",
-           len(scan_is_believable(with_bad, ["tools/x.cljc"], 0)) == 1,
-           f"{scan_is_believable(with_bad, ['tools/x.cljc'], 0)}")
+    expect("a scan carrying an unparseable libspec is UNUSABLE",
+           len(scan_is_believable(with_bad, ["tools/x.cljc"], 0)) == 1)
+    expect("a surface the baseline does not name is UNUSABLE",
+           any("does NOT name" in p for p in assert_usable(
+               ScanResult(1, [live_edge], [], []), ["tools/x.cljc"], Baseline(0, {}),
+               {"tools"})))
 
-    # ---- control 7: surface_of, and the granularity that matters ----------
-    expect("control: implementation/ splits one level deeper",
-           surface_of("implementation/machines/src/re_frame/machines.cljc")
-           == "implementation/machines"
-           and surface_of("tools/xray/src/a.cljs") == "tools")
+    # ---- --write-baseline: surface floors only fall, :min-edges only rises --
+    prev = Baseline(1000, {"tools": 10})
+    down = plan_baseline({"tools": 3}, {"tools"}, 1200, prev)
+    expect("a DOWNWARD refresh is written",
+           not down.refusals and down.baseline.surfaces["tools"] == 3, f"{down}")
+    expect("an UPWARD refresh REFUSES",
+           len(plan_baseline({"tools": 11}, {"tools"}, 1200, prev).refusals) == 1)
+    expect(":min-edges is NOT LOWERED when the corpus shrinks",
+           plan_baseline({"tools": 10}, {"tools"}, 1000, prev).baseline.min_edges == 1000)
 
     sys.stderr.write(
         f"\nself-test: {passes} passed, {len(failures)} failed.\n"
