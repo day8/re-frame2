@@ -107,9 +107,13 @@
     (let [summary (rf.reply/trace-summary (ok-reply) nil)]
       (is (redacted? (get-in summary [:value :token])) "the carried frame's policy applies")
       (is (= {:count 3} (get-in summary [:value :public]))
-          "per-leaf policy, not a whole-slot redaction"))
-    (is (redacted? (:value (rf.reply/trace-summary (assoc (ok-reply) :rf.frame/id :reply-egress/ghost) nil)))
-        "an unresolved carried stamp fails closed")))
+          "per-leaf policy, not a whole-slot redaction")
+      (is (= (select-keys (ok-reply) identity-keys) (select-keys summary identity-keys))
+          "identity facts ride verbatim"))
+    (is (= [rf.privacy/redacted-sentinel :reply-egress/ghost]
+           ((juxt :value :rf.frame/id)
+            (rf.reply/trace-summary (assoc (ok-reply) :rf.frame/id :reply-egress/ghost) nil)))
+        "an unresolved carried stamp fails closed and still rides as identity")))
 
 ;; An explicit `{:frame nil}` says no frame governs the summary. Treating it as
 ;; an omitted key would let the carried stamp supply policy and ship raw values.
