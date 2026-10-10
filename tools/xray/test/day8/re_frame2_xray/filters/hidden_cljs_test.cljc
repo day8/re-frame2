@@ -10,7 +10,7 @@
             including when the filters leave no row at all (an empty list
             with no message looks broken)"
     (are [raw filtered expected]
-         (= expected (select-keys (hidden/summary raw filtered {}) [:hidden :visible?]))
+         (= expected (hidden/summary raw filtered))
       2 1 {:hidden 1 :visible? true}
       6 0 {:hidden 6 :visible? true}
       7 7 {:hidden 0 :visible? false})))

@@ -28,11 +28,9 @@
 
   ## Match composition (spec/018 §7)
 
-      ACTIVE = (match-any-IN) AND NOT (match-any-OUT)
-
-  - **No IN pills**  → show everything not blacklisted (OUT only).
-  - **Some IN pills** → restrict to events matching ANY IN pattern,
-    minus any OUT match.
+  `typed-predicates/keep-event-bundle?` composes the pills —
+  `ACTIVE = (match-any-IN) AND NOT (match-any-OUT)` — and dispatches an
+  `:event-id-pattern` pill to `match-pill?` here.
 
   ## Why CLJC
 
@@ -165,48 +163,6 @@
   [{:keys [pattern]} event-id]
   (and (some? pattern)
        (match-event-id? event-id (normalise-pattern pattern))))
-
-;; ---- event-bundle-level filtering --------------------------------------------
-
-(defn- event-bundle-event-id
-  "Pluck the event-id from an event-bundle — same shape `shell/event-id-of-
-  event-bundle` plucks (`(first (:event event-bundle))`). Lifted here so the
-  matcher stays a self-contained pure unit; the shell delegates."
-  [event-bundle]
-  (let [ev (:event event-bundle)]
-    (when (vector? ev)
-      (first ev))))
-
-(defn event-bundle-matches?
-  "True iff `event-bundle`'s event-id matches *any* pill in `pills`.
-
-  - Empty / nil `pills` → false (no patterns to match against).
-  - Otherwise → true on first pill match."
-  [event-bundle pills]
-  (boolean
-    (when (seq pills)
-      (let [event-id (event-bundle-event-id event-bundle)]
-        (some #(match-pill? % event-id) pills)))))
-
-(defn keep-event-bundle?
-  "True iff `event-bundle` survives the active filter per spec/018 §7:
-
-      keep = (no-IN-pills OR matches-IN) AND NOT (matches-OUT)
-
-  Event bundles that fail the keep test drop out of `:rf.xray/filtered-
-  event-bundles`. The L2 event list, scrubber, Issues counter, palette
-  verbs all read the filtered list — one filter, every consumer."
-  [event-bundle {:keys [in out]}]
-  (let [in-ok?  (or (empty? in)
-                    (event-bundle-matches? event-bundle in))
-        out-hit (event-bundle-matches? event-bundle out)]
-    (and in-ok? (not out-hit))))
-
-(defn filter-event-bundles
-  "Apply `filters` to `event-bundles`, returning the surviving subseq in
-  order. Pure — no I/O, no atoms read."
-  [event-bundles filters]
-  (filterv #(keep-event-bundle? % filters) event-bundles))
 
 ;; ---- frame-picker filter ------------------------------------------------
 

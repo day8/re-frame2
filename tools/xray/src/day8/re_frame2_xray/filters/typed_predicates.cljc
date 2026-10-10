@@ -424,9 +424,8 @@
 
       keep = (no-IN-pills OR in-kept) AND NOT (matches-OUT)
 
-  Mirrors `matcher/keep-event-bundle?` but routes through the typed-
-  predicate dispatch so IN and OUT pills can be a mix of keyword
-  patterns + typed predicates.
+  Routes through the typed-predicate dispatch so IN and OUT pills can be
+  a mix of keyword patterns + typed predicates.
 
   `in-kept-identities` is the precomputed set from `in-kept-identity-set`
   — the frame-qualified `[frame dispatch-id]` identities kept by the IN
@@ -437,25 +436,16 @@
   carrying its tag, never its ancestors (so hiding a child's fx does not
   silently drop the originating user event).
 
-  Pure data; JVM-runnable. The single-event-bundle arity falls back
-  to direct (ancestor-free) IN matching for callers without the full
-  event-bundle set."
-  ([event-bundle {:keys [in out]}]
-   (let [in-ok?  (or (empty? in)
-                     (event-bundle-matches-any? event-bundle in))
-         out-hit (event-bundle-matches-any? event-bundle out)]
-     (and in-ok? (not out-hit))))
-  ([event-bundle in-kept-identities {:keys [out]}]
-   (let [in-ok?  (or (nil? in-kept-identities)
-                     (contains? in-kept-identities (event-bundle-identity event-bundle)))
-         out-hit (event-bundle-matches-any? event-bundle out)]
-     (and in-ok? (not out-hit)))))
+  Pure data; JVM-runnable."
+  [event-bundle in-kept-identities {:keys [out]}]
+  (let [in-ok?  (or (nil? in-kept-identities)
+                    (contains? in-kept-identities (event-bundle-identity event-bundle)))
+        out-hit (event-bundle-matches-any? event-bundle out)]
+    (and in-ok? (not out-hit))))
 
 (defn filter-event-bundles
   "Apply `filters` to `event-bundles`, returning the surviving subseq in
-  order. Pure — no I/O, no atoms read. Same contract as
-  `matcher/filter-event-bundles`, routed through typed-predicate
-  dispatch.
+  order. Pure — no I/O, no atoms read.
 
   Builds a frame-qualified `{[frame dispatch-id] → event-bundle}` index
   once, computes the IN-kept identity set (each directly-matching

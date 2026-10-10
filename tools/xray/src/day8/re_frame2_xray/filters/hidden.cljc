@@ -11,8 +11,8 @@
   never reads as a broken tool.
 
   This ns is the pure data primitive behind the affordance: given the
-  raw + filtered visible-event-bundle counts and the active filter state,
-  it answers 'is anything hidden, how many, and what is the cause?'.
+  raw + filtered visible-event-bundle counts, it answers 'is anything
+  hidden, and how many?'.
 
   ## Frame is a view SCOPE, not a filter
 
@@ -35,8 +35,7 @@
   suppressed total.
 
   Pure data; JVM-runnable. Tests in
-  `tools/xray/test/.../filters/hidden_cljs_test.cljc`."
-  (:require [day8.re-frame2-xray.filters.typed-predicates :as typed]))
+  `tools/xray/test/.../filters/hidden_cljs_test.cljc`.")
 
 (defn hidden-count
   "How many visible event-bundles the active filters / mutes are
@@ -49,34 +48,6 @@
   [raw-visible-count filtered-visible-count]
   (max 0 (- raw-visible-count filtered-visible-count)))
 
-(defn pills-present?
-  "True iff the `:active-filters` map carries at least one IN or OUT
-  pill. nil / `{:in [] :out []}` → false."
-  [{:keys [in out]}]
-  (boolean (or (seq in) (seq out))))
-
-(defn mutes-present?
-  "True iff at least one event-id is muted. nil / `#{}` → false."
-  [muted]
-  (boolean (seq muted)))
-
-(defn any-filter-active?
-  "True iff ANY suppressing FILTER is active: IN/OUT pills or a non-empty
-  mute set. It is independent of the hidden COUNT — a pill can be active
-  yet hide nothing (it happens to match every current event-bundle); the
-  count is what gates the warning's render, this predicate answers
-  whether any suppressing surface is engaged at all.
-
-  The frame is a view SCOPE, not a filter — it is NOT part of this
-  predicate, so a frame selection alone never reads as an active
-  filter. (There is no `Clear Filters` button; recovery is per
-  surface — each pill's `✕`, and the mute chip/manager for muted
-  event-ids.)"
-  [{:keys [filters muted]}]
-  (boolean
-    (or (pills-present? filters)
-        (mutes-present? muted))))
-
 (defn indicator-visible?
   "Should the 'N hidden by filters' indicator render? True iff the
   hidden count is positive — i.e. the filtered visible set is strictly
@@ -87,46 +58,17 @@
   [hidden]
   (pos? hidden))
 
-(defn pill-summaries
-  "Flatten the active IN/OUT pills into a render-ready vector of
-  `{:mode :in|:out :label <str> :glyph <str-or-nil>}` so the indicator
-  can list the offending pills as the visible cause. Order: IN pills
-  then OUT pills, preserving bucket order. Pure data — the view wraps
-  each entry in chrome."
-  [{:keys [in out]}]
-  (into
-    (mapv (fn [p] {:mode  :in
-                   :label (typed/pill-label p)
-                   :glyph (typed/pill-glyph p)})
-          (or in []))
-    (mapv (fn [p] {:mode  :out
-                   :label (typed/pill-label p)
-                   :glyph (typed/pill-glyph p)})
-          (or out []))))
-
 (defn summary
-  "The full message model for the events ribbon. Pure — takes the raw +
+  "The message model for the events ribbon. Pure — takes the raw +
   filtered visible counts (both already scoped to the selected frame by
-  the caller) and the active filter state, returns the map the view
-  renders against:
+  the caller) and returns the map the view renders against:
 
-      {:hidden          <int>     ; suppressed visible-row count
-       :raw-count       <int>
-       :filtered-count  <int>
-       :visible?        <bool>    ; should the N-hidden message render?
-       :any-active?     <bool>    ; is any suppressing filter engaged?
-       :pills           [{…} …]   ; IN/OUT pill summaries
-       :muted-count     <int>}    ; muted event-ids
+      {:hidden   <int>     ; suppressed visible-row count
+       :visible? <bool>}   ; should the N-hidden message render?
 
-  `state` is `{:filters {:in [] :out []} :muted #{}}`. The
-  frame is a view scope, NOT a filter — it is excluded from this model
-  entirely (no `:frame` key, never a cause, never counted as hidden)."
-  [raw-visible-count filtered-visible-count state]
+  The frame is a view scope, NOT a filter — it is excluded from this
+  model entirely (never counted as hidden)."
+  [raw-visible-count filtered-visible-count]
   (let [hidden (hidden-count raw-visible-count filtered-visible-count)]
-    {:hidden         hidden
-     :raw-count      raw-visible-count
-     :filtered-count filtered-visible-count
-     :visible?       (indicator-visible? hidden)
-     :any-active?    (any-filter-active? state)
-     :pills          (pill-summaries (:filters state))
-     :muted-count    (count (or (:muted state) #{}))}))
+    {:hidden   hidden
+     :visible? (indicator-visible? hidden)}))
