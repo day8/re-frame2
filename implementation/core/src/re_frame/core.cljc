@@ -51,13 +51,6 @@
             [re-frame.trace :as rf.trace
              #?@(:cljs [:include-macros true])]
             [re-frame.trace.tooling :as rf.trace.tooling]
-            ;; JVM-only autoload for the focused-event-only cascade-DAG
-            ;; aggregator. CLJS deliberately omits the
-            ;; require so Closure DCE keeps the aggregator + per-fn
-            ;; keyword interns out of production bundles — the
-            ;; bundle-isolation gate verifies. Xray's Reactive panel
-            ;; loads the ns explicitly from its tools-side build.
-            #?@(:clj [[re-frame.trace.cascade]])
             ;; JVM-only: the server-side reg-view registration-boundary
             ;; annotation. The `:clj` branch of `reg-view*`
             ;; wraps the stored `:handler-fn` with it; the CLJS view path

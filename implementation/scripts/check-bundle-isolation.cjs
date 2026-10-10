@@ -11,7 +11,7 @@
  *     time);
  *   - the tooling siblings + dev-only composers (trace.tooling,
  *     subs.tooling, the EP-0014 algebra-view siblings, derivation.graph,
- *     trace.cascade, Story) — dev/inspection surfaces gated behind the
+ *     Story) — dev/inspection surfaces gated behind the
  *     Xray preload;
  *   - dev-only npm/Maven dependencies machines-viz + the Xray EDN widget
  *     pull in (xyflow / elkjs / zprint / editscript).
@@ -530,25 +530,6 @@ const ARTEFACTS = [
     expectedAllowListHits: 0,
   },
 
-  // re-frame.trace.cascade (the focused-event-only cascade-DAG
-  // aggregator). Same posture as `trace.tooling`: the namespace is
-  // autoloaded from `re-frame.core` only via the JVM-only conditional
-  // `#?@(:clj [[re-frame.trace.cascade]])` require; CLJS production
-  // bundles deliberately omit the body so Closure DCE keeps the
-  // aggregator + per-fn keyword interns + atoms out. A `:require` on
-  // `re-frame.trace.cascade` from a CLJS-reachable core path would
-  // surface the sentinel below in the counter bundle and fail this
-  // gate.
-  {
-    name: 'trace-cascade',
-    internalSentinels: [
-      { source: 're-frame.trace.cascade late-bind registration',
-        sentinel: 'trace.cascade/set-focus-predicate!' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
-  },
-
   // Story (tools/story/). The plain
   // examples/counter bundle imports zero Story symbols — the
   // tools/story/ jar must DCE entirely when the consuming app
@@ -774,7 +755,6 @@ const POSITIVE_CONTROL = {
   'machines-tooling':  { onModule: 'machines-tooling' },
   'derivation-graph':  { onModule: 'derivation-graph' },
   'derivation-egress': { onModule: 'derivation-egress' },
-  'trace-cascade':     { onModule: 'trace-cascade' },
   story:               { onModule: 'story' },
   xyflow:              { onModule: 'xyflow' },
   elkjs:               { onModule: 'elkjs' },
