@@ -1142,8 +1142,10 @@
     ;; the collector's behalf would itself emit
     ;; `:rf.event/dispatched` etc. back through the trace-cb fan-out,
     ;; the collector would see
-    ;; its own self-emit, and the event-bundle would loop until
-    ;; `drain-depth-default` terminated it. The framework
+    ;; its own self-emit, and the event-bundle would loop with nothing
+    ;; to end it: each note dispatch comes from a task, so it roots a
+    ;; family of its own on `:rf/xray`'s external lane, where
+    ;; `:drain-depth` never halts it. The framework
     ;; short-circuits emission at the `emit!` / `emit-error!` /
     ;; `emit-dispatched-trace!` gates so no Xray-side `self-emitted?`
     ;; guard is needed.
