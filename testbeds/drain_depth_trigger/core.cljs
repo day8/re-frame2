@@ -13,9 +13,9 @@
                drain already settled kept its own `:db` write and its
                own durable `:ok` epoch. There is NO pre-drain snapshot
                and NO whole-drain rollback. The runtime discards the
-               remaining queued events (the next, *halting* event never
-               runs) and emits `:rf.error/drain-depth-exceeded` carrying
-               `:rollback? false`.
+               runaway family's remaining queued events (the next,
+               *halting* event never runs) and emits
+               `:rf.error/drain-depth-exceeded` carrying `:rollback? false`.
     - The frame's epoch record for the halting event lands with outcome
       `:halted-depth` per [Spec-Schemas §`:rf/epoch-record` Outcomes].
       Because that event never ran, its `:db-before` and
@@ -33,9 +33,9 @@
     Reset           → resets `:depth-reached` for re-runs.
 
   An input bound to `:drain-depth` lets the user lower the ceiling
-  for fast specs (the default 100 is fine, but a Playwright spec that
-  asserts on halt observability can dial down to 5 for a sub-second
-  run; the surface re-registers the frame on change).
+  for fast specs (the surface's default of 25 is fine, but a Playwright
+  spec that asserts on halt observability can dial down to 5 for a
+  sub-second run; the surface re-registers the frame on change).
 
   This is NOT a tutorial — the bodies are stark. The whole point is
   to give a consumer ONE click that produces a drain-depth-exceeded
@@ -58,8 +58,8 @@
   that the runaway cascade halts in well under a second of wall-clock
   time, high enough to demonstrate the runtime ran multiple iterations
   before the halt fired. The default framework `:drain-depth` is
-  100 (per Spec 002 §`:drain-depth`); this surface ships with 25 so a
-  visual demo halts visibly faster."
+  1000 events per family (per Spec 002 §Run-to-completion rule 3); this
+  surface ships with 25 so a visual demo halts visibly faster."
   25)
 
 ;; ----------------------------------------------------------------------------

@@ -154,7 +154,7 @@ The frame config map (`make-frame`) accepts:
 - `:platform` — `:server` or `:client`. Overrides the host default (`:client` on CLJS, `:server` on the JVM) for THIS frame; a per-request server render tags its frame `{:platform :server}`.
 - `:fx-overrides` — `{original-id replacement-id-or-fn}`. Two active override forms (resolved by `fx/resolve-fx-with-overrides`): a **keyword** redirects the lookup to another registered fx (portable, SSR-safe pattern-level form), and a **function** `(fn [m args] ...)` runs inline with no registry lookup (one-shot CLJS-reference convenience for test fixtures and story decorators). A value that is neither (and an absent key) is treated as no override — the original fx-id flows through. The id-redirect form is preferred when the stub is reused; the fn form when one test wants a bespoke response without registering a parallel fx. Per-call `:fx-overrides` in `dispatch` / `dispatch-sync` opts accepts the same forms.
 - `:platform` — `:client` or `:server`; gates fx whose `:platforms` set excludes the active platform.
-- `:drain-depth` — bound on dispatch-cascade depth (default 100; `:story` preset tightens to 16).
+- `:drain-depth` — the most events one family may run: an external event (or `dispatch-sync` seed) plus every event dispatched while it runs, transitively; the count restarts at each external event, and a halt discards only that family's queued work (default 1000; `:story` preset tightens to 16).
 - `:initial-events` — an ordered vector of event vectors dispatched synchronously at construction (seed app-db with a leading `[:rf/set-db {…}]`); `:on-destroy` — an event vector fired synchronously at teardown.
 
 User-supplied keys win on conflict with preset expansion.
