@@ -26,10 +26,9 @@
 
   What closes both axes is the substrate's own disposal event, armed once
   per unique key at `wire-cell!` time. It costs no React hook, no
-  per-boundary object, and nothing at all in the epoch sum. That bill is
-  checked rather than claimed where it is paid for every cell: the hook
-  ledger in `runtime_cljs_test`, and a clean mount leaving the snapshot
-  where the render put it in `staged_read_tear_cljs_test`.
+  per-boundary object, and nothing at all in the epoch sum;
+  `staged_read_tear_cljs_test` checks the last of those, a clean mount
+  leaving the snapshot where the render put it.
 
   Everything here runs against Arm 1's own runtime over the React spine's
   adapter: on an unwatchable host a subscription never notifies and the
@@ -84,6 +83,15 @@
   [k]
   (js/setTimeout k 0))
 
+(defn- write-then-read
+  "Write `db` to frame `f`, then re-render: how many notifications the
+  write bought the boundary, and what the re-render read."
+  [f q seen hits db]
+  (let [before @hits]
+    (rf.frame/replace-app-db! f db)
+    (rf.bench.fresco.arm1.runtime/render-body f (reader q seen) {})
+    [(- @hits before) @seen]))
+
 ;; ---------------------------------------------------------------------------
 ;; The registry-epoch axis
 ;; ---------------------------------------------------------------------------
@@ -93,7 +101,9 @@
             holds a cell for the key; the handler behind that query is
             then REPLACED, which is what an HMR save does. Every later
             render must compute against the new registration, and every
-            later write must still notify."
+            later write must still notify — without the rebuild the cell
+            is deaf from the disposal onwards, because `-dispose` cleared
+            the watcher set this arm's `add-watch` was in."
     (rf/reg-sub (first q-reg) (fn [db _] (:v db)))
     (async done
     (let [seen (volatile! nil)
@@ -102,41 +112,27 @@
       (let [entry    (rf.bench.fresco.arm1.runtime/last-reads)
             hits     (volatile! 0)
             release! (rf.bench.fresco.arm1.runtime/commit-boundary! entry (fn [] (vswap! hits inc)))]
-        (is (= 1 (:cells (rf.bench.fresco.arm1.runtime/stats)))
-            "RETAINED: the commit acquired a cell, so the key's reaction is
-             held for the life of this boundary — which is what makes the
-             warm read a pure deref, and what exposes it to a disposal")
-
-        (testing "the CONTROL — the watch is live before the re-registration"
-          (rf.frame/replace-app-db! f {:v 2})
-          (is (= 1 @hits) "a write notified the boundary")
-          (rf.bench.fresco.arm1.runtime/render-body f (reader q-reg seen) {})
-          (is (= 2 @seen) "and the re-render read the new value"))
+        (is (= [1 [1 2]]
+               [(:cells (rf.bench.fresco.arm1.runtime/stats))
+                (write-then-read f q-reg seen hits {:v 2})])
+            "the CONTROL: the commit retained a cell, and its watch is live
+             before the re-registration")
 
         ;; THE RE-REGISTRATION.
         (rf/reg-sub (first q-reg) (fn [db _] (* 10 (:v db))))
-
-        (testing "the next render computes against the NEW registration"
-          (rf.bench.fresco.arm1.runtime/render-body f (reader q-reg seen) {})
-          (is (= 20 @seen)
-              "20, not 2: the cell's reaction was disposed by the sub-cache
-               eviction, so the read falls through to `subscribe-once`,
-               which resolves the handler that is registered NOW"))
-
-        (settle!
-          (fn []
-            (testing "and the durable attachment is rebuilt, so later writes
-                      notify again"
-              (let [before @hits]
-                (rf.frame/replace-app-db! f {:v 3})
-                (is (pos? (- @hits before))
-                    "the boundary was notified — without the rebuild the cell
-                     is deaf from the disposal onwards, because `-dispose`
-                     cleared the watcher set this arm's `add-watch` was in")))
-            (rf.bench.fresco.arm1.runtime/render-body f (reader q-reg seen) {})
-            (is (= 30 @seen) "and it reads the new handler over the new db")
-            (release!)
-            (done))))))))
+        (rf.bench.fresco.arm1.runtime/render-body f (reader q-reg seen) {})
+        (let [next-render @seen]
+          (settle!
+            (fn []
+              (is (= [20 true 30]
+                     (let [[n v] (write-then-read f q-reg seen hits {:v 3})]
+                       [next-render (pos? n) v]))
+                  "20, not 2: the cell's reaction was disposed by the sub-cache
+                   eviction, so the read falls through to `subscribe-once`,
+                   which resolves the handler registered NOW — and the
+                   rebuilt attachment notifies again")
+              (release!)
+              (done)))))))))
 
 (deftest deliberately-a-disposed-cell-derefs-the-retired-computation
   (testing "the failure the row above repairs, stated as its own
@@ -155,17 +151,13 @@
             ;; re-register. This is exactly the object the cell would keep
             ;; without `invalidate-cell!`.
             held     (rf.bench.fresco.arm1.runtime/cell-reaction [f q-reg])]
-        (is (some? held) "precondition: the cell holds a reaction")
         (rf/reg-sub (first q-reg) (fn [db _] (* 10 (:v db))))
         (rf.frame/replace-app-db! f {:v 7})
-        (is (= 7 @held)
+        (is (= [7 nil] [@held (rf.bench.fresco.arm1.runtime/cell-reaction [f q-reg])])
             "the disposed container answers 7 — the RETIRED `(:v db)` over
-             the new db — where the live registration answers 70. A term in
-             `getSnapshot` would have scheduled a re-render that read
-             exactly this")
-        (is (nil? (rf.bench.fresco.arm1.runtime/cell-reaction [f q-reg]))
-            "which is why the cell drops the reference instead: the repair
-             is to stop reading through it, not to re-read it")
+             the new db — where the live registration answers 70, so the
+             cell drops the reference: the repair is to stop reading
+             through it, not to re-read it")
         (release!)))))
 
 ;; ---------------------------------------------------------------------------
@@ -190,38 +182,29 @@
             hits     (volatile! 0)
             release! (rf.bench.fresco.arm1.runtime/commit-boundary! entry (fn [] (vswap! hits inc)))
             token-a  (rf.frame/frame-incarnation-token f)
-            basis-a  (rf.bench.fresco.arm1.runtime/commit-basis f)]
-        (is (= 1 @seen) "incarnation A's value")
+            basis-a  (rf.bench.fresco.arm1.runtime/commit-basis f)
+            read-a   @seen]
 
         ;; THE REINCARNATION.
         (rf.frame/destroy-frame! f)
         (make-frame! f {:v 99})
-
-        (testing "the precondition this axis exists for — the basis TIES"
-          (is (not (identical? token-a (rf.frame/frame-incarnation-token f)))
-              "a distinct incarnation, and `frame-incarnation-token` is the
-               public reader that says so")
-          (is (= basis-a (rf.bench.fresco.arm1.runtime/commit-basis f))
-              "and yet the basis is the number it was: the epoch restarted at
-               0 and climbed back to exactly where it stood. A tie, not a
-               near-miss — so no arithmetic over these two terms could have
-               distinguished the incarnations"))
-
-        (testing "the boundary reads the SUCCESSOR's app-db"
+        (let [tie [(identical? token-a (rf.frame/frame-incarnation-token f))
+                   (rf.bench.fresco.arm1.runtime/commit-basis f)]]
           (rf.bench.fresco.arm1.runtime/render-body f (reader q-node seen) {})
-          (is (= 99 @seen)
-              "99, not 1: the destroyed incarnation's reaction was disposed
-               with its frame, so the read resolves against the frame that is
-               live now"))
+          (is (= [1 [false basis-a] 99] [read-a tie @seen])
+            "a distinct incarnation, and yet the basis TIES — the epoch
+             restarted at 0 and climbed back to exactly where it stood, so
+             no arithmetic over these two terms could have distinguished the
+             incarnations. The boundary reads the successor's 99, not 1:
+             the destroyed incarnation's reaction was disposed with its
+             frame"))
 
         (settle!
           (fn []
-            (testing "and the rebuilt attachment tracks the successor"
-              (let [before @hits]
-                (rf.frame/replace-app-db! f {:v 100})
-                (is (pos? (- @hits before)) "a write on B notified the boundary"))
-              (rf.bench.fresco.arm1.runtime/render-body f (reader q-node seen) {})
-              (is (= 100 @seen)))
+            (is (= [true 100]
+                   (let [[n v] (write-then-read f q-node seen hits {:v 100})]
+                     [(pos? n) v]))
+                "and the rebuilt attachment tracks the successor")
             (release!)
             (done))))))))
 
@@ -237,12 +220,9 @@
       (let [entry    (rf.bench.fresco.arm1.runtime/last-reads)
             release! (rf.bench.fresco.arm1.runtime/commit-boundary! entry (fn []))
             held     (rf.bench.fresco.arm1.runtime/cell-reaction [f q-node])]
-        (is (some? held) "precondition: the cell holds a reaction")
         (rf.frame/destroy-frame! f)
         (make-frame! f {:v 99})
-        (is (= 1 @held)
+        (is (= [1 nil] [@held (rf.bench.fresco.arm1.runtime/cell-reaction [f q-node])])
             "the pinned container answers incarnation A's 1 where the live
-             frame holds 99")
-        (is (nil? (rf.bench.fresco.arm1.runtime/cell-reaction [f q-node]))
-            "so the cell drops it")
+             frame holds 99, so the cell drops it")
         (release!)))))
