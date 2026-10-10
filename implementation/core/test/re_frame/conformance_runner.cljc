@@ -16,14 +16,16 @@
     - handler-body / sub / cofx / fx / route / view / machine / flow /
       classification-effect / app-schema realisation
     - the `:fixture/calls` execution (`run-call`)
+    - the `:fixture/compute-subs` invocation (each query computed before
+      grading)
     - the `:fixture/clock` controlled host clock (`run-clock-steps!`)
     - all `:fixture/expect` matchers (app-db, runtime-db, subs, traces,
       effects-routed, error-emit-records, epoch-records, absent-paths,
       SSR public-error)
     - `run-fixture` orchestration
     - the corpus body (`run-corpus`) with three-way capability
-      classification, EXPECTATION-KEY fail-loud, reporting,
-      and the pass/floor/count `is` assertions
+      classification, TOP-LEVEL-KEY and EXPECTATION-KEY fail-loud,
+      reporting, and the pass/floor/count `is` assertions
 
   The JVM / CLJS LEAVES are limited to genuinely host-specific operations:
   fixture loading (JVM fs `slurp`/`file-seq`; CLJS compile-time inlining),
@@ -50,7 +52,13 @@
   drift — the suite FAILS rather than silently ignoring it. This is the
   capability-allowlist discipline (`known-skipped-capabilities`) applied to
   expectation keys; it is the structural guard against a silently ignored
-  expectation."
+  expectation.
+
+  The fixture's TOP-LEVEL keys are held to the same rule
+  (`implemented-fixture-keys`): a runnable fixture carrying a key this runner
+  does not implement — a misspelt setup key such as `:fixture/dispatchess` —
+  fails naming the key, because a dropped setup key silently changes the
+  scenario."
   (:require
     #?(:clj  [clojure.test :refer [is]]
        :cljs [cljs.test :refer-macros [is]])
@@ -266,6 +274,30 @@
   (remove #(or (contains? corpus-checked-expect-keys %)
                (contains? sibling-owned-expect-keys %))
           (keys (:fixture/expect fixture {}))))
+
+(def implemented-fixture-keys
+  "The top-level fixture keys this runner implements: read, gated on, or
+  owned by a sibling conformance runner. Per `spec/conformance/README.md`
+  §Top-level fixture keys, a harness meeting any other key fails naming it."
+  #{;; metadata
+    :fixture/id :fixture/doc :fixture/spec-version :fixture/capabilities
+    ;; static-host gating; a dynamic host implements it by running the fixture
+    :fixture/dynamic-host-only?
+    ;; setup, read by `run-fixture`
+    :fixture/registry :fixture/handlers :fixture/frame-config :fixture/frames
+    :fixture/runtime :fixture/flow-bodies :fixture/classification-effects
+    :fixture/dispatches :fixture/calls :fixture/clock
+    ;; expectation, read by `run-fixture`
+    :fixture/expect :fixture/compute-subs :fixture/render-after-hydrate
+    ;; owned by the streaming SSR conformance runner
+    :fixture/wire-order})
+
+(defn unknown-fixture-keys
+  "The fixture's top-level keys outside `implemented-fixture-keys`. Taken from
+  the PARSED map: the corpus also carries event ids in the `:fixture/`
+  namespace, which a text search would misread as keys."
+  [fixture]
+  (remove implemented-fixture-keys (keys fixture)))
 
 ;; ---- fixture classification -----------------------------------------------
 
@@ -1658,6 +1690,18 @@
                            (into {}
                                  (for [[fid _] expected-rts]
                                    [fid (:rf.db/runtime (rf/frame-state-value fid))])))
+            ;; `:fixture/compute-subs` — invoke each query before grading, so
+            ;; a sub that throws surfaces as the sub-exception trace the
+            ;; trace-emissions check grades. A query naming no registered
+            ;; sub has nothing to compute, so it fails the fixture.
+            compute-sub-failures
+            (vec
+              (keep (fn [query-v]
+                      (if (rf.registrar/lookup :sub (first query-v))
+                        (do (rf/subscribe-once query-v {:frame :rf/default}) nil)
+                        (str ":fixture/compute-subs query " (pr-str query-v)
+                             " names no registered sub")))
+                    (:fixture/compute-subs fixture)))
             ;; Realise sub-checks BEFORE trace-failures: subscribing computes
             ;; the reaction body, which may emit sub-exception traces the
             ;; trace-emissions check expects to see.
@@ -1722,6 +1766,7 @@
                                         expected-rts))
                             (empty? absent-failures)
                             (empty? @dispatch-error-failures)
+                            (empty? compute-sub-failures)
                             (every? #(= (:expected %) (:actual %)) sub-checks)
                             (empty? trace-failures)
                             (empty? effects-failures)
@@ -1739,6 +1784,7 @@
          :final-rts    final-rts
          :expected-rt  expected-rt
          :expected-rts expected-rts
+         :compute-sub-failures compute-sub-failures
          :sub-checks   sub-checks
          :trace-failures     trace-failures
          :effects-failures   effects-failures
@@ -1776,6 +1822,8 @@
     (println "  " (:fixture-id f))
     (when (:unknown-caps f)
       (println "    unknown capabilities:" (:unknown-caps f)))
+    (when (:unknown-fixture-keys f)
+      (println "    unknown top-level fixture keys:" (:unknown-fixture-keys f)))
     (when (:unknown-expect-keys f)
       (println "    unknown :fixture/expect keys:" (:unknown-expect-keys f)))
     (when (:error f)
@@ -1794,6 +1842,8 @@
     (when (seq (:dispatch-error-failures f))
       (doseq [de (:dispatch-error-failures f)]
         (println "    expect-error:" de)))
+    (doseq [cf (:compute-sub-failures f)]
+      (println "    compute-subs:" cf))
     (doseq [sc (:sub-checks f)]
       (when (not= (:expected sc) (:actual sc))
         (println "    sub" (:query sc) "expected:" (:expected sc) "actual:" (:actual sc))))
@@ -1820,89 +1870,105 @@
         (println "    public-error expected:" (:expected pec))
         (println "    public-error actual:  " (:actual pec))))))
 
+(defn run-corpus-fixture
+  "The corpus verdict for one `[fname fixture]` entry: a skip for a load
+  error, an unclaimed spec version or an allowlisted capability; a failure
+  for an unknown capability, an unknown top-level key or an unknown
+  `:fixture/expect` key; otherwise `run-fixture`'s result. The key checks
+  follow the capability gate, so a fixture this build does not claim may
+  carry keys only a sibling runner reads."
+  [fname fixture host]
+  (cond
+    (:fixture/load-error fixture)
+    {:fixture-id fname :skipped? true :reason "load error"
+     :error (:fixture/load-error fixture)}
+
+    (not (spec-version-claimed? fixture))
+    {:fixture-id   (:fixture/id fixture)
+     :skipped?     true
+     :reason       "spec-version not in claimed set"
+     :spec-version (:fixture/spec-version fixture)}
+
+    :else
+    (let [{:keys [allowed unknown]} (classify-capabilities fixture)
+          bad-fixture-keys (unknown-fixture-keys fixture)
+          bad-keys (unknown-expect-keys fixture)]
+      (cond
+        (seq unknown)
+        {:fixture-id   (:fixture/id fixture)
+         :passed?      false
+         :unknown-caps unknown
+         :error        (str "unknown capabilities: " unknown
+                            " — capability is neither in "
+                            "claimed-capabilities nor in "
+                            "known-skipped-capabilities. Either claim "
+                            "it (and implement it) or add to the "
+                            "known-skipped-capabilities allowlist.")}
+
+        (seq allowed)
+        {:fixture-id   (:fixture/id fixture)
+         :skipped?     true
+         :reason       "capabilities intentionally not claimed (allowlisted)"
+         :capabilities (:fixture/capabilities fixture)
+         :allowed      allowed}
+
+        (seq bad-fixture-keys)
+        {:fixture-id           (:fixture/id fixture)
+         :passed?              false
+         :unknown-fixture-keys (vec bad-fixture-keys)
+         :error                (str "unknown top-level fixture keys: " (vec bad-fixture-keys)
+                                    " — this runner implements no such key. Implement it "
+                                    "in the shared runner, or add it to "
+                                    "implemented-fixture-keys if a dedicated conformance "
+                                    "runner owns it. A dropped setup key silently changes "
+                                    "the scenario, so it is refused.")}
+
+        ;; Fail-loud — a runnable fixture whose :fixture/expect
+        ;; names a key this runner would silently ignore (neither
+        ;; corpus-checked nor delegated to a sibling runner) FAILS.
+        (seq bad-keys)
+        {:fixture-id          (:fixture/id fixture)
+         :passed?             false
+         :unknown-expect-keys (vec bad-keys)
+         :error               (str "unknown :fixture/expect keys: " (vec bad-keys)
+                                   " — key is neither a corpus-checked "
+                                   "expectation nor a sibling-owned "
+                                   "(delegated) expectation. Add a matcher "
+                                   "to the shared runner, or add the key to "
+                                   "sibling-owned-expect-keys if a dedicated "
+                                   "conformance runner owns it. A silently ignored "
+                                   "expectation lets the hosts drift, so it is refused.")}
+
+        :else
+        (assoc (run-fixture fixture host) :fname fname)))))
+
 (defn run-corpus
   "Run the whole conformance corpus. `fixtures` is a seq of `[filename
   fixture-map]` pairs (loaded host-specifically); `host` supplies the reset /
   trace-listener seams; `label` names the host in diagnostics (\"JVM\" /
-  \"CLJS\"). Performs the three-way capability classification, the
-  EXPECTATION-KEY fail-loud, runs each claim-applicable fixture,
-  and emits the pass / floor / count `is` assertions. Silent on green:
-  the failure report only prints when there are failures."
+  \"CLJS\"). Grades each fixture through `run-corpus-fixture`, then emits
+  the pass / floor / count `is` assertions. Silent on green: the failure
+  report only prints when there are failures."
   [fixtures host label]
-  (let [results (atom [])]
-    (doseq [[fname fixture] fixtures]
-      (cond
-        (:fixture/load-error fixture)
-        (swap! results conj {:fixture-id fname :skipped? true :reason "load error"
-                             :error (:fixture/load-error fixture)})
-
-        (not (spec-version-claimed? fixture))
-        (swap! results conj {:fixture-id   (:fixture/id fixture)
-                             :skipped?     true
-                             :reason       "spec-version not in claimed set"
-                             :spec-version (:fixture/spec-version fixture)})
-
-        :else
-        (let [{:keys [allowed unknown]} (classify-capabilities fixture)
-              bad-keys (unknown-expect-keys fixture)]
-          (cond
-            (seq unknown)
-            (swap! results conj
-                   {:fixture-id   (:fixture/id fixture)
-                    :passed?      false
-                    :unknown-caps unknown
-                    :error        (str "unknown capabilities: " unknown
-                                       " — capability is neither in "
-                                       "claimed-capabilities nor in "
-                                       "known-skipped-capabilities. Either claim "
-                                       "it (and implement it) or add to the "
-                                       "known-skipped-capabilities allowlist.")})
-
-            (seq allowed)
-            (swap! results conj
-                   {:fixture-id   (:fixture/id fixture)
-                    :skipped?     true
-                    :reason       "capabilities intentionally not claimed (allowlisted)"
-                    :capabilities (:fixture/capabilities fixture)
-                    :allowed      allowed})
-
-            ;; Fail-loud — a runnable fixture whose :fixture/expect
-            ;; names a key this runner would silently ignore (neither
-            ;; corpus-checked nor delegated to a sibling runner) FAILS.
-            (seq bad-keys)
-            (swap! results conj
-                   {:fixture-id          (:fixture/id fixture)
-                    :passed?             false
-                    :unknown-expect-keys (vec bad-keys)
-                    :error               (str "unknown :fixture/expect keys: " (vec bad-keys)
-                                              " — key is neither a corpus-checked "
-                                              "expectation nor a sibling-owned "
-                                              "(delegated) expectation. Add a matcher "
-                                              "to the shared runner, or add the key to "
-                                              "sibling-owned-expect-keys if a dedicated "
-                                              "conformance runner owns it. A silently ignored "
-                                              "expectation lets the hosts drift, so it is refused.")})
-
-            :else
-            (swap! results conj (assoc (run-fixture fixture host) :fname fname))))))
-    (let [all     @results
-          run     (filter (complement :skipped?) all)
-          passed  (filter :passed? run)
-          failed  (remove :passed? run)
-          skipped (filter :skipped? all)]
-      ;; Non-empty floor. The lone (zero? (count failed)) below
-      ;; passes GREEN over an empty / fully-skipped / orphaned corpus,
-      ;; verifying NOTHING. Assert fixtures actually executed.
-      (is (pos? (count run))
-          (str "at least one claim-applicable conformance fixture must have executed (" label ")"))
-      (is (>= (count run) 150)
-          (str label " conformance corpus runnable-fixture floor (>= 150): only "
-               (count run) " executed — a fixture-discovery fault or a "
-               "capability-vocab rename has orphaned the corpus."))
-      (when (seq failed)
-        (print-failures label all run passed failed skipped))
-      ;; The suite fails unless EVERY claimed-applicable fixture
-      ;; passes. Skipped fixtures neither claim conformance nor block it.
-      (is (zero? (count failed))
-          (str "All claimed-applicable " label " conformance fixtures must pass; "
-               (count failed) " failed.")))))
+  (let [all     (mapv (fn [[fname fixture]] (run-corpus-fixture fname fixture host))
+                      fixtures)
+        run     (filter (complement :skipped?) all)
+        passed  (filter :passed? run)
+        failed  (remove :passed? run)
+        skipped (filter :skipped? all)]
+    ;; Non-empty floor. The lone (zero? (count failed)) below
+    ;; passes GREEN over an empty / fully-skipped / orphaned corpus,
+    ;; verifying NOTHING. Assert fixtures actually executed.
+    (is (pos? (count run))
+        (str "at least one claim-applicable conformance fixture must have executed (" label ")"))
+    (is (>= (count run) 150)
+        (str label " conformance corpus runnable-fixture floor (>= 150): only "
+             (count run) " executed — a fixture-discovery fault or a "
+             "capability-vocab rename has orphaned the corpus."))
+    (when (seq failed)
+      (print-failures label all run passed failed skipped))
+    ;; The suite fails unless EVERY claimed-applicable fixture
+    ;; passes. Skipped fixtures neither claim conformance nor block it.
+    (is (zero? (count failed))
+        (str "All claimed-applicable " label " conformance fixtures must pass; "
+             (count failed) " failed."))))
