@@ -698,8 +698,8 @@
              ;; `C:/code/re-frame2+wip`) must survive verbatim. `URI.getPath`
              ;; decodes percent-escapes (`%20` → space, `%2B` → `+`) while
              ;; leaving a literal `+` untouched — the correct grammar for a
-             ;; `file:` URL path (mirrors `file-url->path` in
-             ;; re-frame.testbed.open-in-editor-server, the runtime twin).
+             ;; `file:` URL path. re-frame.testbed.open-in-editor-server
+             ;; resolves through this same function at request time.
              ;; The result on Windows is `/C:/Users/...` so strip a leading
              ;; slash before a drive-letter to get the canonical
              ;; `C:/Users/...` shape `compose-path` already handles.
