@@ -56,9 +56,11 @@
   different job each time:
 
   - **Here, in dev** — the Malli boundary rejects BEFORE the handler runs,
-    the fx is `:skipped`, siblings continue, the page still renders, and the
-    programmer gets the rich `:rf.error/schema-validation-failure :where
-    :fx-args` diagnostic naming the failing path.
+    the fx is `:skipped`, siblings continue, and the programmer gets the
+    rich `:rf.error/schema-validation-failure :where :fx-args` diagnostic
+    naming the failing path. SSR's error projection answers that record
+    with the sanitised 500, the same status the guard below earns in a
+    release build.
   - **In `re-frame.ssr.response`, in EVERY build** — cheap predicate guards
     (`validate-status!`, `validate-string-arg!`, `validate-cookie-shape!`)
     throw `:rf.error/server-fx-args-invalid` before the first

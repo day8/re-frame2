@@ -125,11 +125,11 @@
 ;; only a `:location` that is not a string at all (a
 ;; missing key, a keyword, a URI object) is a call the programmer got wrong.
 ;;
-;; POSTURE. The recovery PATH differs by build, and that is documented
-;; rather than hidden: dev-with-schemas gets the Malli step-5 skip plus its
-;; rich `:where :fx-args` diagnostic and the page still renders; production (or
+;; POSTURE. Only the DIAGNOSTIC differs by build: dev-with-schemas gets the
+;; Malli step-5 skip plus its rich `:where :fx-args` diagnostic; production (or
 ;; a schemas-less dev build) gets this guard's throw → containment → always-on
-;; record → sanitised 500. What does not differ is the thing that matters:
+;; `:rf.error/fx-handler-exception` record. Both reach SSR's error projection,
+;; which answers the sanitised 500 in every build. And the shape never differs:
 ;; `get-response` never yields a malformed `:rf/response` shape in ANY build.
 ;;
 ;; ONE SHAPE, NOT TWO. The guard here and the Malli `:rf.fx.server/*-args`
@@ -1023,7 +1023,7 @@
   that is the entire reason `:rf.server/safe-redirect` exists as the sibling
   of the caller-trusted `:rf.server/redirect` — and a rejected target
   routinely looks like `?next=https://evil.example.com/cb?token=…`.
-  `url-egress/redact-url-tag` — core's ONE URL-carrier policy, reachable from
+  `re-frame.privacy.url/redact-url-tag` — core's ONE URL-carrier policy, reachable from
   here because it lives in the only artefact SSR depends on —
   scrubs the query / fragment carrier VALUES (keeping the structured path, and
   keeping the scheme and host, which on THIS path are the security signal)

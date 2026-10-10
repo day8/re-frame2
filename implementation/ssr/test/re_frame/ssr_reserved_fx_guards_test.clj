@@ -39,8 +39,9 @@
 (defn- drive!
   "Dispatch `fx-vec` then `sibling-fx` on a fresh server frame. Returns the
   pure accumulator read (`:raw`), the same read with the `_status-writes`
-  bookkeeping kept (`:bookkept`), the settled response (`:response`,
-  taken last because the settle drains) and every always-on error record seen."
+  bookkeeping kept (`:bookkept`), the settled response and projected public
+  error (`:response`, `:public-error`, taken last because the settle drains)
+  and every always-on error record seen."
   [fx-vec]
   (let [f    (server-frame)
         id   (keyword "rf.test" (str "cap-" (name (gensym "g"))))
@@ -50,11 +51,13 @@
     (try
       (rf/dispatch-sync [::attempt fx-vec] {:frame f})
       (let [raw      (rf.ssr/peek-response f)
-            bookkept (rf.ssr.response/response-of f)]
-        {:raw      raw
-         :bookkept bookkept
-         :response (:response (rf.ssr/flush-response-result! f))
-         :records  @seen})
+            bookkept (rf.ssr.response/response-of f)
+            settled  (rf.ssr/flush-response-result! f)]
+        {:raw          raw
+         :bookkept     bookkept
+         :response     (:response settled)
+         :public-error (:public-error settled)
+         :records      @seen})
       (finally
         (rf.error-emit/unregister-error-listener! id)))))
 
@@ -212,6 +215,20 @@
       (let [{:keys [raw] :as driven} (drive! [fx-id args])]
         (is (= [accept? true] [(landed? fx-id args driven) (sibling-ran? raw)])
             (str label " — [landed? sibling-ran?] for " (pr-str args)))))))
+
+(deftest a-malformed-reserved-fx-takes-the-error-arm-in-every-build
+  (testing "the dev schema gate and the release guard refuse the call by
+            different routes and leave different records, and both answer
+            the sanitised 500 with the sibling fx run"
+    (let [{:keys [raw response public-error records]}
+          (drive! [:rf.server/set-status "not-an-int"])]
+      (is (= [500 500 :internal-error true]
+             [(:status response) (:status public-error) (:code public-error)
+              (sibling-ran? raw)])
+          "[response status, public-error status, public-error code, sibling-ran?]")
+      (is (= (if rf.interop/debug-enabled? [] [:rf.error/fx-handler-exception])
+             (mapv :error records))
+          "the always-on record: none in dev, where the schema gate skips the fx before the guard throws"))))
 
 (deftest a-user-fx-schema-stays-dev-posture-and-genuinely-elides
   (testing "the guard is for the seven reserved fx only: a `:schema` an app
