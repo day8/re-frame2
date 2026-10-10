@@ -99,12 +99,17 @@ install in a cold client entry and the first `rf/make-frame` raises the same
   the same handle (MIG-15's `h/render!` shape, without `:hydrate?` — it is a
   first-call mode and a live handle ignores it) rather than re-running `run`;
   the hydration/HMR path never re-runs `rf/init!`.
-- **`rf/make-frame` first of the three.** An adopting root takes its state from
-  the payload, so its tree SCOPEs with `h/frame-provider` rather than ENSUREing
-  with `h/frame-root` — an ENSURE runs at commit, after the payload, and would
-  seed replacement state over what the server rendered from. Skip the
-  `make-frame` and the `:rf/hydrate` dispatch is a silent no-op; the adoption
-  is not, because `h/frame-provider` refuses a frame that is not live.
+- **`rf/make-frame` first of the three.** An adopting root's tree SCOPEs with
+  `h/frame-provider` rather than ENSUREing with `h/frame-root`, and the reason
+  is the first pass's SHAPE, not state. An ENSURE makes its frame at commit, so
+  `h/frame-root`'s first render emits no descendant subtree and its children
+  arrive on a second pass — but hydration matches the server's element shape on
+  that first pass, so a hydrating `h/frame-root` is refused
+  (`:rf.error/fresco-frame-root-adopting`). `h/frame-provider` renders its
+  children immediately, so the shapes agree, and it creates nothing — the frame
+  must already exist. Skip the `make-frame` and the `:rf/hydrate` dispatch is a
+  silent no-op; the adoption is not, because `h/frame-provider` refuses a frame
+  that is not live.
 - **`ssr/hydrate!` before the adopting `h/render!`.** It reads the
   `__rf_payload` script, replaces that frame's state and verifies, so the first
   client render sees the state the server rendered from.
