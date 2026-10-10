@@ -114,6 +114,24 @@
 (defn- redacted-token? [c]
   (and (map? c) (contains? c :rf/redacted)))
 
+(defn- redact-anchored
+  "`v`, the value of the slot `slot` an owner declares against, redacted under
+  the `slot`-relative `sens` / `large` paths, index-free. The walk runs over
+  `{slot v}` with `slot` as every path's first segment, as the durable entry
+  walks the same declaration, because a path rides a map key only once its
+  first named segment has matched: walked from `v`'s own root, a path would
+  reach no slot under a key at the top of `v` (`{\"u1\" {:email …}}`). Returns
+  `v` itself when both path sets are empty. Pure."
+  [slot v sens large]
+  (let [anchor (fn [paths] (mapv #(into [slot] %) paths))]
+    (get (rf.classification/redact-with-paths {slot v} (anchor sens) (anchor large)
+                                              {:index-free? true})
+         slot)))
+
+(def ^:private key-component-slot
+  "The slot each scoped-key component's declarations are rooted at."
+  {0 :scope 2 :params})
+
 (defn- key-slot-declarations
   "Split a resource `spec`'s scoped-KEY projection-relative declarations into
   the two components of `[scope resource-id params]`, each path re-rooted at
@@ -223,8 +241,8 @@
     scoped-key
     (if-let [declarations (key-slot-declarations spec)]
       (reduce-kv (fn [projected-key component-index {:keys [sensitive large]}]
-                   (update projected-key component-index rf.classification/redact-with-paths
-                            sensitive large {:index-free? true}))
+                   (update projected-key component-index
+                           #(redact-anchored (key-component-slot component-index) % sensitive large)))
                  scoped-key
                  declarations)
       scoped-key)))
@@ -1751,7 +1769,9 @@
 ;;     value for the single-projection subs. A resource's coarse `:sensitive?` /
 ;;     `:large?` claim covers the whole data projection. The walk is
 ;;     INDEX-FREE, so one declaration reaches every page of an infinite feed,
-;;     as it does on the durable side.
+;;     as it does on the durable side. A whole-value projection is walked under
+;;     its `:data` anchor (`redact-anchored`), so a key at the top of the data
+;;     rides as it does on the durable entry.
 ;;   - MERGED ITEMS: a feed's merged item list (`:rf.resource/items`, and
 ;;     `:items` on `:rf.resource/infinite-state`) is not the page shape the
 ;;     owner declared against, because `:page->items` has taken each page
@@ -1887,7 +1907,7 @@
                 (let [s (component i sens) l (component i large)]
                   (if (or (redacted-token? (nth k i)) (and (empty? s) (empty? l)))
                     k
-                    (update k i rf.classification/redact-with-paths s l {:index-free? true}))))
+                    (update k i #(redact-anchored (key-component-slot i) % s l)))))
               projected
               [0 2]))))
 
@@ -1920,7 +1940,7 @@
       items
 
       (or (nil? accessor) (some empty? sens) (some empty? large))
-      (rf.classification/redact-with-paths items sens large {:index-free? true})
+      (redact-anchored :data items sens large)
 
       :else
       (or (try
@@ -1929,8 +1949,7 @@
                          (= items (rf.resources.state/merge-pages->items
                                     raw accessor resource-id 'rf.resource/items)))
                 (let [page-items (mapv #(if (vector? %) % (accessor %))
-                                       (rf.classification/redact-with-paths
-                                         raw sens large {:index-free? true}))]
+                                       (redact-anchored :data raw sens large))]
                   (when (every? #(or (nil? %) (and (coll? %) (not (map? %)))) page-items)
                     (into [] cat page-items)))))
             (catch #?(:clj Throwable :cljs :default) _ nil))
@@ -2004,9 +2023,15 @@
              recovered   (when (and inputs-db (map? payload))
                            (recovered-data-claims sub-id payload inputs-db))
              value       (if (or spec (some seq recovered))
-                           (let [[sens large] (data-paths spec recovered roots)]
-                             (rf.classification/redact-with-paths
-                               (project-feed-items sub-id value spec recovered query-v frame-state)
-                               sens large {:index-free? true}))
+                           (let [projected    (project-feed-items sub-id value spec recovered
+                                                                  query-v frame-state)
+                                 [sens large] (data-paths spec recovered roots)]
+                             ;; A value that IS the projection has no slot of
+                             ;; its own to anchor the walk, so it takes the
+                             ;; `:data` slot the owner declared against.
+                             (if (= [[]] roots)
+                               (redact-anchored :data projected sens large)
+                               (rf.classification/redact-with-paths
+                                 projected sens large {:index-free? true})))
                            value)]
          (project-keys sub-id value frame inputs-db))))))
