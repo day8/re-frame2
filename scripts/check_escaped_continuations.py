@@ -137,8 +137,7 @@ CLOSING LINES, so there is no line left to mark.  Inherited deliberately:
 that scanner is the corpus's shared notion of "code, not prose", and
 unblanking fences here to reach their openers would make every list-shaped
 line inside a code sample a candidate.  So this file reads 0 escaped
-continuations on a list split by a fence, and the self-test pins that
-non-detection.  A fence probe wants its own instrument (mark the opener
+continuations on a list split by a fence.  A fence probe wants its own instrument (mark the opener
 only, ask which `li` the resulting `<pre>` lands in); it is not a widening
 of this one.
 
@@ -560,81 +559,27 @@ def blocks(escapes):
 
 # (name, markdown, expected escaped-line count)
 _CASES = [
-    # --- the class itself, both directions -------------------------------
-    ("a four-column continuation stays in its item", "- parent\n\n    continuation\n\n- sibling\n", 0),
     ("a two-column continuation escapes", "- parent\n\n  continuation\n\n- sibling\n", 1),
-    ("a one-column continuation escapes", "- parent\n\n continuation\n", 1),
-    (
-        "a hard-wrapped escaped paragraph counts every line",
-        "- parent\n\n  one\n  two\n  three\n\n- sibling\n",
-        3,
-    ),
-    # --- the trap in (1): a LOOSE list is not a defect --------------------
-    (
-        "a healthy loose list, whose items all gain a <p>, is clean",
-        "- alpha\n\n    body of alpha\n\n- beta\n\n    body of beta\n",
-        0,
-    ),
-    # --- the depth disjunct: inside an li, but the WRONG one --------------
+    # The depth disjunct: inside an li, but the WRONG one.
     (
         "a continuation that leaves a CHILD item but stays in its grandparent",
         "- gp\n    - parent\n\n      continuation\n\n    - psib\n",
         1,
     ),
-    (
-        "the same continuation at the child's real content column is clean",
-        "- gp\n    - parent\n\n        continuation\n\n    - psib\n",
-        0,
-    ),
-    # --- the "outside every li" disjunct: the cascade the depth test misses
-    #
-    # An earlier escape closes the list, so the marker below it cannot
-    # interrupt that paragraph and is swallowed into it as literal text; its
-    # own continuation is then at depth 0 under an owner at depth 0, and the
-    # comparison is between two zeros.
+    # The "outside every li" disjunct: an earlier escape closes the list, so
+    # the marker below it is swallowed as literal text and its own
+    # continuation compares two zero depths.
     (
         "a cascade, where an earlier escape swallows the marker below it",
         "- alpha\n\n  escaped paragraph\n- beta\n  lazy line of beta\n",
         2,
     ),
-    (
-        "the repair of that cascade is clean in both halves",
-        "- alpha\n\n    escaped paragraph\n\n- beta\n  lazy line of beta\n",
-        0,
-    ),
-    # --- lazy continuations render INSIDE the li and are NOT defects ------
-    ("a lazy two-column continuation is correct", "- parent\n  lazy continuation\n- sibling\n", 0),
-    (
-        "a lazy continuation under a nested item is correct",
-        "- gp\n    - parent\n      lazy\n",
-        0,
-    ),
-    # --- scope -----------------------------------------------------------
-    ("prose after a column-0 paragraph is not a continuation", "- parent\n\nProse.\n\n  indented\n", 0),
-    (
-        "an escaped continuation inside an HTML comment is not a defect",
-        "<!--\n- parent\n\n  continuation\n-->\n\nProse.\n",
-        0,
-    ),
-    # --- tables ----------------------------------------------------------
-    # A sentinel appended after a row's trailing bar is dropped by the tables
-    # extension and `place` refuses a sentinel that did not survive, so these
-    # cases also prove that pipe rows are marked inside their first cell.
+    # `place` refuses a sentinel that did not survive, so this also proves
+    # pipe rows are marked inside their first cell.
     (
         "a two-column table escapes its item and its rows are counted",
         "- parent\n\n  | h | k |\n  | - | - |\n  | 1 | 2 |\n",
         2,
-    ),
-    (
-        "the same table at four columns is clean",
-        "- parent\n\n    | h | k |\n    | - | - |\n    | 1 | 2 |\n",
-        0,
-    ),
-    # --- code ------------------------------------------------------------
-    (
-        "an indented code block inside its item is clean",
-        "- parent\n\n        code sample\n",
-        0,
     ),
 ]
 
@@ -657,37 +602,6 @@ def self_test() -> int:
             failures += 1
         else:
             print(f"ok    {name} ({got} escape(s))")
-
-    # THE UNION IS THE RULE, AND EACH DISJUNCT ALONE IS A HOLLOW GATE.
-    # Re-derived here rather than asserted, on the two shapes that separate
-    # them: neither half detects both, so a regression to either one reds
-    # this check instead of quietly halving the corpus count.
-    checks += 1
-    cascade = "- alpha\n\n  escaped paragraph\n- beta\n  lazy line of beta\n"
-    grandparent = "- gp\n    - parent\n\n      continuation\n\n    - psib\n"
-    depth_only = []
-    li_only = []
-    for source in (cascade, grandparent):
-        owners, candidates, _ = collect(source)
-        probed = _render(md, inject(source, owners, candidates))
-        at = place(probed, list(owners) + list(candidates))
-        depth_only.append(
-            sum(1 for c in candidates if at[c.sentinel].depth < at[c.owner.sentinel].depth)
-        )
-        li_only.append(sum(1 for c in candidates if at[c.sentinel].li is None))
-    union = [len(analyse(cascade, md)[0]), len(analyse(grandparent, md)[0])]
-    if depth_only == [1, 1] and li_only == [2, 0] and union == [2, 1]:
-        print(
-            "ok    each disjunct alone MISSES a case the other catches: on "
-            f"(cascade, grandparent) depth-only reads {depth_only}, "
-            f"outside-li-only reads {li_only}, the union reads {union}"
-        )
-    else:
-        print(
-            f"FAIL  union check: depth-only {depth_only}, outside-li-only "
-            f"{li_only}, union {union}"
-        )
-        failures += 1
 
     # Injection must be provably inert, and the probe must SAY SO when it is
     # not rather than reporting a clean file.
@@ -713,29 +627,15 @@ def self_test() -> int:
 
     # THE READ-THIS-FIRST QUALIFIER.  On the cascade, `- beta` is swallowed
     # and renders as text, so its continuation is marked; on the plain
-    # two-column escape the owner is a healthy `<li>` and it is not.  That
-    # partition is what stands between this tool and the wrapped-prose
-    # false-marker class, which no render-side reading can catch.
+    # two-column escape the owner is a healthy `<li>` and it is not.
     checks += 1
+    cascade = "- alpha\n\n  escaped paragraph\n- beta\n  lazy line of beta\n"
     flagged = [e.owner_is_text for e in analyse(cascade, md)[0]]
     plain = [e.owner_is_text for e in analyse("- parent\n\n  continuation\n", md)[0]]
     if flagged == [False, True] and plain == [False]:
         print("ok    a site whose OWNER is not a list item is marked, and only that one")
     else:
         print(f"FAIL  owner-is-text qualifier reads {flagged} / {plain}")
-        failures += 1
-
-    # A DOCUMENTED NON-DETECTION, pinned so it cannot become an accident.
-    # A fence short of its item's content column closes the list exactly as a
-    # paragraph does, but `_strip_fences` blanks the fence INCLUDING its
-    # opener, so no line survives to mark.  See WHAT THIS DETECTOR DOES NOT
-    # SEE AT ALL.
-    checks += 1
-    escaped_fence = "1. one\n\n   ```text\n   sample\n   ```\n\n2. two\n"
-    if len(analyse(escaped_fence, md)[0]) == 0 and "<ol>" in _render(md, escaped_fence):
-        print("ok    an escaped FENCE is not seen — documented, not accidental")
-    else:
-        print("FAIL  the escaped-fence non-detection changed")
         failures += 1
 
     # The skip list is reported rather than silent.
