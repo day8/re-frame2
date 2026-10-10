@@ -211,8 +211,8 @@
 ;; tracked by the SAME active-root ownership as the one-shot substrate
 ;; `render` slot, so `rf/destroy-adapter!` releases it too. Same three names
 ;; and shapes as `re-frame.adapter.reagent`, with two differences: the tree is
-;; a React ELEMENT here (`uix.core/$`) rather than hiccup, and `render!` also
-;; honours `:on-recoverable-error`.
+;; a React ELEMENT here (`uix.core/$`) rather than hiccup, and a hydrating
+;; `render!` takes no `:identifier-prefix`.
 
 (def client-root
   "Allocate an inert client-root handle. No DOM work — safe at namespace
@@ -253,8 +253,8 @@
   reporter over it: a mismatch React recovers from during hydration emits
   `:rf.ssr/hydration-mismatch` before reaching the callback (or React's
   default report), and a recoverable error after the hydration commit
-  skips the emit. The Reagent adapters' `render!` hydrates without root
-  options, so `:on-recoverable-error` takes effect on this adapter only.
+  skips the emit. Unlike the Reagent adapters' `render!`, it takes no
+  `:identifier-prefix`.
 
   CLJS data in the element slot — a hiccup vector, seq or map — raises
   `:rf.error/hiccup-on-element-render-slot`, on the first render and on

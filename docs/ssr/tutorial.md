@@ -564,15 +564,17 @@ model to reason with when something misbehaves. Both halves in one listing:
 
 ### Native UIx — adopt through the shared render path
 
-Reagent views return a data render tree, so the server and client each hash it. A
-native UIx app, whose views compile straight to React elements, has no such tree and
-is verified by React adoption instead: on the client, call `hydrate!` without
-`:render-tree-fn` ([which substrates hash](concepts.md#which-node-and-which-substrate)).
+Reagent views return a data render tree, so the server and client each hash it, and
+React adoption reports what the hash cannot see below a component head. A native UIx
+app, whose views compile straight to React elements, has no such tree and is verified
+by adoption alone: on the client, call `hydrate!` without `:render-tree-fn`
+([which substrates hash](concepts.md#which-node-and-which-substrate)).
 
-Hydrate the DOM through re-frame2's client mount entry,
-`(re-frame.substrate.adapter/render tree el {:hydrate? true})` (the adapter's
-`:render` slot), and not through `uix.dom/hydrate-root` or react-dom `hydrateRoot`
-directly. Only that path installs the framework `onRecoverableError` reporter,
+Hydrate the DOM through the adapter — the first `uix-adapter/render!` through a client
+root with `{:hydrate? true}`, or `(re-frame.substrate.adapter/render tree el
+{:hydrate? true})` (the adapter's `:render` slot) — and not through
+`uix.dom/hydrate-root` or react-dom `hydrateRoot` directly. Only the adapter's mount
+installs the framework `onRecoverableError` reporter,
 bounded to the adoption window and composed over any `:on-recoverable-error` you
 pass, so a recoverable mismatch emits the same `:rf.ssr/hydration-mismatch` trace,
 tagged `:where` `re-frame.substrate.spine/make-render`. Hydrating with the
