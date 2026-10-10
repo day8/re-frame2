@@ -230,13 +230,13 @@
               (str "→ Dynamic jump chip missing at testid " (pr-str jump-testid)))
           (is (fn? (rf.test-helpers/extract-handler jump-chip :on-click))
               "jump chip carries no :on-click handler — the JUMP is wired but never fires")
-          ;; Drive the production handler synchronously. The chip's own
-          ;; on-click calls `dispatch-jump-via` (async); the test variant
-          ;; `dispatch-jump-sync!` is the same dispatcher with
-          ;; `dispatch-sync` semantics — the canonical seam panel_cljs_test
-          ;; uses to assert post-dispatch state without an event-queue flush.
+          ;; Drive the production dispatcher synchronously: the chip's own
+          ;; on-click calls `dispatch-jump-via` with an async dispatcher;
+          ;; handing it a `dispatch-sync` one lets the assertions read the
+          ;; post-dispatch state without an event-queue flush.
           (rf/with-frame :rf/xray
-            (jump/dispatch-jump-sync! :deep/main))
+            (jump/dispatch-jump-via :deep/main
+                                    #(rf/dispatch-sync % {:frame :rf/xray})))
           (is (= :dynamic (e2e/sub-xray [:rf.xray/mode]))
               ":rf.xray/set-mode :dynamic did not flip the mode slot")
           (is (= :machines (e2e/sub-xray [:rf.xray/selected-tab]))

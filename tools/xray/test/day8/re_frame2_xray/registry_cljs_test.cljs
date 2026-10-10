@@ -168,7 +168,6 @@
    :rf.xray.static/selected-tab
    :rf.xray.static.machines/copy-mermaid-status
    :rf.xray.static.machines/data
-   :rf.xray.static.machines/rows
    :rf.xray.static.machines/search
    :rf.xray.static.machines/selected-id
    :rf.xray.static.machines/sort-key
@@ -189,7 +188,6 @@
    :rf.xray/settings-open?
    :rf.xray/keybinding-enabled?
    :rf.xray/show-ungrouped?
-   :rf.xray.static.machines/sim-active?
    :rf.xray.static.machines/sim-available-transitions
    :rf.xray.static.machines/sim-by-machine
    :rf.xray.static.machines/sim-event-suggestions

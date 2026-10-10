@@ -61,14 +61,6 @@
   [{:mode :dynamic :label "Dynamic"}
    {:mode :static  :label "Static"}])
 
-(defn mode-label
-  "Pure helper. The display label for `mode` (`Dynamic` / `Static`).
-  Falls back to the Dynamic label for an unrecognised keyword so the
-  control always renders a stable option string."
-  [mode]
-  (or (some (fn [{m :mode l :label}] (when (= m mode) l)) modes)
-      "Dynamic"))
-
 ;; ---- view ---------------------------------------------------------------
 
 (defn mode-pill-tree

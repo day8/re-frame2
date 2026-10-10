@@ -61,20 +61,6 @@
      (dispatch-fn [:rf.xray/select-machine-id machine-id]))
    nil))
 
-(defn dispatch-jump-sync!
-  "Test-only synchronous variant. Production code paths through the
-  async `dispatch-jump-via` because UI clicks are inherently async;
-  tests bypass the queue so post-dispatch assertions read the new slots
-  without a flush. Pins to `defaults/default-frame-id` (the production
-  shell) — tests assert against that frame's app-db."
-  [machine-id]
-  (rf/dispatch-sync [:rf.xray/set-mode :dynamic] {:frame defaults/default-frame-id})
-  (rf/dispatch-sync [:rf.xray/select-tab :machines] {:frame defaults/default-frame-id})
-  (when (some? machine-id)
-    (rf/dispatch-sync [:rf.xray/select-machine-id machine-id]
-                      {:frame defaults/default-frame-id}))
-  nil)
-
 (defn pill
   "Render the right-pane Instances pill. Sits inside the 4-mode sub-
   strip alongside Topology / Sim / Cascade. Carries a live-instance

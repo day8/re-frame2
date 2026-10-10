@@ -92,8 +92,7 @@
 ;; re-export); a host that hasn't loaded the machines artefact throws
 ;; at this call. The sim sub-mode only appears when there's at least
 ;; one registered machine — so by the time a user clicks Step, the
-;; artefact IS loaded. We wrap the call defensively all the same so the
-;; JVM test target can stub it.
+;; artefact IS loaded. We wrap the call defensively all the same.
 
 (defn- run-machine-transition
   "Call `rf.machines/machine-transition` against the cloned definition + sim
@@ -176,12 +175,6 @@
     (fn [[by-machine selected-id] _query]
       (when selected-id
         (get by-machine selected-id))))
-
-  ;; True iff sim is active for the currently-selected machine.
-  (rf/reg-sub :rf.xray.static.machines/sim-active?
-    {:inputs [[:rf.xray.static.machines/sim-state]]}
-    (fn [[sim] _query]
-      (boolean (:active? sim))))
 
   ;; The available-transitions projection for the picker. Memoised via
   ;; the sub graph.
