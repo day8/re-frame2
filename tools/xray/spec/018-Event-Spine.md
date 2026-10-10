@@ -720,11 +720,11 @@ L4 fills the remaining canvas (60% default; resizable via L2/L3 drag handle). Al
 - `inspect-view <value>` — `inspect` for a panel re-authored in the Fresco view layer
 - `inspect-inline <value>` — one-line tail-elided
 
-**Diff is not a fourth verb (corrected 2026-09-20, rf2-3rcqk).** There is no `inspect-diff` on the facade at any arity. Diff is an opt-in `:before` mode on the same widget — `[edn-inspector <after> {:before <before>}]` in `views/edn_inspector.cljs`, where `:before` is the prior value to annotate against; the `[edn-inspector-diff <before> <after>]` convenience there threads exactly that and renders through the same path.
+**Diff is not a fourth verb.** There is no `inspect-diff` on the facade at any arity. Diff is an opt-in `:before` mode on the same widget — `[edn-inspector <after> {:before <before>}]` in `views/edn_inspector.cljs`, where `:before` is the prior value to annotate against.
 
 The renderer does NOT depend on `binaryage/cljs-devtools` (that library targets the Chrome console; this is in-page hiccup). Pure hiccup, theme-token-driven, substrate-agnostic. See [`007-UX-IA.md`](007-UX-IA.md) §Detail panel renderer.
 
-**The renderer's home is the edn-inspector widget, not `theme.data-inspector` (corrected 2026-09-18).** This paragraph cited `theme/data_inspector.cljc`, a namespace **deleted** in the rf2-q3dzw phase-5 cleanup — sentinel chrome and the three verbs live inside the edn-inspector widget now ([`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md) §10). Nothing under `tools/xray/src/day8/re_frame2_xray/theme/` carries a data inspector today.
+**The renderer's home is the edn-inspector widget.** Sentinel chrome and the three verbs live inside it ([`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md) §10); nothing under `tools/xray/src/day8/re_frame2_xray/theme/` carries a data inspector.
 
 ### §5.1 Epoch panel content — the event lens (rf2-5gl5r)
 
@@ -1205,13 +1205,13 @@ x 16:42:14.713.501  fx:result        :http/post failed: 500                    8
 
 Virtualised list (overscan 20). See [`013-Trace-Consumer.md`](013-Trace-Consumer.md) for the underlying trace-bus contract.
 
-**The row sketch above pre-dates the Figma reconciliation.** Shipped rows
-render each op as a **plain-language line** (`dispatched [:counter-inc]`,
-`db changed [:counter] 1 → 2`) with a relative `t+0.0ms` stamp and a 3px
-op-family left border, not as the raw `event:dispatch` / `sub:recompute`
-op-type text drawn here — see
-[`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md) §5.2,
-which owns that contract.
+**Shipped rows are not the sketch above.** Each op renders as a
+six-column row — Δt · stage · area badge · what-happened · target/detail ·
+duration — with a plain-language verb (`dispatched`, `recalculated`,
+`re-rendered`) and a 3px left edge in its stage's colour, not as the raw
+`event:dispatch` / `sub:recompute` op-type text drawn here — see
+[`023-Trace-Panel.md`](023-Trace-Panel.md) §2, which owns that
+contract.
 
 ### §5.4 Issue surfacing (the former Issues tab — REMOVED per rf2-gbz39 Option (c))
 
@@ -2189,13 +2189,13 @@ Coverage is enumerated in [`017-Test-Coverage-Matrix.md`](017-Test-Coverage-Matr
 |---|---|
 | **4-layer chrome rendering** | `tools/xray/test/.../shell_cljs_test.cljs` — `shell-mounts-the-four-layers` asserts the L1/L2/L3/L4 shell envelope mounts; asserts no legacy sidebar; asserts ribbon cluster order |
 | **Spine binding** | `tools/xray/test/.../spine_cljs_test.cljs` (+ `spine_filters_cljs_test.cljs`) — asserts `:rf.xray/focus` rebinds atomically when a row is clicked; asserts L2 mode cue, L3 count badges, L4 detail content all reflect the new focus |
-| **Filter IN/OUT pills round-trip** | `tools/xray/test/.../filters/pills_cljs_test.cljs` — asserts pill add/edit/delete via popup; asserts AND-across-modes / OR-within-mode semantics |
-| **Event-driven Dynamic Machines panel (rf2-y9xmf)** | per-feature across `tools/xray/test/.../panels/machines/trace_state_cljs_test.cljs` (current-state-from-traces resolution backing the per-machine transition view) + `panels/machine_after_rings_helpers_cljs_test.cljc` (`:after` rings) + `panels/machine_inspector_helpers_cljs_test.cljc` + the `panels_e2e/machine_inspector_e2e_cljs_test.cljs` e2e — assert BLANK state on no-activity, per-machine section on transition, topology highlight + guards + actions + cancellation + `:after` rings. No single `machines/runtime_test.cljs` file; coverage is split across these |
+| **Filter IN/OUT pills round-trip** | `tools/xray/test/.../filters/pills_cljs_test.cljs` — asserts a pill renders its label in its mode's tone, its clicks dispatch edit and remove, the cluster tooltip shows the counts, and both add buttons open an empty IN popup; `filters/typed_predicates_cljs_test.cljc` asserts the OR-within-IN and IN/OUT composition |
+| **Event-driven Dynamic Machines panel (rf2-y9xmf)** | per-feature across `tools/xray/test/.../panels/machines/trace_state_cljs_test.cljs` (fired-edge and guard-blocked-edge extraction backing the topology highlight) + `panels/machine_after_rings_helpers_cljs_test.cljc` (`:after` rings) + `panels/machine_inspector_helpers_cljs_test.cljc` + the `panels_e2e/machine_inspector_e2e_cljs_test.cljs` e2e — assert BLANK state on no-activity, per-machine section on transition, topology highlight + guards + actions + cancellation + `:after` rings. No single `machines/runtime_test.cljs` file; coverage is split across these |
 | **UC1 Sim engine + UC2 Mode A/B/C (rf2-r4nao — Static re-host, landed)** | NOT a Dynamic test row. The Sim engine subs/events (`:rf.xray.static.machines/sim-*`) + the `static/machines/sim.cljs` view ship under the Static Machines surface's Sim sub-mode per [`003-Machine-Inspector.md`](003-Machine-Inspector.md); Static-side tests gate those surfaces. UC2 Mode A/B/C remains Dynamic-side (reached via the per-row → Dynamic JUMP). |
 | **Data classification rendering** | `tools/xray/test/.../sensitive_trace_cljs_test.cljc` (+ `views/edn_inspector_cljs_test.cljs` for the size-elided marker) — asserts `:rf/redacted` opaque (no reveal button); asserts `:rf.size/large-elided` renders as an inert marker (the drill-in is designed, not built); asserts combination semantics; asserts the sentinel-suppression path. No single `classification_rendering` gate; coverage is split across the sensitive-trace + edn-inspector tests |
 | **Frame-isolation invariants** | I1 → `tools/xray/test/.../frame_switcher_cljs_test.cljs` (picker excludes `:rf/xray`); I3/I4 → `panels_e2e/multi_frame_isolation_e2e_cljs_test.cljs` + `self_noise_cljs_test.cljc` (Xray-internal renders stay out of the inspected frame's surfaces); runs under `npm run test:cljs`; **failure blocks merge** |
 | **Sub-graph isolation lint (I2) — PLANNED / NOT YET SHIPPED** | The dev-time lint predicate in `shell.cljs` and its `sub_graph_lint_test.cljs` do not exist yet (no `lint` predicate in `shell.cljs`, no such test file). I2 is enforced today by code review + the `self_noise` drop logic only — true missing coverage, NOT a renamed gate |
-| **Settings modal popup** | `tools/xray/test/.../settings/popup_cljs_test.cljs` (+ `settings/popup_dispatch_routing_cljs_test.cljs`) — asserts modal open/close via `,`/`s`/`⚙`/`Esc`/outside-click; asserts section navigation; asserts fields map to a configure! key. (The fourth claim this row carried — that the suite asserts a "Show tool frames in picker" toggle flips the picker option list — is **struck 2026-09-18**: the toggle was removed 2026-05-27 and rf2-y8doi.27 removed the slot behind it, so there is no such assertion to make. The picker's unconditional exclusion is gated in the frame-switcher suite instead — see §8 §Gate names.) |
+| **Settings modal popup** | `tools/xray/test/.../settings/popup_cljs_test.cljs` (+ `settings/popup_dispatch_routing_cljs_test.cljs`) — asserts tab switching and the reset to General on open; the toggle's open/close cycle; General fields following their slots; the backdrop's positioning; and that the close button, a backdrop click and `Esc` close the modal from a default-frame context. The `,` / `s` / `⚙` openers are not asserted here. The picker's unconditional exclusion of tool frames is gated in the frame-switcher suite — see §8 §Gate names. |
 
 The [`017-Test-Coverage-Matrix.md`](017-Test-Coverage-Matrix.md) rows for the dropped panels (AI co-pilot, MCP server, Performance, Subs) are deleted per the spec rewrite.
 
