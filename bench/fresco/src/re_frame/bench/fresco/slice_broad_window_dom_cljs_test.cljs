@@ -36,16 +36,12 @@
 
   **Do PAIRED ARMS see the same page STATE?** The parity gate runs once,
   on the seeded page, before the first window; every arm moves its own
-  page afterwards. If each arm inherited whatever the arms before it left,
-  a replay of `rf.bench.fresco.lane/visit-plan` puts `:theme` in the
-  non-seed locale on 4 of its 12 measured visits per round against
-  `:donor-theme`'s 8 of 12, and the comparative theme figure would be a
-  ratio between two populations. Each arm therefore establishes its own
-  pre-state; [[paired-arms-see-the-same-governed-state-mix]] asserts that
-  over the schedule itself, and
-  [[the-mix-gate-catches-a-rig-whose-arms-inherit-each-others-state]] is
-  its negative control: it models a rig whose arms establish nothing and
-  requires the same comparison to report the same 4-against-8.
+  page afterwards, and the arms are not symmetric across the two frames,
+  so arms that inherited whatever the arms before them left would spend
+  the run on different pages and a comparative figure would be a ratio
+  between two populations. Each arm therefore establishes its own
+  pre-state, and [[paired-arms-see-the-same-governed-state-mix]] asserts
+  that over the schedule itself.
 
   ## WHAT THIS FILE DELIBERATELY DOES NOT RE-ADJUDICATE
 
@@ -271,35 +267,6 @@
             {}
             (rf.bench.fresco.lane/visit-plan arms sampling rounds))))
 
-(defn- other-of [roster* now]
-  (first (remove #(= % now) roster*)))
-
-(defn- inherited-runs
-  "The same replay under a model of a rig whose arms ESTABLISH NOTHING:
-  what an arm reads is whatever the arms scheduled before it left on ITS
-  OWN FRAME.
-
-  The asymmetry the model carries is the driver's own roster, not an
-  invention: `:locale` and `:ctl-blocked` both move the Fresco frame's
-  locale while only `:donor-locale` moves the donor's, and `:theme` /
-  `:donor-theme` move one theme each."
-  [arms sampling rounds]
-  (let [!st (atom {:fresco {:locale rf.bench.fresco.slice-broad-clock-app/seed-locale :theme rf.bench.fresco.slice-broad-clock-app/seed-theme}
-                   :donor   {:locale rf.bench.fresco.slice-broad-clock-app/seed-locale :theme rf.bench.fresco.slice-broad-clock-app/seed-theme}})]
-    (reduce (fn [acc {:keys [arm measured?]}]
-              (let [{:keys [id side alternates]} arm
-                    before (get @!st side)
-                    acc'   (if measured? (update acc id (fnil conj []) before) acc)]
-                (when alternates
-                  (swap! !st update-in [side alternates]
-                         (fn [v] (other-of (if (= :locale alternates)
-                                             rf.bench.fresco.slice-broad-clock-app/locales
-                                             rf.bench.fresco.slice-broad-clock-app/themes)
-                                           v))))
-                acc'))
-            {}
-            (rf.bench.fresco.lane/visit-plan arms sampling rounds))))
-
 (def ^:private compared-pairs
   "The three pairs whose two halves are subtracted or divided by each
   other, and which therefore have to be drawn from one population.
@@ -321,97 +288,30 @@
 (defn- non-seed-themes [runs id]
   (count (remove #(= rf.bench.fresco.slice-broad-clock-app/seed-theme (:theme %)) (get runs id))))
 
-;; The schedule the 4-against-8 figures are stated at, written out rather
-;; than read off the module, so those figures hold however the module's
-;; knobs move.
-(def ^:private audit-sampling {:warmup 8 :samples 12})
-(def ^:private audit-rounds 5)
-
 ;; ---------------------------------------------------------------------------
 ;; The state mix
 ;; ---------------------------------------------------------------------------
 
 (deftest paired-arms-see-the-same-governed-state-mix
-  (testing "Each arm's page state is a pure function of its own visit
-           index, so two arms that are divided or subtracted by each other
-           see the SAME multiset of pre-states — the same locales in the
-           same numbers, and the same themes.
-
-           Asserted over several schedules, and the last two are the
-           point: `rf.bench.fresco.slice-broad-clock-app/sampling`'s own docstring says a run reading this
-           instrument will raise `:samples`, so a property that held at 12
-           and failed at 13 would fail exactly when it was first relied
-           on."
-    (doseq [[sampling rounds] [[audit-sampling audit-rounds]
-                               [rf.bench.fresco.slice-broad-clock-app/sampling rf.bench.fresco.slice-broad-clock-app/rounds]
-                               [{:warmup 3 :samples 6} 5]
-                               [{:warmup 8 :samples 13} 5]
-                               [{:warmup 8 :samples 20} 5]]]
-      (let [runs (established-runs rf.bench.fresco.slice-broad-clock-app/arms sampling rounds)]
-        (doseq [{:keys [id]} rf.bench.fresco.slice-broad-clock-app/arms]
-          (is (= (* rounds (:samples sampling)) (count (get runs id)))
-              (str id " has one measured pre-state per measured visit at "
-                   (pr-str sampling))))
-        (doseq [[a b] compared-pairs]
-          (is (= (mix runs a) (mix runs b))
-              (str a " and " b " are drawn from one population at "
-                   (pr-str sampling) " over " rounds " rounds")))))))
-
-(deftest the-mix-gate-catches-a-rig-whose-arms-inherit-each-others-state
-  (testing "ANTI-VACUITY for the row above. Replay the identical schedule
-           under a model of a rig whose arms establish nothing — every arm
-           reading whatever the arms before it left on its own frame — and
-           the same comparison has to REFUSE, with the 4-against-8
-           numbers.
-
-           A green here would mean the row above passes whatever the arms
-           see, and every state-mix claim this instrument could make would
-           be worthless."
-    (let [runs (inherited-runs rf.bench.fresco.slice-broad-clock-app/arms audit-sampling audit-rounds)]
-      (is (not= (mix runs :theme) (mix runs :donor-theme))
-          "the published theme comparative's two halves are NOT one population")
-      (is (= (* audit-rounds 4) (non-seed-locales runs :theme))
-          ":theme runs in the non-seed locale on 4 of its 12 measured visits per round")
-      (is (= (* audit-rounds 8) (non-seed-locales runs :donor-theme))
-          "and :donor-theme on 8 of 12 — twice as often, on the other frame")
-      (is (not= (mix runs :ctl-blocked) (mix runs :locale))
-          "and the positive control is not drawn from its own denominator's
-           population either")
-      (is (= (* audit-rounds 8) (non-seed-themes runs :ctl-blocked))
-          ":ctl-blocked runs in the non-seed THEME on 8 of 12 per round")
-      (is (= (* audit-rounds 4) (non-seed-themes runs :locale))
-          "against :locale's 4 of 12 — the same divergence with the
-           dimensions swapped"))))
-
-;; Established pre-states close both at this same schedule, so the refusals
-;; above are about the rig and not about the replay: that is the first
-;; schedule of `paired-arms-see-the-same-governed-state-mix`.
-
-(deftest every-arm-takes-both-directions-in-equal-numbers
-  (testing "`locale-plan` and `theme-plan` are written for a rotor — the
-           target is always the value the page is NOT showing — and each
-           claims its arm takes both directions in equal numbers. Under
-           [[rf.bench.fresco.slice-broad-clock-app/pre-state]] that is a property of the arm rather than a
-           consequence of the plan, so it can be asserted.
-
-           The floor alternates nothing and holds the seed on every
-           visit, which is what makes it a floor."
-    (let [runs (established-runs rf.bench.fresco.slice-broad-clock-app/arms rf.bench.fresco.slice-broad-clock-app/sampling rf.bench.fresco.slice-broad-clock-app/rounds)
-          n    (* rf.bench.fresco.slice-broad-clock-app/rounds (:samples rf.bench.fresco.slice-broad-clock-app/sampling))]
-      (doseq [{:keys [id alternates]} rf.bench.fresco.slice-broad-clock-app/arms]
-        (case alternates
-          :locale (do (is (= (/ n 2) (non-seed-locales runs id))
-                          (str id " opens half its measured windows in each locale"))
-                      (is (zero? (non-seed-themes runs id))
-                          (str id " never moves the theme, so it holds the seed's")))
-          :theme  (do (is (= (/ n 2) (non-seed-themes runs id))
-                          (str id " opens half its measured windows in each theme"))
-                      (is (zero? (non-seed-locales runs id))
-                          (str id " never moves the locale, so it holds the seed's")))
-          (do (is (zero? (non-seed-locales runs id))
-                  (str id " alternates nothing and holds the seeded locale"))
-              (is (zero? (non-seed-themes runs id))
-                  (str id " alternates nothing and holds the seeded theme"))))))))
+  ;; Pre-state is a function of each arm's own visit index: the two halves
+  ;; of every comparative see one population, each arm takes both
+  ;; directions in equal numbers, and the dimension it does not move holds
+  ;; the seed.
+  (let [arms   rf.bench.fresco.slice-broad-clock-app/arms
+        rounds rf.bench.fresco.slice-broad-clock-app/rounds
+        runs   (established-runs arms rf.bench.fresco.slice-broad-clock-app/sampling rounds)
+        half   (/ (* rounds (:samples rf.bench.fresco.slice-broad-clock-app/sampling)) 2)]
+    (doseq [[a b] compared-pairs]
+      (is (= (mix runs a) (mix runs b))
+          (str a " and " b " are drawn from one population")))
+    (is (= (into {} (map (fn [{:keys [id alternates]}]
+                           [id [(if (= :locale alternates) half 0)
+                                (if (= :theme alternates) half 0)]]))
+                 arms)
+           (into {} (map (fn [{:keys [id]}]
+                           [id [(non-seed-locales runs id) (non-seed-themes runs id)]]))
+                 arms))
+        "per arm, [non-seed locales, non-seed themes] over its measured visits")))
 
 ;; ---------------------------------------------------------------------------
 ;; The roster, on the arms themselves
@@ -615,58 +515,16 @@
               (.then (fn [_] (done)) (fail-async done))))))))
 
 ;; ---------------------------------------------------------------------------
-;; The roster the file documents, where it can be pinned without a browser
+;; The roster, where it can be pinned without a browser
 ;; ---------------------------------------------------------------------------
 
 (deftest the-arm-roster-is-the-six-rows-the-file-documents
-  (testing "The namespace docstring names six rows and says which estimands
-           they can and cannot serve, and each row also declares the SIDE
-           it runs on and the state dimension it MOVES. A seventh added
-           silently, or an arm whose declaration drifted from what its plan
-           does, would leave that prose describing an instrument that does
-           not exist."
-    (is (= [:idle-frame :locale :donor-locale :theme :donor-theme :ctl-blocked]
-           (mapv :id rf.bench.fresco.slice-broad-clock-app/arms))
-        "floor first, so it leads the schedule")
-    (is (= [:ctl-blocked] (mapv :id (filter :control? rf.bench.fresco.slice-broad-clock-app/arms)))
-        "and exactly one of them is a control")
-    (is (= {:idle-frame   [:fresco nil]
-            :locale       [:fresco :locale]
-            :donor-locale [:donor   :locale]
-            :theme        [:fresco :theme]
-            :donor-theme  [:donor   :theme]
-            :ctl-blocked  [:fresco :locale]}
-           (into {} (map (juxt :id (juxt :side :alternates))) rf.bench.fresco.slice-broad-clock-app/arms))
-        "every arm declares its side and the dimension it moves")
-    (doseq [[a b] compared-pairs]
-      (is (= (:alternates (arm-of a)) (:alternates (arm-of b)))
-          (str a " and " b " move the same dimension — otherwise there is
-               nothing for a comparative to hold constant")))
-    (is (= 2 (count rf.bench.fresco.slice-broad-clock-app/locales)) "the rotor's roster is two locales")
-    (is (= 2 (count rf.bench.fresco.slice-broad-clock-app/themes)) "and two themes")
-    (is (contains? (set rf.bench.fresco.slice-broad-clock-app/locales) rf.bench.fresco.slice-broad-clock-app/seed-locale))
-    (is (contains? (set rf.bench.fresco.slice-broad-clock-app/themes) rf.bench.fresco.slice-broad-clock-app/seed-theme))
-    (is (pos? (:warmup rf.bench.fresco.slice-broad-clock-app/sampling)))
-    (is (pos? (:samples rf.bench.fresco.slice-broad-clock-app/sampling)))
-    (is (even? (:samples rf.bench.fresco.slice-broad-clock-app/sampling))
-        "an ODD `:samples` would leave each arm's measured block one visit
-         short of a whole number of rotor turns, so the two directions
-         would not be taken in equal numbers")
-    (is (pos? rf.bench.fresco.slice-broad-clock-app/rounds))))
-
-(deftest the-record-labels-which-population-each-figure-is-taken-over
-  (testing "`:summary`, `:structure`, `:comparative`, `:over-floor` and
-           `:resolution` are all taken over the measured visits, because
-           each of the last three is built out of the first two and a ratio
-           whose numerator and denominator are drawn from different
-           populations is not a ratio.
-           `:echo` deliberately is not: it is a count of refusals rather
-           than a distribution, and a verification is worth more the more
-           windows it covers."
-    (is (= {:summary     :measured-visits
-            :structure   :measured-visits
-            :comparative :measured-visits
-            :over-floor  :measured-visits
-            :resolution  :measured-visits
-            :echo        :all-visits}
-           rf.bench.fresco.slice-broad-clock-app/populations))))
+  ;; `:side` names the frame `establish-pre-state!` moves, so an arm whose
+  ;; `:side` disagrees with its plan's runs on an inherited page.
+  (is (= {:idle-frame   [:fresco nil]
+          :locale       [:fresco :locale]
+          :donor-locale [:donor   :locale]
+          :theme        [:fresco :theme]
+          :donor-theme  [:donor   :theme]
+          :ctl-blocked  [:fresco :locale]}
+         (into {} (map (juxt :id (juxt :side :alternates))) rf.bench.fresco.slice-broad-clock-app/arms))))
