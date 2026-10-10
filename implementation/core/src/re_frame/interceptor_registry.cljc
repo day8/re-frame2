@@ -337,9 +337,8 @@
   interceptor value found in a chain position. Per EP-0022 §Event and frame
   chain grammar: event/frame `:interceptors` chains carry REFERENCES only —
   a bare keyword id or an `[id arg]` 2-vector. An inline interceptor map /
-  value / Var (an `->interceptor*` result, a `(path …)` value, a
-  `(redact-interceptor …)` value, a locally-bound interceptor symbol) is not
-  accepted; it must be registered with `reg-interceptor` and referenced by
+  value / Var (an `->interceptor*` result, a locally-bound interceptor
+  symbol) is not accepted; it must be registered with `reg-interceptor` and referenced by
   id. Loud-fail at chain assembly rather than a silent no-op (Conventions §No
   silent swallow). Delegates to the ONE shared
   `rf.error/throw-inline-interceptor-removed!` passing this site's

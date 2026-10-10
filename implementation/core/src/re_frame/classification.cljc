@@ -40,7 +40,6 @@
   nothing is inherited (no derived-output sensitivity, no value-match)."
   (:require [re-frame.elision :as rf.elision]
             [re-frame.error :as rf.error]
-            [re-frame.frame :as rf.frame]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.path :as rf.path]
             [re-frame.privacy :as rf.privacy]
