@@ -82,13 +82,12 @@
   constant `true` there), a merged-set rebuild would compound across every
   traced HTTP request; the two `contains?` ops on small sets are O(1) and
   allocate nothing."
-  ([header-name] (sensitive-header? header-name nil))
-  ([header-name frame-extras]
-   (boolean
-     (when (string? header-name)
-       (let [lowered (str/lower-case header-name)]
-         (or (contains? default-header-denylist lowered)
-             (and frame-extras (contains? frame-extras lowered))))))))
+  [header-name frame-extras]
+  (boolean
+    (when (string? header-name)
+      (let [lowered (str/lower-case header-name)]
+        (or (contains? default-header-denylist lowered)
+            (and frame-extras (contains? frame-extras lowered)))))))
 
 (defn redact-headers
   "Walk `headers-map` (string→string or string→vector-of-strings); replace

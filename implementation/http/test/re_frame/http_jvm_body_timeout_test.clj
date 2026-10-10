@@ -1,9 +1,9 @@
 (ns re-frame.http-jvm-body-timeout-test
   "On the JVM, `:timeout-ms` bounds the WHOLE
-  attempt, response body included.
+  attempt, response headers and body both.
 
   `HttpRequest.Builder.timeout` stops protecting an attempt once the response
-  HEADERS arrive, so relying on it alone would let an upstream that sends
+  HEADERS arrive, so relying on it would let an upstream that sends
   headers promptly and then stalls the body hold the request past its budget
   indefinitely — or deliver success after it. Spec 014 §`:timeout-ms` security defaults names exactly that
   slow-loris body as what the default exists to bound.
@@ -22,8 +22,8 @@
   (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
            [java.io IOException]
            [java.net InetSocketAddress]
-           [java.util.concurrent CompletableFuture CountDownLatch ExecutorService
-                                 Executors TimeUnit]))
+           [java.util.concurrent CompletableFuture CountDownLatch ExecutionException
+                                 ExecutorService Executors TimeUnit]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
@@ -122,6 +122,44 @@
             "each timed-out attempt's exchange was cancelled at the host")
         (is (= 1 (count @replies))
             "no late success or duplicate reply followed the timeout")
+        (finally
+          (.countDown release)
+          (stop-server! srv))))))
+
+(defn- start-stalled-headers-server!
+  "Accept each exchange and withhold its response headers until `release`
+  opens (bounded, so a failing run cannot pin a handler thread)."
+  [^CountDownLatch release]
+  (let [server   (HttpServer/create (InetSocketAddress. "127.0.0.1" 0) 0)
+        executor (Executors/newCachedThreadPool)]
+    (.createContext server "/"
+      (reify HttpHandler
+        (handle [_ ex]
+          (let [^HttpExchange ex ex]
+            (try
+              (.await release 10 TimeUnit/SECONDS)
+              (.sendResponseHeaders ex 204 -1)
+              (catch Throwable _ nil)
+              (finally (.close ex)))))))
+    (.setExecutor server executor)
+    (.start server)
+    {:server   server
+     :executor executor
+     :url      (str "http://127.0.0.1:" (.getPort (.getAddress server)) "/headers")}))
+
+(deftest attempt-times-out-while-the-headers-are-stalled
+  (testing "the same whole-attempt deadline bounds an upstream that never sends
+            its response headers"
+    (let [release (CountDownLatch. 1)
+          srv     (start-stalled-headers-server! release)]
+      (try
+        (let [^CompletableFuture cf (rf.http.transport-jvm/jvm-fetch
+                                      {:method :get :url (:url srv) :decode :text
+                                       :timeout-ms 200})
+              failure (try (.get cf 5 TimeUnit/SECONDS) nil
+                           (catch ExecutionException e
+                             (rf.http.transport-jvm/classify-jvm-error e 200 nil)))]
+          (is (= :rf.http/timeout (:kind failure))))
         (finally
           (.countDown release)
           (stop-server! srv))))))
