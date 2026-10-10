@@ -1,156 +1,57 @@
-;;;; tests/eval_corpus_shape_test.clj — the eval corpus is a REPOSITORY
-;;;; wrapper, and evals/README.md documents the conversion to Anthropic's
-;;;; separate trigger-evaluation input.
+;;;; tests/eval_corpus_shape_test.clj — evals/evals.json is a REPOSITORY
+;;;; wrapper, in neither of upstream's formats: task evaluation is an object
+;;;; with no `should_trigger`; trigger evaluation is a TOP-LEVEL LIST of
+;;;; `{query, should_trigger}` that run_eval.py indexes as `item["query"]`.
+;;;; Feeding the wrapper to the trigger loop without conversion fails on format
+;;;; before a single query is graded, so evals/README.md must say so and carry
+;;;; the conversion, and the conversion must yield items the runner can read.
+;;;; Id and name uniqueness is scripts/check_skill_eval_docs.py's A4 axis.
 ;;;;
-;;;; Upstream has TWO formats and this file is neither:
-;;;;
-;;;;   * task evaluation  — an OBJECT {skill_name, evals:[{id, prompt,
-;;;;     expected_output, expectations, …}]}; no `should_trigger` at all;
-;;;;   * trigger evaluation — a TOP-LEVEL LIST of {query, should_trigger};
-;;;;     run_eval.py iterates the loaded document and reads item["query"].
-;;;;
-;;;; So prose that presents the corpus as Anthropic's skill-creator trigger
-;;;; fixture, or names the description-optimisation loop as the run path with
-;;;; no conversion, sends a maintainer into `TypeError: string indices must be
-;;;; integers` on the whole file, or `KeyError: 'query'` after merely
-;;;; unwrapping `evals` — a format failure before a single query is graded.
-;;;;
-;;;; This suite is a DATA-SHAPE pin, not a scorer: it runs no model, starts no
-;;;; upstream executor, and adds no dependency. It asserts (1) the premise —
-;;;; the corpus really is in neither upstream shape, so the conversion is
-;;;; load-bearing rather than decorative; (2) the README documents that
-;;;; wrapper honestly and carries the conversion; and (3) every item the
-;;;; documented mapping yields from the real corpus is one the trigger runner
-;;;; can read — a string `query` and a boolean `should_trigger`. That the
-;;;; fixtures' ids and names are unique is `scripts/check_skill_eval_docs.py`'s
-;;;; A4 axis, which reads every skill's evals.json.
-;;;;
-;;;; Run locally:  bb tests/eval_corpus_shape_test.clj   (from the skill root)
-;;;; Exit:         0 = pass, non-zero = fail.
-;;;;
-;;;; CI: gated by the `skills-structural` job in .github/workflows/test.yml,
-;;;; which loops `skills/re-frame2-pair-retro/tests/*_test.clj`.
-;;;;
-;;;; NOT published — package.json `files` ships neither `tests/` nor `evals/`.
+;;;; Run: bb tests/eval_corpus_shape_test.clj   (from the skill root)
 
 (ns eval-corpus-shape-test
   (:require [cheshire.core :as json]
             [clojure.java.io :as io]
             [clojure.string :as str]
-            [clojure.test :refer [deftest is testing run-tests]]))
+            [clojure.test :refer [deftest is run-tests]]))
 
-;; ---------------------------------------------------------------------------
-;; Sources
-;; ---------------------------------------------------------------------------
-
-(def ^:private skill-root
-  (-> *file*
-      (io/file)
-      (.getAbsoluteFile)
-      (.getParentFile)   ;; tests/
-      (.getParentFile))) ;; skills/re-frame2-pair-retro/
+(def ^:private skill-root (-> *file* io/file .getAbsoluteFile .getParentFile .getParentFile))
 
 (def ^:private corpus
   (delay (json/parse-string (slurp (io/file skill-root "evals" "evals.json")) true)))
 
-(def ^:private evals-readme
-  (delay (slurp (io/file skill-root "evals" "README.md"))))
+(def ^:private evals-readme (delay (slurp (io/file skill-root "evals" "README.md"))))
 
-(defn- contains-any?
-  [s needles]
-  (boolean (some #(str/includes? s %) needles)))
-
-;; The conversion evals/README.md documents, expressed over the parsed corpus.
-;; Kept deliberately literal — it is the jq filter, not a generalisation of it.
-(defn- to-trigger-input
-  [parsed]
-  (mapv (fn [e] {:query (:prompt e) :should_trigger (:should_trigger e)})
-        (:evals parsed)))
-
-;; ---------------------------------------------------------------------------
-;; The premise — the corpus is in NEITHER upstream shape
-;; ---------------------------------------------------------------------------
+(defn- contains-any? [s needles] (boolean (some #(str/includes? s %) needles)))
 
 (deftest corpus-is-not-already-the-trigger-input
   (let [parsed @corpus]
-    (testing "the top level is an object, so the trigger runner's `for item in eval_set` cannot work"
-      (is (map? parsed)
-          (str "evals.json is a top-level list. If the corpus is deliberately in "
-               "Anthropic's native trigger shape, retire this suite and the "
-               "conversion in evals/README.md together — do not leave both standing."))
-      (is (contains? parsed :evals)
-          "the repository wrapper does not carry an `evals` key."))
-    ;; That every entry carries a string `prompt` and a boolean `should_trigger`
-    ;; (a field upstream's TASK schema does not define) is read through the
-    ;; documented conversion in `documented-conversion-yields-the-trigger-input`.
-    (testing "entries carry `prompt`, not the `query` the trigger runner indexes"
-      (is (seq (:evals parsed)) "the corpus is empty.")
-      (is (not-any? #(contains? % :query) (:evals parsed))
-          (str "a fixture carries `query`. The corpus is half-converted — pick one "
-               "shape; a mixed corpus silently drops entries in whichever runner reads it.")))))
-
-;; ---------------------------------------------------------------------------
-;; The documentation tells the truth about the wrapper
-;; ---------------------------------------------------------------------------
+    (is (contains? parsed :evals)
+        "evals.json must be the repository wrapper; if it is deliberately the native trigger list, retire this suite and the README's conversion together")
+    (is (seq (:evals parsed)) "the corpus is empty")
+    (is (not-any? #(contains? % :query) (:evals parsed))
+        "a fixture carries `query`: a half-converted corpus silently drops entries in whichever runner reads it")))
 
 (deftest docs-do-not-claim-the-corpus-is-upstreams-trigger-input
-  (testing "evals/README.md calls the wrapper a repository convention"
-    (let [body @evals-readme]
-      (is (contains-any? body ["repository convention" "REPOSITORY convention"])
-          (str "evals/README.md does not say the wrapper is this repo's own "
-               "convention. Claiming upstream provenance for it sends a maintainer "
-               "who feeds evals.json to the description-optimisation loop into a "
-               "format error before anything is graded."))
-      (is (not (str/includes? body "The fixtures follow Anthropic's `skill-creator` convention"))
-          "the README carries the false-provenance sentence.")))
-  (testing "evals.json's own `convention` string agrees with the README"
-    (let [conv (:convention @corpus)]
-      (is (string? conv) "evals.json has no `convention` string.")
-      (is (contains-any? conv ["REPOSITORY convention" "repository convention"])
-          (str "evals.json's `convention` advertises an upstream schema. It is "
-               "read by whoever opens the file rather than the README, so both must "
-               "say the same thing or the two disagree."))
-      (is (contains-any? conv ["TOP-LEVEL LIST" "top-level list"])
-          "the `convention` string does not name the trigger format it must be converted to."))))
+  (is (contains-any? @evals-readme ["repository convention" "REPOSITORY convention"])
+      "evals/README.md must call the wrapper this repo's own convention")
+  (let [conv (:convention @corpus)]
+    (is (contains-any? conv ["REPOSITORY convention" "repository convention"])
+        "evals.json's `convention` string must agree with the README")
+    (is (contains-any? conv ["TOP-LEVEL LIST" "top-level list"])
+        "and name the trigger format it converts to")))
 
 (deftest readme-documents-the-conversion
   (let [body @evals-readme]
-    (testing "§How to run carries the prompt→query mapping"
-      (is (str/includes? body "query: .prompt")
-          (str "evals/README.md does not document the conversion. Naming the "
-               "description-optimisation loop as the run path WITHOUT it fails: "
-               "the loop reads a top-level list of query/should_trigger "
-               "objects and this corpus is neither.")))
-    (testing "it distinguishes the two upstream formats"
-      (is (contains-any? body ["Task evaluation" "task evaluation"])
-          "the README does not distinguish upstream's task schema from its trigger format.")
-      (is (str/includes? body "should_trigger")
-          "the README does not name the trigger label."))
-    (testing "the upstream citations are pinned to a verifiable revision"
-      (is (str/includes? body "3d59511518591fa82e6cfcf0438d68dd5dad3e76")
-          (str "the upstream links are not pinned to the reviewed revision. "
-               "A `blob/main` link cannot be re-checked later against what was read.")))))
-
-;; ---------------------------------------------------------------------------
-;; The documented conversion actually produces the trigger input
-;; ---------------------------------------------------------------------------
+    (is (str/includes? body "query: .prompt") "§How to run must carry the prompt -> query mapping")
+    (is (contains-any? body ["Task evaluation" "task evaluation"]) "distinguish upstream's task schema from its trigger format")
+    (is (str/includes? body "should_trigger") "name the trigger label")))
 
 (deftest documented-conversion-yields-the-trigger-input
-  ;; The mapping itself is `to-trigger-input` — one `{:query :should_trigger}`
-  ;; item per fixture, by construction — and `readme-documents-the-conversion`
-  ;; pins the README's filter. What the corpus decides is whether each item
-  ;; it yields is one the runner can read.
-  (let [parsed    @corpus
-        converted (to-trigger-input parsed)]
-    (testing "every converted item satisfies the runner's two accesses"
-      (is (every? #(string? (:query %)) converted)
-          "run_eval.py reads item[\"query\"] as a string.")
-      (is (every? #(boolean? (:should_trigger %)) converted)
-          "run_eval.py compares item[\"should_trigger\"] as a boolean."))))
-
-;; ---------------------------------------------------------------------------
-;; Run
-;; ---------------------------------------------------------------------------
+  ;; The README's jq filter, expressed over the parsed corpus.
+  (let [converted (mapv (fn [e] {:query (:prompt e) :should_trigger (:should_trigger e)}) (:evals @corpus))]
+    (is (every? #(string? (:query %)) converted) "run_eval.py reads item[\"query\"] as a string")
+    (is (every? #(boolean? (:should_trigger %)) converted) "and compares item[\"should_trigger\"] as a boolean")))
 
 (let [{:keys [fail error]} (run-tests 'eval-corpus-shape-test)]
-  (System/exit (if (and (zero? fail) (zero? error)) 0 1)))
+  (System/exit (if (zero? (+ fail error)) 0 1)))

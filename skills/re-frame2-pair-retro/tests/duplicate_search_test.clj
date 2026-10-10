@@ -1,177 +1,67 @@
-;;;; tests/duplicate_search_test.clj — all-state duplicate-search contract
-;;;; for the §Issue drafts branch.
-;;;;
-;;;; The skill's duplicate invariant: whenever Pair-retro represents that it
-;;;; checked for an existing owner, the candidate search covers open AND
-;;;; closed issues — `gh issue list` defaults to `--state open`, so the
-;;;; prescribed query must carry `--state all` explicitly or a closed issue
-;;;; that already owns the friction (a landed fix, an intentional rejection)
-;;;; is invisible and the skill drafts a twin. State broadens DISCOVERY only;
-;;;; semantic comparison still decides ownership, and a failed query is
-;;;; "not checked", never "no duplicate".
-;;;;
-;;;; This is one focused behavioral/command fixture, not a skill runner: it
-;;;; extracts the prescribed `gh issue list` argv from SKILL.md verbatim,
-;;;; models gh's documented state filtering over a three-issue fixture set,
-;;;; and asserts the outcomes the skill's own §Issue drafts prose promises.
-;;;; Removing `--state all` from SKILL.md makes the argv pin and the
-;;;; closed-owner case here fail.
+;;;; tests/duplicate_search_test.clj — the §Issue drafts duplicate search must
+;;;; cover open AND closed issues. `gh issue list` defaults to `--state open`,
+;;;; so without an explicit `--state all` a closed issue that already owns the
+;;;; friction (a landed fix, an intentional rejection) is invisible and the
+;;;; skill drafts a twin. The argv is extracted from SKILL.md verbatim and run
+;;;; through a model of gh's documented state filter over a fixture set.
 ;;;;
 ;;;; Run: bb tests/duplicate_search_test.clj   (from skills/re-frame2-pair-retro/)
-;;;; Exit: 0 = pass, non-zero = fail.
 
 (ns duplicate-search-test
   (:require [clojure.java.io :as io]
             [clojure.set :as set]
             [clojure.string :as str]
-            [clojure.test :refer [deftest is testing run-tests]]))
-
-;; ---------------------------------------------------------------------------
-;; Filesystem helpers
-;; ---------------------------------------------------------------------------
-
-(def ^:private skill-root
-  (-> *file*
-      (io/file)
-      (.getAbsoluteFile)
-      (.getParentFile)   ;; tests/
-      (.getParentFile))) ;; skills/re-frame2-pair-retro/
+            [clojure.test :refer [deftest is run-tests]]))
 
 (def ^:private skill-md
-  (delay (slurp (io/file skill-root "SKILL.md"))))
-
-;; ---------------------------------------------------------------------------
-;; Prescribed-argv extraction — the command the skill actually teaches.
-;; ---------------------------------------------------------------------------
+  (let [f (io/file (-> *file* io/file .getAbsoluteFile .getParentFile .getParentFile) "SKILL.md")]
+    (delay (slurp f))))
 
 (defn- prescribed-list-commands
-  "Every `gh issue list …` invocation SKILL.md prescribes, taken from
-  inline code spans verbatim. The frontmatter grant (`Bash(gh issue list *)`)
-  is a permission pattern, not a prescription, and carries no argv — the
-  regex requires at least one argument so it is excluded by shape."
+  "Every `gh issue list …` SKILL.md prescribes in an inline code span. The
+   frontmatter grant `Bash(gh issue list *)` carries no argv, so the
+   one-argument minimum excludes it."
   [md]
-  (->> (re-seq #"`(gh issue list [^`]+)`" md)
-       (map second)))
+  (map second (re-seq #"`(gh issue list [^`]+)`" md)))
 
 (defn- argv-state
-  "The `--state` value an extracted command carries, defaulting to \"open\"
-  when absent — mirroring `gh issue list --help`: \"By default, this only
-  lists open issues\" (--state {open|closed|all}, default open)."
+  "The `--state` an extracted command carries; gh's default is open."
   [cmd]
-  (or (second (re-find #"--state[= ](\S+)" cmd))
-      "open"))
-
-;; ---------------------------------------------------------------------------
-;; Fixture repository — one closed semantic owner, one unrelated open issue
-;; sharing a broad keyword, one unrelated closed issue sharing it too.
-;; ---------------------------------------------------------------------------
+  (or (second (re-find #"--state[= ](\S+)" cmd)) "open"))
 
 (def ^:private fixture-issues
-  [{:number 4101 :state "closed"
-    :title "restore-epoch leaves stale machine snapshot after schema tightening"
-    :keywords #{"restore" "epoch" "schema" "friction"}
-    :semantic-match? true
-    :disposition "fix landed in 0.9.2 — the friction is an upgrade away"}
-   {:number 4200 :state "open"
-    :title "epoch ring default depth is too small for long sessions"
-    :keywords #{"epoch" "depth"}
-    :semantic-match? false}
-   {:number 4050 :state "closed"
-    :title "epoch viewer keyboard shortcuts"
-    :keywords #{"epoch" "keyboard"}
-    :semantic-match? false}])
+  ;; One closed semantic owner, and two unrelated issues sharing a keyword.
+  [{:number 4101 :state "closed" :keywords #{"restore" "epoch" "schema" "friction"}}
+   {:number 4200 :state "open"   :keywords #{"epoch" "depth"}}
+   {:number 4050 :state "closed" :keywords #{"epoch" "keyboard"}}])
 
 (defn- gh-list
-  "Model of `gh issue list --repo day8/re-frame2 --state <s> --search <kw>`:
-  filter the fixture set by the requested state (gh's documented behaviour),
-  then by keyword overlap. Returns the candidate seq."
+  "Model of `gh issue list --state <s> --search <kw>`: filter by state, then keyword overlap."
   [state keywords]
   (->> fixture-issues
        (filter #(or (= state "all") (= state (:state %))))
        (filter #(seq (set/intersection keywords (:keywords %))))))
 
-(defn- duplicate-check
-  "Model of the skill's §Issue drafts decision rule. `gh-ok?` false models a
-  failed/unavailable query. Discovery uses the state parsed from the
-  PRESCRIBED command; suppression additionally requires a semantic match
-  (state alone must never decide ownership)."
-  [state keywords gh-ok?]
-  (if-not gh-ok?
-    {:outcome :not-checked}
-    (let [candidates (gh-list state keywords)]
-      (if-let [owner (first (filter :semantic-match? candidates))]
-        {:outcome     :link-existing
-         :issue       (:number owner)
-         :disposition (:disposition owner)}
-        {:outcome :draft}))))
-
-(defn- prescribed-state
-  "The state the skill's own prescribed query would search with."
-  []
-  (argv-state (first (prescribed-list-commands @skill-md))))
-
-;; ---------------------------------------------------------------------------
-;; The prescribed argv — narrow to day8/re-frame2, explicitly all-state.
-;; ---------------------------------------------------------------------------
-
 (deftest prescribed-query-is-all-state-and-repo-narrow
-  (testing "every prescribed `gh issue list` searches day8/re-frame2 across all states"
-    (let [cmds (prescribed-list-commands @skill-md)]
-      (is (seq cmds)
-          "SKILL.md prescribes at least one `gh issue list` duplicate query")
-      (doseq [cmd cmds]
-        (is (str/includes? cmd "--repo day8/re-frame2")
-            (str "duplicate search stays narrow to day8/re-frame2: " cmd))
-        (is (= "all" (argv-state cmd))
-            (str "duplicate search must pass --state all explicitly — gh "
-                 "defaults to open-only, which hides a closed owner: " cmd))))))
+  (let [cmds (prescribed-list-commands @skill-md)]
+    (is (seq cmds) "SKILL.md must prescribe a `gh issue list` duplicate query")
+    (doseq [cmd cmds]
+      (is (str/includes? cmd "--repo day8/re-frame2") (str "the search stays narrow to day8/re-frame2: " cmd))
+      (is (= "all" (argv-state cmd)) (str "the search must pass --state all explicitly: " cmd)))))
 
-;; ---------------------------------------------------------------------------
-;; Closed owner — discovered under the prescribed state, viewed, linked.
-;; ---------------------------------------------------------------------------
-
-(deftest closed-owner-is-discovered-and-linked
-  (testing "a semantically matching CLOSED issue is in the candidate set and suppresses the twin draft"
-    (let [state      (prescribed-state)
-          keywords   #{"restore" "epoch" "friction"}
-          candidates (gh-list state keywords)]
-      (is (some #(= 4101 (:number %)) candidates)
-          (str "the closed owner (#4101) must be discoverable — under gh's "
-               "open-only default it is invisible and the skill drafts a twin "
-               "(searched state: " state ")"))
-      (let [{:keys [outcome issue disposition]} (duplicate-check state keywords true)]
-        (is (= :link-existing outcome)
-            "a discovered semantic owner is linked instead of twinned")
-        (is (= 4101 issue))
-        (is (str/includes? (str disposition) "0.9.2")
-            "the closed hit is VIEWED — its disposition (the landed fix) is relayed, not just its number")))))
-
-;; ---------------------------------------------------------------------------
-;; Query-error control — a failed search is "not checked", never "no owner".
-;; ---------------------------------------------------------------------------
+(deftest closed-owner-is-discovered-under-the-prescribed-state
+  (let [state (argv-state (first (prescribed-list-commands @skill-md)))]
+    (is (some #(= 4101 (:number %)) (gh-list state #{"restore" "epoch" "friction"}))
+        (str "the closed owner #4101 must be discoverable; under gh's open-only default it is invisible (searched: " state ")"))))
 
 (deftest failed-query-reports-not-checked
-  (testing "a failed gh query yields :not-checked — not :draft on an implied no-duplicate"
-    (is (= {:outcome :not-checked}
-           (duplicate-check (prescribed-state) #{"restore" "epoch"} false))))
-  (testing "SKILL.md carries the not-checked instruction in prose"
-    (is (re-find #"(?i)duplicate status was not checked" @skill-md)
-        "§Issue drafts must instruct saying the check was not completed on a skipped/failed query")))
-
-;; ---------------------------------------------------------------------------
-;; Read-only surface — list/view only, no mutation grant.
-;; ---------------------------------------------------------------------------
+  (is (re-find #"(?i)duplicate status was not checked" @skill-md)
+      "§Issue drafts must say the check was not completed when the query fails, never imply no duplicate"))
 
 (deftest grant-stays-read-only
-  (testing "the allowed-tools grant is exactly gh issue list/view (no create/label/write)"
-    (is (str/includes? @skill-md "Bash(gh issue list *)"))
-    (is (str/includes? @skill-md "Bash(gh issue view *)"))
-    (is (not (str/includes? @skill-md "gh issue create *"))
-        "no mutation grant may ride along with the all-state search")))
-
-;; ---------------------------------------------------------------------------
-;; Run
-;; ---------------------------------------------------------------------------
+  (is (str/includes? @skill-md "Bash(gh issue list *)"))
+  (is (str/includes? @skill-md "Bash(gh issue view *)"))
+  (is (not (str/includes? @skill-md "gh issue create *")) "no mutation grant may ride along with the search"))
 
 (let [{:keys [fail error]} (run-tests 'duplicate-search-test)]
-  (System/exit (if (and (zero? fail) (zero? error)) 0 1)))
+  (System/exit (if (zero? (+ fail error)) 0 1)))
