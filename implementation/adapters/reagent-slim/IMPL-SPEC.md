@@ -647,18 +647,7 @@ Form-3 is **explicit**: `(reagent2.core/create-class spec-map)`. Nothing needs t
 
 ### §5.4 Source-coord meta stamping through each Form path
 
-Per Spec 006 §Source-coord annotation (rf2-z7f7 / rf2-z9n1), the wrapper emitted by `re-frame.views/reg-view*` (views.cljs:312-367) merges `:data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` onto the rendered root DOM element. The current implementation walks the hiccup tree post-render via `inject-source-coord-attr` (views.cljs:270-308). Stage 2 §3.6 names this as the biggest single dev-mode runtime win — moving the stamping into the renderer's "emit DOM element for a registered view's root" path eliminates the post-render walk.
-
-The rewrite folds the stamping into `reagent2.impl.template/as-element` via a per-render context that knows "this is the root element of view-id <ns>/<sym>". The mechanism:
-
-1. `re-frame.views/reg-view*` continues to wrap user fns and bind `*render-key*`.
-2. The wrapper additionally binds a new dynamic var `reagent2.impl.template/*source-coord*` to the formatted attr value.
-3. `reagent2.impl.template/as-element` reads `*source-coord*` once at the top of the call. If non-nil, the **first** hiccup vector with a DOM-tag head gets the attr merged in inline (no post-render walk). After that, `*source-coord*` is rebound to nil so nested elements aren't stamped.
-4. For Form-2 (render-fn returns a fn): the wrapper-emit-fn path that recurses on the inner output (views.cljs:284-287) is replaced — the outer wrapper rebinds `*source-coord*` for each call to the inner fn.
-
-The inject-source-coord-attr helper in views.cljs (lines 270-308) becomes vestigial under the rewrite; Stage 4 deletes it. Per §11.
-
-Production elision: `*source-coord*` is bound only when `interop/debug-enabled?` is true (the existing gate at views.cljs:343); under `:advanced` + `goog.DEBUG=false`, the entire bind branch DCEs and the stamping check at the top of `as-element` reduces to `(when nil ...)`.
+Per Spec 006 §Source-coord annotation, the wrapper `re-frame.views/reg-view*` emits merges `:data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` onto the rendered root DOM element, by walking the view's hiccup output (`re-frame.views.source-coord-annotation`). Slim views take that same walk, through `apply-adapter-wrap-view`, exactly as the stock Reagent adapter's do; the slim renderer stamps nothing itself. The walk runs only when `interop/debug-enabled?` is true, so under `:advanced` + `goog.DEBUG=false` it DCEs.
 
 ---
 
@@ -1078,13 +1067,11 @@ Per §3.4: `interop/add-on-dispose!` dispatches via `IDisposable`. The rewrite's
 
 ### §9.4 Source-coord stamping
 
-Per §5.4: the source-coord injection moves from a post-render hiccup walk (views.cljs:270-308) into `reagent2.impl.template/as-element` via a `*source-coord*` dynamic var. The wrapper at `re-frame.views/reg-view*` (views.cljs:312-367) is updated to bind that dynamic var instead of (or in addition to) `*render-key*`. Stage 4 deletes the `inject-source-coord-attr` helper.
-
-Production elision continues — `*source-coord*` is bound only when `interop/debug-enabled?`; under `:advanced` + `goog.DEBUG=false` the entire branch DCEs.
+The shared `re-frame.views` walk stamps slim views, as §5.4 describes; the renderer adds nothing.
 
 ### §9.5 Trace event integration
 
-Per Spec 009 §Performance instrumentation: every render of a registered view brackets the user render-fn in performance marks + emits a `:view/render` trace. The current implementation is in `re-frame.views/reg-view*` (views.cljs:346-364). Under the rewrite, the wrapper continues to live in `re-frame.views`; the only change is that source-coord stamping moves into the renderer per §9.4.
+Per Spec 009 §Performance instrumentation: every render of a registered view brackets the user render-fn in performance marks + emits a `:view/render` trace. The current implementation is in `re-frame.views/reg-view*` (views.cljs:346-364). The wrapper lives in `re-frame.views`, and so does source-coord stamping (§9.4).
 
 The trace late-bind hook (`:trace/emit!`) is unchanged. The render-key binding (`*render-key*`) is unchanged.
 
@@ -1144,7 +1131,7 @@ As shipped, these comments were **tightened** (not removed) to reflect the revis
 
 ### §11.3 The `inject-source-coord-attr` walker — RETAINED + REFACTORED (was: delete; plan abandoned, rf2-prkgge)
 
-**Original plan** (abandoned): delete the `re-frame.views` source-coord walker (`inject-source-coord-attr`, the `dom-tag?` helper, `warn-non-dom-root!`, and the `warned-non-dom-roots` defonce) on the premise that source-coord stamping moves into the renderer (per the then-§5.4 + §9.4 design), so the walker becomes unreachable; `reg-view*` would bind `reagent2.impl.template/*source-coord*` instead of computing the coord-attr inline.
+**Original plan** (abandoned): delete the `re-frame.views` source-coord walker (`inject-source-coord-attr`, the `dom-tag?` helper, `warn-non-dom-root!`, and the `warned-non-dom-roots` defonce) on the premise that source-coord stamping moves into the renderer (per the then-§5.4 + §9.4 design), so the walker becomes unreachable; `reg-view*` would hand the coord to the renderer instead of computing the coord-attr inline.
 
 **What actually shipped**: the premise was abandoned. Source-coord stamping for the **classic Reagent adapter** did **not** move into a renderer — the shared `re-frame.views` hiccup walk stayed load-bearing. None of the four symbols was deleted; the walker was **refactored/extracted**, not removed:
 
@@ -1152,7 +1139,7 @@ As shipped, these comments were **tightened** (not removed) to reflect the revis
 - **`dom-tag?` — RETAINED, extracted.** Moved into `re-frame.views.source-coord-annotation` (`source_coord_annotation.cljs:102`) alongside the walker it serves.
 - **`warn-non-dom-root!` — RETAINED, extracted.** Moved into `re-frame.views.warn-once` (`warn_once.cljs:45`); the source-coord-annotation walk calls it at `source_coord_annotation.cljs:169`. A parameterised cross-substrate variant (`make-warn-non-dom-root-fn`) lives in `spine.cljs:995`.
 - **`warned-non-dom-roots` defonce — RETAINED.** Lives in `re-frame.views.warn-once` (`warn_once.cljs:31`), with `clear-warned-non-dom-roots!` (`warn_once.cljs:33`, re-exported as `re-frame.views/clear-warned-non-dom-roots!` at `views.cljs:186`). It is enrolled in the rf2-z79p8 warn-once-clear governance chain (`warn_once.cljs:244-257`) so the test-reset fixture wipes it — it was *not* removed, and the warning was kept (not dropped).
-- **`reg-view*` does NOT bind `reagent2.impl.template/*source-coord*`.** The slim adapter's own vendored renderer *does* have a `*source-coord*` dynamic var (`reagent2/impl/template.cljs:563`, merged at `template.cljs:715-722`) — but that is the **slim adapter's internal hiccup interpreter** stamping its own output, not a replacement for the shared `re-frame.views` walker. The two coexist: the slim renderer stamps via `*source-coord*` for slim-mounted views; the `re-frame.views` walk (via `apply-adapter-wrap-view`, `views.cljs:426`) serves the classic Reagent adapter's inline-hiccup path, while UIx publish a `:adapter/wrap-view` hook that stamps via `React.cloneElement`.
+- **The slim renderer stamps nothing.** The `re-frame.views` walk (via `apply-adapter-wrap-view`) stamps both ratom adapters' views, while UIx publishes a `:adapter/wrap-view` hook that stamps via `React.cloneElement`.
 
 **Net**: zero deletions; one ns-extraction (rf2-lh7p) of an otherwise-retained walker + warn-once pair. The original "walker becomes unreachable" claim and its §5.4/§9.4 premise describe an abandoned design.
 
@@ -1355,7 +1342,7 @@ A child component throws a Promise (Suspense's standard pattern); the parent's `
 
 ### §14.6 Source-coord stamping + `:>` interop
 
-§5.4 specifies that the renderer stamps `:data-rf2-source-coord` on the first DOM-tag root. But what if the user's reg-view returns `[:> SomeReactComponent ...]` as the root? The current views.cljs path (`warn-non-dom-root!` line 246-258) emits a one-shot warning per id and skips the stamping. Under the rewrite's renderer-side stamping, the equivalent behaviour is: the `*source-coord*` dynamic var is read but the first-vector check sees `:>` (or any non-DOM-tag head) and skips. The warn-once needs to migrate too.
+§5.4's walk stamps `:data-rf2-source-coord` on the first DOM-tag root. When the user's reg-view returns `[:> SomeReactComponent ...]` as the root, the walk (`warn-non-dom-root!`) emits a one-shot warning per id and skips the stamping.
 
 **Status (as shipped)**: the keep-or-drop call was made **KEEP**. As recorded in §11.3, `warn-non-dom-root!` and the `warned-non-dom-roots` defonce were *not* deleted — they were retained (extracted into `re-frame.views.warn-once`, `warn_once.cljs:31`/`:45`) and the warning still fires one-shot per id when a non-DOM-tag root is encountered (`source_coord_annotation.cljs:169`). The warn-once cache is enrolled in the rf2-z79p8 governance clear-chain so the test fixture wipes it. The warning is useful for pair-tooling consumers, which is why it survived.
 
