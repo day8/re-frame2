@@ -95,12 +95,10 @@
 
 (defn resolve-file
   "Resolve `path` through core's classpath resolver, then the dev-process cwd.
-  Absolute paths pass through, unresolved paths remain unchanged, and blank
-  input returns nil."
+  Absolute paths pass through and unresolved paths remain unchanged."
   [path]
   (cond
-    (or (nil? path) (str/blank? path)) nil
-    (rf.source-coords.editor-uri/absolute-path? path)   path
+    (rf.source-coords.editor-uri/absolute-path? path) path
     :else
     ;; An unchanged result signals that the classpath lookup did not resolve.
     (let [absolutised (#'rf.source-coords/absolutise-file path)]
@@ -120,11 +118,9 @@
           path)))))
 
 (defn ^:private file-exists?
-  "Return whether `path` exists, treating invalid input and IO errors as false."
+  "Return whether `path` exists, treating IO errors as false."
   [path]
-  (boolean
-    (when-not (str/blank? path)
-      (try (.exists (File. ^String path)) (catch Throwable _ false)))))
+  (try (.exists (File. ^String path)) (catch Throwable _ false)))
 
 ;; launch-editor has no CLI, so we run `node -e` requiring it. The file
 ;; spec and optional editor binary are passed as separate argv tokens.
@@ -488,8 +484,7 @@
   "Extract an Origin host, rejecting blank, malformed, and opaque origins."
   [origin]
   (when (and (string? origin)
-             (not (str/blank? origin))
-             (not= "null" (str/trim origin)))
+             (not (str/blank? origin)))
     (try
       (.getHost (URI. (str/trim origin)))
       (catch Throwable _ nil))))

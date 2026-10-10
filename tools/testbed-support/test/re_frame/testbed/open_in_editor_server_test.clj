@@ -300,7 +300,8 @@
     (doseq [host ["LocalHost:8031" "127.5.6.7" "::1" "[::1]:8080"]]
       (is (#'rf.testbed.open-in-editor-server/loopback-host? host) host)))
   (testing "everything else, a textual 127 prefix included"
-    (doseq [host ["app.evil.example:8031" "127malicious.example" "10.0.0.5" nil]]
+    (doseq [host ["app.evil.example:8031" "127malicious.example" "127.0.0.1.evil.example"
+                  "10.0.0.5" nil]]
       (is (not (#'rf.testbed.open-in-editor-server/loopback-host? host)) (pr-str host)))))
 
 ;; File values and launch stderr may contain controls, so verify JSON round trips.
@@ -913,6 +914,8 @@
                      ["CONTROL: a position-carrying command" 27 9 "nonexistent-dir/zed" false]
                      ["a coordinate-free launch: the empty argv tokens read as absent"
                       nil nil "nonexistent-dir/Brackets" false]
+                     ["a line alone, position-blind: no column to compare, so the bare-file check alone declines it"
+                      27 nil "nonexistent-dir/Brackets" true]
                      ["a column alone, position-blind" nil 7 "nonexistent-dir/Brackets" true]
                      ["CONTROL: a column alone, position-carrying" nil 7 "nonexistent-dir/zed" false]
                      ["gvim at 27:9: line 27 would arrive, column 9 would not"
