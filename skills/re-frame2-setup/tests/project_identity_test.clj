@@ -1,258 +1,104 @@
 ;;;; tests/project_identity_test.clj — the manual route's project-identity
 ;;;; rule, held to the generator template's own derivation.
 ;;;;
-;;;; The setup skill has TWO routes to the same thirteen files (SKILL.md
-;;;; cardinal rule 4): the manual route writes `references/first-counter.md`'s
-;;;; bodies itself, and the generator route shells `clojure -Tnew create …`.
-;;;; Only the generator route derives the project's several identities — the
-;;;; Clojure namespace, the source/test directory path, the npm package name
-;;;; and the output directory are RELATED BUT DIFFERENT STRINGS, and
-;;;; `tools/template/src/day8/re_frame2_template/hooks.clj` computes each one
-;;;; separately. An instruction to "rename `acme` / `my-app` consistently" is
-;;;; deterministic for the reference identity and underspecified for every
-;;;; other one: a textual rename of
-;;;; `com.acme/my-cool-app` naturally lands `src/com.acme/my_cool_app`, which
-;;;; does not back the namespace `shadow-cljs.edn`'s `:init-fn` names, and the
-;;;; scaffold dies at the terminating compile wearing an error that mentions
-;;;; neither the name nor the rename.
+;;;; A project's namespace, source path and npm name are DIFFERENT transforms
+;;;; of one `group/artefact` coordinate, and the template's `hooks.clj`
+;;;; computes each separately. A "rename consistently" instruction lands
+;;;; `com.acme/my-cool-app` at `src/com.acme/my_cool_app`, which backs no
+;;;; namespace `:init-fn` can name. So SKILL.md §Project identity states one
+;;;; rule for both routes, and this suite EXECUTES that rule as written and
+;;;; compares it with the template's real `data-fn` (loaded, not copied) on the
+;;;; inputs whose answers differ. deps-new's own `:name` split runs before the
+;;;; hooks and is modelled here from tools/template/spec/API.md §Errors (an
+;;;; unqualified name is doubled).
 ;;;;
-;;;; So SKILL.md carries ONE identity rule, stated for both routes, and
-;;;; this suite is what stops the two drifting apart. It does not restate the
-;;;; rule — it EXECUTES the rule as SKILL.md words it and compares the result
-;;;; against the template's real `data-fn`, for the four inputs whose answers
-;;;; differ (dotted-qualified, bare, mixed-case, invalid-npm). A change to
-;;;; either side that the other does not follow fails here.
-;;;;
-;;;; The oracle is loaded, not copied: `load-file` on the template's real
-;;;; `hooks.clj`, the same way `tests/first_counter_derivation.clj` loads it
-;;;; to render the scaffold leaves.
-;;;;
-;;;; What this suite does NOT cover: deps-new's own `preprocess-options`
-;;;; split of `:name` into `:top` / `:main` runs before the template's hooks
-;;;; and is not on Babashka's classpath, so the split is modelled here from
-;;;; `tools/template/spec/API.md` §Errors (an unqualified name is doubled) and
-;;;; cross-checked against the JVM tier, where
-;;;; `tools/template/test/day8/re_frame2_template/template_test.clj`
-;;;; `name-derivation-dotted-group-test` proves the whole pipeline end to end
-;;;; for `com.acme/my-cool-app` against a real deps-new emission.
-;;;;
-;;;; Run locally:  bb tests/project_identity_test.clj   (from skills/re-frame2-setup/)
-;;;; Exit:         0 = pass, non-zero = fail.
-;;;;
-;;;; CI: gated by the `skills-structural` job in .github/workflows/test.yml,
-;;;; which loops `skills/re-frame2-setup/tests/*_test.clj`.
-;;;;
-;;;; NOT published — `package.json` :files excludes `tests/`.
+;;;; Run: bb tests/project_identity_test.clj   (from skills/re-frame2-setup/)
 
 (ns project-identity-test
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing run-tests]]))
 
-;; ---------------------------------------------------------------------------
-;; Filesystem
-;; ---------------------------------------------------------------------------
+(def ^:private setup-root (-> *file* io/file .getAbsoluteFile .getParentFile .getParentFile))
+(def ^:private repo-root (-> setup-root .getParentFile .getParentFile))
 
-(def ^:private setup-root
-  (-> *file*
-      (io/file)
-      (.getAbsoluteFile)
-      (.getParentFile)    ;; tests/
-      (.getParentFile)))  ;; skills/re-frame2-setup/
+(defn- slurp-lf [f] (str/replace (slurp f) "\r\n" "\n"))
 
-(def ^:private repo-root
-  (-> setup-root
-      (.getParentFile)    ;; skills/
-      (.getParentFile)))  ;; repo root
+(def ^:private skill-md         (delay (slurp-lf (io/file setup-root "SKILL.md"))))
+(def ^:private first-counter-md (delay (slurp-lf (io/file setup-root "references/first-counter.md"))))
 
-(def ^:private hooks-file
-  (io/file repo-root "tools/template/src/day8/re_frame2_template/hooks.clj"))
-
-(defn- slurp-lf
-  "Read a file with its line endings normalised, so a Windows checkout
-   (core.autocrlf=true) and a Linux CI runner see the same string."
-  [f]
-  (str/replace (slurp f) "\r\n" "\n"))
-
-(def ^:private skill-md          (delay (slurp-lf (io/file setup-root "SKILL.md"))))
-(def ^:private first-counter-md  (delay (slurp-lf (io/file setup-root "references/first-counter.md"))))
-
-;; ---------------------------------------------------------------------------
-;; The oracle — the template's own hook, loaded rather than copied
-;; ---------------------------------------------------------------------------
-
-(load-file (.getPath hooks-file))
+(load-file (.getPath (io/file repo-root "tools/template/src/day8/re_frame2_template/hooks.clj")))
 
 (def ^:private data-fn (resolve 'day8.re-frame2-template.hooks/data-fn))
 
 (defn- hook-identity
-  "The identity values the generator route derives, straight out of the
-   template's `data-fn`."
+  "The identities the generator route derives, from the template's `data-fn`."
   [{:keys [top main]}]
-  (select-keys (data-fn {:substrate :reagent :top top :main main})
-               [:namespace :nested-dirs :npm-name]))
+  (select-keys (data-fn {:substrate :reagent :top top :main main}) [:namespace :nested-dirs :npm-name]))
 
-;; ---------------------------------------------------------------------------
-;; The documented rule, executed
-;;
-;; These four functions ARE SKILL.md §Project identity, transcribed into
-;; code. They deliberately work on the whole `group/artefact` coordinate
-;; rather than on the two segments separately, because that is the form an
-;; agent reading the rule can apply without a second thought — and the tests
-;; below are what prove the one-string form agrees with the hook's
-;; two-segment form on every input that could tell them apart.
-;; ---------------------------------------------------------------------------
+;; SKILL.md §Project identity, transcribed. It works on the whole
+;; coordinate, the form an agent applies, where the hook works on two segments.
 
 (defn- coordinate
-  "Step A of the rule: normalise to `group/artefact`. A name with no `/` is
-   DOUBLED — that is what deps-new does (tools/template/spec/API.md §Errors),
-   so the manual route reproduces it rather than inventing a group."
+  "A name with no `/` is DOUBLED, as deps-new does."
   [nm]
   (if (str/includes? nm "/") nm (str nm "/" nm)))
 
-(defn- doc-namespace
-  "The whole coordinate, `/` → `.` and `_` → `-`."
-  [nm]
-  (-> (coordinate nm) (str/replace "/" ".") (str/replace "_" "-")))
-
-(defn- doc-nested-dirs
-  "The whole coordinate, `.` → `/` and `-` → `_`."
-  [nm]
-  (-> (coordinate nm) (str/replace "." "/") (str/replace "-" "_")))
-
-(defn- doc-artefact
-  "The artefact segment — everything after the `/`."
-  [nm]
-  (let [c (coordinate nm)]
-    (subs c (inc (str/last-index-of c "/")))))
-
-(defn- doc-npm-name
-  "The artefact segment, lowercased."
-  [nm]
-  (str/lower-case (doc-artefact nm)))
-
 (defn- doc-identity [nm]
-  {:namespace   (doc-namespace nm)
-   :nested-dirs (doc-nested-dirs nm)
-   :npm-name    (doc-npm-name nm)})
-
-;; ---------------------------------------------------------------------------
-;; The inputs whose answers differ
-;; ---------------------------------------------------------------------------
+  (let [c (coordinate nm)]
+    {:namespace   (-> c (str/replace "/" ".") (str/replace "_" "-"))
+     :nested-dirs (-> c (str/replace "." "/") (str/replace "-" "_"))
+     :npm-name    (str/lower-case (subs c (inc (str/last-index-of c "/"))))}))
 
 (def ^:private identities
-  "`:top` / `:main` is deps-new's `preprocess-options` split, which runs
-   before the template's hooks see the name. The bare row's `:top` and
-   `:main` are the same string because deps-new doubles an unqualified name."
-  [{:label "the reference identity"        :name "acme/my-app"          :top "acme"     :main "my-app"}
-   {:label "a dotted qualified name"       :name "com.acme/my-cool-app" :top "com.acme" :main "my-cool-app"}
-   {:label "a bare (unqualified) name"     :name "my-app"               :top "my-app"   :main "my-app"}
-   {:label "a mixed-case name"             :name "Acme/MyApp"           :top "Acme"     :main "MyApp"}])
+  "`:top` / `:main` is deps-new's split of `:name`, before the hooks see it."
+  [{:label "the reference identity" :name "acme/my-app"          :top "acme"     :main "my-app"}
+   {:label "a dotted qualified name" :name "com.acme/my-cool-app" :top "com.acme" :main "my-cool-app"}
+   {:label "a bare name"             :name "my-app"               :top "my-app"   :main "my-app"}
+   {:label "a mixed-case name"       :name "Acme/MyApp"           :top "Acme"     :main "MyApp"}])
 
 (def ^:private identity-section
-  "SKILL.md's `## Project identity` block — the rule the manual route follows.
-   Empty when the section is absent, so a missing section fails as a named
-   assertion rather than as a NullPointerException three tests later."
+  "SKILL.md's `## Project identity` block, or \"\" when absent."
   (delay
-    (let [body  @skill-md
-          start (str/index-of body "## Project identity")]
-      (if start
+    (let [body @skill-md]
+      (if-let [start (str/index-of body "## Project identity")]
         (let [rest' (subs body start)
               end   (str/index-of rest' "\n## " 1)]
           (if end (subs rest' 0 end) rest'))
         ""))))
 
-(defn- contains-all? [body tokens]
-  (every? #(str/includes? body %) tokens))
-
-;; ---------------------------------------------------------------------------
-;; 1. Route parity — the documented rule and the generator agree
-;; ---------------------------------------------------------------------------
-
 (deftest documented-rule-matches-the-generator-derivation
-  (testing "SKILL.md's identity rule, executed, equals the template hook's derivation"
-    (doseq [{:keys [label name] :as id} identities]
-      (is (= (hook-identity id) (doc-identity name))
-          (str "the manual route's identity rule and the generator's derivation "
-               "disagree for " label " (" name "). The two routes are advertised as "
-               "landing on the same files; a divergence here is a scaffold whose "
-               "namespace, source path and package name do not describe one project.")))))
-
-;; ---------------------------------------------------------------------------
-;; 2. An npm-invalid artefact fails closed BEFORE any file is written
-;; ---------------------------------------------------------------------------
+  (doseq [{:keys [label name] :as id} identities]
+    (is (= (hook-identity id) (doc-identity name))
+        (str "the manual identity rule and the generator disagree for " label " (" name ")"))))
 
 (deftest invalid-npm-artefact-fails-before-emission
-  (testing "the generator throws rather than emitting a project npm cannot name"
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                          #":rf\.error/template-npm-name-invalid"
-                          (hook-identity {:top "acme" :main "_private"}))
-        "the template does not reject an npm-invalid artefact segment."))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #":rf\.error/template-npm-name-invalid"
+                        (hook-identity {:top "acme" :main "_private"}))
+      "the template must reject an npm-invalid artefact segment")
   (testing "SKILL.md gives the manual route the same pre-flight, before file one"
     (let [section @identity-section]
-      (is (seq section) "SKILL.md carries no `## Project identity` section.")
       (is (str/includes? section "[a-z0-9~-][a-z0-9._~-]*")
-          (str "SKILL.md §Project identity does not state npm's name rule verbatim. "
-               "The manual route has no exception machinery — the rule IS the gate."))
-      (is (str/includes? section "214")
-          "SKILL.md §Project identity does not state npm's 214-character ceiling.")
-      (is (contains-all? section ["before" "write"])
-          (str "SKILL.md §Project identity does not order the npm check BEFORE writing. "
-               "The generator throws before it emits; a manual route that checks afterwards "
-               "leaves the partial scaffold the generator never leaves.")))))
-
-;; ---------------------------------------------------------------------------
-;; 3. The rule is actually in the document the manual route reads
-;;
-;; Every expected string below is DERIVED from the hook, so this suite cannot
-;; pass by agreeing with a stale transcription of it.
-;; ---------------------------------------------------------------------------
+          "§Project identity must state npm's name rule verbatim; the manual route has no exception machinery")
+      (is (str/includes? section "214") "§Project identity must state npm's 214-character ceiling")
+      (is (every? #(str/includes? section %) ["before" "write"])
+          "§Project identity must order the npm check BEFORE writing, as the generator does"))))
 
 (deftest skill-md-states-the-derived-identity-for-the-worked-example
-  (testing "the section names each derived form for the dotted qualified example"
-    (let [section @identity-section
-          {:keys [namespace nested-dirs]} (doc-identity "com.acme/my-cool-app")]
-      ;; The namespace and npm name need no row of their own: the `:init-fn`
-      ;; read below contains the namespace, and the coordinate row contains the
-      ;; npm name.
-      (doseq [[what v] [["source path" nested-dirs]
-                        ["supplied coordinate" "com.acme/my-cool-app"]]]
-        (is (str/includes? section v)
-            (str "SKILL.md §Project identity does not show the derived " what " `" v
-                 "`. The rule has to be readable off the page as three different "
-                 "strings, not inferred.")))
-      (is (str/includes? section (str namespace ".core/init"))
-          (str "SKILL.md §Project identity does not show the derived `:init-fn` `"
-               namespace ".core/init`. A namespace nobody can resolve is exactly how "
-               "this defect surfaces at the terminating compile."))))
-  (testing "the section states the boundary policies the reference name hides"
-    (let [section @identity-section]
-      (is (str/includes? section (:namespace (doc-identity "my-app")))
-          (str "SKILL.md §Project identity does not state the doubled bare-name identity `"
-               (:namespace (doc-identity "my-app")) "`. Bare is the input most likely to be "
-               "typed and the one whose answer is least guessable."))
-      (is (str/includes? section (:npm-name (doc-identity "Acme/MyApp")))
-          (str "SKILL.md §Project identity does not state the lowercased npm name `"
-               (:npm-name (doc-identity "Acme/MyApp")) "` for a mixed-case artefact — the "
-               "one place the Clojure and npm forms part company on purpose.")))))
+  (let [section @identity-section
+        {:keys [namespace nested-dirs]} (doc-identity "com.acme/my-cool-app")]
+    ;; The `:init-fn` row carries the namespace; the coordinate row the npm name.
+    (doseq [v [nested-dirs "com.acme/my-cool-app" (str namespace ".core/init")
+               (:namespace (doc-identity "my-app")) (:npm-name (doc-identity "Acme/MyApp"))]]
+      (is (str/includes? section v)
+          (str "§Project identity must show the derived `" v "`: the rule has to be readable off the page")))))
 
 (deftest the-token-rename-instruction-is-retired
-  (testing "neither SKILL.md nor first-counter.md gives a consistent rename as the whole operation"
-    (doseq [[label body] [["SKILL.md" @skill-md] ["first-counter.md" @first-counter-md]]]
-      (is (not (re-find #"(?i)renam(e|ed)[^.\n]{0,60}consistent" body))
-          (str label " instructs a consistent token rename for an author-supplied "
-               "name. That is deterministic only for `acme/my-app`: the namespace, the "
-               "source path and the npm name are different transforms of the same "
-               "coordinate. Point at SKILL.md §Project identity instead."))))
-  (testing "first-counter.md routes a named project to the one rule"
-    (is (str/includes? @first-counter-md "Project identity")
-        (str "first-counter.md does not route an author-supplied name to SKILL.md's "
-             "identity rule. The leaf is the reference scaffold; it must not grow a "
-             "second, hand-maintained copy of the derivation (design.md L13)."))))
-
-;; ---------------------------------------------------------------------------
-;; Run
-;; ---------------------------------------------------------------------------
+  (doseq [[label body] [["SKILL.md" @skill-md] ["first-counter.md" @first-counter-md]]]
+    (is (not (re-find #"(?i)renam(e|ed)[^.\n]{0,60}consistent" body))
+        (str label " must not give a consistent token rename as the whole operation")))
+  (is (str/includes? @first-counter-md "Project identity")
+      "first-counter.md must route a named project to SKILL.md §Project identity"))
 
 (let [{:keys [fail error]} (run-tests 'project-identity-test)]
-  (System/exit (if (and (zero? fail) (zero? error)) 0 1)))
+  (System/exit (if (zero? (+ fail error)) 0 1)))
