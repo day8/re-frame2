@@ -1,19 +1,23 @@
 (ns re-frame.http-swallowed-failure-test
   "A failure reply with no target (`:on-failure nil`) is silenced, but a REAL
   (non-aborted) failure dropped that way is an error the app never sees, so the
-  transport emits a ONE-SHOT `:rf.warning/failure-swallowed` dev trace. Aborts
-  are legitimately silent and never warn.
+  reply tail emits a ONE-SHOT `:rf.warning/failure-swallowed` dev trace. Aborts
+  are legitimately silent and never warn. The decision reads the FINAL
+  envelope, after the `:after` chain, because that envelope's `:status` is what
+  picks the branch.
 
   The swallow detection is private, so these drive the transport's
-  `dispatch-failure!` directly with a synthetic ctx: with no `:handle` the
-  once-only reply guard no-ops, and with no router the late-bind dispatch
-  no-ops, so the only side effect is the warning trace."
+  `dispatch-failure!` / `dispatch-success!` directly with a synthetic ctx: with
+  no `:handle` the once-only reply guard no-ops, and with no router the
+  late-bind dispatch no-ops, so the only side effect is the warning trace."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [re-frame.http.middleware]
             [re-frame.http.transport :as rf.http.transport]
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (def ^:private dispatch-failure!         @#'rf.http.transport/dispatch-failure!)
-(def ^:private failure-swallowed-warned? @#'rf.http.transport/failure-swallowed-warned?)
+(def ^:private dispatch-success!         @#'rf.http.transport/dispatch-success!)
+(def ^:private failure-swallowed-warned? @#'re-frame.http.middleware/failure-swallowed-warned?)
 
 ;; The one-shot latch is a `defonce` that outlives a deftest; reset it so every
 ;; case starts un-warned.
@@ -62,3 +66,34 @@
                                        :frame               :rf/default
                                        :sensitive?          false}
                                       {:kind :rf.http/http-5xx :status 500}))))))
+
+(defn- through-after
+  "`ctx` with one `:after`, `f` over the response, in its captured chain."
+  [ctx f]
+  (assoc ctx :middleware-ctx {} :interceptor-chain [{:id ::restatus :after (fn [_ resp] (f resp))}]))
+
+(deftest success-reclassified-to-an-unaddressed-failure-warns
+  (testing "an :after that turns a success into an error routes it to the failure
+            branch; with only :on-success addressed that branch has no target, so
+            the error is swallowed and warned about"
+    (let [warns (swallowed-warnings
+                  #(dispatch-success!
+                     (through-after {:explicit-on-success {:supplied? true :value [:api/loaded]}
+                                     :explicit-on-failure {:supplied? false :value nil}
+                                     :url                 "https://example.test/data"
+                                     :frame               :rf/default
+                                     :sensitive?          false}
+                                    (fn [resp] (-> resp (dissoc :value)
+                                                   (assoc :status :error :error {:kind :app/domain-error}))))
+                     {:id 1}))]
+      (is (= 1 (count warns)))
+      (is (= {:kind :app/domain-error} (:failure (:tags (first warns))))))))
+
+(deftest failure-reclassified-to-ok-does-not-warn
+  (testing "an :after that turns a failure into :ok routes it to the success
+            branch, so nothing is swallowed even under :on-failure nil"
+    (is (empty? (swallowed-warnings
+                  #(dispatch-failure!
+                     (through-after ctx-on-failure-nil
+                                    (fn [resp] (-> resp (dissoc :error) (assoc :status :ok :value []))))
+                     {:kind :rf.http/http-4xx :status 404}))))))

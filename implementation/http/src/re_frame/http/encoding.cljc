@@ -352,7 +352,7 @@
     reaches here. A PARTIALLY-addressed one (only the opposite branch's
     sugar, no `:reply-to`) silences this branch — a silenced FAILURE
     surfaces the one-shot `:rf.warning/failure-swallowed`
-    (transport `warn-failure-swallowed!`)."
+    (`middleware/run-after-then-dispatch!`)."
   [{:keys [explicit-on reply-payload]}]
   (let [supplied? (:supplied? explicit-on)
         value     (:value explicit-on)]

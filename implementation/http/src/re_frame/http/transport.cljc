@@ -263,7 +263,11 @@
 (defn- dispatch-reply!
   "Threads the reply-payload through the per-frame `:after` interceptor
   chain (REVERSE registration order) BEFORE handing off to the
-  late-bind router for `:on-success` / `:on-failure` dispatch.
+  late-bind router for `:on-success` / `:on-failure` dispatch. The branch
+  is chosen from the FINAL envelope's `:status`, after the chain, so both
+  branch descriptors travel to the shared tail
+  (`middleware/run-after-then-dispatch!`) and the transport outcome never
+  picks the target.
 
   Per Spec 014 §Middleware, each `:after` sees `(ctx,
   response)` — `ctx` is the SAME middleware-ctx the `:before` chain
@@ -299,38 +303,37 @@
   once-observable `:rf.error/http-reply-tail-failed` emit — never the
   transport-rejection classifier. Per Spec 014 §Failure mode."
   [{:keys [origin-event explicit-on-success explicit-on-failure
-           kind reply-payload frame middleware-ctx interceptor-chain
-           completed-at]
+           reply-payload frame middleware-ctx interceptor-chain
+           url sensitive? completed-at]
     :as   ctx}]
-  (let [explicit (case kind
-                   :success explicit-on-success
-                   :failure explicit-on-failure)]
-    ;; Live and canned replies share this `:after` + late-bind path. The
-    ;; `:after` chain is skipped when no middleware-ctx is present
-    ;; (synthetic / test-path callers).
-    (try
-      (rf.http.middleware/run-after-then-dispatch!
-        {:frame          frame
-         :middleware-ctx middleware-ctx
-         ;; The chain this request captured at issue, carried on
-         ;; the normalised ctx beside `:middleware-ctx` and surviving the
-         ;; retry handoff (which only ever dissocs `:rf.http/retry-handoff`
-         ;; and `:handle`). The `:after` walk uses it instead of a
-         ;; response-time registry deref.
-         :chain          interceptor-chain
-         :origin-event   origin-event
-         :explicit-on    explicit
-         :reply-payload  reply-payload
-         :kind           kind
-         ;; EP-0010 / EP-0017: the host completion time
-         ;; rides the reply dispatch's `:rf.cofx` `:rf/time-ms` so a reply reducer
-         ;; reads it as causal data, never a fresh clock.
-         :completed-at   completed-at})
-      ;; Reply-tail fence. Post-transport-success throw → a
-      ;; non-retrying, observable `:rf.error/http-reply-tail-failed`, NOT the
-      ;; transport-rejection classifier (no CLJS retry-storm, no JVM swallow).
-      (catch #?(:clj Throwable :cljs :default) e
-        (emit-reply-tail-error! ctx e)))))
+  ;; Live and canned replies share this `:after` + late-bind path. The
+  ;; `:after` chain is skipped when no middleware-ctx is present
+  ;; (synthetic / test-path callers).
+  (try
+    (rf.http.middleware/run-after-then-dispatch!
+      {:frame               frame
+       :middleware-ctx      middleware-ctx
+       ;; The chain this request captured at issue, carried on
+       ;; the normalised ctx beside `:middleware-ctx` and surviving the
+       ;; retry handoff (which only ever dissocs `:rf.http/retry-handoff`
+       ;; and `:handle`). The `:after` walk uses it instead of a
+       ;; response-time registry deref.
+       :chain               interceptor-chain
+       :origin-event        origin-event
+       :explicit-on-success explicit-on-success
+       :explicit-on-failure explicit-on-failure
+       :reply-payload       reply-payload
+       :url                 url
+       :sensitive?          sensitive?
+       ;; EP-0010 / EP-0017: the host completion time
+       ;; rides the reply dispatch's `:rf.cofx` `:rf/time-ms` so a reply reducer
+       ;; reads it as causal data, never a fresh clock.
+       :completed-at        completed-at})
+    ;; Reply-tail fence. Post-transport-success throw → a
+    ;; non-retrying, observable `:rf.error/http-reply-tail-failed`, NOT the
+    ;; transport-rejection classifier (no CLJS retry-storm, no JVM swallow).
+    (catch #?(:clj Throwable :cljs :default) e
+      (emit-reply-tail-error! ctx e))))
 
 ;; Every completion (success, failure, or abort) flows through one canonical
 ;; reply map built in `re-frame.http.reply` — `:status` (`:ok` / `:error` /
@@ -409,70 +412,6 @@
 ;; finalise-failure! and the abort path's dispatch-aborted!, which makes the
 ;; abort/natural symmetry the surrounding comments describe visible in code.
 ;; The load-bearing concurrency comments sit at the call sites.
-
-(defonce ^:private failure-swallowed-warned?
-  ;; One-shot latch so the "real failure swallowed by
-  ;; `:on-failure nil`" warning fires once per runtime, not once per
-  ;; swallowed request. Fire-and-forget telemetry beacons (`:on-failure
-  ;; nil`) are a legitimate steady-state pattern, so a per-request trace
-  ;; would be noise; the single warning makes the FIRST silently-dropped
-  ;; non-aborted failure visible (the no-silent-swallow principle) without
-  ;; flooding the trace surface for callers who knowingly opted out.
-  (atom false))
-
-(defn- warn-failure-swallowed!
-  "Surface a swallowed real failure once per runtime.
-
-  When a request fails and its failure reply has no target — an explicit
-  `:on-failure nil`, or an
-  failure branch left unaddressed — `build-reply-event` silences the reply
-  (fire-and-forget). But a NON-aborted failure (transport / 5xx / decode /
-  accept / timeout) routed into that silence is a real error the app never
-  sees — the anti-pattern the committed no-silent-swallow principle calls out.
-  Emit a one-shot `:rf.warning/failure-swallowed` so the dropped failure
-  is observable in dev / tooling.
-
-  Aborts (`:rf.http/aborted`, any reason) are EXCLUDED: a cancelled
-  request that no longer wants its reply is correct-by-design silence,
-  not a swallowed error."
-  [failure url sensitive?]
-  (when (and rf.interop/debug-enabled?
-             (not= :rf.http/aborted (:kind failure))
-             (compare-and-set! failure-swallowed-warned? false true))
-    (rf.trace/emit! :warning :rf.warning/failure-swallowed
-                 (rf.http.privacy/prepare-emit-tags
-                   {:url     url
-                    :failure failure
-                    :reason  (str "an HTTP request failed with `:kind "
-                                  (pr-str (:kind failure))
-                                  "` but the failure reply had no target "
-                                  "(`:on-failure nil`, or the failure branch "
-                                  "was left unaddressed) — the failure was "
-                                  "dropped with no handler. If the silence is "
-                                  "intentional (fire-and-forget telemetry), "
-                                  "ignore this; otherwise supply an "
-                                  "`:on-failure` or `:reply-to` target.")}
-                   (true? sensitive?)))))
-
-(defn- on-failure-silenced?
-  "True when the ctx's failure reply has NO delivery target — `build-reply-
-  event` produces no event, so a NON-aborted failure routed here is dropped
-  with no handler. Two shapes silence a failure, mirroring
-  `build-reply-event`'s nil-producing branches so the swallow-warning fires
-  for precisely the replies that get dropped:
-
-   - explicit `:on-failure nil` (`:supplied?` true, `nil` `:value`) — the
-     documented fire-and-forget beacon; and
-   - an UNADDRESSED failure branch (`:supplied?` false) — there is no
-     co-located default, so a request that addressed only its success
-     branch (`:on-success` / a success-only `:reply-to` is impossible — a
-     `:reply-to` seeds BOTH branches, so this is the `:on-success`-alone
-     case) has no failure target.
-
-  `encoding/reply-target` lowers both to a nil `:value`, so that is the
-  whole test."
-  [ctx]
-  (nil? (:value (:explicit-on-failure ctx))))
 
 (defn- emit-reply-trace!
   "Emit a managed-async completion trace row built from the
@@ -652,16 +591,13 @@
   `:status :error`
   (or `:status :cancelled` for an abort, `:rf.reply/work-status :timed-out` for a
   timeout) canonical reply (`http-reply/failure-reply`), a completion trace
-  row is emitted from those canonical facts, and the SAME canonical reply is
-  delivered to the app target — it threads through the `:after` chain +
-  late-bind dispatch verbatim.
-
-  When the reply is silenced by an explicit `:on-failure nil`
-  AND the failure is not an abort, surface it once via
-  `warn-failure-swallowed!` before the (no-op) dispatch."
+  row is emitted from those canonical facts, and the SAME canonical reply
+  threads through the `:after` chain to the late-bind dispatch. The final
+  envelope's `:status` picks the target, so an `:after` that turns the
+  failure into `:ok` delivers it to the success target; a non-aborted reply
+  routed to a failure branch with no target surfaces the one-shot
+  `:rf.warning/failure-swallowed` from the shared tail."
   [ctx failure]
-  (when (on-failure-silenced? ctx)
-    (warn-failure-swallowed! failure (:url ctx) (:sensitive? ctx)))
   (let [reply (rf.http.reply/failure-reply (reply-ctx ctx) failure)]
     (emit-reply-trace! ctx reply)
     (dispatch-reply! (assoc ctx
@@ -676,7 +612,8 @@
   `:rf.reply/work-status
   :completed` canonical reply (`http-reply/success-reply`), a completion
   trace row is emitted from those canonical facts, and the SAME canonical
-  reply is delivered to the app target verbatim.
+  reply threads through the `:after` chain to the late-bind dispatch, whose
+  final `:status` picks the target.
 
   The ctx's `:response-meta` (the successful response's
   actual `:status` / `:status-text` / normalized `:headers`, threaded from
