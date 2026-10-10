@@ -133,7 +133,7 @@
 (rf/reg-view* boot-row-id probe-body)
 
 (def ^:private adapter-at-registration (rf/current-adapter))
-(def ^:private head-at-registration    (rf/view boot-row-id))
+(def ^:private ^js head-at-registration (rf/view boot-row-id))
 
 ;; NOW the fixture — see the note under the ns form for why the order matters.
 (use-fixtures :each
@@ -246,7 +246,7 @@
             once the adapter is in"
     ;; Without this premise the row is `direct-mount-of-registered-view-head`
     ;; again under another name.
-    (is (= [nil false] [adapter-at-registration (true? (.-uix-component? ^js head-at-registration))])
+    (is (= [nil false] [adapter-at-registration (true? (.-uix-component? head-at-registration))])
         "premise: no adapter at registration, and the reg-time head was the unmarked wrapper")
     (with-browser-act
       (fn [act-fn]

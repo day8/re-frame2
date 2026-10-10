@@ -674,8 +674,9 @@
  ;; turns the rest of it into undeclared vars, which compile to
  ;; `undefined`, so the suite reports the counts of the clean tree. The
  ;; swept `:examples/*` and `:testbeds/*` builds below set the same flag
- ;; one by one. A blanket default would also catch the advanced builds
- ;; and `:browser-test`, whose warning counts nothing holds at zero.
+ ;; one by one, as do `:browser-test`, `:fresco-release` and
+ ;; `:fresco-modules-compile`. A blanket default would also catch the
+ ;; builds whose warning counts nothing holds at zero.
  :target-defaults
  {:node-test {:compiler-options {:warnings-as-errors true}}}
 
@@ -961,7 +962,8 @@
   {:target     :browser
    :output-dir "out/fresco-release"
    :asset-path "."
-   :compiler-options {:optimizations :advanced
+   :compiler-options {:warnings-as-errors true
+                      :optimizations :advanced
                       :infer-externs :auto
                       :closure-defines {goog.DEBUG false}}
    :modules {:main {:init-fn re-frame.fresco.consumer-app/-main}}}
@@ -972,11 +974,12 @@
   ;; core/test/re_frame/bench. `fresco/scripts/
   ;; check_modules_compile.cjs` reads the module entries off
   ;; `check_optional_module_reachability.py --module-namespaces` and the two
-  ;; instruments off its own roster, merges them in as `:entries`, and refuses
-  ;; the build on ANY warning. That is the whole reason this id exists:
-  ;; `:node-test-fresco` sets `:infer-externs false` and `:browser-test`
-  ;; exits 0 on warnings, so this is the one compile where an un-externable
-  ;; property access can go red.
+  ;; instruments off its own roster and merges them in as `:entries`; the
+  ;; build's own `:warnings-as-errors` fails it on ANY warning. That is the
+  ;; whole reason this id exists: `:node-test-fresco` sets `:infer-externs
+  ;; false`, and `:browser-test` reaches a module only through a
+  ;; `-dom-cljs-test` that requires it, so this is the one compile where an
+  ;; un-externable property access in any module can go red.
   ;;
   ;; `:browser`, MEASURED rather than assumed: the instruments' closure reads
   ;; DOM-element properties in core's spine.cljs that only Closure's browser
@@ -993,7 +996,8 @@
   {:target     :browser
    :output-dir "out/fresco-modules-compile"
    :asset-path "."
-   :compiler-options {:infer-externs :auto}
+   :compiler-options {:warnings-as-errors true
+                      :infer-externs :auto}
    :modules {:main {:entries [re-frame.fresco]}}}
 
   ;; `:browser-test` is narrowed to DOM-dependent tests only.
@@ -1027,7 +1031,8 @@
    ;; :closure-defines so cljs-test-display.core/printing = true at
    ;; compile time so the summary lands on the console where the runner
    ;; can see it.
-   {:closure-defines {cljs-test-display.core/printing true}}
+   {:closure-defines {cljs-test-display.core/printing true}
+    :warnings-as-errors true}
    :devtools  {:http-port 8021
                :http-root "out/browser-test"}}
 

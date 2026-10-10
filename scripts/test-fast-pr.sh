@@ -1686,12 +1686,13 @@ elif [ "$run_node" = true ]; then
 
   # Fresco package warnings-fatal compile.  The optional modules are
   # unreachable from the public door by construction, so no compile that
-  # starts at the door sees them, and the test builds that do compile them do
-  # not fail on warnings — an `:infer-warning` there would break silently
-  # under `:advanced`.  This compiles them (read from the reachability roster)
-  # plus the core attribution instruments no test build selects, with warnings
-  # treated as failures.  `node fresco/scripts/check_modules_compile.cjs
-  # --list` prints what it compiles.
+  # starts at the door sees them.  `:node-test-fresco` compiles them with
+  # `:infer-externs false`, and `:browser-test` only as far as a DOM test
+  # requires them, so an `:infer-warning` in one could otherwise break
+  # silently under `:advanced`.  This compiles them (read from the
+  # reachability roster) plus the core attribution instruments no test build
+  # selects, with warnings treated as failures.  `node
+  # fresco/scripts/check_modules_compile.cjs --list` prints what it compiles.
   run "fresco modules compile" "cd implementation && npm run test:fresco-compile" \
     bash -lc "cd '$spine_root/implementation' && npm run test:fresco-compile"
 else

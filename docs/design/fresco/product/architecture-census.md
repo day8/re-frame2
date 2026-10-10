@@ -126,7 +126,7 @@ Three facts finish it, each checkable at source.
 | `implementation/fresco/scripts/check_optional_module_reachability.py` | an absent optional module is zero reachable code | `test:fresco-invariants`, every PR | KEEP |
 | `implementation/fresco/scripts/check_production_erasure.cjs` | dev-only machinery folds away under `:advanced` | `build:fresco-release`, `test.yml`'s `cljs` job | KEEP |
 | `implementation/fresco/scripts/check_source_coord_elision.cjs` | source coordinates leave the production bundle | `test:browser-prod-elision`, `test.yml` + `expensive-tests.yml` | KEEP |
-| `bench:fresco` | the benchmark runner | the budget and ladder pages it feeds; **not a gate**, and `check_gate_scheduling.py` carries that disposition in writing | KEEP |
+| `bench` | the benchmark runner, `run.cjs`; a `bench/fresco/package.json` script | the budget and ladder pages it feeds; **not a gate** — the command is operator-run, and no CI job runs it | KEEP |
 | `build:fresco-release` | the release build plus its two bundle gates | `test.yml`'s `cljs` job, every PR | KEEP |
 | `ssr:bake` | bakes the prototype SSR corpus; a `bench/fresco/package.json` script | `bake_bytes.test.cjs`, in the bench's `npm run check`, which `expensive-tests.yml` runs nightly — the command itself is operator-run | KEEP, and see [the obligation below](#the-one-row-whose-condition-has-fired) |
 | `ssr:serve` | serves the prototype SSR entry; a `bench/fresco/package.json` script | the same driver, the same byte test; the command is operator-run | KEEP, as above |

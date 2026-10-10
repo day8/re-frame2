@@ -78,16 +78,12 @@ const RUNNER = path.join(IMPL, 'node_modules', 'shadow-cljs', 'cli', 'runner.js'
 // slash-bearing `[:examples/login-uix]` ids `check-examples-compile.cjs`
 // parses — hence a looser bracket match rather than a reuse of that regex.
 //
-// The same line has two other parsers, deliberately NOT unified with this one:
-// `implementation/fresco/scripts/check_modules_compile.cjs` makes this
-// module's judgement for `:fresco-modules-compile`, carried there because this
-// lane is off the package's classpath on purpose, and
+// The same line has one other parser, deliberately NOT unified with this one:
 // `implementation/scripts/check-examples-compile.cjs` reads no count at all,
-// only that every requested build completed. All three refuse an unreadable
+// only that every requested build completed. Both refuse an unreadable
 // summary.
 const ANSI_RE = /\x1B\[[0-9;]*m/g;
 const COMPLETED_RE = /\[(:[^\]\s]+)\]\s+Build completed\.[^\n]*?(\d+)\s+warnings?/g;
-const FAILED_RE = /\[(:[^\]\s]+)\]\s+Build failed/g;
 
 // `------ WARNING #1 - :undeclared-var ------`, the block header shadow prints
 // per warning. Used as the corroborating signal for refusal (4) above, and to
@@ -110,17 +106,12 @@ function stripAnsi(s) {
 function parseBuildSummaries(output) {
   const src = stripAnsi(output);
   const completed = [];
-  const failed = [];
   let m;
   COMPLETED_RE.lastIndex = 0;
   while ((m = COMPLETED_RE.exec(src)) !== null) {
     completed.push({ build: m[1], warnings: Number(m[2]) });
   }
-  FAILED_RE.lastIndex = 0;
-  while ((m = FAILED_RE.exec(src)) !== null) {
-    failed.push(m[1]);
-  }
-  return { completed, failed };
+  return { completed };
 }
 
 /** The `WARNING #N - :type` headlines, for naming what went wrong. */
@@ -140,16 +131,13 @@ function warningHeadlines(output) {
  * @returns {{ok: true} | {ok: false, reason: string, detail: string[]}}
  */
 function judgeBuild({ status, output }) {
-  const { completed, failed } = parseBuildSummaries(output);
+  const { completed } = parseBuildSummaries(output);
 
   if (status !== 0) {
     return {
       ok: false,
       reason: `shadow-cljs exited ${status}`,
-      detail:
-        failed.length > 0
-          ? [`failed build(s): ${failed.join(', ')}`]
-          : ['see the compiler output above'],
+      detail: ['see the compiler output above'],
     };
   }
 
