@@ -11,7 +11,7 @@
   |---|---|---|
   | `h/error-boundary`'s `:on-error` report | `collector/dispatch!`, in `impl.boundary/report!` | the frame keyword, read from React context AT CATCH TIME |
   | the internal mount witness door | `collector/dispatch!`, in `impl.mount/dispatch!` | `(:frame handle)` — a keyword, retained for the root's whole life |
-  | `intent/navigate-head` | routing's `:routing/activate-link!`, in `impl.intent/navigate-handler` | the `capture-frame` bundle of the incarnation it rendered under, pinned at RENDER |
+  | `intent/navigate-head` | routing's `:routing/activate-link!`, in `impl.intent/navigate-handler` | the frame keyword as data, and in the lowered closure the `capture-frame` bundle of the incarnation it was lowered under |
 
   ## The axis, and why \"it resolves late\" is not the fault
 
@@ -52,10 +52,10 @@
     into two successive incarnations (section 2);
   - the mount witness door retains an **address**, and the root it names
     reads that same address, measured side by side (section 3);
-  - `intent/navigate-head` retains a **capability**: its vector carries the
-    bundle pinned to the incarnation the link rendered under, so a retained
-    link refuses once that incarnation is gone, while a link rendered under
-    the successor navigates the successor (section 4)."
+  - `intent/navigate-head` retains a **capability**: its lowered closure
+    carries the bundle pinned to the incarnation the link rendered under,
+    so a retained link refuses once that incarnation is gone, while a link
+    rendered under the successor navigates the successor (section 4)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
@@ -349,12 +349,13 @@
 ;; ---------------------------------------------------------------------------
 
 ;; A link is painted under one incarnation and clicked later, so what its
-;; navigate vector retains decides where the click lands. `route-link` puts the
-;; boundary's pinned `capture-frame` bundle in the vector — its frame memo row's
-;; `:ops`, the bundle the ambient dispatch closes over — and routing's
-;; `activate-link!` dispatches through it. The click is therefore a capability
-;; like every lowered callback: refused once its incarnation is destroyed, and
-;; never delivered to a successor seated under the same id.
+;; lowered closure retains decides where the click lands. The navigate vector
+;; carries the frame keyword as data; `navigate-handler` pins, at lowering, the
+;; boundary's `capture-frame` bundle — its frame memo row's `:ops`, the bundle
+;; the ambient dispatch closes over — and routing's `activate-link!` dispatches
+;; through it. The click is therefore a capability like every lowered callback:
+;; refused once its incarnation is destroyed, and never delivered to a
+;; successor seated under the same id.
 ;;
 ;; The hook is SET EXPLICITLY in every row below and restored afterwards. It
 ;; must be: `re-frame.routing` publishes `:routing/activate-link!` at ns-load,
@@ -374,18 +375,15 @@
 (defn- lower-navigate
   "Lower one `[intent/navigate-head {…}]` under the ambient binding a boundary body
   runs — `impl.collector/run-once`'s, spelled out — and answer the closure the
-  browser would call. The map is shaped as `route-link` mints it, `:frame`
-  carrying the live incarnation's pinned bundle."
+  browser would call. The map is exactly what `route-link` mints."
   [tag]
   (rf.fresco.impl.intent/with-frame frame-id (rf.fresco.impl.collector/frame-dispatch frame-id)
     (fn []
-      (rf.fresco.impl.intent/lower-prop
-        :on-click
-        [rf.fresco.impl.intent/navigate-head
-         {:frame   (:ops (rf.fresco.impl.collector/frame-row frame-id))
-          :payload [:seams/mark tag]
-          :native? false
-          :veto    nil}]))))
+      (rf.fresco.impl.intent/lower-prop :on-click
+                         [rf.fresco.impl.intent/navigate-head {:frame   frame-id
+                                                :payload [:seams/mark tag]
+                                                :native? false
+                                                :veto    nil}]))))
 
 (defn- click-event []
   #js {:button           0
