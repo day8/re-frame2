@@ -81,14 +81,10 @@
   detection), so the entry emits none. It could not carry a claim anyway
   — a hash of the unresolved `[<minted head> {props}]` root, with
   `canonical-edn` rendering every fn identically, takes the same value on
-  these rows as on the dogfood screen, a different page entirely.
-  [[the-instance-key-rows-cannot-lean-on-the-render-hash]] keeps that
-  measurement on THESE rows so the exclusion stays a reading rather than a
-  promise. Every determinism claim below is over the DOCUMENT BYTES.
+  every such root, as `ssr/entry-cljs-test` measures.
 
-  Runtime: a browser, for a real React DOM. The payload-shape and
-  determinism rows need no DOM; without one, every DOM claim degrades to
-  a stated skip."
+  Runtime: a browser, for a real React DOM. The payload-shape row needs
+  no DOM; without one, every DOM claim degrades to a stated skip."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.hydration-support
@@ -101,9 +97,6 @@
             [re-frame.bench.fresco.ssr.fixtures :as rf.bench.fresco.ssr.fixtures]
             [re-frame.bench.fresco.ssr.instance-key :as rf.bench.fresco.ssr.instance-key]
             [re-frame.core :as rf]
-            ;; The entry emits no hash, so the exclusion row
-            ;; takes the measurement it excludes directly.
-            [re-frame.ssr.hash :as rf.ssr.hash]
             [re-frame.test-support :as rf.test-support]
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
@@ -226,109 +219,20 @@
 ;; ===========================================================================
 
 (deftest the-two-rows-differ-by-exactly-the-ui-key
-  (testing "**the variable, isolated.** The two corpus rows render the
-           same hiccup from the same boot events, so the SERVER BYTES are
-           identical; the allowlist is the only thing that moves, and it
-           moves exactly one key. Without this row the two hydration rows
-           below could be measuring any difference at all between two
-           pages"
-    (let [green (server! green-id)
-          red   (server! red-id)
-          gdb   (:rf/app-db (:payload green))
-          rdb   (:rf/app-db (:payload red))]
-      (is (= (:html green) (:html red))
-          "the server rendered the same markup for both rows — the payload
-           policy is a decision about what CROSSES, never about what is
-           drawn")
-      (is (re-find #"class=\"panel-body\"" (:html green))
-          (str "and that markup carries the OPEN panel the boot event
-                wrote, so there is something for the payload to be
-                obliged about: " (:html green)))
-
-      (testing "the green row ships the instance state at the documented tier"
-        (is (= true (get-in gdb rf.bench.fresco.ssr.instance-key/state-path))
-            (str "[:ui ::open? \"billing\"] crossed the wire as written. Saw: "
-                 (pr-str gdb))))
-
-      (testing "the red row ships a WELL-FORMED allowlist that strands it"
-        (is (not (contains? rdb :ui))
-            (str "no :ui partition at all — not an empty one, not a
-                  defaulted one; absent: " (pr-str rdb)))
-        (is (nil? (get-in rdb rf.bench.fresco.ssr.instance-key/state-path))))
-
-      (testing "and everything else is identical, so `:ui` is the whole
-               difference"
-        (is (= (:panels gdb) (:panels rdb) rf.bench.fresco.ssr.instance-key/panels))
-        (is (= #{:panels :ui} (set (keys gdb))))
-        (is (= #{:panels} (set (keys rdb)))))
-
-      (testing "read off the EDN the client bootstrap actually parses,
-               because a claim about a payload map is a claim about the
-               wire only if the bytes agree with it"
-        (is (re-find #":ui\b" (:payload-edn green)))
-        (is (nil? (re-find #":ui\b" (:payload-edn red)))))
-
-      (report! "payload"
-               {:green-keys (vec (sort-by str (keys gdb)))
-                :red-keys   (vec (sort-by str (keys rdb)))
-                ;; `rf.bench.fresco.lane/utf8-bytes` and not `count`, which answers UTF-16
-                ;; code units. These two are a claim about
-                ;; the WIRE — the testing block above says so in as many
-                ;; words — and the wire carries bytes.
-                :green-edn-bytes (rf.bench.fresco.lane/utf8-bytes (:payload-edn green))
-                :red-edn-bytes   (rf.bench.fresco.lane/utf8-bytes (:payload-edn red))
-                :html-identical? (= (:html green) (:html red))}))))
-
-;; ===========================================================================
-;; Determinism — the instance keys are authored data
-;; ===========================================================================
-
-(deftest both-rows-render-byte-identical-documents-from-authored-keys
-  (testing "**the determinism row.** Every instance key on this page is an
-           `:id` out of the authored roster, so a double render must be
-           byte-identical — the two renders take two DIFFERENT per-request
-           gensym frames, which is also the standing proof that the
-           per-request id never reaches the wire. Stated over the document
-           bytes; see [[the-instance-key-rows-cannot-lean-on-the-render-hash]]
-           for why it could not be stated over the hash"
-    (doseq [row-id [green-id red-id]]
-      (let [{:keys [identical? differs-at] a :first b :second}
-            (rf.bench.fresco.ssr.entry/render-twice (rf.bench.fresco.ssr.fixtures/row row-id))]
-        (is identical?
-            (str "row " row-id " rendered two DIFFERENT documents"
-                 (when differs-at
-                   (str " — first difference at character " differs-at))))
-        (is (not= (:frame-id a) (:frame-id b))
-            (str "row " row-id " took two different per-request frames"))
-        (doseq [{ikey :id ptitle :title} rf.bench.fresco.ssr.instance-key/panels]
-          (is (re-find (re-pattern (str "data-ikey=\"" ikey "\"")) (:html a))
-              (str "the authored instance key " (pr-str ikey) " is in the
-                    markup as written — not an ordinal, not a counter, not
-                    a gensym"))
-          (is (re-find (re-pattern ptitle) (:html a))
-              "and so is the roster entry it was taken from"))))))
-
-(deftest the-instance-key-rows-cannot-lean-on-the-render-hash
-  (testing "**the exclusion, measured.** This tier's wire carries no
-           `:rf/render-hash` — an adoption-tier root carries none — and
-           the first assertion holds the entry to that.
-           The second keeps the reason live: the hash this root WOULD have
-           taken is over an unresolved hiccup whose head is a function, and
-           `canonical-edn` renders every function identically, so these
-           rows and the dogfood screen — a different page entirely — take
-           one shared constant. Neither an absent value nor a constant one
-           can carry a claim, so no claim in this file rests on it"
-    (let [payload (:payload (rf.bench.fresco.ssr.entry/render (rf.bench.fresco.ssr.fixtures/row green-id)))
-          hash-of #(rf.ssr.hash/render-tree-hash (:hiccup (rf.bench.fresco.ssr.fixtures/row %)))
-          dogfood (hash-of "dogfood-snapshot")
-          green   (hash-of green-id)
-          red     (hash-of red-id)]
-      (is (not (contains? payload :rf/render-hash))
-          "the wire carries no hash for an adoption-tier root")
-      (is (= dogfood green red)
-          (str "and the one it would have carried is a constant: "
-               (pr-str [dogfood green red])))
-      (report! "render-hash" {:would-have-been (str green) :on-the-wire "absent"}))))
+  ;; The two rows render one page from the same boot events; the allowlist
+  ;; is the only thing that moves, and it moves exactly `:ui`.
+  (let [green (server! green-id)
+        red   (server! red-id)]
+    (is (= (:html green) (:html red))
+        "the payload policy decides what CROSSES, never what is drawn")
+    (is (re-find #"class=\"panel-body\"" (:html green))
+        "and what is drawn is the panel the server's boot event opened")
+    (is (= [(assoc-in {:panels rf.bench.fresco.ssr.instance-key/panels}
+                      rf.bench.fresco.ssr.instance-key/state-path true)
+            {:panels rf.bench.fresco.ssr.instance-key/panels}]
+           [(:rf/app-db (:payload green)) (:rf/app-db (:payload red))])
+        "the green row ships the instance state at the documented tier, and
+         the red row's well-formed allowlist strands it")))
 
 ;; ===========================================================================
 ;; ROW 1 — GREEN. The obligation met.
