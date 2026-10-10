@@ -40,11 +40,12 @@
   timed and no number is published — the claim is about reachability,
   not cost.
 
-  Which is exactly why row 2 arms its macrotask at the FIRST mint rather
-  than after the harvest: a reap horizon is a duration from one entry's
-  own minting, so a settle armed at the end of the setup is racing the
-  setup's wall-clock and nothing else. Timing the harvest is not this
-  file's business, and this is how it declines to."
+  Row 2 races a bare macrotask against the reapers, and on Node's real
+  clock that race is decided by wall-clock time and by the order of
+  Node's per-duration timer lists, not by the horizon. So it runs on a
+  clock that stands still: it records the timers its renders and settles
+  arm instead of arming them, and fires them by delay, ties in arm order.
+  A horizon of 0 turns it red and 32 leaves it green."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
@@ -103,6 +104,29 @@
     (doseq [stop stops] (stop))
     nil))
 
+(defn- armed-by
+  "Calls `f` with `setTimeout` recording each timer instead of arming it,
+  and answers `[result timers]`: every timer `f` armed, as
+  `[delay-ms callback]` in arm order."
+  [f]
+  (let [real    (.-setTimeout js/globalThis)
+        !timers (volatile! [])]
+    (set! (.-setTimeout js/globalThis)
+          (fn [callback ms] (vswap! !timers conj [(or ms 0) callback]) nil))
+    (try
+      [(f) @!timers]
+      (finally (set! (.-setTimeout js/globalThis) real)))))
+
+(defn- fire-on-a-still-clock!
+  "Fires `timers` as a clock that does not move while they are armed
+  would: by delay, ties in arm order (`sort-by` is stable). Each fires in
+  its own promise job, so the `.then` a timer resolves runs before the
+  next timer fires."
+  [timers]
+  (reduce (fn [p [_ callback]] (.then p (fn [_] (callback) nil)))
+          (js/Promise.resolve nil)
+          (sort-by first timers)))
+
 ;; ===========================================================================
 ;; 1 — the baseline is the state the runtime settles to
 ;; ===========================================================================
@@ -137,39 +161,32 @@
 (deftest one-bare-macrotask-lands-in-front-of-the-reap-horizon
   (async done
     (seeded!)
-    ;; ARMED AT THE FIRST MINT, with the other three renders behind it in
-    ;; the same tick. Every reaper's horizon starts when ITS OWN entry is
-    ;; minted, so a macrotask armed after the whole harvest is not
-    ;; measured against the horizon at all — it is measured against what
-    ;; the harvest left of it. Node drains one duration's timer list per
-    ;; pass, so the row turns on a single comparison: the settle's expiry
-    ;; against the FIRST reaper's, which is `settle-armed - first-mint`
-    ;; against 3 ms. Armed at the end, that interval is three whole
-    ;; renders — ~1.3 ms on a quiet box, past 3 ms on a loaded runner,
-    ;; where the row reads 2 or 1 of 4: the SETUP'S COST arriving as
-    ;; a residue reading. Armed here it is the tail of one render, and
-    ;; 4 ms stays React's commit margin rather than a budget
-    ;; for a test's own setup.
-    (render-one! (first commit-frames))
-    (let [settled (rf.bench.fresco.lane/settle!)]
-      (run! render-one! (rest commit-frames))
-      (testing "why row 1 is not free: one `rf.bench.fresco.lane/settle!` after the render
-               every unclaimed entry is STILL cached — that survival is the
-               hydration margin the 4 ms horizon buys, and it is what makes a
-               residue reading taken there disagree with one taken after the
-               runtime has quiesced"
-        (-> settled
-            (.then (fn [_]
-                     (is (= (count commit-frames) (:entries (rf.bench.fresco.arm1.runtime/residue)))
-                         "a bare macrotask is inside the horizon: every
-                          harvested entry is still in the cache")
-                     (rf.bench.fresco.read-profile-app/residue-settle!)))
-            (.then (fn [_]
-                     (is (zero? (:entries (rf.bench.fresco.arm1.runtime/residue)))
-                         "past it they are gone — two readings, two answers,
-                          and only the second is a baseline")
-                     (rf.bench.fresco.arm1.runtime/reset-runtime!)
-                     (done))))))))
+    (testing "why row 1 is not free: one `rf.bench.fresco.lane/settle!` after the render
+             every unclaimed entry is STILL cached — that survival is the
+             hydration margin the 4 ms horizon buys, and it is what makes a
+             residue reading taken there disagree with one taken after the
+             runtime has quiesced"
+      (let [[[settled quiesced] timers]
+            (armed-by (fn []
+                        ;; After the first mint, so at a horizon of 0 that
+                        ;; entry's reaper ties the settle and fires first.
+                        (render-one! (first commit-frames))
+                        (let [settled (rf.bench.fresco.lane/settle!)]
+                          (run! render-one! (rest commit-frames))
+                          [settled (rf.bench.fresco.read-profile-app/residue-settle!)])))]
+        (.then settled
+               (fn [_]
+                 (is (= (count commit-frames) (:entries (rf.bench.fresco.arm1.runtime/residue)))
+                     "a bare macrotask is inside the horizon: every
+                      harvested entry is still in the cache")))
+        (.then quiesced
+               (fn [_]
+                 (is (zero? (:entries (rf.bench.fresco.arm1.runtime/residue)))
+                     "past it they are gone — two readings, two answers,
+                      and only the second is a baseline")
+                 (rf.bench.fresco.arm1.runtime/reset-runtime!)
+                 (done)))
+        (fire-on-a-still-clock! timers)))))
 
 ;; ===========================================================================
 ;; 3 — and the gate itself holds across the `commit` arm
