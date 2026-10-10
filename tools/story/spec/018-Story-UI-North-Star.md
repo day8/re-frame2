@@ -224,8 +224,8 @@ Minimum parity bars:
 | Matrices | Variant grids remain scannable at design-system scale. |
 | Sharing | Share/export is useful and honest about privacy, even when full safe sharing is blocked. |
 
-These qualitative bars are now backed by concrete, enforceable budgets
-(ratified rf2-ba86n.2): search/rebuild output and latency at large story
+These qualitative bars are backed by concrete, enforceable budgets:
+search/rebuild output and latency at large story
 counts, edit-to-render and inline-validate latency for ordinary controls,
 matrix size before paging, and the gesture/latency budget from a failed
 assertion to useful evidence. The normative budget table is §10.1; the
@@ -262,12 +262,12 @@ a merged fix alone.
 | Surpass item | Tier | Evidence |
 |---|---|---|
 | Variants are executable application plans | BUILT | A data-only variant runs to `:fail` with actual and expected on the record (`story_is_test.clj` `story-is-reports-per-assertion-fail`; 023's detection control, job B1) |
-| Tests, docs, canvas, agent calls and replay share one plan | BUILT | `story/run` and story-mcp `run-variant` carry `:plan-hash` / `:run-hash`, and a run and a render of one scenario agree (PR #9796; `run_result_hashes_test.clj`, `run_result_roundtrip_test.clj`; 023 probe 7) |
-| Story MCP and the skills drive the UI's plan/result path | BUILT for story-mcp; the skills' host-decision rule LANDED (rf2-szjjx, `cbe510765b`) | The stdio loop runs a variant to `:fail`, re-registers it and runs it to `:pass` over the unified result (023 protocol step 5); the one rule sits in both skill leaves and in `tools/story-mcp/README.md`, each under §Which host to use |
+| Tests, docs, canvas, agent calls and replay share one plan | BUILT | `story/run` and story-mcp `run-variant` carry `:plan-hash` / `:run-hash`, and a run and a render of one scenario agree (`run_result_hashes_test.clj`, `run_result_roundtrip_test.clj`; 023 probe 7) |
+| Story MCP and the skills drive the UI's plan/result path | BUILT for story-mcp; the skills' host-decision rule LANDED | The stdio loop runs a variant to `:fail`, re-registers it and runs it to `:pass` over the unified result (023 protocol step 5); the one rule sits in both skill leaves and in `tools/story-mcp/README.md`, each under §Which host to use |
 | Every run can produce an epoch-backed evidence tape | BUILT | `:epoch-tape` and `:narrative` on every `story/run` result (023 probe 7; `play/evidence_test.cljc`) |
-| Failures explain themselves | BUILT in data and in the UI gesture (PR #9830) | The tape, narrative and effects ride the result; a failed assertion's Tests-pane row links to its own retained Evidence beat (rf2-v5p6l; `story_assertions_test.clj`, `test_mode_pane_cljs_test.cljs`) |
-| Explicit args with honest fidelity rungs | BUILT for the rung labels, the single-parent upgrade (PR #9803) and pins composed from fragments, which the upgrade drops and names (PR #9828, rf2-yt6ak) | 023 probe 5b; `view_state_upgrade_test.clj`; `view_state_test.cljc` |
-| Generated failures promote to curated variants | BUILT, composed checks included | `tools/story/test/re_frame/story/promotion_cljs_test.cljc` §A promoted regression fails for the reason its source failed (seven both-routes shapes and five dialog-route-only, twelve in all); `tools/story/test/re_frame/story/ui/test_mode/promotion_row_dom_cljs_test.cljs`; 023 probes 6c and 6d, re-run at `2284727767`; [`017-Testing-Story.md`](017-Testing-Story.md) §Promotion |
+| Failures explain themselves | BUILT in data and in the UI gesture | The tape, narrative and effects ride the result; a failed assertion's Tests-pane row links to its own retained Evidence beat (`story_assertions_test.clj`, `test_mode_pane_cljs_test.cljs`) |
+| Explicit args with honest fidelity rungs | BUILT for the rung labels, the single-parent upgrade and pins composed from fragments, which the upgrade drops and names | 023 probe 5b; `view_state_upgrade_test.clj`; `view_state_test.cljc` |
+| Generated failures promote to curated variants | BUILT, composed checks included | `tools/story/test/re_frame/story/promotion_cljs_test.cljc` §A promoted regression fails for the reason its source failed (seven both-routes shapes and five dialog-route-only, twelve in all); `tools/story/test/re_frame/story/ui/test_mode/promotion_row_dom_cljs_test.cljs`; 023 probes 6c and 6d; [`017-Testing-Story.md`](017-Testing-Story.md) §Promotion |
 | Xray exposes runtime causality | BUILT | The per-variant Xray embed paints its panels (`xray_embed_e2e_cljs_test.cljs`); the per-cell cascade with source coordinates was walked on the login-form testbed at the research pin |
 
 Story should not copy Storybook's weaker patterns:
@@ -326,7 +326,7 @@ fully / partially / view-only — and WHAT makes it less than fully
 replayable (a fn-valued override, a non-serialisable arg, a dropped
 override). A screenshot is always view-only and says so; a screenshot
 egress that cannot capture/write reports an honest unavailable/error
-state rather than a false success (rf2-ehc5bq). The AI/MCP boundary and
+state rather than a false success. The AI/MCP boundary and
 logs are the real redaction points and are handled elsewhere, NOT through
 a share/export seam. (See
 [`022-Story-UI-Docs-And-Share.md`](022-Story-UI-Docs-And-Share.md) §3.)
@@ -405,8 +405,8 @@ architecture, not because they are untouchable.
 | Explain panel UI | CURRENT | Story surface over explain data; does not depend on Xray. | `020` §4 |
 | Controls widget taxonomy | TARGET | Built incrementally over the current args/schema surface. | `019` §2 |
 | Save current state as variant | CURRENT/TARGET | Existing Story specs own the save affordance; this UI must place it coherently and keep it distinct from failure promotion. | `019` §3 |
-| Story-to-Xray focus API | CURRENT | `rf2-crtmq` is closed; the evidence spine consumes it for focused links. Additional callers use the same seam. | `020` §2.1 |
-| Reproducibility honesty on human egress | CURRENT/TARGET | Human egress ships freely (not privacy-gated); each command carries a fully/partially/view-only reproducibility label. NOT blocked on a common redaction seam — `rf2-qarwq`'s real scope (AI/MCP + logs) is elsewhere. | `022` §3 |
+| Story-to-Xray focus API | CURRENT | The evidence spine consumes it for focused links. Additional callers use the same seam. | `020` §2.1 |
+| Reproducibility honesty on human egress | CURRENT/TARGET | Human egress ships freely (not privacy-gated); each command carries a fully/partially/view-only reproducibility label. NOT blocked on a common redaction seam — the AI/MCP and log redaction points are handled elsewhere. | `022` §3 |
 | Unified Test-mode result shape | SUPERSEDES | Supersedes [`009-Test-Mode.md`](009-Test-Mode.md) result-reading once the substrate run-result lands. | `021` §1 |
 | Third-party extension surface | FUTURE | Not justified by a primary P1 user story; keep only typed internal seams. | this spec §11 |
 | Hosted visual review service | OUT | Browser-tier assertions are in scope; hosted review is not. | — |
@@ -583,7 +583,7 @@ it bites in
 [`019-Story-UI-Controls-And-View-States.md`](019-Story-UI-Controls-And-View-States.md)
 §4.)
 
-The cap-and-page mitigations are WIRED into the render paths (rf2-ba86n.18):
+The cap-and-page mitigations are WIRED into the render paths:
 the sidebar bounds variant + captured-artifact rows (N1/N2); the
 variants-grid renderer bounds visible cells at the G1 cap, surfaces the
 G2/G3 matrix-size advisory, and never renders past the G3 hard cap (it
@@ -594,16 +594,16 @@ controls as summaries until expanded (C1/C4). Each bound is the SAME
 expander is additive — revealing more never reorders the rows/cells already
 on screen, so scroll/focus survives the re-render (stable React keys:
 variant-id-keyed cells, arg-key-keyed rows, monotonic repeater row ids).
-Lazy Xray-diff mounting is now CURRENT (rf2-ba86n.19): the RHS Xray embed
+Lazy Xray-diff mounting is CURRENT: the RHS Xray embed
 defers the panel MOUNT — and therefore the panel's expensive diff compute
 (app-db structural diff, epoch timeline) — until the embed is expanded. The
-embed already mounted ONE panel at a time with deferred microtask unmount
-(rf2-4l7t2); the upgrade gates that mount on a `:xray-embed-collapsed?`
+embed mounts ONE panel at a time with deferred microtask unmount, and
+gates that mount on a `:xray-embed-collapsed?`
 shell slot, so a collapsed embed renders only the (cheap, pure-data)
 chip-row picker plus a quiet placeholder and never instantiates the
 panel-host component that drives `mount-<panel>!`. Collapsing drops the
 panel-host from the tree, which releases the Xray React root via the same
-existing microtask path (rf2-4l7t2) — no teardown is duplicated. The embed
+existing microtask path — no teardown is duplicated. The embed
 e2e CLJS gate asserts no panel-host slot (hence no diff compute) renders
 while collapsed.
 
@@ -611,8 +611,8 @@ while collapsed.
 
 Story pressure: S1, S7, S11.
 
-These budgets turn the §3.1 parity bars into measurable numbers
-(ratified rf2-ba86n.2). They are the normative source the implementation
+These budgets turn the §3.1 parity bars into measurable numbers.
+They are the normative source the implementation
 and the enforcement gate share; the code-side single source of truth is
 `re-frame.story.budgets`, and the deterministic gate
 (`re-frame.story.budgets-cljs-test`, run under `clojure -M:test` and
@@ -632,10 +632,10 @@ cap as real pain, virtualization is the named upgrade.
 | N3 | Realistic project floor (must stay scannable) | **2 000 variants / 200 stories / 50 workspaces** | TARGET | gate: floor fixture, derivation stays bounded + single-pass |
 | N4 | Sidebar — filtered-tree rebuild per search keystroke | **≤ 8 ms** (documented target); gate asserts single bounded pass, no O(n²) | TARGET | gate: structural (single bounded pass); latency is a documented target |
 | C1/C4 | Controls — nested controls render depth | **lazy past depth 1** (summarise before expand) | CURRENT | spec/019 §4; `summarize-value` / `path-expanded?` |
-| C2 | Controls — flat-panel control rows before `+N more` | **60** | CURRENT | gate: `controls-flat-row-cap`; render-wired in `ui/controls` `args-editor` (rf2-ba86n.18) |
+| C2 | Controls — flat-panel control rows before `+N more` | **60** | CURRENT | gate: `controls-flat-row-cap`; render-wired in `ui/controls` `args-editor` |
 | C3 | Controls — inline-validation of one edited field | **≤ 4 ms** (documented target) | TARGET | documented target; structural validate is single-field, bounded |
-| G1 | Variants-grid — visible cells before page / `+N more` | **100** | CURRENT | gate: bounded output (`bound-cells` / `grid-visible-cell-cap`); render-wired in `ui/workspace` capped-grid renderer (rf2-ba86n.18) |
-| G2 | Variants-grid — matrix dimension product (soft warn) | **warn at ≥ 12×12 = 144** | CURRENT | gate: `matrix-warn?`; render-wired advisory (rf2-ba86n.18) |
+| G1 | Variants-grid — visible cells before page / `+N more` | **100** | CURRENT | gate: bounded output (`bound-cells` / `grid-visible-cell-cap`); render-wired in `ui/workspace` capped-grid renderer |
+| G2 | Variants-grid — matrix dimension product (soft warn) | **warn at ≥ 12×12 = 144** | CURRENT | gate: `matrix-warn?`; render-wired advisory |
 | G3 | Variants-grid — matrix dimension product (hard cap) | **render ≤ 400; paginate beyond** | CURRENT | gate: `matrix-over-hard-cap?`; render-wired — grid never renders past the hard cap |
 | X1 | Failure → first useful evidence | **≤ 1 gesture; inline excerpt ≤ 2 beats** | CURRENT/TARGET | gate: excerpt-beat cap; one-gesture reach is a review-checklist bar |
 | X2 | Evidence-spine first paint (typical run, ≤ ~200 beats) | **≤ 100 ms** (documented target) | TARGET | documented target (React-bound; review-checklist / manual) |
@@ -745,7 +745,7 @@ regions should be structural bands or panes, not nested decorative cards.
   not diagnostic evidence.
 - **Inspector.** Understanding and diagnosing the selected state. Few
   top-level sections: Explain, Evidence, Xray. Share ships as a toolbar
-  chip (`ui/share` `share-chip`, rf2-ba86n.16), not as an Inspector
+  chip (`ui/share` `share-chip`), not as an Inspector
   section. The visual boundary MUST make Story-owned vs
   Xray-owned interiors clear without feeling stitched together.
 - **Toolbar.** Compact, mostly icon-led where icons are standard; text
@@ -874,8 +874,7 @@ Use motion sparingly — panel open/close, row expansion, running/progress
 state, focus handoff to Xray, dirty-to-saved transition — and honour the
 `[data-rf-story-root]` reduced-motion override seam from
 [`016-Design-Tokens.md`](016-Design-Tokens.md) §Motion — there is no
-`--motion-scale` variable, which is what this line used to name
-(rf2-zxsd7). Avoid constant
+`--motion-scale` variable. Avoid constant
 animated diagnostics; the tool should feel alive through responsiveness
 and good state changes, not ornament.
 
@@ -959,5 +958,5 @@ The Story UI north star is satisfied when:
 | Inspector + Xray boundary | [`020-Story-UI-Inspector-And-Xray.md`](020-Story-UI-Inspector-And-Xray.md) |
 | Test + evidence | [`021-Story-UI-Test-And-Evidence.md`](021-Story-UI-Test-And-Evidence.md) |
 | Docs + share | [`022-Story-UI-Docs-And-Share.md`](022-Story-UI-Docs-And-Share.md) |
-| Xray host-facing focus API (`rf2-crtmq`) | [`../../xray/spec/008-Embedding-Contract.md`](../../xray/spec/008-Embedding-Contract.md) |
+| Xray host-facing focus API | [`../../xray/spec/008-Embedding-Contract.md`](../../xray/spec/008-Embedding-Contract.md) |
 | Story MCP boundary | [`006-MCP-Surface.md`](006-MCP-Surface.md), [`../../story-mcp/spec/002-Tool-Registry.md`](../../story-mcp/spec/002-Tool-Registry.md) |

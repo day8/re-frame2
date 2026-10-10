@@ -3,7 +3,7 @@
 > `story:build` — Story's equivalent of Storybook 8's `storybook build` /
 > Histoire's `histoire build` / Ladle's `ladle build`. Compiles the
 > playground to a static HTML directory the user publishes to GitHub
-> Pages, Netlify, Vercel, or raw S3. Implements rf2-8wgpm.
+> Pages, Netlify, Vercel, or raw S3.
 
 ## Why
 
@@ -50,7 +50,7 @@ The shell honours a second compile-time flag —
   short-circuits at `start-hot-reload-poll!`. Under `:advanced` the
   whole branch DCEs; the bundle never schedules the interval.
 - **First-visit help overlay suppressed.** The dev-time onboarding
-  modal that auto-opens for first-time visitors (per rf2-381i)
+  modal that auto-opens for first-time visitors
   short-circuits its `component-did-mount` auto-open path. The
   manual `?` chip still renders so on-demand help is reachable; the
   modal just doesn't pop unprompted. Visitors arriving at a
@@ -62,12 +62,9 @@ The shell honours a second compile-time flag —
   static-export build is a `release`, so that devtools preload is
   omitted.
 
-  Until rf2-n7lql this bullet went on to say that the omission did not
-  remove Story's directly-imported Xray panel embed, and that "the
-  published shell can retain its inspector without the devtools
-  preload". **That was wrong, and the published export was crashing on
-  it.** Xray cannot render in a `release` build, for two independent
-  reasons:
+  Omitting the preload does not leave Story's directly-imported Xray
+  panel embed usable either: Xray cannot render in a `release` build, for
+  two independent reasons:
 
   1. **Nothing registers Xray.** The preload is what normally installs
      the `:rf.xray/*` instruction set, and `release` ignores the preload
@@ -77,34 +74,34 @@ The shell honours a second compile-time flag —
      registrar, so with nothing registered that glob matches an empty
      pool and core's deliberate `:rf.error/image-zero-match` guard
      fires.
-  2. **Xray's views are undefined.** rf2-y8doi.60 gates Xray's four
+  2. **Xray's views are undefined.** Xray gates its four
      top-level `rf/reg-view` forms on `re-frame.interop/debug-enabled?`,
      and `reg-view` carries its `def` INSIDE the gate, so under
      `:advanced` with `goog.DEBUG` false those symbols never bind.
      Ungated consumers that render them throw a `TypeError`.
 
-  Both guards are correct and neither is weakened: the defect was asking
-  a dev tool to work in a build that deliberately elides it. So under
+  Both guards are correct and neither is weakened: a `release` build
+  deliberately elides the dev tool. So under
   `static-mode?` the shell omits the RHS Xray band entirely and does not
   drive Xray on variant selection — no `core/set-target-frame!`, no
   `xray-preset` cross-host wiring or per-variant preset.
 
-  **"On variant selection" means BOTH edges, and rf2-n440v is the second
-  one.** rf2-n7lql gated the shell's selection-WATCHER, which fires only
-  on a CHANGE of selection. `hydrate-url-state!` runs earlier in the same
-  `component-did-mount`, so an ordinary deep link arrives with its variant
-  ALREADY selected and reached `wire-cross-host!` + `on-variant-selected!`
-  without passing the watcher — a story carrying a valid
-  `:xray {:open? true :panel :epoch}` preset therefore still attempted
-  Xray open/panel/filter/focus operations in a published export. The gate
-  now sits on `xray-preset/drive-xray?` at the namespace entry points as
-  well as at the shell call site, so no caller can route around it.
+  **"On variant selection" means BOTH edges.** The shell's
+  selection-WATCHER fires only on a CHANGE of selection, and
+  `hydrate-url-state!` runs earlier in the same `component-did-mount`, so
+  an ordinary deep link arrives with its variant ALREADY selected and
+  reaches `wire-cross-host!` + `on-variant-selected!` without passing the
+  watcher. A gate on the watcher alone would let a story carrying a valid
+  `:xray {:open? true :panel :epoch}` preset attempt Xray
+  open/panel/filter/focus operations in a published export, so the gate
+  sits on `xray-preset/drive-xray?` at the namespace entry points as well
+  as at the shell call site, and no caller can route around it.
 
-  **Evidence focus affordances go too (rf2-n440v).** The evidence spine
-  rendered three live Xray focus buttons per beat, and Docs' evidence
-  excerpt a fourth, all reaching `evidence-spine/focus-beat!` — which
-  gated on `enabled?` alone and so entered Xray's dispatch path with no
-  mounted destination. Under `static-mode?` the affordances are omitted
+  **Evidence focus affordances go too.** The evidence spine renders
+  three live Xray focus buttons per beat, and Docs' evidence excerpt a
+  fourth, all reaching `evidence-spine/focus-beat!`; gated on `enabled?`
+  alone it would enter Xray's dispatch path with no mounted destination.
+  Under `static-mode?` the affordances are omitted
   and the callback refuses, both through one predicate,
   `evidence-spine/focus-available?`. **The evidence NARRATIVE is
   RETAINED** — spans, beats, evidence-strength tags and summary chips
@@ -238,10 +235,9 @@ not run this script at all; see [§Downstream pattern](#downstream-pattern).
 
 These are **CI-internal knobs**, not a stable public configuration
 surface — re-frame2 reserves the right to rename / drop them between
-releases. Per rf2-21rfv (pragmatic stance, 2026-05-14): path-policy
-constrains `STORY_BUILD_OUTPUT_DIR` to `implementation/out/` and
+releases. Path-policy constrains `STORY_BUILD_OUTPUT_DIR` to `implementation/out/` and
 `STORY_BUILD_INDEX_HTML` to `<repo>/implementation/`, `<repo>/examples/`,
-or `<repo>/tools/` (rf2-p8f2s — tool-owned testbeds). Out-of-tree paths
+or `<repo>/tools/` (tool-owned testbeds). Out-of-tree paths
 — a write target OR a read source — require the explicit opt-in
 `RE_FRAME_ALLOW_OUT_OF_TREE_PATHS=1`. The check is a safety net
 against accidents (env unset / mistyped path turning a build into a
@@ -300,7 +296,7 @@ The script:
      selected variant's title — proves the registry survived
      `:advanced` compilation and dispatch / subscription paths work.
    - No uncaught `pageerror` fired during the run — any one fails the
-     smoke (rf2-mwx08).
+     smoke.
 5. Tears the server down.
 
 A single PASS / FAIL line is logged; non-zero exit on smoke failure.
@@ -339,16 +335,16 @@ their `staticwebapp.config.json` under Azure, etc.).
 | The chrome-level toolbar + mode-tabs strip | bundled |
 | The a11y panel (axe-core lazy-load endpoint stays the same) | bundled |
 | The per-variant trace-buffer infra (feeds the schema-validation panel) | bundled |
-| Story's directly imported Xray panel embed | bundled (the `:require` is unchanged) but NOT mounted — see §Static-mode runtime semantics, rf2-n7lql |
+| Story's directly imported Xray panel embed | bundled (the `:require` is unchanged) but NOT mounted — see §Static-mode runtime semantics |
 
 ## What gets stripped
 
 | Surface | Why |
 |---|---|
 | `:devtools/preloads` (Xray preload) | `release` builds ignore the preload slot |
-| The RHS Xray band + the per-variant Xray drive | gated on `(not static-mode?)`; Xray cannot render in a `release` build (rf2-n7lql) |
+| The RHS Xray band + the per-variant Xray drive | gated on `(not static-mode?)`; Xray cannot render in a `release` build |
 | Mount-time `:xray` preset application + the cross-host bridges | gated on `(not static-mode?)` via `xray-preset/drive-xray?`, which also covers the deep-link path, where the variant is already selected at mount |
-| Per-beat Xray focus links (evidence spine + Docs evidence excerpt) and the `focus-beat!` callback | gated on `(not static-mode?)` via `evidence-spine/focus-available?`; the evidence narrative itself is RETAINED (rf2-n440v) |
+| Per-beat Xray focus links (evidence spine + Docs evidence excerpt) and the `focus-beat!` callback | gated on `(not static-mode?)` via `evidence-spine/focus-available?`; the evidence narrative itself is RETAINED |
 | `shadow-cljs` websocket bridge | `release` builds don't include the dev-server connection |
 | Registrar-fingerprint poll (the 500ms `setInterval`) | gated on `(not static-mode?)`; DCEs under `:advanced` |
 | First-visit help overlay auto-open | gated on `(not static-mode?)` |
@@ -401,7 +397,7 @@ does not run them. The tutorial form of these steps is
   share-URL mechanism `:story-static` consumers rely on for
   deep-linking variants without a per-variant HTML file.
 - [`tools/story/testbeds/counter_with_stories/`](../testbeds/counter_with_stories/)
-  — the canonical worked example / testbed (rf2-p8f2s).
+  — the canonical worked example / testbed.
 - [`implementation/scripts/story-build.cjs`](../../../implementation/scripts/story-build.cjs)
   — the build driver.
 - [`implementation/scripts/check-story-static.cjs`](../../../implementation/scripts/check-story-static.cjs)
