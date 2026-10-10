@@ -185,7 +185,7 @@ test('the byte ceiling is ONE ceiling over both partitions', () => {
 test('state is bounded, and the ceiling is measured in BYTES', () => {
   // An em dash is one code unit and three bytes, written as an escape so an
   // encoding-normalising editor cannot quietly ASCII-fy it.
-  const value = `"${'—'.repeat(40)}"`;
+  const value = `"${'\u2014'.repeat(40)}"`;
   const bytes = Buffer.byteLength(':todos', 'utf8') + Buffer.byteLength(value, 'utf8');
   assert.ok(Buffer.byteLength(value, 'utf8') > value.length, 'the fixture must be non-ASCII or it proves nothing');
   const stateOnly = { protocol: 1, entry: 'app/root', state: { ':todos': value } };
