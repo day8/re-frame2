@@ -15,17 +15,18 @@
             [re-frame.ssr.install :as rf.ssr.install]
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]))
 
-;; Seat the client adapter this ns mounts through, cold-starting the slot: the
-;; shared bundle runs suites that seat other adapters, and `init!` with a
-;; different one raises `:rf.error/adapter-already-installed`.
+;; Map-form fixtures, because the test is async. Seat the client adapter this
+;; ns mounts through, cold-starting the slot: the shared bundle runs suites
+;; that seat other adapters, and `init!` with a different one raises
+;; `:rf.error/adapter-already-installed`.
 (use-fixtures :once
-  (fn [f]
-    (rf/destroy-adapter!)
-    (rf/init! rf.adapter.reagent/adapter)
-    (try (f) (finally (rf/destroy-adapter!)))))
+  {:before (fn []
+             (rf/destroy-adapter!)
+             (rf/init! rf.adapter.reagent/adapter))
+   :after  (fn [] (rf/destroy-adapter!))})
 
 ;; The install ledger is a process-global `defonce`.
-(use-fixtures :each (fn [f] (rf.ssr.install/reset-installed-payloads!) (f)))
+(use-fixtures :each {:before (fn [] (rf.ssr.install/reset-installed-payloads!))})
 
 (defn- browser? []
   (and (exists? js/document)
