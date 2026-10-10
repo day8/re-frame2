@@ -15,7 +15,7 @@ The split lives in [`spec/Ownership.md` §examples-split](../spec/Ownership.md) 
 testbeds/
   deliberate_throw/        <-- four exception trigger sites (handler / fx / flow / machine)
   schema_violation/        <-- four schema-validation trigger sites (app-db / event / cofx / fx)
-  http_toggle/             <-- single button + outcome dropdown for the eight :rf.http/* categories
+  http_toggle/             <-- single button + outcome dropdown for the :rf.http/* categories
   multi_frame/             <-- three frames coexisting; cross-frame :dispatch fan-out from one click
   deep_machine/            <-- one machine: parallel regions + 5-deep compound + :always/:after/:spawn/:spawn-all
   long_flow_w_failure/     <-- 5-second cascade driving 3 flows in topo order with configurable mid-flow throw
@@ -112,7 +112,7 @@ Tier 4 — a11y (retired rf2-9jfo1.1):
 - [`spec/009-Instrumentation.md` §Error contract](../spec/009-Instrumentation.md) — the `:rf.error/*` taxonomy the `deliberate_throw/` surface fires every member of.
 - [`spec/010-Schemas.md` §Per-step recovery](../spec/010-Schemas.md) — the five validation points the `schema_violation/` surface walks one button per.
 - [`spec/013-Flows.md` §Failure semantics](../spec/013-Flows.md) — the flow-failure atomicity contract the `long_flow_w_failure/` surface exercises over a multi-second cascade.
-- [`spec/014-HTTPRequests.md` §Failure categories](../spec/014-HTTPRequests.md) — the eight `:rf.http/*` categories the `http_toggle/` outcome dropdown enumerates.
+- [`spec/014-HTTPRequests.md` §Failure categories](../spec/014-HTTPRequests.md) — the `:rf.http/*` categories the `http_toggle/` outcome dropdown enumerates.
 - [`spec/002-Frames.md` §Run-to-completion](../spec/002-Frames.md) — the depth-bounded drain rule 3 the `drain_depth_trigger/` surface forces the runtime to hit.
 - [`spec/009-Instrumentation.md` §Size elision in traces](../spec/009-Instrumentation.md) — the three nomination paths + `:rf.size/large-elided` marker shape the `large_dispatcher/` surface exercises four buttons against.
 - [`spec/Spec-Schemas.md` §`:rf/epoch-record` Outcomes](../spec/Spec-Schemas.md) — the `:halted-depth` outcome key the `drain_depth_trigger/` surface produces (rf2-v0jwt).

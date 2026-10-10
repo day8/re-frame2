@@ -1,7 +1,7 @@
 (ns http-toggle.core
   "Shared framework-behavior testbed — a single HTTP-request button and
-  a toggleable outcome dropdown that enumerates the eight failure
-  categories of `:rf.http/managed` (plus the success path). One click +
+  a toggleable outcome dropdown that enumerates the failure categories
+  of `:rf.http/managed` (plus the success path). One click +
   one dropdown selection drives the request through the configured
   outcome, and the runtime emits the corresponding :rf.http/* event(s)
   the consumer is watching for.
@@ -15,7 +15,10 @@
     :rf.http/aborted    → abort via :request-id (the testbed's Cancel)
     :rf.http/transport  → network / DNS / connection-refused
     :rf.http/decode-failure → 2xx response whose body failed decode
-    :rf.http/cors       → CORS preflight rejected or response blocked
+    :http-toggle/cross-origin → :rf.http/transport carrying :cross-origin? true
+                        (a Fetch rejection against another origin: a
+                        network drop or a CORS refusal, which the
+                        browser reports the same way)
 
   Routing strategy: the success path issues a REAL Fetch against
   `/api/<outcome>.json` (static asset shipped under the testbed dir).
@@ -216,14 +219,15 @@
                                :cause     "SyntaxError: Unexpected token < at 0"
                                :schema-validation-failure? false}}]
 
-                :rf.http/cors
+                :http-toggle/cross-origin
                 [:http-toggle/canned-failure-with-trace
-                 {:request    {:method :get :url "https://other.example/api/cors"}
+                 {:request    {:method :get :url "https://other.example/api/cross-origin"}
                   :request-id request-id
                   :reply-to   [::go msg]
-                  :kind       :rf.http/cors
-                  :tags       {:message "CORS preflight rejected"
-                               :url     "https://other.example/api/cors"}}])]}))))
+                  :kind       :rf.http/transport
+                  :tags       {:message       "Failed to fetch"
+                               :cause         "TypeError"
+                               :cross-origin? true}}])]}))))
 
 ;; ----------------------------------------------------------------------------
 ;; Deferred-abortable stub — synthesises the :rf.http/aborted path
@@ -284,7 +288,7 @@
    [:rf.http/aborted        ":rf.http/aborted (deferred — click Cancel)"]
    [:rf.http/transport      ":rf.http/transport (network)"]
    [:rf.http/decode-failure ":rf.http/decode-failure (bad JSON)"]
-   [:rf.http/cors           ":rf.http/cors"]])
+   [:http-toggle/cross-origin ":rf.http/transport (cross-origin)"]])
 
 (reg-view buttons []
   (let [outcome @(subscribe [:outcome])

@@ -1,7 +1,7 @@
 # `testbeds/http-toggle`
 
 A single Reagent button + outcome dropdown that drives a
-`:rf.http/managed` request through one of the 8 failure categories
+`:rf.http/managed` request through one of the failure categories
 in Spec 014 (plus the success path). One click + one selection emits
 the corresponding `:rf.http/*` event(s) on the trace stream so a
 consumer (Xray, Story, re-frame2-pair-mcp) verifies category attribution
@@ -16,7 +16,7 @@ end-to-end.
 | aborted | `:rf.http/aborted` | Per-testbed `:http-toggle/deferred-abortable` stub defers a canned reply by 500ms so the spec can observe `:status :loading` and click Cancel. The Cancel button fires the live `:rf.http/managed-abort` fx. | `:status :cancelled`, `:error :kind :rf.http/aborted`, `:request-id ::in-flight`, `:reason :user` |
 | transport | `:rf.http/transport` | Canned-failure stub. | `:status :error`, `:error :kind :rf.http/transport`, `:message "Network unreachable"`, `:cause "ECONNREFUSED"` |
 | decode-failure | `:rf.http/decode-failure` | Canned-failure stub (live decode-failure requires a JSON endpoint that 2xxs with invalid JSON; the stub preserves the reply envelope). | `:status :error`, `:error :kind :rf.http/decode-failure`, `:body-text "<<not-json>>"`, `:cause "SyntaxError: ..."` |
-| CORS | `:rf.http/cors` | Canned-failure stub. CLJS-only; the JVM never emits this category. | `:status :error`, `:error :kind :rf.http/cors`, `:url "https://other.example/api/cors"` |
+| cross-origin transport | `:http-toggle/cross-origin` | Canned-failure stub. The browser reports a CORS refusal and a network drop against another origin as the same Fetch `TypeError`, so both are `:rf.http/transport` with the CLJS-only `:cross-origin?` hint. | `:status :error`, `:error :kind :rf.http/transport`, `:message "Failed to fetch"`, `:cause "TypeError"`, `:cross-origin? true` |
 
 ## Why canned-failure for seven of eight
 
