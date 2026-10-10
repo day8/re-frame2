@@ -72,9 +72,10 @@
            problems))))
 
 (deftest parse-var-rows-flags-a-var-row-it-cannot-classify
-  ;; The first cell alone decides that a row names a var. A var-row whose
+  ;; A back-ticked symbol first cell makes a row a var-row. A var-row whose
   ;; tier or marker cannot be read is a problem; keyword, list and vector
-  ;; first cells name something else and are skipped.
+  ;; first cells with no Fn / M / Var marker name something else and are
+  ;; skipped.
   (let [{:keys [var-rows problems]}
         (rf.api-manifest.api-md-check/parse-var-rows
           [[1 "| API | M/Fn | Signature | Status | Tier | Spec |"]
@@ -87,6 +88,22 @@
            [8 "| `:rf.http/managed` | fx | sig | v1 | — (fx-id) | 014 |"]])]
     (is (= [3] (map :line var-rows)))
     (is (= [[:unclassifiable-row 4 "subscribe"] [:unclassifiable-row 5 "reg-sub"]]
+           (map (juxt :kind :line :raw) problems)))))
+
+(deftest parse-var-rows-flags-a-marked-row-whose-first-cell-names-no-single-var
+  ;; A Fn / M / Var marker also makes a row a var-row, so a first cell that
+  ;; lost its backticks, or one grouping several vars, is a problem naming
+  ;; its line rather than a row checked against nothing.
+  (let [{:keys [var-rows problems]}
+        (rf.api-manifest.api-md-check/parse-var-rows
+          [[1 "| API | M/Fn | Signature | Status | Tier | Spec |"]
+           [2 "|---|---|---|---|---|---|"]
+           [3 "| `reg-event` | M | sig | v1 | front-porch | 001 |"]
+           [4 "| reg-sub | Fn | sig | v1 | front-porch | 006 |"]
+           [5 "| `app-db-value` / `frame-state-value` | Fn | sig | v1 | advanced | 002 |"]])]
+    (is (= [3] (map :line var-rows)))
+    (is (= [[:unclassifiable-row 4 "reg-sub"]
+            [:unclassifiable-row 5 "`app-db-value` / `frame-state-value`"]]
            (map (juxt :kind :line :raw) problems)))))
 
 (deftest live-api-md-names-qualified-var-rows
