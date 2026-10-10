@@ -98,7 +98,7 @@ Most of the config map is optional. Three keys carry the idea:
 
 The request function returns [managed-HTTP args](../../async/http.md), so transport
 options such as `:retry` and `:timeout-ms` go there. Resources addresses the reply;
-do not add `:request-id`, `:on-success` or `:on-failure`. The
+do not add `:request-id`, `:on-success`, `:on-failure` or `:reply-to`. The
 [registration reference](../../api/re-frame.resources.md#the-resource-spec)
 records the remaining metadata options.
 

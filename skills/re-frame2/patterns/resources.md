@@ -49,7 +49,7 @@ Three roles never blur:
      :decode  :app/article}))
 ```
 
-The request fn returns a managed-HTTP args map but MUST NOT supply `:request-id` / `:on-success` / `:on-failure` — the runtime owns reply addressing and stale suppression (those are rejected at registration / dispatch).
+The request fn returns a managed-HTTP args map but MUST NOT supply `:request-id` / `:on-success` / `:on-failure` / `:reply-to` — the runtime owns reply addressing and stale suppression (those are rejected at registration / dispatch), and a continuation goes in the call-site `:reply-to`.
 
 ### Read it (passive subscriptions)
 

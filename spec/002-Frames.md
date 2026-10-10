@@ -1710,6 +1710,8 @@ Ensure a named frame exists for as long as the subtree is mounted — create it 
 - **no destroy-on-unmount** — the boundary arms **no** teardown effect; a genuine unmount leaves the frame live;
 - **fail-loud reconfiguration** — a mounted `:id`/opts change is `:rf.error/frame-root-reconfigured`.
 
+**A hydrating root cannot adopt a `frame-root`.** Its empty first render leaves React nothing to claim the server's markup with, and React keeps an unclaimed server node directly under a root, so the client tree would mount beside the server's copy: the page twice, with no hydration mismatch reported. An adopting root makes its frame with `make-frame`, installs the payload with `ssr/hydrate!`, and scopes it with `frame-provider`. Fresco's hydrating root door (`h/render!` with `{:hydrate? true}`) refuses a `frame-root` in the tree it lowers with `:rf.error/fresco-frame-root-adopting`, before `hydrateRoot` runs, so the container keeps the server's markup and no root is made. A `frame-root` reached only through a view body lowers later, during React's render, so the door never sees it and does not refuse it.
+
 Implementation skeleton (Reagent flavour — commit-owned two-pass; no teardown):
 
 ```clojure
