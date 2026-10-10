@@ -23,7 +23,7 @@
   `boundary_crossing_…` — codec-side), the disposed cell and the first
   registration (`disposed_cell_…`, `first_registration_…` — both drive
   their guards THROUGH the cold path this file pins)."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
             [re-frame.core :as rf]
@@ -70,127 +70,80 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest one-run-computes-a-cold-key-once-against-one-snapshot
-  (testing "two reads of one cold key in one body run are one compute and
-           one value: the probe's memo is shared by the whole run, which
-           is the fence's one-commit invariant stated smaller"
-    (let [f (make-frame! ::once {:v 7})
-          a (volatile! nil)
-          b (volatile! nil)]
-      (reg-counted! :coldread/once)
-      (rf.bench.fresco.arm1.runtime/render-body f (fn [_]
-                          (vreset! a (rf.bench.fresco.arm1.runtime/sub [:coldread/once]))
-                          (vreset! b (rf.bench.fresco.arm1.runtime/sub [:coldread/once]))
-                          [:li])
-                      {})
-      (is (= 7 @a))
-      (is (= 7 @b) "one value for one run")
-      (is (= 1 @!runs)
-          "one compute: the second read is a memo hit, not a second
-           subscribe-once round trip"))))
+  ;; Two reads of one cold key in one body run are one compute and one
+  ;; value. The sub is registered in the same tick as the read, so this is
+  ;; also the register-then-read-sync guarantee kept on the cold path.
+  (let [f (make-frame! ::once {:v 7})
+        a (volatile! nil)
+        b (volatile! nil)]
+    (reg-counted! :coldread/once)
+    (rf.bench.fresco.arm1.runtime/render-body f (fn [_]
+                                                  (vreset! a (rf.bench.fresco.arm1.runtime/sub [:coldread/once]))
+                                                  (vreset! b (rf.bench.fresco.arm1.runtime/sub [:coldread/once]))
+                                                  [:li])
+                                              {})
+    (is (= [7 7 1] [@a @b @!runs]))))
 
 (deftest a-later-render-computes-against-the-current-db
-  (testing "the probe box is render-scoped: run-once resets it, so a later
-           render's cold reads compute against the db that is current
-           THEN, never a stale snapshot"
-    (let [f    (make-frame! ::fresh {:v 1})
-          seen (volatile! nil)
-          body (fn [_] (vreset! seen (rf.bench.fresco.arm1.runtime/sub [:coldread/fresh])) [:li])]
-      (reg-counted! :coldread/fresh)
-      (rf.bench.fresco.arm1.runtime/render-body f body {})
-      (is (= 1 @seen))
+  ;; The probe box is render-scoped: a box surviving the run would answer 1
+  ;; on the second render.
+  (let [f    (make-frame! ::fresh {:v 1})
+        seen (volatile! nil)
+        body (fn [_] (vreset! seen (rf.bench.fresco.arm1.runtime/sub [:coldread/fresh])) [:li])]
+    (reg-counted! :coldread/fresh)
+    (rf.bench.fresco.arm1.runtime/render-body f body {})
+    (let [first-seen @seen]
       (rf.frame/replace-app-db! f {:v 2})
       (rf.bench.fresco.arm1.runtime/render-body f body {})
-      (is (= 2 @seen)
-          "the second render minted a fresh snapshot and a fresh memo —
-           a probe box surviving the run would answer 1 here")
-      (is (= 2 @!runs) "and each run computed exactly once"))))
+      (is (= [1 2 2] [first-seen @seen @!runs])))))
 
 (deftest a-cold-read-leaves-the-world-as-it-found-it
-  (testing "the probe mutates nothing, transiently or otherwise: no cache
-           entry, no reference, no cell, no edge — an abandoned render
-           needs no cleanup because nothing happened"
-    (let [f (make-frame! ::clean {:v 3})]
-      (reg-counted! :coldread/clean)
-      (let [before (rf.bench.fresco.arm1.runtime/stats)]
-        (rf.bench.fresco.arm1.runtime/render-body f (fn [_] (rf.bench.fresco.arm1.runtime/sub [:coldread/clean]) [:li]) {})
-        (let [after (rf.bench.fresco.arm1.runtime/stats)]
-          (is (= (:cells before) (:cells after)) "no cell built")
-          (is (= (:cell-refs before) (:cell-refs after)) "no reference taken")
-          (is (= (:boundaries before) (:boundaries after)) "no boundary registered")
-          (is (= (:edges before) (:edges after)) "no edge added"))
-        (is (zero? (count @(:sub-cache (rf.frame/frame f))))
-            "and the frame's sub-cache holds nothing — a subscribe-once
-             crossing would pay an insert and an evict per read; the probe
-             never touches it")))))
+  ;; No cache entry, reference, cell or edge: an abandoned render needs no
+  ;; cleanup because nothing happened.
+  (let [f      (make-frame! ::clean {:v 3})
+        ledger #(select-keys (rf.bench.fresco.arm1.runtime/stats) [:cells :cell-refs :boundaries :edges])]
+    (reg-counted! :coldread/clean)
+    (let [before (ledger)]
+      (rf.bench.fresco.arm1.runtime/render-body f (fn [_] (rf.bench.fresco.arm1.runtime/sub [:coldread/clean]) [:li]) {})
+      (is (= [before 0] [(ledger) (count @(:sub-cache (rf.frame/frame f)))])))))
 
 ;; ---------------------------------------------------------------------------
 ;; Rung 1 — the live-reaction reuse, by deref alone
 ;; ---------------------------------------------------------------------------
 
 (deftest a-live-sub-cache-reaction-is-reused-without-recompute-or-churn
-  (testing "a key some outside holder keeps warm is read by deref alone:
-           no recompute, no ref-count round trip, the holder's entry
-           untouched"
-    (let [f (make-frame! ::reuse {:v 11})]
-      (reg-counted! :coldread/reuse)
-      ;; The outside holder — a tool, a test, another runtime. One build.
-      (let [held (rf.subs/subscribe [:coldread/reuse] {:frame f})
-            _    @held
-            runs-after-hold @!runs
-            cache (:sub-cache (rf.frame/frame f))
-            entry-before (get @cache [:coldread/reuse])
-            seen (volatile! nil)]
-        (is (= 1 runs-after-hold))
-        (rf.bench.fresco.arm1.runtime/render-body f (fn [_] (vreset! seen (rf.bench.fresco.arm1.runtime/sub [:coldread/reuse])) [:li]) {})
-        (is (= 11 @seen) "the cold read answered the held reaction's value")
-        (is (= 1 @!runs)
-            "by deref alone: the probe's first rung reused the live
-             reaction, so the sub body did not run again")
-        (let [entry-after (get @cache [:coldread/reuse])]
-          (is (identical? (:reaction entry-before) (:reaction entry-after))
-              "the same reaction, not a rebuild")
-          (is (= (:ref-count entry-before) (:ref-count entry-after))
-              "and the same ref-count — no acquire/release churn"))
-        (rf.subs/unsubscribe f [:coldread/reuse])))))
+  ;; A key an outside holder keeps warm is read by deref alone: no
+  ;; recompute, the same reaction, the same ref-count.
+  (let [f (make-frame! ::reuse {:v 11})]
+    (reg-counted! :coldread/reuse)
+    (let [held         (rf.subs/subscribe [:coldread/reuse] {:frame f})
+          _            @held
+          cache        (:sub-cache (rf.frame/frame f))
+          entry-before (get @cache [:coldread/reuse])
+          seen         (volatile! nil)]
+      (rf.bench.fresco.arm1.runtime/render-body f (fn [_] (vreset! seen (rf.bench.fresco.arm1.runtime/sub [:coldread/reuse])) [:li]) {})
+      (let [entry-after (get @cache [:coldread/reuse])]
+        (is (= [11 1 true (:ref-count entry-before)]
+               [@seen @!runs (identical? (:reaction entry-before) (:reaction entry-after)) (:ref-count entry-after)])))
+      (rf.subs/unsubscribe f [:coldread/reuse]))))
 
 ;; ---------------------------------------------------------------------------
 ;; The error contract the probe must keep
 ;; ---------------------------------------------------------------------------
 
 (deftest a-cold-unregistered-read-emits-no-such-sub-once-and-recovers-nil
-  (testing "the probe's memo is seeded with `rf.subs/observation-opts-key`,
-           so an unregistered cold read emits the always-on
-           `:rf.error/no-such-sub` exactly as the reactive build does —
-           and the memo dedupes, so two reads of the same unknown query
-           in one run emit once"
-    (let [f    (make-frame! ::unreg {:v 1})
-          seen (volatile! :unread)
-          records
-          (capture-errors
-            (fn []
-              (rf.bench.fresco.arm1.runtime/render-body f (fn [_]
-                                  (vreset! seen (rf.bench.fresco.arm1.runtime/sub [:coldread/nope]))
-                                  (rf.bench.fresco.arm1.runtime/sub [:coldread/nope])
-                                  [:li])
-                              {})))]
-      (is (nil? @seen) "recovered to nil, per the contract")
-      (is (= 1 (count (filterv #(= :rf.error/no-such-sub (:error %)) records)))
-          "one emission for one distinct unknown query per run")
-      (is (= :coldread/nope
-             (:event-id (first (filterv #(= :rf.error/no-such-sub (:error %)) records))))
-          "attributed to the query that carried it"))))
-
-(deftest a-same-tick-registration-is-visible-to-the-very-next-cold-read
-  (testing "the probe computes inside `call-with-frame-resolution`, whose
-           read-time coalesced flush makes a `reg-sub` issued earlier in
-           this same tick visible to this very read — the substrate's
-           register-then-read-sync guarantee, kept on the cold path"
-    (let [f    (make-frame! ::sametick {:v 5})
-          seen (volatile! :unread)]
-      ;; Registered AFTER the frame exists, read in the SAME tick.
-      (reg-counted! :coldread/sametick)
-      (rf.bench.fresco.arm1.runtime/render-body f (fn [_] (vreset! seen (rf.bench.fresco.arm1.runtime/sub [:coldread/sametick])) [:li]) {})
-      (is (= 5 @seen)
-          "the very next cold read resolved the handler registered this
-           tick — a probe that skipped the resolution seam's flush could
-           compute against a stale projection"))))
+  ;; The probe's memo is seeded with `rf.subs/observation-opts-key`, so an
+  ;; unregistered cold read emits the always-on `:rf.error/no-such-sub` as
+  ;; the reactive build does, once per distinct query per run.
+  (let [f    (make-frame! ::unreg {:v 1})
+        seen (volatile! :unread)
+        records
+        (capture-errors
+          (fn []
+            (rf.bench.fresco.arm1.runtime/render-body f (fn [_]
+                                                          (vreset! seen (rf.bench.fresco.arm1.runtime/sub [:coldread/nope]))
+                                                          (rf.bench.fresco.arm1.runtime/sub [:coldread/nope])
+                                                          [:li])
+                                                      {})))]
+    (is (= [nil [:coldread/nope]]
+           [@seen (mapv :event-id (filterv #(= :rf.error/no-such-sub (:error %)) records))]))))
