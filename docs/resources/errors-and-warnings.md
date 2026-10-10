@@ -30,7 +30,7 @@ nothing. [Troubleshooting](concepts.md#troubleshooting) in the model covers thos
 | `:rf.error/resource-not-registered` | An ensure, refetch or subscription names an unregistered id | Require the namespace that registers it |
 | `:rf.error/resource-invalid-params` | Params don't conform to `:params-schema` — checked once the [schemas](../core/how-to/validate-with-schemas.md) artefact is loaded | Fix the params; the error redacts classified values |
 | `:rf.error/resource-non-edn-params` | A resource's or mutation's params carry a float, a ratio, a function or another host value, none of which can be part of a cache key | Pass it as a string or an integer, or leave it out |
-| `:rf.error/resource-reserved-request-key` | The request fn returned `:request-id`, `:on-success` or `:on-failure` | Drop them; the runtime routes the reply |
+| `:rf.error/resource-reserved-request-key` | The request fn returned `:request-id`, `:on-success`, `:on-failure` or `:reply-to` | Drop them; the runtime routes the reply, and a continuation goes in the call-site `:reply-to` |
 | `:rf.error/resource-unknown-transport` | A `:transport` other than `:rf.http/managed`. The spec registers; the first load or write raises | Omit `:transport`, or use `:rf.http/managed` |
 | `:rf.error/http-artefact-missing` | A load or write without `re-frame.http.managed` | `(:require [re-frame.http.managed])` at boot |
 | `:rf.error/reply-invalid-target` | An ensure's or execute's `:reply-to` is not a non-empty vector with a keyword head | Pass an event vector, such as `[:todo/loaded]` |

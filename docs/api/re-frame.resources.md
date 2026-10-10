@@ -107,7 +107,7 @@ Each fetch of a scoped key starts a new *generation*, and each request attempt h
 |---|---|
 | `:params-schema` | Validates and canonicalizes params. The canonical params identify the cache entry. Validation runs when `re-frame.schemas` is loaded; without it, params are canonicalized but not checked. Params must be portable EDN, so a fractional number fails: send `9.99` as `999` (cents) or `"9.99"`. Instants are accepted. An omitted `:params` is `{}`; an explicit `nil` is validated as `nil`. A spec without `:params-schema` raises `:rf.error/resource-bad-spec`. |
 | `:scope` | The scope policy: `:rf.scope/global` or `{:from-db <resource-scope-id>}` (see [Scope policy](#scope-policy)). Any other value, or none, raises `:rf.error/resource-missing-scope-policy`. |
-| request fn (third argument) | For `:transport :rf.http/managed`, returns a [managed-HTTP args map](re-frame.http.md). It must be a fn (or a Var), or registration raises `:rf.error/resource-bad-spec`. It must not supply `:request-id`, `:on-success` or `:on-failure`: the runtime supplies those from the scoped key and generation, and supplying one raises `:rf.error/resource-reserved-request-key`. |
+| request fn (third argument) | For `:transport :rf.http/managed`, returns a [managed-HTTP args map](re-frame.http.md). It must be a fn (or a Var), or registration raises `:rf.error/resource-bad-spec`. It must not supply `:request-id`, `:on-success`, `:on-failure` or `:reply-to`: the runtime supplies the first three from the scoped key and generation, a continuation goes in the call-site `:reply-to` instead, and supplying any of the four raises `:rf.error/resource-reserved-request-key`. |
 
 **Optional keys**:
 
@@ -189,7 +189,7 @@ See [Scope: whose cache?](../resources/concepts.md#the-scoped-key-a-leak-boundar
 | Key | Notes |
 |---|---|
 | `:params-schema` | Validates and canonicalizes the write's params. A spec without it raises `:rf.error/mutation-bad-spec`. |
-| request fn (third argument) | Returns the [managed-HTTP args map](re-frame.http.md) for the write. It must be a fn (or a Var), or registration raises `:rf.error/mutation-bad-spec`. It must not supply `:request-id`, `:on-success` or `:on-failure`: the runtime supplies those from the instance and generation, and supplying one raises `:rf.error/resource-reserved-request-key`. |
+| request fn (third argument) | Returns the [managed-HTTP args map](re-frame.http.md) for the write. It must be a fn (or a Var), or registration raises `:rf.error/mutation-bad-spec`. It must not supply `:request-id`, `:on-success`, `:on-failure` or `:reply-to`: the runtime supplies the first three from the instance and generation, a continuation goes in the execute's call-site `:reply-to` instead, and supplying any of the four raises `:rf.error/resource-reserved-request-key`. |
 
 A *target* names one cache entry as `{:resource <id> :params <params> :scope <scope>}`. Its `:scope` is a concrete scope, `:rf.scope/global` or a `{:from-db <id>}` reference, and defaults to the mutation's resolved scope (`:rf.scope/same`).
 
@@ -316,7 +316,7 @@ Resource events take a single map payload. The events that name a `:resource` va
 - Params that fail `:params-schema` raise `:rf.error/resource-invalid-params`.
 - Scope resolution fails closed: a `{:from-db …}` reference that resolves to `nil` raises `:rf.error/resource-scope-unresolved-reference`, and one naming no registered resolver raises `:rf.error/resource-scope-not-registered` (see [Scope policy](#scope-policy)).
 - Params and scope must be portable EDN: a fractional number, ratio, NaN, fn or other host object raises `:rf.error/resource-non-edn-params`. A misspelt `:rf.scope/*` keyword, the wrapped `[:rf.scope/global]` (write `:rf.scope/global`), or a `{:from-db …}` map where a concrete scope is required raises `:rf.error/resource-invalid-scope`.
-- When the request is built, a request fn that returns `:request-id`, `:on-success` or `:on-failure` raises `:rf.error/resource-reserved-request-key`, a `:transport` other than `:rf.http/managed` raises `:rf.error/resource-unknown-transport`, and a missing `re-frame.http.managed` raises `:rf.error/http-artefact-missing`. Nothing is written to the cache.
+- When the request is built, a request fn that returns `:request-id`, `:on-success`, `:on-failure` or `:reply-to` raises `:rf.error/resource-reserved-request-key`, a `:transport` other than `:rf.http/managed` raises `:rf.error/resource-unknown-transport`, and a missing `re-frame.http.managed` raises `:rf.error/http-artefact-missing`. Nothing is written to the cache.
 
 ### `[:rf.resource/ensure {…}]`
 
@@ -751,7 +751,7 @@ Cache entries (durable facts) and work-ledger attempts (in-flight records) are k
     - `:rf.error/resource-cross-scope-scope-conflict` — a cross-scope `invalidate-tags` that also names `:scope`.
     - `:rf.error/reply-invalid-target` — a `:reply-to` that is not a non-empty vector with a keyword head.
     - `:rf.error/reply-non-data-target` — a `:reply-to` carrying a fn or other host object.
-    - `:rf.error/resource-reserved-request-key` — a request fn that returns `:request-id`, `:on-success` or `:on-failure`.
+    - `:rf.error/resource-reserved-request-key` — a request fn that returns `:request-id`, `:on-success`, `:on-failure` or `:reply-to`.
     - `:rf.error/resource-unknown-transport` — a `:transport` other than `:rf.http/managed`.
     - `:rf.error/http-artefact-missing` — a load or write without `re-frame.http.managed`.
     - `:rf.error/infinite-missing-page-accessor` — a feed whose pages are not vectors and that has no `:page->items`, when `:rf.resource/items`, `:rf.resource/infinite-state` or an `ensure`'s `:reply-to` needs its items.
