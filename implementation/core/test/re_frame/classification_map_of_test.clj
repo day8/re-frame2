@@ -12,8 +12,11 @@
             [re-frame.classification :as rf.classification]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
+            [re-frame.http.privacy-body :as rf.http.privacy-body]
             ;; Loading machines publishes :machines/project-ssr-runtime-db.
             [re-frame.machines]
+            ;; Loading schemas publishes the walker hooks `:decode` reads.
+            [re-frame.schemas]
             [re-frame.schemas.walker :as rf.schemas.walker]
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -27,27 +30,22 @@
   "A managed-HTTP `:decode` schema: an account map keyed by id."
   [:map [:accounts [:map-of :string [:map [:id :int] [:token {:sensitive? true} :string]]]]])
 
-(defn- redact-by-schema-marks
-  "What `re-frame.http.privacy-body/classify-decoded` does with a decoded body:
-  take the walker's `:sensitive?` marks and redact index-free."
-  [value schema]
-  (let [marks (rf.schemas.walker/extract-sensitive-paths-from-schema schema [])]
-    (rf.classification/redact-with-paths value (keys marks) [] {:index-free? true})))
-
 (deftest a-sensitive-mark-under-a-map-of-value-redacts-under-every-key
   (is (= [[:accounts :token]]
          (keys (rf.schemas.walker/extract-sensitive-paths-from-schema accounts-decode [])))
       "the walker writes the mark without the map-of key")
+  (is (= :classify (rf.http.privacy-body/off-box-body-disposition accounts-decode))
+      "the body rides off-box classified, so the per-slot redaction is all that guards it")
   (is (= {:accounts {"a" {:id 1 :token :rf/redacted}
                      "b" {:id 2 :token :rf/redacted}}}
-         (redact-by-schema-marks {:accounts {"a" {:id 1 :token "SECRET-A"}
-                                             "b" {:id 2 :token "SECRET-B"}}}
-                                 accounts-decode))))
+         (rf.http.privacy-body/classify-decoded {:accounts {"a" {:id 1 :token "SECRET-A"}
+                                                            "b" {:id 2 :token "SECRET-B"}}}
+                                                accounts-decode))))
 
 (deftest a-set-element-mark-still-redacts
   (let [schema [:map [:accounts [:set [:map [:id :int] [:token {:sensitive? true} :string]]]]]]
     (is (= {:accounts #{{:id 1 :token :rf/redacted}}}
-           (redact-by-schema-marks {:accounts #{{:id 1 :token "SECRET-SET"}}} schema)))))
+           (rf.http.privacy-body/classify-decoded {:accounts #{{:id 1 :token "SECRET-SET"}}} schema)))))
 
 (deftest the-key-skip-stays-inside-index-free-declared-subtrees
   (let [v {:accounts {"a" {:id 1 :token "SECRET-A"}}}]
@@ -60,6 +58,30 @@
     (testing "a sibling slot under the skipped key rides verbatim"
       (is (= {:accounts {"a" {:id 1 :token :rf/redacted}}}
              (rf.classification/redact-with-paths v [[:accounts :token]] [] {:index-free? true}))))))
+
+(deftest a-large-declaration-under-a-map-of-value-elides-under-every-key
+  (let [projected (rf.classification/redact-with-paths
+                    {:by-id {"a" {:avatar "BIGBLOB-A" :name "n"}
+                             "b" {:avatar "BIGBLOB-B" :name "m"}}}
+                    [] [[:by-id :avatar]] {:index-free? true})]
+    (doseq [k ["a" "b"]]
+      (let [marker (get-in projected [:by-id k :avatar])]
+        (is (rf.elision/marker? marker))
+        (is (= [:by-id k :avatar] (get-in marker [:rf.size/large-elided :path])))))
+    (is (= ["n" "m"] [(get-in projected [:by-id "a" :name])
+                      (get-in projected [:by-id "b" :name])]))))
+
+(deftest a-same-named-slot-below-a-matched-segment-also-matches
+  ;; A value cannot tell a `:map-of` key from a named slot, so once
+  ;; `[:user :email]`'s first segment has matched, the `:email` under the
+  ;; nested `:manager` map matches too, as it does on the durable walker. This
+  ;; is the conservative reading: it can only over-redact.
+  (let [v {:user {:email "me@x" :manager {:email "boss@x" :name "B"}}}]
+    (is (= {:user {:email :rf/redacted :manager {:email :rf/redacted :name "B"}}}
+           (rf.classification/redact-with-paths v [[:user :email]] [] {:index-free? true})))
+    (testing "exact mode still matches the declared path only"
+      (is (= {:user {:email :rf/redacted :manager {:email "boss@x" :name "B"}}}
+             (rf.classification/redact-with-paths v [[:user :email]] []))))))
 
 (deftest a-keyed-machine-data-declaration-redacts-in-hydration-as-the-trace-does
   ;; A spawned actor's projection-relative `[:data :by-id :token]` names the

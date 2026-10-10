@@ -779,9 +779,10 @@
       (is (= unmarked (:rf.fx/args tags)))
       (is (not (:sensitive? tags))))))
 
-(deftest fx-carrier-index-free-fork-does-not-reach-an-undeclared-nested-slot
-  (testing "a feed's `[:data :email]` names a field of each ITEM: it redacts one
-            index down, and an `:email` one NAMED slot deeper rides"
+(deftest fx-carrier-index-free-declaration-reads-as-the-durable-entry-does
+  (testing "a feed's `[:data :email]` names a field of each ITEM, and once its
+            leading segment has matched, a same-named `:email` under a nested
+            map also redacts, as it does on the durable entry"
     (let [nested (str secret "-nested@example.com")
           item   (-> (reply-carrier-record
                        (read-reply (sk :rf.scope/global :declared/feed {:filter :recent})
@@ -794,7 +795,7 @@
                      first
                      :value
                      first)]
-      (is (= {:email :rf/redacted :display-name "Ada" :meta {:email nested}} item)))))
+      (is (= {:email :rf/redacted :display-name "Ada" :meta {:email :rf/redacted}} item)))))
 
 ;; ---------------------------------------------------------------------------
 ;; NON-MAP canonical params on the carriers
