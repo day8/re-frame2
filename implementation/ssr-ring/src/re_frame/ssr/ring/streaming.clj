@@ -371,8 +371,8 @@
         ;; The ids of every continuation whose render THREW,
         ;; accumulated as the growable FIFO drains (nested continuations
         ;; included, since they are drained from the same queue). The final
-        ;; payload's runtime slice carries them, so `frame-failed-boundaries`
-        ;; reports the failures after hydration rather than `#{}` — a
+        ;; payload's runtime slice carries them, so the hydrated frame's
+        ;; runtime-db records the failures rather than `#{}` — a
         ;; durable-state/tooling truth, separate from the fallback the user
         ;; SEES (`streaming/client.cljs` records observed failed chunks
         ;; into its own process-level render-time registry). A volatile rather than a loop

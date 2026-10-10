@@ -814,8 +814,8 @@
              " target key is :location. The SSR redirect"
              " fx writes an HTTP Location response header,"
              " so it uses header vocabulary; rewrite "
-             (pr-str (first retired-keys)) " as :location."
-             " (EP-0007 one-name-per-fact; no back-compat alias.)")
+             (pr-str (first retired-keys)) " as :location;"
+             " there is no alias.")
         {:recovery :rewrite-the-target-key-as-location
          :extra    {:retired-keys  retired-keys
                     :canonical-key :location}}))))

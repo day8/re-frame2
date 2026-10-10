@@ -892,10 +892,11 @@ receives, so a run in which nobody happened to be queued, or in which the
 pool never tried to replace anything, would be green about a path it never
 took. Both facts are read off the service's own counters (`waiting`, and
 `replacements` rising to 1) before any refusal is inspected. The
-uncontracted-rejection rows carry the same shape of control, and there it
-is a fact about the tree rather than about the fix: the partition value is
-asserted to have been read *twice*, because nothing but the structured
-clone reads it a second time.
+uncontracted-rejection rows carry controls of their own: the clone row
+asserts the partition value was read exactly *once*, because a second read
+would mean the caller's own object reached the structured clone, and the
+rejection row asserts the refusal came from the last-resort arm by its
+code.
 
 One of those controls is worth reading twice, because it guards against a
 row going quiet rather than against a row going wrong. The status-spoof

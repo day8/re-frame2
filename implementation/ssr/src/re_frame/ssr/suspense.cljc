@@ -85,8 +85,7 @@
   Absence of a recorded outcome — a plain client mount, a non-streamed
   page, no frame scope at all — means the body renders. That is the
   ordinary case and it fails soft by construction."
-  (:require [re-frame.error :as rf.error]
-            [re-frame.frame :as rf.frame]))
+  (:require [re-frame.error :as rf.error]))
 
 ;; ---- reserved runtime-db slot ---------------------------------------------
 
@@ -104,16 +103,6 @@
   frame state, and the server's own answer. It is not what the component
   reads at render time; see `failed-boundaries` below for why."
   [:rf.runtime/ssr :streaming :failed-boundaries])
-
-(defn frame-failed-boundaries
-  "The durable failed-boundary set recorded in `frame-id`'s runtime-db by
-  hydration, or `#{}`. Never throws for an unknown / destroyed frame.
-
-  For consumers that HAVE a frame — host code, tools, tests, server-side
-  assertions. The component cannot use this; see below."
-  [frame-id]
-  (or (get-in (rf.frame/frame-runtime-db-value frame-id) failed-boundaries-path)
-      #{}))
 
 ;; ---- the render-time record ------------------------------------------------
 ;;

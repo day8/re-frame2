@@ -325,7 +325,7 @@
       ;; we drain it again via the 1-arity call below so the buffer
       ;; clears.
       (rf.trace/emit-error! :rf.error/ssr-render-failed tags)
-      ;; EP-0008: ALSO ride the always-on error-emit axis so
+      ;; ALSO ride the always-on error-emit axis so
       ;; an off-box shipper on a `-Dre-frame.debug=false` JVM SSR host sees
       ;; the structured render-failure record (the dev trace above is
       ;; elided there). `:rf.error/ssr-render-failed` is PROJECTION-ELIGIBLE
