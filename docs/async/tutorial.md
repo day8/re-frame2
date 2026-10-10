@@ -186,8 +186,8 @@ By default the body is parsed by sniffing the Content-Type (`:decode :auto`). Bu
 
 Schema decoding uses Malli. Loading `re-frame.schemas` supplies it and enables
 validation and JSON coercion, such as converting a string to a keyword or UUID
-when the schema requires one. Without Malli, validation is skipped and a dev
-trace, `:rf.warning/http-malli-absent`, reports it once.
+when the schema requires one. Without Malli, a request with a schema `:decode` is
+refused before it is sent, with `:rf.error/schemas-artefact-missing`.
 
 Decoding runs **only on 2xx responses**. A 404 that answers with an HTML error page arrives as `:rf.http/http-4xx` with the raw HTML at `:body`, never as a decode failure ([how failures are classified](http.md#failures-are-a-closed-set)).
 
