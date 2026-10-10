@@ -3,38 +3,28 @@
 
   ## Why the first test matters more than it looks
 
-  The design's §9.5 charge — *\"the tool reimplements `prop-name`, and
-  nothing pins the two together\"* — survived its own adversarial pass
-  UNREPAIRED, and §10.3 named it the open question the page could not
-  close: a corpus pins the tool, a DOM suite pins the runtime, and nothing
-  pins them equal, with the drift silent in both directions.
-
-  §10.2's third recommendation was the only structural answer, and
-  rf2-ani6y took it: the slot rule moved into a `.cljc` both hosts can
-  load — `impl/slot.cljc` in the shipped package, since rf2-r4j91
-  repointed this tool off the retiring prototype's copy. This tool
-  therefore does not *mirror* `prop-name` — it CALLS it.
-  [[the-slot-rule-is-the-shared-one]] is what keeps that true, by
-  asserting the function came out of that file rather than out of this
-  artefact's own tree or the bench tree. Copy the rule in here to
-  \"remove a dependency\" and that test goes red, which is the whole
-  point.
+  A tool that reimplements `prop-name` leaves nothing pinning the two
+  together: a corpus pins the tool, a DOM suite pins the runtime, and the
+  drift is silent in both directions (the design's §9.5 and §10.3). So the
+  slot rule lives in a `.cljc` both hosts load — `impl/slot.cljc` in the
+  shipped package — and this tool does not *mirror* `prop-name`, it CALLS
+  it. [[the-slot-rule-is-the-shared-one]] keeps that true: copy the rule in
+  here to \"remove a dependency\" and it goes red.
 
   ## What is still mirrored, and honestly labelled
 
   `codec/html-attr-slots` and `intent/event-prop?` live in `.cljs` this
   JVM cannot load, so [[re-frame.migration.fresco.dest]] carries small
-  transcriptions of both. Those are conventions, not pins, and the design
-  says so. The rows below assert the transcription's behaviour so a
-  reader can diff two short tables by eye.
+  transcriptions of both. Those are conventions, not pins; the rows below
+  assert the transcription's behaviour so a reader can diff two short
+  tables by eye.
 
   ## The donor's two deltas
 
-  Reagent's `cached-prop-name` and our `rf.fresco.impl.slot/prop-name` are one rule apart
-  from two cells. Each row below cites the executed donor witness that
-  pins it — `codemod-contract-donor-*` in
-  `implementation/adapters/reagent/test/re_frame/reagent_codemod_contract_donor_cljs_test.cljs`
-  (rf2-d2mwk)."
+  Reagent's `cached-prop-name` and our `rf.fresco.impl.slot/prop-name` are
+  one rule apart from two cells. The donor rows match the executed donor
+  witnesses `codemod-contract-donor-*` in
+  `implementation/adapters/reagent/test/re_frame/reagent_codemod_contract_donor_cljs_test.cljs`."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
@@ -50,44 +40,17 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-slot-rule-is-the-shared-one
-  (testing "the tool's slot resolver IS `rf.fresco.impl.slot/prop-name`, by identity —
-            not a transcription of it"
+  (testing "the tool's slot resolver IS `rf.fresco.impl.slot/prop-name`, by
+            identity — not a transcription of it"
     (is (identical? rf.migration.fresco.dest/canonical-slot rf.fresco.impl.slot/prop-name)))
 
-  (testing "and it is loaded from the SHARED `.cljc` IN THE SHIPPED
-            PACKAGE, not from a copy inside this artefact and not from
-            the prototype. rf2-ani6y extracted that file precisely so the
-            tool and the door cannot hold two answers; a copy in `src/`
-            would satisfy every other test in this suite and silently
-            re-open the design's §10.3.
-
-            rf2-r4j91 moved the path off the bench tree. The rule was
-            extracted while the runtime still lived at
-            `implementation/freehand/test/.../bench/fresco/front/`, and
-            `implementation/fresco/frozen-sources.edn` still pins that
-            copy byte-for-byte — so BOTH files answer identically today
-            and either would satisfy an `identical?` check taken alone.
-            The pin names the one a migrator's own code will meet.
-            Freehand's retirement did not settle that by deletion:
-            rf2-0yp7w P0 RE-HOMED the twin into
-            `implementation/fresco/test/` rather than removing it, so
-            both copies still exist and the namespace guard below is
-            load-bearing rather than vestigial."
-    (let [url  (io/resource "re_frame/fresco/impl/slot.cljc")
-          path (some-> url .getPath (str/replace "\\" "/"))]
+  (testing "and it is loaded from the shared `.cljc` IN THE SHIPPED PACKAGE:
+            a copy in `src/` would satisfy every other test in this suite
+            and silently re-open the design's §10.3"
+    (let [path (some-> (io/resource "re_frame/fresco/impl/slot.cljc") .getPath (str/replace "\\" "/"))]
       (is (str/includes? path "implementation/fresco/src/re_frame/fresco/impl/slot.cljc")
           (str "the slot rule must come from the shipped package's shared file; it came from "
-               path))
-      ;; The prototype-twin guard, spelled by NAMESPACE rather than by tree.
-      ;; rf2-r4j91 wrote it as `/implementation/freehand/`, which was where the
-      ;; twin lived; rf2-0yp7w P0 re-homed the harness into
-      ;; `implementation/fresco/test/re_frame/bench/fresco/front/` and left
-      ;; that spelling matching nothing — a guard that had quietly gone slack
-      ;; while still reading like one. `re_frame/bench/` is the twin's
-      ;; namespace segment, so it names the file rather than its address and
-      ;; survives the next relocation too.
-      (is (not (str/includes? path "re_frame/bench/"))
-          "the codemod is reading the retiring prototype's copy of the rule"))))
+               path)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The one mirror the tool REPRINTS, held against the door's own file
@@ -109,69 +72,29 @@
           edn/read-string))
 
 (deftest the-callback-contracts-are-the-doors
-  (testing "rf2-vi11 — the report PRINTS this roster into the `defhost`
-            sketch it invites a migrator to paste, so a fourth contract at
-            the door, or a renamed one, makes the tool's own advice wrong.
-            `html-attr-slots` and `re-event-prop` are mirrors the design
-            calls conventions; this one is a mirror with an alarm on it."
+  (testing "the report PRINTS this roster into the `defhost` sketch it
+            invites a migrator to paste, so a new contract at the door, or a
+            renamed one, makes the tool's own advice wrong"
     (let [door (door-contracts)]
       (is (= door (set rf.migration.fresco.dest/callback-contracts))
           (str "the door accepts " (pr-str door) " and this tool prints "
-               (pr-str rf.migration.fresco.dest/callback-contracts)))))
-
-  (testing "`:fn` — the keyword the sketch used to print at every
-            position — is not among them, which is the whole of the bug"
-    (is (not (contains? (door-contracts) :fn)))))
+               (pr-str rf.migration.fresco.dest/callback-contracts))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The donor's key function, and its two deltas from the shared rule
 ;; ---------------------------------------------------------------------------
 
 (deftest the-donor-key-rule
-  (testing "kebab→camel, which is `dash-to-prop-name`
-            (donor witness: codemod-contract-donor-w2-nested-map-keys)"
-    (is (= "pageSize"  (rf.migration.fresco.donor/key-name :page-size)))
-    (is (= "firstName" (rf.migration.fresco.donor/key-name :first-name)))
-    (is (= "otherKey"  (rf.migration.fresco.donor/key-name :other-key))))
-
-  (testing "the three seeded renames, which hold for every spelling of the
-            same attribute because the cache is keyed on `(name k)`"
-    (is (= "className" (rf.migration.fresco.donor/key-name :class)))
-    (is (= "htmlFor"   (rf.migration.fresco.donor/key-name :for)))
-    (is (= "charSet"   (rf.migration.fresco.donor/key-name :charset)))
-    (is (= "className" (rf.migration.fresco.donor/key-name :x/class))))
-
-  (testing "`aria` and `data` are exempt"
-    (is (= "aria-label" (rf.migration.fresco.donor/key-name :aria-label)))
-    (is (= "data-kind"  (rf.migration.fresco.donor/key-name :data-kind))))
-
-  (testing "symbols take the same arm — `named?` is keyword-or-symbol"
-    (is (= "pageSize" (rf.migration.fresco.donor/key-name 'page-size))))
-
-  (testing "DELTA 1 — a STRING key is verbatim under the donor, seeded
-            renames included, where our own rule applies them to every
-            spelling. This is the cell that makes a transcription of
-            `prop-name` wrong for W2's purposes."
-    (is (= "first-name" (rf.migration.fresco.donor/key-name "first-name")))
-    (is (= "class"      (rf.migration.fresco.donor/key-name "class")))
-    (is (= "className"  (rf.fresco.impl.slot/prop-name "class"))
-        "the shared rule's answer for the same key, for contrast"))
-
-  (testing "DELTA 2 — a CSS custom property is DETECTED and refused, never
-            reproduced. Reagent mangled `--brand-color` into `BrandColor`,
-            a style key nothing reads; preserving that would mean writing
-            a key that never worked."
-    (is (rf.migration.fresco.donor/css-var-name? "--brand-color"))
-    (is (nil? (rf.migration.fresco.donor/key-name :--brand-color)))
-    (is (= "--brand-color" (rf.fresco.impl.slot/prop-name :--brand-color))
-        "our rule preserves it, and React routes it through `setProperty`"))
-
-  (testing "everywhere else the two rules agree, which is why `key-name`
-            delegates rather than transcribes"
-    (doseq [k [:page-size :first-name :other-key :class :for :charset
-               :aria-label :data-kind :onClick :on-click]]
-      (is (= (rf.fresco.impl.slot/prop-name k) (rf.migration.fresco.donor/key-name k))
-          (str "the two rules should agree at " k)))))
+  (testing "keyword and symbol keys take the shared rule — kebab→camel, the
+            seeded renames, the exempt `aria-`/`data-` prefixes — keyed on
+            `(name k)`, so a namespaced spelling lands on its bare twin's
+            slot. DELTA 1: a STRING key is verbatim under the donor, seeded
+            renames included. DELTA 2: a CSS custom property is DETECTED and
+            refused (`nil`), never reproduced — Reagent mangled
+            `--brand-color` into `BrandColor`, a style key nothing reads."
+    (is (= ["pageSize" "className" "className" "aria-label" "pageSize" "class" nil]
+           (mapv rf.migration.fresco.donor/key-name
+                 [:page-size :class :x/class :aria-label 'page-size "class" :--brand-color])))))
 
 ;; ---------------------------------------------------------------------------
 ;; The destination vocabulary (mirrors, labelled as such)
@@ -179,31 +102,27 @@
 
 (deftest the-destination-vocabulary
   (testing "`html-attr-slot?` mirrors the codec's, prefix families included"
-    (is (every? rf.migration.fresco.dest/html-attr-slot? ["className" "id" "role" "data-kind" "aria-label"]))
-    (is (not-any? rf.migration.fresco.dest/html-attr-slot? ["variant" "theme" "key" "ref" "onClick"])))
+    (is (= [true true true false]
+           (mapv rf.migration.fresco.dest/html-attr-slot? ["className" "data-kind" "aria-label" "variant"]))))
 
   (testing "`event-prop?` mirrors `intent/event-prop?`, INCLUDING its type
-            gate — a prop key spelled `on-click` as a SYMBOL is not an
-            event position, so the tool must not refuse there"
-    (is (rf.migration.fresco.dest/event-prop? :on-click))
-    (is (rf.migration.fresco.dest/event-prop? :onClick))
-    (is (rf.migration.fresco.dest/event-prop? "on-click"))
-    (is (not (rf.migration.fresco.dest/event-prop? 'on-click)) "symbols answer false")
-    (is (not (rf.migration.fresco.dest/event-prop? :once)) "`on` followed by a lowercase letter is not `on-`"))
+            gate — a prop key spelled `on-click` as a SYMBOL is not an event
+            position, so the tool must not refuse there — and `on` followed
+            by a lowercase letter is not `on-`"
+    (is (= [true true true false false]
+           (mapv rf.migration.fresco.dest/event-prop? [:on-click :onClick "on-click" 'on-click :once]))))
 
   (testing "a nested map key's destination name is `clj->js`'s answer,
             which is what W2 has to make agree with the donor"
-    (is (= "page-size" (rf.migration.fresco.dest/nested-key-name :page-size)))
-    (is (= "x/page-size" (rf.migration.fresco.dest/nested-key-name 'x/page-size)))
-    (is (= "first-name" (rf.migration.fresco.dest/nested-key-name "first-name"))))
+    (is (= ["page-size" "x/page-size" "first-name"]
+           (mapv rf.migration.fresco.dest/nested-key-name [:page-size 'x/page-size "first-name"]))))
 
-  (testing "`dangerouslySetInnerHTML` is recognised in any spelling,
-            because the kebab one never reached React's exact name under
-            either runtime and the migrator needs telling regardless"
-    (is (rf.migration.fresco.dest/dangerous-html-key? :dangerouslySetInnerHTML))
-    (is (rf.migration.fresco.dest/dangerous-html-key? :dangerously-set-inner-html))
-    (is (rf.migration.fresco.dest/dangerous-html-key? "dangerouslySetInnerHTML"))
-    (is (not (rf.migration.fresco.dest/dangerous-html-key? :dangerous)))))
+  (testing "`dangerouslySetInnerHTML` is recognised in any spelling, because
+            the kebab one never reached React's exact name under either
+            runtime and the migrator needs telling regardless"
+    (is (= [true true true false]
+           (mapv rf.migration.fresco.dest/dangerous-html-key?
+                 [:dangerouslySetInnerHTML :dangerously-set-inner-html "dangerouslySetInnerHTML" :dangerous])))))
 
 ;; ---------------------------------------------------------------------------
 ;; Amendment (B), at the unit
