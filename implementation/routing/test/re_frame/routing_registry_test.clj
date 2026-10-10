@@ -180,6 +180,8 @@
                      "/a{}?"             ;; empty group
                      "/a{//}?"           ;; empty segment in a group
                      "/articles{:id}?"   ;; slash-outside group
+                     "/a/{/:x}?"         ;; `/` before a group: emits `/a//x`, elides to an unmatchable `/a`
+                     "/{/:x}?"           ;; the same at the root: emits `//x`
                      "/a{/:b{/:c}?}?"    ;; nested group
                      "/a{/*rest}?"       ;; splat in a group
                      "/a{/:1bad}?"       ;; bad param name in a group
