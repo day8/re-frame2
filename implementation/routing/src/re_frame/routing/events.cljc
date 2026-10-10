@@ -164,7 +164,8 @@
 ;;   2. emit `:rf.route.nav-token/allocated`, then `emit-activation-
 ;;      traces!` — IN THAT ORDER so trace consumers see
 ;;      {allocated → deactivated? → activated?};
-;;   3. publish the seven-key slice via `merge-route-slice`;
+;;   3. publish the seven-key slice via `merge-route-slice`, and retire any
+;;      pending leave question (Spec 012 §The leave decision);
 ;;   4. assemble the fx vector: the nav-counter bump (`:rf.route/commit-
 ;;      nav-counter`) → capture-scroll (the leaving route's position) →
 ;;      [push-fx, when the programmatic path must drive the browser URL]
@@ -222,12 +223,19 @@
         ;; cofx — `:token` is published into the slice (recorded + replay-stable),
         ;; `:counter` advances the host high-water via the bump fx below.
         {token :token counter :counter} nav-allocation
-        committed (merge-route-slice rdb {:route-id   route-id
-                                          :params     params
-                                          :query      query
-                                          :fragment   fragment
-                                          :transition transition
-                                          :nav-token  token})
+        committed (-> (merge-route-slice rdb {:route-id   route-id
+                                              :params     params
+                                              :query      query
+                                              :fragment   fragment
+                                              :transition transition
+                                              :nav-token  token})
+                      ;; A full activation retires the parked leave question:
+                      ;; the route that asked it is no longer the one being
+                      ;; left, so a late `:rf.route/continue` must not carry
+                      ;; its one-shot bypass past the new route's `:can-leave`.
+                      ;; Fragment-only moves, no-ops, replans and entry denials
+                      ;; never reach this assembler, so they keep the slot.
+                      (update :rf.runtime/routing dissoc :pending-navigation))
         ;; The optional Resources artefact publishes the late-bound
         ;; `:routing/on-route-entry` hook and returns
         ;; `{:fx [...] :blocking {<key-id> <scoped-key>} :identities {…}

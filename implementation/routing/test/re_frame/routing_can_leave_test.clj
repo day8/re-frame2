@@ -153,6 +153,71 @@
       (rf/dispatch-sync [:rf.route/cancel pending-id])
       (is (nil? (pending)) "cancel with the matching id clears the slot"))))
 
+;; ---- A successful activation retires the pending leave -------------------
+;;
+;; Spec 012 §The leave decision: the pending value is the question the CURRENT
+;; route asked. Once a full activation commits, that route is no longer the one
+;; being left, so the slot clears — otherwise a late `:rf.route/continue` of the
+;; old id would carry its one-shot bypass past the NEW route's `:can-leave`.
+
+(defn- pages!
+  "`:page/a` and `:page/c`, each refusing to leave while its `[:dirty <page>]`
+  flag is set (a move that stays on the page, such as a fragment-only one, is
+  always allowed), an unguarded `:page/b`, and a no-op push fx."
+  []
+  (rf/reg-route :page/a {:can-leave :page.a/can-leave?} "/a")
+  (rf/reg-route :page/b {} "/b")
+  (rf/reg-route :page/c {:can-leave :page.c/can-leave?} "/c")
+  (rf/reg-event :page/dirty (fn [{:keys [db]} [_ page v]] {:db (assoc-in db [:dirty page] v)}))
+  (doseq [[sub-id page] [[:page.a/can-leave? :page/a] [:page.c/can-leave? :page/c]]]
+    (rf/reg-sub sub-id (fn [db [_ target]]
+                         (or (not (get-in db [:dirty page])) (= page (:route-id target))))))
+  (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil)))
+
+(defn- park-a-to-b!
+  "Land on a dirty `:page/a`, block a move to `:page/b`, and return the parked id."
+  []
+  (pages!)
+  (rf/dispatch-sync [:rf.route/handle-url-change "/a" {:rf.route/cause :link}])
+  (rf/dispatch-sync [:page/dirty :page/a true])
+  (rf/dispatch-sync [:rf.route/navigate {:to :page/b}])
+  (is (= [:page/a :page/a] [(current-id) (:rejecting-route (pending))]) "A→B is blocked and parked")
+  (:id (pending)))
+
+(defn- late-continue-is-a-no-op
+  "After `move-to-c!` commits A→C, the parked A→B question is gone, and its late
+  continue leaves a now-dirty `:page/c` where it is."
+  [move-to-c!]
+  (let [old-id (park-a-to-b!)]
+    (move-to-c!)
+    (is (= [:page/c nil] [(current-id) (pending)]) "the commit to C retires A's question")
+    (rf/dispatch-sync [:page/dirty :page/c true])
+    (rf/dispatch-sync [:rf.route/continue old-id])
+    (is (= [:page/c nil] [(current-id) (pending)])
+        "the late continue is a no-op, so C's :can-leave is not skipped")
+    (rf/dispatch-sync [:rf.route/navigate {:to :page/b}])
+    (is (= [:page/c :page/c] [(current-id) (:rejecting-route (pending))])
+        "control: a fresh move off the dirty C is blocked by C's guard")))
+
+(deftest activation-via-bypass-leave-retires-the-pending-leave
+  (late-continue-is-a-no-op
+    #(rf/dispatch-sync [:rf.route/navigate {:to :page/c :bypass-leave? true}])))
+
+(deftest activation-via-a-clean-guard-retires-the-pending-leave
+  (late-continue-is-a-no-op
+    #(do (rf/dispatch-sync [:page/dirty :page/a false])
+         (rf/dispatch-sync [:rf.route/navigate {:to :page/c}]))))
+
+(deftest fragment-only-navigation-keeps-the-pending-leave
+  (testing "a fragment-only move is not an activation, so the parked question
+            survives byte-identical and still resumes"
+    (let [old-id (park-a-to-b!)
+          before (pending)]
+      (rf/dispatch-sync [:rf.route/navigate {:fragment "section"}])
+      (is (= ["section" before] [(:fragment (:current (routing))) (pending)]))
+      (rf/dispatch-sync [:rf.route/continue old-id])
+      (is (= [:page/b nil] [(current-id) (pending)])))))
+
 ;; ---- :rf.route/navigation-blocked is a DISPATCHED event -------------------
 ;;
 ;; Spec 012 §Navigation blocking §Default flow step 4d: the runtime

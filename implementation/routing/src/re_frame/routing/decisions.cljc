@@ -12,7 +12,8 @@
       `:destination` / `:target` / `:cause` / `:policy`, dispatches
       `:rf.route/navigation-blocked`, and leaves the current route
       untouched. `:rf.route/continue` replays the stored destination +
-      policy with a one-shot `:bypass-leave?`; `:rf.route/cancel` drops it.
+      policy with a one-shot `:bypass-leave?`; `:rf.route/cancel` drops it,
+      and so does any successful full activation.
     - **Entry is terminal.** A `:can-enter` guard returning `false`
       commits nothing, creates NO pending value, dispatches
       `:rf.route/entry-denied` exactly once, and (on a URL-driven door,
