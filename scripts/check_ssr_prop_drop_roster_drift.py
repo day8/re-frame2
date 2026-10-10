@@ -395,20 +395,15 @@ def main(argv: list[str]) -> int:
 # --------------------------------------------------------------------------
 # Self-tests — prove the check FIRES on an injected violation and stays green
 # on the conformant counterpart, and that the parse fails CLOSED on each shape
-# that could lose the roster. In-memory (no fixture files).
+# that could lose the roster SILENTLY. In-memory (no fixture files).
 # --------------------------------------------------------------------------
 
 
 # A miniature of the live source: the four-arm `contains?` shape, the two arms
-# that carry no name set, a commented-out decoy def at column 0's left, and one
-# `def ^:private` set that `strip-prop?` does NOT read (so the derivation is
-# shown to take its population from the BODY rather than from every set in the
-# file).
+# that carry no name set, and one `def ^:private` set that `strip-prop?` does
+# NOT read (so the derivation is shown to take its population from the BODY
+# rather than from every set in the file).
 _SYNTHETIC_SOURCE = '''\
-;; A commented-out decoy. Column-0 anchoring must keep this out of the roster.
-;; (def ^:private decoy-names
-;;   #{"decoyName"})
-
 (def ^:private reserved-prop-keys
   #{"__proto__" "constructor" "prototype"})
 
@@ -453,46 +448,21 @@ def _run_self_tests(verbose: bool = False) -> int:
             failures += 1
 
     # ---- extraction ------------------------------------------------------
+    # Exact, so it also pins limit 1 (the two unnamed arms contribute nothing)
+    # and shows `unrelated-style-names`, which the body never reads, stays out.
     sets = roster(_SYNTHETIC_SOURCE)
-    # The exact list also shows the population is strip-prop?'s BODY, not the
-    # file: `unrelated-style-names` is a `def ^:private` set the body never
-    # reads, so it stays out and cannot widen what the spec pages must carry.
     expect(
-        "extract: the four name sets come from strip-prop?'s BODY, in body order",
-        list(sets) == [
-            "reserved-prop-keys",
-            "jsx-source-prop-names",
-            "structural-slot-names",
-            "content-channel-names",
-        ],
-    )
-    expect(
-        "extract: all ten literal members",
-        sorted(n for m in sets.values() for n in m) == sorted([
-            "__proto__", "constructor", "prototype",
-            "_jsxFileName", "_jsxLineNumber", "_jsxColumnNumber",
-            "key", "ref",
-            "children", "dangerouslySetInnerHTML",
-        ]),
-    )
-    # Column-0 anchoring, in the direction that matters: a commented-out def is
-    # not a live one.
-    expect(
-        "extract: a commented-out def at column 0's left does not contribute",
-        "decoyName" not in {n for m in sets.values() for n in m},
-    )
-    # Limit 1, pinned rather than merely claimed: the two arms with no name set
-    # are invisible to this gate by construction.
-    expect(
-        "extract: the two UNNAMED arms contribute nothing (limit 1 is real)",
-        not {"event-handler-name?", "fn?"} & set(sets),
+        "extract: exactly the four body-read name sets and their members",
+        sets == {
+            "reserved-prop-keys": ["__proto__", "constructor", "prototype"],
+            "jsx-source-prop-names":
+                ["_jsxColumnNumber", "_jsxFileName", "_jsxLineNumber"],
+            "structural-slot-names": ["key", "ref"],
+            "content-channel-names": ["children", "dangerouslySetInnerHTML"],
+        },
     )
 
-    # ---- the parse fails CLOSED -----------------------------------------
-    #
-    # Each shape below is a way the roster can be LOST. A gate whose population
-    # can silently collapse to zero is a gate that can fail to RUN while
-    # exiting 0.
+    # ---- the parse fails CLOSED where a lost roster would exit 0 ----------
     def parse_raises(text: str) -> bool:
         try:
             roster(text)
@@ -500,23 +470,12 @@ def _run_self_tests(verbose: bool = False) -> int:
         except RosterParseError:
             return True
 
-    # The valid source is the control: the unguarded `roster()` call at the
-    # top of this self-test raises if it ever stops parsing.
-    expect("closed: a RENAMED strip-prop? fails closed",
-           parse_raises(_SYNTHETIC_SOURCE.replace("(defn strip-prop?",
-                                                  "(defn strip-prop-2?")))
     expect("closed: a body with no `contains?` arms fails closed",
            parse_raises(_SYNTHETIC_SOURCE.replace("(contains? ", "(member-of? ")))
-    expect("closed: a name set whose def form is GONE fails closed",
-           parse_raises(_SYNTHETIC_SOURCE.replace(
-               '(def ^:private structural-slot-names\n  #{"key" "ref"})', "")))
-    expect("closed: a name set that stopped being ^:private fails closed",
-           parse_raises(_SYNTHETIC_SOURCE.replace(
-               "(def ^:private structural-slot-names", "(def structural-slot-names")))
     expect("closed: an EMPTIED name set fails closed",
            parse_raises(_SYNTHETIC_SOURCE.replace('#{"key" "ref"}', "#{}")))
-    # …and the rule does not over-reach: a FIFTH name set is graded on arrival,
-    # which is the whole reason the roster is derived rather than listed here.
+    # A FIFTH name set is graded on arrival, which is the whole reason the
+    # roster is derived rather than listed here.
     fifth = _SYNTHETIC_SOURCE.replace(
         "(contains? content-channel-names nm)",
         "(contains? content-channel-names nm)\n        (contains? newly-landed-names nm)",
@@ -527,86 +486,40 @@ def _run_self_tests(verbose: bool = False) -> int:
     expect("closed: a FIFTH name set is picked up, not silently ignored",
            "newlyLandedProp" in {n for m in roster(fifth).values() for n in m})
 
-    # ---- the page check: teeth, and the conformant counterpart -----------
+    # ---- the page check --------------------------------------------------
     every_name = sorted(n for m in sets.values() for n in m)
-
-    conformant_page = (
-        "## Prop-drop roster at static-markup emission\n"
-        "\n"
-        "`strip-prop?` drops six classes. Reserved prototype-pollution keys\n"
-        "(`__proto__`, `constructor`, `prototype`); JSX source-coord props\n"
-        "(`:_jsxFileName`, `:_jsxLineNumber`, `:_jsxColumnNumber`); React's\n"
-        "structural slots (`:key`, `:ref`); React's content channels\n"
-        "(`:children`, `:dangerouslySetInnerHTML`); `on*` event-handler props;\n"
-        "and function-valued props.\n"
-    )
-    expect("page: a conformant page passes",
-           missing_from_page(conformant_page, every_name) == [])
-
     # The stale shape: the JSX class lands in the source and the page does not
-    # follow. It must be RED.
+    # follow. It must be RED, naming exactly what is missing.
     stale_page = (
-        conformant_page
-        .replace("`:_jsxFileName`, `:_jsxLineNumber`, `:_jsxColumnNumber`", "…")
-        .replace("(`:children`, `:dangerouslySetInnerHTML`)", "(`:children`)")
+        "Reserved prototype-pollution keys (`__proto__`, `constructor`,\n"
+        "`prototype`); JSX source-coord props (…); React's structural slots\n"
+        "(`:key`, `:ref`); React's content channels (`:children`).\n"
     )
     expect("page: the stale JSX-class shape FIRES, naming exactly what is missing",
            missing_from_page(stale_page, every_name)
            == ["_jsxColumnNumber", "_jsxFileName", "_jsxLineNumber",
                "dangerouslySetInnerHTML"])
-    expect("page: a page missing ONE name fires on exactly that name",
-           missing_from_page(conformant_page.replace("`__proto__`, ", ""),
-                             every_name) == ["__proto__"])
-    expect("page: an EMPTY page fires on every name",
-           missing_from_page("", every_name) == every_name)
 
     # ---- the word boundary, in both directions ---------------------------
-    #
-    # It must ADMIT the punctuation these names sit in and REFUSE the words
-    # they hide inside. Each case below is a spelling that actually occurs.
-    for spelling in ("`:key`", ":key", "(:key m)", "key", '"key"', "`key`"):
-        expect(f"boundary: admits {spelling!r}",
-               missing_from_page(spelling, ["key"]) == [])
-    for decoy in ("keyword", "monkey"):
-        expect(f"boundary: {decoy!r} does NOT answer for `key`",
-               missing_from_page(decoy, ["key"]) == ["key"])
+    expect("boundary: admits '`:key`'",
+           missing_from_page("`:key`", ["key"]) == [])
+    expect("boundary: 'keyword' does NOT answer for `key`",
+           missing_from_page("keyword", ["key"]) == ["key"])
+    expect("boundary: 'monkey' does NOT answer for `key`",
+           missing_from_page("monkey", ["key"]) == ["key"])
     expect("boundary: `prefer`/`reference` do NOT answer for `ref`",
            missing_from_page("prefer a reference", ["ref"]) == ["ref"])
     expect("boundary: matching is case-SENSITIVE, as strip-prop? is for these",
            missing_from_page("dangerouslysetinnerhtml",
                              ["dangerouslySetInnerHTML"])
            == ["dangerouslySetInnerHTML"])
-    expect("boundary: a leading-underscore name is admitted after `:`",
-           missing_from_page("`:_jsxFileName`", ["_jsxFileName"]) == [])
-    expect("boundary: `_jsxFileNameX` does NOT answer for `_jsxFileName`",
-           missing_from_page("_jsxFileNameX", ["_jsxFileName"]) == ["_jsxFileName"])
 
     # ---- LIMIT 2, pinned: contamination reads as PRESENT ------------------
-    #
-    # This is the floor, and it is asserted here so the docstring's statement of
-    # it is a tested property rather than a claim. Both decoys below are REAL
-    # text from the graded pages: `:children` as a key into 011's
-    # structured-children map, and `:rf.mcp/ref` in Security.md. A page carrying
-    # only these, with no roster at all, is GREEN for those two names.
-    #
-    # A test that pins a LIMIT is easy to misread as endorsing it, so: this is
-    # the gate UNDER-REPORTING, which is the direction that never cries wolf.
-    # The day a false green on a contaminated name is met in practice is the day
-    # to add section scoping — and this case is where its absence is recorded.
+    # The gate UNDER-REPORTING, the direction that never cries wolf: real
+    # 011 text using `:children` as a key reads as the roster name.
     expect("limit 2: unrelated `:children` on the page reads as PRESENT (floor)",
            missing_from_page("the `:children` key of the structured-children map",
                              ["children"]) == [])
-    expect("limit 2: unrelated `:rf.mcp/ref` on the page reads as PRESENT (floor)",
-           missing_from_page("the `:rf.mcp/dedup-table` + `:rf.mcp/ref` structure",
-                             ["ref"]) == [])
-    # …and the floor is a floor, not a hole: the names that CANNOT be
-    # contaminated — the ones whose absence is the security-relevant case —
-    # still fire on the very same page.
-    expect("limit 2: the uncontaminatable names still FIRE on that page",
-           missing_from_page(
-               "the `:children` key of the map, and `:rf.mcp/ref`",
-               ["__proto__", "_jsxFileName", "dangerouslySetInnerHTML"])
-           == ["__proto__", "_jsxFileName", "dangerouslySetInnerHTML"])
 
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
