@@ -248,13 +248,6 @@
      :throw-reason     throw-reason
      :fallback?        fallback?}))
 
-(defn target-of-url
-  "The canonical `ResolvedTarget` for a requested URL — `url-resolution`'s
-  `:target`, for the callers (the link door's stage 3 + decision) that need the
-  target and none of the fallback telemetry discriminators."
-  [url]
-  (:target (url-resolution url)))
-
 ;; ---- the parent-to-leaf branch + the leaf resource plan -------------------
 
 ;; The plan's branch is the FAIL-LOUD walk, resolved ONCE.

@@ -52,8 +52,10 @@
             counter has moved on (a re-mint would give pn-2)"
     (block-fixture!)
     (rf.routing.nav-counters/commit-counter! :rf/default :pending-nav-counter 1)
+    ;; The link door can block or commit, so its record carries both allocations.
     (replay! [:rf.route/url-requested {:url "/home"}]
-             {:rf.route/pending-nav-allocation {:id "pn-1" :counter 1}})
+             {:rf.route/nav-allocation         {:token "nav-2" :counter 2}
+              :rf.route/pending-nav-allocation {:id "pn-1" :counter 1}})
     (is (= "pn-1" (pending-id)))))
 
 (deftest failure-2-fixed-recorded-allocation-replays-same-nav-token
@@ -82,7 +84,8 @@
             :schema before the block folds a corrupt id into runtime-db"
     (block-fixture!)
     (let [data (replay-ex-data [:rf.route/url-requested {:url "/home"}]
-                               {:rf.route/pending-nav-allocation {:id nil :counter "bad"}})]
+                               {:rf.route/nav-allocation         {:token "nav-2" :counter 2}
+                                :rf.route/pending-nav-allocation {:id nil :counter "bad"}})]
       (is (= [:rf.error/cofx-value-invalid :rf.route/pending-nav-allocation nil]
              [(:rf.error/id data) (:rf.cofx/id data) (pending-id)])))))
 

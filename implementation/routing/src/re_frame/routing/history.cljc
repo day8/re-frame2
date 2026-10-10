@@ -133,7 +133,7 @@
            ;; EP-0037 R0: `:rf.route/handle-url-change` stands for four
            ;; doors, so the listener names WHICH one it is via the
            ;; runtime-internal `:rf.route/cause` rider on the event's trailing
-           ;; opts map (the sibling of `:rf.route/decided?`). Both dispatches
+           ;; opts map. Both dispatches
            ;; below go through this one closure, so the two causes are the
            ;; closure's one argument rather than two dispatch sites that can
            ;; drift.

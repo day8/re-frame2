@@ -49,6 +49,31 @@
                   (fn [_ url] (swap! pushed conj url)))
     pushed))
 
+;; ---- a link click commits in its own event, state before URL ---------------
+;;
+;; Spec 012 §State-first, URL-second: a navigation queued behind a link click
+;; must find the link's route already committed. Were the link to push now and
+;; commit later, `[link-A navigate-B]` would end on route A with URL /b, and the
+;; late commit would leave B without asking B's `:can-leave`.
+
+(deftest a-navigate-queued-behind-a-link-click-sees-it-committed
+  (rf/reg-route :r/home {} "/")
+  (rf/reg-route :r/a {} "/a")
+  (rf/reg-route :r/b {:can-leave :b/can-leave?} "/b")
+  (rf/reg-sub :b/can-leave? (fn [_ _] false))
+  (rf/reg-event :test/queue (fn [_ [_ & evs]] {:fx (mapv (fn [ev] [:dispatch ev]) evs)}))
+  (let [history (atom [])]
+    (doseq [[fx-id op] [[:rf.nav/push-url :push] [:rf.nav/replace-url :replace]]]
+      (rf.fx/reg-fx fx-id {:platforms #{:server :client}} (fn [_ url] (swap! history conj [op url]))))
+    (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :initial}])
+    (rf/dispatch-sync [:test/queue [:rf.route/url-requested {:url "/a"}] [:rf.route/navigate {:to :r/b}]])
+    (is (= [:r/b [[:push "/a"] [:push "/b"]] nil]
+           [(:route-id (nav-slice))
+            @history
+            (get-in (rf/frame-state-value :rf/default)
+                    [:rf.db/runtime :rf.runtime/routing :pending-navigation])])
+        "the route and the last history op agree, and B — whose :can-leave refuses — is never left")))
+
 ;; ---- a qualified enum value survives a reload of the URL it pushed ----------
 
 (deftest qualified-enum-navigation-re-matches-its-pushed-url

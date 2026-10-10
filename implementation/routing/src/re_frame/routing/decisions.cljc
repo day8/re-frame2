@@ -32,18 +32,16 @@
   (Spec 012 §The one planning pipeline).
 
   Internal namespace; the public facade is `re-frame.routing`. The facade
-  registers the five events (`:rf.route/url-requested`,
-  `:rf.route/navigation-blocked`, `:rf.route/entry-denied`,
-  `:rf.route/continue`, `:rf.route/cancel`) so a `:reload` of the façade
-  re-wires them on a fresh registrar (the `clear-all!` test-fixture path)."
+  registers the four events (`:rf.route/navigation-blocked`,
+  `:rf.route/entry-denied`, `:rf.route/continue`, `:rf.route/cancel`) so a
+  `:reload` of the façade re-wires them on a fresh registrar (the
+  `clear-all!` test-fixture path)."
   (:require [re-frame.frame :as rf.frame]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.privacy.url :as rf.privacy.url]
             [re-frame.registrar :as rf.registrar]
             [re-frame.routing.nav-fx :as rf.routing.nav-fx]
-            [re-frame.routing.plan :as rf.routing.plan]
             [re-frame.routing.registry :as rf.routing.registry]
-            [re-frame.routing.resolve :as rf.routing.resolve]
             [re-frame.routing.strategy :as rf.routing.strategy]
             [re-frame.routing.url :as rf.routing.url]
             [re-frame.trace :as rf.trace]))
@@ -420,92 +418,6 @@
   — the guard re-evaluates because that is an ordinary new attempt."
   [_ _]
   {})
-
-;; The open-redirect classifier (`safe-in-app-url?` / `external-url?` /
-;; `request-url->app-url`) is shared in `re-frame.routing.url` so the
-;; programmatic `:rf.route/navigate {:url}` sink gates through the SAME
-;; fail-closed logic as `:rf.route/url-requested`.
-
-;; The URL -> ResolvedTarget extraction (including the `:rf.route/not-found`
-;; fallback normalisation) is the ONE shared definition in
-;; `re-frame.routing.resolve/url-resolution` — the seam the commit hop lowers
-;; to as well. The link door reads it through `rf.routing.resolve/target-of-url`, so
-;; stage 3, the guards, and the commit all resolve the same URL to the same
-;; target (EP-0037 R0). Deriving it locally would let a dead link bypass the
-;; `:rf.route/not-found` route's `:can-enter` guard and push a history entry for
-;; the already-active not-found URL.
-
-(defn url-requested-handler
-  "`:rf.route/url-requested` event handler — the LINK door. Registered by
-  the façade so a `:reload` re-wires it on a fresh registrar. Declares only
-  the recordable `:rf.route/pending-nav-allocation` cofx — its only
-  allocation is a pending-nav id minted on a leave block (it never mints a
-  nav-token; the forward push synthesises `:rf.route/handle-url-change`,
-  which mints its own).
-
-  The door runs the pipeline in order: classify the transition (stage 3) —
-  an exact no-op terminates here, evaluating NEITHER guard and pushing
-  NOTHING — then decide leave and entry (stages 4-5) BEFORE the address bar
-  moves, so a rejected link click never adds a history entry. On an allowed
-  transition it pushes the URL (replacing it for `:replace? true`) and
-  synthesises `:rf.route/handle-url-change`, which owns the commit; the
-  synthesised event carries runtime-internal riders on its trailing opts map —
-  `:rf.route/cause :link`, which names the navigation cause and thereby fixes
-  the default scroll strategy at `:top`; `:rf.route/decided? true`, so an
-  allowed link click does not decide the same target twice; and, when the
-  request carries `:scroll`, `:rf.route/scroll`, the per-call scroll override
-  the commit resolves ahead of the route's own (Spec 012 §The request
-  grammar). No rider is part of the published `:rf.route/navigate` request
-  roster — that roster is closed with no exemption."
-  [{frame :rf.frame/id rdb :rf.db/runtime
-    pending-nav-allocation :rf.route/pending-nav-allocation}
-   [_ {:keys [url replace? bypass-leave?] :as request}]]
-  (let [frame     (rf.frame/require-frame-stamp!
-                    frame :rf.route/url-requested
-                    {:where 'rf.route/url-requested-handler})
-        rdb       (or rdb {})
-        external? (rf.routing.url/external-url? url)
-        app-url   (request-app-url rdb url)]
-    (if external?
-      (do
-        (rf.trace/emit! :rf.event :rf.route/external-url-requested
-                     (cond-> {:url url}
-                       frame (assoc :frame frame)))
-        {})
-      (let [target  (rf.routing.resolve/target-of-url app-url)
-            current (get-in rdb [:rf.runtime/routing :current])
-            ;; Stage 3 — an exact no-op (the link points at the already-active
-            ;; target) terminates before guards, pending state, and history.
-            no-op?  (rf.routing.plan/identical-route-target? current (:route-id target)
-                                                  (:params target) (:query target)
-                                                  (:fragment target))]
-        (if no-op?
-          {}
-          (or (decide {:rdb                    rdb
-                       :frame                  frame
-                       :target                 target
-                       :requested-url          app-url
-                       :cause                  :link
-                       :policy                 (normalize-policy request)
-                       :bypass-leave?          bypass-leave?
-                       :url-driven?            false
-                       :pending-nav-allocation pending-nav-allocation})
-              ;; Allowed — push the URL and synthesise the commit door. Per
-              ;; Spec 012 §URL changes are events, route-link clicks call
-              ;; `.preventDefault` and dispatch `:rf.route/url-requested`, so
-              ;; the browser's URL has NOT updated: this door pushes it and
-              ;; hands the slice write to `:rf.route/handle-url-change`,
-              ;; riding `:rf.route/cause :link` so the commit door resolves
-              ;; the link cause (and with it the `:top` scroll default)
-              ;; rather than the rider-free `:initial` fallback.
-              {:fx [(if replace?
-                      [:rf.nav/replace-url app-url]
-                      [:rf.nav/push-url    app-url])
-                    [:dispatch [:rf.route/handle-url-change app-url
-                                (cond-> {:rf.route/cause    :link
-                                         :rf.route/decided? true}
-                                  (contains? request :scroll)
-                                  (assoc :rf.route/scroll (:scroll request)))]]]}))))))
 
 (defn continue-handler
   "`:rf.route/continue` event handler — the leave-only resume. Registered by
