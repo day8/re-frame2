@@ -2717,6 +2717,31 @@
                            (not (re-find #"^rf(\.|$)" (namespace k)))))))
         (keys config-map)))
 
+(defn- emit-epoch-artefact-missing-warning!
+  "Warn that `:epoch-history` reached `configure!` in a build without the
+  epoch artefact. The key is known, but nothing in this build reads it, so
+  it applies nothing exactly as a typo would and signals on the same
+  warning id. `:unavailable-keys` (in place of `:unknown-keys`) and the
+  artefact's coordinate tell the two cases apart. The coordinate comes from
+  `re-frame.features`, the table every artefact-missing message quotes.
+
+  Dev-only by construction: the only caller sits inside a
+  `rf.interop/debug-enabled?` gate."
+  []
+  (let [{maven :maven require-ns :require} (:epoch rf.features/feature-registry)]
+    (rf.trace/emit!
+      :warning
+      :rf.warning/unknown-configure-key
+      {:unavailable-keys [:epoch-history]
+       :maven            maven
+       :require          require-ns
+       :detected-at      (rf.interop/now-ms)
+       :recovery         :ignored
+       :reason           (str "rf/configure! applied nothing for "
+                              "`:epoch-history`: the epoch artefact is not "
+                              "loaded. Add " maven " to your deps and require "
+                              require-ns " at app boot.")})))
+
 (defn configure!
   "Configure process-level runtime knobs from a single nested map. v1 keys:
     :epoch-history {:depth N}                       ring depth (default 50; 0 disables)
@@ -2804,6 +2829,14 @@
   `goog.DEBUG=false`. Per-frame settings live on frame metadata. Per
   Tool-Pair §How AI tools attach.
 
+  `:epoch-history` in a build without the `day8/re-frame2-epoch` artefact
+  applies nothing either, because nothing in that build reads it. The
+  other keys still apply, and in dev builds the call emits the same
+  `:rf.warning/unknown-configure-key`, carrying `:unavailable-keys
+  [:epoch-history]` and the artefact's `:maven` coordinate and `:require`
+  namespace, so a missing artefact is named rather than silently absent.
+  Production builds stay a silent no-op.
+
   There is no `:sub-cache` knob: sub disposal is **synchronous on
   derefer-count → 0** —
   there is no deferred-grace timer to configure.
@@ -2852,8 +2885,10 @@
       {:recovery :pass-a-config-map
        :extra    {:received (rf.error/diag-value-summary config-map)}}))
   (when-let [opts (:epoch-history config-map)]
-    (when-let [f (rf.late-bind/get-fn :epoch/configure!)]
-      (f opts)))
+    (if-let [f (rf.late-bind/get-fn :epoch/configure!)]
+      (f opts)
+      (when rf.interop/debug-enabled?
+        (emit-epoch-artefact-missing-warning!))))
   (when-let [opts (:trace-buffer config-map)]
     (when-let [f (rf.late-bind/get-fn :trace.tooling/configure-trace-buffer!)]
       (f opts)))

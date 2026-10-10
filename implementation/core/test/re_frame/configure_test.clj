@@ -4,8 +4,9 @@
 
   Unknown keys apply nothing and return nil; a bare or framework-namespaced
   unknown key also emits the dev-gated `:rf.warning/unknown-configure-key`,
-  while a user-namespaced key passes in silence. A non-map argument fails
-  loud on an always-on guard.
+  while a user-namespaced key passes in silence. `:epoch-history` in a build
+  without the epoch artefact emits the same warning, naming the artefact. A
+  non-map argument fails loud on an always-on guard.
 
   `:trace-buffer` is dev-only end to end (its setter and its ring are both
   gated on `debug-enabled?`), so every trace-buffer read sits in a
@@ -167,6 +168,36 @@
       (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
       (dotimes [_ 20] (rf/dispatch-sync [:ping]))
       (is (<= (count (rf/trace-buffer :rf/default)) 6)))))
+
+(deftest configure-epoch-history-without-the-epoch-artefact-warns-and-applies-the-rest
+  ;; Dropping the published hook stands in for a build without the epoch
+  ;; artefact; this classpath carries it, so the first check sees it loaded.
+  (let [hook   (rf.late-bind/get-fn :epoch/configure!)
+        config {:epoch-history {:depth 13}
+                :elision       {:rf.egress/threshold-bytes 4096}}
+        shape  (fn [ev]
+                 (assoc (select-keys ev [:op-type :recovery])
+                        :unavailable-keys (:unavailable-keys (:tags ev))
+                        :maven            (:maven (:tags ev))))]
+    (when rf.interop/debug-enabled?
+      (is (empty? (unknown-configure-key-warnings config))
+          "with the epoch artefact loaded, :epoch-history is honoured in silence"))
+    (try
+      (swap! rf.late-bind/hooks dissoc :epoch/configure!)
+      (rf/configure! {:elision {:rf.egress/threshold-bytes 16384}})
+      (if rf.interop/debug-enabled?
+        (is (= [{:op-type          :warning
+                 :recovery         :ignored
+                 :unavailable-keys [:epoch-history]
+                 :maven            "day8/re-frame2-epoch"}]
+               (mapv shape (unknown-configure-key-warnings config)))
+            "one warning, naming the key and the artefact to add")
+        (is (nil? (rf/configure! config))))
+      (is (= 4096 (:rf.egress/threshold-bytes (rf.elision/current-config)))
+          "a sibling key still applies")
+      (finally
+        (rf.late-bind/set-fn! :epoch/configure! hook)
+        (rf/configure! {:epoch-history {:depth 50}})))))
 
 (def ^:private non-map-arg
   "A non-map that carries content, so the ex-data can be checked for not echoing it."
