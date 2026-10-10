@@ -303,11 +303,13 @@ The runtime calls these four functions for you: `validate-event!` before an even
   (validate-app-schema! db event-id) → boolean           ;; current frame, named handler
   (validate-app-schema! db event-id frame-id) → boolean  ;; explicit frame
   (validate-app-schema! db event-id frame-id continue?) → boolean or :rf/stale-incarnation
+  (validate-app-schema! db event-id frame-id continue? db-before) → boolean or :rf/stale-incarnation
   ```
 - **Description**: Validates the handler's proposed `app-db` before installation, against every schema registered for the frame. Schemas registered in other frames are ignored.
     - Each failing schema emits its own `:rf.error/schema-validation-failure` trace, with the explainer's output attached. `:value` (the failing leaf) is redacted when that leaf, an ancestor or a descendant is `:sensitive?`; `:explain` and `:explain-humanized` carry the whole registered value, so they are redacted when any slot in the schema is `:sensitive?`.
     - A malformed schema emits `:rf.error/malformed-schema` for that entry, counts as `false`, and does not stop the other schemas validating.
     - `event-id` (optional) names the handler whose commit is being checked; it appears in the trace as `:failing-id`.
+    - `db-before` (optional, and what the runtime passes) is the `app-db` the candidate replaces. A schema whose slice the candidate leaves `identical?` to it is skipped, since the commit does not write that slice. A parent path is still checked when a write lands beneath it, `[]` whenever the db changed, and an absent slice always.
     - Returns `true` when every schema conformed, and also when no validator or no schema is registered for the frame, or the build elided validation.
     - Returns `false` when at least one schema failed. The router then rejects the transition: `app-db` keeps its pre-handler value and the event's `:fx` are skipped.
     - Does nothing for any schema when `set-schema-fns!` has installed a `nil` `:validate`.
