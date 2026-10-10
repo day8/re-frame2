@@ -8,7 +8,9 @@
 //   ADMISSION   hand a caller an idle isolate, or refuse. A request that
 //               waits forever for capacity is a request whose caller's
 //               own timeout decides the outcome, which is the outcome
-//               being decided by the wrong process.
+//               being decided by the wrong process. So waiting is bounded
+//               twice: in time by the admission budget, and in length by
+//               the pool size, past which a caller is refused at once.
 //   REPLACEMENT a terminated isolate is never reused (see `isolate.cjs`),
 //               so the pool spawns a fresh one and the caller after next
 //               never notices. A replacement that will not boot ends the
@@ -173,7 +175,12 @@ class Pool {
     return replacementStart;
   }
 
-  /** An idle isolate, or a `Refusal`. Never a queue with no bottom. */
+  /**
+   * An idle isolate, or a `Refusal`. A caller that finds none waits, for at
+   * most `admissionTimeoutMs`, and at most one caller per isolate waits at
+   * all: past that the refusal is immediate. So the waiting line, and the
+   * validated request each waiter holds, never outgrow the pool.
+   */
   acquire() {
     if (this.failed) return Promise.reject(this._replacementFailedRefusal());
     if (this.closed) {
@@ -181,6 +188,15 @@ class Pool {
     }
     const idleIsolate = this.idleIsolates.pop();
     if (idleIsolate) return Promise.resolve(idleIsolate);
+    if (this.waiters.length >= this.size) {
+      return Promise.reject(
+        new Refusal(
+          CODE.SERVICE_SATURATED,
+          `${this.waiters.length} requests already wait for a pool of ${this.size}`,
+          { poolSize: this.size, waiting: this.waiters.length },
+        ),
+      );
+    }
 
     return new Promise((resolve, reject) => {
       const waiter = { resolve, reject, timer: null };
