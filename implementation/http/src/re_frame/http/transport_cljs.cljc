@@ -7,8 +7,8 @@
   a named home.
 
   This namespace owns the browser/Node Fetch path: issuing a single attempt
-  (`cljs-fetch`), the same-origin/cross-origin heuristic the CORS classifier
-  uses (`cross-origin?`), and the Fetch-rejection → `:rf.http/*` failure
+  (`cljs-fetch`), the same-origin/cross-origin test behind the
+  `:cross-origin?` hint (`cross-origin?`), and the Fetch-rejection → `:rf.http/*` failure
   classifier (`classify-cljs-error`). The shared lifecycle calls
   `cljs-fetch` to issue an attempt and `classify-cljs-error` to map a
   rejection; it never reaches back into this namespace's internals.
@@ -355,7 +355,7 @@
      Returns `false` for same-origin URLs (incl. relative + same-host
      protocol-relative), `data:`/`blob:`/`file:` schemes, and any URL the
      host can't parse. The conservative path returns `false` so we never
-     misclassify a same-origin Fetch failure as CORS.
+     stamp the hint on a same-origin Fetch failure.
 
      `js/location.origin` is the comparison base in browser hosts; on
      non-browser CLJS targets (Node / shadow-cljs node tests) the global
@@ -374,7 +374,7 @@
        CASE-INSENSITIVELY (URL schemes are case-insensitive per RFC 3986
        §3.1). A lowercase-only prefix check would let `DATA:`/`FILE:`
        fall through to the parse, where their parsed origin is the literal
-       string `\"null\"` (≠ page origin) and so false-classify as CORS."
+       string `\"null\"` (≠ page origin) and so falsely read as cross-origin."
      [^String url]
      (try
        (let [loc-origin (some-> js/globalThis
@@ -406,24 +406,21 @@
    (defn classify-cljs-error
      "Map a Fetch rejection / promise-error to a `:rf.http/*` failure shape.
 
-     Per Spec 014 §Failure categories (closed-set row
-     `:rf.http/cors`): the Fetch API gives no formal signal for a CORS
-     rejection — every CORS failure surfaces as a `TypeError` with a
-     vendor-specific message (`Failed to fetch`, `Load failed`,
-     `NetworkError when attempting to fetch resource`, …). We use a
-     conservative heuristic: a `TypeError`-shaped rejection against a
-     cross-origin URL classifies as `:rf.http/cors`; everything else
-     stays at `:rf.http/transport`. Same-origin transport errors and
-     non-`TypeError` rejections are never reclassified, so a real
-     network drop on a same-origin endpoint still classifies correctly
-     as `:rf.http/transport`.
+     Per Spec 014 §Cross-origin classification: Fetch rejects a CORS
+     refusal and a network drop (offline, DNS failure, a refused or reset
+     connection) with the same `TypeError` and a vendor-specific message
+     (`Failed to fetch`, `Load failed`, `NetworkError when attempting to
+     fetch resource`, …), so nothing here can tell them apart. Both are
+     `:rf.http/transport`, which a retry policy can name. A `TypeError`
+     against a cross-origin URL also carries `:cross-origin? true`, the
+     hint that a CORS rejection is one possible cause.
 
-     CLJS-only — the JVM transport (`classify-jvm-error`) never emits
-     `:rf.http/cors` per Spec 014 (CORS is a browser-policy concern)."
+     CLJS-only — the JVM transport (`classify-jvm-error`) never stamps the
+     hint (CORS is a browser-policy concern)."
      [^js err url]
      (let [data     (when (.-data err) (ex-data err))
            ;; `.-name` on a JS Error is the most stable signal we get
-           ;; for the rejection class. Fetch CORS rejections are always
+           ;; for the rejection class. Fetch network rejections are always
            ;; `TypeError`s; AbortErrors and the framework's timeout /
            ;; aborted ex-infos take their own branches first, below.
            err-name (some-> err .-name)]
@@ -439,18 +436,6 @@
           :request-id (:request-id data)
           :reason     (or (:reason data) :user)}
 
-         ;; TypeError + cross-origin URL = CORS rejection.
-         ;; Both signals required: the type narrows the universe to
-         ;; Fetch-style transport rejections (network drops surface as
-         ;; TypeErrors too), the cross-origin check separates CORS-
-         ;; eligible URLs from same-origin ones (where CORS doesn't
-         ;; apply by definition).
-         (and (= "TypeError" err-name)
-              (cross-origin? url))
-         {:kind    :rf.http/cors
-          :message (or (.-message err) (str err))
-          :url     url}
-
          :else
          ;; `:cause` is the rejection CLASS NAME string, not the
          ;; raw js/Error. A raw Error is not EDN-serializable, so it would break
@@ -461,6 +446,10 @@
          ;; paths: the JVM `classify-jvm-error` (`:cause cls`, transport_jvm.cljc)
          ;; and the CLJS `prepare-body!` (`:cause (some-> (.-name err))`,
          ;; transport.cljc). `:message` still carries the human message.
-         {:kind    :rf.http/transport
-          :message (or (.-message err) (str err))
-          :cause   (some-> err .-name)}))))
+         ;; The hint needs both signals: the TypeError narrows the rejection
+         ;; to a Fetch network failure, and CORS applies only cross-origin.
+         (cond-> {:kind    :rf.http/transport
+                  :message (or (.-message err) (str err))
+                  :cause   (some-> err .-name)}
+           (and (= "TypeError" err-name) (cross-origin? url))
+           (assoc :cross-origin? true))))))

@@ -40,7 +40,7 @@ Failures are classified into a closed, enumerable taxonomy under a single reserv
 
 | Surface | Failure namespace | Spec |
 |---|---|---|
-| HTTP requests | `:rf.http/*` (eight categories: `:rf.http/transport`, `:rf.http/http-4xx`, `:rf.http/http-5xx`, `:rf.http/decode`, ...) | [014 §Failure taxonomy](014-HTTPRequests.md) |
+| HTTP requests | `:rf.http/*` (seven categories: `:rf.http/transport`, `:rf.http/http-4xx`, `:rf.http/http-5xx`, `:rf.http/decode`, ...) | [014 §Failure taxonomy](014-HTTPRequests.md) |
 | State-machine actors | `:rf.machine/*` (`:rf.machine/invoke-failed`, `:rf.machine/snapshot-version-mismatch`, ...) | [005 §Error contract](005-StateMachines.md) |
 | SSR per-request | `:rf.ssr/*` (`:rf.ssr/hydration-mismatch`, `:rf.ssr/render-failed`, ...) | [011 §Error contract](011-SSR.md) |
 | Managed flows | `:rf.flow/*` per-flow trace operations (`:rf.flow/failed` on `:derive` throw, `:rf.flow/computed` / `:rf.flow/skip` on success); run-level `:rf.error/flow-eval-exception` at the router's outer catch; registration-time `:rf.error/flow-cycle` ex-info | [013 §Failure semantics](013-Flows.md#failure-semantics) |
@@ -260,7 +260,7 @@ The four shipped surfaces in the v1 corpus that satisfy the contract. Each Spec 
 
 ### `:rf.http/managed` — HTTP requests ([Spec 014](014-HTTPRequests.md))
 
-Single-request / single-reply HTTP. Args map shape: `:request`, `:decode`, `:accept`, `:reply-to` (unified) / `:on-success` / `:on-failure` (split sugar), `:retry`. Eight-category failure taxonomy under `:rf.http/*`. Frame-aware reply addressing; `:reply-to [:same-event]` folds request and reply into one handler. Specialises [Pattern-AsyncEffect](Pattern-AsyncEffect.md); pins [Pattern-RemoteData](Pattern-RemoteData.md)'s lifecycle slice.
+Single-request / single-reply HTTP. Args map shape: `:request`, `:decode`, `:accept`, `:reply-to` (unified) / `:on-success` / `:on-failure` (split sugar), `:retry`. Seven-category failure taxonomy under `:rf.http/*`. Frame-aware reply addressing; `:reply-to [:same-event]` folds request and reply into one handler. Specialises [Pattern-AsyncEffect](Pattern-AsyncEffect.md); pins [Pattern-RemoteData](Pattern-RemoteData.md)'s lifecycle slice.
 
 ### `:spawn` / `:spawn-all` — state-machine actors ([Spec 005](005-StateMachines.md))
 

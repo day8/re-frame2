@@ -392,7 +392,7 @@
   consumes (the effective `:method` off the `:request` envelope, `:get` when
   the request set none, `:max-attempts` off the `:retry` policy, plus `:url` /
   `:request-id` / `:origin-event` / `:issuance` / `:attempt`). Applies
-  uniformly to ALL eight failure categories."
+  uniformly to ALL seven failure categories."
   [failure ctx]
   (rf.http.reply/self-identify-failure
     failure
@@ -2192,9 +2192,9 @@
                ;; transport rejection.
                (.then (fn [result]
                         (complete-fenced! ctx' #(handle-response! ctx' result))))
-               ;; Pass `url` so `classify-cljs-error` can
-               ;; distinguish `:rf.http/cors` from `:rf.http/transport`
-               ;; via the cross-origin heuristic.
+               ;; Pass `url` so `classify-cljs-error` can stamp a
+               ;; cross-origin `:rf.http/transport` failure's
+               ;; `:cross-origin?` hint.
                ;; When the abort closure fired and dispatch-aborted!
                ;; already replied, the Fetch promise still rejects (because
                ;; `.abort internal-controller` rejects the underlying

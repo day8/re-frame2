@@ -152,9 +152,9 @@ frame capture.
 
 ## Failures are a closed set
 
-The failure map always carries a `:kind`: a keyword from a fixed list of eight, never a string.
+The failure map always carries a `:kind`: a keyword from a fixed list of seven, never a string.
 
-- **No response at all.** `:rf.http/transport` is a network, DNS or connection error, or a `:body` that could not be prepared. In the browser, the same trouble against a cross-origin URL reads as `:rf.http/cors`, because Fetch reports a CORS refusal and a dropped connection the same way. `:rf.http/timeout` means the per-attempt timeout fired.
+- **No response at all.** `:rf.http/transport` is a network, DNS or connection error, or a `:body` that could not be prepared. In the browser, the same trouble against a cross-origin URL also carries `:cross-origin? true`, because Fetch reports a CORS refusal and a dropped connection the same way, so it may be either. `:rf.http/timeout` means the per-attempt timeout fired.
 - **An error status.** `:rf.http/http-4xx` and `:rf.http/http-5xx` carry the `:status`, `:headers` and the raw `:body`.
 - **A 2xx the app rejected.** `:rf.http/decode-failure` means your `:decode` rejected the body; `:rf.http/accept-failure` means your [`:accept`](#a-valid-200-can-still-be-a-failure-accept) did.
 - **Cancelled.** `:rf.http/aborted`, with a `:reason` saying who cancelled: `:user` for a manual abort or `:abort-signal`, `:actor-destroyed` for a machine actor's destroy. A supersession, a frame's teardown and an epoch restore abort too, but deliver no reply.
@@ -379,7 +379,7 @@ The six Fetch-passthrough keys (`:credentials`, `:mode`, `:cache`, `:referrer`, 
 - A relative `:url` fails outright: there is no page to resolve it against, so it becomes a `:rf.http/transport` failure naming the url. Use an absolute URL there, or a `:before` [interceptor](http-going-further.md#interceptors-stamp-every-request-once) that prefixes a base.
 - An explicit `:decode :blob`, `:array-buffer` or `:form-data` delivers a byte array rather than the browser object, and emits one `:rf.http/binary-decode-degraded-on-jvm` warning trace per request.
 - `:meta`'s `:status-text` is `""`: the JVM client exposes no reason phrase.
-- `:rf.http/cors` never fires; only the browser emits it.
+- A `:rf.http/transport` failure never carries `:cross-origin?`; only the browser stamps it.
 
 If a request runs on both hosts — SSR, a shared loader — keep cross-host code off these keys or feature-flag them at the call site.
 

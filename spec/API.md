@@ -445,12 +445,11 @@ Every reply lands as the **canonical uniform reply envelope** (one dialect, no `
 
 ### Failure categories (closed set)
 
-The eight `:kind` values inside a failure reply, all reserved under `:rf.http/*` (per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)). See [014 §Failure categories](014-HTTPRequests.md#failure-categories-closed-set) for tags-by-kind:
+The seven `:kind` values inside a failure reply, all reserved under `:rf.http/*` (per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)). See [014 §Failure categories](014-HTTPRequests.md#failure-categories-closed-set) for tags-by-kind:
 
 | `:kind` | Meaning |
 |---|---|
-| `:rf.http/transport` | Network / DNS / connection error pre-HTTP |
-| `:rf.http/cors` | CORS preflight rejected (CLJS-only) |
+| `:rf.http/transport` | Network / DNS / connection error pre-HTTP (in the browser, any Fetch network rejection; `:cross-origin? true` marks one against a cross-origin URL, which may be a CORS refusal) |
 | `:rf.http/timeout` | Per-attempt timeout fired |
 | `:rf.http/http-4xx` | Non-2xx 4xx response |
 | `:rf.http/http-5xx` | Non-2xx 5xx response |

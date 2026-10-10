@@ -126,7 +126,7 @@ Every safety check the reference performs surfaces a structured `:rf.error/*` ke
 | JSON decode — truncated `\uXXXX` escape | `:rf.error/malformed-json` | `:reason :truncated-unicode-escape` |
 | JSON decode — invalid `\uXXXX` hex digit | `:rf.error/malformed-json` | `:reason :invalid-unicode-escape` |
 | Managed-HTTP per-attempt timeout | `:rf.http/timeout` | (failure-taxonomy category; retry policy decides) |
-| Managed-HTTP CORS rejection (CLJS heuristic) | `:rf.http/cors` | (heuristic emission on TypeError + cross-origin URL; per rf2-r40km) |
+| Managed-HTTP cross-origin network rejection (CLJS) | `:rf.http/transport` | `:cross-origin? true` on a TypeError against a cross-origin URL, which may be a CORS refusal; retry policy decides |
 | Drain depth ceiling exceeded | `:rf.error/drain-depth-exceeded` | `:tags {:depth :queue-size :last-event}`; atomic rollback (no partial app-db commit) |
 | Editor-URI scheme rejected (build-time on the source-coord template) | — (helper returns `nil` / falls through to default scheme) | scheme reject is a *predicate*, not a runtime error; surfacing as a fail-loud category would burden every dev's editor config |
 | Path-policy escape attempt (writing tool) | tool-specific surfaced error (clear "path outside `implementation/` + `examples/`") | n/a (CI-internal knob; not a stable public interface) |

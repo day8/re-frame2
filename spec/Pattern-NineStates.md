@@ -268,7 +268,7 @@ The mapping is direct: the events the `:data` region listens for (`:fetch-starte
 | `:loading` | Request in flight (any attempt, including retries). | Carries `:data/loading` + `:data/transient`. The transport-retry loop sits *inside* `:loading` — intermediate `:rf.http/transport` / `:rf.http/http-5xx` attempts emit `:rf.http/retry-attempt` traces but do not advance the region (per 014 §Retry × `:on-failure` semantics). |
 | `:resolving` | 2xx reply received, decoded, accepted; `:items` has just been written. | Eventless microstep; the cardinality `:always`-cascade fires here. |
 | `:empty` / `:one` / `:some` / `:too-many` | Resolution settled into a cardinality bucket. | Guard-selected by `(count (:items data))` against `too-many-threshold`; first match wins. |
-| `:error` | One of the eight `:rf.http/*` failure categories surfaced after retries exhausted. | The failure map at `[:data :error]` is the standard 014 shape: `{:kind :rf.http/* ...kind-tags...}`. |
+| `:error` | One of the seven `:rf.http/*` failure categories surfaced after retries exhausted. | The failure map at `[:data :error]` is the standard 014 shape: `{:kind :rf.http/* ...kind-tags...}`. |
 
 The same shape works whether the fx is dispatched directly (`:fx [[:rf.http/managed ...]]`) or threaded through `:rf.http/managed`'s child-invokable wrapper (`:spawn {:machine-id :rf.http/managed ...}` per [014 §Machine-shape wrapper](014-HTTPRequests.md#machine-shape-wrapper)). The reply lands at an event id, the event id broadcasts `:fetch-succeeded` / `:fetch-failed` into the page machine, and the region picks the bucket.
 

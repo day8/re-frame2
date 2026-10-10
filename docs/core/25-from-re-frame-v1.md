@@ -294,7 +294,7 @@ A v1 codebase using `day8.re-frame/http-fx` (`:http-xhrio`), `re-frame-fetch-fx`
 3. Rename `:on-error` → `:on-failure`. The canonical [reply map](../resources/glossary.md#reply-map) appends as the last argument; destructure `{:keys [value]}` for success (reply `:status :ok`), `{:keys [error]}` for failure (reply `:status :error`, failure map under `:error`).
 4. Adopt the closed `:rf.http/*` failure category set — code that branched on `(:status err)` branches on the failure map's `:kind` (under the reply's `:error`).
 
-There are **eight** failure categories. Five can be retried: `:rf.http/transport` (network, DNS, connection reset), `:rf.http/cors`, `:rf.http/timeout`, `:rf.http/http-4xx` and `:rf.http/http-5xx`. Three can't: `:rf.http/aborted` (cancelled or superseded), `:rf.http/decode-failure` (a 2xx whose body failed schema validation, JSON parsing or the decode function) and `:rf.http/accept-failure` (the `:accept` function turned a valid 200 into a domain `{:failure …}`). Listing a non-retryable category in `:retry :on` raises `:rf.error/http-bad-retry-on`.
+There are **seven** failure categories. Four can be retried: `:rf.http/transport` (network, DNS, connection reset — in the browser, also a cross-origin rejection that may be CORS), `:rf.http/timeout`, `:rf.http/http-4xx` and `:rf.http/http-5xx`. Three can't: `:rf.http/aborted` (cancelled or superseded), `:rf.http/decode-failure` (a 2xx whose body failed schema validation, JSON parsing or the decode function) and `:rf.http/accept-failure` (the `:accept` function turned a valid 200 into a domain `{:failure …}`). Listing a non-retryable category in `:retry :on` raises `:rf.error/http-bad-retry-on`.
 
 A v1 status-code `cond` becomes a `case` over named kinds:
 

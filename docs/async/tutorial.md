@@ -88,7 +88,7 @@ That map is the **reply map**, using the framework's [uniform reply](../core/glo
 
 ## Step 2 — turn the failure into something a user can read
 
-The failure map (under the reply's `:error`) always carries a `:kind` — a keyword from a closed, framework-reserved set of eight categories (`:rf.http/timeout`, `:rf.http/transport`, `:rf.http/http-4xx`, …). Never a stringified exception. Because [the set is closed](http.md#failures-are-a-closed-set), your handler can branch with a plain `case`:
+The failure map (under the reply's `:error`) always carries a `:kind` — a keyword from a closed, framework-reserved set of seven categories (`:rf.http/timeout`, `:rf.http/transport`, `:rf.http/http-4xx`, …). Never a stringified exception. Because [the set is closed](http.md#failures-are-a-closed-set), your handler can branch with a plain `case`:
 
 ```cljs-rf2
 (require '[re-frame.core :as rf])
@@ -97,7 +97,6 @@ The failure map (under the reply's `:error`) always carries a `:kind` — a keyw
   (case (:kind failure)
     :rf.http/timeout    "The server took too long. Try again."
     :rf.http/transport  "Could not connect. Check your connection."
-    :rf.http/cors       "Could not reach this service. Try again later."
     :rf.http/http-5xx   "Something went wrong on our end."
     (:rf.http/http-4xx
      :rf.http/decode-failure
@@ -156,9 +155,9 @@ whose stub answers 503:
 ```
 
 Against a real server, disconnect the network or return a 503 and the error
-replaces the loading message. A cross-origin connection failure can be classified as
-`:rf.http/cors` even when CORS configuration is correct: the browser does not
-distinguish it from other cross-origin network failures.
+replaces the loading message. Against a cross-origin URL the failure also carries
+`:cross-origin? true`: the browser reports a CORS refusal and a dropped connection
+the same way, so either may be the cause.
 
 ## Step 3 — validate the body with a schema
 

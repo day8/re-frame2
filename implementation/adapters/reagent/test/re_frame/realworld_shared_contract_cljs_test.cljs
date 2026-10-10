@@ -138,9 +138,10 @@
                   :body {:errors {:username ["has already been taken"]}}}
                  {:kind :rf.http/http-5xx :status 502 :body "raw upstream text"}]))))
   (testing "otherwise a category message keyed off the closed :rf.http/* taxonomy;
-            the CORS arm wins over the raw browser TypeError text the failure carries"
+            a cross-origin transport failure names CORS as a possible cause rather
+            than the raw browser TypeError text the failure carries"
     (is (= ["Network error — please try again."
-            "Blocked by the browser's cross-origin policy — check the API's CORS configuration."
+            "Couldn't reach the API — check your connection, or the API's CORS configuration."
             "Request timed out."
             "Request rejected (status 404)."
             "Server error (status 503)."
@@ -150,7 +151,7 @@
             "Request cancelled."]
            (map wh/failure->message
                 [{:kind :rf.http/transport}
-                 {:kind :rf.http/cors :message "Failed to fetch"}
+                 {:kind :rf.http/transport :cross-origin? true :message "Failed to fetch"}
                  {:kind :rf.http/timeout}
                  {:kind :rf.http/http-4xx :status 404}
                  {:kind :rf.http/http-5xx :status 503}
