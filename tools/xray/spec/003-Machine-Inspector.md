@@ -202,7 +202,7 @@ The header carries:
   > topology) or a frame switch still produces a distinct key → a clean
   > instance + its own layout. Highlights remain a pure visual overlay
   > orthogonal to `MachineChart`'s ELK layout-key
-  > (`[definition direction layout-options density]`, see
+  > (`[definition elk-direction layout-options density context-rows adaptive?]`, see
   > `tools/machines-viz/spec/API.md`); re-fitting the viewport on
   > navigation rides the orthogonal `:fit-signal` nonce, never a remount.
 
