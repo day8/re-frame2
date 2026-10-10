@@ -43,6 +43,20 @@
   for another."
   (:require ["react" :as react]))
 
+(def ^:dynamic *adopting-walk?*
+  "True while `impl.mount/hydrate-root!` lowers its own tree, and false
+  everywhere else.
+
+  Fresco lowers a root's hiccup EAGERLY, so the walk that builds a
+  hydrating root's element runs before `hydrateRoot` is called and
+  outside any render, where `adopting-here?` (a hook) cannot be asked. A
+  head that cannot be adopted reads this instead and refuses before
+  React sees the tree, which leaves the server's markup untouched:
+  `h/frame-root`, whose first render is empty
+  (`re-frame.fresco.impl.frame-boundary`). A head lowered later, inside a
+  body's render, is outside the walk and reads false."
+  false)
+
 (defn open-adoption-window!
   "Open a window and answer it — the ONLY handle on it there is.
 
