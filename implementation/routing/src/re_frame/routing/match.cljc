@@ -197,7 +197,16 @@
                   (recur (inc i) splat-seen?))
 
                 (= ch \{)
-                (recur (validate-optional-group! route-id pattern i) splat-seen?)
+                (do
+                  ;; The group carries its own leading `/`, so a `/` directly
+                  ;; before it leaves an empty segment: `/a/{/:x}?` would emit
+                  ;; `/a//x`, and its elided `/a` would not match back.
+                  (when (and (pos? i) (= \/ (.charAt ^String pattern (dec i))))
+                    (route-pattern-error!
+                      route-id pattern
+                      "a `/` directly before an optional group leaves an empty segment — the group carries its own leading `/` (`/a{/:x}?`, not `/a/{/:x}?`)"
+                      (dec i)))
+                  (recur (validate-optional-group! route-id pattern i) splat-seen?))
 
                 (= ch \})
                 (route-pattern-error! route-id pattern "`}` appears without a matching optional-group opener" i)
