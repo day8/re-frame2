@@ -41,12 +41,10 @@ for Fresco diagnostics will not find it either.
 
 **Row 3 — the over-correction**, reached by fixing row 1 or row 2 too
 enthusiastically. `h/sub` is legal only *during* a body run, so a read that
-happens later is routed by what runs it
+happens later is routed by what runs it — a hoisted value, a snapshot, or a
+registered view when a retained Reagent tree renders the result
 ([`catalog-judgment.md`](catalog-judgment.md#mig-26--ambient-subscribedispatch-in-a-plain-defn)
-MIG-26). A callback that renders nothing takes a hoisted **value** or a
-deliberate `rf/subscribe-once` snapshot; a callback whose result renders as a
-retained Reagent tree returns a registered view that owns the read, so the tree
-keeps updating.
+MIG-26).
 
 **So grep the converted bodies for surviving closures rather than finding them
 by clicking.** `#(`, `(fn [`, and any `subscribe` or `dispatch` inside a props
@@ -125,8 +123,8 @@ The presence overrides are the motion module's own keywords
 
 - **A surviving `^{:key …}` in Hiccup Fresco lowers** is an absent key — Fresco
   reads no metadata — and a reorderable list then reconciles by position
-  (MIG-07). Inside an `r/as-element` island the author kept, Reagent lowers the
-  Hiccup and reads the metadata, so that key stays.
+  (MIG-07). In a kept Reagent island Reagent lowers it, so that key stays
+  ([`mental-model.md`](mental-model.md#two-renderers-in-one-tree)).
 - **A string or symbol prop key** is a dead handler; a map at `:class` is not
   truthiness-filtered (MIG-11).
 - **A key map away from a keyboard event** raises

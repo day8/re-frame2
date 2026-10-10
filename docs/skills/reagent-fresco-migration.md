@@ -66,7 +66,7 @@ No tool converts the views themselves; that is judgment. The skill runs the repo
 
 After the report, it converts one **closed subtree** at a time — a namespace, or a view and the views beneath it, leaf views first — so each pass ends compiling, rendering and tested. It converts or holds each view whole, so there is never a half-migrated view. The skill runs the compile and test gates itself and hands you the **render** check, because "compiles" is not done: the failures that cost most all compile clean. The procedure, the traps and the shipped shadow-comparison test kit are in [`references/procedure.md`](https://github.com/day8/re-frame2/blob/main/skills/reagent-fresco-migration/references/procedure.md).
 
-A converted view can also sit beneath a parent that remains on Reagent via `h/as-element` in its child position, or `h/as-component` given raw props; the skill does not require a whole-app rewrite.
+A converted view can also sit beneath a parent that remains on Reagent, through one of Fresco's two bridge doors ([`references/procedure.md` Step 1](https://github.com/day8/re-frame2/blob/main/skills/reagent-fresco-migration/references/procedure.md#step-1--scope-a-closed-subtree)); the skill does not require a whole-app rewrite.
 
 When no Reagent view remains, it tells you the adapter choice is now open: Fresco's own adapter, `re-frame.fresco.substrate/adapter`, can replace `day8/re-frame2-reagent`. That choice stays yours. Dropping `reagent/reagent` also requires checking the rest of the repository for remaining uses, not just counting converted views.
 

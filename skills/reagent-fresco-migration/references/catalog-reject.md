@@ -85,12 +85,9 @@ must, and the census reports them as `:component-introspection` and
 Some of it dissolves rather than migrating: `props` and `children` are the props
 map the view already receives (children arrive at `:children`), `dom-node` is
 a callback ref (MIG-17), `force-update` has no meaning under memoised
-boundaries, and in a test of an all-Fresco tree an `r/flush` becomes the test
-kit's `hm/settle!`. That door commits only what has already reached React, so a
-mounted tree that still holds a retained Reagent renderer keeps `r/flush` for
-that renderer's own queue, called inside `react-dom/flushSync`
-([`procedure.md`](procedure.md#settling-a-tree-that-still-holds-a-reagent-renderer)
-Step 5 works one through).
+boundaries, and in a test an `r/flush` becomes the test kit's `hm/settle!` —
+unless the tree still holds a retained Reagent renderer, whose own queue still
+needs `r/flush` ([`mental-model.md`](mental-model.md#two-renderers-in-one-tree)).
 
 **The schedulers are not a callback ref.** `next-tick` / `after-render` are
 one-shot render-queue callbacks that fire around a flush even when nothing
@@ -123,9 +120,10 @@ These look like holds and are not; route them to the tier named:
 - **Foreign React components and their fn-valued props** (MIG-09/10). `[:> …]`
   is legal, `h/defhost` declares a repeated crossing once (its callbacks
   inferred from the spelling as on a native tag, with a `:callbacks` override
-  for a vendor's on*-named render prop), `h/as-element` crosses one element
-  through a prop, and
-  `h/as-component` bridges outward to a React/UIx/Reagent parent. → D-tier.
+  for a vendor's on*-named render prop), and `h/as-element` crosses one element
+  through a prop. A converted view under a React, UIx or Reagent parent takes a
+  bridge door ([`procedure.md`](procedure.md#step-1--scope-a-closed-subtree)
+  Step 1). → D-tier.
 - **Callback refs** (MIG-29). A function at `:ref` is React's own contract and
   Fresco honours it, with the return value as the detach cleanup. Nothing at
   `:ref` is refused: a *vector* there crosses to React as data and the ref

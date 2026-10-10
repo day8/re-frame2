@@ -181,9 +181,8 @@ is the whole of MIG-16/17, and it is the reason this skill is not a codemod.
 **Hooks do not belong in a `defview` body.** A body is dynamically composed —
 its branches and its `for`s follow the data it reads — and React's rules of
 hooks are about call *sequence*, so a hook there would make its own order depend
-on a subscription's answer. Hook-intensive behaviour goes to a React island: a
-UIx `defui` or a raw React function component, mounted through `h/defhost` (or
-`[:> …]` for a one-off), where React's rules of hooks apply to source the author
+on a subscription's answer. Hook-intensive behaviour goes to a React island
+(the table's last row), where React's rules of hooks apply to source the author
 controls. When the island needs Fresco state it uses the two hooks
 `re-frame.fresco.native` keeps for exactly that — `n/use-sub`, a read joined to
 the island's frame, and `n/use-frame`, a dispatch pinned to that frame's
@@ -204,3 +203,37 @@ the enforcement.
   frame-pinned reactive read, the prev-props update protocol, and Reagent's own
   component introspection. Those views stay on Reagent, and saying so is the
   honest answer.
+
+## Two renderers in one tree
+
+Leaf-first makes a **mixed tree** the normal state of a migration in progress:
+converted views over retained Reagent ones, Reagent libraries (re-com, grids,
+charts) inside converted parents, React islands inside both. Every runtime rule
+in this skill assumes one renderer, so at a mixed site answer three questions
+first:
+
+- **Who lowers this Hiccup?** Inside an `h/defview` body, or a helper it calls,
+  Fresco does: it reads no metadata, a vector at an `on-*` prop is an intent,
+  and a plain function head — a re-com `rc/v-box` included — is refused. Inside
+  `r/as-element`, or any Reagent component's render, Reagent does, by Reagent's
+  rules (`^{:key …}` included).
+- **Where does the frame come from?** React context, written by `h/frame-root`
+  / `h/frame-provider` or `rf/frame-root` and read by both `h/sub` and
+  `rf/reg-view`, so one frame serves both renderers. A retained Reagent view
+  that reads its frame any other way is re-frame-migration's
+  [M-11](https://github.com/day8/re-frame2/blob/main/skills/re-frame-migration/references/guided-views-m11.md).
+- **Whose queue holds pending work?** React's, which `hm/settle!` drains; and,
+  for any retained Reagent component, Reagent's own animation-frame render
+  queue, which no Fresco door drains — `r/flush` inside `react-dom/flushSync`
+  does ([`procedure.md`](procedure.md#settling-a-tree-that-still-holds-a-reagent-renderer)).
+
+| Parent | Child | Door |
+|---|---|---|
+| Reagent | a converted view | a **bridge door**, `h/as-element` or `h/as-component`, picked by the props the caller passes ([`procedure.md`](procedure.md#step-1--scope-a-closed-subtree) Step 1) |
+| a converted view | Reagent components | a **kept Reagent island**, `(r/as-element [rc/v-box …])`, or a top-level `r/reactify-component` crossed with `[:> …]` |
+| a converted view | a React or UIx component | a **React island**: `[:> …]`, or `h/defhost` when it repeats (MIG-09/10) |
+
+**A kept Reagent island is a legal, finished shape**, right while every head in
+it is Reagent's. Hiccup Fresco should lower — a converted view — handed to
+`r/as-element` is the unsafe bridge, because Reagent reads Fresco's heads and
+props as its own. That is why the census reports `r/as-element` as triage.
