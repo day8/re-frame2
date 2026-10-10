@@ -501,8 +501,7 @@
                        ;; live on a separate seam from the embed mount.
                        (rf.story.xray-preset/wire-cross-host!)
                        ;; Apply any per-story Xray preset
-                       ;; (focus tab, configure filters) + seed the RHS chip-row's user-
-                       ;; override slot from the story's `:xray-panel`.
+                       ;; (focus tab, configure filters).
                        (rf.story.xray-preset/on-variant-selected! now))
                      ;; RESUME the one run owner —
                      ;; run the auto-plays exactly once per prepared

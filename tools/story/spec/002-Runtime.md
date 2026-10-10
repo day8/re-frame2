@@ -61,12 +61,13 @@ So `allocate!` ALWAYS composes the variant frame's `:images` vector
   `:network` fixture. The library-owned `:rf.story/network-fixture`
   (`re-frame.story.network/fixture-image`) carries exactly ONE inline
   `:reg-fx`: the frame-scoped managed-request stub the plan's `:fx-overrides`
-  redirect names. Without it a variant with an explicit app image resolves the
-  redirect to nothing and the request falls through to the real
-  `:rf.http/managed` transport. Layered after every app image (so nothing
-  authored shadows it) and before the runtime image, which the two do not
-  contest. See [017-Testing-Story.md §Reaching the fixture through a selected
-  app image](017-Testing-Story.md#reaching-the-fixture-through-a-selected-app-image).
+  redirect names. A variant with an explicit app image already resolves that
+  stub through the framework base every explicit composition is layered over,
+  so this image is redundant there but harmless. Layered after every app image
+  (so nothing authored shadows it) and before the runtime image, which the two
+  do not contest. [017-Testing-Story.md §Reaching the fixture through a
+  selected app image](017-Testing-Story.md#reaching-the-fixture-through-a-selected-app-image)
+  owns the contract.
 - **runtime image** — the canonical Story **runtime image**
   (`re-frame.story.runtime-image/runtime-image`), composed LAST. It selects
   Story's own runtime registrations (`:select-ns {:include
