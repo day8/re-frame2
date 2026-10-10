@@ -5,12 +5,14 @@
   and mutation execute (Spec 016 §Resolver references — `{:from-db <id>}`,
   §Route integration, §Subscription-side scope resolution). A nil resolution
   fails closed (an event or operation throws, a route surfaces a planning
-  error, a sub raises), never a silent global; a sub re-keys reactively when
-  the resolver's inputs change; `clear-scope` takes a concrete scope only."
+  error), never a silent global, and a sub reads no entry and reports
+  `:status :unresolved`; a sub re-keys reactively when the resolver's inputs
+  change; `clear-scope` takes a concrete scope only."
   (:require
    #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.error-emit :as rf.error-emit]
    [re-frame.fx :as rf.fx]
    ;; load-bearing side-effecting requires: register the resources + routing
    ;; events / subs and resources' late-bound :routing/* integration hooks.
@@ -181,6 +183,40 @@
     (settle-loaded! (session-key "abel" 1) {:for "abel"})
     (is (= [:loaded {:for "abel"}] ((juxt :status :data) @sub))
         "and the same sub reads abel's entry once it loads")))
+
+(deftest sub-reads-unresolved-while-the-scope-resolves-nil
+  ;; a nil resolution is a value, not an error: the read has no identity yet
+  (rf/reg-resource :t/timeline
+    {:scope           {:from-db :t/session}
+     :infinite        true
+     :params-schema   [:map [:page :int]]
+     :next-page-param (fn [_last-page _all-pages] nil)}
+    (fn [_p _ctx] {:request {:method :get :url "/timeline"}}))
+  (load-feed-as! "jake" [:app :u 1] {:for "jake"})
+  (rf/dispatch-sync [:rf.resource/ensure {:resource :t/timeline :params {:page 1} :owner [:app :u 1]}])
+  (let [q      {:resource :t/feed :params {:page 1}}
+        vm     (rf/subscribe [:rf/resource q])
+        status (rf/subscribe [:rf.resource/status q])
+        data?  (rf/subscribe [:rf.resource/has-data? q])
+        feed   (rf/subscribe [:rf.resource/infinite-state {:resource :t/timeline :params {:page 1}}])
+        errors (atom [])
+        held   (fn [] [(:status @vm) (:data @vm) @status @data? (:status @feed)])]
+    (is (= [:loaded {:for "jake"} :loaded true :loading] (held)) "precondition: jake's entries")
+    (rf.error-emit/register-error-listener! ::errors #(swap! errors conj (:error %)))
+    (try
+      (rf/dispatch-sync [:t/logout])
+      (is (= {:status :unresolved :data nil :error nil :refresh-error nil
+              :loading? false :fetching? false :stale? false :has-data? false :previous? false}
+             @vm)
+          "the view-model is the unresolved empty shape, carrying none of jake's data")
+      (is (= [:unresolved false] [@status @data?]) "the status sub and a boolean projection")
+      (is (= [:unresolved [] false] ((juxt :status :items :has-data?) @feed))
+          "the infinite family projects its empty feed as :unresolved")
+      (is (= 0 (count (filter #{:rf.error/sub-exception} @errors))) "no sub-exception record")
+      (finally (rf.error-emit/unregister-error-listener! ::errors)))
+    (rf/dispatch-sync [:t/login "jake"])
+    (is (= [:loaded {:for "jake"} :loaded true :loading] (held))
+        "logging back in re-keys the same held subs to jake's entries")))
 
 ;; ===========================================================================
 ;; clear-scope takes a CONCRETE scope only

@@ -205,11 +205,23 @@
            (rf.resources.registry/resolve-scope-for-event
              :sr/global (rf.resources.registry/resource-meta :sr/global) {} 'test)))))
 
-(deftest sub-side-scope-fail-closed
+(deftest sub-side-unresolved-scope-resolves-no-key
+  ;; a nil resolution leaves a sub no key to read: a value, never a global read
   (rf/reg-resource :ss/derived (article-spec {:scope {:from-db :t/caller-scope}}) article-spec-request)
-  (is (thrown-with-msg?
-        #?(:clj Throwable :cljs js/Error) #"resource-sub-unresolved-scope"
-        (rf.resources.subs/resolve-scoped-key {:resource :ss/derived :params {:slug "x"}} {}))))
+  (rf/reg-resource :ss/global (article-spec) article-spec-request)
+  (is (= [nil nil]
+         [(rf.resources.subs/resolve-scoped-key {:resource :ss/derived :params {:slug "x"}} {})
+          (rf.resources.subs/resolve-scoped-key {:resource :ss/global :params {:slug "x"}
+                                                 :scope {:from-db :t/caller-scope}} {})])
+      "an unresolved {:from-db} policy, and a {:from-db} payload override, resolve no key")
+  (testing "a defect stays loud on the read side"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"resource-not-registered"
+          (rf.resources.subs/resolve-scoped-key {:resource :ss/unknown :params {:slug "x"}} {})))
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"resource-scope-not-registered"
+          (rf.resources.subs/resolve-scoped-key {:resource :ss/global :params {:slug "x"}
+                                                 :scope {:from-db :ss/no-such-resolver}} {})))))
 
 (deftest reserved-scope-typo-rejected-at-concrete-boundaries
   (rf/reg-resource :tp/article (article-spec {:scope {:from-db :t/caller-scope}}) article-spec-request)

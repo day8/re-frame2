@@ -131,6 +131,7 @@ renders `article-page` when `:rf.route/id` is `:app/article`:
 | `:loaded` | Data is available, possibly stale | Content or an empty-result message |
 | `:fetching` | Refresh in flight, keeping existing data | Content and a small progress indicator |
 | `:error` | First load failed | Error and retry action |
+| `:unresolved` | The scope resolver returned `nil`, so the read has no identity yet | A sign-in prompt or a restoring line |
 
 The cell below runs the registration, route and view from this page against
 canned replies, and shows the raw status above the view. The `draft` link's
@@ -235,10 +236,12 @@ or permissions affect it, include those distinctions in a named scope resolver:
 ```
 
 Routes and subscriptions inherit that policy. A resolver returning `nil`
-raises `:rf.error/resource-sub-unresolved-scope` on a subscription and
-`:rf.error/resource-scope-unresolved-reference` on an ensure. Wait until the
-identity is known before reading or loading that resource. Scope selects a
-cache entry; your server still authenticates and authorizes the request.
+means the read has no identity yet: a subscription reads no entry and
+reports `:status :unresolved`, and an ensure raises
+`:rf.error/resource-scope-unresolved-reference`. Give a view an
+`:unresolved` arm (a sign-in prompt, a restoring line), and wait until the
+identity is known before loading that resource. Scope selects a cache entry;
+your server still authenticates and authorizes the request.
 
 When the resolver's inputs change, a subscription reads the new key without
 fetching. If the route stays the same, dispatch

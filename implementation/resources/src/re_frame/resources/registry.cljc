@@ -856,43 +856,27 @@
                     "resource declares a scope policy.")
                {:resource-id resource-id :scope policy})))))
 
-(defn- sub-unresolved-reference!
-  "A `{:from-db <id>}` reference at a SUBSCRIPTION site that resolves NIL
-  against the frame app-db is the sub-side fail-closed unresolved condition
-  (EP-0016 D3 slice 3): the resolver's declared inputs are not
-  present (e.g. no logged-in user), so the scope is genuinely \"unresolved\"
-  — NEVER a silent global read and NEVER a silent `:idle`. Raises
-  `:rf.error/resource-sub-unresolved-scope` naming the resolver id, the
-  read-side counterpart of the event-side fail-closed throw. Returns the
-  resolved concrete scope otherwise."
-  [resource-id reference db where]
+(defn- resolve-sub-reference
+  "Resolve a `{:from-db <id>}` reference at a SUBSCRIPTION site against the
+  frame app-db, or nil when the resolver returns nil. A nil resolution is an
+  ordinary app state (no principal yet, a session still restoring), so the
+  sub has no identity to read and projects `:status :unresolved` rather than
+  raising (Spec 016 §Subscription-side scope resolution). An unregistered
+  resolver, an invalid resolver result and a resolver exception stay loud."
+  [reference db where]
   ;; A subscription is a PASSIVE read advertised as pure; it
   ;; resolves its `{:from-db …}` scope through the trace-FREE evaluator so a
   ;; sub re-key (which fires on every frame-state change) never emits
   ;; `:rf.resource/scope-resolved` observability state. The causal write-side
   ;; resolution (event ensure / route / mutation settle) records its traced
   ;; evidence via `resolve-from-db-reference`.
-  (or (rf.resources.scope-registry/resolve-from-db-reference-pure reference db where)
-      (throw (registration-error
-               :rf.error/resource-sub-unresolved-scope
-               where
-               (str "resource " resource-id " subscription referenced named "
-                    "scope resolver " (pr-str (:from-db reference)) " via "
-                    "{:from-db …}, but it resolved NIL against the frame db — "
-                    "the scope is UNRESOLVED. A sub never reads global / a "
-                    "different cache entry / a silent :idle when its derived "
-                    "scope cannot resolve; the view should render the "
-                    "\"scope unresolved\" state until the resolver's :inputs "
-                    "(e.g. a logged-in user) appear. Per Spec 016 §Resolver "
-                    "references / §Subscription-side scope resolution.")
-               {:resource-id resource-id :from-db (:from-db reference)
-                :policy :unresolved-reference}))))
+  (rf.resources.scope-registry/resolve-from-db-reference-pure reference db where))
 
 (defn resolve-scope-for-sub
-  "Resolve the cache scope for a resource SUBSCRIPTION, fail-closed (Spec
-  016 §Subscription-side scope resolution). A sub is PURE — it never sees the
-  route tier at all (no routing match, no route-entry planning). Resolution
-  order:
+  "Resolve the cache scope for a resource SUBSCRIPTION (Spec 016
+  §Subscription-side scope resolution), or nil when its `{:from-db …}`
+  reference resolves nil. A sub is PURE — it never sees the route tier at all
+  (no routing match, no route-entry planning). Resolution order:
 
     1. `:scope` supplied on the subscription payload;
     2. the resource spec's `:scope` policy — an explicit `:rf.scope/global`
@@ -901,48 +885,39 @@
 
   A `{:from-db <id>}` reference (on the payload OR as the spec policy) is
   resolved against `db` (the frame app-db value) at use time (EP-0016 D3
-  slice 3). A reference that resolves NIL raises
-  `:rf.error/resource-sub-unresolved-scope` — the sub-side fail-closed
-  \"scope unresolved\" condition, never a global / wrong-entry
-  / silent-`:idle` read. `db` is the frame app-db value the sub layer reads;
-  a nil db resolves references against `{}`.
+  slice 3). A reference that resolves nil returns nil: the sub then reads NO
+  entry — never global, never another principal's entry — and projects
+  `:status :unresolved`. The causal side is where a nil scope fails closed.
+  `db` is the frame app-db value the sub layer reads; a nil db resolves
+  references against `{}`.
 
-  A sub that CANNOT resolve a scope raises `:rf.error/resource-sub-
-  unresolved-scope` (carrying the resource id + the unresolvable policy) —
-  NEVER a silent `[:rf.scope/global]` read and NEVER a silent `:idle`.
-  Returns the canonical scope.
-
-  Every caller supplies the frame `db` explicitly: a caller
-  that resolves no `{:from-db …}` scope passes `{}`, where references resolve
-  fail-closed."
+  Returns the canonical scope, or nil for an unresolved reference. Every
+  caller supplies the frame `db` explicitly: a caller that resolves no
+  `{:from-db …}` scope passes `{}`."
   [resource-id spec payload-scope where db]
   (let [policy (:scope spec)]
     (cond
       ;; 1. payload scope — a {:from-db …} reference resolves against the
-      ;; frame db at use time + fails closed on nil (sub-side).
+      ;; frame db at use time; nil leaves the sub without a key.
       (rf.resources.scope-registry/from-db-reference? payload-scope)
-      (canonical-scope! resource-id
-                        (sub-unresolved-reference! resource-id payload-scope db where)
-                        where)
+      (when-let [scope (resolve-sub-reference payload-scope db where)]
+        (canonical-scope! resource-id scope where))
       (some? payload-scope) (canonical-scope! resource-id payload-scope where)
       ;; 2a. a {:from-db …} spec policy — the declared derived-scope policy,
       ;; resolved against the frame db at use time (the sub
       ;; re-keys reactively when the resolver's app-db inputs change).
       (rf.resources.scope-registry/from-db-reference? policy)
-      (canonical-scope! resource-id
-                        (sub-unresolved-reference! resource-id policy db where)
-                        where)
+      (when-let [scope (resolve-sub-reference policy db where)]
+        (canonical-scope! resource-id scope where))
       (= policy global-scope-policy) global-scope-policy
       ;; registration admits no third shape, so reaching here is a defective
       ;; spec — fail closed rather than read a nil-scoped entry.
       :else
       (throw (registration-error
-               :rf.error/resource-sub-unresolved-scope
+               :rf.error/resource-missing-scope-policy
                where
                (str "resource " resource-id " carries an invalid :scope policy "
-                    (pr-str policy) " that a subscription cannot resolve. A scope "
-                    "policy is EXACTLY :rf.scope/global or "
-                    "{:from-db <resource-scope-id>}; pass :scope on the "
-                    "subscription payload to override. Per Spec 016 "
-                    "§Subscription-side scope resolution.")
-               {:resource-id resource-id :policy policy})))))
+                    (pr-str policy) ". A scope policy is EXACTLY :rf.scope/global "
+                    "or {:from-db <resource-scope-id>}. Per Spec 016 §Every "
+                    "resource declares a scope policy.")
+               {:resource-id resource-id :scope policy})))))

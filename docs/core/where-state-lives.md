@@ -111,7 +111,7 @@ The params are the identity: two screens asking for `{:list-id "team"}` share on
 
 !!! note "Scope is what stops a cross-user data leak"
 
-    Every resource declares its scope; there is no default. `:rf.scope/global` means the same params give the same data for everyone, as for a list the whole team shares. `{:from-db :app/session}` names a resolver that derives the scope from the current viewer, for a per-user or per-tenant cache. If the resolver produces nothing (nobody is logged in), a read raises `:rf.error/resource-sub-unresolved-scope` instead of reading a shared entry.
+    Every resource declares its scope; there is no default. `:rf.scope/global` means the same params give the same data for everyone, as for a list the whole team shares. `{:from-db :app/session}` names a resolver that derives the scope from the current viewer, for a per-user or per-tenant cache. If the resolver produces nothing (nobody is logged in), a read reports `:status :unresolved` instead of reading a shared entry.
 
 Read a resource through subscriptions: `[:rf/resource …]` returns the whole entry, and single-value subs such as `[:rf.resource/data …]` and `[:rf.resource/loading? …]` return one fact. [Server state: resources](../resources/concepts.md) lists them and shows how a failed first load differs from a failed background refresh. A route declaring its `:resources`, the most common cause, is covered in [Routing](../routing/concepts.md).
 

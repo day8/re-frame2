@@ -154,10 +154,11 @@
   `:frame` reads as `nil` runtime-db and returns `nil` (no entry) — the same
   result as a live frame with no entry for the key. The fail-closed boundary
   is the MISSING explicit target, not a vanished one; a valid explicit frame
-  lookup returns `nil` only for a genuinely absent entry. A `{:from-db …}`
-  scope resolves against that frame's app-db, which reads as `nil` too, so a
-  resolver that returns `nil` for it raises
-  `:rf.error/resource-sub-unresolved-scope` rather than returning `nil`."
+  lookup returns `nil` for a genuinely absent entry, and for a target with no
+  identity: a `{:from-db …}` scope resolves against that frame's app-db (which
+  reads as `nil` for an unknown frame too), and a resolver that returns `nil`
+  leaves no key to look up. The result is a durable entry or `nil`, never an
+  invented unresolved entry."
   [{:keys [frame] :as opts}]
   (when (nil? frame)
     (rf.error/throw-error!
@@ -183,7 +184,8 @@
         scoped-key (rf.resources.subs/resolve-scoped-key
                      opts (rf.frame/frame-app-db-value frame))
         runtime-db (rf.frame/frame-runtime-db-value frame)]
-    (get-in runtime-db (rf.resources.state/entry-path scoped-key))))
+    (when scoped-key
+      (get-in runtime-db (rf.resources.state/entry-path scoped-key)))))
 
 (defn mutation-state
   "Return a mutation INSTANCE's durable runtime row for an explicit

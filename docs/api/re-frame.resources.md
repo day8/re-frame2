@@ -140,7 +140,7 @@ The registered policy is the default. A route entry, subscription payload or eve
 
 - Events resolve payload `:scope`, then the route entry's `:scope`, then the registered policy. A `{:from-db <id>}` reference that resolves to `nil` at an event raises `:rf.error/resource-scope-unresolved-reference`.
 - A route entry's `:scope` is a concrete value or a `{:from-db <id>}` reference, never a function. At a route, a scope that cannot be resolved (a function or `nil` on the entry, or a reference on the entry or the registered policy that resolves to `nil`) fails the route's resource plan and never falls through to another tier: [`:rf.route/error`](re-frame.routing.md#subscriptions) reads `:rf.error/resource-route-plan`, with the original error's data under `:cause`.
-- Subscriptions resolve payload `:scope`, then the registered policy. A `{:from-db …}` reference that resolves to `nil` raises `:rf.error/resource-sub-unresolved-scope`; the subscription never reads global data or returns `:idle` instead.
+- Subscriptions resolve payload `:scope`, then the registered policy. A `{:from-db …}` reference that resolves to `nil` leaves the read without an identity: the subscription reads no entry and reports `:status :unresolved`, never global data and never `:idle`.
 
 See [Scope: whose cache?](../resources/concepts.md#the-scoped-key-a-leak-boundary-that-fails-closed) in the guide.
 
@@ -454,7 +454,7 @@ Resource events take a single map payload. The events that name a `:resource` va
 
 ## Resource subscriptions (passive)
 
-A resource subscription reads the cache and never fetches. It resolves the scope as described in [Scope policy](#scope-policy) and raises `:rf.error/resource-sub-unresolved-scope` rather than reading global data or returning `:idle`.
+A resource subscription reads the cache and never fetches. It resolves the scope as described in [Scope policy](#scope-policy). When a `{:from-db …}` scope resolves to `nil`, it reads no entry and reports `:status :unresolved` rather than reading global data or returning `:idle`.
 
 It validates its payload as the events do, so an unregistered `:resource` (`:rf.error/resource-not-registered`), params that fail the schema or are not portable EDN (`:rf.error/resource-invalid-params`, `:rf.error/resource-non-edn-params`), an invalid scope (`:rf.error/resource-invalid-scope`) or an unregistered resolver (`:rf.error/resource-scope-not-registered`) throws when the view reads it. A valid key that nothing has ensured reads `:status :idle`.
 
@@ -479,7 +479,7 @@ Read them with the ordinary `subscribe`; there is no separate read function. `su
 The `:rf/resource` view-model holds facts plus derived booleans:
 
 ```clojure
-{:status        :idle ;; :idle | :loading | :fetching | :loaded | :error
+{:status        :idle ;; :idle | :loading | :fetching | :loaded | :error | :unresolved
  :data          <last-known-good-or-nil>
  :error         <first-load-error-or-nil>          ;; failure map {:kind :rf.http/… …}
  :refresh-error <background-refresh-error-or-nil>  ;; failure map {:kind :rf.http/… …}
@@ -492,6 +492,7 @@ The `:rf/resource` view-model holds facts plus derived booleans:
 ```
 
 - `:idle` means nothing has ensured this key, or its first load was aborted, for example because its last owner was released while the request was in flight.
+- `:unresolved` means the scope resolver returned `nil`, so the read has no identity yet and reads no entry. It is projected, never stored; give the view an arm for it, such as a sign-in prompt or a restoring line.
 - `:loading` is a first load with no usable data.
 - `:fetching` is a refresh in flight while prior data stays visible.
 - `:error` is a failed first load with no usable data.
@@ -745,7 +746,6 @@ Cache entries (durable facts) and work-ledger attempts (in-flight records) are k
     - `:rf.error/resource-invalid-scope` — a misspelt `:rf.scope/*` keyword, `[:rf.scope/global]`, or a `{:from-db …}` map where a concrete scope is required.
     - `:rf.error/resource-scope-not-registered` — a `{:from-db …}` reference naming no registered resolver.
     - `:rf.error/resource-scope-unresolved-reference` — an event's `{:from-db …}` scope resolves to `nil`.
-    - `:rf.error/resource-sub-unresolved-scope` — a subscription's, or `resource-state`'s, `{:from-db …}` scope resolves to `nil`.
     - `:rf.error/resource-invalidate-scope-required` — a scoped `invalidate-tags` without `:scope`.
     - `:rf.error/resource-cross-scope-cause-required` — a cross-scope `invalidate-tags` without `:cause`.
     - `:rf.error/resource-cross-scope-scope-conflict` — a cross-scope `invalidate-tags` that also names `:scope`.
@@ -813,7 +813,7 @@ The reads here return one-shot, non-reactive snapshots for Xray, unit tests and 
   ```
 - **Description**: Returns one resource instance's durable runtime entry at an explicit frame, or `nil` when no entry exists. The scoped key resolves as a subscription's does, so a `{:from-db <id>}` scope resolves against the frame's `app-db`.
     - An absent or `nil` `:frame` raises `:rf.error/no-frame-context`. There is no fallback to `:rf/default`; returning `nil` would be indistinguishable from an absent entry.
-    - An explicit but unknown or destroyed `:frame` reads as `nil`. With a `{:from-db …}` scope, the scope resolves against that frame's `app-db`, which reads as `nil`, so a resolver that returns `nil` for it raises `:rf.error/resource-sub-unresolved-scope`.
+    - An explicit but unknown or destroyed `:frame` reads as `nil`. With a `{:from-db …}` scope, the scope resolves against that frame's `app-db`, which reads as `nil`, so a resolver that returns `nil` for it leaves no key to look up and `resource-state` returns `nil`.
     - `:frame` is a frame id or a live frame value.
     - An invalid key raises the same errors as a subscription (see [Resource subscriptions](#resource-subscriptions-passive)).
 - **Example**:
