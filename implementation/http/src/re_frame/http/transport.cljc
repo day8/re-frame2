@@ -500,11 +500,15 @@
     ;; redaction below rather than this schema pass — its body is
     ;; raw and unschematized by construction. The schema's per-slot marks cover
     ;; `:sensitive?` (→ `:rf/redacted`) and `:large?` (→ `:rf.size/large-elided`)
-    ;; through the shared marks walker.
+    ;; through the shared marks walker. They are paths into the decoded body
+    ;; (`:decoded` on the ctx), so they apply per-slot only when the success
+    ;; `:value` IS that body; a value an `:accept` reshaped is unschematized
+    ;; (`classify-success-value`).
     (let [reply' (if (and (= :ok (:status reply))
                           (contains? reply :value)
                           (rf.http.privacy-body/schema-decode? (:decode ctx)))
-                   (update reply :value rf.http.privacy-body/classify-decoded (:decode ctx))
+                   (update reply :value rf.http.privacy-body/classify-success-value
+                           (:decoded ctx) (:decode ctx))
                    reply)
           ;; The success reply's `:meta` carries the response
           ;; wire facts (status / status-text / normalized headers). The
@@ -557,13 +561,15 @@
       ;; (`re-frame.epoch.tool-pair`) consults it and omits / classifies the
       ;; body slot. BOTH statuses carry a body slot to gate: success at
       ;; `:value`, failure at `[:error :body]` / `[:error :body-text]` /
-      ;; `[:error :decoded]`.
+      ;; `[:error :decoded]`. A success `:value` an `:accept` reshaped is
+      ;; unschematized, so it is `:omit` whatever the `:decode`.
       (rf.trace/emit! :info :rf.http/replied
                    (cond-> (rf.http.reply/trace-reply reply' (cond-> {:sensitive? (true? (:sensitive? ctx))}
                                                             (:frame ctx) (assoc :frame (:frame ctx))))
                      (= :ok (:status reply))
                      (assoc :rf.http/off-box-body
-                            (rf.http.privacy-body/off-box-body-disposition (:decode ctx)))
+                            (rf.http.privacy-body/success-value-disposition
+                              (:value reply) (:decoded ctx) (:decode ctx)))
 
                      ;; The FAILURE arm of the same
                      ;; off-box fail-closed rule (Spec 014 §Response-body
