@@ -20,16 +20,18 @@
   context that may explain the failure.  Green runs stay quiet (the
   buffer is simply dropped at the green exit).
 
-  Buffer scope: `console.warn` only.
-  This stub captures `console.warn` and nothing else: `console.error` and
-  direct `process.stderr.write` are NOT buffered and pass straight
-  through.  That is deliberate — `console.warn` is the channel re-frame2's
-  expected first-run warnings travel on, while a `console.error` is a real
-  error worth surfacing immediately even on the green path.  This makes the
-  CLJS scope narrower than the JVM runner (`re-frame.test-quiet.runner`),
-  which buffers the test thread's `*err*` plus a process-global `System/err`
-  bridge. The drop-on-green/replay-on-red policy is the same; only the
-  captured scope differs.
+  Buffer scope: `console.warn`, plus the one `console.error` line re-frame2's
+  unowned-error dev fallback prints — a call whose first argument is
+  `\"[re-frame2]\"`. Suites exercise framework refusals on purpose, and each
+  unrouted one prints that line on a non-DOM host, so it is expected noise
+  rather than a real error; it rides its own ring (`error-buffer`) and is
+  replayed on red the same way. Every other `console.error` call and direct
+  `process.stderr.write` pass straight through, so a real error still
+  surfaces immediately on the green path. This keeps the CLJS scope narrower
+  than the JVM runner (`re-frame.test-quiet.runner`), which buffers the test
+  thread's `*err*` plus a process-global `System/err` bridge. The
+  drop-on-green/replay-on-red policy is the same; only the captured scope
+  differs.
 
   Tests that assert warning content all use the local
   `with-captured-console-warn` pattern — they save `(.-warn js/console)`,
@@ -60,6 +62,10 @@
   ;; already captured this run.
   (atom []))
 
+(defonce ^:private error-buffer
+  ;; The same bounded ring, for the `[re-frame2]` `console.error` lines.
+  (atom []))
+
 (defn- buffer-warning!
   "Append `args` (one `console.warn` call's arguments) to the bounded
   ring via `warn-buffer/bound-conj`, which caps the ring to the newest
@@ -69,11 +75,25 @@
   [warning-args]
   (swap! warn-buffer rf.test-quiet.warn-buffer/bound-conj warning-args))
 
+(defn- replay-buffer!
+  "Replay one buffered channel's calls to fd 2 as `replay-buffered-warnings!`
+  describes, labelled `console.<channel>`."
+  [buffered channel]
+  (when (seq buffered)
+    (let [fs (js/require "fs")]
+      (binding [*print-fn* (fn [s] (.writeSync fs 2 s))]
+        (println (str "[test-quiet] " (count buffered)
+                      " console." channel " message(s) buffered during this run"
+                      " (replayed because the run was RED):"))
+        (doseq [args buffered]
+          (apply println (str "[test-quiet] console." channel ":") args))))))
+
 (defn- replay-buffered-warnings!
-  "Replay the buffered warnings to stderr, prefixed so they are
-  distinguishable from the test reporter's own stdout output.  Called
-  from the `:end-run-tests` reporter ONLY on a red run, restoring the
-  diagnostic context the green-path quieting withheld.
+  "Replay the buffered warnings, then the buffered `[re-frame2]` error
+  lines, to stderr, prefixed so they are distinguishable from the test
+  reporter's own stdout output.  Called from the `:end-run-tests` reporter
+  ONLY on a red run, restoring the diagnostic context the green-path
+  quieting withheld.
 
   Buffered argument values are rendered through `println`, not replayed
   through native `console.warn`; their formatting semantics therefore differ.
@@ -89,15 +109,8 @@
   `fs.writeSync` blocks until the bytes reach the fd, so the exit cannot drop
   them. This matches the JVM runner's blocking stderr replay."
   []
-  (let [buffered-warnings @warn-buffer]
-    (when (seq buffered-warnings)
-      (let [fs (js/require "fs")]
-        (binding [*print-fn* (fn [s] (.writeSync fs 2 s))]
-          (println (str "[test-quiet] " (count buffered-warnings)
-                        " console.warn message(s) buffered during this run"
-                        " (replayed because the run was RED):"))
-          (doseq [warning-args buffered-warnings]
-            (apply println "[test-quiet] console.warn:" warning-args)))))))
+  (replay-buffer! @warn-buffer "warn")
+  (replay-buffer! @error-buffer "error"))
 
 ;; The stub carries an `rf-test-quiet-silenced` marker property so a
 ;; contract test can assert the live `console.warn` is
@@ -113,6 +126,19 @@
                nil)]
     (set! (.-rf-test-quiet-silenced stub) true)
     (set! (.-warn js/console) stub)))
+
+;; The `console.error` stub buffers only the dev fallback's `[re-frame2]`
+;; line and hands every other call to the native `console.error`.
+(when (and (exists? js/console)
+           (fn? (.-error js/console)))
+  (let [native-error (.-error js/console)
+        stub         (fn [& error-args]
+                       (if (= "[re-frame2]" (first error-args))
+                         (do (swap! error-buffer rf.test-quiet.warn-buffer/bound-conj
+                                    (vec error-args))
+                             nil)
+                         (.apply native-error js/console (into-array error-args))))]
+    (set! (.-error js/console) stub)))
 
 ;; ----------------------------------------------------------------------
 ;; The single override shadow.test.node ships — exit the node process
