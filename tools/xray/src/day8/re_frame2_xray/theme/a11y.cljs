@@ -59,7 +59,6 @@
                       Preferred over `:label` when the dialog has a
                       visible title (screen readers will read the
                       heading text).
-      :describedby  — DOM id of a description element (optional).
 
   Returns a map with `:role`, `:aria-modal`, and one of
   `:aria-label` / `:aria-labelledby` set. Suitable for `(merge …)`
@@ -67,14 +66,13 @@
 
   Pure data → map; JVM-portable so the .cljc-naming pattern can pick
   up these tests on both runners."
-  [{:keys [label labelled-by describedby]}]
+  [{:keys [label labelled-by]}]
   (cond-> {:role       "dialog"
            :aria-modal "true"}
     labelled-by  (assoc :aria-labelledby labelled-by)
     (and label
          (not labelled-by))
-    (assoc :aria-label label)
-    describedby  (assoc :aria-describedby describedby)))
+    (assoc :aria-label label)))
 
 ;; ---- focus capture ref --------------------------------------------------
 

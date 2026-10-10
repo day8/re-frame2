@@ -299,8 +299,8 @@
             [day8.re-frame2-xray.views.edn-inspector-state :as state]
             [day8.re-frame2-xray.views.edn-inspector-protocol :as ddp]
             ;; Editscript-backed diff projection engine. Produces
-            ;; `{:path-ops :container-ops :flat-rows
-            ;; :wholly-changed-roots :shift-suffix :vector-removals}`
+            ;; `{:path-ops :container-ops :wholly-changed-roots
+            ;; :vector-removals}`
             ;; — the renderer chrome below consumes it via
             ;; `engine/op-at`, `engine/wholly-changed-ancestor`,
             ;; `engine/shifted-was-index`, etc.

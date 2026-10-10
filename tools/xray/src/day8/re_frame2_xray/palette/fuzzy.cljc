@@ -45,10 +45,8 @@
 
   ## Tie-break
 
-  Equal scores: pick the candidate with the earlier first-match
-  index, then the shorter candidate. `score-with-meta` returns the
-  raw score AND the first-match index so the caller can sort
-  deterministically.
+  The caller breaks equal scores: `sources/rank` sorts by score, then by
+  the shorter label, then lexicographically.
 
   ## Boundary split (spec/007-UX-IA.md §Indexed sources)
 
@@ -122,20 +120,17 @@
   "Score `candidate` against `query`. Both args are strings.
 
   Returns `nil` when the query is not a case-insensitive subsequence
-  of the candidate. Returns `{:score long :first-match int :indices
-  [int ...]}` otherwise. The `:indices` vector is the per-char match
-  positions in the candidate — useful for caller-side highlight
-  rendering once the v1.0 styling pass lands.
+  of the candidate. Returns `{:score long}` otherwise.
 
-  Empty query short-circuits to a tiny non-zero score (`1`) with no
-  first-match — every candidate qualifies for empty-input mode and
-  the caller's recency / boost weights dominate the order."
+  Empty query short-circuits to a tiny non-zero score (`1`) — every
+  candidate qualifies for empty-input mode and the caller's recency /
+  boost weights dominate the order."
   [candidate query]
   (cond
     (nil? candidate) nil
     (nil? query)     nil
     (zero? (count query))
-    {:score 1 :first-match nil :indices []}
+    {:score 1}
 
     :else
     (let [c-lc (str/lower-case candidate)
@@ -145,14 +140,10 @@
       (loop [ci 0
              qi 0
              score 0
-             last-match-idx -2
-             first-match nil
-             indices (transient [])]
+             last-match-idx -2]
         (cond
           (= qi q-len)
-          {:score       score
-           :first-match first-match
-           :indices     (persistent! indices)}
+          {:score score}
 
           (= ci c-len)
           nil
@@ -176,9 +167,7 @@
                 (recur (inc ci)
                        (inc qi)
                        (+ score bonus)
-                       ci
-                       (or first-match ci)
-                       (conj! indices ci)))
+                       ci))
               ;; Gap penalty: -1 per UNMATCHED candidate char that sits
               ;; AFTER the first match. The condition is
               ;; `(>= last-match-idx 0)` — a match has occurred —
@@ -193,18 +182,5 @@
                      (if (>= last-match-idx 0)
                        (dec score)
                        score)
-                     last-match-idx
-                     first-match
-                     indices))))))))
+                     last-match-idx))))))))
 
-(defn score
-  "Convenience: return just the score (`long` or `nil`)."
-  [candidate query]
-  (when-let [m (score-with-meta candidate query)]
-    (:score m)))
-
-(defn match?
-  "True iff `query` is a case-insensitive subsequence of `candidate`.
-  Cheap pre-filter when the caller does not need the score."
-  [candidate query]
-  (boolean (score-with-meta candidate query)))

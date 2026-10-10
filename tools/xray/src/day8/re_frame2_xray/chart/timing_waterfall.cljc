@@ -35,8 +35,7 @@
   bar + numeric percentage; the waterfall is already static (only the
   per-phase bar width carries meaning), so no extra reduced-motion
   handling is needed."
-  (:require [clojure.string :as str]
-            [day8.re-frame2-xray.theme.tokens :as tokens]))
+  (:require [day8.re-frame2-xray.theme.tokens :as tokens]))
 
 ;; ---- visual constants --------------------------------------------------
 
@@ -132,11 +131,9 @@
 (defn- bar-fill
   [phase slowest?]
   (cond
-    slowest?                  (:yellow tokens/tokens)
-    (= phase :issued)         (:accent tokens/tokens)
-    (contains? #{:elapsed :ttfb :download :receive :compute}
-               phase)         (:info tokens/tokens)
-    :else                     (:info tokens/tokens)))
+    slowest?          (:yellow tokens/tokens)
+    (= phase :issued) (:accent tokens/tokens)
+    :else             (:info tokens/tokens)))
 
 (defn render
   "Render a wire-timing map as a hiccup SVG waterfall.
