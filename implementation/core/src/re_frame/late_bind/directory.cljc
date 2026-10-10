@@ -353,6 +353,9 @@
    {:key         :schemas/extract-sensitive-paths-from-schema
     :producer-ns 're-frame.schemas
     :description "Walk a Malli EDN form at a base-path; return paths whose props carry :sensitive? true. Consumed by re-frame.http.privacy-body (a :rf.http/managed :decode schema's response-body classification) and re-frame.resources.classification (a :params-schema's validation-failure trace redaction)."}
+   {:key         :schemas/schema-has-opaque-child?
+    :producer-ns 're-frame.schemas
+    :description "True when a Malli schema's per-slot marks may sit where the extract hooks cannot see them: an opaque root, or a vector form with an opaque descendant ([:ref ...], a local :registry, an embedded compiled value, an unclassified op). Consumed by re-frame.http.privacy-body, which stamps a :decode body :classify for off-box egress only when this answers false."}
 
    ;; ---- re-frame.machines ----------------------------------------------------
    {:key         :machines/reg-machine
