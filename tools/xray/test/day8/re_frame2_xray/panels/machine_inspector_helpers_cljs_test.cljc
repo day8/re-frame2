@@ -21,18 +21,15 @@
           :selected-id         nil
           :selected-machine-id nil
           :selected            nil
-          :chart-props         nil
-          :transitions         []
           :empty-kind          :no-machines}
-         (h/project-data [] {} [] nil :rf/default))))
+         (h/project-data [] {} nil))))
 
 (deftest project-data-echoes-the-raw-selection-slot-rf2-mj4jp
   (testing "the Dynamic panel feeds the selection rule `project-data`'s RAW
             `:selected-machine-id`, never `:selected-id`: with no selection
             the effective id still names the alphabetically-first row, a
             machine the operator never chose"
-    (let [project #(select-keys (h/project-data [:checkout/flow :auth/login]
-                                                {} [] % :rf/default)
+    (let [project #(select-keys (h/project-data [:checkout/flow :auth/login] {} %)
                                 [:selected-machine-id :selected-id :empty-kind])]
       (is (= {:selected-machine-id nil :selected-id :auth/login :empty-kind nil}
              (project nil)))

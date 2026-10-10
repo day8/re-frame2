@@ -6,19 +6,13 @@
   ## Scope
 
   Pure data, no DOM / React / re-frame side effects. Every input is
-  data; every output is data. The public fns answer three questions
+  data; every output is data. The public fns answer two questions
   the topology overlay asks of a buffer of trace events:
 
-    1. **Which state is the machine in?** — `current-state-from-traces`
-       (focused epoch), `current-state-from-epoch-history` (walk-back
-       fallback), and `from-state-from-traces` (the focused
-       transition's SOURCE, for the dashed/dim `:from` circle per
-       spec/021 §6.2 Case C).
-
-    2. **Which edges fired this epoch?** — `extract-fired-edge-ids`,
+    1. **Which edges fired this epoch?** — `extract-fired-edge-ids`,
        returning machines-viz-CANONICAL edge ids (see below).
 
-    3. **Which edges were GUARD-BLOCKED this epoch?** —
+    2. **Which edges were GUARD-BLOCKED this epoch?** —
        `extract-guard-blocked-edge-ids`, returning the
        canonical edge ids whose guard evaluated `:fail` / `:threw` so
        the transition was a no-op. A guard-blocked no-op emits NO
@@ -215,58 +209,6 @@
       (keyword? event) event
       (vector? event)  (first event)
       :else            nil)))
-
-;; ---- current / from state resolution ------------------------------------
-
-(defn current-state-from-traces
-  "Resolve the current-state path for `machine-id` from the
-  `:rf.machine/transition` trace events vector. Returns the `:to`
-  path of the most recent matching trace, or nil. Pure.
-
-  Reads modern (`:tags :after :state`) + legacy (`:to`,
-  `:payload :to`) shapes — see `to-path-from-trace`."
-  [trace-events machine-id]
-  (when-let [last-ev (last (machine-transitions trace-events machine-id))]
-    (to-path-from-trace last-ev)))
-
-(defn from-state-from-traces
-  "Resolve the FROM (source) state path for `machine-id` from the
-  `:rf.machine/transition` trace events vector. Returns the `:from`
-  path of the most recent matching trace, or nil. Pure.
-
-  Per spec/021 §6.2 Case C: the
-  focused fired transition's source state renders as the dashed/dim
-  `:from` circle. The view layer pairs this with
-  `current-state-from-traces` (the TO / `:current` double-circle).
-
-  Reads modern (`:tags :before :state`) + legacy (`:from`,
-  `:payload :from`) shapes — see `from-path-from-trace`."
-  [trace-events machine-id]
-  (when-let [last-ev (last (machine-transitions trace-events machine-id))]
-    (from-path-from-trace last-ev)))
-
-(defn current-state-from-epoch-history
-  "Walk `epoch-history` (a vector of epoch records, oldest-first per
-  `:rf/epoch-record`) backwards looking for the most recent
-  `:rf.machine/transition` trace for `machine-id`. Returns the `:to`
-  path of that transition, or nil if no transition for `machine-id`
-  appears anywhere in history.
-
-  Per spec/021 §6.3 (Queries / Per-frame state · current-state ●
-  annotation for case B): when the focused epoch has no transition,
-  the panel still renders topology with the most-recent-known state
-  annotated. This helper is the historical fallback caller — the view
-  layer composes it with `current-state-from-traces` (focused epoch)
-  + live snapshot `:state`.
-
-  Pure fn — JVM-runnable."
-  [epoch-history machine-id]
-  (let [history (vec (or epoch-history []))]
-    (loop [i (dec (count history))]
-      (when (>= i 0)
-        (let [events (get-in history [i :trace-events])
-              found  (current-state-from-traces events machine-id)]
-          (or found (recur (dec i))))))))
 
 ;; ---- fired-edge ids (machines-viz canonical) ----------------------------
 
