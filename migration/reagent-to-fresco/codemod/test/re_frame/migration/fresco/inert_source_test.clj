@@ -1,59 +1,28 @@
 (ns re-frame.migration.fresco.inert-source-test
-  "**A crossing SITE is source that runs** (rf2-xc11).
+  "**A crossing SITE is source that runs.**
 
-  The census half learned this first (merged-PR audit #8140, PR #8151),
-  and the repair stopped at the reporter because the audit that found it
-  was scoped to the reporter. The fixer's population is a different
-  estimand — `[:>]`-family CROSSING sites rather than Reagent CALL sites —
-  so it was a separate claim, and it was true: the fixer's walk descended
-  into a discard, a quote and a `(comment …)` body and reported every
-  crossing it found there as a site.
+  The fixer walks a consumer's tree to report and walks it again to WRITE,
+  and neither walk may treat a discard, a quote or a `(comment …)` body as
+  code: a `--rewrite --write` that respells a prop key inside a
+  `(comment …)` edits source the program never runs. Both passes consult
+  the one `inert?` predicate the census also uses, and so does the third
+  walk, which decides whether a LIVE site's props hold a Reagent call that
+  is a reason to refuse its repair.
 
-  ## Why the fixer's stake is not the census's
-
-  A report entry for an inert crossing is noise a migrator can ignore. But
-  the fixer has a second walk, and that one WRITES: `--rewrite --write`
-  respelled prop keys inside a `(comment …)` body, editing source the
-  program never runs. Verified on `main` before the fix —
-
-      (comment [:> Chart {:options {:page-size 10}}])
-      #_[:> Chart {:options {:first-name 1}}]
-
-  came back as `:pageSize` and `:firstName`. That is why both passes are
-  pinned here and not just the reporting one: pruning `analyse` alone
-  would have quietened the report while leaving the write in place, and
-  the two passes are required to agree about what the file even contains.
-
-  ## The boundary, and why it is a decision
-
-  A syntax-quote is NOT inert. A macro's template emits a real crossing at
-  every expansion, so a site inside one is a site. `census-test` pins that
-  boundary for the reporter; [[a-syntax-quote-is-still-a-crossing-site]]
-  pins the same boundary here, on the shared predicate both now consult.
-
-  ## The third population (rf2-0xd6)
-
-  `inert?` answers ONE question about the source, and three walks ask it.
-  Everything above decides what is a SITE. The last section decides a
-  refusal REASON *inside* a site that is live either way: an
-  `r/as-element` in a `(comment …)` in a live site's props once cost the
-  migrator a hand-port of a form that never runs. Pinned from
-  [[an-inert-reagent-call-is-not-a-refusal-reason]] down."
+  A syntax-quote is NOT inert: a macro's template emits a real crossing at
+  every expansion, so a site inside one is a site."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.migration.fresco.codemod :as rf.migration.fresco.codemod]))
 
 (def ^:private hdr
   "(ns app.p\n  (:require [reagent.core :as r]))\n")
 
+(defn- scan [body] (rf.migration.fresco.codemod/scan-string (str hdr body) "app/p.cljs"))
+
 (defn- classes
   "The report's entry classes for one source string."
   [body]
-  (mapv :class (:entries (rf.migration.fresco.codemod/scan-string (str hdr body) "app/p.cljs"))))
-
-(defn- sites
-  "How many crossing sites the walk counted."
-  [body]
-  (:sites (rf.migration.fresco.codemod/scan-string (str hdr body) "app/p.cljs")))
+  (mapv :class (:entries (scan body))))
 
 (defn- rewritten
   "The fixer's output for one source string."
@@ -65,58 +34,33 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest inert-source-is-not-a-crossing-site
-  (testing "the live crossing is the control every case below is measured
-            against: without it, a walk that reported nothing at all would
-            pass every assertion in this namespace"
-    (is (= [:computed-value] (classes "[:> Foo {:on-click f}]\n")))
-    (is (= 1 (sites "[:> Foo {:on-click f}]\n"))))
-
-  (testing "rf2-xc11. Each of the three shapes parses into the same nodes a
-            live crossing does, and nothing in any of them crosses into
-            React. The `[:>]` is identical in all four cases; only its
-            surroundings differ."
-    (is (= [] (classes "(comment [:> Foo {:on-click f}])\n"))
-        "`(comment …)` body — the bead's own probe")
-    (is (= [] (classes "#_[:> Foo {:on-click f}]\n"))
-        "`#_` discard")
-    (is (= [] (classes "(def x '[:> Foo {:on-click f}])\n"))
-        "reader quote")
-    (is (= [] (classes "(def x (quote [:> Foo {:on-click f}]))\n"))
-        "the `quote` special form spells the same thing")
-    (is (= [] (classes "(clojure.core/comment [:> Foo {:on-click f}])\n"))
-        "a fully-qualified `comment` is the same head"))
-
-  (testing "the site COUNTER moves with the report. `:sites` is what the
-            summary divides by, so an inert crossing left in it would
-            survive as a denominator even once the entry was gone."
-    (is (= 0 (sites "(comment [:> Foo {:on-click f}])\n")))
-    (is (= 0 (sites "#_[:> Foo {:on-click f}]\n")))))
+  (testing "the live crossing is the control; the same `[:>]` under an inert
+            head is no site, and the site COUNTER — the summary's denominator
+            — moves with the report"
+    (is (= [[[:computed-value] 1] [[] 0] [[] 0] [[] 0]]
+           (mapv (juxt classes (comp :sites scan))
+                 ["[:> Foo {:on-click f}]\n"
+                  "(comment [:> Foo {:on-click f}])\n"
+                  "(def x (quote [:> Foo {:on-click f}]))\n"
+                  "(clojure.core/comment [:> Foo {:on-click f}])\n"])))))
 
 (deftest pruning-must-not-swallow-what-follows
-  (testing "ADVERSARIAL, the other direction. A prune that took too much
-            would pass every assertion above by reporting nothing at all,
-            so each case here places a LIVE crossing where an over-eager
-            walk would lose it."
-    (is (= [:computed-value]
-           (classes "(comment [:> A {:on-click f}])\n[:> B {:on-click g}]\n"))
-        "a live crossing AFTER an inert form")
-    (is (= [:computed-value]
-           (classes "#_[:> A {:on-click f}]\n'[:> B {:on-click g}]\n(comment [:> C {:on-click h}])\n[:> D {:on-click i}]\n"))
-        "three inert forms in a row, then the live one")
-    (is (= [:computed-value]
-           (classes "(defn f []\n  (comment [:> A {:on-click g}])\n  [:> B {:on-click h}])\n"))
-        "an inert form NESTED inside a live one: the enclosing form keeps
-         being walked")
-    (is (= [:computed-value]
-           (classes "[:> A {:on-click f}]\n(comment [:> B {:on-click g}])\n"))
-        "the inert form ENDS the file: `past-subtree` answers nil there and
-         the walk must terminate rather than fault or loop")))
+  (testing "a prune that took too much would pass every assertion above by
+            reporting nothing, so each case places a LIVE crossing where an
+            over-eager walk would lose it: after three inert forms in a row,
+            after an inert form NESTED inside a live one, and before an inert
+            form that ENDS the file, where `past-subtree` answers nil and the
+            walk must terminate rather than fault or loop"
+    (is (= [[:computed-value] [:computed-value] [:computed-value]]
+           (mapv classes
+                 ["#_[:> A {:on-click f}]\n'[:> B {:on-click g}]\n(comment [:> C {:on-click h}])\n[:> D {:on-click i}]\n"
+                  "(defn f []\n  (comment [:> A {:on-click g}])\n  [:> B {:on-click h}])\n"
+                  "[:> A {:on-click f}]\n(comment [:> B {:on-click g}])\n"])))))
 
 (deftest a-syntax-quote-is-still-a-crossing-site
   (testing "the boundary, stated as a test so it is a decision and not an
-            oversight. `#_`, `'` and `(comment …)` exist to NOT be code. A
-            syntax-quote is a macro's template: the crossing it emits is
-            real at every expansion, and its `~unquote`s run outright."
+            oversight: the crossing a macro's template emits is real at every
+            expansion, and its `~unquote`s run outright"
     (is (= [:computed-value]
            (classes "(defmacro m [] `[:> Foo {:on-click f}])\n")))))
 
@@ -125,53 +69,31 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-fixer-does-not-edit-inert-source
-  (testing "rf2-xc11's actual stake. `rw-node` is a second walk over the
-            same tree, and it is the one that writes: before the fix,
-            `--rewrite --write` respelled a prop key inside a `(comment …)`
-            body and inside a `#_` discard. The live crossing in the same
-            file is the control — it MUST still be repaired, or a walk that
-            edited nothing would pass."
-    (let [body (str "(comment [:> Chart {:options {:page-size 10}}])\n"
-                    "#_[:> Chart {:options {:first-name 1}}]\n"
-                    "(def x '[:> Chart {:options {:page-size 10}}])\n"
-                    "[:> Chart {:options {:page-size 10}}]\n")
-          out  (rewritten body)]
-      (is (re-find #"\(comment \[:> Chart \{:options \{:page-size 10\}\}\]\)" out)
-          "the `(comment …)` body is returned byte-for-byte")
-      (is (re-find #"#_\[:> Chart \{:options \{:first-name 1\}\}\]" out)
-          "so is the discard")
-      (is (re-find #"'\[:> Chart \{:options \{:page-size 10\}\}\]" out)
-          "so is the quote")
-      (is (re-find #"\n\[:> Chart \{:options \{:pageSize 10\}\}\]" out)
-          "and the LIVE crossing is still repaired — W2 camelCases the
-           nested key exactly as it always did")))
-
-  (testing "a file whose only crossings are inert is returned unchanged,
-            so `--rewrite` reports it as untouched rather than rewriting a
-            comment and calling the file changed"
-    (let [body "(comment [:> Chart {:options {:page-size 10}}])\n"]
-      (is (= (str hdr body) (rewritten body))))))
+  (testing "the `(comment …)` body, the discard and the quote come back
+            byte-for-byte, and the LIVE crossing beside them is still
+            repaired — or a walk that edited nothing would pass"
+    (let [inert (str "(comment [:> Chart {:options {:page-size 10}}])\n"
+                     "#_[:> Chart {:options {:first-name 1}}]\n"
+                     "(def x '[:> Chart {:options {:page-size 10}}])\n")]
+      (is (= (str hdr inert "[:> Chart {:options {:pageSize 10}}]\n")
+             (rewritten (str inert "[:> Chart {:options {:page-size 10}}]\n")))))))
 
 (deftest an-inert-anonymous-fn-body-is-inert-for-every-walk
   (testing "`#(comment …)` and `#(quote …)` are a `(comment …)` and a quote
-            behind an anonymous-fn literal, whose head is its body's head. The
-            shared predicate prunes them, so the report, the write and the
-            refusal walk all skip them. The live literal is the control: a walk
-            that skipped every literal would pass the rest."
-    (let [live "(def h #(do [:> Chart {:options {:page-size 10}}]))\n"]
-      (is (= [:nested-map-keys] (classes live)))
-      (is (= (str hdr "(def h #(do [:> Chart {:options {:pageSize 10}}]))\n") (rewritten live))
-          "the live literal's crossing is still repaired"))
-    (let [body (str "(def f #(comment [:> Chart {:options {:page-size 10}}]))\n"
-                    "(def g #(quote [:> Chart {:options {:page-size 10}}]))\n")]
-      (is (= [] (classes body)) "no site in either inert literal")
-      (is (= (str hdr body) (rewritten body)) "and neither is edited"))
-    (is (= []
-           (classes "[:> Foo {:x #(comment (r/as-element [:div]))}]\n"))
-        "an `r/as-element` in an inert literal is not a refusal reason")
-    (is (= []
-           (classes "[:> Foo {:x #(quote (r/as-element [:div]))}]\n"))
-        "nor in a quoted one")))
+            behind an anonymous-fn literal, whose head is its body's head, so
+            the report, the write and the refusal walk all skip them. The live
+            literal is the control: a walk that skipped every literal would
+            pass the rest."
+    (let [live  "(def h #(do [:> Chart {:options {:page-size 10}}]))\n"
+          inert (str "(def f #(comment [:> Chart {:options {:page-size 10}}]))\n"
+                     "(def g #(quote [:> Chart {:options {:page-size 10}}]))\n")]
+      (is (= [[:nested-map-keys] [] [] []]
+             (mapv classes [live
+                            inert
+                            "[:> Foo {:x #(comment (r/as-element [:div]))}]\n"
+                            "[:> Foo {:x #(quote (r/as-element [:div]))}]\n"])))
+      (is (= (str hdr "(def h #(do [:> Chart {:options {:pageSize 10}}]))\n" inert)
+             (rewritten (str live inert)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The whole-file class, which is about a def rather than a crossing
@@ -179,116 +101,68 @@
 
 (deftest an-inert-adapt-def-is-not-a-def-site
   (testing "`:adapt-def-site` is planned from the same walk, so it prunes
-            with it. A `(def Foo (r/adapt-react-class …))` inside a
-            `(comment …)` defines nothing, and naming it in the report
-            would send a migrator to convert a form that does not exist."
+            with it: a `(def Foo (r/adapt-react-class …))` inside a
+            `(comment …)` defines nothing, and a `[Foo …]` inside one is not
+            a call site the report sends a migrator to — line 5 is the live
+            call, line 4 is inside the comment"
     (is (= [] (classes "(comment (def Foo (r/adapt-react-class X)))\n")))
-    (is (= [:adapt-def-site] (classes "(def Foo (r/adapt-react-class X))\n"))
-        "the live def is the control"))
-
-  (testing "and the same for the CALL sites such an entry lists: a
-            `[Foo …]` inside a comment is not a call site, so it must not
-            appear in the line list the report tells a migrator to visit"
-    (let [entry (first (:entries (rf.migration.fresco.codemod/scan-string
-                                  (str hdr
-                                       "(def Foo (r/adapt-react-class X))\n"
-                                       "(comment [Foo {:a 1}])\n"
-                                       "[Foo {:b 2}]\n")
-                                  "app/p.cljs")))]
-      (is (= :adapt-def-site (:class entry)))
-      (is (= [5] (get-in entry [:detail :call-sites-in-this-file]))
-          "line 5 is the live call; line 4 is inside the comment"))))
+    (is (= [:adapt-def-site [5]]
+           ((juxt :class #(get-in % [:detail :call-sites-in-this-file]))
+            (first (:entries (scan (str "(def Foo (r/adapt-react-class X))\n"
+                                        "(comment [Foo {:a 1}])\n"
+                                        "[Foo {:b 2}]\n")))))))))
 
 ;; ---------------------------------------------------------------------------
-;; A refusal REASON computed inside a live site (rf2-0xd6)
+;; A refusal REASON computed inside a live site
 ;; ---------------------------------------------------------------------------
 
 (deftest an-inert-reagent-call-is-not-a-refusal-reason
-  (testing "rf2-0xd6. The site here is live and was always reported
-            correctly; what was wrong is the EXTRA refusal beside it.
-            `subtree-has-reagent-call?` recursed through `n/children`
-            without consulting `inert?`, so an `r/as-element` inside a
-            `(comment …)` in a live site's props read as an as-element
-            island and the tool declined a repair it could have made."
-    (is (= [:computed-value]
-           (classes "[:> Foo {:x (comment (r/as-element [:div]))}]\n"))
-        "the bead's own probe. `:computed-value` STAYS — that value really
-         is one the tool cannot read — and only `:as-element-island` goes")
-    (is (= [:computed-value]
-           (classes "[:> Foo {:x #_(r/as-element [:div]) 1}]\n"))
-        "`#_` discard")
-    (is (= []
-           (classes "[:> Foo {:x '(r/as-element [:div])}]\n"))
-        "reader quote. A quoted form IS readable off the text, so once the
-         island goes there is no `:computed-value` left behind it"))
-
-  (testing "the guard went INSIDE the shared predicate rather than at either
-            call site, so the second caller — the Reagent-API arm, which
-            passes a collection of symbols through the same walk — is
-            answered by the same one call"
-    (is (= [:computed-value]
-           (classes "[:> Foo {:x (comment (r/atom 0))}]\n"))
-        "an inert `r/atom` is not API residue either")))
+  (testing "the site is live and reported either way; an inert `r/as-element`
+            in its props must not add a refusal beside it. A value the tool
+            cannot read stays `:computed-value`, while a quoted one is
+            readable off the text and leaves nothing behind. The Reagent-API
+            arm asks through the same walk, so an inert `r/atom` is no API
+            residue either."
+    (is (= [[:computed-value] [] [:computed-value]]
+           (mapv classes ["[:> Foo {:x (comment (r/as-element [:div]))}]\n"
+                          "[:> Foo {:x '(r/as-element [:div])}]\n"
+                          "[:> Foo {:x (comment (r/atom 0))}]\n"])))))
 
 (deftest a-live-reagent-call-is-still-a-refusal-reason
-  (testing "ADVERSARIAL, and the arm that carries the weight: a fix which
-            simply stopped reporting islands would pass every assertion
-            above. Each case here puts the same call somewhere it RUNS."
-    (is (= [:as-element-island]
-           (classes "[:> Foo {:x (fn [] (r/as-element [:div]))}]\n"))
-        "the live island, unchanged")
-    (is (= [:reagent-api-residue]
-           (classes "[:> Foo {:x (fn [] (r/atom 0))}]\n"))
-        "and the live API residue, unchanged")
-    (is (= [:as-element-island :computed-value]
-           (classes (str "[:> Foo {:x (comment (r/as-element [:div]))\n"
-                         "         :y (fn [] (r/as-element [:span]))}]\n")))
-        "one inert and one LIVE `r/as-element` in the SAME props map. The
-         prune is per-node, so it takes the `(comment …)` and nothing
-         around it; a guard that skipped the map wholesale would lose the
-         live one and report no island at all"))
-
-  (testing "the syntax-quote boundary, restated on the refusal arm. `inert?`
-            is one predicate and every population consults it, so a
-            boundary that moved would move for all of them at once — and a
-            macro's template emits a real `r/as-element` per expansion."
-    (is (= [:as-element-island :computed-value]
-           (classes "[:> Foo {:x `(r/as-element [:div])}]\n")))))
+  (testing "ADVERSARIAL: a fix which simply stopped reporting islands would
+            pass every assertion above, so each case puts the call where it
+            RUNS — the live island, the live API residue, one inert and one
+            live `r/as-element` in the SAME props map (the prune is per-node,
+            so it must take the `(comment …)` and nothing around it), and a
+            syntax-quote, which every walk treats as live"
+    (is (= [[:as-element-island]
+            [:reagent-api-residue]
+            [:as-element-island :computed-value]
+            [:as-element-island :computed-value]]
+           (mapv classes ["[:> Foo {:x (fn [] (r/as-element [:div]))}]\n"
+                          "[:> Foo {:x (fn [] (r/atom 0))}]\n"
+                          (str "[:> Foo {:x (comment (r/as-element [:div]))\n"
+                               "         :y (fn [] (r/as-element [:span]))}]\n")
+                          "[:> Foo {:x `(r/as-element [:div])}]\n"])))))
 
 (deftest a-reagent-call-at-the-head-of-an-anonymous-fn-is-a-refusal-reason
   (testing "`#(r/as-element [:div])` writes the same call as
-            `(fn [] (r/as-element [:div]))`, but the parser's `:fn` node holds
-            the head and its arguments directly, with no list around them.
-            The refusal walk reads the literal as the call it writes, so the
-            two spellings refuse alike."
-    (is (= [:as-element-island]
-           (classes "[:> Foo {:x #(r/as-element [:div])}]\n"))
-        "the literal refuses exactly as the expanded `fn` in the test above")
-    (is (= [:as-element-island]
-           (classes "[:> Foo {:x #(r/as-element %)}]\n"))
-        "with an argument")
-    (is (= [:as-element-island]
-           (classes "[:> Foo {:x (fn [] #(r/as-element [:div]))}]\n"))
-        "a literal returned from a live `fn`")
-    (is (= [:as-element-island]
-           (classes "[:> Foo {:x #(do (r/as-element [:div]))}]\n"))
-        "a call one list down inside the literal, which the walk always found")
-    (is (= [:reagent-api-residue]
-           (classes "[:> Foo {:x #(r/atom 0)}]\n"))
-        "the Reagent-API arm asks through the same walk, so it is answered
-         the same way"))
+            `(fn [] (r/as-element [:div]))`, so the refusal walk reads the
+            literal as the call it writes, on the island arm and the API arm
+            alike — and a Reagent fn passed as a VALUE inside a literal is no
+            call"
+    (is (= [[:as-element-island] [:reagent-api-residue] []]
+           (mapv classes ["[:> Foo {:x #(r/as-element [:div])}]\n"
+                          "[:> Foo {:x #(r/atom 0)}]\n"
+                          "[:> Foo {:x #(run-later r/as-element)}]\n"]))))
 
-  (testing "a Reagent fn passed as a VALUE inside a literal is not a call"
-    (is (= [] (classes "[:> Foo {:x #(run-later r/as-element)}]\n")))
-    (is (= [] (classes "[:> Foo {:x #(do r/as-element)}]\n"))))
-
-  (testing "site detection does not read through the literal. A
+  (testing "site detection does NOT read through the literal: a
             `#(r/adapt-react-class X)` is a function that adapts a class when
-            it is called, not an adapted class, so it is neither a W5 head nor
-            an `:adapt-def-site`. Each expanded call is the control."
-    (is (= [:adapt-react-class-head]
-           (classes "[(r/adapt-react-class X) {:a 1}]\n")))
-    (is (= [] (classes "[#(r/adapt-react-class X) {:a 1}]\n")))
-    (is (= 0 (sites "[#(r/adapt-react-class X) {:a 1}]\n")))
-    (is (= [:adapt-def-site] (classes "(def Foo (r/adapt-react-class X))\n")))
-    (is (= [] (classes "(def Foo #(r/adapt-react-class X))\n")))))
+            it is called, so it is neither a W5 head nor an `:adapt-def-site`.
+            Each expanded call is the control."
+    (is (= [[:adapt-react-class-head] [] [:adapt-def-site] []]
+           (mapv classes ["[(r/adapt-react-class X) {:a 1}]\n"
+                          "[#(r/adapt-react-class X) {:a 1}]\n"
+                          "(def Foo (r/adapt-react-class X))\n"
+                          "(def Foo #(r/adapt-react-class X))\n"])))
+    (is (= 0 (:sites (scan "[#(r/adapt-react-class X) {:a 1}]\n"))))))
