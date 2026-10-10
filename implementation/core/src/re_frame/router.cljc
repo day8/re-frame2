@@ -1138,7 +1138,12 @@
   frame transition BEFORE it is
   installed. `db-after` / `runtime-db-after` are the candidate partition
   values `commit-frame-effects!` computed — the container has NOT been
-  written when this runs. Returns the validators' boolean conjunction —
+  written when this runs. `db-before` is the app-db the candidate replaces:
+  the handler-scoped `:db` coeffect, which every interceptor `:after` has
+  restored to the pre-event root by now (Spec 002 path rule 6). The app-db
+  validator skips each registered slice the candidate leaves `identical?`
+  to it (Spec 010 §When schemas are checked). Returns the validators'
+  boolean conjunction —
   true when every registered schema for the frame conformed (or the
   schemas artefact isn't loaded / no validator is installed); false when
   at least one entry failed, in which case the caller REJECTS the
@@ -1190,7 +1195,7 @@
   surfaces its own `:rf.error/malformed-schema` trace, fails CLOSED
   (in-band `false` → reject), and keeps validating the frame's sibling
   schemas."
-  [db-after runtime-db-after app-effect? rt-effect? event-id frame owner-token]
+  [db-before db-after runtime-db-after app-effect? rt-effect? event-id frame owner-token]
   (let [live? #(rf.frame/event-continuation-live? frame owner-token)
         emit-throw-reject!
         ;; Surface a validator-machinery throw AND reject (fail closed).
@@ -1264,13 +1269,15 @@
         ;; surfaced via `emit-throw-reject!`, and the candidate is REJECTED
         ;; (fail closed — real schema failures route through the in-band
         ;; false; a machinery throw cannot prove conformance either).
-        (fn [effect? hook-key partition-value where]
+        ;; `before` trails the validator's own arguments: the app-db arm
+        ;; passes the pre-event app-db, the machine-data arm nothing.
+        (fn [effect? hook-key partition-value where & before]
           (if-not (live?)
             ::stale-incarnation
             (if effect?
             (if-let [validate (rf.late-bind/get-fn-cached hook-key)]
               (try
-                (let [result (validate partition-value event-id frame live?)]
+                (let [result (apply validate partition-value event-id frame live? before)]
                   (if-not (live?)
                     ::stale-incarnation
                     (if (nil? result) true result)))
@@ -1287,7 +1294,7 @@
         ;; fires per-dispatch.
         app-ok?
         (run-partition-validator! app-effect? :schemas/validate-app-schema!
-                                  db-after :app-db)]
+                                  db-after :app-db db-before)]
     ;; A validator is authored/callback-bearing.  Loss during app validation
     ;; suppresses machine validation and all later diagnostics.
     (if (= ::stale-incarnation app-ok?)
@@ -1618,8 +1625,8 @@
           ::stale-incarnation
           (let [validation-result
                 (run-candidate-validation!
-                  new-db new-runtime-db app-effect? rt-effect? event-id frame
-                  owner-token)]
+                  (:db (:coeffects ctx)) new-db new-runtime-db app-effect?
+                  rt-effect? event-id frame owner-token)]
           (cond
             (= ::stale-incarnation validation-result)
             ::stale-incarnation

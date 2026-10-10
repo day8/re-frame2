@@ -833,9 +833,18 @@
         true)
       true)))
 
+(defn- unchanged-slice?
+  "True when `path` holds the same value in both dbs: present in each and
+  `identical?`. A commit leaves that slice as installed. An absent slice is
+  never unchanged."
+  [db-before db-after path]
+  (let [after (get-in db-after path ::absent)]
+    (and (not= ::absent after)
+         (identical? after (get-in db-before path ::absent)))))
+
 (defn validate-app-schema!
-  "After a handler commits :db, walk every registered app-schema for the
-  named frame and validate the post-state. Failures trace as
+  "Before a handler's :db installs, walk the named frame's registered
+  app-schemas and validate the candidate. Failures trace as
   :rf.error/schema-validation-failure with the registered explainer's
   output attached.
 
@@ -864,12 +873,23 @@
     (validate-app-schema! db event-id)                   ;; current frame, named handler
     (validate-app-schema! db event-id frame-id)          ;; explicit frame
     (validate-app-schema! db event-id frame-id continue?) ;; explicit owner fence
+    (validate-app-schema! db event-id frame-id continue? db-before)
 
   event-id (optional) names the handler whose commit prompted the
   failure — surfaced as :failing-id in the error tags.
 
-  continue? (the 4-arity, and the shape the router's late-bind call uses —
-  it invokes the hook as `(validate db-after event-id frame continue?)`) is
+  db-before (the 5-arity, and the shape the router's late-bind call uses —
+  it invokes the hook as `(validate db-after event-id frame continue?
+  db-before)`) is the app-db the candidate replaces. A registered path
+  whose slice the candidate leaves `identical?` to it is skipped, because
+  this commit does not write it: a re-registration the live slice no
+  longer satisfies is named by `:rf.schema/violation` when it happens, and
+  the slice is checked again when an event writes it. A parent path is
+  still checked when a write lands beneath it, `[]` whenever the db
+  changed, and an absent slice on every call. Without db-before every
+  entry is checked.
+
+  continue? (the 4- and 5-arity) is
   the exact-owner continuation predicate: between entries and around every
   authored validator callback it is consulted, and once it reports false the
   walk stops and returns :rf/stale-incarnation — the dequeued event lost its
@@ -899,6 +919,8 @@
                            #(rf.frame/event-continuation-live? frame-id owner-token))
      (validate-app-schema! db event-id frame-id (constantly true))))
   ([db event-id frame-id continue?]
+   (validate-app-schema! db event-id frame-id continue? nil))
+  ([db event-id frame-id continue? db-before]
    ;; Per Spec 009 §Production builds the entire body lives inside a
    ;; `(if interop/debug-enabled? ... true)` gate as the OUTERMOST form
    ;; so :advanced + goog.DEBUG=false DCE-elides every reason string,
@@ -916,7 +938,9 @@
        ;; a trace per failure (full surface for consumers) AND return
        ;; a single conjoined boolean (single signal for the rollback
        ;; gate). Pass-state stays `true` only when every entry passed.
-        (loop [entries (seq (rf.schemas.storage/frame-schema-entries frame-id))
+        (loop [entries (seq (cond->> (rf.schemas.storage/frame-schema-entries frame-id)
+                              (some? db-before)
+                              (remove #(unchanged-slice? db-before db (key %)))))
                ok?     true]
           (if-not (continue?)
             :rf/stale-incarnation

@@ -9,6 +9,7 @@
             [re-frame.core :as rf]
             [re-frame.event-emit :as rf.event-emit]
             [re-frame.frame :as rf.frame]
+            [re-frame.schemas :as rf.schemas]
             [re-frame.schemas.storage :as rf.schemas.storage]
             [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]
             [re-frame.test-support :refer [with-trace-recorder!]]))
@@ -46,6 +47,37 @@
       (finally
         (remove-watch container ::probe)
         (rf.event-emit/unregister-event-listener! ::probe)))))
+
+(deftest a-commit-checks-only-the-registered-slices-it-changes-or-lacks
+  ;; A slice the candidate leaves `identical?` to the installed value was
+  ;; checked when it was written, so it is not checked again. A parent path
+  ;; sees a write beneath it, and an absent slice is checked on every commit.
+  (let [checked (atom [])
+        malli   (:validate rf.schemas/default-schema-fns)
+        commit! (fn [event]
+                  (reset! checked [])
+                  (with-trace-recorder! [traces]
+                    (rf/dispatch-sync event)
+                    [(frequencies @checked)
+                     (into [] (keep #(when (= :rf.error/schema-validation-failure (:operation %))
+                                       [(-> % :tags :registered-path) (-> % :tags :failing-id)]))
+                           @traces)]))]
+    (rf/reg-event :seed  (fn [_ _] {:db {:a {:b 1} :c 1}}))
+    (rf/reg-event :a/b   (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:a :b] v)}))
+    (rf/reg-event :n/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+    (rf/dispatch-sync [:seed])
+    (rf/reg-app-schema [:a] [:map [:b :int]])
+    (rf/reg-app-schema [:c] :int)
+    (rf/reg-app-schema [:d] [:maybe :int])
+    (rf.schemas/set-schema-fns! {:validate (fn [schema value]
+                                             (swap! checked conj schema)
+                                             (malli schema value))})
+    (is (= [{[:map [:b :int]] 1 [:maybe :int] 1} []] (commit! [:a/b 2])))
+    (is (= [{[:map [:b :int]] 1 [:maybe :int] 1} [[[:a] :a/b]]] (commit! [:a/b "x"])))
+    (is (= [{[:maybe :int] 1} []] (commit! [:n/inc])))
+    (rf/reg-app-schema [:e] [:int {:min 0}])
+    (is (= [{[:maybe :int] 1 [:int {:min 0}] 1} [[[:e] :n/inc]]] (commit! [:n/inc])))
+    (is (= {:a {:b 2} :c 1 :n 1} (rf/app-db-value :rf/default)))))
 
 (deftest registry-snapshot-is-generation-coherent-under-concurrent-flips
   ;; Two schemas flip together between an all-pass and an all-fail

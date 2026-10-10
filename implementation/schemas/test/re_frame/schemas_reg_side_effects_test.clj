@@ -93,3 +93,34 @@
             label)
         (is (not (str/includes? (pr-str v) "SECRET"))
             label)))))
+
+(deftest a-stale-slice-blocks-only-the-events-that-write-it
+  (testing "after a re-registration the live [:user] fails, an event that
+            leaves [:user] as installed commits and one that writes an
+            invalid [:user] is rejected and named; a root schema sees every
+            write"
+    (rf/reg-event :u/seed (fn [{:keys [db]} _] {:db (assoc db :user {:name "a"})}))
+    (rf/reg-event :u/bad  (fn [{:keys [db]} _] {:db (assoc db :user {:name "b"})}))
+    (rf/reg-event :n/inc  (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+    (rf/reg-app-schema [:user] [:maybe [:map [:name :string]]])
+    (rf/dispatch-sync [:u/seed])
+    (let [reported (fn [body-fn]
+                     (with-trace-recorder! [traces]
+                       (body-fn)
+                       (into [] (keep #(case (:operation %)
+                                         :rf.schema/violation
+                                         [:violation (-> % :tags :path)]
+                                         :rf.error/schema-validation-failure
+                                         [:rejected (-> % :tags :failing-id)]
+                                         nil))
+                             @traces)))
+          user-with-email [:maybe [:map [:name :string] [:email :string]]]]
+      (is (= [[[:violation [:user]] [:rejected :u/bad]]
+              {:user {:name "a"} :n 2}]
+             [(reported #(do (rf/reg-app-schema [:user] user-with-email)
+                             (rf/dispatch-sync [:n/inc])
+                             (rf/dispatch-sync [:n/inc])
+                             (rf/dispatch-sync [:u/bad])))
+              (rf/app-db-value :rf/default)]))
+      (rf/reg-app-schema [] [:map [:user user-with-email]])
+      (is (= [[:rejected :n/inc]] (reported #(rf/dispatch-sync [:n/inc])))))))
