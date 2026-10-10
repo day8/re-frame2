@@ -2,7 +2,7 @@
 
 Load when the task is **authoring a `deftest` / `cljs.test` test** against re-frame2 application code: an event-fx handler, a sub graph, a machine snapshot, a tag query, a view that reads from a frame. Teaches only the **re-frame2-specific binding** — `clojure.test` / `cljs.test` themselves are assumed. Then run the nearest relevant gate ([§Discovering a project's gates](#discovering-a-projects-gates)).
 
-**Contents:** [the single import](#the-single-import) · [per-test fixture](#the-per-test-fixture-always-use-it) · [`dispatch-sync`](#driving-events-dispatch-sync) · [pinning `:rf.cofx`](#pinning-recordable-coeffects-rfcofx-in-dispatch-opts) · [`with-frame`](#pinning-a-frame-with-frame) · [asserting state](#asserting-state-assert-path-equals-and-app-db-value) · [asserting subs](#asserting-subscriptions-compute-sub-preferred-and-subscribe-once) · [the view](#asserting-the-view) · [machines and tags](#machine-snapshots-and-tag-queries) · [HTTP and other fx](#http-and-other-side-effecting-fx) · [discovering gates](#discovering-a-projects-gates) · [done checklist](#checklist-before-declaring-a-test-done)
+**Contents:** [the single import](#the-single-import) · [per-test fixture](#the-per-test-fixture-always-use-it) · [`dispatch-sync`](#driving-events-dispatch-sync) · [pinning `:rf.cofx`](#pinning-recordable-coeffects-rfcofx-in-dispatch-opts) · [`with-frame`](#pinning-a-frame-with-frame) · [asserting state](#asserting-state-assert-path-equals-and-app-db-value) · [asserting subs](#asserting-subscriptions-compute-sub-preferred-and-subscribe-once) · [the view](#asserting-the-view) · [machines and tags](#machine-snapshots-and-tag-queries) · [HTTP and other fx](#http-and-other-side-effecting-fx) · [test doubles](#test-doubles) · [discovering gates](#discovering-a-projects-gates) · [done checklist](#checklist-before-declaring-a-test-done)
 
 ## The single import
 
@@ -302,6 +302,109 @@ For a *block* of dispatches that all want the same stub, `(rf/with-fx-overrides 
 
 Per-frame `:fx-overrides` in the frame config accepts the same fn-value form, so a test frame can install a stub once for every dispatch routed to it. The id-keyword form (`{:rf.http/managed :rf.http/managed-canned-success}`) is the portable pattern-level form — use it when the stub is shared across many tests or when SSR / serialisation is in play; reach for the fn form when one test wants a bespoke response.
 
+## Test doubles
+
+A double has to reach the code under test, and the test has to fail when it does not. Pick the public seam for what the test checks:
+
+- *which events a frame ran* — a recorder interceptor on the frame's `:interceptors` ([Spec 008 §Recording dispatched events](https://github.com/day8/re-frame2/blob/main/spec/008-Testing.md#recording-dispatched-events));
+- *what a handler would dispatch or effect, without running it* — a per-call `:fx-overrides` ([§`:fx-overrides` per-call function value](#fx-overrides-per-call-function-value));
+- *what an event or subscription does* — a replacement registration in a final mock image ([§Mocks under explicit images](#mocks-under-explicit-images)).
+
+Two rules make a double that intercepts nothing visible: each double **asserts that it was reached** — `(is (= [[:cart/save]] @seen))`, never only an absence — and the **compiled suite runs** before the test is trusted, because the arity trap below exists only in the ClojureScript build.
+
+### Why `with-redefs` misses: macro call sites and compiled arities
+
+`(rf/dispatch …)`, `(rf/dispatch-sync …)` and `(rf/subscribe …)` in call position are macros. Their expansion calls an internal `^:no-doc` alias rather than the var you named, so `(with-redefs [rf/dispatch …] …)` records nothing while the real event runs. The alias is not a seam to redef either; the comment above `dispatch-impl` in [`re_frame/core.cljc`](https://github.com/day8/re-frame2/blob/main/implementation/core/src/re_frame/core.cljc) keeps it internal. Use the seams above. This trap shows on both hosts.
+
+A redef does reach code that reads a function as a value while the redef is live — a ClojureScript `rf/dispatch` passed as a callback, or the app's own `defn`. There the replacement needs the original's arity set. Compiled ClojureScript calls a multi-arity or variadic `defn` through its `cljs$core$IFn$_invoke$arity$N` or `$arity$variadic` entry, and a replacement of a different shape lacks that entry: the build compiles, then the call throws `…arity$N is not a function` or the double records nothing. Mirror the arglists — `(fn ([ev] …) ([ev opts] …))` for `([ev] [ev opts])`, and the same `&` rest for a variadic fn.
+
+```clojure
+(defn save! [] (rf/dispatch-sync [:cart/save]))   ; code under test: a macro call site
+
+(deftest save-dispatches                         ; record through the frame's :interceptors
+  (let [seen (atom [])]
+    (rf/reg-interceptor :test/recorder
+      {:before (fn [ctx] (swap! seen conj (-> ctx :coeffects :event)) ctx)})
+    (rf/with-new-frame [_f (rf/make-frame {:interceptors [:test/recorder]})]
+      (save!)
+      (is (= [[:cart/save]] @seen)))))
+```
+
+The recorder observes and the real handler still runs. When the test must not run it, also register a mock handler in a final mock image.
+
+### Mocks under explicit images
+
+Registering a mock in the test body is enough while the frame resolves the default image and no other loaded namespace registers the mock's id. It is not enough when the test frame runs explicit images ([`fundamentals/images.md`](../fundamentals/images.md)) and the mock must beat a product registration: a frame over explicit images resolves only what its images select, so a mock registered in the body never reaches it, and on the default image a fresh frame fails with `:rf.error/image-duplicate-id`. Put the mock in a final image that selects no product namespace, and give the test frame an `:id`. To change the mock part-way through a test, re-call `make-frame` on that `:id` with the new image: same-id re-construction is the public image hot-reload — it keeps app-db, does not re-fire `:initial-events`, and evicts the cached subscriptions whose definition changed.
+
+```clojure
+(def product-image (rf/image {:id :shop/image :select-ns {:include ["shop.**"]}}))
+
+(defn mock-image [price]                    ; final and disjoint: inline, selects no namespace
+  (rf/image {:id :test/mocks :registrations {:reg-sub [[:shop/price (fn [_db _q] price)]]}}))
+
+(defn shop-frame [price]                    ; the whole config, re-supplied on every call
+  {:id :test/shop :preset :test
+   :images [product-image (mock-image price)]
+   :initial-events [[:rf/set-db {:shop/items []}]]})
+
+(deftest price-follows-the-mock
+  (rf/make-frame (shop-frame :a))
+  (rf/dispatch-sync [:shop/add "SKU-1"] {:frame :test/shop})
+  (is (= :a @(rf/subscribe [:shop/price] {:frame :test/shop})))    ; now cached
+  (rf/make-frame (shop-frame :b))           ; same :id, new :images
+  (is (= :b @(rf/subscribe [:shop/price] {:frame :test/shop})))    ; subscribe again after the swap
+  (is (= ["SKU-1"] (:shop/items (rf/app-db-value :test/shop)))))   ; app-db kept
+```
+
+- **Order the mock last.** Selected before the product image it loses silently: the product definition resolves, and `(:rf.gen/shadows (rf/frame-generation :test/shop))` names the mock as the shadowed side. Assert that report when the override matters.
+- **Keep the double out of the product image.** A namespace-authored double selected into the same image as the product registration fails frame creation with `:rf.error/image-duplicate-id`.
+- **Cleanup has two halves.** The reset fixture, or a `snapshot-registrar` / `restore-registrar!` bracket, rolls back `reg-*` writes and leaves live frames alone — restoring the registrar after a re-image leaves the frame mocked. `make-reset-runtime-fixture` also clears every frame after each test (an `:async? true` suite does it in `:after`, once `done` has run); a test outside that fixture destroys its frame with `rf/destroy-frame!`.
+
+**A recorder under explicit images** has to be selected too, or `make-frame` fails with `:rf.error/unregistered-interceptor`. It cannot go in a mock image's inline `:registrations`: those sections accept only `:reg-event`, `:reg-sub`, `:reg-fx` and `:reg-cofx`, and an inline `:reg-interceptor` section fails `rf/image` with `:rf.error/invalid-image`. Keep the `reg-interceptor` at the top level of the test namespace instead, and select that namespace in a final image:
+
+```clojure
+(def seen (atom []))
+
+(rf/reg-interceptor :test/recorder          ; top level of the test namespace, here shop.cart-test
+  {:before (fn [ctx] (swap! seen conj (-> ctx :coeffects :event)) ctx)})
+
+(def recorder-image (rf/image {:id :test/recorder :select-ns {:include ["shop.cart-test"]}}))
+
+(deftest save-dispatches-under-explicit-images
+  (reset! seen [])
+  (rf/with-new-frame [_f (rf/make-frame {:images [product-image recorder-image]
+                                         :interceptors [:test/recorder]})]
+    (save!)
+    (is (= [[:cart/save]] @seen))))
+```
+
+The normative image-composition contract for tests is [Spec 008 §Hermetic-frame testing](https://github.com/day8/re-frame2/blob/main/spec/008-Testing.md#hermetic-frame-testing--a-fresh-frame-composed-from-images).
+
+### Fail-if-called guards: a receipt, not a throw
+
+A double whose job is to fail the test if a subscription is touched at all is an absence guard, not a value mock, and a throwing replacement registration does not implement it. The framework recovers the throw: a throwing computation reports `:rf.error/sub-exception` and the subscription reads `nil` ([errors.md §A subscription throws](https://github.com/day8/re-frame2/blob/main/docs/core/errors.md#a-subscription-throws-or-reads-one-that-isnt-there)), and a throw in a parametric `:inputs` fn is recovered too, as `:rf.error/sub-input-fn-exception` — so the forbidden access passes either way.
+
+Keep the check as an observation. Give the guard a receipt in a final mock image, prove the receipt is reached with a forced positive control, then reset it before the product operation and assert it stayed empty. The receipt counts computation-body calls, not `subscribe` requests, and a cached slot answers without running its body ([subscriptions.md §Lifecycle](https://github.com/day8/re-frame2/blob/main/docs/core/subscriptions.md#lifecycle-a-sub-exists-only-while-something-watches)), so a cached `nil` reads as zero calls. Start the product operation from a fresh frame or after [`rf/clear-sub-cache!`](https://github.com/day8/re-frame2/blob/main/docs/api/re-frame.core.md#clear-sub-cache), because the positive control itself caches the slot.
+
+```clojure
+(defn line-total [frame qty price]          ; code under test: subscribes only when no price is supplied
+  (* qty (or price @(rf/subscribe [:shop/price] {:frame frame}))))
+
+(deftest supplied-price-skips-the-sub
+  (let [calls (atom [])
+        guard (rf/image {:id :test/guard    ; final and disjoint: records, returns nil, never throws
+                         :registrations {:reg-sub [[:shop/price (fn [_db q] (swap! calls conj q) nil)]]}})]
+    (rf/make-frame {:id :test/shop :preset :test :images [product-image guard]})
+    @(rf/subscribe [:shop/price] {:frame :test/shop})   ; forced positive control
+    (is (= [[:shop/price]] @calls))
+    (rf/clear-sub-cache! :test/shop)                    ; the control cached the slot
+    (reset! calls [])
+    (is (= 30 (line-total :test/shop 3 10)))            ; the product operation: price supplied
+    (is (= [] @calls))))                                ; no body call
+```
+
+A guard that keeps its throw can count its `:rf.error/sub-exception` records on a `:trace` listener instead ([errors.md §Test the structure](https://github.com/day8/re-frame2/blob/main/docs/core/errors.md#test-the-structure-not-the-string)); those are dev-only and count the same body calls. Either way an empty receipt is evidence only for the path the test exercised, never for a branch or a render that did not run. Keep direct tests of the application's own pure guard functions where their arguments or messages are part of the contract, and never expose registrar metadata or an internal alias to reach a registered function.
+
 ## Discovering a project's gates
 
 Find the project's *actual* gate commands — don't guess names — and run the narrowest gate that exercises the path you touched, not the full matrix. Check, in order:
@@ -321,6 +424,7 @@ Pick the tightest match, run it from the directory that declares it, and report 
 - Sub assertions go through `compute-sub` (preferred) or `subscribe-once`; no bare `@(rf/subscribe ...)` left subscribed at test exit.
 - Machine assertions use `(subscribe [:rf/machine id])` / `(subscribe [:rf.machine/has-tag? id tag])` or `(get-in (:rf.db/runtime (rf/frame-state-value frame-id)) [:rf.runtime/machines :snapshots id])` — runtime-db partition, not internal machine namespaces, and not `db`/app-db.
 - Schema-validation, fx-stubs, and frame-scoping each use the public surface above. No fixture lifts `registrar/clear-all!`.
+- Each test double goes through a public seam ([§Test doubles](#test-doubles)), asserts that it was reached, and has run in the compiled suite.
 - **Gate run** — the nearest relevant gate (the new test's artefact `:test` alias / `npm run test:*` / a focused namespace run) was run and its exact command and result reported, or the hand-off reason named.
 
 ---
