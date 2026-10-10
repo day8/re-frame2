@@ -374,10 +374,10 @@ The hash needs a render tree made of data, so how a mismatch is caught depends o
 
 | Substrate | Mismatch detection | On the client |
 |---|---|---|
-| Reagent, reagent-slim | Render-tree hash: the server stamps it, `hydrate!` compares | Pass `:render-tree-fn`, calling the root view |
-| Native UIx, Fresco | React's own hydration (adoption); no hash on either side | Omit `:render-tree-fn` |
+| Reagent, reagent-slim | Render-tree hash: the server stamps it, `hydrate!` compares. React's own hydration (adoption) also reports what the hash cannot see below a component head | Pass `:render-tree-fn`, calling the root view |
+| Native UIx, Fresco | React's own hydration (adoption) alone; no hash on either side | Omit `:render-tree-fn` |
 
-A native UIx app must hydrate through `(re-frame.substrate.adapter/render tree el {:hydrate? true})`, not `uix.dom/hydrate-root` or `hydrateRoot` directly: only that path reports a recoverable React mismatch as the same `:rf.ssr/hydration-mismatch` trace. Adoption also misses an attribute-only mismatch (a stale `class`, `style` or ARIA value on an element whose tag and text match), which React does not report. The tutorial's [Native UIx](tutorial.md#native-uix--adopt-through-the-shared-render-path) section has the details, and [Fresco → SSR and hydration](../core/fresco/18-ssr-and-hydration.md) covers Fresco.
+A React-family root must hydrate through its adapter — the first `render!` through a client root with `{:hydrate? true}`, or `(re-frame.substrate.adapter/render tree el {:hydrate? true})` — not `uix.dom/hydrate-root`, `reagent.dom.client/hydrate-root` or `hydrateRoot` directly: only the adapter's mount reports a recoverable React mismatch as the same `:rf.ssr/hydration-mismatch` trace. Adoption also misses an attribute-only mismatch (a stale `class`, `style` or ARIA value on an element whose tag and text match), which React does not report. The tutorial's [Native UIx](tutorial.md#native-uix--adopt-through-the-shared-render-path) section has the details, and [Fresco → SSR and hydration](../core/fresco/18-ssr-and-hydration.md) covers Fresco.
 
 !!! note "In production, the mismatch arrives as an error record"
 
