@@ -612,8 +612,13 @@
   "Validate the preconditions for replaying `frame-id`'s retained epoch
   `epoch-id` through the frame's own handlers. Returns
 
-    {:outcome :ok   :epoch <record>}
+    {:outcome :ok   :epoch <record> :incarnation-token <token>}
     {:outcome :fail :reason <kw> :tags <map>}
+
+  `:incarnation-token` is the EXACT identity token of the frame incarnation
+  the lookup resolved, taken from the same record. `perform-replay!` hands it
+  to the router as the dispatch's expected incarnation, so a same-id successor
+  seated before the dispatch never receives the replay.
 
   Pure data — nothing is emitted here; `replay-epoch!` folds `:reason` and
   `:tags` into its refusal envelope, which IS the failure surface. The
@@ -674,27 +679,33 @@
            :tags    {:fx-ids fn-ids}}
 
           :else
-          {:outcome :ok :epoch epoch})))))
+          {:outcome           :ok
+           :epoch             epoch
+           :incarnation-token (:drain-lock frame-record)})))))
 
 (def ^:private replay-owned-opt-keys
   "Dispatch-opts keys the replay gesture OWNS. A caller value under any of
-  them is discarded: the record is the only source of replay material, and
-  the target frame is the source frame by construction."
-  [:frame :rf.cofx :rf.cofx/mint-policy :fx-overrides :interceptor-overrides])
+  them is discarded: the record is the only source of replay material, the
+  target frame is the source frame by construction, and the target
+  incarnation is the one the lookup resolved."
+  [:frame :rf.frame/expected-incarnation
+   :rf.cofx :rf.cofx/mint-policy :fx-overrides :interceptor-overrides])
 
 (defn replay-dispatch-opts
   "The strict replay dispatch opts for `record` against `frame-id`
   (Tool-Pair §Replay): the recorded post-generation `:rf.cofx` under
   `:rf.cofx/mint-policy :strict`, plus the record's own `:fx-overrides` /
   `:interceptor-overrides` (absent on the record ⇒ absent here, so an
-  override-free replay's opts carry neither key). `opts` is an ordinary
-  dispatch-opts map for the slots replay does not own — `:origin`,
+  override-free replay's opts carry neither key), fenced to
+  `incarnation-token` through `:rf.frame/expected-incarnation`. `opts` is an
+  ordinary dispatch-opts map for the slots replay does not own — `:origin`,
   `:source`, `:trace-id` — with any value under an owned key dropped."
-  [frame-id record opts]
+  [frame-id incarnation-token record opts]
   (merge (apply dissoc opts replay-owned-opt-keys)
-         {:frame               frame-id
-          :rf.cofx             (:rf.cofx record)
-          :rf.cofx/mint-policy :strict}
+         {:frame                         frame-id
+          :rf.frame/expected-incarnation incarnation-token
+          :rf.cofx                       (:rf.cofx record)
+          :rf.cofx/mint-policy           :strict}
          (select-keys record [:fx-overrides :interceptor-overrides])))
 
 (defn perform-replay!
@@ -733,26 +744,40 @@
 
   A declared recordable fact ABSENT from the recorded token throws the
   canonical `:rf.error/missing-required-cofx` out of the dispatch exactly as
-  any `:strict` dispatch does — nothing here catches it, and nothing mints."
-  [frame-id record opts]
+  any `:strict` dispatch does — nothing here catches it, and nothing mints.
+
+  The dispatch is fenced to `incarnation-token`, the incarnation the lookup
+  resolved: if that frame was destroyed, or replaced by a same-id successor,
+  before the dispatch, the router processes nothing. That refusal commits no
+  epoch and leaves the token dead, and is reported as the same
+  `{:ok? false :reason :rf.error/no-such-handler :kind :frame}` envelope a
+  frame missing at lookup gets."
+  [frame-id incarnation-token record opts]
   (let [observation  (rf.epoch.state/arm-commit-observation! frame-id)
         own-epoch-id (volatile! nil)]
     ;; The take runs in a `finally` so the strict `:rf.error/missing-required-cofx`
     ;; still propagates unchanged while the armed slot is always disarmed.
     (try
       (rf.router/dispatch-sync! (:trigger-event record)
-                                (replay-dispatch-opts frame-id record opts))
+                                (replay-dispatch-opts frame-id incarnation-token record opts))
       (finally
         (vreset! own-epoch-id
                  (rf.epoch.state/take-observed-commit! frame-id observation))))
     (let [epoch-id  @own-epoch-id
           retained? (some? (find-epoch-in (rf.epoch.state/history-for frame-id)
                                           epoch-id))]
-      {:ok?             true
-       :frame           frame-id
-       :source-epoch-id (:epoch-id record)
-       :event-id        (:event-id record)
-       :epoch-id        (when retained? epoch-id)})))
+      (if (and (nil? epoch-id)
+               (not (rf.frame/frame-incarnation-live? frame-id incarnation-token)))
+        {:ok?      false
+         :reason   :rf.error/no-such-handler
+         :frame    frame-id
+         :epoch-id (:epoch-id record)
+         :kind     :frame}
+        {:ok?             true
+         :frame           frame-id
+         :source-epoch-id (:epoch-id record)
+         :event-id        (:event-id record)
+         :epoch-id        (when retained? epoch-id)}))))
 
 ;; ---- write-boundary liveness guard ----------------------------------------
 ;;

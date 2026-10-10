@@ -493,8 +493,9 @@
 
   `opts` (3-arity) is an ordinary dispatch-opts map for the slots replay
   does not own — `:origin`, `:source`, `:trace-id`; a value it carries
-  under `:frame`, `:rf.cofx`, `:rf.cofx/mint-policy`, `:fx-overrides` or
-  `:interceptor-overrides` is discarded.
+  under `:frame`, `:rf.frame/expected-incarnation`, `:rf.cofx`,
+  `:rf.cofx/mint-policy`, `:fx-overrides` or `:interceptor-overrides` is
+  discarded.
 
   Returns a structured envelope, never a bare boolean:
 
@@ -505,7 +506,12 @@
   Every refusal is decided BEFORE anything is dispatched, and returns the
   envelope only (no trace is emitted for it):
 
-    :rf.error/no-such-handler (kind :frame)   — frame not registered / destroyed
+    :rf.error/no-such-handler (kind :frame)   — frame not registered / destroyed,
+                                                including destroyed or replaced
+                                                by a same-id successor between
+                                                the lookup and the dispatch,
+                                                which is fenced to the
+                                                incarnation the lookup resolved
     :rf.epoch/replay-during-drain             — called while a drain is in flight
     :rf.epoch/replay-unknown-epoch            — id not in the frame's current
                                                 history (`:history-size`)
@@ -532,10 +538,10 @@
    (if-not rf.interop/debug-enabled?
      false
      (let [frame-id (rf.frame/frame-target->id frame-id)
-           {:keys [outcome epoch reason tags]}
+           {:keys [outcome epoch reason tags incarnation-token]}
            (rf.epoch.tool-pair/check-replay-preconditions! frame-id epoch-id)]
        (case outcome
-         :ok   (rf.epoch.tool-pair/perform-replay! frame-id epoch opts)
+         :ok   (rf.epoch.tool-pair/perform-replay! frame-id incarnation-token epoch opts)
          :fail (merge {:ok? false :reason reason :frame frame-id :epoch-id epoch-id}
                       tags))))))
 
