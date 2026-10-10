@@ -561,7 +561,7 @@
                  ;; join stamps `{:parent-id … :invoke-id … :child-id …
                  ;; :spawned-id …}`, the machine `:after` timer stamps
                  ;; `{:carried … :current …}`. Surface it (summarized for
-                 ;; PRIVACY, the SAME contract `reply-row` uses) so the
+                 ;; PRIVACY) so the
                  ;; exact-attempt correlation the operator diagnoses a
                  ;; superseded / unverified / duplicate / post-resolution join
                  ;; completion FROM is not silently dropped.

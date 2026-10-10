@@ -219,7 +219,7 @@
 ;; ---- op-row (the hot path · spec/023 §3) --------------------------------
 
 (def ^:private op-row-container-base-style
-  "Shared shape for an op row's outer `:li`. The op-family / severity
+  "Shared shape for an op row's outer `:li`. The stage / severity
   left-border + the severity / expansion background are layered in via
   a `cond->` overlay at the call site (per-row variation)."
   {:display       "block"

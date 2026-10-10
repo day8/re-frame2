@@ -144,7 +144,7 @@
 
    ;; ── functional categorical hues (spec/022 carve-out · spec 007) ──
    ;; These do REAL semantic work — perf tiers, machine state, route
-   ;; side-channel, redaction, op-family legends — and are NOT collapsed
+   ;; side-channel, redaction — and are NOT collapsed
    ;; into the accent. `:info` is the cool informational blue (Figma
    ;; syntax-number) used as a fixed categorical hue DISTINCT from the
    ;; primary `:accent` (e.g. spine-paused, sub-run, route-from).
@@ -705,8 +705,8 @@
 
   Domain colour does load-bearing work where it is semantic
   (severity `error` red on the inline Epoch exception block + the L2
-  event-row issue wash, machine `green`, route `yellow`, the op-family
-  bands in Trace, the per-panel header icons §021 §17.1.5) — but the
+  event-row issue wash, machine `green`, route `yellow`, the stage-coloured
+  row edges in Trace, the per-panel header icons §021 §17.1.5) — but the
   HEADER STRIPE is the single accent.
 
   The tab argument is therefore accepted and IGNORED: every L4 tab id,

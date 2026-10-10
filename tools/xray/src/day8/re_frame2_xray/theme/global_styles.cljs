@@ -704,7 +704,7 @@
     ;; the `data-rf-xray-area` attribute the row stamps (rows are
     ;; `div`s inside the shared resizable table; the `area`
     ;; attribute is present only on row containers, not on inner
-    ;; cells / wrappers, so it scopes the rule to rows). The op-family
+    ;; cells / wrappers, so it scopes the rule to rows). The stage-coloured
     ;; 3px left-border + the rounded corners are the per-row inline
     ;; styles; this rule only adds the hover fill.
     "[data-testid^=\"rf-xray-trace-row-\"][data-rf-xray-area]:hover,\n"

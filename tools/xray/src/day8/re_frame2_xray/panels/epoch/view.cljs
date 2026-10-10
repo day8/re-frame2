@@ -3310,9 +3310,9 @@
 ;; exit-phase + entry-phase actions are their own numbered cascade rows,
 ;; each carrying its source + (for the entry action) its `data Δ`.
 ;; The HISTORY restore/record banner (`structured-cascade-history-banner`,
-;; below) is the structured-cascade surface here. The projection-side
-;; structured-cascade helpers (`proj/cascade-regions` etc.) serve the
-;; machine-epochs harness, which reads them as the cascade-ORDER oracle.
+;; below) is the structured-cascade surface here. The machine-epochs
+;; harness reads the structured `:cascade` straight off the transition
+;; trace as its cascade-ORDER oracle.
 
 (defn- structured-cascade-history-banner
   "Render the HISTORY restore / record banner for a `:transition` cascade row.
@@ -4623,9 +4623,7 @@
   The SIDE EFFECTS badge carries NO overall stage glyph (a per-stage
   ✓/✗ would be an all-tick row of no information on a clean run, and a
   failure shows on its own row + exception
-  card). The per-EFFECT row glyphs are the whole signal. `:rows`-level
-  outcome is queryable via `proj/side-effects-badge-status`, which the
-  tests read.
+  card). The per-EFFECT row glyphs are the whole signal.
   There are NO post-commit / best-effort labels and NO group headers: the
   body is one row per effect, in EXECUTION order, each via
   `fx-row-with-violations`:
