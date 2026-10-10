@@ -205,7 +205,7 @@ EP-0017 (final) makes the cofx surface a privacy boundary: `reg-cofx` is value-r
 | rf2-cxx5s (superseded by rf2-a0z0h) | re-frame2-pair-mcp `eval-cljs` originally shipped DISABLED with `--allow-eval` opt-in | The original published-default-safe stance. Reversed by rf2-a0z0h after the friction was measured against the threat-model gain (zero — `--allow-writes` does not become more secure when `--allow-eval` is off, because eval expresses every write the writes-gate would block). |
 | rf2-a0z0h | re-frame2-pair-mcp `eval-cljs` now defaults ENABLED; `--no-eval` is the opt-out | Eval-cljs is the REPL primitive of a pair-debug session; defaulting it off forced every operator to edit `~/.claude.json` and restart Claude Code to access the surface their MCP install was for. The gate did not add a protection separable from `--allow-writes`. The load-bearing remote-attack protection is the localhost-bind (rf2-hpkkx); per-operator trust is the install decision. |
 | rf2-hpkkx | MCP servers default localhost-bind | Remote access is explicit opt-in; rules out the casual cross-network reach. |
-| rf2-3rt1f | Per-session app-db cache keyed on root hash | Cache invalidation is keyed on the actual app-db identity — cache poisoning by mismatched session is structurally impossible. |
+| rf2-3rt1f | Per-session response cache keyed on the call and the result hash | Entries are keyed on the tool, the resolved build and the call's arguments, and each holds a hash the server computed from the response it last sent, never one taken from the client — cache poisoning by mismatched session is structurally impossible. |
 
 ### Editor URI allowlist + file-path boundaries
 
