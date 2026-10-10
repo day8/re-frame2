@@ -232,7 +232,6 @@
   {:namespace "re-frame.machines", :var "validate-machine!", :tier :implementation, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.machines", :var "validate-machine-data!", :tier :implementation, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.machines", :var "validate-spawn-data!", :tier :implementation, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.machines", :var "validate-update-snapshot-data!", :tier :implementation, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.mcp-base.elision", :var "count-elided-markers", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.mcp-base.sensitive", :var "malformed-count", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.mcp-base.sensitive", :var "reset-malformed-count!", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "post-v1 lib", :facade? false, :runtime-verified? true}

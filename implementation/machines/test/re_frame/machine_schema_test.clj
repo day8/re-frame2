@@ -22,9 +22,6 @@
       violates the schema emits the same trace with `:phase :spawn`
       and the install is skipped — the actor never enters the runtime.
 
-  That a machine without `[:schemas :data]` runs no machine-data validation is
-  pinned in `update_snapshot_schema_test`.
-
   That `reg-machine` accepts `[:schemas :data]` and round-trips it through
   the `:rf/machine` projection is pinned in `machine_schemas_grammar_test`.
 

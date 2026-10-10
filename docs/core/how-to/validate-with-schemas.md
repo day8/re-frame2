@@ -280,7 +280,7 @@ Use `[:enum …]` for fixed value sets rather than bare `:keyword`, keep maps op
 
 ### Machine data schemas
 
-If you use [machines](../../machines/concepts.md), a machine's `:data` takes a schema too, declared at `[:schemas :data]` on the machine spec rather than with `reg-app-schema`, because the snapshot lives in [runtime-db](../glossary.md#runtime-db). The runtime checks it at boot and after every transition. A mismatch rolls the whole macrostep back, as an app-db failure does, and reports `:where :machine-data`; it reaches the `:errors` stream too, carrying `:machine-id` and `:phase` instead of `:registered-path`. Narrower machine checks (a rejected `spawn`, a skipped `:rf.machine/update-snapshot` patch) stay on the trace only, because they skip one write rather than discarding the transaction.
+If you use [machines](../../machines/concepts.md), a machine's `:data` takes a schema too, declared at `[:schemas :data]` on the machine spec rather than with `reg-app-schema`, because the snapshot lives in [runtime-db](../glossary.md#runtime-db). The runtime checks it at boot and after every transition. A mismatch rolls the whole macrostep back, as an app-db failure does, and reports `:where :machine-data`; it reaches the `:errors` stream too, carrying `:machine-id` and `:phase` instead of `:registered-path`. A narrower machine check (a rejected `spawn`) stays on the trace only, because it skips one install rather than discarding the transaction.
 
 ```clojure
 (rf/reg-machine :todo/editor

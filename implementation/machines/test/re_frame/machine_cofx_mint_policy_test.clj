@@ -1,7 +1,7 @@
 (ns re-frame.machine-cofx-mint-policy-test
   "The machine ensure path mints under the effective mint policy; a raised
-  event's guard / action facts are ensured before its selection; the
-  update-snapshot `:db` hard-disallow redacts at egress."
+  event's guard / action facts are ensured before its selection; an action's
+  `:db` hard-disallow names the actor and redacts at egress."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines :as rf.machines]
@@ -88,13 +88,10 @@
   (rf/dispatch-sync [:raise/parallel-region [:go]])
   (is (= {:left :two :right :two} (machine-state :raise/parallel-region))))
 
-(deftest update-snapshot-wrote-db-uses-actor-id-and-redacts
+(deftest action-wrote-db-uses-actor-id-and-redacts
   (rf/reg-machine :wrote-db/upd
     {:initial :a
-     :actions {:patch (fn [_]
-                        {:fx [[:rf.machine/update-snapshot
-                               {:rf/machine-id :wrote-db/upd
-                                :rf/patch      {:data {:n 7} :db {:secret "leak-me"}}}]]})}
+     :actions {:patch (fn [_] {:db {:secret "leak-me"} :data {:n 7}})}
      :states  {:a {:on {:go {:target :a :action :patch}}}}})
   (rf.machines.test-support/with-trace-capture seen
     (rf/dispatch-sync [:wrote-db/upd [:go]])
