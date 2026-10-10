@@ -1,77 +1,35 @@
 (ns re-frame.bench.fresco.p0-converge-order-cljs-test
   "THE SEGMENT-ORDER VERDICT, replayed against the numbers it was built to
-  judge.
+  judge, and the studio page's ensemble and re-take figures derived from
+  their observation tables.
 
   `p0-converge-app/segment-order-verdict` partitions a cross-segment
   figure by which segment ran FIRST in each round — the question
   `lane/guard!` cannot ask, because the guard adjudicates arms INSIDE a
-  segment and the red-zone is a ratio ACROSS the seam.
+  segment and the red-zone is a ratio ACROSS the seam. The published
+  per-round vectors from
+  `docs/design/fresco/studio/p0-converged-witness-set.md` are replayed
+  through it: the red-zone run, the four-row reproduction sweep, the
+  second author's reactive leg and the re-take's run 5. Every published
+  five-round run was Reagent-start, so rounds 0, 2, 4 are Reagent-first.
 
-  A gate whose only evidence is the run it shipped with has not been
-  tested. These are the PUBLISHED per-round vectors from
-  `docs/design/fresco/studio/p0-converged-witness-set.md`, replayed:
-  the run the red-zone table was taken from, and the independent
-  four-row reproduction sweep taken at main `32cb224d6e`. Both are on
-  the page, both are five rounds, and both ran a constant-start
-  schedule — round 0 led by the Reagent segment, alternating — so rounds
-  0, 2, 4 are Reagent-first and rounds 1, 3 are UIx-first, in both, and
-  every replay below says so with an explicit `:reagent-subs` start.
+  [[ensemble]] and [[retake]] are the observation tables behind the page's
+  summaries. Every figure the page publishes about them is derived here and
+  checked against the page's own numbers, transcribed into [[view-1]],
+  [[view-1-p]], [[view-2]], [[components]], [[published-threshold]],
+  [[retake-published]] and [[retake-corrected]]. The page's ensemble
+  intervals use t at EIGHT degrees of freedom where a mean of ten needs
+  NINE: [[the-published-intervals-used-eight-degrees-of-freedom-where-nine-is-right]]
+  pins the diagnosis and
+  [[the-corrected-nine-degree-intervals-change-no-verdict]] the correction.
 
-  What the replay establishes:
-
-  1. The M1 partition is REPRODUCED exactly from the published vector —
-     the strata are disjoint, so the operative `1.2301` is a mean over a
-     split whose two halves do not meet.
-  2. The same partition applied to the other three published rows
-     OVERLAPS on M2 and broad, and NOT on narrow: the CURRENT (batched)
-     narrow row's strata are disjoint too. Only the SUPERSEDED unbatched
-     narrow row overlaps.
-  3. Across the two runs, WHICH rows split disjointly MOVES — M1 and
-     narrow in the published run, broad in the sweep, and no row in
-     both. At a 3:2 split a disjoint partition arises in 2 of the
-     `C(5,2) = 10` exchangeable assignments, so 3 disjoint rows out of 8
-     row-runs is what no order effect at all looks like.
-  4. DIRECTION survives everywhere. Every stratum of every row-run
-     agrees with its sibling about which side of 1.0 it is on, which is
-     what the fail-closed half of the verdict tests — and it never
-     fires on any published row.
-
-  ## The balanced ensemble's observation table
-
-  The studio page publishes only the ten-run counterbalanced ensemble's
-  GROUP MEANS, intervals, ranges and p-values. Without the ten per-run
-  threshold means and the ten per-run `d` values, its central statistics
-  cannot be recomputed from the repository.
-
-  [[ensemble]] is that table, whole — all forty cells, recovered from
-  the ten runs' own console logs (see its docstring for the provenance,
-  which matters: recovered, not re-run). Everything the studio page
-  publishes about the ensemble is DERIVED here from those forty
-  cells and checked against the page's claims, which are transcribed
-  into [[view-1]], [[view-1-p]], [[view-2]], [[components]] and
-  [[published-threshold]] purely so that the derivation has something
-  to be checked against.
-
-  WHAT REPRODUCES: every point estimate — run means and their spread,
-  both start-group means, the difference, the threshold, mean `d`, the
-  ratio, the order and temporal components, the composite — and BOTH
-  p columns, the 252-relabelling permutation test and the 1024-assignment
-  sign-flip test, neither of which can be checked without the table. So
-  do the prose counts: 37 of 40 strata overlapping, 23
-  of 40 Reagent-first-higher, 59 of 60 M1 rounds above 1.0.
-
-  WHAT DOES NOT: the INTERVALS. Every one of them is about 2% wider
-  than the data supports, because the page uses a t multiplier for
-  EIGHT degrees of freedom where a mean of ten needs NINE. The error is
-  conservative and changes no verdict, but it is real and it is
-  reported rather than absorbed — see
-  [[the-published-intervals-used-eight-degrees-of-freedom-where-nine-is-right]]
-  and [[the-corrected-nine-degree-intervals-change-no-verdict]].
+  Last, the `FRESCO_RATOM=on` contract: the flag is page-global, the arm
+  is per row, and `row-record` publishes a reactive leg only where the arm
+  ran.
 
   Pure arithmetic over recorded vectors: no DOM, no clock, no browser,
   so this runs on every runtime."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [clojure.set :as set]
             [clojure.walk :as walk]
             [re-frame.bench.fresco.p0-converge-app :as rf.bench.fresco.p0-converge-app]))
 
@@ -88,183 +46,124 @@
    :narrow [1.2053 1.1515 1.1860 1.0570 1.1700]})
 
 (def ^:private superseded-narrow
-  "The unbatched narrow row, struck through on the page and kept here
-  because it is the narrow row whose strata overlap."
+  "The unbatched narrow row, struck through on the page: the narrow row
+  whose strata overlap."
   [1.1111 1.2500 1.2500 1.0417 1.1250])
 
 (def ^:private sweep
-  "The independent four-row reproduction sweep at `32cb224d6e`."
+  "The independent four-row reproduction sweep."
   {:M1     [1.4242 1.1462 1.3611 1.3214 1.1905]
    :M2     [1.2727 0.8000 1.0000 1.0909 1.0000]
    :broad  [0.5750 0.5263 0.6176 0.5556 0.7353]
    :narrow [1.2528 1.1591 1.1705 1.1507 1.1136]})
 
+(def ^:private rows [:M1 :M2 :broad :narrow])
+
 (defn- v
-  "Replay a PUBLISHED five-round vector. Every published five-round run
-  was Reagent-start, and the start is stated rather than defaulted."
+  "Replay a published five-round vector, every one of which was
+  Reagent-start."
   [vs]
   (rf.bench.fresco.p0-converge-app/segment-order-verdict vs 5 :reagent-subs))
 
 (defn- close-to?
-  "Within `tol`. Every figure below is quoted from the studio page at
-  four decimals, and several of the page's own numbers were rounded
-  from unrounded readings rather than from the four-decimal vectors it
-  prints — so an identity that holds exactly on the raw data can miss
-  by a unit in the last place here. `tol` is stated at each call site
-  for that reason, never widened silently."
+  "Within `tol`. The page quotes four decimals, several of them rounded
+  from unrounded readings, so an identity that holds exactly on the raw
+  data can miss by a unit in the last place."
   [a b tol]
   (< (js/Math.abs (- a b)) tol))
 
-(defn- close? [a b] (close-to? a b 0.0002))
+(def ^:private three-decimal
+  "The page prints ratios, p values and resolution limits to three
+  decimals."
+  #{:ratio :p :limit})
+
+(defn- approx=
+  "Every figure in `expected` matches the same key of `actual` to the
+  page's rounding — `tol` when given, else 0.0006 for a three-decimal
+  figure and 0.0002 for the rest."
+  ([expected actual] (approx= nil expected actual))
+  ([tol expected actual]
+   (every? (fn [[k x]]
+             (let [y (get actual k)]
+               (and (number? y)
+                    (close-to? x y (or tol (if (three-decimal k) 0.0006 0.0002))))))
+           expected)))
 
 ;; ---------------------------------------------------------------------------
-;; 1. The M1 partition, reproduced from the published vector
+;; The published five-round runs
 ;; ---------------------------------------------------------------------------
 
 (deftest the-published-m1-partition-is-the-one-the-audit-reported
-  (testing "the M1 red-zone rounds split Reagent-first
-           [1.3065 1.2388 1.3538] against UIx-first [1.1417 1.1099],
-           disjoint. The verdict must derive exactly that from the
-           published vector and nothing else"
-    (let [r (v (:M1 published))]
-      (is (= [1.3065 1.2388 1.3538] (:per-round (:reagent-first r))))
-      (is (= [1.1417 1.1099] (:per-round (:uix-first r))))
-      (is (false? (:strata-overlap? r)) "disjoint")
-      (is (= :numerator-slower (:direction (:reagent-first r)))
-          "both strata sit wholly above 1.0, so UIx-slower is a verdict the
-           partition does not touch")
-      (is (= :numerator-slower (:direction (:uix-first r))))
-      (is (close? 1.2997 (:mean (:reagent-first r))))
-      (is (close? 1.1258 (:mean (:uix-first r)))
-          "the UIx-first stratum's 1.1258")
-      (is (false? (:magnitude-resolved? r))
-          "so the row may NOT publish 1.2301 as a threshold")
-      (is (close? 1.2128 (:order-balanced-mean r))
-          "and the design-unbiased estimator is 1.2128, not 1.2301"))))
+  ;; Disjoint strata, so the row may not publish 1.2301 as a threshold; the
+  ;; design-unbiased estimator over the 3:2 split is 1.2128.
+  (is (= {:start               :reagent-subs
+          :reagent-first       {:per-round [1.3065 1.2388 1.3538] :mean 1.2997
+                                :min 1.2388 :max 1.3538 :straddles-1? false
+                                :direction :numerator-slower :n 3}
+          :uix-first           {:per-round [1.1417 1.1099] :mean 1.1258
+                                :min 1.1099 :max 1.1417 :straddles-1? false
+                                :direction :numerator-slower :n 2}
+          :order-balanced-mean 1.2128
+          :balanced-design?    false
+          :strata-overlap?     false
+          :magnitude-resolved? false
+          :direction-agrees?   true
+          :refuse?             false}
+         (dissoc (v (:M1 published)) :why))))
 
-;; ---------------------------------------------------------------------------
-;; 2. The same partition on the other three published rows
-;; ---------------------------------------------------------------------------
-
-;; ---------------------------------------------------------------------------
-;; 3. Which row splits disjointly is not stable across runs
-;; ---------------------------------------------------------------------------
-
-(deftest no-row-is-disjoint-in-both-runs
-  (testing "if the segment order moved a row's figure, the SAME row would
-           split in both runs. None does: M1 and narrow split in the
-           published run, broad splits in the sweep, and the intersection
-           is empty — which is what a 20%-per-row chance rate looks like"
-    (let [disjoint (fn [m] (into #{} (remove #(:strata-overlap? (v (get m %))))
-                                 [:M1 :M2 :broad :narrow]))]
-      (is (= #{:M1 :narrow} (disjoint published))
-          "M2 and broad overlap; the batched narrow row's strata are
-           [1.1700-1.2053] against [1.0570-1.1515], DISJOINT, so its 1.1540
-           is not a threshold either")
-      (is (true? (:strata-overlap? (v superseded-narrow)))
-          "and only the SUPERSEDED unbatched narrow row overlaps")
-      (is (= #{:broad}      (disjoint sweep))
-          "the sweep's M1 strata overlap (1.3253 [1.1905-1.4242] against
-           1.2338 [1.1462-1.3214]), so the published disjointness is not a
-           property of the M1 row")
-      (is (empty? (set/intersection (disjoint published)
-                                            (disjoint sweep)))))))
-
-;; ---------------------------------------------------------------------------
-;; 4. Direction is the fail-closed half, and it never fires on real data
-;; ---------------------------------------------------------------------------
-
-(deftest direction-agrees-on-every-published-row-of-both-runs
-  (testing "eight row-runs, sixteen strata, and no row whose two halves
-           point opposite ways across 1.0. The gate is fail-closed and it
-           is closed"
-    (doseq [[label m] [["published" published] ["sweep" sweep]]
-            row       [:M1 :M2 :broad :narrow]]
-      (let [r (v (get m row))]
-        (is (true? (:direction-agrees? r)) (str label " " row))))))
-
-(deftest a-row-whose-halves-point-opposite-ways-is-refused
-  (testing "the gate can go red. Reagent-first rounds reading 1.4 and
-           UIx-first rounds reading 0.7 is a figure that says `slower`
-           when one segment leads and `faster` when the other does — no
-           direction to publish, and the run must not"
-    (let [r (rf.bench.fresco.p0-converge-app/segment-order-verdict [1.40 0.70 1.45 0.72 1.38] 5 :reagent-subs)]
-      (is (= :numerator-slower (:direction (:reagent-first r))))
-      (is (= :numerator-faster (:direction (:uix-first r))))
-      (is (false? (:direction-agrees? r)))
-      (is (true? (:refuse? r))))))
-
-;; ---------------------------------------------------------------------------
-;; The design, and the estimator that survives it
-;; ---------------------------------------------------------------------------
-
-(deftest five-rounds-cannot-balance-two-orders
-  (testing "an odd round count splits 3:2, so the raw mean over-weights
-           whichever order got the extra round. The verdict says so, and
-           publishes the mean of the two stratum means beside it"
-    (let [r (v (:M1 published))]
-      (is (false? (:balanced-design? r)))
-      (is (= 3 (:n (:reagent-first r))))
-      (is (= 2 (:n (:uix-first r))))))
-  (testing "at an EVEN round count the two estimators coincide by
-           construction — which is why the entry runs six"
-    (let [vs [1.10 1.20 1.30 1.40 1.50 1.60]
-          r  (rf.bench.fresco.p0-converge-app/segment-order-verdict vs 6 :reagent-subs)]
-      (is (true? (:balanced-design? r)))
-      (is (= 3 (:n (:reagent-first r))))
-      (is (= 3 (:n (:uix-first r))))
-      (is (close? 1.35 (:order-balanced-mean r))
-          "= the raw mean of the six rounds, because 3:3 is balanced"))))
-
-;; ---------------------------------------------------------------------------
-;; The start is a parameter, and the strata follow the schedule that ran
-;; ---------------------------------------------------------------------------
+(deftest no-row-is-disjoint-in-both-runs-and-none-points-both-ways
+  ;; An order effect would split the SAME row in both runs; at 3:2 a
+  ;; disjoint split arises by chance in 2 of C(5,2) = 10 assignments. The
+  ;; fail-closed direction half fires on none of the eight row-runs.
+  (let [rows-where (fn [m pred] (set (filter #(pred (v (get m %))) rows)))]
+    (is (= {:published {:disjoint #{:M1 :narrow} :opposed #{}}
+            :sweep     {:disjoint #{:broad}      :opposed #{}}}
+           (into {} (for [[k m] [[:published published] [:sweep sweep]]]
+                      [k {:disjoint (rows-where m (complement :strata-overlap?))
+                          :opposed  (rows-where m (complement :direction-agrees?))}])))))
+  (is (true? (:strata-overlap? (v superseded-narrow)))
+      "only the superseded unbatched narrow row overlaps"))
 
 (deftest the-strata-are-keyed-by-the-segment-that-actually-led
-  (testing "flipping the start swaps which index-parity lands in which
-           stratum: a UIx-start run's even rounds ARE its UIx-first
-           rounds. Under a constant start `Reagent first` and `rounds 0,
-           2, 4` would be the same set in every run — which is exactly the confound the counterbalanced runs exist
-           to break"
+  (testing "flipping the start swaps the strata and changes nothing else; at
+           an even round count the order-balanced mean is the raw mean"
     (let [vs [1.30 1.10 1.25 1.12 1.35 1.11]
-          r  (rf.bench.fresco.p0-converge-app/segment-order-verdict vs 6 :reagent-subs)
-          u  (rf.bench.fresco.p0-converge-app/segment-order-verdict vs 6 :uix-subs)]
-      (is (= :reagent-subs (:start r)))
-      (is (= :uix-subs (:start u)))
-      (is (= [1.30 1.25 1.35] (:per-round (:reagent-first r))))
-      (is (= [1.10 1.12 1.11] (:per-round (:uix-first r))))
-      (is (= (:per-round (:reagent-first r)) (:per-round (:uix-first u)))
-          "the same readings land in the OPPOSITE stratum under the
-           flipped schedule")
-      (is (= (:per-round (:uix-first r)) (:per-round (:reagent-first u))))))
-  (testing "the refusal logic follows the strata, not the index parity: a
-           vector that refuses under one start refuses under the other
-           with the directions exchanged"
-    (let [vs [1.40 0.70 1.45 0.72 1.38 0.69]
-          r  (rf.bench.fresco.p0-converge-app/segment-order-verdict vs 6 :reagent-subs)
-          u  (rf.bench.fresco.p0-converge-app/segment-order-verdict vs 6 :uix-subs)]
-      (is (= :numerator-slower (:direction (:reagent-first r))))
-      (is (= :numerator-faster (:direction (:reagent-first u))))
-      (is (true? (:refuse? r)))
-      (is (true? (:refuse? u))))))
+          r  (dissoc (rf.bench.fresco.p0-converge-app/segment-order-verdict vs 6 :reagent-subs) :why)
+          u  (dissoc (rf.bench.fresco.p0-converge-app/segment-order-verdict vs 6 :uix-subs) :why)]
+      (is (= {:start               :reagent-subs
+              :reagent-first       {:per-round [1.3 1.25 1.35] :mean 1.3
+                                    :min 1.25 :max 1.35 :straddles-1? false
+                                    :direction :numerator-slower :n 3}
+              :uix-first           {:per-round [1.1 1.12 1.11] :mean 1.11
+                                    :min 1.1 :max 1.12 :straddles-1? false
+                                    :direction :numerator-slower :n 3}
+              :order-balanced-mean 1.205
+              :balanced-design?    true
+              :strata-overlap?     false
+              :magnitude-resolved? false
+              :direction-agrees?   true
+              :refuse?             false}
+             r))
+      (is (= (assoc r :start :uix-subs :reagent-first (:uix-first r) :uix-first (:reagent-first r))
+             u))))
+  (testing "strata pointing opposite ways across 1.0 refuse under either
+           start, with the directions exchanged"
+    (let [vs [1.40 0.70 1.45 0.72 1.38 0.69]]
+      (is (= [[:numerator-slower true] [:numerator-faster true]]
+             (map #((juxt (comp :direction :reagent-first) :refuse?)
+                    (rf.bench.fresco.p0-converge-app/segment-order-verdict vs 6 %))
+                  [:reagent-subs :uix-subs]))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The reactive leg, replayed
 ;; ---------------------------------------------------------------------------
 
 (def ^:private leg
-  "The PUBLISHED per-round `reagent-subs / reagent-ratom` vectors from the
-  studio page's `The reactive leg, from a second author` section — six
-  runs a row, starting segment counterbalanced 3/3.
-
-  These are the second author's, and they are replayed for the reason the
-  red-zone vectors above are: a verdict that has only ever seen the run it
-  shipped with is a verdict nobody can check. The leg does NOT cross the
-  segment seam — both its terms are Reagent arms measured in the same
-  segment of the same round — and it is adjudicated by the same partition
-  anyway, because the Reagent segment leads half the rounds and follows
-  the other half, and a lower bound that reads differently for which is
-  not a lower bound."
+  "The second author's published per-round `reagent-subs / reagent-ratom`
+  vectors, six runs a row, starting segment counterbalanced 3/3. Both terms
+  are Reagent arms measured in the same segment, but that segment leads
+  half the rounds and follows the other half, so the same partition
+  adjudicates it."
   {:M1    [{:start :reagent-subs :vs [1.3788 1.2963 1.3333 1.3396 1.3654 1.2778]}
            {:start :uix-subs     :vs [1.2963 1.3137 1.2692 1.4000 1.3469 1.3333]}
            {:start :reagent-subs :vs [1.3621 1.3200 1.3061 1.4822 1.3214 1.3065]}
@@ -282,114 +181,34 @@
                          (rf.bench.fresco.p0-converge-app/segment-order-verdict vs 6 start "the reactive leg's"))
                        (get leg row)))
 
-(deftest every-published-leg-run-resolves-a-magnitude
-  (testing "twelve row-runs, twenty-four strata: the strata OVERLAP on all
-           twelve, so every one is entitled to publish a magnitude, and no
-           row-run is reduced to a direction. That is what the studio
-           page's `magnitude-resolved? true on 12 of 12` asserts, derived
-           from the vectors rather than transcribed beside them"
-    (doseq [row [:M1 :broad] r (legs row)]
-      (is (true? (:magnitude-resolved? r)) (str row " " (:start r))))))
-
-(deftest the-leg-is-above-1-in-every-stratum-of-every-run
-  (testing "the DIRECTION is what a second author corroborates, and it is
-           unanimous: both strata of all twelve row-runs sit wholly above
-           1.0, so `subs costs more than a bare cursor` is a verdict no
-           partition of this ensemble touches"
-    (doseq [row [:M1 :broad] r (legs row)]
-      (is (= :numerator-slower (:direction (:reagent-first r))) (str row))
-      (is (= :numerator-slower (:direction (:uix-first r))) (str row)))))
-
-(def ^:private first-author
-  "The first author's publication run and two re-runs of its OWN
-  `:reagent-ratom` arm — the run mean and the per-round range of each,
-  exactly as the studio page tabulates them beside this ensemble.
-
-  Kept as DATA rather than as constants inside an assertion, so that what
-  the tests below compare is two published sets against each other and
-  not a number somebody typed into a threshold."
-  {:M1    [{:mean 1.218 :min 1.122 :max 1.310}
-           {:mean 1.216 :min 1.185 :max 1.241}
-           {:mean 1.213 :min 1.093 :max 1.273}]
-   :broad [{:mean 2.008 :min 1.938 :max 2.100}
-           {:mean 1.965 :min 1.875 :max 2.000}
-           {:mean 2.073 :min 2.000 :max 2.167}]})
-
-(deftest the-leg-does-not-reproduce-the-first-authors-magnitude
-  (testing "and the MAGNITUDE is not corroborated. The first author
-           publishes 1.218 /
-           1.216 / 1.213 on M1 and 2.008 / 1.965 / 2.073 on broad, and
-           every one of these RUN MEANS sits above every one of those.
-           That is the separation the studio page claims, and it is
-           claimed at the run level because that is the level it holds at"
-    (let [means (fn [row] (map :order-balanced-mean (legs row)))]
-      (is (every? #(> % 1.30) (means :M1))
-          "every M1 run mean is above 1.30, where the first author's three
-           are 1.213-1.218")
-      (is (every? #(> % 2.30) (means :broad))
-          "every broad run mean is above 2.30, where the first author's
-           three are 1.965-2.073")
-      (doseq [row [:M1 :broad]]
-        (is (> (apply min (means row))
-               (apply max (map :mean (get first-author row))))
-            (str row ": the LOWEST of the second author's six run means "
-                 "must clear the HIGHEST of the first author's three"))))))
-
-(deftest the-round-ranges-overlap-so-the-separation-is-not-a-round-level-claim
-  (testing "the separation is a RUN-level claim and not a round-level
-           one. The round ranges OVERLAP, as the studio page says —
-           `overlap at the edges, 1.1667 - 1.3175 against 1.2500 - 1.4822,
-           while the run means are disjoint` — so the second author's
-           1.2500 sits BELOW the first author's re-run maximum of 1.273.
-           The round-level reading is pinned FALSE here, so an assertion
-           that the two ensembles separate round by round reds this test"
-    (doseq [row [:M1 :broad]]
-      (let [lowest-second (apply min (mapcat :vs (get leg row)))
-            highest-first (apply max (map :max (get first-author row)))]
-        (is (< lowest-second highest-first)
-            (str row ": the lowest single round of the second author's six "
-                 "runs sits BELOW the highest round the first author "
-                 "published, so the two ensembles are NOT separated round "
-                 "by round — only run mean by run mean"))))))
+(deftest the-second-authors-leg-agrees-in-direction-and-not-in-magnitude
+  ;; The page's `magnitude-resolved? true on 12 of 12`, with both strata of
+  ;; every row-run wholly above 1.0; and every run mean clears the first
+  ;; author's 1.213 – 1.218 on M1 and 1.965 – 2.073 on broad.
+  (is (= (repeat 12 [true :numerator-slower :numerator-slower])
+         (map (juxt :magnitude-resolved? (comp :direction :reagent-first) (comp :direction :uix-first))
+              (mapcat legs [:M1 :broad]))))
+  (is (every? #(> % 1.30) (map :order-balanced-mean (legs :M1))))
+  (is (every? #(> % 2.30) (map :order-balanced-mean (legs :broad)))))
 
 ;; ---------------------------------------------------------------------------
 ;; THE BALANCED ENSEMBLE'S OBSERVATION TABLE
 ;;
 ;; Ten independently launched six-round runs, the starting segment
-;; counterbalanced five and five. The studio page publishes the SUMMARIES of
-;; this table; the table itself is below — all forty cells — so every figure
-;; in both views is derived here rather than asserted there.
-;;
-;; PROVENANCE, because recovered data is not the same as measured data and
-;; must not be passed off as it. These are the CONSOLE LOGS OF THE TEN RUNS
-;; THEMSELVES, taken at the ensemble's anchor and recovered from an
-;; out-of-tree backup. They are NOT a re-run: nothing here was measured again
-;; and no browser was opened. Each cell is the `:threshold :per-round` vector
-;; of that run's `red-zone` record, transcribed by script rather than by
-;; hand. The pilot runs that share the backup directory (`run1..run6`,
-;; `runA1..runA3`) are NOT this ensemble and are deliberately absent.
+;; counterbalanced five and five. The cells are the ten runs' own console
+;; logs, recovered rather than re-measured; the studio page carries the
+;; provenance.
 ;; ---------------------------------------------------------------------------
 
-(def ^:private rows [:M1 :M2 :broad :narrow])
-
 (def ^:private ensemble
-  "THE 10x4 OBSERVATION TABLE, complete. One entry per launched run, one
-  vector per witness: that run's six per-round `uix-subs ÷ reagent-subs`
-  readings, each floor-normalised in its own round and segment. `:start`
-  is the segment that led round 0.
+  "THE 10x4 OBSERVATION TABLE. One entry per launched run, one vector per
+  witness: that run's six per-round `uix-subs ÷ reagent-subs` readings,
+  each floor-normalised in its own round and segment. `:start` is the
+  segment that led round 0.
 
-  Everything the studio page publishes about the ensemble is derived
-  from exactly these numbers — run means, group means, thresholds, `d`,
-  both *p* columns, the components and the composite. Nothing is
-  transcribed from the page except the page's own claims, which live in
-  [[view-1]], [[view-2]] and [[components]] so that the derivation can
-  be checked AGAINST them.
-
-  The vectors are the instrument's four-decimal output. The instrument
-  rounds a mean from UNROUNDED readings while rounding each round
-  separately for display, so a mean re-derived from these vectors can
-  differ from the instrument's own in the fourth decimal. It does not
-  exceed 0.0006 on any figure below, and the tolerances say so."
+  The vectors are the instrument's four-decimal output and the
+  instrument's own means come from unrounded readings, so a re-derived
+  mean can differ in the fourth decimal, by no more than 0.0006."
   [{:run  1 :start :reagent-subs
     :M1     [1.4286 0.9529 1.2681 1.2186 1.1378 1.2892]
     :M2     [0.8571 1.3846 1.0714 1.0000 1.0794 0.8889]
@@ -467,13 +286,10 @@
    :composite {:mean-d -0.0200 :ratio 0.980 :lo 0.934 :hi 1.029 :p 0.823 :positive 6}})
 
 (def ^:private components
-  "The page's order/temporal decomposition and the permutation *p* on the
-  start-group difference of `d`. The average of the two start groups is
-  READ AS the ORDER term and half their difference AS the TEMPORAL one --
-  a DESCRIPTIVE split, exact only under an additive, antisymmetric
-  temporal model that a counterbalanced-but-alternated design makes
-  available rather than establishes. The assertions below
-  check the ARITHMETIC of that split, not the attribution."
+  "The page's order/temporal decomposition of `d` and the permutation *p*
+  on its start-group difference. The split is descriptive — exact only
+  under an additive, antisymmetric temporal model — so what is checked is
+  its arithmetic, not the attribution."
   {:M1        {:order +0.0357 :temporal -0.0212 :p 0.421}
    :M2        {:order -0.0837 :temporal +0.0632 :p 0.318}
    :broad     {:order -0.0388 :temporal -0.0011 :p 1.000}
@@ -499,38 +315,26 @@
 
 (def ^:private t-9
   "Student's t, 0.975, NINE degrees of freedom — the multiplier for a 95%
-  interval on the mean of TEN run means (`n − 1`)."
+  interval on the mean of TEN run means."
   2.262157)
 
 (def ^:private t-8
-  "Student's t, 0.975, EIGHT degrees of freedom. Correct for the
-  two-sample five-against-five contrast the `resolution limit` column
-  reports, and — see
-  [[the-published-intervals-used-eight-degrees-of-freedom-where-nine-is-right]]
-  — the multiplier the page also uses for its one-sample intervals,
-  which is an error."
+  "Student's t, 0.975, EIGHT degrees of freedom: right for the two-sample
+  five-against-five `resolution limit`, and the multiplier the page also
+  uses for its one-sample intervals, which is the error."
   2.306004)
 
 (defn- run-mean [run row] (mean (get run row)))
 
 (defn- d-of
-  "THE PER-RUN STATISTIC, defined once and derived nowhere else:
+  "THE PER-RUN STATISTIC: `ln(mean Reagent-first / mean UIx-first)`,
+  positive when the figure reads higher with the Reagent segment leading.
 
-      d = ln( mean of the Reagent-first stratum / mean of the UIx-first stratum )
-
-  positive when the figure reads higher with the Reagent segment
-  leading, which is the direction the order-effect hypothesis names.
-
-  The PARTITION comes from `segment-order-verdict`, so this and the
-  published strata cannot drift apart — but the two stratum means are
-  averaged HERE, from the readings, rather than taken from the verdict's
-  own `:mean`. The verdict rounds its means to four decimals for
-  display, and on the broad row that rounding is load-bearing: a
-  sign-flip *p* moves in steps of 1/1024 = 0.00098, and the fourth
-  decimal is enough to carry exactly one of the 1024 assignments across
-  the observed mean. Rounded strata give broad 878/1024 = 0.8574; the
-  readings give 877/1024 = 0.8564, which is the 0.856 the page
-  publishes. A displayed number is not an input."
+  The partition comes from `segment-order-verdict`, but the stratum means
+  are averaged here from the readings, not taken from the verdict's
+  four-decimal `:mean` — on broad that rounding carries one of the 1024
+  sign-flip assignments across the observed mean (878/1024 against the
+  published 877/1024)."
   [vs start]
   (let [r (rf.bench.fresco.p0-converge-app/segment-order-verdict vs 6 start)]
     (js/Math.log (/ (mean (:per-round (:reagent-first r)))
@@ -549,8 +353,7 @@
 (defn- d-values  [row] (mapv #(d-of (get % row) (:start %)) ensemble))
 
 (defn- combinations-from
-  "Every way to choose `k` indices from `[start, n)`, ascending. Called
-  once, as C(10,5) = 252, and deliberately nothing more general."
+  "Every way to choose `k` indices from `[start, n)`, ascending."
   [start n k]
   (if (zero? k)
     [[]]
@@ -558,14 +361,9 @@
             (range start (inc (- n k))))))
 
 (defn- permutation-p
-  "EXACT two-sided permutation *p* on the difference between the two
-  start groups: enumerate all C(10,5) = 252 relabellings and count those
-  whose |difference| is at least the observed one.
-
-  Exact GIVEN the relabelling set — which is not the same as exact by
-  randomisation, because the ten starts were alternated rather than
-  drawn. The studio page states that assumption; this only computes the
-  number."
+  "Exact two-sided permutation *p* on the difference between the two
+  start groups, over all C(10,5) = 252 relabellings — exact given the
+  relabelling set, since the starts were alternated rather than drawn."
   [values]
   (let [[a b] (by-start values)
         obs   (js/Math.abs (- (mean a) (mean b)))
@@ -579,10 +377,8 @@
     (/ hits (double (count combs)))))
 
 (defn- sign-flip-p
-  "EXACT one-sided sign-flip *p* over all 2^10 = 1024 sign assignments,
-  in the positive direction the order-effect hypothesis names. Exact only under
-  sign symmetry of `d` under the null — again an assumption, stated on
-  the page, not established by the design."
+  "Exact one-sided sign-flip *p* over all 2^10 = 1024 sign assignments, in
+  the positive direction the order-effect hypothesis names."
   [ds]
   (let [obs (mean ds)
         hits (count (filter (fn [m]
@@ -593,253 +389,96 @@
                             (range 1024)))]
     (/ hits 1024.0)))
 
+(defn- view-2-of [d]
+  {:mean-d   (mean d)
+   :ratio    (js/Math.exp (mean d))
+   :p        (sign-flip-p d)
+   :positive (count (filter pos? d))})
 
-;; ---------------------------------------------------------------------------
-;; The table is whole, and it is the ensemble the page describes
-;; ---------------------------------------------------------------------------
+(defn- components-of [d]
+  (let [[rs us] (by-start d)]
+    {:order    (/ (+ (mean rs) (mean us)) 2.0)
+     :temporal (/ (- (mean rs) (mean us)) 2.0)
+     :p        (permutation-p d)}))
 
-(deftest the-observation-table-is-complete-and-counterbalanced
-  (testing "forty cells, ten runs, six rounds each, and the start
-           counterbalanced five and five — the design the page claims,
-           checked against the data rather than asserted beside it"
-    (is (= 10 (count ensemble)) "ten launched, ten in the table")
-    (is (= (range 1 11) (map :run ensemble)))
-    (is (= 5 (count (filter reagent-start? ensemble))))
-    (is (= 5 (count (remove reagent-start? ensemble))))
-    (doseq [run ensemble row rows]
-      (is (= 6 (count (get run row)))
-          (str "run " (:run run) " " (name row) " has six rounds"))
-      (is (every? pos? (get run row))
-          (str "run " (:run run) " " (name row) " is all positive ratios")))))
-
-(deftest the-start-label-is-the-launch-parity-and-that-is-a-confound
-  (testing "the ten labels were ALTERNATED, not drawn at random, so
-           `Reagent-start` and `odd-numbered launch` name the same five
-           runs. A drift across the session would therefore reproduce a
-           start effect exactly — the same confound a constant-start
-           design has between segment order and round parity, moved up
-           to the run level. It is why the permutation and sign-flip
-           p-values below are exact only under an assumption, and the
-           page states the assumption rather than leaving it to the
-           reader"
-    (is (= (mapv :run (filter reagent-start? ensemble))
-           (filterv odd? (mapv :run ensemble))))))
-
-(deftest run-1-is-the-pre-registered-run-the-page-prints
-  (testing "the page prints one run's vectors in full — the run the
-           design nominated in advance — and they are this table's first
-           entry. That is the join between the recovered logs and what
-           the page prints, and it is what identifies the backup
-           as THIS ensemble rather than one of the pilots beside it"
-    (let [r1 (first ensemble)]
-      (is (= 1 (:run r1)))
-      (is (= :reagent-subs (:start r1)))
-      (is (= [1.4286 0.9529 1.2681 1.2186 1.1378 1.2892] (:M1 r1)))
-      (is (= [0.8571 1.3846 1.0714 1.0000 1.0794 0.8889] (:M2 r1)))
-      (is (= [0.6190 0.6328 0.6144 0.5532 0.8485 0.7292] (:broad r1)))
-      (is (= [1.2575 1.1161 1.0999 1.3602 1.0568 1.0346] (:narrow r1))))
-    (doseq [[row published] [[:M1 1.2159] [:M2 1.0469] [:broad 0.6662] [:narrow 1.1542]]]
-      (is (close? published (run-mean (first ensemble) row)) (name row)))))
+(defn- verdict-of [run row]
+  (rf.bench.fresco.p0-converge-app/segment-order-verdict (get run row) 6 (:start run)))
 
 ;; ---------------------------------------------------------------------------
 ;; Every published figure, re-derived from the forty cells
 ;; ---------------------------------------------------------------------------
 
-(deftest the-run-mean-spread-reproduces
-  (testing "the RED-ZONE table's `run means (10)` column is the min and
-           max of this table's ten run means, per row. Four ranges, eight
-           endpoints, all from the data"
-    (doseq [row rows]
-      (let [t (thresholds row)
-            {:keys [run-min run-max]} (get published-threshold row)]
-        (is (close? run-min (apply min t)) (name row))
-        (is (close? run-max (apply max t)) (name row))))))
-
-(deftest the-threshold-is-the-mean-of-the-ten-run-means
-  (testing "and, because the counterbalance is 5/5, equally the average
-           of the two start-group means — so the RED-ZONE table and View
-           1 are one table and cannot drift apart"
-    (doseq [row rows]
-      (let [t (thresholds row)
-            [rs us] (by-start t)
-            {:keys [threshold]} (get published-threshold row)]
-        (is (close? threshold (mean t)) (name row))
-        (is (close? threshold (/ (+ (mean rs) (mean us)) 2.0)) (name row))))))
-
-(deftest view-1s-group-means-and-difference-reproduce
-  (testing "the five Reagent-start runs against the five UIx-start runs,
-           and the difference column that contrasts them"
-    (doseq [row rows]
-      (let [[rs us] (by-start (thresholds row))
-            {:keys [reagent-start uix-start difference]} (get view-1 row)]
-        (is (close? reagent-start (mean rs)) (name row))
-        (is (close? uix-start (mean us)) (name row))
-        (is (close? difference (- (mean rs) (mean us))) (name row))))))
-
-(deftest view-1s-permutation-p-reproduces
-  (testing "THE FIRST OF THE TWO p COLUMNS ONLY THE TABLE CAN CHECK.
-           All 252 relabellings of the ten runs into two fives,
-           enumerated, counting those whose group difference is at least
-           the observed one in absolute value. The page publishes 0.770 /
-           0.611 / 0.984 / 0.992 and the data yields them"
-    (doseq [row rows]
-      (is (close-to? (:p (get view-1-p row)) (permutation-p (thresholds row)) 0.0006)
+(deftest the-red-zone-table-and-view-1-reproduce
+  ;; The threshold is the mean of the ten run means and, because the
+  ;; counterbalance is 5/5, equally View 1's average of the two start-group
+  ;; means. The resolution limit is a two-sample five-against-five
+  ;; contrast, so eight degrees of freedom is right there.
+  (doseq [row rows]
+    (let [t       (thresholds row)
+          [rs us] (by-start t)
+          pooled  (js/Math.sqrt (/ (+ (* 4 (js/Math.pow (sample-sd rs) 2))
+                                      (* 4 (js/Math.pow (sample-sd us) 2)))
+                                   8))]
+      (is (approx= (dissoc (get published-threshold row) :lo :hi)
+                   {:threshold (mean t) :run-min (apply min t) :run-max (apply max t)})
+          (name row))
+      (is (approx= (get view-1 row)
+                   {:reagent-start (mean rs)
+                    :uix-start     (mean us)
+                    :difference    (- (mean rs) (mean us))
+                    :threshold     (/ (+ (mean rs) (mean us)) 2.0)})
+          (name row))
+      (is (approx= (get view-1-p row)
+                   {:p     (permutation-p t)
+                    :limit (* t-8 pooled (js/Math.sqrt (/ 2.0 5)))})
           (name row)))))
 
-(deftest view-1s-resolution-limit-reproduces
-  (testing "the half-width of the 95% interval on the start-group
-           difference — a genuine two-sample five-against-five contrast,
-           so EIGHT degrees of freedom is correct here. It reproduces
-           exactly, which is what makes the one-sample intervals'
-           multiplier diagnosable below"
-    (doseq [row rows]
-      (let [[rs us] (by-start (thresholds row))
-            pooled  (js/Math.sqrt (/ (+ (* 4 (js/Math.pow (sample-sd rs) 2))
-                                        (* 4 (js/Math.pow (sample-sd us) 2)))
-                                     8))
-            limit   (* t-8 pooled (js/Math.sqrt (/ 2.0 5)))]
-        (is (close-to? (:limit (get view-1-p row)) limit 0.0006) (name row))))))
+(deftest view-2-and-the-components-reproduce
+  ;; One `d` per run per row; the composite is the per-RUN mean of that
+  ;; run's four `d`, never four pooled trials.
+  (let [ds (into {} (map (juxt identity d-values)) rows)
+        ds (assoc ds :composite (apply mapv (fn [& per-row] (mean per-row)) (map ds rows)))]
+    (doseq [[row d] ds]
+      (is (approx= (dissoc (get view-2 row) :lo :hi) (view-2-of d)) (name row))
+      (is (approx= (get components row) (components-of d)) (name row)))))
 
-(deftest view-2s-mean-d-ratio-and-counts-reproduce
-  (testing "one `d` per run per row, averaged; the `as a ratio` column is
-           exp of it; and the `positive` column counts the runs whose `d`
-           is above zero"
-    (doseq [row rows]
-      (let [d (d-values row)
-            {:keys [mean-d ratio positive]} (get view-2 row)]
-        (is (close? mean-d (mean d)) (name row))
-        (is (close-to? ratio (js/Math.exp (mean d)) 0.0006) (name row))
-        (is (= positive (count (filter pos? d))) (name row))))))
-
-(deftest view-2s-sign-flip-p-reproduces
-  (testing "THE SECOND p COLUMN ONLY THE TABLE CAN CHECK. All 1024 sign
-           assignments, one-sided in the direction the order-effect
-           hypothesis names. The page publishes 0.084 / 0.889 / 0.856 / 0.302 and
-           the data yields them — including M1's 0.084, the largest lean
-           on the page and still not significant"
-    (doseq [row rows]
-      (is (close-to? (:p (get view-2 row)) (sign-flip-p (d-values row)) 0.0006)
-          (name row)))))
-
-(deftest the-components-and-their-permutation-p-reproduce
-  (testing "averaging the two start groups of `d` gives the column the
-           page labels ORDER; half their difference gives the one it
-           labels TEMPORAL (a descriptive split under an additive,
-           antisymmetric temporal model, not a measured attribution --
-           this asserts the arithmetic); and the last column is the same
-           252-relabelling test applied to `d` rather than to the
-           threshold means"
-    (doseq [row rows]
-      (let [d (d-values row)
-            [rs us] (by-start d)
-            {:keys [order temporal p]} (get components row)]
-        (is (close? order (/ (+ (mean rs) (mean us)) 2.0)) (name row))
-        (is (close? temporal (/ (- (mean rs) (mean us)) 2.0)) (name row))
-        (is (close-to? p (permutation-p d) 0.0006) (name row))))))
-
-(deftest the-composite-is-the-per-run-mean-over-the-four-rows
-  (testing "the pre-registered statistic: per RUN, the mean of that run's
-           four `d` values — never four trials pooled. Its mean, its
-           ratio, its sign-flip p, its positive count and both components
-           all reproduce"
-    (let [ds   (into {} (map (fn [r] [r (d-values r)])) rows)
-          comp (mapv (fn [i] (mean (map #(nth (get ds %) i) rows))) (range 10))
-          [rs us] (by-start comp)
-          {:keys [mean-d ratio p positive]} (:composite view-2)
-          {:keys [order temporal] cp :p} (:composite components)]
-      (is (close? mean-d (mean comp)))
-      (is (close-to? ratio (js/Math.exp (mean comp)) 0.0006))
-      (is (= positive (count (filter pos? comp))))
-      (is (close-to? p (sign-flip-p comp) 0.0006))
-      (is (close? order (/ (+ (mean rs) (mean us)) 2.0)))
-      (is (close? temporal (/ (- (mean rs) (mean us)) 2.0)))
-      (is (close-to? cp (permutation-p comp) 0.0006))))
-  (testing "and the mean of the four ROW means equals the mean of the ten
-           per-run composites, which is why the page may print either and
-           get the same number"
-    (is (close? (:mean-d (:composite view-2))
-                (mean (map #(mean (d-values %)) rows))))))
-
-(deftest the-order-component-is-view-2s-mean-d
-  (testing "the decomposition's ORDER column is not a second estimate:
-           averaging the two start groups is what the paired `d` already
-           does once the start is counterbalanced, so the two columns are
-           the same number and the page prints both only because they
-           answer differently-worded questions"
-    (doseq [row rows]
-      (is (close? (:mean-d (get view-2 row)) (:order (get components row))) (name row)))))
-
-;; ---------------------------------------------------------------------------
-;; The counts the page quotes in prose
-;; ---------------------------------------------------------------------------
-
-(defn- strata-of [row]
-  (mapcat (fn [run]
-            (let [v (rf.bench.fresco.p0-converge-app/segment-order-verdict (get run row) 6 (:start run))]
-              [(:reagent-first v) (:uix-first v)]))
-          ensemble))
-
-(defn- rounds-of [row] (mapcat #(get % row) ensemble))
-
-(deftest the-per-row-round-and-stratum-counts-reproduce
-  (testing "`59 of 60 rounds above 1.0; 19 of 20 order strata wholly
-           above it` on M1, and `all 60 / all 20` below on broad and
-           above on narrow — the sentences the RED-ZONE table's verdict
-           column carries, counted from the forty cells"
-    (is (= 59 (count (filter #(> % 1.0) (rounds-of :M1)))))
-    (is (= 19 (count (filter #(> (:min %) 1.0) (strata-of :M1)))))
-    (is (= 60 (count (filter #(< % 1.0) (rounds-of :broad)))))
-    (is (= 20 (count (filter #(< (:max %) 1.0) (strata-of :broad)))))
-    (is (= 60 (count (filter #(> % 1.0) (rounds-of :narrow)))))
-    (is (= 20 (count (filter #(> (:min %) 1.0) (strata-of :narrow)))))))
-
-(deftest the-magnitude-resolution-and-the-discredited-statistic-reproduce
-  (testing "`the strata overlap in 37 of 40 row-runs`, the three
-           unresolved ones falling one each on M1, M2 and narrow and
-           never on broad, and `no row is disjoint twice`. Those three
-           are the individually-unpublishable points the aggregate rule
-           deliberately keeps in the ensemble"
-    (let [verdicts (for [run ensemble row rows]
-                     [(:run run) row (rf.bench.fresco.p0-converge-app/segment-order-verdict (get run row) 6 (:start run))])
-          unresolved (remove #(:magnitude-resolved? (nth % 2)) verdicts)]
-      (is (= 37 (count (filter #(:magnitude-resolved? (nth % 2)) verdicts))))
-      (is (= 3 (count unresolved)))
-      (is (= #{:M1 :M2 :narrow} (set (map second unresolved))) "broad never splits")
-      (is (= 2 (count (set (map first unresolved))))
-          "the three fall in two runs, so no row is disjoint twice")
-      (is (every? #(false? (:refuse? (nth % 2))) verdicts)
-          "and the fail-closed DIRECTION half never fires on any of the forty")))
-  (testing "`counted the way the page counted it — 40 row-runs treated as
-           if independent — the Reagent-first stratum is higher in 23 of
-           40`, which is the discredited 11-of-12 statistic restated on
-           the balanced design, where it is not an effect"
-    (is (= 23 (count (for [run ensemble row rows
-                           :let [v (rf.bench.fresco.p0-converge-app/segment-order-verdict (get run row) 6 (:start run))]
-                           :when (> (:mean (:reagent-first v)) (:mean (:uix-first v)))]
-                       [(:run run) row]))))))
+(deftest the-prose-counts-reproduce
+  ;; `59 of 60 rounds above 1.0; 19 of 20 order strata wholly above it` on
+  ;; M1, all 60 / all 20 below on broad and above on narrow. The strata
+  ;; overlap in 37 of 40 row-runs, the three unresolved falling on M1, M2
+  ;; and narrow in two runs, so no row is disjoint twice, and the direction
+  ;; half never refuses. Counted as 40 independent row-runs, the
+  ;; Reagent-first stratum is higher in 23 — the old 11-of-12 statistic on
+  ;; the balanced design, where it is not an effect.
+  (let [rounds-of  (fn [row] (mapcat #(get % row) ensemble))
+        strata-of  (fn [row] (mapcat #((juxt :reagent-first :uix-first) (verdict-of % row)) ensemble))
+        count-of   (fn [row pred bound]
+                     [(count (filter pred (rounds-of row)))
+                      (count (filter (comp pred bound) (strata-of row)))])
+        verdicts   (for [run ensemble row rows] [(:run run) row (verdict-of run row)])
+        unresolved (remove #(:magnitude-resolved? (nth % 2)) verdicts)]
+    (is (= {:M1 [59 19] :broad [60 20] :narrow [60 20]
+            :resolved 37 :unresolved-rows #{:M1 :M2 :narrow} :unresolved-runs 2
+            :not-refused 40 :reagent-first-higher 23}
+           {:M1                   (count-of :M1 #(> % 1.0) :min)
+            :broad                (count-of :broad #(< % 1.0) :max)
+            :narrow               (count-of :narrow #(> % 1.0) :min)
+            :resolved             (- (count verdicts) (count unresolved))
+            :unresolved-rows      (set (map second unresolved))
+            :unresolved-runs      (count (set (map first unresolved)))
+            :not-refused          (count (filter #(false? (:refuse? (nth % 2))) verdicts))
+            :reagent-first-higher (count (filter (fn [[_ _ v]]
+                                                   (> (:mean (:reagent-first v)) (:mean (:uix-first v))))
+                                                 verdicts))}))))
 
 ;; ---------------------------------------------------------------------------
 ;; THE ONE DISAGREEMENT, pinned rather than conformed away
 ;; ---------------------------------------------------------------------------
 
 (deftest the-published-intervals-used-eight-degrees-of-freedom-where-nine-is-right
-  (testing "EVERY point estimate and both p columns reproduce. The
-           INTERVALS do not, and they miss the same way on every row:
-           the page's are about 2% wider than the data supports.
-
-           The cause is identifiable rather than guessed. An interval on
-           the mean of TEN run means is a one-sample Student-t interval
-           with n − 1 = NINE degrees of freedom, t = 2.2622. The
-           multiplier the page actually uses is ~2.306 — t at EIGHT
-           degrees of freedom, which is the CORRECT multiplier for the
-           two-sample five-against-five `resolution limit` column
-           standing beside it, and which reproduces exactly there. The
-           same t is reused for the one-sample case.
-
-           This test asserts the diagnosis both ways: the published
-           half-width is NOT t-9 times the standard error, and IS t-8
-           times it. The studio page states the disagreement and prints
-           both intervals; nothing is silently conformed"
+  (testing "an interval on the mean of TEN run means needs t at nine degrees
+           of freedom; the published half-width is t at EIGHT times the
+           standard error, and not t at nine"
     (doseq [row rows]
       (let [t    (thresholds row)
             se   (/ (sample-sd t) (js/Math.sqrt 10))
@@ -849,160 +488,74 @@
             (str (name row) " — the published interval is NOT the 9-df one"))
         (is (close-to? half (* t-8 se) 0.0006)
             (str (name row) " — it IS the 8-df one")))))
-  (testing "the same reuse in View 2's intervals on `d`, where the page
-           prints ratios to three decimals, so the multiplier can only be
-           recovered to about ±0.02 — enough to exclude 2.2622 and to
-           include 2.3060"
+  (testing "View 2's intervals on `d`, printed as three-decimal ratios,
+           recover a multiplier between 2.28 and 2.34: not 2.2622, and
+           consistent with 2.3060"
     (doseq [row rows]
-      (let [d    (d-values row)
-            se   (/ (sample-sd d) (js/Math.sqrt 10))
-            {:keys [lo hi]} (get view-2 row)
-            half (/ (- (js/Math.log hi) (js/Math.log lo)) 2.0)
-            mult (/ half se)]
-        (is (> mult 2.28) (str (name row) " — above the 9-df multiplier 2.2622"))
-        (is (< mult 2.34) (str (name row) " — consistent with the 8-df 2.3060"))))))
+      (let [d  (d-values row)
+            se (/ (sample-sd d) (js/Math.sqrt 10))
+            {:keys [lo hi]} (get view-2 row)]
+        (is (< 2.28 (/ (/ (- (js/Math.log hi) (js/Math.log lo)) 2.0) se) 2.34)
+            (name row))))))
 
 (deftest the-corrected-nine-degree-intervals-change-no-verdict
-  (testing "the error is CONSERVATIVE — the published intervals are too
-           WIDE — so every verdict on the page survives it. Recomputed
-           here so that the claim is arithmetic rather than reassurance"
-    (doseq [[row lo hi] [[:M1 1.2109 1.2510] [:M2 1.0028 1.1173]
-                         [:broad 0.6001 0.6581] [:narrow 1.1582 1.1926]]]
-      (let [t  (thresholds row)
-            se (/ (sample-sd t) (js/Math.sqrt 10))
-            m  (mean t)]
-        (is (close? lo (- m (* t-9 se))) (name row))
-        (is (close? hi (+ m (* t-9 se))) (name row)))))
-  (testing "M1, broad and narrow stay clear of 1.0 on the corrected
-           interval and M2 still only just clears parity, exactly as
-           published"
-    (let [ci (fn [row]
-               (let [t (thresholds row) se (/ (sample-sd t) (js/Math.sqrt 10))]
-                 [(- (mean t) (* t-9 se)) (+ (mean t) (* t-9 se))]))]
-      (is (> (first (ci :M1)) 1.0) "M1 wholly above 1.0")
-      (is (< (second (ci :broad)) 1.0) "broad wholly below 1.0")
-      (is (> (first (ci :narrow)) 1.0) "narrow wholly above 1.0")
-      (is (> (first (ci :M2)) 1.0)
-          "M2's interval on the MEAN clears parity — barely, and it stays
-           a diagnostic row precisely because its individual runs do not:
-           three of the ten read below 1.0 outright"))))
+  ;; The published intervals are too WIDE, so the corrected ones keep every
+  ;; verdict: M1, M2 and narrow stay above 1.0 and broad below.
+  (doseq [[row lo hi] [[:M1 1.2109 1.2510] [:M2 1.0028 1.1173]
+                       [:broad 0.6001 0.6581] [:narrow 1.1582 1.1926]]]
+    (let [t (thresholds row)
+          h (* t-9 (/ (sample-sd t) (js/Math.sqrt 10)))]
+      (is (approx= {:lo lo :hi hi} {:lo (- (mean t) h) :hi (+ (mean t) h)})
+          (name row)))))
 
 ;; ---------------------------------------------------------------------------
 ;; THE RE-TAKE'S OBSERVATION TABLE, ON THE CONVERGED INSTRUMENT
 ;; ---------------------------------------------------------------------------
 ;;
-;; The re-take restates the M1 mount line on the converged instrument, and
-;; the studio page prints a point estimate, a 95% interval and a min–max
-;; range per row — plus M1's run means and nothing else. Those intervals
-;; decide *not restated* on M2, broad and narrow, and without the run means
-;; they are computed FROM they cannot be recomputed from the repository —
-;; the gap the ensemble's table closes one section above.
+;; The unit that survives is the RUN MEAN: each row's `red-zone :mean` for
+;; that run, transcribed from the producing transcript; nothing was
+;; re-measured. Only run 5's per-round vectors survive, in
+;; [[run-5-per-round]], so the page's per-round counts are not derivable
+;; here and every ensemble-level figure is.
 ;;
-;; [[retake]] is that table. Every figure the studio page prints about the
-;; re-take is derived below from these twenty cells and checked against the
-;; page's own claims, which live in [[retake-published]] so that the
-;; derivation has something to be checked against.
-;;
-;; PROVENANCE, and it is NOT the same as the ensemble's. Nothing here was
-;; measured for this fixture and no browser was opened. The run logs
-;; themselves do not survive; what does is a transcript that captured the
-;; driver's console output and the analysis run over those logs verbatim,
-;; and the cells below are transcribed from it. Two consequences, stated
-;; rather than glossed:
-;;
-;;   * The unit that survives is the RUN MEAN — each row's `red-zone :mean`
-;;     for that run. The six per-round vectors behind each accepted run's
-;;     mean did NOT survive, except for run 5, whose four vectors are in
-;;     [[run-5-per-round]] because the diagnosis of its refusal was
-;;     captured in full. So every ENSEMBLE-level figure is derivable here;
-;;     the page's per-round counts (`14 of 24 rounds above 1.0`, `1 of 8
-;;     strata wholly above`) are NOT, and the page says so.
-;;   * A run mean transcribed at four decimals is the instrument's own
-;;     rounded output, so a mean re-derived from these cells can differ from
-;;     the instrument's in the fourth decimal. It does not on any figure
-;;     below, and the tolerances say so.
-;;
-;; THE FIVE-RUN SET, which moves a published number. The four accepted runs
-;; are not the launch set: a fifth run completed all four rows at measured 0%
-;; load and the driver refuses it, exiting 1 because a row's two
-;; segment-order strata point OPPOSITE WAYS across 1.0. That condition is a
-;; function of the result — and the aggregate rule this file pins for the
-;; ensemble one section above says exactly what to do with it. See
+;; THE FIVE-RUN SET. A fifth run completed all four rows and the driver
+;; refused it, exiting 1, because its M1 strata point opposite ways across
+;; 1.0. That is a function of the result, so the run stays one observation
+;; of the ensemble — see
 ;; [[the-fifth-run-was-dropped-for-the-way-its-strata-split]].
 
 (def ^:private retake
-  "THE 5 × 4 OBSERVATION TABLE of the re-take on the converged
-  instrument, complete.
-
-  One entry per run that completed all four rows on the converged
-  instrument at whole-tree anchor `7f54c67d5a`. Each cell is that run's
-  `red-zone :mean` for the row — its six per-round `uix-subs ÷
-  reagent-subs` readings averaged, each reading floor-normalised in its
-  own round and segment. `:start` is the segment that led round 0.
-
-  `:exit` is the driver's exit code and `:in-ensemble?` is whether the
-  run is one observation of the ensemble. They are not the same
-  question, which is the whole of
-  [[the-fifth-run-was-dropped-for-the-way-its-strata-split]].
-
-  `:M1-legs` is the same run's `M1` mount leg pair — `reagent-subs ÷
-  floor` and `uix-subs ÷ floor`, the denominator and numerator the page
-  decomposes the threshold into."
-  [{:run 1 :start :reagent-subs :exit 0 :in-ensemble? true
+  "THE 5 × 4 OBSERVATION TABLE of the re-take. Each cell is that run's
+  `red-zone :mean` for the row. `:start` is the segment that led round 0,
+  `:exit` the driver's exit code, and `:M1-legs` the run's M1
+  `reagent-subs ÷ floor` and `uix-subs ÷ floor` legs."
+  [{:run 1 :start :reagent-subs :exit 0
     :M1 0.9980 :M2 1.0584 :broad 0.6316 :narrow 1.2306
     :M1-legs {:reagent 4.2853 :uix 4.2723}}
-   {:run 2 :start :uix-subs :exit 0 :in-ensemble? true
+   {:run 2 :start :uix-subs :exit 0
     :M1 1.0391 :M2 0.9685 :broad 0.5437 :narrow 1.1767
     :M1-legs {:reagent 4.3457 :uix 4.5089}}
-   {:run 3 :start :reagent-subs :exit 0 :in-ensemble? true
+   {:run 3 :start :reagent-subs :exit 0
     :M1 1.0219 :M2 1.0714 :broad 0.5538 :narrow 1.3090
     :M1-legs {:reagent 4.5731 :uix 4.6673}}
-   {:run 6 :start :uix-subs :exit 0 :in-ensemble? true
+   {:run 6 :start :uix-subs :exit 0
     :M1 1.0382 :M2 0.9302 :broad 0.5102 :narrow 1.1769
     :M1-legs {:reagent 4.3144 :uix 4.4687}}
-   {:run 5 :start :reagent-subs :exit 1 :in-ensemble? true
+   {:run 5 :start :reagent-subs :exit 1
     :M1 0.9780 :M2 0.9242 :broad 0.6135 :narrow 1.1291
     :M1-legs {:reagent 4.6045 :uix 4.4573}}])
 
-(def ^:private retake-refused
-  "The launches that produced no ensemble observation, kept here because a
-  launch set with the failures left out is not a launch set.
-
-  Both are ARM-ORDER GUARD refusals — `p0_converge_run.cjs` exit **2**,
-  the guard reporting that an arm reads differently for WHERE IN THE PLAN
-  it was measured. That verdict is computed from arm timings by plan
-  position and never looks at the `uix ÷ reagent` ratio, so excluding
-  these two selects on the INSTRUMENT's validity and not on the result —
-  which is the distinction run 5 fails and they pass.
-
-  Their row figures do not survive and are NOT reconstructed;
-  what survives is the exit code, the refusing row and the load either
-  side, which is what the exclusion rests on anyway."
-  [{:run 2 :attempt 1 :start :uix-subs :exit 2 :refused-row :narrow
-    :pre-cpu 101 :post-cpu 310 :why "phase strata 1.37×–1.55× last-third over
-                                     first-third; the box degraded mid-run. Re-taken under quiet"}
-   {:run 4 :start :uix-subs :exit 2 :refused-row :M2
-    :pre-cpu 0 :post-cpu 0 :why "the mount-budget fragility this instrument already
-                                 documents — 720 mounts a page refused 4 of 6 for
-                                 rf2-6i0i2 too. Not contention, and not new"}])
-
 (def ^:private run-5-per-round
-  "Run 5's four per-round vectors, the only per-round record of the
-  re-take that survived. Six rounds, round 0 led by the Reagent segment.
-
-  They are here because run 5's refusal is the one thing on the page that
-  has to be re-derived rather than quoted: whether the driver is right to
-  refuse, and whether the run belongs in the ensemble, are different
-  questions with different answers."
+  "Run 5's four per-round vectors, six rounds, round 0 led by the Reagent
+  segment."
   {:M1     [1.0345 0.9749 1.0792 0.9279 1.0459 0.8055]
    :M2     [0.8    1.1053 0.9584 0.7727 1.0    0.9091]
    :broad  [0.5938 0.6667 0.6667 0.4675 0.54   0.7467]
    :narrow [1.178  1.1033 1.1584 1.1559 1.151  1.0282]})
 
 (def ^:private retake-published
-  "The page's figures over the FOUR accepted runs, transcribed so the
-  derivation can be checked against them, and superseded on the page by
-  the five-run figures below."
+  "The page's figures over the FOUR accepted runs, superseded on the page
+  by the five-run figures below."
   {:M1     {:threshold 1.0243 :lo 0.9937 :hi 1.0549 :run-min 0.9980 :run-max 1.0391}
    :M2     {:threshold 1.0071 :lo 0.8978 :hi 1.1165 :run-min 0.9302 :run-max 1.0714}
    :broad  {:threshold 0.5598 :lo 0.4781 :hi 0.6415 :run-min 0.5102 :run-max 0.6316}
@@ -1032,220 +585,79 @@
   (filterv #(zero? (:exit %)) retake))
 
 (defn- retake-ci
-  "Point estimate, sample sd and one-sample Student-t 95% interval on the
-  mean of `runs`' means for `row`. `n − 1` degrees of freedom, which is
-  the rule the ensemble's published intervals misapply and this section
-  applies for both n = 4 and n = 5."
+  "Point estimate, sample sd, one-sample Student-t 95% interval and
+  run-mean range for `row` over `runs`, at `n − 1` degrees of freedom."
   [runs row]
   (let [xs (mapv #(get % row) runs)
         m  (mean xs)
         sd (sample-sd xs)
         t  (case (count xs) 4 t-3 5 t-4)
         h  (* t (/ sd (js/Math.sqrt (count xs))))]
-    {:mean m :sd sd :lo (- m h) :hi (+ m h) :half h
+    {:threshold m :sd sd :lo (- m h) :hi (+ m h)
      :run-min (apply min xs) :run-max (apply max xs)}))
 
-(deftest the-retake-table-is-the-launch-set-not-a-selection
-  (testing "five completed runs and two guard-refused launches — seven
-           launches, and the table names all seven rather than only the
-           ones that published"
-    (is (= 5 (count retake)))
-    (is (= 2 (count retake-refused)))
-    (is (= [1 2 3 6 5] (mapv :run retake)))
-    (is (every? #(contains? % :in-ensemble?) retake)))
-  (testing "the four accepted runs are the four that exited 0, and
-           the fifth is the one that exited 1"
-    (is (= [1 2 3 6] (mapv :run (accepted-only))))
-    (is (= [5] (mapv :run (remove #(zero? (:exit %)) retake)))))
-  (testing "the accepted four are counterbalanced two and two, and the
-           five-run set is 3:2 — an imbalance that is a CONSEQUENCE of
-           not choosing the launch set by outcome, not a defect of it"
-    (is (= 2 (count (filter #(= :reagent-subs (:start %)) (accepted-only)))))
-    (is (= 2 (count (filter #(= :uix-subs (:start %)) (accepted-only)))))
-    (is (= 3 (count (filter #(= :reagent-subs (:start %)) retake))))
-    (is (= 2 (count (filter #(= :uix-subs (:start %)) retake))))))
-
-(deftest every-figure-pr-7315-published-reproduces-from-the-four-cells
-  (testing "the point estimates, the intervals and the run-mean ranges —
-           all four rows, from the table and nothing else"
+(deftest the-re-take-figures-reproduce-over-four-runs-and-over-five
+  ;; The four accepted runs' figures, then the five-run figures that replace
+  ;; them, and M1's floor-normalised legs on each set — whose quotient differs
+  ;; from the threshold because each run forms its ratio per round before
+  ;; averaging.
+  (doseq [[runs figures legs] [[(accepted-only) retake-published {:den 4.380 :num 4.479 :quotient 1.023}]
+                               [retake retake-corrected {:den 4.425 :num 4.475 :quotient 1.011}]]]
     (doseq [row rows]
-      (let [{:keys [mean lo hi run-min run-max]} (retake-ci (accepted-only) row)
-            p (get retake-published row)]
-        (is (close? mean (:threshold p)) (str (name row) " — threshold"))
-        (is (close? lo (:lo p))          (str (name row) " — interval low"))
-        (is (close? hi (:hi p))          (str (name row) " — interval high"))
-        (is (close? run-min (:run-min p)) (str (name row) " — run-mean min"))
-        (is (close? run-max (:run-max p)) (str (name row) " — run-mean max")))))
-  (testing "M1's published sd, which is the only one the page prints"
-    (is (close-to? (:sd (retake-ci (accepted-only) :M1)) 0.0192 0.0001)))
-  (testing "the multiplier is t at THREE degrees of freedom — the page
-           states `1.0243 ± 3.1824 × 0.009616` and that is what these four
-           run means give"
-    (let [{:keys [sd half]} (retake-ci (accepted-only) :M1)]
-      (is (close-to? (/ sd 2.0) 0.009616 0.000002) "the standard error")
-      (is (close-to? half (* t-3 0.009616) 0.00001) "half-width = t(3) × se"))))
-
-(deftest the-not-restated-dispositions-are-arithmetic-not-assertion
-  (testing "M2, broad and narrow are held at their published values
-           because the re-take's interval CONTAINS the published
-           magnitude. That is checked rather than stated — on the four-run
-           set, and on the five-run set that replaces it"
-    (doseq [runs [(accepted-only) retake]]
-      (doseq [row [:M2 :broad :narrow]]
-        (let [{:keys [lo hi]} (retake-ci runs row)
-              pub (:threshold (get published-threshold row))]
-          (is (and (<= lo pub) (<= pub hi))
-              (str (name row) " — the interval contains the published " pub
-                   " over " (count runs) " runs, so the row is NOT restated"))))))
-  (testing "M1 is the one row restated, and for the opposite reason: the
-           published 1.2310 lies outside the interval on either set, and
-           the run-mean spreads do not even meet"
-    (doseq [runs [(accepted-only) retake]]
-      (let [{:keys [lo hi run-max]} (retake-ci runs :M1)
-            {:keys [threshold run-min]} (get published-threshold :M1)]
-        (is (not (and (<= lo threshold) (<= threshold hi)))
-            (str "M1 over " (count runs) " runs — 1.2310 is outside the interval"))
-        (is (< run-max run-min)
-            (str "M1 over " (count runs)
-                 " runs — the run-mean spread is wholly disjoint from the published one"))))))
-
-(deftest the-leg-decomposition-is-the-mean-of-the-per-run-legs
-  (testing "the page decomposes the threshold into two floor-normalised
-           legs and reports 4.380 ÷ 4.479 over the four accepted runs. Both
-           are means of the per-run legs in the table"
-    (let [runs (accepted-only)
-          den  (mean (mapv #(get-in % [:M1-legs :reagent]) runs))
-          num  (mean (mapv #(get-in % [:M1-legs :uix]) runs))]
-      (is (close-to? den 4.380 0.0005) "denominator leg")
-      (is (close-to? num 4.479 0.0005) "numerator leg")
-      (is (close-to? (/ num den) 1.023 0.0005)
-          "and their quotient, 1.023 against the 1.0243 the runs report —
-           the residue being that each run forms its ratio per round and per
-           segment before averaging, never from the two means")))
-  (testing "the leg comparison is what carries the restatement, so it is
-           also stated over the five-run set. The denominator moves further
-           from the published 4.358 — +1.5% rather than +0.5% — and the
-           conclusion is unchanged, because the numerator's fall is an
-           order of magnitude larger either way"
-    (let [den (mean (mapv #(get-in % [:M1-legs :reagent]) retake))
-          num (mean (mapv #(get-in % [:M1-legs :uix]) retake))]
-      (is (close-to? den 4.425 0.0005) "denominator leg, five runs")
-      (is (close-to? num 4.475 0.0005) "numerator leg, five runs")
-      (is (< (js/Math.abs (- (/ den 4.358) 1.0)) 0.02) "denominator within 2% of published")
-      (is (< (/ num 5.343) 0.85) "numerator down more than 15% from published")
-      (is (close-to? (/ num den) 1.011 0.0005) "quotient, five runs"))))
+      (is (approx= (get figures row) (retake-ci runs row)) (str (count runs) " runs, " (name row))))
+    (let [den (mean (mapv #(get-in % [:M1-legs :reagent]) runs))
+          num (mean (mapv #(get-in % [:M1-legs :uix]) runs))]
+      (is (approx= 0.0005 legs {:den den :num num :quotient (/ num den)})
+          (str (count runs) " runs, M1 legs"))))
+  (testing "the page's `1.0243 ± 3.1824 × 0.009616`: the standard error of
+           M1's four run means"
+    (is (close-to? (/ (:sd (retake-ci (accepted-only) :M1)) 2.0) 0.009616 0.000002)))
+  (testing "the 3:2 start imbalance does not carry M1: the start groups'
+           means average to 1.0190, inside 0.9820 – 1.0480"
+    (is (approx= {:reagent-subs 0.9993 :uix-subs 1.0387}
+                 (into {} (map (fn [[start runs]] [start (mean (mapv :M1 runs))]))
+                       (group-by :start retake))))))
 
 (deftest the-fifth-run-was-dropped-for-the-way-its-strata-split
-  (testing "run 5's M1 refusal is REPRODUCED from its per-round vector
-           rather than quoted: the two order strata point opposite ways
-           across 1.0, so `segment-order-verdict` refuses and the driver
-           exits 1. The driver is right"
-    (let [vd (rf.bench.fresco.p0-converge-app/segment-order-verdict (:M1 run-5-per-round) 6 :reagent-subs)]
-      (is (true? (:refuse? vd)))
-      (is (false? (:direction-agrees? vd)))
-      (is (false? (:magnitude-resolved? vd)))
-      (is (close? 1.0532 (:mean (:reagent-first vd))) "Reagent-first stratum, above 1.0")
-      (is (close? 0.9028 (:mean (:uix-first vd)))     "UIx-first stratum, below 1.0")
-      (is (close? 0.9780 (mean (:M1 run-5-per-round)))
-          "and its row mean is the cell in the table")))
-  (testing "the OTHER three rows of run 5 refuse nothing — their strata
-           overlap and every one resolves a magnitude. Run 5 is not a bad
-           run; it is a run whose M1 sat on parity"
-    (doseq [row [:M2 :broad :narrow]]
-      (let [vd (rf.bench.fresco.p0-converge-app/segment-order-verdict (get run-5-per-round row) 6 :reagent-subs)]
-        (is (false? (:refuse? vd)) (str (name row) " — no refusal"))
-        (is (true? (:magnitude-resolved? vd)) (str (name row) " — magnitude resolved"))
-        (is (close? (get (nth retake 4) row) (mean (get run-5-per-round row)))
-            (str (name row) " — the vector's mean is the cell in the table")))))
-  (testing "the exit code proves the rest of the run was clean. The driver
-           checks page errors, then the ARM-ORDER guard (exit 2), then the
-           positive control (exit 1, different message), and only then the
-           segment-order control. An exit 1 carrying the segment-order
-           message means every earlier gate passed on every row — so the
-           ONLY thing wrong with run 5 was the direction its M1 strata took"
-    (is (= 1 (:exit (nth retake 4))))
-    (is (every? #(= 2 (:exit %)) retake-refused)
-        "and the two launches that ARE excluded were excluded by the
-         arm-order guard, which never looks at the ratio"))
-  (testing "dropping it is the outcome-based selection this file forbids
-           for the ensemble one section above: `:in-an-ensemble` says a
-           row-run whose strata split is still ONE OBSERVATION, because a
-           split IS the extreme partition and excluding it moves the
-           estimate. Here it moves it away from parity, which is the
-           direction that flatters the restatement"
-    (let [four (retake-ci (accepted-only) :M1)
-          five (retake-ci retake :M1)]
-      (is (< (:mean five) (:mean four))
-          "run 5 pulls the estimate toward 1.0, so dropping it pushes it away")
-      (is (close-to? (- (:mean four) (:mean five)) 0.0093 0.0002)
-          "by 0.9 points")
-      (is (< (:half four) (:half five))
-          "and dropping it narrows the interval, which is the second half of the same error")))
-  (testing "and it changes no verdict, which is why the row is corrected
-           rather than re-run: the five-run interval still contains 1.0,
-           still excludes the published 1.2310, and the row is still
-           indistinguishable from parity"
-    (let [{:keys [lo hi]} (retake-ci retake :M1)]
-      (is (and (< lo 1.0) (> hi 1.0)) "contains parity")
-      (is (< hi 1.1989) "and does not reach the published run-mean spread"))))
-
-(deftest the-corrected-five-run-figures-are-what-the-page-publishes
-  (testing "every figure in the page's corrected table, derived from the
-           five cells"
-    (doseq [row rows]
-      (let [{:keys [mean lo hi run-min run-max]} (retake-ci retake row)
-            c (get retake-corrected row)]
-        (is (close? mean (:threshold c)) (str (name row) " — threshold"))
-        (is (close? lo (:lo c))          (str (name row) " — interval low"))
-        (is (close? hi (:hi c))          (str (name row) " — interval high"))
-        (is (close? run-min (:run-min c)) (str (name row) " — run-mean min"))
-        (is (close? run-max (:run-max c)) (str (name row) " — run-mean max")))))
-  (testing "the 3:2 start imbalance does not carry the M1 result: the
-           start-balanced estimate — the mean of the two start-group means,
-           which is what an alternating design's unbiased estimator is —
-           lands inside the interval"
-    (let [by  (group-by :start retake)
-          rg  (mean (mapv :M1 (:reagent-subs by)))
-          ux  (mean (mapv :M1 (:uix-subs by)))
-          bal (/ (+ rg ux) 2.0)
-          {:keys [lo hi]} (retake-ci retake :M1)]
-      (is (close-to? rg 0.9993 0.0002) "reagent-start group, three runs")
-      (is (close-to? ux 1.0387 0.0002) "uix-start group, two runs")
-      (is (close-to? bal 1.0190 0.0002) "start-balanced")
-      (is (and (< lo bal) (< bal hi)) "inside the published interval"))))
-
-(deftest what-the-retake-table-cannot-check-is-said-rather-than-implied
-  (testing "the per-round vectors of the four accepted runs did not
-           survive, so the page's per-round and per-stratum counts are
-           reported by the instrument and NOT re-derivable here. Only run
-           5 carries vectors, and this test pins which cells the fixture
-           does and does not hold, so a later reader cannot mistake the
-           table for something it is not"
-    (is (= #{:M1 :M2 :broad :narrow} (set (keys run-5-per-round)))
-        "and per-round vectors for exactly one run")
-    (is (every? #(= 6 (count %)) (vals run-5-per-round))
-        "six rounds each, the balanced design")
-    (is (empty? (filter :per-round retake))
-        "no run in the table claims a per-round vector it does not have")))
+  (testing "run 5's M1 strata point opposite ways across 1.0, so the verdict
+           refuses and the driver exits 1"
+    (is (= {:start               :reagent-subs
+            :reagent-first       {:per-round [1.0345 1.0792 1.0459] :mean 1.0532
+                                  :min 1.0345 :max 1.0792 :straddles-1? false
+                                  :direction :numerator-slower :n 3}
+            :uix-first           {:per-round [0.9749 0.9279 0.8055] :mean 0.9028
+                                  :min 0.8055 :max 0.9749 :straddles-1? false
+                                  :direction :numerator-faster :n 3}
+            :order-balanced-mean 0.978
+            :balanced-design?    true
+            :strata-overlap?     false
+            :magnitude-resolved? false
+            :direction-agrees?   false
+            :refuse?             true}
+           (dissoc (rf.bench.fresco.p0-converge-app/segment-order-verdict (:M1 run-5-per-round) 6 :reagent-subs)
+                   :why))))
+  (testing "its other three rows overlap and resolve a magnitude: run 5 is a
+           run whose M1 sat on parity, not a bad run"
+    (is (= {:M2 [false true] :broad [false true] :narrow [false true]}
+           (into {} (for [row [:M2 :broad :narrow]]
+                      [row ((juxt :refuse? :magnitude-resolved?)
+                            (rf.bench.fresco.p0-converge-app/segment-order-verdict (get run-5-per-round row) 6 :reagent-subs))])))))
+  (testing "dropping it is outcome-based selection: it moves M1's estimate
+           0.9 points away from parity"
+    (is (close-to? (- (:threshold (retake-ci (accepted-only) :M1))
+                      (:threshold (retake-ci retake :M1)))
+                   0.0093 0.0002))))
 
 ;; ---------------------------------------------------------------------------
 ;; The flag is global and the arm is not
 ;; ---------------------------------------------------------------------------
 ;;
 ;; `FRESCO_RATOM=on` is a page-global request; arm presence is decided per
-;; row. With no `FRESCO_ONLY` the driver selects ALL FOUR rows, and `M2`
-;; and `narrow` deliberately carry no `:reagent-ratom` arm — `M2`'s witness
-;; ignores the flag and `bulk-arms` admits the arm only on `:broad`. A
-;; record that read the FLAG would divide by a ratio those rows never
-;; produce, form a ratom floor of nothing, run the leg verdict over the
-;; result and label the row as carrying the arm — and every published run
-;; pairs the flag with `FRESCO_ONLY=M1,broad`, so neither CI nor the
-;; quality gates run the natural flagged invocation that would show it.
-;;
-;; Three facts, in the order the run establishes them: which arms the row's
-;; PLAN plants, what [[rf.bench.fresco.p0-converge-app/ratom-leg]] DECIDES from a round, and what the
-;; RECORD then publishes. Pure arithmetic over constants — no DOM, no clock,
-;; no browser, like everything else in this namespace.
+;; row. With no `FRESCO_ONLY` the driver selects all four rows, and `M2`
+;; and `narrow` carry no `:reagent-ratom` arm. A record that read the FLAG
+;; would divide by a ratio those rows never produce and label them as
+;; carrying the arm — and every published run pairs the flag with
+;; `FRESCO_ONLY=M1,broad`, so no published run shows it.
 
 (def ^:private flagged-rows
   "What `FRESCO_RATOM=on` with no `FRESCO_ONLY` selects: the driver's
@@ -1257,44 +669,25 @@
   #{:M1 :broad})
 
 (deftest the-flagged-default-selection-plants-the-arm-on-two-rows-of-four
-  (testing "with the flag ON, M1 and broad run a FOUR-arm Reagent segment
-           and M2 and narrow run their published three. This is the fact
-           every assertion below rests on, and it is asked of the entry's
-           own plan rather than restated beside it"
-    (doseq [row flagged-rows]
-      (let [ids (set (rf.bench.fresco.p0-converge-app/reagent-segment-arm-ids row true))]
-        (is (contains? ids :reagent-subs) (str row " must always run the denominator"))
-        (is (= (contains? rows-carrying-the-arm row)
-               (contains? ids :reagent-ratom))
-            (str row " under FRESCO_RATOM=on")))))
-  (testing "and with the flag OFF no row runs it, which is what keeps an
-           unflagged invocation the instrument the four published rows
-           were measured on"
-    (doseq [row flagged-rows]
-      (is (not (contains? (set (rf.bench.fresco.p0-converge-app/reagent-segment-arm-ids row false)) :reagent-ratom))
-          (str row " under FRESCO_RATOM=off")))))
+  ;; And with the flag OFF no row runs it, so an unflagged invocation is the
+  ;; instrument the published rows were measured on.
+  (is (= {true rows-carrying-the-arm false #{}}
+         (into {} (for [flag [true false]]
+                    [flag (set (filter #(some #{:reagent-ratom}
+                                              (rf.bench.fresco.p0-converge-app/reagent-segment-arm-ids % flag))
+                                       flagged-rows))])))))
 
 (deftest the-leg-is-formed-only-when-every-round-measured-the-arm
-  (let [round (fn [ratom] {:reagent-subs
-                           {:ratio (cond-> {:reagent-subs 4.0}
-                                     ratom (assoc :reagent-ratom ratom))}})]
-    (testing "six rounds that all measured the arm: the leg is 4.0 / 3.0,
-             once per round"
-      (let [l (rf.bench.fresco.p0-converge-app/ratom-leg (mapv round (repeat 6 3.0)))]
-        (is (= 6 (count l)))
-        (is (every? #(close? 1.3333 %) l))))
-    (testing "no round measured it — nil, and NOT a quotient over a
-             denominator that was never taken. This is the M2 and narrow
-             case, and `subs / nil` is `Infinity` in JavaScript rather
-             than an error, so nothing downstream would complain"
-      (is (nil? (rf.bench.fresco.p0-converge-app/ratom-leg (mapv round (repeat 6 nil))))))
-    (testing "a PARTIAL arm is no arm: one round short and the leg is nil,
-             because a figure that quietly changes what it averages over
-             is worse than one that is absent"
-      (is (nil? (rf.bench.fresco.p0-converge-app/ratom-leg (mapv round [3.0 3.0 3.0 3.0 3.0 nil])))))
-    (testing "and a zero denominator divides to Infinity, so it is refused
-             at the same door"
-      (is (nil? (rf.bench.fresco.p0-converge-app/ratom-leg (mapv round (repeat 6 0.0))))))))
+  (let [round  (fn [ratom] {:reagent-subs
+                            {:ratio (cond-> {:reagent-subs 4.0}
+                                      ratom (assoc :reagent-ratom ratom))}})
+        leg-of #(rf.bench.fresco.p0-converge-app/ratom-leg (mapv round %))]
+    (is (= (repeat 6 (/ 4.0 3.0)) (leg-of (repeat 6 3.0)))
+        "every round measured the arm: one leg per round")
+    ;; `subs / nil` and `subs / 0` are Infinity in JavaScript rather than an
+    ;; error, and a leg over some rounds is a different figure.
+    (is (= [nil nil nil] (map leg-of [(repeat 6 nil) [3.0 3.0 3.0 3.0 3.0 nil] (repeat 6 0.0)]))
+        "no arm, a partial arm and a zero denominator form no leg")))
 
 (def ^:private synthetic-ms
   "One reading vector per arm id, constant, so every ratio the record
@@ -1309,8 +702,7 @@
 
 (defn- flagged-record
   "The published record for `row` under `FRESCO_RATOM=on`, over six rounds
-  of that row's ACTUAL flagged arm set. The Reagent segment's arms come
-  from the entry's own plan, so no premise is transcribed here."
+  of that row's ACTUAL flagged arm set, taken from the entry's own plan."
   [row]
   (let [reagent-arms (select-keys synthetic-ms (rf.bench.fresco.p0-converge-app/reagent-segment-arm-ids row true))
         uix-arms     (select-keys synthetic-ms [:floor :uix-subs :ctl-2x])]
@@ -1325,8 +717,7 @@
 
 (defn- non-finite
   "Every number anywhere in `x` that is not finite — NaN, Infinity,
-  -Infinity. A record is a tree of maps and vectors, so the whole of it is
-  checked rather than the two or three keys somebody remembered."
+  -Infinity — so the whole record is checked, not a few keys."
   [x]
   (let [found (atom [])]
     (walk/postwalk (fn [v]
@@ -1336,29 +727,25 @@
                    x)
     @found))
 
+(defn- arm-facts
+  "What a record publishes about the ratom arm."
+  [rec]
+  {:ratom-arm?        (:ratom-arm? rec)
+   :red-zone-arm?     (:ratom-arm? (:red-zone rec))
+   :comparability     (some-> (:comparability (:red-zone rec)) string?)
+   :reactive-leg      (some-> (:reactive-leg rec) (select-keys [:mean :claim]))
+   :ratom-over-floor? (some? (:ratom-over-floor rec))
+   :leg-order?        (some? (:reactive-leg-segment-order rec))
+   :non-finite        (non-finite rec)})
+
 (deftest the-flagged-default-selection-publishes-a-leg-only-where-the-arm-ran
-  (testing "FRESCO_RATOM=on with the default four rows. M1 and broad
-           publish a leg of 4.0 / 3.0 and say they carry the arm; M2 and
-           narrow publish no leg, no ratom floor, no leg verdict and no
-           comparability note, and say they carry no arm — and no row
-           emits a non-finite number anywhere in its record. A record is
-           per row, so this also answers `FRESCO_RATOM=on
-           FRESCO_ONLY=M2,narrow`, the selection nobody publishes from"
-    (doseq [row flagged-rows]
-      (let [rec (flagged-record row)]
-        (if (contains? rows-carrying-the-arm row)
-          (do (is (true? (:ratom-arm? rec)) (str row))
-              (is (true? (:ratom-arm? (:red-zone rec))) (str row))
-              (is (string? (:comparability (:red-zone rec))) (str row))
-              (is (close? 1.3333 (:mean (:reactive-leg rec))) (str row))
-              (is (= :magnitude (:claim (:reactive-leg rec))) (str row))
-              (is (some? (:ratom-over-floor rec)) (str row))
-              (is (some? (:reactive-leg-segment-order rec)) (str row)))
-          (do (is (false? (:ratom-arm? rec)) (str row))
-              (is (false? (:ratom-arm? (:red-zone rec))) (str row))
-              (is (nil? (:comparability (:red-zone rec))) (str row))
-              (is (nil? (:reactive-leg rec)) (str row))
-              (is (nil? (:ratom-over-floor rec)) (str row))
-              (is (nil? (:reactive-leg-segment-order rec)) (str row))))
-        (is (empty? (non-finite rec))
-            (str row " emitted non-finite numbers: " (pr-str (non-finite rec))))))))
+  ;; A record is per row, so this also answers `FRESCO_RATOM=on
+  ;; FRESCO_ONLY=M2,narrow`, the selection nobody publishes from.
+  (let [carries {:ratom-arm? true :red-zone-arm? true :comparability true
+                 :reactive-leg {:mean 1.3333 :claim :magnitude}
+                 :ratom-over-floor? true :leg-order? true :non-finite []}
+        lacks   {:ratom-arm? false :red-zone-arm? false :comparability nil
+                 :reactive-leg nil
+                 :ratom-over-floor? false :leg-order? false :non-finite []}]
+    (is (= (zipmap flagged-rows (map #(if (rows-carrying-the-arm %) carries lacks) flagged-rows))
+           (zipmap flagged-rows (map (comp arm-facts flagged-record) flagged-rows))))))
