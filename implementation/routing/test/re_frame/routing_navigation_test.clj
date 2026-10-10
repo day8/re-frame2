@@ -49,6 +49,16 @@
                   (fn [_ url] (swap! pushed conj url)))
     pushed))
 
+;; ---- a qualified enum value survives a reload of the URL it pushed ----------
+
+(deftest qualified-enum-navigation-re-matches-its-pushed-url
+  (rf/reg-route :r/items {:query [:map [:sort {:optional true} [:enum :sort/asc :sort/desc]]]} "/items")
+  (let [pushed (record-pushes!)]
+    (rf/dispatch-sync [:rf.route/navigate {:to :r/items :query {:sort :sort/desc}}])
+    (rf/dispatch-sync [:rf.route/handle-url-change (peek @pushed) {:rf.route/cause :popstate}])
+    (is (= [:r/items {:sort :sort/desc}] ((juxt :route-id :query) (nav-slice)))
+        "Back/Forward or a reload onto the pushed URL lands on the route, not not-found")))
+
 ;; ---- addresses --------------------------------------------------------------
 
 (deftest routing-destination-query-is-literal

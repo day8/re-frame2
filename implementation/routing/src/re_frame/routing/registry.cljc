@@ -672,6 +672,8 @@
   that guard for the full route-prism / hydration-mismatch rationale."
   #{:int :uuid :boolean})
 
+(declare query-key->url-token)
+
 (defn- normalize-type-form
   "Reduce a per-slot Malli type-form to the canonical coercion token
   `coerce-by-type-form` understands. Pure; no interning.
@@ -685,8 +687,11 @@
     mapping is a defensive no-op passthrough — unreachable for a
     registered route's coercion table.
   - `[:enum :a :b …]` / `[:enum {…opts} :a :b …]` with all-keyword
-    choices → `[:rf.route/enum-keyword #{choice-names…}]` (the
-    bounded allowlist).
+    choices → `[:rf.route/enum-keyword {token kw …} {kw token …}]` (the
+    bounded allowlist and its inverse). A choice's token is its
+    namespace-preserving `query-key->url-token` — `:asc` → `asc`,
+    `:sort/desc` → `sort/desc` — so a qualified choice keeps its identity
+    on the wire and `[:enum :a/x :b/x]` has two tokens, not one.
   - **optioned scalar** `[:int {…}]` / `[:uuid {…}]` / `[:boolean {…}]` →
     the bare scalar token; **optioned** `[:keyword {…}]`
     → `:rf.route/keyword-unbounded`. Ordinary Malli properties on an
@@ -723,7 +728,8 @@
                       (rest tail)
                       tail)]
           (if (and (seq items) (every? keyword? items))
-            [:rf.route/enum-keyword (into #{} (map name) items)]
+            (let [token->kw (into {} (map (fn [k] [(query-key->url-token k) k])) items)]
+              [:rf.route/enum-keyword token->kw (into {} (map (juxt val key)) token->kw)])
             ;; A non-keyword `[:enum …]` (string/number choices) is not a
             ;; keyword allowlist — leave it as a value passthrough.
             raw))
@@ -869,9 +875,10 @@
   - `:rf.route/keyword-unbounded` — declared as `:keyword` with no enum
     constraint. **Stays as string** (no intern; the unbounded keyword-
     interning DoS surface is precisely what this guards against).
-  - `[:rf.route/enum-keyword #{names}]` — declared as `[:enum :a :b ...]`.
-    Intern is gated by the allowlist; values matching a declared enum
-    choice are keyword'd, others stay string. Bounded by construction.
+  - `[:rf.route/enum-keyword {token kw} {kw token}]` — declared as
+    `[:enum :a :b ...]`. A value matching a declared choice's token decodes
+    to that declared keyword; others stay string. Nothing is interned, so
+    the universe is bounded by construction.
 
   Any other type-form (including nil) is a pass-through. Per Spec 012
   §Query-string coercion. Shared by the query side
@@ -914,24 +921,23 @@
     v
 
     (and (vector? type-form) (= :rf.route/enum-keyword (first type-form)))
-    ;; Enum allowlist gate — intern only when the URL value
-    ;; matches one of the declared keyword choices' names.
-    (if (contains? (second type-form) v)
-      (keyword v)
-      v)
+    ;; Enum allowlist gate — a URL value naming a declared choice's token
+    ;; decodes to that declared keyword, namespace included.
+    (get (second type-form) v v)
 
     :else v))
 
 (defn- enum-keyword-token
-  "The INVERSE of the `[:rf.route/enum-keyword #{names}]` decode in
+  "The INVERSE of the `[:rf.route/enum-keyword …]` decode in
   `coerce-by-type-form`. Given a slot's normalized
   coercion `type-form` (from `:rf.route/query-coerce` /
   `:rf.route/params-coerce`) and a route value `v`, return the URL-token
   representation `route-url` should emit.
 
   For a declared keyword-enum slot whose value is a keyword in the
-  allowlist, this is the keyword's NAME (`:asc` -> `\"asc\"`) — the exact
-  token `match-url` decodes back to the canonical enum keyword. Without
+  allowlist, this is the choice's token (`:asc` -> `\"asc\"`, `:sort/desc` ->
+  `\"sort/desc\"`) — the exact token `match-url` decodes back to the
+  canonical enum keyword. Without
   this, `rf.routing.url/url-encode` would host-`(str :asc)` to `\":asc\"` and emit
   `%3Aasc`, which `match-url`'s enum decoder does not recognise (it reads
   only the declared names), so the prism would not round-trip
@@ -946,9 +952,8 @@
   [type-form v]
   (if (and (keyword? v)
            (vector? type-form)
-           (= :rf.route/enum-keyword (first type-form))
-           (contains? (second type-form) (name v)))
-    (name v)
+           (= :rf.route/enum-keyword (first type-form)))
+    (get (nth type-form 2) v v)
     v))
 
 (defn query-key->url-token
