@@ -1002,17 +1002,16 @@ back-pressure attempt would violate
 [`Principles.md`](./Principles.md) §Observation only — no new
 runtime surfaces.
 
-**Coalescing (rf2-chs7).** Every settle fires the callback, and the
+**Coalescing.** Every settle fires the callback, and the
 callback observes every one of them — but consecutive notes for the
 same frame collapse into ONE dispatch per `next-tick` task, exactly as
 the trace mirror's `request-mirror-sync!` collapses a same-tick trace
-burst (rf2-wq6gx). Xray MUST coalesce this way rather than dispatching
-per settle. The un-coalesced form was measured overflowing `:rf/xray`'s
-OWN event queue past the router's depth-100 cap under a 20-event host
-burst, at which point the router discards events with `:recovery
-:no-recovery` — and what it discarded was whatever sat behind the
-flood, including Xray's own chrome events. A pump that costs the
-inspector its UI is worse than one that merges redundant refreshes.
+burst. Xray MUST coalesce this way rather than dispatching
+per settle. Un-coalesced, a host burst costs `:rf/xray` one event per
+settle, and for every frame that is not the target each of those events
+computes the db value Xray already had. Each pump dispatch is made
+outside any `:rf/xray` event, so it roots a family of its own and
+`:drain-depth` never halts the burst; the cost is the events themselves.
 
 Coalescing loses no information, because the dispatch is a **trigger,
 not a payload**: the handler re-reads `(rf/epoch-history target)`, so a

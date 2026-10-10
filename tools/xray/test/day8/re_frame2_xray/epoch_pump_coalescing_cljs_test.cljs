@@ -11,13 +11,9 @@
   every frame that is not the current target the round-trip would compute
   the same db value it already had.
 
-  Under load that is not merely wasteful. On
-  `npm run test:story-feature-load`, a 20-event host burst produces epochs
-  faster than `:rf/xray`'s own drain settles, so an un-coalesced pump would
-  push the queue past the router's depth-100 cap, and the router would
-  discard events with `:recovery :no-recovery` — including unrelated Xray
-  CHROME events (`:rf.xray.edn-inspector/clear-width`) sitting behind the
-  flood. The pump would cost the inspector its own UI events.
+  Under load that waste scales with epoch count. Each pump dispatch roots a
+  family of its own on `:rf/xray`'s external lane, so `:drain-depth` never
+  halts a burst of them, and the cost is one `:rf/xray` event per epoch.
 
   The sibling stream follows the same pattern:
   `trace-collector/request-mirror-sync!` coalesces the trace mirror
@@ -25,11 +21,10 @@
 
   ## Why the assertions read the ROUTER QUEUE
 
-  Queue depth is the defect, so it is what these deftests measure. `rf/dispatch`
+  The dispatches are the cost, so they are what these deftests measure. `rf/dispatch`
   enqueues and schedules an async drain, so the queue read taken immediately
-  after a drain call sees exactly what the pump contributed and nothing else —
-  which is the number the router's depth cap was counting. A test that only
-  asserted the drain's return value would be pinning the coalescer's
+  after a drain call sees exactly what the pump contributed and nothing else.
+  A test that only asserted the drain's return value would be pinning the coalescer's
   bookkeeping rather than the behaviour at risk.
 
   `control-…` is what makes the rest non-vacuous: it drives the SAME 40 records
@@ -60,9 +55,8 @@
   (mount/boot-on-runtime-ready!))
 
 (defn- xray-queue-depth
-  "How many envelopes are sitting in `:rf/xray`'s router queue, undrained.
-  This is the quantity the router's depth cap counts and the quantity the
-  un-coalesced pump would drive past 100."
+  "How many envelopes are sitting undrained in `:rf/xray`'s external lane
+  (the router's `:queue`), which is where every pump dispatch lands."
   []
   (count (:queue @(:router (rf.frame/frame :rf/xray)))))
 
@@ -71,9 +65,7 @@
 (deftest a-same-tick-epoch-burst-collapses-to-one-dispatch
   (testing "40 epochs recorded on ONE frame between two drains
             enqueue ONE `:rf.xray/epoch-recorded`, not 40. A listener that
-            dispatched per record would read 40 here — and four such
-            bursts would carry `:rf/xray`'s own queue past the router's
-            depth-100 cap."
+            dispatched per record would read 40 here."
     (seat-xray!)
     (is (zero? (xray-queue-depth))
         "precondition: nothing else is queued on Xray's frame")

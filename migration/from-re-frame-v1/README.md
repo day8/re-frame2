@@ -251,9 +251,9 @@ For code that invokes a surviving registrar directly — `(rf/reg-event :foo (fn
 
 ### M-6. Drain-depth limit may abort long synchronous dispatch chains
 
-**Type A** (mechanical mitigation). The error record names the offending frame; the fix is to bump `:drain-depth` on that frame's config — a structural change with no behavioural risk.
+**Type A** (mechanical mitigation). The error record names the offending frame, and its `:tail-event-ids` show the cycle; for a genuine wide fan-out the fix is to raise `:drain-depth` on that frame's config — a structural change with no behavioural risk — and a cycle is a bug to break.
 
-Run-to-completion drain semantics enforce a configurable depth limit (`:drain-depth` on the frame config, default 100). When a synchronously-chained dispatch cascade exceeds the limit, the drain halts and emits `:rf.error/drain-depth-exceeded` — an always-on error record naming the `:frame`, whose `:tags` carry `:depth`, `:queue-size`, `:last-event-id`, `:tail-event-ids` (the last settled event ids, which name the cycle) and `:dropped-event-ids`. Events that already settled stay committed; the queued events behind the halt never run.
+Run-to-completion drain semantics enforce a configurable depth limit per family (`:drain-depth` on the frame config, default 1000). A family is one external event, or one `dispatch-sync` seed, plus every event dispatched synchronously while it runs, transitively, and the count restarts at each external event. When one family's synchronously-chained cascade reaches the limit with work still queued, the runtime halts that family and emits `:rf.error/drain-depth-exceeded` — an always-on error record naming the `:frame`, whose `:tags` carry `:depth`, `:queue-size`, `:last-event-id`, `:tail-event-ids` (the last settled event ids, which name the cycle) and `:dropped-event-ids`. Events that already settled stay committed; the halted family's queued events never run, and the drain carries on with external input under a fresh budget.
 
 Most code is unaffected — typical dispatch cascades are 1–5 deep. Code paths that genuinely need long chains (event-sourcing replay, complex state-machine cascades, generated test fixtures dispatching many events) may hit the limit.
 
@@ -261,12 +261,12 @@ Most code is unaffected — typical dispatch cascades are 1–5 deep. Code paths
 
 - An `:rf.error/drain-depth-exceeded` error after upgrading.
 - Code that synchronously dispatches in loops or recursive event handlers.
-- Tests that replay long event sequences within a single drain cascade.
+- Tests that replay a long event sequence from one handler or one `dispatch-sync`, so the whole sequence is one family.
 
 **What to do:**
 
-- **Increase the depth limit on the affected frame**: `(rf/make-frame {:id :my-frame :drain-depth 1000})`.
-- **For a single test or REPL session**: give that frame its own limit. A test frame takes it at creation — `(rf/make-frame {:id :test/long-running :preset :test :drain-depth 1000})` — and re-running `make-frame` against a live frame's id replaces its `:drain-depth` for later drains without touching its state (per [002-Frames.md §Re-registration — surgical update](../../spec/002-Frames.md#re-registration--surgical-update)). There is no per-dispatch override: the dispatch opts are `:frame`, `:fx-overrides`, `:interceptor-overrides`, `:trace-id` and `:source` (per [API.md](../../spec/API.md)), and a `:drain-depth` passed there is ignored.
+- **Increase the depth limit on the affected frame**: `(rf/make-frame {:id :my-frame :drain-depth 5000})`.
+- **For a single test or REPL session**: give that frame its own limit. A test frame takes it at creation — `(rf/make-frame {:id :test/long-running :preset :test :drain-depth 5000})` — and re-running `make-frame` against a live frame's id replaces its `:drain-depth` for later drains without touching its state (per [002-Frames.md §Re-registration — surgical update](../../spec/002-Frames.md#re-registration--surgical-update)). There is no per-dispatch override: the dispatch opts are `:frame`, `:fx-overrides`, `:interceptor-overrides`, `:trace-id` and `:source` (per [API.md](../../spec/API.md)), and a `:drain-depth` passed there is ignored.
 - **Refactor to async** if the chain is genuinely unbounded — use `:dispatch-later` to break the cascade.
 
 **Why:** Drain to fixed point must terminate. A depth limit is the cheapest cycle-detection mechanism that doesn't require expensive graph analysis. The default is generous; the override is per-frame.

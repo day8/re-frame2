@@ -864,11 +864,10 @@
 ;;
 ;; Were every bump to cost its own
 ;; `:rf.xray/note-sensitive-suppressed` round-trip into `:rf/xray`, a host
-;; burst of more than ~100 frameless sensitive traces in one task
-;; would carry Xray's queue past the router's depth-100 cap: the
-;; `:rf.error/drain-depth-exceeded` halt would be attributed to
-;; `:rf/xray`, and Xray's own queued UI events would be dropped behind
-;; the burst.
+;; burst of N sensitive traces in one task would cost N `:rf/xray` events
+;; for what is one count. Each is dispatched outside any `:rf/xray` event,
+;; so it roots a family of its own and `:drain-depth` never halts the
+;; burst; the cost is the N events themselves.
 ;;
 ;; The remedy is the one Xray applies in two other places —
 ;; `trace-collector/request-mirror-sync!` and install.cljs's
