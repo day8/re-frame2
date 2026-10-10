@@ -157,7 +157,7 @@
         "two collections deep and through an array as well")))
 
 ;; ---------------------------------------------------------------------------
-;; re-frame.ssr.emit — four throw sites
+;; re-frame.ssr.emit — three throw sites
 ;; ---------------------------------------------------------------------------
 
 (deftest emit-rejects-a-cyclic-hiccup-head-with-its-own-error
@@ -179,13 +179,6 @@
   (testing "`[:> ctx.Provider …]` is what `:>` interop is FOR"
     (rejected-with :rf.error/ssr-reagent-native-head "a :> provider element"
                    #(rf.ssr.emit/emit-element [:> provider {:value "dark"}]))))
-
-(deftest emit-rejects-a-cyclic-suspense-boundary-with-its-own-error
-  (testing "a boundary's `:fallback` can carry a foreign value anywhere"
-    (rejected-with :rf.error/ssr-suspense-boundary-outside-stream
-                   "a suspense boundary whose fallback holds a provider"
-                   #(rf.ssr.emit/emit-element
-                      [:rf/suspense-boundary {:id :b :fallback [:div {:ctx provider}]}]))))
 
 ;; ---------------------------------------------------------------------------
 ;; re-frame.ssr.ui-tree — the malformed-node + version-gate throws

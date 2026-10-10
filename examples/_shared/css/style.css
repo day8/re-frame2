@@ -232,17 +232,13 @@ button:active:not([disabled]) { transform: translateY(1px); }
 .article-preview { border-bottom-color: var(--ex-rule); }
 .article-preview h1 { font-family: var(--ex-sans); font-weight: 700; }
 
-/* SSR cards -------------------------------------------------------------- */
+/* Cards ------------------------------------------------------------------ */
 
 .card {
   background: var(--ex-bg-raised);
   border-color: var(--ex-rule);
   box-shadow: 0 2px 6px rgba(26,24,20,0.06);
 }
-
-.card h3 { color: var(--ex-ink-muted); font-family: var(--ex-sans); }
-.card p.value { color: var(--ex-accent-deep); font-family: var(--ex-sans); }
-.card.skeleton { color: var(--ex-ink-faint); background: var(--ex-bg-sunken); }
 
 /* Utility ---------------------------------------------------------------- */
 

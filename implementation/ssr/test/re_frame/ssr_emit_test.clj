@@ -185,20 +185,6 @@
       "without :render-hash a seq root emits no marker"))
 
 ;; ===========================================================================
-;; :rf/suspense-boundary is a streaming-only marker; the standard emitter
-;; rejects it rather than emitting a phantom <suspense-boundary> element.
-;; ===========================================================================
-
-(deftest render-to-string-rejects-suspense-boundary-outside-stream
-  (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                        #":rf.error/ssr-suspense-boundary-outside-stream"
-                        (rf.ssr.emit/render-to-string
-                          [:rf/suspense-boundary
-                           {:id :b1 :fallback [:span "loading"]}
-                           [:div "resolved"]]
-                          {}))))
-
-;; ===========================================================================
 ;; Scalar children and the escape asymmetry.
 ;; ===========================================================================
 

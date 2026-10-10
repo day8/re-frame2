@@ -56,31 +56,11 @@
                        ;; End-to-end tests observe bytes through a real Jetty
                        ;; host. These test dependencies are not published.
                        ring/ring-jetty-adapter {:mvn/version "1.12.1"}}
-         ;; The default gate excludes live-host stress tests and the
-         ;; JVM->Node->JVM crossing witness (`:crossing`, which spawns a Node
-         ;; sidecar — this alias stays Node-free); the aliases below run
-         ;; exactly those excluded sets.
+         ;; The default gate excludes the JVM->Node->JVM crossing witness
+         ;; (`:crossing`, which spawns a Node sidecar — this alias stays
+         ;; Node-free); `:crossing-test` below runs exactly that set.
          :main-opts   ["-m" "re-frame.test-quiet.runner" "--dir" "test"
-                       "-e" ":slow" "-e" ":stress" "-e" ":crossing"]}
-
-  ;; Nightly/rigorous gate: includes only tests excluded by `:test`.
-  :slow-test
-  {:extra-paths ["test"
-                 ;; Every lane that scans `test/` loads every namespace in
-                 ;; it, the login host witness included — so the classpath
-                 ;; the `:test` alias explains is needed here too.
-                 "../../examples/core"
-                 "../../examples/substrates"]
-   :extra-deps  {day8/re-frame2-schemas    {:local/root "../schemas"}
-                 day8/re-frame2-flows      {:local/root "../flows"}
-                 day8/re-frame2-routing    {:local/root "../routing"}
-                 day8/re-frame2-machines   {:local/root "../machines"}
-                 day8/re-frame2-http       {:local/root "../http"}
-                 day8/re-frame2-resources  {:local/root "../resources"}
-                 day8/re-frame2-test-quiet {:local/root "../test-quiet"}
-                 ring/ring-jetty-adapter {:mvn/version "1.12.1"}}
-   :main-opts   ["-m" "re-frame.test-quiet.runner" "--dir" "test"
-                 "-i" ":slow" "-i" ":stress"]}
+                       "-e" ":crossing"]}
 
   ;; The JVM->Node->JVM crossing witness: only the tests
   ;; tagged `:crossing`. Each spawns implementation/ssr-node's serve launcher

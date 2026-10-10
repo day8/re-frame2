@@ -2,12 +2,12 @@
   "Server-side rendering and hydration façade.
 
   Requiring this namespace installs the SSR event, effect, coeffect, error
-  projector, and listener registrations. It also eagerly loads the head and
-  streaming server namespaces so their late-bound host hooks are available.
+  projector, and listener registrations. It also eagerly loads the head
+  namespace so its late-bound host hook is available.
 
   The façade exposes pure HTML emission and hashing, client hydration,
-  per-frame request and response side channels, error projection, streaming
-  primitives, and the headless adapter. Core reaches this optional artefact
+  per-frame request and response side channels, error projection, and the
+  headless adapter. Core reaches this optional artefact
   only through `re-frame.late-bind`; this artefact may depend on core."
   (:require [re-frame.cofx :as rf.cofx]
             [re-frame.error-emit :as rf.error-emit]
@@ -17,9 +17,6 @@
             ;; Loaded eagerly so both hydration boot re-exports resolve.
             [re-frame.ssr.boot :as rf.ssr.boot]
             [re-frame.ssr.emit :as rf.ssr.emit]
-            ;; The cross-host suspense COMPONENT — the streaming authoring
-            ;; surface on every substrate.
-            [re-frame.ssr.suspense :as rf.ssr.suspense]
             [re-frame.ssr.error-listener :as rf.ssr.error-listener]
             [re-frame.ssr.error-projector :as rf.ssr.error-projector]
             ;; Publishes the `:ssr/reg-head` hook at namespace load, and is
@@ -34,10 +31,6 @@
             [re-frame.ssr.substrate :as rf.ssr.substrate]
             ;; The S5 structural-tree -> HTML serialiser.
             [re-frame.ssr.ui-tree :as rf.ssr.ui-tree]
-            ;; Publishes streaming server hooks at namespace load.
-            re-frame.ssr.streaming
-            ;; CLJS-only DOM consumer for streamed boundary chunks.
-            #?(:cljs [re-frame.ssr.streaming.client :as rf.ssr.streaming.client])
             ;; Listener registration lives on the tooling surface so production
             ;; code that does not use SSR does not retain trace tooling.
             [re-frame.trace.tooling :as rf.trace.tooling]))
@@ -118,42 +111,6 @@
 (def clear-request!                  rf.ssr.request/clear-request!)
 (def on-frame-destroyed!             rf.ssr.request/on-frame-destroyed!)
 
-;; ---- streaming SSR public surface -----------------------------------------
-;;
-;; Per Spec 011 §Streaming SSR. The AUTHORING surface is the `boundary`
-;; component — one `.cljc` form that works on every host. The `:rf/suspense-
-;; boundary` keyword it expands to on the server is internal wire syntax
-;; between the component and the shell walker, not something an author
-;; writes (a keyword head is an HTML element on every client substrate).
-;; The server-side machinery below ships through these façade fns; the
-;; Ring adapter requires `re-frame.ssr.streaming` directly, and a host
-;; adapter does the same.
-
-;; The cross-host suspense boundary component:
-;;
-;;     [ssr/boundary {:id :card.revenue :fallback [card-skeleton :revenue]}
-;;      [card-view :revenue]]
-;;
-;; Server: expands to the `:rf/suspense-boundary` marker the shell walker
-;; defers on. Client: renders the body, or the declared `:fallback` when
-;; the boundary is in the failed set the final payload carried.
-(def boundary                       rf.ssr.suspense/boundary)
-(def streaming-render-shell         re-frame.ssr.streaming/render-shell)
-(def streaming-render-continuation  re-frame.ssr.streaming/render-continuation)
-(def streaming-build-final-payload  re-frame.ssr.streaming/build-final-payload)
-(def streaming-fallback-template    re-frame.ssr.streaming/fallback-template)
-(def streaming-resolved-template    re-frame.ssr.streaming/resolved-template)
-(def streaming-failed-template      re-frame.ssr.streaming/failed-template)
-(def streaming-hydrate-delta-script re-frame.ssr.streaming/hydrate-delta-script)
-;; Client-side streaming runtime. CLJS-only (DOM consumer):
-;; `(ssr/streaming-install! {:frame …})` installs the MutationObserver
-;; that swaps `<template>` fallbacks for resolved subtrees + merges the
-;; per-subtree hydration deltas as chunks stream in, reconciling against
-;; the final `__rf_payload` `:rf/hydrate` (which `ssr/hydrate!` applies).
-;; Host opt-in — a streaming-aware bootstrap calls it; non-streaming
-;; pages skip it.
-#?(:cljs (def streaming-install!    rf.ssr.streaming.client/install!))
-
 ;; ---- SSR blocking-resource drain ------------------------------------------
 ;;
 ;; The optional resources artefact owns the drain loop and timeout policy.
@@ -194,9 +151,9 @@
   when the resources artefact is absent (the hook is nil) — an SSR app without
   resources never blocks on them.
 
-  The host render path (the Ring `build-full-response*` / streaming
-  `render-streaming-shell!`) calls this AFTER frame setup + route resolution
-  and BEFORE the render walk, so the walk sees a SETTLED resource state. The
+  The host render path (the Ring `build-full-response*`) calls this AFTER
+  frame setup + route resolution and BEFORE the render walk, so the walk sees
+  a SETTLED resource state. The
   resources drain loop reads the live blocking set, pumps the event loop via
   the supplied `:pump!` thunk so an in-flight reply lands, and on deadline
   settles every still-unsettled blocking entry to a first-load failure in the

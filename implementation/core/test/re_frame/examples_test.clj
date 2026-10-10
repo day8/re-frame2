@@ -2,9 +2,9 @@
   "Integration tests against the example apps under ../examples/, driving the
   event → state → render pipeline the way a user wires it, which catches API
   ergonomics regressions unit tests miss. The example sources (`ssr.core`,
-  `ssr-streaming.core`, `resources-ssr.core`, `state-machine-walkthrough.core`)
+  `resources-ssr.core`, `state-machine-walkthrough.core`)
   live under
-  ../examples/capabilities/{ssr/ssr,ssr/ssr_streaming,ssr/resources_ssr,machines/state_machine_walkthrough}/
+  ../examples/capabilities/{ssr/ssr,ssr/resources_ssr,machines/state_machine_walkthrough}/
   and stay test-free: their tests live here, and each test re-`require`s only
   the production example source, so its ns-load registrations fire against the
   reset registrar."
@@ -71,7 +71,6 @@
   (rf.ssr.install/reset-installed-payloads!)
   ;; each test re-evaluates the examples' handlers against the fresh registrar
   (remove-ns 'ssr.core)
-  (remove-ns 'ssr-streaming.core)
   (remove-ns 'resources-ssr.core)
   (remove-ns 'state-machine-walkthrough.core)
   ;; EP-0002: `init!` synthesises no `:rf/default`; register it and pin it as
@@ -310,43 +309,10 @@
       (rf.ssr/hydrate! {:frame client-frame :payload {:rf/version 1 :rf/app-db "not-a-map"}})
       (is (= kept (:articles (rf/app-db-value client-frame)))))))
 
-;; ---- ssr_streaming: shell → per-card resolved chunks → final payload ----------
-
-(deftest ssr-streaming-example-runs-end-to-end
-  (testing "examples/capabilities/ssr/ssr_streaming — the server stream produces shell + chunks + payload"
-    (require 'ssr-streaming.core :reload)
-    (init-ssr!)
-    (let [result      ((resolve 'ssr-streaming.core/handle-request) {:uri "/dashboard"})
-          chunks      (:resolved-chunks result)
-          [failed ok] ((juxt filter remove) :failed? chunks)
-          payload     (:final-payload result)]
-      ;; the shell carries the static header and the template fallbacks; of
-      ;; four boundaries, the flaky one ships the failed template
-      (is (= [true true 4 1 3]
-             [(clojure.string/includes? (:shell result) "<h1>Dashboard</h1>")
-              (clojure.string/includes? (:shell result) "data-rf2-suspense-fallback=\"1\"")
-              (count chunks) (count failed) (count ok)]))
-      (is (clojure.string/includes? (:template (first failed)) "data-rf2-suspense-failed=\"1\""))
-      ;; a deferred body is a Var-headed hiccup vector (`[card-view :revenue]`):
-      ;; the emitter must resolve it to the rendered card, not emit the head
-      (doseq [c ok]
-        (is (= [true true] (includes-all (:template c) ["data-rf2-suspense-resolved=\"1\"" "class=\"card\""]))
-            (:template c)))
-      ;; the drain's failed boundary reaches the wire in the final payload's
-      ;; runtime slice, so the client re-renders the fallback it declared
-      ;; rather than inferring failure from absent state; the flaky card threw
-      ;; before its data fetched, so three cards carry state
-      (is (= [#{:card.flaky} #{:card.flaky} 1 true 3]
-             [(:failed-boundaries result)
-              (get-in (:rf/runtime-db payload) [:rf.runtime/ssr :streaming :failed-boundaries])
-              (:rf/version payload)
-              (some? (:rf/render-hash payload))
-              (count (:cards (:rf/app-db payload)))])))))
-
 ;; ---- the dynamic payload, server → client ----------------------------------------
 ;;
 ;; These feed the ACTUAL dynamic payloads (the plain and resources
-;; `handle-request` HTML payloads, the streaming `final-payload`) into
+;; `handle-request` HTML payloads) into
 ;; `rf.ssr/hydrate!` against the example's own `:rf/default` client frame, so
 ;; a payload stamped with the per-request server gensym would fail loud with
 ;; `:rf.error/hydration-frame-id-mismatch`. The payloads omit `:rf/frame-id`
@@ -447,43 +413,6 @@
                  [(:status resp) (clojure.string/includes? (:body resp) "timed-out")
                   (< elapsed 2000) leaked])
               (str "took " elapsed "ms")))))))
-
-(deftest ssr-streaming-example-final-payload-hydrates-without-frame-id-mismatch
-  (testing "examples/capabilities/ssr/ssr_streaming — the dynamic :final-payload
-            omits :rf/frame-id and hydrates the :rf/default client frame with the
-            three streamed cards"
-    (require 'ssr-streaming.core :reload)
-    (init-ssr!)
-    (let [payload (:final-payload ((resolve 'ssr-streaming.core/handle-request) {:uri "/dashboard"}))]
-      (is (not (contains? payload :rf/frame-id)))
-      ;; the example's `app-frame` is `:cljs`-only (the streaming client boots
-      ;; in the browser), so use its value, `:rf/default`
-      (rf/make-frame {:id :rf/default :doc "ssr-streaming-example client frame" :platform :client})
-      (is (= [payload 3]
-             [(rf.ssr/hydrate! {:frame :rf/default :payload payload})
-              (count (:cards (rf/app-db-value :rf/default)))])))))
-
-;; The deliberate `:card.flaky` boundary is not the risk — the drain turns it
-;; into a `:failed?` chunk and returns normally. A failure OUTSIDE that
-;; recovery (a throwing shell walk or final-payload build) would otherwise
-;; strand one frame per failed request in a long-lived host, so the handler
-;; releases the frame in a `try`/`finally`.
-
-(deftest ssr-streaming-example-releases-its-frame-on-an-outer-render-failure
-  (testing "examples/capabilities/ssr/ssr_streaming — the happy path (its
-            :card.flaky fallback included) and an outer shell-render failure both
-            leave the frame registry at its baseline, and the exception propagates"
-    (require 'ssr-streaming.core :reload)
-    (init-ssr!)
-    (let [handle-request (resolve 'ssr-streaming.core/handle-request)
-          before         (frame-ids)]
-      (is (= [#{:card.flaky} #{}]
-             [(:failed-boundaries (handle-request {:uri "/dashboard"}))
-              (clojure.set/difference (frame-ids) before)]))
-      (with-redefs [rf.ssr/streaming-render-shell
-                    (fn [& _] (throw (ex-info "boom — shell render failure" {})))]
-        (is (thrown? clojure.lang.ExceptionInfo (handle-request {:uri "/dashboard"})))
-        (is (= #{} (clojure.set/difference (frame-ids) before)))))))
 
 ;; ---- resources_ssr ---------------------------------------------------------------
 

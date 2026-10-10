@@ -61,7 +61,6 @@ examples/
       linearlite/
     ssr/
       ssr/
-      ssr_streaming/
       resources_ssr/
   patterns/                    <-- composition recipes
     boot/
@@ -133,7 +132,6 @@ Each folder is one framework subsystem, paired with its `docs/<capability>/` gui
 | Example | What it demonstrates |
 |---|---|
 | [`capabilities/ssr/ssr/`](capabilities/ssr/ssr/) — `examples/ssr` | Minimal SSR + hydration. JVM-runnable; the browser hydrates against a baked `<script id="__rf_payload">` block. **Specs:** [011 SSR](../spec/011-SSR.md). |
-| [`capabilities/ssr/ssr_streaming/`](capabilities/ssr/ssr_streaming/) — `examples/ssr-streaming` | Streaming SSR: a dashboard whose shell renders immediately, then each slow card streams as its fetch resolves. The `ssr/boundary` component, per-card fallback, and interleaved hydration. **Specs:** [011 SSR §Streaming](../spec/011-SSR.md#streaming-ssr). |
 | [`capabilities/ssr/resources_ssr/`](capabilities/ssr/resources_ssr/README.md) — `examples/resources-ssr` | Resource SSR preload + hydration: a request-local server frame preloads the page resource under an `[:ssr …]` owner, serialises the durable `:entries` projection into `:rf/runtime-db`, and the client hydrates without a double-fetch. The resource counterpart to `capabilities/ssr/ssr/`. **Specs:** [016 Resources §SSR](../spec/016-Resources.md), [011 SSR](../spec/011-SSR.md). |
 
 ## Patterns

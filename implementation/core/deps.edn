@@ -72,7 +72,7 @@
   ;; implementation/epoch/deps.edn.
   :test {:extra-paths ["test"
                        ;; The example sources the JVM tests load (`ssr.core`,
-                       ;; `ssr-streaming.core`, `resources-ssr.core`,
+                       ;; `resources-ssr.core`,
                        ;; `state-machine-walkthrough.core`) live under the
                        ;; concept buckets; each bucket is a classpath root.
                        ;; examples_test.clj requires only the example *source*

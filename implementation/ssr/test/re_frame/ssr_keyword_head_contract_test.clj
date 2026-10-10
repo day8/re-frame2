@@ -201,3 +201,15 @@
         "`:rfid/widget` starts with `rf` but is NOT the reserved scheme —
          the check must match the `rf` namespace exactly or an `rf.` dotted
          prefix, not a bare string prefix")))
+
+(deftest suspense-boundary-is-an-unrecognised-reserved-head
+  (testing "the server renders whole pages, so `:rf/suspense-boundary` has no
+            meaning to the emitter and fails loud through the reserved-head
+            arm like any other `:rf/*` head"
+    (let [el   [:rf/suspense-boundary {:id :x :fallback [:p "f"]} [:p "y"]]
+          data (head-error #(rf.ssr.emit/render-to-string % nil) el)]
+      (is (= {:rf.error/id :rf.error/invalid-hiccup-head
+              :recovery    :use-a-recognised-reserved-head-or-an-unreserved-keyword
+              :head        :rf/suspense-boundary
+              :element     el}
+             (select-keys data [:rf.error/id :recovery :head :element]))))))

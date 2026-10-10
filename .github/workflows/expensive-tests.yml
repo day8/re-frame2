@@ -715,10 +715,10 @@ jobs:
 
   jvm-slow-tests:
     # The heavy `^:slow` / `^:stress` JVM tests (the SSR
-    # 2000-request teardown load test, the ssr-ring multi-thread Jetty
-    # burst tests, and the core/machines/routing/flows 5000-iter × 8-thread
-    # concurrency-stress suites) are EXCLUDED from the PR/local `:test`
-    # gate (`-e :slow -e :stress` in each artefact's deps.edn). This nightly
+    # 2000-request teardown load test and the core/machines/routing/flows
+    # 5000-iter × 8-thread concurrency-stress suites) are EXCLUDED from
+    # the PR/local `:test` gate (`-e :slow -e :stress` in each artefact's
+    # deps.edn). This nightly
     # job runs them via the per-artefact `:slow-test` alias
     # (`-i :slow -i :stress`) so the coverage kept off the PR critical path
     # is NOT lost. `:test` (PR) + `:slow-test` (here) partition the suite:
@@ -736,7 +736,6 @@ jobs:
           - routing
           - flows
           - ssr
-          - ssr-ring
     defaults:
       run:
         working-directory: implementation/${{ matrix.artefact }}

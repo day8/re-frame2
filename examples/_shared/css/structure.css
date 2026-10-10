@@ -93,7 +93,7 @@
   margin: 6px 0;
 }
 
-/* -- SSR + streaming SSR layout ----------------------------------------- */
+/* -- SSR layout + cards ------------------------------------------------- */
 
 .page { max-width: 720px; }
 
@@ -102,30 +102,12 @@
   padding: 8px 14px;
 }
 
-.cards {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1em;
-  margin-top: 1.5em;
-}
-
 .card {
   flex: 1 1 220px;
   border-radius: 8px;
   padding: 1.25em;
   border-width: 1px;
   border-style: solid;
-}
-
-.card h3 {
-  margin: 0 0 0.5em;
-  font-size: 0.95em;
-}
-
-.card p.value {
-  margin: 0;
-  font-size: 1.8em;
-  font-weight: 700;
 }
 
 /* -- WebSocket example specifics ----------------------------------------- */

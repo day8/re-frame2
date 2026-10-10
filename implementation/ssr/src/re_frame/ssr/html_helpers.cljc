@@ -19,10 +19,9 @@
                                     decodes character references inside a
                                     raw-text element). ONE shared
                                     implementation for the S5 serialiser
-                                    (`re-frame.ssr.ui-tree`) and both
-                                    hiccup emitters (`emit` /
-                                    `streaming`), so every SSR path emits
-                                    byte-identical raw-text.
+                                    (`re-frame.ssr.ui-tree`) and the
+                                    hiccup emitter (`emit`), so every SSR
+                                    path emits byte-identical raw-text.
     - `newline-eating-tags` /
       `sole-string-child` /
       `leading-newline-compensation`
@@ -32,14 +31,14 @@
                                     react-dom/server 19.2 prefixes for a
                                     single-string body. ONE roster and ONE
                                     rule for the S5 serialiser
-                                    (`re-frame.ssr.ui-tree`) and both hiccup
-                                    emitters (`emit` / `streaming`).
+                                    (`re-frame.ssr.ui-tree`) and the hiccup
+                                    emitter (`emit`).
     - `escape-script-body-string`— escape `<` as `\\u003c` for strings
                                     dropped inside `<script>` bodies. JSON bodies
                                     only — every `<` is in a string.
     - `escape-edn-script-body`   — EDN-aware `<script>`-body escape for
-                                    the hydration payload / streaming
-                                    delta: `<` escaped only inside string
+                                    the hydration payload: `<` escaped
+                                    only inside string
                                     literals (tokens with `<` round-trip;
                                     `</`/`<!` token breakouts fail loud).
     - `validate-attr-name!`      — HTML5-grammar gate on attribute keys.
@@ -85,8 +84,8 @@
 ;; ---------------------------------------------------------------------------
 ;; Raw-text elements — <script>/<style> content is HTML RAW TEXT
 ;;
-;; The single shared home for the raw-text emission rule. ALL three SSR
-;; paths — the S5 structural serialiser and both hiccup emitters — call
+;; The single shared home for the raw-text emission rule. Both SSR
+;; paths — the S5 structural serialiser and the hiccup emitter — call
 ;; this ONE implementation, so an ordinary inline `<script>`/`<style>`
 ;; with the same author content serialises to byte-identical HTML on every
 ;; path. This is the AUTHOR-CONTENT channel; the stricter DATA-payload
@@ -148,9 +147,8 @@
 ;; The single shared home for the leading-LF rule, for exactly the reason the
 ;; raw-text rule has one: an SSR path without the rule would serialise the
 ;; SAME author content to DIFFERENT bytes from the paths with it — and lose a
-;; character at parse time. ONE roster and ONE rule, read by all three paths:
-;; the S5 structural serialiser and the two HICCUP emitters (`emit` /
-;; `streaming`).
+;; character at parse time. ONE roster and ONE rule, read by both paths:
+;; the S5 structural serialiser and the HICCUP emitter (`emit`).
 ;; ---------------------------------------------------------------------------
 
 (def newline-eating-tags
@@ -225,7 +223,7 @@
   NOTE — this whole-string replacement is correct ONLY for JSON bodies
   (JSON-LD), where every `<` is necessarily inside a string literal and
   `\\u003c` is a valid JSON string escape. EDN bodies (the hydration
-  payload / streaming delta) carry bare keyword/symbol TOKENS in which
+  payload) carry bare keyword/symbol TOKENS in which
   `<` is legal yet `\\u003c` is NOT a valid in-token escape — use
   `escape-edn-script-body` for those."
   [s]
@@ -234,8 +232,7 @@
 (defn escape-edn-script-body
   "EDN-aware variant of `escape-script-body-string` for an
   already-`pr-str`'d EDN document dropped inside a `<script
-  type=\"application/edn\">` body — the hydration payload (`__rf_payload`)
-  and the per-subtree streaming delta.
+  type=\"application/edn\">` body — the hydration payload (`__rf_payload`).
 
   Why the whole-string `<`→`\\u003c` replacement is WRONG for EDN: the
   six-character escape `\\u003c` is only meaningful to the EDN reader
@@ -244,8 +241,8 @@
   every `<` in the serialized document corrupts those tokens —
   `clojure.edn/read-string` / `cljs.reader/read-string` then reject
   `:a\\u003cb` (`Invalid unicode character`) and `:\\u003c`
-  (`Invalid token`), breaking hydration or silently skipping a streaming
-  delta. The spec's contract (011 §Streaming SSR, §Hydration payload) is
+  (`Invalid token`), breaking hydration. The spec's contract (011
+  §Hydration payload) is
   that the script body MUST round-trip through the EDN reader unchanged
   AND MUST NOT carry a literal `</script` (or `<!`) breakout.
 
@@ -282,8 +279,7 @@
   do not form a breakout precursor.
 
   Portable across CLJ/CLJS — uses only `str`/`subs`/`count`/`nth` so the
-  single `.cljc` definition serves the JVM payload emitter and the shared
-  streaming-delta emitter alike."
+  single `.cljc` definition serves every host."
   [s]
   (let [s (str s)
         n (count s)]
@@ -573,8 +569,8 @@
 ;; from its attribute stream for exactly this reason (`emit-attribute`).
 ;;
 ;; SO THE ATTRIBUTE STREAM DROPS BOTH, AND THE CONTENT IS THE CHILDREN
-;; PATH'S BUSINESS. The two hiccup body walkers (`emit/emit-element`,
-;; `streaming/walk-dom-tag`) render `dangerouslySetInnerHTML`'s `__html` as
+;; PATH'S BUSINESS. The hiccup body walker (`emit/emit-element`) renders
+;; `dangerouslySetInnerHTML`'s `__html` as
 ;; the element's raw body (`emit/dom-element-props`), reading it under the
 ;; same exact name this roster drops, so the prop that leaves the attributes
 ;; is the prop rendered as content. `children` renders nothing: an
@@ -633,7 +629,7 @@
       SEPARATE roster from the structural slots because the reason
       differs: those are identity, these are content. Left in, the
       raw-HTML one would reach the wire as the escaped EDN print of its
-      `{:__html …}` map. The hiccup body walkers render its `__html` as
+      `{:__html …}` map. The hiccup body walker renders its `__html` as
       the element's body instead (`emit/dom-element-props`), so dropping
       it here removes only the attribute. Matched case-sensitively; see
       `content-channel-names`, which carries the full argument.
@@ -645,14 +641,13 @@
 
   ONE ROSTER, READ BY EVERY SSR SURFACE THAT EMITS AN ATTRIBUTE. This fn
   is called only from `attr-string` below, and `attr-string` is what the
-  hiccup body emitter (`emit/emit-element`), the streaming shell walker
-  (`streaming/walk-dom-tag`, via the `emit/attr-string` re-export), the
+  hiccup body emitter (`emit/emit-element`), the
   head emitter (`head.emit`'s `<meta>` / `<link>` / `<script>`) and the
   Ring host shell (`ring.shell`'s `<html>` / `<body>`) all serialise
   through. That is the whole reason the stripping lives HERE rather than
   as a `dissoc` local to one emitter: a second stripping roster is a
-  drift surface, and a local `dissoc` would leave the streaming path
-  divergent from the non-streaming one."
+  drift surface, and a local `dissoc` would leave the other emitters
+  divergent from it."
   [[k v]]
   (let [nm (name k)]
     (or (event-handler-name? nm)
@@ -853,8 +848,8 @@
 
   Names are matched hyphen-collapsed and lowercased, so `:content-editable`
   and `:contentEditable` classify alike. Only the CLASS is decided here — the
-  emitted attribute NAME is each caller's business (the two hiccup body
-  walkers convert author names the way the hydrating Reagent-tier adapter
+  emitted attribute NAME is each caller's business (the hiccup body
+  walker converts author names the way the hydrating Reagent-tier adapter
   does before calling `attr-string`; the head emitter and the
   Ring host shell pass theirs verbatim; `re-frame.ssr.ui-tree` maps them
   through the React prop vocabulary)."

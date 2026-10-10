@@ -7,17 +7,14 @@
   cookies, and tears the frame down. Response metadata lives outside app-db,
   so it cannot enter the hydration payload through app-db projection.
 
-  This façade exposes the non-streaming handler and middleware, the streaming
-  handler, the default shell, and cookie serialization."
+  This façade exposes the handler and middleware, the default shell, and
+  cookie serialization."
   (:require [re-frame.error :as rf.error]
             [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.ring.cookie :as rf.ssr.ring.cookie]
             [re-frame.ssr.ring.lifecycle :as rf.ssr.ring.lifecycle]
             [re-frame.ssr.ring.pipeline :as rf.ssr.ring.pipeline]
-            [re-frame.ssr.ring.shell :as rf.ssr.ring.shell]
-            ;; Loaded eagerly for the façade; only stream-handler requests
-            ;; create writer threads.
-            [re-frame.ssr.ring.streaming :as rf.ssr.ring.streaming]))
+            [re-frame.ssr.ring.shell :as rf.ssr.ring.shell]))
 
 (set! *warn-on-reflection* true)
 
@@ -58,15 +55,10 @@
 (import-fn rf.ssr.ring.cookie/cookie->set-cookie-header)
 (import-fn rf.ssr.ring.shell/default-html-shell)
 
-;; Chunked-HTTP counterpart of `ssr-handler`.
-(import-fn rf.ssr.ring.streaming/stream-handler)
-(import-fn rf.ssr.ring.streaming/default-streaming-prefix)
-(import-fn rf.ssr.ring.streaming/default-streaming-suffix)
-
 ;; ---- handler defaults + re-exported construction helpers ------------------
 ;;
-;; Construction validation and error fallback live in lifecycle because both
-;; handlers use the same boot boundary.
+;; Construction validation and error fallback live in lifecycle, beside the
+;; boot boundary they guard.
 
 ;; `default-on-error` is a DATA var (a 2-arity fn VALUE held in a `def`,
 ;; not a `defn`), so it carries no `:arglists`. Re-export it copying the
@@ -215,10 +207,6 @@
                       JVM-local `:root-view` render — the only renderer
                       that reads `:root-view`, which is why `:root-view` is
                       required exactly when this opt is absent.
-                      `stream-handler` refuses a non-nil `:renderer` at
-                      construction (`:rf.error/ssr-streaming-unsupported-
-                      opt`, as it refuses `:html-shell`): streaming over a
-                      non-local renderer is unsupported.
     :html-shell     — (body-html payload-edn opts) → string. Defaults
                       (absent or nil) to `default-html-shell`. Replace to
                       inject custom <head>, scripts, JSON-LD, etc.

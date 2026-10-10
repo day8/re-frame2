@@ -14,10 +14,8 @@
   transient side channels are excluded.
 
   Version resolution (`:rf/version`) and the canonical payload
-  assembly live once in `re-frame.ssr.payload-policy`,
-  shared verbatim with the streaming SSR path
-  (`re-frame.ssr.streaming/build-final-payload`). This namespace owns
-  only the non-streaming wrapper: project the handed-in `app-db` +
+  assembly live once in `re-frame.ssr.payload-policy`. This namespace
+  owns only the Ring wrapper: project the handed-in `app-db` +
   runtime-db, then assemble."
   (:require [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]))
 
@@ -63,10 +61,10 @@
   guard would reject as `:rf.error/hydration-frame-id-mismatch` on every
   page. A deployment that wants a wire id passes `:client-frame-id`.
 
-  The non-streaming wrapper over the shared
+  The Ring wrapper over the shared
   `re-frame.ssr.payload-policy/build-payload`: it is handed `app-db` +
-  `runtime-db` directly (the streaming path reads them from the live frame
-  instead), projects them under the explicit `frame-id`, then assembles
+  `runtime-db` directly, projects them under the explicit `frame-id`, then
+  assembles
   the canonical payload."
   ([frame-id app-db render-hash policy-opts]
    (build-payload frame-id app-db nil render-hash policy-opts))
@@ -86,8 +84,7 @@
     render-hash
     ;; Project the runtime-db under the EXPLICIT carried `frame-id`
     ;; (the same target the `project-app-db-egress` above uses), NOT an ambient
-    ;; one. Mirrors the streaming builder (`streaming/build-final-payload`):
-    ;; the non-streaming wrapper must not rely on a MATCHING
+    ;; one: the wrapper must not rely on a MATCHING
     ;; `rf/with-frame` being ambient at the build site to project classified
     ;; route / machine / resource runtime state under the right frame's policy.
     ;; The host's request-frame binding is a correctness convenience for other

@@ -26,7 +26,6 @@ slow_artefacts=(
   implementation/routing
   implementation/flows
   implementation/ssr
-  implementation/ssr-ring
 )
 for artefact in "${slow_artefacts[@]}"; do
   printf '==> JVM slow %s\n' "$artefact"

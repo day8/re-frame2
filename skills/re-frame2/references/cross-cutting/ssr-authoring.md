@@ -143,7 +143,7 @@ These `:rf.ssr/*` events are **trace-channel** diagnostics — DCE-eligible in C
 
 ## Data the render needs, and a slow region
 
-The server renders the whole page in one response; it does not stream regions. Data the first render needs is a route resource declared `:blocking? true` — [`../../patterns/resources.md` §Route-driven loading](../../patterns/resources.md#route-driven-loading-route-resources); machines are synchronous-only under SSR, so a `:spawn-all` fan-out never settles the render. A slow region's data is a route resource declared `:blocking? false`: the server renders its `:loading` state as the region's skeleton and the client fetches the data after hydration, so the region fills in once the bundle boots, and a client without JavaScript keeps the skeleton. `:rf/suspense-boundary` is not a recognised hiccup head; like every `:rf/*` head it throws `:rf.error/invalid-hiccup-head`.
+The server renders the whole page in one response; it does not stream regions. Data the first render needs is a route resource declared `:blocking? true` — [`../../patterns/resources.md` §Route-driven loading](../../patterns/resources.md#route-driven-loading-route-resources); machines are synchronous-only under SSR, so a `:spawn-all` fan-out never settles the render. A slow region's data is a route resource declared `:blocking? false`: the server renders its `:loading` state as the region's skeleton and the client fetches the data after hydration, so the region fills in once the bundle boots, and a client without JavaScript keeps the skeleton.
 
 ## Common gotchas
 

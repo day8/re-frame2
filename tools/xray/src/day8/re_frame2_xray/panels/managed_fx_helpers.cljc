@@ -375,9 +375,7 @@
 (def ssr-fx-trace-operations
   #{:rf.ssr/render-failed
     :rf.ssr/hydration-mismatch
-    :rf.ssr/payload-too-large
-    :rf.ssr/streaming-boundary
-    :rf.ssr/streaming-boundary-failed})
+    :rf.ssr/payload-too-large})
 
 (def flow-trace-operations
   #{:rf.flow/computed

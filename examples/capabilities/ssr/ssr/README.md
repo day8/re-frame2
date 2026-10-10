@@ -208,5 +208,4 @@ there is nothing to combine by hand.
 
 ## See also
 
-- [`examples/capabilities/ssr/ssr_streaming/`](../ssr_streaming/) — the streaming-SSR counterpart.
 - [`examples/real-apps/realworld_http/`](../../../real-apps/realworld_http/) — SSR boot folded into a broader app.

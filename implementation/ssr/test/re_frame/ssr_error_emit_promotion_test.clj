@@ -83,10 +83,9 @@
             (pr-str bad-payload))))))
 
 (deftest non-projecting-categories-do-not-move-the-status-on-the-always-on-axis
-  (testing "the always-on projection listener skips the post-commit and fallback
-            categories; a projection-eligible category is the control"
-    (doseq [[category status] [[:rf.error/ssr-streaming-writer-failed 200]
-                               [:rf.error/sanitised-on-projection 200]
+  (testing "the always-on projection listener skips the fallback category;
+            a projection-eligible category is the control"
+    (doseq [[category status] [[:rf.error/sanitised-on-projection 200]
                                [:rf.error/ssr-render-failed 500]]]
       (let [f (server-frame)]
         (rf.ssr.error-listener/error-emit-projection-listener

@@ -207,7 +207,6 @@ const DOCUMENTED_BUILDS = [
   'examples/linearlite',
   'examples/ssr',
   'examples/resources-ssr',
-  'examples/ssr-streaming',
   // substrate: the three view layers examples/substrates/README.md compares
   'examples/counter-uix',
   'examples/login-uix',

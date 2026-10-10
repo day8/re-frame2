@@ -123,13 +123,7 @@
      ;; the machine's registered id, `:phase`, and a `:reason` composed from
      ;; those two keywords. The machine's `:data`, explain and schema stay on
      ;; the dev trace.
-     re-frame.machines.data-validation
-
-     ;; `:rf.ssr/suspense-boundary-failed`: a closed literal key set (`:error`,
-     ;; `:frame`, `:where`, `:recovery`, `:time` and the author-written
-     ;; boundary `:id`). The delta, the branch `:reason` and the reader
-     ;; exception never ride.
-     re-frame.ssr.streaming.client})
+     re-frame.machines.data-validation})
 
 (deftest every-chokepoint-caller-routes-or-is-allow-listed
   (testing "a caller that neither routes through `project-egress` nor is

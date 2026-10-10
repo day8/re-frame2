@@ -210,11 +210,9 @@
 (def known-skipped-capabilities
   "Capabilities this build INTENTIONALLY does not claim. Fixtures whose
   capabilities fall here are reported as out-of-claim skips but do not block
-  the suite. Streaming SSR + render-tree-hash are gated by the dedicated
-  ssr-artefact conformance runners, not this core corpus runner."
-  #{:ssr/suspense-boundary
-    :ssr/hydration-payload
-    :ssr/chunked-response
+  the suite. The hydration payload and render-tree-hash are gated by the
+  dedicated ssr-artefact conformance runner, not this core corpus runner."
+  #{:ssr/hydration-payload
     :ssr/render-tree-hash})
 
 ;; ---- fail-loud expectation keys -------------------------------------------
@@ -288,9 +286,7 @@
     :fixture/runtime :fixture/flow-bodies :fixture/classification-effects
     :fixture/dispatches :fixture/calls :fixture/clock
     ;; expectation, read by `run-fixture`
-    :fixture/expect :fixture/compute-subs :fixture/render-after-hydrate
-    ;; owned by the streaming SSR conformance runner
-    :fixture/wire-order})
+    :fixture/expect :fixture/compute-subs :fixture/render-after-hydrate})
 
 (defn unknown-fixture-keys
   "The fixture's top-level keys outside `implemented-fixture-keys`. Taken from

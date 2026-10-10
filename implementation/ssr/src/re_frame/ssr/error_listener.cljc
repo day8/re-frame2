@@ -98,15 +98,7 @@
 ;; and silently flip 4xx→5xx. Skipping it here closes that hole by
 ;; construction — symmetric with the head category, enforced at the same
 ;; chokepoint across both buffering listeners.
-;; Two further non-projecting categories also use the always-on axis:
-;;
-;;   `:rf.error/ssr-streaming-writer-failed` — POST-HEAD-COMMIT (the chunked
-;;   200 is already on the wire on the daemon writer thread; the status can
-;;   no longer change). On the always-on axis it would otherwise
-;;   let `error-emit-projection-listener` buffer + project a 500 onto a
-;;   response that has already committed — flipping the wire. It is pure
-;;   off-box telemetry; skip it so the always-on axis ships the record WITHOUT
-;;   touching the (already-committed) status.
+;; One further non-projecting category also uses the always-on axis:
 ;;
 ;;   `:rf.error/sanitised-on-projection` — the projector-fallback path. Both
 ;;   listeners also guard it explicitly (the re-entry guard); its place
@@ -137,7 +129,6 @@
 (def ^:private non-projection-eligible-errors
   #{:rf.error/ssr-head-resolution-failed
     :rf.error/ssr-ring-error-view-failed
-    :rf.error/ssr-streaming-writer-failed
     :rf.error/sanitised-on-projection
     :rf.error/safe-redirect-invalid-url
     :rf.error/safe-redirect-scheme-rejected
@@ -151,30 +142,23 @@
     ;; materialiser that carried a frame would stay
     ;; safe rather than silently status-flipping every request it reports on.
     :rf.error/ssr-ring-response-status-invalid
-    ;; The two SSR categories promoted onto the always-on axis.
-    ;; Both are RECOVERABLE DEGRADATIONS by their catalogued recovery, which
-    ;; is the whole membership test for this set: a hydration mismatch is
-    ;; `:warned-and-replaced` (the client re-renders and the page becomes
-    ;; interactive) and a failed streaming boundary is `:skipped-delta` /
-    ;; `:quarantined-delta` / `:inline-fallback` (the fallback stands and the
-    ;; stream continues). Neither is a reason to refuse the response.
+    ;; The hydration mismatch, promoted onto the always-on axis. It is a
+    ;; RECOVERABLE DEGRADATION by its catalogued recovery, which is the whole
+    ;; membership test for this set: `:warned-and-replaced` (the client
+    ;; re-renders and the page becomes interactive) is no reason to refuse
+    ;; the response.
     ;;
-    ;; They reach BOTH buffering paths, and
-    ;; without these entries a
+    ;; It reaches BOTH buffering paths, and without this entry a
     ;; degraded-but-served page would silently turn into a non-200 — the exact dev/production
     ;; asymmetry the header above says this chokepoint exists to close.
-    ;; `:rf.ssr/suspense-boundary-failed` additionally has a SERVER-side emit
-    ;; (`ssr/streaming.cljc`), which is precisely the routing change the
-    ;; forward-looking members above are written for.
-    :rf.ssr/hydration-mismatch
-    :rf.ssr/suspense-boundary-failed})
+    :rf.ssr/hydration-mismatch})
 
 (defn- non-projection-eligible-error?
   "True when `operation` names a recoverable-degradation error category
   that must NOT be buffered for status projection (it ships its trace for
   observability but the request continues with a degraded fragment).
-  Members include head-resolution, error-view, post-commit writer, and
-  projector-sanitisation failures."
+  Members include head-resolution, error-view and projector-sanitisation
+  failures."
   [operation]
   (contains? non-projection-eligible-errors operation))
 
