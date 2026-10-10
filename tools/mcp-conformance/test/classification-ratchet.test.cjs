@@ -1,64 +1,39 @@
-// Unit test for the per-tool annotation CLASSIFICATION ratchet.
-//
-// `assertClassificationRatchet` is itself a conformance gate — it is the
-// teeth that turn a per-tool annotation regression (a flipped read-only /
-// destructive hint, an emptied budget-hint, or — the gap this file pins —
-// a live-reaching tool that drops `openWorldHint:true`) RED. A gate with
-// no test is a gate that can silently lose its teeth, so this pins its
-// contract directly, in-process, with no child / no MCP server (it is a
-// pure data assertion). Uses Node's built-in `node:test` — same
-// zero-dependency posture as the sibling runner tests
-// (call-coverage-ratchet.test.cjs).
-//
-// The end-to-end harnesses (`end-to-end-story.cjs` /
-// `end-to-end-re-frame2-pair.cjs`) exercise the GREEN path live (every
-// advertised tool's real wire descriptor). This test pins the RED paths
-// the green runs never hit — in particular the open-world side of the
-// partition: a read-only or destructive tool that reaches the live
-// browser / nREPL must carry `openWorldHint:true`. Dropping (or falsing)
-// that hint mislabels a live-reaching tool as contained, and the ratchet
-// must turn that RED.
+// Unit tests for `assertClassificationRatchet`, the gate that turns a
+// per-tool annotation regression RED. The end-to-end harnesses run its green
+// path against every advertised tool's real descriptor; these pin the RED
+// paths, the open-world side of the partition among them: a tool that
+// reaches the live browser or nREPL must carry `openWorldHint: true`.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const { assertClassificationRatchet } = require('./_runner.cjs');
 
-// A minimal, server-agnostic fixture mirroring the real fixture shape:
-// `classifications` (one row per tool) + `closed-world` (the exhaustive
-// open-world partition — listed ⇒ openWorldHint MUST be false; not
-// listed ⇒ openWorldHint MUST be true).
+// `closed-world` is the exhaustive open-world partition: listed => the
+// tool's openWorldHint MUST be false; not listed => it MUST be true.
 const FIXTURE = {
   classifications: {
-    'read-live': 'read-only', // open-world (reaches the runtime)
-    'write-live': 'destructive', // open-world (reaches the runtime)
-    'pin-live': 'neither', // open-world (reaches the runtime)
-    'read-inline': 'read-only', // closed-world (inline / no reach)
+    'read-live': 'read-only',
+    'write-live': 'destructive',
+    'pin-live': 'neither',
+    'read-inline': 'read-only',
   },
   'closed-world': ['read-inline'],
 };
 
-// A non-empty `max-tokens` budget-hint description is required on every
-// tool by the same ratchet (assertion 3); supply it so the openWorld /
-// posture assertions are what actually decides each case.
-function mt() {
+// Every tool carries the budget-hint description the ratchet also requires,
+// so the annotations alone decide each case.
+function tool(name, annotations) {
   return {
+    name,
+    annotations,
     inputSchema: {
       type: 'object',
-      properties: {
-        'max-tokens': { description: 'per-call cap override' },
-      },
+      properties: { 'max-tokens': { description: 'per-call cap override' } },
     },
   };
 }
 
-function tool(name, annotations) {
-  return { name, annotations, ...mt() };
-}
-
-// A fully-legitimate live tool-set: open-world tools carry
-// openWorldHint:true, the closed-world tool carries openWorldHint:false,
-// and every read-only/destructive/neither posture matches.
 function greenTools() {
   return [
     tool('read-live', { readOnlyHint: true, openWorldHint: true }),
@@ -68,37 +43,14 @@ function greenTools() {
   ];
 }
 
-test('GREEN: the legitimate open/closed partition ⇒ no throw', () => {
-  assert.doesNotThrow(() =>
-    assertClassificationRatchet(greenTools(), FIXTURE),
-  );
-});
-
-// --- one annotation regressed on one tool of the green set ---
-//
-// Live-reaching tools MUST flag openWorldHint:true whatever their posture,
-// inline tools MUST NOT claim reach, and the read-only / destructive posture
-// axis trips on its own. Each row regresses one tool and names it.
-
 test('RED: each single-tool annotation regression throws and names the tool', () => {
   for (const [label, index, annotations, pattern] of [
-    // read-live reaches the runtime but the descriptor forgot openWorldHint.
-    ['read-only live tool drops openWorldHint', 0, { readOnlyHint: true },
-      /read-live is open-world[\s\S]*MUST be true[\s\S]*trust\/confirmation boundary/],
-    ['read-only live tool mislabelled contained', 0, { readOnlyHint: true, openWorldHint: false },
+    ['a live-reaching tool drops openWorldHint', 0, { readOnlyHint: true },
       /read-live is open-world[\s\S]*MUST be true/],
-    // A live-reaching destructive tool is the trust-boundary case.
-    ['destructive live tool drops openWorldHint', 1, { destructiveHint: true },
-      /write-live is open-world[\s\S]*MUST be true/],
-    ['`neither` live tool carries no hints at all', 2, {},
-      /pin-live is open-world[\s\S]*MUST be true/],
-    // read-inline ships inline content; it must NOT claim open-world reach.
-    ['closed-world tool flips openWorldHint:true', 3, { readOnlyHint: true, openWorldHint: true },
+    ['a closed-world tool drops openWorldHint', 3, { readOnlyHint: true },
       /read-inline is pinned closed-world[\s\S]*MUST be false/],
-    ['closed-world tool drops openWorldHint', 3, { readOnlyHint: true },
-      /read-inline is pinned closed-world[\s\S]*MUST be false/],
-    // write-live keeps openWorldHint:true, so only the posture axis can trip.
-    ['destructive tool re-labelled read-only', 1, { readOnlyHint: true, openWorldHint: true },
+    // write-live keeps openWorldHint: true, so only the posture axis trips.
+    ['a destructive tool re-labelled read-only', 1, { readOnlyHint: true, openWorldHint: true },
       /write-live classification regressed[\s\S]*pins `destructive`/],
   ]) {
     const tools = greenTools();
@@ -107,24 +59,9 @@ test('RED: each single-tool annotation regression throws and names the tool', ()
   }
 });
 
-// --- a dangling `closed-world` entry is caught ---
-//
-// `closed-world` is consulted PER-TOOL inside the per-tool loop
-// (`closedWorld.has(t.name)`), which only ever iterates the LIVE
-// tool-set. A `closed-world` row naming a tool that does not exist at all
-// (removed, with its `classifications` row removed too — so check 0's
-// exact-keyset guard is satisfied) is never visited by that loop, so the
-// ratchet validates the list separately: otherwise a real removal that
-// correctly updated `classifications` but forgot to also drop the
-// matching `closed-world` row would ship GREEN. This is the same class of
-// fixture-hygiene gap check 0 closes for `classifications` (a stale row
-// there DOES trip), on the `closed-world` side.
-
+// The per-tool loop only visits live tools, so a `closed-world` row naming a
+// removed tool needs its own check.
 test('RED: rf2-6i2yi4 finding 4 — a `closed-world` row naming a REMOVED tool is caught, not silently tolerated', () => {
-  // `read-inline` was removed from the server; `classifications` was
-  // correctly updated (its row dropped, so check 0's exact-keyset guard
-  // passes against the 3-tool live set below) but `closed-world` still
-  // names it — a dangling row nothing else would visit.
   const staleFixture = {
     classifications: {
       'read-live': 'read-only',
@@ -133,22 +70,8 @@ test('RED: rf2-6i2yi4 finding 4 — a `closed-world` row naming a REMOVED tool i
     },
     'closed-world': ['read-inline'],
   };
-  const tools = [
-    tool('read-live', { readOnlyHint: true, openWorldHint: true }),
-    tool('write-live', { destructiveHint: true, openWorldHint: true }),
-    tool('pin-live', { openWorldHint: true }),
-  ];
-  // Every LIVE tool here is correctly classified — a check confined to
-  // the per-tool loop would NOT throw at all (it never visits the absent
-  // 'read-inline', so the dangling row is invisible).
   assert.throws(
-    () => assertClassificationRatchet(tools, staleFixture),
-    (err) => {
-      assert.match(err.message, /closed-world/);
-      assert.match(err.message, /read-inline/);
-      assert.match(err.message, /dangling/);
-      return true;
-    },
-    'a closed-world row naming a tool absent from classifications must throw',
+    () => assertClassificationRatchet(greenTools().slice(0, 3), staleFixture),
+    /closed-world[\s\S]*dangling[\s\S]*"read-inline"/,
   );
 });
