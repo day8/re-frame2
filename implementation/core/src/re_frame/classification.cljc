@@ -258,10 +258,12 @@
 ;; declaration's prefix and `#{}` the moment it is not — which is the exact path
 ;; membership test spelled through the same machinery, since a declared path is
 ;; always its own prefix.
-;; `:index-free?` is the only thing that lets the two diverge. The same device
-;; `re-frame.elision`'s schema-first walker uses, at the grain this walker
-;; needs — index fork only, no `:map-of` key skip, so this walker stays
-;; strictly MORE precise than the durable side's.
+;; `:index-free?` is the only thing that lets the two diverge, and it is the
+;; device `re-frame.elision`'s schema-first walker uses: a vector index rides
+;; every candidate, and a map key — which may be a `:map-of` key — rides every
+;; candidate already inside a declaration, so `[:accounts :token]` reaches
+;; `[:accounts "a" :token]`. The empty root candidate never rides a key, so a
+;; declaration cannot float past leading named slots.
 
 (defn- path-prefixes
   "Every non-empty prefix of `path`, the full path included."
@@ -277,8 +279,8 @@
 
 (defn- fork-segment
   "Advance every candidate by one declaration segment `seg`, keeping only those
-  still a prefix of some declared path. A map key is always a real segment; a
-  positional index is one too UNLESS the caller opted into `:index-free?`."
+  still a prefix of some declared path. Under `:index-free?` the walk also lets
+  a container coordinate ride unconsumed (`walk-with-paths`)."
   [candidates seg prefixes]
   (into #{} (comp (map #(conj % seg)) (filter #(contains? prefixes %))) candidates))
 
@@ -289,14 +291,17 @@
   descendant descends-and-redacts rather than emitting a size marker
   (nested-axis suppression).
 
-  `index-free?` selects how a POSITIONAL container is read. Default
-  false — every index is a declaration segment, so matching is the exact path
-  membership test. True — an index is a
-  COLLECTION COORDINATE that consumes no declared segment, so the index-free
+  `index-free?` selects how a COLLECTION is read. Default false — every index
+  and key is a declaration segment, so matching is the exact path membership
+  test. True — an index, and a map key below a declaration's first segment, is
+  a COLLECTION COORDINATE that consumes no declared segment: the index-free
   declaration `[:value :email]` matches the runtime `[:value <i> :email]` in
-  every element. A declaration that pins a literal index still matches either
-  way (the indexed interpretation is retained whenever some declaration
-  reaches it), so the mode only ever ADDS the per-element reading.
+  every element, and `[:accounts :token]` matches `[:accounts <k> :token]`
+  under every key of a `:map-of`. A key at the root always consumes a segment,
+  so `[:auth :password]` never reaches a same-named pair under some other
+  slot. A declaration that pins a literal index or key still matches either
+  way (that interpretation is retained whenever some declaration reaches it),
+  so the mode only ever ADDS the per-element reading.
 
   No-op early-exit: when both path sets are empty, returns `v` unchanged.
   Shares the map/vec/set/seq recursion skeleton with the schema-first elision
@@ -325,7 +330,14 @@
                       (matches? large-set candidates)     (large-marker v path)
                       :else                               rf.elision/walk-recur))
          :map-key (fn [[path candidates] k]
-                    [(conj path k) (fork-segment candidates k prefixes)])
+                    [(conj path k)
+                     ;; An index-free candidate already inside a declaration
+                     ;; also rides the key unchanged — it may be a `:map-of`
+                     ;; key, which consumes no declared segment. The empty
+                     ;; root candidate does not, so a declaration cannot float
+                     ;; past leading named slots.
+                     (cond-> (fork-segment candidates k prefixes)
+                       index-free? (into (filter seq) candidates))])
          :index   (fn [[path candidates] i]
                     [(conj path i)
                      ;; An index-free candidate rides the descent UNCHANGED —
@@ -344,8 +356,9 @@
 
   `opts` may carry `:index-free? true` for a caller whose declared
   paths are INDEX-FREE — written against the shape rather than against a
-  concrete runtime position, so a positional container contributes no segment
-  and the declaration names EVERY element. That is the kind a
+  concrete runtime position, so a positional container, or a `:map-of` below
+  a declaration's first segment, contributes no segment and the declaration
+  names EVERY element. That is the kind a
   projection-relative resource / mutation declaration is, which is why
   `re-frame.resources.classification/redact-continuation-reply` opts in: its
   `[:data :email]` must reach an infinite feed's merged item list the same way
