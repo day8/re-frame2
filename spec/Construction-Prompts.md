@@ -1351,7 +1351,7 @@ The standard **`:rf.interceptor/path`** is the one framework-shipped interceptor
                            :audit/record-event nil}})         ;; nil removes it
 ```
 
-Override keys are interceptor **references**, matched by exact canonical reference (a bare keyword matches that keyword or an entry's id; an `[id arg]` vector matches only that exact reference). Values are another reference (replace) or `nil` (remove) — **no inline interceptor values** ([002 §`:interceptor-overrides`](002-Frames.md#interceptor-overrides--exact-reference-substitution)).
+Override keys are interceptor **references**, matched by exact canonical reference (a bare keyword matches only that keyword; an `[id arg]` vector matches only that exact reference). Values are another reference (replace) or `nil` (remove) — **no inline interceptor values** ([002 §`:interceptor-overrides`](002-Frames.md#interceptor-overrides--exact-reference-substitution)).
 
 **Pattern-level discipline (per [001 §Interceptors](001-Registration.md#interceptors--reg-interceptor-the-interceptor-registrar) and [002 §Registered interceptors and the chain grammar](002-Frames.md#registered-interceptors-and-the-chain-grammar)):**
 

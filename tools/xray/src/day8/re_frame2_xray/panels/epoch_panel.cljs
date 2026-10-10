@@ -141,9 +141,9 @@
 ;; ---- render-side egress for the record's db snapshots --------------------
 ;;
 ;; THE EPOCH RECORD'S `:db-before` / `:db-after` ARE RAW APP-DB. The
-;; framework stamps them straight off the frame — `router-transducer`'s
-;; `:db-before (get-in envelope [:frame :db])` — with no elision on the
-;; way, and the HANDLER step's `:db` sub-section hands BOTH to the shared
+;; epoch assembler (`re-frame.epoch.assembly/build-record`) takes them
+;; straight from the app partition of the frame-state captured before and
+;; after the cascade, with no elision on the way, and the HANDLER step's `:db` sub-section hands BOTH to the shared
 ;; edn-inspector (`view/handler-db-diff-block`: `:value` the post-handler
 ;; db, `:before` the record's `:db-before`). Nothing between the two
 ;; applies the observed frame's `:sensitive` policy, so without this seam
