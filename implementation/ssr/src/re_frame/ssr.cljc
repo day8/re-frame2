@@ -400,8 +400,11 @@ explicitly."
 ;; categories. A sub that throws mid-render projects a fail-closed 5xx under
 ;; production hardening instead of recovering to nil and producing an HTTP
 ;; 200; an unroutable URL projects 404 instead of a soft-404 200.
-(rf.error-emit/register-error-listener! ::error-projection
-                                        rf.ssr.error-listener/error-emit-projection-listener)
+(defn- install-error-projection-listener! []
+  (rf.error-emit/register-error-listener! ::error-projection
+                                          rf.ssr.error-listener/error-emit-projection-listener))
+
+(install-error-projection-listener!)
 
 ;; The development trace listener covers the same categories on the DEV
 ;; trace bus, plus the one that rides it ALONE and so DCEs under
@@ -435,6 +438,9 @@ explicitly."
 ;; (`pending-error-traces`, `request-slots`, `response-slots`) for the
 ;; destroyed frame.
 (rf.late-bind/set-fn! :ssr/on-frame-destroyed  on-frame-destroyed!)
+;; The test-support reset clears every error listener, then fires this hook so
+;; the always-on projection listener above is back for the next test.
+(rf.late-bind/set-fn! :ssr/reinstall-error-projection! install-error-projection-listener!)
 
 ;; `re-frame.ssr.head` is required above so its `:ssr/reg-head` late-bind
 ;; hook lands at ssr-ns load time on both JVM and CLJS. Reading a head is a

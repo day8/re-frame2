@@ -653,7 +653,7 @@ One **stream-parameterized listener verb** registers an observation callback acr
 | `register-listener!` | Fn | `(register-listener! stream id listener-fn)` — register `listener-fn` under `id` on `stream` (`:trace` / `:epoch`). Re-registering the same `id` on the same stream replaces. Returns `id` (or `nil` on `:epoch` when the epoch artefact is absent). Unknown `stream` throws `:rf.error/unknown-listener-stream`. | v1 | tooling | 009 |
 | `unregister-listener!` | Fn | `(unregister-listener! stream id)` → nil. No-op on `:epoch` when the epoch artefact is absent. | v1 | tooling | 009 |
 
-There is deliberately **no** facade `clear-listeners!` verb: dropping every listener on a stream is a test-isolation concern owned by the fixture layer, not the public facade. `re-frame.test-support`'s reset clears the registries through the lower-level sinks directly (`re-frame.trace.tooling/clear-listeners!`, `re-frame.event-emit/clear-event-listeners!`, `re-frame.error-emit/clear-error-listeners!`, and the `:epoch/clear-epoch-listeners!` reset hook).
+There is deliberately **no** facade `clear-listeners!` verb: dropping every listener on a stream is a test-isolation concern owned by the fixture layer, not the public facade. `re-frame.test-support`'s reset clears the registries through the lower-level sinks directly (`re-frame.trace.tooling/clear-listeners!`, `re-frame.event-emit/clear-event-listeners!`, `re-frame.error-emit/clear-error-listeners!`, and the `:epoch/clear-epoch-listeners!` reset hook), and drops the observability sinks, the process-default `:observability` policy and the trace-disabled frames with them. A listener a framework namespace installs at load, such as SSR's error projection, comes back through that artefact's reset hook.
 
 ## Tracing
 

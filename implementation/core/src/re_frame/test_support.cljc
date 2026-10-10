@@ -155,14 +155,17 @@
             ;; Test fixtures need `clear-listeners!` between scenarios;
             ;; we reach it through the tooling sibling directly.
             [re-frame.trace.tooling :as rf.trace.tooling]
-            ;; Clear the always-on event-emit listener registry on each
-            ;; reset so a forwarder registered in one test doesn't see
-            ;; events fired by a sibling test. Both always-on registries are
+            ;; Clear both always-on listener registries, the observability
+            ;; sinks and process default, and the trace-disabled frames on
+            ;; each reset, so an observer registered in one test never sees
+            ;; records a sibling test fires. The two always-on registries are
             ;; also what `with-emit-recorder!` brackets: they
             ;; are IMPLEMENTATION tier — no public facade spelling — and a
             ;; test is one of their two consumers.
             [re-frame.event-emit :as rf.event-emit]
             [re-frame.error-emit :as rf.error-emit]
+            [re-frame.observability :as rf.observability]
+            [re-frame.trace :as rf.trace]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             #?(:clj  [clojure.test :as ctest]
                :cljs [cljs.test :as ctest :include-macros true])))
@@ -348,8 +351,11 @@
   Order is load-bearing — non-late-bind steps interleave with the hooks:
     1. `(reset! rf.frame/frames {})`
     2. `:pre-dispose` hooks (flows resets, schemas clear)
-    3. `(rf.substrate.adapter/dispose-adapter!)`
-    4. `:post-dispose` hooks (machines, routing, http, epoch, adapter-warn)
+    3. `(rf.substrate.adapter/dispose-adapter!)`, then the error-listener,
+       observability-sink, process-default and trace-disabled-frame clears
+    4. `:post-dispose` hooks (machines, routing, http, epoch, ssr,
+       adapter-warn), so a hook can reinstate what a framework namespace
+       installed at load
   Splitting the table by `:phase` lets the driver fire each contiguous run
   in one pass while keeping the cross-cutting prose in one place.
 
@@ -454,6 +460,12 @@
                                        re-apply it through `configure!` in
                                        their `:init-fn` (which runs after the
                                        post-dispose reset hooks).
+    :ssr/reinstall-error-projection! — put back the always-on error listener
+                                       `re-frame.ssr` installs at load, which
+                                       the error-listener clear above
+                                       removed. Without it a render-time
+                                       throw in a later SSR test projects no
+                                       error status.
     :adapter/clear-warn-once-caches! — clear per-adapter
                                        `warned-non-dom-roots` warn-once
                                        caches. Chained — re-frame.views
@@ -476,6 +488,7 @@
    {:hook :epoch/clear-history!            :phase :post-dispose}
    {:hook :epoch/clear-epoch-listeners!          :phase :post-dispose}
    {:hook :epoch/reset-config!             :phase :post-dispose}
+   {:hook :ssr/reinstall-error-projection! :phase :post-dispose}
    {:hook :adapter/clear-warn-once-caches! :phase :post-dispose}])
 
 (defn- run-reset-hooks!
@@ -543,7 +556,10 @@
 (defn- reset-runtime!
   "The per-test runtime reset body shared by both fixture shapes. Reset the ONE
   `frames` registry (clearing every record + its `:generation`), run the
-  pre/post-dispose late-bind hook phases, dispose then (re)install the adapter
+  pre/post-dispose late-bind hook phases, clear every observer a test can
+  leave behind (trace, event-emit and error-emit listeners, observability
+  sinks and the process default, trace-disabled frames), dispose then
+  (re)install the adapter
   and ensure the conventional `:rf/default` app frame, re-seed the framework
   standards (`:rf.interceptor/path`, `:rf/set-db`, `:rf/install-frame-state`; the machine runtime when
   loaded), apply `:clear-kinds`, and LAST reinstate the `:app-ns` rows the
@@ -560,6 +576,10 @@
   (reset! rf.frame/frames {})
   (run-reset-hooks! :pre-dispose)
   (rf.substrate.adapter/dispose-adapter!)
+  (rf.error-emit/clear-error-listeners!)
+  (rf.observability/clear-observability-sinks!)
+  (rf.observability/clear-observability-default!)
+  (rf.trace/clear-frame-no-emit!)
   (run-reset-hooks! :post-dispose)
   (rf.trace.tooling/clear-listeners!)
   (rf.event-emit/clear-event-listeners!)
@@ -645,9 +665,12 @@
        late-bound so JVM tests that don't pull them in are unaffected).
     3. Disposes the currently-installed substrate adapter.
     4. Cancels the machines' in-flight `:after` wall-clock timers.
-    5. Clears trace listeners and adapter warn-once caches
+    5. Clears the trace, event-emit and error-emit listeners, the
+       observability sinks and process default, the trace-disabled
+       frames, and the adapter warn-once caches
        (`warned-non-dom-roots` across re-frame.views and the
-       uix adapter).
+       uix adapter). A framework namespace's load-time error listener
+       (SSR's error projection) comes back through its reset hook.
     6. If an `:adapter` was supplied, installs it and ensures the
        `:rf/default` frame. Otherwise leaves adapter installation to
        the test (or to a separate fixture).
