@@ -6,8 +6,7 @@
 > three execution verbs (`run` / `is` / `explain`), the `:cannot-run`
 > third result state, composition + conflict resolution, the schema
 > floor, the runner-capability model, and the epoch-tape evidence
-> projection. Promoted from the NewTestStory finding (2026-05-29) into
-> committed spec under EPIC rf2-5x1wt.
+> projection.
 >
 > **Ownership boundary.** [`spec/008-Testing.md`](../../../spec/008-Testing.md)
 > owns the general testing substrate (frame fixtures, `dispatch-sync`,
@@ -25,10 +24,9 @@ This document uses MUST / SHOULD / MAY in the usual sense (MUST required
 for P1; SHOULD expected unless a concrete implementation constraint says
 otherwise; MAY optional). Pre-alpha posture applies: the target API is
 built correctly rather than preserving legacy spellings through
-compatibility shims. The `:events` → `:setup` / `:play-script` →
-`:script` rename (§Public vocabulary) was executed as a **clean
-pre-alpha rename, not a long-lived compatibility layer** — the retired
-spellings fail shape validation at registration (rf2-7dewo).
+compatibility shims. There is **no compatibility layer** for the
+retired `:events` / `:play-script` spellings of `:setup` / `:script`
+(§Public vocabulary): they fail shape validation at registration.
 
 Where a rule changes shipping behaviour this document says so explicitly
 (§Shipping vs target). A reader must never assume a hook that does not
@@ -36,10 +34,9 @@ yet exist (e.g. browser-tier pixel diffing).
 
 ## Shipping vs target (grounding delta)
 
-This table distinguishes shipped substrate from remaining targets. The
-original P1 migration introduced plans and unified results; those are now
-implemented, not future prerequisites. A shipped surface still owes its
-normative contract: a tracked implementation defect is not a new API rule.
+This table distinguishes shipped substrate from remaining targets. A
+shipped surface owes its normative contract: a tracked implementation
+defect is not a new API rule.
 
 | Surface | Status | Note |
 |---|---|---|
@@ -47,13 +44,13 @@ normative contract: a tracked implementation defect is not a new API rule.
 | `:rf.assert/*` family (7 dispatched ids) | SHIPS | The seven **dispatched** `reg-event` ids per [`004-Assertions.md`](004-Assertions.md); the canonical set is **eight** once the tape-evaluated `:rf.assert/schema-error` (next row, §Schema rule) is counted. |
 | `:assert-db` / `:assert-dom` script steps | SHIPS | Folded into the one assertion atom (§Assertions — one atom, two positions); do not drop them. |
 | bare event-vector script/setup shorthand | SHIPS (`play/runner.cljc` `coerce-script`) | P1 removes this authoring ambiguity; every setup/script step normalizes to a tagged step (§Script step grammar). |
-| `:setup` / `:script` / `:plays` | SHIPS | The rename from the retired `:events` / `:play-script` spellings is complete (§Public vocabulary); the schema rejects the retired keys. |
+| `:setup` / `:script` / `:plays` | SHIPS | The schema rejects the retired `:events` / `:play-script` spellings (§Public vocabulary). |
 | `:extends` | SHIPS as plan-time per-field merge | The registrar stores raw bodies; the compiler appends setup, inherits context/checks and keeps scripts/ordinary assertions local (§Strict composition). |
 | `:decorators` incl. `[:rf.story/force-fx-stub …]` | SHIPS | The **real** fx-override authoring surface; `:fx-overrides` is the derived frame slot (§The effect-override surface). |
 | Unified run-result | SHIPS | Top-level `:status` is the verdict; `:lifecycle` remains mount-state metadata, not a second verdict (§Run result). |
 | `:cannot-run` | SHIPS | Missing runner/evidence requirements produce explicit refusals, including no-DOM cases; they cannot pass vacuously. |
 | `:rf.assert/schema-error` + schema-fail-the-run | SHIPS | Expected violations are paired with selectors and unmatched violations enforce the run's schema floor (§Schema rule). |
-| reactive recompute / render-count probe | SHIPS as a PROJECTION (rf2-5x1wt.30) | Spec 009 already emits one `:rf.sub/run` per true sub recompute and one `:rf.view/rendered` per view render, both retained in the epoch tape. The probe is `re-frame.story.play.evidence/reactive-counts` — a pure projection over those rows, NOT a new core seam — surfaced as the `:reactive-counts` run-result slot and advertised by the `:cljs-reactive` runner. |
+| reactive recompute / render-count probe | SHIPS as a PROJECTION | Spec 009 already emits one `:rf.sub/run` per true sub recompute and one `:rf.view/rendered` per view render, both retained in the epoch tape. The probe is `re-frame.story.play.evidence/reactive-counts` — a pure projection over those rows, NOT a new core seam — surfaced as the `:reactive-counts` run-result slot and advertised by the `:cljs-reactive` runner. |
 | `:sub-overrides` for view-state variants | SHIPS | Explicit lower-fidelity rendering affordance (§View-state subscription overrides); not proof of real subscription logic. |
 | view arg schema consumption | SHIPS | The compiled plan carries the view props schema; required-key and validator-backed malformed-value checks retain the boundaries in §View arg schemas. |
 | `variant-plan`, `explain`, `reg-fragment` / `reg-check`, runner abstraction, inline plans, run-artifacts, `canonicalize` / fingerprinting, narrative projection, `render-variant` | SHIPS | Implemented through the facade and the plan/result/render modules; richer runner capabilities still depend on the installed host. |
@@ -65,9 +62,9 @@ surfaces; their meaning is locked:
 
 | Primitive | Locked meaning |
 |---|---|
-| `settled-boundary` | The author-facing settlement contract for `[:dispatch event-vector]`. In `:headless` it is the existing `dispatch-sync` run-to-fixed-point drain, renamed/projected rather than reimplemented; richer runners add adapter-supplied reactive/DOM/React flushes with a declared bound. Runners return `:cannot-run` when they cannot satisfy the required boundary. |
-| `canonicalize` | The single canonical projection operation for determinism, semantic diff, snapshot identity, `:plan-hash`, `:run-hash`, golden-slice comparison, and inline-plan-to-registered-variant equivalence. It lives in a fingerprinting namespace, not `re-frame.story.canonical` (the canonical-vocabulary installer), and folds the existing `re-frame.story.identity` `canonical-form` / `content-hash` / `snapshot-tuple` path into one primitive. |
-| `golden slice` | A curated regression artifact — the P1.5 surface, now **landed**. P1 shipped canonicalization and the narrative projection first; on that proven hash/projection corpus, a curated run may be frozen as a `:rf.test/golden` slice (the `canonicalize`d behavioural surface) and a later run asserted to `canonicalize` `=` to it. See [§Golden slices](#golden-slices). |
+| `settled-boundary` | The author-facing settlement contract for `[:dispatch event-vector]`. In `:headless` it is the `dispatch-sync` run-to-fixed-point drain, projected under the boundary name rather than reimplemented; richer runners add adapter-supplied reactive/DOM/React flushes with a declared bound. Runners return `:cannot-run` when they cannot satisfy the required boundary. |
+| `canonicalize` | The single canonical projection operation for determinism, semantic diff, snapshot identity, `:plan-hash`, `:run-hash`, golden-slice comparison, and inline-plan-to-registered-variant equivalence. It lives in a fingerprinting namespace, not `re-frame.story.canonical` (the canonical-vocabulary installer), and the `re-frame.story.identity` `canonical-form` / `content-hash` / `snapshot-tuple` path routes through that namespace, so there is one canonical path. |
+| `golden slice` | A curated regression artifact — the P1.5 surface, built on canonicalization and the narrative projection: a curated run may be frozen as a `:rf.test/golden` slice (the `canonicalize`d behavioural surface) and a later run asserted to `canonicalize` `=` to it. See [§Golden slices](#golden-slices). |
 | `three verbs` | The public execution surface is `(story/run target opts)`, `(story/is target opts)`, and `(story/explain target)`, where a keyword target means a registered variant and a map target means an inline plan. `run-variant` / `is-variant` / `run-plan` / `is-plan` are implementation/migration vocabulary, not the P1 public surface. |
 
 ## Public vocabulary
@@ -81,7 +78,7 @@ P1 public authoring vocabulary is:
 - `:compose` for explicit fragment/check composition.
 - `:extends` for state/config specialization.
 
-The rename is complete; the retired spellings map as follows:
+The retired spellings map as follows:
 
 | Retired spelling | Canonical term |
 |---|---|
@@ -90,13 +87,12 @@ The rename is complete; the retired spellings map as follows:
 | `:plays` | named scripts in the normalized plan (the authoring key is unchanged) |
 
 The public API uses `:setup` and `:script`. Because the project is
-pre-alpha, this was a clean rename, not a long-lived compatibility
-layer: the accepted authoring surface is the canonical vocabulary, and
-the retired spellings fail shape validation at registration
-(rf2-7dewo). Named `:plays` are preserved as named scripts in the
-normalized plan; they are not dropped in P1. The legacy `:play`
-event-vector slot was removed earlier still (rf2-0wrud) and is not
-reintroduced.
+pre-alpha, there is no compatibility layer: the accepted authoring
+surface is the canonical vocabulary, and the retired spellings fail
+shape validation at registration. Named `:plays` are preserved as named
+scripts in the normalized plan; they are not dropped in P1. There is no
+`:play` event-vector slot; the closed schema rejects it like any other
+unknown key.
 
 The variant schema (`re-frame.story.schemas/Variant`) accepts the
 canonical keys only: `:setup` is the one setup surface, and an author
@@ -106,7 +102,7 @@ with a nearest-key hint. The registrar stores the authored body
 verbatim — there is no lowering step — so registration round-trips are
 key-identical: `variant->edn` and `handler-meta` hand back what was
 authored. The **`run-variant` lifecycle runtime is routed through the
-variant-plan compiler** (rf2-5x1wt.22):
+variant-plan compiler**:
 `re-frame.story.runtime/prepare-context` compiles the normalized plan
 once, phase 2 dispatches the plan's `[:world :setup]`, and phase 4
 drives the plan's `[:world :scripts]` (the named plays, `:plays`
@@ -188,8 +184,8 @@ Required normalized plan shape:
 
 `:world :platforms` defaults to `#{:client}`. SSR/hydration work MAY
 extend this with `#{:server :client}` later without changing the
-artifact model. For author ergonomics, registered variants MAY continue
-to author `:setup`, `:args`, `:argtypes`, `:sub-overrides`, `:checks`,
+artifact model. For author ergonomics, registered variants MAY author
+`:setup`, `:args`, `:argtypes`, `:sub-overrides`, `:checks`,
 and `:assertions` at the top level; the plan compiler lowers them into
 this shape and `explain` shows both source and normalized locations.
 
@@ -261,9 +257,9 @@ the depth cap) with `:rf.error/story-extends-cycle` /
 `:required-runner` capability **set** by unioning the tokens each setup
 step, script step, and terminal assertion declares (app-db work needs no
 token and resolves to `:headless`; DOM steps/assertions add `:dom`,
-visual adds `:pixels`, etc.). This is a coarse first cut; the
-per-assertion capability registry (a later bead) supersedes the static
-map without reshaping the plan.
+visual adds `:pixels`, etc.). The tokens come from the
+runner-requirement registry (§Runner requirements), so the inference has
+one home.
 
 **Explain data.** `(story/explain target)` returns the plan's `:explain`
 map: source chain, parent chain, field-level merge decisions, resolved
@@ -280,12 +276,12 @@ MAY compose registered fragments and checks. They MUST return the same
 run-result shape as registered variants. A map carrying `:world` is a
 compiled plan (the output of `variant-plan`), not an authoring body, and
 is refused with `:rf.error/story-compiled-plan-target`; run the variant by
-its id instead (rf2-nt9f1).
+its id instead.
 
-**Execution (rf2-5x1wt.20).** All three verbs accept a map target as well
+**Execution.** All three verbs accept a map target as well
 as a keyword: `(story/run inline-plan opts)` / `(story/is inline-plan
 opts)` / `(story/explain inline-plan)`. `variant-plan` / `explain` compile
-a map directly (the compiler accepts an unregistered map — rf2-5x1wt.24).
+a map directly (the compiler accepts an unregistered map).
 The RUN path (`story/run` / `story/is` for a map target) is the
 registry-free twin of the registered-variant lifecycle, and reuses it
 rather than forking it:
@@ -513,8 +509,8 @@ sub-overrides**, the `[:world :args]` / `[:world :effective-args]` slots,
 AND the `:plan-hash` all use the SAME effective args the run-result reports
 under `:effective-args`. A cell override or an active mode therefore
 executes the EXACT scenario the result claims — the runner never substitutes
-the static variant args while reporting the override/mode-aware ones
-(rf2-2cpoo). The runtime executes `[:world :scripts]` (the normalized plays),
+the static variant args while reporting the override/mode-aware ones.
+The runtime executes `[:world :scripts]` (the normalized plays),
 so those plays carry the resolved placeholders, not the raw `[:arg …]` forms.
 (`render-variant` keeps its own post-compile path: it layers
 `:control-overrides` on top of the plan-time effective args and re-resolves
@@ -522,14 +518,14 @@ sub-overrides, because rendering does not execute setup/script/db-seed.)
 
 The canvas/controls/docs **decorator-resolution** front door
 (`decorators/resolve-decorators`) likewise threads the per-run layers into the
-plan it recompiles to read `[:world :decorators]` (rf2-eyrpr). That recompile
+plan it recompiles to read `[:world :decorators]`. That recompile
 substitutes every `[:arg key]` in the variant body, so a key resolvable ONLY
 through a mode / cell / global / story layer (never the variant chain) must be
 supplied via the same `{:active-modes :cell-overrides}` opts — otherwise the
 decorator recompile fails `:rf.error/story-missing-arg` even though the runner
 compile (with run opts) substitutes it cleanly. The common case (every
-`[:arg]` key declared on the variant or its `:extends` chain) is unaffected;
-the threading is purely additive. The hot-reload fingerprint poll
+`[:arg]` key declared on the variant or its `:extends` chain) compiles with
+or without the opts. The hot-reload fingerprint poll
 (`resolution-fingerprints`) threads the same opts for the same reason — the
 fingerprints are body-derived and run-layer-invariant, the opts only let the
 ref-collection compile succeed.
@@ -587,16 +583,16 @@ This schema applies only to explicit view inputs. It does not validate
 values returned from subscriptions (those remain subscription output
 schemas) and it does not seed app-db.
 
-**Metadata key (M0-confirmed).** `reg-view` stamps a view's symbol
+**Metadata key.** `reg-view` stamps a view's symbol
 metadata (minus `:rf/id`) onto its `:view` registrar slot, so the props
 schema rides on that slot. The compiler resolves it **first match wins**
 over `[:rf/props :schema]`: `:rf/props` (the canonical props-schema key
 per [Spec-Schemas §`:rf/registration-metadata`](../../../spec/Spec-Schemas.md#rfregistration-metadata),
-primary) → `:schema` (the post-M-54 `reg-*` metadata key, the alternative
+primary) → `:schema` (the `reg-*` metadata key, the alternative
 location). `:rf/props` wins outright when present — there is NO
 composition (a view's only schema surface is its props). `:spec` is NOT a
-resolution key: it is dead post-M-54 (the framework reads `:schema` only
-on `reg-*` metadata, with no back-compat shim — see
+resolution key: the framework reads `:schema` only on `reg-*` metadata,
+with no back-compat shim (see
 [MIGRATION §M-54](../../../migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema)).
 
 Every Story consumer reads this schema through the ONE shared resolver
@@ -735,8 +731,8 @@ the post-control effective args through the same resolver
 (`re-frame.story.render/resolve-render-sub-overrides`) `render-variant`
 uses; neither re-reads the bare registrar body. This is what makes the two
 agree on overrides contributed by a `:compose`d fragment or an `:extends`
-parent (the plan compiler is the single merge authority — §305-306, the
-same rule decorators follow). A consumer reading `(:sub-overrides body)`
+parent (the plan compiler is the single merge authority — §Inline plan
+step 3, the same rule decorators follow). A consumer reading `(:sub-overrides body)`
 straight off the side-table would see only the variant's OWN slot and drop
 the composed / inherited overrides.
 
@@ -813,13 +809,13 @@ still exists for non-HTTP effects and unusual cases.
 the distinction between setup and script is intent and assertion
 visibility, not whether events are real. Setup SHOULD use dispatches when
 event/cofx/schema validation is part of establishing a realistic
-precondition. Direct app-db seeding MAY be added, but if supported it
-MUST validate affected app-db schemas before script execution (it
-bypasses event/cofx validation).
+precondition. Direct app-db seeding (`:db-seed`, below) MUST validate
+affected app-db schemas before script execution (it bypasses event/cofx
+validation).
 
 #### Direct app-db seeding — `:db-seed` (as implemented)
 
-`:db-seed` is the implemented direct-seed slot — the MIDDLE rung of the
+`:db-seed` is the direct-seed slot — the MIDDLE rung of the
 fidelity ladder (`#{:real-setup :db-seed :sub-overrides}`). A variant /
 fragment authors a `{path → value}` map; the path is a top-level app-db
 key (or a path vector). The plan compiler:
@@ -877,11 +873,12 @@ flushes:
 The runner takes a **flush-fn from the adapter-aware caller**; it MUST
 NOT hard-code `dispatch-sync`. A step that requires a React/DOM flush
 MUST require `>= :cljs-reactive`, so a `:headless` runner **refuses** it
-(§`:cannot-run`) rather than under-flushing and passing falsely. In the
-target, `[:dispatch]` is the settled author step and `dispatch-sync` is
-the headless *implementation*. `[:dispatch-sync event-vector]` MAY remain
+(§`:cannot-run`) rather than under-flushing and passing falsely.
+`[:dispatch]` is the settled author step and `dispatch-sync` is the
+headless *implementation*. `[:dispatch-sync event-vector]` MAY be used
 as a low-level escape step but SHOULD NOT be the normal authoring form;
-an explicit `[:dispatch-sync …]` keeps its current meaning.
+an explicit `[:dispatch-sync …]` runs `re-frame.router/dispatch-sync!`
+directly.
 
 #### Concrete contract surface
 
@@ -930,8 +927,8 @@ the existing framework drain and a flush-hook seam over it.
   [Tool-Pair §Driving the render](../../../spec/Tool-Pair.md) — "a tool that
   names `reagent.core/flush!` is non-conforming and breaks under UIx". An
   adapter with no live commit (plain-atom, SSR) and a bare JVM run with no
-  adapter both fall back to `headless-flush-hooks`, so the headless floor
-  is unchanged. A host with a genuinely richer boundary — a browser runner
+  adapter both fall back to `headless-flush-hooks`, so they get the headless
+  floor. A host with a genuinely richer boundary — a browser runner
   that settles layout and paint — re-registers the slot and wins it.
 
 - `settle-to!` — the flush phase on its own: run the registered flushes
@@ -984,7 +981,7 @@ the existing framework drain and a flush-hook seam over it.
   condition. The mechanism is CLJS-only by construction: the JVM runner
   has no event loop to yield to, `re-frame.router/dispatch-sync!` has already drained by
   the time any step observes the queue, and no DOM is available — so
-  every precondition reads as met and the headless path is unchanged.
+  every precondition reads as met and the headless path never waits.
 
   This is what lets an interaction script be **deterministic** end to end
   with no `[:wait ms]` (§Determinism gate) — the settle-on-condition
@@ -1010,7 +1007,7 @@ the existing framework drain and a flush-hook seam over it.
 
 The play runner's `[:dispatch …]` step (`re-frame.story.play.runner-events/
 exec-dispatch!`) routes through `dispatch-and-settle!`, so in headless it
-settles synchronously to fixed point and is no longer an async-yield step.
+settles synchronously to fixed point rather than yielding asynchronously.
 
 ### Script step grammar
 
@@ -1210,11 +1207,9 @@ substrate's clock advance at boot:
 
 `install-presence-flush!` is the ONE integration path, and the hook is
 idempotent (re-registration replaces, per Spec 001 hot-reload semantics).
-**Story ships no bridge for any substrate.** It once shipped an optional one
-for Freehand; that substrate is retired, and no supported substrate publishes
-a presence-advance verb for a replacement to compose. So the seam is the
-whole of the contract, and the fail-closed refusal below is what keeps it
-honest in the meantime.
+**Story ships no bridge for any substrate.** No supported substrate publishes
+a presence-advance verb for a bridge to compose, so the seam is the whole of
+the contract, and the fail-closed refusal below is what keeps it honest.
 
 **A host must run the advance inside the boundary that commits the RETAINING
 root** — this is the one non-obvious obligation, and it is easy to get wrong
@@ -1343,8 +1338,8 @@ INHERITS the parent's stack; a child that declares its own REPLACES them
 (child-wins, the same scalar context-key rule as the other world slots —
 no per-key concat). Decorator resolution therefore reads from the
 compiled plan's merged `[:world :decorators]`, for BOTH the registered
-path and the inline path (the same single-merge-authority rule §305-306
-pins for inline plans). The variant/story side-table raw body is NOT the
+path and the inline path (the same single-merge-authority rule §Inline
+plan step 3 pins for inline plans). The variant/story side-table raw body is NOT the
 decorator source — the registrar stores it raw with `:extends` intact,
 and the plan compiler is the single merge authority that resolves the
 chain.
@@ -1402,11 +1397,10 @@ Execution order is:
 
 ### Merge rules
 
-This per-field plan-time merge replaced the earlier registration-time
-straight-merge. It is now the single merge authority. A test MUST pin that
-parent + child `:setup` *append* (a common silent-regression site). The
-existing drop-shadowed-siblings exclusive-group machinery is the
-per-field precedent.
+This per-field plan-time merge is the single merge authority; the
+registrar stores raw bodies and merges nothing at registration. A test
+MUST pin that parent + child `:setup` *append* (a common
+silent-regression site).
 
 Append, preserving order:
 
@@ -1447,7 +1441,7 @@ priority rule that chose the winner.
 ## Strict composition
 
 This section pins the implemented `reg-fragment` / `reg-check` / `:compose`
-contract (rf2-5x1wt.15) — the concrete surface the plan compiler enforces
+contract — the concrete surface the plan compiler enforces
 on top of the conceptual model in §`:compose` / §Merge rules / §Conflict
 resolution above. It is the authoritative reference for what an
 implementation MUST accept, reject, and order.
@@ -1459,8 +1453,8 @@ implementation MUST accept, reject, and order.
 (story/reg-check    id body)   ;; named, reusable assertion pack
 ```
 
-Both register into the Story side-table under new kinds — `:fragment` and
-`:check` — queryable through the existing registry surface
+Both register into the Story side-table under their own kinds — `:fragment` and
+`:check` — queryable through the registry surface
 (`(story/registered? :fragment id)`, `(story/handler-meta :check id)`).
 Fragment and check ids are bare keywords; the example shapes
 (`:fragment.<path>/<name>`, `:check/<name>`) are a convention, not a
@@ -1513,7 +1507,7 @@ list of fragments `F1 … Fn`:
 | Slot | Rule |
 |---|---|
 | `:setup` | APPEND: inherited (root→parent) ++ composed fragments (declared order) ++ child's own — variant-owned setup lands last. |
-| `:script` | APPEND through `:compose` only: composed fragments (declared order) ++ child's own. Parent scripts never append (a child does not silently run a parent's behaviour). Applies BOTH to the reported top-level `:script` AND the EXECUTED `[:world :scripts]` primary (auto-run) play — the two must never diverge (rf2-k23efg). |
+| `:script` | APPEND through `:compose` only: composed fragments (declared order) ++ child's own. Parent scripts never append (a child does not silently run a parent's behaviour). Applies BOTH to the reported top-level `:script` AND the EXECUTED `[:world :scripts]` primary (auto-run) play — the two must never diverge. |
 | `:args` / `:argtypes` | DEEP-MERGE root → fragments → child (last wins). |
 | `:checks` | inherited+own (root→child) ++ composed check-ids. |
 | `:assertions` | child-only (own terminal judgement). |
@@ -1604,22 +1598,20 @@ the predicate in a Malli `[:fn …]` schema — the one canonical way to
 express an arbitrary predicate against a path, so no parallel
 predicate-assertion id is introduced.
 
-**The DOM family carries the `:dom` runner requirement.** The DOM
-assertion family `:rf.assert/dom-visible` / `:rf.assert/dom-hidden` /
-`:rf.assert/dom-text` is **NET-NEW** (the shipping vocabulary had only the
-seven below plus an ad-hoc synthetic `:rf.assert/dom` record the runtime
-minted). Each folded DOM id rides the `:dom` capability token via the
+**The DOM family carries the `:dom` runner requirement.** Each id of the
+DOM assertion family `:rf.assert/dom-visible` / `:rf.assert/dom-hidden` /
+`:rf.assert/dom-text` rides the `:dom` capability token via the
 requirement registry (§Runner requirements), so a folded `:assert-dom`
 step keeps the exact runner requirement the raw step had. The DOM executor
 (`re-frame.story.play.dom`, driven by `runner-events/exec-assert-dom-atom!`)
 evaluates these ids; a headless run that reaches one refuses with
 `:cannot-run` (the `:dom` gate), never a silent pass.
 
-**The seven shipping ids are preserved.** The fold collapses *authoring
-sugar* onto existing atoms; it does not retire any of the seven shipping
-`:rf.assert/*` ids (listed under §Canonical P1 assertions). `:rf.assert/
-path-equals` and `:rf.assert/path-matches` gain the `:assert-db` fold
-targets; the DOM family is the only NET-NEW addition this fold introduces.
+**The fold removes no id.** The fold collapses *authoring sugar* onto
+canonical atoms — `:assert-db` onto `:rf.assert/path-equals` and
+`:rf.assert/path-matches`, `:assert-dom` onto the DOM family — and each of
+the seven handler-backed `:rf.assert/*` ids (listed under §Canonical P1
+assertions) is authorable directly.
 
 **Unknown ids fail plan construction.** Every authored assertion atom —
 terminal `:assertions` OR an in-script `[:assert …]` checkpoint (including
@@ -1663,8 +1655,8 @@ two violations. Against one violation it records one `:pass` and one
 
 ### Canonical P1 assertions
 
-The existing `:rf.assert/*` family (per [`004-Assertions.md`](004-Assertions.md))
-remains the base. P1 SHOULD include or retain:
+The `:rf.assert/*` family (per [`004-Assertions.md`](004-Assertions.md))
+is the base. P1 SHOULD include:
 
 - `:rf.assert/path-equals`
 - `:rf.assert/path-matches`
@@ -1673,9 +1665,9 @@ remains the base. P1 SHOULD include or retain:
 - `:rf.assert/state-is`
 - `:rf.assert/no-warnings`
 - `:rf.assert/effect-emitted`
-- `:rf.assert/schema-error` (NET-NEW; §Schema rule)
+- `:rf.assert/schema-error` (tape-evaluated; §Schema rule)
 - `:rf.assert/dom-visible` / `:rf.assert/dom-hidden` / `:rf.assert/dom-text`
-  (NET-NEW; the `:dom` family the shipping `:assert-dom` step folds to —
+  (the `:dom` family the `:assert-dom` step folds to —
   §Assertions — one atom, two positions)
 - `:rf.assert/visual-snapshot` (`:browser` / `:pixels`)
 - `:rf.assert/a11y` (`:browser` / `:a11y-engine` for axe-style)
@@ -1684,14 +1676,14 @@ remains the base. P1 SHOULD include or retain:
   browser, §Visual, a11y, and browser checks)
 
 `:rf.assert/caused` and `:rf.assert/no-cascade-rerender` both require the
-reactive/render-count probe. That probe SHIPS (rf2-5x1wt.30) as the
+reactive/render-count probe. That probe SHIPS as the
 `re-frame.story.play.evidence/reactive-counts` PROJECTION over the
 `:rf.sub/run` / `:rf.view/rendered` rows the epoch tape already retains —
 not a new core seam — so these assertions run under the `:cljs-reactive`
 runner (and `:cannot-run` under `:headless` / `:hiccup`, which do not
 flush reactions).
 
-#### Causal and cascade assertions (rf2-5x1wt.31)
+#### Causal and cascade assertions
 
 `:rf.assert/caused` and `:rf.assert/no-cascade-rerender` are **causal**
 assertions: they project a CAUSE→EFFECT relationship from the SAME reactive
@@ -1726,9 +1718,9 @@ names the cause event and (optionally) the effect surface + a count bound:
   → `{:min 0 :max 0}` (the cause did NOT over-render); an author MAY override
   either bound.
 
-##### The required-cause premise (rf2-x76af2.17)
+##### The required-cause premise
 
-Both causal assertions carry an additive `:observed-cause-count` diagnostic
+Both causal assertions carry an `:observed-cause-count` diagnostic
 under `:actual` — the count of run-owned epoch records whose canonical
 `:event-id` equals the declared `:event`, read off the run-sliced
 `:epoch-tape` by exact keyword equality (NOT the `:by-cause` reactive
@@ -1756,14 +1748,14 @@ optional interaction: it lets `c = 0` proceed to the normal bounds, so the
 enabled). `:min 0` does NOT double as an implicit opt-out. A non-boolean
 `:require-cause?` FAILS plan construction (`:rf.error/story-bad-assertion-opt`);
 the key is a no-cascade opt-out ONLY and is rejected on `:rf.assert/caused`
-(whose positive-claim semantics are unchanged — `:observed-cause-count` rides
+(a positive claim needs no premise — `:observed-cause-count` rides
 its record as a diagnostic only). The verdict precedence for a causal record
 is: no `:event` → `:fail`; no `:reactive-counts` evidence → `:cannot-run`;
 (no-cascade only) `c = 0` without the opt-out → `:cannot-run`; a TRUNCATED run
 whose in-bounds `:pass` has a finite upper bound → `:cannot-run` (below); else
-the existing `min ≤ n ≤ max` bounds.
+the `min ≤ n ≤ max` bounds.
 
-##### Truncation honesty: a bounded ring cannot prove an upper bound (rf2-4u5zl4)
+##### Truncation honesty: a bounded ring cannot prove an upper bound
 
 The effect count `n` is projected off the run-sliced `:epoch-tape`, itself a
 bounded per-frame ring (`epoch-history`, default depth 50, **front-eviction**).
@@ -1773,7 +1765,7 @@ rows are never counted), truncation can turn a would-be over-render into a false
 GREEN: an upper-bounded assertion (`:rf.assert/no-cascade-rerender`'s `[0,0]`, a
 `:rf.assert/caused {:max N}`) reads in-bounds only because the failing evidence
 was truncated away, not because the over-effect did not happen. This is the
-truncation sibling of the unobserved-cause honesty fix above.
+truncation counterpart of the required-cause premise above.
 
 So a **per-run truncation signal** (`re-frame.story.play.evidence/run-tape-truncated?`
 → the `:epoch-truncated?` matcher input) gates the verdict: when the ring evicted
@@ -1809,7 +1801,7 @@ recovery/rollback leaves final app-db acceptable. This is a runner
 invariant; there is **no per-variant `:schema-policy` knob** (the absence
 is the feature).
 
-NET-NEW wiring: fail runs by projecting
+Runs fail by projecting
 `:rf.error/schema-validation-failure` from the epoch tape's
 `:trace-events`. Do not add a parallel per-frame `:schema-violations`
 accumulator; a second capture path can drift from the trace evidence the
@@ -1839,7 +1831,7 @@ UI already reads.
 ### The schema-violation invariant
 
 The invariant is implemented as a **refinement of the agreement floor**, not
-an opt-in (rf2-5x1wt.21). It rests on three pieces, all pure data → data:
+an opt-in. It rests on three pieces, all pure data → data:
 
 - **`:rf.assert/schema-error` is recognised but NOT dispatched.** It is in
   `assertions/canonical-assertion-ids` (so plan construction accepts it) and
@@ -1872,14 +1864,14 @@ an opt-in (rf2-5x1wt.21). It rests on three pieces, all pure data → data:
   agreement floor's schema signal (`evidence/evidence-shows-failure?`'s
   `:unconsumed` arity). This is load-bearing: a set of consumed *selectors*
   collapses duplicates, so when M&lt;N expectations match a selector with N
-  violations the set would falsely excuse **all** N and report `:pass` (the
-  rf2-5mrnwx false-green). Threading the matcher's already-correct multiset
+  violations the set would falsely excuse **all** N and report `:pass` (a
+  false green). Threading the matcher's multiset
   `:unconsumed` keeps the (N−M) genuinely-unconsumed violations as a floor
   signal, so an exactly-expected violation does **not** trip the floor while a
   partially- or un-consumed one does. A *different* violation than expected
   therefore fails twice over (a `:fail` record for the missing expected
   violation AND the floor on the emitted-but-unexpected one). The public
-  `story/tape-shows-failure?` keeps its set-keyed `consumed-selectors`
+  `story/tape-shows-failure?` has a set-keyed `consumed-selectors`
   convenience arity (the caller-supplied escape hatch, correct when at most
   one violation exists per selector); `run-result` also subtracts that
   caller-supplied set from the multiset `:unconsumed` before the floor.
@@ -1920,7 +1912,7 @@ P1 selects among the tiers with **real seams**
 `:reactive-counts` is proven by `:cljs-reactive` via the
 `re-frame.story.play.evidence/reactive-counts` projection over the
 `:rf.sub/run` / `:rf.view/rendered` rows the epoch tape already retains
-(rf2-5x1wt.30) — a projection, not a NET-NEW core seam. `:cljs-reactive`
+— a projection, not a NET-NEW core seam. `:cljs-reactive`
 sits between `:hiccup` and `:dom` on the cost ladder (it flushes
 reactions; it does not drive synthetic DOM events).
 
@@ -2011,11 +2003,11 @@ plus its own orthogonal additions:
 | `:browser` | dom ∪ `:pixels :a11y-engine` |
 
 `:cljs-reactive` sits between `:hiccup` and `:dom` on the cost-ordered
-selection list (rf2-5x1wt.30): its distinguishing token,
+selection list: its distinguishing token,
 `:reactive-counts`, has a real seam — the
 `re-frame.story.play.evidence/reactive-counts` PROJECTION over the
 `:rf.sub/run` / `:rf.view/rendered` rows the epoch tape already retains
-(§1a; a projection, not a NET-NEW core seam). It flushes reactions (so
+(a projection, not a NET-NEW core seam). It flushes reactions (so
 subs deref and views render, landing those rows) but stops short of
 synthetic DOM events. A requirement on `:reactive-counts` resolves to
 `:cljs-reactive` under `:auto`, and to `:cannot-run` under a fixed
@@ -2134,7 +2126,7 @@ Because the check reads the SAME `project-evidence` projection the
 run-result slots derive from, a duplicate accumulator cannot report green
 while the tape is empty.
 
-### Run-path wiring (rf2-baah3)
+### Run-path wiring
 
 The run path (`re-frame.story.runtime` — `run-variant` / `run-inline-plan`)
 THREADS this registry end-to-end, so the selection + refusal + validation
@@ -2192,7 +2184,7 @@ is API-stable, but the storage/source of truth is one tape so Story UI,
 CI, docs, agents, and future golden/diff tools cannot disagree about what
 happened.
 
-**Schema-backed, frozen contract (rf2-3nbl5.6).** This shape is a
+**Schema-backed, frozen contract.** This shape is a
 **frozen public contract** — the ONE result language spoken IDENTICALLY
 across `story/run`, `story/is`, the Story UI Test
 mode, story-mcp `run-variant` / `read-failures`, and generated run
@@ -2204,13 +2196,13 @@ re-exported as `story/run-result-schema` + `story/valid-run-result?` /
 cross-surface round-trip is gated by
 `re-frame.story-mcp.run-result-roundtrip-test`. The map schema is
 deliberately **open** — the verdict + judgement + agreement-floor slots
-are pinned, while the evidential `.4` projections and the identity /
+are pinned, while the evidential tape projections and the identity /
 timing / provenance slots (`:frame`, `:decorators`, …) ride along. The
 verdict is `:status`, read via `story/result-status` /
 `story/result-passed?`; there is **NO `:passing?` boolean** and **no
-lifecycle-as-verdict** (the clean break, rf2-ba86n.17 — a boolean could
-not express the distinct `:cannot-run` THIRD outcome, and a lifecycle
-state is the frame's mount state, not the run's judgement).
+lifecycle-as-verdict** (a boolean cannot express the distinct
+`:cannot-run` THIRD outcome, and a lifecycle state is the frame's mount
+state, not the run's judgement).
 
 `render-variant` is not a test runner: it returns the distinct workshop
 render result (`:rendered` / `:invalid-args` / `:cannot-run` / `:error`)
@@ -2247,8 +2239,8 @@ back-link to the replayed source. A run's error rides `:assertions` as
 an `:error` record; there is no top-level `:error` slot.
 
 **The identity hashes are attached, not promised.** `story/run` (JVM and
-CLJS) and story-mcp `run-variant` return both strings (rf2-7vz97, PR
-#9796). `re-frame.story.result/run-result` derives `:run-hash` over the
+CLJS) and story-mcp `run-variant` return both strings.
+`re-frame.story.result/run-result` derives `:run-hash` over the
 assembled result's `run-hash-input-keys` slice, so every result that
 boundary mints carries one and a caller-supplied value is overwritten.
 The runtime stamps `:plan-hash` over the plan that ran, the same slice
@@ -2299,9 +2291,8 @@ Narrative span (projection):
 ```
 
 Story Test mode, CI, `clojure.test`, and MCP MUST consume this shape
-rather than maintaining independent result schemas. This unification
-fixes the documented "false GREEN," where run-state and the assertions
-slot disagreed.
+rather than maintaining independent result schemas. One shape rules out
+the "false GREEN" in which run-state and the assertions slot disagree.
 
 ### Run-result evidence projection
 
@@ -2312,9 +2303,7 @@ the runner reads the retained tape via `re-frame.core/epoch-history` and
 merges the projection into the run-result. There is exactly one source of
 truth — Story UI, CI, docs, agents, and the golden/diff tools cannot
 disagree about what happened, and no parallel accumulator can drift from
-the tape evidence (the former per-frame `trace-accumulators` siphon for
-warnings/effects was superseded by this projection and fully removed in
-rf2-luzky).
+the tape evidence.
 
 `(story/project-evidence epoch-tape {:script coerced-script})` is pure —
 `:rf/epoch-record` vector in, evidence map out — so it runs under
@@ -2327,7 +2316,7 @@ rf2-luzky).
 | `:warnings` | each epoch's `:trace-events` | every `:op-type :warning` trace event, in tape order (the canonical severity discriminator every `(trace/emit! :warning …)` site produces; the framework never emits `:warn`) |
 | `:effects` | each epoch's `:effects` row | the rows the framework already projected at settle time (`re-frame.epoch.capture/project-all`), concatenated in dispatch order, each stamped with its `:epoch-id` |
 | `:sub-runs` / `:renders` | each epoch's `:sub-runs` / `:renders` rows | concatenated in tape order, each stamped with `:epoch-id` |
-| `:reactive-counts` | the `:sub-runs` / `:renders` rows above | recompute / render counts (rf2-5x1wt.30) — `{:sub-recomputes :view-renders :by-sub-id :by-view :by-render-key :by-cause :per-epoch}`; PRESENT only when the tape carried at least one reactive row (a bare headless dispatch-only tape omits it, so the fail-closed slot check is honest). `:by-cause` credits each row to the dispatching event's `:rf.sub/cause-event-id` / `:rf.view/cause-event-id` attribution |
+| `:reactive-counts` | the `:sub-runs` / `:renders` rows above | recompute / render counts — `{:sub-recomputes :view-renders :by-sub-id :by-view :by-render-key :by-cause :per-epoch}`; PRESENT only when the tape carried at least one reactive row (a bare headless dispatch-only tape omits it, so the fail-closed slot check is honest). `:by-cause` credits each row to the dispatching event's `:rf.sub/cause-event-id` / `:rf.view/cause-event-id` attribution |
 | `:narrative` | the script steps over the epoch beats | the two-level projection below |
 
 **Two-level narrative.** The author's `:script` steps form the outer spans;
@@ -2350,7 +2339,7 @@ ONCE up front and each play APPENDS its absolute boundaries (the
 append-only epoch tape is never reset between plays), keeping the
 positional boundary→script-step zip aligned. Clearing per-play would drop
 every earlier play's boundaries and mis-attribute later-play effects to
-earlier-play steps — a green run with false provenance (rf2-76l69l).
+earlier-play steps — a green run with false provenance.
 
 **Narrative navigation (the scrub backbone).** The two-level `:narrative`
 is a *tree* (spans over beats), but a Test-mode / Docs-mode **scrub** moves
@@ -2399,7 +2388,7 @@ failed `:rf.error/exception` record carrying `:operation
 as `:failing-id`. So a `:setup` or `:script` dispatch of an event nobody
 registered — a misspelt id, or the `:your/setup-event` placeholder an
 unfilled real-setup upgrade scaffold still carries — fails the run rather
-than reading as a zero-assertion vacuous green (rf2-0ae7o.13). No exemption
+than reading as a zero-assertion vacuous green. No exemption
 exists for a recorded script: the play exporter drops the `[:rf/redacted]`
 placeholder before a recording becomes a script, so a recording never
 dispatches it.
@@ -2408,11 +2397,9 @@ dispatches it.
 
 There is **one run-result shape**, assembled by **one boundary** —
 `re-frame.story.result/run-result` (re-exported as `story/run-result`).
-Before unification three result vocabularies coexisted and could disagree
-(the documented "false GREEN"): the runtime's `:lifecycle`-keyed map, the
-play runner's per-step `run-state` machine, and `replay-result`'s tape-
-projected shape. They are now folded onto the ONE shape, derived — wherever
-the tape carries the evidence — from `evidence/project-evidence` (the single
+Because there is ONE shape, no two result vocabularies can disagree (the
+"false GREEN"). It is derived — wherever the tape carries the evidence —
+from `evidence/project-evidence` (the single
 tape projection; there is **no parallel accumulator**). The judgement slots
 (`:assertions` / `:checks`) fold the `:rf.story/assertions` accumulator and
 the executed plays' failed steps that recorded no assertion there — a
@@ -2422,11 +2409,11 @@ settled, each an `:rf.error/story-play-step-failed` record (`:fail`, or
 `:error` for a step exception) — so the unified result and the play's
 run-state can never disagree (the non-tape inputs: an assertion verdict and
 a step outcome are the facts the tape does not carry); every evidential slot
-is a `.4` projection.
+is a tape projection.
 
 **The three record shapes carry a unified `:status`.** Each assertion record
 and check record carries `:status ∈ #{:pass :fail :cannot-run :error}`
-alongside the `.18` atom / accumulator fields, so the run aggregation reads
+alongside the assertion-atom / accumulator fields, so the run aggregation reads
 ONE field. `result/record-status` derives it: an explicit `:status` wins;
 else `:cannot-run?` / a no-DOM `:skipped?` → `:cannot-run` (the §`:cannot-run`
 rule generalizes the shipping `:skipped?`); `:exception` / `:error` →
@@ -2451,11 +2438,11 @@ PROJECTED evidence, not a sibling accumulator. A run whose only unmet
 expectations are `:cannot-run` is itself `:cannot-run` (a refusal, never a
 silent pass); a zero-assertion clean run is `:pass` (vacuously green).
 
-**The runtime consumes the folded plan.** The `.18` fold (`:assert-db` /
+**The runtime consumes the folded plan.** The assertion fold (`:assert-db` /
 `:assert-dom` → the canonical `[:assert assertion-atom]` checkpoint) is
 applied at script-resolution time. The `run-variant` lifecycle drives the
-**plan's `[:world :scripts]`** (folded by the compiler's `normalize-scripts`,
-rf2-5x1wt.22), and so do the live canvas, the play chip and the
+**plan's `[:world :scripts]`** (folded by the compiler's `normalize-scripts`),
+and so do the live canvas, the play chip and the
 step-debugger (§Public vocabulary); a hand-built spec handed straight to
 the engine (`runner-events/run!`) has each raw `:assert-db` / `:assert-dom`
 step folded inline by the step executor. Either way
@@ -2507,7 +2494,7 @@ is a registry lookup, a map is an inline plan:
 
 This collapses the potential
 `run-variant` / `is-variant` / `run-plan` / `is-plan` surface into three
-verbs. All three verbs ship; `run-variant` remains the registered-variant
+verbs. All three verbs ship; `run-variant` is the registered-variant
 lifecycle entry point. The variant-vs-plan
 distinction is real for *authoring* (`reg-variant` registers; an inline
 map does not) but is spurious at execution and MUST NOT leak into the
@@ -2557,10 +2544,10 @@ layers (global args, the parent story's `:args`, and any `:active-modes` /
 `:cell-overrides` in `opts`) through `re-frame.story.args/run-arg-layers`, so
 `[:explain :args]` and `[:explain :effective-args]` equal
 `plan/effective-args` and the run result's `:effective-args`; a
-caller-supplied `:run-args` wins (rf2-noxox, PR #9799). The Explain panel
+caller-supplied `:run-args` wins. The Explain panel
 compiles a keyword target the same way, and so do `render/prepare-render`
-and the View-State panel (rf2-851t0, PR #9810). The pure compiler is the
-other reading and stays explicit: `(:explain (variant-plan target opts))`
+and the View-State panel. The pure compiler is the
+other reading and is explicit: `(:explain (variant-plan target opts))`
 with no `:run-args`, and any inline map target (which runs with no ambient
 layers), carries the variant-chain arg layer alone.
 
@@ -2580,12 +2567,11 @@ can copy. P1 makes it first-class:
   run-result slots, the two-level narrative, and the green-while-red
   agreement floor — is pinned in [§Run-result evidence
   projection](#run-result-evidence-projection).
-- Golden slices (the deferred P1.5 surface) are now landed: a curated run
-  may be frozen as a `:rf.test/golden` slice — the `canonicalize`d
-  behavioural surface — and a later run asserted to canonicalize `=` to it.
-  The contract is pinned in [§Golden slices](#golden-slices); it builds
-  directly on the now-proven canonicalization (the determinism gate +
-  semantic diff are its adversarial corpus).
+- Golden slices (the P1.5 surface): a curated run may be frozen as a
+  `:rf.test/golden` slice — the `canonicalize`d behavioural surface — and
+  a later run asserted to canonicalize `=` to it. The contract is pinned in
+  [§Golden slices](#golden-slices); it builds directly on canonicalization
+  (the determinism gate + semantic diff are its adversarial corpus).
 
 Combined with `restore-epoch`, this projection is the spine of **both**
 Test mode and Docs mode: the same evidence produces the test result and a
@@ -2601,12 +2587,12 @@ boundary and is deferred.
 
 `(story/canonicalize result)` is the **single** primitive that
 determinism, semantic-diff, snapshot-identity, `:plan-hash` / `:run-hash`,
-future golden-slice comparison, and the inline-plan-to-registered-variant
+golden-slice comparison, and the inline-plan-to-registered-variant
 metamorphic relation all consume. Implementation MUST live in a
-fingerprinting namespace, not `re-frame.story.canonical` (which already
-installs canonical vocabulary), and MUST fold the existing
-`re-frame.story.identity` `canonical-form` / `content-hash` /
-`snapshot-tuple` path into one implementation. It MUST:
+fingerprinting namespace, not `re-frame.story.canonical` (which installs
+canonical vocabulary), and the `re-frame.story.identity` `canonical-form` /
+`content-hash` / `snapshot-tuple` path MUST route through it, so there is
+one implementation. It MUST:
 
 - strip `:rf.story/*` accumulator keys from app-db;
 - project away volatile record fields
@@ -2619,17 +2605,17 @@ installs canonical vocabulary), and MUST fold the existing
 - **type-tag the canonical form** so the four collection kinds are
   mutually distinguishable — a map, set, vector, and seq each wrap under a
   reserved structural tag (`:rf/map` / `:rf/set` / `:rf/vec` / `:rf/seq`), so
-  `{}` ≠ `[]` ≠ `#{}` and `{:k 1}` ≠ `[:k 1]` canonically (rf2-lvrqa);
+  `{}` ≠ `[]` ≠ `#{}` and `{:k 1}` ≠ `[:k 1]` canonically;
 - **fold functions to the `:rf/opaque-fn` sentinel** so a hashed slice
   carrying a fn (a `:fx-overrides` plan slot, an app-db
   closure-as-value, an effect `:args` callback) hashes DETERMINISTICALLY
   across processes rather than embedding the fn's object identity via
-  `pr-str` (rf2-4gwja) — the deliberate trade-off is that two values
+  `pr-str` — the deliberate trade-off is that two values
   differing ONLY in fn identity hash equal (determinism is the contract);
 - **normalise host-divergent numbers to a bit-stable form** so the
-  cross-host byte-stability contract holds for scalars too (rf2-vvqeo).
-  Integers pass through verbatim (host-identical `pr-str`, so existing
-  hashes do not rebase), but two number sub-kinds are NOT host-portable
+  cross-host byte-stability contract holds for scalars too.
+  Integers pass through verbatim (host-identical `pr-str`), but two
+  number sub-kinds are NOT host-portable
   through raw `pr-str` and MUST be normalised: a **ratio** (JVM
   `clojure.lang.Ratio`; CLJS has none, reading `1/3` as the double 0.333…)
   is coerced to its double value, and a **fractional or special double**
@@ -2641,13 +2627,13 @@ installs canonical vocabulary), and MUST fold the existing
   a double `1.0` and the integer `1` as canonically equal). `##NaN` folds to
   the single `:rf/nan` sentinel — collapsing every NaN bit-pattern to one
   value AND giving the set/map `pr-str` sort a deterministic order in NaN's
-  presence (NaN is not `=`-reflexive, so a bare `(sort-by pr-str)` was
+  presence (NaN is not `=`-reflexive, so a bare `(sort-by pr-str)` would be
   comparator-unstable). `##Inf` / `##-Inf` ride the `:rf/double` bit path
   (their bits are host-stable). Set element ordering additionally uses a
   **total comparator with a deterministic equal-`pr-str` tiebreak**, so two
   distinct elements that canonicalise to the same `pr-str` (e.g. two
   `:rf/opaque-fn` sentinels) get a stable relative order rather than the
-  comparator-unstable order a bare `(sort-by pr-str)` left;
+  comparator-unstable order a bare `(sort-by pr-str)` would give;
 - enumerate the `:plan-hash` input fields;
 - compute `:run-hash` over the canonical epoch slice.
 
@@ -2665,9 +2651,8 @@ beyond determinism/diff are wired.
 ### Concrete primitive contract
 
 The primitive lives in `re-frame.story.fingerprint` (NOT
-`re-frame.story.canonical`, the vocabulary installer). The former
-`re-frame.story.identity` `canonical-form` / `content-hash` hashing is
-folded into it; `re-frame.story.identity` now delegates to
+`re-frame.story.canonical`, the vocabulary installer).
+`re-frame.story.identity` delegates to
 `fingerprint/content-hash` and exposes only `snapshot-tuple` /
 `snapshot-identity`, so there is exactly one canonical path.
 
@@ -2688,8 +2673,8 @@ The volatile-field set stripped recursively by `canonicalize` is
 `:run-hash` is the symmetric companion to `:plan-hash` (a run-result
 carries its own `:run-hash`, which must not feed a re-canonicalization of
 that result), and `:epoch-id` / `:trace-id` / `:committed-at` /
-`:schema-digest` are the reserved per-run epoch / trace stamps added for
-the determinism gate (§Determinism gate). The genuinely-common stamps
+`:schema-digest` are the reserved per-run epoch / trace stamps the
+determinism gate strips (§Determinism gate). The genuinely-common stamps
 (`:id`, `:time`, `:frame`, the volatile `:tags` keys, an effect row's
 `:error-trace`, and `:source` / `:elapsed-ms` / `:runner`) are stripped
 **structurally** — only on their carrier map — so app-db data on those keys
@@ -2704,9 +2689,9 @@ structural type tag — a map → `[:rf/map [k v …]]`, a set → `[:rf/set [e
 …]]`, a vector → `[:rf/vec [e …]]`, a seq → `[:rf/seq [e …]]` — so the four
 kinds are mutually distinguishable after `pr-str` and a map<->vector or
 set<->vector type flip is a *semantic* difference, never a silent
-collision (rf2-lvrqa). A function value canonicalises to the stable
+collision. A function value canonicalises to the stable
 `:rf/opaque-fn` sentinel, never an object-identity `pr-str`, so a hashed
-slice carrying a fn is deterministic across processes (rf2-4gwja). Because
+slice carrying a fn is deterministic across processes. Because
 the tags make `canonical-form` NON-idempotent, the hash is taken over the
 canonical value ONCE via `hash-canonical` (no second `canonical-form`
 pass).
@@ -2718,22 +2703,21 @@ registered variant describing the same behaviour produce the same
 `plan-hash` regardless of provenance slots (`:plan/id`, `:variant/id`,
 `:source-chain`, `:explain`, `:evidence`).
 
-**Snapshot-identity migration path.** The rf2-5x1wt.3 fold was a pure
-relocation of the hashing code; the rf2-lvrqa soundness fix (type tags +
-`:rf/opaque-fn` + the `hash-canonical` single-pass hash) is a deliberate
-canonical-form REVISION, so `canonical-version` bumps
-`:rf/snapshot-canonical-v1` → `:rf/snapshot-canonical-v2`. Because the
-version is the first hashed slot of EVERY hash, the bump re-stamps every
+**Snapshot-identity migration path.** A deliberate canonical-form
+REVISION — a change to what `canonical-form` produces, such as the type
+tags, `:rf/opaque-fn` and the `hash-canonical` single-pass hash — bumps
+`canonical-version` (currently `:rf/snapshot-canonical-v2`). Because the
+version is the first hashed slot of EVERY hash, a bump re-stamps every
 value `content-hash` / `canonical-hash` / `plan-hash` / `run-hash` emit,
 including the snapshot content-hash. There are NO in-repo stored hash
 fixtures — every consumer (the JVM + CLJS fingerprint corpus, the
 story-mcp + mcp-conformance snapshot checks) asserts hash STABILITY (same
 input → same hash) and SENSITIVITY (different input → different hash), never
-a pinned hex literal — so the only baselines the bump invalidates are
+a pinned hex literal — so the only baselines a bump invalidates are
 EXTERNAL visual-regression baselines, which re-capture on their next run.
-Pre-alpha, that re-stamp is cheap, and the v1 → v2 bump is exactly the
+Pre-alpha, that re-stamp is cheap, and the version bump is exactly the
 signal that drives it. The volatile strip + `:variant-id` reconciliation
-still apply only on the `canonicalize` / `canonical-hash` path (determinism,
+apply only on the `canonicalize` / `canonical-hash` path (determinism,
 diff, `:plan-hash`, `:run-hash`); the snapshot tuple keeps its `:variant-id`
 slot. A `content-hash` consumer keeps variant-id sensitivity; a
 `canonical-hash` consumer treats variant-id as volatile.
@@ -2750,7 +2734,7 @@ epoch db-after, warning) MUST canonicalize `not=` and hash unequal.
 The author-facing `:network` surface and its `[method url] → {:reply …}`
 shape are introduced in §The network surface and §Network stubs. This
 section pins the **compiler contract** for the first-class `:network`
-world slot (rf2-5x1wt.14) — the lowering to the managed-request stub
+world slot — the lowering to the managed-request stub
 machinery, the conflict semantics versus generic `:fx-overrides`, and the
 explain / `:plan-hash` participation.
 
@@ -2792,8 +2776,8 @@ returns to empty.
 Two consequences the surface depends on. Two variants mounted at once
 stubbing the SAME url with DIFFERENT replies each keep their own; and a
 frame owning no fixture (or a request outside any frame) resolves to no
-route, so the helper's own "no stub matched" transport failure still fires
-unchanged. The lowered fx id stays `:rf.http/managed-test-stub`, so the
+route, so the helper's own "no stub matched" transport failure
+fires. The lowered fx id is `:rf.http/managed-test-stub`, so the
 recorded `:fx-decisions` redirect and the artifact replay path are
 unaffected.
 
@@ -2881,7 +2865,7 @@ hashes the whole `:world` slot. A semantic change to any per-route reply
 (success payload, failure `:kind`, status) therefore perturbs the
 `:plan-hash`; a `canonicalize`-volatile change does not.
 
-**Run-artifact wiring (rf2-tymyh).** The per-route reply data is
+**Run-artifact wiring.** The per-route reply data is
 preserved in `explain`, `:plan-hash`, (through `[:world :network]`) the
 narrative evidence, AND the low-level run artifact. When a plan is
 coerced to a `:rf.test/run-artifact` (the determinism gate / golden
@@ -2899,7 +2883,7 @@ slot is what makes the round-trip succeed (§Run artifact and replay).
 
 ## Unit and integration testing adjustments
 
-These additions (inline-plan execution surface, invariant sentinels,
+These surfaces (inline-plan execution surface, invariant sentinels,
 first-bad-epoch, run-artifact replay/determinism, and the cookbook) are
 **Story-owned** — they ship in the `re-frame.story.*` namespaces and are
 normative here in 017.
@@ -2920,8 +2904,7 @@ after `canonicalize`.
 ## Invariant sentinels
 
 The epoch tape is also the substrate for **invariant sentinels** — the
-"this MUST hold after every committed epoch" assertion form (NewTestStory
-§A1 / §A2). Two surfaces share one notion of an invariant: a live
+"this MUST hold after every committed epoch" assertion form. Two surfaces share one notion of an invariant: a live
 fixture (`with-invariants`) and a pure post-hoc utility
 (`first-bad-epoch`). Both live in `re-frame.story.invariants` and both
 evaluate through `check-epoch` (the one per-epoch evaluation primitive),
@@ -3029,7 +3012,7 @@ MUST opt into their required runner:
 They SHOULD reuse the same run-result shape, and SHOULD pair pixel/DOM
 findings with app-db, args, trace, and epoch evidence when possible.
 
-### The browser-tier assertion ids (rf2-5x1wt.28)
+### The browser-tier assertion ids
 
 Three assertion ids cover the visual / a11y surface; each carries its
 capability requirement through the requirement registry
@@ -3042,8 +3025,8 @@ the plan compiler (`re-frame.story.assertions/known-assertion-ids`):
 | `:rf.assert/a11y` | `:a11y-engine` | `:browser` | axe-style scan (reuses the `re-frame.story.ui.a11y` axe-core hook) |
 | `:rf.assert/a11y-structural` | `:hiccup-structure` | `:hiccup` | pure structural a11y facts over the rendered hiccup tree |
 
-`:rf.assert/visual-snapshot` and `:rf.assert/a11y` are browser-only. The
-NET-NEW `:rf.assert/a11y-structural` is the spec's *structural a11y checks
+`:rf.assert/visual-snapshot` and `:rf.assert/a11y` are browser-only.
+`:rf.assert/a11y-structural` is the spec's *structural a11y checks
 MAY require only `:hiccup`* rung: it inspects the rendered hiccup TREE
 (data) for structural facts — an `:img` with no `:alt`, an interactive
 control with no accessible name, a positive `:tabIndex` — without a real
@@ -3090,9 +3073,9 @@ The browser-tier executor (`re-frame.story.play.browser`) is the SAME
 shape as the DOM executor (`re-frame.story.play.dom`): pure-data evaluators
 with a single host probe (`browser-available?`) isolated at the edge. It
 produces the ONE assertion record (§Run result — Assertion record) every
-other assertion produces — a visual/a11y finding rides the EXISTING
-assertion-record accumulator, NOT a parallel result accumulator. **No new
-run-result slot is added**; a finding is an assertion record like any
+other assertion produces — a visual/a11y finding rides the SAME
+assertion-record accumulator, NOT a parallel result accumulator. **There is
+no browser-tier run-result slot**; a finding is an assertion record like any
 other, so Test mode, CI, `clojure.test`, and MCP read it through the
 unified result with no special-casing.
 
@@ -3110,7 +3093,7 @@ a differ or a second axe loader:
   through it without a compile-time dependency on the UI ns (the
   bundle-isolation rule: nothing in a production path `:require`s the UI).
 
-### Run-path routing (rf2-9ikj0)
+### Run-path routing
 
 The browser-tier executor is reached from the run path the SAME way the DOM
 family is: the in-script `[:assert …]` executor
@@ -3172,7 +3155,7 @@ substrate GUARANTEES the artifact exists and is canonicalizable; wiring
 an upload step into a specific workflow gate is a CI-mechanics decision,
 NOT part of this spec.
 
-### Browser-tier gate policy (rf2-5x1wt.28)
+### Browser-tier gate policy
 
 The structural-a11y check (`:rf.assert/a11y-structural`, `:hiccup`) carries
 NO browser dependency, so it runs on the NORMAL test path — the executor's
@@ -3198,7 +3181,7 @@ it.
 This is the normative POLICY; the concrete CI workflow that wires a
 dedicated browser-tier gate (selecting variants by `:required-runner` and
 running them under a `:pixels` / `:a11y-engine` runner) is a separate
-piece of work and is NOT part of this spec change.
+piece of work and is NOT part of this spec.
 
 ## Promotion
 
@@ -3375,7 +3358,7 @@ A run artifact is a map carrying:
   effect replays against the same stub rather than firing the live effect.
 - `:network` is the per-route HTTP reply map (`{[method url] {:reply …}}`,
   §The network surface) captured from the plan's `[:world :network]` slot
-  when the artifact was materialized (rf2-tymyh). The `:network` world slot
+  when the artifact was materialized. The `:network` world slot
   lowers to a `:fx-decisions` redirect (`{:rf.http/managed
   :rf.http/managed-test-stub}`) — but that redirect targets a stub fx that
   is only registered WITH the routes by
@@ -3416,7 +3399,7 @@ Replay MUST:
   on the headless runner) refuses with `:cannot-run`. A bare `[:wait ms]`
   does not sleep: a replay settles synchronously (and the determinism gate
   refuses it outright). Without this a property stated as an `[:assert …]`
-  checkpoint could never falsify (rf2-3x7nj.31.1).
+  checkpoint could never falsify.
 - **Reapply the fx decisions / overrides** — the artifact's
   `:fx-decisions` ride the per-call `:fx-overrides` on every replayed
   dispatch, routed through the **same** `settled-boundary`
@@ -3446,8 +3429,8 @@ Replay MUST:
   live `:network` run uses. This registers `:rf.http/managed-test-stub`
   WITH the routes, so the `:fx-decisions` redirect resolves to a stub that
   matches each request and synthesises the recorded reply. Without this a
-  replayed `:network` request would fail-closed on "no stub matched"
-  (rf2-tymyh). The install routes through `re-frame.http.test-support`
+  replayed `:network` request would fail-closed on "no stub matched".
+  The install routes through `re-frame.http.test-support`
   (Spec 014 §Testing); the http artefact rides Story's main `:deps`, so the
   namespace is always present (the JVM resolves it lazily via
   `requiring-resolve`).
@@ -3483,8 +3466,7 @@ projected tape with the SAME matchers the live run's result boundary uses
 Their records join `:assertions`: an expected violation that never happened
 fails; a matched one passes and is exactly consumed, its selector landing on
 the result's `:consumed-selectors`, so it does not trip the floor; and a
-causal checkpoint the replay's tape cannot prove refuses `:cannot-run`
-(rf2-0viz4).
+causal checkpoint the replay's tape cannot prove refuses `:cannot-run`.
 
 `opts` MAY carry `:frame` (replay into a caller-owned frame),
 `:hooks` (richer settled-boundary flush-hooks — a `:dom` adapter declares
@@ -3660,10 +3642,9 @@ so the gate is not blinded by them:
   (trace event), `:elapsed-ms` (run / assertion record), and the
   framework-stamped `:rf/time-ms` nested inside the flat `:rf.cofx`
   recordable-coeffect map that rides a `:rf.event/dispatched` trace event's
-  `:tags` (rf2-jt854w — EP-0010 dev-stamps the envelope's recordable-coeffect
-  map onto the enqueue trace; EP-0017 / rf2-alc1lf renamed the field from the
-  nested `:rf.world/inputs` to the flat `:rf.cofx` map and the framework time
-  fact from `:time-ms` to `:rf/time-ms`). The `:rf.cofx` map itself is
+  `:tags` (EP-0010 dev-stamps the envelope's recordable-coeffect map onto the
+  enqueue trace; EP-0017 specifies the flat `:rf.cofx` map and its
+  `:rf/time-ms` framework time fact). The `:rf.cofx` map itself is
   **semantic** (caller-supplied owner-qualified facts — the app's
   `:counter/delta`, a subsystem's `:rf.route/location`, … — are the
   deterministic causal token a scripted / replayed run pins, and a real
@@ -3690,7 +3671,7 @@ so the gate is not blinded by them:
   so it is projected to data — its kind (`"ex-info"` for an `ex-info` on
   both hosts, else the host class / error name), `ex-message`, `ex-data`
   and, recursively, its cause. Without both, two replays of one failing
-  program never canonicalize equal (rf2-3x7nj.31.3);
+  program would never canonicalize equal;
 - **intentionally-unspecified source order** — maps are key-sorted and
   sets element-sorted by `canonicalize`; effects and epochs keep producer
   order (which IS semantic — reordering them is a real difference).
@@ -3713,10 +3694,9 @@ difference there is still detected:
   and a race are ordinary app data — on a run-result (`:status` +
   `:app-db`), an assertion record (`:assertion` + `:passed?` / `:status`),
   a trace event, a normalized plan or its `:explain` map (both carry
-  `:source-chain`), and a run artifact (`:artifact/kind`). They were once
-  stripped recursively, which blinded golden, diff, the gate, `:run-hash`
-  and `:plan-hash` to app-db and args data under those keys
-  (rf2-3x7nj.30.4).
+  `:source-chain`), and a run artifact (`:artifact/kind`). Stripping them
+  recursively would blind golden, diff, the gate, `:run-hash` and
+  `:plan-hash` to app-db and args data under those keys.
 
 The semantic trace tags (`:rf.trace/event-id`, the event payload
 `:rf.event/v`, a changed `:rf.event/db`) are left intact.
@@ -3724,14 +3704,12 @@ The semantic trace tags (`:rf.trace/event-id`, the event payload
 This per-run-stamp strip applies on the `canonicalize` / `canonical-hash`
 (= determinism / diff / `:run-hash`) path ONLY — the strip-free
 `content-hash` that snapshot identity hashes does not see it. (Snapshot
-content-hash VALUES still change with the rf2-lvrqa canonical-form revision
-+ `canonical-version` v2 bump, which re-stamps every hash; see
-§Snapshot-identity migration path. This strip is orthogonal to that — it
-adds no NEW strip to the snapshot path.) A revision of this strip moves
-`canonical-hash` / `:run-hash` / `:plan-hash` values and a golden's
-`:canonical`, but never `content-hash`, so it does not bump
-`canonical-version`: the rf2-3x7nj.31.3 / .30.4 revision stayed on v2, as
-the earlier handler-timing and `:rf.cofx` strip additions did.
+content-hash VALUES change with a canonical-form revision, whose
+`canonical-version` bump re-stamps every hash; see §Snapshot-identity
+migration path. This strip is orthogonal to that — it adds no strip to the
+snapshot path.) A revision of this strip moves `canonical-hash` /
+`:run-hash` / `:plan-hash` values and a golden's `:canonical`, but never
+`content-hash`, so it does not bump `canonical-version`.
 
 ### The bare-`[:wait ms]` opt-out → `:cannot-run`
 
@@ -3744,7 +3722,7 @@ bare `[:wait ms]` is the explicit opt-out. `assert-deterministic` MUST
 running it flakily. The refusal is a **pure pre-flight** — computed before
 any replay — and carries `:reason :determinism-wall-clock-wait` and the
 offending `:wait-steps`. (A virtual clock that would make `[:wait ms]`
-deterministic remains a non-goal, §P1 non-goals.)
+deterministic is a non-goal, §P1 non-goals.)
 
 `[:flush-presence]` is NOT a wall-clock step and is never refused: it
 advances the framework's presence FAKE clock (§Presence-bearing
@@ -3916,8 +3894,8 @@ they read named slots while seeing none of the per-run noise.
 ## Golden slices
 
 A **golden slice** is a curated canonicalized run regression artifact — the
-deferred P1.5 surface (§Shared primitive lock), unblocked now that
-`canonicalize` is proven by the determinism gate and the semantic diff. It
+P1.5 surface (§Shared primitive lock), built on the `canonicalize`
+primitive the determinism gate and the semantic diff share. It
 freezes a run's behaviour once and asserts later runs still match it:
 
     capture: golden  = canonicalize(behavioural-slice(run))
@@ -3939,8 +3917,7 @@ mismatch. So a golden MUST store the `canonicalize`d slice — the SAME
 primitive (§Canonicalization) the determinism gate compares N replays
 through and the semantic diff projects before comparing. A golden mismatch
 is therefore always a SEMANTIC difference (app-db, effect, assertion
-verdict, schema failure, trace spine), never volatile drift. This is exactly
-why the surface was deferred until `canonicalize` was proven: the golden
+verdict, schema failure, trace spine), never volatile drift. The golden
 REUSES that one strip path rather than inventing a second canonicaliser to
 drift apart.
 
@@ -4051,7 +4028,7 @@ and test.
 | view wrapping (theme/provider/chrome) | `:decorator` |
 | the state matrix (theme × viewport × …) | `:variants-grid` / `:modes` |
 
-### Workshop superset — what the plan carries (rf2-5x1wt.24)
+### Workshop superset — what the plan carries
 
 The variant-plan compiler is the SINGLE compiler for render AND test, so
 the workshop vocabulary rides the SAME normalized plan the runner
@@ -4195,11 +4172,11 @@ P1 is complete when:
 ## See also
 
 - [`001-Authoring.md`](001-Authoring.md) — registration surface; the
-  `:setup` / `:script` rename lands on the macro bodies there.
+  macro bodies there carry the `:setup` / `:script` keys.
 - [`004-Assertions.md`](004-Assertions.md) — the canonical `:rf.assert/*`
   family and record-don't-throw semantics this document builds on.
 - [`009-Test-Mode.md`](009-Test-Mode.md) — the in-canvas test runner pane
-  that must adopt the unified run-result shape.
+  that consumes the unified run-result shape.
 - [`spec/007-Stories.md`](../../../spec/007-Stories.md) — the framework's
   normative Story contract; §Play functions (the canonical vocabulary)
   points here.
