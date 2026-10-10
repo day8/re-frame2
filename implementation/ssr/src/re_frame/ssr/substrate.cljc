@@ -20,7 +20,8 @@
   re-frame.ssr.adapter so CLJS does not see a child-namespace /
   parent-var name clash."
   (:require [re-frame.error :as rf.error]
-            [re-frame.ssr.emit :as rf.ssr.emit]))
+            [re-frame.ssr.emit :as rf.ssr.emit]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (defn- ssr-make-state-container [initial-value]
   (atom initial-value))
@@ -36,14 +37,6 @@
   (let [k (gensym "rf-ssr-sub-")]
     (add-watch container k (fn [_ _ prev nu] (on-change prev nu)))
     (fn unsubscribe [] (remove-watch container k))))
-
-(defn- ssr-make-derived-value [source-containers compute-fn]
-  ;; No caching: SSR runs each sub at most a handful of times per
-  ;; request; mirrors the plain-atom adapter.
-  (reify
-    #?(:clj clojure.lang.IDeref :cljs IDeref)
-    (#?(:clj deref :cljs -deref) [_]
-      (apply compute-fn (map deref source-containers)))))
 
 (defn- ssr-render [_ _ _]
   ;; SSR uses render-to-string exclusively. Calling render on the SSR
@@ -82,8 +75,15 @@
    :read-container            ssr-read-container
    :replace-container!        ssr-replace-container!
    :subscribe-container       ssr-subscribe-container
-   :make-derived-value        ssr-make-derived-value
+   ;; Plain-atom's derived value: it recomputes on every deref and is
+   ;; disposable, so a disposed layer-2+ sub releases its declared inputs.
+   :make-derived-value        rf.substrate.plain-atom/make-derived-value
    :render                    ssr-render
    :render-to-string          rf.ssr.emit/render-to-string
    :register-context-provider ssr-register-context-provider
    :dispose-adapter!          ssr-dispose-adapter!})
+
+;; On CLJS the sub-cache registers and fires a derived value's on-dispose
+;; callbacks through the `:adapter/*` hooks, which answer only for the
+;; installed adapter, so this adapter routes them for itself.
+#?(:cljs (rf.substrate.plain-atom/route-disposal-hooks! adapter))

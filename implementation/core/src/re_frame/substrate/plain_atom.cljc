@@ -50,7 +50,11 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-(defn- make-derived-value [source-containers compute-fn]
+(defn make-derived-value
+  "The plain-atom derived value: it recomputes on every deref, and is
+  disposable on both runtimes, so a layer-2+ sub's declared inputs are released
+  when its cache entry is. The SSR adapter reuses it."
+  [source-containers compute-fn]
   ;; No caching: derived values recompute on every deref. SSR runs each
   ;; sub at most a handful of times per request; caching would add
   ;; complexity for negligible gain.
@@ -172,19 +176,30 @@
 ;; adapters (see `re-frame.substrate.spine`'s identical routing). Routed
 ;; through `rf.substrate.adapter/route-hook!` so a test bundle that also loads
 ;; a React adapter only runs the plain-atom impl while plain-atom is the
-;; `(rf/init!)`-installed adapter (per Spec 006 §adapter routing).
+;; `(rf/init!)`-installed adapter (per Spec 006 §adapter routing). That same
+;; routing is why an adapter reusing `make-derived-value` routes the hooks for
+;; itself: plain-atom's routed impl does not answer while another adapter is
+;; installed.
 ;;
 ;; The `add-on-dispose!` / `dispose!` dispatch tolerates a value that does
 ;; NOT satisfy the protocol (e.g. a foreign reaction inherited through a
 ;; cross-substrate test bundle) by no-op'ing — mirroring the Reagent
 ;; adapter's fall-through dispatch.
 #?(:cljs
-   (do
-     (rf.substrate.adapter/route-hook! adapter :adapter/add-on-dispose!
+   (defn route-disposal-hooks!
+     "Route the `:adapter/add-on-dispose!` / `:adapter/dispose!` late-bind hooks
+     for `adapter-spec` into the `IDisposable` protocol `make-derived-value`
+     reifies. Called for this ns's `adapter` and for every adapter that reuses
+     `make-derived-value`. Returns nil."
+     [adapter-spec]
+     (rf.substrate.adapter/route-hook! adapter-spec :adapter/add-on-dispose!
        (fn add-on-dispose!-dispatch [a f]
          (when (satisfies? rf.disposable/IDisposable a)
            (rf.disposable/-add-on-dispose a f))))
-     (rf.substrate.adapter/route-hook! adapter :adapter/dispose!
+     (rf.substrate.adapter/route-hook! adapter-spec :adapter/dispose!
        (fn dispose!-dispatch [a]
          (when (satisfies? rf.disposable/IDisposable a)
-           (rf.disposable/-dispose a))))))
+           (rf.disposable/-dispose a))))
+     nil))
+
+#?(:cljs (route-disposal-hooks! adapter))
