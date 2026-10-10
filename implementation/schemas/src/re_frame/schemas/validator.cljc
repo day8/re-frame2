@@ -66,7 +66,7 @@
   "The default explainer — delegates to `malli.core/explain` via the
   late-bind hook `:schemas/malli-explain` published by
   `re-frame.schemas.malli`. Returns nil when the adapter
-  ns is not loaded — the failure trace then omits the `:explain` key."
+  ns is not loaded — the failure trace's `:explain` slot then reads nil."
   [schema value]
   (when-let [e (rf.late-bind/get-fn :schemas/malli-explain)]
     (e schema value)))
@@ -280,8 +280,8 @@
 
     :validate  (fn [schema value] truthy?) | nil  — nil disables
                validation (every site soft-passes).
-    :explain   (fn [schema value] explanation) | nil — nil omits the
-               failure trace's `:explain` key.
+    :explain   (fn [schema value] explanation) | nil — nil leaves the
+               failure trace's `:explain` slot nil.
     :print     (fn [schema-value] canonical-string) | nil — the schema-print
                companion the digest pipeline hashes. nil coerces
                to the default EDN canonicaliser, so `printer-fn` is
@@ -369,8 +369,7 @@
 (defn run-explainer
   "Hot-path entry — invoke the registered explainer fn against a
   `(schema, value)` pair. Returns nil when no explainer is registered
-  (nil); call sites then omit the `:explain` key from the failure
-  trace."
+  (nil); the failure trace's `:explain` slot then reads nil."
   [schema value]
   (when-let [f @explainer-fn]
     (f schema value)))

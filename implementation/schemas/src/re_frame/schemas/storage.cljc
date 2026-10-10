@@ -40,18 +40,19 @@
   "Resolve a schema operation's frame id. An explicit `:frame` target wins;
   otherwise the carried frame scope is required. Frame values normalize to
   runnable ids, and the result must be a keyword so reads and registrations
-  cannot create unreachable registry keys. `operation` labels context errors."
-  ([opts] (resolve-frame opts :reg-app-schema))
-  ([opts operation]
+  cannot create unreachable registry keys. `where` names the calling entry
+  point in errors; registration is the default."
+  ([opts] (resolve-frame opts 'rf/reg-app-schema))
+  ([opts where]
    (let [frame-target (:frame opts)
          frame-id     (if (some? frame-target)
                         (rf.frame/frame-target->id frame-target)
                         (rf.frame/require-current-frame!
-                          operation {:where 'rf/reg-app-schema}))]
+                          :reg-app-schema {:where where}))]
      (when-not (keyword? frame-id)
        (rf.error/throw-error!
          :rf.error/app-schemas-bad-arg
-         're-frame.schemas/app-schemas
+         where
           (str "the :frame opt must be a frame-id keyword or a frame value "
               "(from rf/make-frame); got " (pr-str frame-target)
               ", which resolved to the non-keyword frame target "
@@ -63,8 +64,9 @@
      frame-id)))
 
 (defn coerce-opts
-  "Permit the keyword-only sugar `(app-schemas frame-id)` and the
-  opts-map form `(app-schemas {:frame frame-id})`. Nil means no override.
+  "Permit the frame-target sugar `(reg-app-schemas m frame-id)` and the
+  opts-map form `(reg-app-schemas m {:frame frame-id})` of the registration
+  opts. Nil means no override. Reads take an opts map only (`read-frame-id`).
 
   A frame value is itself a map, so it must be recognized before the generic
   opts-map branch or it would lose its target."
@@ -78,8 +80,8 @@
     :else
     (rf.error/throw-error!
       :rf.error/app-schemas-bad-arg
-      're-frame.schemas/app-schemas
-      (str "app-schemas expects a keyword frame-id, a frame value, or an "
+      'rf/reg-app-schemas
+      (str "reg-app-schemas expects a keyword frame-id, a frame value, or an "
            "opts map; got " (pr-str opts-or-frame-id) ". Pass a frame-id "
            "keyword, a frame value (from rf/make-frame), or a "
            "{:frame <frame-id-or-value>} opts map.")
@@ -323,7 +325,7 @@
   [opts where-sym]
   (let [target (when (map? opts) (:frame opts))]
     (if (some? target)
-      (resolve-frame {:frame target})
+      (resolve-frame {:frame target} where-sym)
       (let [payload (rf.frame/no-frame-context-payload
                       :app-schema-introspection
                       {:where    where-sym
@@ -443,10 +445,9 @@
                      " silently skipped. The workable shape: register"
                      " the vector form directly, all the way down, so"
                      " the walker can introspect every per-slot flag."
-                     " (The handler/cofx/sub registration-meta"
-                     " `:sensitive?` fallback has been removed —"
-                     " sensitivity is path-targeted and the redactor"
-                     " consults only per-slot schema declarations.) Per"
+                     " (Sensitivity is path-targeted: the redactor"
+                     " consults only per-slot schema declarations, never"
+                     " handler/cofx/sub registration-meta.) Per"
                      " Spec 010 §The `:schema` value is opaque to"
                      " re-frame.")})))))
 
