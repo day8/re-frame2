@@ -1536,7 +1536,7 @@ async function runHttpToggle(page) {
     ':rf.http/timeout',
     ':rf.http/transport',
     ':rf.http/decode-failure',
-    ':rf.http/cors',
+    ':http-toggle/cross-origin',
   ];
   for (const outcome of outcomes) {
     await selectOutcome(page, outcome);
