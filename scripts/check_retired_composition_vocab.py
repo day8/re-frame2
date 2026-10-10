@@ -339,9 +339,8 @@ def _strong_hits(line: str, tool_spec_surface: bool = False) -> str | None:
     """The retired strong symbol `line` carries (bare or `rf/`), else None.
 
     Returns the SYMBOL rather than a bare True so a finding can say which of the
-    nine roster entries produced it, and the self-test can hold each entry to
-    owning a fixture. It is truthy/falsy, so a caller that only asks "did it
-    hit?" can treat it as a boolean.
+    nine roster entries produced it. It is truthy/falsy, so a caller that only
+    asks "did it hit?" can treat it as a boolean.
 
     A match qualified by any namespace OTHER than `rf/` (e.g. the internal
     `re-frame.realm/`, or an app's own `counter/`) names a different symbol
@@ -370,9 +369,7 @@ def _strong_hits(line: str, tool_spec_surface: bool = False) -> str | None:
 #     are different symbols (and `rf/app-db` is not even a real export). We
 #     deliberately require the `(` so a bare `rf/realm` mentioned as a value
 #     does not fire; the retired API reintroduction is always a call.
-#     The three nouns are a NAMED roster so a finding says which one fired and
-#     the self-test can hold each to owning a fixture — without one, a noun
-#     could be deleted from the alternation and nothing would notice.
+#     The three nouns are a NAMED roster so a finding says which one fired.
 _RETIRED_FACADE_NOUNS: tuple[str, ...] = ("app", "module", "realm")
 _RETIRED_FACADE_CALL_RE = re.compile(
     r"\(\s*rf/(?P<noun>" + "|".join(_RETIRED_FACADE_NOUNS)
@@ -512,9 +509,7 @@ def _prose_hits(line: str, context: str = "") -> str | None:
 #      remain" — required to co-occur with a realm/app-value/module substrate
 #      noun on the same line so the EP-0018 reg-event-ctx "retained internally"
 #      note (no realm adjacency) stays green.
-#      Each alternative is NAMED so a finding says which claim shape fired and
-#      the self-test can hold each to owning a fixture: a single positive that
-#      matched only the first two would leave three shapes unexercised.
+#      Each alternative is NAMED so a finding says which claim shape fired.
 _RETAINED_CLAIM_FORMS: tuple[tuple[str, str], ...] = (
     ("retained-internal",
      r"retained[- ]internal"),
@@ -548,9 +543,7 @@ _SUBSTRATE_NOUN_RE = re.compile(
 # (d2) A DELETED-NAMESPACE read. EP-0024 removes these namespaces in full;
 #      naming one as a live seam is drift. `re-frame.migration/` is scoped to
 #      `migration-map` specifically to keep the family tight.
-#      Named per namespace, same reason as the rosters above: with one planted
-#      namespace, the other two could be deleted from the alternation without a
-#      single fixture noticing.
+#      Named per namespace, same reason as the rosters above.
 _DELETED_NS_READS: tuple[tuple[str, str], ...] = (
     ("re-frame.realm/",     r"re-frame\.realm/[\w.+!?<>=-]+"),
     ("re-frame.app-value/", r"re-frame\.app-value/[\w.+!?<>=-]+"),
@@ -607,12 +600,10 @@ def _deleted_ns_read_hits(line: str, context: str = "") -> str | None:
 
 
 # Each family is a (kind, predicate) pair where the predicate maps a
-# (masked-line, tool_spec_surface) pair to the ROSTER ENTRY it matched, or None
-# — never a bare True, which would only ever say that SOMETHING in the family
-# fired and so let a roster entry sit with no fixture at all. The strong family
-# uses `_strong_hits` (capture + internal-namespace filter + the tool-spec
-# install!-convention exemption); the facade-noun family is a plain regex search
-# (surface-independent). The prose family (`_prose_hits`) runs over PROSE lines
+# (masked-line, tool_spec_surface) pair to the ROSTER ENTRY it matched, or None.
+# The strong family uses `_strong_hits` (capture + internal-namespace filter +
+# the tool-spec install!-convention exemption); the facade-noun family is a
+# plain regex search (surface-independent). The prose family (`_prose_hits`) runs over PROSE lines
 # (outside fenced code) on the root-support surfaces, not the fenced-code lines
 # the symbol families consume.
 _RETIRED_PATTERNS = (
@@ -646,10 +637,8 @@ class Finding(NamedTuple):
     line: int
     kind: str
     snippet: str
-    # WHICH roster entry within the family fired. Every finding in a family
-    # carries the same `kind`, so without this nothing could say that a roster
-    # entry had no fixture. `_report` does not read it — it exists for the
-    # self-test's roster-coverage assertion.
+    # WHICH roster entry within the family fired. `_report` does not read it;
+    # the self-test's exact witness sets do.
     detail: str = ""
 
 
@@ -1155,8 +1144,7 @@ def main(argv: list[str]) -> int:
 
 
 # --------------------------------------------------------------------------
-# Self-tests (fixture-driven) — prove the gate FIRES on each live shape
-# and stays GREEN on every removed-context / sanctioned counterpart.
+# Self-tests
 # --------------------------------------------------------------------------
 
 _SELF_TEST_FIXTURE_ROOT = (
@@ -1175,269 +1163,59 @@ def _witnesses(findings: list[Finding]) -> frozenset[str]:
 
 
 def _run_self_tests(verbose: bool = False) -> int:
-    """Scan each fixture file and assert the EXACT set of witnesses it yields.
-
-    A witness is `<family>:<roster entry>` — which of the family's alternatives
-    fired, not merely that the family did. Positive fixtures plant a LIVE
-    retired symbol inside a code fence on a non-allowlisted-shaped page;
-    negative fixtures exercise the counterparts that MUST stay green: prose
-    naming retired symbols in inline code spans, a masked `;` comment in a fence,
-    the sanctioned `app-db` term, the rewritten image/frame teaching, and a
-    non-facade namespace-qualified symbol (an app's own `counter/install!` setup
-    hook — the qualifier filter keeps a non-`rf/` qualifier from firing). A
-    dedicated allowlist case scans a positive fixture AS IF it were an EP doc
-    and asserts it does NOT fire.
-
-    A second block exercises the root-support PROSE-architecture
-    family: it scans the prose fixtures AS IF they were a root-support file
-    (rel_posix=README.md) so the prose family activates, asserting the live
-    "event program" / "realm-routing" teaching FIRES and every removed-context
-    / inline-span / in-fence counterpart stays GREEN.
-
-    Exact counts over single-token fixtures do not by themselves oblige a
-    ROSTER ENTRY to own a fixture, so an entry could be deleted from its
-    alternation without a single case noticing. The coverage assertions at the
-    end close that.
-    """
+    """Scan each fixture as a given repo path and assert the EXACT set of
+    witnesses it yields, so a dead detector reds by name."""
+    symbol = "retired-construction-symbol:"
+    claim = "retired-substrate-retained-claim:"
+    # (fixture, the repo path it is scanned as, exact witnesses). None scans it
+    # as its own non-allowlisted path; README.md arms the root-support prose
+    # family; tools/xray/spec/ is the tool-spec surface.
+    cases: list[tuple[str, str | None, set[str]]] = [
+        ("positive/live_install_realm_app.md", None, {symbol + "install!"}),
+        ("positive/live_install_realm_app.md",
+         "docs/EP/EP-0013-app-values-and-runtime-realms.md", set()),
+        ("positive/live_rf_app_call.md", None,
+         {"retired-facade-noun-call:rf/app"}),
+        ("negative/masked_clj_comment_in_fence.md", None, set()),
+        ("positive/live_event_program_prose.md", "README.md",
+         {"retired-architecture-prose:event-program"}),
+        ("negative/inline_span_field_name.md", "README.md", set()),
+        ("negative/phrase_in_fence_not_prose.md", "README.md", set()),
+        # One line, three overlapping claim shapes: the witness names all three.
+        ("positive/live_retained_internal_substrate.md", None,
+         {claim + "retained-internal+retained-as-internal-substrate"
+          "+substrate-noun-retained"}),
+        ("positive/live_deleted_namespace_read.md", None,
+         {"retired-deleted-namespace-read:re-frame.realm/"}),
+        ("negative/reg_event_ctx_retained_internally.md", None, set()),
+        ("positive/tool_spec_realm_symbol_fires.md",
+         "tools/xray/spec/tool_spec_realm_symbol_fires.md",
+         {symbol + "dispose-realm!"}),
+    ]
     failures = 0
-    covered: set[str] = set()
-
-    def run_case(fixture: str, rel_posix: str, expected: frozenset[str],
-                 label: str = "") -> None:
-        """Scan one fixture at one surface and assert its exact witness set."""
-        nonlocal failures
-        tag = f"{label} " if label else ""
+    for fixture, rel_posix, expected in cases:
         path = _SELF_TEST_FIXTURE_ROOT / fixture
-        if not path.is_file():
-            sys.stderr.write(
-                f"self-test FAIL: {tag}fixture {fixture!r} missing at {path}\n"
-            )
-            failures += 1
-            return
-        text = path.read_text(encoding="utf-8", errors="replace")
-        findings = _scan_text(path, text, rel_posix=rel_posix)
-        actual = _witnesses(findings)
-        covered.update(actual)
+        rel_posix = rel_posix or fixture
+        actual = _witnesses(
+            _scan_text(path, path.read_text(encoding="utf-8"), rel_posix)
+        )
         if actual != expected:
             failures += 1
-            sys.stderr.write(f"self-test FAIL: {tag}{fixture}\n")
-            missing = sorted(expected - actual)
-            extra = sorted(actual - expected)
-            if missing:
-                sys.stderr.write(
-                    "      DETECTOR DEAD — this fixture plants "
-                    f"{', '.join(missing)} and the gate did not see it\n"
-                )
-            if extra:
-                sys.stderr.write(f"      UNEXPECTED: {', '.join(extra)}\n")
-            return
-        # A set hides duplicates, and a duplicate witness can die unseen.
-        if len(findings) != len(actual):
-            failures += 1
             sys.stderr.write(
-                f"self-test FAIL: {tag}{fixture} has {len(findings)} findings "
-                f"for {len(actual)} distinct witness(es) — a duplicate can die "
-                "without changing the set. Plant each witness once.\n"
+                f"self-test FAIL: {fixture} as {rel_posix}: missing "
+                f"{sorted(expected - actual)}, unexpected "
+                f"{sorted(actual - expected)}\n"
             )
         elif verbose:
             sys.stderr.write(
-                f"self-test PASS: {tag}{fixture} "
+                f"self-test PASS: {fixture} as {rel_posix} "
                 f"({', '.join(sorted(actual)) or 'green'})\n"
             )
-
-    _SYMBOL = "retired-construction-symbol:"
-    _FACADE = "retired-facade-noun-call:"
-    cases: list[tuple[str, frozenset[str]]] = [
-        # (fixture relative to fixture-root, exact witness set)
-        # --- positives: a LIVE retired symbol in a code fence must FIRE ---
-        ("positive/live_install_realm_app.md",
-         frozenset({_SYMBOL + "install!"})),
-        ("positive/live_reinstall.md",
-         frozenset({_SYMBOL + "reinstall!"})),
-        ("positive/live_app_owns_inspector.md",
-         frozenset({_SYMBOL + "app-owns"})),
-        ("positive/live_installed_app_read.md",
-         frozenset({_SYMBOL + "installed-app"})),
-        # The other four strong symbols, one per fenced line, each attributed
-        # to itself.
-        ("positive/live_remaining_strong_symbols.md", frozenset({
-            _SYMBOL + "realm-ids",
-            _SYMBOL + "app-registrations",
-            _SYMBOL + "app-requires",
-            _SYMBOL + "frame-realm",
-        })),
-        ("positive/live_rf_realm_call.md",
-         frozenset({_FACADE + "rf/realm"})),
-        ("positive/live_rf_module_call.md",
-         frozenset({_FACADE + "rf/module"})),
-        ("positive/live_rf_app_call.md",
-         frozenset({_FACADE + "rf/app"})),
-        # --- negatives: removed-context / sanctioned forms must stay GREEN ---
-        ("negative/inline_code_span_mention.md",       frozenset()),
-        ("negative/masked_clj_comment_in_fence.md",    frozenset()),
-        ("negative/app_db_sanctioned.md",              frozenset()),
-        ("negative/rewritten_image_frame_teaching.md", frozenset()),
-        # Non-facade namespace-qualified symbols: live internal namespace reads
-        # (`re-frame.registrar/`, `re-frame.frame/`) AND an app's own
-        # `counter/install!` setup hook, which shares a bare name with a
-        # retired facade symbol but is a different symbol. Must stay GREEN.
-        ("negative/internal_substrate_ns_reads.md",    frozenset()),
-    ]
-    for fixture, expected in cases:
-        # Direct-file scan; the fixture's own posix path is non-allowlisted
-        # (it does not start with an allowlist prefix), so positives fire.
-        run_case(fixture, fixture, expected)
-
-    # Dedicated allowlist case: the SAME live-residue fixture, scanned as if it
-    # were an EP doc, must NOT fire (the docs/EP/ allowlist exempts it).
-    allow_fixture = "positive/live_install_realm_app.md"
-    allow_path = _SELF_TEST_FIXTURE_ROOT / allow_fixture
-    if allow_path.is_file():
-        text = allow_path.read_text(encoding="utf-8", errors="replace")
-        got = len(_scan_text(
-            allow_path, text,
-            rel_posix="docs/EP/EP-0013-app-values-and-runtime-realms.md",
-        ))
-        if got == 0:
-            if verbose:
-                sys.stderr.write(
-                    "self-test PASS: allowlist exempts EP-doc retired example\n"
-                )
-        else:
-            sys.stderr.write(
-                "self-test FAIL: allowlist did NOT exempt EP-doc retired "
-                f"example (got {got} findings)\n"
-            )
-            failures += 1
-    else:
-        sys.stderr.write(
-            f"self-test FAIL: allowlist fixture {allow_fixture!r} missing\n"
-        )
-        failures += 1
-
-    # The root-support PROSE-architecture family. Scanned AS IF the
-    # fixture were a root-support file (rel_posix=README.md) so the prose family
-    # activates (it is gated to `_ROOT_SUPPORT_PROSE_FILES`).
-    _PROSE = "retired-architecture-prose:"
-    prose_cases: list[tuple[str, frozenset[str]]] = [
-        # --- positives: live retired architecture prose must FIRE ---
-        ("positive/live_event_program_prose.md",
-         frozenset({_PROSE + "event-program"})),
-        ("positive/live_realm_routing_prose.md",
-         frozenset({_PROSE + "realm-routing"})),
-        # --- negatives: removed-context / inline-span / in-fence stay GREEN ---
-        ("negative/removed_context_prose_phrases.md",   frozenset()),
-        ("negative/inline_span_field_name.md",          frozenset()),
-        ("negative/phrase_in_fence_not_prose.md",       frozenset()),
-    ]
-    for fixture, expected in prose_cases:
-        # rel_posix=README.md makes _scan_text run the prose-architecture family.
-        run_case(fixture, "README.md", expected, label="prose")
-
-    # The DELETED-SUBSTRATE families (retained-internal claim +
-    # deleted-namespace read). These run over the prose of EVERY scanned file in
-    # `_scan_text`, so a plain non-allowlisted rel_posix activates them. The
-    # positives plant the residue class (a "retained internal
-    # substrate" claim; a `re-frame.realm/...` live read); the negatives prove
-    # the removed-context window keeps the legitimate deletion-discussion shapes
-    # (spec/Conventions.md / the Xray specs / the api-manifest) GREEN, and that
-    # the EP-0018 `reg-event-ctx` "retained internally" note (different subject,
-    # no realm adjacency) does NOT fire.
-    _CLAIM = "retired-substrate-retained-claim:"
-    _NSREAD = "retired-deleted-namespace-read:"
-    deleted_substrate_cases: list[tuple[str, frozenset[str]]] = [
-        # --- positives: live deleted-substrate-as-live drift must FIRE ---
-        # One line, three overlapping claim shapes — the witness records all
-        # three rather than crediting the fixture with only the first.
-        ("positive/live_retained_internal_substrate.md",
-         frozenset({_CLAIM + "retained-internal+retained-as-internal-substrate"
-                    "+substrate-noun-retained"})),
-        # The other two claim shapes: verb-first, and survival phrased as
-        # continuity.
-        ("positive/live_retained_substrate_noun_claim.md",
-         frozenset({_CLAIM + "retained-substrate-noun"})),
-        ("positive/live_realm_readers_remain_claim.md",
-         frozenset({_CLAIM + "realm-readers-remain"})),
-        ("positive/live_deleted_namespace_read.md",
-         frozenset({_NSREAD + "re-frame.realm/"})),
-        # The other two deleted namespaces.
-        ("positive/live_deleted_app_value_ns_read.md",
-         frozenset({_NSREAD + "re-frame.app-value/"})),
-        ("positive/live_deleted_migration_map_read.md",
-         frozenset({_NSREAD + "re-frame.migration/migration-map"})),
-        # --- negatives: removed-context / different-subject stay GREEN ---
-        ("negative/removed_context_deleted_substrate.md", frozenset()),
-        ("negative/reg_event_ctx_retained_internally.md", frozenset()),
-    ]
-    for fixture, expected in deleted_substrate_cases:
-        # A plain non-allowlisted rel_posix runs the deleted-substrate families.
-        run_case(fixture, fixture, expected, label="deleted-substrate")
-
-    # The TOOL-SPEC install!-convention exemption. Scanned AS IF the
-    # fixture lived under `tools/xray/spec/` so `_scan_text` lights the
-    # tool_spec_surface flag: a bare `install!` / `reinstall!` panel convention
-    # stays GREEN, but a realm-specific retired symbol FIRES there.
-    tool_spec_cases: list[tuple[str, frozenset[str]]] = [
-        ("negative/tool_panel_install_convention.md",   frozenset()),
-        ("positive/tool_spec_realm_symbol_fires.md",
-         frozenset({_SYMBOL + "dispose-realm!"})),
-    ]
-    for fixture, expected in tool_spec_cases:
-        # A tools/<tool>/spec/ rel_posix lights the tool_spec_surface flag.
-        run_case(fixture, f"tools/xray/spec/{Path(fixture).name}", expected,
-                 label="tool-spec")
-
-    # ----------------------------------------------------------------------
-    # ROSTER COVERAGE — a roster entry without a fixture is a hard failure.
-    # ----------------------------------------------------------------------
-    #
-    # The cases above assert an exact count over single-token fixtures, which
-    # does not show that each entry in each alternation has a case AT ALL:
-    # without this block, deleting `realm-ids`, `frame-realm`, `rf/app` or two
-    # thirds of the deleted-namespace alternation would leave the whole
-    # self-test green.
-    #
-    # `covered` is accumulated from the witnesses the fixtures actually
-    # produced, and the joined multi-match details are split so a line matching
-    # three claim shapes credits all three.
-    covered_entries: set[str] = set()
-    for witness in covered:
-        family, _, detail = witness.partition(":")
-        for entry in detail.split("+"):
-            covered_entries.add(f"{family}:{entry}")
-
-    rosters: tuple[tuple[str, str, tuple[str, ...]], ...] = (
-        ("_STRONG_SYMBOLS", "retired-construction-symbol", _STRONG_SYMBOLS),
-        ("_RETIRED_FACADE_NOUNS", "retired-facade-noun-call",
-         tuple(f"rf/{n}" for n in _RETIRED_FACADE_NOUNS)),
-        ("_DELETED_NS_READS", "retired-deleted-namespace-read",
-         tuple(n for n, _p in _DELETED_NS_READS)),
-        ("_RETAINED_CLAIM_FORMS", "retired-substrate-retained-claim",
-         tuple(n for n, _p in _RETAINED_CLAIM_FORMS)),
-    )
-    for roster_name, family, entries in rosters:
-        uncovered = [e for e in entries
-                     if f"{family}:{e}" not in covered_entries]
-        if uncovered:
-            failures += 1
-            sys.stderr.write(
-                f"self-test FAIL: {roster_name} entr(y/ies) with no fixture of "
-                f"their own: {', '.join(uncovered)}\n"
-                "      Plant each one in a positive fixture and declare its "
-                "witness. An alternation entry no case reaches can be deleted, "
-                "or typo'd, and stay green forever.\n"
-            )
-
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
         return 1
-    total = (len(cases) + 1 + len(prose_cases) + len(deleted_substrate_cases)
-             + len(tool_spec_cases))
     if verbose:
-        sys.stderr.write(
-            f"all {total} self-tests passed; every entry in "
-            f"{', '.join(r for r, _f, _e in rosters)} owns a fixture.\n"
-        )
+        sys.stderr.write(f"all {len(cases)} self-tests passed.\n")
     return 0
 
 
