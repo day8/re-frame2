@@ -69,11 +69,7 @@
   payload), which is DETERMINISTICALLY RECONSTRUCTABLE from the row's own
   durable facts (`:work/id` / `:resource/key` / `:generation` / `:work/frame`)
   — so the durable continuation is a DERIVED row fact, not a separately stored
-  copy that could drift from the verification identity. `durable-reply-to`
-  reconstructs it and runs it through `re-frame.reply/durable-target` so the
-  reified continuation is asserted DATA-ONLY (no host handle, no ephemeral
-  `::post` slot) before it could ride a durable row —
-  the same crispness the spec illustrates.
+  copy that could drift from the verification identity.
 
   An app-supplied CALL-SITE continuation (the mutation `:reply-to`, EP-0016
   D1) is a DIFFERENT continuation: a transport-payload-only app target fired
@@ -85,7 +81,6 @@
   framework-internal reified continuation; the call-site target is the app's
   transport-payload continuation."
   (:require [re-frame.late-bind :as rf.late-bind]
-            [re-frame.reply :as rf.reply]
             [re-frame.resources.state :as rf.resources.state]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -279,51 +274,6 @@
     ;; ensure / refetch supplied. Omitted when empty, so the common no-reply-to
     ;; read carries no such key.
     (seq reply-targets) (assoc :reply-targets (vec reply-targets))))
-
-;; ---- durable reply-target -------------------------------------------------
-;;
-;; The framework-internal resource-read reply target made DURABLE
-;; (Managed-Effects §Work-ledger integration — "the row's `:reply-to` field is
-;; the reply target made durable"). The target is DERIVED from the durable row
-;; facts (it is the verification payload the internal reply handlers gate on),
-;; then asserted DATA-ONLY via `re-frame.reply/durable-target`.
-
-(defn durable-reply-to
-  "Reconstruct the DURABLE, data-only reply target for a resource-read work
-  `record` — the reified continuation Managed-Effects §Work-ledger
-  integration says the row carries as `:reply-to`. The target is DERIVED from
-  the record's own durable facts (the verification payload the internal reply
-  handler gates on: `:work/id` + `:resource/key` + `:generation` +
-  `:work/frame`), so the durable continuation can never drift from the
-  stale-suppression identity. Runs the reconstructed descriptor through
-  `re-frame.reply/durable-target`, which strips any ephemeral slot and FAILS
-  LOUD (`:rf.reply/non-data-target`) if a host handle hid in a public field —
-  asserting the reified continuation is data-only before it could ride a
-  durable row / epoch snapshot. Returns the data-only
-  normalized descriptor. Per Spec 016 §Frame work ledger / Managed-Effects
-  §Work-ledger integration.
-
-  The verification payload carries exactly the stale-suppression identity the
-  internal reply handler gates on — `:work/id` (the single suppression key,
-  EP-0007), the linked `:resource/key`, the `:generation`, and the carried
-  `:rf.frame/id` (the `:work/frame` stamp). Scope is NOT a suppression key (it
-  is correlation metadata derivable from the resource key), so it is omitted
-  from the durable continuation — one name per fact."
-  [record]
-  ;; The success reply event id is inlined here as the normative
-  ;; literal (Spec 016 §Events; the same id `transport.http/succeeded-reply`
-  ;; spells). The ledger spells it locally rather than depending on
-  ;; transport.http (a layering choice, not a cycle) — and there is exactly ONE
-  ;; use, so a local `def` would only add a level of indirection over the literal.
-  ;; The success leg is canonical: the failure leg
-  ;; (`:rf.resource.internal/failed`) shares the SAME verification payload, so
-  ;; one durable target represents the reified continuation.
-  (rf.reply/durable-target
-    {:event [:rf.resource.internal/succeeded
-             {:work/id      (:work/id record)
-              :resource/key (:resource/key record)
-              :generation   (:generation record)
-              :rf.frame/id  (:work/frame record)}]}))
 
 (defn join-owner+cause
   "Dedupe-join a SUPPLEMENTARY ensure onto an existing non-terminal work
