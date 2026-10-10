@@ -20,20 +20,12 @@ Fixtures:
 | `broken_anchor`                    | 1               | Target file exists but anchor doesn't. Not in `_run_self_tests()`: `../test_fast_pr_docs_gate/run-self-test.sh` (case M) runs it to pin `main()`'s exit code |
 | `absolute_path_ok`                 | 0               | `[text](/docs/foo.md)` repo-root-absolute                                          |
 | `relative_source_target`           | 1               | A link from `docs/core/testing/` out to `../../../implementation/…` is existence-checked whatever its kind: a renamed source file is flagged, while a live source file and a live directory are not |
-| `inline_code_placeholder_ignored`  | 0               | Backticked link-syntax placeholders are masked; real link still validates (rf2-mqv8s) |
-| `inline_code_negative_control`     | 1               | Same-line broken link OUTSIDE an inline-code span is still flagged (rf2-mqv8s)     |
 | `ai_findings_link_flagged`         | 1               | Link into the gitignored `ai/findings/<file>.md` tree is flagged (rf2-l7yj8)       |
-| `ai_findings_dir_link_flagged`     | 1               | Link into the bare `ai/findings/` directory is flagged (rf2-l7yj8)                 |
-| `blockquoted_heading_ok`           | 0               | Link into a blockquoted heading (`> #### Foo`, incl. nested) resolves (rf2-869k9m) |
 | `indented_heading_not_indexed`     | 1               | Negative control: an *indented bare* `#` line still mints no anchor (rf2-869k9m)   |
-| `explicit_id_brace_not_a_target`   | 1               | Negative control: the brace suffix `#dup` is NOT a fragment target (rf2-ru0wg)     |
 | `explicit_id_duplicate`            | 0               | Two `{#dup}` headings disambiguate as `one-dup` / `one-dup_1` (rf2-ru0wg)          |
 | `wrapped_link_broken_anchor`       | 2               | A link whose TEXT wraps across a newline is still validated (rf2-vpc4c)            |
-| `wrapped_link_ok`                  | 0               | Correct wrapped links — plain, multi-line, same-file, blockquoted — are not flagged (rf2-vpc4c) |
 | `indented_fence_negative_control`  | 1               | Widening the fence matcher must not quieten the gate: the 1 is a real broken link in prose after an indented fence, and an unclosed fence ends with its container (rf2-mmyc) |
-| `fenced_doc_link_out_of_scope`     | 0               | A resolving doc link inside a fence, under a tree outside `FENCED_DOC_LINK_TREES`, stays silent — the fenced-doc-link assertion is scoped, not corpus-wide |
-| `fenced_doc_link_prompt_tree`      | 1               | The same assertion on a pasteable PROMPT, where the fence is the deliverable and holds the whole document — the shape `docs/the-mayor-method/bootstrap.md` actually writes; the `](` in `(fn [x](inc x))` must stay silent (rf2-qdqf) |
-| `fenced_doc_link_blockquoted`      | 1               | The same assertion on a BLOCKQUOTED fence (`> ```clojure`) — the shape `docs/design/fresco/studio/` actually writes (rf2-1cpt) |
+| `fenced_doc_link_prompt_tree`      | 1               | The fenced-doc-link assertion on a pasteable PROMPT, where the fence is the deliverable and holds the whole document — the shape `docs/the-mayor-method/bootstrap.md` actually writes; the `](` in `(fn [x](inc x))` must stay silent (rf2-qdqf) |
 | `blockquoted_fence_not_indexed`    | 2               | A `###` line and an `<a id>` inside a blockquoted fence mint no fragment target, so links to them are broken; the real heading and the blockquoted heading below must still resolve (rf2-1cpt) |
 | `reference_style_links`            | 2               | Reference-style links — full, collapsed and shortcut — resolve through their `[label]: dest` definitions; the 2 are a broken target and a broken anchor reached that way, and the page's bracketed prose, footnote, padded label and UNUSED definition must all stay silent (rf2-2ryk) |
 | `site_url_ok`                      | 0               | This project's own published-site URLs, resolved offline: the site root, an ordinary page, an `index.md` directory, both staged trees, and a staged page with and without its trailing slash and query, and with a fragment it renders — plus another host and another repo, which stay external (rf2-dnx3r) |
