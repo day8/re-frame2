@@ -4413,8 +4413,10 @@
          :resources/on-frame-destroyed!     — release the frame's
                                               host-side transient resource
                                               caches — work-ledger host
-                                              handles + generation
-                                              high-water mark.
+                                              handles, timers and
+                                              revalidation listeners; the
+                                              process-wide generation
+                                              high-water mark stays.
          :http/on-frame-destroyed!          — abort the frame's plain
                                               managed HTTP still in flight
                                               (live fetch/future + sleeping
@@ -4695,16 +4697,16 @@
         ;; Release the destroyed frame's host-side transient
         ;; RESOURCE caches — the work-ledger host handles
         ;; (re-frame.resources.work-ledger/handle-table, the AbortControllers
-        ;; / timer handles keyed by [frame-id work-id]) AND the resource
-        ;; generation high-water mark (re-frame.resources.state/generation-
-        ;; cache). Neither is runtime-db state — both live in module-level
-        ;; atoms (host-derived, ephemeral, off the epoch/SSR egress wire; the
-        ;; generation host-side so an epoch restore cannot rewind + recycle a
-        ;; generation). The durable serializable work records + cache entries
-        ;; ride the dropped frame value. Without this hook a long-running
-        ;; multi-frame / per-request-frame process leaks one entry per
-        ;; destroyed frame in each host cache. No-op when re-frame.resources
-        ;; is absent (the artefact is optional).
+        ;; / timer handles keyed by [frame-id work-id]), the stale/GC timers
+        ;; and the revalidation listeners. None is runtime-db state — each
+        ;; lives in a module-level atom (host-derived, ephemeral, off the
+        ;; epoch/SSR egress wire). The resource generation high-water mark is
+        ;; process-wide, so a destroy leaves it alone and a same-id successor
+        ;; never re-mints a predecessor's generation. The durable serializable
+        ;; work records + cache entries ride the dropped frame value. Without
+        ;; this hook a long-running multi-frame / per-request-frame process
+        ;; leaks one entry per destroyed frame in each host cache. No-op when
+        ;; re-frame.resources is absent (the artefact is optional).
         (safe-call-hook! :resources/on-frame-destroyed! id)
         ;; Abort the destroyed frame's still-in-flight PLAIN managed HTTP
         ;; — ordinary event-handler `:rf.http/managed` work with

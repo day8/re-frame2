@@ -302,7 +302,7 @@
 ;; The conformance corpus represents handler bodies as data; the
 ;; `re-frame.conformance` interpreter (in core/src — on this
 ;; artefact's classpath) lifts the DSL into native fns. The wiring here
-;; mirrors the relevant slice of `re-frame.conformance-test/realise-handlers`
+;; mirrors the relevant slice of `re-frame.conformance-runner/realise-handlers`
 ;; minus the surfaces the ssr fixtures never touch (cofx schema /
 ;; machines / flows). A fixture that wants those belongs in
 ;; core's full-corpus runner; this gate covers the ssr lifecycle only.

@@ -105,8 +105,8 @@
 
 (deftest dispatch-sync-macro-stamps-call-site-on-handler-exception
   ;; The call-site rides the envelope into errors emitted inside the handler
-  ;; chain. Production gets the REGISTRATION coord instead, from the always-on
-  ;; error-coord registry.
+  ;; chain. Production gets the REGISTRATION coord instead, read off the
+  ;; descriptor of the handler that ran.
   (rf/reg-event :rf2-ts1a/throws
                 (fn [_cofx _event]
                   (throw (ex-info "boom" {}))))

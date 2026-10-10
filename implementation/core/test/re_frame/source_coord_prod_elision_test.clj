@@ -1,9 +1,10 @@
 (ns re-frame.source-coord-prod-elision-test
   "Source-coord production elision. Under the disabled debug gate the public
   `rf/handler-meta` carries no coord keys, because Xray's Open-in-editor and
-  re-frame-pair are dev-only. The always-on `error-coords-by-id` registry keeps
-  them for the error-emit record that off-box shippers read; that half is pinned
-  by `re-frame.source-coords-test` and `re-frame.source-coord-jvm-test`.
+  re-frame-pair are dev-only. The always-on registration coordinate each stored
+  descriptor carries keeps them for the error-emit record that off-box shippers
+  read; that half is pinned by `re-frame.source-coord-jvm-test`, and the
+  process-wide `[kind id]` index tooling reads by `re-frame.source-coords-test`.
 
   JVM-only (`_test.clj`) so the gate can be modelled with `with-redefs`; under
   `scripts/test-core-prod-gate.sh` the redef is a no-op over an already-false

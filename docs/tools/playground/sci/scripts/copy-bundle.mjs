@@ -23,8 +23,8 @@ if (!existsSync(src)) {
 // --- absolute-path normalisation --------------------------------------------
 //
 // The reg-* macros' source-coord capture bakes the on-disk source path of
-// rf2_playground/sci.cljs into the bundle (the always-on error-coord registry
-// survives :advanced elision). When shadow-cljs resolves the source root as an
+// rf2_playground/sci.cljs into the bundle (registration coordinates are always
+// on, so they survive :advanced elision). When shadow-cljs resolves the source root as an
 // ABSOLUTE classpath path — e.g. on a worktree checkout — that path is the
 // committer's home/worktree path, which trips the "No hardcoded personal/home
 // paths" gate (and is meaningless in the deployed artefact). Normalise any
