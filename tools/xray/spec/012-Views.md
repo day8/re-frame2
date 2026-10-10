@@ -286,8 +286,8 @@ block.
 
 - **Headline content = props diff** — the diff is what the developer
   is most-often after: "what changed about this component's input that
-  the framework saw?" Rendered via `edn-inspector-diff` per the
-  §Renderer.
+  the framework saw?" Rendered by the edn-inspector's `:before` diff
+  mode per the §Renderer.
 - **Subs consumed** repeats the Re-rendered group's "Rerendered because"
   content (trigger marked with `✱`, sub return value, was-value). For
   mounted: "Subs consumed at mount" (no diff — first read). For
@@ -464,14 +464,10 @@ merge**.
 
 ## Renderer — superseded
 
-The inline / full / diff entry-point trio and the
-`theme/data_inspector.cljc` chrome namespace this section described are
-gone (the namespace was deleted in the rf2-oqa60 phase-5 sweep,
-rf2-q3dzw). The live facade is `inspect` / `inspect-view` /
-`inspect-inline`; diff is an opt-in `:before` mode on the same widget —
-`[edn-inspector <after> {:before <before>}]`, or the
-`[edn-inspector-diff <before> <after>]` convenience that threads it —
-rather than a separate entry point. The shared renderer — including the
+The live facade is `inspect` / `inspect-view` / `inspect-inline`; diff
+is an opt-in `:before` mode on the same widget —
+`[edn-inspector <after> {:before <before>}]` — rather than a separate
+entry point. The shared renderer — including the
 spec/015 sentinel chrome sketched here — is normative in
 [`021-Dynamic-Panel-Designs.md` §10](021-Dynamic-Panel-Designs.md#10-shared-edn-inspector-renderer).
 

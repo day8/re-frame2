@@ -242,8 +242,10 @@ purely client-side — it does NOT mutate the host's atom and does NOT
 reach other browsers / tabs / users.
 
 Tests cover the resolution order, the localStorage round-trip, and
-the `open-chip` / `:rf.xray/open-in-editor` consumers under
-`tools/xray/test/day8/re_frame2_xray/settings/editor_override_cljs_test.cljs`.
+the `open-chip` consumer under
+`tools/xray/test/day8/re_frame2_xray/settings/editor_override_cljs_test.cljs`;
+the `:rf.xray/open-in-editor` consumer with an override set is covered in
+`tools/xray/test/day8/re_frame2_xray/open_in_editor_cljs_test.cljs`.
 
 #### Unconfigured-host DX hint (rf2-4s08ov)
 
@@ -301,10 +303,11 @@ the preference untouched (rf2-eilutf).
 
 Tests cover the predicate + `configure!` nil-reset / absent-key
 equivalence (`config_test.clj`), the event-fx routing + the direct
-`chip-click!` decision (`open_in_editor_cljs_test.cljs`), the toast
-events / sub / render + Open-Settings wiring
-(`settings/editor_hint_cljs_test.cljs`), and the shell-level Esc
-dismissal (`keybinding_cljs_test.cljs`).
+`chip-click!` decision (`open_in_editor_cljs_test.cljs`), the
+Open-Settings wiring (`settings/editor_hint_cljs_test.cljs`), the
+toast's paint through its bridge
+(`settings/settings_fresco_boundary_dom_cljs_test.cljs`, W3), and the
+shell-level Esc dismissal (`keybinding_cljs_test.cljs`).
 
 ### `:rf.xray/project-root`
 
@@ -1091,25 +1094,21 @@ All forthcoming keys follow the `:rf.xray/*` convention.
   recents, event-list column widths) and the bare, unversioned
   `xray.<name>` slots (mode, the muted-event-id set, the Static-mode
   machine slots, the machine-canvas collapse map). The
-  `day8.re-frame2-xray.*` prefix an earlier revision of this section
-  promised matches NONE of them — it is the Clojure namespace root,
-  never a storage prefix.
+  `day8.re-frame2-xray.*` namespace root is not a storage prefix and
+  matches NONE of them.
 
-**No test enforces that destination, and the JVM file this section
-used to cite could not.**
+**No test enforces that destination, and no JVM test could.**
 `tools/xray/test/day8/re_frame2_xray/config_test.clj` covers the
 `configure!` / per-key setter surface: the editor preference and
 `editor-configured?`, auto-open, project-root and editor-URI
 construction, the filter seed, panel-width and event-list-column
 clamping, and the `defaults < configure!` settings merge. It
 enumerates NEITHER key family above and asserts nothing about slot
-removal — it calls `reset-settings!` as per-test setup and teardown,
-and the one property it pins about that call is that it clears the
-`configure!` seed. Nor could a `.clj` test do more: the storage half
-of `reset-settings!` is a `#?(:cljs …)` branch (`config.cljc:1615`,
-`storage-remove!` at `:1628`), and `config_test.clj` records at its
-own `:554-556` that the CLJS storage reader resolves to nil under
-Clojure.
+removal — it calls `reset-settings!` only as per-test setup and
+teardown. Nor could a `.clj` test do more: the storage half of
+`reset-settings!` is a `#?(:cljs …)` branch through the CLJS-only
+`storage-remove!`, so on the JVM it resets the atoms and nothing
+else.
 
 Coverage worth the name would need a CLJS test that seeds a slot in
 BOTH families, runs the reset and reads storage back empty — and

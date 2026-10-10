@@ -1466,7 +1466,7 @@ The 4 sub-modes (mnemonic letters `t/s/i/c` surfaced in each pill's `title`) liv
 | **Instances** (`i`) | **JUMP to Dynamic.** Clicking the pill (or the per-row `→ Dynamic` chip in the browse-list) dispatches three events against `:rf/xray`: `:rf.xray/set-mode :dynamic` · `:rf.xray/select-tab :machines` · `:rf.xray/select-machine-id <mid>`. The user lands on the Dynamic Machines tab with this machine pre-selected, and **the pre-selection LANDS — on the epoch AND on the screen**: `:rf.xray/select-machine-id` writes the selection slot and moves the spine focus to the newest epoch touching that machine, through the same epoch walk Prev/Next uses, which is what makes it stick against the panel's live head-tracking (rf2-y8doi.23); **and the panel then BINDS to that machine** rather than to the cascade's first-by-trace-order record (rf2-mj4jp — see [§Explicit selection outranks the tiebreaker (rf2-mj4jp)](#explicit-selection-outranks-the-tiebreaker-rf2-mj4jp)). Both halves are needed and the first alone was shipped: when the landing epoch's cascade touches A and then B, a JUMP to B pinned exactly the right epoch and drew A, so the slot write and the epoch move were both correct and invisible. It is a deliberate no-op when the machine has no epoch in the window, so a JUMP made before the machine has done anything leaves the spine where it was. **There is no Mode A/B/C auto-detection to defer to** — rf2-y9xmf collapsed the Dynamic panel to a single event-driven lens, so no live-instance-count thresholds exist anywhere in the shipped tree. | no body — the click is the surface |
 | **Cascade** (`c`) | **Dimmed + disabled** with a tooltip: *"Cancellation cascade is a Dynamic-only surface. Switch to Dynamic mode to view."* The pill renders for muscle-memory consistency with the Dynamic sub-strip (same DOM, same letter mnemonic) but is non-interactive — `disabled` + `aria-disabled="true"` + dashed border + 0.5 opacity. The cancellation cascade composes against the trace ring buffer which is event-coupled — there is no spine in Static mode, so the surface has no source data. | no body — the pill IS the surface |
 
-The sub-strip mnemonics (`t` · `s` · `i` · `c` above) are mode-scoped under the same rule the L3 tabs follow (see [`018-Event-Spine.md`](018-Event-Spine.md) §2.5 Mnemonic mode-scoping rule) — and, like those, they are labels rather than keys. `static/machines/helpers.cljc` `sub-mode-mnemonics` carries the letters so each pill can surface one in its `title`, and marks the keybindings that would act on them as a TODO; nothing presses them today.
+The sub-strip mnemonics (`t` · `s` · `i` · `c` above) are mode-scoped under the same rule the L3 tabs follow (see [`018-Event-Spine.md`](018-Event-Spine.md) §2.5 Mnemonic mode-scoping rule) — and, like those, they are labels rather than keys. Each pill surfaces its letter in its `title`; no keybinding acts on them.
 
 ### Per-row → Dynamic chip
 
@@ -1856,7 +1856,7 @@ Per Spec 005 and Spec 009:
 |---|---|
 | `(rf/registrations {:source :store :kind :event})` filtered on `:rf/machine?` | Enumerate registered machines (the Static browse-list; the Dynamic panel has no picker). Per Spec 005 §Querying machines — no per-kind accessor. |
 | `[:rf.runtime/machines :snapshots <id>]` slot in the **runtime-db partition** (EP-0001 rf2-vzld77) | Read current snapshot; deref drives the live-highlight. The host passes the snapshot's `:state` straight through as the chart's `:current-state`; for a **parallel** machine that `:state` is a region-map and the chart highlights **every** active region leaf simultaneously (parity gap G1; resolution via `chart.layout/highlight-ids` — see [machines-viz API §Parallel multi-active highlight](../../machines-viz/spec/API.md#parallel-multi-active-highlight-rf2-yoe6e-rf2-g2svr)). |
-| `:rf.machine/transition` traces | `project-transitions` fills the per-machine `:transitions` slot, but no view renders it — the transition-history ribbon went under rf2-y9xmf. |
+| `:rf.machine/transition` traces | `project-focused-event-transitions` folds the focused event's cascade into transition records, and `pick-focused-transition` picks the one the panel binds to. There is no transition-history ribbon. |
 | `:rf.machine.microstep/transition` traces | Microstep replay within an `:always`-driven cascade. |
 | `:rf.machine.timer/scheduled` / `-fired` / `-stale-after` | Drive `:after` countdown rings. |
 | `:rf.machine.spawn-all/*` traces | Render `:spawn-all` join state (started, all-completed, some-completed, any-failed). **Not a Machines-tab surface today** — no code in this slice reads these; see §`:spawn-all` viz below, which is unbuilt. |
@@ -1944,8 +1944,7 @@ per-machine in localStorage).
 
 **Not built.** The shipped viewport behaviour is xyflow `fitView` on
 layout plus the `:fit-signal` re-fit; there is no per-transition
-auto-pan, header toggle or localStorage slot (the `:auto-pan?` key in
-`machine_inspector_helpers` lands in a `:chart-props` slot no view reads).
+auto-pan, header toggle or localStorage slot.
 
 ## Performance
 
@@ -1959,12 +1958,6 @@ auto-pan, header toggle or localStorage slot (the `:auto-pan?` key in
   to another L3 tab) even while an `:after` timer stays armed, so it can
   never outlive its panel dispatching in the background (rf2-e64drj); a
   remount re-arms it.
-- ~~**Transition history** virtualises past 200 entries; older entries
-  scroll into view but are not retained in DOM.~~ **Struck — there is
-  no transition-history ribbon to virtualise.** rf2-y9xmf removed it
-  (§Transition history ribbon is in the historical run above). The
-  200-entry `cap-transitions` helper it used survives in the Machines-tab
-  helpers namespace with its unit tests but has no production caller.
 
 ## Render + layout engine — xyflow over elkjs
 

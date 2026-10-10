@@ -428,7 +428,7 @@ them. The tab registers no event of its own today
 (`app_db_diff_events.cljs` installs only the `copy-to-clipboard` fx
 below). Its body mounts the EDN-inspector widget, and the zoom gesture
 runs through that widget's own `:rf.xray.edn-inspector/*` events
-(`zoom-to` / `zoom-up` / `zoom-reset`, registered in
+(`zoom-to` / `zoom-up`, registered in
 `views/edn_inspector.cljs`).
 
 > **rf2-e9tb0 — pinned-slices removed.** The `:rf.xray/pin-slice`,
@@ -640,7 +640,7 @@ which is why several ids below are named "for-focused-event" /
 | `:rf.xray/machine-definitions` | `{machine-id meta}` — each registered machine's definition. Input: `:rf.xray/registered-machines`. |
 | `:rf.xray/machine-snapshots` | `{machine-id <snapshot>}`, read from the target frame's **runtime-db at `[:rf.runtime/machines :snapshots]`** (EP-0001 runtime-db partition) — **not** from a `:rf/machines` app-db slot. Inputs: `:rf.xray/target-frame`, `:rf.xray/target-frame-runtime-db`. **EGRESS-REDACTED (rf2-kq8nac / EP-0005)**: the runtime-db value is live frame state, not a trace, so it has not passed the trace-path redactor. Each snapshot is therefore routed through the same `project-trace-event` chokepoint as a synthetic `:rf.machine/snapshot-updated` event stamped with the target frame — a frame-declared sensitive `:data` path lands as `:rf/redacted`, a large one as the size marker, plain siblings ride verbatim (EP-0025, rf2-398kql — `:data` classification is frame-owned). A frame declaring no matching path leaves the snapshot reference-identical. |
 | `:rf.xray/selected-machine-id` | The picker slot, or `nil`. Kept post-collapse as the focus the Static Machines surfaces and `:rf.xray/cancellation-cascade-for-focused-machine` read; the Dynamic panel itself binds to the focused epoch, not to this slot. |
-| `:rf.xray/machine-inspector-data` | Composite — `{:machines :total :selected-id :selected :chart-props :transitions :empty-kind}`. `:selected-id` is the *effective* selection: the picker slot when set, else the first row of an alphabetically-sorted list. |
+| `:rf.xray/machine-inspector-data` | Composite — `{:machines :total :selected-id :selected-machine-id :selected :empty-kind}`. `:selected-id` is the *effective* selection: the picker slot when set, else the first row of an alphabetically-sorted list. `:selected-machine-id` is the raw slot, nil when the operator has chosen none. |
 | `:rf.xray/machine-transitions-for-focused-event` | Per-machine transition sections for the focused epoch, each carrying that epoch's fired-edge-ids (rf2-qeemm G3) so traversed chart arms paint. Inputs: `:rf.xray/focus`, `:rf.xray/epoch-history`, `:rf.xray/machine-definitions`. |
 | `:rf.xray/machine-focused-epoch-cascade` | `{:cascade :event-id}` — the numbered machine-cascade rows for the focused epoch, projected by the SAME `machine-cascade-rows` the Epoch panel's HANDLER row uses, so the two surfaces agree byte-for-byte. |
 | `:rf.xray/machine-scrubber-position` | `:present` or an integer index; defaults to `:present`. The scrubber UI itself went with rf2-y9xmf, but the slot survives because the `:after`-rings overlay gates ring rendering on it. |
@@ -709,7 +709,7 @@ sections — was deleted in full; there is no `re-frame.realm` namespace.)
 
 | Sub | Returns |
 |---|---|
-| `:rf.xray/image-view` | Composite — the EP-0023 `image -> frame` model (rf2-32siq3.12). `{:frames [<frame-row> …] :frame-count :images?}` over the image-loaded frames: each as an execution context carrying its resolved image (the generation's `[kind id]` descriptors + per-descriptor provenance). EP-0024 (rf2-tu2vr7): the registries collapsed — an image-loaded frame is a single `re-frame.frame/frames` record carrying a `:generation`; the read goes through `re-frame.live-frame/image-view-frames` (which projects each such record into an inert frame view) + sealed generations (`re-frame.image-assembly/resolve-descriptor`) via the fail-soft `image_view_reads` seam; projects via `image_view_helpers/project-image-view`. `:images?` false → the no-image caption (the image/frame model is opt-in). Xray inspects the target frame as DATA here; Xray's OWN image (`image_view_reads/xray-image`) is a separate registration set that never mixes with a target frame's image (EP-0023 §Xray Beside The Target). |
+| `:rf.xray/image-view` | Composite — the EP-0023 `image -> frame` model (rf2-32siq3.12). `{:frames [<frame-row> …] :frame-count :images?}` over the image-loaded frames: each as an execution context carrying its resolved image (the generation's `[kind id]` descriptors + per-descriptor provenance). EP-0024 (rf2-tu2vr7): the registries collapsed — an image-loaded frame is a single `re-frame.frame/frames` record carrying a `:generation`; the read goes through `re-frame.live-frame/image-view-frames` (which projects each such record into an inert frame view) via the fail-soft `image_view_reads` seam; projects via `image_view_helpers/project-image-view`. `:images?` false → the no-image caption (the image/frame model is opt-in). Xray inspects the target frame as DATA here; Xray's OWN image (`image_view_reads/xray-image`) is a separate registration set that never mixes with a target frame's image (EP-0023 §Xray Beside The Target). |
 
 This sub is L4-tab-internal — `module_view.cljs` registers no panel-internal
 events (a browse surface). The tab is registered via `reg-l4-tab!` (id
@@ -784,7 +784,6 @@ than re-reading the registrar.
 | `:rf.xray.static.machines/sort-key` | sub | One of `:name` / `:states` / `:live`; default `:name`. |
 | `:rf.xray.static.machines/sub-mode-by-id` | sub | `{machine-id sub-mode}`; `{}` when unset. |
 | `:rf.xray.static.machines/sub-mode` | sub | `[_ machine-id]` — that machine's effective sub-mode; default `:topology`. |
-| `:rf.xray.static.machines/rows` | sub | Projected machine rows over registered machines + definitions + live snapshots. |
 | `:rf.xray.static.machines/data` | sub | Browse-list composite — rows filtered by `search`, ordered by `sort-key`, marked with `selected-id`. |
 | `:rf.xray.static.machines/copy-mermaid-status` | sub | `[_ machine-id]` — `:copied` / `:failed` for **that** machine only, else `nil`. `:pending` also reads `nil`, so an in-flight write never renders as a completed copy (rf2-sxw06). |
 | `:rf.xray.static.machines/select` | event | `[_ machine-id]` — sets the selection, clears any Copy-Mermaid feedback, and fires `persist-selection`. |
@@ -808,7 +807,6 @@ Every sim event takes a single map argument keyed by `:machine-id`.
 |---|---|---|
 | `:rf.xray.static.machines/sim-by-machine` | sub | `{machine-id sim-state}` for every machine with a sim. |
 | `:rf.xray.static.machines/sim-state` | sub | The selected machine's sim slot, or `nil` when it has none. |
-| `:rf.xray.static.machines/sim-active?` | sub | Boolean over `sim-state`. |
 | `:rf.xray.static.machines/sim-available-transitions` | sub | Transitions available from the sim's current snapshot, for the picker. |
 | `:rf.xray.static.machines/sim-event-suggestions` | sub | Distinct event ids from the definition, for the autocomplete datalist. |
 | `:rf.xray.static.machines/sim-current-state` | sub | The sim's current state, for the on-chart active-state highlight. |
@@ -869,7 +867,7 @@ process-global.
 Installed only by `install-test-overrides!` (rf2-e8330v). Each pair
 re-registers its production `registry` read as
 `(or override (registry-value))`. The seam also re-registers
-`:rf.xray.static.machines/rows` and `/data` with
+`:rf.xray.static.machines/data` with
 `:rf.xray/machine-snapshots-override` layered over the live snapshots —
 see the Machine inspector's [override seam](#test-only-override-seam).
 
