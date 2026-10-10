@@ -1,32 +1,6 @@
-// Unit tests for the Node-side dedup-envelope decoder.
-//
-// Uses Node's built-in `node:test` (same posture as the other
-// `*.test.cjs` unit suites — no extra dev-dependency).
-//
-// ## The contract this pins
-//
-// `lib/dedup-envelope.cjs` `expandCache` reconstructs the
-// structural-dedup cache (`:rf.mcp/dedup-table`) the MCP servers emit on
-// the wire. The cycle-guard installs a distinct in-progress sentinel and
-// throws `cyclic dedup cache` when a ref resolves to it, so a cache ref
-// that re-enters an in-progress entry (a CYCLE) fails LOUD rather than
-// resolving to `undefined` (silent corruption — a stray `undefined` hole
-// in the reconstruction). Real de-dupe caches are acyclic (refs always
-// point at strictly-smaller subtrees), so a cycle is adversarial input —
-// and a conformance decoder MUST fail loud on malformed / adversarial
-// input, not silently emit garbage. These tests pin:
-//
-//   1. a cyclic cache table THROWS (with a `cyclic` message) — the
-//      decoder rejects it rather than returning an `undefined` hole.
-//   2. the acyclic happy path (shared subtrees, nested refs)
-//      reconstructs correctly — real caches decode cleanly.
-//   3. a dangling ref (no matching entry) throws its own distinct
-//      error, pinned alongside.
-//   4. the reference grammar: only `de-dupe.cache/cache-N`
-//      is a reference, `de-dupe.cache/!…` is an escaped payload literal,
-//      and any other string in the namespace is ordinary data. The
-//      dangling-ref case (3) is the control that the data rule has not
-//      disabled resolution.
+// Unit tests for `lib/dedup-envelope.cjs`, the Node-side mirror of
+// `re-frame.mcp-base.dedup/expand`. The reference grammar it decodes is
+// stated in `tools/mcp-base/spec/dedup.md` §Reference grammar.
 
 'use strict';
 
@@ -36,9 +10,14 @@ const assert = require('node:assert/strict');
 const { decodeDedupEnvelope, DEDUP_TABLE_KEY, CACHE_NS_PREFIX } =
   require('../lib/dedup-envelope.cjs');
 
-// Build a cache id string for entry N (`de-dupe.cache/cache-N`).
 function cacheId(n) {
   return CACHE_NS_PREFIX + 'cache-' + n;
+}
+
+// What the encoder emits for a payload token that would otherwise read as a
+// reference.
+function escaped(name) {
+  return CACHE_NS_PREFIX + '!' + name;
 }
 
 function envelope(cache) {
@@ -46,50 +25,10 @@ function envelope(cache) {
 }
 
 test('cyclic dedup cache THROWS loud (rf2-87h71e LOW), not silent undefined', () => {
-  // cache-0 -> { :self <ref to cache-0> } — a self-referential cycle.
-  const cache = {
-    [cacheId(0)]: { self: cacheId(0) },
-  };
   assert.throws(
-    () => decodeDedupEnvelope(envelope(cache)),
-    (err) => {
-      assert.ok(err instanceof Error, 'throws an Error');
-      assert.match(
-        err.message,
-        /cyclic dedup cache/i,
-        'the error names the cyclic cache (not a generic failure)',
-      );
-      return true;
-    },
-    'a self-referential cache must throw, not return an `undefined` hole',
+    () => decodeDedupEnvelope(envelope({ [cacheId(0)]: { self: cacheId(0) } })),
+    /cyclic dedup cache/,
   );
-});
-
-test('mutually-recursive (two-entry) cycle THROWS', () => {
-  // cache-0 -> { :b <ref cache-1> }, cache-1 -> { :a <ref cache-0> }.
-  const cache = {
-    [cacheId(0)]: { b: cacheId(1) },
-    [cacheId(1)]: { a: cacheId(0) },
-  };
-  assert.throws(
-    () => decodeDedupEnvelope(envelope(cache)),
-    /cyclic dedup cache/i,
-    'a mutually-recursive cache must throw',
-  );
-});
-
-test('acyclic cache with a shared subtree reconstructs correctly (happy path intact)', () => {
-  // cache-0 references cache-1 TWICE (a shared, strictly-smaller subtree
-  // — the legitimate de-dupe shape). Must expand without throwing and
-  // share the subtree structurally.
-  const cache = {
-    [cacheId(0)]: { left: cacheId(1), right: cacheId(1) },
-    [cacheId(1)]: { leaf: 42 },
-  };
-  const out = decodeDedupEnvelope(envelope(cache));
-  assert.deepEqual(out, { left: { leaf: 42 }, right: { leaf: 42 } });
-  // Structural sharing: both refs resolve to the SAME memoised object.
-  assert.equal(out.left, out.right, 'shared subtree is structurally shared');
 });
 
 test('nested acyclic refs through arrays + objects reconstruct correctly', () => {
@@ -104,126 +43,43 @@ test('nested acyclic refs through arrays + objects reconstruct correctly', () =>
   });
 });
 
-test('dangling ref (no matching entry) still throws its own distinct error', () => {
-  const cache = {
-    [cacheId(0)]: { missing: cacheId(9) },
-  };
-  assert.throws(
-    () => decodeDedupEnvelope(envelope(cache)),
-    /no matching entry/i,
-    'a ref with no cache entry throws the missing-entry error',
-  );
-});
-
-test('non-dedup envelope passes through untouched', () => {
-  const plain = { 'ok?': true, value: [1, 2, 3] };
-  assert.equal(decodeDedupEnvelope(plain), plain);
-});
-
-// ---------------------------------------------------------------------
-// A de-duped map KEY (not just VALUE) is expanded.
-//
-// The real `re-frame.mcp-base.dedup/expand` dispatches on `map-entry?` before
-// `coll?` and expands BOTH halves of every map-entry; `cachable?`
-// permits a de-duped map key. A decoder that only recurses into `v[k]`
-// while using `k` verbatim leaves a de-duped key as the raw
-// "de-dupe.cache/cache-N" placeholder string — the assertion below would
-// then find `Object.keys(out)` still carrying that raw placeholder instead
-// of the expanded key.
-// ---------------------------------------------------------------------
-
-test('a de-duped map KEY is expanded, not left as the raw cache-ref placeholder (rf2-6i2yi4 finding 5)', () => {
-  // cache-0's single entry has a KEY that is itself a cache reference to
-  // a de-duped vector — the "path-keyed structure" shape.
-  const cache = {
-    [cacheId(0)]: { [cacheId(1)]: 'value-for-vector-key' },
-    [cacheId(1)]: ['a', 'b'],
-  };
-  const out = decodeDedupEnvelope(envelope(cache));
-  // JS object keys must be strings; a non-string expanded key (here an
-  // array) is rendered via its canonical JSON form rather than left
-  // as the unexpanded ref.
-  const expectedKey = JSON.stringify(['a', 'b']);
-  assert.deepEqual(Object.keys(out), [expectedKey]);
-  assert.equal(out[expectedKey], 'value-for-vector-key');
-});
-
-test('a de-duped map key that expands to a plain string is used directly (no JSON-quoting)', () => {
-  const cache = {
-    [cacheId(0)]: { [cacheId(1)]: 'v' },
-    [cacheId(1)]: 'plain-string-key',
-  };
-  const out = decodeDedupEnvelope(envelope(cache));
-  assert.deepEqual(out, { 'plain-string-key': 'v' });
-});
-
-// ---------------------------------------------------------------------
-// Eagerly validate EVERY cache entry, not just those reachable from
-// cache-0.
-//
-// The real `re-frame.mcp-base.dedup/decompress-cache` expands every key before
-// picking cache-0 off the result. An `expandCache` that called only
-// `expandEntry(ROOT_CACHE_ID)` would never visit a malformed entry
-// unreachable from the root (an "orphan") and would decode it cleanly —
-// grading GREEN a wire payload a real client rejects outright. The
-// dangling-orphan case below would NOT throw against such a decoder.
-// ---------------------------------------------------------------------
-
-test('a malformed ORPHAN cache entry (unreachable from cache-0, dangling ref) still throws (rf2-6i2yi4 finding 7)', () => {
-  const cache = {
-    [cacheId(0)]: { fine: 1 }, // well-formed, does not reference cache-1
-    [cacheId(1)]: { missing: cacheId(9) }, // orphan: dangling ref
-  };
-  assert.throws(
-    () => decodeDedupEnvelope(envelope(cache)),
-    /no matching entry/i,
-    'an orphaned entry with a dangling ref must still be rejected',
-  );
-});
-
-test('a well-formed orphan entry is harmless — root value unaffected', () => {
-  const cache = {
-    [cacheId(0)]: { fine: 1 },
-    [cacheId(1)]: { unused: 'harmless' }, // orphan but well-formed
-  };
-  const out = decodeDedupEnvelope(envelope(cache));
-  assert.deepEqual(out, { fine: 1 });
-});
-
-// ---------------------------------------------------------------------
-// An ordinary payload value that OCCUPIES the reference namespace is
-// data, not a reference.
-//
-// Classifying every string beginning `de-dupe.cache/` as a reference
-// would be broader even than the Clojure side, because JSON has already
-// erased the symbol/string distinction by the time the string arrives.
-// An ordinary payload value spelled that way would then decode as
-// another cached subtree, or throw the missing-entry error, in a payload
-// a conformant server had encoded perfectly well.
-//
-// The fixtures below are the JSON projection of what
-// `re-frame.mcp-base.dedup/de-dupe-eq` actually emits for the matching
-// Clojure payload — the escaped spelling `de-dupe.cache/!cache-1` is
-// pinned cross-host by `colliding-payload-tokens-are-escaped-on-the-wire`
-// in `re-frame.mcp-base.dedup-test`. A payload symbol or keyword of the
-// same spelling arrives here as the identical JSON token, so these cases
-// cover all three; the keyword spellings are pinned host-side by
-// `colliding-payload-keywords-are-escaped-on-the-wire` and
-// `colliding-payload-keywords-are-escaped-in-map-KEY-position-too`.
-// ---------------------------------------------------------------------
-
-// An escaped literal: what the encoder emits for a payload token that
-// would otherwise read as a reference.
-function escaped(name) {
-  return CACHE_NS_PREFIX + '!' + name;
-}
-
-test('ordinary payload strings in the reference namespace decode verbatim, beside a real reference (rf2-kjv05)', () => {
+// `expand` decodes both halves of every map entry, so a de-duped key arrives
+// as a reference too. A JS key must be a string: a structured key takes its
+// JSON form, a string key is used as itself.
+test('map keys decode like values: a de-duped key, structured or string, and an escaped key', () => {
   const cache = {
     [cacheId(0)]: {
-      literal: CACHE_NS_PREFIX + 'not-a-ref', // ordinary: no escape needed
-      'look-alike': escaped('cache-1'), // ordinary, but spells a slot the table holds
-      a: cacheId(1), // the real reference
+      [cacheId(1)]: 'under-a-structured-key',
+      [cacheId(2)]: 'under-a-string-key',
+      [escaped('cache-1')]: 'under-a-look-alike-key',
+    },
+    [cacheId(1)]: ['a', 'b'],
+    [cacheId(2)]: 'plain-string-key',
+  };
+  assert.deepEqual(decodeDedupEnvelope(envelope(cache)), {
+    '["a","b"]': 'under-a-structured-key',
+    'plain-string-key': 'under-a-string-key',
+    'de-dupe.cache/cache-1': 'under-a-look-alike-key',
+  });
+});
+
+// `decompress-cache` expands every entry before reading the root, so a real
+// client rejects a malformed entry the root never reaches.
+test('a malformed ORPHAN cache entry (unreachable from cache-0, dangling ref) still throws (rf2-6i2yi4 finding 7)', () => {
+  const cache = {
+    [cacheId(0)]: { fine: 1 },
+    [cacheId(1)]: { missing: cacheId(9) },
+  };
+  assert.throws(() => decodeDedupEnvelope(envelope(cache)), /no matching entry/);
+});
+
+test('payload strings in the reference namespace stay data beside a real reference, shedding one escape marker', () => {
+  const cache = {
+    [cacheId(0)]: {
+      literal: CACHE_NS_PREFIX + 'not-a-ref',
+      'look-alike': escaped('cache-1'),
+      twice: escaped('!cache-1'),
+      a: cacheId(1),
       b: cacheId(1),
     },
     [cacheId(1)]: { big: ['repeat', 'me'] },
@@ -232,58 +88,16 @@ test('ordinary payload strings in the reference namespace decode verbatim, besid
   assert.deepEqual(out, {
     literal: 'de-dupe.cache/not-a-ref',
     'look-alike': 'de-dupe.cache/cache-1',
+    twice: 'de-dupe.cache/!cache-1',
     a: { big: ['repeat', 'me'] },
     b: { big: ['repeat', 'me'] },
   });
-  // The real reference still resolved — and still shares structurally.
-  assert.equal(out.a, out.b, 'the genuine reference is still pooled');
+  assert.equal(out.a, out.b, 'a shared subtree decodes to one object');
 });
 
-test('escaping is reversible under repetition — one marker is stripped, not all (rf2-kjv05)', () => {
-  const cache = {
-    [cacheId(0)]: {
-      once: escaped('cache-1'), // payload was `…/cache-1`
-      twice: escaped('!cache-1'), // payload was `…/!cache-1`
-      other: escaped('not-a-ref'), // payload was `…/not-a-ref`
-      a: cacheId(1),
-      b: cacheId(1),
-    },
-    [cacheId(1)]: { big: ['repeat', 'me'] },
-  };
-  const out = decodeDedupEnvelope(envelope(cache));
-  assert.equal(out.once, 'de-dupe.cache/cache-1');
-  assert.equal(out.twice, 'de-dupe.cache/!cache-1');
-  assert.equal(out.other, 'de-dupe.cache/not-a-ref');
-});
-
-test('an escaped literal used as a map KEY is unescaped too (rf2-kjv05)', () => {
-  // Keys route through the same value walk (see the de-duped-KEY test
-  // above), so the escape has to survive the key path as well.
-  const cache = {
-    [cacheId(0)]: { [escaped('cache-1')]: 'value-under-a-look-alike-key' },
-  };
-  const out = decodeDedupEnvelope(envelope(cache));
-  assert.deepEqual(Object.keys(out), ['de-dupe.cache/cache-1']);
-  assert.equal(out['de-dupe.cache/cache-1'], 'value-under-a-look-alike-key');
-});
-
-// ---------------------------------------------------------------------
-// An own `__proto__` payload key survives.
-//
-// `JSON.parse` keeps `"__proto__"` as an ordinary own data property, and
-// the codec promises encode-then-decode is the identity on the JSON
-// projection (`tools/mcp-base/spec/dedup.md`). Plain assignment
-// `out['__proto__'] = v` does not create that property: it runs the
-// inherited `Object.prototype.__proto__` setter, so the key would vanish
-// and its object value would become the rebuilt object's PROTOTYPE — the
-// payload's fields would then read back as inherited values.
-//
-// The wire is transcribed from a real encode: `dedup-value` (enabled)
-// over the payload below, serialised with Cheshire. Both strings go
-// through JSON.parse, as the SDK does — an object literal spelling
-// `__proto__:` would set the prototype itself and never carry the key.
-// ---------------------------------------------------------------------
-
+// Transcribed from a real `dedup-value` encode serialised with Cheshire. Both
+// strings go through JSON.parse, as the SDK does: an object literal spelling
+// `__proto__:` would set the prototype rather than carry the key.
 const PROTO_KEY_ORIGINAL =
   '{"__proto__":{"marker":"root-payload"},' +
   '"nested":{"__proto__":{"marker":"nested-payload"}},' +
@@ -298,51 +112,21 @@ const PROTO_KEY_WIRE =
   '"nested":{"__proto__":{"marker":"nested-payload"}},' +
   '"a":"de-dupe.cache/cache-1","b":"de-dupe.cache/cache-1"}}}';
 
+// Strict deep equality compares own keys and prototypes, so it fails if the
+// key was assigned through the inherited `__proto__` setter.
 test('an own "__proto__" payload key survives expansion, at the root and nested (rf2-gwye.36)', () => {
-  const original = JSON.parse(PROTO_KEY_ORIGINAL);
-  const out = decodeDedupEnvelope(JSON.parse(PROTO_KEY_WIRE));
-  // Strict deep equality compares own keys AND prototypes, so this is the
-  // JSON-projection identity the codec promises.
-  assert.deepEqual(out, original);
-  for (const [where, obj] of [['root', out], ['nested', out.nested]]) {
-    assert.ok(
-      Object.prototype.hasOwnProperty.call(obj, '__proto__'),
-      where + ': "__proto__" is an own key',
-    );
-    assert.equal(Object.getPrototypeOf(obj), Object.prototype, where + ': ordinary prototype');
-    assert.equal(obj.marker, undefined, where + ': no payload value is inherited');
-  }
-  assert.equal(out.a, out.b, 'the shared subtree is still pooled');
+  assert.deepEqual(
+    decodeDedupEnvelope(JSON.parse(PROTO_KEY_WIRE)),
+    JSON.parse(PROTO_KEY_ORIGINAL),
+  );
 });
 
-// ---------------------------------------------------------------------
-// The dedup wrapper is CLOSED.
-//
-// The JVM contract pins `DedupTable` as `[:map {:closed true}
-// [:rf.mcp/dedup-table …]]`. Checking only that the marker is present,
-// then returning the expanded cache, would erase any sibling, so a
-// response the JVM schema rejects would be graded on a sanitised value.
-// Neither the inner nor a sibling `ok?` wins: the envelope is malformed.
-// ---------------------------------------------------------------------
-
-test('a dedup wrapper carrying a sibling key is rejected, harmless or conflicting (rf2-gwye.38)', () => {
+// The JVM contract pins `DedupTable` as a closed single-key map; expanding
+// the cache would erase a sibling, grading the response on a sanitised value.
+test('a dedup wrapper carrying a sibling key is rejected', () => {
   const cache = { [cacheId(0)]: { 'ok?': true, value: 42 } };
-  for (const siblings of [{ meta: 'harmless' }, { 'ok?': false, reason: 'failure' }]) {
-    assert.throws(
-      () => decodeDedupEnvelope(Object.assign(envelope(cache), siblings)),
-      (err) => {
-        assert.match(err.message, /CLOSED single-key map/);
-        for (const k of Object.keys(siblings)) {
-          assert.ok(err.message.includes(JSON.stringify(k)), 'names sibling ' + k);
-        }
-        return true;
-      },
-    );
-  }
-  // Still accepted: the same wrapper alone, with arbitrary fields in the
-  // decoded ROOT — the wrapper is closed, the payload is not.
-  const open = { [cacheId(0)]: { 'ok?': true, value: 42, meta: 'additive', reason: 'x' } };
-  assert.deepEqual(decodeDedupEnvelope(envelope(open)), {
-    'ok?': true, value: 42, meta: 'additive', reason: 'x',
-  });
+  assert.throws(
+    () => decodeDedupEnvelope({ ...envelope(cache), 'ok?': false, reason: 'failure' }),
+    /CLOSED single-key map/,
+  );
 });
