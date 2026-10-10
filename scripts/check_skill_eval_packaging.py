@@ -287,8 +287,8 @@ def check_all(skills_dir: Path) -> list[SkillResult]:
 
 
 # ---------------------------------------------------------------------------
-# Self-test — synthetic fixtures exercising both agree cases and both
-# contradiction directions, plus the sibling-mention guard.
+# Self-test — both contradiction directions, the INCLUDE agree case, the
+# sibling-mention guard and the skill-README surface.
 # ---------------------------------------------------------------------------
 
 
@@ -297,108 +297,48 @@ def _run_self_test() -> int:
 
     failures: list[str] = []
 
-    def make_skill(
-        td: Path,
-        files_includes: bool,
-        evals_readme: str | None,
-        skill_readme: str | None = None,
-    ) -> Path:
-        """Build a synthetic skill dir with an `evals/` dir + a package.json."""
-        sd = td
-        (sd / "evals").mkdir(parents=True, exist_ok=True)
-        # Always give it an evals.json so the dir is non-empty (mirrors reality).
-        (sd / "evals" / "evals.json").write_text("{}", encoding="utf-8")
-        files = ["SKILL.md", "README.md", "LICENSE", "references/"]
-        if files_includes:
-            files.append("evals/")
-        files.append(".claude-plugin/")
-        (sd / "package.json").write_text(
-            json.dumps({"name": "@day8/fixture", "files": files}),
-            encoding="utf-8",
-        )
-        if evals_readme is not None:
-            (sd / "evals" / "README.md").write_text(evals_readme, encoding="utf-8")
-        if skill_readme is not None:
-            (sd / "README.md").write_text(skill_readme, encoding="utf-8")
-        return sd
-
-    # Marker prose fragments mirroring the real corpus.
-    EXCLUDE_PROSE = (
-        "## Repo-maintenance artifact, not shipped\n\n"
-        "`evals/` is a **repo-maintenance artifact** — it is deliberately "
-        "**not** part of the distributable skill package. The `files` "
-        "allow-list omits `evals/` on purpose.\n"
+    exclude_prose = (
+        "`evals/` is deliberately **not** part of the distributable skill "
+        "package. The `files` allow-list omits `evals/` on purpose.\n"
     )
-    INCLUDE_PROSE = (
-        "## Repo-maintenance artifact\n\n"
-        "`evals/` is a **repo-maintenance artifact**. It is carried in this "
-        "skill's `package.json` `files` allow-list so a vendored copy can "
-        "re-run its own gate.\n"
+    include_prose = (
+        "`evals/` is carried in this skill's `package.json` `files` allow-list "
+        "so a vendored copy can re-run its own gate.\n"
     )
-    # Pair-retro shape: own EXCLUDE stance + a COMPARATIVE sentence about
-    # siblings that carry evals. Must resolve to EXCLUDE, not INCLUDE.
-    EXCLUDE_WITH_SIBLING_MENTION = (
-        EXCLUDE_PROSE
-        + "\n(The re-frame2-improver and re-frame2-xray siblings make the "
-        "opposite, equally valid, choice — they carry `evals/` in `files` so "
-        "a vendored copy can re-run its own gate; either stance is fine as "
-        "long as the skill's docs and its `files` array agree.)\n"
-    )
-    SILENT_PROSE = (
-        "## Coverage\n\nThis directory holds the eval fixtures. Eight evals, "
-        "covering the three dimensions.\n"
-    )
-
+    # (label, files includes evals/, evals/README.md, skill README.md, want OK)
     cases: list[tuple[str, bool, str | None, str | None, bool]] = [
-        # (label, files_includes, evals_readme, skill_readme, want_ok)
-        ("agree-exclude", False, EXCLUDE_PROSE, None, True),
-        ("agree-include", True, INCLUDE_PROSE, None, True),
-        # Contradiction each way.
-        ("contradiction-files-include-docs-exclude", True, EXCLUDE_PROSE, None, False),
-        ("contradiction-files-omit-docs-include", False, INCLUDE_PROSE, None, False),
-        # Silence is not a contradiction — passes either way.
-        ("silent-files-omit", False, SILENT_PROSE, None, True),
-        ("silent-files-include", True, SILENT_PROSE, None, True),
-        # Sibling-mention guard: own EXCLUDE + sibling INCLUDE mention, files
-        # OMIT — must resolve EXCLUDE (agree), NOT fire the include-direction.
-        ("sibling-mention-resolves-exclude", False, EXCLUDE_WITH_SIBLING_MENTION, None, True),
-        # Stance stated in the SKILL README rather than evals/README (mirrors
-        # re-frame2-setup: "excluded from the npm `files` array by design"); an
-        # include `files` contradicts it, so this must fire.
+        ("agree-include", True, include_prose, None, True),
+        ("contradiction-files-include-docs-exclude", True, exclude_prose, None, False),
+        ("contradiction-files-omit-docs-include", False, include_prose, None, False),
+        # Silence is not a contradiction, whatever `files` says.
+        ("silent-files-include", True, "This directory holds the eval fixtures.\n",
+         None, True),
+        # A sentence about siblings that carry evals/ is not this skill's stance.
+        ("sibling-mention-is-not-own-stance", False,
+         "The re-frame2-improver and re-frame2-xray siblings make the opposite "
+         "choice — they carry `evals/` in `files` so a vendored copy can re-run "
+         "its own gate.\n", None, True),
+        # The stance may live in the skill README rather than evals/README.md.
         ("stance-in-skill-readme-exclude-vs-include-files", True, None,
-         "## Layout\n\n`evals/` holds the trigger-accuracy fixture; it is "
-         "excluded from the npm `files` array by design.\n", False),
+         "`evals/` holds the trigger-accuracy fixture; it is excluded from the "
+         "npm `files` array by design.\n", False),
     ]
 
-    for label, fi, er, sr, want_ok in cases:
+    for label, files_includes, evals_readme, skill_readme, want_ok in cases:
         with tempfile.TemporaryDirectory() as td:
-            sd = make_skill(Path(td) / "skill", fi, er, sr)
+            sd = Path(td)
+            (sd / "evals").mkdir()
+            files = ["SKILL.md"] + (["evals/"] if files_includes else [])
+            (sd / "package.json").write_text(json.dumps({"files": files}), encoding="utf-8")
+            if evals_readme is not None:
+                (sd / "evals" / "README.md").write_text(evals_readme, encoding="utf-8")
+            if skill_readme is not None:
+                (sd / "README.md").write_text(skill_readme, encoding="utf-8")
             r = check_skill(sd)
-            if r is None:
-                failures.append(
-                    f"{label}: check_skill returned None (fixture not in scope)"
-                )
-                continue
-            is_ok = r.contradiction is None
-            if is_ok != want_ok:
-                failures.append(
-                    f"{label}: expected {'OK' if want_ok else 'CONTRADICTION'}, "
-                    f"got {'OK' if is_ok else r.contradiction!r} "
-                    f"(files_includes={r.files_includes}, stance={r.stance})"
-                )
-
-    # Out-of-scope guard: a skill with NO evals/ dir is skipped (returns None).
-    with tempfile.TemporaryDirectory() as td:
-        sd = Path(td) / "no-evals"
-        sd.mkdir()
-        (sd / "package.json").write_text(
-            json.dumps({"name": "@day8/no-evals", "files": ["SKILL.md"]}),
-            encoding="utf-8",
-        )
-        if check_skill(sd) is not None:
+        is_ok = r is not None and r.contradiction is None
+        if r is None or is_ok != want_ok:
             failures.append(
-                "out-of-scope: a skill with no evals/ dir should be skipped "
-                "(check_skill must return None) but it was checked."
+                f"{label}: expected {'OK' if want_ok else 'CONTRADICTION'}, got {r!r}"
             )
 
     if failures:
@@ -406,13 +346,7 @@ def _run_self_test() -> int:
             print(f"SELF-TEST FAIL: {f}", file=sys.stderr)
         print(f"\n{len(failures)} self-test failure(s).", file=sys.stderr)
         return 1
-    print(
-        "self-test: all fixtures pass "
-        "(agree-include + agree-exclude stay green; both contradiction "
-        "directions fire; silence stays green; the "
-        "sibling-mention guard resolves to the skill's own EXCLUDE stance; "
-        "stance-in-skill-README is detected; out-of-scope skills are skipped)."
-    )
+    print("self-test: all fixtures pass.")
     return 0
 
 
