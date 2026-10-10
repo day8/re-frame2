@@ -3446,7 +3446,7 @@ jobs:
       # native / server — unreachable from the public door by construction,
       # so no door-rooted compile sees them, and their own suites compile them
       # under `:node-test-fresco` with `:infer-externs false` and under
-      # `:browser-test`, which exits 0 on warnings) and the two core
+      # `:browser-test` only where a `-dom-cljs-test` requires them) and the two core
       # attribution instruments under core/test/re_frame/bench/ that nothing
       # test-shaped requires. Without it an `:infer-warning` in an optional
       # module would live on main until somebody read it off a browser build
