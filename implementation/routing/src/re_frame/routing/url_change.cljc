@@ -1,12 +1,13 @@
 (ns re-frame.routing.url-change
-  "URL-driven navigation: the shared full-rewrite path
-  (`url-change-fx`) plus the `:rf.route/handle-url-change` event for
-  re-frame2 routing.
+  "The URL-bearing doors: the shared resolve-decide-commit path
+  (`url-change-fx`), the `:rf.route/handle-url-change` event, and the
+  `:rf.route/url-requested` LINK door, which runs that same path in its own
+  event and drives the address bar after the commit.
 
   Per Spec 012 §URL changes are events. `:rf.route/handle-url-change` is
-  the ONE URL-driven door, standing for FOUR causes — `:link` (the link
-  door's synthesised commit, default scroll `:top`) and `:popstate` /
-  `:initial` / `:ssr` (default scroll `:restore`). The cause rides the
+  the ONE URL-driven door, standing for FOUR causes — `:link` (a host that
+  pushed a link's URL before dispatching, default scroll `:top`) and
+  `:popstate` / `:initial` / `:ssr` (default scroll `:restore`). The cause rides the
   trailing opts map's `:rf.route/cause` and is resolved per dispatch by
   `url-change-cause`; the default scroll strategy is a pure function of
   it. The fragment-only branch (Spec 012 §Fragments rules 3-4) lives in
@@ -27,6 +28,7 @@
             [re-frame.routing.plan :as rf.routing.plan]
             [re-frame.routing.resolve :as rf.routing.resolve]
             [re-frame.routing.scroll :as rf.routing.scroll]
+            [re-frame.routing.url :as rf.routing.url]
             [re-frame.trace :as rf.trace]))
 
 (defn- route-miss-tags
@@ -126,15 +128,15 @@
   user clicking a `#section` link (cause `:link`, default `:top` →
   scroll to the fragment) or Back-Forward to a fragment (cause
   `:popstate`, default `:restore` → the saved position) with a computed
-  scroll target and no scroll. This
-  URL-driven door does NOT drive the browser URL (the address bar already
-  changed via link-click pushState / popstate), so — unlike the
-  programmatic door — it emits NO `:rf.nav/push-url`; but `pushState` /
-  popstate do NOT scroll to a fragment natively, so `:rf.nav/scroll` IS
-  required. `:scroll false` on the route meta suppresses it: `scroll-fx`
+  scroll target and no scroll. A URL-driven door does NOT drive the browser
+  URL (the address bar already changed via popstate or a host push), so it
+  passes no `push-fx`; the link door passes its push / replace, which lands
+  between the capture and the scroll exactly as the programmatic door orders
+  it. `pushState` / popstate do NOT scroll to a fragment natively, so
+  `:rf.nav/scroll` IS required. `:scroll false` suppresses it: `scroll-fx`
   arrives nil (`rf.routing.plan/scroll-plan` → `::suppress`) and no scroll fx is
   emitted."
-  [rdb prev next-fragment capture-fx scroll-fx frame]
+  [rdb prev next-fragment capture-fx push-fx scroll-fx frame]
   (rf.trace/emit! :rf.event :rf.route/fragment-changed
                {:route-id      (:route-id prev)
                 :prev-fragment (:fragment prev)
@@ -143,6 +145,7 @@
   ;; EP-0001: the route slice is durable routing runtime-db
   ;; state — read/write the runtime-db partition.
   (let [fx (vec (concat (when capture-fx [capture-fx])
+                        (when push-fx    [push-fx])
                         (when scroll-fx  [scroll-fx])))]
     (cond-> {:rf.db/runtime (assoc-in rdb [:rf.runtime/routing :current :fragment] next-fragment)}
       (seq fx) (assoc :fx fx))))
@@ -191,13 +194,16 @@
    EP-0037 R4: the guard decisions (stages 4-5) run HERE, after the
    transition kind is classified (stage 3) and before any commit — so an
    exact no-op evaluates NEITHER guard while a full or fragment-only
-   transition evaluates both, in order. `opts` is the door's trailing opts
-   map: `:bypass-leave?` is the public one-shot leave escape and
-   `:rf.route/decided?` is the runtime-internal rider the link door sets on
-   the `:rf.route/handle-url-change` event it synthesises after deciding
-   (alongside `:rf.route/cause :link`), so the same target is not decided
-   twice. The link door also sets `:rf.route/scroll` when the link carried
-   `:scroll`, and it overrides the route's own `:scroll` for this commit.
+   transition evaluates both, in order. `bypass-leave?` is the public
+   one-shot leave escape and `policy` the caller's `:replace?` / `:scroll`
+   overrides a leave-pending value stores. `url-driven?` says the address
+   bar has ALREADY moved, so a rejection restores it by replace.
+
+   `push-fx` is the history fx a door that has NOT yet moved the address bar
+   (the link door) emits; it lands after the slice write, as on the
+   programmatic door, so a navigation queued behind this one finds the route
+   committed. `scroll-opts` carries a per-call `:scroll`, which overrides the
+   route's own `:scroll` for this commit.
 
    ONE argument map, keys named exactly as the destructuring
    names them, which is the shape every other function in this seam
@@ -213,16 +219,13 @@
    nothing pointing back at the call site. Named
    keys make each call site say what it passes."
   [{:keys [rdb url default-scroll frame nav-allocation pending-nav-allocation
-           app-db cause opts]}]
+           app-db cause url-driven? policy bypass-leave? push-fx scroll-opts]}]
   (let [rdb (or rdb {})
         ;; EP-0037 R0: the URL -> ResolvedTarget extraction — including the
         ;; `:rf.route/not-found` fallback normalisation and its `:reason`
         ;; vocabulary — is the ONE shared definition in
-        ;; `re-frame.routing.resolve/url-resolution`, the same seam the LINK
-        ;; door's stage 3 + guards resolve through (`rf.routing.resolve/target-of-url`).
-        ;; Deriving it here as well would let the two disagree: the link door
-        ;; would decide against an incomplete target while this hop commits the
-        ;; canonical not-found one.
+        ;; `re-frame.routing.resolve/url-resolution`, so stage 3, the guards
+        ;; and the commit below all read one target.
         ;;
         ;; The seam is fail-closed. `match-url-fail-closed`
         ;; catches any throw out of `match-url` and yields a NIL match plus a
@@ -278,9 +281,9 @@
         ;; `fragment-only?` short-circuits publish none.
         ;; The capture-fx + scroll-fx assembly is shared
         ;; pre-commit policy — `rf.routing.plan/scroll-plan`. The per-call
-        ;; override is the link door's `:rf.route/scroll` rider (a route-link's
-        ;; `:scroll`), absent on every other cause; the default strategy is the
-        ;; caller-supplied `default-scroll`.
+        ;; override is a route-link's `:scroll` (`scroll-opts`), absent on every
+        ;; URL-driven cause; the default strategy is the caller-supplied
+        ;; `default-scroll`.
         {:keys [capture-fx scroll-fx]}
         (rf.routing.plan/scroll-plan {:rdb              rdb
                            ;; Saved scroll positions are a
@@ -290,8 +293,7 @@
                            ;; (the popstate / Back-button default) reads it.
                            :scroll-cache     (rf.routing.scroll/frame-scroll-cache frame)
                            :route-meta       route-meta
-                           :opts             (when (contains? opts :rf.route/scroll)
-                                               {:scroll (:rf.route/scroll opts)})
+                           :opts             scroll-opts
                            :default-strategy default-scroll
                            :route-id         route-id
                            :params           params
@@ -301,30 +303,25 @@
         ;; EP-0037 stages 4-5, evaluated ONCE and only for a non-no-op
         ;; transition (stage 3 short-circuits an exact no-op below before
         ;; this thunk is ever forced). `nil` means "both guards allowed".
-        ;; Skipped outright when the LINK door already decided this exact
-        ;; target and synthesised this event (`:rf.route/decided?`).
         decision (delay
-                   (when-not (:rf.route/decided? opts)
-                     (rf.routing.decisions/decide
-                       {:rdb                    rdb
-                        :frame                  frame
-                        ;; The guards decide against the ResolvedTarget
-                        ;; the seam produced above — NOT a hand-rebuilt copy of it.
-                        ;; Re-assembling the five fields here would let the two
-                        ;; branches of this one door disagree about what the target
-                        ;; is: the commit branch below publishes
-                        ;; `(:target route-plan)`, which IS `resolved-target`, so a
-                        ;; field the seam later adds would reach the guards and the
-                        ;; committed slice DIFFERENTLY — the class of disagreement
-                        ;; the `resolve.cljc` seam exists to prevent between the
-                        ;; link door and the commit hop.
-                        :target                 resolved-target
-                        :requested-url          url
-                        :cause                  cause
-                        :policy                 {}
-                        :bypass-leave?          (:bypass-leave? opts)
-                        :url-driven?            true
-                        :pending-nav-allocation pending-nav-allocation})))]
+                   (rf.routing.decisions/decide
+                     {:rdb                    rdb
+                      :frame                  frame
+                      ;; The guards decide against the ResolvedTarget
+                      ;; the seam produced above — NOT a hand-rebuilt copy of it.
+                      ;; Re-assembling the five fields here would let the guards
+                      ;; and the commit branch below disagree about what the
+                      ;; target is: the commit publishes `(:target route-plan)`,
+                      ;; which IS `resolved-target`, so a field the seam later adds
+                      ;; would reach the guards and the committed slice
+                      ;; DIFFERENTLY.
+                      :target                 resolved-target
+                      :requested-url          url
+                      :cause                  cause
+                      :policy                 (or policy {})
+                      :bypass-leave?          bypass-leave?
+                      :url-driven?            url-driven?
+                      :pending-nav-allocation pending-nav-allocation}))]
     (cond
       ;; Spec 012 §Per-route data loading rule 3 / EP-0037 stage 3: nothing
       ;; relevant changed — skip the dispatch entirely. No guard evaluation,
@@ -341,8 +338,9 @@
       ;; current route's `:can-leave` and then the target route's
       ;; `:can-enter`. A leave rejection writes the resumable leave-only
       ;; pending value; an entry rejection is TERMINAL (no pending value, no
-      ;; commit). Both restore the address bar by replace — this is a
-      ;; URL-driven door, so the host URL has already moved.
+      ;; commit). On a URL-driven door both restore the address bar by
+      ;; replace, because the host URL has already moved; the link door has
+      ;; pushed nothing, so it restores nothing.
       (some? @decision)
       @decision
 
@@ -356,11 +354,11 @@
       ;; Pass the already-resolved scroll pair (`capture-fx` +
       ;; `scroll-fx` from the shared `rf.routing.plan/scroll-plan` above) so the
       ;; fragment-only door EMITS the resolved `:rf.nav/scroll` (capture →
-      ;; scroll), matching the programmatic `navigate.cljc` door.
-      ;; No push-fx — the URL-driven door never drives the
-      ;; browser URL. `:scroll false` → `scroll-fx` nil → suppressed.
+      ;; scroll), matching the programmatic `navigate.cljc` door. Only the
+      ;; link door carries a `push-fx`. `:scroll false` → `scroll-fx` nil →
+      ;; suppressed.
       fragment-only?
-      (fragment-only-fx rdb prev fragment capture-fx scroll-fx frame)
+      (fragment-only-fx rdb prev fragment capture-fx push-fx scroll-fx frame)
 
       :else
       ;; EP-0037 R0: the URL-driven door lowers to the SAME resolved-target /
@@ -424,10 +422,10 @@
                        frame (assoc :frame frame)))
         ;; `commit-navigation`: nav-token alloc, the
         ;; allocated/activation traces, the slice publish (targeting
-        ;; `:current`, so sibling routing-runtime keys are untouched),
-        ;; and the fx assembly are the shared commit shape. The
-        ;; URL-driven path passes NO `push-fx` — the browser URL already
-        ;; changed (popstate / initial / link-click pushState).
+        ;; `:current`), and the fx assembly are the shared commit shape. The
+        ;; URL-driven causes pass NO `push-fx` — the browser URL already
+        ;; changed — and the link door passes its push / replace, which
+        ;; `commit-navigation` orders after the slice write.
         (rf.routing.events/commit-navigation
           rdb
           (assoc (:target route-plan) :transition transition)
@@ -439,6 +437,7 @@
            :prev-nav-token (get-in rdb [:rf.runtime/routing :current :nav-token])
            :capture-fx   capture-fx
            :scroll-fx    scroll-fx
+           :push-fx      push-fx
            ;; The RECORDABLE nav-token allocation threaded through
            ;; so the nav-token is PUBLISHED from `:token` (recorded +
            ;; replay-stable) + the `:counter` bump rides an fx.
@@ -469,10 +468,10 @@
   also fixes the default scroll strategy — `:top` for `:link`, `:restore`
   otherwise (Spec 012 §Scroll restoration).
 
-  The FOUR feeds the framework itself produces on this door: `:link` from the
-  link door (`rf.routing.decisions/url-requested-handler` synthesises the
-  commit with `{:rf.route/cause :link :rf.route/decided? true}` after the
-  address bar has moved); `:popstate` and `:initial` from the `:url-bound?`
+  The feeds on this door: `:link` from a host that pushed a link's URL
+  before dispatching (the framework's own link door,
+  `url-requested-handler`, commits through `url-change-fx` directly under
+  the same cause); `:popstate` and `:initial` from the `:url-bound?`
   history listener (`rf.routing.history` — the browser-driven
   popstate / hashchange callback and the same listener's initial URL -> slice
   sync); and `:ssr` for a rider-free dispatch on a `:platform :server` frame.
@@ -484,12 +483,12 @@
   Resolution, in order:
 
   1. the runtime-internal `:rf.route/cause` rider on the door's trailing opts
-     map. The framework's own doors set it — the link door stamps `:link`,
-     the browser-driven `popstate` / `hashchange` callback stamps `:popstate`,
+     map. The framework's history listener sets it — the browser-driven
+     `popstate` / `hashchange` callback stamps `:popstate`,
      and the same listener's initial URL -> slice sync stamps `:initial` (Spec
      012 §popstate drives the URL-owner frame). Only a member of
      `rf.routing.resolve/causes` is honoured; anything else falls through, so a stray
-     value cannot invent a sixth cause. Like `:rf.route/decided?` this is a
+     value cannot invent a sixth cause. It is a
      runtime-internal rider on the trailing opts map, NOT a member of the
      closed `:rf.route/navigate` request roster (Spec 012 §The request
      grammar);
@@ -573,4 +572,56 @@
                     :pending-nav-allocation pending-nav-allocation
                     :app-db                 app-db
                     :cause                  cause
-                    :opts                   opts})))
+                    :url-driven?            true
+                    :bypass-leave?          (:bypass-leave? opts)})))
+
+(defn url-requested-handler
+  "`:rf.route/url-requested` event handler — the LINK door. Registered by
+  the façade so a `:reload` re-wires it on a fresh registrar. Declares both
+  recordable allocation cofx: a leave block mints a pending-nav id, a commit
+  a nav-token.
+
+  An EXTERNAL URL emits `:rf.route/external-url-requested` and does nothing
+  else — the browser follows the link. An in-app URL runs the same
+  resolve → classify → decide → commit path as `:rf.route/handle-url-change`
+  (`url-change-fx`) with cause `:link`, in THIS event: an exact no-op pushes
+  nothing, a rejected link click never moves the address bar, and an allowed
+  one commits the slice and then pushes (or, for `:replace? true`, replaces)
+  the URL — state first, URL second (Spec 012 §State-first, URL-second update
+  order is locked). Committing here rather than in a second queued event is
+  what keeps the route and the address bar in agreement when a navigation is
+  queued behind the click: it finds the link's route already current, and
+  runs the guards against it. The link's `:scroll` is the per-call scroll
+  override and `:bypass-leave?` the one-shot leave escape, as on
+  `:rf.route/navigate`."
+  [{frame :rf.frame/id rdb :rf.db/runtime
+    nav-allocation :rf.route/nav-allocation
+    pending-nav-allocation :rf.route/pending-nav-allocation
+    app-db :db}
+   [_ {:keys [url replace? bypass-leave?] :as request}]]
+  (let [frame (rf.frame/require-frame-stamp!
+                frame :rf.route/url-requested
+                {:where 'rf.route/url-requested-handler})
+        rdb   (or rdb {})]
+    (if (rf.routing.url/external-url? url)
+      (do
+        (rf.trace/emit! :rf.event :rf.route/external-url-requested
+                     (cond-> {:url url}
+                       frame (assoc :frame frame)))
+        {})
+      (let [app-url (rf.routing.decisions/request-app-url rdb url)]
+        (url-change-fx {:rdb                    rdb
+                        :url                    app-url
+                        :default-scroll         :top
+                        :frame                  frame
+                        :nav-allocation         nav-allocation
+                        :pending-nav-allocation pending-nav-allocation
+                        :app-db                 app-db
+                        :cause                  :link
+                        :url-driven?            false
+                        :policy                 (rf.routing.decisions/normalize-policy request)
+                        :bypass-leave?          bypass-leave?
+                        :scroll-opts            (select-keys request [:scroll])
+                        :push-fx                (if replace?
+                                                  [:rf.nav/replace-url app-url]
+                                                  [:rf.nav/push-url    app-url])})))))

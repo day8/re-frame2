@@ -188,8 +188,8 @@
   does; a key the caller did not write is not in the payload. No address key
   rides beside `:url`, because a raw URL IS the address (Spec 012 §The request
   grammar): a `:to` / `:params` / `:query` / `:fragment` there would be a
-  second spelling of one destination, and nothing would read it — `decide`
-  takes its `:target` from `(target-of-url app-url)`, never from the request.
+  second spelling of one destination, and nothing would read it — the link
+  door resolves its target from the URL alone, never from the request.
 
   It is a named definition — rather than an inlined map literal at each of its
   two call sites — because being the ONE synthesiser is the whole of its job:

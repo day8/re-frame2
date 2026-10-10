@@ -305,9 +305,8 @@
       (is (= "errors" (get-in (rdb) [:rf.runtime/routing :current :fragment]))))))
 
 (deftest link-door-decides-exactly-once
-  (testing "the link door decides ONCE — the synthesised
-            :rf.route/handle-url-change carries the internal :rf.route/decided?
-            rider, so an ALLOWED link click does not re-run the guards"
+  (testing "the link door decides ONCE — it decides and commits in one event,
+            so an ALLOWED link click does not re-run the guards"
     (let [leave (atom 0) enter (atom 0)]
       (counting-guards! leave enter)
       (rf/reg-route :other {} "/other")
@@ -315,7 +314,7 @@
       (reset! leave 0) (reset! enter 0)
       (rf/dispatch-sync [:rf.route/url-requested {:url "/page"}])
       (is (= :page (current-id)) "the link click completed")
-      (is (= 1 @enter) ":can-enter evaluated exactly once across both hops"))))
+      (is (= 1 @enter) ":can-enter evaluated exactly once"))))
 
 ;; ===========================================================================
 ;; SSR — the default 403 floor (Spec 011)

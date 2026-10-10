@@ -105,8 +105,8 @@
   ;; says nil, so `/page` and `/page#` are one target and moving between them
   ;; is the exact no-op rule 3 describes, not an in-page anchor change.
   (rf.routing/reg-route :route/page {} "/page")
-  (is (= (dissoc (rf.routing.resolve/target-of-url "/page")  :url)
-         (dissoc (rf.routing.resolve/target-of-url "/page#") :url))
+  (is (= (dissoc (:target (rf.routing.resolve/url-resolution "/page"))  :url)
+         (dissoc (:target (rf.routing.resolve/url-resolution "/page#")) :url))
       "both spellings resolve to one target, differing only in the requested
        :url each preserves verbatim"))
 
