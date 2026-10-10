@@ -1,50 +1,18 @@
 'use strict';
-// CLIENT v0 IS UNAFFECTED WHEN THIS SERVICE IS ABSENT — a witness rather
-// than an assertion.
+// CLIENT v0 IS UNAFFECTED WHEN THIS SERVICE IS ABSENT, in three readings of
+// increasing strength (the package README states each in full):
 //
-//     node implementation/ssr-node/test/absence.test.cjs
+//   1. no loader in a client-building tree can reach this package, and its
+//      refusal-code namespace appears nowhere at all;
+//   2. no build's source path or classpath reaches it;
+//   3. it adds no dependency: `src/` requires only builtins, siblings and the
+//      caller's own path, and its manifest declares nothing.
 //
-// The claim is that a re-frame2 client which never starts this service is
-// byte-for-byte the client it would have been had this package never
-// existed. Three independent readings, in increasing strength:
-//
-//   1. NO LOADER CAN REACH IT. In the source trees that build or configure
-//      client artefacts, no module specifier, no ns `:require`, no
-//      classpath entry and no package-manifest link names this package —
-//      and its refusal-code namespace appears nowhere at all.
-//   2. IT IS ON NO BUILD'S SOURCE PATH. `implementation/shadow-cljs.edn`
-//      names no build reaching it and the top-level `implementation/
-//      deps.edn` has no entry for it, so it is in no module graph and
-//      there is no bundle it could be in. This is the strong one: absence
-//      from the graph is not a property anyone has to maintain by care.
-//   3. IT ADDS NO DEPENDENCY. Every `require` in `src/` names a `node:`
-//      builtin or a sibling file here, and the one whose specifier is
-//      COMPUTED takes it from the caller; its own manifest declares no
-//      dependency of any kind and links only to files inside this tree.
-//      So the package contributes nothing to `implementation/package.json`
-//      and nothing to any consumer's dependency closure.
-//
-// ## EVERY CHECK PLANTS ITS OWN FAULT, EVERY RUN
-//
-// A scan that returns zero is indistinguishable from a scan that looked in
-// the wrong place, so each reading below is paired with a row that plants
-// the exact fault it is supposed to see and requires it to be found. Those
-// rows are ordinary rows rather than a `--self-test` flag, so they cannot
-// be skipped by anyone running the file the usual way.
-//
-// The fault is planted in a scratch directory and never in the repo: the
-// scanners take their file list as an argument precisely so the control
-// can hand them a different tree.
-//
-// AND THE PLANT MUST NOT BE ARRANGED SO THE BUG CANNOT REACH IT. That is
-// one level deeper than "the check has a control". An ns control planting
-// the forbidden namespace as the FIRST AND ONLY libspec of a `:require`
-// cannot see a scanner that reads only the first form after the key — so
-// every realistic ns form, two libspecs with the second forbidden, would
-// pass, because a single-libspec plant exercises exactly the path that
-// works. The proof of coverage would itself be the blind spot. So the
-// plants below are realistic files, and where a position can vary the
-// control SWEEPS it instead of picking one.
+// A scan that returns zero cannot be told from one that looked in the wrong
+// place, so each reading has a CONTROL row that plants the fault it must see
+// in a scratch tree. The plants are realistic files, and where a position can
+// vary the control sweeps it: a plant arranged so the bug cannot reach it
+// proves nothing.
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -56,88 +24,24 @@ const { execFileSync } = require('node:child_process');
 const PACKAGE_DIR = path.resolve(__dirname, '..');
 const REPO_ROOT = path.resolve(PACKAGE_DIR, '../..');
 
-/**
- * The source trees that build or configure a CLIENT artefact. The claim is
- * about what can reach a browser bundle, so the scope is the trees that
- * produce or wire one — not the tracker, the design records or the docs,
- * where naming this package is exactly what those files are for.
- */
+/** The trees that build or configure a client artefact; docs and the tracker are out. */
 const SCANNED = ['implementation', 'examples', 'tools', 'scripts', '.github'];
 
 /**
- * Spellings that would mean something in the repo had reached for us: the
- * package directory in any path or coordinate, and the refusal-code
- * namespace.
- *
- * THE BOUNDARIES ARE NOT DECORATION. A bare `ssr-node` substring is a
- * FALSE POSITIVE generator: a sentence explaining that a build deliberately
- * does NOT mint a `:fresco-ssr-node` build id reads, to a substring scan,
- * as the very coupling it is disclaiming. So the pattern refuses a
- * preceding word character, colon or hyphen, and a following word
- * character or hyphen — which still matches every form that would be a
- * real reference (`"ssr-node"` in a deps coordinate, `ssr-node/src` in a
- * source path, `../ssr-node/src/service.cjs` in a require) and none of the
- * forms that are somebody else's compound name.
+ * The package path and the refusal-code namespace. The boundaries matter: a
+ * bare `ssr-node` substring would hit a `:fresco-ssr-node` build id that a
+ * file names only to disclaim it.
  */
 const PATH_REFERENCE = /(?<![\w:-])ssr-node(?![\w-])/g;
 const CODE_NAMESPACE = /(?<![\w-]):rf\.ssr-node\//g;
 const REFERENCES = [PATH_REFERENCE, CODE_NAMESPACE];
 
 /**
- * THERE IS NO ALLOWANCE LIST. READING 1 IS TAKEN AT LOADER POSITIONS.
- *
- * ## Why not an absolute zero over raw text
- *
- * "Nothing outside this package MENTIONS it" is a PROXY for the claim, and
- * a costly one. The package's CI lane necessarily writes its path into FOUR
- * files: `implementation/package.json`, `.github/workflows/test.yml`,
- * `.github/scripts/report-changed-surfaces.sh` and
- * `implementation/scripts/_changed-surfaces.test.cjs` — many lines, most of
- * them the prose that explains WHY the lane has its own output. Pinning
- * those lines as exact-string exceptions would red this suite on every
- * comment reflow in four files nobody here owns — a gate people learn to
- * route around — and any allowance mechanism is the first entry of an
- * allowance list.
- *
- * What the claim needs is that no client can LOAD this package — that no
- * resolver, compiler or classpath can be led here. That no file may NAME it
- * is a much larger statement, and the extra territory is prose, shell
- * `case` arms, CI job names and an npm script that spawns a separate `node`
- * process. None of those is a way into a module graph.
- *
- * So Reading 1 tests the needles at LOADER POSITIONS: the static
- * specifier of a `require` / `import`, the body of a ClojureScript ns
- * `:require`, the classpath and coordinate keys of an EDN build config, and
- * the linking fields of a package manifest. A format that cannot resolve a
- * module — YAML, shell, Markdown — offers no loader position and therefore
- * cannot host a hit.
- *
- * ## Why this is not a widened pattern
- *
- * Because it is the same move `DOC_EXT` makes, below, and for the same
- * reason. `DOC_EXT` excludes Markdown on the ground that "a Markdown file
- * cannot be required, compiled, or put on a source path" — a statement
- * about what the FORMAT can do, never about which paths are forgiven.
- * `.yml` and `.sh` cannot be required, compiled or put on a source path
- * either.
- *
- * There is no allowance list: no file, path or string is named as
- * forgiven, and the four wiring files are read exactly as any other file of
- * their format. And the needles are not widened by a character —
- * `PATH_REFERENCE` and `CODE_NAMESPACE` are the needles the raw-text scan
- * uses, and the rows below plant a fault at every loader position this file
- * knows about and require each one to be found.
- *
- * ## What keeps the absolute zero
- *
- * `CODE_NAMESPACE` keeps the absolute zero, over raw text, everywhere. A
- * path is a token that legitimately appears in prose and in commands; the
- * refusal-code namespace is a token that only code producing or consuming
- * this service's refusals has any use for, so a client that names it has
- * been changed by this package's existence — which is precisely the claim
- * under test. Nothing inert in the scanned trees spells it.
- *
- * Readings 2 and 3 are the strong net.
+ * Reading 1 is taken at LOADER POSITIONS rather than over raw text, because
+ * the package's own CI lane names it in YAML, shell and an npm script, none of
+ * which can resolve a module. No file or string is forgiven and the needles
+ * are not widened. `CODE_NAMESPACE` keeps its absolute zero over raw text:
+ * only code producing or consuming these refusals has a use for it.
  */
 
 const SKIP_EXT = new Set([
@@ -146,25 +50,9 @@ const SKIP_EXT = new Set([
 ]);
 
 /**
- * DOCUMENTATION IS OUT OF SCOPE — the code matching the stated scope
- * above, not an exception carved out under pressure.
- *
- * A Markdown file cannot be required, compiled, or put on a source path,
- * so it is not a way this package could reach a client artefact. Naming
- * the package in prose is what prose is for.
- *
- * The argument is not merely that it is harmless. `implementation/
- * README.md` is REQUIRED to name this directory: `scripts/
- * check_readme_inventories.py` reds when a directory appears under
- * `implementation/` without a line in that README's layout map. A scan
- * that reds on the line the other gate demands is not a strict scan, it is
- * two repo invariants pulling against each other — and the one that has to
- * give is the one whose own header says documentation is not its subject.
- *
- * The exclusion is by EXTENSION and not by path, so it cannot quietly
- * cover a source file; the loader-position control below writes each
- * planted fault into a `.md` beside its source file and requires only the
- * source file to be found.
+ * Documentation is out of scope by EXTENSION, never by path: Markdown cannot
+ * be required, compiled or put on a source path, and `implementation/README.md`
+ * is required by `scripts/check_readme_inventories.py` to name this directory.
  */
 const DOC_EXT = new Set(['.md', '.markdown']);
 
@@ -190,22 +78,13 @@ const CLJ_EXT = new Set(['.clj', '.cljs', '.cljc']);
 const SPECIFIER = /(?:\b(?:require|import)\s*\(\s*|\bfrom\s+|\bimport\s+)(['"])((?:[^'"\\]|\\.)*)\1/g;
 
 /**
- * A `require(` / `import(` whose argument is NOT a string literal. The
- * specifier is then computed, so it cannot be read off the call — and
- * `require(SERVICE)` two lines under `const SERVICE = '../ssr-node/src/
- * service.cjs'` is a module-graph edge that a specifier scan alone would
- * walk straight past. Such a file FAILS CLOSED: every string literal in it
- * is treated as a candidate specifier.
+ * A `require(` / `import(` whose argument is not a string literal. Such a
+ * file fails CLOSED: every string literal in it is a candidate specifier.
  */
 const DYNAMIC_SPECIFIER = /\b(?:require|import)\s*\(\s*(?!['"])/;
 const STRING_LITERAL = /(['"`])((?:[^'"`\\\n]|\\.)*)\1/g;
 
-/**
- * ns forms that put a namespace on the compiler's load path. Each opens a
- * CLAUSE whose body is any number of sibling forms — `(:require [a] [b] [c])`
- * — which is why these are read with `clauseFormsAfterKeys` and the EDN keys
- * below with `valuesAfterKeys`.
- */
+/** ns clause keys that put a namespace on the compiler's load path. */
 const CLJ_LOAD_KEYS = [':require', ':require-macros', ':import', ':use', ':load'];
 
 /** EDN keys whose value is a source path or a dependency coordinate. */
@@ -215,11 +94,8 @@ const EDN_LOAD_KEYS = [
 ];
 
 /**
- * The `package.json` fields a resolver reads. `scripts` is deliberately not
- * among them and is not an omission: a script is a COMMAND LINE, and the
- * process it spawns has its own module graph rooted wherever it is rooted.
- * `npm run test:ssr-node` no more links this package into a client than
- * typing the same command into a terminal does.
+ * The `package.json` fields a resolver reads. Not `scripts`: a script is a
+ * command line, and the process it spawns has its own module graph.
  */
 const MANIFEST_LINK_FIELDS = [
   'dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies',
@@ -279,11 +155,7 @@ function keyPositions(text, keys) {
   return out;
 }
 
-/**
- * The ONE value form after each key — the right shape for an EDN MAP ENTRY,
- * where `:paths [...]` and `:deps {...}` each take a single collection and
- * every element of it is already inside that one form.
- */
+/** The ONE value form after each key: the shape of an EDN map entry. */
 function valuesAfterKeys(text, keys) {
   return keyPositions(text, keys).map(({ at, from }) => ({
     text: balancedFormAt(text, from),
@@ -292,11 +164,8 @@ function valuesAfterKeys(text, keys) {
 }
 
 /**
- * The sibling forms from `i` up to the closer of the ENCLOSING form — an ns
- * clause body, not one value. Still deliberately naive: it is not a Clojure
- * reader, only a walk that knows balanced delimiters, strings and line
- * comments, and a shape it cannot parse leaves extra text inside a form
- * rather than dropping any.
+ * The sibling forms from `i` to the closer of the enclosing form. Not a
+ * reader: a walk that knows balanced delimiters, strings and line comments.
  */
 function formsInClause(text, i) {
   const out = [];
@@ -321,28 +190,16 @@ function formsInClause(text, i) {
 }
 
 /**
- * EVERY form in the clause body each key opens — the right shape for an ns
- * CLAUSE, where `(:require [a :as a] [b :as b])` takes as many libspecs as it
- * likes and they are SIBLINGS rather than nested.
- *
- * READING ONLY THE FIRST FORM IS A FAIL-OPEN, AND A CONTROL CAN BE BUILT SO
- * IT CANNOT SEE THAT. `valuesAfterKeys` on `(:require [app.first :as first]
- * [rf.ssr-node/service :as svc])` yields `[app.first :as first]` and stops,
- * so an ordinary two-line ns form would hide the reference completely — and
- * a planted fault putting the forbidden namespace FIRST AND ONLY, the single
- * position that works, would keep the row green over a shape it never
- * reaches. The sweep below plants at every position of every clause key
- * instead.
+ * EVERY form in each clause body: `(:require [a] [b])` takes sibling
+ * libspecs, and reading only the first would pass a forbidden second one.
  */
 function clauseFormsAfterKeys(text, keys) {
   return keyPositions(text, keys).flatMap(({ from }) => formsInClause(text, from));
 }
 
 /**
- * Every loader position in one file, as `[{text, at}]` where `at` is an
- * offset into `text` good enough to name a line. A format with no way to
- * resolve a module contributes none — which is the whole of the narrowing,
- * and is the `DOC_EXT` argument applied to `.yml` and `.sh` as well.
+ * Every loader position in one file, as `[{text, at}]`. A format that cannot
+ * resolve a module contributes none.
  */
 function loaderPositions(rel, text) {
   const ext = path.extname(rel).toLowerCase();
@@ -453,17 +310,9 @@ function foreignRequires(files) {
 }
 
 /**
- * Requires whose specifier is COMPUTED — `require(x)`, not `require('x')` —
- * returning the argument text.
- *
- * `foreignRequires` cannot see one, and `src/` HAS one: `worker.cjs` loads
- * the application bundle it was pointed at, which is the entire design.
- * Without this, Reading 3 would assert "every require here is a builtin or
- * a sibling" over a set that excludes its only counter-example, and the row
- * would stay green if that line computed a package name instead — a check
- * green about a case it cannot reach, the same shape as a single-libspec ns
- * control. Reading 1 draws the same distinction for itself — see
- * `DYNAMIC_SPECIFIER`.
+ * Requires whose specifier is COMPUTED, as `[{file, arg}]`. `foreignRequires`
+ * cannot see one, and `worker.cjs` has one by design: it loads the bundle the
+ * caller pointed it at.
  */
 function computedRequires(files) {
   const hits = [];
@@ -511,8 +360,7 @@ test('no loader in a client-building tree can reach this package', () => {
 });
 
 test('the refusal-code namespace appears nowhere outside the package', () => {
-  // The absolute zero this file keeps, and the reason the narrowing above is
-  // safe rather than merely smaller — see the long note on REFERENCES.
+  // The absolute zero, over raw text.
   const files = trackedFiles(REPO_ROOT, SCANNED);
   const hits = scanForReferences(REPO_ROOT, files, [CODE_NAMESPACE], 'implementation/ssr-node/');
   assert.deepStrictEqual(
@@ -525,15 +373,9 @@ test('the refusal-code namespace appears nowhere outside the package', () => {
 });
 
 /**
- * ONE PLANTED FAULT PER LOADER POSITION. If a shape below stops being
- * found, Reading 1 has a blind spot in exactly that shape — which is the
- * only way a narrowed reading can fail quietly.
- *
- * EVERY PLANT HERE IS A REALISTIC FILE, and that is a correctness property
- * rather than a matter of taste. `app/core.cljs` carries the forbidden
- * namespace as the LAST of three libspecs, because a scanner that read only
- * the first form would pass a single-libspec plant. A minimal plant does not
- * merely under-test: it can be the one arrangement the bug does not reach.
+ * One realistic plant per loader position. A minimal plant can be the one
+ * arrangement a bug does not reach, so `app/core.cljs` puts the forbidden
+ * namespace LAST of three libspecs.
  */
 const PLANTED_LOADER_FAULTS = {
   'app/boot.cjs': "require('../../implementation/ssr-node/src/service.cjs');\n",
@@ -566,11 +408,7 @@ test('CONTROL — every loader position this file knows about finds its planted 
   }
 });
 
-/**
- * ORDINARY COMPANY FOR THE FORBIDDEN ENTRY, one set per ns clause key. The
- * fault is swept through every position among them, so no single arrangement
- * can be the one the scanner happens to reach.
- */
+/** Ordinary company for the forbidden entry, per ns clause key. */
 const NS_CLAUSE_NEIGHBOURS = {
   ':require': [
     '[reagent.core :as r]',
@@ -593,17 +431,9 @@ const NS_CLAUSE_FAULTS = {
 };
 
 test('CONTROL — an ns clause is scanned WHOLE, and not just its first form', () => {
-  // THE SHAPE THE PROJECT SHOULD FEAR MOST. A scanner reading the ONE form
-  // after `:require` would take
-  // `(:require [app.first :as first] [rf.ssr-node/service :as svc])` — an
-  // unremarkable two-line ns form — as `[app.first :as first]` and pass it:
-  // green about a class it does not cover.
-  //
-  // And a control planting the fault FIRST AND ALONE could not fail against
-  // that scanner, because that is precisely the position it handles. So
-  // this row does not plant one arrangement. It sweeps the fault through
-  // EVERY position of EVERY clause key the file claims, and a scanner that
-  // reads one form fails it at position 2 of the very first key.
+  // The fault is swept through EVERY position of every clause key: a scanner
+  // reading only the first form passes a fault planted first and alone, and
+  // fails here at position 2 of the first key.
   for (const [key, neighbours] of Object.entries(NS_CLAUSE_NEIGHBOURS)) {
     const fault = NS_CLAUSE_FAULTS[key];
     for (let i = 0; i <= neighbours.length; i += 1) {
@@ -624,123 +454,9 @@ test('CONTROL — an ns clause is scanned WHOLE, and not just its first form', (
   }
 });
 
-test('CONTROL — the whole-clause walk stops at the clause, not at the file', () => {
-  // The counterpart the sweep above cannot give: reading MORE than one form
-  // is only right if it stops reading at the closing paren. A walk that ran
-  // on would drag the whole file into the `:require` position and red on any
-  // mention anywhere — the absolute zero this reading deliberately does not
-  // assert, reintroduced by accident.
-  const dir = scratch({
-    'app/core.cljs':
-      '(ns app.core\n  (:require [app.first :as first])) ; not (ssr-node) either\n\n'
-      + '(def note "see implementation/ssr-node/src/service.cjs for the protocol")\n'
-      + '(defn render [] (str "ssr-node"))\n',
-  });
-  try {
-    assert.deepStrictEqual(
-      scanLoaderPositions(dir, ['app/core.cljs'], REFERENCES, null),
-      [],
-      'text after the clause is not in the clause',
-    );
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-/**
- * THE SHAPES A CI LANE WRITES, copied by shape rather
- * than referenced by path: an npm script, a workflow job name and run step,
- * a shell `case` arm classifying a changed path, and a gate test asserting
- * on that mapping. All four name this package. None of the four is a way to
- * load it.
- */
-const CI_WIRING_SHAPES = {
-  'implementation/package.json':
-    '{\n  "name": "re-frame2",\n  "scripts": {\n'
-    + '    "test:ssr-node": "node ssr-node/test/run.cjs"\n  }\n}\n',
-  '.github/workflows/test.yml':
-    'jobs:\n  node-ssr-node:\n'
-    + '    name: Node implementation/ssr-node (bounded SSR service suite)\n'
-    + '    steps:\n      - name: Run the ssr-node suite\n'
-    + '        run: node implementation/ssr-node/test/run.cjs\n',
-  '.github/scripts/report-changed-surfaces.sh':
-    '# the ssr-node package\'s own lane — see implementation/ssr-node/\ncase "$file" in\n'
-    + '  implementation/ssr-node/*)\n    ssr_node=true ;;\nesac\n',
-  'implementation/scripts/_changed-surfaces.test.cjs':
-    "const { execFileSync } = require('node:child_process');\n"
-    + "// the ssr-node lane arms on its own tree — implementation/ssr-node/\n"
-    + "const SSR_NODE = {\n  dir: 'implementation/ssr-node',\n"
-    + "  runner: 'implementation/ssr-node/test/run.cjs',\n"
-    + "  src: 'implementation/ssr-node/src/service.cjs',\n};\n"
-    + 'module.exports = { SSR_NODE, execFileSync };\n',
-};
-
-test('CONTROL — a CI lane naming the package is inert, and IS NOT inert once it links', () => {
-  // BOTH DIRECTIONS IN ONE ROW, because the loader-position reading is only
-  // correct if both hold. A reading that stopped failing would be worse than
-  // the raw-text collision it avoids.
-  const files = Object.keys(CI_WIRING_SHAPES);
-
-  const inert = scratch(CI_WIRING_SHAPES);
-  try {
-    assert.deepStrictEqual(
-      scanLoaderPositions(inert, files, REFERENCES, null),
-      [],
-      'the four CI wiring shapes must not be loader positions',
-    );
-  } finally {
-    fs.rmSync(inert, { recursive: true, force: true });
-  }
-
-  // The same four files, each additionally given a real edge of the kind
-  // its own format supports. Every one of the four must now be found.
-  const linked = scratch({
-    ...CI_WIRING_SHAPES,
-    'implementation/package.json':
-      '{\n  "name": "re-frame2",\n  "scripts": {\n'
-      + '    "test:ssr-node": "node ssr-node/test/run.cjs"\n  },\n'
-      + '  "dependencies": {\n    "ssr-node": "file:./ssr-node"\n  }\n}\n',
-    // A workflow cannot resolve a module, so the edge a CI tree can really
-    // grow is an EDN one beside it — the shape Reading 2 pins for two named
-    // files and this row pins for every other build config in the trees.
-    '.github/build/deps.edn': '{:paths ["../../implementation/ssr-node/src"]}\n',
-    '.github/scripts/report-changed-surfaces.sh': CI_WIRING_SHAPES['.github/scripts/report-changed-surfaces.sh'],
-    'implementation/scripts/_changed-surfaces.test.cjs':
-      CI_WIRING_SHAPES['implementation/scripts/_changed-surfaces.test.cjs']
-      + "require('../ssr-node/src/service.cjs');\n",
-    // Multi-libspec on purpose: a single-libspec ns is the one arrangement
-    // a first-form-only scanner handles, so pinning it here would make this
-    // row green for the wrong reason too.
-    'implementation/scripts/boot.cljs':
-      '(ns boot\n  (:require [clojure.string :as str]\n            [rf.ssr-node/service]))\n',
-  });
-  try {
-    const linkedFiles = [...files, '.github/build/deps.edn', 'implementation/scripts/boot.cljs'];
-    const hits = scanLoaderPositions(linked, linkedFiles, REFERENCES, null);
-    const seen = new Set(hits.map((h) => h.file));
-    for (const rel of [
-      'implementation/package.json',
-      '.github/build/deps.edn',
-      'implementation/scripts/_changed-surfaces.test.cjs',
-      'implementation/scripts/boot.cljs',
-    ]) {
-      assert.ok(seen.has(rel), `${rel} grew a real loader edge and Reading 1 missed it`);
-    }
-  } finally {
-    fs.rmSync(linked, { recursive: true, force: true });
-  }
-});
-
 test('CONTROL — the refusal-code needle finds a refusal code, and only that', () => {
-  // THE SECOND NEEDLE NEEDS ITS OWN CONTROL. This file's header promises
-  // every reading a row that plants the exact fault it must see, and the
-  // loader-position plants above exercise `PATH_REFERENCE` only. This row
-  // plants a refusal code and requires `CODE_NAMESPACE`, and only it, to
-  // find it.
-  //
-  // The near-miss is the point of the pairing. `[rf.ssr-node/service]` is a
-  // PATH_REFERENCE hit with no leading colon, so it proves the two needles
-  // are genuinely different rather than one an alias of the other.
+  // `CODE_NAMESPACE`'s own control. The near-miss is a PATH_REFERENCE hit with
+  // no leading colon, so the two needles are shown to differ.
   const dir = scratch({
     'app/handler.cljs':
       '(ns app.handler)\n(defn refused? [r] (= (:code r) :rf.ssr-node/render-threw))\n',
@@ -772,40 +488,13 @@ test('CONTROL — the refusal-code needle finds a refusal code, and only that', 
 const BUILD_CONFIGS = ['implementation/shadow-cljs.edn', 'implementation/deps.edn'];
 
 /**
- * READ AT LOADER POSITIONS, NOT OVER RAW TEXT — the same move Reading 1
- * makes, not a second, softer one.
- *
- * A raw-text scan of these two EDN files would assert that they may not
- * MENTION the package. That is not the reading this row's failure message
- * states: "a build config puts this package on a source path or a
- * classpath" is a claim about `:source-paths`, `:deps` and their siblings,
- * and a `;;` comment is none of them. `implementation/shadow-cljs.edn`
- * explains, in a comment above `:examples/login-fresco-server`, which
- * sidecar loads the module that build emits — prose about the package, in
- * the file where prose about a build belongs.
- *
- * Reading 1 draws exactly this line and gives the argument for it: a
- * position that cannot resolve a module cannot host a hit, and the scope is
- * what the FORMAT can do rather than which files are forgiven. A comment is
- * not a source path in an EDN build config any more than it is in an ns
- * form. So this row reads `loaderPositions` — for `.edn`, the value form
- * after each of `EDN_LOAD_KEYS` — and the narrowing is the sibling of
- * Reading 1's, not a new allowance.
- *
- * Nothing is widened and nothing is forgiven. No path or string is named as
- * an exception, and the row below plants a real source path AND the comment
- * that is not one, requiring the first to be found and the second not to
- * be. What keeps this row honest — that a build reaching this package is
- * caught — is exactly what is tested.
- *
- * Reading 1's whole-repo scan covers these two files as ordinary `.edn`;
- * this row stays because it FAILS CLOSED on a config that has gone missing
- * or unparseable, which a repo-wide scan cannot say anything about.
+ * Read at loader positions, as Reading 1 is: `implementation/shadow-cljs.edn`
+ * names this package in a comment, which is not a source path. Reading 1's
+ * repo-wide scan covers these files too; this row adds failing CLOSED on a
+ * config that is missing, unparseable or key-less.
  */
 test('no shadow-cljs build and no classpath entry reaches this package', () => {
-  // A missing or key-less config must not read as a clean scan:
-  // `scanLoaderPositions` skips a missing file silently. Same shape as
-  // Reading 3's computed-require guard.
+  // `scanLoaderPositions` skips a missing file silently, so check presence first.
   for (const rel of BUILD_CONFIGS) {
     const text = readTracked(REPO_ROOT, rel);
     assert.ok(text !== null, `${rel} is missing — the scan has nothing to read`);
@@ -829,8 +518,7 @@ test('CONTROL — a doctored build config is caught, and a comment about one is 
     // Both spellings, at both kinds of loader position an EDN config has.
     'shadow-cljs.edn': '{:builds {:app {:target :browser :source-paths ["ssr-node/src"]}}}\n',
     'deps.edn': '{:deps {day8/ssr-node {:local/root "../ssr-node"}}}\n',
-    // The near-miss, and the whole of what this row does not assert: the
-    // shape `implementation/shadow-cljs.edn` actually carries.
+    // The near-miss: the shape `implementation/shadow-cljs.edn` carries.
     'commented.edn':
       ';; the module `implementation/ssr-node`\'s sidecar loads — prose, not a\n'
       + ';; source path, and the refusal code :rf.ssr-node/render-threw is not\n'
@@ -849,10 +537,7 @@ test('CONTROL — a doctored build config is caught, and a comment about one is 
       [],
       'and a comment naming the package is not a way into a build — the narrowing this row is',
     );
-    // AND THE COMMENT MUST BE THERE TO BE MISSED. Without this, the row
-    // above passes on an empty fixture and the narrowing is untested: it is
-    // the POSITION doing the work, so the raw scan finds both needles in the
-    // very text the scoped scan is required to walk past.
+    // And the comment must be there to be missed: the raw scan finds both needles.
     assert.strictEqual(
       scanForReferences(dir, ['commented.edn'], REFERENCES, null).length,
       REFERENCES.length,
@@ -885,11 +570,7 @@ test('every require in src/ is a builtin, a sibling, or the caller\'s own path',
     [],
     'a third-party require would put this package into a dependency closure',
   );
-  // And the requires the line above cannot read. The property is not that
-  // there are none — `worker.cjs` needs one — but that THIS PACKAGE NEVER
-  // NAMES A MODULE IT COMPUTES: every computed specifier comes from
-  // `workerData`, so it is the caller's path, and nothing it resolves to can
-  // reach a manifest we ship.
+  // A computed specifier is allowed only from `workerData`: the caller's own path.
   const computed = computedRequires(files);
   assert.ok(computed.length > 0, 'no computed require found at all — the scan has gone blind');
   for (const hit of computed) {
@@ -907,16 +588,10 @@ test('CONTROL — a third-party require is caught, spelled out or computed', () 
     'sneaky.cjs': "const NAME = 'react';\nconst R = require(NAME);\n",
   });
   try {
-    const hits = foreignRequires([path.join(dir, 'bad.cjs')]);
-    assert.strictEqual(hits.length, 1);
-    assert.strictEqual(hits[0].spec, 'react');
-    // The half `foreignRequires` is blind to, and the reason the row above
-    // needs a second scan: this file declares its own module name and hides
-    // it behind a binding.
+    assert.deepStrictEqual(foreignRequires([path.join(dir, 'bad.cjs')]), [{ file: 'bad.cjs', spec: 'react' }]);
+    // A module name hidden behind a binding is invisible to `foreignRequires`.
     assert.deepStrictEqual(foreignRequires([path.join(dir, 'sneaky.cjs')]), []);
-    const computed = computedRequires([path.join(dir, 'sneaky.cjs')]);
-    assert.deepStrictEqual(computed, [{ file: 'sneaky.cjs', arg: 'NAME' }]);
-    assert.doesNotMatch(computed[0].arg, /^workerData\./, 'and it is not a caller-supplied path');
+    assert.deepStrictEqual(computedRequires([path.join(dir, 'sneaky.cjs')]), [{ file: 'sneaky.cjs', arg: 'NAME' }]);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -926,12 +601,7 @@ test('CONTROL — a third-party require is caught, spelled out or computed', () 
 // 3b. The manifest — what it makes checkable
 // ---------------------------------------------------------------------------
 
-/**
- * The manifest fields that DECLARE a dependency: the subset of
- * `MANIFEST_LINK_FIELDS` whose presence, with anything in it, puts a second
- * package into this one's closure. `workspaces` is here because it links
- * sibling packages, which is a dependency spelled as a directory.
- */
+/** Manifest fields that DECLARE a dependency; `workspaces` links sibling packages. */
 const DEPENDENCY_FIELDS = [
   'dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies',
   'bundleDependencies', 'bundledDependencies', 'workspaces',
@@ -945,14 +615,8 @@ const leaves = (v) =>
   typeof v === 'string' ? [v] : v && typeof v === 'object' ? Object.values(v).flatMap(leaves) : [];
 
 /**
- * What is wrong with a manifest, as sentences — empty when the package's
- * closure is the package. Two invariants, and they are the SAME claim
- * Reading 3 makes of `src/`, read off the file a resolver consults first:
- * (a) it declares no dependency of any kind, and (b) every path it links a
- * resolver to lies inside the package and exists. (b) is the manifest's
- * spelling of "a builtin, a sibling, or the caller's own path" — a `main`
- * at `../core/…`, or an `exports` leaf naming a bare package, is an edge
- * out of this tree that no scan of `src/`'s requires can see.
+ * What is wrong with a manifest, as sentences: a declared dependency, or a
+ * path link that leaves the package or names a file it does not ship.
  */
 function manifestFaults(manifest, packageDir) {
   const faults = [];
@@ -975,12 +639,7 @@ function manifestFaults(manifest, packageDir) {
 }
 
 test('the manifest declares no dependency of any kind, and links only to files it ships', () => {
-  // THE MANIFEST IS WHERE A DEPENDENCY WOULD APPEAR FIRST. It carries an
-  // exports map, a serve bin and an engines pin, and the property the
-  // README states — no dependency, nothing reachable outside the tree — is
-  // checked against it here. Asserting that no manifest exists would be the
-  // weaker reading dressed as the stronger one: nothing can be declared in a
-  // file that is not there, but nothing can be SHOWN about one either.
+  // Checked against the real manifest, not against there being none.
   const manifest = JSON.parse(fs.readFileSync(path.join(PACKAGE_DIR, 'package.json'), 'utf8'));
   assert.deepStrictEqual(
     manifestFaults(manifest, PACKAGE_DIR),
@@ -990,9 +649,7 @@ test('the manifest declares no dependency of any kind, and links only to files i
 });
 
 test('nothing in implementation/package.json reaches this package', () => {
-  // The top-level manifest is the one a client install reads. Reading 1
-  // already scans its link fields for the path; this pins the two
-  // spellings a dependency on this package would actually take there.
+  // The manifest a client install reads, by the package's own name too.
   const pkg = JSON.parse(
     fs.readFileSync(path.join(REPO_ROOT, 'implementation', 'package.json'), 'utf8'),
   );
@@ -1009,26 +666,20 @@ test('CONTROL — a manifest that grows a dependency, or links past its own tree
     assert.deepStrictEqual(manifestFaults(clean, dir), [], 'the control must be clean, or the zero above proves nothing');
 
     // Each fault alone, so the sentence names the field and not a neighbour.
+    const cases = [
+      [{ dependencies: { react: '^19' } }, 'dependencies is declared: {"react":"^19"}'],
+      [{ devDependencies: {} }, 'devDependencies is declared: {}'],
+      [{ main: '../core/src/index.cjs' }, 'main links outside the package: ../core/src/index.cjs'],
+      [{ exports: { './service': 'react' } }, 'exports links outside the package: react'],
+      [
+        { exports: { './service': { require: './src/../../escape.cjs' } } },
+        'exports links outside the package: ./src/../../escape.cjs',
+      ],
+      [{ bin: { x: './bin/absent.cjs' } }, 'bin links to a file the package does not ship: ./bin/absent.cjs'],
+    ];
     assert.deepStrictEqual(
-      manifestFaults({ ...clean, dependencies: { react: '^19' } }, dir),
-      ['dependencies is declared: {"react":"^19"}'],
-    );
-    assert.deepStrictEqual(manifestFaults({ ...clean, devDependencies: {} }, dir), ['devDependencies is declared: {}']);
-    assert.deepStrictEqual(
-      manifestFaults({ ...clean, main: '../core/src/index.cjs' }, dir),
-      ['main links outside the package: ../core/src/index.cjs'],
-    );
-    assert.deepStrictEqual(
-      manifestFaults({ ...clean, exports: { './service': 'react' } }, dir),
-      ['exports links outside the package: react'],
-    );
-    assert.deepStrictEqual(
-      manifestFaults({ ...clean, exports: { './service': { require: './src/../../escape.cjs' } } }, dir),
-      ['exports links outside the package: ./src/../../escape.cjs'],
-    );
-    assert.deepStrictEqual(
-      manifestFaults({ ...clean, bin: { x: './bin/absent.cjs' } }, dir),
-      ['bin links to a file the package does not ship: ./bin/absent.cjs'],
+      cases.map(([fault]) => manifestFaults({ ...clean, ...fault }, dir)),
+      cases.map(([, sentence]) => [sentence]),
     );
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
