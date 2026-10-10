@@ -131,6 +131,10 @@
 ;; Whether those extractors saw every mark: a schema with an opaque
 ;; descendant can carry marks neither of them reaches.
 (rf.late-bind/set-fn! :schemas/schema-has-opaque-child? schema-has-opaque-child?)
+;; Whether a schema names a registry schema by qualified keyword, whose marks
+;; the extractors never see. A walker public published as a hook only, off the
+;; facade: validation surfaces keep such a reference walkable.
+(rf.late-bind/set-fn! :schemas/schema-has-qualified-ref? rf.schemas.walker/schema-has-qualified-ref?)
 
 ;; Test-support hooks (consumed by re-frame.test-support's
 ;; make-reset-runtime-fixture).

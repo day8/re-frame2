@@ -635,6 +635,66 @@
       (and (vector? schema) (pos? (count schema))
            (opaque-nested-tail? schema))))
 
+;; ---- qualified-keyword registry references --------------------------------
+;;
+;; A QUALIFIED keyword in a schema position is recognisably a registry
+;; reference: Malli's default registry holds exactly one qualified key,
+;; `:malli.core/schema`, and that one cannot stand as a bare child. Whether the
+;; schema it names carries a `:sensitive?` / `:large?` mark is unknowable
+;; without a registry consult, which Spec 010 reserves for the registered
+;; validator, and a reference can just as well name a flag-free scalar. So the
+;; opacity walk keeps it walkable, and this separate predicate answers the
+;; narrower question an egress that must fail closed asks: does the form name
+;; any registry schema by qualified keyword at all?
+
+(defn- implicit-entry-ref?
+  "True when `entry`, a child of a `:map`, names a registry schema by its KEY
+  alone. Malli reads a tail-less entry — `:app/token`, `[:app/token]` or
+  `[:app/token {:optional true}]` — as a reference to the registry schema of
+  that name; an entry with an explicit child schema (`[:user/id :int]`) uses
+  its key as data."
+  [entry]
+  (cond
+    (keyword? entry) (qualified-keyword? entry)
+    (vector? entry)  (and (qualified-keyword? (nth entry 0 nil))
+                          (case (count entry)
+                            1 true
+                            2 (map? (nth entry 1))
+                            false))
+    :else            false))
+
+(defn schema-has-qualified-ref?
+  "True when `schema` names a registry schema by QUALIFIED keyword: at the
+  root, at any real child-schema position of a vector form, or as a `:map`
+  entry with no explicit child schema (Malli's implicit reference,
+  `[:map :app/token]` / `[:map [:app/token {:optional true}]]`).
+
+  The descent reuses the opacity walk's operator-aware projection, so map
+  keys, `:enum` / `:=` operands, comparator bounds and `:multi` / `:orn`
+  dispatch heads are data and never inspected — `[:map [:user/id :int]]` and
+  `[:enum :status/a]` answer false. An UNQUALIFIED keyword answers false too:
+  it cannot be told from a primitive. A form the opacity walk classifies
+  opaque (`[:ref …]`, a local `:registry`, an unclassified op, a compiled
+  value) answers false here, because `schema-has-opaque-child?` already owns
+  that answer.
+
+  The opacity walk does NOT consult this: validation surfaces keep a qualified
+  reference walkable. The off-box HTTP export does, and fails closed on it.
+  No registry consult, no Malli require, no namespace exemption.
+
+  Returns boolean. Pure."
+  [schema]
+  (cond
+    (qualified-keyword? schema) true
+    (and (vector? schema) (pos? (count schema)))
+    (let [children (opacity-child-schemas schema)]
+      (and (not= ::opaque children)
+           (boolean
+             (or (and (contains? name-bearing-ops (nth schema 0))
+                      (some implicit-entry-ref? (schema-children schema)))
+                 (some schema-has-qualified-ref? children)))))
+    :else false))
+
 (defn- prefix?
   "True when `prefix` is a prefix of `path` (or equal). Both are
   indexed vectors compared element-wise. Single-pass with no lazy-seq

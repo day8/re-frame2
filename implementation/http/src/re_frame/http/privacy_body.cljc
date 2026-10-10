@@ -111,18 +111,22 @@
 
 (defn- walker-sees-every-mark?
   "True iff the schemas artefact's walker reports `decode` free of any opaque
-  descendant, so the marks the extract hooks return are all the marks there
-  are. False when the walker's hook is unbound: nothing can then show it."
+  descendant AND of any qualified-keyword registry reference, so the marks the
+  extract hooks return are all the marks there are. False when either hook is
+  unbound: nothing can then show it."
   [decode]
-  (if-let [opaque-child? (rf.late-bind/get-fn-cached :schemas/schema-has-opaque-child?)]
-    (not (opaque-child? decode))
-    false))
+  (let [opaque-child?  (rf.late-bind/get-fn-cached :schemas/schema-has-opaque-child?)
+        qualified-ref? (rf.late-bind/get-fn-cached :schemas/schema-has-qualified-ref?)]
+    (boolean
+      (and opaque-child? qualified-ref?
+           (not (opaque-child? decode))
+           (not (qualified-ref? decode))))))
 
 (defn introspectable-schema-decode?
   "True iff `decode` is a Malli-schema `:decode` whose per-slot marks the
   shared schema walker sees IN FULL — the raw EDN VECTOR form
   (`[op props? children...]`, the shape `(rf/reg-app-schema …)` users write)
-  with no opaque descendant.
+  with no opaque descendant and no qualified-keyword registry reference.
 
   This is narrower than `schema-decode?`, which is
   true for ANY non-mode/non-fn `:decode`, including schemas whose marks the
@@ -132,6 +136,14 @@
       valid Malli schema (registry ref), but the walker (per Spec 010 §The
       `:schema` value is opaque to re-frame) MUST NOT consult the registry /
       validator, so it cannot see the ref'd schema's per-slot marks;
+    - a vector form naming a registry schema by QUALIFIED keyword at any
+      child-schema position (`[:map [:user :app/user]]`, `[:vector :app/user]`)
+      or as an implicit `:map` entry (`[:map :app/token]`,
+      `[:map [:app/token {:optional true}]]`) —
+      `re-frame.schemas.walker/schema-has-qualified-ref?`. The walk keeps such
+      a reference walkable for validation surfaces, but the marks it names are
+      invisible to it all the same. An UNQUALIFIED nested name (`:user`) cannot
+      be told from a primitive and still rides `:classify`;
     - a COMPILED `m/schema` object / a map / any non-vector non-keyword form
       — also an opaque leaf to the pure-data walker;
     - a vector form the walker reports opaque
@@ -249,15 +261,17 @@
   the request's `:decode`. Returns one of:
 
     :classify  — the body has an INTROSPECTABLE Malli `:decode` schema (the
-                 raw EDN VECTOR form, with no opaque descendant); ride it
+                 raw EDN VECTOR form, with no opaque descendant and no
+                 qualified-keyword registry reference); ride it
                  with the schema's per-slot marks, which the emit site
                  already applied on-box via `classify-decoded`;
     :omit      — the body is UNSCHEMATIZED (`:auto` / `:json` / `:text` /
                  binary / custom fn) OR carries a schema whose marks the
-                 walker cannot see in full (a keyword registry ref, a compiled
-                 `m/schema` object, a `[:ref …]` or local `:registry` at any
-                 depth, or any schema when the walker is unbound);
-                 whole-sensitive, omitted entirely.
+                 walker cannot see in full (a keyword registry ref, at the
+                 root or — qualified — anywhere inside a vector form, a
+                 compiled `m/schema` object, a `[:ref …]` or local
+                 `:registry` at any depth, or any schema when a walker hook
+                 is unbound); whole-sensitive, omitted entirely.
 
   An unschematized body OR an opaque-schema body fails CLOSED off-box
   (EP-0015 issue 5 — fail-closed when classification is UNKNOWN).

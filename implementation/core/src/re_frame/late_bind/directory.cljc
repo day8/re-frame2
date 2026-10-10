@@ -356,6 +356,9 @@
    {:key         :schemas/schema-has-opaque-child?
     :producer-ns 're-frame.schemas
     :description "True when a Malli schema's per-slot marks may sit where the extract hooks cannot see them: an opaque root, or a vector form with an opaque descendant ([:ref ...], a local :registry, an embedded compiled value, an unclassified op). Consumed by re-frame.http.privacy-body, which stamps a :decode body :classify for off-box egress only when this answers false, and by re-frame.resources.classification, whose invalid-params redaction redacts :params slot by slot only when this answers false and redacts the whole slot otherwise."}
+   {:key         :schemas/schema-has-qualified-ref?
+    :producer-ns 're-frame.schemas
+    :description "True when a Malli schema names a registry schema by QUALIFIED keyword: at the root, at a real child-schema position of a vector form, or as a :map entry with no explicit child schema (Malli's implicit reference). Map keys, :enum / := operands and dispatch values are data and never count. Consumed by re-frame.http.privacy-body, which stamps a :decode body :classify for off-box egress only when this answers false; validation surfaces do not consult it and keep such a reference walkable."}
 
    ;; ---- re-frame.machines ----------------------------------------------------
    {:key         :machines/reg-machine

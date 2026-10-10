@@ -149,16 +149,19 @@
 
 (defn- assert-omitted-off-box
   "The row for a `decode` whose marks the walker cannot see: stamped `:omit`,
-  no secret off-box, and the app still receives the raw body."
-  [decode]
-  (let [[ev] (managed-trace! (respond 200 "application/json" "{\"id\":1,\"token\":\"SECRET\"}")
-                             (fn [base] {:request  {:url (str base "/user")}
-                                         :decode   decode
-                                         :reply-to [:test/ok]})
-                             :rf.http/replied)]
-    (is (= :omit (get-in ev [:tags :rf.http/off-box-body])))
-    (is (not (str/includes? (pr-str (off-box ev)) "SECRET")))
-    (is (= {:id 1 :token "SECRET"} (:value (delivered-reply))))))
+  no secret off-box, and the app still receives the raw body. `body` is served
+  and decodes to `delivered`; by default, a root user with a token."
+  ([decode]
+   (assert-omitted-off-box decode "{\"id\":1,\"token\":\"SECRET\"}" {:id 1 :token "SECRET"}))
+  ([decode body delivered]
+   (let [[ev] (managed-trace! (respond 200 "application/json" body)
+                              (fn [base] {:request  {:url (str base "/user")}
+                                          :decode   decode
+                                          :reply-to [:test/ok]})
+                              :rf.http/replied)]
+     (is (= :omit (get-in ev [:tags :rf.http/off-box-body])))
+     (is (not (str/includes? (pr-str (off-box ev)) "SECRET")))
+     (is (= delivered (:value (delivered-reply)))))))
 
 (deftest ref-decoder-is-omitted-off-box
   (with-default-registry-schema :app/user user-schema
@@ -166,6 +169,44 @@
 
 (deftest local-registry-decoder-is-omitted-off-box
   (assert-omitted-off-box [:schema {:registry {:app/u2 user-schema}} :app/u2]))
+
+;; A qualified keyword inside a vector form names a registry schema whose marks
+;; the walker never sees, so the body fails closed off-box.
+
+(def ^:private nested-user-body "{\"user\":{\"id\":1,\"token\":\"SECRET\"}}")
+
+(deftest qualified-ref-map-child-decoder-is-omitted-off-box
+  (with-default-registry-schema :app/user user-schema
+    #(assert-omitted-off-box [:map [:user :app/user]] nested-user-body {:user {:id 1 :token "SECRET"}})))
+
+(deftest qualified-ref-vector-element-decoder-is-omitted-off-box
+  (with-default-registry-schema :app/user user-schema
+    #(assert-omitted-off-box [:vector :app/user] "[{\"id\":1,\"token\":\"SECRET\"}]" [{:id 1 :token "SECRET"}])))
+
+;; Malli reads a `:map` entry with no child schema as a reference to the
+;; registry schema its key names.
+
+(def ^:private token-schema [:string {:sensitive? true}])
+
+(deftest implicit-map-entry-ref-decoder-is-omitted-off-box
+  (with-default-registry-schema :app/token token-schema
+    #(assert-omitted-off-box [:map :app/token] "{\"app/token\":\"SECRET\"}" {:app/token "SECRET"})))
+
+(deftest implicit-optional-map-entry-ref-decoder-is-omitted-off-box
+  (with-default-registry-schema :app/token token-schema
+    #(assert-omitted-off-box [:map [:app/token {:optional true}]] "{\"app/token\":\"SECRET\"}"
+                             {:app/token "SECRET"})))
+
+(deftest inline-vector-form-child-keeps-per-slot-classification
+  (testing "the same nested body under an inline vector-form child stays
+            :classify, redacting only the marked slot off-box"
+    (let [[ev] (managed-trace! (respond 200 "application/json" nested-user-body)
+                               (fn [base] {:request  {:url (str base "/user")}
+                                           :decode   [:map [:user user-schema]]
+                                           :reply-to [:test/ok]})
+                               :rf.http/replied)]
+      (is (= :classify (get-in ev [:tags :rf.http/off-box-body])))
+      (is (= {:user {:id 1 :token :rf/redacted}} (get-in (off-box ev) [:tags :value]))))))
 
 (deftest vector-of-maps-decoder-redacts-every-element
   (testing "a mark inside a collection's element schema redacts that slot in
