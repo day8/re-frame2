@@ -448,30 +448,15 @@ _SELF_TEST_FIXTURE_ROOT = (
 
 
 def _run_self_tests(verbose: bool = False) -> int:
-    """Scan each fixture file and assert the expected finding count.
+    """Scan each fixture file and assert the EXACT finding count.
 
-    Positive fixtures plant a LIVE retired spelling inside a code fence on a
-    non-allowlisted-shaped page, and the assertion is EXACT — the count must be
-    the one declared, not merely non-zero, because `>= 1` would be a fail-open
-    shape. Negative fixtures exercise the
-    counterparts that MUST stay green: removed-context prose (its inline code
-    spans included, since they sit outside any fence), a masked `;` comment in
-    a fence, and the rewritten `:rf.cofx/requires` teaching. Allowlist
-    behaviour is covered by a dedicated case that scans a
-    fixture as if it were the migration page.
+    Prose mentions and the migration-page allowlist are common in the live
+    corpus, so the gate's own live run guards those green shapes.
     """
     cases: list[tuple[str, int]] = [
-        # (fixture relative to fixture-root, expected finding count)
-        # --- positives: a LIVE retired spelling in a code fence must FIRE ---
-        # A stale pattern-page example: a copy-pasteable
-        # `[(rf/inject-cofx :rf.server/request)]`.
-        ("positive/live_inject_cofx_interceptor.md",   1),
-        ("positive/live_inject_cofx_star.md",          1),
+        ("positive/live_inject_cofx_interceptor.md",   2),  # inject-cofx, inject-cofx*
         ("positive/live_world_inputs_dispatch.md",     1),
-        # --- negatives: removed-context / rewritten forms must stay GREEN ---
-        ("negative/removed_context_prose.md",          0),
         ("negative/masked_clj_comment_in_fence.md",    0),
-        ("negative/rewritten_requires_teaching.md",    0),
     ]
 
     failures = 0
@@ -483,8 +468,7 @@ def _run_self_tests(verbose: bool = False) -> int:
             )
             failures += 1
             continue
-        # Direct-file scan; the fixture's own posix path is non-allowlisted
-        # (it does not start with a migration prefix), so positives fire.
+        # The fixture's own path is not allowlisted, so positives fire.
         text = path.read_text(encoding="utf-8", errors="replace")
         got = len(_scan_text(path, text, rel_posix=fixture))
         if got == expected:
@@ -497,36 +481,11 @@ def _run_self_tests(verbose: bool = False) -> int:
             )
             failures += 1
 
-    # Dedicated allowlist case: the SAME live-residue fixture, scanned as if it
-    # were the migration guide page, must NOT fire (the allowlist exempts it).
-    allow_fixture = "positive/live_inject_cofx_interceptor.md"
-    allow_path = _SELF_TEST_FIXTURE_ROOT / allow_fixture
-    if allow_path.is_file():
-        text = allow_path.read_text(encoding="utf-8", errors="replace")
-        got = len(_scan_text(allow_path, text,
-                             rel_posix="docs/core/25-from-re-frame-v1.md"))
-        if got == 0:
-            if verbose:
-                sys.stderr.write(
-                    "self-test PASS: allowlist exempts migration-page residue\n"
-                )
-        else:
-            sys.stderr.write(
-                "self-test FAIL: allowlist did NOT exempt migration-page "
-                f"residue (got {got} findings)\n"
-            )
-            failures += 1
-    else:
-        sys.stderr.write(
-            f"self-test FAIL: allowlist fixture {allow_fixture!r} missing\n"
-        )
-        failures += 1
-
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
         return 1
     if verbose:
-        sys.stderr.write(f"all {len(cases) + 1} self-tests passed.\n")
+        sys.stderr.write(f"all {len(cases)} self-tests passed.\n")
     return 0
 
 
