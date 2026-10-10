@@ -100,7 +100,7 @@ skills/re-frame2/
 │   ├── fundamentals/            (events, fx, cofx, subs, views, flows, schemas, frames, images, event-state-cycle, project-structure)
 │   ├── state-machines/          (reg-machine, xstate-translation, machine-schemas, regions, tags, spawn, history, cancellation)
 │   ├── tooling/                 (stories, routing, story-recorder, story-mcp-loop, xray)
-│   └── cross-cutting/           (testing, testing-views, api-cheatsheet, privacy-and-elision, production-observability, ssr-authoring, path-and-identity)
+│   └── cross-cutting/           (testing, testing-doubles, testing-views, api-cheatsheet, privacy-and-elision, production-observability, ssr-authoring, path-and-identity)
 ├── patterns/                    (one leaf per canonical pattern)
 ├── decision-trees/              (pick-a-pattern, slice-or-machine)
 ├── evals/                       (eval harness inputs; fixtures/ holds the existing-project fixture eval 12 runs against)
@@ -163,4 +163,4 @@ Both cross-links route through `SKILL-REDIRECT.md` → *Derivations and processe
 
 ## 11. Composition vocabulary in the authoring skill
 
-The public composition model is `image → frame → event stream` (`rf/image` + `rf/make-frame`). There is **no public realm / app / module composition vocabulary** for an author to learn. The skill teaches only the positive current model — construct image values, create/own frames, target frames, reload images — with frame isolation as the whole isolation story. A single-frame author spells none of it; a multi-frame author reaches for explicit `rf/image` values. The leaf content (`references/fundamentals/frames.md`, `references/cross-cutting/testing.md`, `references/cross-cutting/api-cheatsheet.md`) carries this model.
+The public composition model is `image → frame → event stream` (`rf/image` + `rf/make-frame`). There is **no public realm / app / module composition vocabulary** for an author to learn. The skill teaches only the positive current model — construct image values, create/own frames, target frames, reload images — with frame isolation as the whole isolation story. A single-frame author spells none of it; a multi-frame author reaches for explicit `rf/image` values. The leaf content (`references/fundamentals/frames.md`, `references/cross-cutting/testing-doubles.md`, `references/cross-cutting/api-cheatsheet.md`) carries this model.
