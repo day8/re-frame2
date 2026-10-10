@@ -849,7 +849,7 @@ The handler reads the route slice — which lives in **runtime-db** at `[:rf.run
 [rf/route-link {:to :route/search :query {:q "clojure" :page 2}} "Search"]
 ```
 
-`route-link` dispatches `:rf.route/url-requested` on click; the runtime's default handler classifies internal vs external and, for a matched route, pushes the URL and synthesises `:rf.route/handle-url-change` — it does not dispatch `:rf.route/navigate` (012 §URL changes are events).
+`route-link` dispatches `:rf.route/url-requested` on click; the runtime's default handler classifies internal vs external and, for a matched route, commits the route in that same event and then pushes the URL (or replaces it, with `:replace?`) — it dispatches neither `:rf.route/navigate` nor `:rf.route/handle-url-change` (012 §URL changes are events).
 
 **Template — wiring (declare URL ownership on the frame; there is no install step):**
 
@@ -867,7 +867,7 @@ A frame owns the browser URL by carrying `:url-bound? true`, and that declaratio
 
 Nothing else is needed, and nothing else is *permitted*: an app never adds a `popstate` listener, never dispatches an initial `:rf.route/handle-url-change`, and never calls an install / remove pair — there are no such exports (see [012 §popstate drives the URL-owner frame](012-Routing.md#popstate-drives-the-url-owner-frame-both-directions)). A hand-rolled listener would duplicate the framework's, dispatch a second initial sync, and misreport the navigation cause in diagnostics.
 
-Routing has ONE URL-change event. `:rf.route/handle-url-change` is dispatched by the `:url-bound?` lifecycle's own listener — for Back/Forward and for the initial sync alike — and by the link door after a `route-link` click's URL is pushed. Which of the four causes it is rides on the `:rf.route/cause` rider (`:link` / `:popstate` / `:initial` / `:ssr`), and the default scroll strategy follows from it: `:top` for `:link`, `:restore` otherwise.
+Routing has ONE URL-change event. `:rf.route/handle-url-change` is dispatched by the `:url-bound?` lifecycle's own listener — for Back/Forward and for the initial sync alike — and by a host that pushes a URL before dispatching; a `route-link` click commits through `:rf.route/url-requested` instead. Which of the four causes it is rides on the `:rf.route/cause` rider (`:link` / `:popstate` / `:initial` / `:ssr`), and the default scroll strategy follows from it: `:top` for `:link`, `:restore` otherwise.
 
 **Pattern-level discipline:**
 
