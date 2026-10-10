@@ -473,19 +473,10 @@ the failure path; the probe cache means the success path stays free.
 
 `discover-app`'s freshness token reports `:liveness :unknown` when it
 cannot verify the runtime is fresh, while reads themselves may still
-work. Treat reads as unverified, and read `:unknown-reason`:
-
-| `:unknown-reason` | What was missing | Next step the `:hint` names |
-|---|---|---|
-| `:jvm-unreadable` | The build state could not be read over the nREPL connection after one retry. | Re-run `discover-app`; if it persists, check which shadow-cljs process the nREPL port belongs to. |
-| `:no-build-worker` | The shadow-cljs process the nREPL port reaches runs no worker for the build. | Confirm the build id, and that its `shadow-cljs watch` runs in that process. |
-| `:heartbeat-unavailable` | Runtimes are connected and the build state was read, but none has a usable heartbeat timestamp. | Re-run `discover-app` once; if it persists, report it as a Pair compatibility gap. |
-
-The heartbeat is the relay's record of the last message each of the
-build's own runtimes sent, so `:heartbeat-unavailable` on a healthy tab
-means the running shadow-cljs keeps it somewhere Pair does not read.
-
-None of these is evidence about any other shadow-cljs process, so do not
+work. Its `:unknown-reason` values, and the next step each `:hint`
+names, are in the catalogue's
+[`discover-app` section](spec/003-Tool-Catalogue.md#discover-app).
+None of them is evidence about any other shadow-cljs process, so do not
 answer an `:unknown` with `npx shadow-cljs stop`: it stops every
 shadow-cljs server on the machine, other projects' watches included.
 
@@ -499,6 +490,31 @@ The contract lives in [`spec/`](./spec/):
 | [`spec/001-Wire-Protocol.md`](./spec/001-Wire-Protocol.md) | JSON-RPC 2.0 over stdio; lifecycle; tool dispatch. |
 | [`spec/002-nREPL-Transport.md`](./spec/002-nREPL-Transport.md) | Persistent socket, bencode framing, sentinel-based reconnect. |
 | [`spec/003-Tool-Catalogue.md`](./spec/003-Tool-Catalogue.md) | The full tool catalogue (the per-op set + the `snapshot` mega-op + `list-subscriptions` reactive-sub-cache read + `get-path` direct-read + `read-dom` view-plane read + the `record` / `read-recording` / `watch-until` signal-recorder set + the `handler-meta` / `list-handlers` registrar-introspection pair + the `restore-epoch` / `replace-app-db` write pair gated behind `--allow-writes` + `dispatch-dry-run` + `get-re-frame2-pair-instructions` agent-onboarding), their argument schemas, EDN result shape. The authoritative ordered list is `registry/tools`. |
+
+## Changing a tool's behaviour: surfaces to update
+
+The gates pin tool names and argument keys only
+(`scripts/check_skill_mcp_drift.py`, `tool_contract_test`), so nothing
+compares the prose describing what a tool DOES — reply shapes,
+defaults, redaction channels, freshness verdicts, hint advice — with
+the code. Each such fact therefore has one owner, and every other
+surface links to it rather than restating it:
+
+| Surface | Owns |
+|---|---|
+| [`spec/003-Tool-Catalogue.md`](spec/003-Tool-Catalogue.md) and the descriptors ([`descriptors_data.cljs`](src/re_frame2_pair_mcp/tools/descriptors_data.cljs), regenerated into [`tool-descriptors.edn`](tool-descriptors.edn)) | The wire behaviour: what each tool takes and returns. |
+| The `:hint` strings in [`src/`](src/) | The next step the server names in the reply itself. |
+| The skill, [`skills/re-frame2-pair/`](../../skills/re-frame2-pair/) | What the agent does with a reply; it links to the catalogue for shapes. |
+| [`docs/skills/re-frame2-pair.md`](../../docs/skills/re-frame2-pair.md) and [`skills/re-frame2-pair/docs/capabilities.md`](../../skills/re-frame2-pair/docs/capabilities.md) | The human-level account, linking onward for detail. |
+| [`spec/Tool-Pair.md`](../../spec/Tool-Pair.md) | The normative contract only. |
+| This README and [`spec/DESIGN-RATIONALE.md`](spec/DESIGN-RATIONALE.md) | Running the server, and why it is built this way. |
+
+To change a behaviour, change its owner first. Then search every
+surface above for the old wording — restatements that should not exist
+included — and fix or remove each copy before calling the change done.
+A change to a tool's name or argument keys also moves the
+`:tool-contract` fingerprint; `tool_contract_test` names the value to
+re-copy into the skill.
 
 ## Development
 

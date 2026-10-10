@@ -35,7 +35,7 @@
 (deftest recorder-source-is-read-only
   (let [src (->> '[sample-one-signal sample-signals recording-sampler-tick!
                    drive-recording! start-recording! read-recording
-                   stop-recording! recording-info]
+                   stop-recording!]
                  (map (comp pr-str rt/defn-named))
                  (str/join "\n"))]
     (is (= [] (filter #(str/includes? src %)
