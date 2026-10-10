@@ -494,9 +494,11 @@ fill), and colours resolved through the active-theme **chart-tokens**
   ELK's position rather than the middle-segment-midpoint heuristic.
   **Under events-as-nodes the transition text is on the event-NODE**
   (already ELK-measured + -placed by d9ro2's measure pass), so the
-  `__in` / `__out` edges carry empty labels, `:edge-labels` is empty, and
-  the midpoint heuristic survives only as the no-ELK-label fallback —
-  but the clearance keys still apply to every route. Stays the
+  `__in` / `__out` edges carry empty labels. ELK places those too, so
+  `:edge-labels` holds an entry per routed edge, but no edge renders label
+  text there; the midpoint heuristic remains the fallback for an edge with
+  no ELK label position — and the clearance keys still apply to every
+  route. Stays the
   deterministic d9ro2 two-pass (measure → one relayout); no convergence
   loop. There is no renderer-side self-loop path (a spec self-transition
   routes as `state → event-node → state`, two ordinary ELK edges;

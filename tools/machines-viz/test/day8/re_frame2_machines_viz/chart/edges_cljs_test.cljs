@@ -82,8 +82,7 @@
            (->edge-with-label #js {:text "evt" :x 33 :y 77 :width 40 :height 16})))))
 
 (deftest elk-edge-label-pos-nil-without-a-placed-label
-  (testing "no labels, or a label elk did not place (no x/y — the empty-text
-            label under events-as-nodes), lifts to nil"
+  (testing "no labels, or a label elk did not place (no x/y), lifts to nil"
     (is (nil? (chart/elk-edge-label-pos #js {})))
     (is (nil? (chart/elk-edge-label-pos (->edge-with-label #js {:text "" :width 0 :height 0}))))))
 
