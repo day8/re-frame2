@@ -81,6 +81,42 @@
 (rf.fresco/defhost reagent-parent-host (r/reactify-component reagent-parent)
   {:server :render})
 
+(def ^:private kept-island
+  "The element the kept island's `r/as-element` returned in the last
+  render, so its list's keys can be read once the render is over."
+  (atom nil))
+
+(rf.fresco/defview island-parent
+  "A converted view keeping a Reagent island: its body hands the list to
+  `r/as-element`, so Reagent lowers it."
+  [_props]
+  [:section (reset! kept-island
+                    (r/as-element [:ul (for [t ["a" "b"]] ^{:key t} [:li t])]))])
+
+(def ^:private crossing-callback
+  "The callback the retained Reagent parent hands across the bridge."
+  (atom nil))
+
+(def ^:private received-callback
+  "What the converted child received at `:on-pick` in the last render."
+  (atom nil))
+
+(rf.fresco/defview callback-child [{:keys [on-pick]}]
+  (reset! received-callback on-pick)
+  [:p "child"])
+
+(def ^:private callback-component (rf.fresco/as-component callback-child))
+
+(defn- callback-parent [{:keys [mode]}]
+  (let [on-pick @crossing-callback]
+    [:section
+     (case mode
+       "element" (rf.fresco/as-element [callback-child {:on-pick on-pick}])
+       "converted" [:> callback-component {:on-pick on-pick}])]))
+
+(rf.fresco/defhost callback-parent-host (r/reactify-component callback-parent)
+  {:server :render})
+
 (defn- rf-error-id
   "Run `f`; answer the thrown `:rf.error/id`, or `[:no-throw <result>]`
   when it returned — so a passing call can never satisfy an error
@@ -129,6 +165,33 @@
           "a Fresco element in the Reagent parent's child position preserves its Clojure values")
       (is (= (render "element") (render "raw"))
           "r/create-element with a raw JS props object preserves those values too")))
+
+  (testing "A kept island keeps its keys — Reagent, not Fresco, lowers an r/as-element island inside a converted view"
+    (reset! kept-island nil)
+    (let [keys-of (fn [el] (some->> el .-props .-children array-seq (mapv #(.-key %))))
+          html    (:html (rf.fresco.server/render
+                           (assoc render-opts :hiccup [island-parent {}])))]
+      (is (re-find #"^<section[^>]*><ul><li>a</li><li>b</li></ul></section>$" html)
+          "the kept island renders inside the converted view")
+      (is (= ["a" "b"] (keys-of @kept-island))
+          "the island's ^{:key} metadata became the React keys of its list")
+      (is (= [nil nil] (keys-of (rf.fresco/as-element
+                                  [:ul (for [t ["a" "b"]] ^{:key t} [:li t])])))
+          "CONTROL: the same Hiccup lowered by Fresco carries no keys, because Fresco reads no metadata")))
+
+  (testing "Callbacks cross by identity — a capture-frame callback reaches the converted child unchanged through either bridge door"
+    (let [on-pick  (:dispatch (rf/capture-frame :app/main))
+          received (fn [mode]
+                     (reset! received-callback nil)
+                     (rf.fresco.server/render
+                       (assoc render-opts :hiccup [callback-parent-host {:mode mode}]))
+                     @received-callback)]
+      (reset! crossing-callback on-pick)
+      (is (fn? on-pick) "capture-frame's :dispatch is a plain function")
+      (is (identical? on-pick (received "element"))
+          "h/as-element hands the child the caller's own function")
+      (is (identical? on-pick (received "converted"))
+          "Reagent [:>] passes a plain function through unchanged, and as-component takes it as given")))
 
   (testing "POSITIVE client-shaped control — the migrating app's existing Reagent adapter advances the same frame entry point"
     (rf/destroy-adapter!)
