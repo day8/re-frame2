@@ -73,12 +73,16 @@
 
 (deftest listener-marks-schema-rejection-as-non-ok-outcome
   ;; A rejected candidate app-db installs nothing, though the handler did not throw.
-  (rf.late-bind/set-fn! :schemas/validate-app-schema!
-                        (fn [_db-after _event-id _frame _continue?] false))
-  (let [seen (record-events!)]
-    (rf/reg-event :evt/writes (fn [{:keys [db]} _] {:db (assoc db :n 1)}))
-    (rf/dispatch-sync [:evt/writes])
-    (is (= [:rolled-back] (mapv :outcome @seen)))))
+  (let [validated? (atom false)]
+    (rf.late-bind/set-fn! :schemas/validate-app-schema!
+                          (fn [_db-after _event-id _frame _continue? _db-before]
+                            (reset! validated? true)
+                            false))
+    (let [seen (record-events!)]
+      (rf/reg-event :evt/writes (fn [{:keys [db]} _] {:db (assoc db :n 1)}))
+      (rf/dispatch-sync [:evt/writes])
+      (is @validated? "the validator ran and rejected in-band, rather than throwing")
+      (is (= [:rolled-back] (mapv :outcome @seen))))))
 
 (deftest listener-marks-flow-throw-as-non-ok-outcome
   ;; A flow throw aborts the event: no install, so the handler's `:db` never lands.
