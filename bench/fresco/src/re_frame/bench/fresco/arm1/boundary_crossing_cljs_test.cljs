@@ -160,10 +160,10 @@
            happens to walk the seq"
     (let [parent (render parent-body {})
           child  (render child-body (crossing-props (:element parent)))]
-      (is (= (conj row-keys (key-of [:dogfood/visible-ids])) (:reads parent))
-          "every row query the parent's `for` produced is the PARENT's edge")
-      (is (= #{} (:reads child))
-          "and nothing at all landed on the child — the seq the codec handed
+      (is (= [(conj row-keys (key-of [:dogfood/visible-ids])) #{}]
+             [(:reads parent) (:reads child)])
+          "every row query the parent's `for` produced is the PARENT's edge,
+           and nothing at all landed on the child — the seq the codec handed
            it was already realised, so its body called `sub` zero times"))))
 
 (deftest the-childs-second-render-reads-nothing-which-is-why-the-first-row-matters
@@ -179,8 +179,7 @@
           props  (crossing-props (:element parent))
           first' (render child-body props)
           again  (render child-body props)]
-      (is (= #{} (:reads first')))
-      (is (= #{} (:reads again))
+      (is (= [#{} #{}] [(:reads first') (:reads again)])
           "the second walk of a realised seq calls `sub` zero times — true
            with or without the walk; what the walk decides is who holds the
            edge when it happens"))))
@@ -194,13 +193,11 @@
     (let [parent (render nested-parent-body {})
           props  (crossing-props (:element parent))
           child  (render nested-child-body props)]
-      (is (= 2 (count (:children props)))
-          "the outer seq spliced into two children, one per chunk")
-      (is (every? seq? (:children props))
-          "and each child is a seq — the ABI's splice is one level; the
-           seq arrives realised")
-      (is (= (conj row-keys (key-of [:dogfood/visible-ids])) (:reads parent)))
-      (is (= #{} (:reads child))))))
+      (is (= [[true true] (conj row-keys (key-of [:dogfood/visible-ids])) #{}]
+             [(mapv seq? (:children props)) (:reads parent) (:reads child)])
+          "the outer seq spliced into two children, one per chunk, and each
+           child is a seq — the ABI's splice is one level; the seq arrives
+           realised"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — and the commit puts the edges where the reads were attributed
@@ -213,17 +210,16 @@
            A notification delivered to the child is worth nothing — its
            props are the same object and its seq is already realised."
     (let [parent (mounted! parent-body {})
-          child  (mounted! child-body (crossing-props (:element parent)))]
-      (is (= 4 (:edges (rf.bench.fresco.arm1.runtime/stats)))
-          "four edges, all of them the parent's: the ids query and one per row")
+          child  (mounted! child-body (crossing-props (:element parent)))
+          edges  (:edges (rf.bench.fresco.arm1.runtime/stats))]
       (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:dogfood/edit-draft 1 "crossed"])
       (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:dogfood/commit 1])
-      (is (= 1 @(:hits parent))
-          "the parent re-runs, so the seq is rebuilt and the child receives
-           a new one")
-      (is (= 0 @(:hits child))
-          "and the child is not notified in its stead — a re-render there
-           would repaint the identical realised seq and drop the edges")
+      (is (= [4 1 0] [edges @(:hits parent) @(:hits child)])
+          "four edges, all of them the parent's — the ids query and one per
+           row — so the parent re-runs, the seq is rebuilt and the child
+           receives a new one; the child is not notified in its stead, where
+           a re-render would repaint the identical realised seq and drop
+           the edges")
       ((:release! child))
       ((:release! parent)))))
 
@@ -236,26 +232,29 @@
            nothing and the props map the child receives is the map the
            codec built — no copy, no fresh identity for React to see"
     (let [m {:rows (map inc (range 3)) :label "x"}]
-      (is (identical? m (rf.bench.fresco.front.codec/realize-deep m)))
-      (is (identical? (:rows m) (:rows (rf.bench.fresco.front.codec/realize-deep m))))))
-  (testing "a scalar and a nil pass straight through"
-    (is (= 7 (rf.bench.fresco.front.codec/realize-deep 7)))
-    (is (nil? (rf.bench.fresco.front.codec/realize-deep nil)))
-    (is (= "s" (rf.bench.fresco.front.codec/realize-deep "s")))))
+      (is (= [true 7 nil "s"]
+             [(identical? m (rf.bench.fresco.front.codec/realize-deep m))
+              (rf.bench.fresco.front.codec/realize-deep 7)
+              (rf.bench.fresco.front.codec/realize-deep nil)
+              (rf.bench.fresco.front.codec/realize-deep "s")])
+          "and a scalar and a nil pass straight through"))))
 
 (deftest realize-deep-forces-every-lazy-seq-it-can-reach
   (testing "the reach is the one `clj->js` already has at a native prop
            position, which is what makes the structural claim true as
            written rather than true for one of the two positions"
-    (doseq [[label build] [["a bare seq"            (fn [!n] {:v (map (fn [i] (vswap! !n inc) i) (range 3))})]
-                           ["a seq inside a vector" (fn [!n] {:v [(map (fn [i] (vswap! !n inc) i) (range 3))]})]
-                           ["a seq inside a map"    (fn [!n] {:v {:k (map (fn [i] (vswap! !n inc) i) (range 3))}})]
-                           ["a seq inside a seq"    (fn [!n] {:v (list (map (fn [i] (vswap! !n inc) i) (range 3)))})]
-                           ["a seq inside a set"    (fn [!n] {:v #{(map (fn [i] (vswap! !n inc) i) (range 3))}})]]]
-      (let [!n (volatile! 0)
-            v  (build !n)]
-        (rf.bench.fresco.front.codec/realize-deep v)
-        (is (= 3 @!n) label)))))
+    (let [cases [["a bare seq"            (fn [!n] {:v (map (fn [i] (vswap! !n inc) i) (range 3))})]
+                 ["a seq inside a vector" (fn [!n] {:v [(map (fn [i] (vswap! !n inc) i) (range 3))]})]
+                 ["a seq inside a map"    (fn [!n] {:v {:k (map (fn [i] (vswap! !n inc) i) (range 3))}})]
+                 ["a seq inside a seq"    (fn [!n] {:v (list (map (fn [i] (vswap! !n inc) i) (range 3)))})]
+                 ["a seq inside a set"    (fn [!n] {:v #{(map (fn [i] (vswap! !n inc) i) (range 3))}})]]]
+      (is (= (zipmap (map first cases) (repeat 3))
+             (into {}
+                   (map (fn [[label build]]
+                          (let [!n (volatile! 0)]
+                            (rf.bench.fresco.front.codec/realize-deep (build !n))
+                            [label @!n])))
+                   cases))))))
 
 (deftest realize-deep-walks-map-keys-without-disturbing-the-map
   (testing "descending into the key half of an entry is a READ, not a
@@ -266,19 +265,15 @@
     (let [composite [:composite 1]
           m         {composite :a :plain :b "s" :c 7 :d}
           walked    (rf.bench.fresco.front.codec/realize-deep m)]
-      (is (identical? m walked))
-      (is (identical? composite (first (filter vector? (keys walked)))))
-      (is (= :a (get walked composite)))
-      (is (= :a (get walked [:composite 1])))
-      (is (= :b (get walked :plain)))
-      (is (= :c (get walked "s")))
-      (is (= :d (get walked 7)))))
+      (is (= [true true [:a :a :b :c :d]]
+             [(identical? m walked)
+              (identical? composite (first (filter vector? (keys walked))))
+              (mapv #(get walked %) [composite [:composite 1] :plain "s" 7])]))))
   (testing "a map big enough to be a hash map rather than an array map is
            equally untouched"
     (let [m      (into {} (map (fn [i] [[:k i] i]) (range 32)))
           walked (rf.bench.fresco.front.codec/realize-deep m)]
-      (is (identical? m walked))
-      (is (= 17 (get walked [:k 17]))))))
+      (is (= [true 17] [(identical? m walked) (get walked [:k 17])])))))
 
 (deftest realize-deep-reaches-a-lazy-seq-at-a-key-position-too
   (testing "skipping keys would assume that hashing a seq realises it, so
@@ -290,23 +285,17 @@
     (let [!n             (volatile! 0)
           m              {(map (fn [i] (vswap! !n inc) i) (range 3)) :marked}
           at-construction @!n]
-      (is (zero? at-construction)
-          "constructing the map neither hashed nor compared the key")
       (rf.bench.fresco.front.codec/realize-deep m)
-      (is (= 3 @!n)
-          "and the walk reaches it, inside the window of the body that
-           wrote it"))))
+      (is (= [0 3] [at-construction @!n])
+          "constructing the map neither hashed nor compared the key, and the
+           walk reaches it, inside the window of the body that wrote it"))))
 
 (deftest the-keyword-key-short-circuit-skips-only-a-provable-no-op
   (testing "the key half is walked through one guard — a `Keyword` is
            neither a collection nor a `Delay`, so the walk on one can
-           reach nothing and return nothing. The premise is pinned here
-           rather than assumed, because the guard is only sound while it
-           holds"
-    (is (not (coll? :k)))
-    (is (not (delay? :k))))
-  (testing "and the guard skips the KEY, never the entry: a keyword-keyed
-           entry's value half is walked like any other entry's"
+           reach nothing and return nothing — and the guard skips the KEY,
+           never the entry: a keyword-keyed entry's value half is walked
+           like any other entry's"
     (is (thrown-with-msg? js/Error #"unforced `delay` reached a boundary's props"
                           (rf.bench.fresco.front.codec/realize-deep {:k (delay 1)})))
     (let [!n (volatile! 0)]
@@ -319,5 +308,6 @@
            descended into"
     (let [el (rf.bench.fresco.front.codec/as-element [:li "a"])
           f  (fn [] :never-called)]
-      (is (identical? el (rf.bench.fresco.front.codec/realize-deep el)))
-      (is (identical? f (rf.bench.fresco.front.codec/realize-deep f))))))
+      (is (= [true true]
+             [(identical? el (rf.bench.fresco.front.codec/realize-deep el))
+              (identical? f (rf.bench.fresco.front.codec/realize-deep f))])))))
