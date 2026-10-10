@@ -210,9 +210,8 @@
 ;; is minted by the shared React spine through `react-dom/client`, and is
 ;; tracked by the SAME active-root ownership as the one-shot substrate
 ;; `render` slot, so `rf/destroy-adapter!` releases it too. Same three names
-;; and shapes as `re-frame.adapter.reagent`, with two differences: the tree is
-;; a React ELEMENT here (`uix.core/$`) rather than hiccup, and a hydrating
-;; `render!` takes no `:identifier-prefix`.
+;; and shapes as `re-frame.adapter.reagent`; the one difference is that the
+;; tree is a React ELEMENT here (`uix.core/$`) rather than hiccup.
 
 (def client-root
   "Allocate an inert client-root handle. No DOM work — safe at namespace
@@ -248,13 +247,15 @@
   `^:dev/after-load` hook. `mount-point` is read on the first call only.
 
   `opts` is the map the substrate `render` slot takes, read on the first
-  call only — `:hydrate?`, and `:on-recoverable-error`, which only a
-  hydrating Root uses. A development build composes the hydration-mismatch
-  reporter over it: a mismatch React recovers from during hydration emits
+  call only — `:hydrate?`, plus two keys only a hydrating Root uses.
+  `:on-recoverable-error` becomes the Root's `onRecoverableError`: a
+  development build composes the hydration-mismatch reporter over it, so a
+  mismatch React recovers from during hydration emits
   `:rf.ssr/hydration-mismatch` before reaching the callback (or React's
   default report), and a recoverable error after the hydration commit
-  skips the emit. Unlike the Reagent adapters' `render!`, it takes no
-  `:identifier-prefix`.
+  skips the emit. `:identifier-prefix` becomes React's `identifierPrefix`,
+  which `useId` needs to match the server's; pass the prefix the server
+  rendered under.
 
   CLJS data in the element slot — a hiccup vector, seq or map — raises
   `:rf.error/hiccup-on-element-render-slot`, on the first render and on

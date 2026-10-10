@@ -2178,7 +2178,7 @@
   idiom: `uix-dom/render-root`) rather than
   through the adapter's `:render` slot.
 
-  The Fragment-wrap after-render sentinel only enters the tree on the
+  The wrapping after-render sentinel only enters the tree on the
   `:render`-slot path. The documented idiom mounts natively (createRoot +
   .render), bypassing `make-render`, so a natively-mounted UIx app has NO
   app-tree sentinel; on its own, `(rf.interop/after-render f)` would degrade
@@ -2189,7 +2189,7 @@
 
   This test mounts the probe with a RAW `react-dom-client/createRoot` +
   `.render` (NOT `rf.substrate.adapter/render`) — exactly the native idiom
-  that bypasses the spine's Fragment-wrap — then asserts after-render
+  that bypasses the spine's sentinel wrap — then asserts after-render
   still fires.
 
   cfg keys:
@@ -2205,7 +2205,7 @@
             ;; NATIVE mount — raw createRoot + .render, NOT
             ;; rf.substrate.adapter/render. This is the documented boot idiom
             ;; (uix-dom/render-root). The spine's
-            ;; Fragment-wrap sentinel is therefore NOT in this tree — the
+            ;; wrapping sentinel is therefore NOT in this tree — the
             ;; gap the driver root covers.
             root       (react-dom-client/createRoot mount-node)]
         (try
