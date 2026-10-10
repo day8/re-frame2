@@ -29,6 +29,29 @@
     [:map [:items [:vector [:map [:id :int] [:token {:sensitive? true} :string]]]]]
     [:string {:sensitive? true}]))
 
+;; A qualified keyword names a registry schema whose marks the walker never
+;; sees, wherever it stands as a child schema or as an implicit `:map` entry.
+(deftest off-box-disposition-omits-a-qualified-registry-reference
+  (are [decode] (= :omit (rf.http.privacy-body/off-box-body-disposition decode))
+    [:map [:user :app/user]]
+    [:vector :app/user]
+    [:map-of :keyword :app/user]
+    [:map :app/token]
+    [:map [:app/token {:optional true}]]
+    [:map [:x :malli.core/token]]))
+
+;; Qualified keywords in DATA positions are not references, and an unqualified
+;; name cannot be told from a primitive.
+(deftest off-box-disposition-classifies-qualified-data-and-unqualified-names
+  (are [decode] (= :classify (rf.http.privacy-body/off-box-body-disposition decode))
+    [:map [:user :string]]
+    [:map [:user/id :int]]
+    [:map [:s [:enum :status/a :status/b]]]
+    [:map [:s [:= :status/a]]]
+    [:multi {:dispatch :t} [:k/a [:map [:t :keyword]]]]
+    [:malli.core/schema :string]
+    [:map [:user :user]]))
+
 (deftest classify-decoded-redacts-a-collection-mark-in-every-element
   (is (= {:items [{:id 1 :token :rf/redacted} {:id 2 :token :rf/redacted}]
           :meta  {:token "public"}}
@@ -63,13 +86,10 @@
 ;; that declares a mark must throw rather than ride its marked slot verbatim,
 ;; while a schema declaring none keeps working without the artefact.
 
-(defn- with-walker-unbound
-  "Run `f` with every shared schema-walker hook removed; restore them after."
-  [f]
-  (let [hook-keys [:schemas/extract-sensitive-paths-from-schema
-                   :schemas/extract-large-paths-from-schema
-                   :schemas/schema-has-opaque-child?]
-        saved     (select-keys @rf.late-bind/hooks hook-keys)
+(defn- with-hooks-unbound
+  "Run `f` with the late-bind hooks `hook-keys` removed; restore them after."
+  [hook-keys f]
+  (let [saved     (select-keys @rf.late-bind/hooks hook-keys)
         refresh!  #(doseq [k hook-keys] (rf.late-bind/invalidate-cache! k))]
     (try
       (swap! rf.late-bind/hooks #(apply dissoc % hook-keys))
@@ -78,6 +98,15 @@
       (finally
         (swap! rf.late-bind/hooks merge saved)
         (refresh!)))))
+
+(defn- with-walker-unbound
+  "Run `f` with every shared schema-walker hook removed; restore them after."
+  [f]
+  (with-hooks-unbound [:schemas/extract-sensitive-paths-from-schema
+                       :schemas/extract-large-paths-from-schema
+                       :schemas/schema-has-opaque-child?
+                       :schemas/schema-has-qualified-ref?]
+                      f))
 
 (deftest unbound-walker-throws-for-a-mark-declaring-schema
   (with-walker-unbound
@@ -92,6 +121,9 @@
 (deftest unbound-walker-fails-closed-off-box
   (testing "without the walker nothing can show a vector form complete"
     (with-walker-unbound
+      #(is (= :omit (rf.http.privacy-body/off-box-body-disposition [:map [:id :int]])))))
+  (testing "nor without the qualified-reference hook alone"
+    (with-hooks-unbound [:schemas/schema-has-qualified-ref?]
       #(is (= :omit (rf.http.privacy-body/off-box-body-disposition [:map [:id :int]]))))))
 
 (deftest unbound-walker-is-silent-for-a-markless-schema
