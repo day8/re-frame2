@@ -88,9 +88,7 @@
 ;; The guard is TOTAL — every `:rf/*` / `:rf.<area>/*` head is rejected,
 ;; with no allow-list carve-out. The `:rf/*` root is framework-owned
 ;; (Conventions §Reserved namespaces) so no legitimate author element lives
-;; there, and NO `:rf/*` head has a client render-tree meaning: the one
-;; reserved hiccup head that exists, `:rf/suspense-boundary`, is a
-;; streaming-SSR-only marker consumed by the JVM shell walker. The
+;; there, and NO `:rf/*` head has a render-tree meaning on either host. The
 ;; recognised interop heads (`:<>`, `:>`, `:r>`, `:f>`) are unnamespaced
 ;; and are consumed by `vec-to-elem` before the tag grammar is reached.
 ;;
@@ -120,7 +118,7 @@
 
 (defn- ^boolean reserved-rf-head?
   "True when `head` is a keyword in the framework-reserved `:rf/*` scheme —
-  the bare `rf` namespace (`:rf/suspense-boundary`) or a dotted subsystem
+  the bare `rf` namespace (`:rf/x`) or a dotted subsystem
   segment under it (`:rf.ssr/…`). Mirrors `re-frame.ssr.emit/reserved-rf-head?`;
   duplicated rather than shared because reagent-slim is bundle-isolated and
   MUST NOT `:require` re-frame.*."
@@ -137,7 +135,7 @@
   replicated INLINE — the central `re-frame.error` builder is
   not reachable from this bundle-isolated adapter (see the sibling
   `:rf.error/template-empty-vector` throw in `vec-to-elem`). The id and the
-  `:recovery` token are the ones the JVM emitters' reserved-head arm
+  `:recovery` token are the ones the JVM emitter's reserved-head arm
   carries, so server and client teach one grammar.
 
   `element` is the WHOLE offending hiccup vector and is REQUIRED.
@@ -158,8 +156,7 @@
                       "(Conventions §Reserved namespaces), so this cannot be an "
                       "author DOM element — rendering it would paint a phantom <"
                       (name head) "> element silently. No :rf/* head has a "
-                      "client meaning (:rf/suspense-boundary is a streaming-SSR "
-                      "marker, server-only). Check the spelling, or use an "
+                      "render-tree meaning. Check the spelling, or use an "
                       "unreserved keyword if you meant a custom element.")]
       (throw (ex-info (str reason " [:rf.error/invalid-hiccup-head]")
                       {:rf.error/id :rf.error/invalid-hiccup-head
