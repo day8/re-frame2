@@ -2439,12 +2439,12 @@
 ;; ---- client hydration timer rearm --------------------
 
 (defn rearm-timers-after-hydration!
-  "Arm the GC timer of every resource entry `frame-id`'s runtime-db holds, and
-  the poll timer of each of those entries that is owned and whose resource
-  declares `:poll-interval-ms`, right after a client `:rf/hydrate` committed
-  it. The body behind the `:resources/rearm-after-hydration!` late-bind hook
-  and the `:rf.resource/hydrate-rearm` fx. Per Spec 016 §Freshness clock
-  contract (hydration and clock skew) and §Polling.
+  "Arm the GC and stale timers of every resource entry `frame-id`'s runtime-db
+  holds, and the poll timer of each of those entries that is owned and whose
+  resource declares `:poll-interval-ms`, right after a client `:rf/hydrate`
+  committed it. The body behind the `:resources/rearm-after-hydration!`
+  late-bind hook and the `:rf.resource/hydrate-rearm` fx. Per Spec 016
+  §Freshness clock contract (hydration and clock skew) and §Polling.
 
   Why arm at hydration. A hydrated entry whose route owner rode the wire is
   already OWNED on the client, so the client's ensure is a fresh-skip onto an
@@ -2461,12 +2461,20 @@
       orphaned its SSR owners, because a poll never pins an owner-free entry;
       `events/poll-fired-handler` re-checks ownership on fire, and the last
       owner's release cancels it.
+    - Stale. Without this arm a held `:stale?` read of a hydrated entry
+      never flips at its deadline, because nothing commits there. It arms
+      for every entry, owned or not (a view can hold a read without owning
+      the entry), for the window remaining until the entry's `:stale-at`;
+      an entry already past it arms nothing, since hydration's own commit
+      renders it stale. `events/stale-fired-handler` re-checks the entry on
+      fire.
 
-  No stale timer is armed. The delays are the resource's normalized
-  `:gc-after-ms` and its `:poll-interval-ms`, so `:never`, a non-positive or
-  absent value, or a resource this client never registered arms nothing of
-  that kind. `schedule!` is cancel-then-arm, so repeating a hydration leaves
-  one handle per entry and kind.
+  The GC and poll delays are the resource's normalized `:gc-after-ms` and
+  its `:poll-interval-ms`, so `:never`, a non-positive or absent value, or a
+  resource this client never registered arms nothing of that kind. This is a
+  host fn rather than a handler, so it reads the wall clock for the stale
+  window. `schedule!` is cancel-then-arm, so repeating a hydration leaves one
+  handle per entry and kind.
 
   Refuses a `:server` frame, so a server-side or isomorphic-loopback hydrate
   arms nothing even when this is called directly. The handles live in the host
@@ -2477,17 +2485,22 @@
   [frame-id]
   (when (and frame-id (not (rf.resources.state/server-frame? frame-id)))
     (let [token   (rf.frame/frame-incarnation-token frame-id)
+          now-ms  (rf.interop/epoch-now-ms)
           entries (get-in (rf.frame/frame-runtime-db-value frame-id)
                           (rf.resources.state/entries-path))]
       (doseq [[_ entry] entries
               :while (rf.frame/frame-incarnation-live? frame-id token)
-              :let  [policy  (rf.resources.registry/resource-meta (:resource/id entry))
-                     gc-ms   (rf.resources.state/positive-or-nil (:gc-after-ms policy))
-                     poll-ms (when (seq (:active-owners entry))
-                               (rf.resources.state/positive-or-nil (:poll-interval-ms policy)))]]
+              :let  [policy   (rf.resources.registry/resource-meta (:resource/id entry))
+                     gc-ms    (rf.resources.state/positive-or-nil (:gc-after-ms policy))
+                     stale-ms (rf.resources.state/stale-wake-delay-ms entry now-ms)
+                     poll-ms  (when (seq (:active-owners entry))
+                                (rf.resources.state/positive-or-nil (:poll-interval-ms policy)))]]
         (when gc-ms
           (rf.resources.timers/schedule! frame-id (:resource/key entry)
                                          rf.resources.timers/gc-kind gc-ms))
+        (when (and stale-ms (rf.frame/frame-incarnation-live? frame-id token))
+          (rf.resources.timers/schedule! frame-id (:resource/key entry)
+                                         rf.resources.timers/stale-kind stale-ms))
         (when (and poll-ms (rf.frame/frame-incarnation-live? frame-id token))
           (rf.resources.timers/schedule! frame-id (:resource/key entry)
                                          rf.resources.timers/poll-kind poll-ms)))))

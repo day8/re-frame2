@@ -808,6 +808,15 @@
   [ms]
   (when (and (number? ms) (pos? ms)) ms))
 
+(defn stale-wake-delay-ms
+  "The delay from `now-ms` until `entry`'s `:stale-at`, or nil when the entry
+  has no deadline or it has passed. A stale timer armed anywhere but a load
+  settle — hydration, a revival, a still-fresh re-check — arms for this
+  remaining window rather than the full `:stale-after-ms`, so its wake lands
+  at the deadline. Per Spec 016 §Stale and GC scheduling."
+  [entry now-ms]
+  (positive-or-nil (some-> (:stale-at entry) (- now-ms))))
+
 (defn server-frame?
   "True iff `frame-id` is an SSR / server frame (its `:config :platform` is
   `:server`). Reads ONLY the FRAME's platform
