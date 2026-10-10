@@ -56,6 +56,22 @@
     (is (= {:route-id :route/sort-path :params {:dir :desc} :validation-failed? false}
            (select-keys (rf.routing/match-url u) [:route-id :params :validation-failed?])))))
 
+(deftest qualified-keyword-enum-round-trips-cross-host
+  (rf/reg-route :route/q-sorted {:query [:map [:sort {:optional true} [:enum :sort/asc :sort/desc]]]} "/items")
+  (rf/reg-route :route/q-tab {:params [:map [:tab [:enum :tab/info :tab/edit]]]} "/t/:tab")
+  (rf/reg-route :route/q-twin {:query [:map [:pick [:enum :a/x :b/x]]]} "/twin")
+  (testing "a qualified choice keeps its namespace on the wire — percent-encoded
+            like a qualified query key — and decodes back to itself, so two
+            choices sharing a bare name stay distinct"
+    (doseq [[address url slot]
+            [[{:to :route/q-sorted :query {:sort :sort/desc}} "/items?sort=sort%2Fdesc" :query]
+             [{:to :route/q-tab :params {:tab :tab/edit}}     "/t/tab%2Fedit"           :params]
+             [{:to :route/q-twin :query {:pick :a/x}}         "/twin?pick=a%2Fx"        :query]
+             [{:to :route/q-twin :query {:pick :b/x}}         "/twin?pick=b%2Fx"        :query]]]
+      (is (= [url {:route-id (:to address) slot (get address slot) :validation-failed? false}]
+             (let [u (rf.routing/route-url address)]
+               [u (select-keys (rf.routing/match-url u) [:route-id slot :validation-failed?])]))))))
+
 (deftest bare-keyword-route-slot-rejected-at-reg-route-rf2-qot6ii
   (testing "an unbounded :keyword slot is rejected at reg-route in either schema
             slot, bare, optioned or wrapped in [:maybe]"
