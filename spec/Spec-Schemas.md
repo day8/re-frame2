@@ -1307,7 +1307,7 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;;
   ;; `:operation` is an OPEN set, never a closed pair: the category is defined by
   ;; the ABSENCE, so whatever the requiring call site named reaches this payload —
-  ;; core's bare ops (`:subscribe` / `:subscribe-once` / `:unsubscribe` /
+  ;; core's bare ops (`:subscribe` / `:subscribe-once` /
   ;; `:dispatch` / `:capture-frame` / `:current-frame-id` / `:frame-provider` / …),
   ;; the carried-stamp seam's namespaced ids (`:rf.http/managed`,
   ;; `:rf.route/navigate`, `:rf.ssr/hydrate`, …), and whatever a pass-through
@@ -1656,16 +1656,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
    [:category    :keyword]
    [:resource-id :keyword]
    [:value       {:optional true} :any]   ;; present when the spec was not a map
-   [:reason      :string]])
-
-(def ResourceSubUnresolvedScopeTags
-  ;; a passive resource subscription could not resolve a scope: its
-  ;; {:from-db <id>} policy (or payload reference) resolved nil against the
-  ;; frame app-db — never a silent global / :idle.
-  [:map
-   [:category    :keyword]
-   [:resource-id :keyword]
-   [:policy      {:optional true} :any]
    [:reason      :string]])
 
 (def ResourceNonEdnParamsTags
