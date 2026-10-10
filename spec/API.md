@@ -631,7 +631,7 @@ The listener payload is a **union of three record shapes**: (a) the **per-event 
 
 > Sensitive data marking on the error-emit substrate is path-based per [Spec 015](015-Data-Classification.md). There is no boolean handler-meta `:sensitive?` annotation — the event registration's `:sensitive` / `:large` paths and the per-path elision wire-walker are the redaction steps on this path.
 
-The always-on error-emit registry is addressable via `re-frame.error-emit` + the `:error-emit/register-error-listener!` late-bind hooks for framework-internal consumers (router fan-out, the SSR error projector, the Fresco server's one-render window) and for tests, which also own between-scenario clears. It carries **no public registration verb**: an application declares an `:errors` sink instead.
+The always-on error-emit registry is addressable via `re-frame.error-emit` + the `:error-emit/register-error-listener!` late-bind hooks for framework-internal consumers (router fan-out, the Fresco server's one-render window) and for tests, which also own between-scenario clears. It carries **no public registration verb**: an application declares an `:errors` sink instead.
 
 ## Observation listeners
 
