@@ -502,13 +502,14 @@
       (rf.fresco.impl.generation/bump-generation!)
       ;; Re-STAMP rather than increment, so a cell's epoch stays a
       ;; `commit-basis` reading comparable with a staged key's — floored
-      ;; at one above the stamp it carried, because across a same-id frame
-      ;; reincarnation the frame term RESTARTS and the basis alone can fail
-      ;; to move (measured in Chromium: epoch 3 re-stamped to 3, the
-      ;; notification delivered and ignored, the predecessor's value left
-      ;; on screen). The floor can only raise a stamp, so the sum stays
-      ;; monotone (docs/design/fresco/product/invariants.md, §The callback
-      ;; and frame-incarnation rule; `reincarnation-paint-dom-cljs-test`).
+      ;; at one above the stamp it carried, so a flush that notifies a
+      ;; reader always moves the number that reader's React re-reads, even
+      ;; where the basis has not moved past the old stamp (a notification
+      ;; delivered with an unmoved number is ignored, and the predecessor's
+      ;; value stays on screen). The floor can only raise a stamp, so the
+      ;; sum stays monotone (docs/design/fresco/product/invariants.md,
+      ;; §The callback and frame-incarnation rule;
+      ;; `reincarnation-paint-dom-cljs-test`).
       (doseq [^js cell dirty]
         (set! (.-epoch cell) (max (inc (.-epoch cell))
                                   (rf.fresco.impl.generation/commit-basis (.-frameKw cell)))))

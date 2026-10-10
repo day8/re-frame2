@@ -8,8 +8,8 @@
   predecessor React root's deferred effect cleanup. The law is that none
   of them may write into the successor.
   `re-frame.fresco.impl.frames` names this as its reason for existing,
-  and `re-frame.fresco.impl.generation/commit-basis` names the
-  reincarnation as the one axis its number is structurally blind to.
+  and `re-frame.fresco.impl.generation/commit-basis` carries the
+  reincarnation in its retired-epoch term.
 
   ## Why these observables, and not the rendered markup
 
@@ -145,10 +145,10 @@
 
 ;; ---------------------------------------------------------------------------
 ;; 1. The public id is stable; the incarnation is not — and the number the
-;;    runtime judges invariant 5 against cannot tell them apart
+;;    runtime judges invariant 5 against moves across the transition
 ;; ---------------------------------------------------------------------------
 
-(deftest the-commit-basis-is-blind-to-a-same-id-reincarnation
+(deftest the-commit-basis-moves-across-a-same-id-reincarnation
   (testing "a reincarnation is invisible in the id and visible only in the token"
     (let [token-a (incarnate! "A")
           token-b (reincarnate! "B")]
@@ -160,33 +160,32 @@
           "and the predecessor's token is no longer live under the id")
       (is (true? (rf.frame/frame-incarnation-live? frame-id token-b)))))
 
-  (testing "`commit-basis` TIES across the transition — the fourth axis
-            `re-frame.fresco.impl.generation/commit-basis` documents as not
-            carryable there. The frame's install epoch RESTARTS with the
-            successor, and neither of the two terms that namespace owns is a
-            frame fact, so a successor holding a DIFFERENT value reports the
-            same number its predecessor did"
+  (testing "`commit-basis` MOVES across the transition even though the
+            frame's install epoch RESTARTS with the successor and here ties
+            the predecessor's: destroying the predecessor retired its epoch
+            into the basis, so the successor's number strictly exceeds it"
     (let [_       (incarnate! "A")
+          epoch-a (rf.frame/frame-commit-epoch frame-id)
           basis-a (rf.fresco.impl.generation/commit-basis frame-id)
           _       (reincarnate! "B")
+          epoch-b (rf.frame/frame-commit-epoch frame-id)
           basis-b (rf.fresco.impl.generation/commit-basis frame-id)]
       (is (= "B" (:who (rf/app-db-value frame-id)))
           "sanity: the successor really does hold a different value")
-      (is (= basis-a basis-b)
-          "the basis cannot see the reincarnation — this is WHY the render
-           fence, and React's change detection built on it, pass the
-           transition through unnoticed")))
+      (is (= epoch-a epoch-b)
+          "precondition: the install epochs tie, so that term alone cannot see it")
+      (is (> basis-b basis-a)
+          "the basis sees the reincarnation, so a staged read rendered under
+           the predecessor and committed under the successor re-renders")))
 
-  ;; NEGATIVE CONTROL for the tie. A tie proves nothing if the instrument is
-  ;; dead, so an ORDINARY write inside one incarnation must move the very
-  ;; number that just failed to move.
-  (testing "the basis is a live instrument: an ordinary in-incarnation write moves it"
+  ;; The same instrument on an ordinary write, so the row above is the
+  ;; reincarnation's movement and not a counter that moves on anything.
+  (testing "an ordinary in-incarnation write moves the basis too"
     (incarnate! "A")
     (let [before (rf.fresco.impl.generation/commit-basis frame-id)]
       (rf/with-frame frame-id (rf/dispatch-sync [:reinc/mark :ordinary]))
       (is (> (rf.fresco.impl.generation/commit-basis frame-id) before)
-          "an ordinary write advances the basis, so the tie above is the
-           reincarnation's property and not a stuck counter"))))
+          "an ordinary write advances the basis"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2. A bundle pinned to the predecessor is inert against the successor
