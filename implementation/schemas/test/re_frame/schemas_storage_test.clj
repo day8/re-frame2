@@ -183,3 +183,32 @@
   (rf.schemas/on-frame-destroyed! :tenant/doomed)
   (is (= {} (schemas-in :tenant/doomed)))
   (is (= {[:user] [:map]} (schemas-in :tenant/survivor))))
+
+(defn- survivors
+  "How many references still hold their object once the collector has run. A
+  `System/gc` is only a request, so it takes a few rounds."
+  [refs]
+  (loop [round 0]
+    (System/gc)
+    (let [n (count (remove #(nil? (.get ^java.lang.ref.WeakReference %)) refs))]
+      (if (and (pos? n) (< round 20))
+        (do (Thread/sleep 25) (recur (inc round)))
+        n))))
+
+(deftest a-destroyed-frame-leaves-no-schema-behind
+  ;; Each cycle builds a fresh closure-bearing schema, as a per-request frame
+  ;; does, digests it, fails a dispatch against it (which walks it for
+  ;; sensitive slots) and destroys the frame. Nothing keeps the schema once
+  ;; its frame is gone.
+  (rf/reg-event :u/bad (fn [{:keys [db]} _] {:db (assoc db :user {:n -1})}))
+  (let [cycle! (fn [i]
+                 (let [id     (keyword "req" (str i))
+                       schema [:map [:n [:fn (fn [x] (pos? x))]]]]
+                   (rf/make-frame {:id id})
+                   (rf/reg-app-schema [:user] {:frame id} schema)
+                   (rf.schemas/app-schemas-digest {:frame id})
+                   (rf/dispatch-sync [:u/bad] {:frame id})
+                   (rf/destroy-frame! id)
+                   (java.lang.ref.WeakReference. schema)))
+        refs   (mapv cycle! (range 20))]
+    (is (= 0 (survivors refs)))))

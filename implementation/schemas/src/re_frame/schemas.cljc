@@ -37,11 +37,6 @@
 (def schema-fns          rf.schemas.validator/schema-fns)
 (def default-schema-fns  rf.schemas.validator/default-schema-fns)
 
-;; Production caches are bounded by boot-time schema cardinality. Fixtures
-;; that generate fresh schemas clear them between tests.
-(def clear-edn-print-cache!       rf.schemas.validator/clear-edn-print-cache!)
-(def clear-sensitive-paths-cache! rf.schemas.walker/clear-sensitive-paths-cache!)
-
 ;; Registration + per-frame query (Spec 010 §Per-frame schemas).
 (def reg-app-schema       rf.schemas.storage/reg-app-schema)
 (def reg-app-schemas      rf.schemas.storage/reg-app-schemas)
@@ -130,12 +125,9 @@
 (rf.late-bind/set-fn! :schemas/app-schemas-digest    app-schemas-digest)
 
 ;; Pure-data per-slot extractors. These do not populate durable app-db
-;; classification; frame commit effects own that policy. Both hooks walk
-;; UNMEMOISED: a consumer may hand them a schema built per call (managed
-;; HTTP's `:decode`), which the never-evicted memo behind the public
-;; `extract-sensitive-paths-from-schema` must never see.
+;; classification; frame commit effects own that policy.
 (rf.late-bind/set-fn! :schemas/extract-large-paths-from-schema     extract-large-paths-from-schema)
-(rf.late-bind/set-fn! :schemas/extract-sensitive-paths-from-schema rf.schemas.walker/walk-sensitive-paths-from-schema)
+(rf.late-bind/set-fn! :schemas/extract-sensitive-paths-from-schema extract-sensitive-paths-from-schema)
 ;; Whether those extractors saw every mark: a schema with an opaque
 ;; descendant can carry marks neither of them reaches.
 (rf.late-bind/set-fn! :schemas/schema-has-opaque-child? schema-has-opaque-child?)

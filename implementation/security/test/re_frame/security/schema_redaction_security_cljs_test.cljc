@@ -100,7 +100,6 @@
   (rf/reg-app-schema [:root] schema)
   (with-trace-recorder! [traces]
     (rf.schemas/validate-app-schema! {:root db} :root/bad)
-    #?(:clj (rf.schemas/clear-sensitive-paths-cache!))
     (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                    @traces))))
 

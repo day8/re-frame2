@@ -6,7 +6,7 @@
             [re-frame.http.privacy-body :as rf.http.privacy-body]
             [re-frame.late-bind :as rf.late-bind]
             ;; load-bearing: binds the shared schema walker hooks.
-            [re-frame.schemas :as rf.schemas]))
+            [re-frame.schemas]))
 
 ;; The walker cannot introspect a keyword registry ref (it yields no marks), so
 ;; riding it :classify off-box would ship the body unclassified.
@@ -104,19 +104,3 @@
           {:sensitive? true} [:map [:sensitive? :boolean]]
           {:a 1}             :user/profile
           {:a 1}             {:opaque :compiled})))))
-
-;; The schemas artefact's sensitive-path memo is never evicted, which is safe
-;; only for schemas registered once at boot. A `:decode` schema is built per
-;; request, so the hook HTTP reads must walk it unmemoised: a memoised walk
-;; would return the IDENTICAL result object on the next lookup.
-(deftest decode-schema-marks-leaves-the-walker-memo-untouched
-  (rf.schemas/clear-sensitive-paths-cache!)
-  (let [decode (let [id "user-19-4"]
-                 [:map [:id [:= id]]
-                       [:ssn {:sensitive? true} :string]
-                       [:name :string]])
-        marks  (rf.http.privacy-body/decode-schema-marks decode)]
-    (is (= {[:ssn] {:sensitive? true :source :schema}} (:sensitive marks)))
-    (is (not (identical? (:sensitive marks)
-                         (rf.schemas/extract-sensitive-paths-from-schema decode [])))
-        "the memo holds no entry for the per-request schema")))

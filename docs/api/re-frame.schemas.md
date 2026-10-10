@@ -429,7 +429,7 @@ A compiled `m/schema` value is opaque to the walkers, so register the vector for
   ```clojure
   (extract-sensitive-paths-from-schema schema base-path) → {path declaration}
   ```
-- **Description**: The `:sensitive? true` counterpart of `extract-large-paths-from-schema`. The validation-failure redactor uses it to decide which value-bearing slots to scrub. Results are memoised by `(schema, base-path)`; `clear-sensitive-paths-cache!` clears the memo between tests.
+- **Description**: The `:sensitive? true` counterpart of `extract-large-paths-from-schema`. The validation-failure redactor uses it to decide which value-bearing slots to scrub. It walks the schema afresh on every call and retains nothing.
 
 #### `schema-has-sensitive?`
 
@@ -551,26 +551,6 @@ These functions reset the artefact's state between tests. `re-frame.test-support
   (clear-walker-opaque-warned!)
   ```
 - **Description**: Resets the once-per-process `:rf.warning/schema-walker-opaque` latch, the warning emitted when a schema is registered as an opaque compiled value.
-
-#### `clear-edn-print-cache!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (clear-edn-print-cache!) → nil
-  ```
-- **Description**: Empties the printer memo behind `app-schemas-digest`. Returns `nil`.
-    - For tests only. The memo lives for the whole process but is bounded by the number of registered schemas, which register once at boot, so production never needs to clear it.
-    - A test suite that registers many distinct fresh schemas clears it in fixture teardown so the cache does not grow across the suite.
-
-#### `clear-sensitive-paths-cache!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (clear-sensitive-paths-cache!) → nil
-  ```
-- **Description**: Empties the `extract-sensitive-paths-from-schema` memo. Returns `nil`. For tests only, for the same reason as `clear-edn-print-cache!`.
 
 ## See also
 

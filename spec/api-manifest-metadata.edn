@@ -1515,8 +1515,6 @@
   ["re-frame.schemas" "schema-has-opaque-child?"]           {:tier :implementation :owner "015" :status "v1"}
   ["re-frame.schemas" "extract-sensitive-paths-from-schema"] {:tier :implementation :owner "015" :status "v1"}
   ["re-frame.schemas" "extract-large-paths-from-schema"]     {:tier :implementation :owner "015" :status "v1"}
-  ["re-frame.schemas" "clear-sensitive-paths-cache!"]    {:tier :implementation :owner "010" :status "v1"}
-  ["re-frame.schemas" "clear-edn-print-cache!"]          {:tier :implementation :owner "010" :status "v1"}
   ["re-frame.schemas" "clear-validator-unavailable-warned!"] {:tier :implementation :owner "010" :status "v1"}
   ["re-frame.schemas" "clear-walker-opaque-warned!"]     {:tier :implementation :owner "010" :status "v1"}
 

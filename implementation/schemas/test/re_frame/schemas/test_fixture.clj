@@ -32,10 +32,6 @@
     `:rf.warning/schema-walker-opaque` one-shot so test cases that
     exercise the non-vector schema-registration path each start from
     a clean slate.
-  - `(schemas/clear-edn-print-cache!)` /
-    `(schemas/clear-sensitive-paths-cache!)` — reset the printer +
-    sensitive-walker memo caches, which are process-lifetime and keyed
-    by schema value, so each test starts from an empty cache.
   - `(registrar/clear-warning-caches!)` — clears the registrar's
     per-(kind, id) warn-once caches (missing-doc, registration-collision)
     so each test sees a clean suppression slate.
@@ -72,8 +68,6 @@
   (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)
   (rf.schemas/clear-validator-unavailable-warned!)
   (rf.schemas/clear-walker-opaque-warned!)
-  (rf.schemas/clear-edn-print-cache!)
-  (rf.schemas/clear-sensitive-paths-cache!)
   (rf.registrar/clear-warning-caches!)
   (rf/init! rf.substrate.plain-atom/adapter)
   ;; EP-0002: establish an explicit :rf/default scope for the
