@@ -8,17 +8,21 @@
   no stub), that every malformed form is loud at the position it was
   written, and that the veto composition is mechanical — the prevent
   closure runs first and routing's own `activate-link!` stands down on
-  `defaultPrevented`. The real browser click, the real route change and
-  the real page re-render are `shapes/route_link_dom_cljs_test`'s."
+  `defaultPrevented`, and that a retained link stays pinned to the frame
+  incarnation it rendered under. The real browser click, the real route
+  change and the real page re-render are `shapes/route_link_dom_cljs_test`'s."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
             [re-frame.fresco.impl.intent :as rf.fresco.impl.intent]
             [re-frame.fresco.impl.route-link :as rf.fresco.impl.route-link]
             [re-frame.core :as rf]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.routing :as rf.routing]
             [re-frame.routing.address :as rf.routing.address]
-            [re-frame.test-support :as rf.test-support]))
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
@@ -78,7 +82,10 @@
         on-click  (:on-click attrs)]
     (is (rf.fresco.impl.intent/navigate-head? on-click) "the click position carries the navigate head")
     (let [{:keys [frame payload native? veto]} (second on-click)]
-      (is (= frame-id frame) "the frame was captured at render, as data")
+      (is (= frame-id (:frame frame)) "the frame was captured at render, as data")
+      (is (identical? (:ops (rf.fresco.impl.collector/frame-row frame-id)) frame)
+          "…as the boundary's own capture-frame bundle, pinned to the
+           incarnation live at render")
       (is (= [:rf.route/url-requested {:url "/profile/jane"}]
              payload)
           "the payload is routing's own url-requested synthesis, in band")
@@ -354,7 +361,7 @@
         #(h (ev {})))
       (let [{:keys [veto-fn frame payload native?]} @!seam]
         (is (identical? veto veto-fn) "the fn crossed the seam by identity")
-        (is (= frame-id frame))
+        (is (= frame-id (:frame frame)))
         (is (= [:rf.route/url-requested {:url "/profile/jane"}]
                payload))
         (is (false? native?))))))
@@ -415,3 +422,60 @@
           (is (re-find #"re-frame\.routing" (str (:reason data)))
               "…and the namespace to require at boot"))
         (finally (rf.late-bind/set-fn! :routing/link-model previous))))))
+
+;; ---------------------------------------------------------------------------
+;; The incarnation pin
+;; ---------------------------------------------------------------------------
+
+(defn- observed
+  "Run `thunk` and answer what it did: the `:rf.route/*` events it dispatched,
+  as `[event-id frame]` off the `:rf.event/dispatched` trace, and the event ids
+  of the always-on `:rf.error/frame-destroyed` refusals it fanned."
+  [thunk]
+  (let [dispatched (atom [])
+        refused    (atom [])
+        trace-key  (keyword "route-link-pin" (name (gensym "trace")))
+        error-key  (keyword "route-link-pin" (name (gensym "error")))]
+    (rf.trace.tooling/register-listener!
+      trace-key
+      (fn [trace]
+        (let [v (-> trace :tags :rf.event/v)]
+          (when (and (= :rf.event/dispatched (:operation trace))
+                     (vector? v)
+                     (#{:rf.route/url-requested :rf.route/prefetch} (first v)))
+            (swap! dispatched conj [(first v) (-> trace :tags :frame)])))))
+    (rf.error-emit/register-error-listener!
+      error-key
+      (fn [record]
+        (when (= :rf.error/frame-destroyed (:error record))
+          (swap! refused conj (:event-id record)))))
+    (try (thunk)
+         {:dispatched @dispatched :refused @refused}
+         (finally
+           (rf.trace.tooling/unregister-listener! trace-key)
+           (rf.error-emit/unregister-error-listener! error-key)))))
+
+(defn- lowered-click-and-hover
+  "Lower a rendered link's click and hover positions under the boundary's own
+  pinned dispatch, as a boundary body does, and answer the two closures."
+  [[_ attrs]]
+  (rf.fresco.impl.intent/with-frame frame-id (rf.fresco.impl.collector/frame-dispatch frame-id)
+    (fn []
+      [(rf.fresco.impl.intent/lower-prop :on-click (:on-click attrs))
+       (rf.fresco.impl.intent/lower-prop :on-mouse-enter (:on-mouse-enter attrs))])))
+
+(deftest a-retained-link-refuses-once-its-incarnation-is-gone
+  (testing "a link painted under incarnation A, clicked and hovered after A is
+           destroyed and a successor seated under the same id, dispatches
+           nothing into the successor: the click and the prefetch both refuse
+           with :rf.error/frame-destroyed, like every other retained callback"
+    (let [props            {:to :conduit.profile/show :params {:username "jane"} :prefetch :intent}
+          [click-a hover-a] (lowered-click-and-hover (rendered props "jane"))]
+      (rf/destroy-frame! frame-id)
+      (fresh!)
+      (is (= {:dispatched [] :refused [:rf.route/url-requested :rf.route/prefetch]}
+             (observed #(do (click-a (ev {})) (hover-a (ev {}))))))
+      (testing "while a link rendered under the successor navigates it"
+        (let [[click-b _] (lowered-click-and-hover (rendered props "jane"))]
+          (is (= {:dispatched [[:rf.route/url-requested frame-id]] :refused []}
+                 (observed #(click-b (ev {}))))))))))
