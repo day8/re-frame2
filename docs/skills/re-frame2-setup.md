@@ -1,6 +1,6 @@
 # re-frame2-setup
 
-Scaffolds a fresh re-frame2 ClojureScript project from nothing — deps, npm packages, `shadow-cljs.edn`, entry namespace, first counter — and stops when the counter mounts.
+Scaffolds a fresh re-frame2 ClojureScript project from nothing — deps, npm packages, `shadow-cljs.edn`, entry namespace, first counter — and hands off once the app is compiled, tested and served; the browser checks are yours ([From scaffold to running app](#from-scaffold-to-running-app)).
 
 ## Kickoff
 

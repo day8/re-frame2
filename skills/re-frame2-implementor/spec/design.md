@@ -35,7 +35,7 @@ Phase 1 (the port profile) before Phase 2 (the EP loop), sequentially. The split
 
 The skill teaches no generic build/test mechanics (Pillar 4). But it is an **implementation driver**, so the agent runs the port's **discovered noninteractive gates** itself when it has tool access: the narrowest slice covering each loop step, and the full required-foundation / claimed-capability conformance passes when the engineer asked for an end-to-end implementation — always reporting exact commands, exit codes, and `passed / claimed-applicable`. Genuinely interactive/visual evidence remains a concise programmer handoff, and completion is never claimed while required evidence is pending. The agent uses the host session's normal permissions; there is no skill-local engineer/agent relay policy. An explicitly-invoked, code-writing agent with tool access runs the gates it discovers, because leaving the full gates to the engineer by default would leave an end-to-end implementation unverified.
 
-**Family-consistency note (posture follows role).** `re-frame-migration` keeps its hard trust boundary (the agent never runs build/test/smoke in the author's app env); `re-frame2` authoring emits recipes a human pastes. Those postures are correct for their role cells; this skill's role is the only implementation driver whose acceptance criterion *is* spec-conformance.
+**Family-consistency note (posture follows role).** The other skills' postures are tabulated once, in [`skills/README.md` §Verification posture](../../README.md#verification-posture--follows-role-by-design). This skill's role is the only implementation driver whose acceptance criterion *is* spec-conformance.
 
 ### L4 — Substrate-agnostic phrasing throughout
 

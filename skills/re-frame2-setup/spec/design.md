@@ -8,7 +8,7 @@ The design rationale and locked decisions for the `re-frame2-setup` skill. A fut
 
 Help an author **bootstrap a fresh re-frame2 ClojureScript project**. The author starts with nothing — or close to it — and ends with a working browser app that compiles under `shadow-cljs watch` and mounts a counter. From there, the author switches to the main `re-frame2` skill for application-code authoring.
 
-The success criterion: `npx shadow-cljs watch app` compiles cleanly, the browser shows a counter, clicking `+1` increments it. The skill stops at that point — anything beyond setup is another skill's job.
+The exit criterion is owned by `SKILL.md`'s [§Canonical greenfield path](../SKILL.md#canonical-greenfield-path-six-steps) and its done checklist, and who runs which check is the setup row of [`skills/README.md` §Verification posture](../../README.md#verification-posture--follows-role-by-design). Anything beyond setup is another skill's job.
 
 ## 2. Pillars (locked, derived from `re-frame2`'s four pillars)
 
@@ -16,7 +16,7 @@ The same four pillars as the `re-frame2` skill, scoped to greenfield bootstrap:
 
 1. **Correctness — recipes over explanations.** The skill writes the exact files, the exact `shadow-cljs.edn`, the exact entry-namespace contract, and verifies them: it runs `npm install` and a terminating `npx shadow-cljs compile app` itself, starts the watch, and reports the URL (L6). **Q14 lock still applies: NO verification module** — no `references/verify.md` leaf; the browser-mount confirmation stays the author's, and compile success is never presented as a mount claim.
 2. **Idiomaticness — the default IS the canonical artefact.** The default scaffold is the generator template's own emission (L13), not a hand-written approximation of it; the template is itself grounded against `examples/core/counter/` and the canonical artefacts.
-3. **Context economy — `SKILL.md` is a router; the default route reads one leaf; four one-level-deep leaves carry the depth.** SKILL.md walks the six-step canonical path; `first-counter.md` is the whole default; the other three leaves are read only when a step needs depth (an overridden pin, the build or boot explained, the UIx swap).
+3. **Context economy — `SKILL.md` is a router; the default route reads one leaf; one-level-deep leaves carry the depth.** SKILL.md walks the six-step canonical path; `first-counter.md` is the whole default; every other leaf is read only when a step needs its depth, as `SKILL.md` [§Reference files](../SKILL.md#reference-files-all-one-level-deep) routes it.
 4. **Assume training knowledge.** The author knows `deps.edn`, `npm`, `shadow-cljs`, what a Reagent component is. The skill teaches only the **re-frame2-specific wiring** — which artefacts to add, the `rf/init!` contract, the order of operations between adapter install and React mount.
 
 ## 3. Locked decisions
@@ -109,11 +109,7 @@ skills/re-frame2-setup/
 ├── LICENSE                        (MIT)
 ├── package.json                   (npm metadata)
 ├── .claude-plugin/plugin.json     (Claude Code plugin metadata)
-├── references/
-│   ├── first-counter.md           (the default scaffold: the thirteen files, derived — the default route's one leaf)
-│   ├── deps-versions.md           (lockstep VERSION discipline; default pins + overrides; coordinate shapes; pay-as-you-go)
-│   ├── shadow-cljs.md             (build config + page explained; hot reload; :test build; release; nREPL)
-│   └── entry-namespace.md         (rf/init! + React-root contract; the UIx four-file swap, derived)
+├── references/                    (one-level-deep leaves; SKILL.md §Reference files routes each)
 ├── spec/
 │   ├── design.md                  (this file)
 │   ├── inputs.md                  (canonical inputs)
