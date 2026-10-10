@@ -51,7 +51,6 @@ The `reg-event` metadata-map is the one **superset** middle slot — reflection 
 | `(keys (into {} (filter (fn [[_ m]] (:rf/machine? m))) (rf/registrations {:source :store :kind :event})))` | machine-id list. There is no `machines` accessor: a machine is an `:event` registration carrying `:rf/machine? true`, so enumeration is that filter over the generic registrar query |
 | `(:rf/machine (rf/handler-meta {:source :store :kind :event :id id}))` | ONE machine's registered spec. There is no `machine-meta` accessor: a machine is an `:event` registration carrying `:rf/machine? true`, and its spec rides at the reserved `:rf/machine` key |
 | `re-frame.machines/machine-transition` | `(machine snapshot event)` → `{:status :ok :snapshot snapshot' :fx fx}` / `{:status :error :error {:kind …}}` pure — owned-ns surface, **not** on the `rf/` façade |
-| `re-frame.machines/make-machine-handler` | `(machine)` → raw event-handler fn — owned-ns surface, **not** on the `rf/` façade. **Advanced / lower-level**: the schema-less factory `reg-machine` wraps for you. Registering it by hand (`reg-event id meta (make-machine-handler spec)`) does NOT stamp the `:rf/machine?` / `:rf/machine` metadata or source coords tools resolve through, and a `[:schemas :data]`-bearing spec throws `:rf.error/machine-schema-requires-reg-machine`. Author machines with `rf/reg-machine` (it already registers the machine AS an event handler) |
 
 ## Images and frames (EP-0023, `re-frame.core`)
 

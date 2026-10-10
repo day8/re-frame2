@@ -25,7 +25,7 @@ For trivial boots (≤3 steps, no error states, no progress UI), use the chained
 
 ## Canonical declaration (state-machine form)
 
-`reg-machine` **is** the registration home for the boot machine — it registers the machine as an event handler and stamps the `:rf/machine?` / source-coordinate metadata the boot UI's `:rf/machine` sub and the tooling rely on, so author it with `reg-machine`, never wrap it by hand. (`reg-machine` / `defmachine` stay on the `rf/` façade; the lower-level `re-frame.machines/make-machine-handler` factory is an advanced schema-less escape hatch — see [`../references/state-machines/reg-machine.md`](../references/state-machines/reg-machine.md) §Driving a machine as a discrete event-driven flow.) The frame's `:initial-events` drive the machine by dispatching the nested `[:app/boot [:rf.machine/start]]` creation marker.
+`reg-machine` **is** the registration home for the boot machine — it registers the machine as an event handler and stamps the `:rf/machine?` / source-coordinate metadata the boot UI's `:rf/machine` sub and the tooling rely on, so author it with `reg-machine`, never wrap it by hand. (`reg-machine` / `defmachine` stay on the `rf/` façade.) The frame's `:initial-events` drive the machine by dispatching the nested `[:app/boot [:rf.machine/start]]` creation marker.
 
 ```clojure
 (rf/reg-machine :app/boot

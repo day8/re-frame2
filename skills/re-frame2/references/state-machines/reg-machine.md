@@ -181,8 +181,6 @@ A machine that drives a discrete event-driven flow — application boot, a webso
 
 To validate the flow's **outer** event vector, pass the optional metadata MIDDLE slot — `(rf/reg-machine :app/boot {:schema BootEvent} boot-machine)`; to validate its **`:data`**, declare `[:schemas :data]` inside the spec map (see [`machine-schemas.md`](machine-schemas.md)), which **requires** the `reg-machine` home. `patterns/boot.md` and `patterns/websocket.md` carry the worked flows.
 
-> **Advanced — `re-frame.machines/make-machine-handler`.** The lower-level factory behind `reg-machine`, owned by `re-frame.machines` and **not** on the `rf/` façade: a **schema-less escape hatch** for programmatic composition, never a normal authoring path. Registering it by hand skips the `:rf/machine?` / `:rf/machine` metadata **and** the per-element source coords, so the machine is invisible to the `:rf/machine` registrar projection, visualisers and Xray — and a `[:schemas :data]`-bearing spec **throws `:rf.error/machine-schema-requires-reg-machine`** at construction rather than silently validating nothing. See `references/cross-cutting/api-cheatsheet.md` §Machines.
-
 ## Querying registered machines
 
 - `(rf/handler-meta {:source :store :kind :event :id :my/feature})` — registration metadata, including `:rf/machine? true`, `:rf/machine` (the spec map), `:ns` / `:line` / `:file`.
