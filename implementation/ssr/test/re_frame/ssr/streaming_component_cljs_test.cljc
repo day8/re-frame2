@@ -191,7 +191,9 @@
                          :rf/runtime-db (assoc-in {} rf.ssr.suspense/failed-boundaries-path
                                                   #{:card.flaky})}]
            {:frame fid})
-         (is (= #{:card.flaky} (rf.ssr.suspense/frame-failed-boundaries fid)))))))
+         (is (= #{:card.flaky}
+                (get-in (:rf.db/runtime (rf/frame-state-value fid))
+                        rf.ssr.suspense/failed-boundaries-path)))))))
 
 #?(:cljs
    (deftest client-wraps-multiple-children-in-a-fragment

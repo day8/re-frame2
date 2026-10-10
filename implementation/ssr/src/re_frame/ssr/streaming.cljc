@@ -831,7 +831,7 @@
         app-db     (rf.frame/frame-app-db-value frame-id)
         ;; EP-0001: project the live runtime-db value to the
         ;; serializable `:rf/runtime-db` slice (machine snapshots, route slice,
-        ;; elision declarations, SSR metadata) so the streamed final payload
+        ;; SSR metadata) so the streamed final payload
         ;; hydrates a coherent frame-state, symmetric with the non-streaming
         ;; path. Transient side channels are excluded by `project-runtime-db`.
         runtime-db (rf.frame/frame-runtime-db-value frame-id)

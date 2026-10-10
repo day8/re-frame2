@@ -297,10 +297,12 @@ test('the runtime partition reaches the module, frozen like state', async () => 
 
 test('a malformed bundle refuses at BOOT, not at first request', async () => {
   for (const [fixtureName, why] of [
-    ['bad-no-allowlist', /stateAllowlist/],
-    ['bad-no-runtime-allowlist', /runtimeAllowlist/],
-    ['bad-no-build-id', /buildId/],
-    ['bad-protocol', /protocol/],
+    // Each module's OWN refusal wording: a bare field name is also matched by
+    // the TypeError the worker throws reading a field validation let through.
+    ['bad-no-allowlist', /declares no stateAllowlist/],
+    ['bad-no-runtime-allowlist', /declares no runtimeAllowlist/],
+    ['bad-no-build-id', /publishes no buildId/],
+    ['bad-protocol', /declares protocol/],
   ]) {
     const err = await refusalOf(() => withService(fixtureName, {}, async () => {}));
     assert.ok(err, `${fixtureName} should not have booted`);

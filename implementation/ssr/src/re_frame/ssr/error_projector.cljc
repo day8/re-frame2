@@ -361,7 +361,7 @@
                                                       :cljs (.-message e))
                                 :reason            "Error projector threw — using fallback."
                                 :recovery          :warned-and-replaced})
-            ;; EP-0008: ALSO ride the always-on axis — NON-
+            ;; ALSO ride the always-on axis — NON-
             ;; PROJECTING + one-shot (the projection listener skips this
             ;; category, so no re-entry; see §always-on error-emit helper).
             (emit-always-on-error!
@@ -413,7 +413,7 @@
                                                           " generic-500 fallback.")
                           :recovery                  :register-the-configured-projector-or-fix-the-id}]
                 (rf.trace/emit-error! :rf.error/sanitised-on-projection tags)
-                ;; EP-0008: ALSO ride the always-on axis so an
+                ;; ALSO ride the always-on axis so an
                 ;; off-box shipper on a `-Dre-frame.debug=false` JVM SSR host
                 ;; sees the misconfiguration. One-shot + NON-PROJECTING.
                 (emit-always-on-error!
@@ -430,7 +430,7 @@
                                 :returned          result
                                 :reason            "Error projector returned a non-conforming shape — using fallback."
                                 :recovery          :warned-and-replaced})
-            ;; EP-0008: ALSO ride the always-on axis — NON-
+            ;; ALSO ride the always-on axis — NON-
             ;; PROJECTING + one-shot (the non-conforming-shape arm and the
             ;; catch arm above are mutually exclusive, so at most one emit
             ;; per call; the projection listener skips this category).

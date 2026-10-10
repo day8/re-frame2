@@ -404,14 +404,13 @@ explicitly."
                                         rf.ssr.error-listener/error-emit-projection-listener)
 
 ;; The development trace listener covers the same categories on the DEV
-;; trace bus, plus the ones that ride it ALONE and so DCE under
+;; trace bus, plus the one that rides it ALONE and so DCEs under
 ;; `interop/debug-enabled? = false`: `:rf.error/no-such-route` (the
-;; `route-url` caller-misuse throw, catalogued diagnostic) and
-;; `:rf.error/schema-validation-failure` (boundary validation is itself
-;; production-elided per Spec 010 §Production builds, so there is no
-;; production reject to project). Categories on BOTH axes —
-;; `:rf.error/sub-exception`, `:rf.error/no-such-handler`,
-;; `:rf.error/drain-depth-exceeded` — buffer twice in dev; the always-on
+;; `route-url` caller-misuse throw, catalogued diagnostic). Categories on
+;; BOTH axes — `:rf.error/sub-exception`, `:rf.error/no-such-handler`,
+;; `:rf.error/drain-depth-exceeded`, and the `:boundary? true`
+;; `:rf.error/schema-validation-failure`, whose check runs in every build
+;; (Spec 010 §Production builds) — buffer twice in dev; the always-on
 ;; axis is their production status source of truth. Both listeners share id
 ;; `::error-projection` to keep the contract surface addressable as one
 ;; logical projector — `apply-error-projection!` 1-arity keeps the highest

@@ -509,7 +509,7 @@
 ;; redaction: the optional `:rf/runtime-db` payload slice carries ONLY
 ;; the SERIALIZABLE DURABLE runtime-db facts the client needs to reconstitute
 ;; a coherent frame-state — machine snapshots / spawn registry, the active
-;; route slice, elision declarations, and SSR hydration metadata. Transient
+;; route slice, and SSR hydration metadata. Transient
 ;; runtime state MUST NOT ride the wire: server-only request/response
 ;; accumulators, head snapshots, streaming continuation registries,
 ;; pending-error buffers, in-flight HTTP handles, host handles, and the
@@ -536,7 +536,7 @@
   drag the routing artefact onto the classpath (SSR depends on core only;
   routing is a test-only dep). A cross-artefact conformance test asserts
   the two agree so storage / SSR / docs can never silently drift — see
-  `re-frame.ssr.payload-policy-cljs-test`.
+  `re-frame.routing-nav-counters-test`.
 
   The nav-token / pending-nav COUNTERS are not runtime-db keys at all
   — they live in a host-side transient cache (as do saved

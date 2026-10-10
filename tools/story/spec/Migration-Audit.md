@@ -190,7 +190,7 @@ Same shape as helix. All 3 assertions = (B). KEEP IN PLACE.
 
 ### `testbeds/ssr_basic/spec.cjs` (Spec 011 hydration baseline) — MIGRATED (Wave 3, rf2-pxb7t)
 
-**Status: spec.cjs DELETED. Migrated to `implementation/ssr/test/re_frame/ssr_hydration_test.clj`** — JVM tests using `rf/subscribe-once` for synchronous post-hydration reads against the contract-bearing surfaces (`:rf/hydrate` handler, `[:rf/runtime :ssr :hydration]` metadata stash, the baseline version check silently matching the SSR pattern-protocol constant with no `:rf.ssr/compatibility-check-skipped` trace, `:rf/response` payload round-trip). The contract surface is platform-neutral (`.cljc`) so JVM coverage is sufficient. The two (C) DOM-mount probes (#1 static-HTML-before-bundle + #2 hydrated-marker mount) retire alongside per the audit's §Drop-or-keep recommendation — substrate-mount sanity is already covered by the 3 adapter smokes.
+**Status: spec.cjs DELETED. Migrated to `implementation/ssr/test/re_frame/ssr_hydration_test.clj`** — JVM tests using `rf/subscribe-once` for synchronous post-hydration reads against the contract-bearing surfaces (`:rf/hydrate` handler, `[:rf.runtime/ssr :hydration]` runtime-db metadata stash, the baseline version check silently matching the SSR pattern-protocol constant with no `:rf.ssr/version-mismatch` trace, `:rf/response` payload round-trip). The contract surface is platform-neutral (`.cljc`) so JVM coverage is sufficient. The two (C) DOM-mount probes (#1 static-HTML-before-bundle + #2 hydrated-marker mount) retire alongside per the audit's §Drop-or-keep recommendation — substrate-mount sanity is already covered by the 3 adapter smokes.
 
 | # | Assertion | Class | Migrated to |
 |---:|---|:---:|---|
@@ -200,13 +200,13 @@ Same shape as helix. All 3 assertions = (B). KEEP IN PLACE.
 | 4 | `count` = '7' (seeded from payload) | A | Same target. |
 | 5 | `title` = 'seeded' (seeded from payload) | A | Same target. |
 | 6 | After inc click: count = '8' | A | `hydration-baseline-post-hydrate-dispatch-mutates-seeded-db` |
-| 7 | After set-title click: title = 'hydrated' | A | Same target. |
+| 7 | After set-title click: title = 'hydrated' | A | Covered by #6's target: one post-hydrate dispatch (`::inc`) witnesses that the seeded db is live; no separate title dispatch is made. |
 | 8 | `resp-status` = '200' | A | `hydration-baseline-rf-response-slice-round-trips-via-payload` |
 | 9 | `resp-ct` contains 'text/html' | A | Same target. |
 | 10 | `resp-cookies-count` = '1' | A | Same target. |
 | 11 | `resp-cookie-name` = 'session' | A | Same target. |
-| 12 | Baseline version check silently matches the SSR pattern-protocol constant — NO `:rf.ssr/compatibility-check-skipped` trace (updated for rf2-qfb1i; the version late-bind hook was removed) | A | `hydration-baseline-version-matches-ssr-constant-silently` |
-| 13 | NO `:rf.ssr/hydration-mismatch` on baseline | A | `hydration-baseline-no-mismatch-trace-when-server-hash-nil` |
+| 12 | Baseline version check silently matches the SSR pattern-protocol constant | A | `hydration-baseline-version-matches-ssr-constant-silently` — no `:rf.ssr/version-mismatch` trace (dev arm). |
+| 13 | NO `:rf.ssr/hydration-mismatch` on baseline | A | `hydration-baseline-no-mismatch-trace-when-server-hash-nil` — a nil server hash short-circuits `verify-hydration!`, which returns nil even under `:on-mismatch :hard-error`. |
 
 **Migrated subtotal: 11 of 11 substantive assertions = 100%. Residual: 0. SPEC.CJS DELETED.** The two (C) mount probes retired (substrate-mount coverage by adapter smokes).
 
@@ -221,7 +221,7 @@ Same shape as helix. All 3 assertions = (B). KEEP IN PLACE.
 | 3 | `expectVisible(mismatch-banner)` | C | RETIRED — banner-DOM probe retired alongside spec.cjs (underlying tag-payload contract migrated to CLJS). |
 | 4 | `mismatch-server-hash` = 'deadbeef' | A | `mismatch-trace-carries-server-hash-failing-id-recovery` |
 | 5 | `mismatch-client-hash` matches `/^[0-9a-f]{8}$/` | A | `mismatch-trace-client-hash-is-8-char-lowercase-hex` |
-| 6 | client-hash ≠ 'deadbeef' | A | Same target. |
+| 6 | client-hash ≠ 'deadbeef' | A | `mismatch-trace-carries-server-hash-failing-id-recovery` — the trace carries client hash `0badf00d` beside server hash `deadbeef`. |
 | 7 | `mismatch-failing-id` = ':rf/hydrate' | A | `mismatch-trace-carries-server-hash-failing-id-recovery` |
 | 8 | `mismatch-recovery` = ':warned-and-replaced' | A | Same target. |
 | 9 | `window.__rf_trace_events()` has `:rf.ssr/hydration-mismatch` with `op_type = ':error'` AND `server_hash = 'deadbeef'` | A | `mismatch-trace-is-an-error-op-type-event` + `mismatch-trace-carries-server-hash-failing-id-recovery` |
