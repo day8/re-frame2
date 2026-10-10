@@ -435,40 +435,6 @@
         (or (str/starts-with? n "data-")
             (str/starts-with? n "aria-")))))
 
-;; Dev-only one-shot warning cache. Keyed on `[k name-of-v]`. Production
-;; code carries a small number of legitimate non-HTML keyword props, so
-;; the warning is informational, not a deprecation. Per IMPL-SPEC §7.2.
-(defonce ^:private ^{:doc "[k v-name] → true once warned."}
-  warned-keyword-prop (atom #{}))
-
-(defn clear-warned-keyword-prop!
-  "Reset the keyword-prop warn-once cache to empty; returns nil.
-
-  The user-facing contract is `warn once per [k name-of-v] pair` for the
-  process lifetime, so this cache is a `defonce`. Tests, however, must
-  re-arm it between cases — otherwise a sibling test that already warned
-  for a given pair silently swallows a later test's same-pair warning.
-  The reagent-slim adapter ns wires this into the chained
-  `:adapter/clear-warn-once-caches!` late-bind hook (via
-  `spine/install-clear-warn-once-step!`) so `make-reset-runtime-fixture`
-  clears it alongside every other adapter's warn-once cache. Reset-only;
-  it has no production effect (the hook is a test-fixture surface)."
-  []
-  (reset! warned-keyword-prop #{})
-  nil)
-
-(defn- warn-once-keyword-prop! [k v]
-  (let [key [(name k) (name v)]]
-    (when-not (contains? @warned-keyword-prop key)
-      (swap! warned-keyword-prop conj key)
-      (when (exists? js/console)
-        (.warn js/console
-               (str "[reagent-slim] keyword value " (pr-str v)
-                    " on non-HTML prop " (pr-str k)
-                    " passes through unchanged. If you intended a string,"
-                    " call (name v) at the call site;"
-                    " otherwise the keyword is preserved."))))))
-
 (defn- ^boolean named? [x]
   (or (keyword? x) (symbol? x)))
 
@@ -573,8 +539,7 @@
     - CUSTOM/INTEROP components (the 2-arg form, or `dom-element?` false):
       keyword/symbol values stringify only for documented HTML-attribute
       prop names (`:class`, `:id`, `:role`, `:data-*`, `:aria-*`); other
-      named values pass through unchanged (with a one-shot dev warning),
-      so a keyword like `:rf/foo` on a React-context Provider's `:value`
+      named values pass through unchanged, so a keyword like `:rf/foo` on a React-context Provider's `:value`
       is preserved.
 
   Other rules, in the order the `cond` actually takes them — which is
@@ -629,11 +594,7 @@
      (js-val? prop-value) prop-value
      (named? prop-value)  (if (html-attr-name? prop-key)
                             (name prop-value)
-                            (do
-                              (when ^boolean js/goog.DEBUG
-                                (warn-once-keyword-prop!
-                                  prop-key prop-value))
-                              prop-value))
+                            prop-value)
      (map? prop-value)    (reduce-kv add-converted-nested-prop!
                                      #js {} prop-value)
      (coll? prop-value)   (clj->js prop-value)

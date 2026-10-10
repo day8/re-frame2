@@ -21,8 +21,7 @@
 (def ^:private expected-labels
   #{:views/warned-non-dom-roots
     :views/seen-render-keys
-    :adapter/warned-non-dom-roots          ;; the React-hook spine's per-adapter cache
-    :reagent-slim/warned-keyword-prop})
+    :adapter/warned-non-dom-roots})        ;; the React-hook spine's per-adapter cache
 
 (deftest registry-enrols-every-named-cache-of-the-class
   (let [enrolled (set (map :label @rf.late-bind/warn-once-clear-registry))]
@@ -32,8 +31,7 @@
 
 (defn- probed-entries
   "Registry entries carrying both `:arm` and `:armed?` probes. A probe-less
-  entry (the slim keyword-prop cache, whose atom is private to its bundle)
-  is covered by the enrolment check above and its own re-arm test."
+  entry is covered by the enrolment check above and its own re-arm test."
   []
   (filter (fn [{:keys [arm armed?]}] (and (fn? arm) (fn? armed?)))
           @rf.late-bind/warn-once-clear-registry))

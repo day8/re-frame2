@@ -231,10 +231,10 @@ job §4 says is cheapest to do by hand.
 ### D · A runtime dev warning instead — the `reagent-slim` precedent
 
 The repository has already met this exact problem once. `reagent-slim` narrowed keyword
-stringification underneath an installed Reagent codebase and shipped
-`warn-once-keyword-prop!` as that migration's safety net — dev-only, once per
-`[prop-name, value-name]` pair, informational rather than deprecating. It catches
-**computed** values, which no source tool can reach.
+stringification underneath an installed Reagent codebase, and it does not warn: a keyword
+at a non-HTML prop is correct code there, and its guide states the difference from stock
+Reagent once. A dev warning would catch **computed** values, which no source tool can
+reach, at the price of nagging every correct call site.
 
 **Refused, and not on my preference.** `host-prop-value`'s own docstring rules it out by
 name: *"`reagent-slim` warns once per non-HTML keyword prop because it narrowed the rule
@@ -572,9 +572,8 @@ hot-zone sequencing constraint, stated here so nobody batches one silently.
   — `vec-to-elem`, `native-element`, `convert-props`, `convert-prop-value`, `kv-conv`,
   `raw-element`.
 - `implementation/adapters/reagent-slim/src/reagent2/impl/template.cljs` —
-  `warn-once-keyword-prop!`, `html-attr-name?`, and `convert-prop-value`'s two arities;
-  the tracked precedent for candidate D, and the last surviving trace of the `rf2-cgcv` /
-  `rf2-kfpf` audits.
+  `html-attr-name?` and `convert-prop-value`'s two arities; the narrowed rule candidate D's
+  precedent rests on.
 - `migration/from-re-frame-v1/codemod/` — `deps.edn` and `reg_event_codemod.clj`, the
   residence and skeleton precedent.
 - `docs/design/fresco/draft-guide/05-interop.md` — the published manual recipe and the two
