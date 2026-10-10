@@ -117,10 +117,9 @@
       edge segments so bundled routes (several transitions between the
       same layers) read as distinct lines, not one fused thick stroke.
 
-  And the label-placement keys (the edge-label analogue of the node-
-  measure feed; the transition text is on the event-NODE so edges carry
-  empty labels, but the keys make elk reserve a channel for any MEASURED
-  edge label `projection/->elk-edge` feeds):
+  And the label-placement keys. The transition text is on the
+  event-NODE, so `projection/->elk-edge` feeds every edge an empty label;
+  these keys govern how elk places and budgets edge labels:
 
     - `elk.edgeLabels.placement` (CENTER) — elk places a non-empty edge
       label on the route, centred, and budgets space for it so two
