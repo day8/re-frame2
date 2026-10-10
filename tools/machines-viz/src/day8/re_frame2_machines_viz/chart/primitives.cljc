@@ -37,8 +37,8 @@
                     no resolvable duration, sub-vec mid-resolution).
     :color        — semantic tier `:green / :amber / :red / :gray`; an
                     absent or unknown tier strokes as `:gray`.
-    :cancelled?   — when true the ring renders gray + a diagonal
-                    cross-line through it.
+    :cancelled?   — when true the ring keeps its tier colour, fades to
+                    0.4 opacity and gains a red diagonal cross-line.
     :stroke-width — defaults to 2.5.
     :testid       — the root data-testid.
     :tooltip      — wraps a native SVG `<title>`."

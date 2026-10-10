@@ -486,9 +486,8 @@ fill), and colours resolved through the active-theme **chart-tokens**
   node-measure (node↔node sizing) could not converge. The clearance keys
   reserve the channel so routes go AROUND nodes. For LABELS, ELK now owns
   placement (`elk.edgeLabels.placement CENTER` + `elk.spacing.edgeLabel`):
-  `->elk-edge` feeds each edge a `:labels` entry carrying the **measured**
-  label box (the edge-label analogue of d9ro2's node measure) when an
-  edge renders its own label; `elk-result->positions` lifts ELK's
+  `->elk-edge` feeds each edge an empty `:labels` entry;
+  `elk-result->positions` lifts ELK's
   computed position into `:edge-labels` (`{elk-edge-id {:x :y}}`, the
   LABEL analogue of `:edge-points`); the projector threads it onto
   `:data {:labelPos}`; and `edges.cljs/edge-path` anchors the label at

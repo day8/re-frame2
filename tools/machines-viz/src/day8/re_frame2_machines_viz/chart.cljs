@@ -1248,7 +1248,8 @@
             ;; their own direction.
             elk-direction (post-elk/resolve-direction direction parsed)
             ;; Trigger an elk layout pass when the (definition,
-            ;; direction, layout-options, density) tuple changes. Keep the
+            ;; elk-direction, layout-options, density, context-rows,
+            ;; adaptive?) tuple — `compute-layout-key` — changes. Keep the
             ;; previous positions during in-flight layout to avoid an
             ;; empty-chart flash. `density` is in the key so a density switch
             ;; (which changes the derived container padding) re-runs ELK

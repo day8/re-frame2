@@ -248,12 +248,11 @@ node CONTENT — so the next measurement reports the SAME boxes, the
 signature matches, and no further pass fires. Position-only
 `onNodesChange` events never reach the comparison (the signature keys on
 measured dimensions, not position), so xyflow applying the new ELK
-positions cannot re-trigger. A new layout-key (new `:definition` /
-`:direction` / `:layout-options` / `:density`) clears the signature so
-the new topology gets its own single relayout.
+positions cannot re-trigger. A new layout-key (a change to any element
+of the [layout-key tuple](#layout-invalidation-boundary-is-load-bearing))
+clears the signature so the new topology gets its own single relayout.
 
-This second pass is keyed on the SAME `[:definition :direction
-:layout-options :density]` layout-key as the first — it does not
+This second pass is keyed on the SAME layout-key as the first — it does not
 introduce a new layout-invalidation trigger (it is the completion of the
 existing pass once real sizes are known), so the load-bearing
 [layout-invalidation boundary](#layout-invalidation-boundary-is-load-bearing)
@@ -536,9 +535,8 @@ bezier.)*
 boxes instead of clipping them (closes the "arrows route over states"
 class d9ro2's node-measure did not). ELK also owns edge-LABEL
 PLACEMENT: `default-elk-options` sets `elk.edgeLabels.placement CENTER`
-+ `elk.spacing.edgeLabel`, `->elk-edge` feeds each edge a `:labels`
-entry (carrying the MEASURED label box — the edge-label analogue of
-d9ro2's node measure — when an edge renders its own label), and
++ `elk.spacing.edgeLabel`, `->elk-edge` feeds each edge an empty
+`:labels` entry, and
 `elk-result->positions` lifts ELK's computed position into the
 `:edge-labels` map (`{elk-edge-id {:x :y}}`, the LABEL analogue of
 `:edge-points`). The projector threads it onto the edge `:data
@@ -1118,10 +1116,11 @@ is bundle-isolated from production builds per [§Installation](#installation)).
 
 **Consumers.** Xray's inline issue surfaces
 ([Xray 016 §Issues](../../xray/spec/016-Auxiliary-Panels.md#issues--the-dedicated-tab-was-removed-rf2-gbz39-option-c))
-pick this event up via the `:rf.xray/issues-ribbon` projection and
-render it with its machine-id attribution and ELK error message — in
-the Epoch panel's exception block, the L2 event-row pink-wash, and the
-always-on issues ribbon signal; off-box monitors that
+render this event with its machine-id attribution and ELK error message
+in the Epoch panel's exception block, and wash its L2 event row pink. The
+`:rf.xray/issues-ribbon` projection renders nothing: it counts the event
+toward the always-on auto-open-on-error signal, which pops Xray open.
+Off-box monitors that
 forward `:rf.error/*` via the framework's error-emit listener (per
 [Spec 009 §What IS available in production](../../../spec/009-Instrumentation.md#what-is-available-in-production))
 see the same record under the dev-and-debug-build gate.
@@ -1166,8 +1165,12 @@ keys these bullets once named were removed; no renderer read them.)
 Every other geometry / typography knob (`stroke-width`, paddings,
 pill geometry, every `*-px` font size, the edge `arrow-width` family,
 the dot-grid `spacing-px` / `radius-px`) tracks the density axis
-monotonically: `:compact < :regular < :cosy`. The three named maps in
-`visual-constants` share the SAME key set (asserted by
+monotonically: `:compact < :regular < :cosy`. The exceptions are the
+two hairline dividers, `:state-divider-width` and
+`:container-divider-width`, which stay 1 at every density so the rule
+reads as a hairline at every scale, and `:action-caption-gap`, which is
+2 / 2 / 3 (`:compact` and `:regular` share the 2px floor). The three
+named maps in `visual-constants` share the SAME key set (asserted by
 `visual-constants-cljs-test`).
 
 ### Resolution rules
@@ -1443,8 +1446,11 @@ on the chart's hot path.
 ### Layout-invalidation boundary is load-bearing
 
 `MachineChart` keys its elkjs layout pass on the
-`[:definition :direction :layout-options :density]` tuple (per
-`chart.cljs`): a new layout runs **only** when that tuple changes, and
+`[definition elk-direction layout-options density context-rows adaptive?]`
+tuple (`chart.cljs/compute-layout-key`): `elk-direction` is the direction
+ELK is fed (`:auto` resolved per machine), `context-rows` the number of
+`:context-band` rows, and `adaptive?` whether `:direction` is `:auto`. A
+new layout runs **only** when that tuple changes, and
 the previous positions are kept in-flight to avoid an empty-chart flash.
 The **only** triggers permitted to invalidate the topology / layout
 plane are:
@@ -1452,7 +1458,7 @@ plane are:
 1. **A new `:definition`.** A changed definition map — including a
    `reg-machine` hot-reload re-registration the host re-pulls via
    the `:rf/machine` registrar projection and re-passes — re-runs layout.
-2. **A `:direction` change** (`:tb` ⇄ `:lr`).
+2. **A `:direction` change** (`:tb` ⇄ `:lr` ⇄ `:auto`).
 3. **A `:layout-options` change** — host-side elkjs `layoutOptions`
    overrides.
 4. **A `:density` change** (`:compact` ⇄ `:regular` ⇄ `:cosy`).
@@ -1464,7 +1470,11 @@ plane are:
    purely a colour swap and stays decorative. Highlight / overlay props
    likewise stay decorative; only `:density` among the visual knobs is
    load-bearing for layout.
-5. **Container resize** of the chart's bounding box (xyflow's own
+5. **A change in the number of `:context-band` rows.** The
+   root-container frame reserves the Context band's height in its
+   `elk.padding`, so a row added or removed changes the geometry ELK lays
+   out; a change to a row's value alone does not.
+6. **Container resize** of the chart's bounding box (xyflow's own
    fit/measure; the elk pass itself is keyed on the tuple above).
 
 No other code path may invalidate layout. In particular:
@@ -1484,8 +1494,7 @@ this section and DESIGN-RATIONALE Lock #9 and Lock #11.
 ### Auto-fit on async layout settle
 
 `MachineChart` MUST re-fit the xyflow viewport **once** after each
-successful elkjs layout settle whose layout-key (the
-`[:definition :direction :layout-options :density]` tuple above) differs
+successful elkjs layout settle whose layout-key (the tuple above) differs
 from the last key that was fit. xyflow's `:fitView true` prop fires only
 on the initial mount, but mount happens BEFORE the async elk pass
 resolves — every node sits at the default `{x 0 y 0}` and the
