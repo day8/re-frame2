@@ -149,48 +149,15 @@
       (when (keyword? badge) (str/upper-case (name badge)))
       "?"))
 
-(def step-numbered-circle-diameter-px
-  "21px — the numbered cascade circle's diameter (the numbered cascade
-  pattern)."
-  21)
-
 (def vertical-line-offset-px
   "13px — the vertical line starts at 13px from the
   top of the pipeline section."
   13)
 
-(def circle-left-offset-px
-  "-44px — the numbered circle's left anchor."
-  -44)
-
 (def line-left-offset-px
   "-34px — the vertical line's left anchor (between
   the circle column and the content column)."
   -34)
-
-(def fib
-  "Fibonacci spacing scale
-  (3 · 5 · 8 · 13 · 21 · 34 · 55 · 89).
-
-  Catalogued as data so view sites read keyed values rather than
-  scattered magic numbers. Pure data; JVM-portable."
-  {:f3   3
-   :f5   5
-   :f8   8
-   :f13  13
-   :f21  21
-   :f34  34
-   :f55  55
-   :f89  89})
-
-(defn fib-px
-  "Resolve a fibonacci-key to a CSS px string (e.g. `:f13` →
-  `\"13px\"`). Returns `\"0\"` for unknown keys so the view never
-  paints `nil`."
-  [k]
-  (if-let [n (get fib k)]
-    (str n "px")
-    "0"))
 
 ;; ---- Machine-cascade row badges -----------------------------------------
 ;;
@@ -289,42 +256,7 @@
       (when (keyword? kind) (str/upper-case (name kind)))
       "?"))
 
-(def cascade-kind-set
-  "Closed set of cascade row kinds the view paints chrome for.
-  New kinds extend the projection's
-  `machine-cascade-trace-ops` AND this set in lockstep.
-  `:start` is the machine's birth `[START]` badge; `:microstep` is a
-  parent-owned parallel `:always` round's regional transition, the
-  `[ALWAYS]` badge."
-  #{:guard :action :transition :microstep :timer :no-op :start})
-
-(defn cascade-kind?
-  "Predicate — `kind` keyword is a member of `cascade-kind-set`."
-  [kind]
-  (contains? cascade-kind-set kind))
-
 ;; ---- Action-phase chips (closed set) ------------------------------------
-
-(def ^:private cascade-phase->label
-  "Map from machine-cascade `:action` row's `:phase` keyword →
-  short label rendered in the per-row phase chip.
-  A closed set."
-  {:exit            "exit"
-   :transition      "transition"
-   :entry           "entry"
-   :always          "always"
-   :after-action    "after-action"
-   :initial-entry   "initial-entry"
-   :destroy-exit    "destroy-exit"})
-
-(defn cascade-phase-label
-  "Short label string for a cascade `:action` row's `:phase`.
-  Pure-data; the view reads off this table for the
-  per-row phase chip."
-  [phase]
-  (or (get cascade-phase->label phase)
-      (when (keyword? phase) (name phase))
-      ""))
 
 (def cascade-phase-set
   "Closed set of phases the substrate stamps on `:rf.machine/action-ran`

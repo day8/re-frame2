@@ -17,9 +17,9 @@
 
     - `proj/machine-cascade-rows`        — the Epoch panel's per-epoch machine
       cascade (the exit/action/entry/no-op/timer rows; canonical sort).
-    - the structured `:cascade` off the transition row (`proj/cascade-regions`
-      / `cascade-microsteps` / `cascade-step-count`) — the LCA + microstep
-      walk.
+    - the structured `:cascade` the `:rf.machine/transition` trace carries
+      — the LCA + microstep walk, read through this file's own
+      `cascade-regions` / `cascade-microsteps` order oracles.
     - `diff/project` — the snapshot diff (member-level set diff for `:tags`).
 
   EACH rung asserts THREE layers:
@@ -93,8 +93,33 @@
 
 (defn- cascade [record] (proj/machine-cascade-rows (:trace-events record)))
 (defn- rows-of-kind [rows kind] (filterv #(= kind (:kind %)) rows))
-(defn- structured-of [record]
-  (-> (cascade record) (rows-of-kind :transition) first :cascade))
+(defn- structured-of
+  "The structured `:cascade` step vector the macrostep's
+  `:rf.machine/transition` trace carries (Spec 005 §The structured
+  transition cascade): exit / action / entry / microstep steps in
+  EXECUTION order."
+  [record]
+  (some #(when (= :rf.machine/transition (:operation %))
+           (get-in % [:tags :cascade]))
+        (:trace-events record)))
+
+(defn- cascade-regions
+  "Group a structured cascade's `:exit` / `:action` / `:entry` steps by
+  `:region` in FIRST-ENCOUNTER order — `[{:region r :steps [...]} ...]`,
+  one `nil` group for a flat / compound machine."
+  [cascade]
+  (let [steps  (filterv #(contains? #{:exit :action :entry} (:kind %)) cascade)
+        order  (distinct (map :region steps))
+        groups (group-by :region steps)]
+    (mapv (fn [r] {:region r :steps (get groups r)}) order)))
+
+(defn- cascade-microsteps
+  "A structured cascade's `:microstep` steps, ordered by `:microstep-index`."
+  [cascade]
+  (->> cascade
+       (filterv #(= :microstep (:kind %)))
+       (sort-by #(or (:microstep-index %) 0))
+       vec))
 
 ;; The structured `:cascade` is the order-oracle: each step carries
 ;; `:kind` (`:exit` / `:action` / `:entry`), `:state`, `:region`, `:action`
@@ -103,7 +128,7 @@
 ;; structural steps of one `:region` (nil for flat/compound) so a test can
 ;; assert the cascade ORDER directly off the Xray-surface projection.
 (defn- region-steps [record region]
-  (->> (proj/cascade-regions (structured-of record))
+  (->> (cascade-regions (structured-of record))
        (some #(when (= region (:region %)) (:steps %)))
        vec))
 
@@ -387,7 +412,7 @@
           rows       (cascade record)
           tx         (first (rows-of-kind rows :transition))
           structured (structured-of record)
-          microsteps (proj/cascade-microsteps structured)
+          microsteps (cascade-microsteps structured)
           microstep  (first microsteps)]
       ;; (a) the macrostep settled over at least one eventless microstep.
       (is (and (number? (:microsteps tx)) (pos? (:microsteps tx)))
