@@ -1543,13 +1543,15 @@
         ;; (`:fx-overrides`, `:interceptor-overrides`, `:trace-id`,
         ;; `:origin`, the per-call mint policy) ride into the newborn, so a
         ;; per-call override reaches every fx the child fires. `:source` is
-        ;; re-stamped, never inherited. `:rf.machine/internal?` is dropped so
-        ;; the newborn's first event keeps its FIFO place — the spawn is
-        ;; not a front-of-queue macrostep continuation. A nil envelope (a
-        ;; direct caller) falls back to `{:frame frame-id}`.
+        ;; re-stamped, never inherited. The spawn runs inside the spawning
+        ;; event, so the newborn's first event joins the frame's internal
+        ;; lane in FIFO order: it runs after the siblings its family queued
+        ;; earlier and before any external event (Spec 002
+        ;; §Run-to-completion). A nil envelope (a direct caller) falls back
+        ;; to `{:frame frame-id}`.
         (let [start (:start args)]
           (rf.fx/child-dispatch! frame-id
-                                 (some-> envelope (dissoc :rf.machine/internal?))
+                                 envelope
                                  [spawned-id (if (some? start) start [:rf.machine.spawn/spawned])]
                                  {:source :machine-spawn}))))))))
     spawned-id))

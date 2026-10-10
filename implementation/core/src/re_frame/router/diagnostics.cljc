@@ -125,14 +125,14 @@
                             supplies `:explicit-live`. Absent ⇒ the frame
                             config's policy, else the router's `:live` default
     :rf.trace/call-site     macro-stamped invocation coord (dev-only)
-    :rf.machine/internal?   machine-internal continuation flag (front-queue)
     :rf.flow/settle?        Spec 013 §Sequencing — marks the ONE
                             framework-private `[:rf/settle-flows]` child a
                             completed `:fx` walk dispatches when it registered
                             or cleared a flow (`fx/settle-flows-if-requested!`).
-                            `insert-envelope` reads it to head-insert the
-                            settle ahead of the continuations that same handler
-                            queued. INTERNAL — not an app-facing opt, and not a
+                            `insert-envelope` reads it to put the settle at the
+                            head of the internal lane, ahead of the
+                            continuations that same handler queued. INTERNAL —
+                            not an app-facing opt, and not a
                             general priority lever
     :step-index             frame-construction setup-step index, stamped by
                             `frame.cljc`'s `run-setup-events!` onto each
@@ -150,7 +150,7 @@
                             `:rf.frame/` namespace) — not an app-facing opt."
   #{:frame :fx-overrides :interceptor-overrides :trace-id :source
     :source-detail :origin :rf.cofx :rf.cofx/mint-policy :rf.trace/call-site
-    :rf.machine/internal? :rf.flow/settle? :step-index
+    :rf.flow/settle? :step-index
     :rf.frame/expected-incarnation})
 
 (def ^:const retired-draft-opt-hints

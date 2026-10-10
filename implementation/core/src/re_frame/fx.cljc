@@ -646,16 +646,10 @@
   routing artefact's nav-token wrapper, or test fixtures), falls back to
   `{:frame frame-id}` so single-key propagation holds.
 
-  Per Spec 005 §Level 4: when the parent envelope is tagged
-  `:rf.machine/internal? true` (the router stamps it in
-  `run-handler-pipeline!` whenever the emitting handler is a machine),
-  the child is a machine-internal continuation event and inherits the
-  flag. `re-frame.router/dispatch!` reads it to insert the child at the
-  FRONT of the queue so the machine settles its macrostep to quiescence
-  before the next external event. Unlike the trace-only inheritable
-  keys, this is a runtime ordering flag — carried unconditionally here.
-  `child-dispatch!` drops it again for a DELAYED (`:ms`) child: a timer
-  callback fires after the macrostep ended and joins the back of the queue.
+  Nothing here decides the child's queue position: the router places it by
+  where the dispatch is made (Spec 002 §Run-to-completion), so an immediate
+  child — made inside the in-flight event — joins the internal lane and a
+  delayed child, dispatched later by its timer, joins the external lane.
 
   Cascade exclusion: the inherited `:fx-overrides` is
   filtered against `non-overridable-source-fx-ids` so a reject-tier reserved-fx
@@ -671,7 +665,6 @@
   [frame-id parent-envelope]
   (if parent-envelope
     (cond-> (select-keys parent-envelope inheritable-envelope-keys)
-      (:rf.machine/internal? parent-envelope)  (assoc :rf.machine/internal? true)
       ;; Cascade exclusion: never inherit a non-overridable-source
       ;; reserved-fx override into a child dispatch. No-op (identity, no churn)
       ;; when the inherited `:fx-overrides` carries no such key — the dominant path.
@@ -687,10 +680,8 @@
   second effect:
 
     - parent-envelope inheritance (`child-dispatch-opts`): `:fx-overrides`,
-      `:interceptor-overrides`, `:trace-id`, `:origin`, the per-call
-      `:rf.cofx/mint-policy` strict/replay discipline, and the
-      `:rf.machine/internal?` front-of-queue ordering flag (IMMEDIATE children
-      only — a delayed child drops it) — per Spec 002
+      `:interceptor-overrides`, `:trace-id`, `:origin`, and the per-call
+      `:rf.cofx/mint-policy` strict/replay discipline — per Spec 002
       §Cascade propagation + EP-0017 §6;
     - the frame-owned `:dispatch-later` timer table (`arm-dispatch-later!`),
       cancelled on frame destroy (`release-frame!`) — so a delayed child never
@@ -714,8 +705,9 @@
                    `{:ms n}` for the delayed path).
     :rf.flow/settle?
                    optional; `true` marks the child as the framework-private
-                   flow settle, which the router head-inserts ahead of the
-                   continuations the same handler queued (Spec 013
+                   flow settle, which the router puts at the head of the
+                   internal lane, ahead of the continuations the same
+                   handler queued (Spec 013
                    §Sequencing). Set by `settle-flows-if-requested!` and by
                    nothing else — it is not a general priority lever.
     :rf.cofx       optional recordable causal-envelope coeffect map merged
@@ -734,12 +726,11 @@
                (some? rf-cofx)       (assoc :rf.cofx rf-cofx)
                (true? flow-settle?)  (assoc :rf.flow/settle? true))]
     (if (number? ms)
-      ;; A delayed child is a TIMER callback, not a macrostep
-      ;; continuation: by the time it fires the emitting machine's macrostep
-      ;; is long over. So it drops `:rf.machine/internal?` and joins the BACK
-      ;; of the queue like any timer event (Spec 005 Level 4, Spec 002
-      ;; `do-fx :dispatch-later`). `:source` / `:source-detail` are kept.
-      (arm-dispatch-later! frame-id ms event (dissoc opts :rf.machine/internal?))
+      ;; A delayed child is a TIMER callback: its timer dispatches it after
+      ;; the emitting event returned, so it joins the external lane like any
+      ;; timer event, even at 0 ms (Spec 002 `do-fx :dispatch-later`).
+      ;; `:source` / `:source-detail` are kept.
+      (arm-dispatch-later! frame-id ms event opts)
       ;; Sticky hook — `:router/dispatch!` is published once at
       ;; re-frame.router load and never withdrawn.
       (when-let [f (rf.late-bind/get-fn-cached :router/dispatch!)]
@@ -836,14 +827,14 @@
   queued it, and `:source` is a CLOSED enum (Spec 002 §Routing) — a new member
   would be a Spec 002 change this does not need.
 
-  HEAD of the queue, not back — it carries `:rf.flow/settle? true`, which
-  `router/insert-envelope` reads to place it ahead of everything already
-  queued. Run-to-completion drains the whole queue before the originating
-  dispatch returns either way, so both placements satisfy the settle BOUNDARY
-  Spec 013 §Sequencing states; what the back placement does not satisfy is
-  composition with ordinary follow-up work. A `:dispatch` effect from the same
-  handler is appended DURING the walk, so a back-inserted settle sits behind it
-  in FIFO order: the continuation then runs against the pre-registration /
+  HEAD of the internal lane, not its back — it carries `:rf.flow/settle? true`,
+  which `router/insert-envelope` reads to place it ahead of everything the
+  lane holds. Run-to-completion settles the whole family before the
+  originating dispatch returns either way, so both placements satisfy the
+  settle BOUNDARY Spec 013 §Sequencing states; what the back placement does
+  not satisfy is composition with ordinary follow-up work. A `:dispatch`
+  effect from the same handler is appended DURING the walk, so a back-inserted
+  settle sits behind it in FIFO order: the continuation then runs against the pre-registration /
   pre-clear `app-db`, cannot read a newly registered flow's output, reads a
   cleared flow's stale one, and can persist that wrong decision into `app-db`
   where the later settle — which repairs only the derived slot — will not undo
@@ -854,8 +845,7 @@
   settle is needed to cover the whole cascade.
 
   At most one settle per walk, enqueued here at the very end of it, so a plain
-  head-push has no siblings to reverse (unlike the machine-internal splice,
-  which is called once per sibling and therefore preserves a boundary).
+  head-push has no siblings to reverse.
 
   The event id is written here as a LITERAL rather than read from
   `re-frame.events/settle-flows-event-id`, which defines it: `re-frame.events`
@@ -888,29 +878,26 @@
   `:trace-id`, `:origin`, the per-call `:rf.cofx/mint-policy`) onto the child
   dispatch — per Spec 002 §Cascade propagation."
   {:dispatch
-   ;; Append to back of the frame's router queue. Per Spec 002
-   ;; §Cascade propagation, the child envelope inherits the parent's
-   ;; `:fx-overrides` / `:interceptor-overrides` / `:trace-id` /
-   ;; `:origin`. `:source` is set to
-   ;; `:fx-dispatch` — the child's immediate trigger is "the
-   ;; `:dispatch` fx executed", not whatever woke the originating
-   ;; user event.
+   ;; Append to the back of the frame's internal lane — the `:fx` walk runs
+   ;; inside the in-flight event, so the child is part of its family (Spec
+   ;; 002 §Run-to-completion). Per Spec 002 §Cascade propagation, the child
+   ;; envelope inherits the parent's `:fx-overrides` /
+   ;; `:interceptor-overrides` / `:trace-id` / `:origin`. `:source` is set
+   ;; to `:fx-dispatch` — the child's immediate trigger is "the `:dispatch`
+   ;; fx executed", not whatever woke the originating user event.
    ;;
-   ;; When the emitting handler IS a machine
-   ;; (`:rf.machine/internal? true` on the parent envelope), the
-   ;; child dispatch is an *actor message* — one machine emitting a
-   ;; dispatch into the actor system. The substrate stamps
-   ;; `:source :machine-action` for that path so the Epoch panel and
-   ;; trace filters can distinguish machine-emitted continuations from
-   ;; plain `:dispatch` fx cascades. The `:rf.machine/internal? true`
-   ;; flag also rides on the envelope (via `child-dispatch-opts`) so
-   ;; the router can front-of-queue insert per Spec 005 §Level 4.
+   ;; When the emitting handler IS a machine (the router marks the envelope
+   ;; it hands `do-fx` with `::machine-emitter?`), the child dispatch is an
+   ;; *actor message* — one machine emitting a dispatch into the actor
+   ;; system. The substrate stamps `:source :machine-action` for that path
+   ;; so the Epoch panel and trace filters can distinguish machine-emitted
+   ;; continuations from plain `:dispatch` fx cascades. The mark is trace
+   ;; provenance only: it is not inherited and does not move the child.
    ;; Routes through the shared `child-dispatch!` seam, so
-   ;; envelope inheritance / ordering / timer semantics live in one place.
-   ;; The immediate (no-`:ms`) path enqueues to the router queue.
+   ;; envelope inheritance / timer semantics live in one place.
    (fn [frame-id parent-envelope args]
      (child-dispatch! frame-id parent-envelope args
-                      {:source (if (:rf.machine/internal? parent-envelope)
+                      {:source (if (::machine-emitter? parent-envelope)
                                  :machine-action
                                  :fx-dispatch)}))
 
@@ -932,12 +919,11 @@
    ;;
    ;; Machine-emitted `:dispatch-later` is an *actor
    ;; message* scheduled with a delay — stamp `:source :machine-action`
-   ;; (carrying the same `:source-detail {:ms <ms>}`) when the parent
-   ;; envelope is machine-internal, matching the `:dispatch` fx
-   ;; handler's machine-action discriminator above. Unlike `:dispatch`,
-   ;; the delayed child does NOT keep `:rf.machine/internal?`:
-   ;; `child-dispatch!` drops it, so the event joins the BACK of the queue
-   ;; when the timer fires, like every timer callback.
+   ;; (carrying the same `:source-detail {:ms <ms>}`) when the emitting
+   ;; handler is a machine, matching the `:dispatch` fx handler's
+   ;; machine-action discriminator above. The timer dispatches the event
+   ;; after the emitting event returned, so it joins the external lane like
+   ;; every timer callback.
    ;;
    ;; The armed host handle is RETAINED in the
    ;; `dispatch-later-timers` side table (keyed by frame) so
@@ -965,7 +951,7 @@
               ". The event was not queued. Pass `{:ms <n> :event <event-vec>}`.")
          {:extra {:ms ms}}))
      (child-dispatch! frame-id parent-envelope event
-                      {:source        (if (:rf.machine/internal? parent-envelope)
+                      {:source        (if (::machine-emitter? parent-envelope)
                                         :machine-action
                                         :fx-dispatch-later)
                        :ms            ms

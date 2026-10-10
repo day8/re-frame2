@@ -1,0 +1,118 @@
+;; Conformance fixture: machine/dispatch-internal-lane
+;;
+;; Spec 002 §Run-to-completion and Spec 005 §Level 4 — every event an event
+;; dispatches while it runs joins the frame's INTERNAL lane, whatever kind of
+;; handler dispatched it, and the drain empties that lane before it takes the
+;; next EXTERNAL event. Both lanes are FIFO. So machine origin buys no
+;; priority, and an event's family — its descendants, transitively —
+;; settles before external input queued behind it.
+;;
+;; PART 1 — ORIGIN INDEPENDENCE (two `dispatch-sync` entries). Each seed
+;; queues two siblings into its own internal lane: first an event that will
+;; dispatch a child, then a marker. The child joins the lane BEHIND the
+;; marker, so the marker runs first — identically when the emitter is a
+;; MACHINE (:m emits :log-c) and when it is a PLAIN relay (:relay emits
+;; :log-c2). [:d :c] then [:d2 :c2]. A port that front-inserts machine
+;; children lands [:c :d] — the origin flag this fixture exists to refuse.
+;;
+;; PART 2 — EXTERNAL INPUT WAITS FOR THE FAMILY (one `{:queue …}` harness
+;; entry: three ordinary dispatches queued while the drain is held, then one
+;; drain). :m2 (a machine) and :relay-x (plain) are each the root of their
+;; own family, and :log-e is external input queued last. Each root's child
+;; runs before the next external event: [:g :f :e]. A single-FIFO port lands
+;; [:e :g :f] (both children queue behind :log-e); a machine-priority port
+;; lands [:g :e :f] (the plain relay's child still goes to the back).
+;;
+;; Per [002 §Run-to-completion](../../002-Frames.md#run-to-completion-dispatch-drain-semantics)
+;; and [005 §Level 4](../../005-StateMachines.md#level-4--across-the-runtime).
+
+{:fixture/id           :machine/dispatch-internal-lane
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :core/event-handler :core/fx :core/trace :core/frame}
+ :fixture/doc          "Spec 002 §Run-to-completion / Spec 005 §Level 4: a dispatch made inside an in-flight event joins the frame's internal lane in FIFO order whatever the emitting handler's kind, and the drain empties that lane before the next external event. Part 1: a machine's child and a plain relay's child both queue behind the marker their seed queued first ([:d :c] and [:d2 :c2]). Part 2: with three external events queued behind a held drain, each family settles before the next external event ([:g :f :e])."
+
+ :fixture/registry
+ {:event {:foq/initialise   {:doc "Seed [:log] with []."}
+          :foq/seed-machine {:doc "Plain handler: queues [:m [:go]] then the marker [:log-d]."}
+          :foq/seed-plain   {:doc "Plain handler: queues [:relay] then the marker [:log-d2]."}
+          :foq/relay        {:doc "Plain handler: emits :log-c2."}
+          :foq/relay-x      {:doc "Plain handler, an external family root: emits :log-f."}
+          :foq/log-c        {:doc "Appends :c to [:log]."}
+          :foq/log-d        {:doc "Appends :d to [:log]."}
+          :foq/log-c2       {:doc "Appends :c2 to [:log]."}
+          :foq/log-d2       {:doc "Appends :d2 to [:log]."}
+          :foq/log-e        {:doc "External marker: appends :e to [:log]."}
+          :foq/log-f        {:doc "Appends :f to [:log]."}
+          :foq/log-g        {:doc "Appends :g to [:log]."}}
+  :sub   {:log {:doc "The append-only ordering log."}}
+  ;; The runner merges the realised :machine-action bodies into each spec's
+  ;; :actions slot, so :actions is left absent here.
+  :machine
+  {:foq/m  {:initial :idle
+            :data    {}
+            :states  {:idle {:on {:go {:target :done :action :emit-c}}}
+                      :done {}}}
+   :foq/m2 {:initial :idle
+            :data    {}
+            :states  {:idle {:on {:go {:target :done :action :emit-g}}}
+                      :done {}}}}
+  :fx    {}}
+
+ :fixture/handlers
+ {:event
+  {:foq/initialise [[:set [:log] []]]
+   :foq/seed-machine
+   [[:fx :dispatch [:foq/m [:go]]]
+    [:fx :dispatch [:foq/log-d]]]
+   :foq/seed-plain
+   [[:fx :dispatch [:foq/relay]]
+    [:fx :dispatch [:foq/log-d2]]]
+   :foq/relay   [[:fx :dispatch [:foq/log-c2]]]
+   :foq/relay-x [[:fx :dispatch [:foq/log-f]]]
+   :foq/log-c  [[:update [:log] [:fn :conj] :c]]
+   :foq/log-d  [[:update [:log] [:fn :conj] :d]]
+   :foq/log-c2 [[:update [:log] [:fn :conj] :c2]]
+   :foq/log-d2 [[:update [:log] [:fn :conj] :d2]]
+   :foq/log-e  [[:update [:log] [:fn :conj] :e]]
+   :foq/log-f  [[:update [:log] [:fn :conj] :f]]
+   :foq/log-g  [[:update [:log] [:fn :conj] :g]]}
+  :sub {:log [[:get [:log]]]}
+  ;; Each machine action writes nothing to its snapshot; its job is to emit
+  ;; the child dispatch whose lane position the fixture pins.
+  :machine-action
+  {:emit-c [[:fx :dispatch [:foq/log-c]]]
+   :emit-g [[:fx :dispatch [:foq/log-g]]]}}
+
+ :fixture/frame-config
+ {:initial-events [[:foq/initialise]]}
+
+ :fixture/dispatches
+ [[:foq/seed-machine]
+  [:foq/seed-plain]
+  {:queue [[:foq/m2 [:go]] [:foq/relay-x] [:foq/log-e]]}]
+
+ :fixture/expect
+ {:final-app-db {:log [:d :c :d2 :c2 :g :f :e]}
+
+  :sub-values   {[:log] [:d :c :d2 :c2 :g :f :e]}
+
+  :trace-emissions
+  [{:operation :rf.event/run-start :op-type :rf.event :tags {:rf.trace/event-id :foq/initialise}}
+   ;; --- part 1, machine emitter: the child queues behind the marker ---
+   {:operation :rf.event/run-start :op-type :rf.event :tags {:rf.trace/event-id :foq/seed-machine}}
+   {:operation :rf.event/run-start :op-type :rf.event :tags {:rf.trace/event-id :foq/m}}
+   {:operation :rf.event/run-start :op-type :rf.event :tags {:rf.trace/event-id :foq/log-d}}
+   {:operation :rf.event/run-start :op-type :rf.event :tags {:rf.trace/event-id :foq/log-c}}
+   ;; --- part 1, plain emitter: the same order ---
+   {:operation :rf.event/run-start :op-type :rf.event :tags {:rf.trace/event-id :foq/seed-plain}}
+   {:operation :rf.event/run-start :op-type :rf.event :tags {:rf.trace/event-id :foq/relay}}
+   {:operation :rf.event/run-start :op-type :rf.event :tags {:rf.trace/event-id :foq/log-d2}}
+   {:operation :rf.event/run-start :op-type :rf.event :tags {:rf.trace/event-id :foq/log-c2}}
+   ;; --- part 2: each family settles before the next external event ---
+   {:operation :rf.event/run-start :op-type :rf.event :tags {:rf.trace/event-id :foq/m2}}
+   {:operation :rf.event/run-start :op-type :rf.event :tags {:rf.trace/event-id :foq/log-g}}
+   {:operation :rf.event/run-start :op-type :rf.event :tags {:rf.trace/event-id :foq/relay-x}}
+   {:operation :rf.event/run-start :op-type :rf.event :tags {:rf.trace/event-id :foq/log-f}}
+   {:operation :rf.event/run-start :op-type :rf.event :tags {:rf.trace/event-id :foq/log-e}}]
+
+  :effects-routed []}}

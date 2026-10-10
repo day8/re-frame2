@@ -1511,6 +1511,19 @@
       (contains? ev :destroy-frame)
       (rf/destroy-frame! (:destroy-frame ev))
 
+      ;; `{:queue [<event-vec> …]}` — queue each event with the ordinary
+      ;; async `dispatch` while the scheduler records the drain instead of
+      ;; running it, then run that drain once. Every event after the first
+      ;; is external input waiting behind a running family, which no
+      ;; `dispatch-sync` entry can produce (Spec 002 §Run-to-completion).
+      (contains? ev :queue)
+      (let [drains (atom [])]
+        (with-redefs [rf.interop/next-tick (fn [f] (swap! drains conj f) nil)]
+          (doseq [event (:queue ev)]
+            (rf/dispatch event)))
+        (doseq [drain @drains]
+          (drain)))
+
       ;; Harness re-registration `{:reg-sub <sub-id> :body <body>}`
       ;; (Cross-Spec Interaction §18). The realised sub's
       ;; :kind MUST drive the registration form.

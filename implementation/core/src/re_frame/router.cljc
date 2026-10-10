@@ -1,17 +1,19 @@
 (ns re-frame.router
-  "Per-frame FIFO router and the drain loop. Per Spec 002 §Run-to-completion
+  "Per-frame two-lane router and the drain loop. Per Spec 002 §Run-to-completion
   dispatch (drain semantics) and §Drain-loop pseudocode.
 
-  The router maintains a per-frame FIFO queue. Dispatch appends to the
-  back; the drain loop dequeues, runs the handler, applies effects, and
-  loops until the queue empties or a terminal depth/destroy boundary halts it.
-  Run-to-completion is locked: every event
-  dispatched synchronously during a drain normally settles to fixed point
-  before any further external event is processed for that frame, and before
-  any view re-renders. A depth halt or successful exact-incarnation destroy
-  claim is terminal: an authored callback already on the stack may return and
-  entered authored interceptor afters may unwind, but its returned framework
-  tail is inert; no later ordinary event or intermediate render begins."
+  The router keeps two FIFO lanes per frame: an INTERNAL lane for dispatches
+  made synchronously inside the frame's in-flight event, and an EXTERNAL lane
+  (`:queue`) for everything else. The drain loop dequeues — internal lane
+  first — runs the handler, applies effects, and loops until both lanes are
+  empty or a destroy boundary halts it. Run-to-completion is locked: every
+  event dispatched synchronously during an event's processing settles to
+  fixed point before any further external event is processed for that frame,
+  and before any view re-renders. A depth halt discards only the runaway
+  family's internal work. A successful exact-incarnation destroy claim is
+  terminal: an authored callback already on the stack may return and entered
+  authored interceptor afters may unwind, but its returned framework tail is
+  inert; no later ordinary event or intermediate render begins."
   (:require [re-frame.frame :as rf.frame]
             [re-frame.elision :as rf.elision]
             [re-frame.live-frame :as rf.live-frame]
@@ -349,30 +351,14 @@
                                          :event-id (first event)})))
                                 (catch #?(:clj Throwable :cljs :default) e
                                   (when (rf.trace/continuation-live?) (throw e)))))
-        ;; Per Spec 005 §Level 4: a dispatch emitted from a
-        ;; machine's own processing (its `:action` / `:entry` / `:exit` /
-        ;; transition handling, via `:fx [[:dispatch …]]` or an inter-
-        ;; machine dispatch) is a machine-internal continuation. The
-        ;; `:dispatch` fx body stamps
-        ;; `:rf.machine/internal? true` on the child opts when the
-        ;; emitting handler is a machine (see `child-dispatch-opts` in
-        ;; re-frame.fx, which copies the flag off the machine-tagged
-        ;; parent envelope). A `:dispatch-later` child does not keep it:
-        ;; it is a timer callback and goes to the back.
-        ;; `dispatch!` reads it to insert the envelope
-        ;; at the FRONT of the queue so the macrostep settles to
-        ;; quiescence before the next EXTERNAL event. This is a runtime
-        ;; ordering guarantee — NOT a trace concern — so the flag is
-        ;; carried unconditionally (never gated on rf.interop/debug-enabled?).
-        machine-internal?  (true? (:rf.machine/internal? opts))
         ;; Spec 013 §Sequencing: the framework-private flow settle, stamped by
         ;; `rf.fx/settle-flows-if-requested!` on the ONE child dispatch a completed
         ;; `:fx` walk makes when it registered or cleared a flow. `insert-envelope`
-        ;; reads it to place the settle at the HEAD of the queue, ahead of the
-        ;; continuations that same handler queued — so those continuations read
-        ;; the settled `app-db` rather than the pre-registration / pre-clear one.
-        ;; A runtime ordering guarantee like `:rf.machine/internal?`, so carried
-        ;; on the same terms: unconditionally, never gated on debug-enabled?.
+        ;; reads it to place the settle at the HEAD of the internal lane, ahead of
+        ;; the continuations that same handler queued — so those continuations
+        ;; read the settled `app-db` rather than the pre-registration / pre-clear
+        ;; one. A runtime ordering guarantee, not a trace concern, so it is
+        ;; carried unconditionally (never gated on debug-enabled?).
         flow-settle?       (true? (:rf.flow/settle? opts))
         ;; EP-0017 §6: the per-call cofx MINT POLICY
         ;; — the most-specific binding point. A Tool-Pair replay supplies
@@ -401,7 +387,7 @@
         ;; capture (its `:drain-lock`), threaded by
         ;; `re-frame.core/capture-dispatch!`. A CORRECTNESS lever (it gates
         ;; whether the enqueue may target the resolved incarnation), so it rides
-        ;; the envelope unconditionally when present — like `:rf.machine/internal?`
+        ;; the envelope unconditionally when present — like `:rf.flow/settle?`
         ;; — never a debug diagnostic. nil for every ordinary / address-directed
         ;; dispatch; the key is then omitted so the hot path stays lean.
         expected-incarnation (:rf.frame/expected-incarnation opts)]
@@ -451,9 +437,6 @@
       call-site          (assoc :call-site         call-site)
       dispatch-id        (assoc :dispatch-id        dispatch-id)
       parent-dispatch-id (assoc :parent-dispatch-id parent-dispatch-id)
-      ;; Carry the machine-internal continuation flag onto
-      ;; the envelope so `dispatch!` can front-of-queue insert it.
-      machine-internal?  (assoc :rf.machine/internal? true)
       ;; Spec 013 §Sequencing: carry the flow-settle ordering flag onto the
       ;; envelope so `insert-envelope` can head-insert it.
       flow-settle?       (assoc :rf.flow/settle? true)
@@ -2991,34 +2974,17 @@
       (let [{:keys [full-chain initial-ctx fx-overrides emit-event
                 schema-sensitive? override-summary]}
         (prepare-handler-ctx envelope frame frame-record handler-meta)
-        ;; Per Spec 005 §Level 4: tag the in-flight envelope
-        ;; as machine-originated when THIS handler is a machine (its
-        ;; registration meta carries `:rf/machine? true`, stamped by
-        ;; re-frame.machines `reg-machine*`). The tagged envelope is the
-        ;; `parent-envelope` threaded into `do-fx`; `child-dispatch-opts`
-        ;; (re-frame.fx) copies the flag onto every IMMEDIATE `:dispatch`
-        ;; child emitted during this handler's fx walk, so those
-        ;; continuation events front-of-queue insert (see
-        ;; `enqueue-envelope!`). A `:dispatch-later` child drops it — a
-        ;; timer callback fires after the macrostep and goes to the back.
-        ;; The cut is the dispatch's ORIGIN — an
-        ;; event that merely TARGETS a machine but originates elsewhere
-        ;; carries no flag and stays FIFO. `:raise` is untouched: it
-        ;; never reaches the router queue (it drains in-memory inside the
-        ;; machine handler invocation, pre-commit).
-        ;;
-        ;; A plain handler CLEARS the flag: the event it is running may
-        ;; itself be a front-of-queue continuation, but its own `:fx`
-        ;; children originate in a non-machine handler, so they join the
-        ;; back of the queue like any other plain handler's.
-        envelope   (cond
+        ;; Mark the envelope handed to `do-fx` when THIS handler is a machine
+        ;; (its registration meta carries `:rf/machine? true`, stamped by
+        ;; re-frame.machines `reg-machine*`), so the `:dispatch` /
+        ;; `:dispatch-later` bodies stamp `:source :machine-action` on its
+        ;; children (Spec 009 §`:source`). Trace provenance only: the mark is
+        ;; never copied onto a child and `insert-envelope` never reads it — a
+        ;; child's lane follows from where it is dispatched, whatever the
+        ;; handler kind (Spec 002 §Run-to-completion).
+        envelope   (cond-> envelope
                      (:rf/machine? handler-meta)
-                     (assoc envelope :rf.machine/internal? true)
-
-                     (:rf.machine/internal? envelope)
-                     (dissoc envelope :rf.machine/internal?)
-
-                     :else envelope)
+                     (assoc ::rf.fx/machine-emitter? true))
         ;; The classification-derived `:rf/sensitive?` key (from
         ;; `:schema-sensitive?`) drives the scope's `:sensitive?`
         ;; trace-event stamp (read by `handler-scope-from-meta`).
@@ -3309,35 +3275,40 @@
                   (process-event* envelope active-record))))))))))))
 
 (def ^:private drain-depth-default
-  ;; Deep enough for typical cascade depths. When exceeded, the runtime
-  ;; halts the next (unstarted) event per Spec 002 §Run-to-completion rule
-  ;; 3 — already-settled events stay durable; the halting event gets a
-  ;; trailing `:halted-depth` epoch record (no whole-drain rollback under
-  ;; the per-event epoch model).
-  100)
+  ;; The most events one FAMILY may dequeue — an external event (or a
+  ;; `dispatch-sync` seed) plus everything it dispatches, transitively, into
+  ;; the internal lane. Sized for fan-out volume, so a handler that queues a
+  ;; few hundred independent children settles, while a runaway cycle still
+  ;; halts quickly. When exceeded, the runtime refuses the family's next
+  ;; event per Spec 002 §Run-to-completion rule 3 — already-settled events
+  ;; stay durable, the halting event gets a trailing `:halted-depth` epoch
+  ;; record, and external input still queued runs under a fresh budget.
+  1000)
 
 (def ^:private cycle-evidence-depth
-  ;; The bound on the per-drain settled-event-id ring the
+  ;; The bound on the per-family settled-event-id ring the
   ;; depth-halt path attaches as CYCLE EVIDENCE (`:tail-event-ids`) on the
-  ;; always-on `:rf.error/drain-depth-exceeded` record. A runaway drain is
+  ;; always-on `:rf.error/drain-depth-exceeded` record. A runaway family is
   ;; almost always a small dispatch cycle repeating (A → B → A → …), so the
   ;; last K settled ids ARE the cycle — the repeating suffix names it. K is
-  ;; small (the ring is allocated per drain that overflows, and it only ever
-  ;; needs to be long enough to show the repeat) and carries STRUCTURAL ids
+  ;; small (the ring only ever needs to be long enough to show the repeat)
+  ;; and carries STRUCTURAL ids
   ;; only (the event-id keyword, never the event args), so it survives the
   ;; always-on egress-redaction posture (Spec 009 §The promotion criterion —
   ;; structured data only).
   16)
 
 (defn- handle-depth-exceeded!
-  "Tail-path for the depth-limit branch of `drain!`. Per Spec 002
-  §Drain versus event — the epoch unit: the epoch boundary is the
-  dequeued EVENT, so the events that already ran in this drain each
+  "Tail-path for the depth-limit branch of `drain!`. The budget is per
+  FAMILY (Spec 002 §Run-to-completion rule 3): the family's next event —
+  the halting event, at the head of the INTERNAL lane — never runs, and the
+  rest of the internal lane is discarded with it. The external lane is
+  untouched, so the drain continues with the next external event under a
+  fresh budget. Per Spec 002 §Drain versus event — the epoch unit: the
+  epoch boundary is the dequeued EVENT, so the events that already ran each
   settled their own DURABLE `:ok` epoch (and their own db write) as they
-  completed — there is no whole-drain rollback under per-event epochs.
-  The depth limit stops processing the NEXT event (the halting event,
-  still at the head of the queue); the work that already ran is a
-  sequence of complete, individually-atomic events.
+  completed — there is no rollback; a family is an ordering unit, not a
+  transaction.
 
   Per Spec-Schemas §`:rf/epoch-record` §Outcomes: commit a `:halted-depth`
   epoch record so devtools (Xray, re-frame2-pair) get a clear 'drain
@@ -3375,12 +3346,12 @@
   no later listener, frame route, trace, queue trailer, or halt commit targets B,
   while evidence already delivered before the loss stands exactly once."
   [frame-id owner-token router depth last-event tail-event-ids]
-  (let [{:keys [queue]} @router
+  (let [{queue :internal} @router
         queue-size      (count queue)
-        ;; The halting event — the next one that would have been dequeued.
-        ;; It never runs; its event vector pins the `:halted-depth` marker.
-        ;; The queue holds ENVELOPES (`build-envelope` maps), so reach the
-        ;; raw `[event-id …]` vector through `:event`.
+        ;; The halting event — the family's next event, at the head of the
+        ;; internal lane. It never runs; its event vector pins the
+        ;; `:halted-depth` marker. The lane holds ENVELOPES (`build-envelope`
+        ;; maps), so reach the raw `[event-id …]` vector through `:event`.
         ;;
         ;; There is NO `last-event` fallback. A fallback such as
         ;; `(or (:event halting-envelope) last-event)` would be WRONG in the
@@ -3388,7 +3359,7 @@
         ;; as the one that had been refused, so the `:halted-depth` record
         ;; would claim a successful `:ok` event had never run. `run-one-pass!`
         ;; peeks before halting and only enters here with a pending envelope.
-        ;; Should some future caller arrive with an empty queue anyway, `halting-event` is
+        ;; Should some future caller arrive with an empty lane anyway, `halting-event` is
         ;; nil and the epoch surface's `commit-halt-record!` declines to commit
         ;; rather than inventing a record — a phantom halt record moves
         ;; `last-settled-epoch` and blocks `restore-epoch!`, so silence is
@@ -3420,8 +3391,8 @@
         ;; `:last-event-id` is the id keyword of the most-recently-settled
         ;; event; `:tail-event-ids` is the ring of the last K settled ids
         ;; (the repeating suffix names the runaway cycle); `:dropped-event-ids`
-        ;; is the queue-ordered id vector of the events cleared from the queue
-        ;; at the halt. All ids only — NO event args ride the always-on axis.
+        ;; is the lane-ordered id vector of the family events discarded at the
+        ;; halt. All ids only — NO event args ride the always-on axis.
         last-event-id   (when (vector? last-event) (first last-event))
         dropped-event-ids (into []
                                 (comp (keep :event)
@@ -3497,11 +3468,12 @@
                           ;; are durable. `:rollback? false` reflects that.
                           :rollback?         false
                           :recovery          :no-recovery}))
-    ;; Drop A's runaway queue. The `router` atom is A's incarnation-private drain
-    ;; FSM (`make-frame` builds a fresh one per incarnation), so clearing it never
-    ;; reaches a same-id successor B; it runs unconditionally so A's abandoned
-    ;; queue never lingers even after a listener above lost A.
-    (swap! router assoc :queue rf.interop/empty-queue :scheduled? false)
+    ;; Discard the runaway family: the internal lane only, so external input
+    ;; already queued still runs. The `router` atom is A's incarnation-private
+    ;; drain FSM (`make-frame` builds a fresh one per incarnation), so clearing
+    ;; it never reaches a same-id successor B; it runs unconditionally so A's
+    ;; abandoned family never lingers even after a listener above lost A.
+    (swap! router assoc :internal rf.interop/empty-queue)
     ;; The halt commit is A's terminal `:halted-depth` epoch record. Gate it on
     ;; A's live continuation AND thread A's EXACT owner token: once A is lost the
     ;; commit neither harvests B's capture buffer nor claims/commits into B's
@@ -3580,13 +3552,14 @@
 ;;   mark-drainer!         set `:in-drain?` to the current thread marker
 ;;   clear-drainer!        clear `:in-drain?` (finally-block partner)
 ;;   take-event!           peek+pop one envelope under the single-drainer
-;;                         invariant; returns nil on empty queue
+;;                         invariant, internal lane first; returns nil when
+;;                         both lanes are empty
 ;;   run-one-pass!         the inner loop body: process events to fixed
-;;                         point or until depth limit; returns ::halt or
-;;                         ::settled
+;;                         point, halting runaway families at the depth
+;;                         limit; returns ::halt or ::settled
 ;;   force-release-on-halt!  release the drain-lock after a ::halt outcome
-;;                         (queue already drained by `handle-depth-exceeded!`)
-;;   try-release-on-empty!   under lock, re-check queue; release both flags
+;;                         (lanes already dropped by `handle-drain-interrupted!`)
+;;   try-release-on-empty!   under lock, re-check both lanes; release both flags
 ;;                         on still-empty (returns false) or signal another
 ;;                         pass (returns true) — the orphan-prevention seam.
 
@@ -3605,8 +3578,11 @@
   (swap! router assoc :in-drain? nil))
 
 (defn- take-event!
-  "Atomic peek+pop of one envelope from the router queue. Returns the
-  envelope or nil when the queue is empty.
+  "Atomic peek+pop of one envelope, from the INTERNAL lane while it holds
+  any and from the external lane (`:queue`) otherwise. Returns
+  `[envelope external?]`, or nil when both lanes are empty. `external?`
+  marks the start of a new family, which is where `run-one-pass!` resets
+  the depth budget.
 
   With the single-drainer invariant held by `:drain-lock`,
   this peek+pop pair is atomic w.r.t. any other drain attempt. A race in
@@ -3616,28 +3592,69 @@
 
   ONE `swap-vals!` per dequeue rather than a deref PLUS a
   separate `swap!`, halving the atom traffic on the hottest per-event
-  step. The swap pops the head when non-empty (idempotent no-op when
-  empty, so the empty case never `pop`s a `PersistentQueue` it shouldn't);
-  the popped envelope is read from the PRE-swap value the `swap-vals!`
-  returns — i.e. the head at the instant of the pop, strictly more atomic
-  than a deref-then-swap peek. A concurrent submitter only ever
-  `conj`s the tail (sync seed-pushes are serialised under the drain-lock
-  per `drain-block!`), so the head this pops is unchanged by any enqueue."
+  step. The swap pops a head when a lane is non-empty (idempotent no-op
+  when both are empty); the popped envelope is read from the PRE-swap value
+  the `swap-vals!` returns — i.e. the head at the instant of the pop. Only
+  the drainer's own thread writes the internal lane's head (the flow settle,
+  the `dispatch-sync` seed under the drain-lock), and a concurrent submitter
+  only ever `conj`s the external lane's tail, so the head this pops is
+  unchanged by any enqueue."
   [router]
-  (let [[{old-queue :queue} _]
+  (let [[{:keys [internal queue]} _]
         (swap-vals! router
-                    (fn [{:keys [queue] :as r}]
-                      (if (empty? queue)
-                        r
-                        (assoc r :queue (pop queue)))))]
-    (when-not (empty? old-queue)
-      (peek old-queue))))
+                    (fn [{:keys [internal queue] :as r}]
+                      (cond
+                        (seq internal) (assoc r :internal (pop internal))
+                        (seq queue)    (assoc r :queue (pop queue))
+                        :else          r)))]
+    (cond
+      (seq internal) [(peek internal) false]
+      (seq queue)    [(peek queue) true])))
+
+(defn- lanes-empty?
+  "True when neither lane of the router state `state` holds an envelope."
+  [state]
+  (and (empty? (:internal state)) (empty? (:queue state))))
+
+(defn- queued-count
+  "The number of envelopes across both lanes of the router state `state`."
+  [state]
+  (+ (count (:internal state)) (count (:queue state))))
+
+(defn- call-with-event-in-flight
+  "Run `f` — one dequeued event's processing: interceptors, handler, commit
+  and `:fx` walk — with the router's `:in-event` slot naming THIS host
+  thread, restoring the prior value afterwards, throw or not.
+
+  The slot is the causal classifier `insert-envelope` reads: a dispatch made
+  while it names the dispatching thread is made synchronously inside this
+  frame's in-flight event, so it joins the internal lane. The dynamic
+  event-owner binding cannot answer that question — Clojure conveys bindings
+  into futures and `bound-fn`s, which run on other threads or after the
+  event returned — and neither can `:scheduled?` or `:in-drain?`, which stay
+  set across the whole drain, including while another thread enqueues. On
+  CLJS the host is single-threaded, so the slot is `true` while the event
+  runs."
+  [router f]
+  (let [prior (:in-event @router)]
+    (swap! router assoc :in-event #?(:clj (Thread/currentThread) :cljs true))
+    (try
+      (f)
+      (finally
+        (swap! router assoc :in-event prior)))))
+
+(defn- in-event-here?
+  "True when the router state `state` records an event of its frame in
+  flight on THIS host thread (see `call-with-event-in-flight`)."
+  [state]
+  #?(:clj  (identical? (:in-event state) (Thread/currentThread))
+     :cljs (true? (:in-event state))))
 
 (defn- handle-drain-interrupted!
   "Per Spec 002 §Edge cases worth pinning §Frame disposal
   mid-drain: the drain-loop detected that destruction owns the frame before
   the next dequeue (claim is the cutoff; lifecycle-dead may publish later).
-  Drop the remaining queue ONCE, clear `:scheduled?`,
+  Drop both lanes ONCE, clear `:scheduled?`,
   and emit a single `:rf.frame/drain-interrupted` lifecycle trace
   carrying `:dropped-count` (per Spec 009 §`:rf.frame/drain-interrupted`
   and Spec-Schemas §DrainInterruptedTags).
@@ -3674,15 +3691,16 @@
     ;; router generation still clear rejected work, but only the first winner
     ;; consumes the combined evidence and emits.
     (swap! router
-           (fn [{:keys [queue destroy-claim-dropped-count
+           (fn [{:keys [destroy-claim-dropped-count
                         destroy-claim-report-emitted?]
                  :as state}]
-             (let [dropped (+ (count queue)
+             (let [dropped (+ (queued-count state)
                               (or destroy-claim-dropped-count 0))]
                (when-not destroy-claim-report-emitted?
                  (vreset! report dropped))
                (cond-> (-> state
-                           (assoc :queue rf.interop/empty-queue
+                           (assoc :queue      rf.interop/empty-queue
+                                  :internal   rf.interop/empty-queue
                                   :scheduled? false)
                            (dissoc :destroy-claim-dropped-count))
                  (not destroy-claim-report-emitted?)
@@ -3697,11 +3715,18 @@
                        :dropped-count dropped})))))
 
 (defn- run-one-pass!
-  "Process events from the queue to fixed point or until `drain-depth` is
-  exceeded. Returns `::settled` when the queue empties cleanly or
-  `::halt` when the depth limit is reached OR destruction owns the frame
-  mid-pass (the depth-exceeded / drain-interrupted handler has already
-  cleared the queue and the `:scheduled?` flag in either halt case).
+  "Process events from both lanes to fixed point, internal lane first.
+  Returns `::settled` when both lanes empty cleanly or `::halt` when
+  destruction owns the frame mid-pass (the drain-interrupted handler has
+  already dropped both lanes and cleared the `:scheduled?` flag).
+
+  The depth budget is per FAMILY (Spec 002 §Run-to-completion rule 3): a
+  family is the external event dequeued (or the `dispatch-sync` seed) plus
+  every internal-lane event after it, so `depth` restarts at each external
+  dequeue. A family that reaches `drain-depth` with internal work still
+  queued halts — `handle-depth-exceeded!` discards the internal lane — and
+  the pass CONTINUES with the next external event under a fresh budget, so
+  a runaway never drops external input.
 
   Per Spec 002 §Frame disposal mid-drain: the destruction-
   ownership check fires BEFORE each dequeue. An authored callback already on
@@ -3726,49 +3751,52 @@
   so a handler that destroys its own frame mid-drain can recover the
   pre-run snapshot for its `:halted-destroy` epoch record."
   [frame-id frame-record router drain-depth allowed-destroy-token]
-  ;; `tail-ring` accumulates the last K settled event-ids as the
-  ;; drain runs — the CYCLE EVIDENCE the depth-halt attaches to the always-on
-  ;; record. A bounded vector (drop the head past `cycle-evidence-depth`); ids
-  ;; only, no args. Empty until the first event settles (a depth-0 frame halts
-  ;; before any event runs, so the ring is legitimately empty there).
+  ;; `depth` counts the events the current family has settled, its root
+  ;; included. `tail-ring` accumulates the family's last K settled event-ids —
+  ;; the CYCLE EVIDENCE the depth-halt attaches to the always-on record. A
+  ;; bounded vector (drop the head past `cycle-evidence-depth`); ids only, no
+  ;; args. Both restart with each family (a depth-0 frame halts before the
+  ;; family's first internal event runs, so the ring can legitimately be
+  ;; empty there).
   (loop [depth      0
          last-event nil
          tail-ring  []]
     (cond
-      ;; PEEK BEFORE HALTING. `depth` counts the events already
-      ;; SETTLED, so `(>= depth drain-depth)` on its own would fire at the top
-      ;; of the pass that FOLLOWS the last admitted event — including when that
-      ;; event settled the cascade and left the queue EMPTY. A clean, terminating
-      ;; cascade of exactly `drain-depth` events (16 under the `:story` preset,
-      ;; 100 under the default) would then halt as a runaway: an always-on
-      ;; `:rf.error/drain-depth-exceeded` and a `:halted-depth` epoch record
-      ;; whose "halting event" was the one that had just settled `:ok`.
+      ;; PEEK BEFORE HALTING, and peek the INTERNAL lane only. `depth` counts
+      ;; the family's events already SETTLED, so `(>= depth drain-depth)` on
+      ;; its own would fire at the top of the pass that FOLLOWS the family's
+      ;; last admitted event — including when that event settled the family
+      ;; and left the internal lane EMPTY. A clean, terminating family of
+      ;; exactly `drain-depth` events would then halt as a runaway: an
+      ;; always-on `:rf.error/drain-depth-exceeded` and a `:halted-depth` epoch
+      ;; record whose "halting event" was the one that had just settled `:ok`.
+      ;; Peeking the external lane too would do the same whenever external
+      ;; input is waiting, because that input belongs to the next family.
       ;;
-      ;; A halt is only meaningful when there IS a next event to refuse. Spec
-      ;; 002 §Run-to-completion rule 3 says the runtime "discards the remaining
-      ;; queued events (the next, *halting* event never runs)" — which
-      ;; presupposes one. With the queue empty there is nothing to discard and
-      ;; nothing to name, so the drain has simply reached its fixed point: fall
-      ;; through to the `:else` arm, where `take-event!` returns nil and the
-      ;; pass reports `::settled`.
+      ;; A halt is only meaningful when the family has a next event to refuse.
+      ;; Spec 002 §Run-to-completion rule 3 says the runtime discards the
+      ;; family's remaining queued events (the next, *halting* event never
+      ;; runs) — which presupposes one. With the internal lane empty the family
+      ;; has settled: fall through to the `:else` arm, which dequeues the next
+      ;; external event (a fresh family) or reports `::settled`.
       ;;
-      ;; The queue read is NOT on the hot path — `and` short-circuits, so it
-      ;; runs at most once per drain, on the pass that would have halted. It is
-      ;; also race-free in the direction that matters: only the drainer pops,
-      ;; and this loop does not pop between this peek and `handle-depth-
-      ;; exceeded!`'s own, so a queue seen non-empty here is still non-empty
-      ;; there (which is why `handle-depth-exceeded!` needs no `last-event`
-      ;; fallback). A submitter conj-ing the tail just after an empty read
-      ;; costs at most one extra admitted event before the next pass halts.
+      ;; The lane read is NOT on the hot path — `and` short-circuits, so it
+      ;; runs only on the pass that would have halted. It is also race-free:
+      ;; only the drainer's own thread enqueues into the internal lane (from
+      ;; inside an event, which is not running here) and only the drainer pops,
+      ;; so a lane seen non-empty here is still non-empty in
+      ;; `handle-depth-exceeded!` (which is why it needs no `last-event`
+      ;; fallback).
       (and (>= depth drain-depth)
-           (seq (:queue @router)))
+           (seq (:internal @router)))
       ;; Thread A's EXACT owner token (`:drain-lock`) so the halt
       ;; fanout, frame route, dev trace, and terminal commit all bind to A's
       ;; incarnation and are fenced from a same-id B a depth-error listener may
-      ;; publish.
+      ;; publish. The pass then continues: the destruction check below runs
+      ;; before the next dequeue, so a listener that destroyed A still stops it.
       (do (handle-depth-exceeded! frame-id (:drain-lock frame-record) router
                                   depth last-event tail-ring)
-          ::halt)
+          (recur 0 nil []))
 
       ;; The destruction-ownership check fires BEFORE the next
       ;; dequeue. A handler in the just-completed event may have
@@ -3800,7 +3828,7 @@
           ::halt)
 
       :else
-      (if-let [envelope (take-event! router)]
+      (if-let [[envelope external?] (take-event! router)]
         ;; Per-event epoch boundary. Snapshot this event's
         ;; OWN frame-state-before, run it to completion, snapshot its
         ;; frame-state-after, and settle its epoch — before the next event is
@@ -3810,7 +3838,12 @@
         ;; the whole frame-state (both partitions — app-db + runtime-db), so
         ;; an epoch carries (and `restore-epoch!` rewinds to) machine snapshots
         ;; / the route slice / SSR metadata, not just app-db.
-        (let [owner-token    (:drain-lock frame-record)
+        ;;
+        ;; An external dequeue opens a new family, so its budget and cycle
+        ;; evidence start afresh.
+        (let [depth          (if external? 0 depth)
+              tail-ring      (if external? [] tail-ring)
+              owner-token    (:drain-lock frame-record)
               allow-closing? (and (some? allowed-destroy-token)
                                   (identical? owner-token
                                               allowed-destroy-token))
@@ -3845,8 +3878,10 @@
             (binding [rf.frame/*run-frame-state-before* fs-before
                       rf.frame/*run-time-ms*            time-ms]
               (when (continue?)
-                (process-event! envelope frame-record owner-token
-                                allow-closing?))))
+                (call-with-event-in-flight
+                  router
+                  #(process-event! envelope frame-record owner-token
+                                   allow-closing?)))))
           (when (and (not= ::stale-incarnation fs-before)
                      (continue?))
             (let [fs-after (call-while-exact-owner
@@ -3880,8 +3915,8 @@
         ::settled))))
 
 (defn- force-release-on-halt!
-  "Release the drain-lock after a `::halt` outcome. The depth-exceeded
-  handler has already forcibly cleared the queue and set `:scheduled?`
+  "Release the drain-lock after a `::halt` outcome. The drain-interrupted
+  handler has already dropped both lanes and set `:scheduled?`
   false, so we only need to drop the lock. Taken under `locking router`
   to serialize against `ensure-drain-scheduled!`'s flag-read.
 
@@ -3896,7 +3931,7 @@
 
 (defn- try-release-on-empty!
   "Under the same lock that submitters take in `ensure-drain-scheduled!`,
-  re-check the queue:
+  re-check both lanes:
 
     * Empty  — clear `:scheduled?` AND release `:drain-lock` under one
                lock so a serialized submitter observes both flags false
@@ -3914,8 +3949,8 @@
   `finally`, so its serialized window spans the nested cascade."
   [router drain-lock hold-lock?]
   (locking router
-    (let [{:keys [queue]} @router]
-      (if (empty? queue)
+    (let [state @router]
+      (if (lanes-empty? state)
         (do (swap! router assoc :scheduled? false)
             (when-not hold-lock?
               (reset! drain-lock false))
@@ -3941,7 +3976,7 @@
 
   `hold-lock?`: false on the normal async / sync
   entries (`drain-try!` / `drain-block!`, which acquire the lock and must
-  release it when the queue empties); true on the REENTRANT entry
+  release it when both lanes empty); true on the REENTRANT entry
   (`drain-reentrant!`), where the calling thread already owns the lock via
   a cold `rf.frame/call-serialized-with-drain!` section and the release phases
   must leave it held for that outer section to drop."
@@ -3965,21 +4000,22 @@
   the drain-lock so the frame is not permanently stuck — the caller then
   re-throws so the host observes the failure.
 
-  The throw ends THIS drain, not the frame's queue. The
+  The throw ends THIS drain, not the frame's queued work. The
   failing event was already dequeued (`take-event!` pops before
   `process-event!`), so it is not retried; but anything still queued
-  behind it — its own `:fx` siblings included — would strand with
+  in either lane — its own `:fx` siblings included — would strand with
   `:scheduled?` false, since `ensure-drain-scheduled!` arms a drain only
-  when it flips that flag. So when the queue is non-empty and the frame is
+  when it flips that flag. So when either lane is non-empty and the frame is
   still live and not being destroyed, keep `:scheduled?` true and schedule
-  one fresh `drain-try!` (next task, fresh depth budget) — the same
+  one fresh `drain-try!` (next task, fresh depth budget, internal lane
+  still first) — the same
   snapshot / release / re-kick shape as the cold-serialization release in
   `rf.frame/call-serialized-with-drain!`. A destroy claim is the
   queued-work cutoff, so a closing incarnation is never re-kicked."
   [frame-id frame-record router drain-lock]
   (let [re-arm? (locking router
                   (let [re-arm? (boolean
-                                  (and (seq (:queue @router))
+                                  (and (not (lanes-empty? @router))
                                        (rf.frame/frame-incarnation-live? frame-id drain-lock)
                                        (not (rf.frame/frame-incarnation-closing?
                                               frame-id drain-lock))))]
@@ -4029,7 +4065,7 @@
   lock, then runs `under-lock-fn` (typically the seed-push) and drains.
 
   Per the single-drainer invariant: dispatch-sync's seed-push at
-  the FRONT of the queue MUST happen while it holds the drain-lock —
+  the HEAD of the internal lane MUST happen while it holds the drain-lock —
   otherwise the prepend would interleave with the active drainer's
   peek+pop and produce the race the drain-lock exists to prevent
   (envelope A peek'd, B prepended, A popped becomes B, B processed as
@@ -4058,9 +4094,11 @@
             router      (:router frame-record)
             drain-depth (get (:config frame-record) :drain-depth drain-depth-default)]
         ;; Spin-CAS until we acquire. On JVM the active drainer holds
-        ;; the lock for the duration of one drain pass — bounded by
-        ;; drain-depth events at most — so the wait is bounded. CLJS
-        ;; is single-threaded; the CAS succeeds on first attempt.
+        ;; the lock until both lanes are empty — each family is bounded by
+        ;; drain-depth events, and the drain by the external input that
+        ;; keeps arriving — so the wait ends once other threads stop
+        ;; feeding the frame. CLJS is single-threaded; the CAS succeeds on
+        ;; first attempt.
         (loop []
           (when-not (compare-and-set! drain-lock false true)
             #?(:clj (Thread/yield))
@@ -4087,7 +4125,7 @@
   normal `drain-block!` spin-CAS-acquire would deadlock against itself
   (a same-thread self-deadlock).
 
-  Runs `under-lock-fn` (the front-of-queue seed-push) and the drain loop
+  Runs `under-lock-fn` (the internal-lane seed-push) and the drain loop
   DIRECTLY — no acquire (already held) and no release (`hold-lock?` true):
   the outer cold section owns the lock and drops it in its own `finally`,
   so its serialized window spans this nested cascade. On an unhandled
@@ -4119,7 +4157,7 @@
 (declare insert-envelope)
 
 (defn- ensure-drain-scheduled!
-  "Enqueue `envelope` into the target incarnation's queue and, when this call is
+  "Enqueue `envelope` into its lane of the target incarnation's router and, when this call is
   the one that flips `:scheduled?`, arm the async drain. Returns `true` iff the
   envelope was ACTUALLY enqueued (whether or not this call also scheduled the
   drain), `false` when the target-liveness / incarnation guard fenced the
@@ -4141,7 +4179,7 @@
               (swap! router
                      (fn [state]
                        (-> state
-                           (update :queue insert-envelope envelope)
+                           (insert-envelope envelope)
                            (assoc :scheduled? true))))
               {:enqueued? true :schedule? (not scheduled?)})))]
     (when (:schedule? outcome)
@@ -4285,89 +4323,70 @@
                        (assoc :rf.frame/init-step-index (:step-index envelope))))))))
     (continue?)))))
 
-(defn- front-insert-machine-internal
-  "Return `q` (a PersistentQueue of envelopes) with `envelope` spliced in
-  at the boundary between the machine-internal PREFIX and the external
-  TAIL — i.e. after any already-queued machine-internal envelopes but
-  ahead of the first external one.
-
-  Why a boundary splice, not a head `cons`: each sibling machine-internal
-  dispatch from one macrostep (`:fx [[:dispatch :a] [:dispatch :b]]`,
-  walked left-to-right by `do-fx`) is a SEPARATE `dispatch!` call, so this
-  fn is invoked once per sibling. A plain head-push would reverse them
-  (`:b` ends up ahead of `:a`). Inserting each new internal envelope at
-  the END of the existing internal prefix keeps siblings in source order
-  (`[:a :b …external]`) while still placing the whole internal run ahead
-  of every external event already on the queue.
-
-  PersistentQueue has no native splice, so the queue is rebuilt: take the
-  leading run of machine-internal envelopes, append `envelope`, then the
-  external remainder. `split-with` on `:rf.machine/internal?` is exact —
-  external envelopes never carry the flag."
-  [q envelope]
-  (let [[internal external] (split-with :rf.machine/internal? q)]
-    (into rf.interop/empty-queue (concat internal [envelope] external))))
-
 (defn- head-insert
-  "Return `q` (a PersistentQueue of envelopes) with `envelope` at its HEAD —
-  dequeued next, ahead of everything already queued.
+  "Return `q` (a PersistentQueue of envelopes, or nil) with `envelope` at its
+  HEAD — dequeued next, ahead of everything already in that lane.
 
-  PersistentQueue has no native head-push, so the queue is rebuilt. Only the
-  flow settle uses this, and only because it is the one envelope for which
-  `front-insert-machine-internal`'s boundary splice would be wrong: that
-  splice exists to keep SIBLINGS in source order, and the settle has no
-  siblings — the `:fx` walk enqueues at most one, at the very end of the walk
-  (`rf.fx/settle-flows-if-requested!`), so there is nothing for a splice to
-  preserve and nothing a plain head-push can reverse."
+  PersistentQueue has no native head-push, so the lane is rebuilt. Only the
+  flow settle and the `dispatch-sync` seed use this, and neither has siblings
+  a head-push could reverse: the `:fx` walk enqueues at most one settle, at
+  the very end of the walk (`rf.fx/settle-flows-if-requested!`), and a
+  `dispatch-sync` call pushes exactly one seed."
   [q envelope]
   (into rf.interop/empty-queue (cons envelope q)))
 
-(defn- insert-envelope
-  "Return the frame's router queue with `envelope` inserted at its position.
-  The single ordering rule, read by BOTH enqueue paths (`enqueue-envelope!`
-  and `ensure-drain-scheduled!`) so they cannot drift apart.
+(defn- lane-conj
+  "FIFO append onto a lane that may not exist yet."
+  [q envelope]
+  (conj (or q rf.interop/empty-queue) envelope))
 
-  Per Spec 002, ordinary dispatches go to the BACK (plain FIFO via `conj` on
-  the PersistentQueue). Two envelopes jump it, and the order of the clauses
-  below is itself the priority order:
+(defn- insert-envelope
+  "Return the router state `state` with `envelope` in its lane. The single
+  ordering rule, read by BOTH enqueue paths (`enqueue-envelope!` and
+  `ensure-drain-scheduled!`) so they cannot drift apart.
+
+  Per Spec 002 §Run-to-completion, each frame has two FIFO lanes and the
+  drain always dequeues from the internal lane first:
 
   1. **The flow settle** (`:rf.flow/settle? true`, stamped by
      `build-envelope` from the opt `rf.fx/settle-flows-if-requested!` passes)
-     goes to the ABSOLUTE HEAD — ahead of machine-internal continuations too.
-     Per Spec 013 §Sequencing the settle repairs `app-db` to agree with the
-     flow registry as the completed `:fx` walk left it, and every event still
-     queued is a CONTINUATION of the handler that mutated that registry. Left
-     at the back (or spliced behind the machine-internal prefix), those
-     continuations run against the pre-registration / pre-clear `app-db` and
-     can persist a wrong decision into `app-db` that the later settle, which
-     repairs only the derived slot, does not undo. Ahead of them, every
-     continuation reads the settled value. Nothing is lost by settling early:
-     the flow transform runs on EVERY event, so a continuation's own writes
-     are settled by its own drain, not by this envelope.
-  2. **A machine-internal continuation** (`:rf.machine/internal? true`, per
-     Spec 005 §Level 4) leap-frogs ahead of any already-queued
-     EXTERNAL events, so the machine settles its macrostep to quiescence
-     before the next external event runs (SCXML 'internal before external').
-     It is spliced in by `front-insert-machine-internal` AFTER any sibling
-     machine-internal envelopes already queued this macrostep, so source
-     order is preserved among siblings (first emitted is dequeued first).
+     goes to the HEAD of the internal lane. Per Spec 013 §Sequencing the
+     settle repairs `app-db` to agree with the flow registry as the completed
+     `:fx` walk left it, and every event still in the internal lane is a
+     CONTINUATION of the handler that mutated that registry. Behind them,
+     those continuations would run against the pre-registration / pre-clear
+     `app-db` and could persist a wrong decision into `app-db` that the later
+     settle, which repairs only the derived slot, does not undo. Ahead of
+     them, every continuation reads the settled value. Nothing is lost by
+     settling early: the flow transform runs on EVERY event, so a
+     continuation's own writes are settled when it runs.
+  2. **A dispatch made synchronously inside this frame's in-flight event**
+     — from its handler (plain or machine), its interceptors, its `:fx` walk,
+     a machine continuation, a same-frame spawn start or a completion carrier
+     — joins the back of the INTERNAL lane. The test is causal
+     (`in-event-here?`): the dispatching host thread is the one running this
+     frame's event right now.
+  3. **Every other dispatch** — UI callbacks, timers (`:dispatch-later`, even
+     at 0 ms), async replies, other frames, other threads, the REPL,
+     after-render work — joins the back of the EXTERNAL lane (`:queue`).
 
-  Front-of-queue changes ORDER ONLY, not granularity: the leap-frogged
-  envelope is still a separately-dequeued event with its own epoch (per
-  Spec 002 §Drain versus event and Spec 005 §Level 4). `:raise` is a
-  different lever — it never reaches this queue (it drains in-memory,
-  intra-macrostep, inside the machine handler invocation)."
-  [q envelope]
+  The internal lane is the current family's pending work, so a family
+  settles before the next external event runs. Lane choice changes ORDER
+  ONLY, not granularity: every envelope is still a separately-dequeued event
+  with its own epoch (Spec 002 §Drain versus event). `:raise` is a different
+  lever — it never reaches either lane (it drains in-memory, intra-macrostep,
+  inside the machine handler invocation)."
+  [state envelope]
   (cond
-    (:rf.flow/settle? envelope)      (head-insert q envelope)
-    (:rf.machine/internal? envelope) (front-insert-machine-internal q envelope)
-    :else                            (conj q envelope)))
+    (:rf.flow/settle? envelope) (update state :internal head-insert envelope)
+    (in-event-here? state)      (update state :internal lane-conj envelope)
+    :else                       (update state :queue lane-conj envelope)))
 
 (defn- enqueue-envelope!
-  "Insert `envelope` into the frame's router queue at the position
-  `insert-envelope` gives it."
+  "Insert `envelope` into the lane of `router` that `insert-envelope` gives
+  it."
   [router envelope]
-  (swap! router update :queue insert-envelope envelope))
+  (swap! router insert-envelope envelope))
 
 ;; Private authority for the synchronous `:on-destroy` event and the
 ;; same-frame child dispatches it intentionally emits. The cascade drains an
@@ -4393,19 +4412,15 @@
       router)))
 
 (defn dispatch!
-  "Append the event to the target frame's router queue. Per Spec 002:
-  FIFO at the runtime layer. The drain loop normally picks it up in this same
-  drain cycle (run-to-completion); a successful exact-incarnation destroy
-  claim is a terminal cutoff for ordinary work.
-
-  Per Spec 005 §Level 4: the single exception to FIFO is a
-  machine-internal continuation event (a dispatch emitted from a
-  machine's own processing), which `enqueue-envelope!` inserts at the
-  FRONT of the queue so the machine settles its macrostep before the
-  next external event. The cut is the dispatch's ORIGIN (machine
-  processing), not its target — an event that merely targets a machine
-  but originates from user code / the UI / a non-machine effect stays
-  FIFO at the back.
+  "Append the event to one of the target frame's two FIFO lanes. Per Spec
+  002 §Run-to-completion: a dispatch made synchronously inside the target
+  frame's in-flight event joins its INTERNAL lane, every other dispatch its
+  EXTERNAL lane, and the drain empties the internal lane before it takes the
+  next external event — so everything an event dispatches settles before
+  the next outside event runs, whatever kind of handler dispatched it (see
+  `insert-envelope`). The drain loop normally picks the event up in this
+  same drain cycle; a successful exact-incarnation destroy claim is a
+  terminal cutoff for ordinary work.
 
   The runtime-callable fn form (THIS fn is
   also the direct public-API-terms target — the `dispatch` macro's
@@ -4555,12 +4570,14 @@
   development builds emit :rf.error/dispatch-sync-in-handler — handler
   bodies should use dispatch (the queued form) instead.
 
-  Implementation: the seed event is pushed at the FRONT of the queue
-  and then the drain loop runs. Because the scheduled? flag is set to
-  true before draining, any dispatch! calls inside the seed handler's
+  Implementation: the seed event is pushed at the HEAD of the internal
+  lane and then the drain loop runs, so the seed runs first and its whole
+  family — everything it dispatches, which joins the internal lane — settles
+  before any external input already queued. Because the scheduled? flag is
+  set to true before draining, any dispatch! calls inside the seed handler's
   :fx vector enqueue without scheduling an async drain — the sync drain
-  picks them up. Counting the seed event as drain depth 0 keeps drain-
-  depth limits behaving uniformly across sync and async dispatch.
+  picks them up. The seed is its family's root and counts toward its
+  `:drain-depth` budget, exactly like an external event.
 
   When the same-frame reentry check passes but ANOTHER
   frame is currently mid-drain, the runtime emits
@@ -4712,8 +4729,8 @@
            (try
            ;; Per the single-drainer invariant: dispatch-sync
            ;; needs the cascade settled before return AND the seed-
-           ;; push at the FRONT of the queue must not interleave with
-           ;; an active drainer's peek+pop. drain-block! spin-CAS-
+           ;; push at the HEAD of the internal lane must not interleave
+           ;; with an active drainer's peek+pop. drain-block! spin-CAS-
            ;; acquires the drain-lock, THEN runs the callback below
            ;; (the prepend sits inside the single-drainer window —
            ;; no other drain can be mid-peek+pop), THEN runs the drain
@@ -4731,10 +4748,9 @@
            ;; nested dispatch-sync re-enters rather than spin-CAS-deadlocking
            ;; on its own lock.
            (let [seed-push (fn []
-                             (swap! router (fn [{:keys [queue] :as r}]
+                             (swap! router (fn [{:keys [internal] :as r}]
                                              (assoc r
-                                                    :queue (into rf.interop/empty-queue
-                                                                 (cons envelope queue))
+                                                    :internal       (head-insert internal envelope)
                                                     :scheduled?     true
                                                     :in-sync-drain? true))))]
              (if reentrant-cold?
@@ -4808,8 +4824,12 @@
                 drain-depth    (get (:config frame-record) :drain-depth
                                     drain-depth-default)
                 envelope       (build-envelope event {:frame frame-id})
+                ;; The cleanup seed is the private cascade's one external
+                ;; event; the same-frame children it dispatches join this
+                ;; router's internal lane, so they are its family.
                 teardown-router (atom {:queue            (conj rf.interop/empty-queue
                                                                envelope)
+                                       :internal         rf.interop/empty-queue
                                        :scheduled?       true
                                        :in-drain?        nil
                                        :in-sync-drain?   false})

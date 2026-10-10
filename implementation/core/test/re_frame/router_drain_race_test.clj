@@ -86,7 +86,7 @@
     (let [n-submitters 8
           per-thread   200
           total        (* n-submitters per-thread)]
-      ;; A :drain-depth high enough that the default 100 never halts the cascade.
+      ;; A :drain-depth comfortably above the cascade's event count, so it never halts.
       (rf/make-frame {:id :stress.race/main :drain-depth (* 4 (+ total 2))})
       (rf/reg-event :bump
         (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))

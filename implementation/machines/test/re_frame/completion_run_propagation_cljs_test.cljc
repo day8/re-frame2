@@ -4,8 +4,7 @@
   carrier a finishing child mints into its parent is a child of the event that
   FINISHED the child, so that event's `:fx-overrides`, `:origin` and `:trace-id`
   reach the fx the parent fires on resuming. A carrier keeps
-  `:source :machine-spawn` and is never machine-internal, so it keeps its FIFO
-  place."
+  `:source :machine-spawn`."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -138,9 +137,8 @@
                               :origin       :cp/tool
                               :trace-id     "cp-trace"}))
         (is (= [{:at at :via :stub :origin :cp/tool :trace-id "cp-trace"}] @fired))
-        (is (= #{{:source :machine-spawn}}
-               (set (map #(select-keys % [:source :rf.machine/internal?]) (carrier-opts sink))))
-            "every carrier keeps :source :machine-spawn and is not machine-internal")))
+        (is (= #{:machine-spawn} (set (map :source (carrier-opts sink))))
+            "every carrier keeps :source :machine-spawn")))
     (testing (str parent-id " — a per-frame :fx-overrides")
       (let [fired (register-probe!)
             fid   (keyword "cp" (str "frame-" (name parent-id)))]
