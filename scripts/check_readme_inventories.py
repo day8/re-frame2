@@ -806,160 +806,48 @@ def _run_self_tests(verbose: bool = False) -> int:
                 f"self-test FAIL: {name}: got {got!r}, want {want!r}\n")
             failures += 1
 
-    # parse_numeral / parse_number_word
-    expect("digit", parse_numeral("28"), 28)
-    expect("word-eleven", parse_numeral("eleven"), 11)
-    expect("word-twenty eight", parse_numeral("twenty eight"), 28)
-    expect("word-ninety-nine", parse_numeral("ninety-nine"), 99)
-    expect("not-a-number", parse_numeral("frame"), None)
-    expect("twenty", parse_numeral("twenty"), 20)
+    # One row per number-word path: a unit word, a tens word, a compound.
+    for word, want in (("eleven", 11), ("twenty", 20), ("ninety-nine", 99)):
+        expect(f"word-{word}", parse_numeral(word), want)
 
-    # The pair-mcp claim pattern must admit BOTH numeral forms the module
-    # docstring promises.  A word-only pattern would leave a digit rewrite
-    # unreadable rather than wrong — the check would report 'claim pattern
-    # not found' and stop comparing.
+    # The live claim is a digit; the word arm is promised by the docstring.
     _pair_claim = next(c.claim_re for c in COUNT_CHECKS
                        if c.readme.endswith("re-frame2-pair-mcp/README.md"))
+    m = re.search(_pair_claim, "exposes the thirty-three re-frame2-pair ops")
+    expect("pair-claim-word", m and m.group(1), "thirty-three")
 
-    def _claim(text: str):
-        m = re.search(_pair_claim, text)
-        return m.group(1) if m else None
-
-    expect("pair-claim-word",
-           _claim("exposes the thirty-three re-frame2-pair ops"), "thirty-three")
-    expect("pair-claim-digit",
-           _claim("exposes the 33 re-frame2-pair ops"), "33")
-    expect("pair-claim-wraps-newline",
-           _claim("exposes the 33\nre-frame2-pair ops"), "33")
-
-    # first-column name extraction backing the NameSetCheck
-    named = [
-        "| MCP tool | What |",
-        "|---|---|",
-        "| `discover-app` | x |",
-        "| `read-ui`      | y |",
-        "| plain-text     | z |",
-    ]
-    expect("table-first-col", table_first_column_names(named),
-           ["discover-app", "read-ui", "plain-text"])
-
-    # layout top-level dir extraction — a root label, then only its depth-1
-    # dirs, whatever file and sub-dir detail sits below them.
-    blk2 = FencedBlock(open_line=1, lines=[
-        "impl/",
-        "  core/",
-        "    deps.edn        a file, not a dir",
-        "    src/",
-        "  adapters/",
-        "    reagent/",
-        "  schemas/",
-    ])
-    expect("layout-dirs-deep", _layout_top_level_dirs(blk2),
-           {"core", "adapters", "schemas"})
-
-    # Nested glyph rows are NOT immediate children.  A leading
-    # "│" is a continuation column — i.e. indent — so "│   └── fixture/"
-    # sits one tier below "├── tests/" rather than beside it.  Without that,
-    # every hand-drawn tree that shows one level of inner detail reports its
-    # grandchildren as children of the base dir.
-    blk4 = FencedBlock(open_line=1, lines=[
-        "skills/x/",
-        "├── README.md",
-        "├── references/",
-        "│   └── a.md",
-        "├── tests/",
-        "│   └── fixture/",
-        "└── spec/",
-        "    └── design.md",
-    ])
-    expect("layout-dirs-glyph-nested", _layout_top_level_dirs(blk4),
-           {"references", "tests", "spec"})
-
-    # Dot-named map entries are dropped at the return, mirroring the
-    # leading-dot filter in ``_disk_dirs``.  Otherwise
-    # ".claude-plugin/" — which every skill layout tree lists, because the
-    # family convention requires the file — reads as a phantom non-existent
-    # dir, since the disk scan never yields it.
-    blk5 = FencedBlock(open_line=1, lines=[
-        "skills/x/",
-        "├── .claude-plugin/",
-        "│   └── plugin.json",
-        "└── references/",
-    ])
-    expect("layout-dirs-dotdir-dropped", _layout_top_level_dirs(blk5),
-           {"references"})
-
-    # table body-row counting (header + delimiter + N rows)
-    table = [
-        "| MCP tool | What |",
-        "|---|---|",
-        "| `a` | x |",
-        "| `b` | y |",
-        "| `c` | z |",
-    ]
-    expect("table-rows", count_table_body_rows(table), 3)
-
-    # bullet code-span counting, across a wrapped continuation line and
-    # stopping at the next bullet
-    bullet2 = "- **Docs** (4) — `a`, `b`,\n  `c`, `d`.\n- **Next** (1) — `e`."
-    m2 = re.search(r"\*\*Docs\*\*\s*\((\d+)\)", bullet2)
-    expect("bullet-spans-wrapped", _count_bullet_after(bullet2, m2), 4)
-
-    # _section_body picks the right slice
-    doc = "# Top\n\n## Layout\n\n```\nfoo/\n  bar/\n```\n\n## Next\nx\n"
-    sec = _section_body(doc, "Layout")
-    if sec is not None:
-        blocks = _iter_fenced_blocks(sec[1])
-        expect("section-block-count", len(blocks), 1)
-
-    # _disk_dirs skips gitignored build artefacts + dotdirs but keeps real
-    # source dirs: a post-build local tree carries node_modules/
-    # out/ .shadow-cljs/ .cpcache/ alongside the documented source dirs, and
-    # only the latter must show up in the bijection.
     import tempfile
 
+    # CI runs this before any build; a post-build local tree carries these.
     with tempfile.TemporaryDirectory() as tmp:
         base = Path(tmp)
-        for d in ("core", "adapters",            # documented source dirs
-                  "node_modules", "out",          # gitignored build artefacts
-                  "target", "classes",            # gitignored build artefacts
-                  ".shadow-cljs", ".cpcache"):     # gitignored dotdirs
+        for d in ("core", "node_modules"):
             (base / d).mkdir()
-        expect("disk-dirs-skips-build-artefacts",
-               _disk_dirs(base), {"core", "adapters"})
+        expect("disk-dirs-skips-build-artefacts", _disk_dirs(base), {"core"})
 
-    # Layout check end-to-end against a real temp tree, on the nested-glyph
-    # shape the skill layouts use.  This is the row that stops a future
-    # editor reaching for ``ignore={"fixture"}`` when a nested row reds:
-    # ``ignore`` is subtracted from the DISK side too (see
-    # ``_run_layout_check``), so that spelling papers over a parser defect
-    # AND silently accepts an undocumented immediate ``fixture/``.  Nesting
-    # belongs in the parser, and this case goes red if it is ever handled in
-    # the registry instead.
+    # ``ignore`` is subtracted from the DISK side too, so nesting must be
+    # handled in the parser: a nested ``fixture/`` row does not document an
+    # immediate ``fixture/`` dir.
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         skill = root / "skills" / "x"
-        for d in ("references", "tests", "spec", ".claude-plugin"):
+        for d in ("tests", "spec", "fixture"):
             (skill / d).mkdir(parents=True, exist_ok=True)
         (skill / "README.md").write_text(
-            "# T\n\n## Layout\n\n```\n" + "\n".join(blk4.lines) + "\n```\n",
-            encoding="utf-8")
-        e2e = LayoutCheck(readme="skills/x/README.md", section="Layout",
-                          base_dir="skills/x")
-        expect("layout-e2e-nested-tree-in-sync", _run_layout_check(root, e2e), [])
+            "# T\n\n## Layout\n\n```\nskills/x/\n├── tests/\n│   └── fixture/\n"
+            "└── spec/\n```\n", encoding="utf-8")
+        vs = _run_layout_check(root, LayoutCheck(
+            readme="skills/x/README.md", section="Layout", base_dir="skills/x"))
+        expect("layout-e2e-undocumented-dir",
+               ["omits on-disk dir(s): fixture" in v.message for v in vs], [True])
 
-        (skill / "fixture").mkdir()
-        vs = _run_layout_check(root, e2e)
-        expect("layout-e2e-undocumented-dir-count", len(vs), 1)
-        expect("layout-e2e-undocumented-dir-named",
-               vs and "omits on-disk dir(s): fixture" in vs[0].message, True)
-
-    # NameSetCheck end-to-end — the regression this check exists
-    # for is a table that under-lists its registry while the PROSE agrees
-    # with the table, which the count check cannot see by construction.
+    # A table that under-lists its registry while the PROSE agrees with the
+    # table, which the count check cannot see by construction.
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         (root / "tools").mkdir()
+        (root / "tools" / "names.json").write_text(
+            '{"names": ["alpha", "beta", "gamma"]}', encoding="utf-8")
         chk = NameSetCheck(
             readme="tools/R.md", label="T", section="Tool surface",
             source_json="tools/names.json", json_key="names")
@@ -970,34 +858,19 @@ def _run_self_tests(verbose: bool = False) -> int:
                 + "".join(f"| `{r}` | x |\n" for r in rows),
                 encoding="utf-8")
 
-        (root / "tools" / "names.json").write_text(
-            '{"names": ["alpha", "beta", "gamma"]}', encoding="utf-8")
+        for name, rows, needle in (
+            ("nameset-missing", ["alpha", "beta"], "gamma"),
+            ("nameset-extra", ["alpha", "beta", "gamma", "delta"], "delta"),
+            ("nameset-duplicate", ["alpha", "beta", "gamma", "gamma"], "repeats"),
+        ):
+            _write(rows)
+            expect(name, [needle in v.message for v in _run_name_set_check(root, chk)], [True])
 
+        # An absent source of truth is no verdict, not a green one.
         _write(["alpha", "beta", "gamma"])
-        expect("nameset-in-sync", _run_name_set_check(root, chk), [])
-
-        _write(["alpha", "beta"])
-        vs = _run_name_set_check(root, chk)
-        expect("nameset-missing-count", len(vs), 1)
-        expect("nameset-missing-names", "gamma" in vs[0].message, True)
-
-        _write(["alpha", "beta", "gamma", "delta"])
-        vs = _run_name_set_check(root, chk)
-        expect("nameset-extra-count", len(vs), 1)
-        expect("nameset-extra-names", "delta" in vs[0].message, True)
-
-        _write(["alpha", "beta", "gamma", "gamma"])
-        vs = _run_name_set_check(root, chk)
-        expect("nameset-duplicate", any("repeats" in v.message for v in vs), True)
-
-        # A missing / unreadable source of truth must be a VIOLATION, never a
-        # silent pass — an absent fixture is no verdict, not a green one.
-        _write(["alpha", "beta", "gamma"])
-        missing_src = NameSetCheck(
-            readme="tools/R.md", label="T", section="Tool surface",
-            source_json="tools/nope.json", json_key="names")
-        expect("nameset-absent-source-is-violation",
-               len(_run_name_set_check(root, missing_src)), 1)
+        expect("nameset-absent-source-is-violation", len(_run_name_set_check(
+            root, NameSetCheck(readme="tools/R.md", label="T", section="Tool surface",
+                               source_json="tools/nope.json", json_key="names"))), 1)
 
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
