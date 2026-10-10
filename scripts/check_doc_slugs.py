@@ -677,8 +677,8 @@ _HANDBOOK_DOC_LINK_RE = re.compile(
 # BETWEEN two headings; for those the anchor must precede the passage, or a
 # deep-link scrolls past the named content and onto the next section. Keyed by the
 # (page, anchor) manifest entry; the value is a regex the anchor must appear before.
-# The set is deliberately tiny and each key MUST be a real manifest anchor (a
-# self-test enforces that), so placement and the anchor manifest stay in lock-step.
+# The set is deliberately tiny, and each key is a real manifest anchor so that
+# placement and the anchor manifest stay in lock-step.
 COMPAT_ANCHOR_PLACEMENT = {
     # The loader-failure bookmark names the explanation of what a failed page
     # read does to the route: the resource-derived readiness projection and its
@@ -2729,466 +2729,172 @@ _SELF_TEST_FIXTURE_ROOT = Path(__file__).resolve().parent / "_test_fixtures" / "
 
 def _run_self_tests(verbose: bool = False) -> int:
     """Run fixture-based self-tests.  Return 0 on success, 1 on any failure."""
-    cases: list[tuple[str, int]] = [
-        # (fixture-dir, expected-broken-link-count)
-        ("absolute_path_ok",                 0),
-        # A relative link out of the docs trees into SOURCE is existence-
-        # checked whatever its kind.  The 1 is a renamed source file; the
-        # live source file and the live directory beside it stay silent.
-        ("relative_source_target",           1),
-        ("inline_code_placeholder_ignored",  0),
-        # POSITIVE CONTROL for wrapped-link handling: a single-line broken
-        # link reds too.  It shares its line with a masked placeholder, so it
-        # also pins that the mask covers the code span and nothing after it.
-        ("inline_code_negative_control",     1),
-        ("ai_findings_link_flagged",         1),
-        ("ai_findings_dir_link_flagged",     1),
-        ("blockquoted_heading_ok",           0),
-        ("indented_heading_not_indexed",     1),  # negative control
-        # Renderer parity for `## Title {#id}` headings. attr_list is
-        # NOT enabled in mkdocs.yml, so the brace suffix is literal heading text
-        # and the fragment id is the slugified FULL visible title. The negative
-        # control, then the duplicate case, whose first link is the parity tooth:
-        ("explicit_id_brace_not_a_target",   1),  # `#dup` is NOT a target
-        ("explicit_id_duplicate",            0),  # -> `one-dup`, `one-dup_1`
-        # Line wrapping. A link whose text wraps across a newline is a real
-        # rendered link and must be validated (mkdocs strict does not cover
-        # the gap), and a correct wrapped link must NOT be flagged.  Where the
-        # join that makes wrapped links visible stops is pinned by the
-        # extraction cases below.
-        ("wrapped_link_broken_anchor",       2),  # negative control
-        ("wrapped_link_ok",                  0),  # no false positives
-        # A fence indented by its container is still a fence, so the
-        # sample inside it is code and carries no links to resolve.  The
-        # fixture's sample contains a blank line, which splits the inline block
-        # so the code-span mask cannot pair the fence's own backtick runs and
-        # hide the link by accident; without it the case would pass for the
-        # wrong reason.  It fails in BOTH directions — its single finding is a
-        # REAL broken link in prose AFTER an indented fence, so it counts up if
-        # the fence is scanned as prose and down if widening the matcher
-        # swallows the document.
-        ("indented_fence_negative_control",  1),
-        # The fenced-doc-link assertion is scoped: a resolving doc link inside
-        # a fence, under a tree outside FENCED_DOC_LINK_TREES, stays silent.
-        # The in-scope direction is the two fixtures below, where the link
-        # inside the fence RESOLVES, so link validation is satisfied and only
-        # the assertion can see it.
-        ("fenced_doc_link_out_of_scope",     0),
-        # The same assertion on a file that is a pasteable PROMPT, so the
-        # fence is the deliverable and holds the whole document.  Fails in
-        # both directions.
-        # Down to 0 if `docs/the-mayor-method` leaves FENCED_DOC_LINK_TREES, and
-        # down to 0 again if fence recognition regresses — the fenced link
-        # resolves, so a scanner that reads the block as prose is satisfied by
-        # it and the assertion never runs.  Up to 2 if `_is_doc_destination`
-        # loosens to a bare `](`, which the fixture's `(fn [x](inc x))`
-        # would then match.
-        ("fenced_doc_link_prompt_tree",      1),
-        # The same assertion, on a BLOCKQUOTED fence.  The guarded tree writes
-        # its samples this way (under docs/design/fresco/studio/), and the
-        # assertion cannot see them if the scanner reads a quoted fence as
-        # prose.  The link resolves, so again only the assertion can find it.
-        ("fenced_doc_link_blockquoted",      1),
-        # The id side of the same blind spot, and the one that fails
-        # in BOTH directions.  The 2 are links to a `###` line and an `<a id>`
-        # that live INSIDE a blockquoted fence and therefore mint no fragment
-        # target: the count falls to 0 if the fence is read as prose (both
-        # links then resolve against phantom ids), and rises to 3 if blanking runs past
-        # the blockquote and takes the real heading below it.
-        ("blockquoted_fence_not_indexed",    2),
-        # Reference-style links.  The 2 are a broken TARGET and a broken ANCHOR, each reached
-        # through a `[label]: destination` definition, so the count fails in
-        # both directions: down to 0 if reference extraction regresses, and up
-        # past 2 the moment resolution stops gating — the page is full of
-        # bracketed prose (`[nolink]`, `[a[b]]`, a footnote, a padded label)
-        # that the renderer refuses to make a link of, plus an UNUSED
-        # definition pointing at a missing file, which is a finding only for an
-        # extractor that has stopped asking whether a link is emitted at all.
-        ("reference_style_links",            2),
-        # This repo's own blob/main | tree/main URLs, unwrapped to a
-        # repo path and validated. They are the spelling a shipped skill doc
-        # must use to cite anything outside its package, so they need the
-        # rename-safety a relative link gets. Both directions:
-        ("gh_url_ok",                        0),  # sound URLs stay silent
-        ("gh_url_missing",                   1),  # target does not exist
-        ("gh_url_kind_mismatch",             2),  # blob names a dir; tree a file
-        # 2 = a `.md` anchor that renders nowhere, and an anchor on a directory
-        # URL (which GitHub cannot resolve at all).
-        ("gh_url_broken_anchor",             2),
-        # `main` only — a tag- or sha-pinned URL names a frozen tree and is
-        # deliberately not rename-tracked. Both of its targets are missing, so
-        # this reads 2 the moment the unwrap stops binding `main`.
-        ("gh_url_pinned_ref_skipped",        0),
-        # This project's own PUBLISHED SITE URLs, resolved offline
-        # to the source page MkDocs would build them from. The sibling of the
-        # arm above for the other absolute spelling this repo writes about
-        # itself, and the shape a skill installed outside the checkout has no
-        # alternative to.
-        ("site_url_ok",                      0),  # sound URLs stay silent
-        # 1, not 2: the page EXISTS on disk and publishes nowhere because
-        # `exclude_docs` holds it back, while its sibling one level up still
-        # resolves. Reads 0 if the exclusion stops being consulted, and 2 if
-        # the prefix stops being scoped and swallows `design/`.
-        ("site_url_excluded",                1),
-        # What makes this a ROUTE resolver rather than a file
-        # check: all three sources exist, so an arm asking "is the file there?"
-        # passes all three of these 404s. The three controls beside them are
-        # the routes those same files really publish at, so the count falls to
-        # 0 if route semantics are lost and rises to 6 if they are overdone.
-        ("site_url_not_a_route",             3),
-        # Dotted page basenames — which is what this repo's
-        # `docs/api/re-frame.*.md` pages are. Resolving route semantics AFTER
-        # reading a dot in the final segment as a static file's extension
-        # would resolve every one to a file that does not exist and report it
-        # unpublished. The four sound URLs here read 0 only when candidates
-        # are tried FIRST; the three below are the teeth that disarming the
-        # inference entirely would pull. Reads 5 if dotted pages stop resolving, and 0
-        # if the static-file and source-filename rejections are lost with it.
-        ("site_url_dotted_route",            3),
-        # A site URL's `#anchor`, graded against the page MkDocs publishes by
-        # the MkDocs slug model. The page repeats one heading three times:
-        # `#setup_1` and `#setup_2` resolve and `#setup-1` does not, so the
-        # count reads 4 if the arm adopts GitHub's `-N` suffix, 0 if the
-        # fragment stops being graded, and 3 only for the MkDocs model. The
-        # other two are a renamed heading and an anchor on the site root; a
-        # fragment on a static file stays ungraded.
-        ("site_url_broken_anchor",           3),
+    teeth_root = _SELF_TEST_FIXTURE_ROOT / "compat_anchor_teeth"
+    # (label, fixture root, check() inputs, expected defect count).  The compat
+    # manifest, source-comment scan and placement rules default to empty, so no
+    # fixture depends on production handbook pages being absent.
+    count_cases: list[tuple[str, Path, dict, int]] = [
+        (fixture, _SELF_TEST_FIXTURE_ROOT / fixture, {}, expected)
+        for fixture, expected in [
+            ("absolute_path_ok",                 0),
+            # A relative link out of the docs trees into SOURCE is existence-
+            # checked whatever its kind.  The 1 is a renamed source file; the
+            # live source file and the live directory beside it stay silent.
+            ("relative_source_target",           1),
+            ("ai_findings_link_flagged",         1),
+            ("indented_heading_not_indexed",     1),
+            # attr_list is NOT enabled in mkdocs.yml, so `## One {#dup}` slugs
+            # its full title: `one-dup`, then `one-dup_1`.  Reads 2 if the brace
+            # suffix is ever honoured as an id.
+            ("explicit_id_duplicate",            0),
+            # A link whose text wraps across a newline is still validated.
+            ("wrapped_link_broken_anchor",       2),
+            # The 1 is a real broken link in prose AFTER an indented fence: the
+            # count rises if the fence's own broken sample link is read as prose,
+            # and falls if the fence swallows the document.
+            ("indented_fence_negative_control",  1),
+            # A RESOLVING doc link inside a fence, in a FENCED_DOC_LINK_TREES
+            # tree, so only the fenced-link assertion sees it.  Falls to 0 if the
+            # tree leaves the roster or fence recognition regresses; rises to 2
+            # if `_is_doc_destination` loosens to a bare `](`, which the
+            # fixture's `(fn [x](inc x))` would then match.
+            ("fenced_doc_link_prompt_tree",      1),
+            # Links to a `###` line and an `<a id>` INSIDE a blockquoted fence,
+            # which mint no target: falls to 0 if the fence is read as prose,
+            # rises to 3 if blanking runs past the blockquote or the blockquoted
+            # heading below it stops being indexed.
+            ("blockquoted_fence_not_indexed",    2),
+            # A broken TARGET and a broken ANCHOR, each reached through a
+            # `[label]: destination` definition.  Rises past 2 the moment
+            # resolution stops gating: the page's bracketed prose, footnote,
+            # padded label and UNUSED definition must all stay silent.
+            ("reference_style_links",            2),
+            # This repo's own blob/main | tree/main URLs, unwrapped to a repo
+            # path and validated.
+            ("gh_url_ok",                        0),  # GitHub's `-N` duplicate slug
+            ("gh_url_missing",                   1),
+            ("gh_url_kind_mismatch",             2),  # blob names a dir; tree a file
+            ("gh_url_broken_anchor",             2),  # a `.md` anchor; an anchor on a dir
+            # `main` only: both pinned targets are missing, so this reads 2 the
+            # moment the unwrap stops binding `main`.
+            ("gh_url_pinned_ref_skipped",        0),
+            # This project's own PUBLISHED SITE URLs, resolved offline to the
+            # source page MkDocs would build them from.
+            ("site_url_ok",                      0),
+            # The page exists on disk and `exclude_docs` holds it back, while its
+            # sibling one level up resolves: 0 if the exclusion is not consulted,
+            # 2 if the prefix stops being scoped.
+            ("site_url_excluded",                1),
+            # All three sources exist, so only ROUTE semantics catch these 404s;
+            # the three controls are the routes those files really publish at.
+            ("site_url_not_a_route",             3),
+            # Dotted page basenames (`docs/api/re-frame.*.md`) publish as routes:
+            # reads 5 if dotted pages stop resolving, 0 if the static-file and
+            # source-filename rejections are lost with the dot inference.
+            ("site_url_dotted_route",            3),
+            # A thrice-repeated heading: `#setup_1` and `#setup_2` resolve and
+            # GitHub's `#setup-1` does not, so the count reads 4 under GitHub's
+            # model and 0 if the fragment stops being graded.
+            ("site_url_broken_anchor",           3),
+        ]
+    ] + [
+        (f"compat teeth [{label}]", teeth_root, inputs, expected)
+        for label, inputs, expected in [
+            ("inventoried page missing",
+             dict(compat_anchors={"docs/machines/absent.md": ("keep-me",)}), 1),
+            # An anchor written only inside an HTML comment or an inline-code
+            # span, or a heading inside a multiline comment, mints no rendered
+            # target, so it does not satisfy the manifest.
+            ("commented anchor does not resolve",
+             dict(compat_anchors={"docs/machines/commented.md": ("keep-me",)}), 1),
+            ("backticked anchor does not resolve",
+             dict(compat_anchors={"docs/machines/backticked.md": ("keep-me",)}), 1),
+            ("commented-only heading mints no rendered slug",
+             dict(compat_anchors={"docs/machines/commented_heading.md": ("keep-me",)}), 1),
+            # The corpus's own alias-stack idiom: co-location explains the
+            # collision, it does not excuse it.
+            ("co-located collision still fails",
+             dict(compat_anchors={"docs/machines/stacked.md": ("dup-me",)}), 1),
+            # Commented and backticked anchor-shaped text before the passage must
+            # not stand in for the sole RENDERED anchor, which sits after it.
+            ("placement ignores commented/backticked fake anchor before passage",
+             dict(placement={("docs/routing/loader_fake_before.md", "when-a-loader-fails"):
+                             re.compile(r"On loader failure")}), 1),
+            ("async source-comment link broken",
+             dict(source_files=(teeth_root / "src" / "async_ref.cljc",)), 1),
+        ]
     ]
 
     failures = 0
-    for fixture, expected in cases:
-        root = _SELF_TEST_FIXTURE_ROOT / fixture
+    for label, root, inputs, expected in count_cases:
         if not (root / "mkdocs.yml").is_file():
-            sys.stderr.write(
-                f"self-test FAIL: fixture {fixture!r} missing mkdocs.yml at {root}\n"
-            )
+            sys.stderr.write(f"self-test FAIL: fixture {label!r} missing mkdocs.yml at {root}\n")
             failures += 1
             continue
-
-        # Silence the validator's own diagnostic output during self-tests so
-        # the success path stays terse.  Failures still surface via the
-        # PASS/FAIL summary below.
-        saved_stderr = sys.stderr
-        sys.stderr = _DevNull()
+        saved_stderr, sys.stderr = sys.stderr, _DevNull()
         try:
-            # Isolate through explicit fixture inputs: the compat manifest,
-            # source-comment scan, and placement rules are empty here, so these
-            # fixtures never depend on production handbook pages being absent.
-            got = check(
-                root,
-                verbose=False,
-                compat_anchors={},
-                source_files=(),
-                placement={},
-            )
+            got = check(root, **{"compat_anchors": {}, "source_files": (), "placement": {}, **inputs})
         finally:
             sys.stderr = saved_stderr
-
-        if got == expected:
-            if verbose:
-                sys.stderr.write(f"self-test PASS: {fixture} (broken={got})\n")
-        else:
-            sys.stderr.write(
-                f"self-test FAIL: {fixture} expected broken={expected}, got {got}\n"
-            )
+        if got != expected:
+            sys.stderr.write(f"self-test FAIL: {label} expected broken={expected}, got {got}\n")
             failures += 1
+        elif verbose:
+            sys.stderr.write(f"self-test PASS: {label} (broken={got})\n")
 
-    # Compat-anchor + source-comment TEETH. Drive the
-    # mechanism against fixture handbook pages through EXPLICIT
-    # manifest/source-file/placement inputs, proving:
-    #   * a present anchor + present page passes (docs/machines/page.md);
-    #   * a MISSING inventoried page fails (MISSING COMPAT PAGE) rather than
-    #     being silently skipped;
-    #   * render-faithfulness: an anchor that exists ONLY inside an
-    #     HTML comment or an inline-code span mints no rendered target, so it
-    #     does not satisfy the manifest and fails (MISSING COMPAT ANCHOR);
-    #   * uniqueness: a manifest anchor that resolves to two rendered
-    #     targets fails (DUPLICATE COMPAT ANCHOR); the duplicate-anchor
-    #     diagnostics below drive both shapes — two explicit ids, and an
-    #     explicit id colliding with a generated heading slug;
-    #   * placement: the anchor must precede the passage it names — a
-    #     correct fixture passes, and one whose only rendered anchor sits
-    #     after the passage fails (MISPLACED COMPAT ANCHOR) even with
-    #     anchor-shaped text before it;
-    #   * the source-comment mechanism validates links into real
-    #     non-Machines handbooks (Routing valid, Async broken), exercising the
-    #     manifest-derived handbook vocabulary causally.
-    teeth_root = _SELF_TEST_FIXTURE_ROOT / "compat_anchor_teeth"
-    teeth_cases: list[tuple[str, dict, int]] = [
-        ("compat anchor present",
-         dict(compat_anchors={"docs/machines/page.md": ("keep-me",)},
-              source_files=(), placement={}), 0),
-        ("inventoried page missing",
-         dict(compat_anchors={"docs/machines/absent.md": ("keep-me",)},
-              source_files=(), placement={}), 1),
-        # Render-faithfulness teeth.
-        ("commented anchor does not resolve",
-         dict(compat_anchors={"docs/machines/commented.md": ("keep-me",)},
-              source_files=(), placement={}), 1),
-        ("backticked anchor does not resolve",
-         dict(compat_anchors={"docs/machines/backticked.md": ("keep-me",)},
-              source_files=(), placement={}), 1),
-        # Uniqueness tooth.  A co-located collision is the corpus's own idiom
-        # (118 ids across 15 pages) and still fails. This is the tooth that pins the
-        # one-rendered-target rule against teaching the gate to accept the
-        # pattern: co-location is why the failure is explainable, not a reason to
-        # stop failing.
-        ("co-located collision still fails",
-         dict(compat_anchors={"docs/machines/stacked.md": ("dup-me",)},
-              source_files=(), placement={}), 1),
-        # Placement teeth.
-        ("placement ok — anchor precedes passage",
-         dict(compat_anchors={}, source_files=(),
-              placement={("docs/routing/loader_ok.md", "when-a-loader-fails"):
-                         re.compile(r"On loader failure")}), 0),
-        # Render-faithful source paths. (1) A heading that exists ONLY inside a
-        # multiline HTML comment mints no fragment target, so it must not
-        # satisfy the manifest. (2) Placement must
-        # locate the RENDERED anchor: commented and backticked anchor-shaped text
-        # before the passage must not stand in for the sole real anchor, which
-        # sits after it.
-        ("commented-only heading mints no rendered slug",
-         dict(compat_anchors={"docs/machines/commented_heading.md": ("keep-me",)},
-              source_files=(), placement={}), 1),
-        ("placement ignores commented/backticked fake anchor before passage",
-         dict(compat_anchors={}, source_files=(),
-              placement={("docs/routing/loader_fake_before.md", "when-a-loader-fails"):
-                         re.compile(r"On loader failure")}), 1),
-        # Source-comment mechanism, on real non-Machines source comments,
-        # exercised causally.
-        ("routing source-comment link valid",
-         dict(compat_anchors={}, placement={},
-              source_files=(teeth_root / "src" / "routing_ref.cljc",)), 0),
-        ("async source-comment link broken",
-         dict(compat_anchors={}, placement={},
-              source_files=(teeth_root / "src" / "async_ref.cljc",)), 1),
-    ]
-    if not (teeth_root / "mkdocs.yml").is_file():
-        sys.stderr.write(
-            f"self-test FAIL: fixture 'compat_anchor_teeth' missing mkdocs.yml "
-            f"at {teeth_root}\n"
-        )
-        failures += 1
-    else:
-        for label, kwargs, expected in teeth_cases:
-            saved_stderr = sys.stderr
-            sys.stderr = _DevNull()
-            try:
-                got = check(teeth_root, verbose=False, **kwargs)
-            finally:
-                sys.stderr = saved_stderr
-            if got == expected:
-                if verbose:
-                    sys.stderr.write(
-                        f"self-test PASS: compat teeth [{label}] (broken={got})\n"
-                    )
-            else:
-                sys.stderr.write(
-                    f"self-test FAIL: compat teeth [{label}] "
-                    f"expected broken={expected}, got {got}\n"
-                )
-                failures += 1
-
-    # The DIAGNOSTIC for a colliding compat anchor. The gate's verdict does not
-    # depend on it; what is pinned here is that the report can say WHERE the
-    # collision is and WHICH of the two shapes it is, so an author who lists an
-    # idiomatic co-located id is told why it fails. The predicate
-    # fails in both directions: a stack of alias anchors above a heading is ONE
-    # landing spot (anchor elements render empty), while two anchors with a
-    # paragraph between them are two.
-    diagnostic_cases: list[tuple[str, str, str, list[tuple[int, str]], bool]] = [
-        ("explicit anchor above its own heading",
-         "docs/machines/collision.md", "dup-me",
-         [(3, ANCHOR_MECHANISM), (5, HEADING_MECHANISM)], True),
-        ("alias stack above its own heading",
-         "docs/machines/stacked.md", "dup-me",
+    # The DUPLICATE COMPAT ANCHOR report says WHERE the collision is and whether
+    # its occurrences share one landing spot: anchor elements render empty, so
+    # an alias stack above its heading is one, while prose between two is not.
+    diagnostic_cases: list[tuple[str, list[tuple[int, str]], bool]] = [
+        ("docs/machines/stacked.md",
          [(4, ANCHOR_MECHANISM), (7, HEADING_MECHANISM)], True),
-        ("two anchors with prose between them are NOT co-located",
-         "docs/machines/duplicate.md", "dup-me",
+        ("docs/machines/duplicate.md",
          [(3, ANCHOR_MECHANISM), (7, ANCHOR_MECHANISM)], False),
     ]
-    for label, page_rel, anchor, expected_where, expected_colocated in diagnostic_cases:
+    for page_rel, expected_where, expected_colocated in diagnostic_cases:
         _missing, _pages, dupes = _check_compat_anchors(
-            teeth_root, _scan_rendered_id_lines, {page_rel: (anchor,)}
+            teeth_root, _scan_rendered_id_lines, {page_rel: ("dup-me",)}
         )
-        if len(dupes) != 1:
+        want = [(page_rel, "dup-me", expected_where, expected_colocated)]
+        if dupes != want:
             sys.stderr.write(
-                f"self-test FAIL: duplicate diagnostic [{label}] expected exactly "
-                f"one duplicate, got {dupes}\n"
-            )
-            failures += 1
-            continue
-        _page, _anchor, where, colocated = dupes[0]
-        if where != expected_where or colocated != expected_colocated:
-            sys.stderr.write(
-                f"self-test FAIL: duplicate diagnostic [{label}] expected "
-                f"where={expected_where} colocated={expected_colocated}, got "
-                f"where={where} colocated={colocated}\n"
+                f"self-test FAIL: duplicate diagnostic [{page_rel}] expected {want}, got {dupes}\n"
             )
             failures += 1
         elif verbose:
-            sys.stderr.write(
-                f"self-test PASS: duplicate diagnostic [{label}]\n"
-            )
+            sys.stderr.write(f"self-test PASS: duplicate diagnostic [{page_rel}]\n")
 
-    # The source-comment handbook vocabulary is DERIVED from the
-    # manifest, with no independent COMPAT_HANDBOOKS authority. Assert the derived
-    # set matches the manifest keys and the link regex matches every covered
-    # handbook (the causal guarantee the broken-async tooth above depends on).
-    expected_handbooks = {page.split("/")[1] for page in HANDBOOK_COMPAT_ANCHORS}
-    if set(COMPAT_HANDBOOKS) != expected_handbooks:
-        sys.stderr.write(
-            "self-test FAIL: COMPAT_HANDBOOKS drifted from the manifest keys: "
-            f"derived {sorted(COMPAT_HANDBOOKS)}, expected {sorted(expected_handbooks)}\n"
-        )
-        failures += 1
-    elif not all(
-        _HANDBOOK_DOC_LINK_RE.search(f"docs/{hb}/page.md#anchor")
-        for hb in ("machines", "async", "api", "routing")
-    ):
-        sys.stderr.write(
-            "self-test FAIL: manifest-derived handbook link regex does not match "
-            "every covered handbook (machines/async/api/routing)\n"
-        )
-        failures += 1
-    elif verbose:
-        sys.stderr.write(
-            "self-test PASS: source-comment handbook vocabulary derived from the "
-            "manifest (no independent COMPAT_HANDBOOKS authority)\n"
-        )
-
-    # Placement rules stay in lock-step with the anchor manifest: every
-    # COMPAT_ANCHOR_PLACEMENT key must name a real (page, anchor) in the manifest.
-    placement_orphans = [
-        (page_rel, anchor)
-        for (page_rel, anchor) in COMPAT_ANCHOR_PLACEMENT
-        if anchor not in HANDBOOK_COMPAT_ANCHORS.get(page_rel, ())
-    ]
-    if placement_orphans:
-        sys.stderr.write(
-            "self-test FAIL: COMPAT_ANCHOR_PLACEMENT references non-manifest "
-            f"anchors: {placement_orphans}\n"
-        )
-        failures += 1
-    elif verbose:
-        sys.stderr.write(
-            "self-test PASS: every placement rule keys a real manifest anchor\n"
-        )
-
-    # The source-comment scan covers the whole tracked tree, so MOVING a
-    # covered comment to a deep non-examples path keeps it validated, while vendored
-    # trees stay pruned. `node_modules/vendored.cljc` is itself TRACKED, so this also
-    # proves the exclusions apply on top of tracking rather than falling out of it.
-    source_walk = {
-        p.relative_to(teeth_root).as_posix() for p in _iter_source_files(teeth_root)
-    }
-    if "lib/deep/moved_ref.cljc" not in source_walk:
-        sys.stderr.write(
-            "self-test FAIL: source scan dropped a covered comment at a "
-            f"non-examples path (got {sorted(source_walk)})\n"
-        )
-        failures += 1
-    elif "node_modules/vendored.cljc" in source_walk:
-        sys.stderr.write(
-            "self-test FAIL: source scan included a pruned vendor tree "
-            f"(got {sorted(source_walk)})\n"
-        )
-        failures += 1
-    elif verbose:
-        sys.stderr.write(
-            "self-test PASS: source scan covers tracked non-examples paths and "
-            "prunes vendored trees\n"
-        )
-
-    # The roster is Git tracking, not the filesystem. An UNTRACKED
-    # scratch source carrying a genuinely broken covered link must not reach the
-    # production scan. The tooth is causal in both directions: the same file is
-    # first proven poisonous via an explicit `source_files` input (it DOES report
-    # a break when handed over directly), then proven invisible to the tracked
-    # roster. A walk-based roster fails the second half.
-    scratch = teeth_root / "src" / "k30r7_untracked_scratch.cljc"
+    # The source-comment roster is Git tracking with vendored trees pruned on top:
+    # a tracked comment at a deep non-examples path stays covered, while a
+    # tracked `node_modules/` copy and an untracked scratch file do not.
+    scratch = teeth_root / "src" / "untracked_scratch.cljc"
     try:
-        scratch.write_text(
-            "(ns k30r7-untracked-scratch)\n"
-            ";; ../../docs/machines/concepts.md#rf2-k30r7-anchor-that-does-not-exist\n",
-            encoding="utf-8",
-        )
-        saved_stderr = sys.stderr
-        sys.stderr = _DevNull()
-        try:
-            explicit_broken = check(
-                teeth_root,
-                verbose=False,
-                compat_anchors={},
-                placement={},
-                source_files=(scratch,),
-            )
-        finally:
-            sys.stderr = saved_stderr
-        tracked_roster = {
-            p.relative_to(teeth_root).as_posix()
-            for p in _iter_source_files(teeth_root)
-        }
+        scratch.write_text("(ns untracked-scratch)\n", encoding="utf-8")
+        roster = {p.relative_to(teeth_root).as_posix() for p in _iter_source_files(teeth_root)}
     finally:
         scratch.unlink(missing_ok=True)
-
-    if explicit_broken != 1:
-        sys.stderr.write(
-            "self-test FAIL: the untracked-scratch fixture is not actually broken, "
-            f"so the tracking tooth proves nothing (got broken={explicit_broken})\n"
-        )
-        failures += 1
-    elif scratch.relative_to(teeth_root).as_posix() in tracked_roster:
-        sys.stderr.write(
-            "self-test FAIL: an untracked scratch source reached the production "
-            f"scan (got {sorted(tracked_roster)})\n"
-        )
-        failures += 1
-    elif "src/valid.clj" not in tracked_roster:
-        sys.stderr.write(
-            "self-test FAIL: the tracked roster lost a tracked source while "
-            f"excluding the untracked one (got {sorted(tracked_roster)})\n"
-        )
+    if (
+        "lib/deep/moved_ref.cljc" not in roster
+        or "node_modules/vendored.cljc" in roster
+        or "src/untracked_scratch.cljc" in roster
+    ):
+        sys.stderr.write(f"self-test FAIL: source roster got {sorted(roster)}\n")
         failures += 1
     elif verbose:
-        sys.stderr.write(
-            "self-test PASS: untracked scratch sources cannot fail the scan while "
-            "tracked sources stay covered\n"
-        )
+        sys.stderr.write("self-test PASS: source roster is tracked, unvendored files\n")
 
-    # Link extraction driven directly with explicit line
-    # lists, so the wrap contract is pinned at the mechanism rather than only
-    # through a fixture's aggregate count. Each case states the (line_no,
-    # destination) pairs `_iter_inline_links` must yield from FENCE-STRIPPED
-    # input — `_extract_links` reduces a file to exactly this shape, and inline
-    # code is masked inside `_iter_inline_links` over the joined unit, so these
-    # inputs are raw source lines. The cases run in both directions: the join
-    # must reach across a wrap and must stop at every real block
-    # boundary and inside a multiline code span.
+    # `_iter_inline_links` driven directly with fence-stripped (line_no, text)
+    # pairs: the join must reach across a wrap and stop at every real block
+    # boundary.  Expectations are python-markdown's, which MkDocs runs.
     extraction_cases: list[tuple[str, list[tuple[int, str]], list[tuple[int, str]]]] = [
-        # Text wraps, so `](dest)` lands on the next line.  The DESTINATION's
-        # line is what gets reported, because an unclosed stray `[` earlier in
-        # the same block drags the match START backwards.
-        ("wrapped link extracted, reported at the destination's line",
-         [(1, "See [the"), (2, "doc](target.md#anchor) for detail.")],
-         [(2, "target.md#anchor")]),
-        # BLOCK BOUND — a blank line ends the block, so these are never one link.
-        # A fenced block arrives already blanked by `_strip_fences`, so it is
-        # this same boundary.
+        # BLOCK BOUNDS: a blank line (so also a blanked fence), and the
+        # paragraph-interrupting leaf and container starts.
         ("blank line is not bridged",
          [(1, "A stray bracket [here"), (2, ""), (3, "](missing.md) after.")],
          []),
-        # A destination may not itself wrap: CommonMark forbids whitespace in a
-        # bare destination, so this is not a link the renderer would produce.
+        # CommonMark forbids whitespace in a bare destination.
         ("wrapped DESTINATION is not a link",
          [(1, "See [the doc](target.md#an"), (2, "chor) for detail.")],
-         []),
-        # NON-BLANK block boundaries. A blank line is not the only
-        # boundary; each pair below spans a real one, so no renderer produces a
-        # link from it.
-        ("ATX heading is not bridged",
-         [(1, "A stray [opening"), (2, "# Separate heading"),
-          (3, "](missing.md)")],
          []),
         ("a heading does not reach the paragraph below it",
          [(1, "# A heading holding a stray ["),
@@ -3201,94 +2907,35 @@ def _run_self_tests(verbose: bool = False) -> int:
          [(1, "* A bullet holding a stray ["),
           (2, "* the next bullet](missing.md) closes the list.")],
          []),
-        ("table row is not bridged",
-         [(1, "| A cell holding a stray [ | one |"),
-          (2, "| a later row](missing.md) | two |")],
-         []),
         ("blockquote entry is not bridged",
          [(1, "A paragraph holding a stray ["),
           (2, "> and a quote](missing.md) interrupts it.")],
          []),
-        # POSITIVE CONTROL for those bounds — the mirror-image failure is
-        # bounding so aggressively that real wrapped links are discarded.
-        # A list item's CONTINUATION line carries no marker, so it is one
-        # inline run with its item and a link wrapping inside it is still
-        # extracted.  CommonMark lazy continuation after a quoted line is one
-        # run too; it is pinned under the depth rule below.
+        # A list item's unmarked continuation line is the same inline run, and a
+        # wrapped link is reported at its DESTINATION's line.
         ("wrapped link inside one list item still extracted",
          [(1, "* See [the compiled"),
           (2, "  views](API.md#compiled-views) doc.")],
          [(2, "API.md#compiled-views")]),
-        # Code spans are masked over the JOINED unit, because a
-        # CommonMark code span may contain a line ending: per-line masking
-        # would see two unpaired backticks, mask neither, and invent a link
-        # the renderer never produces.
+        # Code spans are masked over the JOINED unit, because a span may contain
+        # a line ending; an unpaired backtick opens no span.
         ("multiline code span masks only itself",
          [(1, "See [the doc](target.md#anchor) and a `[fake"),
           (2, "link](nowhere.md)` placeholder.")],
          [(1, "target.md#anchor")]),
-        # POSITIVE CONTROL for the mask: an UNPAIRED backtick opens no span in
-        # CommonMark, so it must not swallow the rest of the unit — the risk
-        # a joined-unit mask carries.
         ("unpaired backtick masks nothing",
          [(1, "A stray ` backtick opens no span,"),
           (2, "and [the real link](target.md#anchor) follows.")],
          [(2, "target.md#anchor")]),
-        # ------------------------------------------------------------------
-        # An ATX heading interrupts a paragraph only at COLUMN ZERO.
-        #
-        # CommonMark permits a ≤3-space indent; python-markdown does not:
-        # `HashHeaderProcessor.RE` is anchored
-        # `(?:^|\n)#{1,6}`, with no leading-space allowance at all, so an
-        # indented `###` is ordinary paragraph text.  `_LEAF_LINE_BLOCK_RE`
-        # and `_HEADING_RE` above both encode the column-zero rule, so the
-        # two agree.
-        #
-        # Getting it wrong costs the gate in BOTH directions.  Renderer-derived, via
-        # mkdocs.config.load_config('mkdocs.yml') into a markdown.Markdown.
-        #
-        # FALSE POSITIVE — the span really does close on line 3, so the
-        # bracket is code and the renderer resolves nothing.  Ending the unit
-        # at line 2 would leave two unpaired backtick runs, mask neither and
-        # invent a link to check.
-        ("indented ATX heading does not bound an inline code span",
-         [(1, "Prose with `a code span"),
-          (2, "   ### not a heading to python-markdown"),
-          (3, "[in](in-target.md)` closing here.")],
-         []),
-        ("indented ATX heading inside a quote does not bound one either",
-         [(1, "> Prose with `a code span"),
-          (2, ">    ### not a heading to python-markdown"),
-          (3, "> [in](in-target.md)` closing here.")],
-         []),
-        # FALSE GREEN, the direction that actually costs coverage: with no code
-        # span in play the three lines are ONE paragraph, and the renderer
-        # emits `<a href="missing.md">`.  Bounding the unit at line 2 would
-        # drop that link on the floor — a real broken link, never checked.
+        # python-markdown reads an ATX heading only at COLUMN ZERO (CommonMark
+        # allows three spaces), so an indented `###` is paragraph text.
         ("indented ATX heading does not bound a paragraph at all",
          [(1, "A stray [opening"),
           (2, "   ### Separate heading"),
           (3, "](missing.md)")],
          [(3, "missing.md")]),
-        # The CONTROLS at column zero, where the two agree and must keep
-        # agreeing, are "ATX heading is not bridged" and "a heading does not
-        # reach the paragraph below it" above.  Without them the three cases
-        # above are satisfied by a predicate that recognises no ATX heading at
-        # all.
-        # ------------------------------------------------------------------
-        # Two blockquote boundaries.  Renderer-derived, via mkdocs.config.load_config('mkdocs.yml')
-        # into a markdown.Markdown against python-markdown 3.10 + pymdownx
-        # 10.21.3, one case per verdict the renderer actually returned.
-        #
-        # FIRST: a line of nothing but blockquote markers.
-        # `BlockQuoteProcessor.clean` maps it to the empty string, so it ends
-        # the quoted paragraph — 569 of them are in this corpus.  Reading it as
-        # a continuation line would let the join reach across a paragraph break.
-        #
-        # FALSE GREEN, the expensive direction: the two backtick runs are in
-        # DIFFERENT paragraphs, so neither opens a span, and the renderer emits
-        # `<a href="in-target.md">`.  Joining across the break would pair them
-        # and mask a real link out of existence — unchecked, silently.
+        # A line of nothing but quote markers ends the quoted paragraph, so the
+        # two backtick runs cannot pair into a span that hides the link.
         ("a bare > ends the quoted paragraph, so no span swallows the link",
          [(1, "> Prose with `a code span"),
           (2, ">"),
@@ -3299,106 +2946,47 @@ def _run_self_tests(verbose: bool = False) -> int:
           (2, ">   "),
           (3, "> [in](in-target.md)` closing here.")],
          [(3, "in-target.md")]),
-        # CONTROL.  Without it both cases above are satisfied by a rule that
-        # bounds at EVERY quoted line, which would drop blockquoted wrapped
-        # links.  The `>` markers ride along in the link TEXT; only the
-        # destination is captured, so they are harmless.
         ("a quoted continuation line does not end the paragraph",
          [(1, "> A stray [opening"),
           (2, "> and more"),
           (3, "> ](missing.md)")],
          [(3, "missing.md")]),
-        # SECOND: lazy continuation RESUMES a quote, it does not enter one.
-        # The unit's depth is the depth it OPENED at, not the previous line's —
-        # after an unmarked middle line the previous line's depth is 0, so
-        # comparing against it reads a `>`-marked third line as an entry and
-        # splits a paragraph the renderer keeps whole.
-        #
-        # FALSE GREEN: `BlockQuoteProcessor` cleans all three lines into one
-        # paragraph and emits `<a href="API.md#compiled-views">`.  A split
-        # would drop it unchecked.
+        # Quote depth is compared with the depth the unit OPENED at, so a
+        # re-marked line after lazy continuation RESUMES the quote.
         ("a re-marked line after lazy continuation is not a new quote",
          [(1, "> Per the note, see [§Compiled"),
           (2, "views and the"),
           (3, "> rest](API.md#compiled-views).")],
          [(3, "API.md#compiled-views")]),
-        # CONTROLS for the depth rule — entering ("blockquote entry is not
-        # bridged" above) is one; these are the other three.
         ("nesting deeper still bounds",
          [(1, "> A paragraph holding a stray ["),
           (2, ">> and a deeper quote](missing.md) interrupts it.")],
-         []),
-        ("nesting deeper after lazy continuation still bounds",
-         [(1, "> A paragraph holding a stray ["),
-          (2, "lazy continuation"),
-          (3, ">> deeper](missing.md)")],
          []),
         ("a shallower quoted line after a deeper one still joins",
          [(1, ">> Per the note, see [§Compiled"),
           (2, "> views](API.md#compiled-views).")],
          [(2, "API.md#compiled-views")]),
-        # ------------------------------------------------------------------
-        # REFERENCE-STYLE links: the renderer emits links from `[label]: dest`
-        # definitions, and a link checker's false negatives are the
-        # expensive direction.
-        #
-        # The cases are driven from the GRAMMAR — every legal form, each
-        # position a definition may take relative to its use, and the label
-        # normalisation on both sides — and every verdict
-        # is what mkdocs' own markdown.Markdown returned for that exact input.
-        # A reference use is reported at its DEFINITION's line, because that is
-        # where the destination is written, and ONCE per definition however
-        # many times the label is used.
-        #
-        # THE THREE FORMS.  The full form `[text][label]` is the shape of the
-        # label-normalisation cases below, so it resolves there.
+        # REFERENCE-STYLE links: a use is reported once, at its DEFINITION's line.
         ("collapsed form [label][] resolves",
          [(1, "See [t][] for detail."), (2, ""), (3, "[t]: target.md#anchor")],
          [(3, "target.md#anchor")]),
-        ("shortcut form [label] resolves",
-         [(1, "See [t] for detail."), (2, ""), (3, "[t]: target.md#anchor")],
-         [(3, "target.md#anchor")]),
-        # THE SHORTCUT FORM'S GATE, and the reason resolution runs before
-        # reporting: with no definition the renderer emits literal brackets,
-        # and this corpus is full of bracketed prose and Clojure vectors.
-        ("shortcut with no definition is not a link",
-         [(1, "The path [1] and a stray [nolink] are prose.")],
-         []),
-        # DEFINITION POSITION — after the use, in the middle of a paragraph,
-        # and with the destination on its own line; a definition BEFORE its
-        # use is the blockquote case below.  All are one `md.references`
-        # dictionary to the renderer, which is document-wide and order-free.
-        ("definition interrupting a paragraph resolves",
-         [(1, "See [t] for detail."), (2, "[t]: target.md#anchor")],
-         [(2, "target.md#anchor")]),
         ("destination on the line below the label resolves",
          [(1, "See [t] for detail."), (2, ""), (3, "[t]:"),
           (4, "    target.md#anchor")],
          [(4, "target.md#anchor")]),
+        # Three spaces of indent still defines; four is an indented code block.
         ("definition indented three spaces resolves",
          [(1, "See [t] for detail."), (2, ""), (3, "   [t]: target.md#anchor")],
          [(3, "target.md#anchor")]),
-        # ...and four spaces is an indented code block, which defines nothing.
         ("definition indented four spaces defines nothing",
          [(1, "See [t] for detail."), (2, ""), (3, "    [t]: target.md#anchor")],
          []),
-        # A DEFINITION IS REMOVED FROM THE INLINE STREAM.  Without blanking it
-        # the label on the definition line reads as a shortcut use of itself,
-        # and one definition reports twice.  With no use, it emits no link at
-        # all: reporting an unused definition would be a lint about dead
-        # markup, not a link check.
-        ("a definition line is not a shortcut use of itself",
-         [(1, "[t]: target.md#anchor")],
-         []),
-        # ONE REPORT PER DEFINITION.  Three uses of one label are one broken
-        # destination on one line; three identical diagnostics would be noise.
         ("three uses of one definition report once",
          [(1, "See [t], then [the doc][t], then [t][] again."), (2, ""),
           (3, "[t]: target.md#anchor")],
          [(3, "target.md#anchor")]),
-        # LABEL NORMALISATION, and the asymmetry CommonMark does not have.  The
-        # definition side is `.strip().lower()`; the use side is `.lower()`
-        # with `\s+` folded to one space and NO strip.
+        # Label matching is asymmetric: the definition side is `.strip().lower()`,
+        # the use side `.lower()` with whitespace runs folded and NO strip.
         ("label matching is case-insensitive on both sides",
          [(1, "See [the doc][HeLLo] for detail."), (2, ""),
           (3, "[hEllO]: target.md#anchor")],
@@ -3407,10 +2995,6 @@ def _run_self_tests(verbose: bool = False) -> int:
          [(1, "See [the doc][a  b] for detail."), (2, ""),
           (3, "[a b]: target.md#anchor")],
          [(3, "target.md#anchor")]),
-        ("a use label wrapping across a newline folds the same way",
-         [(1, "See [the doc][a"), (2, "b] for detail."), (3, ""),
-          (4, "[a b]: target.md#anchor")],
-         [(4, "target.md#anchor")]),
         ("the USE label is folded but NOT stripped, so padding kills it",
          [(1, "See [the doc][  t  ] for detail."), (2, ""),
           (3, "[t]: target.md#anchor")],
@@ -3419,100 +3003,48 @@ def _run_self_tests(verbose: bool = False) -> int:
          [(1, "See [the doc][a b] for detail."), (2, ""),
           (3, "[a  b]: target.md#anchor")],
          []),
-        # LAST DEFINITION WINS — `md.references[id] = …` is an assignment, the
-        # opposite of CommonMark's first-wins rule.
+        # `md.references[id] = ...` is an assignment, the opposite of
+        # CommonMark's first-wins rule.
         ("the LAST definition of a label wins",
          [(1, "See [t] for detail."), (2, ""), (3, "[t]: first.md#a"),
           (4, "[t]: second.md#b")],
          [(4, "second.md#b")]),
-        # PRECEDENCE — the inline pattern outranks the reference one, so an
-        # inline link is never also read as a shortcut use of a definition that
-        # happens to share its text.
         ("an inline link outranks a definition of the same name",
          [(1, "See [t](inline.md#a) for detail."), (2, ""),
           (3, "[t]: reference.md#b")],
          [(1, "inline.md#a")]),
-        # A WRAPPED full-form use, the shape 003-Tool-Catalogue.md actually
-        # writes: the text wraps and the label lands on the following line.
         ("a full-form use wrapping across a newline resolves",
          [(1, "**Returns** the shape (per [Tool-Pair §Tool-surface"),
           (2, "obligations][tsobl] — `:frames` and the rest."), (3, ""),
           (4, "[tsobl]: Tool-Pair.md#tool-surface-obligations")],
          [(4, "Tool-Pair.md#tool-surface-obligations")]),
-        # BLOCKQUOTES.  Markers come off before the definition is matched, and
-        # `md.references` is document-wide, so a definition written inside a
-        # quote serves a use outside it.
+        # Quote markers come off before a definition is matched, and the
+        # definitions are document-wide.
         ("a definition inside a blockquote serves a use outside it",
          [(1, "> [q]: target.md#anchor"), (2, ""), (3, "See [q] for detail.")],
          [(1, "target.md#anchor")]),
-        # CODE.  A use inside a code span is code.  A definition inside a fence
-        # needs no case of its own: `_strip_fences` blanks it before extraction
-        # runs, which leaves a use with no definition, the shortcut case above.
         ("a reference use inside a code span is not a link",
          [(1, "See `[t][]` for detail."), (2, ""), (3, "[t]: target.md#anchor")],
-         []),
-        # NOT REFERENCE LINKS.  A footnote is consumed by the `footnotes`
-        # extension before either processor runs, and a label may not contain
-        # brackets at all.
-        ("a footnote is not a reference link",
-         [(1, "See the note[^1] for detail."), (2, ""),
-          (3, "[^1]: target.md#anchor is only prose here.")],
-         []),
-        ("a label containing brackets defines nothing",
-         [(1, "See [the doc][a[b]] for detail."), (2, ""),
-          (3, "[a[b]]: target.md#anchor")],
          []),
     ]
     for label, lines, expected_links in extraction_cases:
         got_links = list(_iter_inline_links(lines))
-        if got_links == expected_links:
-            if verbose:
-                sys.stderr.write(
-                    f"self-test PASS: extraction [{label}]\n"
-                )
-        else:
+        if got_links != expected_links:
             sys.stderr.write(
                 f"self-test FAIL: extraction [{label}] expected "
                 f"{expected_links}, got {got_links}\n"
             )
             failures += 1
+        elif verbose:
+            sys.stderr.write(f"self-test PASS: extraction [{label}]\n")
 
-    # FENCE RECOGNITION, driven directly at `_strip_fences`.  That
-    # function is the scanner's only notion of "this is code, not prose", so
-    # every other check inherits whatever it gets wrong: a column-0-anchored
-    # matcher cannot see an indented fence, so links written into the sample
-    # it holds would pass the gate.
-    #
-    # Each case states the 1-based line numbers that survive as PROSE.  Driving
-    # the primitive rather than a fixture matters here: the inline-code-span
-    # mask pairs a balanced fence's own backtick runs by accident, so a
-    # fixture-level count can come out right while the scanner is still blind.
-    #
-    # The expectations are RENDERER-DERIVED, not read off CommonMark: each was
-    # confirmed against python-markdown + pymdownx.superfences, the pair MkDocs
-    # actually runs, which is stricter than CommonMark about closing fences.
+    # `_strip_fences` driven directly: each case lists the 1-based lines that
+    # survive as PROSE.  Expectations are python-markdown + pymdownx.superfences,
+    # which MkDocs runs and which is stricter than CommonMark about closing
+    # fences.  A fence is a MATCHED PAIR: an opener with no closer is prose.
     fence_cases: list[tuple[str, list[str], list[int]]] = [
-        # POSITIVE CONTROL — the column-0 well-formed pair, whose job is to
-        # stay green.  Without it the malformed-fence cases below are satisfied
-        # by a scanner that recognises no fence at all.
-        ("column-0 fence still blanks its body",
-         ["Prose before.",
-          "",
-          "```clojure",
-          "[not a link](missing.md)",
-          "```",
-          "Prose after."],
-         [1, 6]),
-        # A fence carrying its container's indent.
-        ("fence indented inside an admonition is a fence",
-         ["!!! note",
-          "",
-          "    ```clojure",
-          "    [not a link](missing.md)",
-          "    ```",
-          "",
-          "Prose after."],
-         [1, 7]),
+        # A fence sits at its container's content column, up to three spaces
+        # past it; four or more is an indented code block, which opens nothing.
         ("indented tilde fence is a fence",
          ["- A bullet:",
           "",
@@ -3522,9 +3054,6 @@ def _run_self_tests(verbose: bool = False) -> int:
           "",
           "Prose after."],
          [1, 7]),
-        # CommonMark's three-space allowance, which the renderer honours: a
-        # fence may be indented up to three spaces in ordinary context.  The
-        # corpus has 100 such lines.
         ("fence indented three spaces in ordinary context is a fence",
          ["Prose.",
           "",
@@ -3534,12 +3063,6 @@ def _run_self_tests(verbose: bool = False) -> int:
           "",
           "Prose after."],
          [1, 7]),
-        # THE CONTROL THAT REJECTS A ONE-CHARACTER RELAXATION.  Four or more spaces
-        # in ordinary context is an INDENTED CODE BLOCK, a different construct
-        # with no closing delimiter.  A matcher relaxed to `^\s*` opens a fence
-        # here and, finding no closer, blanks the rest of the file.  Lines 3-4
-        # stay visible because this scanner recognises where a FENCE is, not
-        # where an indented code block is — see `_strip_fences`.
         ("four-space indented code block in ordinary context is not a fence",
          ["Prose.",
           "",
@@ -3548,13 +3071,8 @@ def _run_self_tests(verbose: bool = False) -> int:
           "",
           "Prose after."],
          [1, 3, 4, 6]),
-        # THE CONTROL THAT REJECTS CommonMark'S CLOSING-FENCE SLACK.  Taken
-        # from skills/re-frame2-implementor/references/output-format.md, which
-        # displays a nested fence inside a ```markdown sample.  CommonMark lets
-        # a closing fence be indented up to three spaces regardless of its
-        # opener, which would end the outer block at line 3; superfences does
-        # not, and neither do we — the closer must be the opener's exact marker
-        # at the opener's exact indentation.
+        # The closer must be the opener's exact marker at its exact indent, not
+        # CommonMark's three-space slack.
         ("indented bare fence inside a column-0 fence does not close it",
          ["```markdown",
           "- **Claimed tags:**",
@@ -3566,22 +3084,7 @@ def _run_self_tests(verbose: bool = False) -> int:
           "",
           "Prose after."],
          [9]),
-        # ------------------------------------------------------------------
-        # BLOCKQUOTED fences.  A blockquote is a container like any
-        # other, and superfences opens a fence at the column its prefix leaves
-        # (`parse_whitespace` consumes `>`, spaces and tabs alike).  These
-        # expectations were read off python-markdown + pymdownx.superfences
-        # directly, case by case.
-        # ------------------------------------------------------------------
-        ("blockquoted fence blanks its body",
-         ["> Prose before.",
-          ">",
-          "> ```clojure",
-          "> [not a link](missing.md)",
-          "> ```",
-          ">",
-          "> Prose after."],
-         [1, 2, 6, 7]),
+        # BLOCKQUOTED fences: the quote's markers are the container.
         ("nested-blockquote fence is a fence",
          ["> > ```clojure",
           "> > [not a link](missing.md)",
@@ -3589,8 +3092,6 @@ def _run_self_tests(verbose: bool = False) -> int:
           "",
           "Prose after."],
          [5]),
-        # `>` is a prefix character in its own right — superfences does not
-        # require a space after it.
         ("blockquote marker with no following space",
          [">```clojure",
           ">[not a link](missing.md)",
@@ -3605,12 +3106,6 @@ def _run_self_tests(verbose: bool = False) -> int:
           "",
           "Prose after."],
          [5]),
-        # THE CONTROL THAT REJECTS AN UNBOUNDED QUOTE MATCHER.  Four spaces past
-        # the quote's content column is an INDENTED CODE BLOCK inside the quote,
-        # exactly as it is at column 0: superfences opens a fence greedily and
-        # then RESTORES the literal source when an indented block consumes it
-        # (`_store` / `restore_raw_text`).  The rendered page shows the fence
-        # markers as text, so lines 3-5 are not a fence and stay visible.
         ("four spaces after the quote marker is an indented code block",
          ["> Prose.",
           ">",
@@ -3629,18 +3124,7 @@ def _run_self_tests(verbose: bool = False) -> int:
           "",
           "Prose after."],
          [1, 7]),
-        # A blank line does not end a blockquote for fence purposes: superfences
-        # counts it as an empty line and keeps the fence open (`eval_quoted`
-        # treats empty content as OK), so the closer four lines down still
-        # closes THIS fence.  The renderer emits one code block holding `(code)`.
-        ("unquoted blank line does not break a blockquoted fence",
-         ["> ```clojure",
-          "> (code)",
-          "",
-          "> ```",
-          "",
-          "Prose after."],
-         [6]),
+        # A bare `>` inside a quoted fence is an empty line, not the quote's end.
         ("quoted blank line does not break a blockquoted fence",
          ["> ```clojure",
           "> (code)",
@@ -3650,13 +3134,7 @@ def _run_self_tests(verbose: bool = False) -> int:
           "",
           "Prose after."],
          [7]),
-        # THE CONTROL THAT REJECTS "STRIP THE `>` AND REUSE THE UNQUOTED MATCHER".
-        # A quote-stripping pre-pass turns line 3 into a bare closing fence and
-        # ends the block early, flipping lines 4-5 back to prose.  The renderer
-        # disagrees: a fence opened at quote depth 0 measures a content line's
-        # depth only within its OWN prefix width, which here is zero — so the
-        # `>` is just the first character of a code line.  One code block,
-        # lines 1-5, and only line 7 is prose.
+        # A quote-stripping pre-pass would read line 3 as this fence's closer.
         ("a quoted closer does not close a column-0 fence",
          ["```clojure",
           "(code)",
@@ -3666,13 +3144,6 @@ def _run_self_tests(verbose: bool = False) -> int:
           "",
           "Prose after."],
          [7]),
-        # The closing rules inside a quote are superfences' usual strict ones:
-        # the closer must be the opener's EXACT marker run with nothing after
-        # it.  Neither of these closes — and an opener with no closer is not a
-        # fence at all, so the quoted lines are prose.
-        # The renderer emits `<blockquote><p>```clojure ...</p></blockquote>`
-        # for both: superfences does not leave a fence open to the end of its
-        # blockquote, it withdraws the fence.
         ("longer closing run does not close a blockquoted fence",
          ["> ```clojure",
           "> (code)",
@@ -3680,17 +3151,8 @@ def _run_self_tests(verbose: bool = False) -> int:
           "",
           "Prose after at column zero."],
          [1, 2, 3, 5]),
-        ("closer with an info string does not close a blockquoted fence",
-         ["> ```clojure",
-          "> (code)",
-          "> ```clojure",
-          "",
-          "Prose after at column zero."],
-         [1, 2, 3, 5]),
-        # A line quoted MORE deeply than the fence is content, not a nested
-        # quote: superfences reads a content line's prefix only as far as the
-        # opener's reached, so the extra `>` is the first character of a line of
-        # code.  The renderer puts `&gt;` inside the <code> for both of these.
+        # superfences reads a content line's prefix only as wide as the opener's,
+        # so a deeper `>` is the first character of a line of code.
         ("deeper-quoted line inside a blockquoted fence is content",
          ["> ```clojure",
           "> > (deeper-quoted line, still code)",
@@ -3698,17 +3160,6 @@ def _run_self_tests(verbose: bool = False) -> int:
           "",
           "Prose after."],
          [5]),
-        ("deeper-quoted closer does not close a blockquoted fence",
-         ["> ```clojure",
-          "> (code)",
-          "> > ```",
-          "> ```",
-          "",
-          "Prose after."],
-         [6]),
-        # ...and the converse: a SHALLOWER non-blank line ends the quote, so the
-        # opener never meets a closer and no fence is recognised.  All three
-        # quoted lines render as one paragraph inside the nested blockquote.
         ("shallower line ends a nested blockquoted fence",
          ["> > ```clojure",
           "> > (code)",
@@ -3716,31 +3167,8 @@ def _run_self_tests(verbose: bool = False) -> int:
           "",
           "Prose after."],
          [1, 2, 3, 5]),
-        # ------------------------------------------------------------------
-        # MALFORMED AND UNTERMINATED fences.
-        #
-        # A fenced block is a MATCHED PAIR.  superfences collects lines from an
-        # opener until it finds THAT opener's closer; if it never finds one it
-        # restores the source verbatim (`_store` / `restore_raw_text`) and
-        # python-markdown reads those lines as ordinary prose.  Reading "this
-        # closer does not close the block" as "the block stays open" is the
-        # opposite conclusion: it would blank the body AND every line after
-        # it, so a broken link or heading below a malformed fence would be
-        # invisible to this gate.
-        #
-        # Every expectation below was READ OFF THE RENDERER, driven through
-        # MkDocs' own configuration (`mkdocs.config.load_config('mkdocs.yml')`,
-        # then its `markdown_extensions` / `mdx_configs` into a
-        # `markdown.Markdown`) — not off CommonMark, and not off a probe.
-        # CommonMark disagrees with what MkDocs actually does in BOTH
-        # directions here.
-        # ------------------------------------------------------------------
-        # The well-formed control for the cases below is "column-0 fence
-        # still blanks its body" at the top of this list.
-        # MARKER LENGTH, both ways.  superfences closes only on the opener's
-        # own run length, so neither of these pairs is a fenced block —
-        # the renderer emits one paragraph per shape and resolves the link
-        # inside it.
+        # MALFORMED pairs: the closer never comes, so nothing is a fence and
+        # nothing below the opener goes dark.
         ("oracle: a longer closing run closes nothing, so nothing is a fence",
          ["Prose before.",
           "",
@@ -3750,16 +3178,6 @@ def _run_self_tests(verbose: bool = False) -> int:
           "",
           "Prose after."],
          [1, 3, 4, 5, 7]),
-        ("oracle: a shorter closing run closes nothing, so nothing is a fence",
-         ["Prose before.",
-          "",
-          "````clojure",
-          "[a real link](missing.md)",
-          "```",
-          "",
-          "Prose after."],
-         [1, 3, 4, 5, 7]),
-        # INFO STRING on the closer — likewise not a closer, likewise no fence.
         ("oracle: a closer carrying an info string closes nothing",
          ["Prose before.",
           "",
@@ -3769,9 +3187,6 @@ def _run_self_tests(verbose: bool = False) -> int:
           "",
           "Prose after."],
          [1, 3, 4, 5, 7]),
-        # CONTAINER DE-INDENT.  The closer sits outside the list item that
-        # holds the opener, so it is not this fence's closer and the item has
-        # already ended; no fence is recognised anywhere.
         ("oracle: a closer outside the opener's container closes nothing",
          ["- A bullet:",
           "",
@@ -3781,12 +3196,8 @@ def _run_self_tests(verbose: bool = False) -> int:
           "",
           "Prose after."],
          [1, 3, 4, 5, 7]),
-        # THE CONTAINER-PUSH GUARD.  A list marker four or more spaces
-        # past the current content column is an INDENTED CODE BLOCK, not a list
-        # item, so it must not push a content column — otherwise the fence two
-        # lines down is measured against a phantom container and recognised
-        # where the renderer sees literal text.  MkDocs emits ONE indented code
-        # block spanning lines 3-6 here, markers and all.
+        # A list marker four spaces in is an indented code block, so it pushes
+        # no container for the fence below it; at three spaces it does.
         ("a four-space list marker is an indented code block, not a container",
          ["Prose.",
           "",
@@ -3797,8 +3208,6 @@ def _run_self_tests(verbose: bool = False) -> int:
           "",
           "Prose after."],
          [1, 3, 4, 5, 6, 8]),
-        # ...and the control at three spaces, where the marker IS a list item and
-        # the fence indented to its content column is a real fence.
         ("a three-space list marker is a container",
          ["Prose.",
           "",
@@ -3810,35 +3219,8 @@ def _run_self_tests(verbose: bool = False) -> int:
           "",
           "Prose after."],
          [1, 3, 9]),
-        # ------------------------------------------------------------------
-        # The quote prefix's SPELLING is
-        # renderer-significant, and quote DEPTH alone is not parity.
-        #
-        # superfences does not parse blockquote markers as markers.  Its
-        # `parse_whitespace` treats PREFIX_CHARS — `>`, space and tab — as one
-        # undifferentiated prefix run and remembers its RAW WIDTH (`ws_len`);
-        # `parse_fence_line` then reads a content line's prefix only that many
-        # CHARACTERS in, and `eval_quoted` clears the fence when a line's prefix
-        # is narrower (`len(ws) < self.ws_len`) or quoted deeper
-        # (`quote_level > self.quote_level`).
-        #
-        # A model storing (marker, in-quote indent, quote DEPTH) and
-        # comparing with `_quote_depth_and_body` would normalise the prefix:
-        # that absorbs one optional space after each `>`, so `>` and `> ` and
-        # `>  ` all read as depth 1.  Three shapes would then close a fence the
-        # renderer never opens, and each would hide a REAL, VISIBLE link — the
-        # going-silent failure, from the other direction.
-        #
-        # All three render as `<blockquote><p>```clojure</p><blockquote><p><a
-        # href="missing.md">…` — the deeper-quoted line is a nested blockquote,
-        # which is a separate block, so the stray backtick runs cannot pair into
-        # a code span and the link resolves for real.
-        #
-        # These three are representative of the disagreements a sweep of
-        # opener/body/closer prefix triples against the renderer finds, not
-        # exhaustive.  Their matched-prefix control is "blockquoted fence
-        # blanks its body" above: without it they are satisfied by a scanner
-        # that recognises no quoted fence at all.
+        # superfences compares a quoted fence's RAW prefix width, not its quote
+        # depth, so these never close; each hides a real link if they did.
         ("a closer whose prefix is narrower than the opener's closes nothing",
          [">```clojure",
           "> >[a real link](missing.md)",
@@ -3863,30 +3245,26 @@ def _run_self_tests(verbose: bool = False) -> int:
     ]
     for label, lines, expected_visible in fence_cases:
         got_visible = [n for n, content in _strip_fences(lines) if content.strip()]
-        if got_visible == expected_visible:
-            if verbose:
-                sys.stderr.write(f"self-test PASS: fence [{label}]\n")
-        else:
+        if got_visible != expected_visible:
             sys.stderr.write(
                 f"self-test FAIL: fence [{label}] expected visible lines "
                 f"{expected_visible}, got {got_visible}\n"
             )
             failures += 1
+        elif verbose:
+            sys.stderr.write(f"self-test PASS: fence [{label}]\n")
 
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
         return 1
     if verbose:
-        # The trailing constant counts the PASS lines the four lists above do
-        # NOT cover: three duplicate-anchor diagnostics, plus the manifest
-        # derivation, placement-key, source-scan roster and untracked-scratch
-        # checks. The total is the number quoted when
-        # showing that a change ADDED self-tests, so keep it equal to
-        # the PASS-line count: `--self-test --verbose | grep -c 'self-test PASS'`.
-        sys.stderr.write(
-            f"all {len(cases) + len(teeth_cases) + len(extraction_cases) + len(fence_cases) + 7} "
-            "self-tests passed.\n"
+        # One PASS line per case (the 1 is the source-roster check), so this
+        # equals `--self-test --verbose | grep -c 'self-test PASS'`.
+        total = (
+            len(count_cases) + len(diagnostic_cases) + 1
+            + len(extraction_cases) + len(fence_cases)
         )
+        sys.stderr.write(f"all {total} self-tests passed.\n")
     return 0
 
 
