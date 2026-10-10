@@ -5,6 +5,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
+const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
 const { fixture, post } = require('./_support.cjs');
@@ -96,6 +98,27 @@ test('the launcher boots on port 0, announces itself, answers /health and a rend
     assert.strictEqual(run.out.stdout.trim().split('\n').length, 1, 'stdout is the ready line and nothing else');
   } finally {
     if (run.child.exitCode === null && run.child.signalCode === null) run.child.kill('SIGKILL');
+  }
+});
+
+test('a replacement that cannot boot ends the launcher with exit 1, so its supervisor restarts it', async () => {
+  // The bundle changes on disk under the running service, so the replacement
+  // loads a different build and is refused as a build-identity mismatch.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-ssr-node-'));
+  const bundle = path.join(dir, 'bundle.cjs');
+  fs.copyFileSync(fixture('flaky-boot'), bundle);
+  const run = launch(['--module', bundle, '--port', '0', '--isolates', '1', '--timeout-ms', '300']);
+  try {
+    const ready = await run.ready;
+    fs.writeFileSync(bundle, fs.readFileSync(bundle, 'utf8').replace('flaky-boot-build-1', 'flaky-boot-build-2'));
+    const hung = await post(`${ready.url}/render`, { protocol: 1, entry: 'app/hang' });
+    assert.strictEqual(hung.status, 504, hung.text);
+    const { code } = await withTimeout(run.exited, BOOT_MS, 'the launcher did not exit');
+    assert.strictEqual(code, 1, `exit ${code}\nstderr: ${run.out.stderr}`);
+    assert.match(run.out.stderr, /the bundle changed on disk/, 'the operator is told why');
+  } finally {
+    if (run.child.exitCode === null && run.child.signalCode === null) run.child.kill('SIGKILL');
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 

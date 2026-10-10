@@ -85,6 +85,16 @@ class Service {
     return this.pool.stats();
   }
 
+  /** True once a replacement isolate failed to boot: the service has closed for good. */
+  get failed() {
+    return this.pool.failed === true;
+  }
+
+  /** Resolves once a failed replacement has closed the service. */
+  get whenFailed() {
+    return this.pool.whenFailed;
+  }
+
   /**
    * The core call. Yields `{type:'chunk'}` frames as the render produces
    * them, then one `{type:'complete'}`. Throws a `Refusal`.

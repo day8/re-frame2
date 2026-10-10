@@ -251,14 +251,16 @@ async function handleRender(service, req, res, requestUrl, { maxRequestBytes }) 
 }
 
 function handleHealth(service, res) {
+  // A service whose pool could not replace an isolate has closed for good,
+  // so it must not read healthy to whatever is deciding whether to restart it.
   const body = JSON.stringify({
-    status: 'ok',
+    status: service.failed ? 'failed' : 'ok',
     protocol: service.protocol,
     buildId: service.buildId,
     entries: Object.keys(service.entries),
     isolates: service.stats(),
   });
-  res.writeHead(200, {
+  res.writeHead(service.failed ? 503 : 200, {
     'content-type': 'application/json; charset=utf-8',
     'content-length': Buffer.byteLength(body, 'utf8'),
   });

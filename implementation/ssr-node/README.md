@@ -558,16 +558,23 @@ listens — so its reader is the operator standing at a process that would
 not start. That is true when the pool starts. It is false when the pool
 *replaces*: a replacement boots while the service is live, and the failure
 is delivered to whoever is queued waiting for capacity. Every boot refusal
-therefore stops at that boundary. A waiter is told
-`:rf.ssr-node/isolate-lost` with this contract's wording and a `detail` of
-`poolSize`, and the module's message, the module path and any `code` the
-module put on its boot error stay off the wire — the last of these
-mattering for the reason a module-set `code` always does, since the boot
-receiver builds its refusal without consulting the family. The failure
-itself goes to the sidecar's stderr **unconditionally**, which is a
-strengthening and not a trade: the old handler's only statement was the
-loop over waiters, so a replacement that failed with nobody queued told no
-one at all and the pool quietly shrank by an isolate.
+therefore stops at that boundary. A waiter, and every caller after it, is
+told `:rf.ssr-node/isolate-lost` with this contract's wording and a
+`detail` of `poolSize`, and the module's message, the module path and any
+`code` the module put on its boot error stay off the wire — the last of
+these mattering for the reason a module-set `code` always does, since the
+boot receiver builds its refusal without consulting the family. The failure
+itself goes to the sidecar's stderr **unconditionally**, because the
+refusal reaches only callers: a replacement that failed with nobody queued
+would otherwise tell no one why.
+
+A failed replacement — a boot failure, or a bundle that changed on disk and
+loads a different `buildId` — also **ends the service** rather than leaving
+it a smaller pool: the pool can never reach its configured size again, and
+a partly booted pool is not a state the service otherwise has. The
+remaining workers are terminated (in-flight renders on them are refused as
+on any shutdown), `/health` answers `503` with `status: "failed"`, and the
+launcher exits `1` so its supervisor restarts it.
 
 The last receiver is one no application can reach on purpose: a render that
 rejects with something that is **not a `Refusal` at all**. It is a fault in
@@ -635,7 +642,7 @@ server or with a concurrent worker's.
 ```
 POST /render          Content-Type: application/json   -> 200 text/html
 POST /render?stream=1                                  -> 200, chunked
-GET  /health                                           -> 200 application/json
+GET  /health                                           -> 200 application/json (503 once failed)
 ```
 
 Response headers: `x-rf-ssr-build` (the build identity), `x-rf-ssr-chunks`,
@@ -674,9 +681,10 @@ the launcher itself never writes anything else there, but an application
 bundle that logs at boot does so through the same descriptor.
 
 Everything diagnostic goes to stderr. The exit code is `0` after SIGTERM
-or SIGINT and a graceful close, `1` when the service could not start (the
-module refused, the port is taken), and `2` for a wrong command line,
-which also prints the usage. `test/serve.test.cjs` pins the line field by
+or SIGINT and a graceful close, `1` when the service failed — it could not
+start (the module refused, the port is taken), or a terminated isolate
+could not be replaced — and `2` for a wrong command line, which also
+prints the usage. `test/serve.test.cjs` pins the line field by
 field.
 
 ### In process
@@ -776,7 +784,9 @@ practice:
 skew detector: a JVM host that records the id it deployed against can
 compare it, and the per-request `buildId` field turns that comparison into
 a refusal. `replacements` is the count of isolates the service has had to
-kill and respawn — a rising number is a service killing renders.
+kill and respawn — a rising number is a service killing renders. Once a
+replacement fails to boot the service has closed for good: `/health`
+answers `503` with `status: "failed"` until the launcher exits.
 
 ---
 

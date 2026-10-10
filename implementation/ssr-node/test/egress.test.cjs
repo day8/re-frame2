@@ -13,7 +13,7 @@
 //      detail, and cannot choose its HTTP status;
 //   5. the same holds for an exception that ESCAPES the render call;
 //   6. a REPLACEMENT isolate that cannot boot tells a waiting caller nothing
-//      it authored;
+//      it authored, and ends the service rather than shrinking it;
 //   7. a rejection that is not a `Refusal` carries nothing the caller sent.
 //
 // Every absence check has a control showing its sentinel was really there.
@@ -517,6 +517,67 @@ test('a replacement that cannot boot tells a WAITING CALLER nothing it authored,
     poolLine?.includes('flaky-boot.cjs') && poolLine.includes(BOOT_SENTINEL),
     `the operator must be told the REAL failure and the module that would not load: ${run.stderr}`,
   );
+});
+
+const withTimeout = (p, ms, what) =>
+  Promise.race([
+    p,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`${what} within ${ms} ms`)), ms).unref()),
+  ]);
+
+/** Poll `predicate` every 10 ms until it holds, or reject after `ms`. */
+async function waitFor(predicate, ms, what) {
+  const deadline = Date.now() + ms;
+  while (!predicate()) {
+    if (Date.now() > deadline) throw new Error(`${what} within ${ms} ms`);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+test('a replacement that cannot boot is TERMINAL: a later caller is refused, /health is not ok, and no worker survives', async () => {
+  // Two isolates, so a pool that merely shrank would still serve the later
+  // call from the surviving sibling.
+  const [captured, restore] = captureStderr();
+  try {
+    await withService(
+      'flaky-boot',
+      { isolates: 2, admissionTimeoutMs: 250, defaultTimeoutMs: 300, maxTimeoutMs: 5000 },
+      async (service) => {
+        const workerExits = [...service.pool.isolates].map(
+          (isolate) => new Promise((resolve) => isolate.worker.once('exit', resolve)),
+        );
+        const transport = await serve({ service, port: 0 });
+        try {
+          process.env[FAIL_FLAG] = '1';
+          const hung = await refusalOf(() => collect(service, { protocol: 1, entry: 'app/hang' }));
+          assert.strictEqual(hung.code, CODE.RENDER_TIMEOUT, 'the deadline is what kills it');
+          await waitFor(
+            () => captured.join('').includes('[rf.ssr-node] a replacement isolate failed to boot'),
+            10000,
+            'the replacement did not fail',
+          );
+
+          const later = await refusalOf(() => collect(service, { protocol: 1, entry: 'app/root' }));
+          assert.ok(later, 'a later call must be refused, not served by a shrunken pool');
+          assert.strictEqual(later.code, CODE.ISOLATE_LOST, 'the one stable code a waiter is also given');
+          assert.strictEqual(later.message, REPLACEMENT_FAILED_REFUSAL);
+
+          const health = await fetch(`http://127.0.0.1:${transport.port}/health`);
+          const body = await health.json();
+          assert.notStrictEqual(health.status, 200, `/health must not answer 200; got ${JSON.stringify(body)}`);
+          assert.notStrictEqual(body.status, 'ok');
+
+          await withTimeout(Promise.all(workerExits), 5000, 'a worker thread survived');
+          assert.strictEqual(service.stats().total, 0, 'the pool holds no isolate');
+        } finally {
+          await transport.close();
+        }
+      },
+    );
+  } finally {
+    delete process.env[FAIL_FLAG];
+    restore();
+  }
 });
 
 /** The fixture's own `throw` frame — the refusal's stack never carries it. */
