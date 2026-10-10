@@ -802,6 +802,15 @@
   [classification ns-sym var-sym]
   (get classification [(name ns-sym) (name var-sym)]))
 
+(def tier-vocab
+  "The CLOSED `:tier` vocabulary, in the order the manifest emits it as
+   `:meta :tier-vocab` (spec/API.md §Tier taxonomy defines each tier).
+   Every row's tier is one of these: projections select rows by exact tier
+   (docs/api coverage takes four of them), so a tier outside the set would
+   drop its var out of them silently. `bad-classification-rows` refuses one."
+  [:front-porch :advanced :tooling :adapter :testing :internal-public
+   :implementation :deprecated])
+
 (def facade-action-vocab
   "The CLOSED placement-verdict vocabulary of the facade audit, owned by
    spec/Conventions.md §Facade policy (field 4 of the diff-time
@@ -990,6 +999,27 @@
        (sort-by (juxt first second))
        vec))
 
+(defn bad-classification-rows
+  "Return a sorted vector of `[namespace var axis value]`, one entry per
+   curated axis a row gets wrong: a `:tier` outside `tier-vocab`, or an
+   `:owner` / `:status` that is absent, blank or not a string.
+
+   The three axes are copied verbatim from the sidecar, for JVM-derived and
+   `:cljs-only` rows alike, so this is the one place their values are
+   graded. `:status` is free text (`\"v1 (preserved + extended)\"`), so it
+   is required only to say something."
+  [rows]
+  (let [tiers    (set tier-vocab)
+        present? #(and (string? %) (not (str/blank? %)))]
+    (->> rows
+         (mapcat (fn [{:keys [namespace var tier owner status]}]
+                   (cond-> []
+                     (not (contains? tiers tier)) (conj [namespace var :tier tier])
+                     (not (present? owner))       (conj [namespace var :owner owner])
+                     (not (present? status))      (conj [namespace var :status status]))))
+         (sort-by (juxt first second))
+         vec)))
+
 (defn build-manifest
   "Build the full manifest data structure (the value written to
    spec/api-manifest.edn). Throws on missing / stale sidecar entries with
@@ -1005,6 +1035,7 @@
   (let [[rows missing] (build-rows sidecar)
         stale          (stale-sidecar-entries sidecar)
         dups           (duplicate-rows rows)
+        unclassified   (bad-classification-rows rows)
         demoted        (implementation-facade-rows rows)
         unjustified    (unjustified-facade-rows rows)
         bad-actions    (bad-action-facade-rows rows)]
@@ -1041,6 +1072,23 @@
                                     (str ns-str "/" var-str " (" n " rows)"))
                                   dups)))
               {:duplicates dups})))
+    ;; Curated-axis invariant. A misspelt tier, or a blank owner or status,
+    ;; regenerates cleanly and `--check` then agrees with it, so the refusal
+    ;; has to be here.
+    (when (seq unclassified)
+      (throw (ex-info
+              (str "Rows with an unknown :tier or a missing :owner / :status — "
+                   "every row's :tier must be one of "
+                   (str/join " " tier-vocab)
+                   ", and its :owner and :status must be non-blank strings. "
+                   "Fix each pair's spec/api-manifest-metadata.edn entry "
+                   "(:classification, or :cljs-only):\n  "
+                   (str/join "\n  "
+                             (map (fn [[ns-str var-str axis value]]
+                                    (str ns-str "/" var-str " (" axis " "
+                                         (pr-str value) ")"))
+                                  unclassified)))
+              {:bad-classification unclassified})))
     ;; Facade-vs-disposition invariant. A `:facade? true` row at
     ;; `:tier :implementation` says "internal" about a var that still exports
     ;; from its façade — annotation, not removal. Refuse it here so the
@@ -1100,9 +1148,7 @@
                                "why most rows carry neither. "
                                "See that generator ns for the design.")
             :keystone     "rf2-3nbl5.2"
-            :tier-vocab   [:front-porch :advanced :tooling :adapter
-                           :testing :internal-public :implementation
-                           :deprecated]
+            :tier-vocab   tier-vocab
             :action-vocab (vec (sort facade-action-vocab))}
      :vars rows}))
 

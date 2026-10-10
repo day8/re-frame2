@@ -90,10 +90,10 @@
 (def ^:private api-md-file (delay (io/file rf.api-manifest.gen/repo-root "spec" "API.md")))
 
 (def ^:private tier-tokens
-  "The closed Tier vocabulary, longest-first so `internal-public` is
-   matched before `public` substrings could confuse anything."
-  ["implementation" "internal-public" "front-porch" "deprecated" "advanced"
-   "tooling" "adapter" "testing"])
+  "The closed Tier vocabulary as the words a Tier cell spells, taken from the
+   generator's single definition. No word is a substring of another, so a
+   cell matches a tier word only when it names that tier."
+  (mapv name rf.api-manifest.gen/tier-vocab))
 
 (defn- first-tier-token
   "Extract the first closed-vocabulary tier token appearing in a Tier

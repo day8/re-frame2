@@ -79,6 +79,24 @@
            (:bad-action-facade
              (refusal (update-in sidecar [:classification capture-frame] dissoc :action)))))))
 
+(deftest build-manifest-throws-on-an-unknown-tier-or-a-blank-owner-or-status
+  ;; A tier outside the vocabulary also drops the var out of docs/api
+  ;; coverage, which selects exact tiers, so it must fail generation.
+  (let [sidecar  (rf.api-manifest.gen/read-sidecar)
+        dispatch ["re-frame.core" "dispatch"]
+        cljs-row (first (:cljs-only sidecar))
+        cljs-key [(:namespace cljs-row) (:var cljs-row)]
+        fault    (fn [k v] (refusal (assoc-in sidecar [:classification dispatch k] v)))]
+    (is (= [(conj dispatch :tier :front-proch)] (:bad-classification (fault :tier :front-proch))))
+    (is (= [(conj dispatch :owner "")] (:bad-classification (fault :owner ""))))
+    (is (= [(conj dispatch :status nil)] (:bad-classification (fault :status nil))))
+    (is (= [(conj cljs-key :tier :front-proch) (conj cljs-key :owner " ") (conj cljs-key :status nil)]
+           (:bad-classification
+             (refusal (update sidecar :cljs-only
+                              (fn [rows]
+                                (cons (assoc (first rows) :tier :front-proch :owner " " :status nil)
+                                      (rest rows))))))))))
+
 (deftest live-manifest-axes-are-facade-scoped
   ;; `build-manifest` does not refuse an axis on an ordinary row, where it
   ;; would read as a facade classification nobody made.
