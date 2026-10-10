@@ -755,9 +755,10 @@
     (rf/dispatch-sync [:rf.route/navigate {:to :conduit/article :params {:slug "isolated"}}] {:frame b})
     (is (= [[[:route :conduit/article (:nav-token (slice b))]] [] true]
            [(route-owners (entry b akey)) (route-owners (entry a akey))
-            (= (:nav-token (slice a)) (:nav-token (slice b)))])
+            (not= (:nav-token (slice a)) (:nav-token (slice b)))])
         "B builds its OWN plan and owners while A's copy stays the ownerless warm entry, and
-         each frame allocated its first nav-token independently")))
+         the two frames hold distinct nav-tokens — the allocator is process-wide, so no
+         token is ever issued twice")))
 
 (deftest destroying-a-frame-releases-its-whole-routing-footprint
   (register-app!)
