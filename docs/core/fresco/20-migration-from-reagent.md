@@ -542,8 +542,8 @@ Each census class carries a recovery note in the report:
 
 | Verdict | Named classes | Meaning |
 | --- | --- | --- |
-| Human decision | `:with-let`, `:cell-disposal`, `:outward-bridge`, `:adapt-react-class`, `:react-create-element`, `:props-helper`, `:reagent-partial`, `:render-control`, `:root-mount`, `:static-markup`, `:substrate-read-hook`, `:substrate-view-seam`, `:substrate-test-seam`, `:substrate-test-harness` | A Fresco translation exists, but which one depends on intent the source does not carry |
-| Runtime blocker | `:local-reactive-cell`, `:derived-cell`, `:reactive-graph-control`, `:lifecycle-class`, `:as-element`, `:component-introspection` | Fresco has no equivalent tier, so the site raises or silently misrenders until someone chooses the shape |
+| Human decision | `:with-let`, `:cell-disposal`, `:as-element`, `:outward-bridge`, `:adapt-react-class`, `:react-create-element`, `:props-helper`, `:reagent-partial`, `:render-control`, `:root-mount`, `:static-markup`, `:substrate-read-hook`, `:substrate-view-seam`, `:substrate-test-seam`, `:substrate-test-harness` | A Fresco translation exists, but which one depends on intent the source does not carry |
+| Runtime blocker | `:local-reactive-cell`, `:derived-cell`, `:reactive-graph-control`, `:lifecycle-class`, `:component-introspection` | Fresco has no equivalent tier, so the site raises or silently misrenders until someone chooses the shape |
 | Mechanical | none | Always emitted as `:mechanical 0`. Every mechanical rewrite is a W-rule, and W-rules apply only at crossings |
 
 Two more runtime-blocker classes report a namespace the tool could not
