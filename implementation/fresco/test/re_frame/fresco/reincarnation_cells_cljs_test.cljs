@@ -33,13 +33,13 @@
   without a browser*.
 
   Across a same-id reincarnation that changed the value, **the number
-  does not move** — because it is built on
-  `re-frame.fresco.impl.generation/commit-basis`, whose three terms are
-  all structurally blind to the transition. So at the instant the
-  successor seats, React has been told nothing, the committed boundary
-  still holds the predecessor's value, and no re-render is scheduled. At
-  the microtask checkpoint the deferred repair fires and the number moves
-  — still inside the task that seated the successor.
+  does not move** at the instant the successor seats — a committed
+  boundary's number is the sum of its cells' stamps, and only a flush
+  re-stamps a cell. So at that instant React has been told nothing, the
+  committed boundary still holds the predecessor's value, and no
+  re-render is scheduled. At the microtask checkpoint the deferred repair
+  fires and the number moves — still inside the task that seated the
+  successor.
 
   That window is the whole fault, and it is invisible to a rendered-markup
   assertion in both directions: read the DOM inside the window and a
