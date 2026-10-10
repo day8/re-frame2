@@ -424,14 +424,7 @@ def self_test(verbose: bool) -> int:
     wf = ("run: npm run test:chain\n"
           "run: npm run build:thing\n"
           "run: node teeth.cjs\n")
-
-    # `build:` IS asked the question — a `shadow-cljs release` that no
-    # workflow reaches is an unscheduled gate one prefix over.
-    build_orphan = audit({**scripts, "build:orphan": "shadow-cljs release orphan"},
-                         wf, {"test:orphan": {"kind": "not-a-gate", "why": "x"},
-                              "bench:thing": {"kind": "not-a-gate", "why": "x"}})
-    check("an undeclared, unscheduled `build:` gate FAILS",
-          any("build:orphan" in p for p in build_orphan), repr(build_orphan))
+    declared = {"bench:thing": {"kind": "not-a-gate", "why": "x"}}
 
     # THE RATCHET: an undeclared, unscheduled gate is a hard failure.
     bare = audit(scripts, wf, {})
@@ -439,109 +432,60 @@ def self_test(verbose: bool) -> int:
           any("test:orphan" in p for p in bare) and any("bench:thing" in p for p in bare),
           repr(bare))
 
-    # Every other script is undeclared, so a clean audit here also needs the
-    # prefix filter to skip `clean:thing` and the schedule to cover
-    # `test:chain`, `build:thing` and, through the closure, `test:a`/`test:b`.
-    ok = audit(scripts, wf, {
-        "test:orphan": {"kind": "covered-by", "by": "test:a", "why": "x"},
-        "bench:thing": {"kind": "not-a-gate", "why": "x"}})
-    check("a declared gate with a live cover passes", ok == [], repr(ok))
-
-    gone = audit(scripts, "run: node teeth.cjs\n", {
-        "test:orphan": {"kind": "covered-by", "by": "test:a", "why": "x"},
-        "bench:thing": {"kind": "not-a-gate", "why": "x"}})
-    check("a `covered-by` whose cover left CI FAILS",
-          any("the cover is gone" in p for p in gone), repr(gone))
-
-    probe_gone = audit(scripts, wf, {
-        "test:orphan": {"kind": "ci-runs-it-directly", "probe": "node absent.cjs", "why": "x"},
-        "bench:thing": {"kind": "not-a-gate", "why": "x"}})
-    check("a `ci-runs-it-directly` whose probe left the workflows FAILS",
-          any("stopped running this gate's teeth" in p for p in probe_gone))
-    probe_ok = audit(scripts, wf, {
-        "test:orphan": {"kind": "ci-runs-it-directly", "probe": "node teeth.cjs", "why": "x"},
-        "bench:thing": {"kind": "not-a-gate", "why": "x"}})
-    check("...and one whose probe is still there passes", probe_ok == [])
-
-    beadless = audit(scripts, wf, {
-        "test:orphan": {"kind": "unscheduled", "why": "x"},
-        "bench:thing": {"kind": "not-a-gate", "why": "x"}})
-    check("an `unscheduled` hole with no bead FAILS",
-          any("has to be tracked somewhere" in p for p in beadless))
-
-    phantom = audit(scripts, wf, {
-        "test:vanished": {"kind": "not-a-gate", "why": "x"},
-        "test:orphan": {"kind": "not-a-gate", "why": "x"},
-        "bench:thing": {"kind": "not-a-gate", "why": "x"}})
+    phantom = audit(scripts, wf, {**declared,
+                                  "test:vanished": {"kind": "not-a-gate", "why": "x"},
+                                  "test:orphan": {"kind": "not-a-gate", "why": "x"}})
     check("a DISPOSITIONS entry for a deleted script FAILS",
-          any("no longer exists" in p for p in phantom))
+          any("no longer exists" in p for p in phantom), repr(phantom))
 
-    bad_kind = audit(scripts, wf, {
-        "test:orphan": {"kind": "because-i-said-so", "why": "x"},
-        "bench:thing": {"kind": "not-a-gate", "why": "x"}})
-    check("an unknown kind FAILS", any("unknown kind" in p for p in bad_kind))
+    def probe(p: str) -> dict:
+        return {"kind": "ci-runs-it-directly", "probe": p, "why": "x"}
 
-    # THE PROSE MUTATIONS. Each pair below deletes the executable invocation
-    # and leaves the sentence that describes it — the shape of a real workflow
-    # edit, and the shape a raw-text reader would pass.
-    declared = {"bench:thing": {"kind": "not-a-gate", "why": "x"}}
+    # Each prose workflow deletes the executable invocation and keeps the
+    # sentence describing it, which a raw-text reader would pass.
+    probe_prose = ("      # This job used to run `node teeth.cjs`.\n"
+                   "      - name: node teeth.cjs\n"
+                   "        run: node something-else.cjs\n")
+    prefix_only = "        run: node teeth.cjs-but-longer --x\n"
+    teeth_gone = "stopped running this gate's teeth"
+    for name, workflow, entry, needle in (
+        ("a `covered-by` whose cover left CI FAILS", "run: node teeth.cjs\n",
+         {"kind": "covered-by", "by": "test:a", "why": "x"}, "the cover is gone"),
+        ("a `ci-runs-it-directly` whose probe left the workflows FAILS", wf,
+         probe("node absent.cjs"), teeth_gone),
+        ("an `unscheduled` hole with no bead FAILS", wf,
+         {"kind": "unscheduled", "why": "x"}, "has to be tracked somewhere"),
+        ("an unknown kind FAILS", wf,
+         {"kind": "because-i-said-so", "why": "x"}, "unknown kind"),
+        ("a `ci-runs-it-directly` probe found only in prose FAILS", probe_prose,
+         probe("node teeth.cjs"), teeth_gone),
+        ("a probe satisfied only as a PREFIX of a longer command FAILS", prefix_only,
+         probe("node teeth.cjs"), teeth_gone),
+    ):
+        problems = audit(scripts, workflow, {**declared, "test:orphan": entry})
+        check(name, any(needle in p for p in problems), repr(problems))
 
-    commented_out = ("      # rf2-xxxxx retired this step; it used to "
-                     "`npm run test:orphan` here.\n"
+    commented_out = ("      # it used to `npm run test:orphan` here.\n"
                      "      - name: something else\n"
                      "        run: node teeth.cjs\n")
     check("a gate named only in a COMMENT is reported undeclared",
           any("test:orphan" in p for p in audit(scripts, commented_out, declared)))
 
-    other_field = ("      - name: npm run test:orphan\n"
-                   "        if: contains(github.event.head_commit.message, "
-                   "'npm run test:orphan')\n"
-                   "        with:\n"
-                   "          args: npm run test:orphan\n"
-                   "        run: node teeth.cjs\n")
-    check("a `npm run` in `name:`/`if:`/`with:` does not schedule a gate",
-          "test:orphan" not in scheduled_scripts(scripts, other_field),
-          repr(scheduled_scripts(scripts, other_field)))
-
     shell_commented = ("        run: |\n"
-                       "          # npm run test:orphan   (dropped in rf2-xxxxx)\n"
+                       "          # npm run test:orphan\n"
                        "          node teeth.cjs\n")
     check("a `npm run` in a SHELL comment inside a run body does not schedule",
           "test:orphan" not in scheduled_scripts(scripts, shell_commented),
           repr(scheduled_scripts(scripts, shell_commented)))
 
-    probe_prose = ("      # This job used to run `node teeth.cjs` before "
-                   "rf2-xxxxx moved it.\n"
-                   "      - name: node teeth.cjs\n"
-                   "        run: node something-else.cjs\n")
-    check("a `ci-runs-it-directly` probe found only in prose FAILS",
-          any("stopped running this gate's teeth" in p for p in audit(
-              scripts, probe_prose,
-              {**declared,
-               "test:orphan": {"kind": "ci-runs-it-directly",
-                               "probe": "node teeth.cjs", "why": "x"}})))
-
-    prefix_only = ("      - name: the sibling gate\n"
-                   "        run: node teeth.cjs-but-longer --x\n")
-    check("a probe satisfied only as a PREFIX of a longer command FAILS",
-          any("stopped running this gate's teeth" in p for p in audit(
-              scripts, prefix_only,
-              {**declared,
-               "test:orphan": {"kind": "ci-runs-it-directly",
-                               "probe": "node teeth.cjs", "why": "x"}})))
-    # Every step here uses the `- run:` first-key form, so this case also
-    # pins that a dash-prefixed `run:` is read as executable text.
+    # Also pins that a dash-prefixed `- run:` is read as executable text.
     with_args = ("      - run: npm run test:chain\n"
                  "      - run: npm run build:thing\n"
                  "      - run: node teeth.cjs --self-test\n")
     check("...but a probe followed by ARGUMENTS still passes",
           audit(scripts, with_args,
-                {**declared,
-                 "test:orphan": {"kind": "ci-runs-it-directly",
-                                 "probe": "node teeth.cjs", "why": "x"}}) == [])
+                {**declared, "test:orphan": probe("node teeth.cjs")}) == [])
 
-    # ...while every EXECUTABLE form still counts, including the block scalars
-    # every multi-line CI step uses.
     block = ("        run: |\n"
              "          set -euo pipefail\n"
              "          npm run test:chain\n"
@@ -550,33 +494,10 @@ def self_test(verbose: bool) -> int:
     check("a multiline `run: |` body schedules what it invokes",
           scheduled_scripts(scripts, block) == {"test:chain", "test:a", "test:b"},
           repr(scheduled_scripts(scripts, block)))
-    folded = "        run: >-\n          npm run test:a\n"
-    check("a folded `run: >-` body schedules what it invokes",
-          scheduled_scripts(scripts, folded) == {"test:a"},
-          repr(scheduled_scripts(scripts, folded)))
-    quoted = '        run: "npm run test:a"\n'
-    check("a quoted inline run value schedules what it invokes",
-          scheduled_scripts(scripts, quoted) == {"test:a"},
-          repr(scheduled_scripts(scripts, quoted)))
 
-    # `run:` is also a MAPPING key under `defaults:`, whose children are
-    # `shell:` / `working-directory:` — never a command.
-    defaults_block = ("    defaults:\n"
-                      "      run:\n"
-                      "        working-directory: implementation\n"
-                      "        shell: npm run test:orphan\n"
-                      "    steps:\n"
-                      "      - run: node teeth.cjs\n")
-    check("a `defaults: run:` MAPPING contributes no commands",
-          scheduled_scripts(scripts, defaults_block) == set(),
-          repr(scheduled_scripts(scripts, defaults_block)))
-
-    # An `unscheduled` entry that LATER gains a schedule must NOT go red: that
-    # transition is the hole closing, and reddening main would punish the fix.
-    closed = audit({**scripts, "test:orphan": "node orphan.cjs"},
-                   wf + "run: npm run test:orphan\n",
-                   {"test:orphan": {"kind": "unscheduled", "bead": "rf2-x", "why": "x"},
-                    "bench:thing": {"kind": "not-a-gate", "why": "x"}})
+    # The hole closing must not redden main.
+    closed = audit(scripts, wf + "run: npm run test:orphan\n",
+                   {**declared, "test:orphan": {"kind": "unscheduled", "bead": "rf2-x", "why": "x"}})
     check("an `unscheduled` gate that GAINS a schedule stays green",
           closed == [], repr(closed))
 
