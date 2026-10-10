@@ -508,11 +508,15 @@ test('a replacement that cannot boot tells a WAITING CALLER nothing it authored,
   assert.strictEqual(run.queuedRefusal.message, REPLACEMENT_FAILED_REFUSAL, 'the wording is this contract\'s');
   // Not the module's spoofed code, so not a 503 a retry policy sleeps on.
   assert.strictEqual(run.queuedRefusal.code, CODE.ISOLATE_LOST, 'an isolate was lost and not replaced');
+  assert.strictEqual(statusFor(run.queuedRefusal.code), 500);
 
-  // Unconditional: with no waiter queued the refusal would reach no one.
-  assert.ok(prefixed(run.stderr), 'the operator was told nothing at all');
-  assert.ok(run.stderr.includes(BOOT_SENTINEL), 'the operator copy must be the REAL failure');
-  assert.ok(run.stderr.includes('flaky-boot.cjs'), 'and must name the module that would not load');
+  // The POOL's own line, written unconditionally: with no waiter queued the
+  // refusal would reach no one. The worker's boot reporter writes a line too.
+  const poolLine = run.stderr.split('\n').find((line) => line.includes('[rf.ssr-node] a replacement isolate failed to boot'));
+  assert.ok(
+    poolLine?.includes('flaky-boot.cjs') && poolLine.includes(BOOT_SENTINEL),
+    `the operator must be told the REAL failure and the module that would not load: ${run.stderr}`,
+  );
 });
 
 /** The fixture's own `throw` frame — the refusal's stack never carries it. */
