@@ -27,7 +27,7 @@ Three drivers shape every decision in this document:
 
 2. **React-19-native** — modern React semantics throughout. No legacy mount paths. No `findDOMNode`. No string refs. No legacy context. The rewrite emits React-19-clean elements by default, schedules through microtasks, integrates with `react/act` for tests.
 
-3. **Re-frame2-fit** — the surface is bounded by re-com plus re-frame2's own internals. Native trace-bus integration replaces 10x v1's monkey-patches. Source-coord stamping is native to the renderer. Frame-context wiring uses the modern React context API. Defensive workarounds in re-frame2's own code retire because the bug classes they defend against are structurally removed.
+3. **Re-frame2-fit** — the surface is bounded by re-com plus re-frame2's own internals. Native trace-bus integration replaces 10x v1's monkey-patches. Frame-context wiring uses the modern React context API. Defensive workarounds in re-frame2's own code retire because the bug classes they defend against are structurally removed.
 
 Every section below frames its decision against these three drivers and ends with a migration note for adopters.
 
@@ -308,12 +308,6 @@ Class B surfaces are absent too (rf2-jif0qp): a call site fails at compile time 
 
 This section frames the third driver — re-frame2-fit — for adopters. It is the part of the rewrite stock Reagent cannot match because it requires knowledge of re-frame2's primitives.
 
-### Source-coord stamping is native to the renderer
-
-Stage 2 §3.6 identifies this as the biggest single dev-mode runtime win. re-frame2's adapter today wraps user views via `views.cljs:332-357` to inject a `data-rf2-source-coord` attribute onto the rendered hiccup tree. The wrapper walks the tree post-render. The walk is dev-only (gated on `goog.DEBUG`) but it costs ~5-15 µs per registered-view render. For a re-com page with ~50 registered views, that is 200-600 µs per render — 1-4% of the 16ms frame budget.
-
-reagent-slim moves the stamping into the renderer itself — a single `assoc` on the root attrs map at the registered-view's root element. No tree walk. The win is dev-mode hot-reload feedback latency: tighter render-cycle visibility for the AI-companion's render-cascade work (re-frame2 Goal 12). In production the wrapper layer DCEs out anyway, so the production cost is unchanged. The win is where developers feel it.
-
 ### Trace-bus integration replaces 10x v1's monkey-patches
 
 re-frame-10x v1 monkey-patches `reagent.impl.batching/{next-tick, render-queue, mark-rendered, queue-render}` and `reagent.impl.component/{wrap-funs, custom-wrapper}` to capture per-render-frame trace data and stamp component IDs. The patches are documented in 10x v1's preload comments. They are also fragile: any change to Reagent's batching internals risks breaking 10x.
@@ -336,7 +330,7 @@ The win is test reliability. Production-runtime impact is zero — `flush-views!
 
 ### What this adds up to for adopters
 
-Stock Reagent cannot offer these integrations because stock Reagent does not know about re-frame2's trace bus, frame-context primitive, source-coord injector, or test-flush primitive. re-frame2-reagent carries the same blindness — it is stock Reagent under a thin bridge.
+Stock Reagent cannot offer these integrations because stock Reagent does not know about re-frame2's trace bus, frame-context primitive, or test-flush primitive. re-frame2-reagent carries the same blindness — it is stock Reagent under a thin bridge.
 
 reagent-slim is the Reagent that actually knows about re-frame2. Adopters get the integration without the monkey-patches, without the wrapper-layer overhead, without the tests-race-each-other surprise.
 
@@ -365,9 +359,7 @@ A re-com page that took 12 ms to render in stock Reagent will take ~11.7-11.8 ms
 
 ### Runtime — dev mode
 
-Wrapper-layer collapse (per §9 above): ~4-12 µs per registered-view render, savings come from moving source-coord stamping into the renderer. For a re-com page with ~50 registered views, ~200-600 µs per render — 1-4% of the 16 ms frame budget. **Meaningful for hot-reload feedback latency.**
-
-Production wrapper layers DCE out; the dev-mode savings do not show up in production. But hot-reload feedback is where the dev experience is felt.
+No separate dev-mode win: the registered-view wrapper and its source-coord walk are re-frame's own, and both adapters run them.
 
 ### Runtime — test
 
@@ -394,7 +386,6 @@ This honesty matters because the doc you are reading is for adopters making a re
 | `reagent.dom/dom-node` / `findDOMNode` | absent (Reagent 2.0.1 deleted the Var; compile error) | absent (React 19 — API gone; compile error) |
 | `reagent.dom/render`, `unmount-component-at-node`, `force-update-all` | Vars still defined, but they call `react-dom` functions React 19 removed — warn, then fail at runtime. Use `reagent.dom.client` | absent (compile error) |
 | Trace integration | requires 10x v1 monkey-patches | native to renderer |
-| Source-coord stamping | post-render tree walk | native to renderer |
 | `r/flush` | brittle under React 18+ concurrent | `flush-views!` deterministic |
 | `render-to-string` | shipped (pulls `react-dom/server`) | not shipped (use `day8/re-frame2-ssr`) |
 | `render-to-static-markup` | shipped (pulls `react-dom/server`) | shipped (pure-CLJS, no `react-dom/server`) |
@@ -405,7 +396,7 @@ Adoption shape:
 
 - **Stock Reagent codebase, full surface usage:** stay on `re-frame2-reagent`. No reason to migrate. Note this is not a React-17/18 escape hatch — the bridge is pinned to Reagent 2.0.1 on React 19 as well; what it buys you is the full Reagent surface, not an older React.
 - **Stock Reagent codebase, re-com surface only:** migrate to `reagent-slim`. The migration is a require-rewrite plus mount-API swap; everything else is unchanged.
-- **re-frame2-native codebase, on React 19:** migrate to `reagent-slim`. You get the full integration (trace bus, source-coord, frame-context, deterministic flush) plus the bundle savings.
+- **re-frame2-native codebase, on React 19:** migrate to `reagent-slim`. You get the full integration (trace bus, frame-context, deterministic flush) plus the bundle savings.
 - **Codebase using a banned surface (`with-let`, `cursor`, banned Form-3 key, etc.):** either rewrite into the supported surface, or stay on `re-frame2-reagent`. Both are first-class.
 
 ---
