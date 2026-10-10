@@ -6,9 +6,9 @@
   Same dual-target pattern every other panel uses (subscriptions,
   routes, ...). The panel view in
   `machine_inspector.cljs` builds the hiccup; the *logic* — projecting
-  the registered-machine set + the live snapshots + the trace-buffer's
-  `:rf.machine/transition` slice into per-machine row + chart-prop
-  data — is pure data → data and runs under the JVM unit-test target
+  the registered-machine set + the live snapshots into per-machine
+  rows, and folding the focused event's cascade into transition
+  records — is pure data → data and runs under the JVM unit-test target
   (`clojure -M:test`).
 
   ## What this panel surfaces (per tools/xray/spec/003-Machine-Inspector.md)
