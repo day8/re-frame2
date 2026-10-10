@@ -7,7 +7,8 @@
   `re-frame.adapter-render-cljs-test`."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [reagent2.dom.client :as rdc]
-            [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]))
+            [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]
+            [re-frame.substrate.spine :as rf.substrate.spine]))
 
 ;; ---- helpers ---------------------------------------------------------------
 
@@ -56,12 +57,23 @@
 
 ;; ---- hydrate path ----------------------------------------------------------
 
+(defn- closer-child
+  "The tree beneath a hydrating root's adoption-window closer, or `tree`
+  itself when the closer does not wrap it."
+  [tree]
+  (if (and (vector? tree)
+           (= :r> (first tree))
+           (identical? rf.substrate.spine/adoption-window-closer (second tree)))
+    (nth tree 3)
+    tree))
+
 (deftest render-hydrate-uses-hydrate-root
   (testing "hydrate render: (rdc/hydrate-root mount-point render-tree)
             returns the Root; create-root / render are NOT called; the
             unmount thunk closes over the Root from hydrate-root (parity
             with the bridge's pin)"
     (let [calls      (atom [])
+          hydrated   (atom nil)
           fake-root  (make-fake-root :hydrate)
           fake-mount #js {:rf-test-mount :hydrate}
           fake-tree  [:section "ssr-tree"]]
@@ -77,8 +89,9 @@
                                        ([mount-point tree]
                                         (swap! calls conj [:hydrate-root mount-point tree])
                                         fake-root)
-                                       ([mount-point tree _]
-                                        (swap! calls conj [:hydrate-root mount-point tree])
+                                       ([mount-point tree options]
+                                        (swap! calls conj [:hydrate-root mount-point (closer-child tree)])
+                                        (reset! hydrated [tree options])
                                         fake-root))
                     rdc/unmount      (fn [arg]
                                        (swap! calls conj [:unmount arg])
@@ -87,4 +100,9 @@
               unmount   (render-fn fake-tree fake-mount {:hydrate? true})]
           (unmount)
           (is (= [[:hydrate-root fake-mount fake-tree] [:unmount fake-root]] @calls)
-              "hydrate-root alone mounts, and the thunk unmounts the Root it returned"))))))
+              "hydrate-root alone mounts, and the thunk unmounts the Root it returned")
+          (let [[tree options] @hydrated]
+            (is (not= tree (closer-child tree))
+                "the tree reached React wrapped in the adoption-window closer")
+            (is (fn? (some-> options .-onRecoverableError))
+                "with the spine's composed reporter in the root options")))))))

@@ -37,7 +37,8 @@
      :make-reaction (fn [thunk] (ratom/make-reaction thunk))
      :create-root   (fn [mount-point] (rdc/create-root mount-point))
      :render-root   (fn [root tree] (rdc/render root tree))
-     :hydrate-root  (fn [mount-point tree] (rdc/hydrate-root mount-point tree))
+     :hydrate-root  (fn [mount-point tree root-options]
+                      (rdc/hydrate-root mount-point tree root-options))
      :unmount-root  (fn [root] (rdc/unmount root))
      ;; Cleanup owns this exact substrate dispatch even after the process
      ;; lifecycle's terminal claim closes every public routed hook.
@@ -96,7 +97,14 @@
   Root with the new tree: no second `create-root`, no second hydration, so
   the one call is both the boot path and the `^:dev/after-load` hook.
   `mount-point` is read on the first call only. `rf/destroy-adapter!`
-  releases a Root this handle still holds, exactly once."
+  releases a Root this handle still holds, exactly once.
+
+  A hydrating first call also reads two more `opts` keys.
+  `:on-recoverable-error` is called with each error React recovers from;
+  in a development build a hydration mismatch React recovers from emits
+  `:rf.ssr/hydration-mismatch` before reaching it (or React's default
+  report). `:identifier-prefix` is passed to React as `identifierPrefix`,
+  and must be the prefix the server rendered under (Spec 004C §3)."
   (:render-client-root! spine-fns))
 
 (def unmount!

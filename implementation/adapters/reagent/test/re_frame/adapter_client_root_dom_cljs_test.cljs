@@ -13,12 +13,14 @@
   as the raw-root shape; what survives a hot reload is the Root and the
   frame, not the DOM nodes.)
 
-  The `reagent.dom.client` constructors are wrapped (call-through spies), so
-  each proof also counts them: one `create-root` or one `hydrate-root` per
-  handle, and never a second."
+  The Root constructors are wrapped (call-through spies), so each proof also
+  counts them: one `create-root`, or one react-dom/client `hydrateRoot`
+  (which the adapter calls itself to pass root options), per handle, and
+  never a second."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [reagent.dom.client :as rdc]
             ["react-dom" :as react-dom]
+            ["react-dom/client" :as react-dom-client]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]))
@@ -51,29 +53,29 @@
 (defn- probe [el] (.querySelector el "[data-testid=\"rf-client-root-probe\"]"))
 
 (defn- with-counting-rdc!
-  "Run `body-fn` with call-through spies on the three `reagent.dom.client`
-  constructors/unmount, returning the counts atom it recorded into. The
-  spies are explicit multi-arity, mirroring the published arities
-  (create-root 1/2, hydrate-root 2/3, unmount 1): the adapter's lambdas
-  compile to DIRECT arity calls on the original multi-arity fns, which a
-  variadic `(fn [& args])` rebinding has no slot for."
+  "Run `body-fn` with call-through spies on `reagent.dom.client`'s
+  `create-root` and `unmount` and on react-dom/client's `hydrateRoot`,
+  returning the counts atom it recorded into. The `rdc` spies are explicit
+  multi-arity, mirroring the published arities (create-root 1/2, unmount 1):
+  the adapter's lambdas compile to DIRECT arity calls on the original
+  multi-arity fns, which a variadic `(fn [& args])` rebinding has no slot
+  for."
   [body-fn]
   (let [counts       (atom {:create-root 0 :hydrate-root 0 :unmount 0})
         create-root  rdc/create-root
-        hydrate-root rdc/hydrate-root
+        hydrate-root (.-hydrateRoot react-dom-client)
         unmount      rdc/unmount
         count!       (fn [k] (swap! counts update k inc))]
-    (with-redefs [rdc/create-root  (fn
-                                     ([m]   (count! :create-root) (create-root m))
-                                     ([m o] (count! :create-root) (create-root m o)))
-                  ;; The adapter calls the 2-arity; stock Reagent's 2-arity
-                  ;; body re-enters its own 3-arity THROUGH THE VAR — i.e.
-                  ;; through this spy — so only the entry arity counts.
-                  rdc/hydrate-root (fn
-                                     ([m t]   (count! :hydrate-root) (hydrate-root m t))
-                                     ([m t o] (hydrate-root m t o)))
-                  rdc/unmount      (fn [r] (count! :unmount) (unmount r))]
-      (body-fn counts))
+    (set! (.-hydrateRoot react-dom-client)
+          (fn [m el o] (count! :hydrate-root) (hydrate-root m el o)))
+    (try
+      (with-redefs [rdc/create-root  (fn
+                                       ([m]   (count! :create-root) (create-root m))
+                                       ([m o] (count! :create-root) (create-root m o)))
+                    rdc/unmount      (fn [r] (count! :unmount) (unmount r))]
+        (body-fn counts))
+      (finally
+        (set! (.-hydrateRoot react-dom-client) hydrate-root)))
     @counts))
 
 ;; ---- cold mount: one Root, re-renders update the same node --------------
@@ -127,7 +129,7 @@
               (try
               (is (= [true 1 0] [(identical? server-p (probe el))
                                  (:hydrate-root @counts) (:create-root @counts)])
-                  "hydrate-root, called once, ADOPTED the server node; a hydrating mount never calls create-root")
+                  "hydrateRoot, called once, ADOPTED the server node; a hydrating mount never calls create-root")
               (reset! counts
                       (with-counting-rdc!
                         (fn [_]

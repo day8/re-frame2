@@ -1133,6 +1133,11 @@
 ;; a native React-element root has no such flip, so a dedicated closer component
 ;; shuts the window on the first (hydration) commit instead.
 ;;
+;; RATOM ROOTS. A hydrating Reagent or reagent-slim root installs the same
+;; reporter and closer, through `make-ratom-spine`'s mount. Its hiccup tree is
+;; hashable, but the hash serialises every fn head to one token, so a divergence
+;; below the root view reaches re-frame only through React's adoption report.
+;;
 ;; CANONICAL ENTRY. This shared React-hook render path is the ONLY native mount
 ;; route that installs the reporter, so it is the canonical native UIx
 ;; hydration entry: hydrate through `(re-frame.substrate.adapter/render tree
@@ -1174,7 +1179,7 @@
                   :recovery :warned-and-replaced})))
 
 (defn native-hydration-reporter
-  "Build the composed `onRecoverableError` callback for a HYDRATING native root.
+  "Build the composed `onRecoverableError` callback for a HYDRATING root.
 
   `adoption-ref` is the root-local `#js {:adopting true}` window flag; `authored`
   is the host's `:on-recoverable-error` (or nil). On every recoverable error the
@@ -1201,7 +1206,7 @@
       (report-recoverable-default! error))))
 
 (defn- hydrate-root-options
-  "Build the react-dom/client root options for a HYDRATING native root, or nil.
+  "Build the react-dom/client root options for a HYDRATING root, or nil.
 
   `adoption-ref` is the root-local `#js {:adopting true}` window flag the
   installed reporter reads (see `native-hydration-reporter`) and the
@@ -1217,13 +1222,16 @@
       #js {:onRecoverableError (native-hydration-reporter adoption-ref authored)})))
 
 (defn adoption-window-closer
-  "React function component that CLOSES a native root's hydration adoption window
+  "React function component that CLOSES a hydrating root's adoption window
   on its first (hydration) commit. Reads the root-local
   `#js {:adopting true}` flag off its `rfAdoption` prop and clears it from a
   passive `useEffect` with empty deps — so it runs exactly once, strictly AFTER
   the hydration commit React reports mismatches against (mirroring the compiled
   tier's `PhaseFlipper` clearing `adoption-ref` on the `:server` commit). Renders
-  nil (no DOM), so it adds nothing to hydrate and cannot itself mismatch.
+  its children and no DOM of its own, so it adds nothing to hydrate and cannot
+  itself mismatch. The React-hook spine mounts it childless beside the tree;
+  the ratom spine wraps the tree in it, because a sibling ahead of the tree
+  would move every `useId` position in it away from the server's.
 
   Public so the mounted-DOM window-bounding proof can mount the REAL closer to
   shut the window it drives the reporter across."
@@ -1234,7 +1242,7 @@
         (set! (.-adopting adoption) false))
       js/undefined)
     #js [])
-  nil)
+  (.-children props))
 
 (when ^boolean js/goog.DEBUG
   (set! (.-displayName adoption-window-closer) "rf.substrate/adoption-window-closer"))
@@ -3970,7 +3978,10 @@
       :render-root   — (fn [root tree]) → render hiccup into root (the
                        substrate's hiccup→element walk + `.render`, NOT a
                        bare `.render`)
-      :hydrate-root  — (fn [mount-point tree]) → React root
+      :hydrate-root  — (fn [mount-point tree root-options]) → React root;
+                       `root-options` is the react-dom/client `hydrateRoot`
+                       options object, or nil, and the op must hand it to
+                       React (stock Reagent's `hydrate-root` drops it)
       :unmount-root  — (fn [root]) → unmount the root
       :disposable?   — (fn [x]) → boolean for the substrate's IDisposable
       :dispose!      — (fn [x]) → dispose a substrate-native reaction
@@ -4082,16 +4093,36 @@
         ;; below both ride it, so the handle adds no second lifecycle —
         ;; every Root either produces is tracked in `active-roots-cell`,
         ;; drained by `dispose-adapter!`, and released at most once.
+        ;;
+        ;; A hydrating root is created with the React-hook spine's root
+        ;; options — the composed reporter bounded to its adoption window
+        ;; (see `hydrate-root-options`) — plus `:identifier-prefix` as React's
+        ;; `identifierPrefix`, which `useId` needs to match the server's. When
+        ;; the reporter is installed, the window closer WRAPS the tree: a
+        ;; sibling would move the tree's `useId` positions. `wrap` is returned
+        ;; so every later update renders through the same wrapper and React
+        ;; keeps the hydrated tree rather than remounting it.
         mount-root!
         (fn mount-root! [render-tree mount-point opts]
-          (let [root (if (:hydrate? opts)
-                       (hydrate-root mount-point render-tree)
-                       (let [r (create-root mount-point)]
-                         (render-root r render-tree)
-                         r))]
+          (let [hydrate?     (:hydrate? opts)
+                adoption-ref (when hydrate? #js {:adopting true})
+                reporter     (when hydrate? (hydrate-root-options opts adoption-ref))
+                prefix       (when hydrate? (:identifier-prefix opts))
+                root-options (if (some? prefix)
+                               (js/Object.assign #js {:identifierPrefix prefix} reporter)
+                               reporter)
+                wrap         (if reporter
+                               (let [props #js {:rfAdoption adoption-ref}]
+                                 (fn wrap [tree] [:r> adoption-window-closer props tree]))
+                               identity)
+                root         (if hydrate?
+                               (hydrate-root mount-point (wrap render-tree) root-options)
+                               (let [r (create-root mount-point)]
+                                 (render-root r render-tree)
+                                 r))]
             ;; Shared track-and-unmount tail (unmount-op =
             ;; the injected `unmount-root`).
-            [root (track-active-root! active-roots-cell unmount-root root)]))
+            [root (track-active-root! active-roots-cell unmount-root root) wrap]))
         render
         (fn render [render-tree mount-point opts]
           (second (mount-root! render-tree mount-point opts)))
@@ -4105,9 +4136,9 @@
         {:keys [client-root render-client-root! unmount-client-root!]}
         (make-client-root-fns
           (fn mount-client-root! [render-tree mount-point opts]
-            (let [[root unmount] (mount-root! render-tree mount-point opts)]
+            (let [[root unmount wrap] (mount-root! render-tree mount-point opts)]
               {:live?    (fn live? [] (contains? @active-roots-cell root))
-               :update!  (fn update! [tree] (render-root root tree))
+               :update!  (fn update! [tree] (render-root root (wrap tree)))
                :unmount! unmount})))
         ;; Spec 006 §Adapter disposal lifecycle. The four-MUST list:
         ;;   1. Cancel in-flight reactive subscriptions — walk every live
