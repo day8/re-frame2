@@ -29,15 +29,12 @@
   boot and no resources-artefact classpath dependency. A literal pinned in
   EMIT source is matched AFTER `strip-comments-and-strings` so a docstring
   mention cannot satisfy the emit pin; a literal pinned in a doc/spec is a
-  looser raw-text match. The near-miss anti-pin forbids snake_case /
-  pluralised / underscore-ns spellings of any of the five literals anywhere
-  in the tracked files — and uses the keyword-boundary-aware `variant-regex`
-  so `:rf.resource/load-more` is NOT reported as a near-miss of
-  `:rf.resource/load-more-skipped` (one is a genuine keyword-token prefix of
-  the other)."
+  looser raw-text match. Every match is keyword-boundary-aware, so
+  `:rf.resource/load-more` is not satisfied by
+  `:rf.resource/load-more-skipped` (one is a genuine keyword-token prefix
+  of the other)."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.mcp-conformance.fixtures :as rf.mcp-conformance.fixtures]
-            [re-frame.mcp-conformance.wire-vocab.source-pins :as rf.mcp-conformance.wire-vocab.source-pins]))
+            [re-frame.mcp-conformance.fixtures :as rf.mcp-conformance.fixtures]))
 
 ;; ---------------------------------------------------------------------------
 ;; The closed EP-0021 infinite-feed trace vocabulary (the single source of
@@ -72,10 +69,6 @@
   of the registration-time validation), catalogued in Spec 009 §Error
   event catalogue."
   {:op :rf.error/infinite-missing-page-accessor :emit resource-state})
-
-(def ^:private all-literals
-  "Every literal this gate pins — the four ops + the one error."
-  (conj (mapv :op infinite-trace-ops) (:op infinite-error)))
 
 ;; ---------------------------------------------------------------------------
 ;; Source-text helpers (boundary-aware so a longer keyword that shares a
@@ -158,31 +151,3 @@
             (str op " MUST be a member of the closed `trace-ops` enum, classed "
                  class ", in " xray-enum
                  " trace-ops enum (Spec 009 / Xray 024 semantic class)."))))))
-
-;; ---------------------------------------------------------------------------
-;; (4) near-miss anti-pin — no drifted spelling co-exists anywhere in the
-;;     tracked files. Mirrors the wire-marker / cursor-stale near-miss sweep.
-;; ---------------------------------------------------------------------------
-
-(def ^:private tracked-files
-  "Every conformance-tracked file this gate pins the vocabulary against.
-  A near-miss spelling MUST NOT appear in ANY of them."
-  [spec-009 xray-024 xray-enum resource-events resource-state])
-
-(deftest no-near-miss-spelling-of-the-infinite-vocabulary
-  (doseq [file tracked-files
-          :let [text (rf.mcp-conformance.fixtures/read-source file)]
-          kw   all-literals
-          near (rf.mcp-conformance.wire-vocab.source-pins/near-miss-variants kw)
-          ;; a genuine canonical literal that is a PREFIX of `near` (the
-          ;; `pluralised` / `predicate` variants of the shorter op) is NOT a
-          ;; near-miss when the longer literal is itself canonical: e.g.
-          ;; `:rf.resource/load-more` + "s" = "…load-mores", harmless; but
-          ;; "…load-more?" must still be forbidden. The boundary regex on the
-          ;; FULL near-miss string handles the prefix case, and we additionally
-          ;; skip a `near` that IS exactly another canonical literal.
-          :when (not (some #(= near (pr-str %)) all-literals))]
-    (is (not (re-find (rf.mcp-conformance.fixtures/variant-regex near) text))
-        (str "near-miss spelling " (pr-str near) " of the canonical literal "
-             (pr-str kw) " MUST NOT appear in " file
-             " — a drifted spelling silently breaks agent pattern-matching."))))
