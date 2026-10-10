@@ -20,11 +20,10 @@
   ## What this does
 
   `project-ssr-runtime-db` projects the `:rf.runtime/machines` slice for the
-  SSR hydration boundary: each snapshot's `:data` is run through the merged
-  frame's merged `re-frame.projection/project-egress` policy under the
-  `:rf.egress/ssr-hydration` profile, so any `:sensitive` `:data` path
-  redacts (`:rf/redacted`) before it rides the wire, and a `:large` one rides
-  whole, as that profile keeps large values. The projection uses SHARED frame-independent primitives — NEVER a
+  SSR hydration boundary: each snapshot's `:sensitive` `:data` paths redact
+  (`:rf/redacted`) before it rides the wire, and a `:large` one rides whole,
+  as the `:rf.egress/ssr-hydration` profile keeps large values. The
+  projection uses SHARED frame-independent primitives — NEVER a
   family-private elider.
 
   Machine `:data` egress classification lives in the per-frame elision
@@ -75,7 +74,9 @@
   and redact via
   the SHARED frame-independent `re-frame.classification/redact-with-paths`
   walker — `:sensitive` slots to
-  `:rf/redacted`. `:large` slots ride whole: the hydration wire applies no
+  `:rf/redacted`. The declarations are INDEX-FREE, so `[:data :items :token]`
+  names the field in every element of a `:items` vector, as the durable
+  walker the trace path uses reads it. `:large` slots ride whole: the hydration wire applies no
   size elision. Snapshot egress does not consult per-slot `:sensitive?` / `:large?`
   schema marks; the frame classification registry is the egress source of truth.
 
@@ -99,7 +100,7 @@
       ;; elision (the `:rf.egress/ssr-hydration` profile's rule), because the
       ;; client re-materialises the actor from this `:data`.
       (if (seq s-paths)
-        (update snapshot :data rf.classification/redact-with-paths s-paths [])
+        (update snapshot :data rf.classification/redact-with-paths s-paths [] {:index-free? true})
         snapshot))))
 
 (defn project-ssr-runtime-db

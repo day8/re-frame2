@@ -8,6 +8,7 @@
   validates `:data`; it does not classify it."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.elision :as rf.elision]
             ;; Loading machines publishes :machines/project-ssr-runtime-db.
             [re-frame.machines]
             [re-frame.schemas]
@@ -43,6 +44,38 @@
                                           :token   "secret-jwt-snapshot"
                                           :blob    "huge-blob-value"}}}
              :spawned   {}}}))))
+
+(deftest a-collection-element-declaration-redacts-every-element-as-the-trace-does
+  ;; A spawned actor's projection-relative `[:data :items :token]` names the
+  ;; field in EVERY element; the durable walker the trace path uses reads it
+  ;; that way, and the hydration projection must agree.
+  (rf/reg-machine :rf.ssr-machine/kid
+    {:initial   :wait
+     :data      {:token "SECRET-DEFAULT"
+                 :items [{:id 1 :token "SECRET-ITEM"} {:id 2 :token "SECRET-ITEM-2"}]}
+     :sensitive [[:data :token] [:data :items :token]]
+     :states    {:wait {}}})
+  (rf/reg-machine :rf.ssr-machine/parent
+    {:initial :working
+     :data    {}
+     :states  {:working {:spawn {:machine-id :rf.ssr-machine/kid}}}})
+  (rf/dispatch-sync [:rf.ssr-machine/parent [:rf.machine/start]])
+  (let [runtime-db        (:rf.db/runtime (rf/frame-state-value :rf/default))
+        [kid-id snapshot] (->> (get-in runtime-db [:rf.runtime/machines :snapshots])
+                               (filter #(= :rf.ssr-machine/kid (:rf/machine-type (val %))))
+                               first)
+        projected         (get-in (rf.ssr.payload-policy/project-runtime-db runtime-db :rf/default)
+                                  [:rf.runtime/machines :snapshots kid-id :data])]
+    (is (= {:token :rf/redacted
+            :items [{:id 1 :token :rf/redacted} {:id 2 :token :rf/redacted}]}
+           (select-keys projected [:token :items])))
+    (is (= (rf.elision/elide-wire-value
+             (:data snapshot)
+             {:frame                    :rf/default
+              :path                     [:rf.runtime/machines :snapshots kid-id :data]
+              :rf.egress/include-large? true})
+           projected)
+        "the hydration projection equals the durable walker's")))
 
 (deftest undeclared-machine-snapshot-rides-verbatim
   ;; The projection is precise, not a blanket scrub.
