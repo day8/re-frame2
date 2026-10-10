@@ -122,20 +122,58 @@
           (.delete (io/file tmp "fake_ns"))
           (.delete tmp))))))
 
-(deftest registration-file-is-absolute
-  ;; A classpath-relative :file resolves nowhere once shipped, so the macros bake
-  ;; the absolute on-disk path into both sinks.
+(deftest registration-file-is-absolute-in-dev-and-classpath-relative-in-production
+  ;; Dev bakes the absolute on-disk path into both sinks, so an editor URI
+  ;; resolves whatever `:project-root` the host configured. Production keeps the
+  ;; classpath-relative path the reader supplied, which names the file in every
+  ;; checkout without disclosing the building machine's directory layout.
   (rf/reg-event :rf2-wvsxg/absolute-file-sample (fn [{:keys [db]} _] {:db db}))
   (rf/reg-view ^{:rf/id :rf2-quir9/absolute-view-sample} quir9-view []
     [:div "hi"])
   (doseq [[kind id] [[:event :rf2-wvsxg/absolute-file-sample]
                      [:view  :rf2-quir9/absolute-view-sample]]]
     (let [f (:file (rf.source-coords/error-coords-for kind id))]
-      (is (rf.source-coords.editor-uri/absolute-path? f) (str kind " :file is absolute"))
-      (is (.endsWith ^String f "re_frame/source_coords_test.clj"))
-      (when rf.interop/debug-enabled?
-        (is (= f (:file (rf/handler-meta {:source :store :kind kind :id id})))
-            (str kind " public meta carries the same absolutised :file"))))))
+      (if rf.interop/debug-enabled?
+        (do
+          (is (rf.source-coords.editor-uri/absolute-path? f) (str kind " :file is absolute"))
+          (is (.endsWith ^String f "re_frame/source_coords_test.clj"))
+          (is (= f (:file (rf/handler-meta {:source :store :kind kind :id id})))
+              (str kind " public meta carries the same absolutised :file")))
+        (is (= "re_frame/source_coords_test.clj" f)
+            (str kind " :file is classpath-relative"))))))
+
+;; ---- production :file is classpath-relative, or absent --------------------
+;;
+;; These call the expansion-time fns directly, so they hold in either posture.
+
+(deftest prod-coords-form-keeps-a-classpath-relative-file-verbatim
+  ;; The path resolves on this classpath, so absolutising would have produced
+  ;; this checkout's on-disk path.
+  (is (= {:ns '(quote x) :file "re_frame/source_coords_test.clj" :line 1}
+         (rf.source-coords/prod-coords-form {:file "re_frame/source_coords_test.clj" :line 1}
+                                            nil 'x))))
+
+(deftest prod-coords-form-omits-a-file-known-only-as-an-absolute-path
+  (are [path] (= {:ns '(quote x) :line 1}
+                 (rf.source-coords/prod-coords-form {:file path :line 1} nil 'x))
+    "C:/private-builder/acme/events.cljs"
+    "/home/private-builder/acme/events.cljs"
+    "file:/home/private-builder/acme/events.cljs")
+  (is (= {:ns '(quote x) :line 1}
+         (rf.source-coords/prod-coords-form {:line 1} "/home/private-builder/acme/events.clj" 'x))
+      "the *file* fallback obeys the same rule"))
+
+(deftest prod-coords-form-omits-file-when-none-was-captured
+  (are [form-meta file] (= {:ns '(quote x) :line 1}
+                           (rf.source-coords/prod-coords-form form-meta file 'x))
+    {:file "NO_SOURCE_PATH" :line 1} "NO_SOURCE_PATH"
+    {:line 1}                        nil))
+
+(deftest dev-coords-form-still-absolutises
+  (let [f (:file (rf.source-coords/coords-form {:file "re_frame/source_coords_test.clj" :line 1}
+                                               nil 'x))]
+    (is (rf.source-coords.editor-uri/absolute-path? f) (pr-str f))
+    (is (.endsWith ^String f "re_frame/source_coords_test.clj"))))
 
 (deftest reg-view-strips-reader-symbol-position-meta
   ;; The CLJS indexing reader stamps a classpath-RELATIVE :file (plus :line,

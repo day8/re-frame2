@@ -636,18 +636,18 @@
 ;; macro expansion (JVM-side); the CLJS runtime sees a literal string
 ;; (cheap).
 ;;
-;; PRODUCTION KEEPS THIS PATH. The production-elision gate drops the DEV
+;; PRODUCTION NEVER ABSOLUTISES. The production-elision gate drops the DEV
 ;; coord-form — the one carrying `:column` — and keeps
-;; [[prod-coords-form]], which absolutises `:file` exactly as the dev
-;; branch does, so an error record can still name a source line in the
-;; builds that actually break. A release bundle
-;; therefore carries the BUILDING MACHINE's directory layout, once per
-;; macro-driven registration. That is the contract rather than an
-;; oversight, and `spec/Privacy.md` §What the production bundle itself
-;; discloses owns it — including the remedy for anyone who needs
-;; path-independent bytes, which is to build in a neutral working
-;; directory rather than relativise a path the framework promises to keep
-;; absolute.
+;; [[prod-coords-form]], so an error record can still name a source line in
+;; the builds that actually break. A release bundle is readable by anyone
+;; who can fetch it, so its coordinates must not carry the building
+;; machine's directory layout: [[prod-coords-form]] emits the
+;; classpath-relative `:file` the reader supplied, which names the same file
+;; in every checkout and is what the dev-server open endpoint resolves
+;; against live source-paths. When the reader supplied only an absolute path
+;; (the native ClojureScript compiler, a JVM `load-file`), the production
+;; coordinate omits `:file` and ships `{:ns :line}`. `spec/Privacy.md`
+;; §What the production bundle itself discloses owns that disclosure.
 ;;
 ;; Failure modes that fall through to the unchanged input:
 ;;   - Already-absolute path (e.g. a JVM-compile `*file*` that
@@ -676,9 +676,9 @@
      resolution fails (no resource found, non-`file:` URL), or when
      `path` is nil / blank.
 
-     Used by `coords-form` / `prod-coords-form` / `form-coords` at
-     macro-expansion time to bake an absolute `:file` value into each
-     emitted source-coord literal — defeating the source-root
+     Used by `coords-form` / `form-coords` at macro-expansion time to
+     bake an absolute `:file` value into each emitted dev source-coord
+     literal ([[prod-coords-form]] never absolutises) — defeating the source-root
      ambiguity that bites multi-source-path builds (shadow-cljs lists
      both `tools/xray/src` and `tools/xray/testbeds` for the panel-
      gallery testbed; the form-meta's classpath-relative `:file` carries
@@ -800,13 +800,17 @@
      survive into the emitted form (evaluation-order
      transparency).
 
-     The picked `:file` is absolutised via
-     [[absolutise-file]] at macro-expansion time so the downstream URI
-     builder receives an absolute on-disk path regardless of which
-     source-root resolved the file on shadow-cljs's classpath."
+     `:file` is the classpath-relative path the reader supplied, emitted
+     verbatim and never absolutised, so the release bundle does not carry
+     the building machine's directory layout. When the only path available
+     is already absolute (per `rf.source-coords.editor-uri/absolute-path?`;
+     the native ClojureScript compiler and a JVM `load-file` supply one),
+     `:file` is omitted and the coordinate is `{:ns :line}`."
      [form-meta file ns-sym]
      (let [chosen-file (resolve-file form-meta file)
-           chosen-file (when chosen-file (absolutise-file chosen-file))]
+           chosen-file (when (and chosen-file
+                                  (not (rf.source-coords.editor-uri/absolute-path? chosen-file)))
+                         chosen-file)]
        (cond-> {:ns (list 'quote ns-sym)}
          chosen-file       (assoc :file chosen-file)
          (:line form-meta) (assoc :line (:line form-meta))))))

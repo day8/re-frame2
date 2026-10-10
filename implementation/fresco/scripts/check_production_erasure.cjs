@@ -84,12 +84,13 @@
  * `defview` / `defhost` SOURCE COORDINATES are not
  * scannable in THIS bundle, and the reason is worth stating rather than
  * leaving to be rediscovered. The coordinate the macro bakes is an
- * absolute file path, so the sentinel would have to be the declaring
- * file's name — and the only declaration reachable from `:fresco-release`
- * lives in `consumer_app.cljs`, whose name core's own `reg-sub` /
- * `reg-event` coordinates already put in the release bundle: they are
- * emitted through `re-frame.source-coords/prod-coords-form`, which keeps
- * `:file` and `:line` in production by design and drops only `:column`.
+ * absolute file path in dev, different in every checkout, so the sentinel
+ * would have to be the declaring file's name — and the only declaration
+ * reachable from `:fresco-release` lives in `consumer_app.cljs`, whose name
+ * core's own `reg-sub` / `reg-event` coordinates already put in the release
+ * bundle: they are emitted through `re-frame.source-coords/prod-coords-form`,
+ * which keeps the classpath-relative `:file` and `:line` in production by
+ * design and drops only `:column`.
  * Measured, not assumed — `consumer_app.cljs` occurs three times in the
  * current green bundle, at lines 87, 89 and 91, which are the three
  * `reg-sub` / `reg-event` forms; the `h/defview` at line 99 contributes

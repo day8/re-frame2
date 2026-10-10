@@ -16,9 +16,9 @@
   handler can stat it. The macro layer bakes that absolute path at
   macro-expansion time, which works for the common classpath-`file:` case
   but leaves a RELATIVE coord for JAR/in-jar/odd-classpath sources (the gap
-  the endpoint closes) and bakes the builder's home path into the bundle —
-  the RELEASE bundle as much as the dev one, since the production coord-form
-  absolutises too (`spec/Privacy.md` §What the production bundle itself
+  the endpoint closes) and bakes the builder's home path into the dev
+  bundle. The production coord-form keeps the classpath-relative `:file`
+  instead (`spec/Privacy.md` §What the production bundle itself
   discloses). The endpoint resolves the relative `:file` against the live
   source-paths on the dev machine at runtime and launches via the
   cross-platform `launch-editor` package — zero-config for everyone.
