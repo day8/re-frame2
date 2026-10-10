@@ -18,7 +18,8 @@
   call sites get their real classes; the vendored copy below is the honest
   unbindable example, and a tool that started GUESSING that copy was
   `reagent.core` would be a worse tool than the blind one."
-  (:require [clojure.set]
+  (:require [clojure.java.io :as io]
+            [clojure.set]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [re-frame.migration.fresco.census :as rf.migration.fresco.census]
@@ -573,3 +574,40 @@
       (is (= [[:unresolved-reagent-require :runtime-blocker nil]
               [:unresolved-alias :runtime-blocker {:api "as-element" :symbol "r/as-element"}]]
              (mapv (juxt :class :verdict :detail) es))))))
+
+;; ---------------------------------------------------------------------------
+;; The prose that restates the roster: the guide's verdicts, the skill's routes
+;; ---------------------------------------------------------------------------
+
+(defn- table-rows
+  "The body rows of the first markdown table after the line containing
+  `marker` in `path`, read from the repository root, each a vector of its
+  trimmed cells."
+  [path marker]
+  (let [row? #(str/starts-with? (str/triml %) "|")]
+    (->> (str/split-lines (slurp (io/file ".." ".." ".." path)))
+         (drop-while #(not (str/includes? % marker)))
+         (drop-while (complement row?))
+         (take-while row?)
+         (drop 2)
+         (mapv #(mapv str/trim (rest (str/split (str/trim %) #"\|")))))))
+
+(defn- cell-classes [cell] (set (map (comp keyword second) (re-seq #"`:([a-z][a-z0-9-]*)`" cell))))
+
+(defn- class->verdicts [pairs] (reduce (fn [m [c v]] (update m c (fnil conj #{}) v)) {} pairs))
+
+(deftest the-prose-tables-name-the-roster-and-its-verdicts
+  (let [roster (class->verdicts (map (juxt :class :verdict)
+                                     (concat (vals rf.migration.fresco.census/surface)
+                                             (vals rf.migration.fresco.census/substrate-surface))))]
+    (testing "the human guide's verdict table gives every class the code's verdict"
+      (is (= roster
+             (class->verdicts
+              (for [[label cell] (table-rows "docs/core/fresco/20-migration-from-reagent.md" "### The census")
+                    c            (cell-classes cell)]
+                [c ({"Human decision" :human-decision "Runtime blocker" :runtime-blocker
+                     "Mechanical" :mechanical} label)])))))
+    (testing "the skill's census route table routes every class, and only those"
+      (is (= (set (keys roster))
+             (into #{} (mapcat (comp cell-classes first))
+                   (table-rows "skills/reagent-fresco-migration/references/procedure.md" "Census `:class`")))))))

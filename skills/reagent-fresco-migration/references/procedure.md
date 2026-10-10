@@ -71,8 +71,11 @@ it is cheap: a bare JVM, no re-frame2 loaded, no files touched.
   `r/reactify-component`, `render-to-string` and root mount, plus re-frame2's
   own substrate adapters under `re-frame.adapter.` (an app on the Reagent
   adapter may call no Reagent API of its own), each classified
-  `:human-decision` or `:runtime-blocker`. Each class routes to a rule, so the
-  census is the D/R gating for the whole codebase before you open a file:
+  `:human-decision` or `:runtime-blocker`. A verdict says what happens if the
+  call is left inside a converted view, not what to do about it: the route
+  says that, and the tier comes from the rule it routes to — an `r/atom` is a
+  runtime blocker routed to D-tier MIG-16. Every class routes before you open
+  a file:
 
   | Census `:class` | Route |
   |---|---|
