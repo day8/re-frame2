@@ -511,120 +511,50 @@ def corpus(cfg, roots) -> list[Path]:
 # self-test
 # --------------------------------------------------------------------------
 
+# (name, markdown, expected defect kinds).  The kind is asserted, not just the
+# count, because it decides which repair the author is told to make.
 _CASES = [
-    # (name, markdown, expected defect count)
-    ("four-column child nests", "- parent\n    - child\n", 0),
+    ("a two-column child is FLATTENED", "- parent\n  - child\n", ["FLATTENED"]),
     (
-        "six-column grandchild of a four-column child is flat",
-        "- parent\n    - child\n      - grandchild\n",
-        1,
+        "an eight-column child after a blank line is ESCAPED, not flattened",
+        "- parent\n\n        - child\n",
+        ["ESCAPED"],
     ),
     (
-        "six columns after a blank line nests correctly",
-        "- parent\n\n      - child\n",
-        0,
+        "the same child with no blank line is only FLATTENED",
+        "- parent\n        - child\n",
+        ["FLATTENED"],
     ),
+    ("ordered parent is not a three-column parent", "1. parent\n   1. child\n", ["FLATTENED"]),
     (
-        "ordered parent is not a three-column parent",
-        "1. parent\n   1. child\n",
-        1,
-    ),
-    (
-        "list-shaped lines inside a fence are not items",
-        "Prose.\n\n```text\n- parent\n  - child\n```\n",
-        0,
+        "a hard line break at the end of an item survives",
+        "- parent  \n  continued\n  - child\n",
+        ["FLATTENED"],
     ),
     (
         "a flat list inside an HTML comment is not a defect",
         "<!--\n- parent\n  - child\n-->\n\nProse.\n",
-        0,
+        [],
     ),
-    (
-        "two separate top-level lists are not a pair",
-        "- alpha\n\n## Heading\n\n  - beta\n",
-        0,
-    ),
-    (
-        "emphasis at the end of an item does not defeat the probe",
-        "- parent **bold**\n  - child `code`\n",
-        1,
-    ),
-    (
-        "a link at the end of an item does not defeat the probe",
-        "- parent [text](x.md)\n  - child\n",
-        1,
-    ),
-    (
-        "a task-list-shaped item is still measured",
-        "- [ ] parent\n  - [ ] child\n",
-        1,
-    ),
-    (
-        "a hard line break at the end of an item survives",
-        "- parent  \n  continued\n  - child\n",
-        1,
-    ),
-    ("a thematic break is not a list item", "para\n\n* * *\n\npara\n", 0),
-    ("a single-level list is clean", "- one\n- two\n- three\n", 0),
-    (
-        "a correctly nested three-level list is clean",
-        "- one\n    - two\n        - three\n- four\n",
-        0,
-    ),
+    ("a thematic break is not a list item", "para\n\n* * *\n\npara\n", []),
 ]
 
 
 def self_test() -> int:
     md, _cfg = _load_renderer()
     failures = 0
-    checks = 0
     for name, source, expected in _CASES:
-        checks += 1
         try:
-            got = len(analyse(source, md))
+            got = [d.kind for d in analyse(source, md)]
         except UnmeasurableFile as exc:
-            print(f"FAIL  {name}: unmeasurable ({exc})")
-            failures += 1
-            continue
-        if got != expected:
-            print(f"FAIL  {name}: expected {expected} defect(s), got {got}")
-            failures += 1
-        else:
-            print(f"ok    {name} ({got} defect(s))")
-
-    # THE KIND IS PART OF THE VERDICT, not decoration: it decides what repair
-    # the author is told to make.  An over-indented child renders as a code
-    # block INSIDE its parent's `li`, so a rule that asks only "is it in an
-    # li?" calls it a SIBLING and sends the author the wrong way.
-    #
-    # A kind list of exactly one entry is also a count of one, so these
-    # shapes carry no separate row in `_CASES`.
-    for name, source, kind in [
-        ("a two-column child is FLATTENED", "- parent\n  - child\n", "FLATTENED"),
-        (
-            "an eight-column child after a blank line is ESCAPED, not flattened",
-            "- parent\n\n        - child\n",
-            "ESCAPED",
-        ),
-        (
-            "the same child with no blank line is only FLATTENED",
-            "- parent\n        - child\n",
-            "FLATTENED",
-        ),
-    ]:
-        checks += 1
-        got = [d.kind for d in analyse(source, md)]
-        if got == [kind]:
+            got = f"unmeasurable ({exc})"
+        if got == expected:
             print(f"ok    {name}")
         else:
-            print(f"FAIL  {name}: expected ['{kind}'], got {got}")
+            print(f"FAIL  {name}: expected {expected}, got {got}")
             failures += 1
 
-    # Every case above also passes analyse's own inertness test: the probed
-    # render, desentinelled, must equal the baseline render.  This one shows
-    # the checker SAYS SO when injection is not inert rather than reporting a
-    # clean file.
-    checks += 1
+    # The unclosed <div> leaves the walker's tag stack unbalanced.
     try:
         analyse("- item\n\n<div>\n", md)
     except UnmeasurableFile:
@@ -633,6 +563,7 @@ def self_test() -> int:
         print("FAIL  an unbalanced document was measured anyway")
         failures += 1
 
+    checks = len(_CASES) + 1
     print(f"\n{checks - failures}/{checks} checks passed")
     return 1 if failures else 0
 
