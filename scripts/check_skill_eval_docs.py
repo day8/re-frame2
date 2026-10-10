@@ -128,9 +128,7 @@ class TallyAxis:
     """One per-axis count breakdown the README must state in prose.
 
     `field_name` is the eval field this axis tallies (e.g. "dimension",
-    "kind", or a boolean like "should_trigger"). `eval_filter`, if given,
-    restricts the tally to a subset of evals (e.g. only the behavioural evals
-    for the improver's dimension axis). The axis is matched against README
+    "kind", or a boolean like "should_trigger"). The axis is matched against README
     prose as `<count> … <item-name>` within a short window; the coverage TABLE
     is stripped first so a table row (which carries a digit id AND a
     dimension/kind name) cannot satisfy the prose check vacuously.
@@ -144,10 +142,6 @@ class TallyAxis:
 
     field_name: str
     label: str = ""
-    eval_filter: Callable[[dict], bool] | None = None
-    # Items intentionally NOT asserted in prose (e.g. an axis value with no
-    # narrative count sentence). Empty == assert every item the JSON produces.
-    skip_items: frozenset[str] = field(default_factory=frozenset)
     # Map raw axis values → the prose noun the README states for them. Default
     # (empty) == use the value's stringified form directly (the dimension/kind
     # case, where the value IS the prose item).
@@ -329,18 +323,13 @@ def _strip_table_rows(text: str) -> str:
 
 
 def axis_tally(evals: list[dict], axis: TallyAxis) -> Counter:
-    subset = (
-        [e for e in evals if axis.eval_filter(e)]
-        if axis.eval_filter
-        else evals
-    )
-    return Counter(e.get(axis.field_name, "?") for e in subset)
+    return Counter(e.get(axis.field_name, "?") for e in evals)
 
 
 def check_axis_sentence(text: str, axis: TallyAxis, tally: Counter) -> list[str]:
     """Return a list of human-readable problems with one axis's prose.
 
-    For each item present in the JSON (minus `skip_items`), require the README
+    For each item present in the JSON, require the README
     to state its count adjacent to the item name (digit or number-word).
     Phrasing is free as long as the item's count is the NEAREST count token
     before the item name within a short window — so a packed sentence like
@@ -357,8 +346,6 @@ def check_axis_sentence(text: str, axis: TallyAxis, tally: Counter) -> list[str]
     # between the asserted count and the item name.
     any_count = r"(?:\d+|" + "|".join(re.escape(w) for w in _WORD_TO_INT) + r")"
     for item, n in sorted(tally.items(), key=lambda kv: str(kv[0])):
-        if item in axis.skip_items:
-            continue
         prose_item = axis.item_text(item)
         tok = _count_token(n)
         # `<count>` then up to ~60 chars (containing NO other count token) then

@@ -29,12 +29,12 @@
 # Adding a new MCP surface = add one stanza to `mcp_surfaces`.
 
 mcp_surfaces() {
-  # label|prefix|rebuild-cmd|bounce-hint
+  # label|prefix. The rebuild and bounce steps are one shared footer.
   printf '%s\n' \
-    're-frame2-pair-mcp|tools/re-frame2-pair-mcp/src/|npm --prefix tools/re-frame2-pair-mcp run build|Restart Claude Code (or your MCP host) to bounce the server.' \
-    're-frame2-pair-mcp|tools/re-frame2-pair-mcp/shadow-cljs.edn|npm --prefix tools/re-frame2-pair-mcp run build|Restart Claude Code (or your MCP host) to bounce the server.' \
-    're-frame2-pair-mcp|tools/re-frame2-pair-mcp/deps.edn|npm --prefix tools/re-frame2-pair-mcp run build|Restart Claude Code (or your MCP host) to bounce the server.' \
-    're-frame2-pair-mcp|tools/re-frame2-pair-mcp/package.json|npm --prefix tools/re-frame2-pair-mcp run build|Restart Claude Code (or your MCP host) to bounce the server.'
+    're-frame2-pair-mcp|tools/re-frame2-pair-mcp/src/' \
+    're-frame2-pair-mcp|tools/re-frame2-pair-mcp/shadow-cljs.edn' \
+    're-frame2-pair-mcp|tools/re-frame2-pair-mcp/deps.edn' \
+    're-frame2-pair-mcp|tools/re-frame2-pair-mcp/package.json'
 }
 
 # check_stale_mcp_binary
@@ -48,12 +48,11 @@ check_stale_mcp_binary() {
     return 0
   fi
 
-  any_match=0
   # iterate surfaces; aggregate per label so multiple surface stanzas
   # sharing a label collapse into one warning block.
   seen_labels=""
 
-  mcp_surfaces | while IFS='|' read -r label prefix cmd bounce; do
+  mcp_surfaces | while IFS='|' read -r label prefix; do
     matches=$(printf '%s\n' "$changed_paths" | grep -E "^${prefix}" || true)
     if [ -z "$matches" ]; then
       continue
@@ -82,13 +81,11 @@ check_stale_mcp_binary() {
     printf '%s\n' "$matches" | while IFS= read -r p; do
       [ -n "$p" ] && printf '    %s\n' "$p" >&2
     done
-
-    any_match=1
   done
 
-  # NB: the `while … done` ran in a subshell under POSIX sh, so any_match
-  # there is lost. Re-derive from a single match probe at the end.
-  any=$(mcp_surfaces | while IFS='|' read -r label prefix cmd bounce; do
+  # The loop above runs in a pipeline subshell, so it cannot report whether
+  # anything matched; one probe here decides whether to print the footer.
+  any=$(mcp_surfaces | while IFS='|' read -r label prefix; do
     printf '%s\n' "$changed_paths" | grep -E "^${prefix}" >/dev/null 2>&1 && echo y
   done | head -n 1)
 

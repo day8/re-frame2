@@ -9,10 +9,10 @@
 #   0  no refused paths (commit may proceed)
 #   1  one or more refused paths (commit must be aborted)
 #
-# This file is intentionally a pure shell library (no `set -e`, no global
-# state mutations) so the test runner in
-# `scripts/git-hooks/test-pre-commit.sh` can invoke it with synthetic
-# stdin streams and assert against stdout / stderr / exit.
+# This file is a pure shell library (no `set -e`, no global state
+# mutations) so the pre-commit hook can source it. Layer 2 of
+# `scripts/git-hooks/test-pre-commit.sh` drives it end to end through that
+# hook in a sandbox repository.
 #
 # Cross-platform: POSIX sh; runs under Git Bash on Windows, macOS, Linux.
 # No bashisms (`[[`, arrays, `<<<`). Tested under `sh`, `bash`, `dash`.

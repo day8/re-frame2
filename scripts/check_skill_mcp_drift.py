@@ -43,8 +43,7 @@ drift from the title half of the contract (no `--title-file`, restricted
 safe alphabet, never-paste-evidence-into-`--title`).
 
   - MISSING-TITLE-SAFETY — a consumer does not carry the local body+title
-    clauses, and is not under a tracked per-rule `allowance_bead`
-    follow-up allowance.
+    clauses.
 
 **Doc-coverage axis**: the MCP axis proves a tool is
 allow-listed, not that anyone can find out what it DOES. For each rule in
@@ -78,9 +77,6 @@ must ALL carry one host prefix.
     registry and its own app-db, so a keyword present in both names two
     different objects and cross-host composition reads plausibly while
     describing nothing.
-
-A mapping marked `optional=True` is skipped, rather than failed, when its
-server source or skill file is missing.
 
 Exit code:
     0  no drift detected
@@ -143,12 +139,11 @@ class Mapping:
     # literals. Multiple paths are concatenated set-wise — this lets a
     # mapping target an MCP server whose tool catalogue is split across
     # per-category leaves (e.g. story-mcp). All paths
-    # must exist (unless `optional=True`).
+    # must exist.
     server_src: tuple[Path, ...]
     host_prefix: str
     skill_md: Path
     intentional_server_only: frozenset[str] = field(default_factory=frozenset)
-    optional: bool = False  # True ⇒ missing server_src is a skip, not an error.
 
 
 # Story-mcp's tool catalogue lives across four per-category leaves —
@@ -399,7 +394,7 @@ def extract_server_tools(paths: tuple[Path, ...]) -> set[str]:
 
     Returns the set of names declared inside `{:name "..." ...}` map
     literals across every path. Raises FileNotFoundError if any source
-    is missing (caller handles `optional=True` skip).
+    is missing.
 
     Multi-path support exists for servers whose tool catalogue is
     split across per-category leaves (e.g. story-mcp —
@@ -713,13 +708,6 @@ BASH_RULES: list[BashRule] = [
 # This axis enforces the contract structurally: for every consumer listed
 # below, require the local body+title clauses. The check fires
 # `missing-title-safety` drift when a consumer does not carry them.
-#
-# The per-rule `allowance_bead` field is the escape hatch for a consumer
-# that is being updated under a tracked follow-up bead but cannot be
-# edited in the same change (e.g. a concurrent worker holds the file). An
-# allowance keeps the gate green until the named follow-up removes it,
-# which tightens the gate to enforce the clauses. KEEP IT
-# NARROW — every allowance must name a bead.
 # ---------------------------------------------------------------------------
 
 
@@ -732,9 +720,6 @@ class TitleSafetyRule:
                          consumer's filing recipe (its SKILL.md plus any
                          local recipe leaf). The check concatenates their
                          text; clause-presence is evaluated over the union.
-    `allowance_bead`   — if set, the consumer is a known follow-up: drift
-                         is silenced and reported as an info line naming
-                         the bead. `None` = enforced.
     `require_search`   — if True, the consumer must ALSO carry the
                          search-before-filing clause locally
                          (`gh issue list --search` + the
@@ -744,7 +729,6 @@ class TitleSafetyRule:
     """
     consumer: str
     docs: tuple[Path, ...]
-    allowance_bead: str | None = None
     require_search: bool = False
 
 
@@ -803,8 +787,7 @@ TITLE_SAFETY_RULES: list[TitleSafetyRule] = [
     # references/cardinal-rules.md §8. That local recipe carries BOTH the
     # body-safety clauses and the title-safety clauses (no `--title-file`,
     # restricted safe alphabet, never-paste-evidence-into-`--title`, reviewer
-    # pass for the title arg), so this consumer is enforced with no
-    # allowance.
+    # pass for the title arg), so this consumer is enforced on them.
     # The local recipe also carries the search-before-filing (dedupe) clause
     # — `gh issue list --search` + the author-the-keywords-never-paste
     # shell-safety note. `require_search` pins it: an edit that drops the
@@ -828,9 +811,7 @@ def check_title_safety_rules(
 
     For each consumer, the union of its doc texts must carry both the
     body-safety and the title-safety clauses (plus the search clause when
-    `require_search`). A consumer that does not is drift, unless it carries
-    an `allowance_bead` (a tracked follow-up), in which case it is silenced
-    with an info line naming the bead.
+    `require_search`). A consumer that does not is drift.
     """
     info: list[str] = []
     drift: list[Drift] = []
@@ -873,16 +854,6 @@ def check_title_safety_rules(
 
         # Not fully clause-covered: this consumer can drift from the title
         # half of the shell-safety contract.
-        if rule.allowance_bead:
-            info.append(
-                f"title-safety: {rule.consumer} lacks the title-safety "
-                f"clauses -- ALLOWED "
-                f"pending follow-up {rule.allowance_bead} "
-                f"(body-clauses={'present' if has_body else 'absent'}, "
-                f"title-clauses=absent)."
-            )
-            continue
-
         drift.append(Drift(
             mapping_name=f"title-safety:{rule.consumer}",
             direction="missing-title-safety",
@@ -1550,13 +1521,6 @@ def check_mapping(mapping: Mapping) -> tuple[list[Drift], list[str]]:
 
     missing_srcs = [p for p in mapping.server_src if not p.exists()]
     if missing_srcs:
-        if mapping.optional:
-            rels = ", ".join(str(p.relative_to(REPO_ROOT)) for p in missing_srcs)
-            info.append(
-                f"{mapping.name}: server src '{rels}' "
-                "missing -- skipping (optional)."
-            )
-            return drift, info
         # Hard error -- the mapping declares a server that should be there.
         rels = ", ".join(str(p) for p in missing_srcs)
         raise FileNotFoundError(
@@ -1564,12 +1528,6 @@ def check_mapping(mapping: Mapping) -> tuple[list[Drift], list[str]]:
         )
 
     if not mapping.skill_md.exists():
-        if mapping.optional:
-            info.append(
-                f"{mapping.name}: skill md '{mapping.skill_md.relative_to(REPO_ROOT)}' "
-                "missing -- skipping (optional)."
-            )
-            return drift, info
         raise FileNotFoundError(
             f"{mapping.name}: skill md not found at {mapping.skill_md}"
         )
@@ -1759,12 +1717,10 @@ def main(argv: Iterable[str]) -> int:
     parser.add_argument("--show-baseline", action="store_true",
                         help="Print the current accepted baseline and exit.")
     parser.add_argument("--self-test", action="store_true",
-                        help="Run the title-safety, doc-coverage, arg-signature, "
-                             "body-path-identity and single-host self-tests and exit. "
-                             "Proves each axis fires on "
-                             "a synthetic defect and stays green on a synthetic "
-                             "conforming input, and that the shipped rules are "
-                             "green.")
+                        help="Prove each axis (title-safety, doc-coverage, "
+                             "arg-signature, body-path-identity, single-host) "
+                             "fires on a synthetic defect, and exit. The shipped "
+                             "rules' green is the live run's job.")
     args = parser.parse_args(list(argv))
 
     ci = args.ci or _is_ci()

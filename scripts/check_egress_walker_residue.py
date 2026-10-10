@@ -95,11 +95,11 @@ _SURFACE = re.compile(r"^(?:tools/[^/]+/src/|skills/[^/]+/preload/)")
 # catastrophically.
 _READER_SPACE = r"(?:[\s,]|;[^\n]*\n)*"
 
-# `(` (optionally behind `#`) then reader whitespace, then the
+# `(` then reader whitespace, then the
 # optionally-qualified symbol. The trailing guard stops `elide-wire-value-ish`
 # and `elide-wire-values` from matching.
 _CALL = re.compile(
-    r"#?\("
+    r"\("
     + _READER_SPACE
     + r"(?:[A-Za-z0-9_.*+!?<>=$%&|-]+/)?elide-wire-value(?![A-Za-z0-9_.*+!?<>=-])"
 )

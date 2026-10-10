@@ -194,7 +194,6 @@ _OPTION_KEYWORDS_WITH_VALUES = frozenset({
 # "require" misses the runtime require edges.
 CONTEXT_NS = "ns"
 CONTEXT_REQUIRE = "require"
-ALL_CONTEXTS = (CONTEXT_NS, CONTEXT_REQUIRE)
 
 _NS_FORM_RE = re.compile(r"\(ns(?=[\s(\[{])")
 _REQUIRE_FORM_RE = re.compile(r"\((?:clojure\.core/)?require(?:-macros)?(?=[\s'(\[{)])")
@@ -637,18 +636,15 @@ def _parse_libspec(
     return Edge(rel_path, line, head.text, alias, context), None
 
 
-def read_file(
-    rel_path: str, text: str, contexts: Iterable[str] = ALL_CONTEXTS,
-) -> tuple[list[Edge], list[Unparseable]]:
+def read_file(rel_path: str, text: str) -> tuple[list[Edge], list[Unparseable]]:
     """Every re-frame require edge in one file's text, deduplicated."""
     masked = mask_source(text)
-    spans: list[tuple[int, int, str]] = []
-    if CONTEXT_NS in contexts:
-        spans += [(a, b, CONTEXT_NS) for a, b in _spans_of(masked, _NS_FORM_RE)]
-    if CONTEXT_REQUIRE in contexts:
-        spans += [
-            (a, b, CONTEXT_REQUIRE) for a, b in _spans_of(masked, _REQUIRE_FORM_RE)
-        ]
+    spans: list[tuple[int, int, str]] = [
+        (a, b, CONTEXT_NS) for a, b in _spans_of(masked, _NS_FORM_RE)
+    ]
+    spans += [
+        (a, b, CONTEXT_REQUIRE) for a, b in _spans_of(masked, _REQUIRE_FORM_RE)
+    ]
 
     seen: dict[tuple[str, str, str], Edge] = {}
     unparseable: list[Unparseable] = []
@@ -956,9 +952,7 @@ class ScanResult(NamedTuple):
         return {surface_of(e.path) for e in self.edges}
 
 
-def scan_paths(
-    repo_root: Path, rel_paths: Iterable[str], contexts: Iterable[str] = ALL_CONTEXTS,
-) -> ScanResult:
+def scan_paths(repo_root: Path, rel_paths: Iterable[str]) -> ScanResult:
     edges: list[Edge] = []
     violations: list[Edge] = []
     unparseable: list[Unparseable] = []
@@ -970,7 +964,7 @@ def scan_paths(
         except OSError:
             continue
         files_read += 1
-        file_edges, file_bad = read_file(rel, text, contexts)
+        file_edges, file_bad = read_file(rel, text)
         edges.extend(file_edges)
         violations.extend(violations_of(file_edges))
         unparseable.extend(file_bad)
