@@ -29,6 +29,11 @@
             ;; can test the same implementation used by tool consumers without
             ;; introducing a dependency on `tools/`.
             [re-frame.derivation.egress :as rf.derivation.egress]
+            ;; The `:sub/run` trace projector, which graph egress of a live
+            ;; sub's value must match.
+            [re-frame.classification :as rf.classification]
+            [re-frame.image :as rf.image]
+            [re-frame.live-frame :as rf.live-frame]
             [re-frame.identity :as rf.identity]
             ;; Only for the unkeyed SHA-256 the egress handle must NOT equal.
             [re-frame.schemas.digest]
@@ -634,6 +639,99 @@
   (let [raw  (rf.derivation.graph/live-derivation-graph egress-frame (egress-live-contributors))
         once (rf.derivation.egress/project-graph raw egress-frame)]
     (is (= once (rf.derivation.egress/project-graph once egress-frame)))))
+
+;; A live sub node's `:value` is the sub's own output, so egress redacts it by
+;; the sub's REGISTRATION classification, as the `:sub/run` trace does for the
+;; same value, before the frame-policy walk. The registration resolves in the
+;; inspected frame's generation.
+
+(def ^:private partner-subs
+  "Query vector → raw live value for each sub `register-partner-subs!` declares."
+  {[:partner/api-token] secret-token
+   [:partner/session]   {:token secret-token :user "ada"}
+   [:partner/archive]   {:blob "an archived payload"}
+   [:partner/name]      "Acme"})
+
+(defn- api-token-sub [db _] (get-in db [:tenant :partner-api-key]))
+
+(defn- register-partner-subs! []
+  (rf/reg-sub :partner/api-token {:sensitive [[]]} api-token-sub)
+  (rf/reg-sub :partner/session {:sensitive [[:token]]} (fn [db _] (:session db)))
+  (rf/reg-sub :partner/archive {:large [[:blob]]} (fn [db _] (:archive db)))
+  (rf/reg-sub :partner/name (fn [db _] (:partner-name db))))
+
+(defn- partner-graph
+  "The live graph of `subs` (query vector → value) in `sub-cache-algebra-view`'s
+  node shape. `:partner/name` reads the token sub, so the graph has an edge."
+  [frame-id subs]
+  (rf.derivation.graph/live-derivation-graph
+    frame-id
+    {:subs {:live-shape :map
+            :static-fn  (constantly {})
+            :live-fn    (constantly
+                          (into {}
+                                (map (fn [[q v]]
+                                       [q {:id          q :kind :derivation :rf/family :subs
+                                           :source-form {:kind :reg-sub :id (first q)}
+                                           :inputs      (if (= [:partner/name] q) [[:sub [:partner/api-token]]] [])
+                                           :output      [:fact q]
+                                           :storage     :ephemeral :evaluation :on-demand
+                                           :lifecycle   :subscription-cache-entry
+                                           :value       v}]))
+                                subs))}}))
+
+(defn- live-value [graph q]
+  (get-in graph [:nodes [:sub q] :value]))
+
+(defn- without-values [graph]
+  (update graph :nodes #(into {} (map (fn [[k n]] [k (dissoc n :value)])) %)))
+
+(defn- trace-projected-value
+  "The `:rf.sub/value` a `:sub/run` trace of `q` returning `v` carries after
+  egress projection under `frame-id`."
+  [frame-id q v]
+  (get-in (rf.classification/project-trace-event
+            {:operation :rf.sub/run
+             :tags      {:frame frame-id :rf.sub/id (first q) :rf.sub/query-v q :rf.sub/value v}})
+          [:tags :rf.sub/value]))
+
+(deftest g-graph-egress-redacts-a-live-sub-by-its-own-registration
+  (register-partner-subs!)
+  (rf/make-frame {:id egress-frame})
+  (let [raw      (partner-graph egress-frame partner-subs)
+        redacted (rf.derivation.egress/project-graph raw egress-frame)]
+    (is (contains-secret? raw) "the raw composed graph carries the token")
+    (is (= rf.privacy/redacted-sentinel (live-value redacted [:partner/api-token]))
+        "a whole-output :sensitive [[]] sub's value is redacted whole")
+    (is (= {:token rf.privacy/redacted-sentinel :user "ada"} (live-value redacted [:partner/session]))
+        "a nested :sensitive [[:token]] sub redacts only :token")
+    (is (= "Acme" (live-value redacted [:partner/name])) "an unclassified sibling rides raw")
+    (is (not (contains-secret? redacted)))
+    (is (seq (:edges raw)))
+    (is (= (without-values raw) (without-values redacted))
+        "only :value changes: query-vector identity, structure and edges are untouched")
+    (doseq [[q v] partner-subs]
+      (is (= (trace-projected-value egress-frame q v) (live-value redacted q))
+          (str "graph egress of " q " equals its :sub/run trace projection")))))
+
+(deftest g-graph-egress-of-classified-subs-is-idempotent
+  (register-partner-subs!)
+  (rf/make-frame {:id egress-frame})
+  (let [once (rf.derivation.egress/project-graph (partner-graph egress-frame partner-subs) egress-frame)]
+    (is (= once (rf.derivation.egress/project-graph once egress-frame)))))
+
+(deftest g-graph-egress-resolves-the-sub-in-the-inspected-frames-generation
+  ;; The token sub is declared only in the inspected frame's image, so the
+  ;; global registrar knows nothing of its `:sensitive`.
+  (rf.live-frame/make-frame
+    {:id     :app/partner-image
+     :images [(rf.image/image {:id            :app/partner
+                               :registrations {:reg-sub [[:partner/api-token {:sensitive [[]]}
+                                                          api-token-sub]]}})]}
+    [])
+  (let [graph (partner-graph :app/partner-image (select-keys partner-subs [[:partner/api-token]]))]
+    (is (= rf.privacy/redacted-sentinel
+           (live-value (rf.derivation.egress/project-graph graph :app/partner-image) [:partner/api-token])))))
 
 ;; A live sub's query vector `[:sub-id :kw {…}]` has the scoped-key shape; the
 ;; identity projection must touch resource nodes only.

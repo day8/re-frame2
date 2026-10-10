@@ -16,9 +16,10 @@
   It sits in core/src beside the graph COMPOSER (`re-frame.derivation.graph`)
   because it is built ENTIRELY from `implementation/`-resident primitives —
   `re-frame.elision/elide-wire-value` (the shared per-frame fail-closed value
-  walker, EP-0015 §11), `re-frame.identity/canonical-bytes` (the CEDN-1
-  canonical token, EP-0012), and `re-frame.privacy/redacted-sentinel` (the
-  `:rf/redacted` sentinel) — so both consumers can reach ONE owner without
+  walker, EP-0015 §11), `re-frame.classification/project-sub-value` (the
+  `:sub/run` trace's sub-value projection), `re-frame.identity/canonical-bytes`
+  (the CEDN-1 canonical token, EP-0012), and `re-frame.privacy/redacted-sentinel`
+  (the `:rf/redacted` sentinel) — so both consumers can reach ONE owner without
   the conformance surface reaching into `tools/` (the dependency arrow flows
   tools → implementation, NEVER implementation → tools). It carries NO
   dependency on any per-feature artefact or on `tools/`.
@@ -48,6 +49,9 @@
       `elide-wire-value` under THAT frame's own declared `:sensitive` /
       `:large` policy (passed as the explicit `:frame` opt so the named
       frame's policy applies regardless of any ambient scope);
+    - a **live sub's `:value`** first redacted by that sub's own registration
+      classification, resolved in the frame's generation — the projection
+      its `:sub/run` trace applies to the same value;
     - **fail-closed** on a nil / unreachable frame — the observed frame-id
       is stamped as the `:frame` opt whatever it is, and `elide-wire-value`
       reads that opt by KEY PRESENCE, so a nil / destroyed id takes its
@@ -66,6 +70,7 @@
   (:require #?@(:cljs [[goog.crypt :as gcrypt]
                        [goog.crypt.Hmac]
                        [goog.crypt.Sha256]])
+            [re-frame.classification :as rf.classification]
             [re-frame.elision :as rf.elision]
             [re-frame.identity :as rf.identity]
             [re-frame.privacy :as rf.privacy])
@@ -387,6 +392,14 @@
             (resource-node-key? (:to edge))   (update :to project-resource-node-key)))
         edges))
 
+(defn- live-sub-node?
+  "True when `node` is a live subscription cache entry carrying a value: a
+  `:reg-sub` node whose `:id` is its concrete query vector."
+  [node]
+  (and (= :reg-sub (get-in node [:source-form :kind]))
+       (vector? (:id node))
+       (contains? node :value)))
+
 (defn project-graph
   "Project a `DerivationGraph` through the FRAME's egress policy for the wire
   boundary where a tool ships the graph OFF-BOX ([spec/Derivations.md]
@@ -408,7 +421,13 @@
     `:rf/redacted` sentinel when no frame is reachable (frameless egress
     under no `:rf.egress/include-sensitive?` opt-out); a sensitive-declared
     value is replaced by the sentinel; a large-declared value by the
-    `:rf.size/large-elided` marker.
+    `:rf.size/large-elided` marker;
+  - **the sub's own declaration** — a live sub node's `:value` is the sub's
+    output, so before that walk it takes the sub's registration
+    `:sensitive` / `:large` paths through `rf.classification/project-sub-value`,
+    the projection the sub's `:sub/run` trace applies to the same value. The
+    registration resolves in `frame-id`'s generation; the node's query-vector
+    `:id` stays raw.
 
   STRUCTURE IS PRESERVED (the headline guarantee): a redacted value / param
   is still an `:input` / `:param` edge, the node is still present and still
@@ -492,7 +511,9 @@
                       (if (contains? n k)
                         (assoc n k (rf.elision/elide-wire-value (get n k) walk-opts))
                         n))
-                    node
+                    (cond-> node
+                      (live-sub-node? node)
+                      (update :value rf.classification/project-sub-value (:id node) frame-id))
                     value-bearing-node-keys)
              ;; the live resource scoped-key identity walk —
              ;; the secrets the value-path walk above cannot reach. Resource
