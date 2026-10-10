@@ -49,11 +49,16 @@ Scan the source for **every** legacy mount call site — the Reagent-routed root
 
 **The Reagent-routed mount is the common case, not the rare one — and it compiles clean.** Most v1 codebases mount through `reagent.dom/render` (or `reagent.core/render`), so this check normally *hits*; an empty result on a Reagent app means the pattern missed, not that there is nothing to do. Keep compile time and run time apart: on the classic bridge the call site compiles clean and throws a `TypeError` at boot with no `:rf.error/*` trace, and on slim it is an unresolved var at compile time ([`MIGRATION.md` §M-42](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-42-react-19-removed-reagent-surfaces-are-absent-under-day8reagent-slim-compile-time-unresolved-var) has why). Read that `TypeError` as this check's hit rather than an unrelated crash, and never read the missing framework diagnostic as a harmless no-op. The hand-rolled `ReactDOM.render` / `ReactDOM.hydrate` / `ReactDOM.unmountComponentAtNode` sites are the rarer half — deprecated in React 18 and removed in React 19 — and a survivor throws the same `TypeError`, so sweep for both in one pass.
 
-A read-only search over the source tree surfaces them:
+Find them with **candidate searches** under [`inventory-and-plan.md` Step 5](inventory-and-plan.md#step-5--the-per-rule-completeness-gate), from the project root (a source root outside it goes beside `.`). A Reagent mount is reached through whatever alias the file's `ns` form gives `reagent.dom` or `reagent.core` — `rd/render` as much as `rdom/render` — so no fixed alias list covers it; start from the requires:
 
 ```bash
-rg -n 'ReactDOM\.(render|hydrate|unmountComponentAtNode)|reagent\.(dom|core)/render|\b(rdom|r|reagent)/render\b|unmount-component-at-node'
+# 1. Every libspec requiring reagent.dom or reagent.core, with its :as alias or :refer
+rg -n -U -t clojure '\[\s*reagent\.(dom|core)\b[^\]]*\]' .
+# 2. Hand-rolled React-DOM mounts and fully qualified Reagent ones
+rg -n 'ReactDOM\.(render|hydrate|unmountComponentAtNode)|reagent\.(dom|core)/render|unmount-component-at-node' .
 ```
+
+For each file search 1 lists, read the alias (or a `:refer` of `render` / `unmount-component-at-node`) and search that file for `<alias>/render` and `<alias>/unmount-component-at-node`. Accept a hit only where it resolves to `reagent.dom` or `reagent.core` through the `ns` form, in live code.
 
 Flag each for the author, the test-harness mounts included. The rewrite itself — the adapter-owned `client-root` handle with `render!` / `unmount!` — belongs to **M-42**: [`guided-handlers-state.md` §M-42](guided-handlers-state.md#m-42--react-19-removed-reagent-surfaces-bridge-and-slim). Don't re-derive it here.
 

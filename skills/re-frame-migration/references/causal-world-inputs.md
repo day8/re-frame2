@@ -33,18 +33,18 @@ The test for "durable": *does this value ride restore/replay/SSR, or would repla
 
 ## Identify — the up-front grep
 
-A v1 / early-v2 app expresses these durable host reads as direct calls inside handlers and reducers. Grep for them, then classify each hit by bucket:
+A v1 / early-v2 app expresses these durable host reads as direct calls inside handlers and reducers. The searches below are **candidate searches** under [`inventory-and-plan.md` Step 5](inventory-and-plan.md#step-5--the-per-rule-completeness-gate): run them from the project root, so test, dev and shared source roots are covered (a source root outside the project directory goes beside `.`), accept a hit only where it resolves through the file's `ns` form in live code, then classify each accepted hit by bucket. An empty result is not a clean audit — the callee walk below still runs:
 
 ```bash
 # Time (incl. raw js/Date constructor + .getTime, common in v1 JS-interop code)
-rg -n 'js/Date\.now|\(\.now js/Date\)|interop/now-ms|\(now-ms\)|\(js/Date\.\)|\(\.getTime\b' src
+rg -n -t clojure 'js/Date\.now|\(\.now js/Date\)|interop/now-ms|\(now-ms\)|\(js/Date\.\)|\(\.getTime\b' .
 # Randomness + generated identity (incl. js/Math.random and crypto.randomUUID forms)
-rg -n 'random-uuid|\brand\b|rand-int|rand-nth|crypto\.getRandomValues|\(\.getRandomValues js/crypto\)|js/Math\.random|\(\.random js/Math\)|crypto\.randomUUID|\(\.randomUUID js/crypto\)' src
+rg -n -t clojure 'random-uuid|\brand\b|rand-int|rand-nth|crypto\.getRandomValues|\(\.getRandomValues js/crypto\)|js/Math\.random|\(\.random js/Math\)|crypto\.randomUUID|\(\.randomUUID js/crypto\)' .
 # Browser + storage facts
-rg -n 'js/location|js/navigator|localStorage|sessionStorage|matchMedia' src
+rg -n -t clojure 'js/location|js/navigator|localStorage|sessionStorage|matchMedia' .
 # v1 ambient time coeffect + the removed inject-cofx delivery idiom + the
 # renamed envelope field / ctx→ctx reg-cofx shape (all EP-0017 targets, M-72)
-rg -n 'inject-cofx|:rf.world/inputs|:rf.world/keys|:now\b' src
+rg -n -t clojure 'inject-cofx|:rf.world/inputs|:rf.world/keys|:now\b' .
 ```
 
 > **Keep these aligned with the framework's own check.** `scripts/check_ambient_durable_reads.py` is the authoritative ambient-durable-read detector for the re-frame2 codebase; its clock/random pattern list (`now-ms` / `js/Date.now` / `.now js/Date` / `random-uuid` / `getRandomValues`) is the canonical core. The extra raw-JS forms above (`(js/Date.)` + `.getTime`, `js/Math.random` / `.random js/Math`, `crypto.randomUUID` / `.randomUUID js/crypto`) are the ones a **v1 consumer app** commonly uses that the framework code does not — a migration grep that only covers the framework's set under-reports and can falsely conclude EP-0010 is clean. Include both.
