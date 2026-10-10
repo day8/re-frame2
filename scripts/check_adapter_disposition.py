@@ -336,11 +336,55 @@ def check(repo_root: Path, *, verbose: bool = False, ci: bool = False) -> int:
 
 
 # --- Self-tests ---------------------------------------------------------------
+# (label, text, dirty).  One dirty row per superseded-pattern arm a case can
+# reach, then the exemption rules: dated snapshot, HTML comment, emphasis,
+# the +/-1 prose window, and the self-contained table row.
+_SELF_TEST_CASES = (
+    ("A3 replaces the adapter trio",
+     "it is the substrate slated to replace the adapter trio", True),
+    ("A5 reagent-slim is deleted", "reagent-slim is deleted at the wave.", True),
+    ("A7 defaults to re-frame.ui", "New UI work defaults to `re-frame.ui`.", True),
+    ("A8 frozen Reagent / retiring UIx",
+     "the `[TRANSITION]` frozen Reagent / retiring UIx + Helix adapters", True),
+    ("A9 family freezes INTO the compat tier (subject separated)",
+     "stock Reagent + the `reg-view` family freeze into the compatibility tier", True),
+    ("A10 family freezes WITH stock Reagent",
+     "the family freezes with stock Reagent, and moves at the deletion wave", True),
+    ("C3 dated historical snapshot exempts",
+     "Snapshot as of 2026-07-11: stock Reagent and UIx are frozen compatibility "
+     "adapters.", False),
+    ("C4 undated 'historically' does NOT exempt",
+     "Historically, stock Reagent and UIx are frozen compatibility adapters.", True),
+    ("C5 HTML comment is inactive text",
+     "<!-- Stock Reagent and UIx are frozen compatibility adapters. -->", False),
+    ("C6 bolded negation wrapped across lines exempts",
+     "A new view layer is an additional option, **not** a mandated replacement and\n"
+     "**not** the\nonly taught view layer: Reagent, UIx, and reagent-slim live on.", False),
+    ("C7 distant disclaimer does NOT exempt (window is +/-1)",
+     "The substrate is the only taught view layer.\n\n\n"
+     "Separately, and much later: this was superseded.", True),
+    ("E1 substrates/ deletion",
+     "examples migration with the `substrates/` deletion (W4)", True),
+    ("E2 deleting substrates/ (verb-first)",
+     "W4 deletes the substrates/ tree once `ui` variants land.", True),
+    ("G1 neighbouring row's unrelated 'superseded' does NOT exempt",
+     "| W7b | Story's superseded attempts settle explicitly. | Stage 5-6 |\n"
+     "| W8 | Three substrate variants collapse to one `re-frame.ui` scaffold. |", True),
+    ("G2 reconciled row below does NOT exempt the stale row above",
+     "| W12 | `docs/release-process.md` (new coordinate; template collapse). |\n"
+     "| W13 | This row formerly read \"Freeze + deletion wave\"; superseded. |", True),
+    ("G3 marker on the row's OWN line still exempts",
+     '| W8 | This row formerly read "three substrate variants collapse to one '
+     '`re-frame.ui` scaffold" — superseded (Mike, 2026-07-17). | Stage 6 |', False),
+    ("G4 non-table prose keeps the +/-1 wrap window",
+     "Markdown prose about the template collapse\n"
+     "is superseded, and wraps across lines.", False),
+)
+
+
 def _run_self_tests(*, verbose: bool = False) -> int:
     failures = 0
-
-    def expect(text: str, *, dirty: bool, label: str) -> None:
-        nonlocal failures
+    for label, text, dirty in _SELF_TEST_CASES:
         got = bool(scan_text(text, "fixture.md"))
         if got != dirty:
             failures += 1
@@ -350,160 +394,13 @@ def _run_self_tests(*, verbose: bool = False) -> int:
         elif verbose:
             sys.stderr.write(f"self-test ok [{label}]\n")
 
-    # Superseded statuses must be caught.
-    expect(
-        "it is the substrate slated to replace the adapter trio",
-        dirty=True, label="A3 replaces the adapter trio",
-    )
-    expect(
-        "| RETIRE-AT:S7 | Slim deleted (W13); strictly behind soak gates.",
-        dirty=False, label="A4 bare 'Slim deleted' phrasing is out of the closed set",
-    )
-    expect(
-        "reagent-slim is deleted at the wave.",
-        dirty=True, label="A5 reagent-slim is deleted",
-    )
-    expect(
-        "Helix + reagent-slim are removed after the soak gates.",
-        dirty=True, label="A6 Helix + reagent-slim removed",
-    )
-    expect(
-        "New UI work defaults to `re-frame.ui`.",
-        dirty=True, label="A7 defaults to re-frame.ui",
-    )
-    expect(
-        "the `[TRANSITION]` frozen Reagent / retiring UIx + Helix adapters",
-        dirty=True, label="A8 frozen Reagent / retiring UIx",
-    )
-    expect(
-        "stock Reagent + the `reg-view` family freeze into the compatibility tier",
-        dirty=True, label="A9 family freezes INTO the compat tier (subject separated)",
-    )
-    expect(
-        "the family freezes with stock Reagent, and moves at the deletion wave",
-        dirty=True, label="A10 family freezes WITH stock Reagent",
-    )
-
-    # Current-disposition prose must NOT trip.
-    expect(
-        "Reagent, UIx, and reagent-slim live on as first-class, actively-supported "
-        "adapters; only Helix is removed.",
-        dirty=False, label="B1 current ruling is clean",
-    )
-    expect(
-        "`re-frame.ui` is retired and removed; Reagent, UIx, and reagent-slim are "
-        "the shipped adapters.",
-        dirty=False, label="B2 re-frame.ui's retirement is clean",
-    )
-    expect(
-        "The commit-owned two-pass realization is the React adapters' standing "
-        "contract; the compiled substrate moves the timing, not the laws.",
-        dirty=False, label="B3 lifecycle prose is out of scope",
-    )
-
-    # Exemptions.
-    expect(
-        'the original "frozen compatibility adapters" / "reagent-slim removed" shape '
-        "is superseded on the adapter-disposition point",
-        dirty=False, label="C1 supersession marker exempts",
-    )
-    expect(
-        "Snapshot as of 2026-07-11: stock Reagent and UIx are frozen compatibility "
-        "adapters.",
-        dirty=False, label="C3 dated historical snapshot exempts",
-    )
-    expect(
-        "Historically, stock Reagent and UIx are frozen compatibility adapters.",
-        dirty=True, label="C4 undated 'historically' does NOT exempt",
-    )
-    expect(
-        "<!-- Stock Reagent and UIx are frozen compatibility adapters. -->",
-        dirty=False, label="C5 HTML comment is inactive text",
-    )
-    expect(
-        "A new view layer is an additional option, **not** a mandated replacement and\n"
-        "**not** the\nonly taught view layer: Reagent, UIx, and reagent-slim live on.",
-        dirty=False, label="C6 bolded negation wrapped across lines exempts",
-    )
-    expect(
-        "The substrate is the only taught view layer.\n\n\n"
-        "Separately, and much later: this was superseded.",
-        dirty=True, label="C7 distant disclaimer does NOT exempt (window is +/-1)",
-    )
-
-    # Superseded OPERATIONAL instructions must be caught.
-    expect(
-        "examples migration with the `substrates/` deletion (W4)",
-        dirty=True, label="E1 substrates/ deletion",
-    )
-    expect(
-        "W4 deletes the substrates/ tree once `ui` variants land.",
-        dirty=True, label="E2 deleting substrates/ (verb-first)",
-    )
-    # The template-collapse shapes are caught by G1 and G2 below, whose stale
-    # table rows carry them.
-
-    # The current instructions must NOT trip.
-    expect(
-        "`substrates/` is retained minus its Helix arm",
-        dirty=False, label="F1 retained substrates/ wording is clean",
-    )
-    expect(
-        "| W8 | **Template** | The template keeps its Reagent and UIx variants and "
-        "drops its Helix variant. | Stage 6 |",
-        dirty=False, label="F3 corrected W8 row is clean",
-    )
-
-    # Table rows are self-contained: a NEIGHBOUR's marker must not exempt them,
-    # but a marker on the row's OWN line still must.
-    expect(
-        "| W7b | Story's superseded attempts settle explicitly. | Stage 5-6 |\n"
-        "| W8 | Three substrate variants collapse to one `re-frame.ui` scaffold. |",
-        dirty=True,
-        label="G1 neighbouring row's unrelated 'superseded' does NOT exempt",
-    )
-    expect(
-        "| W12 | `docs/release-process.md` (new coordinate; template collapse). |\n"
-        "| W13 | This row formerly read \"Freeze + deletion wave\"; superseded. |",
-        dirty=True,
-        label="G2 reconciled row below does NOT exempt the stale row above",
-    )
-    expect(
-        '| W8 | This row formerly read "three substrate variants collapse to one '
-        '`re-frame.ui` scaffold" — superseded (Mike, 2026-07-17). | Stage 6 |',
-        dirty=False,
-        label="G3 marker on the row's OWN line still exempts",
-    )
-    expect(
-        "Markdown prose about the template collapse\n"
-        "is superseded, and wraps across lines.",
-        dirty=False,
-        label="G4 non-table prose keeps the +/-1 wrap window",
-    )
-
-    # EP-0030 positive assertions.
-    # The disposition as it stands, and nothing about `re-frame.ui`: the
-    # source of record is complete without teaching the retired substrate.
-    good_ep = (
-        "Reagent, UIx, and reagent-slim live on as first-class adapters; only "
-        "Helix is removed."
-    )
-    if ep0030_problems(good_ep):
+    # EP-0030 positive assertion: a source of record missing a required
+    # statement (here "only Helix is removed") is flagged.
+    if not ep0030_problems("Reagent, UIx, and reagent-slim live on as first-class adapters."):
         failures += 1
-        sys.stderr.write("self-test FAILED [D1]: complete EP-0030 text flagged\n")
+        sys.stderr.write("self-test FAILED [D4 only-Helix clause removed]: mutation not caught\n")
     elif verbose:
-        sys.stderr.write("self-test ok [D1 complete EP-0030 text]\n")
-
-    for token, label in (
-        ("first-class", "D3 first-class removed"),
-        ("only Helix is removed", "D4 only-Helix clause removed"),
-        ("reagent-slim", "D5 reagent-slim removed"),
-    ):
-        if not ep0030_problems(good_ep.replace(token, "REDACTED")):
-            failures += 1
-            sys.stderr.write(f"self-test FAILED [{label}]: mutation not caught\n")
-        elif verbose:
-            sys.stderr.write(f"self-test ok [{label}]\n")
+        sys.stderr.write("self-test ok [D4 only-Helix clause removed]\n")
 
     if failures:
         sys.stderr.write(f"self-test: {failures} case(s) failed.\n")
