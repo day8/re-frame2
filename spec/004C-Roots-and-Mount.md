@@ -116,7 +116,9 @@ and ordering.
   `{:missing :manifest}`: a hydrating root never guesses its identity. Its
   `identifierPrefix` must be the one the server rendered under — the manifest's
   `:identifier-prefix`, where an omitted one is React's empty prefix `""` — or every
-  `useId` resolves differently from the server's bytes.
+  `useId` resolves differently from the server's bytes. Fresco's door and the
+  Reagent and reagent-slim client roots take it as the `:identifier-prefix`
+  `render!` opt.
 - **Frame preflight runs before React.** A root door that ensures its frame does so
   before `createRoot`: ENSURE creates the frame if absent and drains its
   `:initial-events` synchronously, so the first paint is the seeded one, and a frame
