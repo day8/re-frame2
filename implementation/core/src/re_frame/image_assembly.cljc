@@ -1561,17 +1561,28 @@
   A cache HIT returns the SAME sealed object — this is the SSR no-re-seal
   guarantee. A throwing `assemble*` (a fail-loud validation) is NOT cached: the
   exception propagates and the slot stays empty, so a corrected input on the
-  next call recomputes cleanly."
-  [images descriptors pool-leg]
-  (let [k (cache-key images pool-leg)]
-    (if-let [hit (find @generation-cache k)]
-      (val hit)
-      (let [gen (assemble* images descriptors)]
-        ;; Cache only a successfully sealed generation (assemble* threw on a
-        ;; fail-loud input, so we never reach here for one). swap! is enough —
-        ;; a benign double-compute under contention seals to an equal value.
-        (swap! generation-cache assoc k gen)
-        gen))))
+  next call recomputes cleanly.
+
+  `store` is the live store a live-store `pool-leg` names (nil for an explicit
+  pool). A live MISS drops the entries it supersedes — the same `images` over
+  the same store at an older store or standard generation, which can never hit
+  again because both generations only move forward — so a dev session's hot
+  reloads keep one sealed generation per composition, not one per reload."
+  ([images descriptors pool-leg]
+   (assemble-cached images descriptors pool-leg nil))
+  ([images descriptors pool-leg store]
+   (let [k (cache-key images pool-leg)]
+     (if-let [hit (find @generation-cache k)]
+       (val hit)
+       (let [gen         (assemble* images descriptors)
+             superseded? (fn [[images' [store' _]]]
+                           (and (some? store) (identical? store store') (= images images')))]
+         ;; Cache only a successfully sealed generation (assemble* threw on a
+         ;; fail-loud input, so we never reach here for one). swap! is enough —
+         ;; a benign double-compute under contention seals to an equal value.
+         (swap! generation-cache
+                #(assoc (into {} (remove (comp superseded? key)) %) k gen))
+         gen)))))
 
 ;; `assemble` routes its empty-`:images` case to `assemble-default` (the
 ;; dedicated default-projection entry, defined just below). Forward-declared so
@@ -1665,7 +1676,8 @@
        (assemble-cached images
                         (source-store-descriptors)
                         [(rf.source-store/store-identity)
-                         (rf.source-store/store-generation)]))))
+                         (rf.source-store/store-generation)]
+                        (rf.source-store/store-identity)))))
   ([images descriptors]
    (let [images (vec images)]
      (if (empty? images)
@@ -1723,7 +1735,8 @@
    (assemble-cached [default-image]
                     (source-store-descriptors)
                     [(rf.source-store/store-identity)
-                     (rf.source-store/store-generation)]))
+                     (rf.source-store/store-generation)]
+                    (rf.source-store/store-identity)))
   ([descriptors]
    (assemble-cached [default-image] descriptors descriptors)))
 
