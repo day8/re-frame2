@@ -39,22 +39,16 @@
        `MachineChart`; `machine_inspector.cljs`'s
        `focused-event-section` mounts that as
        `machine-canvas/Chart-view`, building its props from the
-       focused-event record. `chart-props` (below) is not on that path:
-       it fills `project-data`'s `:chart-props` slot, which no view
-       reads.
+       focused-event record.
 
     3. **Active state** — highlighted on the chart from the
        focused-event record: `:from-highlight` / `:to-highlight` for a
        transition, `:current-state` for a birth or a no-op. The live
-       snapshots reach `project-data` (each row's `:state`, and
-       the `:current-state-override` in `chart-props`), but no view
-       renders either.
+       snapshots reach `project-data` as each row's `:state`, which no
+       view renders.
 
     4. **Transition history ribbon** — there is none, nor any other
-       ribbon in the Dynamic panel. `project-transitions`
-       filters the trace buffer to the selected machine's
-       `:rf.machine/transition` events into `:transitions` (below), but
-       no view renders that slot.
+       ribbon in the Dynamic panel.
 
   ## What this panel does NOT include
 
@@ -69,8 +63,9 @@
 
   ## Inputs to the projection
 
-  The composite sub `:rf.xray/machine-inspector-data` feeds three
-  sources into `project-data`:
+  The composite sub `:rf.xray/machine-inspector-data` feeds two
+  sources into `project-data`, plus the definitions map and the
+  operator's raw selection:
 
     1. **`machines`** — vector of registered machine-ids (the `:rf/machine?`
        filter over the generic registrar read). Empty when the machines
@@ -83,10 +78,6 @@
        live in runtime-db, not app-db, per EP-0001). nil when the
        machine is registered but not yet initialised.
 
-    3. **`trace-buffer`** — Xray's trace ring buffer. The helper
-       filters it to `:rf.machine/transition` events for the selected
-       machine.
-
   ## Helper output
 
   `project-data` returns a map shaped:
@@ -95,18 +86,11 @@
        :total         <int>
        :selected-id   <keyword-or-nil>
        :selected      <machine-row-or-nil>   ;; the picker focus
-       :chart-props   {<MachineChart props>} ;; per machines-viz API
-       :transitions   [<transition-row> ...] ;; no view renders it
        :empty-kind    <:no-machines / nil>}
 
   Each `machine-row` is `{:machine-id :state :data :registered?}`. The
   `:state` slot is the snapshot's `:state` keyword (nil for
   uninitialised machines).
-
-  Each `transition-row` is `{:id :time :from :to :event :dispatch-id
-  :microstep?}`. Microstep events (`:rf.machine.microstep/transition`)
-  are folded in with the `:microstep?` flag so a view can
-  indent them.
 
   ## What this doesn't do
 
@@ -122,9 +106,9 @@
 
 (def transition-operations
   "Trace operations `transition-event?` counts as a machine transition.
-  The focused-event lens (`project-focused-event-transitions`), the
-  prev/next nav's epoch walk in `machine_inspector.cljs` and
-  `project-transitions` all filter on it. Per
+  The focused-event lens (`project-focused-event-transitions`) and the
+  prev/next nav's epoch walk in `machine_inspector.cljs` both filter on
+  it. Per
   spec/005-StateMachines.md + spec/009-Instrumentation.md the runtime
   emits `:rf.machine/transition` for outer transitions and
   `:rf.machine.microstep/transition` for `:always`-driven
@@ -298,113 +282,20 @@
   (or (some #(when (= (:machine-id %) selected-id) %) rows)
       (first rows)))
 
-(defn chart-props
-  "Build the MachineChart prop map for the selected machine. Per
-  `tools/machines-viz/spec/API.md` §Props the chart accepts:
-
-      :machine-id  (required)
-      :frame-id    (required)
-      :on-state-click
-      :on-edge-click   ;; a clickable event-node label fires this
-      :read-only?
-      :show-microsteps? / :show-after-rings? / :show-invoke-all?
-      :auto-pan?
-      :current-state-override
-
-  This fn fills only `:machine-id`, `:frame-id`, the live-snapshot
-  `:current-state-override` and `:definition`, and wires no callbacks.
-  Its output lands in `project-data`'s `:chart-props` slot, which no
-  view reads. The chart the panel does render is machines-viz's
-  `MachineChart`, mounted through `machine-canvas/Chart-view` by
-  `machine_inspector.cljs`'s `focused-event-section`, which builds its
-  props from the focused-event record. Its callback is wired there:
-  `:on-state-click` dispatches `:rf.xray/machine-state-clicked`, whose
-  handler is a no-op.
-
-  Returns nil when there is no selected machine."
-  [selected-row frame-id]
-  (when selected-row
-    (let [{:keys [machine-id state data definition]} selected-row]
-      (cond-> {:machine-id machine-id
-               :frame-id   frame-id}
-        (some? state)
-        (assoc :current-state-override
-               (cond-> {:state state}
-                 (some? data) (assoc :data data)))
-        (some? definition)
-        (assoc :definition definition)))))
-
-;; ---- transition history --------------------------------------------------
-
-(defn- transition-row
-  "One transition-history row from a trace event. Pure data."
-  [ev]
-  (let [tags (get ev :tags {})]
-    {:id          (:id ev)
-     :time        (:time ev)
-     :operation   (:operation ev)
-     :from        (or (:from tags) (:from-state tags))
-     :to          (or (:to tags)   (:to-state   tags))
-     :event       (or (:event tags) (:event-v tags))
-     :dispatch-id (:rf.trace/dispatch-id tags)
-     :microstep?  (= :rf.machine.microstep/transition (:operation ev))}))
-
-(defn project-transitions
-  "Filter `trace-buffer` to transition events for `machine-id`. Pure
-  fn — JVM-runnable so the JVM test target can drive it without a
-  CLJS runtime.
-
-  Newest-first — the order spec/003-Machine-Inspector.md §Transition
-  history ribbon gives. No view
-  renders this projection and nothing applies `cap-transitions` to
-  it. The helper returns the full filtered vector, which is the
-  unbounded shape the tests assert.
-
-  Returns `[]` when `machine-id` is nil (nothing focused → nothing
-  to project)."
-  [trace-buffer machine-id]
-  (if (nil? machine-id)
-    []
-    (->> (or trace-buffer [])
-         (filter (fn [ev]
-                   (and (transition-event? ev)
-                        (= machine-id (machine-id-of ev)))))
-         (map transition-row)
-         ;; Newest first, so the head element is the freshest
-         ;; transition. No view renders it (see the docstring).
-         (sort-by (fn [{:keys [id time]}]
-                    ;; Prefer :id when present (stable, monotonic per
-                    ;; Spec 009); fall back to :time. Negate for
-                    ;; newest-first.
-                    (- (or id time 0))))
-         vec)))
-
-(defn cap-transitions
-  "Apply a 200-entry cap. Pure fn. No view calls this; the helper
-  returns the unbounded projection so tests can exercise it."
-  ([rows] (cap-transitions rows 200))
-  ([rows n]
-   (if (<= (count rows) n)
-     (vec rows)
-     (vec (take n rows)))))
-
 ;; ---- top-level composite -------------------------------------------------
 
 (defn project-data
-  "Fold the registered-machine set + the snapshots map + the trace
-  buffer + the user's selection into the data shape the panel view
-  consumes.
+  "Fold the registered-machine set + the snapshots map + the user's
+  selection into the data shape the panel view consumes.
 
   Inputs:
 
     `machines`     — vector / seq of registered machine-ids (the
                      `:rf/machine?` filter over the generic read). nil-safe.
     `snapshots`    — `{machine-id snapshot-or-nil}`. nil-safe.
-    `trace-buffer` — Xray's trace ring buffer. nil-safe.
+    `definitions`  — `{machine-id definition}`, optional. nil-safe.
     `selected-id`  — the user's picker focus (keyword) or nil. nil
                      defaults to the first row.
-    `frame-id`     — the frame the chart should resolve the machine
-                     against. Passed through to `chart-props`.
 
   Returns:
 
@@ -413,8 +304,6 @@
        :selected-id         <id-or-nil>   ;; EFFECTIVE selection
        :selected-machine-id <id-or-nil>   ;; RAW slot, verbatim
        :selected            <row-or-nil>
-       :chart-props         <props-or-nil>
-       :transitions         [<transition-row> ...]
        :empty-kind          <:no-machines / nil>}
 
   `:selected-id` and `:selected-machine-id` ARE NOT THE SAME VALUE.
@@ -426,15 +315,13 @@
   `selected-id` ARGUMENT echoed back untouched, nil and all, and it is
   what the Dynamic panel's selection rule (`pick-focused-transition`)
   must be given."
-  ([machines snapshots trace-buffer selected-id frame-id]
-   (project-data machines snapshots nil trace-buffer selected-id frame-id))
-  ([machines snapshots definitions trace-buffer selected-id frame-id]
+  ([machines snapshots selected-id]
+   (project-data machines snapshots nil selected-id))
+  ([machines snapshots definitions selected-id]
    (let [rows         (project-machine-rows machines snapshots definitions)
          total        (count rows)
          selected     (pick-selected rows selected-id)
          effective-id (:machine-id selected)
-         props        (chart-props selected frame-id)
-         transitions  (project-transitions trace-buffer effective-id)
          empty-kind   (when (zero? total) :no-machines)]
      {:machines    rows
       :total       total
@@ -444,8 +331,6 @@
       ;; `effective-id`'s alphabetical-first fallback. See the docstring.
       :selected-machine-id selected-id
       :selected    selected
-      :chart-props props
-      :transitions transitions
       :empty-kind  empty-kind})))
 
 ;; ---- formatting helpers (consumed by the view) --------------------------
@@ -458,28 +343,6 @@
     (nil? id)         ""
     (keyword? id)     (str id)
     :else             (str/trim (str id))))
-
-(defn format-state
-  "Render a snapshot `:state` for display. nil → `(uninit)` so a
-  view renders *something* rather than a blank for
-  registered-but-uninitialised machines."
-  [state]
-  (cond
-    (nil? state)      "(uninit)"
-    (keyword? state)  (str state)
-    :else             (str/trim (str state))))
-
-(defn format-event
-  "Compact event-vector formatter for the transition row. Falls back
-  to `str` if `pr-str` throws (it lives here so the test suite
-  can assert against the formatted output without booting the view)."
-  [event]
-  (if (nil? event)
-    ""
-    (try
-      (pr-str event)
-      (catch #?(:clj Throwable :cljs :default) _
-        (str event)))))
 
 ;; ---- focused-event lens -------------------------------------------------
 ;;

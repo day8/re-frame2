@@ -1110,13 +1110,9 @@
     {:inputs [[:rf.xray/registered-machines]
               [:rf.xray/machine-snapshots]
               [:rf.xray/machine-definitions]
-              [:rf.xray/trace-buffer]
-              [:rf.xray/selected-machine-id]
-              [:rf.xray/target-frame]]}
-    (fn [[machines live-snapshots definitions buffer selected-id target-frame]
-         _query]
-      (h/project-data
-        machines (or live-snapshots {}) definitions buffer selected-id target-frame)))
+              [:rf.xray/selected-machine-id]]}
+    (fn [[machines live-snapshots definitions selected-id] _query]
+      (h/project-data machines (or live-snapshots {}) definitions selected-id)))
 
   ;; ---- focused-event lens composite ------------------------------
 
@@ -1493,14 +1489,10 @@
               [:rf.xray/machine-snapshots]
               [:rf.xray/machine-snapshots-override]
               [:rf.xray/machine-definitions]
-              [:rf.xray/trace-buffer]
-              [:rf.xray/selected-machine-id]
-              [:rf.xray/target-frame]]}
-    (fn [[machines live-snapshots snapshots-override definitions buffer selected-id target-frame]
-         _query]
+              [:rf.xray/selected-machine-id]]}
+    (fn [[machines live-snapshots snapshots-override definitions selected-id] _query]
       (let [snapshots (or snapshots-override live-snapshots {})]
-        (h/project-data
-          machines snapshots definitions buffer selected-id target-frame))))
+        (h/project-data machines snapshots definitions selected-id))))
 
   ;; Focused-event composite seeding events (write the real slots).
   (rf/reg-event :rf.xray/set-epoch-history-for-test

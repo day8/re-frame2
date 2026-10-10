@@ -23,10 +23,7 @@
   ## Why a shared cap
 
   The 200-row budget comes from `tools/xray/spec/007-UX-IA.md`
-  §Performance budget. `machine_inspector_helpers/cap-transitions`
-  applies it to transitions, with its own cap tests in
-  `panels/machine_inspector_helpers_cljs_test.cljc`.
-  A long-list panel that iterates a whole
+  §Performance budget. A long-list panel that iterates a whole
   row vector with `for` explodes DOM mount + React-reconciliation
   cost once the trace ring fills. A shared cap
   helper closes that gap for every panel that adopts it — the same
@@ -93,9 +90,7 @@
   (e.g. `+N rows hidden — narrow the filter to see more`). Pure fn;
   JVM-runnable.
 
-  Mirrors `machine_inspector_helpers/cap-transitions` shape with the
-  caller-visible overflow metadata folded in. Callers that only want
-  the capped vector can `(first (cap-rows rows))`."
+  Callers that only want the capped vector can `(first (cap-rows rows))`."
   ([rows] (cap-rows rows panel-row-cap))
   ([rows n]
    (let [v     (if (vector? rows) rows (vec (or rows [])))
