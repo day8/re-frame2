@@ -730,195 +730,10 @@ def _run_self_tests(verbose: bool = False) -> int:
             sys.stderr.write(f"self-test FAIL: {name}\n")
             failures += 1
 
-    synthetic_009 = (
-        "| `:rf.error/handler-exception` | ... |\n"
-        "| `:rf.warning/plain-fn` | ... |\n"
-    )
-    synthetic_conventions = (
-        "### The single-root reserved set\n"
-        "\n"
-        "| Sub-namespace | Used for | Spec |\n"
-        "|---|---|---|\n"
-        "| `:rf/*` | Pattern-level events | 002 |\n"
-        "| `:rf.error/*` | Error trace ops | 009 |\n"
-        "| `:rf.machine/*` | Machine lifecycle | 005 |\n"
-        "| `:rf.ui/*` | UI-domino namespace | 009 |\n"
-        "| `:rf.ui.tool/*` | UI-tool inspector namespace | 009 |\n"
-        # Framework-internal child sub-namespaces: each has its OWN first-column
-        # row, while its parent's body CROSS-REFERENCES it.
-        # Both halves matter — the row is what reserves, the body mention is
-        # inert prose that must not.
-        "| `:rf.route/*` | Routing; internal sub-ns `:rf.route.internal/*` | 012 |\n"
-        "| `:rf.route.internal/*` | Internal routing events | 012 |\n"
-        "| `:rf.mutation/*` | Mutations; internal `:rf.mutation.internal/*` | 016 |\n"
-        "| `:rf.mutation.internal/*` | Internal mutation replies | 016 |\n"
-        "| `:rf.resource/*` | Resources; internal `:rf.resource.internal/*` | 016 |\n"
-        "| `:rf.resource.internal/*` | Internal resource replies | 016 |\n"
-        "| `:rf.interceptor/*` | Interceptors; `:rf.interceptor.path/*` | 002 |\n"
-        "| `:rf.interceptor.path/*` | Path-interceptor internals | 002 |\n"
-        # An ACTIVE row whose body carries a glob in a PROSE EXAMPLE. It must
-        # NOT reserve `rf.auditfake`.
-        "| `:rf.flow/*` | Flows. A prose example mentions `:rf.auditfake/*`. | 002 |\n"
-        # An ACTIVE row whose body DENIES a namespace. Body extraction would
-        # reserve the very namespaces the table says do not exist — the live
-        # `:rf.schema/*` row ("there is no `:rf.spec/*` trace namespace") and
-        # `:rf.work/*` row ("the `:rf.timer/*` reservation is deferred").
-        "| `:rf.schema/*` | Schemas. There is no `:rf.spec/*` trace namespace; "
-        "the `:rf.timer/*` reservation is deferred. | 010 |\n"
-        # An ACTIVE row citing a retired DRAFT spelling mid-prose — it keeps its
-        # reservation (the live `:rf.cofx/*` row has exactly this shape).
-        "| `:rf.cofx/*` | Coeffects. The retired draft opt is gone. | 002 |\n"
-        # RETIRED row, shape 1 (live `:rf.realm/*` row): plain first cell, the
-        # "Used for" cell opens with the bold marker. Multi-glob first cell.
-        "| `:rf.realm/*`, `:rf.module/*`, `:rf.app/*` | **Retired** — the "
-        "EP-0013 realm / app-value / module vocabulary. | EP-0024 |\n"
-        # RETIRED row, shape 2 (live `:rf.reload/*` row): struck-through first
-        # cell AND a bold marker; its body names a member `:rf.reload/diff`.
-        "| ~~`:rf.reload/*`~~ | **RETIRED (rf2-lxwpob).** Was the hot-reload "
-        "report namespace (`:rf.reload/diff`). | EP-0023 |\n"
-        "\n"
-        "Prose AFTER the table: the retired draft opt `:rf.world/inputs`, a\n"
-        "made-up `:rf.prosefake/member` mention, and even a stray glob\n"
-        "`:rf.prosefake/*` — outside the table, none of them reserves.\n"
-    )
-    catalogue = catalogue_ids(synthetic_009)
-    reserved = reserved_namespaces(synthetic_conventions)
-
-    # CHECK A teeth ---------------------------------------------------------
-    good_src = mask('(throw-error! :rf.error/handler-exception)')
-    bad_src = mask('(throw-error! :rf.error/totally-uncatalogued)')
-    a_good = {k for k in emitted_err_warn_ids(good_src) if k not in catalogue}
-    a_bad = {k for k in emitted_err_warn_ids(bad_src) if k not in catalogue}
-    expect("A: catalogued id passes", a_good == set())
-    expect("A: uncatalogued id FIRES", a_bad == {":rf.error/totally-uncatalogued"})
-
-    # A: an id present only in a docstring/comment must NOT fire (masking).
-    prose_src = mask('"doc mentions :rf.error/totally-uncatalogued"\n'
-                     ';; and :rf.error/also-uncatalogued in a comment')
-    expect("A: prose/docstring mention does NOT fire",
-           emitted_err_warn_ids(prose_src) == set())
-
-    # CHECK B teeth ---------------------------------------------------------
-    def b_fire(src: str, reserved_set: set[str]) -> set[str]:
-        """The namespaces an emitted source fires CHECK B on against reserved_set."""
-        return {ns for ns in emitted_namespaces(mask(src)) if ns not in reserved_set}
-
-    # A namespace glob-declared in its own row's FIRST COLUMN passes.
-    expect("B: first-column glob-declared namespaces pass",
-           b_fire('(trace :rf.machine/transition [:rf/x] '
-                  ':rf.route.internal/settle-transition)', reserved) == set())
-    expect("B: unreserved namespace FIRES",
-           b_fire('(trace :rf.zzznew/frobnicate 1)', reserved) == {"rf.zzznew"})
-
-    # (1) a mention OUTSIDE the reserved-namespace table never reserves — not a
-    #     member spelling, not even a glob (an ordinary mention must not grant
-    #     reservation).
-    expect("B: emitting an only-prose-mentioned namespace FIRES",
-           b_fire('(x :rf.prosefake/member)', reserved) == {"rf.prosefake"})
-
-    # (2) row deletion turns the check red: dropping the `:rf.ui.tool/*` row
-    #     un-reserves it (its glob lives only in that row).
-    reserved_no_ui_tool = reserved_namespaces(
-        synthetic_conventions.replace(
-            "| `:rf.ui.tool/*` | UI-tool inspector namespace | 009 |\n", ""
-        )
-    )
-    expect("B: with its row, :rf.ui.tool/* passes",
-           b_fire('(x :rf.ui.tool/open)', reserved) == set())
-    expect("B: deleting the :rf.ui.tool/* row makes it FIRE",
-           b_fire('(x :rf.ui.tool/open)', reserved_no_ui_tool) == {"rf.ui.tool"})
-
-    # (3) exact-namespace matching — a parent `:rf.ui/*` glob does NOT reserve
-    #     the distinct child namespace `rf.ui.tool` (no prefix descent).
-    expect("B: parent :rf.ui/* does not reserve child rf.ui.tool",
-           "rf.ui" in reserved_no_ui_tool and "rf.ui.tool" not in reserved_no_ui_tool)
-
-    # (4) tombstone classification — the retired `:rf.world/inputs` did-you-mean
-    #     spelling is an accepted input, not a framework namespace: emitting it
-    #     does NOT fire, while a real `:rf.world/other` member DOES.
-    expect("B: retired :rf.world/inputs tombstone does NOT fire",
-           b_fire('{:rf.world/inputs "did you mean :rf.cofx?"}', reserved) == set())
-    expect("B: a non-tombstone :rf.world/* member DOES fire",
-           b_fire('(x :rf.world/other)', reserved) == {"rf.world"})
-
-    # (5) RETIRED rows grant NO reservation — reintroducing the withdrawn
-    #     vocabulary must turn CHECK B red, in BOTH row shapes: the
-    #     bold-marker row (`:rf.realm/*`, `:rf.module/*`, `:rf.app/*`) and the
-    #     struck-through row (`:rf.reload/*`). Extracting a retired row's globs
-    #     like any other would green that emission.
-    expect("B: emitting retired-row vocabulary FIRES",
-           b_fire('(x :rf.realm/install :rf.module/def :rf.app/boot '
-                  ':rf.reload/diff)', reserved)
-           == {"rf.realm", "rf.module", "rf.app", "rf.reload"})
-
-    # (6) The retired-row predicate must not over-reach. An ACTIVE row that
-    #     cites a retired draft spelling mid-prose keeps its reservation (a
-    #     substring test for "retired" would silently un-reserve `:rf.cofx/*`).
-    expect("B: active row citing 'retired' mid-prose STILL reserves",
-           b_fire('(x :rf.cofx/declared)', reserved) == set())
-
-    # (7) Regression guard for the four framework-internal sub-namespaces. They
-    #     are legitimate ACTIVE reservations carrying real implementation
-    #     vocabulary, and each holds its OWN first-column row rather than a
-    #     mention in its parent's row body. Neither the retired-row skip nor
-    #     the first-column rule may drop any of them.
-    expect("B: all four internal sub-namespaces still reserve (own rows)",
-           b_fire('(x :rf.route.internal/settle :rf.mutation.internal/apply '
-                  ':rf.resource.internal/evict :rf.interceptor.path/get)',
-                  reserved) == set())
-
-    # (8) STRUCTURAL FIRST-COLUMN RULE. A `:rf.<ns>/*` glob in an ACTIVE row's
-    #     BODY is prose: an example, a cross-reference, or a negative
-    #     statement. It must not reserve, and emitting a member of it must turn
-    #     CHECK B red.
-    #
-    #     (8a) a prose example inside the `:rf.flow/*` row.
-    expect("B: emitting a body-glob-only namespace FIRES",
-           b_fire('(x :rf.auditfake/member)', reserved) == {"rf.auditfake"})
-
-    #     (8b) the live-table shapes: rows that DENY a namespace must not
-    #          reserve it. Body extraction would bless `:rf.spec/*` (which the
-    #          `:rf.schema/*` row says does not exist) and `:rf.timer/*` (which
-    #          the `:rf.work/*` row says is deferred) — a namespace could ship
-    #          in code on the strength of the sentence denying it.
-    expect("B: emitting a denied namespace FIRES",
-           b_fire('(x :rf.spec/trace :rf.timer/after)', reserved)
-           == {"rf.spec", "rf.timer"})
-
-    #     (8c) the parent row that CROSS-REFERENCES its child keeps its own
-    #          first-column reservation — the first-column rule must not
-    #          over-reach and un-reserve the parent along with the body glob.
-    expect("B: a parent row citing its child in prose STILL reserves",
-           b_fire('(x :rf.route/navigate :rf.interceptor/path)', reserved)
-           == set())
-
-    # (9) AUTO-RESOLVED vs LITERAL — the require-alias dialect makes the
-    #     canonical alias `rf.<tail>` textually shadow the `:rf.<area>`
-    #     reserved keyword root, so `::rf.machines.result/depth-abort?` (which
-    #     resolves through the alias and denotes `:re-frame.machines.result/…`,
-    #     reserving nothing) would otherwise read as a literal reserved-root
-    #     keyword and demand a FALSE Conventions row. Pinned in BOTH directions
-    #     on the SAME namespace, so the exclusion cannot be mistaken for the
-    #     namespace simply being reserved.
-    expect("B: the same namespace spelled :rf.x/y STILL fires",
-           b_fire('(dissoc info :rf.machines.result/depth-abort?)', reserved)
-           == {"rf.machines.result"})
-    #     The auto-resolved direction rides on a map literal carrying both
-    #     spellings in one pass: the `::` form must not fire, and the exclusion
-    #     must not swallow the literal that merely FOLLOWS it.
-    expect("B: a literal beside an auto-resolved one still fires",
-           b_fire('{::rf.machines.result/depth-abort? true '
-                  ':rf.zzzliteral/member 1}', reserved) == {"rf.zzzliteral"})
-
-    # CHECK C teeth ----------------------------------------------------------
-    #
-    # The reverse direction. The synthetic catalogue below carries rows with an
-    # emitter and one row with none (the defect).
     synthetic_009_rows = (
         "## Preamble\n"
         "\n"
-        "Prose naming `:rf.error/prose-only-mention` — NOT a row, so CHECK C\n"
-        "must not demand an emitter for it.\n"
+        "Prose naming `:rf.error/prose-only-mention` — NOT a row.\n"
         "\n"
         "### Error event catalogue\n"
         "\n"
@@ -932,56 +747,59 @@ def _run_self_tests(verbose: bool = False) -> int:
         "\n"
         "| `:rf.error/row-in-a-later-table` | `:error` | diagnostic | … | … | … |\n"
     )
-    rows = catalogue_rows(synthetic_009_rows)
+    synthetic_conventions = (
+        "| Sub-namespace | Used for | Spec |\n"
+        "|---|---|---|\n"
+        "| `:rf.flow/*` | Flows. A prose example mentions `:rf.auditfake/*`. | 002 |\n"
+        # The two retired-row shapes: a bold marker opening the Used-for cell,
+        # and a struck-through first cell.
+        "| `:rf.realm/*`, `:rf.module/*`, `:rf.app/*` | **Retired** — the "
+        "EP-0013 realm / app-value / module vocabulary. | EP-0024 |\n"
+        "| ~~`:rf.reload/*`~~ | **RETIRED.** Was the hot-reload "
+        "report namespace (`:rf.reload/diff`). | EP-0023 |\n"
+        "\n"
+        "Prose AFTER the table: a `:rf.prosefake/member` mention and a stray glob\n"
+        "`:rf.prosefake/*` — outside the table, neither reserves.\n"
+    )
 
-    # Set EQUALITY carries the scope discipline in both directions: the prose
-    # mention before the table is not a row, and the row-shaped line in the
-    # LATER section is not this table's.
+    catalogue = catalogue_ids(synthetic_009_rows)
+    expect("A: uncatalogued id FIRES",
+           {k for k in emitted_err_warn_ids(mask('(throw-error! :rf.error/totally-uncatalogued)'))
+            if k not in catalogue} == {":rf.error/totally-uncatalogued"})
+
+    reserved = reserved_namespaces(synthetic_conventions)
+    for name, src, want in (
+        ("B: emitting an only-prose-mentioned namespace FIRES",
+         '(x :rf.prosefake/member)', {"rf.prosefake"}),
+        ("B: a non-tombstone :rf.world/* member DOES fire",
+         '(x :rf.world/other)', {"rf.world"}),
+        ("B: emitting retired-row vocabulary FIRES",
+         '(x :rf.realm/install :rf.module/def :rf.app/boot :rf.reload/diff)',
+         {"rf.realm", "rf.module", "rf.app", "rf.reload"}),
+        ("B: emitting a body-glob-only namespace FIRES",
+         '(x :rf.auditfake/member)', {"rf.auditfake"}),
+        # `::rf.x/y` resolves through the `rf.x` require alias and reserves
+        # nothing; the literal spelling of the same namespace must still fire.
+        ("B: the same namespace spelled :rf.x/y STILL fires",
+         '(dissoc info :rf.machines.result/depth-abort?)', {"rf.machines.result"}),
+        ("B: a literal beside an auto-resolved one still fires",
+         '{::rf.machines.result/depth-abort? true :rf.zzzliteral/member 1}', {"rf.zzzliteral"}),
+    ):
+        expect(name, {ns for ns in emitted_namespaces(mask(src)) if ns not in reserved} == want)
+
+    rows = catalogue_rows(synthetic_009_rows)
+    # Equality carries the scope: the prose mention before the table and the
+    # row-shaped line in the LATER section are not rows.
     expect("C: parses the rows",
            rows == {":rf.error/handler-exception",
                     ":rf.warning/plain-fn",
                     ":rf.error/emitter-was-deleted"})
-
-    def c_fire(src: str,
-               exempt: frozenset[str] = frozenset(),
-               table: set[str] | None = None) -> list[str]:
-        """CHECK C's findings for an emitting source — entered at
-        `check_c_findings`, the same function `run_checks` calls, NOT at the
-        set arithmetic beneath it. A case that enters below the defect cannot
-        see the defect."""
-        return check_c_findings(
-            rows if table is None else table,
-            emitted_err_warn_ids(mask(src)),
-            exempt)
-
-    live_src = ('(emit-error! :rf.error/handler-exception {})'
-                '(emit! :warning :rf.warning/plain-fn {})')
-    expect("C: a row whose emitter exists passes",
-           c_fire(live_src + '(x :rf.error/emitter-was-deleted)') == [])
     expect("C: a row with NO emitter FIRES",
-           c_fire(live_src) == [":rf.error/emitter-was-deleted"])
-    # Deleting the row is the documented fix, so it must actually work: with
-    # the row gone the same source greens, with no other change.
-    deleted = catalogue_rows(
-        synthetic_009_rows.replace(
-            "| `:rf.error/emitter-was-deleted` | `:error` | diagnostic | … | … | … |\n",
-            ""))
-    expect("C: deleting the row silences it — the documented fix",
-           c_fire(live_src, table=deleted) == []
-           and ":rf.error/emitter-was-deleted" not in deleted)
-    # The exemption is precision, not a licence: it silences exactly its own
-    # entry and nothing else.
-    expect("C: the port-relative exemption silences only its own entry",
-           c_fire(live_src, frozenset({":rf.error/emitter-was-deleted"})) == [])
+           check_c_findings(rows, emitted_err_warn_ids(mask(
+               '(emit-error! :rf.error/handler-exception {})'
+               '(emit! :warning :rf.warning/plain-fn {})')), frozenset())
+           == [":rf.error/emitter-was-deleted"])
 
-    # CHECK C — the parse FAILS CLOSED ---------------------------------------
-    #
-    # An unreadable section answered with an empty set would read to
-    # `run_checks` as "nothing to report". A check whose population can
-    # silently collapse to zero is a check that can fail to RUN while exiting
-    # 0. The renamed and malformed controls prove the rule fires on the break
-    # shapes; the valid section is parsed unguarded above (`rows = ...`), so a
-    # raise on the shape it must accept fails the self-test there.
     def parse_raises(text: str) -> bool:
         try:
             catalogue_rows(text)
@@ -989,23 +807,10 @@ def _run_self_tests(verbose: bool = False) -> int:
         except CatalogueParseError:
             return True
 
-    renamed = synthetic_009_rows.replace(
-        "### Error event catalogue", "### Error and warning event catalogue")
-    expect("C: a RENAMED heading fails closed", parse_raises(renamed))
-    # The renamed-heading probe: CHECK A keeps reading ids from the
-    # whole document, so a renamed heading looks perfectly clean to it. Only
-    # the fail-closed parse turns the collapse into a non-zero exit.
-    expect("C: …while CHECK A still sees the id, so A cannot cover the collapse",
-           ":rf.error/emitter-was-deleted" in catalogue_ids(renamed))
+    expect("C: a RENAMED heading fails closed", parse_raises(synthetic_009_rows.replace(
+        "### Error event catalogue", "### Error and warning event catalogue")))
     expect("C: a MALFORMED table (an extra leading cell) fails closed",
            parse_raises(synthetic_009_rows.replace("| `:rf.", "| x | `:rf.")))
-    # …and the rule does not over-reach: a one-row section is legitimate and
-    # must parse.
-    expect("C: a one-row section is legitimate and parses",
-           catalogue_rows("### Error event catalogue\n"
-                          "\n"
-                          "| `:rf.error/only-row` | `:error` | diagnostic |\n")
-           == {":rf.error/only-row"})
 
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
