@@ -12,11 +12,9 @@
 
       {:path-ops      {[path] {:op <kw> ...}}     ; leaf-resolution ops
        :container-ops {[path] {:op <kw> :change-count <n>}} ; container ops
-       :flat-rows     [{:path :op :before :after} ...]      ; pure-diff lens
        :vector-removals {[parent-path] [{:before-index :before-value} ...]}
                                                             ; R6 vector deletes
        :wholly-changed-roots #{[path] ...}                  ; R5 reclassification
-       :shift-suffix  {[path] (was N)}                      ; R6 :same-shifted
       }
 
   Where each per-leaf `:op` is one of:
@@ -303,7 +301,7 @@
 
   This expansion runs over the raw edit script BEFORE classification so
   every downstream artefact (`:path-ops`, `:container-ops`,
-  `:flat-rows`, `:wholly-changed-roots`, `:vector-removals`) sees
+  `:wholly-changed-roots`, `:vector-removals`) sees
   member-level granularity.
 
   `before-value` resolves the edit's AFTER-coordinate path to its BEFORE
@@ -964,9 +962,7 @@
     the move as the R6 `(was N)` suffix on the element itself. Counting it
     again at every ancestor would inflate the chip by the length of the
     vector's tail: prepend one element to a 100-vector and the parent would
-    read `[100∆]`. `flat-rows-from-path-ops` drops `:same-shifted` for
-    exactly this reason; this is that same rule applied to the collapsed
-    count.
+    read `[100∆]`.
 
   - **`:vector-removals` is INCLUDED**, though no entry of it appears in
     `path-ops` at all. A removed vector element has no stable after-path
@@ -1008,72 +1004,6 @@
       {}
       (concat changed-leaves removal-leaves))))
 
-(defn- compare-path
-  "Total-order comparator for two path vectors that may carry MIXED
-  segment types.
-
-  Clojure's default vector comparator compares element-wise using each
-  element's natural `compare`, which throws `ClassCastException` the
-  moment two paths share a prefix and diverge into segments of
-  different types at the same index (e.g. `[:flow :phases 2]` vs
-  `[:flow :phases :foo]`). The flat-rows pipeline currently never
-  produces such a pair — type-change reclassification (R7) emits a
-  single `:modified` row at the container path and short-circuits
-  per-leaf descent — but the latent fragility is real: any future
-  evolution that surfaces mixed-type siblings under a shared prefix
-  would crash the sort at consumer time, well downstream of the
-  Editscript `try/catch` at `expanded-editscript`.
-
-  Strategy: depth (path length) first, then per-segment lexicographic comparison of each
-  segment's `pr-str`. Properties:
-
-    - Total — any two segments compare via their string serialisation,
-      which is defined for every Clojure value.
-    - Stable across types — `[:a 10]` < `[:a 2]` lexicographically
-      (`\"10\"` < `\"2\"`); this is a known property of string-based
-      ordering of numerics. Acceptable for a dev-tool diff lens; the
-      operator reads the path text directly so ordering matches the
-      text-display order.
-    - Pure-data, no allocation beyond the two `pr-str` strings per
-      comparison; per-sort overhead is O(n log n × depth) string
-      compares, well within the per-epoch diff budget.
-
-  Used by both `:flat-rows` sort sites in `project` to guarantee they
-  never CCE regardless of segment-type mix."
-  [a b]
-  (let [la (count a)
-        lb (count b)]
-    (if (not= la lb)
-      (compare la lb)
-      (loop [i 0]
-        (if (>= i la)
-          0
-          (let [c (compare (pr-str (nth a i)) (pr-str (nth b i)))]
-            (if (zero? c)
-              (recur (inc i))
-              c)))))))
-
-(defn- flat-rows-from-path-ops
-  "Build the flat-diff lens — one row per non-`:same` leaf op.
-  Each row is a map `{:path :op :before :after}`. Used by the `:diff`
-  mode (pure-diff) renderer."
-  [path-ops]
-  (->> path-ops
-       (remove (fn [[_p {:keys [op]}]] (= op :same)))
-       (remove (fn [[_p {:keys [op]}]] (= op :same-shifted)))
-       (mapv (fn [[path {:keys [op before after]
-                          :rf.xray.diff/keys [redaction-side type-change?]}]]
-               (cond-> {:path  path
-                        :op    op
-                        :before before
-                        :after  after}
-                 redaction-side
-                 (assoc :rf.xray.diff/redaction-side redaction-side)
-                 type-change?
-                 (assoc :rf.xray.diff/type-change? true))))
-       (sort-by :path compare-path)
-       vec))
-
 (defn- resolve-vector-removals
   "Recover the true `{:before-index :before-value}`
   for every element removed at a single vector/list parent.
@@ -1111,9 +1041,7 @@
   (if (identical? before after)
     {:path-ops             {}
      :container-ops        {}
-     :flat-rows            []
-     :wholly-changed-roots #{}
-     :shift-suffix         {}}
+     :wholly-changed-roots #{}}
     (let [raw-edits (raw-editscript before after)
           ;; The expansion below compares a replaced
           ;; collection against its BEFORE counterpart, and a replacement
@@ -1277,29 +1205,11 @@
                               :op op
                               :rf.xray.diff/wholly-changed? true))))
             container-ops
-            wholly-changed)
-          ;; Step 7 — flat-rows for the pure-diff lens. Combines the
-          ;; path-op rows with the vector-removal rows (which the
-          ;; AFTER-path classifier can't surface because the removed
-          ;; element has no stable after-path).
-          flat-rows (into (flat-rows-from-path-ops path-ops-with-shifts)
-                          (mapcat
-                            (fn [[parent-path removals]]
-                              (map (fn [{:keys [before-index before-value]}]
-                                     {:path  (conj (vec parent-path) before-index)
-                                      :op    :removed
-                                      :before before-value
-                                      :rf.xray.diff/vector-removal? true})
-                                   removals))
-                            vector-removals))]
+            wholly-changed)]
       {:path-ops             path-ops-with-shifts
        :container-ops        container-ops'
-       ;; `compare-path` is mixed-type safe; see its
-       ;; docstring for the rationale and the latent-fragility caveat.
-       :flat-rows            (vec (sort-by :path compare-path flat-rows))
        :vector-removals      vector-removals
-       :wholly-changed-roots wholly-changed
-       :shift-suffix         shift-suffix})))
+       :wholly-changed-roots wholly-changed})))
 
 ;; =========================================================================
 ;; renderer helpers — read the projection
@@ -1331,10 +1241,10 @@
       0))
 
 ;; =========================================================================
-;; There is no post-processor over `:flat-rows`: `project` expands every
-;; same-kind collection replacement itself (`expand-collection-replacement`
-;; at the expanded-editscript stage), so `:path-ops`, `:container-ops` and
-;; `:flat-rows` carry the same per-key rows at every lens.
+;; There is no post-processor: `project` expands every same-kind
+;; collection replacement itself (`expand-collection-replacement` at the
+;; expanded-editscript stage), so `:path-ops` and `:container-ops` carry
+;; the same per-key rows at every lens.
 
 (defn wholly-changed-ancestor
   "Return the shallowest wholly-changed-root that is an ancestor of

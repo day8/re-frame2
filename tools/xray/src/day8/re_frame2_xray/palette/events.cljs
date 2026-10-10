@@ -57,10 +57,9 @@
 ;; time — preload runs BEFORE any palette dispatch can land, so the
 ;; export is always present in production paths.
 ;;
-;; Tests stub the `:rf.xray.palette.fx/popout` registration directly
-;; (see palette/events_cljs_test.cljs `with-popout-counter`) so the
-;; late-bind never matters for the registered-event contract — the fx
-;; redefinition wins.
+;; Tests override the `:rf.xray.palette.fx/popout` effect per dispatch
+;; (`:fx-overrides` in palette/events_cljs_test.cljs), so the late-bind
+;; never matters for the registered-event contract.
 
 (defn- mount-popout!
   "Reach `mount/popout!` through the browser API the preload installs.
@@ -399,16 +398,10 @@
            :fx (conj base-fx [:dispatch [:rf.xray/select-frame (first args)]])}
 
           :palette/inspect-handler
-          ;; Record the inspected handler choice in a Xray-side store
-          ;; (`:inspecting-handler`). No panel reads that slot;
-          ;; recording it is the palette's whole part of the contract.
           ;; The canonical "what happened in this epoch" tab is
           ;; `:epoch`, so the selection lands there.
-          (let [[kind id] args]
-            {:db (assoc close-db
-                        :selected-tab :epoch
-                        :inspecting-handler [kind id])
-             :fx base-fx})
+          {:db (assoc close-db :selected-tab :epoch)
+           :fx base-fx}
 
           :palette/cycle-density
           ;; Flip the Settings density control (:cosy ↔

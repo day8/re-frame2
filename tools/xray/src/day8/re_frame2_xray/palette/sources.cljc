@@ -164,12 +164,7 @@
   as data, never requiring the cljs-only frame-switcher ns.
 
   The exclusion is UNCONDITIONAL: there is no `show-tool-frames?`
-  parameter, and no surface writes a setting that would feed one.
-
-  The 1-arity is a test / partial-drive convenience defaulting to the
-  minimal `#{:rf/xray}` exclusion; production always injects
-  the full set through `build-index`."
-  ([frame-ids] (frame-items frame-ids #{:rf/xray}))
+  parameter, and no surface writes a setting that would feed one."
   ([frame-ids internal-frames]
    (->> frame-ids
         (remove (fn [fid] (contains? internal-frames fid)))
@@ -543,8 +538,7 @@
 (defn score-item
   "Score a single item against `query`. Returns `nil` when the item's
   label does not fuzzy-match the query; otherwise returns the item
-  augmented with `:score` (final) + `:fuzzy` (raw fuzzy score) +
-  `:indices` (matched char positions)."
+  augmented with `:score` (final) + `:fuzzy` (raw fuzzy score)."
   [item query]
   (when-let [m (fuzzy/score-with-meta (:label item) query)]
     (let [fuzzy-s (:score m)
@@ -553,8 +547,7 @@
                      (recency-bonus (:recency-rank item)))]
       (assoc item
              :score    final
-             :fuzzy    fuzzy-s
-             :indices  (:indices m)))))
+             :fuzzy    fuzzy-s))))
 
 (defn rank
   "Rank `index` against `query`. Returns a sorted vector of scored

@@ -571,17 +571,6 @@
     "  [data-rf-xray-status=\"paused-by-tool\"] {\n"
     "    box-shadow: inset -2px 0 0 0 GrayText !important;\n"
     "  }\n"
-    ;; L4 panel header accent stripes (3px left border on the panel
-    ;; <h1>) — the single GitHub-blue accent
-    ;; collapses to CanvasText so the stripe still paints as a
-    ;; visible left edge. Panels remain visually distinguishable by
-    ;; their L3 tab label and their content; the stripe drops its
-    ;; per-panel colour information but keeps its presence as a
-    ;; rhythm marker. We target the `<h1>` elements inside the L4
-    ;; panel slot via the `rf-xray-detail-panel-*` testid prefix.
-    "  [data-testid^=\"rf-xray-detail-panel-\"] h1 {\n"
-    "    border-left-color: CanvasText !important;\n"
-    "  }\n"
     ;; Ribbon icons + close-X — keep them as ButtonText so they
     ;; read as actionable. The Settings ✕ accent + the right-cluster
     ;; icons inherit through this rule.
@@ -650,9 +639,6 @@
     "[data-rf-force-colors=\"active\"] [data-rf-xray-status=\"stale\"],\n"
     "[data-rf-force-colors=\"active\"] [data-rf-xray-status=\"paused-by-tool\"] {\n"
     "  box-shadow: inset -2px 0 0 0 GrayText !important;\n"
-    "}\n"
-    "[data-rf-force-colors=\"active\"] [data-testid^=\"rf-xray-detail-panel-\"] h1 {\n"
-    "  border-left-color: CanvasText !important;\n"
     "}\n"
     "[data-rf-force-colors=\"active\"] [data-testid=\"rf-xray-icon-settings\"],\n"
     "[data-rf-force-colors=\"active\"] [data-testid=\"rf-xray-icon-close\"],\n"

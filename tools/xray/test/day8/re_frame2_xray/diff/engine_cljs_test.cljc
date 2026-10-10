@@ -150,30 +150,6 @@
     (is (= [{} {} #{}] (map p [:path-ops :container-ops :wholly-changed-roots])))
     (is (zero? @realised))))
 
-;; ---- Flat-rows shape ----------------------------------------------------
-
-(deftest flat-rows-feeds-pure-diff-mode
-  (let [p (engine/project {:counter 5
-                           :user {:id 7 :name "Ada"}
-                           :legacy-flag true}
-                          {:counter 6
-                           :user {:id 7 :name "Ada Lovelace"}
-                           :flash {:level :ok}})]
-    (is (= [{:path [:counter]      :op :modified :before 5     :after 6}
-            {:path [:legacy-flag]  :op :removed  :before true  :after nil}
-            {:path [:flash :level] :op :added    :before nil   :after :ok}
-            {:path [:user :name]   :op :modified :before "Ada" :after "Ada Lovelace"}]
-           (:flat-rows p)))))
-
-;; `:flat-rows` sorts with `compare-path`, which orders paths of mixed segment
-;; types; `l0us2-set-of-maps-recurses` throws if a sort site loses it.
-(deftest n83r8-vector-append-under-a-keyword-parent-is-one-flat-row
-  (let [p (engine/project {:flow {:phases [:a :b]}}
-                          {:flow {:phases [:a :b :c]}})]
-    (is (vector? (:flat-rows p)))
-    (is (= [{:path [:flow :phases 2] :op :added :before nil :after :c}]
-           (:flat-rows p)))))
-
 ;; ---- set diffs are member-level -----------------------------------------
 ;;
 ;; Editscript keys set members by value, so a swap puts each side's members at
