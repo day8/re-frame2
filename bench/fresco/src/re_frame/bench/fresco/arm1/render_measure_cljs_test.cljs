@@ -130,14 +130,13 @@
             so the identifier a consumer filters the User-Timing stream on
             and the identifier React DevTools shows are one string, not two
             that happen to agree (Spec 009 §Naming convention)."
-    (is (= "re-frame.bench.fresco.arm1.render-measure-cljs-test/title-row"
-           (.-displayName title-row)))
-    (is (= "re-frame.bench.fresco.arm1.render-measure-cljs-test/measured-page"
-           (.-displayName measured-page)))
-    (is (= "rf:render:re-frame.bench.fresco.arm1.render-measure-cljs-test/title-row"
-           (rf.performance/build-name :render (.-displayName title-row))))
-    (is (= "rf:render:re-frame.bench.fresco.arm1.render-measure-cljs-test/measured-page"
-           (rf.performance/build-name :render (.-displayName measured-page))))))
+    (is (= [["re-frame.bench.fresco.arm1.render-measure-cljs-test/title-row"
+             "rf:render:re-frame.bench.fresco.arm1.render-measure-cljs-test/title-row"]
+            ["re-frame.bench.fresco.arm1.render-measure-cljs-test/measured-page"
+             "rf:render:re-frame.bench.fresco.arm1.render-measure-cljs-test/measured-page"]]
+           (mapv (fn [head]
+                   [(.-displayName head) (rf.performance/build-name :render (.-displayName head))])
+                 [title-row measured-page])))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — the off path: the render happens, and nothing is measured
@@ -155,11 +154,11 @@
       (clear-measures!)
       (rf.bench.fresco.arm1.runtime/reset-body-runs!)
       (let [html (server-html [measured-page {}])]
-        (is (re-find #"quarterly" html)
-            "the page rendered its subscription value — the render is real")
-        (is (re-find #"class=\"page\"" html)
-            "and its markup is the ordinary markup")
-        (is (= 2 (rf.bench.fresco.arm1.runtime/body-runs))
-            "two boundary bodies ran — the page and the row")
-        (is (= [] (rf-measure-names))
-            "and NOTHING reached the User-Timing stream")))))
+        (is (= [true true 2 []]
+               [(some? (re-find #"quarterly" html))
+                (some? (re-find #"class=\"page\"" html))
+                (rf.bench.fresco.arm1.runtime/body-runs)
+                (rf-measure-names)])
+            "the page rendered its subscription value in the ordinary markup,
+             two boundary bodies ran — the page and the row — and NOTHING
+             reached the User-Timing stream")))))
