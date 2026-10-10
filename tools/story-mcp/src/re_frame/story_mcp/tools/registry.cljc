@@ -8,7 +8,6 @@
 
       {:name        \"<dash-separated-name>\"
        :description \"<one-line semantics>\"
-       :category    :dev | :docs | :testing | :write
        :inputSchema { ... JSON schema ... }
        :typicalTokens <positive int>
        :handler     (fn [args] result-map-or-error)}

@@ -61,8 +61,8 @@
   orders of magnitude smaller), but small enough that a hostile or runaway
   producer can't OOM the JVM by sending a one-frame `readLine` that
   never terminates. When a frame exceeds the cap, `read-frame` throws
-  an `ex-info` with `:rf.error/frame-too-large`; the run-loop catches
-  and writes a parse-error response, then continues to the next
+  an `ex-info` with `:rf.error/story-mcp-frame-too-large`; the run-loop
+  catches it and writes a parse-error response, then continues to the next
   frame."
   (* 4 1024 1024))
 
@@ -428,7 +428,7 @@
 
   Empty / whitespace lines are silently consumed (some agent hosts emit
   trailing newlines). Frames exceeding `max-frame-bytes` throw with
-  `:rf.error/frame-too-large`; the run-loop catches that
+  `:rf.error/story-mcp-frame-too-large`; the run-loop catches that
   and writes a parse-error response before continuing — one oversize
   frame can't park the loop."
   [^java.io.BufferedReader reader]

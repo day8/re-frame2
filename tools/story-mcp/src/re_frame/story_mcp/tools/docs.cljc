@@ -491,7 +491,6 @@
 (def descriptors
   "Docs-category descriptors, in spec/002-Tool-Registry.md order."
   [{:name           "list-stories"
-    :category       :docs
     :description    (str "All registered stories, optionally filtered by tags. Each entry carries id, doc, tags, and child variant ids. Paginated (`:limit` default 25, optional `:cursor` continuation). "
                          "A supplied `:tags` filter is always honoured: unknown tag names are dropped from the intersection and echoed back in an `:ignored-tags` slot — an unknown-only filter returns an empty `:stories` (never the full catalogue). "
                          "Examples: "
@@ -512,7 +511,6 @@
     :handler     tool-list-stories}
 
    {:name           "get-story"
-    :category       :docs
     :description    (str "Return one story's full body (`:doc`, `:component`, `:decorators`, `:args`, ... + its variant ids). "
                          "Examples: "
                          "1. Hit: {:story-id \":story.cart\"} -> {:id :story.cart :body {:doc \"...\" :component cart-view :args {...} :tags #{:dev}} :variants [:story.cart/empty :story.cart/full]}. "
@@ -528,7 +526,6 @@
     :handler     tool-get-story}
 
    {:name           "get-variant"
-    :category       :docs
     :description    (str "Return one variant's registered body as authored (the raw side-table value; `:extends` / `:compose` are NOT resolved here — call `explain-variant` for the resolved plan, `:effective-args` included). "
                          "Examples: "
                          "1. Hit: {:variant-id \":story.cart/full\"} -> {:id :story.cart/full :body {:doc \"...\" :args {:item-count 3} :script [...] :tags #{:dev}}}. "
@@ -543,7 +540,6 @@
     :handler     tool-get-variant}
 
    {:name           "list-tags"
-    :category       :docs
     :description    (str "Canonical tags + any custom tags registered by the project. The `:canonical` set is the bounded 12-entry vector — the seven spec/007 inclusion tags (`:dev :docs :test :screenshot :experimental :internal :agent`) plus the five `:state/*` magnitude tags (`:state/empty :state/small :state/medium :state/large :state/special`). Paginated — but ONLY the `:custom` slot slices per `:limit` / `:cursor`; `:canonical` stays full (bounded 12) and `:all` (canonical ∪ ALL custom) is the FULL catalogue on every page, never a partial page. "
                          "Examples: "
                          "1. Fresh registry: {} -> {:canonical [:agent :dev :docs :experimental :internal :screenshot :state/empty :state/large :state/medium :state/small :state/special :test] :custom [] :all [:agent :dev :docs ...]}. "
@@ -559,7 +555,6 @@
     :handler        tool-list-tags}
 
    {:name           "list-modes"
-    :category       :docs
     :description    (str "Registered modes (Chromatic-style saved tuples of args). Each entry is `{:id :doc :args}`. Paginated (`:limit` default 25, optional `:cursor`). "
                          "Examples: "
                          "1. Project with modes: {} -> {:modes [{:id :mode/dark :doc \"Dark theme\" :args {:theme :dark}} {:id :mode/mobile :doc \"...\" :args {:viewport :mobile}}]}. "
@@ -575,7 +570,6 @@
     :handler        tool-list-modes}
 
    {:name           "list-decorators"
-    :category       :docs
     :description    (str "Read-only enumeration of registered decorators. Each entry carries "
                          "`:id`, `:kind`, `:doc` plus the kind-specific pure-data slots: `:has-wrap?` "
                          "for `:hiccup` decorators (the `:wrap` closure itself doesn't transport over "
@@ -603,7 +597,6 @@
     :handler     tool-list-decorators}
 
    {:name           "list-assertions"
-    :category       :docs
     :description    (str "The ten canonical `:rf.assert/*` declarations with payload arity + semantics (the seven dispatched assertions plus the three tape-evaluated ones: `:rf.assert/schema-error` and the causal pair `:rf.assert/caused` / `:rf.assert/no-cascade-rerender`). The causal pair count reactive effects a cause produced and carry `:observed-cause-count`; `:rf.assert/no-cascade-rerender` requires its cause be observed by default (an unobserved cause → `:cannot-run`, never a vacuous `[0,0]` pass), with `{:require-cause? false}` the one opt-out (`:require-cause?` is rejected on `:rf.assert/caused`). PLUS `:registered` — the FULL assertion vocabulary the Story plan compiler accepts (`known-assertion-ids`): the ten canonical ids, the DOM family (`:rf.assert/dom-visible|dom-hidden|dom-text`), and the visual / a11y oracles (`:rf.assert/visual-snapshot`, `:rf.assert/a11y`, `:rf.assert/a11y-structural`). The browser-tier ids (DOM / visual / a11y) require a richer runner — a headless run refuses them with `:cannot-run`, never a silent pass. Paginated — `:canonical` (the 10-entry doc vector) stays full; `:registered` slices per `:limit` / `:cursor`. "
                          "Examples: "
                          "1. Default: {} -> {:canonical [{:id :rf.assert/path-equals :payload \"[path expected]\" :semantics \"(= (get-in @app-db path) expected)\"} ...] :registered [:rf.assert/a11y :rf.assert/a11y-structural :rf.assert/caused :rf.assert/dispatched? :rf.assert/dom-hidden ...]}. "
@@ -619,7 +612,6 @@
     :handler        tool-list-assertions}
 
    {:name           "variant->edn"
-    :category       :docs
     :description    (str "Round-trippable EDN of a registered variant. The text slot is the byte-stable pr-str EDN (keyword keys preserved); a matching :structuredContent carries the same body map. Use the text slot when you want byte-stable EDN for diffing. "
                          "Examples: "
                          "1. Hit: {:variant-id \":story.cart/full\"} -> {:doc \"...\" :args {:item-count 3} :tags #{:dev} :script [...]} (as pr-str EDN text). "
@@ -635,7 +627,6 @@
     :handler     tool-variant->edn}
 
    {:name           "explain-variant"
-    :category       :docs
     :description    (str "The variant-plan `:explain` projection for a variant — the SAME data the human Explain panel renders (spec/017 §Explain API). Answers 'why did the plan resolve this way': the `:extends` source/parent chain, resolved `:compose` fragments/checks, `:strict-conflicts` (winning + losing sources + the deciding rule), the per-field `:merge` rules, `:args` / `:substitutions` / `:effective-args`, view-arg schema + validation, `:network` route stubs + their lowered fx, `:sub-overrides` + fidelity, the final `:setup-order` / `:script-order`, `:checks` / `:assertions`, `:required-runner`, `:platforms`, `:tags`. AUTHOR DATA — ships RAW, exactly like `get-variant` / `variant->edn`: `explain-variant` is a no-run tool over the registry side-table, so every slot — including the plan-RESOLVED value slots (`:effective-args` / `:args` / `:substitutions` / `:network` route replies / `:db-seed` / `:sub-overrides` / `:setup-order` / `:script-order`) — is static author data resolved from the variant's own registration, not observed user runtime. The threat model scopes the `:sensitive` / `:large` marks to observed runtime, not authored registration data, so there is nothing runtime-sensitive to redact; it renders exactly what the human Explain panel shows. No `:include-sensitive` knob. The agent mirror of the human Explain panel. "
                          "Examples: "
                          "1. Plain variant: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :explain {:source-chain [:story.cart/full] :parent-chain [] :compose [] :strict-conflicts [] :effective-args {...} :required-runner #{} ...}}. "
@@ -651,7 +642,6 @@
     :handler     tool-explain-variant}
 
    {:name           "get-docs-markdown"
-    :category       :docs
     :description    (str "Render a story's documentation as GitHub-flavoured Markdown. "
                          "Composes the story `:doc` + per-variant `:doc` + args / argtypes / tags / "
                          "decorators into a single paste-ready string. The other docs tools "
