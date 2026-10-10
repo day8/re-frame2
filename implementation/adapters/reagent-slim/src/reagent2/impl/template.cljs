@@ -820,32 +820,6 @@
             (when (map? slot-value) slot-value))))))
 
 ;; ---------------------------------------------------------------------------
-;; Source-coord stamping (per IMPL-SPEC §5.4 + §9.4)
-;;
-;; The renderer's source-coord stamping is gated on this dynamic var.
-;; re-frame.views/reg-view*'s wrapper binds it to the formatted attr
-;; value when interop/debug-enabled? is true. The first DOM-tag root
-;; encountered in as-element gets the attr merged in inline; nested
-;; elements see *source-coord* nil (rebound for Form-2 inner-fn calls).
-;;
-;; Production elision: under :advanced + goog.DEBUG=false, the
-;; reg-view* wrapper never binds this var (the wrapper itself sits
-;; inside an interop/debug-enabled? gate). The (when *source-coord*
-;; ...) check at the as-element entry compiles to `(when nil ...)` and
-;; DCEs the entire stamp branch.
-;; ---------------------------------------------------------------------------
-
-(def ^:dynamic *source-coord* nil)
-
-(defn- merge-source-coord-attr [props]
-  (if-some [coord *source-coord*]
-    (do
-      ;; Consume the binding so nested DOM elements don't get stamped.
-      (set! *source-coord* nil)
-      (assoc props :data-rf2-source-coord coord))
-    props))
-
-;; ---------------------------------------------------------------------------
 ;; Hiccup → React element pipeline
 ;;
 ;; as-element is the entry. It dispatches on the shape of the form:
@@ -1046,36 +1020,19 @@
   "Emit an element after converting its Hiccup props. `parsed` is the parsed
   or synthetic HiccupTag; `argv` the
   full hiccup vector; `first-pos` the index of the first arg position
-  (1 for `:div ...`, 2 for `:> Component ...` etc.).
-
-  Source-coord stamping (§5.4 + §9.4): the first DOM-tag root inside
-  a reg-view'd render gets the *source-coord* dynamic var merged in
-  as `:data-rf2-source-coord`. The merge happens before
-  prop-conversion so the attr name flows through cached-prop-name.
-
-  converted-props-element is the emit path for BOTH real DOM tags AND `:>`
-  interop elements (interop-element builds a synthetic HiccupTag whose tag slot
-  holds the foreign COMPONENT, then calls converted-props-element). Stamping is
-  gated on the tag being a string DOM tag — `(string? component)`, the
-  same discriminator convert-props uses for DOM elements and the React-hook
-  spine uses via dom-element? — so a `:>`-rooted view does NOT stamp the
-  attr as a foreign prop on the component (React would drop it, and the
-  real DOM root would go unannotated). When the root is `:>`/interop the
-  *source-coord* binding is left UNCONSUMED so it flows to the first real
-  DOM element downstream (§5.4's 'first hiccup vector with a DOM-tag
-  head')."
+  (1 for `:div ...`, 2 for `:> Component ...` etc.). It is the emit path
+  for BOTH real DOM tags AND `:>` interop elements: interop-element builds a
+  synthetic HiccupTag whose tag slot holds the foreign COMPONENT."
   [^HiccupTag parsed argv first-pos]
   (let [component    (.-tag parsed)
         slot-value   (nth argv first-pos nil)
         has-props?   (props-slot? slot-value)
         first-child  (+ first-pos (if has-props? 1 0))
-        props        (cond-> (when has-props? slot-value)
-                      (and *source-coord* (string? component)) merge-source-coord-attr)
+        props        (when has-props? slot-value)
         js-props     (or (convert-props props parsed) #js {})]
     ;; `props` IS the props slot `react-key-from-argv` would go and re-derive,
     ;; on both routes here: a DOM tag enters at `first-pos` 1 and `:>` at 2,
-    ;; which are exactly the two indices that ladder reads. (The source-coord
-    ;; merge only ever adds `:data-rf2-source-coord`, never `:key`.)
+    ;; which are exactly the two indices that ladder reads.
     (when-some [key (react-key-from-meta-or-props argv props)]
       (set! (.-key js-props) key))
     (make-element argv component js-props first-child)))
