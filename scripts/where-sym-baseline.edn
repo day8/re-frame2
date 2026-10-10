@@ -28,7 +28,6 @@
   "rf.http/json-parse"                       1
   "rf.ssr.ring/import-fn"                    1
   "rf.ssr/cookie->set-cookie-header"         5
-  "rf.ssr/manifest-script"                   2
   "rf.ssr/ssr-handler"                       7
   "rf.ssr/trusted-shell"                     1
   "rf/conformance-eval"                      6
