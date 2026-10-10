@@ -1720,9 +1720,7 @@ def run(*, verbose: bool, ci: bool) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Self-test — exercises the line classifiers against in-memory fixtures so the
-# guard itself can't silently rot. Mirrors the --self-test convention in the
-# sibling check_skill_*.py guards.
+# Self-test — the classifiers against in-memory fixtures and real-text mutations.
 # ---------------------------------------------------------------------------
 
 def _self_test() -> int:
@@ -1738,36 +1736,15 @@ def _self_test() -> int:
             )
             failures += 1
 
-    # --- Rule 1: bead-id leak. LEAK fixtures.
+    # --- Rule 1: bead-id leak.
     expect(
         beadid_problems,
         "EP-0008 (rf2-hhutya) promoted the production-reachable SSR error categories.",
         dirty=True, label="A1 plain bead id beside an EP number",
     )
-    expect(
-        beadid_problems,
-        "the dual-partition recompute trigger is a SILENT regression (rf2-d3fb7.1).",
-        dirty=True, label="A2 bead id with .N sub-task suffix",
-    )
-    # CLEAN fixtures — public-evidence wording must NOT flag.
-    expect(
-        beadid_problems,
-        "EP-0008 promoted the production-reachable SSR error categories.",
-        dirty=False, label="B1 EP number alone, no bead id",
-    )
-    expect(
-        beadid_problems,
-        "the runtime records history per `spec/005-StateMachines.md` §History.",
-        dirty=False, label="B2 spec section link, no bead id",
-    )
-    expect(
-        beadid_problems,
-        "a fully-qualified public PR link day8/re-frame2#2863 is fine.",
-        dirty=False, label="B3 public PR ref is not a bead id",
-    )
 
-    # --- Rule 10: `register-listener!` on `:events` / `:errors`. DIRTY
-    # fixtures are real prose shapes of the defect.
+    # --- Rule 10: `register-listener!` on `:events` / `:errors`, after "on"
+    # with code spans, and as a bare code form.
     expect(
         retired_listener_problems,
         "`production-observability.md` (`rf/register-listener!` on `:events`/`:errors`), `ssr-authoring.md`",
@@ -1775,407 +1752,108 @@ def _self_test() -> int:
     )
     expect(
         retired_listener_problems,
-        "an off-box shipper registered via `register-listener!` `:errors` receives these records",
-        dirty=True, label="R10b bare code-span stream",
-    )
-    expect(
-        retired_listener_problems,
         "(rf/register-listener! :errors ::sentry (fn [record] (ship! record)))",
         dirty=True, label="R10c code form",
     )
-    expect(
-        retired_listener_problems,
-        "the corpus-wide `register-listener!` `:events` / `:errors` streams were retired, per spec/API.md",
-        dirty=False, label="R10d retirement statement stays legal",
-    )
-    expect(
-        retired_listener_problems,
-        "`register-listener!` on the `:trace` stream; `rf/register-listener! :epoch` for epoch records",
-        dirty=False, label="R10e the two live streams",
-    )
 
-    # --- Rule 2a: the gate-running grants, over a front-matter body.
-    #     `gate_grant_problems` takes the WHOLE SKILL.md body.
-    grants = (
-        "allowed-tools:\n  - Read\n  - Edit\n  - Bash(clojure *)\n"
-        "  - Bash(npm *)\n  - Bash(npx *)\n  - Bash(shadow-cljs *)\n"
-        "  - Bash(clj-kondo *)\n  - mcp__re-frame2-story-mcp__register-variant\n"
-    )
+    # --- Rule 2a: a gate-running grant dropped from the front-matter body.
     expect(
-        gate_grant_problems, grants,
-        dirty=False, label="C1 front-matter carries every gate-grant family",
-    )
-    expect(
-        gate_grant_problems, grants.replace("  - Bash(clojure *)\n", ""),
+        gate_grant_problems, "  - Bash(npm *)\n  - Bash(shadow-cljs *)\n",
         dirty=True, label="C2 clojure grant dropped",
     )
-    expect(
-        gate_grant_problems, grants.replace("  - Bash(shadow-cljs *)\n", ""),
-        dirty=True, label="C3 shadow-cljs grant dropped",
-    )
-    # A grant for one family does not stand in for another: `npx` is not `npm`.
-    expect(
-        gate_grant_problems,
-        grants.replace("  - Bash(npm *)\n", ""),
-        dirty=True, label="C5 npm grant dropped (npx does not cover it)",
-    )
 
-    # --- Rule 2b: author-hand-off residue. DRIFT fixtures — the Q14
-    #     hand-off wording.
+    # --- Rule 2b: author-hand-off residue.
     expect(
         posture_problems,
         "This skill writes the code; the author runs the tests, the compiler, the app.",
         dirty=True, label="E1 author-runs-the-tests hand-off",
     )
-    expect(
-        posture_problems,
-        "- **Gate named for the author** — the nearest relevant gate is named concretely so the author can run it.",
-        dirty=True, label="E2 gate-named-for-the-author checklist line",
-    )
-    expect(
-        posture_problems,
-        "Pick the tightest match and name it for the author.",
-        dirty=True, label="E3 name-it-for-the-author instruction",
-    )
-    expect(
-        posture_problems,
-        "The skill writes the test; the author runs the suite.",
-        dirty=True, label="E4 author-runs-the-suite wording",
-    )
-    # CLEAN — the run-the-gate wording, and the lawful hand-off shapes.
-    expect(
-        posture_problems,
-        "Run the nearest relevant gate before declaring done — exact command + result reported.",
-        dirty=False, label="F1 run-the-gate instruction",
-    )
-    expect(
-        posture_problems,
-        "Hand off only when the gate is interactive / visual, needs a live runtime, does not exist, or the user said not to.",
-        dirty=False, label="F2 bounded hand-off clause is lawful",
-    )
-    expect(
-        posture_problems,
-        "If no gate exists for the surface you touched, say so and describe the one the author should add.",
-        dirty=False, label="F3 'the gate the author should add' is not a hand-off",
-    )
-    expect(
-        posture_problems,
-        "  - Bash(clojure *)",
-        dirty=False, label="F4 a gate grant is not prose residue",
-    )
 
-    # --- Rule 3: launcher points at both canonical files without regrowing the
-    # tree / locks. `launcher_problems` takes the WHOLE body, so these fixtures
-    # are multi-line prose, not single lines.
-    clean_launcher = (
-        "Read spec/design.md (the normative locks + file structure) then "
-        "spec/inputs.md (the canonical inputs). Write the skill to the layout "
-        "locked in design.md §5; honour the L1-L11 locks in design.md §3."
-    )
-    expect(
-        launcher_problems, clean_launcher,
-        dirty=False, label="G1 launcher cites both canonical files, no regrowth",
-    )
-    expect(
-        launcher_problems,
-        "Read spec/design.md then write the skill.",  # no inputs.md ref
-        dirty=True, label="G2 launcher drops the inputs.md pointer",
-    )
-    expect(
-        launcher_problems,
-        "Read spec/inputs.md then write the skill.",  # no design.md ref
-        dirty=True, label="G3 launcher drops the design.md pointer",
-    )
-    expect(
-        launcher_problems,
-        clean_launcher + "\n```\nskills/re-frame2/\n├── SKILL.md\n```",
-        dirty=True, label="G4 launcher regrew the file-structure tree",
-    )
-    expect(
-        launcher_problems,
-        clean_launcher + "\n\n> *Locks to preserve verbatim:*\n> *- L3 …*",
-        dirty=True, label="G5 launcher regrew the locks block",
-    )
-    expect(
-        launcher_problems,
-        clean_launcher + "\n\n*Cardinal rules to bake in (these go in SKILL.md):*",
-        dirty=True, label="G6 launcher regrew the cardinal-rules block",
-    )
+    # --- Rule 3: the launcher body drops a canonical pointer or regrows the
+    # tree / locks.
+    clean_launcher = "Read spec/design.md then spec/inputs.md."
+    for label, text in (
+        ("G2 launcher drops the inputs.md pointer", "Read spec/design.md then write the skill."),
+        ("G3 launcher drops the design.md pointer", "Read spec/inputs.md then write the skill."),
+        ("G4 launcher regrew the file-structure tree",
+         clean_launcher + "\n```\nskills/re-frame2/\n├── SKILL.md\n```"),
+        ("G5 launcher regrew the locks block",
+         clean_launcher + "\n\n> *Locks to preserve verbatim:*\n> *- L3 …*"),
+    ):
+        expect(launcher_problems, text, dirty=True, label=label)
 
-    # --- Rule 4: machine-registration footgun. `machine_handler_recipe_problems`
-    # takes the WHOLE body (the two tokens span lines of one fenced block), so
-    # these fixtures are multi-line prose with fences.
-    dirty_recipe = (
-        "Author the boot flow:\n\n"
+    # --- Rules 4 and 5a, per fenced block; 5b and 5c, per line.
+    expect(
+        machine_handler_recipe_problems,
         "```clojure\n"
         "(rf/reg-event :app/boot\n"
         "  (re-frame.machines/make-machine-handler\n"
         "    {:initial :configuring :states {}}))\n"
-        "```\n"
-    )
-    expect(
-        machine_handler_recipe_problems, dirty_recipe,
+        "```\n",
         dirty=True, label="H1 fenced reg-event wrapping make-machine-handler",
     )
-    dirty_recipe_alias = (
+    expect(
+        managed_http_recipe_problems,
         "```clojure\n"
-        "(rf/reg-event :ws/connection\n"
-        "  (machines/make-machine-handler\n"
-        "    {:initial :disconnected}))\n"
-        "```\n"
-    )
-    expect(
-        machine_handler_recipe_problems, dirty_recipe_alias,
-        dirty=True, label="H2 aliased machines/make-machine-handler recipe",
-    )
-    # CLEAN — the reg-machine recipe.
-    clean_recipe = (
-        "Author it with reg-machine:\n\n"
-        "```clojure\n"
-        "(rf/reg-machine :app/boot\n"
-        "  {:initial :configuring :states {}})\n"
-        "(rf/dispatch [:app/boot [:rf.machine/start]])\n"
-        "```\n"
-    )
-    expect(
-        machine_handler_recipe_problems, clean_recipe,
-        dirty=False, label="I1 fenced reg-machine recipe (no footgun)",
-    )
-    # CLEAN — inline (non-fenced) advanced-note warning that names the shape.
-    clean_inline_warning = (
-        "> **Advanced — make-machine-handler.** Registering it by hand, "
-        "`(rf/reg-event id meta (make-machine-handler spec))`, does not stamp "
-        "the :rf/machine? metadata, and a [:schemas :data] spec throws "
-        ":rf.error/machine-schema-requires-reg-machine. Use reg-machine."
-    )
-    expect(
-        machine_handler_recipe_problems, clean_inline_warning,
-        dirty=False, label="I2 inline advanced-note warning prose is allowed",
-    )
-    # CLEAN — a fenced block with a plain reg-event and no machine handler.
-    clean_simple = (
-        "```clojure\n"
-        "(rf/reg-event :app/init (fn [_ _] {:fx [[:dispatch [:config/load]]]}))\n"
-        "```\n"
-    )
-    expect(
-        machine_handler_recipe_problems, clean_simple,
-        dirty=False, label="I3 fenced plain reg-event (no machine handler)",
-    )
-
-    # --- Rule 5a: targetless fx-form :rf.http/managed recipe.
-    #     `managed_http_recipe_problems` takes the WHOLE body (the tokens span
-    #     lines of one fenced block), so these fixtures are multi-line prose
-    #     with fences.
-    dirty_targetless_http = (
-        "Issue the request:\n\n"
-        "```clojure\n"
-        "(rf/reg-event :article/load\n"
-        "  (fn [_ _]\n"
-        "    {:fx [[:rf.http/managed {:request {:url \"/x\"} :decode S}]]}))\n"
-        "```\n"
-    )
-    expect(
-        managed_http_recipe_problems, dirty_targetless_http,
+        "{:fx [[:rf.http/managed {:request {:url \"/x\"} :decode S}]]}\n"
+        "```\n",
         dirty=True, label="J1 fx-form :rf.http/managed request with no reply target",
     )
-    # CLEAN — the fx recipe with an explicit reply target.
-    clean_http_reply_to = (
-        "```clojure\n"
-        "{:fx [[:rf.http/managed {:request {:url \"/x\"} :reply-to [:article/replied]}]]}\n"
-        "```\n"
-    )
     expect(
-        managed_http_recipe_problems, clean_http_reply_to,
-        dirty=False, label="K1 fx-form request WITH :reply-to (explicit address)",
-    )
-    clean_http_split_sugar = (
-        "```clojure\n"
-        "{:fx [[:rf.http/managed {:request {:url \"/x\"}\n"
-        "                         :on-success [:ok] :on-failure [:err]}]]}\n"
-        "```\n"
-    )
-    expect(
-        managed_http_recipe_problems, clean_http_split_sugar,
-        dirty=False, label="K2 fx-form request WITH :on-success/:on-failure split sugar",
-    )
-    # CLEAN — the machine-form spawn dispatches back to its parent; no :reply-to.
-    clean_http_machine_form = (
-        "```clojure\n"
-        "{:authenticating\n"
-        " {:spawn {:machine-id :rf.http/managed :data {:request {:url \"/login\"}}}}}\n"
-        "```\n"
-    )
-    expect(
-        managed_http_recipe_problems, clean_http_machine_form,
-        dirty=False, label="K3 machine-form :spawn of :rf.http/managed (no reply key needed)",
-    )
-    # CLEAN — the abort dispatch is not a request recipe.
-    clean_http_abort = (
-        "```clojure\n"
-        "(rf/dispatch [:rf.http/managed-abort req-id])\n"
-        "```\n"
-    )
-    expect(
-        managed_http_recipe_problems, clean_http_abort,
-        dirty=False, label="K4 :rf.http/managed-abort dispatch (no request)",
-    )
-
-    # --- Rule 5b: reading a co-located `:rf/reply` key. DRIFT fixture.
-    expect(
-        reply_contract_problems,
-        "(rf/reg-event :article/load (fn [_ [_ msg]] (when-let [r (:rf/reply msg)] r)))",
+        reply_contract_problems, "(when-let [r (:rf/reply msg)] r)",
         dirty=True, label="L1 reads a co-located :rf/reply key",
     )
-    # CLEAN — the explicit-target contract and the INTERNAL descriptor.
-    expect(
-        reply_contract_problems,
-        "The request names `:reply-to [:article/replied]`; the handler branches on `(:status reply)`.",
-        dirty=False, label="M1 explicit :reply-to target, no :rf/reply read",
-    )
-    expect(
-        reply_contract_problems,
-        "The public `:reply-to` normalizes to the internal `:rf/reply-to` descriptor.",
-        dirty=False, label="M2 internal :rf/reply-to descriptor is not the :rf/reply key",
-    )
-
-    # --- Rule 5c: bare :work/id on a transient reply map. DRIFT fixture.
     expect(
         reply_contract_problems,
         "The reply map exposes `:status`, `:value`, and `:work/id`.",
         dirty=True, label="N1 bare :work/id asserted on the transient reply map",
     )
-    # CLEAN — the transient spelling, and legitimate durable-ledger prose.
+
+    # --- Rule 6b, per sentence. S1-S3 are the module docstring's probes that a
+    # whole-file or broad-negation guard misclassifies. The attribution is
+    # judged per clause: a lawful Reagent clause beside it pardons nothing (S7),
+    # an ownerless clause in a hooks sentence is red (S9), and a Reagent-owned
+    # token (S10) or a Reagent clause (S11) stays green.
+    for label, sentence, dirty in (
+        ("S1 semantic reversal (both tokens present, still red)",
+         "Do not use use-frame or use-sub; use reg-view instead.", True),
+        ("S2 :contextType attributed under a stray far 'not'",
+         "UIx is not special: reg-view* gives it :contextType.", True),
+        ("S3 valid Reagent :contextType comparison stays green",
+         "UIx differs from Reagent's :contextType mechanism.", False),
+        ("S7 attribution beside a lawful Reagent clause",
+         "On UIx, `reg-view*` gives the component a `:contextType`; "
+         "the `reg-view` macro stays Reagent-flavoured.", True),
+        ("S9 ownerless attribution in a hooks sentence (ambiguity branch)",
+         "UIx is not special; reg-view* gives it `:contextType`.", True),
+        ("S10 token-adjacent Reagent possessive stays green",
+         "UIx components never get Reagent's `:contextType`.", False),
+        ("S11 `, while` contrast clause stays green",
+         "Reagent's wrapper gives the component `:contextType`, while UIx uses `use-frame`.",
+         False),
+    ):
+        expect(hooks_sentence_problems, sentence, dirty=dirty, label=label)
     expect(
-        reply_contract_problems,
-        "The durable ledger row keeps bare `:work/id`; the transient reply map spells `:rf.reply/work-id`.",
-        dirty=False, label="O1 reply map spells :rf.reply/work-id; ledger keeps bare :work/id",
-    )
-    expect(
-        reply_contract_problems,
-        "The reply envelope correlates a late completion by the child's `:work/id` for stale suppression.",
-        dirty=False, label="O2 :work/id as the correlation identity is allowed",
-    )
-    expect(
-        reply_contract_problems,
-        "The durable work-ledger row is keyed by bare `:work/id`.",
-        dirty=False, label="O3 durable-ledger :work/id prose (no reply-map context)",
+        lambda b: anchored_block_problems("fixture", b),
+        "On UIx an ordinary `defui` uses `use-sub` and `use-frame` and has no `:contextType`.",
+        dirty=False, label="V3 tightly-scoped negation",
     )
 
-    # --- Rule 6: causally-exact hooks-recipe guard. The three probes a
-    #     whole-file / broad-negation guard mis-classifies (S1/S2 as false
-    #     NEGATIVES, S3 as a false POSITIVE), plus legitimate wording, then
-    #     mutations against the REAL blocks.
-    expect(
-        hooks_sentence_problems,
-        "Do not use use-frame or use-sub; use reg-view instead.",
-        dirty=True, label="S1 semantic reversal (both tokens present, still red)",
-    )
-    expect(
-        hooks_sentence_problems,
-        "UIx is not special: reg-view* gives it :contextType.",
-        dirty=True, label="S2 :contextType attributed under a stray far 'not'",
-    )
-    expect(
-        hooks_sentence_problems,
-        "UIx differs from Reagent's :contextType mechanism.",
-        dirty=False, label="S3 valid Reagent :contextType comparison stays green",
-    )
-    # CLEAN — wording of the kind the leaves use.
-    expect(
-        hooks_sentence_problems,
-        "The UIx adapter reads the frame via `use-sub` / `use-frame` and needs no `:contextType`.",
-        dirty=False, label="S4 the hooks adapter explicitly has no :contextType",
-    )
-    expect(
-        hooks_sentence_problems,
-        "A `reg-view`-wrapped Reagent component participates via `:contextType`.",
-        dirty=False, label="S5 Reagent-only :contextType sentence (no hooks adapter)",
-    )
-    expect(
-        hooks_sentence_problems,
-        "On **Reagent** register it via `reg-view*`, then capture `(rf/capture-frame)` from the body; on UIx an ordinary `defui` reads subs with `use-sub` and carries the frame with `use-frame`.",
-        dirty=False, label="S6 lawful mixed recipe (reg-view* + Reagent capture) stays green",
-    )
-
-    # --- Rule 6b(i) ATTRIBUTION SCOPE. Proximity suppression would pardon an
-    #     unlawful attribution merely for sitting near the word "Reagent"
-    #     (S7/S8, BOTH directions) while flagging the corpus's own per-adapter
-    #     house style (S12). Clause carving judges each clause by the subject
-    #     IT names, so S7/S8 are red and S12 is green.
-    expect(
-        hooks_sentence_problems,
-        "On UIx, `reg-view*` gives the component a `:contextType`; the `reg-view` macro stays Reagent-flavoured.",
-        dirty=True,
-        label="S7 attribution hiding beside a lawful Reagent clause (proximity false negative)",
-    )
-    expect(
-        hooks_sentence_problems,
-        "The macro stays Reagent-flavoured; UIx gets a `:contextType` too.",
-        dirty=True,
-        label="S8 same hole, Reagent clause first (proximity false negative)",
-    )
-    # The ambiguity branch: a clause that attributes the token but names NEITHER
-    # adapter, inside a sentence that names a hooks adapter. Load-bearing — the
-    # Rule 6c block mutations below land in exactly this shape once carved.
-    expect(
-        hooks_sentence_problems,
-        "UIx is not special; reg-view* gives it `:contextType`.",
-        dirty=True,
-        label="S9 ownerless attribution in a hooks sentence (ambiguity branch)",
-    )
-    # LAWFUL shapes the clause scope must accept — each is a real prose idiom,
-    # not a contrivance. S10 needs the token-adjacent possessive allowance (the
-    # 8-char negation window cannot reach across "get Reagent's").
-    expect(
-        hooks_sentence_problems,
-        "UIx components never get Reagent's `:contextType`.",
-        dirty=False, label="S10 token-adjacent Reagent possessive stays green",
-    )
-    expect(
-        hooks_sentence_problems,
-        "Reagent's wrapper gives the component `:contextType`, while UIx uses `use-frame`.",
-        dirty=False, label="S11 `, while` contrast clause stays green",
-    )
-    expect(
-        hooks_sentence_problems,
-        "On Reagent register it via `reg-view*`, which gives the class a `:contextType`; on UIx carry the frame with `use-frame`.",
-        dirty=False,
-        label="S12 per-adapter semicolon HOUSE STYLE is green",
-    )
-
-    # Mutations against the REAL guarded blocks (not free-floating strings):
-    # each authoritative leaf's coherent recipe must be GREEN as shipped, its
-    # coherence floor must be load-bearing, and each residue injected into the
-    # real leaf text must turn it RED.
+    # The two residues no row above reaches, through the leaf scan's carve.
     def _leaf_scan(text: str) -> list[str]:
         return [p for _l, s in _hooks_sentences(text) for p in hooks_sentence_problems(s)]
 
-    # The proximity false negative must also be caught by the real leaf scan (the
-    # sentence carve must not hand the attribution away before 6b(i) sees it).
     expect(
-        _leaf_scan,
-        "On UIx, `reg-view*` gives the component a `:contextType`; the `reg-view` macro stays Reagent-flavoured.",
-        dirty=True, label="S14 proximity false negative caught at leaf-scan scope",
+        _leaf_scan, "On UIx, register the component via `reg-view` to carry the frame.",
+        dirty=True, label="T reg-view macro registration",
     )
-    # ACCEPTED BOUNDARY, pinned so a future reader knows it is a decision and
-    # not an oversight: once the sentence carve splits at `. ` + capital, the
-    # attributing sentence names no hooks adapter and 6b(i) never evaluates it.
     expect(
         _leaf_scan,
-        "UIx is not special. Reg-view* gives it `:contextType`.",
-        dirty=False,
-        label="S15 ACCEPTED BOUNDARY: pronoun attribution in a split-off sentence",
+        "On UIx, dispatch via `(:dispatch (rf/capture-frame))` captured above the callback.",
+        dirty=True, label="T bare no-arg capture-frame carry",
     )
 
-    # The coherence floor accepts the UIx recipe only: `defui` is the UIx
-    # component macro and UIx the one hooks adapter, so a recipe spelled with
-    # Helix's `defnc`, or naming Helix, teaches an API nobody ships.
-    expect(
-        hooks_leaf_incoherent,
-        "On UIx an ordinary `defui` reads subs with `use-sub` and carries the frame with `use-frame`.",
-        dirty=False, label="S16 the UIx `defui` recipe is coherent",
-    )
+    # --- Rule 6a: the coherence floor needs `defui` and `use-frame`.
     expect(
         hooks_leaf_incoherent,
         "On UIx an ordinary `defnc` reads subs with `use-sub` and carries the frame with `use-frame`.",
@@ -2183,540 +1861,124 @@ def _self_test() -> int:
     )
     expect(
         hooks_leaf_incoherent,
-        "On Helix an ordinary `defui` reads subs with `use-sub` and carries the frame with `use-frame`.",
-        dirty=True, label="S18 a recipe naming Helix is NOT coherent",
+        "On UIx an ordinary `defui` reads subs with `use-sub` and carries the frame with `the-frame`.",
+        dirty=True, label="T coherence floor needs `use-frame`",
     )
 
-    residue_mutations = (
-        ("reg-view-macro",
-         "On UIx, register the component via `reg-view` to carry the frame."),
-        ("bare-capture",
-         "On UIx, dispatch via `(:dispatch (rf/capture-frame))` captured above the callback."),
-        ("semantic-reversal",
-         "On UIx, do not use use-frame or use-sub; use reg-view instead."),
-        ("contexttype-attribution",
-         "On UIx, `reg-view*` gives the component a `:contextType`."),
-    )
-    for parts in HOOKS_LEAF_REQUIRED:
-        leaf = SKILL_DIR.joinpath(*parts)
-        rel = "/".join(parts)
-        if not leaf.is_file():
-            print(f"SELF-TEST FAIL (T real leaf missing): {rel}")
-            failures += 1
-            continue
-        text = _slurp(leaf)
-        # The shipped leaf is legitimate wording — GREEN under the sentence scan.
-        shipped = _leaf_scan(text)
-        if shipped:
-            print(f"SELF-TEST FAIL (T real leaf flagged): {rel}: {shipped}")
-            failures += 1
-        # The shipped leaf carries a coherent recipe block.
-        if _coherent_recipe_sentence(text) is None:
-            print(f"SELF-TEST FAIL (T no coherent recipe in real leaf): {rel}")
-            failures += 1
-        # Each residue injected into the real leaf turns it RED.
-        for mut_label, residue in residue_mutations:
-            mutated = text + "\n\n" + residue + "\n"
-            if not _leaf_scan(mutated):
-                print(f"SELF-TEST FAIL (T {mut_label} mutation not caught): {rel}")
-                failures += 1
-        # The coherence floor is load-bearing: strip use-frame → incoherent.
-        if not hooks_leaf_incoherent(text.replace("use-frame", "the-frame")):
-            print(f"SELF-TEST FAIL (T coherence floor not load-bearing): {rel}")
-            failures += 1
-
-    # --- Rule 6c: the bounded block anchors. Every mutation below
-    #     is a REAL-TEXT REPLACEMENT inside the shipped block — the drift shape
-    #     an edit to that exact recipe would produce — not a free-floating bad
-    #     sentence appended after it. Each must fail the block on its own.
+    # --- Rule 6c: a real-text mutation of each shipped bounded block fails it.
+    # "Required `reg-view*`" carries no 6b residue, so only the block-scoped
+    # coherence floor catches it; the attribution lands in the per-sentence scan.
     block_mutations = (
-        # The false "required `reg-view*`" recipe: the block names `reg-view*`
-        # where the two hooks belong. It carries no Rule 6b residue (`reg-view*`
-        # is the lawful spelling), so ONLY the block-scoped coherence floor
-        # catches it — the regression this rule exists for.
         ("required-reg-view*",
-         lambda b: b.replace("use-sub", "reg-view*")
-                    .replace("use-frame", "reg-view*")),
-        # The frame carried by a wrapped bare no-arg capture-frame.
-        ("wrapped-bare-capture",
-         lambda b: b.replace(
-             "use-frame", "use-frame wrapped as (:dispatch (rf/capture-frame))")),
-        # Semantic reversal steering the hooks author back to the macro.
-        ("semantic-reversal",
-         lambda b: b.replace(
-             "use-frame",
-             "use-frame (do not use use-frame or use-sub; "
-             "use reg-view instead)")),
-        # A `:contextType` attributed to the hooks adapter.
+         lambda b: b.replace("use-sub", "reg-view*").replace("use-frame", "reg-view*")),
         ("hooks-contexttype-attribution",
          lambda b: b.replace(
              "use-frame", "use-frame, which gives the component a `:contextType`")),
     )
     for parts, label, anchor_re in HOOKS_ANCHORED_BLOCKS:
-        target = REPO_ROOT.joinpath(*parts)
-        rel = "/".join(parts)
-        if not target.is_file():
-            print(f"SELF-TEST FAIL (U anchored file missing): {rel}")
-            failures += 1
-            continue
-        found = anchored_block(_slurp(target), anchor_re)
-        if found is None:
-            print(f"SELF-TEST FAIL (U anchor matches nothing): {rel} — {label}")
-            failures += 1
-            continue
-        _lineno, block = found
-        # The shipped block is the lawful recipe — GREEN.
-        shipped = anchored_block_problems(label, block)
-        if shipped:
-            print(f"SELF-TEST FAIL (U shipped block flagged): {rel} — {label}: "
-                  f"{shipped}")
-            failures += 1
-        # Each real-text mutation of the shipped block independently turns RED.
+        _lineno, block = anchored_block(_slurp(REPO_ROOT.joinpath(*parts)), anchor_re)
         for mut_label, mutate in block_mutations:
-            mutated = mutate(block)
-            if mutated == block:
-                print(f"SELF-TEST FAIL (U {mut_label} mutation was a no-op): "
-                      f"{rel} — {label}")
-                failures += 1
-                continue
-            if not anchored_block_problems(label, mutated):
-                print(f"SELF-TEST FAIL (U {mut_label} mutation not caught): "
-                      f"{rel} — {label}")
+            if not anchored_block_problems(label, mutate(block)):
+                print(f"SELF-TEST FAIL (U {mut_label} mutation not caught): {label}")
                 failures += 1
 
-    # Lawful wording must stay GREEN at block scope too: optional registry
-    # addressing, a Reagent-owned `:contextType` comparison, a tightly-scoped
-    # negation, and a warning to avoid the Reagent macro on a hooks adapter.
-    lawful_blocks = (
-        ("V1 optional registry addressing",
-         "| **UIx** | ordinary `defui`; subs via `use-sub`, frame via "
-         "`use-frame`; `reg-view*` optional (registry addressing only) |"),
-        ("V2 Reagent-owned :contextType comparison",
-         "On UIx an ordinary `defui` reads subs with "
-         "`use-sub` and carries the frame with `use-frame`, unlike a "
-         "Reagent `reg-view` component's `:contextType` wiring."),
-        ("V3 tightly-scoped negation",
-         "On UIx an ordinary `defui` uses `use-sub` and "
-         "`use-frame` and has no `:contextType`."),
-        ("V4 warning to avoid the Reagent macro",
-         "On UIx do not reach for `reg-view` — an ordinary `defui` "
-         "reads subs with `use-sub` and carries the frame with "
-         "`use-frame`."),
-    )
-    for lawful_label, lawful in lawful_blocks:
-        got = anchored_block_problems("fixture", lawful)
-        if got:
-            print(f"SELF-TEST FAIL ({lawful_label}): expected green, got {got}")
-            failures += 1
-
-    # --- Rule 7: the form-action fail-open shapes in code fences.
-    #     `csrf_fence_problems` takes the WHOLE body (a fence spans lines), so
-    #     these fixtures carry their own fences.
+    # --- Rule 7, per fenced block: a CSRF compare with no presence limb (either
+    # head), and a required `:csrf-token` entry beside a classification path
+    # (the path is skipped and the scan continues past it).
     def _fence(*lines: str) -> str:
         return "```clojure\n" + "\n".join(lines) + "\n```\n"
 
-    fail_open_compare = _fence(
-        "(cond",
-        "  (and server? (not= (:csrf-token form-params) active-token))",
-        "  {:fx [[:rf.server/set-status 403]]})",
-    )
-    expect(
-        csrf_fence_problems, fail_open_compare,
-        dirty=True, label="W1 fenced `not=`-alone CSRF compare",
-    )
-    # The blacklist-free framing earns its keep here: a spelling nobody wrote a
-    # regex for is caught by the same missing-presence-limb rule.
-    fail_open_when_not = _fence(
-        "(when-not (= (:csrf-token form-params) active-token)",
-        "  {:fx [[:rf.server/set-status 403]]})",
-    )
-    expect(
-        csrf_fence_problems, fail_open_when_not,
-        dirty=True, label="W2 fenced `when-not (= …)` CSRF compare",
-    )
-    # CLEAN — the fail-closed form: presence limb AND equality.
-    fail_closed_compare = _fence(
-        "(cond",
-        "  (and server? (not (and (some? active-token)",
-        "                         (= (:csrf-token form-params) active-token))))",
-        "  {:fx [[:rf.server/set-status 403]]})",
-    )
-    expect(
-        csrf_fence_problems, fail_closed_compare,
-        dirty=False, label="X1 fenced fail-closed CSRF compare (both limbs)",
-    )
-    # CLEAN — the labelled 'not this' in INLINE prose is legal teaching and this
-    # rule must not read it. Both pages carry exactly this sentence.
-    expect(
-        csrf_fence_problems,
-        "- **Comparing the tokens with `not=` alone.** "
-        "`(not= (:csrf-token form-params) active-token)` fails **open** on a "
-        "request with no session.",
-        dirty=False, label="X2 unfenced 'not this' prose is not read",
-    )
-    # CLEAN — the view's hidden input names the field as a STRING, and a fence
-    # that merely mentions the token performs no comparison.
-    expect(
-        csrf_fence_problems,
-        _fence('[:input {:type "hidden" :name "csrf-token" :value csrf-token}]'),
-        dirty=False, label="X3 hidden-input fence (no comparison, no schema)",
-    )
-    # 7b — a bracketed `:csrf-token` with NO CHILD is a
-    # classification PATH, not a map entry. `:sensitive [[:csrf-token]]` is the
-    # SUPPORTED registration metadata that keeps the submitted token out of
-    # ordinary event-observation traces (Spec 015); read as a required field,
-    # the canonical recipe could not carry the very advice the CSRF section
-    # gives.
-    expect(
-        csrf_fence_problems,
-        _fence("(rf/reg-event :cart/add-item",
-               "  {:schema    [:cat [:= :cart/add-item]",
-               "               [:map [:csrf-token {:optional true "
-               ":sensitive? true} :any]]]",
-               "   :sensitive [[:csrf-token]]}",
-               "  (fn [cofx [_ form-params]] nil))"),
-        dirty=False, label="X5 registration `:sensitive [[:csrf-token]]` path",
-    )
-    # AND THE HALF THAT SEPARATES A FIX FROM A DISARM. A required entry in a
-    # real schema must STILL fail — including the shortest spelling, whose
-    # child is a bare keyword, and including one sharing a fence with the
-    # path above, so the skip cannot shadow a live defect beside it.
-    expect(
-        csrf_fence_problems, _fence("(def S [:map [:csrf-token :string]])"),
-        dirty=True, label="W4 required `:csrf-token` entry, bare child schema",
-    )
-    expect(
-        csrf_fence_problems,
-        _fence("(rf/reg-event :cart/add-item",
-               "  {:sensitive [[:csrf-token]]",
-               "   :schema    [:cat [:= :cart/add-item]",
-               "               [:map [:csrf-token [:string {:min 1}]]]]}",
-               "  (fn [cofx [_ form-params]] nil))"),
-        dirty=True,
-        label="W5 required entry BESIDE a classification path in one fence",
-    )
-
-    # --- Rule 7 against the REAL corpus, with mutations. A guard that cannot be
-    #     made to fail is worthless, and a leaf carrying the fail-open compare
-    #     would pass Rules 1-6. So: the shipped files must be green, and each
-    #     reintroduction of the defect must be caught.
-    for parts in (
-        ("skills", "re-frame2", "patterns", "form-action.md"),
-        ("spec", "Pattern-FormAction.md"),
+    for label, fence in (
+        ("W1 fenced `not=`-alone CSRF compare",
+         _fence("(and server? (not= (:csrf-token form-params) active-token))")),
+        ("W2 fenced `when-not (= …)` CSRF compare",
+         _fence("(when-not (= (:csrf-token form-params) active-token)",
+                "  {:fx [[:rf.server/set-status 403]]})")),
+        ("W5 required entry BESIDE a classification path in one fence",
+         _fence("(rf/reg-event :cart/add-item",
+                "  {:sensitive [[:csrf-token]]",
+                "   :schema    [:cat [:= :cart/add-item]",
+                "               [:map [:csrf-token [:string {:min 1}]]]]}",
+                "  (fn [cofx [_ form-params]] nil))")),
     ):
-        target = REPO_ROOT.joinpath(*parts)
-        rel = "/".join(parts)
-        if not target.is_file():
-            print(f"SELF-TEST FAIL (Y real file missing): {rel}")
-            failures += 1
-            continue
-        shipped = _slurp(target)
-        if csrf_fence_problems(shipped):
-            print(f"SELF-TEST FAIL (Y shipped file flagged): {rel}: "
-                  f"{csrf_fence_problems(shipped)}")
-            failures += 1
-        mutations = (
-            # The fail-open compare, reintroduced.
-            ("fail-open compare",
-             "(and server? (not (and (some? active-token)",
-             "(and server? (not= (:csrf-token form-params) active-token)) #_("),
-            ("required token field",
-             "[:csrf-token {:optional true :sensitive? true} [:string {:min 1}]]",
-             "[:csrf-token [:string {:min 1}]]"),
-            # The event's STRUCTURAL tripwire entry, one line above
-            # the classification path the skip lets through — so the skip
-            # is proved not to shadow the entry beside it.
-            ("required token in the event tripwire",
-             "[:csrf-token {:optional true :sensitive? true} :any]",
-             "[:csrf-token :any]"),
-        )
-        for mut_label, old, new in mutations:
-            if old not in shipped:
-                print(f"SELF-TEST FAIL (Y {mut_label} mutation was a no-op): "
-                      f"{rel}")
-                failures += 1
-                continue
-            if not csrf_fence_problems(shipped.replace(old, new)):
-                print(f"SELF-TEST FAIL (Y {mut_label} mutation not caught): "
-                      f"{rel}")
-                failures += 1
-
-    # The canonical recipe must actually CARRY the classification
-    # path in a fence, or the "shipped file green" reading above is vacuous:
-    # it would be green because nothing exercises the skip.
-    # Read it through the rule's OWN view of a fence — `_code_only` blanks
-    # comments and strings — because the page names the same metadata in prose
-    # too, and a raw substring test would be satisfied by that prose while the
-    # fence carried nothing for 7b to skip.
-    canonical_recipe = REPO_ROOT.joinpath("spec", "Pattern-FormAction.md")
-    if canonical_recipe.is_file():
-        _recipe = _slurp(canonical_recipe)
-        _fenced_paths = sum(_code_only(b).count("[[:csrf-token]]")
-                            for _, b in fenced_blocks(_recipe))
-        if not _fenced_paths:
-            print("SELF-TEST FAIL (Y classification-path anchor gone): "
-                  "spec/Pattern-FormAction.md does not carry a fenced "
-                  "`:sensitive [[:csrf-token]]` registration path, so rule "
-                  "7b's map-entry test is unexercised against the real "
-                  "corpus — re-point this anchor in the same change")
-            failures += 1
-
-    # --- Rule 8: the JVM with-frame thunk "function form".
-    #     `withframe_thunk_problems` takes the WHOLE body (the shape spans
-    #     lines inside a fence) and scans fenced and inline text alike — the
-    #     defect reads naturally as an inline positive instruction.
-    expect(
-        withframe_thunk_problems,
-        "On CLJS reach the macro via `rf/with-frame` after `(:require "
-        "[re-frame.core :as rf])`. On JVM use the `(rf/with-frame frame-id "
-        "(fn [] ...))` function form.",
-        dirty=True, label="Z1 an inline positive instruction",
-    )
-    expect(
-        withframe_thunk_problems,
-        "```clojure\n"
-        "(use-fixtures :each\n"
-        "  (fn [test-fn]\n"
-        "    (rf/with-frame :app/test\n"
-        "      (fn [] (test-fn)))))\n"
-        "```\n",
-        dirty=True, label="Z2 fenced fixture wrapping test-fn in a thunk",
-    )
-    expect(
-        withframe_thunk_problems,
-        "```clojure\n(rf/with-frame :app/test #(test-fn))\n```\n",
-        dirty=True, label="Z3 reader-lambda thunk in body-head position",
-    )
-    expect(
-        withframe_thunk_problems,
-        "```clojure\n"
-        "(use-fixtures :each\n"
-        "  (fn [test-fn]\n"
-        "    (rf/make-frame {:id :app/test})\n"
-        "    (rf/with-frame :app/test\n"
-        "      (test-fn))))\n"
-        "```\n",
-        dirty=False, label="Z4 correct fixture — (test-fn) invoked in the body",
-    )
-    expect(
-        withframe_thunk_problems,
-        "```clojure\n"
-        "(rf/with-frame :stories\n"
-        "  (rf/dispatch-sync [:counter/inc])\n"
-        "  (ts/assert-path-equals [:n] 1))\n"
-        "```\n",
-        dirty=False, label="Z5 plain multi-form macro body",
-    )
-    expect(
-        withframe_thunk_problems,
-        "```clojure\n"
-        "(rf/with-frame :app/test\n"
-        "  (rf/reg-sub :total (fn [db _] (:total db)))\n"
-        "  (rf/dispatch-sync [:seed]))\n"
-        "```\n",
-        dirty=False, label="Z6 fn literal nested deeper in the body is ordinary",
-    )
-    expect(
-        withframe_thunk_problems,
-        "Never wrap the body in a `(fn [] ...)` thunk — the macro would "
-        "return it uninvoked.",
-        dirty=False, label="Z7 warning quoting the bare fn literal alone",
-    )
-    expect(
-        withframe_thunk_problems,
-        "```clojure\n"
-        "(rf/with-new-frame [f (rf/make-frame {:id :stories})]\n"
-        "  (is (= :stories (rf/current-frame-id))))\n"
-        "```\n",
-        dirty=False, label="Z8 with-new-frame binding-vector form out of scope",
-    )
-
-    # --- Rule 8 against the REAL corpus, with the reintroduction mutation:
-    #     the shipped testing leaf must be green, and mutating ONLY its fixture
-    #     to the thunk form must be caught.
-    target = REPO_ROOT.joinpath(
-        "skills", "re-frame2", "references", "cross-cutting", "testing.md")
-    if not target.is_file():
-        print("SELF-TEST FAIL (Z real testing leaf missing): "
-              "skills/re-frame2/references/cross-cutting/testing.md")
+        expect(csrf_fence_problems, fence, dirty=True, label=label)
+    # The fail-open compare put back into the shipped worked-handler fence,
+    # whose own `(some? explanation)` must not count as the presence limb.
+    shipped = _slurp(SKILL_DIR / "patterns" / "form-action.md")
+    old = "(and server? (not (and (some? active-token)"
+    new = "(and server? (not= (:csrf-token form-params) active-token)) #_("
+    if old not in shipped or not csrf_fence_problems(shipped.replace(old, new)):
+        print("SELF-TEST FAIL (Y fail-open compare mutation not caught): "
+              "skills/re-frame2/patterns/form-action.md")
         failures += 1
-    else:
-        shipped = _slurp(target)
-        if withframe_thunk_problems(shipped):
-            print("SELF-TEST FAIL (Z shipped testing leaf flagged): "
-                  f"{withframe_thunk_problems(shipped)}")
-            failures += 1
-        old = "(rf/with-frame :app/test\n      (test-fn))"
-        new = "(rf/with-frame :app/test\n      (fn [] (test-fn)))"
-        if old not in shipped:
-            print("SELF-TEST FAIL (Z thunk mutation was a no-op): the shipped "
-                  "fixture does not carry the anchored (test-fn) body — "
-                  "re-point the Rule 8 mutation anchor in the same change")
-            failures += 1
-        elif not withframe_thunk_problems(shipped.replace(old, new)):
-            print("SELF-TEST FAIL (Z thunk mutation not caught): "
-                  "skills/re-frame2/references/cross-cutting/testing.md")
-            failures += 1
 
-    # --- Rule 9a: an unqualified frame-scoping macro inside a fence.
-    expect(
-        unqualified_frame_macro_problems,
-        "```clojure\n"
-        "(with-new-frame [f (rf/make-frame {})]\n"
-        "  (rf/dispatch-sync [:go] {:frame f}))\n"
-        "```\n",
-        dirty=True, label="AA1 a bare with-new-frame head",
-    )
-    expect(
-        unqualified_frame_macro_problems,
-        "```clojure\n(with-frame :app/test\n  (rf/dispatch-sync [:go]))\n```\n",
-        dirty=True, label="AA2 bare with-frame head in a fence",
-    )
-    expect(
-        unqualified_frame_macro_problems,
-        "```clojure\n"
-        "(rf/with-new-frame [f (rf/make-frame {})]\n"
-        "  (rf/dispatch-sync [:go] {:frame f}))\n"
-        "```\n",
-        dirty=False, label="AA3 alias-qualified head is the correct form",
-    )
-    expect(
-        unqualified_frame_macro_problems,
-        "so a bare `(with-new-frame ...)` is an undeclared var, not a "
-        "shorthand. Write `rf/with-new-frame`.",
-        dirty=False, label="AA4 labelled 'not this' mention in PROSE",
-    )
-    expect(
-        unqualified_frame_macro_problems,
-        "| Create + own + destroy a frame for a scope | `with-new-frame` |",
-        dirty=False, label="AA5 affordance table naming the macro, unfenced",
-    )
-    expect(
-        unqualified_frame_macro_problems,
-        "```clojure\n"
-        "(ns app.test\n"
-        "  (:require [re-frame.core :as rf :refer [with-new-frame]]))\n"
-        "(with-new-frame [f (rf/make-frame {})]\n"
-        "  (rf/dispatch-sync [:go] {:frame f}))\n"
-        "```\n",
-        dirty=False, label="AA6 block establishing its own :refer is lawful",
-    )
-    # AA7-AA10: the exemption is the EXACT refer, not the token `:refer`.
-    # Each of these shapes carries `:refer` somewhere in the fence and
-    # declares the macro NOWHERE, and a token-level exemption would accept
-    # each - AA7 being the ordinary test-namespace header, so it would wave
-    # through nearly every realistic instance of the defect.
-    expect(
-        unqualified_frame_macro_problems,
-        "```clojure\n"
-        "(ns app.login-test\n"
-        "  (:require [cljs.test :refer [deftest is]]\n"
-        "            [re-frame.core :as rf]))\n"
-        "(with-new-frame [f (rf/make-frame {})]\n"
-        "  (rf/dispatch-sync [:go] {:frame f}))\n"
-        "```\n",
-        dirty=True,
-        label="AA7 an UNRELATED :refer (cljs.test) does not declare the macro",
-    )
-    expect(
-        unqualified_frame_macro_problems,
-        "```clojure\n"
-        "(ns app.login-test\n"
-        "  (:require [re-frame.core :as rf])\n"
-        "  (:require-macros [app.helpers :refer-macros [with-fixture]]))\n"
-        "(with-new-frame [f (rf/make-frame {})]\n"
-        "  (rf/dispatch-sync [:go] {:frame f}))\n"
-        "```\n",
-        dirty=True,
-        label="AA8 a :refer-macros of another namespace does not declare it",
-    )
-    expect(
-        unqualified_frame_macro_problems,
-        "```clojure\n"
-        ";; no :refer needed - the macro comes in with the alias\n"
-        "(with-new-frame [f (rf/make-frame {})]\n"
-        "  (rf/dispatch-sync [:go] {:frame f}))\n"
-        "```\n",
-        dirty=True,
-        label="AA9 a COMMENT mentioning :refer does not declare the macro",
-    )
-    expect(
-        unqualified_frame_macro_problems,
-        "```clojure\n"
-        "(ns app.login-test\n"
-        "  (:require [re-frame.core :as rf :refer [with-new-frame]]))\n"
-        "(with-frame :app/test\n"
-        "  (fn [] (rf/dispatch-sync [:go])))\n"
-        "```\n",
-        dirty=True,
-        label="AA10 refer of the OTHER frame macro does not cover this one",
-    )
-    expect(
-        unqualified_frame_macro_problems,
-        "```clojure\n"
-        "(ns app.login-test\n"
-        "  (:require [cljs.test :refer [deftest is]]\n"
-        "            [re-frame.core :as rf :refer-macros [with-new-frame]]))\n"
-        "(with-new-frame [f (rf/make-frame {})]\n"
-        "  (rf/dispatch-sync [:go] {:frame f}))\n"
-        "```\n",
-        dirty=False,
-        label="AA11 an exact re-frame.core :refer-macros still exempts, even "
-              "beside an unrelated :refer",
-    )
+    # --- Rule 8: a fn literal in `with-frame`'s direct body-head position,
+    # inline or fenced; a fn literal nested deeper in the body is ordinary.
+    for label, text, dirty in (
+        ("Z1 an inline positive instruction",
+         "On JVM use the `(rf/with-frame frame-id (fn [] ...))` function form.", True),
+        ("Z3 reader-lambda thunk in body-head position",
+         "```clojure\n(rf/with-frame :app/test #(test-fn))\n```\n", True),
+        ("Z6 fn literal nested deeper in the body is ordinary",
+         "```clojure\n"
+         "(rf/with-frame :app/test\n"
+         "  (rf/reg-sub :total (fn [db _] (:total db)))\n"
+         "  (rf/dispatch-sync [:seed]))\n"
+         "```\n", False),
+    ):
+        expect(withframe_thunk_problems, text, dirty=dirty, label=label)
 
-    # --- Rule 9b: an app-db-only reader for a runtime-db-backed graph.
-    expect(
-        compute_sub_partition_problems,
-        "```clojure\n"
-        "(rf/reg-sub :auth.login/state :<- [:rf/machine :auth.login/flow]\n"
-        "  (fn [snapshot _] (:state snapshot)))\n"
-        "(assert (= :authed (rf/compute-sub [:auth.login/state] "
-        "(rf/app-db-value f))))\n"
-        "```\n",
-        dirty=True, label="AB1 an app-db-value machine assertion",
-    )
-    expect(
-        compute_sub_partition_problems,
-        "```clojure\n"
-        "(rf/reg-sub :auth.login/state :<- [:rf/machine :auth.login/flow]\n"
-        "  (fn [snapshot _] (:state snapshot)))\n"
-        "(assert (= :authed (rf/compute-sub [:auth.login/state] "
-        "(rf/frame-state-value f))))\n"
-        "```\n",
-        dirty=False, label="AB2 frame-state-value is the correct partition",
-    )
-    expect(
-        compute_sub_partition_problems,
-        "```clojure\n(is (= 60 (rf/compute-sub [:item-sum] "
-        "{:items [10 20 30]})))\n```\n",
-        dirty=False, label="AB3 app-db-only compute-sub stays legal",
-    )
-    expect(
-        compute_sub_partition_problems,
-        "```clojure\n"
-        "(is (= {:n 0} (rf/app-db-value f)))\n"
-        "(is (= :loading (:state @(rf/subscribe [:rf/machine :loader]))))\n"
-        "```\n",
-        dirty=False,
-        label="AB4 app-db-value read beside a machine sub, no compute-sub",
-    )
-    expect(
-        compute_sub_partition_problems,
-        "Read runtime-db with `(:rf.db/runtime (rf/frame-state-value id))` "
-        "(not `app-db-value`) — or through `[:rf/machine id]` with "
-        "`compute-sub`.",
-        dirty=False, label="AB5 correct prose naming both tokens, unfenced",
-    )
+    # --- Rule 9a: a bare frame macro inside a fence. Only a `re-frame.core`
+    # refer of THAT macro exempts it, never the token `:refer`.
+    for label, fence, dirty in (
+        ("AA1 a bare with-new-frame head",
+         "```clojure\n(with-new-frame [f (rf/make-frame {})]\n  (rf/dispatch-sync [:go]))\n```\n",
+         True),
+        ("AA7 an UNRELATED :refer (cljs.test) does not declare the macro",
+         "```clojure\n"
+         "(ns app.login-test\n"
+         "  (:require [cljs.test :refer [deftest is]]\n"
+         "            [re-frame.core :as rf]))\n"
+         "(with-new-frame [f (rf/make-frame {})]\n"
+         "  (rf/dispatch-sync [:go] {:frame f}))\n"
+         "```\n", True),
+        ("AA10 refer of the OTHER frame macro does not cover this one",
+         "```clojure\n"
+         "(ns app.login-test\n"
+         "  (:require [re-frame.core :as rf :refer [with-new-frame]]))\n"
+         "(with-frame :app/test\n"
+         "  (rf/dispatch-sync [:go]))\n"
+         "```\n", True),
+        ("AA11 an exact re-frame.core :refer-macros exempts, beside an unrelated :refer",
+         "```clojure\n"
+         "(ns app.login-test\n"
+         "  (:require [cljs.test :refer [deftest is]]\n"
+         "            [re-frame.core :as rf :refer-macros [with-new-frame]]))\n"
+         "(with-new-frame [f (rf/make-frame {})]\n"
+         "  (rf/dispatch-sync [:go] {:frame f}))\n"
+         "```\n", False),
+    ):
+        expect(unqualified_frame_macro_problems, fence, dirty=dirty, label=label)
 
-    # --- Rule 9c: the bounded canonical block must state both spellings.
-    expect(
-        canonical_frame_block_problems,
-        "(rf/with-new-frame [f (rf/make-frame {})]\n"
-        "  (assert (= :authed (rf/compute-sub [:auth.login/state] "
-        "(rf/frame-state-value f)))))",
-        dirty=False, label="AC1 canonical block carrying both correct spellings",
-    )
+    # --- Rule 9b: `app-db-value` handed to `compute-sub` in a fence naming a
+    # runtime-db sub; read beside one without `compute-sub`, it is fine.
+    for label, fence, dirty in (
+        ("AB1 an app-db-value machine assertion",
+         "```clojure\n"
+         "(rf/reg-sub :auth.login/state :<- [:rf/machine :auth.login/flow]\n"
+         "  (fn [snapshot _] (:state snapshot)))\n"
+         "(assert (= :authed (rf/compute-sub [:auth.login/state] "
+         "(rf/app-db-value f))))\n"
+         "```\n", True),
+        ("AB4 app-db-value read beside a machine sub, no compute-sub",
+         "```clojure\n"
+         "(is (= {:n 0} (rf/app-db-value f)))\n"
+         "(is (= :loading (:state @(rf/subscribe [:rf/machine :loader]))))\n"
+         "```\n", False),
+    ):
+        expect(compute_sub_partition_problems, fence, dirty=dirty, label=label)
+
+    # --- Rule 9c: the canonical block must state each correct spelling.
     expect(
         canonical_frame_block_problems,
         "(with-new-frame [f (rf/make-frame {})]\n"
@@ -2724,68 +1986,6 @@ def _self_test() -> int:
         "(rf/frame-state-value f)))))",
         dirty=True, label="AC2 canonical block with the macro unqualified",
     )
-    expect(
-        canonical_frame_block_problems,
-        "(rf/with-new-frame [f (rf/make-frame {})]\n"
-        "  (assert (= :authed (rf/compute-sub [:auth.login/state] "
-        "(rf/app-db-value f)))))",
-        dirty=True, label="AC3 canonical block back on rf/app-db-value",
-    )
-
-    # --- Rule 9 against the REAL corpus, with both reintroduction
-    #     mutations: the shipped frames leaf must be green, its canonical
-    #     block must be locatable, and reintroducing EITHER bad
-    #     shape must be caught.
-    frames_leaf = REPO_ROOT.joinpath(*CANONICAL_FRAME_LEAF)
-    if not frames_leaf.is_file():
-        print("SELF-TEST FAIL (AD real frames leaf missing): "
-              + "/".join(CANONICAL_FRAME_LEAF))
-        failures += 1
-    else:
-        shipped = _slurp(frames_leaf)
-        if unqualified_frame_macro_problems(shipped):
-            print("SELF-TEST FAIL (AD shipped frames leaf flagged by 9a): "
-                  f"{unqualified_frame_macro_problems(shipped)}")
-            failures += 1
-        if compute_sub_partition_problems(shipped):
-            print("SELF-TEST FAIL (AD shipped frames leaf flagged by 9b): "
-                  f"{compute_sub_partition_problems(shipped)}")
-            failures += 1
-        found = canonical_frame_block(shipped)
-        if found is None:
-            print("SELF-TEST FAIL (AD canonical block anchor did not "
-                  "resolve): re-point CANONICAL_BLOCK_HEADING_RE")
-            failures += 1
-        elif canonical_frame_block_problems(found[1]):
-            print("SELF-TEST FAIL (AD shipped canonical block incomplete): "
-                  f"{canonical_frame_block_problems(found[1])}")
-            failures += 1
-        # Mutation 1 — the macro back to its unqualified spelling.
-        old = "(rf/with-new-frame [f (rf/make-frame"
-        new = "(with-new-frame [f (rf/make-frame"
-        if old not in shipped:
-            print("SELF-TEST FAIL (AD 9a mutation was a no-op): the shipped "
-                  "canonical block does not carry the anchored "
-                  "rf/with-new-frame head — re-point the mutation anchor "
-                  "in the same change")
-            failures += 1
-        elif not unqualified_frame_macro_problems(shipped.replace(old, new)):
-            print("SELF-TEST FAIL (AD 9a mutation not caught): "
-                  + "/".join(CANONICAL_FRAME_LEAF))
-            failures += 1
-        # Mutation 2 — the assertion back to the app-db-only reader.
-        old = "(rf/compute-sub [:auth.login/state] (rf/frame-state-value f))"
-        new = "(rf/compute-sub [:auth.login/state] (rf/app-db-value f))"
-        if old not in shipped:
-            print("SELF-TEST FAIL (AD 9b mutation was a no-op): the shipped "
-                  "canonical block does not carry the anchored "
-                  "frame-state-value assertion — re-point the mutation "
-                  "anchor in the same change")
-            failures += 1
-        elif not compute_sub_partition_problems(shipped.replace(old, new)):
-            print("SELF-TEST FAIL (AD 9b mutation not caught): "
-                  + "/".join(CANONICAL_FRAME_LEAF))
-            failures += 1
 
     if failures:
         print(f"self-test: {failures} failure(s).")
