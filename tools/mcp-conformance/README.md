@@ -82,7 +82,7 @@ signal paths allow a short cleanup window before forcing exit.
 [`wire-vocab/README.md`](wire-vocab/README.md) describes the JVM suite.
 It pins canonical schemas, representative fixtures, live builders where
 they are available on the JVM, source literals, and rejected near-miss
-spellings. It also owns the executable tool-verb linter against each
+spellings of input slot names. It also owns the executable tool-verb linter against each
 server's canonical `tool-names.json` fixture.
 
 ## Shared ratchets

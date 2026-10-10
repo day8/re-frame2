@@ -72,13 +72,12 @@
 //       doesn't exist. Throws on symlink-escape. Returns true if the
 //       file existed and was unlinked, false otherwise.
 //
-//   safeReadFileInside(candidatePath, allowedRoot, options)
+//   safeReadFileInside(candidatePath, allowedRoot)
 //     → reads `candidatePath` iff its realpath (or, when the file
 //       doesn't exist, the realpath of its parent directory + basename)
 //       resolves under `realpath(allowedRoot)`. Returns the file
-//       contents (string, `utf8` default — pass `options.encoding` or a
-//       plain encoding string to override) on success, or `null` when
-//       the file doesn't exist. Throws on symlink-escape — the SAME
+//       contents as a `utf8` string on success, or `null` when the file
+//       doesn't exist. Throws on symlink-escape — the SAME
 //       containment check `safeUnlinkInside` enforces, so a candidate the
 //       cleanup step refused to unlink can NEVER be silently trusted as a
 //       read source (the "refuse-delete-but-trust-read" split). Read
@@ -406,24 +405,20 @@ function safeUnlinkInside(candidatePath, allowedRoot) {
  *
  * @param {string} candidatePath
  * @param {string} allowedRoot
- * @param {(string|{encoding?: string})} [options]  Encoding string (or
- *        an options object with `encoding`). Defaults to `'utf8'`.
- * @returns {(string|Buffer|null)} the file contents on success, or
+ * @returns {(string|null)} the `utf8` file contents on success, or
  *          `null` when the file doesn't exist.
  * @throws  If the candidate's realpath escapes the allowed root, or on
  *          a read error other than ENOENT.
  */
-function safeReadFileInside(candidatePath, allowedRoot, options) {
+function safeReadFileInside(candidatePath, allowedRoot) {
   const { leafExists } = resolveContainedLeaf(
     candidatePath,
     allowedRoot,
     'safeReadFileInside',
   );
   if (!leafExists) return null;
-  const readOpts =
-    typeof options === 'string' ? { encoding: options } : { encoding: 'utf8', ...options };
   try {
-    return fs.readFileSync(candidatePath, readOpts);
+    return fs.readFileSync(candidatePath, 'utf8');
   } catch (e) {
     // A race could remove the file between the containment check and the
     // read; treat a now-missing file as "not present" rather than fatal.
