@@ -348,13 +348,11 @@
   (:aux @!state))
 
 (def populations
-  "Which visits each published figure is taken over.
-
-  A def rather than a literal inside [[take-plan!]] so the claim is
-  citable from the suite: `:structure` published over `100` values per
+  "Which visits each published figure is taken over, published in the
+  record beside the figures: `:structure` published over `100` values per
   arm against a `:summary` of `60`, while the record describes the first
-  as a decomposition of the second, is exactly what a label nobody can
-  assert lets through."
+  as a decomposition of the second, is the error this label lets a
+  reader see."
   {:summary   :measured-visits
    :structure :measured-visits
    :echo      :all-visits})
@@ -647,7 +645,7 @@
   [{:id :idle-frame  :plan idle-plan}
    {:id :keystroke   :plan keystroke-plan}
    {:id :toggle      :plan toggle-plan}
-   {:id :ctl-blocked :plan blocked-plan :control? true}])
+   {:id :ctl-blocked :plan blocked-plan}])
 
 ;; ---------------------------------------------------------------------------
 ;; Sampling

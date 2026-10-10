@@ -242,7 +242,7 @@ reproduces the previous record exactly — 387 collection-free windows, 182 / 20
 position, 101 + 11 rider legs, 3.908% / 0.184%, 4,284 control legs with zero in
 the band — which is the control on the reader itself, unchanged by this window's
 edits. Its own fixtures run under `--self-test` and in
-`npm run test:script-helpers`, and they include the negative that matters here:
+the bench `npm run check`, and they include the negative that matters here:
 a reader whose window stream reset at a round boundary would report all six of
 `last`'s round-opening windows as separated and manufacture exactly the result
 this window tests for, so the fixture pins that count at 1.
@@ -276,7 +276,7 @@ taken on, so no figure here can drift from the counts behind it. Its fixtures
 pin **all ten** z-scores across this page and the position record on those same
 counts, as literals, **and require the unpooled and continuity-corrected forms
 to miss every one of them** — so the pin discriminates rather than restates, and
-a change to the formula reds `npm run test:script-helpers`.
+a change to the formula reds the bench `npm run check`.
 
 ### And the summaries the reader had not been emitting
 

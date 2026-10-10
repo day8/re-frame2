@@ -835,15 +835,12 @@ module.exports = {
   // The recording site's predicate and the instrument arithmetic under it, so
   // a sample can be put to the gate the way the run puts one.
   notMeasured,
-  positive,
   deltaOf,
-  PUBLISHED,
   CONTROL,
   // The rosters the gates are taken over, so a witness derives its fixtures
   // from them rather than retyping them and drifting.
   ALL_ROWS,
   ARMS,
-  BASE,
   OTHERS,
 };
 

@@ -408,7 +408,7 @@ function main() {
   return v.code;
 }
 
-module.exports = { verdict, buildRows, readTheirs, readOurs, EXPECTED_CELLS, PAIRS, OTHERS, BASE, AGREEMENT_BAND };
+module.exports = { verdict, buildRows, readTheirs, readOurs, PAIRS, OTHERS, BASE };
 
 // `process.exitCode`, never `process.exit()` — the lost-tail race: piped stdio is
 // asynchronous and `process.exit()` drops what has not drained, so the verdict

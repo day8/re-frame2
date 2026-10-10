@@ -2710,11 +2710,10 @@ function reportabilitySelfTest() {
   // it, and the cases that matter are the ones showing a regime row REFUSES —
   // the temperature of the exit is the same, only the sentence differs.
   //
-  // THESE CASES PIN THE PRINTED BRACKET, here and in `clock_exit_path.test.cjs`
-  // together: the print and its pins move in one change or the suite goes red
-  // on a true string. What the cases are FOR is independent of the sentence —
-  // that the regimes do not soften the exit code. What each regime means is
-  // set out beside `REGIMES` above.
+  // THESE CASES PIN THE PRINTED BRACKET: the print and its pins move in one
+  // change or the self-test goes red on a true string. What the cases are
+  // FOR is independent of the sentence — that the regimes do not soften the
+  // exit code. What each regime means is set out beside `REGIMES` above.
   const mount = (over) => row({ rowId: 'M1', regime: 'mount-regime', ctlOk: false, ...over });
   const resp = (over) =>
     row({ rowId: 'keystroke', regime: 'responsiveness-regime', adjudicable: false, unadjudicatedWhy: KEYSTROKE_WHY, ...over });

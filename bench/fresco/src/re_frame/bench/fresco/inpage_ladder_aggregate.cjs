@@ -572,26 +572,7 @@ function main() {
   return 0;
 }
 
-module.exports = {
-  readMap,
-  scalarMap,
-  rounds,
-  armBand,
-  perRoundRatio,
-  controlVerdict,
-  guardSamples,
-  shapeProblems,
-  checkRun,
-  main,
-  ARMS,
-  ROUNDS_PER_RUN,
-  SAMPLES_PER_CELL,
-  RAW_ROWS,
-  CTL_PREDICTED,
-  CONTROL_SLACK,
-  GUARD_TOLERANCE,
-  EPS,
-};
+module.exports = { checkRun, controlVerdict, guardSamples };
 
 if (require.main === module) {
   const code = main();

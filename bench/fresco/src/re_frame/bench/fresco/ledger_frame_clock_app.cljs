@@ -408,12 +408,10 @@
   (rf.bench.fresco.lane/tally-value (:tally @!state)))
 
 (def populations
-  "Which visits each published figure is taken over.
-
-  A def rather than a literal inside [[take-plan!]] so the claim is
-  citable: a decomposition published over a larger population than the
-  summary it is described as decomposing is the error a label nobody can
-  assert lets through."
+  "Which visits each published figure is taken over, published in the
+  record beside the figures: a decomposition published over a larger
+  population than the summary it is described as decomposing is the
+  error this label lets a reader see."
   {:summary  :measured-visits
    :entry    :measured-visits
    :advance  :all-visits})
@@ -704,7 +702,7 @@
   "The measured arms, floor first so it leads the schedule."
   [{:id :idle-frames :per-frame idle-frames     :advance? false}
    {:id :scroll      :per-frame scroller        :advance? true}
-   {:id :ctl-blocked :per-frame blocked-scroller :advance? true :control? true}])
+   {:id :ctl-blocked :per-frame blocked-scroller :advance? true}])
 
 ;; ---------------------------------------------------------------------------
 ;; Sampling

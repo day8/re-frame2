@@ -512,7 +512,7 @@ repository.
 
 **The table is below.** Every ensemble figure in this section is now derived from
 it by
-`implementation/freehand/test/re_frame/bench/fresco/p0_converge_order_cljs_test.cljs`
+`bench/fresco/src/re_frame/bench/fresco/p0_converge_order_cljs_test.cljs`
 rather than asserted here — both the four-run figures PR #7315 published and the
 five-run figures that replace them.
 
@@ -1816,7 +1816,7 @@ PR #7303 audit's finding was that the table itself was never committed** — wha
 landed was group means, intervals, ranges and *p* values, summaries with nothing
 behind them a reader could reach. **The table is below, all forty cells**, and
 every figure in both views is now derived from it by
-`implementation/freehand/test/re_frame/bench/fresco/p0_converge_order_cljs_test.cljs`
+`bench/fresco/src/re_frame/bench/fresco/p0_converge_order_cljs_test.cljs`
 rather than asserted here.
 
 !!! warning "Provenance — recovered, not re-run"

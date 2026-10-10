@@ -186,7 +186,7 @@ That reader drives the 14 committed `parity` runs to the previous record's
 figures exactly — 387 collection-free windows, 182 / 205 by position, 101 + 11
 rider legs, 4,284 control legs with zero in the band — which is the control on
 the reader itself. Its own fixtures run under `--self-test` and in
-`npm run test:script-helpers`.
+the bench `npm run check`.
 
 ### The `z` column, and the convention it is taken under
 
@@ -216,7 +216,7 @@ taken on, so no figure here can drift from the counts behind it. Its fixtures
 pin **all ten** z-scores across this page and the control-slot record on those
 same counts, as literals, **and require the unpooled and continuity-corrected
 forms to miss every one of them** — so the pin discriminates rather than
-restates, and a change to the formula reds `npm run test:script-helpers`.
+restates, and a change to the formula reds the bench `npm run check`.
 
 The reader also prints the worst deviation **both ways**, magnitude and signed,
 because the unit trap below turns on the pair and this page publishes both.

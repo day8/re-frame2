@@ -394,12 +394,12 @@
   "The render slots: the frame the running body resolved (nil outside a
   render, which is what makes `(sub …)` outside a boundary a loud error
   rather than a silent read of whichever frame happened to be ambient),
-  the two read-surface provenance flags, the entry the last body
-  resolved, and the cold-probe box the running body's cold reads share
+  the entry the last body resolved, and the cold-probe box the running
+  body's cold reads share
   ([[cold-read!]] — nil until a cold read mints it, reset by every
   [[run-once]] exactly as the scratch is). One JS object for the whole
   runtime — not one per render."
-  #js {"frame"    nil "collector" false "grouped" false "entry" nil "probe" nil
+  #js {"frame"    nil "entry" nil "probe" nil
        ;; The always-on body-run counter — one integer
        ;; on the object that already exists, bumped by [[run-once]] and
        ;; read by [[body-runs]].
@@ -744,8 +744,9 @@
       (rf.interop/activate-derived-value! reaction)
       ;; ONE baseline deref, before the watch — see `acquire-cell!`.
       @reaction
-      (add-watch reaction cell-watch-key
-                 (fn [_ _ old nu] (when-not (= old nu) (mark-dirty! cell))))
+      ;; Unconditional: every substrate already gates its fan-out on
+      ;; movement, so this fires only on a value that moved.
+      (add-watch reaction cell-watch-key (fn [_ _ _ _] (mark-dirty! cell)))
       (rf.interop/add-on-dispose! reaction (fn [] (invalidate-cell! cell))))
     cell))
 
@@ -1231,7 +1232,6 @@
   edge is *recorded* where the read happens, and the recorded set is what
   the commit installs — so a branch not taken contributes no edge."
   [query-v]
-  (set! (.-collector rstate) true)
   (read-key! query-v))
 
 (defn use-subs
@@ -1251,7 +1251,6 @@
   measured against — not because it is being defended. It sits below
   the ergonomics bar."
   [query-map]
-  (set! (.-grouped rstate) true)
   (reduce-kv (fn [m alias query-v] (assoc m alias (read-key! query-v)))
              {}
              query-map))
@@ -1539,8 +1538,6 @@
   `set-lowering-owner!` folds to a return."
   [frame-kw body-fn props]
   (set! (.-length scratch) 0)
-  (set! (.-collector rstate) false)
-  (set! (.-grouped rstate) false)
   (set! (.-probe rstate) nil)
   (set! (.-frame rstate) frame-kw)
   ;; THE BODY-RUN COUNTER, bumped where a body actually runs and nowhere
@@ -1611,13 +1608,6 @@
   React's own `checkIfSnapshotChanged` without a browser."
   [^js entry]
   ((.-snapshot entry)))
-
-(defn last-tiers
-  "Which read surfaces the most recent body used. The instrument's input,
-  and the reason a rendering's tier is a measured property rather than a
-  claim in a docstring."
-  []
-  {:collector? (.-collector rstate) :grouped? (.-grouped rstate)})
 
 (defn body-runs
   "How many boundary bodies this runtime has run, since the process

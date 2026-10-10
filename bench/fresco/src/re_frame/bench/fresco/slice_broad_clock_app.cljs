@@ -1243,8 +1243,7 @@
    {:id :donor-locale :plan (locale-plan :donor)   :side :donor   :alternates :locale}
    {:id :theme        :plan (theme-plan :fresco)  :side :fresco :alternates :theme}
    {:id :donor-theme  :plan (theme-plan :donor)    :side :donor   :alternates :theme}
-   {:id :ctl-blocked  :plan blocked-plan           :side :fresco :alternates :locale
-    :control? true}])
+   {:id :ctl-blocked  :plan blocked-plan           :side :fresco :alternates :locale}])
 
 (defn- readings-by-arm [readings]
   (reduce (fn [m round]

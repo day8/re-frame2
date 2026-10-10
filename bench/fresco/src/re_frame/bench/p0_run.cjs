@@ -1798,17 +1798,6 @@ const ALLOC_WRITE_LEGS =
   ALLOC_WRITE_KEYS &&
   ALLOC_WRITE_KEYS.map((selector) => ({ selector, spec: ALLOC_WRITE_SPECS[selector] }));
 const ALLOC_WRITE_PAIRED = ALLOC_WRITE_LEGS !== undefined && ALLOC_WRITE_LEGS.length > 1;
-// THE SINGLE SPEC, WHERE THERE IS ONE. `page` and `all` resolve to their one
-// spec — every consumer below reads the LEGS, and this exists because the
-// surface's own pins read it, and because "this run drives
-// exactly one write, and it is this one" is a real question with a real
-// answer under two of the three selections. It is `undefined` under `paired`
-// for the same reason it is `undefined` under a typo: there is no ONE write.
-// The two are told apart by `ALLOC_WRITE_LEGS`, and the preflight refuses on
-// that rather than on this.
-const ALLOC_WRITE_SPEC =
-  ALLOC_WRITE_LEGS && ALLOC_WRITE_LEGS.length === 1 ? ALLOC_WRITE_LEGS[0].spec : undefined;
-
 // WHERE A WINDOW IS RECORDED. Off `paired` this is the identity, so a
 // published run's record is keyed by arm alone; on it, the
 // two legs of a pair are two windows and each is keyed by the write it drove.
@@ -2929,10 +2918,8 @@ async function allocRow(chromium) {
   // that is deliberate: the no-arms route out of a refused page is a mode
   // with a name on it, not a page of zero boundaries. V3 states its page like
   // any other run, and the averaging floor still holds its six writes.
-  // REFUSED ON THE LEGS, NOT ON THE SPEC. `ALLOC_WRITE_SPEC` is
-  // `undefined` under `paired` as well as under a typo — there is no ONE
-  // write in either case — so the test that separates a valid selection from
-  // a mistyped one is whether the SELECTION resolved, and that is the legs.
+  // REFUSED ON THE LEGS: a typo resolves to no legs at all, so whether the
+  // SELECTION resolved is what separates a valid selection from a mistyped one.
   if (ALLOC_WRITE_LEGS === undefined) {
     throw new Error(
       `unknown P0_ALLOC_WRITE ${JSON.stringify(ALLOC_WRITE)} — the allocation window drives ` +
@@ -4856,11 +4843,10 @@ module.exports = {
   allocInstrumentNote,
   // The measurement surface, exported so the structural pin can
   // DRIVE it rather than read its source: the tables as values, the plan
-  // filter as a pure function, and the two resolved selections so the env
+  // filter as a pure function, and the resolved selection so the env
   // route can be pinned from outside the process exactly as `ALLOC_ARM` is.
   ALLOC_WRITE_SPECS,
   ALLOC_WRITE,
-  ALLOC_WRITE_SPEC,
   // The paired selection, exported on exactly the rule above: the selection
   // table as a value and the RESOLVED legs, so the env route to `paired` is
   // pinned from outside the process the way `all` is —
