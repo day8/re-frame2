@@ -958,15 +958,7 @@
   Per Spec 005 §Trace events the substrate fires ONE transition emit
   per macrostep — so the cascade carries at most one `:transition`
   row, and it lands AFTER the exit-phase actions + the transition-
-  phase actions (substrate emit order).
-
-  The row also threads the STRUCTURED `:cascade` (the ordered
-  exit/action/entry/microstep step vector the substrate emits on the
-  `:rf.machine/transition` trace), which the structured-cascade helpers
-  below (`cascade-regions` etc.) group per region. The view shows those
-  steps as the EVENT HANDLER pipeline's own rows rather than as a
-  nested walk on the transition row.
-  Absent (`nil`) for non-structured traces / fixtures."
+  phase actions (substrate emit order)."
   [ev]
   (let [before (common/tag-of ev :before)
         after  (common/tag-of ev :after)]
@@ -982,7 +974,6 @@
      :data-before  (when (map? before) (:data before))
      :data-after   (when (map? after)  (:data after))
      :microsteps   (common/tag-of ev :microsteps)
-     :cascade      (common/tag-of ev :cascade)
      :duration-ms  (common/tag-of ev :duration-ms)}))
 
 (defn- microstep-cascade-row
@@ -995,8 +986,8 @@
   derivable.
 
   Keys on the `:region` tag: a SINGLE-ACTIVE machine's `:always` microstep
-  carries no `:region` (it rides the transition row's `cascade-microsteps`),
-  so this returns nil — `keep ev->cascade-row` drops it, so a single-active
+  carries no `:region` (only the transition row's `:microsteps` count
+  records it), so this returns nil — `keep ev->cascade-row` drops it, so a single-active
   cascade carries no microstep row. Only region-tagged (parallel) rounds
   become first-class rows."
   [ev]
@@ -1465,16 +1456,6 @@
                (= :no-op (:kind row)) (assoc :show-machine-name? multi-machine?)))
            sorted))))
 
-(defn machine-cascade-total-ms
-  "Sum of every cascade row's `:duration-ms`. nil when no
-  row carries a numeric duration; the view elides the chip in that
-  case. Pure-data aggregation; the view layer never re-walks the
-  trace stream for chrome decisions."
-  [cascade-rows]
-  (let [nums (keep :duration-ms cascade-rows)]
-    (when (seq nums)
-      (reduce + 0 nums))))
-
 (defn machine-event-orientation
   "Project the orientation triple the EVENT HANDLER heading renders as
   its one structured orientation line:
@@ -1520,100 +1501,6 @@
                         (some :machine-id cascade-rows)
                         machine-id)
         :state      (if tx (:from-state tx) (:state no-op))}))))
-
-;; ---- structured transition cascade --------------------------------------
-;;
-;; The `:rf.machine/transition` trace carries a STRUCTURED `:cascade` tag
-;; — the ordered step sequence that explains HOW the macrostep
-;; reached its after-state. Each step is a self-describing map
-;;
-;;   {:kind   :exit | :action | :entry | :microstep
-;;    :state  <state-path-vector>          ;; LCA-relative for :action
-;;    :region <region-name-or-nil>          ;; parallel region; nil flat/compound
-;;    :action <action-id-or-nil>            ;; nil = boundary fired no action
-;;    :data-delta {<changed :data keys>}}
-;;
-;; in EXECUTION order — exit (deepest-first) → transition `:action` @ LCA →
-;; entry (shallowest-first + initial-descent), then one `:microstep` step
-;; per `:always` iteration (carrying its own nested exit/action/entry
-;; `:steps` + `:microstep-index` / `:from` / `:to`). Spec 005 §The
-;; structured transition cascade is the authoritative contract; the
-;; instrumentation test `re-frame.machine-cascade-instrumentation-cljs-test`
-;; pins the exact shape.
-;;
-;; `machine-cascade-rows` is the per-EMIT stream (one row per
-;; `:rf.machine/action-ran` / guard / transition / timer trace) — it cannot
-;; show the ACTION-FREE boundaries (e.g. exiting `:idle` / `:off`, which
-;; declare no `:exit` action so emit no `:rf.machine/action-ran`), so it is
-;; NOT a complete configuration walk. The structured `:cascade` IS the
-;; complete walk; the helpers below group it per region. The view does not
-;; render them — the machine-epochs harness reads them as the cascade-ORDER
-;; oracle.
-
-(defn- structural-cascade-step? [step]
-  (and (map? step)
-       (contains? #{:exit :action :entry} (:kind step))))
-
-(defn- microstep-cascade-step? [step]
-  (and (map? step) (= :microstep (:kind step))))
-
-(defn cascade-regions
-  "Group the LCA-cascade steps (`:exit` / `:action` / `:entry`) of a
-  structured `:cascade` step vector by `:region`, preserving FIRST-
-  ENCOUNTER region order. The `:microstep` steps are NOT
-  included here (`cascade-microsteps` extracts them).
-
-  Returns a vector of `{:region <name-or-nil> :steps [<step> …]}` groups,
-  each group's `:steps` in their original execution order. A flat /
-  compound machine carries one group keyed `nil` (every step's `:region`
-  is nil); a parallel machine carries one group per region in the order
-  the substrate concatenated them (region declaration order).
-
-  Returns `[]` for a nil / empty cascade."
-  [cascade]
-  (let [steps (filterv structural-cascade-step? cascade)]
-    (->> steps
-         ;; group-by loses order; rebuild in first-encounter order so a
-         ;; parallel cascade reads region-by-region as the substrate
-         ;; concatenated it (climate before fan).
-         (reduce (fn [{:keys [groups] :as acc} step]
-                   (let [r (:region step)]
-                     (-> acc
-                         (update :order (fn [o] (if (contains? groups r) o (conj o r))))
-                         (update :groups update r (fnil conj []) step))))
-                 {:order [] :groups {}})
-         (#(mapv (fn [r] {:region r :steps (get (:groups %) r)}) (:order %))))))
-
-(defn cascade-microsteps
-  "Extract the `:microstep` steps of a structured `:cascade`, ordered by
-  `:microstep-index`. Each retains its `:from` / `:to` /
-  `:microstep-index` / `:region` and its nested `:steps` (the eventless
-  transition's own exit/action/entry cascade) so a caller can section
-  them per index. Returns `[]` when the cascade carries no microsteps (the
-  common non-`:always` macrostep)."
-  [cascade]
-  (->> cascade
-       (filterv microstep-cascade-step?)
-       (sort-by (fn [m] (or (:microstep-index m) 0)))
-       vec))
-
-(defn cascade-step-count
-  "Total structural step count across a structured `:cascade` — the
-  top-level exit/action/entry steps PLUS every microstep's own nested
-  steps. nil for a nil / empty cascade."
-  [cascade]
-  (when (seq cascade)
-    (+ (count (filterv structural-cascade-step? cascade))
-       (reduce + 0 (map (fn [m] (count (filterv structural-cascade-step? (:steps m))))
-                        (cascade-microsteps cascade))))))
-
-(defn parallel-cascade?
-  "True iff the structured `:cascade` carries more than one distinct
-  `:region` (i.e. a parallel-machine broadcast) — per-region grouping
-  matters only in that case. A flat / compound machine's
-  steps all carry `:region nil`, so this is false."
-  [cascade]
-  (< 1 (count (into #{} (keep :region) (filter structural-cascade-step? cascade)))))
 
 ;; ---- machine LOGICAL-STATE delta ----------------------------------------
 ;;
@@ -2271,37 +2158,6 @@
           (assoc :override-to to)
           (get attribution-map fx-id)
           (assoc :attributed-to (get attribution-map fx-id)))))))
-
-(defn row-failed?
-  "True iff a SIDE EFFECTS ledger row is a REAL failure —
-  its own `:status` is `:error` / `:rollback`, OR it carries an attached
-  `:errors` (exception) / `:violations` (schema) vec. A `:skipped` row
-  (`:skipped-on-platform`) is NOT a failure — it is NEUTRAL and never
-  trips the badge to cross.
-
-  Reads the post-attachment row shape so an exception / violation that
-  `attach-*` lands on a row AFTER `side-effects-step` built it still
-  counts."
-  [row]
-  (or (contains? #{:error :rollback} (:status row))
-      (seq (:errors row))
-      (seq (:violations row))))
-
-(defn side-effects-badge-status
-  "The SINGLE overall badge status for the flat SIDE EFFECTS ledger
-  — `:error` iff ANY present row is a real failure
-  (`row-failed?`), else `:ok`. The AND-of-rows: TICK when every present
-  row succeeded, CROSS when one or more FAILED. `:skipped` rows are
-  NEUTRAL — they do not trip the badge.
-
-  Reuses the closed `:ok` / `:error` shape. Defined over the step's flat
-  `:rows` so attached errors / violations (which land AFTER
-  `side-effects-step` builds the step) lift the status to `:error`. The
-  view paints no overall badge glyph (the per-row glyphs are the whole
-  signal) and reads the generic `step-status` only for its skipped
-  branch; this fn names the contract for tests."
-  [rows]
-  (if (some row-failed? rows) :error :ok))
 
 (defn side-effects-step
   "The SIDE EFFECTS step (not a `:db` / `:fx` / other sub-step
@@ -4318,8 +4174,8 @@
             ;; operator reads them as first-class pipeline entries.
             ;;
             ;; The flattening MUST thread the row's `:duration-ms`
-            ;; through to the step map: `long-step?` keys off
-            ;; `:duration-ms` on the step row, so dropping it here
+            ;; through to the step map: the view's long-step chrome keys
+            ;; off `:duration-ms` on the step row, so dropping it here
             ;; would keep the canonical `:rf.cofx/elapsed-ms` that
             ;; `coeffect-rows-from-runs` stamps from ever reaching
             ;; long-step chrome detection.
@@ -4548,9 +4404,8 @@
 ;; reads its substrate-emitted duration off the matching trace event:
 ;; `:rf.event/run-end` for HANDLER, `:rf.fx/handled` for SIDE EFFECTS
 ;; :fx rows, etc).
-;; The cascade total + long-step predicate are pure aggregations over
-;; the already-projected step rows so the view layer never re-walks the
-;; trace stream for chrome decisions.
+;; The view compares those durations against `long-step-threshold-ms`, so
+;; it never re-walks the trace stream for chrome decisions.
 
 (def long-step-threshold-ms
   "Threshold above which a single step is rendered with long-step
@@ -4562,23 +4417,6 @@
   load-bearing for perf debugging. Subtler than an `:error` glyph —
   the posture is 'subtle, not alarmist'."
   16)
-
-(defn long-step?
-  "True iff `step`'s `:duration-ms` exceeds `long-step-threshold-ms`.
-  Pure predicate over a projected step row; the view consumes this
-  to decide whether to paint the long-step warning chrome on the
-  duration chip."
-  [step]
-  (let [ms (:duration-ms step)]
-    (and (number? ms) (> ms long-step-threshold-ms))))
-
-(defn empty-pipeline?
-  "True iff `(project record)` would produce zero steps (no dispatch,
-  no handler). Used by the view to render an empty-state placeholder
-  when the focused epoch carries no trace events (cold start; replay
-  fixture)."
-  [epoch-record]
-  (empty? (project epoch-record)))
 
 ;; ---- public mapping table -----------------------------------------------
 
@@ -4622,21 +4460,3 @@
   the authoritative inventory does not admit."
   #{:DISPATCH :RECORDABLE-COFX :COEFFECT :INTERCEPTORS :INTERCEPTOR
     :HANDLER :FLOW :SIDE-EFFECTS :SUBSCRIPTIONS :VIEWS})
-
-(defn valid-badge?
-  "Predicate — `:badge` keyword is a member of `badge-set`."
-  [badge]
-  (contains? badge-set badge))
-
-;; ---- low-level helpers exposed for tests --------------------------------
-
-(defn ^:no-doc trace-event-count
-  "Count of trace events the projection ran against — exposed for
-  test introspection."
-  [epoch-record]
-  (count (or (:trace-events epoch-record) [])))
-
-(defn ^:no-doc has-step?
-  "True iff `(project record)` produced a step with `:step = step-kw`."
-  [epoch-record step-kw]
-  (boolean (some #(= step-kw (:step %)) (project epoch-record))))

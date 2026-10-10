@@ -37,13 +37,6 @@
       :else        (let [rounded (/ (Math/round (double (* ms 10))) 10.0)]
                      (str rounded "ms")))))
 
-(defn event-display
-  "Render the dispatched event vector as a one-line monospace string
-  for the DISPATCH row's target slot."
-  [event-vec]
-  (when (vector? event-vec)
-    (str event-vec)))
-
 (defn path-display
   "Render a db path vector as the `[:foo :bar 0]` repr used by every
   diff-style row. Returns `\"\"` for nil/empty."
@@ -91,16 +84,6 @@
     (nil? id)     ""
     (keyword? id) (ns-keyword id)
     :else         inline-verb-label))
-
-(defn truncate
-  "Truncate a string to `n` chars with an ellipsis. Pure fn used by
-  the view layer for long arg displays in the FX table."
-  ([s] (truncate s 60))
-  ([s n]
-   (let [s (str s)]
-     (if (<= (count s) n)
-       s
-       (str (subs s 0 n) "…")))))
 
 ;; -- render-args size elision --------------------------------------------
 ;;
@@ -220,38 +203,6 @@
       render-args
       render-args)
     render-args))
-
-(defn coeffect-row-display
-  "Render a coeffect row's id → value pair as a one-liner for the
-  view's diff-style add row (`+ [:session] {:user-id 42 …}`)."
-  [{:keys [id value]}]
-  (let [head (str "+ [" (ns-keyword id) "] ")
-        tail (truncate (pr-str value) 80)]
-    (str head tail)))
-
-(defn phase-label
-  "Render a machine action-ran `:phase` keyword as a UI label string."
-  [phase]
-  (case phase
-    :exit            "exit"
-    :transition      "transition"
-    :entry           "entry"
-    :always          "always"
-    :after-action    "after-action"
-    :initial-entry   "initial-entry"
-    :destroy-exit    "destroy-exit"
-    (when (keyword? phase) (name phase))))
-
-(defn timer-reason-label
-  "Render a timer-cancelled `:reason` keyword as a UI label string."
-  [reason]
-  (case reason
-    :on-exit          "on-exit"
-    :on-destroy       "on-destroy"
-    :on-resolution    "on-resolution"
-    :on-supersede     "on-supersede"
-    :on-frame-destroy "on-frame-destroy"
-    (when (keyword? reason) (name reason))))
 
 (def ^:private start-cause->label
   "Map a `:rf.machine/started` `:cause` enum → the short tag rendered on

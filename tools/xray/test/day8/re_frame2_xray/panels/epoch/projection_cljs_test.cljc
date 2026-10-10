@@ -550,43 +550,6 @@
                   {:state :open :tags #{:open} :data {:n 1} :rf/spawn-counter {}}
                   {:state :open :tags #{:open} :data {:n 2} :rf/spawn-counter {:a 1}})))))
 
-;; ---- STRUCTURED transition cascade ------------------------------------
-;;
-;; The `:rf.machine/transition` trace carries a structured `:cascade` step
-;; vector. The HVAC `[:hvac/power-cycle]` cascade below is the contract shape
-;; the instrumentation test (`re-frame.machine-cascade-instrumentation-cljs-test`)
-;; pins: a parallel machine, climate region (deep compound, exits :idle →
-;; action @ LCA → 3-level entry descent) + fan region (exit :off → action →
-;; single entry).
-
-(def ^:private hvac-power-cycle-cascade
-  [{:kind :exit   :state [:idle]   :region :climate :action nil :data-delta {}}
-   {:kind :action :state [:idle]   :region :climate :action :enter-running       :data-delta {:trail [:action:power-on]}}
-   {:kind :entry  :state [:running] :region :climate :action :enter-running-level :data-delta {:trail [:action:power-on :entry:running]}}
-   {:kind :entry  :state [:running :conditioning] :region :climate :action :enter-conditioning :data-delta {:trail [:action:power-on :entry:running :entry:conditioning]}}
-   {:kind :entry  :state [:running :conditioning :heating] :region :climate :action :enter-heating :data-delta {:trail [:action:power-on :entry:running :entry:conditioning :entry:heating]}}
-   {:kind :exit   :state [:off]    :region :fan :action nil :data-delta {}}
-   {:kind :action :state [:off]    :region :fan :action :fan-on        :data-delta {:trail [:action:power-on :entry:running :entry:conditioning :entry:heating :action:fan-on]}}
-   {:kind :entry  :state [:on]     :region :fan :action :enter-fan-on  :data-delta {:trail [:action:power-on :entry:running :entry:conditioning :entry:heating :action:fan-on :entry:fan-on]}}])
-
-(deftest transition-cascade-row-threads-structured-cascade-test
-  (testing "the transition row threads the structured `:cascade` verbatim"
-    (is (= [hvac-power-cycle-cascade]
-           (mapv :cascade
-                 (proj/machine-cascade-rows
-                   [(machine-transition-ev :hvac/controller
-                                           {:state {:climate :idle :fan :off} :data {}}
-                                           {:state {:climate [:running :conditioning :heating] :fan :on}
-                                            :data  {}}
-                                           [:hvac/power-cycle] 0 hvac-power-cycle-cascade)]))))))
-
-(deftest cascade-regions-groups-parallel-per-region-test
-  (testing "`cascade-regions` groups the steps per region in first-encounter
-            (declaration) order, so the view renders climate before fan"
-    (is (= [{:region :climate :steps (subvec hvac-power-cycle-cascade 0 5)}
-            {:region :fan     :steps (subvec hvac-power-cycle-cascade 5)}]
-           (proj/cascade-regions hvac-power-cycle-cascade)))))
-
 (deftest cascade-row-label-test
   (testing "`cascade-row-label` renders each kind's verb. The kind pill and
             phase chip already name the kind, so the verb carries no prefix; an
@@ -817,8 +780,7 @@
 ;;
 ;; `proj/side-effects-step` returns ONE flat `:rows` vec in EXECUTION order:
 ;; the synthesised `:db` row first (when present), then `:rf.db/runtime`, then
-;; the `:fx`-vector rows. Each row keeps its own `:status`; the single badge
-;; status is `proj/side-effects-badge-status` (AND-of-rows; SKIPPED neutral).
+;; the `:fx`-vector rows. Each row keeps its own `:status`.
 
 (deftest side-effects-step-conditional-test
   (testing "no side effect at all → the step is OMITTED"
@@ -845,11 +807,9 @@
 
 (deftest side-effects-db-row-noop-test
   (testing "an unchanged-db commit (`:rf.event/db-noop`) still surfaces the :db
-            row, as :noop, so the event visibly ran and committed nothing — and
-            :noop is neutral, never a failure"
-    (let [rows (:rows (proj/side-effects-step [(db-noop-ev)]))]
-      (is (= [{:fx-id :db :status :noop}] rows))
-      (is (= :ok (proj/side-effects-badge-status rows))))))
+            row, as :noop, so the event visibly ran and committed nothing"
+    (is (= [{:fx-id :db :status :noop}]
+           (:rows (proj/side-effects-step [(db-noop-ev)]))))))
 
 (deftest side-effects-per-row-status-test
   (testing "each :fx row carries its own status, read off the trace ops"
@@ -918,15 +878,6 @@
                    [(teb/fx-override-applied-ev :app/other :re-frame.fx/fn-value)
                     (fx-handled-ev :http/post {} 0.1)
                     (fx-handled-ev :app/other {} 0.1)]))))))
-
-(deftest side-effects-badge-and-of-rows-test
-  (testing "the badge is the AND of the present rows: :error iff any row is a
-            real failure, with SKIPPED rows neutral and an attached `:errors`
-            vec counting"
-    (are [rows status] (= status (proj/side-effects-badge-status rows))
-      [{:status :ok} {:status :skipped}]                                     :ok
-      [{:status :ok} {:status :skipped} {:status :error}]                    :error
-      [{:status :ok :errors [{:operation :rf.error/fx-handler-exception}]}]  :error)))
 
 (deftest side-effects-fx-attribution-from-machine-actions-test
   (testing "an fx a machine action emitted carries `:attributed-to` that action"
