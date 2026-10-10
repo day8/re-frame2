@@ -94,7 +94,10 @@
 ;; Styling tokens (inline — the page ships no external stylesheet)
 
 (def ^:private styles
-  {:page    {:min-height "100vh" :margin 0
+  ;; `:page` takes a definite height, not a minimum: the flexed `:chart`
+  ;; area is definite only when its column is, and MachineChart's default
+  ;; `100%` height resolves against that area.
+  {:page    {:height "100vh" :margin 0
              :background "#1a1d23" :color "#e6e8eb"
              :font-family "system-ui, sans-serif"
              :display "flex" :flex-direction "column"}
