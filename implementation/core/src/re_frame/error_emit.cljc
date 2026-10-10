@@ -99,17 +99,22 @@
 
 ;; ---- unowned-error dev console fallback -----------------------------------
 ;;
-;; An UNTOOLED dev build DOES surface a framework refusal. Without this
-;; fallback a captured refusal would reach NO channel at all unless the app
-;; had attached an `:errors` listener: `dispatch` / `dispatch-sync` return
-;; normally (the interceptor chain captures into `:rf/interceptor-error`;
-;; `router/emit-pipeline-exception!` states the reason — "the drain must
-;; not abort"), and nothing is thrown, so nothing would be printed. A
-;; typo'd event id would produce literally nothing.
+;; An UNTOOLED dev build DOES surface a framework refusal, on every host.
+;; Without this fallback a captured refusal would reach NO channel at all
+;; unless the app had attached an `:errors` listener: `dispatch` /
+;; `dispatch-sync` return normally (the interceptor chain captures into
+;; `:rf/interceptor-error`; `router/emit-pipeline-exception!` states the
+;; reason — "the drain must not abort"), `dispatch-sync` returns nil whether
+;; the handler ran or failed, and nothing is thrown. A typo'd event id would
+;; produce literally nothing, at a REPL as much as on a page.
 ;;
 ;; The fallback is deliberately the narrowest thing that closes that gap:
 ;;
-;;   * `console.error`, NOT `js/reportError`. `reportError` reports "in the
+;;   * ONE LINE on the host's error stream. The JVM writes to `*err*`, not
+;;     `System/err`, so an nREPL session's binding catches it — and JVM
+;;     `next-tick` wraps its task in `bound-fn`, so an async `dispatch` from
+;;     a REPL prints into that same session. A JS host uses
+;;     `console.error`, NOT `js/reportError`. `reportError` reports "in the
 ;;     same fashion as an unhandled exception" (HTML Standard) — it
 ;;     dispatches a genuine window `error` event, and
 ;;     `implementation/scripts/run-browser-tests.cjs` treats console output
@@ -169,26 +174,23 @@
 ;;     coexist with an Xray row; the tutorial frames console + Xray
 ;;     as complementary and the duplication is accepted.
 ;;
-;;   * DEV + BROWSER-HOSTED only. `rf.interop/debug-enabled?` (`@define`
-;;     `goog/DEBUG`) is the outer gate, so `:advanced` + `goog.DEBUG=false`
-;;     constant-folds the entire body away — neither the prefix literal nor
-;;     the call path survives into a production artefact. A bare
-;;     `#?(:cljs …)` would be too broad: Node-targeted CLJS and CLJS SSR
-;;     have a console too and stay listener-only, for exactly the reason the
-;;     JVM lane does — those are REPL / test / server lanes where the caller
-;;     observes the dispatch directly and a listener is one line.
-;;     `js/document` presence is
-;;     this repo's DOM-host discriminator (see
-;;     `resources/revalidate_listeners.cljc`).
+;;   * DEV only, on EVERY host. `rf.interop/debug-enabled?` is the outer
+;;     gate: CLJS `:advanced` + `goog.DEBUG=false` constant-folds the entire
+;;     body away — neither the prefix literal nor the call path survives into
+;;     a production artefact — and a JVM started with
+;;     `-Dre-frame.debug=false` prints nothing.
 ;;
-;; The record goes to the console AS A VALUE, with the original
+;; A DOM host passes the record to the console AS A VALUE, with the original
 ;; `:exception` object as its own separate argument when the category
-;; carries one — never a flattened string, so the host's inspector renders
+;; carries one — never a flattened string, so the browser inspector renders
 ;; the structure and the real stack survives. Consequence, accepted rather
 ;; than engineered around: the record's raw `:exception` (the deliberate
-;; advanced-listener contract) also reaches a local dev console.
-;; Per-category ownership, sink discovery, a formatter, deduplication and a
-;; suppression setting are all deliberately absent as premature.
+;; advanced-listener contract) also reaches a local dev console. A non-DOM
+;; JS host (Node, CLJS SSR) passes the line alone, because Node's inspector
+;; renders a CLJS map as its implementation fields; the JVM writes the line
+;; alone, to a text stream. `js/document` presence is this repo's DOM-host
+;; discriminator (see `resources/revalidate_listeners.cljc`). Each unrouted
+;; record prints exactly once; there is no deduplication.
 ;;
 ;; A READABLE LINE LEADS THE RECORD. Passing the record as a value is right —
 ;; but were it the ONLY thing passed, a CLJS map is not a JS object: Chrome
@@ -201,43 +203,72 @@
 ;; of what the error text achieves — and it is the first place a reader looks,
 ;; before any tool is installed (Spec 009).
 ;;
-;; So [[console-summary]] leads with a STRING built from what the record
-;; already carries, and the record + exception follow as their own
-;; arguments. Text first, structure still expandable, nothing lost to
-;; a structured consumer. It composes NO new error prose: every byte of the
-;; line comes from the record or its exception.
+;; So [[console-summary]] composes ONE line, for every host, from what the
+;; record already carries: the category, the sentence the framework already
+;; composed, and the ids that locate the failure — the event or sub id, the
+;; frame and the source coordinate. On a DOM host the record + exception
+;; follow as their own arguments; elsewhere the line is the whole output. It
+;; composes NO new error prose, and no event payload and no record dump reach
+;; a text stream: every byte of the line comes from the record or its
+;; exception.
 ;;
 ;; Everything is try/catch wrapped: observability must never abort the drain.
 
+(declare sub-error-categories)
+
+(defn- summary-locus
+  "The `(event <id>, frame <id>, at <ns>:<line>)` tail of [[console-summary]],
+  or nil when `record` carries none of those slots. The id is labelled `sub`
+  when the record's `:event-id` slot carries a SUB id — a `:rf.error/sub-*`
+  category, or a frame-destroyed record whose `:op` is `:subscribe`."
+  [record]
+  (let [{:keys [error event-id frame source-coord op]} record
+        sub?  (or (contains? sub-error-categories error)
+                  (and (= :rf.error/frame-destroyed error) (= :subscribe op)))
+        coord (when-some [ns (:ns source-coord)]
+                (str ns (when-some [line (:line source-coord)] (str ":" line))))
+        parts (cond-> []
+                (some? event-id) (conj (str (if sub? "sub " "event ") (pr-str event-id)))
+                (some? frame)    (conj (str "frame " (pr-str frame)))
+                (some? coord)    (conj (str "at " coord)))]
+    (when (seq parts)
+      (str "(" (apply str (interpose ", " parts)) ")"))))
+
 (defn- console-summary
-  "The readable line that LEADS the dev console fallback: the
+  "The ONE readable line the dev console fallback prints on every host: the
   category, then the human sentence the framework ALREADY composed — the
   carried exception's `ex-message` when the category throws one, else the
-  record's own `:reason` slot.
+  record's own `:reason` slot — then, where the record carries them, the
+  event or sub id, the frame and the source coordinate:
+
+      :rf.error/no-such-handler (event :todo/toggel, frame :app)
+      :rf.error/handler-exception — kaboom (event :todo/add, frame :app, at app.events:42)
 
   Composes NO new error prose. Every byte comes off the record or its
-  exception; the categories that carry neither (`:rf.error/no-such-handler`
-  and its kin) yield the bare category keyword, which is still the
-  greppable discriminator a reader looks up. Leading with the keyword is
-  deliberate: `:reason` sentences do not carry the bracketed catalogue
-  token — `re-frame.error/throw-error!` appends that when it builds a THROWN
-  message — so without it a `:reason`-only line would name no category at
-  all.
+  exception; the categories that carry neither sentence
+  (`:rf.error/no-such-handler` and its kin) yield the category and the ids,
+  which are the greppable discriminator a reader looks up and the address
+  that says which dispatch failed. Leading with the keyword is deliberate:
+  `:reason` sentences do not carry the bracketed catalogue token —
+  `re-frame.error/throw-error!` appends that when it builds a THROWN message
+  — so without it a `:reason`-only line would name no category at all. No
+  event payload rides the line: it may reach a text stream.
 
   Never throws: `ex-message` is guarded because `:exception` is whatever the
   failing code threw, which need not be an `Error`. Returns a string."
   [record]
-  (let [ex   (:exception record)
-        text (or (when (some? ex)
-                   (try (ex-message ex) (catch #?(:clj Throwable :cljs :default) _ nil)))
-                 (:reason record))]
-    (if (seq text)
-      (str (:error record) " — " text)
-      (str (:error record)))))
+  (let [ex    (:exception record)
+        text  (or (when (some? ex)
+                    (try (ex-message ex) (catch #?(:clj Throwable :cljs :default) _ nil)))
+                  (:reason record))
+        locus (try (summary-locus record) (catch #?(:clj Throwable :cljs :default) _ nil))]
+    (cond-> (str (:error record))
+      (seq text)  (str " — " text)
+      (some? locus) (str " " locus))))
 
 (defn- report-unowned-error!
-  "Print `record` to the browser console when NOTHING ROUTED IT. Dev builds
-  only, browser hosts only, and only when neither ownership arm holds — see
+  "Print `record` to the host's error stream when NOTHING ROUTED IT. Dev
+  builds only, every host, and only when neither ownership arm holds — see
   §Unowned-error dev console fallback above for why each condition is
   load-bearing.
 
@@ -250,31 +281,40 @@
   channel. Arm (a), an `:errors` listener being registered at all, is read
   here off `listeners`.
 
-  Arguments are `[\"[re-frame2]\" <summary-line> <record>]`, plus the
-  original `<exception>` when the category carries one. The summary leads so
-  a reader sees TEXT first; the record and exception still ride as
-  their own arguments, so the host inspector renders the structure and the
-  real stack survives untouched.
+  The JVM writes `[re-frame2] <summary-line>` to `*err*` and flushes it. A
+  non-DOM JS host (Node, CLJS SSR) calls `console.error` with
+  `[\"[re-frame2]\" <summary-line>]`. A DOM host calls it with
+  `[\"[re-frame2]\" <summary-line> <record>]`, plus the original
+  `<exception>` when the category carries one: the summary leads so a reader
+  sees TEXT first, and the record and exception ride as their own arguments,
+  so the browser inspector renders the structure and the real stack survives
+  untouched.
 
-  A no-op on the JVM, on Node-targeted CLJS (and CLJS SSR), and in any
-  `goog.DEBUG=false` build, where the whole body constant-folds away.
-  Never throws. Returns nil."
+  A no-op when either ownership arm holds, and in any production build — CLJS
+  `goog.DEBUG=false` constant-folds the whole body away, and the JVM gate
+  reads `-Dre-frame.debug=false`. Never throws. Returns nil."
   [record routed]
-  #?(:clj nil
-     :cljs
-     (when rf.interop/debug-enabled?
-       (try
-         (when (and (empty? @listeners)
-                    (zero? routed)
-                    (exists? js/document)
-                    (exists? js/console)
-                    (fn? (.-error js/console)))
-           (let [summary (console-summary record)]
-             (if-some [ex (:exception record)]
-               (.error js/console "[re-frame2]" summary record ex)
-               (.error js/console "[re-frame2]" summary record))))
-         (catch :default _ nil))
-       nil)))
+  (when rf.interop/debug-enabled?
+    (try
+      (when (and (empty? @listeners)
+                 (zero? routed))
+        (let [summary (console-summary record)]
+          #?(:clj  (binding [*out* *err*]
+                     (println "[re-frame2]" summary)
+                     (flush))
+             :cljs (when (and (exists? js/console)
+                              (fn? (.-error js/console)))
+                     (cond
+                       (not (exists? js/document))
+                       (.error js/console "[re-frame2]" summary)
+
+                       (some? (:exception record))
+                       (.error js/console "[re-frame2]" summary record (:exception record))
+
+                       :else
+                       (.error js/console "[re-frame2]" summary record))))))
+      (catch #?(:clj Throwable :cljs :default) _ nil))
+    nil))
 
 ;; ---- kind-aware source-coord lookup --------------------------------------
 ;;

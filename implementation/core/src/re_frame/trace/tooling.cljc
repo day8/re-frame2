@@ -982,6 +982,55 @@
   #?(:clj  (.remove ^ThreadLocal deferred-drain-fanout)
      :cljs (vreset! deferred-drain-fanout-cljs nil)))
 
+;; ---- unobserved no-silent-swallow warnings --------------------------------
+;;
+;; A `:rf.warning/*` travels the trace axis only, so with no trace listener it
+;; reaches nobody — and a boot-time one (`configure!`, a registration) carries
+;; no dispatch id, so no ring retains it either. For the warnings that report a
+;; recognised input the runtime could not honour, that silence is exactly what
+;; Conventions §No silent swallow forbids. So in a dev build, on every host, an
+;; event in [[unobserved-warning-ops]] that a fan-out delivers to an EMPTY
+;; listener snapshot prints one line: `*err*` on the JVM, `console.warn` on a
+;; JS host. Any trace listener — Xray, Story, or one
+;; `(rf/register-listener! :trace ::id f)` — receives the warning instead and
+;; the line stands down. Every other warning stays trace-only.
+
+(def ^:private unobserved-warning-ops
+  "The `:rf.warning/*` ids that print when no trace listener receives them.
+  Defined by the per-surface table in Conventions §No silent swallow: each is
+  a recognised input the runtime could not honour, and a warning joins this
+  set in the same change that gives it a row there."
+  #{:rf.warning/unknown-dispatch-opt
+    :rf.warning/unknown-configure-key
+    :rf.warning/unknown-registration-key
+    :rf.warning/failure-swallowed
+    :rf.warning/resource-load-more-owner-ignored
+    :rf.warning/trace-buffer-unrecognised-opts
+    :rf.warning/schema-validator-unavailable
+    :rf.warning/can-leave-subs-artefact-missing})
+
+(defn- print-unobserved-warning!
+  "Print `[re-frame2] <op> — <:reason, else :hint>` when `event`'s
+  `:operation` is in [[unobserved-warning-ops]]. The caller has already
+  established that the listener snapshot this event is delivered under is
+  empty. Dev builds only; never throws. Returns nil."
+  [event]
+  (when rf.interop/debug-enabled?
+    (try
+      (let [op (:operation event)]
+        (when (contains? unobserved-warning-ops op)
+          (let [text (or (get-in event [:tags :reason])
+                         (get-in event [:tags :hint]))
+                line (if (some? text) (str op " — " text) (str op))]
+            #?(:clj  (binding [*out* *err*]
+                       (println "[re-frame2]" line)
+                       (flush))
+               :cljs (when (and (exists? js/console)
+                                (fn? (.-warn js/console)))
+                       (.warn js/console "[re-frame2]" line))))))
+      (catch #?(:clj Throwable :cljs :default) _ nil))
+    nil))
+
 (defn- drive-fanout!
   "Drive the shared fan-out schedule `ctx` to completion: deliver every queued
   event to every registered listener, FIFO across events and in registration
@@ -1012,10 +1061,15 @@
           ;; into a paused outer schedule reaches exactly the listeners an inline
           ;; delivery would have. A plain pair re-snapshots live, as a reentrant
           ;; listener-body emit always does.
-          (let [qelem (nth @q @head)]
-            (vreset! entries (if (> (count qelem) 2)
-                               (nth qelem 2)
-                               (vec (seq @listeners))))
+          (let [qelem    (nth @q @head)
+                snapshot (if (> (count qelem) 2)
+                           (nth qelem 2)
+                           (vec (seq @listeners)))]
+            ;; The unobserved-warning print reads THIS snapshot, so "printed"
+            ;; and "no listener received it" always agree.
+            (when (empty? snapshot)
+              (print-unobserved-warning! (nth qelem 0)))
+            (vreset! entries snapshot)
             (vreset! lcursor 0)))
         (let [[event continue?] (nth @q @head)
               es                @entries]

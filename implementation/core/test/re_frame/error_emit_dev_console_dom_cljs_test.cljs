@@ -3,18 +3,25 @@
 
   When NOTHING ROUTED a refusal record — no `:errors` listener registered
   (corpus-wide), and the record's own frame delivered it to no REGISTERED
-  `:observability :errors` sink (frame-scoped) — a browser-hosted dev build
-  prints it once as `[\"[re-frame2]\" <summary> <record> <exception>]`: a
-  readable summary line (the category, then the exception's message, else the
-  record's `:reason`), the record as a value, and the original exception when
-  the category carries one. Never `reportError`: the browser test runner fails
-  a run on any `pageerror`, and suites elsewhere exercise refusals on purpose.
+  `:observability :errors` sink (frame-scoped) — a dev build prints it once
+  with `console.error`. A DOM host passes
+  `[\"[re-frame2]\" <summary> <record> <exception>]`: a readable summary line
+  (the category, then the exception's message, else the record's `:reason`,
+  then the event or sub id, frame and source coordinate), the record as a
+  value, and the original exception when the category carries one. A non-DOM
+  host passes `[\"[re-frame2]\" <summary>]` alone. Never `reportError`: the
+  browser test runner fails a run on any `pageerror`, and suites elsewhere
+  exercise refusals on purpose.
 
-  The `-dom-cljs-test` suffix puts this namespace on `:browser-test`, where the
-  fallback is live, and the broader `cljs-test$` regexp also puts it on
-  `:node-test`, which has a `console` but no DOM and must stay silent. So every
-  browser-only row reports a stated skip under Node, and
-  `node-targeted-cljs-stays-quiet` is the mirror image."
+  A no-silent-swallow warning delivered while no `:trace` listener is
+  registered prints `[\"[re-frame2]\" <op — reason>]` with `console.warn`, on
+  every host.
+
+  The `-dom-cljs-test` suffix puts this namespace on `:browser-test`, and the
+  broader `cljs-test$` regexp also puts it on `:node-test`, which has a
+  `console` but no DOM. So every row asserting the DOM argument shape reports
+  a stated skip under Node, and `node-targeted-cljs-prints-the-line-alone` is
+  the mirror image."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
@@ -99,7 +106,7 @@
           (is (zero? report-error))))
 
       (testing "an unregistered event id carries no exception and no :reason: three
-                arguments, and the summary is the bare category"
+                arguments, and the summary is the category and the ids"
         (let [{:keys [console]}
               (capture-console #(rf/dispatch-sync [:fu75.console/nothing-here]))]
           (is (= 1 (count console)))
@@ -107,7 +114,8 @@
             (is (= 3 (count args))
                 (str "prefix + summary + record; got " (count args) " arguments"))
             (is (= "[re-frame2]" (first args)))
-            (is (= ":rf.error/no-such-handler" (second args))
+            (is (= ":rf.error/no-such-handler (event :fu75.console/nothing-here, frame :rf/default)"
+                   (second args))
                 (str "never an empty string, never invented prose; got "
                      (pr-str (second args))))
             (is (= :rf.error/no-such-handler (:error (nth args 2))))))))))
@@ -344,18 +352,58 @@
           (rf.error-emit/unregister-error-listener! :fu75/rollback-owner))))))
 
 ;; ===========================================================================
-;; Host boundary — Node-targeted CLJS stays listener-only
+;; Host boundary — a non-DOM host prints the line alone
 ;; ===========================================================================
 
-(deftest node-targeted-cljs-stays-quiet
+(deftest node-targeted-cljs-prints-the-line-alone
   (if (browser?)
     (is true "skipped: DOM host present (browser lane — see ns docstring)")
-    (testing "same refusal, same empty registry, no DOM host: no console output
-              and no reportError — the fallback is a browser-development
-              diagnostic, not a generic CLJS print"
+    (testing "same refusal, same empty registry, no DOM host: one console.error
+              carrying the prefix and the summary line, no record, no
+              reportError"
       (register-refusal-handlers!)
       (let [{:keys [console report-error]}
             (capture-console #(rf/dispatch-sync [:fu75.console/throws]))]
-        (is (empty? console)
-            (str "no console output off a DOM host; got " (pr-str console)))
+        (is (= 1 (count console))
+            (str "exactly one console.error for one refusal; got " (pr-str console)))
+        (let [[prefix summary :as args] (first console)]
+          (is (= 2 (count args))
+              (str "prefix + summary only; got " (count args) " arguments"))
+          (is (= "[re-frame2]" prefix))
+          (is (re-find #"^:rf\.error/handler-exception — kaboom \(event :fu75\.console/throws, frame :rf/default" summary)
+              (str "the category, the message and the ids; got " (pr-str summary))))
         (is (zero? report-error))))))
+
+;; ===========================================================================
+;; No-silent-swallow warnings — every host, while no :trace listener exists
+;; ===========================================================================
+
+(defn- capture-console-warn
+  "Run `thunk` with `console.warn` swapped for a recorder, restoring it.
+  Returns the ARGUMENTS of each call."
+  [thunk]
+  (let [calls     (atom [])
+        orig-warn (.-warn js/console)]
+    (set! (.-warn js/console)
+          (fn [& args] (swap! calls conj (vec args)) nil))
+    (try
+      (thunk)
+      (finally
+        (set! (.-warn js/console) orig-warn)))
+    @calls))
+
+(deftest an-unobserved-no-silent-swallow-warning-prints-one-line
+  (testing "a misspelt configure! key with no :trace listener: one console.warn"
+    (let [calls (capture-console-warn #(rf/configure! {:epoch-histroy {:depth 5}}))]
+      (is (= 1 (count calls))
+          (str "exactly one console.warn; got " (pr-str calls)))
+      (let [[prefix line :as args] (first calls)]
+        (is (= 2 (count args)))
+        (is (= "[re-frame2]" prefix))
+        (is (re-find #"^:rf\.warning/unknown-configure-key — .*:epoch-histroy" line)
+            (str "the op, then the warning's own :reason; got " (pr-str line))))))
+  (testing "a :trace listener receives it instead, and the line stands down"
+    (rf/register-listener! :trace ::seen (fn [_] nil))
+    (let [calls (capture-console-warn #(rf/configure! {:epoch-histroy {:depth 5}}))]
+      (rf/unregister-listener! :trace ::seen)
+      (is (empty? calls) (str "nothing printed; got " (pr-str calls))))))

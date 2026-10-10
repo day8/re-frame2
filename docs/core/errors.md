@@ -65,11 +65,17 @@ release bundle. Errors that must reach a monitor in production go through a sepa
 always-on channel with a smaller record; see
 [Errors in production](#errors-in-production).
 
-Xray shows every record. A development build in the browser also prints each error
-that no `:errors` sink handled, with `console.error`: `[re-frame2]`, the category and
-its reason, then the record. Warnings are never printed; read them
-in Xray or with a `:trace` listener ([Observability](observability.md)). On the JVM
-and Node nothing is printed.
+Xray shows every record. A development build also prints each error that no `:errors`
+sink handled, on every host: one line of `[re-frame2]`, the category, its reason, and
+the event or sub id, frame and source location it carries, for example
+`[re-frame2] :rf.error/no-such-handler (event :todo/toggel, frame :app)`. The browser
+prints it with `console.error`, followed by the record; Node prints the line with
+`console.error`, and the JVM writes it to `*err*`. Warnings are read in Xray or with
+a `:trace` listener ([Observability](observability.md)). The exception is a warning
+that an input was recognised but could not be honoured, such as a misspelt
+`rf/configure!` key or dispatch opt: while no `:trace` listener is registered, a
+development build prints it as one `[re-frame2]` line too, with `console.warn` or to
+`*err*`.
 
 ## Categories
 
@@ -422,7 +428,8 @@ registration (`:app-db` and `:machine-data` rejections, and
 `:machine-id` and `:phase`) and a `:reason`. A failure that only skips one fx or
 replaces a sub with `nil` stays on the trace, because nothing was discarded.
 
-While no sink handles these records they are printed to the console. An empty page
+While no sink handles these records they are printed: to the console in a browser
+or on Node, to `*err*` on the JVM. An empty page
 with red `[re-frame2] :rf.error/schema-validation-failure … got nil` lines usually
 means a schema registered as non-nilable over a slot nothing has written yet: every
 transaction is rejected, so nothing ever installs. Register the path as nilable, or
