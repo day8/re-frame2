@@ -8,16 +8,22 @@
  *
  *   1. The default counter bundle (`:examples/counter` — `:advanced`,
  *      `re-frame.performance/enabled? false` — the implicit goog-define
- *      default) does NOT contain `performance.mark` / `performance.measure`
- *      strings or the `re-frame.performance` namespace fragment. This is
- *      the bundle-isolation proof: shipped binaries with the perf flag
- *      off carry zero User-Timing instrumentation.
+ *      default) does NOT contain the `performance.measure` /
+ *      `clearMeasures` / `"rf:` sentinels or the `re-frame.performance`
+ *      namespace fragment. This is the bundle-isolation proof: shipped
+ *      binaries with the perf flag off carry zero User-Timing
+ *      instrumentation.
  *
  *   2. The perf-on counter bundle (`:examples/counter-perf` — `:advanced`,
- *      `re-frame.performance/enabled? true`) DOES contain those strings.
+ *      `re-frame.performance/enabled? true`) DOES contain those sentinels.
  *      Without the perf-on bundle, the bundle-isolation assertion would
  *      be vacuous: a refactor that *moved* the strings would silently
  *      turn the negative grep into a false pass.
+ *
+ *   3. NEITHER bundle contains `performance.mark`. The bracket allocates
+ *      no marks (options-bag measure with numeric timestamps), so a mark
+ *      in either bundle breaks the contract. It is checked apart from the
+ *      sentinels, whose presence the perf-on bundle has to prove.
  *
  * Strategy: grep, not parse. The closure compiler may rename symbols
  * but does not rewrite string literals. Matching `performance.measure`
@@ -25,10 +31,6 @@
  * survived; matching `clearMeasures` proves the per-emit buffer clear
  * survived (it keeps the measure buffer from growing); matching the bracketed entry-name
  * shape `rf:` proves the helper's name-building survived too.
- *
- * Note: `performance.mark` is intentionally NOT a sentinel — the bracket
- * allocates no marks (options-bag measure with numeric
- * timestamps), so it must be ABSENT from BOTH bundles.
  *
  * Exit 0 on PASS, 1 on FAIL.
  */
@@ -65,6 +67,14 @@ const PERF_SENTINELS = [
     sentinel: '"rf:' },
 ];
 
+// ABSENT from BOTH bundles, whatever the flag: the bracket allocates no marks,
+// so this can never be a PERF_SENTINELS entry, which the perf-on bundle must
+// carry.
+const ALWAYS_ABSENT = [
+  { source: 're-frame.performance/mark-and-measure (allocates no marks)',
+    sentinel: 'performance.mark' },
+];
+
 // ----- helpers ---------------------------------------------------------------
 
 // Bundle reading is shared with the sibling check-* scripts via
@@ -91,19 +101,23 @@ function checkBundle(label, bundlePath, mustContain) {
   report.detail(`[perf-bundle] ${label}: ${bundlePath}`);
   report.detail(`              bundle size: ${blob.length} chars`);
 
-  const { ok, passed } = assertSentinelSet(blob, PERF_SENTINELS, {
-    mustContain,
+  const scan = (sentinels, expectPresent) => assertSentinelSet(blob, sentinels, {
+    mustContain: expectPresent,
     emit: (line) => report.detail(line),
     formatLine: ({ source, sentinel, present, tag }) => {
-      const expected = mustContain ? 'PRESENT' : 'ABSENT';
-      const actual   = present     ? 'PRESENT' : 'ABSENT';
+      const expected = expectPresent ? 'PRESENT' : 'ABSENT';
+      const actual   = present       ? 'PRESENT' : 'ABSENT';
       return `              [${tag}] ${source}: sentinel ${JSON.stringify(sentinel)} expected ${expected}, was ${actual}`;
     },
   });
+  const sentinels = scan(PERF_SENTINELS, mustContain);
+  const marks = scan(ALWAYS_ABSENT, false);
   return {
-    ok,
-    checked: PERF_SENTINELS.length,
-    passed,
+    ok: sentinels.ok && marks.ok,
+    sentinelsOk: sentinels.ok,
+    marksOk: marks.ok,
+    checked: PERF_SENTINELS.length + ALWAYS_ABSENT.length,
+    passed: sentinels.passed + marks.passed,
     bytes: blob.length,
     bundlePath,
     missing: false,
@@ -168,17 +182,22 @@ function main() {
   } else {
     report.flushDetails();
     console.error('=== FAIL ===');
-    if (!off.ok || offCount !== 0) {
+    if (!off.sentinelsOk || offCount !== 0) {
       console.error('Perf-off bundle isolation broke: a Performance API call');
       console.error('site or the re-frame.performance ns survived advanced');
       console.error('compilation with re-frame.performance/enabled?=false.');
       console.error('Per Spec 009 §Performance instrumentation, the bracket');
       console.error('site must collapse to (f) so DCE removes the gated body.');
     }
-    if (!on.ok || !(onCount > 0)) {
+    if (!on.sentinelsOk || !(onCount > 0)) {
       console.error('Perf-on bundle missing expected sentinels — the grep');
       console.error('test would be vacuous. The helper or its call sites');
       console.error('may have been refactored without updating sentinels.');
+    }
+    if (off.marksOk === false || on.marksOk === false) {
+      console.error('performance.mark reached a bundle. Per Spec 009');
+      console.error('§Performance instrumentation the bracket allocates no');
+      console.error('marks, so it must be absent from BOTH bundles.');
     }
     process.exit(1);
   }
