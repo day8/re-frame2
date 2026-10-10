@@ -784,18 +784,17 @@
   The write trigger for the settle. The flow pass is the
   router's outermost `:after`, so it has already run when the walk starts;
   any effect that writes app-db or runtime-db DURING the walk — the machine
-  lifecycle effects `:rf.machine/update-snapshot` / `:rf.machine/destroy` /
-  `:rf.machine/spawn`, a resource write, a user fx calling
-  `re-frame.frame/swap-runtime-db!` — lands after it. A flow over a machine
-  snapshot, Spec 013's own example input, would otherwise publish the pre-write
-  value, and a continuation the same handler queued would read it. Keyed on
-  the container rather than on a list of writers because a list is easy to
-  leave incomplete — spawn is as much a writer as update-snapshot and destroy.
+  lifecycle effects `:rf.machine/destroy` / `:rf.machine/spawn`, a resource
+  write, a user fx calling `re-frame.frame/swap-runtime-db!` — lands after it.
+  A flow over a machine snapshot, Spec 013's own example input, would
+  otherwise publish the pre-write value, and a continuation the same handler
+  queued would read it. Keyed on the container rather than on a list of
+  writers because a list is easy to leave incomplete — any user fx can write.
 
   The flows guard is what keeps this free where it does not apply. Without it
   every writing walk on a flow-free frame (or in an app without the flows
   artefact, where the hook is unbound) would enqueue a settle that recomputes
-  nothing — 50 `update-snapshot` dispatches would become 100 events. The
+  nothing — 50 dispatches whose `:fx` spawn an actor would become 100 events. The
   hook is read only once the container has actually changed.
 
   A dry run never gets here with a change: `*effect-sink*` executes no entry,

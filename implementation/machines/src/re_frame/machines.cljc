@@ -49,7 +49,6 @@
             [re-frame.machines.lifecycle-fx.registration :as rf.machines.lifecycle-fx.registration]
             [re-frame.machines.lifecycle-fx.resolver :as rf.machines.lifecycle-fx.resolver]
             [re-frame.machines.lifecycle-fx.spawn :as rf.machines.lifecycle-fx.spawn]
-            [re-frame.machines.lifecycle-fx.update-snapshot :as rf.machines.lifecycle-fx.update-snapshot]
             [re-frame.machines.lifecycle-fx.validation :as rf.machines.lifecycle-fx.validation]
             [re-frame.machines.parallel :as rf.machines.parallel]
             [re-frame.machines.paths :as rf.machines.paths]
@@ -85,10 +84,6 @@
 ;; validates a spawned actor's initial `:data` before install.
 (def validate-machine-data! rf.machines.data-validation/validate-machine-data!)
 (def validate-spawn-data!   rf.machines.data-validation/validate-spawn-data!)
-;; The `:rf.machine/update-snapshot` escape-hatch sibling validates the
-;; would-be-merged snapshot's `:data` BEFORE the fx writes it, so the
-;; `[:schemas :data]` boundary covers the escape hatch too.
-(def validate-update-snapshot-data! rf.machines.data-validation/validate-update-snapshot-data!)
 ;; The pure registration-time validator (Spec 005 §registration validators).
 ;; Re-exported so the conformance corpus's `:reg-machine` Mode-B call op can
 ;; pin the registration-error taxonomy (Spec 009 §thrown-error shape)
@@ -285,10 +280,6 @@
       (rf.machines.hydrate/rearm-after-timers! frame-id))
     nil))
 
-(rf.fx/reg-fx :rf.machine/update-snapshot
-  {:doc "Snapshot-level escape hatch. Emit `[:rf.machine/update-snapshot {:rf/machine-id <id> :rf/patch {:data {...}}}]` from a callback's `:fx` vector to touch `:state` / `:meta` / `:data` atomically. Per Spec 005 §Snapshot-level escape hatch."}
-  rf.machines.lifecycle-fx.update-snapshot/update-snapshot-fx)
-
 ;; ---- framework-shipped subs -----------------------------------------------
 ;;
 ;; Per Spec 005 §Subscribing to machines via the :rf/machine sub: the
@@ -347,7 +338,6 @@
            [:fx  :rf.machine/spawn-all-init]
            [:fx  :rf.machine/after-schedule]
            [:fx  :rf.machine/after-cancel]
-           [:fx  :rf.machine/update-snapshot]
            [:sub :rf/machine]
            [:sub :rf.machine/has-tag?]])))
 
@@ -527,7 +517,6 @@
 (rf.late-bind/set-fn! :machines/spawn-all-init-fx      spawn-all-init-fx)
 (rf.late-bind/set-fn! :machines/after-schedule-fx      after-schedule-fx)
 (rf.late-bind/set-fn! :machines/after-cancel-fx        after-cancel-fx)
-(rf.late-bind/set-fn! :machines/update-snapshot-fx     rf.machines.lifecycle-fx.update-snapshot/update-snapshot-fx)
 
 ;; Load-order resilience for the `:rf.http/managed` machine-shape wrapper.
 ;; The wrapper is registered by re-frame.http.managed via the

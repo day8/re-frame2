@@ -3,9 +3,8 @@
   incarnation. A schema validator is application code: it can destroy the
   frame incarnation A that owns the in-flight event and publish a same-id
   successor B before it returns. Nothing A-derived — the spawn install and
-  its bookkeeping, traces and `:start` dispatch, an escape-hatch
-  `:rf.machine/update-snapshot` write, or a schema-failure diagnostic — may
-  then land on B. The destroyer runs on the callback's own stack, so every
+  its bookkeeping, traces and `:start` dispatch, or a schema-failure
+  diagnostic — may then land on B. The destroyer runs on the callback's own stack, so every
   fixture is deterministic and single-threaded."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -14,7 +13,6 @@
             [re-frame.machines :as rf.machines]
             [re-frame.machines.data-validation :as rf.machines.data-validation]
             [re-frame.machines.lifecycle-fx.spawn :as rf.machines.lifecycle-fx.spawn]
-            [re-frame.machines.lifecycle-fx.update-snapshot :as rf.machines.lifecycle-fx.update-snapshot]
             [re-frame.machines.spawn-order :as rf.machines.spawn-order]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
@@ -112,96 +110,6 @@
                 :spawn-traces [] :fail-traces [] :dispatches []}
                (dissoc r :b-birth))
             (str frame-a))))))
-
-;; ---- update-snapshot escape-hatch fence -----------------------------------
-
-(deftest update-snapshot-validator-fences-write-to-successor
-  (testing "an escape-hatch schema validator that destroys A and publishes
-            same-id B (with a sentinel snapshot): A's patch never merges onto B"
-    (rf/reg-machine :rf2-vxgfnd153/sing
-      {:initial :running
-       :data    {:v :a-init}
-       :schemas {:data ::sing-schema}
-       :states  {:running {:on {:go :done}}
-                 :done    {:final? true}}})
-    (let [frame-a :rf2-vxgfnd153/us-frame
-          fired?  (atom false)
-          orig    (rf.late-bind/get-fn :schemas/validate-with-registered-fn)]
-      (rf/make-frame {:id frame-a})
-      (let [token-a (rf.frame/frame-incarnation-token frame-a)]
-        (rf.frame/swap-runtime-db! frame-a
-          (fn [rt] (assoc-in rt [:rf.runtime/machines :snapshots :rf2-vxgfnd153/sing]
-                             {:state :running :data {:v :a-init}})))
-        (try
-          (rf.late-bind/set-fn! :schemas/validate-with-registered-fn
-            (fn [schema _data]
-              (when (and (= schema ::sing-schema)
-                         (compare-and-set! fired? false true))
-                (rf.frame/destroy-frame! frame-a)
-                (rf/make-frame {:id frame-a})
-                (rf.frame/swap-runtime-db! frame-a
-                  (fn [rt] (assoc-in rt [:rf.runtime/machines :snapshots :rf2-vxgfnd153/sing]
-                                     {:state :running :data {:v :b-sentinel}}))))
-              true))
-          (rf.frame/call-with-event-owner-token frame-a token-a
-            (fn [] (rf.machines.lifecycle-fx.update-snapshot/update-snapshot-fx
-                     {:frame frame-a}
-                     {:rf/machine-id :rf2-vxgfnd153/sing
-                      :rf/patch      {:data {:v :patched}}})))
-          ;; Only the destroyer writes the sentinel, so this also proves it ran.
-          (is (= {:v :b-sentinel}
-                 (:data (rf.machines.test-support/snapshot frame-a :rf2-vxgfnd153/sing))))
-          (finally
-            (rf.late-bind/set-fn! :schemas/validate-with-registered-fn orig)))))))
-
-(deftest update-snapshot-db-trace-listener-fences-write-to-successor
-  (testing "a `:db` key in the patch fires the :rf.error/machine-action-wrote-db
-            trace BEFORE the validator runs; a :trace listener on it that
-            destroys A and publishes same-id B leaves B's snapshot and commit
-            epoch untouched. Once A is lost the would-reject validator is never
-            consulted, so only the post-trace fence blocks the write."
-    (rf/reg-machine :rf2-vxgfnd22/sing
-      {:initial :running
-       :data    {:v :a-init}
-       :schemas {:data ::db-trace-schema}
-       :states  {:running {:on {:go :done}}
-                 :done    {:final? true}}})
-    (let [frame-a :rf2-vxgfnd22/dbtrace-frame
-          fired?  (atom false)
-          b-epoch (atom ::unset)
-          orig    (rf.late-bind/get-fn :schemas/validate-with-registered-fn)]
-      (rf/make-frame {:id frame-a})
-      (let [token-a (rf.frame/frame-incarnation-token frame-a)]
-        (rf.frame/swap-runtime-db! frame-a
-          (fn [rt] (assoc-in rt [:rf.runtime/machines :snapshots :rf2-vxgfnd22/sing]
-                             {:state :running :data {:v :a-init}})))
-        (rf/register-listener! :trace ::db-trace-destroyer
-          (fn [ev]
-            (when (and (= :rf.error/machine-action-wrote-db (:operation ev))
-                       (compare-and-set! fired? false true))
-              (rf.frame/destroy-frame! frame-a)
-              (rf/make-frame {:id frame-a})
-              (rf.frame/swap-runtime-db! frame-a
-                (fn [rt] (assoc-in rt [:rf.runtime/machines :snapshots :rf2-vxgfnd22/sing]
-                                   {:state :running :data {:v :b-sentinel}})))
-              (reset! b-epoch (rf.frame/frame-commit-epoch frame-a)))))
-        (try
-          ;; A REJECTING validator for this machine's schema.
-          (rf.late-bind/set-fn! :schemas/validate-with-registered-fn
-            (fn [schema _data] (not= schema ::db-trace-schema)))
-          (rf.frame/call-with-event-owner-token frame-a token-a
-            (fn [] (rf.machines.lifecycle-fx.update-snapshot/update-snapshot-fx
-                     {:frame frame-a}
-                     {:rf/machine-id :rf2-vxgfnd22/sing
-                      :rf/patch      {:db   {:naughty :write}
-                                      :data {:v :patched}}})))
-          (is (= [{:v :b-sentinel} @b-epoch]
-                 [(:data (rf.machines.test-support/snapshot frame-a :rf2-vxgfnd22/sing))
-                  (rf.frame/frame-commit-epoch frame-a)])
-              "B's snapshot :data and commit epoch are untouched by A's patch")
-          (finally
-            (rf/unregister-listener! :trace ::db-trace-destroyer)
-            (rf.late-bind/set-fn! :schemas/validate-with-registered-fn orig)))))))
 
 ;; ---- completion-output finalize diagnostic fence --------------------------
 

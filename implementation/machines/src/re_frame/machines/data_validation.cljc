@@ -70,15 +70,12 @@
 
 ;; Phases whose rejection is LOCAL (a single skipped write, not a rejected
 ;; event transaction) — `:rollback? false`. `:spawn` is the spawn-install
-;; pre-check; `:update-snapshot` is the snapshot-level escape-hatch
-;; pre-write check — the fx merges the patch onto the live snapshot, so the
-;; validator runs against the would-be-merged snapshot and the fx skips the
-;; `swap-runtime-db!` write on failure. `:macrostep` / `:bootstrap`
-;; validate the CANDIDATE frame transition at the router's commit boundary
-;; (before install), so a `false` rejects the WHOLE event
+;; pre-check: the spawn fx skips the install on failure. `:macrostep` /
+;; `:bootstrap` validate the CANDIDATE frame transition at the router's
+;; commit boundary (before install), so a `false` rejects the WHOLE event
 ;; transaction (`:rollback? true` — the public transaction-REJECTED
 ;; vocabulary).
-(def ^:private local-skip-phases #{:spawn :update-snapshot})
+(def ^:private local-skip-phases #{:spawn})
 
 ;; ---- exact-frame-incarnation continuation ---------------------------------
 ;;
@@ -110,7 +107,7 @@
 
 (defn- current-owner-continuation
   "Like `owner-continuation` but derives the frame from the event-owner
-  binding itself — for validators (`validate-update-snapshot-data!`,
+  binding itself — for validators (`validate-spawn-data!`'s 3-arity,
   `validate-completion-output!`) that don't carry the frame-id explicitly:
   they run inside the owning event's fx drain / finalize cascade, so the
   dequeue-time event owner IS their frame."
@@ -146,8 +143,7 @@
 
   Every caller of `emit-failure!` sits inside a
   `(when rf.interop/debug-enabled? …)` gate (`validate-machine-data!`,
-  `validate-spawn-data!`, `validate-update-snapshot-data!`,
-  `validate-completion-output!`), so `:advanced` + `goog.DEBUG=false` carries
+  `validate-spawn-data!`, `validate-completion-output!`), so `:advanced` + `goog.DEBUG=false` carries
   neither this call nor the reason string's literals — `check-elision.cjs`
   pins the reason's distinctive tail ABSENT from a release bundle, and the
   `^:prod-gate` deftest pins zero records under `-Dre-frame.debug=false`.
@@ -199,8 +195,8 @@
 (defn- emit-failure!
   "Emit `:rf.error/schema-validation-failure` at a machine schema boundary
   (`:where :machine-data` or `:where :machine-output`). `where` names the
-  boundary; `phase` is one of `:macrostep` / `:spawn` / `:bootstrap` /
-  `:update-snapshot` (machine-data) or `:completion` (machine-output) —
+  boundary; `phase` is one of `:macrostep` / `:spawn` / `:bootstrap`
+  (machine-data) or `:completion` (machine-output) —
   surfaces the lifecycle position to operators; `value` is the failing value
   (the `:data` map / the completion-output payload); `reason` is the
   one-sentence diagnostic. `frame-id` names the frame whose candidate
@@ -212,16 +208,15 @@
     :where           :machine-data / :machine-output
     :failing-id      <machine-id>           — uniform error-emit alias
     :machine-id      <machine-id>           — domain-specific synonym
-    :phase           :macrostep / :spawn / :bootstrap / :update-snapshot
-                     / :completion
+    :phase           :macrostep / :spawn / :bootstrap / :completion
     :value           the failing value (:data map / output payload)
     :received        the failing value (parallels validate-app-schema!)
     :schema          the registered schema (verbatim)
     :explain         the registered explainer's output (or nil)
     :rollback?       true (macrostep / bootstrap — the whole candidate
                      transaction is REJECTED pre-install) /
-                     false (spawn / update-snapshot — a local skipped
-                     write; completion — the machine already finished)
+                     false (spawn — a local skipped install;
+                     completion — the machine already finished)
     :recovery        :no-recovery
     :reason          one-sentence diagnostic
 
@@ -305,9 +300,6 @@
       REJECTS the whole candidate pre-install on a false return).
     - `:phase :spawn` → rollback? false (the snapshot has not yet
       installed; the spawn-fx caller skips the install on false).
-    - `:phase :update-snapshot` → rollback? false (the escape-hatch fx
-      validates the would-be-merged snapshot and skips the
-      `swap-runtime-db!` write on false; nothing was committed).
 
   `frame-id` (the 6-arity) names the frame whose CANDIDATE transition carries
   this snapshot. It never rides the trace, and
@@ -316,7 +308,7 @@
   walker (`validate-machine-data!`) passes the frame the ROUTER handed it,
   which is the authoritative one; the shorter arities derive it from the
   router's dequeue-time event-owner binding, which is the same frame on the
-  spawn / escape-hatch fx paths and nil for a direct call outside any event."
+  spawn fx path and nil for a direct call outside any event."
   ([machine-id snapshot schema phase]
    (validate-snapshot-data! machine-id snapshot schema phase (constantly true)))
   ([machine-id snapshot schema phase continue?]
@@ -346,7 +338,7 @@
 
 (defn- resolve-data-schema
   "Resolve the `[:schemas :data]` schema for `machine-id` whose live snapshot
-  is `snapshot` (the would-be-merged / freshly-committed value). A SINGLETON
+  is `snapshot` (the candidate / freshly-committed value). A SINGLETON
   resolves through the registered event handler (`:machines/machine-meta`);
   a SPAWNED actor has NO per-instance handler — its TYPE rides the snapshot's
   `:rf/machine-type` reserved slot, so it resolves through
@@ -495,55 +487,6 @@
                                 :spawn continue?)
        true)
      true)))
-
-(defn validate-update-snapshot-data!
-  "Sibling validator for the `:rf.machine/update-snapshot` escape-hatch fx.
-  Validates the WOULD-BE-MERGED `snapshot`'s `:data` against the actor's
-  resolved `[:schemas :data]` schema BEFORE the fx writes the patch into
-  runtime-db. Returns true on conform / no schema / no validator (the fx
-  proceeds with the write); false on failure (the fx SKIPS the write so the
-  invalid `:data` never installs).
-
-  Spec 005 §Snapshot-level escape hatch: user error/status state lives
-  under `:data` *where `[:schemas :data]` validation covers it* — so an
-  escape-hatch `:data` patch is NOT exempt from the `:where :machine-data`
-  boundary; this validator gates the escape-hatch merge.
-
-  This is a PRE-WRITE rejection (nothing committed → nothing to roll back):
-  the failure emits `:where :machine-data :phase :update-snapshot
-  :rollback? false`. Resolves the schema for both a singleton
-  (`spec-from-registry`) and a spawned actor (`spec-from-snapshot`) so the
-  escape hatch is covered uniformly across actor kinds.
-
-  The application schema validator is fenced to the exact frame incarnation:
-  a validator that destroys the owning frame A and publishes
-  same-id B returns `:rf/stale-incarnation` from `validate-snapshot-data!`,
-  which this fn TRANSLATES to `false` so the escape-hatch fx's
-  `(when (validate-update-snapshot-data! ...) (write))` SKIPS the A-derived
-  merge onto B. The merge is the only post-callback framework action on this
-  path, so skipping it fully fences the escape hatch. The failure trace is
-  suppressed too (the callback lost A), so no diagnostic is attributed to B.
-
-  Per Spec 009 §Production builds the body lives inside a
-  `(when rf.interop/debug-enabled? ...)` gate so production builds
-  return `true` unconditionally — the merge proceeds unvalidated under
-  `:advanced` + `goog.DEBUG=false`, parity with the macrostep / spawn
-  boundaries."
-  [machine-id merged-snapshot]
-  (if rf.interop/debug-enabled?
-    (let [continue? (current-owner-continuation)]
-      ;; Presence-carrying [:data schema] map entry: the entry
-      ;; is truthy whenever the spec DECLARES [:schemas :data], so a
-      ;; present nil / false schema token is delegated rather than skipped.
-      (if-let [schema-entry (resolve-data-schema machine-id merged-snapshot continue?)]
-        (let [result (validate-snapshot-data! machine-id merged-snapshot
-                                              (val schema-entry)
-                                              :update-snapshot continue?)]
-          ;; Owner-loss (:rf/stale-incarnation) is truthy — collapse it to
-          ;; `false` so the caller's `(when validator (write))` skips the write.
-          (if (= :rf/stale-incarnation result) false result))
-        true))
-    true))
 
 (defn validate-completion-output!
   "Validate a finishing machine's COMPLETION-OUTPUT payload against its

@@ -127,6 +127,7 @@
 
 (def ^:private machine-frame-id :vkn8/machine)
 (def ^:private machine-id       :vkn8.machine/counter)
+(def ^:private child-id         :vkn8.machine/child)
 (def ^:private malformed-frame-id :vkn8/malformed)
 (def ^:private throw-frame-id     :vkn8/validator-throw)
 (def ^:private machine-planted-value "rf2-vkn8-planted-machine-data-must-not-egress")
@@ -142,21 +143,25 @@
 
 (defn- register-machine-app! []
   (rf/make-frame {:id machine-frame-id})
+  ;; a child whose initial :data violates its own schema
+  (rf/reg-machine child-id
+    {:initial :born
+     :data    {:n 0}
+     :schemas {:data [:map [:n pos-int?]]}
+     :states  {:born {}}})
   (rf/reg-machine machine-id
     {:initial :idle
      :data    {:n 1}
      :schemas {:data [:map [:n pos-int?] [:note {:optional true} :string]]}
      :actions {:break (fn [_] {:data {:n 0 :note machine-planted-value}})
                :bump  (fn [_] {:data {:n 2}})
-               ;; the escape-hatch fx validates at :phase :update-snapshot with
-               ;; :rollback? false — a skipped local write, the negative control
-               :patch (fn [_]
-                        {:fx [[:rf.machine/update-snapshot
-                               {:rf/machine-id machine-id
-                                :rf/patch      {:data {:n 0}}}]]})}
-     :states  {:idle {:on {:break {:target :idle :action :break}
-                           :bump  {:target :idle :action :bump}
-                           :patch {:target :idle :action :patch}}}}})
+               ;; the spawn fx validates the child's initial :data at :phase
+               ;; :spawn with :rollback? false — a skipped local install, the
+               ;; negative control
+               :spawn-bad (fn [_] {:fx [[:rf.machine/spawn {:machine-id child-id}]]})}
+     :states  {:idle {:on {:break     {:target :idle :action :break}
+                           :bump      {:target :idle :action :bump}
+                           :spawn-bad {:target :idle :action :spawn-bad}}}}})
   ;; settle the conforming initial :data so the violation is the macrostep's
   (rf/dispatch-sync [machine-id [:noop]] {:frame machine-frame-id}))
 
@@ -199,13 +204,13 @@
     (testing "a conforming macrostep fans nothing"
       (let [captured (capture #(rf/dispatch-sync [machine-id [:bump]] {:frame machine-frame-id}))]
         (is (empty? (errors-where captured :rf.error/schema-validation-failure :machine-data)))))
-    (testing "an :update-snapshot violation is :rollback? false — trace-only, so
-              the promotion is scoped to :rollback? true, not to :where"
-      (let [captured (capture #(rf/dispatch-sync [machine-id [:patch]] {:frame machine-frame-id}))]
-        (is (= #{:update-snapshot}
+    (testing "a :spawn violation is :rollback? false — trace-only, so the
+              promotion is scoped to :rollback? true, not to :where"
+      (let [captured (capture #(rf/dispatch-sync [machine-id [:spawn-bad]] {:frame machine-frame-id}))]
+        (is (= #{:spawn}
                (set (map #(:phase (:tags %))
                          (traces-where captured :rf.error/schema-validation-failure :machine-data))))
-            "premise: the escape-hatch violation fired its trace")
+            "premise: the spawn violation fired its trace")
         (is (empty? (errors-where captured :rf.error/schema-validation-failure :machine-data)))))))
 
 ;; ---- arm 2: `:rf.error/malformed-schema`, per registered entry -----------

@@ -2122,8 +2122,8 @@
 
   The runtime-db sibling of `swap-frame-db!` — the canonical \"mutate the
   frame's runtime-db\" surface for framework subsystems' direct (out-of-
-  cascade / mid-fx) writes (machine spawn / destroy / update-snapshot, the
-  resources registry). A mid-fx write lands after the event's flow pass; the
+  cascade / mid-fx) writes (machine spawn / destroy, the resources
+  registry). A mid-fx write lands after the event's flow pass; the
   `:fx` walk settles the frame's flows when it ends (Spec 013 §Sequencing).
   Models `swap!` over the runtime-db partition;
   under the single-drainer invariant (Spec 002 §Single drainer per frame) the

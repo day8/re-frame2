@@ -580,8 +580,6 @@ A malformed `[:auth.login/flow [:auth.login/submit {:password "short"}]]` is rej
 
 **Spawn-time validation.** A spawned actor's initial `:data` is validated **before the snapshot lands in runtime-db** (rather than at the next macrostep commit). A failing spawn never installs — the actor never enters the runtime, and no parent state observes a half-installed child. The failure emits with `:phase :spawn` and `:rollback? false` (no commit to roll back). For a `:spawn-all` child this validation is hoisted to the **invoke-level** preflight, so a schema-invalid child rejects the *whole* invoke atomically rather than stranding itself inside an already-published live join — see [§Spawn-and-join via `:spawn-all` §Errors](#errors_1).
 
-**Escape-hatch validation.** A `[:rf.machine/update-snapshot {... :rf/patch {:data {...}}}]` (the [§Snapshot-level escape hatch](#snapshot-level-escape-hatch)) is validated **before the patch merges into runtime-db** — the fx computes the would-be-merged snapshot and validates its `:data` against the actor's `[:schemas :data]` schema. A failing patch is **not written** — the invalid `:data` never installs (a pre-write rejection, parity with spawn). The failure emits with `:phase :update-snapshot` and `:rollback? false` (no commit to roll back). The schema is resolved for both a singleton (`reg-machine`) and a spawned actor (its TYPE rides the snapshot's `:rf/machine-type`), so the escape hatch is covered uniformly. A machine with no `[:schemas :data]` schema, or a patch that doesn't touch `:data`, writes unchanged.
-
 **Failure trace.** The boundary emits the `:rf.error/schema-validation-failure` op with the `:where :machine-data` value:
 
 ```clojure
@@ -589,12 +587,12 @@ A malformed `[:auth.login/flow [:auth.login/submit {:password "short"}]]` is rej
  :tags {:where           :machine-data
         :failing-id      <machine-id>           ;; uniform error-emit alias
         :machine-id      <machine-id>           ;; domain-specific synonym
-        :phase           :macrostep             ;; or :spawn / :bootstrap / :update-snapshot
+        :phase           :macrostep             ;; or :spawn / :bootstrap
         :value           <failing-:data-map>    ;; redactable per Spec 010 §`:sensitive?`
         :received        <failing-:data-map>    ;; parallels :where :app-db
         :schema          <the registered schema verbatim>
         :explain         <validator's explainer output>
-        :rollback?       true                   ;; false for :phase :spawn / :update-snapshot
+        :rollback?       true                   ;; false for :phase :spawn
         :recovery        :no-recovery
         :reason          "Machine <id> :data failed schema..."}}
 ```
@@ -885,9 +883,7 @@ Every machine callback receives a SINGLE context-map argument; the keys present 
 - `:action` / `:entry` / `:exit` / `:on-done` / `:spawn :data` → a fresh `:data` map (or, for actions, a `{:data :fx}` effects map). The runtime patches `:data` back into the snapshot. Logical state (`:loading` / `:loaded` / `:error`) is reserved for declarative transition apparatus (`:on` / `:always` / `:after`); callbacks can ONLY update working memory (the `:data` bag) — they cannot nudge the machine into a state the spec didn't declare. Matches xstate's `assign` invariant.
 - `:after` delay-fn — returns the ms value the timer scheduler consumes.
 
-<a id="snapshot-level-escape-hatch"></a>
-
-**Snapshot-level escape hatch.** If a callback NEEDS to touch `:state` / `:meta` / `:data` plus something else in one atomic write, emit `[:rf.machine/update-snapshot {:rf/machine-id <id> :rf/patch {:data {...}}}]` from inside the callback's `:fx` vector — NOT a return-shape hidden contract. `:rf/machine-id` names the actor whose snapshot at `[:rf.runtime/machines :snapshots <id>]` is patched; `:rf/patch` is merged onto that snapshot, restricted to the permitted top-level keys above (`:state` / `:meta` / `:data`) — and the patch's **`:data` merges like an action's**, rather than replacing the map. `:state` / `:meta` replace, since the caller names those outright; `:data` does not, because it also holds framework-owned reserved `:rf/*` slots the programmer never sees (the `:after`-timer epoch map, a spawned actor's `:rf/parent-id` / `:rf/invoke-id` lineage). A replacing `:data` patch would drop those silently — stale-suppressing the actor's live `:after` timers and making a spawned child finish as a singleton — so the two paths that write a `:data` map agree about what that means. User error/status state is *user-domain working memory* and lives under `:data` (where `[:schemas :data]` validation covers it) — not as bare snapshot-root keys. The `:data` patch is **not** exempt from that validation: the fx validates the would-be-merged snapshot's `:data` against the actor's `[:schemas :data]` schema **before** writing, and a violating patch is rejected — the invalid `:data` never installs (`:phase :update-snapshot`, `:rollback? false`; see [§Schema validation](#schema-validation)). A `:db` key in the patch is the same hard-disallow as in an action's effect map (it surfaces `:rf.error/machine-action-wrote-db` and is dropped); merging into a destroyed / unknown actor is a no-op.
+**Changing a snapshot.** A snapshot changes only through a transition — plus spawn, destroy and frame-state installation. Moving the machine and writing `:data` in one step is a transition with a `:target` and an `:action`; `:data` plus effects is an action returning `{:data … :fx …}`. Code outside the machine that needs to write its `:data` dispatches a named targetless transition (`[:dispatch [:session [:reset-retries]]]` against `:on {:reset-retries {:action …}}`), which keeps the state, spawns nothing, and runs as its own macrostep after the dispatching event commits.
 
 The runtime is responsible for unwrapping the snapshot before calling these fns and for patching the result back into the snapshot. **User code never names `[:data ...]` paths inside the body**; if a callback needs to read or write a field, it does so on the destructured `data` directly (e.g. `(:pending data)`, `(assoc data :pending id)`).
 
@@ -2967,14 +2963,11 @@ Multiple `[:rf.machine/spawn ...]` entries in `:fx` work independently, each all
                        [:rf.machine/spawn {:machine-id :worker
                                            :data       job}])
                      jobs)})
-;; → each worker's id is reachable from the spawn-registry; to collect them
-;;   into the parent's :data, emit one :rf.machine/update-snapshot after the
-;;   spawns drain (the ids live at [:rf.runtime/machines :spawn-counter ...]
-;;   deterministically), or give each worker an explicit :fixed-actor-id
-;;   derived from its job.
+;; → to address the workers later, give each one a :fixed-actor-id derived
+;;   from its job and return those ids in this same action's :data.
 ```
 
-To record the ids in the parent's `:data`, use [`:rf.machine/update-snapshot`](#path-conventions-in-machine-bodies) from a regular `:action`'s `:fx`, or give each spawn a distinct `:fixed-actor-id` chosen from the job and store that address in `:data`. See [§Recording the spawned id user-side](#recording-the-spawned-id-user-side). (These hand-emitted `:rf.machine/spawn` fxs do **not** get the automatic `:rf/spawned` `:data` capture — that first-class slot is written only by the *declarative* `:spawn` / `:spawn-all` reducer, where the runtime owns the invoke-id; a hand-emitted spawn from a user `:fx` has no declarative invoke-id to key it under.)
+To record the ids in the parent's `:data`, give each spawn a distinct `:fixed-actor-id` chosen from the job and return those addresses in the same action's `:data` — one atomic return, with no follow-up write. See [§Recording the spawned id user-side](#recording-the-spawned-id-user-side). (These hand-emitted `:rf.machine/spawn` fxs do **not** get the automatic `:rf/spawned` `:data` capture — that first-class slot is written only by the *declarative* `:spawn` / `:spawn-all` reducer, where the runtime owns the invoke-id; a hand-emitted spawn from a user `:fx` has no declarative invoke-id to key it under.)
 
 ### What spawning gives for free
 
@@ -3145,7 +3138,7 @@ On every declarative `:spawn` / `:spawn-all` the transition reducer binds the as
 
 This is the re-frame2 spelling of XState v5's `const ref = spawn(child)` captured into `context` — except the id rides the (revertible, SSR-survivable) snapshot rather than a live object. No atom, no runtime-db path coupling. It is the REVERSE direction of the child-lineage stamps (`:rf/self-id` / `:rf/parent-id` / `:rf/invoke-id`) the runtime writes onto the CHILD's `:data`: here the PARENT captures the CHILD's id, keyed by the SAME `<invoke-id>` the child records under `:rf/invoke-id`. See [§Reserved snapshot-internal keys](#reserved-snapshot-internal-keys) for the `:rf/spawned` row.
 
-To address the child by a stable *name* rather than a gensym'd id, declare `:fixed-actor-id` on the spawn spec. To write a *user-domain* copy of the id under your own `:data` key, emit `[:rf.machine/update-snapshot {:rf/machine-id <id> :rf/patch {:data {...}}}]` from a regular `:action`'s `:fx` (see [§Path conventions in machine bodies](#path-conventions-in-machine-bodies)). Logging a spawn is what the `:rf.machine.spawn/spawned` and `:rf.machine.lifecycle/spawned` traces are for.
+To address the child by a stable *name* rather than a gensym'd id, declare `:fixed-actor-id` on the spawn spec. To keep a *user-domain* copy of the id under your own `:data` key, read it from `:rf/spawned` in a later action and return it in that action's `:data`. Logging a spawn is what the `:rf.machine.spawn/spawned` and `:rf.machine.lifecycle/spawned` traces are for.
 
 ### Desugaring rules
 

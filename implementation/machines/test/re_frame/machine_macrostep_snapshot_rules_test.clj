@@ -1,11 +1,13 @@
 (ns re-frame.machine-macrostep-snapshot-rules-test
   "What a macrostep reports about its `:always` microsteps (Spec 005 §Trace
-  events), and that an action's effect map may write `:data` but never `:db`
-  (Spec 005:463). The escape-hatch patch is `update_snapshot_schema_test`'s."
+  events), that an action's effect map may write `:data` but never `:db`
+  (Spec 005:463), and that no effect patches a snapshot from outside a
+  transition."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines]
             [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
@@ -74,3 +76,10 @@
       (is (not (re-find #"super-secret-jwt" (pr-str (mapv :tags errs)))))
       (is (= {:state :b :data {:legit 1}}
              (select-keys (rf.machines.test-support/snapshot :rem/wrote-db) [:state :data :db]))))))
+
+(deftest no-effect-patches-a-snapshot
+  (testing "a snapshot changes only through a transition, spawn, destroy or frame-state
+            install, so the machines artefact registers no snapshot-patch effect"
+    (is (some? (rf.registrar/lookup :fx :rf.machine/spawn))
+        "control: the machine lifecycle effects are registered")
+    (is (nil? (rf.registrar/lookup :fx :rf.machine/update-snapshot)))))

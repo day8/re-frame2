@@ -1547,9 +1547,6 @@
   ["re-frame.machines" "validate-machine!"]     {:tier :implementation :owner "005" :status "v1"}
   ["re-frame.machines" "validate-machine-data!"] {:tier :implementation :owner "005" :status "v1"}
   ["re-frame.machines" "validate-spawn-data!"]  {:tier :implementation :owner "005" :status "v1"}
-  ;; Escape-hatch sibling validating the would-be-merged
-  ;; `:rf.machine/update-snapshot` snapshot `:data` before the fx writes it.
-  ["re-frame.machines" "validate-update-snapshot-data!"] {:tier :implementation :owner "005" :status "v1"}
   ["re-frame.machines" "reset-timers!"]         {:tier :implementation :owner "005" :status "v1"}
   ;; EP-0026 §Framework Standard Registrations — the machine-runtime re-seed
   ;; (the analogue of `re-frame.events/register-set-db-standard!`): re-registers

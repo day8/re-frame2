@@ -408,24 +408,6 @@ These are the subscriptions and effects the machines artefact registers. They ar
       {:fx [[:rf.machine/destroy :logger]]}))
   ```
 
-### `[:rf.machine/update-snapshot patch]`
-
-- **Kind**: effect (reserved fx-id)
-- **Payload**: `{:rf/machine-id <id> :rf/patch {:state … :meta … :data {…}}}`, each `:rf/patch` key optional.
-- **Description**: Writes a machine's snapshot directly, without taking a transition. A machine action can return only `:data` and `:fx`; emit this from the action's `:fx`, or from any event handler, when you must also set `:state` or `:meta` in the same atomic write. Prefer a transition where one will do: this effect does not check that a patched `:state` exists in the machine's definition.
-    - `:state` and `:meta` replace the snapshot's values. `:data` is merged into the existing `:data`, as an action's `:data` return is, so the runtime's own `:rf/*` keys in it survive.
-    - This is a direct write: it does not run exits, entries, `:always`, spawn reconciliation or tag recomputation. Use transitions for normal lifecycle changes and frame-state installation for restore.
-    - Other `:rf/patch` keys are ignored. A `:db` key emits `:rf.error/machine-action-wrote-db` and is dropped; the rest of the patch is still written.
-    - Does nothing when the machine has no snapshot (not started, or destroyed).
-    - The `:data` patch is validated against the machine's `[:schemas :data]` schema before it is written, by [`validate-update-snapshot-data!`](#re-framemachinesvalidate-update-snapshot-data). A patch that fails is not written, so this effect is subject to the `:where :machine-data` boundary like a transition.
-- **Example**:
-  ```clojure
-  ;; Move :session to :anonymous and reset a counter in one write.
-  {:fx [[:rf.machine/update-snapshot {:rf/machine-id :session
-                                      :rf/patch      {:state :anonymous
-                                                      :data  {:retries 0}}}]]}
-  ```
-
 ### `[:raise event-vec]`
 
 - **Kind**: effect (reserved fx-id, machine actions only)
@@ -708,15 +690,6 @@ These run the registration-time checks and the `:data` schema checks. The three 
   (re-frame.machines/validate-spawn-data! spawned-id spec snapshot continue?)
   ```
 - **Description**: Validates a new actor's initial snapshot `:data` against its machine's `[:schemas :data]` schema before `:rf.machine/spawn` installs it. Returns `true` on conform, no schema or no validator. Returns `false` on failure, and the spawn installs nothing. Nothing was committed, so the failure trace has `:phase :spawn` and `:rollback? false`. The 4-arity `continue?` and the `:rf/stale-incarnation` return work as for `validate-machine-data!`.
-
-#### `re-frame.machines/validate-update-snapshot-data!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (re-frame.machines/validate-update-snapshot-data! machine-id merged-snapshot) → boolean
-  ```
-- **Description**: Validates the `:data` of the snapshot that `:rf.machine/update-snapshot` would produce, against the machine's `[:schemas :data]` schema, before the effect writes it. Returns `true` on conform, no schema or no validator, and the effect writes the patch. Returns `false` on failure, and the effect skips the write.
 
 ### Runtime and lifecycle
 

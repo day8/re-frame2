@@ -26,7 +26,6 @@ Machine-data validation also carries the lifecycle phase:
 | `:macrostep` | Reject the candidate event transaction; `:rollback? true` |
 | `:bootstrap` | Reject the initial candidate transaction; `:rollback? true` |
 | `:spawn` | Skip installation of the child actor; `:rollback? false` |
-| `:update-snapshot` | Skip the invalid snapshot patch; `:rollback? false` |
 
 These checks normally run in development builds. An event's `:boundary? true`
 keeps its event check in production. A recorded coeffect's value check is
