@@ -71,17 +71,17 @@
   silently absent from the projection — is the silently-wrong page this
   contract exists to avoid.
 
-  ## The wire domain is the manifest's, reused
+  ## The wire domain is the shared one
 
   A value rides only if `pr-str` prints it in a form the safe EDN reader
-  on the OTHER host reconstructs EQUAL — `re-frame.ssr.manifest/edn-carryable?`,
-  the predicate Spec 011 §Root manifest already states for the manifest
-  wire. Nothing here invents a second domain: a fn, a host object, a
+  on the OTHER host reconstructs EQUAL — `re-frame.ssr.wire/edn-carryable?`,
+  the predicate Spec 011 §The numeric crossing rule states for every
+  server-to-browser EDN wire. Nothing here invents a second domain: a fn, a host object, a
   record, a JVM-only number (ratio, bigdec, bigint, float, an integer past
   2^53) fails AT PROJECTION with `:rf.error/ssr-render-state-invalid`
   naming the partition and key — never a silent `nil`, never `#object[…]`
   text discovered at the far end. `#inst` / `#uuid` are outside the domain
-  for the same reason they are outside the manifest's; narrow a date to a
+  for the same reason they are outside every EDN wire's; narrow a date to a
   string or epoch millis where you know what it means.
 
   ## The wire form
@@ -115,8 +115,8 @@
   render needs from one it merely could read; only the allowlist says."
   (:require [re-frame.error :as rf.error]
             [re-frame.frame :as rf.frame]
-            [re-frame.ssr.manifest :as rf.ssr.manifest]
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
+            [re-frame.ssr.wire :as rf.ssr.wire]
             #?(:clj  [clojure.edn :as edn]
                :cljs [cljs.reader :as reader])))
 
@@ -273,14 +273,14 @@
   "Every top-level entry of both partitions rides the wire key-and-value:
   the key must be a keyword (that is what a top-level key IS, and what the
   sidecar's key grammar admits), and both halves must satisfy
-  `manifest/edn-carryable?`. Throws `:rf.error/ssr-render-state-invalid`
+  `wire/edn-carryable?`. Throws `:rf.error/ssr-render-state-invalid`
   (`:invalid :unserialisable`) naming the partition, the key and the
   offending half."
   [partitions]
   (doseq [[partition slice] partitions
           [k v] slice]
-    (let [bad-key? (or (not (keyword? k)) (not (rf.ssr.manifest/edn-carryable? k)))]
-      (when (or bad-key? (not (rf.ssr.manifest/edn-carryable? v)))
+    (let [bad-key? (or (not (keyword? k)) (not (rf.ssr.wire/edn-carryable? k)))]
+      (when (or bad-key? (not (rf.ssr.wire/edn-carryable? v)))
         (rf.error/throw-error!
           :rf.error/ssr-render-state-invalid where
           (str "render state " partition " entry " (pr-str k) " has a "

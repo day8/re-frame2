@@ -308,8 +308,8 @@
      re-frame.ssr.constants
      re-frame.ssr.hash
      re-frame.ssr.install
-     re-frame.ssr.manifest
      re-frame.ssr.substrate
+     re-frame.ssr.wire
      ;; The render pipeline: request/response shaping, emission, the UI tree.
      re-frame.ssr.emit
      re-frame.ssr.html-helpers

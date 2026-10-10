@@ -257,16 +257,8 @@
     :element-id     — (CLJS, optional) override the payload `<script>` id
                       to read when `:payload` is omitted. Default the
                       pinned `__rf_payload`.
-    :container      — (CLJS, optional) this root's container element. When
-                      supplied, preflight DISCOVERS the root's manifest
-                      positionally (the container's immediately following
-                      element sibling) and validates it; no manifest there
-                      is `:rf.error/root-manifest-invalid`.
-    :manifest       — (optional) an explicit Root Manifest v1, validated in
-                      place of discovery. The JVM / test path.
     :root-id        — (optional) this root's id, recorded as the payload's
-                      installer and named in a conflict. Defaults to the
-                      manifest's `:root-id` when a manifest was resolved.
+                      installer and named in a conflict.
 
   **Install is idempotent across the page's roots.** A page is N roots
   referencing M frames, and M is routinely smaller than N — several roots
@@ -315,7 +307,7 @@
   ordering for the host whose render-tree is a pure function of app-db
   (the re-frame2 norm — Reagent / UIx all qualify)."
   ;; A nil frame is an absent target, never an implicit `:rf/default`.
-  [{:keys [frame payload render-tree-fn element-id manifest container root-id]}]
+  [{:keys [frame payload render-tree-fn element-id root-id]}]
   ;; `element-id` is consumed only by the CLJS DOM read; discard-bind it so
   ;; a JVM lint of this `.cljc` doesn't flag it as an unused
   ;; `:clj`-expansion binding (the read itself stays CLJS-only).
@@ -365,11 +357,11 @@
     (when refusal
       (rf.router/dispatch-sync! [:rf/hydrate payload] {:frame frame}))
     (when (and payload (not refusal))
-      ;; PREFLIGHT (S5) — manifest discovery/validation -> payload install
-      ;; decision, BEFORE anything is seeded (004C §10). The frame-id
-      ;; validation above runs FIRST: a payload rendered for a different
-      ;; frame is rejected outright and must never reach the ledger, or a
-      ;; misdirected payload would claim the target's payload id.
+      ;; PREFLIGHT — the frame-id validation above, then the payload install
+      ;; decision, BEFORE anything is seeded. The frame-id validation runs
+      ;; FIRST: a payload rendered for a different frame is rejected
+      ;; outright and must never reach the ledger, or a misdirected payload
+      ;; would claim the target's payload id.
       ;;
       ;; A page is N roots referencing M frames, and M is routinely
       ;; smaller than N — several roots hydrate one frame and every one of
@@ -383,16 +375,13 @@
             (rf.ssr.install/preflight! 'rf.ssr/hydrate!
                                 {:payload    payload
                                  :payload-id frame
-                                 :root-id    root-id
-                                 :manifest   manifest
-                                 :container  container})]
+                                 :root-id    root-id})]
         ;; The whole seed-and-verify step is what a later root skips. It is
         ;; one step, not two: with nothing newly installed there is no new
         ;; server slice to verify against, and the payload's `:rf/render-hash`
         ;; covers the WHOLE server-rendered body — hashing a second root's
         ;; own subtree against it would manufacture a mismatch that says
-        ;; nothing about either root. Per-root structural agreement is the
-        ;; manifest's `:render-fingerprint` fact, not this hash.
+        ;; nothing about either root.
         (when (= :install decision)
           ;; `router/dispatch-sync!` is the owning-ns fn-form the `dispatch-sync`
           ;; macro itself calls through to (no call-site source-coord capture —
@@ -555,8 +544,8 @@
   contained, reported, and the page moves on to the next.
 
   `roots` is a collection of per-root opt maps. Each is the map
-  `hydrate!` takes (`:frame`, `:payload`, `:container`, `:manifest`,
-  `:root-id`, `:render-tree-fn`, `:element-id`), plus:
+  `hydrate!` takes (`:frame`, `:payload`, `:root-id`, `:render-tree-fn`,
+  `:element-id`), plus:
 
     :mount-fn — (optional) a 0-arity fn that mounts this root, run
                 immediately after its hydrate, INSIDE the boundary. Pass
@@ -571,15 +560,17 @@
       {:root-id … :status :failed   :error <the throwable>}
 
   Outcomes come back in input order, so a caller correlates them
-  positionally even for a root that failed before its id could be read
-  from a manifest (`:root-id` is then whatever was passed in, possibly
-  nil).
+  positionally; each carries the `:root-id` it was passed, possibly nil.
+
+  `:hydrated` means the root's hydrate and its `:mount-fn` returned without
+  throwing: the boot was SUBMITTED. Adoption work React does asynchronously
+  afterwards is outside the boundary.
 
   **What a failed root leaves behind.** Nothing that can harm a sibling:
 
-  - Failed in PREFLIGHT (no manifest, a manifest outside the schema
-    family, a payload conflict) — nothing at all. The throw happens
-    before any claim, so the ledger is untouched.
+  - Failed in PREFLIGHT (a frame-id mismatch or a payload conflict) —
+    nothing at all. The throw happens before any claim, so the ledger is
+    untouched.
   - Failed during the SEED — no claim. `hydrate!` releases the exact
     claim it made, so the payload id is returned to unclaimed and the
     next root referencing it gets a true `:install` rather than a
@@ -598,16 +589,24 @@
   root stays failed. The single guarantee is that it stays failed
   ALONE.
 
-  Example (Reagent, three roots on one server-rendered page):
+  Example (Reagent, two roots of one frame on a server-rendered page).
+  Each `:mount-fn` hydrates its root's server markup through the adapter's
+  `render!` with `{:hydrate? true}`, adding the `:identifier-prefix` the
+  server rendered that root under, if any:
+
+      (defonce header-root (reagent-adapter/client-root))
+
+      (defn mount-header! []
+        (reagent-adapter/render! header-root
+          [rf/frame-provider {:frame :app/main} [(rf/view :app/header)]]
+          (js/document.getElementById \"header\")
+          {:hydrate? true}))
+
+      ;; mount-cart! has the same shape, over its own root and element.
 
       (let [outcomes (ssr/hydrate-page!
-                       (for [[rid container] page-roots]
-                         {:frame     :app/main
-                          :root-id   rid
-                          :container container
-                          :mount-fn  #(rdc/render (rdc/create-root container)
-                                        [rf/frame-provider {:frame :app/main}
-                                         [(rf/view :app/root)]])}))]
+                       [{:frame :app/main :root-id :page/header :mount-fn mount-header!}
+                        {:frame :app/main :root-id :page/cart   :mount-fn mount-cart!}])]
         (when-let [failed (seq (filter #(= :failed (:status %)) outcomes))]
           (js/console.warn \"roots did not boot:\" (pr-str (map :root-id failed)))))"
   [roots]

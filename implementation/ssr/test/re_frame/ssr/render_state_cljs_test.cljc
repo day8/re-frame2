@@ -51,7 +51,7 @@
          (ex-data e))))
 
 (def ^:private corpus-app-db
-  "Every value class `manifest/edn-carryable?` admits, under top-level keys.
+  "Every value class `wire/edn-carryable?` admits, under top-level keys.
   The integers stop at 2^53 - 1, the largest a browser number holds exactly."
   {:nil-value nil
    :booleans  [true false]
