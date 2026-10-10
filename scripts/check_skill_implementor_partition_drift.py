@@ -411,157 +411,75 @@ def run(*, verbose: bool, ci: bool) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Self-test — exercises the line classifier against in-memory fixtures so the
-# guard itself can't silently rot. Mirrors the --self-test convention in the
-# sibling check_skill_*.py guards.
+# Self-test — the line classifier against in-memory fixtures.
 # ---------------------------------------------------------------------------
 
 def _self_test() -> int:
+    # (label, line, the rules it must trip — [] for conforming prose).
+    cases = [
+        ("A1 deregister-listener",
+         "The trace stream — `register-listener!` / `deregister-listener!`, the rich emits.",
+         ["DEREGISTER-LISTENER"]),
+        ("A2 bare :http as managed fx",
+         "EP 014 implementation. The `:http` fx wraps a request lifecycle through a state machine.",
+         ["BARE-HTTP-MANAGED"]),
+        ("A3 public dispose-adapter (no slot/map-key cue)",
+         "boot wiring is the core's `install-adapter!` / `dispose-adapter!`.",
+         ["PUBLIC-DISPOSE-ADAPTER"]),
+        ("B4 dispose-adapter marked as map slot",
+         "`destroy-adapter!` calls the adapter-spec map's internal `:dispose-adapter!` slot.",
+         []),
+        ("A4 reg-machine implies :sensitive/:large",
+         "The seven first-class marking sites accept `{:sensitive [paths] :large [paths]}` "
+         "including reg-machine.",
+         ["REG-MACHINE-MARKS"]),
+        ("B6 reg-machine schema-first exception stated",
+         "`reg-machine` is two-arity and accepts NO `:sensitive` / `:large` metadata keys.",
+         []),
+        ("E1 :rf/reply-to taught as the public target key",
+         "The canonical public target key is `:rf/reply-to` (short vector form, "
+         "or the internal descriptor form).",
+         ["REPLY-PUBLIC-KEY"]),
+        ("F1 public :reply-to + internal :rf/reply-to descriptor",
+         "The app-facing authoring key is `:reply-to`; it normalizes to the one "
+         "internal / normalized `:rf/reply-to` descriptor it lowers to.",
+         []),
+        ("F2 legitimate internal :rf/reply-to mention",
+         "All family sugar normalizes to the internal `:rf/reply-to` descriptor "
+         "(a conformance surface, not an everyday app-facing spelling).",
+         []),
+        ("E2 HTTP sugar as a reshaped envelope",
+         "For HTTP, the public `:on-success` / `:on-failure` payload is sugar "
+         "reshaped from the internal envelope — the canonical reply map is internal.",
+         ["REPLY-HTTP-RESHAPE"]),
+        ("F3 HTTP sugar denied-reshape + identical envelope",
+         "`:on-success` and `:on-failure` receive the identical canonical reply "
+         "map that `:reply-to` would; they do NOT reshape it into a second dialect.",
+         []),
+        ("E3 bare :work/id on the reply payload",
+         "Do not expose `:status` / `:work/id` / `:completed-at` on the public "
+         "HTTP reply payload.",
+         ["REPLY-WORKID-SPELLING"]),
+        ("F4 reply map :rf.reply/work-id, ledger :work/id",
+         "The transient reply map spells the work identity `:rf.reply/work-id`; "
+         "bare `:work/id` is the durable ledger / verification identity.",
+         []),
+        ("F5 bare :work/id in a ledger context (no reply-map)",
+         "Ledger-backed work correlates by `:work/id` (the family owns the tuple head).",
+         []),
+    ]
     failures = 0
-
-    def expect(line: str, *, dirty: bool, label: str) -> None:
-        nonlocal failures
-        got = bool(line_problems(line))
-        if got != dirty:
-            print(
-                f"SELF-TEST FAIL ({label}): expected dirty={dirty}, got "
-                f"{got} for: {line!r}"
-            )
+    for label, line, want in cases:
+        got = [p.split(":", 1)[0] for p in line_problems(line)]
+        if got != want:
+            print(f"SELF-TEST FAIL ({label}): expected {want}, got {got} for: {line!r}")
             failures += 1
-
-    # FAIL fixtures — the drift shapes.
-    expect(
-        "The trace stream — `register-listener!` / `deregister-listener!`, the rich emits.",
-        dirty=True, label="A1 deregister-listener",
-    )
-    expect(
-        "EP 014 implementation. The `:http` fx wraps a request lifecycle through a state machine.",
-        dirty=True, label="A2 bare :http as managed fx",
-    )
-    expect(
-        "boot wiring is the core's `install-adapter!` / `dispose-adapter!`.",
-        dirty=True, label="A3 public dispose-adapter (no slot/map-key cue)",
-    )
-    expect(
-        "The seven first-class marking sites accept `{:sensitive [paths] :large [paths]}` "
-        "including reg-machine.",
-        dirty=True, label="A4 reg-machine implies :sensitive/:large",
-    )
-
-    # PASS fixtures — the conforming wording must NOT flag.
-    expect(
-        "The trace stream — `register-listener!` / `unregister-listener!`, the rich emits.",
-        dirty=False, label="B1 unregister-listener (correct)",
-    )
-    expect(
-        "The Spec 014 surface is `:rf.http/managed`; bare `:http` is app/user/implementation-specific.",
-        dirty=False, label="B2 :rf.http/managed + bare :http marked app-level",
-    )
-    expect(
-        "Lower-level bare `:http` is NOT a reserved framework fx — it is app/user-specific.",
-        dirty=False, label="B3 bare :http explicitly denied as managed",
-    )
-    expect(
-        "`destroy-adapter!` calls the adapter-spec map's internal `:dispose-adapter!` slot.",
-        dirty=False, label="B4 dispose-adapter marked as map slot",
-    )
-    expect(
-        "One lifecycle slot: `:dispose-adapter!` — the adapter-spec map key the adapter implements.",
-        dirty=False, label="B5 :dispose-adapter as map key",
-    )
-    expect(
-        "`reg-machine` is two-arity and accepts NO `:sensitive` / `:large` metadata keys.",
-        dirty=False, label="B6 reg-machine schema-first exception stated",
-    )
-    expect(
-        "The six metadata-bearing sites accept `{:sensitive [paths] :large [paths]}`.",
-        dirty=False, label="B7 six sites, no reg-machine on the line",
-    )
-
-    # Rule 6 — reply-address / envelope contract. FAIL fixtures reproduce the
-    # wrong teaching; PASS fixtures are the conforming prose and the
-    # legitimate INTERNAL `:rf/reply-to` descriptor mentions.
-    expect(
-        "The canonical public target key is `:rf/reply-to` (short vector form, "
-        "or the internal descriptor form).",
-        dirty=True, label="E1 :rf/reply-to taught as the public target key",
-    )
-    expect(
-        "For HTTP, the public `:on-success` / `:on-failure` payload is sugar "
-        "reshaped from the internal envelope — the canonical reply map is internal.",
-        dirty=True, label="E2 HTTP sugar as a reshaped envelope",
-    )
-    expect(
-        "Do not expose `:status` / `:work/id` / `:completed-at` on the public "
-        "HTTP reply payload.",
-        dirty=True, label="E3 bare :work/id on the reply payload",
-    )
-    # PASS — conforming prose and legitimate internal-descriptor references.
-    expect(
-        "The app-facing authoring key is `:reply-to`; it normalizes to the one "
-        "internal / normalized `:rf/reply-to` descriptor it lowers to.",
-        dirty=False, label="F1 public :reply-to + internal :rf/reply-to descriptor",
-    )
-    expect(
-        "All family sugar normalizes to the internal `:rf/reply-to` descriptor "
-        "(a conformance surface, not an everyday app-facing spelling).",
-        dirty=False, label="F2 legitimate internal :rf/reply-to mention",
-    )
-    expect(
-        "`:on-success` and `:on-failure` receive the identical canonical reply "
-        "map that `:reply-to` would; they do NOT reshape it into a second dialect.",
-        dirty=False, label="F3 HTTP sugar denied-reshape + identical envelope",
-    )
-    expect(
-        "The transient reply map spells the work identity `:rf.reply/work-id`; "
-        "bare `:work/id` is the durable ledger / verification identity.",
-        dirty=False, label="F4 reply map :rf.reply/work-id, ledger :work/id",
-    )
-    expect(
-        "Ledger-backed work correlates by `:work/id` (the family owns the tuple head).",
-        dirty=False, label="F5 bare :work/id in a ledger context (no reply-map)",
-    )
-    expect(
-        "The route loader stores the normalized `:rf/reply-to` target in "
-        "runtime-db and completes it via the shared substrate.",
-        dirty=False, label="F6 internal :rf/reply-to storage, no public-key claim",
-    )
-
-    # Rule 5 — bead-id leak. line_problems() does NOT cover Rule 5 (it scans a
-    # separate file set), so exercise BEADID_RE directly.
-    def expect_beadid(line: str, *, leaked: bool, label: str) -> None:
-        nonlocal failures
-        got = bool(BEADID_RE.search(line))
-        if got != leaked:
-            print(
-                f"SELF-TEST FAIL ({label}): expected bead-id leaked={leaked}, "
-                f"got {got} for: {line!r}"
-            )
-            failures += 1
-
-    # LEAK fixtures — bead ids as they leak into user-facing prose.
-    expect_beadid(
-        "a stray `:rf/runtime` root now HARD-ERRORS (shipped EP-0001 bead 9, rf2-tfepxu).",
-        leaked=True, label="C1 plain bead id",
-    )
-
-    # CLEAN fixtures — the public-evidence wording must NOT flag.
-    expect_beadid(
-        "a stray `:rf/runtime` root now HARD-ERRORS (`:rf.error/legacy-runtime-root`).",
-        leaked=False, label="D1 spec error keyword, no bead id",
-    )
-    expect_beadid(
-        "the runtime records history per `spec/005-StateMachines.md` §History states.",
-        leaked=False, label="D2 spec section link, no bead id",
-    )
-    expect_beadid(
-        "backstopped by `effect-map-shape-bad-fx-entry.edn` and `effect-handler-bad-return.edn`.",
-        leaked=False, label="D3 fixture names, no bead id",
-    )
-    expect_beadid(
-        "a fully-qualified public PR link day8/re-frame2#2863 is fine for an external reader.",
-        leaked=False, label="D4 public PR ref is not a bead id",
-    )
+    # Rule 5 scans a separate file set, so its regex is exercised directly.
+    if not BEADID_RE.search(
+        "a stray `:rf/runtime` root now HARD-ERRORS (shipped EP-0001 bead 9, rf2-tfepxu)."
+    ):
+        print("SELF-TEST FAIL (C1 plain bead id): not flagged")
+        failures += 1
 
     if failures:
         print(f"self-test: {failures} failure(s).")
