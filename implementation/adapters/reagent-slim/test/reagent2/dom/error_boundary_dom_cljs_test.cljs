@@ -51,6 +51,21 @@
   []
   (throw (js/Error. render-boom)))
 
+;; FORM-3.md's worked error-boundary example, as the guide writes it.
+(def ^:private guide-error-boundary
+  (r/create-class
+    {:display-name "error-boundary"
+
+     :component-did-catch
+     (fn [_this err info]
+       (js/console.error "Caught render error:" err info))
+
+     :reagent-render
+     (fn [child]
+       (if (:cljsHasError (r/state (r/current-component)))
+         [:div.fallback "Something went wrong."]
+         child))}))
+
 (defn- commit-thrower
   "A slim Form-3 component that renders, then throws from
   `:component-did-mount` — React's COMMIT phase."
@@ -59,6 +74,37 @@
     {:display-name        "commit-thrower"
      :component-did-mount (fn [_this] (throw (js/Error. commit-boom)))
      :reagent-render      (fn [] [:span "child"])}))
+
+(deftest guide-boundary-example-catches-a-render-throw
+  (testing "FORM-3.md's error-boundary example renders its fallback in place
+            of a child that throws in render, and the throw stays caught"
+    (if-not (browser?)
+      (is true ":node-test: no DOM — the :browser-test runner exercises the assertion")
+      (let [caught     (atom [])
+            uncaught   (atom [])
+            logged     (atom [])
+            log-error  (.-error js/console)
+            mount-node (make-mount-node!)
+            root       (rdc/create-root
+                         mount-node
+                         #js {:onCaughtError   (fn [^js e _] (swap! caught conj (.-message e)))
+                              :onUncaughtError (fn [^js e _] (swap! uncaught conj (.-message e)))})]
+        (set! (.-error js/console) (fn [& args] (swap! logged conj args)))
+        (try
+          (try
+            (react-dom/flushSync (fn [] (rdc/render root [guide-error-boundary [render-thrower]])))
+            (catch :default e
+              (swap! uncaught conj (str "rethrown: " (.-message ^js e)))))
+          (is (= "Something went wrong." (.-textContent mount-node))
+              "the fallback replaced the throwing child")
+          (is (= #{render-boom} (set @caught))
+              "React routed the throw to the boundary")
+          (is (empty? @uncaught)
+              (str "the throw did not escape the boundary. Escaped: " (pr-str @uncaught)))
+          (is (seq @logged) "the boundary's :component-did-catch ran")
+          (finally
+            (set! (.-error js/console) log-error)
+            (rdc/unmount root)))))))
 
 (deftest nested-boundaries-inner-catches-outer-does-not
   (testing "a descendant RENDER throw is caught by the NEAREST slim

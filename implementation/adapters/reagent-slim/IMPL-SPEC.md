@@ -722,7 +722,7 @@ The CLJS implementation uses `goog.object/extend` + `js/Object.assign` to attach
 | `:reagent-render` | `render` | The render method, wrapped by `wrap-render` for Form-1/2 detection per §5.1. |
 | `:display-name` | `displayName` (static class field) | Compile-time string only; zero runtime cost. |
 | `:get-snapshot-before-update` | `getSnapshotBeforeUpdate(prevProps, prevState)` | Returns a snapshot value passed as 3rd arg to `componentDidUpdate`. |
-| `:component-did-catch` | `componentDidCatch(error, info)` | Error-boundary logging. The full error-boundary contract (`getDerivedStateFromError` + `componentDidCatch`) is React-19-blessed; the rewrite ships only the logging half because all four audited apps use logging-only error boundaries (rf2-kfpf §6). Apps that want stateful error boundaries pair `:component-did-catch` with a `(reagent2.core/atom)` cell flipped from inside the callback. |
+| `:component-did-catch` | `componentDidCatch(error, info)` | Error-boundary callback. Declaring it also installs a static `getDerivedStateFromError` that marks the state `:cljsHasError true`, and the boundary's render reads that marker to show its fallback (§6.5). |
 
 ### §6.5 `:component-did-catch` integration
 
