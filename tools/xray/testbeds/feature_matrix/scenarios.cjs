@@ -1530,18 +1530,30 @@ async function runHttpToggle(page) {
   await clickTestId(page, 'go');
   await expectVisible(page.locator('[data-testid="reply-status"]'), 5000);
 
+  // Each outcome must produce the category-attributed `:rf.http/<kind>`
+  // trace event, so the check matches that event's `:operation` rather
+  // than the outcome keyword anywhere in the trace: the outcome's own
+  // select-change dispatch, the `:go` fx args and the reply all carry the
+  // keyword whether or not the `:rf.http/*` trace was written. A
+  // cross-origin Fetch rejection is a `:rf.http/transport` failure
+  // carrying the `:cross-origin?` hint.
+  const httpOp = (kind) => new RegExp(`:operation ${kind.replace(/\./g, '\\.')}[,}\\s]`);
   const outcomes = [
-    ':rf.http/http-4xx',
-    ':rf.http/http-5xx',
-    ':rf.http/timeout',
-    ':rf.http/transport',
-    ':rf.http/decode-failure',
-    ':http-toggle/cross-origin',
+    [':rf.http/http-4xx', [httpOp(':rf.http/http-4xx')]],
+    [':rf.http/http-5xx', [httpOp(':rf.http/http-5xx')]],
+    [':rf.http/timeout', [httpOp(':rf.http/timeout')]],
+    [':rf.http/transport', [httpOp(':rf.http/transport')]],
+    [':rf.http/decode-failure', [httpOp(':rf.http/decode-failure')]],
+    [':http-toggle/cross-origin', [httpOp(':rf.http/transport'), /:cross-origin\? true/]],
   ];
-  for (const outcome of outcomes) {
+  for (const [outcome, patterns] of outcomes) {
     await selectOutcome(page, outcome);
     await clickTestId(page, 'go');
-    await waitForTraceMatch(page, new RegExp(outcome.replace('.', '\\.')), `${outcome} trace`);
+    await waitForValue(
+      async () => readTrace(page),
+      (events) => events.some((event) => patterns.every((re) => re.test(event))),
+      { timeoutMs: 10000, description: `${outcome} :rf.http/* trace` },
+    );
   }
 
   // The Epoch panel is the canonical "what happened in this epoch"
