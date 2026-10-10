@@ -29,8 +29,8 @@
 
   Also absent, and worth naming so their absence reads as a decision
   rather than an omission: the `:r>` raw-props path, the class-component
-  `__rfArgv` crossing, and the adapters' reserved-head and keyword-prop
-  diagnostics (public-boundary policy for a shipped adapter; this codec
+  `__rfArgv` crossing, and the adapters' reserved-head diagnostic
+  (public-boundary policy for a shipped adapter; this codec
   has no public boundary, and the pre-alpha stance is to trust the
   programmer). `defhost` — HD-011's taught door — is present:
   [[mint-host!]] is the declaration and the host head is the fourth
@@ -2256,13 +2256,10 @@
   what keeps this function's answer right if it is ever asked directly.
 
   **No dev warning accompanies this**, and the omission is deliberate.
-  `reagent-slim` warns once per non-HTML keyword prop because it narrows
-  the rule underneath an installed Reagent codebase and the warning is
-  that migration's safety-net (DESIGN-RATIONALE §5: \"the warning exists
-  for the case we did not audit\"). Fresco has no such codebase to
-  protect, and a keyword at a host prop is the CORRECT
-  and taught spelling of HD-011's flagship case — warning on the happy
-  path is a nag, not a diagnostic. The guide teaches the rule instead."
+  A keyword at a host prop is the CORRECT and taught spelling of
+  HD-011's flagship case, so warning on the happy path would be a nag,
+  not a diagnostic. `reagent-slim` narrows the same seam and does not
+  warn either. The guide teaches the rule instead."
   [slot v]
   (cond
     (fn? v)                       v

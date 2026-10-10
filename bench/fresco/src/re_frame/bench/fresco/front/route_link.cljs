@@ -119,11 +119,10 @@
   through would be the same fail-open shape one level down.
 
   If HD-027 is deliberately reopened to admit prefetch, what replaces
-  this is routing's full three-handler behaviour
-  (`rf.routing.link/prefetch-on-intent!`, called directly at each
-  `prefetch-intent-keys` position — `:on-mouse-enter` / `:on-focus` /
-  `:on-touch-start`). A passthrough is not the middle ground between the
-  two."
+  this is routing's own warm-up pair: the `:prefetch` vector and the
+  `:prefetch-keys` positions `:routing/link-model` already returns,
+  lowered at each of those positions as `h/route-link` does. A
+  passthrough is not the middle ground between the two."
   [{:keys [to] :as props}]
   (when (contains? props :prefetch)
     (fail! :rf.error/fresco-route-link-prefetch-declined

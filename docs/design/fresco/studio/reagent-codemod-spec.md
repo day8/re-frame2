@@ -237,13 +237,10 @@ Reagent once. A dev warning would catch **computed** values, which no source too
 reach, at the price of nagging every correct call site.
 
 **Refused, and not on my preference.** `host-prop-value`'s own docstring rules it out by
-name: *"`reagent-slim` warns once per non-HTML keyword prop because it narrowed the rule
-underneath an installed Reagent codebase … Fresco has no such codebase to protect, and
-after this change a keyword at a host prop is the CORRECT and taught spelling of HD-011's
-flagship case — warning on the happy path is a nag, not a diagnostic."* That is a landed
-ruling on the exact question, and it is right: the two cases differ in that `reagent-slim`
-*is* the migration target and Fresco is a different framework. A migration-scoped opt-in
-flag would evade the ruling and is over-engineering.
+name: *"A keyword at a host prop is the CORRECT and taught spelling of HD-011's flagship
+case, so warning on the happy path would be a nag, not a diagnostic."* That is a landed
+ruling on the exact question, and it is right. A migration-scoped opt-in flag would evade
+the ruling and is over-engineering.
 
 ### E · Report only, no writes
 
