@@ -657,7 +657,7 @@ This section is the **canonical grammar** for the frame config map. Subsequent s
    :fx-overrides {:my-app/http http-stub-fn}    ;; per-frame fx replacements
    :interceptors [:my-app/recorder              ;; interceptor REFS prepended to every event in this frame
                   :my-app/validator]            ;;   (refs, never inline interceptor values — EP-0022)
-   :drain-depth  100                            ;; depth limit for run-to-completion drain
+   :drain-depth  1000                           ;; per-family event budget for run-to-completion
    :platform     :server                        ;; active platform for this frame per [011-SSR.md](011-SSR.md); typically preset-supplied
    :rf.trace/events-retained 200                ;; per-frame trace-ring retention: one slot per EVENT/pipeline run (default 50); per [009 §Per-frame trace rings](009-Instrumentation.md#per-frame-trace-rings-event-keyed-dev-only)
    :observability {:errors [{:sink :my-app.sinks/sentry}]}}) ;; frame-owned sink policy per [015 §Frame-owned observability sink policy](015-Data-Classification.md#frame-owned-observability-sink-policy)
@@ -922,7 +922,7 @@ A `:preset` key on the metadata expands at registration time into a fixed bundle
 ;; The `:preset` expands; user-supplied keys override individual expansion entries.
 (rf/make-frame {:id :test/long-running
                 :preset :test
-                :drain-depth 1000})   ;; overrides the :test preset's drain-depth default
+                :drain-depth 5000})   ;; overrides the :test preset's drain-depth default
 ```
 
 The closed canonical set of three presets, with their exact expansions. The expansion *table itself* is normatively captured in [Spec-Schemas §`:rf/preset-expansion`](Spec-Schemas.md#rfpreset-expansion); the three sub-sections below mirror that schema for human readability.
@@ -942,7 +942,7 @@ Use case: production single-frame app; multi-instance widgets.
 | Expansion key | Value | Why |
 |---|---|---|
 | `:fx-overrides` | `{:rf.http/managed :rf.http/managed-canned-success}` | The canonical Spec 014 HTTP fx is redirected to its canned-success stub so test frames don't reach the network. Test code that needs richer stubbing supplies its own `:fx-overrides` per-call or per-frame; the framework does not ship `:rf.test/*` fxs in the v1 closed set. **The reserved navigation primitives `:rf.nav/push-url` / `:rf.nav/replace-url` / `:rf.nav/scroll` / `:rf.nav/capture-scroll` are OVERRIDABLE** (host-API wrappers, no frame runtime-db write — per [§Reserved fx-ids are tiered against override](#reserved-fx-id-override-tier)), so a test stubs them to no-op navigation without touching the host. Note that the *state-installing* reserved fxs (`:rf.machine/spawn`, `:rf.fx/reg-flow`, `:rf.route/with-nav-token`, …) are HARD-REJECTED — a test cannot stub those (the override is ignored and the reserved body runs). |
-| `:drain-depth` | `100` | Explicit value matches the framework default. Surfaced on the expansion so tooling can read "this is a test frame, drain bounded at 100" from `(frame-meta <id>)` without inspecting the global default. |
+| `:drain-depth` | `1000` | Explicit value matches the framework default. Surfaced on the expansion so tooling can read "this is a test frame, each family bounded at 1000 events" from `(frame-meta <id>)` without inspecting the global default. |
 | `:rf.cofx/mint-policy` | `:strict` | The cofx **mint policy** ([§Mint policies](#mint-policies)) defaults to `:strict` under a test frame: a declared-absent generator-backed recordable fact is `:rf.error/missing-required-cofx`, never a freshly-minted per-run value. Strict-by-default is **core, not polish** — a determinism feature whose path of least resistance is a fresh random per run would degrade the test culture it exists to serve, so the `:test` preset makes the deterministic path the default and nondeterminism opt-in. A test that has *declared* it accepts nondeterminism opts back in with `{:rf.cofx/mint-policy :explicit-live}` (per-call dispatch opt, or as a per-frame override — user-supplied keys win on conflict per [§Expansion algorithm](#expansion-algorithm)). |
 
 **Port-omission carve-out.** The `:fx-overrides` entry above redirects a Spec 014 fx-id. Implementations that omit Spec 014 do not register `:rf.http/managed` and therefore cannot redirect it — on such ports the `:test` preset's `:fx-overrides` expansion is `{}` (empty map). The `:drain-depth` entry is unaffected. Conformance: a port that ships Spec 014 MUST expand `:test`'s `:fx-overrides` to the exact pair above; a port that omits Spec 014 MUST expand it to `{}`. Either way, user-supplied metadata wins on conflict per [§Expansion algorithm](#expansion-algorithm).
@@ -956,7 +956,7 @@ Use case: per-test fixture frames (per [008-Testing](008-Testing.md)).
 | Expansion key | Value | Why |
 |---|---|---|
 | `:fx-overrides` | `{:rf.http/managed :rf.http/managed-canned-success}` | Network stubbed via the canonical Spec 014 redirect. **Time-based fxs are NOT stubbed** — stories animate in real time. Story-specific stubs (navigation no-op, etc.) are user-supplied; not shipped in the v1 closed set. |
-| `:drain-depth` | `16` | Tighter bound than the framework default (100). Stories are interactive demos; a runaway dispatch drain should fail fast under a story rather than spinning up to the production limit. |
+| `:drain-depth` | `16` | Tighter bound than the framework default (1000). Stories are interactive demos; a runaway dispatch cascade should fail fast under a story rather than spinning up to the production limit. |
 
 Use case: story / variant frames (per the [007-Stories](007-Stories.md) library, shipped in `tools/story/`).
 
@@ -975,7 +975,7 @@ Reading `(rf/frame-meta :test/auth-flow)` returns the *effective* map; the `:pre
 (rf/frame-meta :test/auth-flow)
 ;; → {:preset      :test
 ;;    :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}
-;;    :drain-depth 100
+;;    :drain-depth 1000
 ;;    :rf.cofx/mint-policy :strict}
 ```
 
@@ -1175,7 +1175,7 @@ Substrate-internal dispatch sites stamp their own specific `:source` kind so the
 | `:after-timer` | machine substrate's `:after` timer-fire path | timer's delay elapses + the substrate dispatches the synthetic `:rf.machine.timer/after-elapsed` trigger |
 | `:always` | machine substrate's `:always` microstep loop | per-microstep marker on `:rf.machine.microstep/transition`; `:always` does not produce its own envelope (it runs intra-macrostep) but the value is reserved on the closed set so tools have a consistent vocabulary |
 | `:machine-spawn` | spawn-fx (`:rf.machine/spawn`) | a machine spawns + the substrate dispatches the spawned actor's `:start` (or synthetic `[:rf.machine.spawn/spawned]`) initial-entry trigger |
-| `:machine-action` | `:dispatch` / `:dispatch-later` fx handler when the emitting handler is a machine (`:rf.machine/internal? true` on the parent envelope) | a machine-handler-issued `(rf/dispatch …)` — the actor-message path. Carries the same `:source-detail {:ms <ms>}` when emitted via `:dispatch-later`. |
+| `:machine-action` | `:dispatch` / `:dispatch-later` fx handler when the emitting handler is a machine (its registration carries `:rf/machine? true`) | a machine-handler-issued `(rf/dispatch …)` — the actor-message path. Carries the same `:source-detail {:ms <ms>}` when emitted via `:dispatch-later`. |
 | `:fx-dispatch` | `:dispatch` fx handler (non-machine parent) | the `:dispatch` reserved fx executes and enqueues a child dispatch from an ordinary event handler |
 | `:fx-dispatch-later` | `:dispatch-later` fx handler (non-machine parent) | the `:dispatch-later` reserved fx fires after its delay from an ordinary event handler |
 | `:http` | `re-frame.http.encoding/dispatch-reply-via-late-bind!` | managed-HTTP reply settle — `:on-success` / `:on-failure` cascade entry |
@@ -1815,16 +1815,16 @@ The shape that drains as part of the surrounding run is `:fx [[:dispatch event]]
 
 #### Cross-frame `dispatch-sync` during a sibling drain warns but proceeds
 
-The same-frame check above is strict: a `dispatch-sync!` against the caller's own frame during its drain is rejected. The cross-frame case is *not* rejected. A `dispatch-sync!` against a **different** frame while the caller's frame is mid-drain interleaves the drains — frame B runs to settled, then frame A continues. This interleaving is allowed (frames are independent state machines per [§Rules rule 1](#rules) — no cross-frame drain), but rarely the caller's intent, so the runtime emits `:rf.warning/cross-frame-dispatch-sync-during-drain` (per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)) so observability tools spot the pattern. The dispatch proceeds; `:recovery :no-recovery`. For fire-and-forget cross-frame coordination prefer the async form `(rf/dispatch event {:frame other})` — it queues on the target frame's router and drains on a later cycle, after the caller's drain settles.
+The same-frame check above is strict: a `dispatch-sync!` against the caller's own frame during its drain is rejected. The cross-frame case is *not* rejected. A `dispatch-sync!` against a **different** frame while the caller's frame is mid-drain interleaves the drains — frame B runs to settled, then frame A continues. A dispatch to A that B's handler makes meanwhile joins A's internal lane: A's event is still in flight on that thread, so the dispatch is causally A's descendant (per [§Rules](#rules) rule 2). This interleaving is allowed (frames are independent state machines per [§Rules rule 1](#rules) — no cross-frame drain), but rarely the caller's intent, so the runtime emits `:rf.warning/cross-frame-dispatch-sync-during-drain` (per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)) so observability tools spot the pattern. The dispatch proceeds; `:recovery :no-recovery`. For fire-and-forget cross-frame coordination prefer the async form `(rf/dispatch event {:frame other})` — it queues on the target frame's router and drains on a later cycle, after the caller's drain settles.
 
 ## Run-to-completion dispatch (drain semantics)
 
-re-frame2 dispatches **run to completion**: when an external event is processed, every event dispatched (synchronously) during its handler — and every event those handlers dispatch in turn — drains to fixed point before any further external event is processed *for this frame*, and before any view re-renders.
+re-frame2 dispatches **run to completion**: when an external event is processed, every event dispatched (synchronously) during its handler — and every event those handlers dispatch in turn — drains to fixed point before any further external event is processed *for this frame*, and before any view re-renders. That set — the external event plus everything it dispatches, transitively, whatever kind of handler dispatches it — is the event's **family**. An *external* event is any dispatch not made synchronously inside the frame's in-flight event: user input, a timer fire, an async reply, the REPL, another frame, another thread (see [§Terminology](#terminology) and [§Rules](#rules) rule 2).
 
 This is the dispatch semantics, not a mode. There is no opt-out. The guarantee gives actor-style machine composition determinism for free ([Spec 005](005-StateMachines.md)) and removes a class of "flash" intermediate renders that re-frame v1's async dispatch can cause. It is also load-bearing for [Goal 2 — Frame state revertibility](000-Vision.md#frame-state-revertibility): every settled, between-event state of a frame is a snapshottable boundary, and no async mutation escapes the dispatch loop to leave the frame's value inconsistent with its registered handlers.
 
-**Two terminal halts bound “to fixed point.”** The depth limit below drops work after its
-event boundary, and an exact-incarnation destroy claim is the ordinary-queue cutoff from
+**Two halts bound “to fixed point.”** The depth limit below discards a runaway family's
+remaining work after its event boundary, and an exact-incarnation destroy claim is the ordinary-queue cutoff from
 [§Destroy](#destroy): an authored callback already on the stack may return and only
 already-entered authored interceptor `:after` callbacks may unwind, but its returned
 context/output is inert. Not-yet-dequeued ordinary work is discarded and no render is
@@ -1833,55 +1833,57 @@ not opt-outs that allow an intermediate render.
 
 ### Drain versus event — the epoch unit
 
-> **Vocabulary.** This section and the two below define the **drain / dispatch** half of the [event-pipeline vocabulary](Conventions.md#event-pipeline-vocabulary--the-terms-one-event-traverses) (the authoritative home). One dequeued event is one **pipeline run** — a single traversal of the fixed stage sequence **assemble → transform → commit → perform** (the **update and commit phases**, per event) then **derive → render** (the **render phase**). The render phase runs once per **render batch**, not once per event and not once per drain: the batch closes at the next host checkpoint, so every epoch a drain settles coalesces into one render (per [006 §Render-batch finalization](006-ReactiveSubstrate.md#render-batch-finalization--the-host-checkpoint-boundary)). A **pipeline run** is the formal term for a single event's traversal (not "event cascade"); a **drain** is the run-to-fixed-point family of such runs. The "six dominoes" framing is a **first-contact mnemonic** only, never formal vocabulary.
+> **Vocabulary.** This section and the two below define the **drain / dispatch** half of the [event-pipeline vocabulary](Conventions.md#event-pipeline-vocabulary--the-terms-one-event-traverses) (the authoritative home). One dequeued event is one **pipeline run** — a single traversal of the fixed stage sequence **assemble → transform → commit → perform** (the **update and commit phases**, per event) then **derive → render** (the **render phase**). The render phase runs once per **render batch**, not once per event and not once per drain: the batch closes at the next host checkpoint, so every epoch a drain settles coalesces into one render (per [006 §Render-batch finalization](006-ReactiveSubstrate.md#render-batch-finalization--the-host-checkpoint-boundary)). A **pipeline run** is the formal term for a single event's traversal (not "event cascade"); a **drain** is a run-to-fixed-point sequence of such runs, and a **family** is the ordering unit inside it (below). The "six dominoes" framing is a **first-contact mnemonic** only, never formal vocabulary.
 
 A **drain** and an **event** are distinct units, and the distinction is normative:
 
-- A **drain** is one turn of the outer loop (`drain!`). It may dequeue and process *several* events back-to-back — the originating event plus every event its handlers `:fx`-dispatch, and so on, until the queue is empty or a terminal depth/destroy boundary halts it. A drain is a *scheduling* unit: it bounds when the host event loop gets time back, and because it cannot be split across render batches, its epochs reach the **derive → render** phase together.
+- A **drain** is one turn of the outer loop (`drain!`). It may dequeue and process *several* events back-to-back — one or more families, each settling before the next starts — until both lanes are empty or a destroy boundary halts it. A drain is a *scheduling* unit: it bounds when the host event loop gets time back, and because it cannot be split across render batches, its epochs reach the **derive → render** phase together.
+- A **family** is one external event (or one `dispatch-sync` seed) plus every event dispatched synchronously inside its processing, transitively — the contents of the frame's internal lane while it runs. A family is an *ordering* unit: it settles before the next external event runs, and it is the unit `:drain-depth` budgets ([§Rules](#rules) rule 3). It is not a transaction; each of its events commits on its own.
 - An **event** is one dequeued envelope. Each dequeued event runs its **own full pipeline run** — its update and commit phases (**assemble → transform → commit → perform**) end-to-end before the next event is dequeued — and **yields its own epoch**: one [`:rf/epoch-record`](Spec-Schemas.md#rfepoch-record) per dequeued event. (First-contact mnemonic: the run's per-event half is the "six dominoes" — event → effects → dispatch → handler → effects → view.)
 
 **One epoch per dequeued event — every origin.** The epoch boundary is *per top-level dequeue*, irrespective of how the event arrived in the queue: a UI `(rf/dispatch …)`, an `:fx [[:dispatch …]]` child queued by another handler, or a frame-creation setup step (an `:initial-events` element, dispatch-synced at construction — see [§make-frame is atomic](#make-frame--atomic-create-and-register-and-the-canonical-config-grammar)). Each of these is its own dequeued event, so each is its own epoch with its own **pipeline run** and its own trace. A drain that processes a parent event and the child it `:fx`-dispatched therefore produces **two** epoch records, not one — even though both settled inside the same drain.
 
-**Microsteps ride the triggering event's epoch.** A machine's `:raise` sub-events and `:always` microsteps are **not** dequeued events — they are in-memory microsteps inside a single machine **macrostep**, drained pre-commit within the triggering event's handler invocation and never routed through the per-frame queue (per [005 §`:raise`](005-StateMachines.md#raise-rfmachinespawn-and-rfmachinedestroy-are-reserved-fx-ids-inside-fx) / [§Eventless `:always` transitions](005-StateMachines.md#eventless-always-transitions)). They stay **inside the triggering event's epoch**; they do not start a new one. Only a separately *dequeued* event — including an `:fx [[:dispatch …]]` child that round-trips through the queue — opens a fresh epoch. (`:dispatch` to self round-trips the queue as a separate dequeued event — at the back from a plain handler, at the front from a machine handler per [005 §Level 4](005-StateMachines.md#level-4--across-the-runtime); either way a fresh epoch; `:raise` is not dequeued and stays in the same epoch — see [§Edge cases worth pinning](#edge-cases-worth-pinning) #3.)
+**Microsteps ride the triggering event's epoch.** A machine's `:raise` sub-events and `:always` microsteps are **not** dequeued events — they are in-memory microsteps inside a single machine **macrostep**, drained pre-commit within the triggering event's handler invocation and never routed through the per-frame queue (per [005 §`:raise`](005-StateMachines.md#raise-rfmachinespawn-and-rfmachinedestroy-are-reserved-fx-ids-inside-fx) / [§Eventless `:always` transitions](005-StateMachines.md#eventless-always-transitions)). They stay **inside the triggering event's epoch**; they do not start a new one. Only a separately *dequeued* event — including an `:fx [[:dispatch …]]` child that round-trips through the queue — opens a fresh epoch. (`:dispatch` to self round-trips the router as a separate dequeued event — it joins the internal lane, whatever the handler kind, per [§Rules](#rules) rule 2 — so a fresh epoch; `:raise` is not dequeued and stays in the same epoch — see [§Edge cases worth pinning](#edge-cases-worth-pinning) #3.)
 
 ### Terminology
 
-- **Domain events** — dispatches whose source is the outside world (user input, timer fire, websocket message, REPL). These are the "external events" that drive re-frame.
-- **Actor messages** (or just "messages") — dispatches one machine emits to another within a single domain-event's processing. Same `(rf/dispatch [...])` API, distinguished only by the envelope's `:source` field (`:source :machine-action`, stamped by the `:dispatch` / `:dispatch-later` fx handler when the emitting handler is a machine) and by naming convention. There is no separate `message` primitive.
+- **Domain events** (external events) — dispatches not made synchronously inside the frame's in-flight event: user input, timer fires, websocket and HTTP replies, the REPL, dispatches from other frames, and dispatches from other threads (a `future` or `bound-fn` started inside a handler included). They join the frame's **external lane**, and they are what drives re-frame.
+- **Actor messages** (or just "messages") — dispatches one machine emits to another within a single domain-event's processing. Same `(rf/dispatch [...])` API, distinguished only by the envelope's `:source` field (`:source :machine-action`, stamped by the `:dispatch` / `:dispatch-later` fx handler when the emitting handler is a machine) and by naming convention. There is no separate `message` primitive. Like every dispatch made inside an event, a message joins the internal lane: machine origin buys no priority.
+- **Family** — one domain event (or one `dispatch-sync` seed) plus every event dispatched synchronously inside its processing, transitively (see [§Drain versus event](#drain-versus-event--the-epoch-unit)).
 
 The distinction is documentary and conceptual, not technical. One **event pipeline** (per [Conventions §Event-pipeline vocabulary](Conventions.md#event-pipeline-vocabulary--the-terms-one-event-traverses)), one event shape; "message" is a role a dispatched event plays in a particular context.
 
 ### Rules
 
 1. **No cross-frame drain.** Drain runs against the frame's own router queue. A dispatch tagged with a *different* frame goes through the ordinary async path — drain does not span frames. Cross-frame coordination uses regular async `(dispatch ev {:frame other})`.
-2. **Every actor message sent during a domain-event's processing drains before the next domain event for that frame.** Once drain is engaged, no further external events are processed for that frame until the drain settles.
-3. **Depth-limited (dynamic), halt at the event boundary — no whole-drain rollback.** The drain enforces a configurable depth limit (`:drain-depth`). When exceeded, the drain stops and raises the `:rf.error/drain-depth-exceeded` error, whose tags carry the `:frame`, the `:depth` reached, the `:queue-size`, and the cycle evidence `:last-event-id` / `:tail-event-ids` / `:dropped-event-ids` (the full shape is its row in [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)). The limit is per-frame: it is the frame config's `:drain-depth` (`make-frame`, or a preset), and a re-registration replaces it for subsequent drains (per [§Re-registration](#re-registration--surgical-update)). It is not a dispatch opt: `dispatch` ignores a `:drain-depth` key, and a dev build reports it as `:rf.warning/unknown-dispatch-opt`. **The unit of atomicity is the *event*, not the drain** (per [§Drain versus event — the epoch unit](#drain-versus-event--the-epoch-unit)). Every event the drain already settled committed its own `:db` write and its own durable `:ok` epoch — those are **kept**, exactly as if the drain had ended after each one. There is **no** whole-drain rollback and no pre-drain snapshot: rolling back already-settled, already-epoched events would discard durable history and contradict the per-event epoch boundary. When the limit trips, the runtime (a) **discards the remaining queued events** (the next, *halting* event never runs), (b) emits the `:rf.error/drain-depth-exceeded` error trace carrying `:rollback? false` (no state was reverted), and (c) commits a single trailing `:halted-depth` [`:rf/epoch-record`](Spec-Schemas.md#rfepoch-record) for the halting event so devtools (Xray's epoch panel, re-frame2-pair's `cascade-of`) get a clear "drain halted here" marker following the durable `:ok` records. Because the halting event never ran, that record's `:db-before` and `:db-after` **both equal the durable last-settled `app-db`** (per [Spec-Schemas §`:rf/epoch-record` §Outcomes](Spec-Schemas.md#outcomes) and the halted-cascade listener contract in [009 §`register-epoch-listener!`](009-Instrumentation.md#the-epoch-stream--assembled-epoch-listener)). The frame is left at the last settled state — which, being the value after a completed event, is exactly the kind of between-event boundary that is always reachable by replay. Conformance fixture: [`drain-depth-limit.edn`](conformance/fixtures/drain-depth-limit.edn).
+2. **Every event dispatched during a domain event's processing — by any handler kind, transitively — drains before the next domain event for that frame.** Each frame has two FIFO lanes. A dispatch made synchronously inside the frame's in-flight event (its handler, interceptors and `:fx` walk, a machine continuation, a same-frame spawn start, a completion carrier) joins the **internal** lane; every other dispatch joins the **external** lane. The drain always dequeues from the internal lane first, so a family settles before the next external event runs, and siblings run in source order, breadth-first. The cut is causal — where the dispatch is made — never the dispatch's origin or target: a `future` or `bound-fn` that dispatches from another thread, or after its handler returned, is external. `dispatch-sync`'s seed goes to the head of the internal lane, so the seed and its family run before external input already queued. This is a deliberate re-frame2 composition guarantee, not an SCXML requirement (see [005 §Why these rules](005-StateMachines.md#why-these-rules)); to yield to queued input on purpose, use `:dispatch-later {:ms 0}`, whose timer dispatches into the external lane.
+3. **Depth-limited per family (dynamic), halt at the event boundary — no rollback.** The drain budgets each family with a configurable depth limit (`:drain-depth`, default 1000): the most events one family may dequeue, counting its root, with the count restarting at each external dequeue. So a finite fan-out or a burst of external input settles, while a runaway cycle halts. When a family reaches the limit with work still in its internal lane, the runtime halts that family and raises the `:rf.error/drain-depth-exceeded` error, whose tags carry the `:frame`, the `:depth` reached (the family's count), the `:queue-size` (how many of the family's queued events were discarded), and the cycle evidence `:last-event-id` / `:tail-event-ids` / `:dropped-event-ids` (the full shape is its row in [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)). The limit is per-frame: it is the frame config's `:drain-depth` (`make-frame`, or a preset), and a re-registration replaces it for subsequent drains (per [§Re-registration](#re-registration--surgical-update)). It is not a dispatch opt: `dispatch` ignores a `:drain-depth` key, and a dev build reports it as `:rf.warning/unknown-dispatch-opt`. **The unit of atomicity is the *event*, not the drain** (per [§Drain versus event — the epoch unit](#drain-versus-event--the-epoch-unit)). Every event the drain already settled committed its own `:db` write and its own durable `:ok` epoch — those are **kept**, exactly as if the drain had ended after each one. There is **no** whole-drain rollback and no pre-drain snapshot: rolling back already-settled, already-epoched events would discard durable history and contradict the per-event epoch boundary. When the limit trips, the runtime (a) **discards the family's remaining internal-lane events** (the next, *halting* event never runs), (b) emits the `:rf.error/drain-depth-exceeded` error trace carrying `:rollback? false` (no state was reverted), (c) commits a single trailing `:halted-depth` [`:rf/epoch-record`](Spec-Schemas.md#rfepoch-record) for the halting event so devtools (Xray's epoch panel, re-frame2-pair's `cascade-of`) get a clear "family halted here" marker following the durable `:ok` records, and (d) **continues the drain** with the next external event under a fresh budget — a depth halt never drops external input. The halt looks only at the family's own pending work, so a family of exactly `:drain-depth` events settles even with external input waiting. Because the halting event never ran, that record's `:db-before` and `:db-after` **both equal the durable last-settled `app-db`** (per [Spec-Schemas §`:rf/epoch-record` §Outcomes](Spec-Schemas.md#outcomes) and the halted-cascade listener contract in [009 §`register-epoch-listener!`](009-Instrumentation.md#the-epoch-stream--assembled-epoch-listener)). The frame is left at the last settled state — which, being the value after a completed event, is exactly the kind of between-event boundary that is always reachable by replay. Conformance fixture: [`drain-depth-limit.edn`](conformance/fixtures/drain-depth-limit.edn).
 
-    **Halt boundary — what does and doesn't commit.** Atomicity is enforced *at the event boundary*, so there is no multi-event drain state to revert. Each settled event is atomic on its own: a handler's `:db` write either commits in full (when the event settles, yielding its `:ok` epoch) or not at all (the event's own partial work never reaches `app-db` if the event itself fails — see [§Interceptor chain execution](#interceptor-chain-execution--before-short-circuit-after-always-runs)). The halting event makes **no** writes — it was never dequeued into a handler invocation — so nothing of its needs reverting. Frame-local registry mutations follow the same per-event grammar: a `(rf/dispatch [:rf.machine/spawn ...])` that **settled** as its own event durably registered the spawned actor's frame-local handler in its `[:rf.runtime/machines :snapshots <id>]` slot, and that registration is kept along with that event's durable `app-db` — there is no orphaning, because the kept `app-db` is the very value (post that event) that references the registration. Out-of-band side effects already committed to *external* substrates (an HTTP request that flew, a `dispatch-later` timer that was scheduled) are likewise not touched. (The sibling halt case, [§Edge cases worth pinning §Frame disposal mid-drain](#edge-cases-worth-pinning), behaves identically: settled events are durable, only not-yet-dequeued events are dropped, and a `:halted-destroy` marker records the halt.)
+    **Halt boundary — what does and doesn't commit.** Atomicity is enforced *at the event boundary*, so there is no multi-event family or drain state to revert. Each settled event is atomic on its own: a handler's `:db` write either commits in full (when the event settles, yielding its `:ok` epoch) or not at all (the event's own partial work never reaches `app-db` if the event itself fails — see [§Interceptor chain execution](#interceptor-chain-execution--before-short-circuit-after-always-runs)). The halting event makes **no** writes — it was never dequeued into a handler invocation — so nothing of its needs reverting. Frame-local registry mutations follow the same per-event grammar: a `(rf/dispatch [:rf.machine/spawn ...])` that **settled** as its own event durably registered the spawned actor's frame-local handler in its `[:rf.runtime/machines :snapshots <id>]` slot, and that registration is kept along with that event's durable `app-db` — there is no orphaning, because the kept `app-db` is the very value (post that event) that references the registration. Out-of-band side effects already committed to *external* substrates (an HTTP request that flew, a `dispatch-later` timer that was scheduled) are likewise not touched. (The sibling halt case, [§Edge cases worth pinning §Frame disposal mid-drain](#edge-cases-worth-pinning), behaves identically: settled events are durable, only not-yet-dequeued events are dropped, and a `:halted-destroy` marker records the halt.)
 
 ```clojure
 (rf/make-frame {:id :auth
                 :initial-events [[:auth/initialise]]
-                :drain-depth    100})    ;; the default; a re-registration replaces it
+                :drain-depth    1000})   ;; the default; a re-registration replaces it
 ```
 
 ### Single-drainer invariant (concurrent hosts)
 
 The drain operates under a **single-drainer invariant**: only one thread executes `drain!` at a time. Concurrent dispatch attempts enqueue and wake the executor, which no-ops if a drain is already running — the active drainer picks up newly-queued envelopes before returning, unless the exact-incarnation destroy claim has become the ordinary-queue cutoff. In that terminal case the drainer drops rather than invokes them (per [§Destroy](#destroy)).
 
-On single-threaded hosts (CLJS) this is trivially true. On the JVM the runtime's `interop/next-tick` executor can fire its callback concurrently with the calling thread (typically `dispatch-sync` on the main thread), so the implementation must CAS-acquire a per-frame drain-lock at every `drain!` entry; the loser of the CAS returns without touching the queue. `dispatch-sync` spin-waits for the lock and performs its seed-push under the lock so the prepend does not interleave with another drainer's `peek+pop`. The release of the drain-lock and the clearing of the per-router `:scheduled?` flag happen under the same `locking` block that the submit path uses for its scheduling check — that single seam closes the orphan-envelope window (an envelope queued between the inner empty-check and the lock release would otherwise be visible to neither the outgoing drainer's loop nor the next submitter's scheduling decision).
+On single-threaded hosts (CLJS) this is trivially true. On the JVM the runtime's `interop/next-tick` executor can fire its callback concurrently with the calling thread (typically `dispatch-sync` on the main thread), so the implementation must CAS-acquire a per-frame drain-lock at every `drain!` entry; the loser of the CAS returns without touching the queue. `dispatch-sync` spin-waits for the lock and performs its seed-push — to the head of the internal lane — under the lock so the prepend does not interleave with another drainer's `peek+pop`. The release of the drain-lock and the clearing of the per-router `:scheduled?` flag happen under the same `locking` block that the submit path uses for its scheduling check — that single seam closes the orphan-envelope window (an envelope queued between the inner empty-check and the lock release would otherwise be visible to neither the outgoing drainer's loop nor the next submitter's scheduling decision).
 
 ### What is and isn't drained
 
-- **Synchronous re-dispatches (machine-to-machine messages)** are drained.
-- **Async effects** — `:http`, timer-based, websocket-flavoured — are *not*. Their responses arrive later as fresh domain events, which then re-engage drain for their own run.
-- **Domain events from outside the frame** wait until the current drain settles.
+- **Synchronous re-dispatches** — everything an event dispatches while it runs, machine-to-machine messages included — are drained, through the internal lane, before the next domain event.
+- **Async effects** — `:http`, timer-based, websocket-flavoured — are *not*. Their responses arrive later as fresh domain events in the external lane, which then root their own families.
+- **Domain events** wait in the external lane until the current family settles. A drain that finds several queued processes them in turn — each one's family settling before the next starts — so they still run before the next render.
 
 ### Drain scheduling — task, not microtask
 
-A drain runs to **fixed point** in one go: once engaged, the outer loop dequeues and processes every synchronously-dispatched event (the originating event plus every event its handlers `:fx`-dispatch, transitively) until the queue is empty or a terminal depth/destroy boundary halts it, *then* yields. This is the run-to-completion guarantee above expressed as a scheduling property — one drain, one settle; never a mid-drain paint.
+A drain runs to **fixed point** in one go: once engaged, the outer loop dequeues and processes every queued event — internal lane first, so each external event's family settles before the next external event — until both lanes are empty or a destroy boundary halts it, *then* yields. This is the run-to-completion guarantee above expressed as a scheduling property — one drain, one settle; never a mid-drain paint.
 
-A throw that escapes a drain (one outside `process-event!`'s per-event trapping, such as a hard coeffect or chain-assembly error) ends that drain and propagates to the host — for a synchronous drain, to the `dispatch-sync` caller; events still queued on the live frame run in a freshly scheduled drain (the next task, with a fresh depth budget), and the failing event is not retried.
+A throw that escapes a drain (one outside `process-event!`'s per-event trapping, such as a hard coeffect or chain-assembly error) ends that drain and propagates to the host — for a synchronous drain, to the `dispatch-sync` caller; events still queued in either lane of the live frame run in a freshly scheduled drain (the next task, internal lane still first, with a fresh depth budget), and the failing event is not retried.
 
 **Drains are scheduled as a next-turn task (a macrotask).** When a `dispatch` lands on an empty queue, the runtime schedules the drain via the interop layer's `next-tick` — `goog.async.nextTick` in the CLJS reference, an executor task on the JVM. (See the [§Drain-loop pseudocode](#drain-loop-pseudocode) `dispatch` / `interop/next-tick` seam, and [Runtime-Architecture §Router](Runtime-Architecture.md).)
 
@@ -1923,7 +1925,7 @@ When an event handler returns `{:db <new-db> :fx [[a 1] [b 2] [c 3]]}`, the runt
 
 From the *handler's* perspective, the handler returns once with the full effects map; sequencing of `:fx` entries is deterministic; the handler doesn't observe the side effects firing — it just declares them.
 
-**Composition with the dispatch queue.** When `:fx` entries include `:dispatch`, the dispatched events enter the runtime queue in source order — preserving source-order all the way down a chain. From a plain (non-machine) handler they append to the back (FIFO); from a *machine* handler they are inserted at the front, still in source order, per [005 §Level 4](005-StateMachines.md#level-4--across-the-runtime). `:dispatch-later` schedules timers in source order; actual delivery depends on each timer's delay.
+**Composition with the dispatch queue.** When `:fx` entries include `:dispatch`, the dispatched events join the frame's internal lane in source order, whatever the handler kind — preserving source order all the way down a chain (per [§Rules](#rules) rule 2 and [005 §Level 4](005-StateMachines.md#level-4--across-the-runtime)). `:dispatch-later` schedules timers in source order; actual delivery depends on each timer's delay.
 
 **Composition with state machines.** Machine action effect maps (`{:data :fx}`) follow the same rule per [005 §Drain semantics §Level 1](005-StateMachines.md#level-1--within-a-single-actions-effect-map): `:data` merges first (lowered to one `:rf.db/runtime` write at `[:rf.runtime/machines :snapshots <id>]` — snapshots are runtime-db), then `:fx` entries process in source order with `:raise` routed locally to the machine's pre-commit queue and the rest (including `:rf.machine/spawn` / `:rf.machine/destroy`) forwarded to the standard fx pipeline.
 
@@ -1948,7 +1950,7 @@ Trace emission tracks the singleton: the trace stream emits exactly one error ev
 
 The rules above (the four `:fx` ordering rules, run-to-completion, depth-limited drain) compose into one execution loop. This subsection writes that loop down. v1's `re-frame.router` is the implementation reference — the loop below tracks v1's working router closely; what is *new* in re-frame2 is per-frame queuing, the `:raise` pre-commit primitive, and the machine microstep interleave from [005 §Drain semantics](005-StateMachines.md#drain-semantics).
 
-The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-StateMachines.md#level-4--across-the-runtime)) that pumps events FIFO from the router, and a **per-event drain** that runs one event end-to-end through interceptor chain, `do-fx`, and (for machine events) the Level 3 cascade.
+The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-StateMachines.md#level-4--across-the-runtime)) that pumps events from the router's two FIFO lanes, internal lane first, and a **per-event drain** that runs one event end-to-end through interceptor chain, `do-fx`, and (for machine events) the Level 3 cascade.
 
 ```clojure
 ;; ============================================================================
@@ -1957,34 +1959,41 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
 ;; Triggered when an event arrives in an empty queue. Schedules itself via the
 ;; interop layer's next-tick so the host event loop interleaves rendering.
 
-;; Queue position by the envelope's ORIGIN mark (per [005 §Level 4]): a
-;; machine-internal continuation (`:rf.machine/internal?`, stamped by the
-;; machine registrar and copied onto the child by `do-fx :dispatch`)
-;; leap-frogs ahead of any already-queued EXTERNAL events; every other
-;; origin is a plain FIFO append at the back. The internal envelope splices
-;; in AFTER any sibling internal envelopes already queued this macrostep, so
-;; source order is preserved among siblings (first emitted is dequeued
-;; first) while the whole internal run still precedes every external event.
-(defn- enqueue [queue envelope]
-  (if (:rf.machine/internal? envelope)
-    (let [[internal external] (split-with :rf.machine/internal? queue)]
-      (into empty-queue (concat internal [envelope] external)))  ;; front-of-queue splice
-    (conj queue envelope)))                                       ;; FIFO append (default)
+;; Each frame's router holds two FIFO lanes: `:internal` (the in-flight
+;; family's pending work) and `:queue` (the EXTERNAL lane). The lane is
+;; chosen by CAUSE (§Rules rule 2): a dispatch made synchronously inside this
+;; frame's in-flight event joins the internal lane, every other dispatch the
+;; external lane. `in-event-here?` is true while `process-event!` runs on THIS
+;; host thread — the router records the thread around each event, because a
+;; dynamic binding cannot answer the question (futures and bound-fns carry it
+;; to other threads and past the event's return). The framework-private flow
+;; settle goes to the head of the internal lane (Spec 013 §Sequencing).
+(defn- enqueue [router envelope]
+  (cond
+    (:rf.flow/settle? envelope) (update router :internal #(into empty-queue (cons envelope %)))
+    (in-event-here? router)     (update router :internal conj envelope)
+    :else                       (update router :queue conj envelope)))
 
 (defn dispatch [frame envelope]
   (let [router (:router frame)]
-    (swap! (:queue router) enqueue envelope)
+    (swap! router enqueue envelope)
     (when-not (:scheduled? @router)
       (swap! router assoc :scheduled? true)
       (interop/next-tick (fn [] (drain! frame))))))
 
+;; Pop the internal lane while it holds anything, else the external lane.
+;; Returns [envelope external?]; an external dequeue roots a new family.
+(defn- take! [router] ...)
+
 (defn drain! [frame]
   (try
-    (loop [depth 0 last-event-id nil]                  ;; id of the last SETTLED event
+    ;; `depth` counts the events the current FAMILY has settled, its root
+    ;; included; `last-event-id` is the id of the last SETTLED event.
+    (loop [depth 0 last-event-id nil]
       ;; Destruction-ownership check fires BEFORE dequeue (Edge case #4):
       ;; exact-incarnation claim, lifecycle-dead, or absent all halt an
       ;; ordinary drain. The private on-destroy driver passes the exact claim
-      ;; token and drains an isolated queue; ordinary drains have no exemption.
+      ;; token and drains an isolated router; ordinary drains have no exemption.
       ;; Claim-time removals are retained for this one evidence record. More
       ;; than one scheduler callback may already hold this router generation,
       ;; so consume the count + compare/mark inside ONE router swap. Every
@@ -1993,15 +2002,16 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
         (let [router (:router frame)
               report (volatile! nil)]
           (swap! router
-                 (fn [{:keys [queue destroy-claim-dropped-count
+                 (fn [{:keys [queue internal destroy-claim-dropped-count
                               destroy-claim-report-emitted?]
                        :as state}]
-                   (let [dropped (+ (count queue)
+                   (let [dropped (+ (count queue) (count internal)
                                     (or destroy-claim-dropped-count 0))]
                      (when-not destroy-claim-report-emitted?
                        (vreset! report dropped))
                      (cond-> (-> state
-                                 (assoc :queue empty-queue :scheduled? false)
+                                 (assoc :queue empty-queue :internal empty-queue
+                                        :scheduled? false)
                                  (dissoc :destroy-claim-dropped-count))
                        (not destroy-claim-report-emitted?)
                        (assoc :destroy-claim-report-emitted? true)))))
@@ -2009,64 +2019,70 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
             (trace! :rf.frame/drain-interrupted
                     {:frame (:id frame) :dropped-count dropped})))
         (throw ::halt))
-      ;; `>=` not `>`: `:drain-depth` is the MAX number of events a single
-      ;; drain processes. The loop enters with `depth` = the
-      ;; count of events already processed this drain; events run at depths
-      ;; 0,1,…,(drain-depth-1) — exactly `drain-depth` events — and the
-      ;; halt fires when `depth` first reaches `drain-depth` (the
-      ;; (drain-depth+1)th event never runs). This matches the `:test`
-      ;; preset's "drain bounded at 100" = at-most-100 reading and the
+      ;; `:drain-depth` is the MAX number of events one FAMILY dequeues,
+      ;; counting its root (rule 3). Its events run at depths
+      ;; 0,1,…,(drain-depth-1) — exactly `drain-depth` events — and the halt
+      ;; fires when `depth` first reaches `drain-depth` with family work still
+      ;; queued (the (drain-depth+1)th event never runs). This matches the
+      ;; `:test` preset's "each family bounded at 1000" reading and the
       ;; `:halted-depth` epoch's `:depth` tag (= `drain-depth`).
       ;;
-      ;; PEEK BEFORE HALTING. The queue test is part of the halt CONDITION,
-      ;; not an optimisation. `depth` counts the events already SETTLED, so
-      ;; the depth test on its own also fires at the top of the pass that
-      ;; follows a cascade which ran exactly `drain-depth` events and then
-      ;; TERMINATED, leaving nothing queued — a clean drain reaching its
-      ;; fixed point, not a runaway. Rule 3 above says the halt discards
-      ;; "the remaining queued events (the next, *halting* event never
-      ;; runs)", which presupposes a next event; with the queue empty there
-      ;; is none to discard and none to name, and a halt record synthesised
-      ;; anyway would name the event that had just settled `:ok`. So when
-      ;; the queue is empty the drain simply settles.
-      (when (and (>= depth (:drain-depth (:config frame)))
-                 (peek @(:queue (:router frame))))
+      ;; PEEK BEFORE HALTING, and peek the INTERNAL lane only. The lane test is
+      ;; part of the halt CONDITION, not an optimisation. `depth` counts the
+      ;; family's events already SETTLED, so the depth test on its own also
+      ;; fires at the top of the pass that follows a family which ran exactly
+      ;; `drain-depth` events and then TERMINATED — a clean family reaching its
+      ;; fixed point, not a runaway. Rule 3 says the halt discards the family's
+      ;; remaining events (the next, *halting* event never runs), which
+      ;; presupposes one; with the internal lane empty there is none to
+      ;; discard and none to name, and a halt record synthesised anyway would
+      ;; name the event that had just settled `:ok`. External input waiting in
+      ;; `:queue` belongs to the NEXT family, so it never makes a finished
+      ;; family look runaway.
+      (if (and (>= depth (:drain-depth (:config frame)))
+               (peek (:internal @(:router frame))))
         ;; Per-event epochs (rule 3): already-settled events kept their own
-        ;; durable :ok epochs + db writes — there is NO whole-drain rollback,
-        ;; so :rollback? is false. Drop the remaining queue (the next, halting
-        ;; event never runs) and commit ONE trailing :halted-depth epoch record
-        ;; for it so devtools get a halt marker; its :db-before/:db-after both
-        ;; equal the durable last-settled db. The descriptor names the last
-        ;; SETTLED event by id, never the halting event at the queue head (the
-        ;; record's own trigger names that one) and never an event vector.
-        (let [halt-reason {:operation :rf.error/drain-depth-exceeded
+        ;; durable :ok epochs + db writes — there is NO rollback, so
+        ;; :rollback? is false. Discard the family's internal lane (the next,
+        ;; halting event never runs), commit ONE trailing :halted-depth epoch
+        ;; record for it so devtools get a halt marker (its :db-before /
+        ;; :db-after both equal the durable last-settled db), and CONTINUE
+        ;; with the next external event under a fresh budget. The descriptor
+        ;; names the last SETTLED event by id, never the halting event at the
+        ;; lane head (the record's own trigger names that one) and never an
+        ;; event vector.
+        (let [router      (:router frame)
+              halt-reason {:operation :rf.error/drain-depth-exceeded
                            :frame (:id frame) :depth depth
-                           :queue-size (count @(:queue (:router frame)))
+                           :queue-size (count (:internal @router))
                            :last-event-id last-event-id}]
-          (reset! (:queue (:router frame)) (clojure.lang.PersistentQueue/EMPTY))
+          (swap! router assoc :internal empty-queue)   ;; external input survives
           (raise! :rf.error/drain-depth-exceeded
                   (assoc halt-reason :rollback? false))
-          (commit-halt-record! frame :halted-depth halt-reason))  ;; trailing epoch
-        (throw ::halt))
-      (when-let [envelope (peek-and-pop! (:queue (:router frame)))]
-        (process-event! frame envelope)                ;; per-event drain
-        (recur (inc depth) (first (:event envelope)))))
-    (swap! (:router frame) assoc :scheduled? false)    ;; fixed point: queue empty
-    ;; The `::halt` control-flow sentinel — the two `(throw ::halt)` sites above
-    ;; (destroyed-frame drop, drain-depth-exceeded) use it to break the loop
-    ;; after they have already emitted their diagnostic — ends the drain.
+          (commit-halt-record! frame :halted-depth halt-reason)  ;; trailing epoch
+          (recur 0 nil))
+        (when-let [[envelope external?] (take! (:router frame))]  ;; internal lane first
+          (process-event! frame envelope)              ;; per-event drain
+          (recur (inc (if external? 0 depth))          ;; an external dequeue roots a new family
+                 (first (:event envelope))))))
+    (swap! (:router frame) assoc :scheduled? false)    ;; fixed point: both lanes empty
+    ;; The `::halt` control-flow sentinel — the `(throw ::halt)` site above
+    ;; (the destroyed-frame drop) uses it to break the loop after it has
+    ;; already emitted its diagnostic — ends the drain.
     (catch ::halt _
       (swap! (:router frame) assoc :scheduled? false))
     ;; Any OTHER escaping throw is a genuine bug — it must NOT be swallowed
     ;; here; it propagates so the host surfaces it. (`process-event!` already
     ;; traps per-event handler / fx / interceptor throws internally per steps
     ;; 1–3; anything reaching this level is outside that contract.) It ends
-    ;; THIS drain, not the frame's queue: the failing event was already
+    ;; THIS drain, not the frame's queued work: the failing event was already
     ;; dequeued above and is NOT retried, but if the live, not-closing frame
-    ;; still has queued work, keep `:scheduled?` true and schedule a fresh
-    ;; drain (next task, fresh depth budget) before the throw propagates.
+    ;; still has work in either lane, keep `:scheduled?` true and schedule a
+    ;; fresh drain (next task, internal lane still first, fresh depth budget)
+    ;; before the throw propagates.
     (catch :default t
-      (if (and (seq @(:queue (:router frame)))
+      (if (and (or (seq (:internal @(:router frame)))
+                   (seq (:queue @(:router frame))))
                (not (frame-disposed-for-drain? (:id frame))))
         (interop/next-tick (fn [] (drain! frame)))
         (swap! (:router frame) assoc :scheduled? false))
@@ -2244,10 +2260,10 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
 ;; ============================================================================
 ;; do-fx for the FOUR reserved fx-ids the runtime owns
 ;; ============================================================================
-;; :dispatch       — append to back of router queue; the outer drain picks
-;;                   it up in this same drain cycle (run-to-completion).
+;; :dispatch       — append to the back of the INTERNAL lane; the outer drain
+;;                   runs it before the next external event (run-to-completion).
 ;; :dispatch-later — schedule via interop/set-timeout!; the timer fires a
-;;                   fresh dispatch later, re-engaging the drain loop.
+;;                   fresh EXTERNAL dispatch later, re-engaging the drain loop.
 ;; :db             — handled inline in process-event! step 2; not seen here.
 ;; :raise          — machine-internal; routed by make-machine-handler to
 ;;                   its local raise-queue BEFORE :fx reaches do-fx (see
@@ -2285,35 +2301,24 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
 
 (defmethod do-fx :dispatch [m ev]
   (let [frame           (resolve-frame (:frame m))  ;; record ← id (registry lookup)
-        parent-envelope (:envelope m)
-        ;; Queue position is the dispatch's ORIGIN, not its target: a
-        ;; child emitted from a MACHINE handler's own processing
-        ;; front-inserts so the machine drives its macrostep's follow-on
-        ;; to quiescence before the next external event; every other
-        ;; origin goes to the back (plain FIFO). The origin is read off
-        ;; the parent envelope's `:rf.machine/internal?` mark — set by the
-        ;; machine registrar when the in-flight handler carries the
-        ;; `:rf/machine?` registration stamp — and copied onto the child
-        ;; here, which `enqueue` (above) reads to choose front vs back.
-        ;; [005 §Level 4] owns the observable ORDERING and where the mark is
-        ;; set; this branch + the `enqueue` splice are the queue mechanism.
-        child           (cond-> (child-envelope parent-envelope ev)
-                          (:rf.machine/internal? parent-envelope)
-                          (assoc :rf.machine/internal? true))]  ;; front iff machine-origin, else back (FIFO)
-    (dispatch frame child)))
+        parent-envelope (:envelope m)]
+    ;; `do-fx` runs inside the in-flight event, so `enqueue` (above) puts the
+    ;; child in the frame's INTERNAL lane, whatever kind of handler emitted
+    ;; it. Nothing on the envelope chooses the lane.
+    (dispatch frame (child-envelope parent-envelope ev))))
 
 (defmethod do-fx :dispatch-later [m {:keys [ms event]}]
   (let [frame           (resolve-frame (:frame m))  ;; record ← id (registry lookup)
         parent-envelope (:envelope m)
         child           (child-envelope parent-envelope event)]
     (interop/set-timeout!
-      (fn [] (dispatch frame child))
+      (fn [] (dispatch frame child))  ;; fires after the event returned → EXTERNAL lane
       ms)))
 ```
 
 For machine events, `process-event!` step 1 lands inside the machine handler. From the outer drain's perspective the machine handler is **just a handler**: it returns an effects-map like any other, and steps 2–3 above process it unchanged. What runs *inside* that one handler call — the raise drain, the `:always` microstep loop, and the single `:rf.db/runtime` snapshot commit at `[:rf.runtime/machines :snapshots <id>]` — is the **Level-3 cascade**, and **[005 §Drain semantics §Level 3](005-StateMachines.md#level-3--within-a-single-machine-event) is its single normative description**. This spec does not restate the loop: the raise-before/-after-`:always` ordering, the FIFO raise-queue, the microstep fixed point, the depth limits, and the atomic post-drain commit all live in 005 (the ordering is `:always`-settles-before-`:raise`, pinned by the [`always-settles-before-raise`](conformance/fixtures/always-settles-before-raise.edn) fixture).
 
-Only the drain-integration facts 002 owns are stated here: the whole macrostep — raise drain, microstep loop, snapshot commit — appears as **one logical step (one epoch)** to external observers, so sub-cache invalidation fires **once** (in `process-event!` step 2 after the macrostep commits), not on every microstep. Machine snapshots are runtime-db, so the commit is an `:rf.db/runtime` partition write, authorised by the machine registrar's `:rf/machine?` stamp (see [§Minting framework-write authority](#minting-framework-write-authority)); it is never an app-db `:db` write. Continuation events the machine dispatches from *inside* that macrostep — `:fx [[:dispatch …]]` — front-insert on the router queue per the `do-fx :dispatch` origin branch above and [005 §Level 4](005-StateMachines.md#level-4--across-the-runtime).
+Only the drain-integration facts 002 owns are stated here: the whole macrostep — raise drain, microstep loop, snapshot commit — appears as **one logical step (one epoch)** to external observers, so sub-cache invalidation fires **once** (in `process-event!` step 2 after the macrostep commits), not on every microstep. Machine snapshots are runtime-db, so the commit is an `:rf.db/runtime` partition write, authorised by the machine registrar's `:rf/machine?` stamp (see [§Minting framework-write authority](#minting-framework-write-authority)); it is never an app-db `:db` write. Continuation events the machine dispatches from *inside* that macrostep — `:fx [[:dispatch …]]` — join the frame's internal lane like any handler's, per the `do-fx :dispatch` above and [005 §Level 4](005-StateMachines.md#level-4--across-the-runtime).
 
 **`process-event!` is the epoch unit.** One run of `process-event!` — one dequeued event, its full pipeline run, and (for machine events) its entire macrostep — is exactly one epoch (per [§Drain versus event](#drain-versus-event--the-epoch-unit) above). The raise drain and microstep loop ride **inside** that single epoch; they are not separate dequeues and do not open new ones. The next iteration of the outer `drain!` loop dequeues the next event and opens the next epoch — even when that next event is an `:fx`-dispatched child of the one that just settled.
 
@@ -2333,8 +2338,8 @@ This per-event drain is the canonical place every other piece of the runtime hoo
 #### Edge cases worth pinning
 
 1. **`:raise` inside an `:always` action.** The microstep that fires the action accumulates its `:fx` (including `:raise`) into the same Level-3 accumulator; the next iteration of the cascade drains the new raise-queue before re-checking `:always`. Same loop, no special case. Tracked via the same depth limits.
-2. **Re-entrant dispatch from a render.** A view fn calling `(rf/dispatch ...)` during render lands in the router queue. The current drain has already settled before render started (run-to-completion); the dispatched event is processed in the *next* drain cycle, after the host gives time back to the JS event loop. Calling `dispatch-sync` from inside any handler raises `:rf.error/dispatch-sync-in-handler` (per [§dispatch-sync](#dispatch-sync)).
-3. **`:dispatch` to self in a handler.** Round-trips the runtime queue as a **separate dequeued event** (its own epoch), running against the *post-commit* snapshot — from a plain handler it lands at the back (FIFO); from a *machine* handler it leap-frogs to the front (per [005 §Level 4](005-StateMachines.md#level-4--across-the-runtime)). Either way it is **different** from `:raise`, which runs pre-commit, FIFO, inside the same macrostep/epoch. The two are not interchangeable — see [005 §Drain semantics gotchas](005-StateMachines.md#drain-semantics-gotchas).
+2. **Re-entrant dispatch from a render.** A view fn calling `(rf/dispatch ...)` during render lands in the external lane. The current drain has already settled before render started (run-to-completion); the dispatched event is processed in the *next* drain cycle, after the host gives time back to the JS event loop. Calling `dispatch-sync` from inside any handler raises `:rf.error/dispatch-sync-in-handler` (per [§dispatch-sync](#dispatch-sync)).
+3. **`:dispatch` to self in a handler.** Round-trips the runtime queue as a **separate dequeued event** (its own epoch), running against the *post-commit* snapshot — it joins the internal lane, so it runs after the events its family queued earlier and before the next external event, whatever the handler kind (per [§Rules](#rules) rule 2). It is **different** from `:raise`, which runs pre-commit, FIFO, inside the same macrostep/epoch. The two are not interchangeable — see [005 §Drain semantics gotchas](005-StateMachines.md#drain-semantics-gotchas).
 4. **Frame disposal mid-drain.** The exact-incarnation destroy claim is the
    ordinary-queue cutoff, earlier than lifecycle-dead publication. An authored callback
    already on the stack may return and already-entered authored interceptor `:after`
