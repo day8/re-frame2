@@ -12,8 +12,9 @@
 // equivalent, `:no-document`, `:no-element` — ships with
 // `isError:true`. This honours spec/003-Tool-Catalogue.md's rule "Every
 // `:ok? false` response is `isError: true`" AND keeps the failure
-// CACHE-INELIGIBLE (cache eligibility bypasses isError), so a transient
-// failure cannot be cached and mask a later success.
+// CACHE-INELIGIBLE (cache eligibility bypasses isError), so a repeated
+// failure comes back as the failure, never as a success-shaped cache-hit
+// marker.
 //
 // This is the live counterpart to the degraded-mode coverage: read-dom /
 // read-ui in DEGRADED mode return the `:nrepl-port-not-found` envelope
@@ -102,9 +103,9 @@ function assertReadFailureIsError(resp, name, expectedReason) {
       name + ' returned a `:ok? false` failure WITHOUT `isError:true` ' +
         '(isError = ' + JSON.stringify(resp.isError) + '). This violates the ' +
         'universal spec/003-Tool-Catalogue.md contract ("every `:ok? ' +
-        'false` is `isError:true`") and makes the transient failure ' +
-        'cache-eligible (cache eligibility bypasses isError), masking a ' +
-        'later success. `map-result-' +
+        'false` is `isError:true`") and makes the failure cache-eligible ' +
+        '(cache eligibility bypasses isError), so a repeat can come back ' +
+        'as a success-shaped cache-hit marker. `map-result-' +
         'or-blank` must branch its map arm on `:ok?`. Envelope: ' +
         text.slice(0, 400),
     );
