@@ -60,16 +60,17 @@
  *
  * WARNINGS ARE FAILURES (teeth)
  * -----------------------------
- * Crucially, `shadow-cljs compile` exits 0 even when a build emits
- * warnings — an `:undeclared-var` from a typo'd init-fn / symbol, a redef,
- * an externs-inference miss — and `:warnings-as-errors` only bites on
- * `release`, not `compile`. So a typo'd init-fn (one of the EXACT named
- * regression classes) would otherwise "Build completed. (… 1 warnings …)"
- * and ship GREEN. This gate therefore captures shadow's output, echoes it
- * live, and FAILS if ANY build reports `> 0 warnings` OR if shadow exits
- * non-zero (a hard error such as a missing `:require`d namespace). Every
- * swept build compiles with ZERO warnings, so a zero-warning floor
- * is a clean, real-teeth bar — not a noisy one.
+ * Every swept build sets `:warnings-as-errors true` in its own
+ * `:compiler-options`, so a warning — an `:undeclared-var` from a typo'd
+ * init-fn / symbol, a redef, an externs-inference miss — fails that build
+ * and shadow-cljs exits non-zero, under `compile` as under `release`, cold
+ * or warm (shadow-cljs never caches a file that warned). The policy lives
+ * in shadow-cljs.edn rather than here, so a bare `npx shadow-cljs compile
+ * examples/<name>` is exactly as strict as this gate. What this gate adds
+ * is the guarantee that the flag is there: it refuses a swept build whose
+ * block does not set it (`buildsMissingWarningsAsErrors`), so a newly
+ * declared build cannot compile its warnings green. Every swept build
+ * compiles with zero warnings, so the flag is a clean bar, not a noisy one.
  *
  * SPAWN FORM: resolve shadow-cljs's own JS
  * entry-point (`shadow-cljs/cli/runner.js`) and run it under THIS node
@@ -84,9 +85,9 @@
  *   node scripts/check-examples-compile.cjs --list     # print the derived build list, exit 0
  *
  * The pure enumeration + parser are exported for
- * `check-examples-compile.test.cjs`, which pins the parser (non-vacuous
- * under EACH swept prefix, covers the builds no other gate compiles) so this
- * gate keeps its teeth.
+ * `check-examples-compile.test.cjs`, which pins them (non-vacuous under
+ * EACH swept prefix, every swept build warnings-fatal, every requested build
+ * accounted for) so this gate keeps its teeth.
  */
 
 'use strict';
@@ -189,21 +190,38 @@ function prefixesBelowFloor(builds) {
     .filter(({ count, floor }) => count < floor);
 }
 
+/**
+ * The swept builds whose own block does not set `:warnings-as-errors true`,
+ * in sorted order. Empty means every swept build is warnings-fatal under any
+ * invocation. A block runs from its build id to the next two-space-indented
+ * key, which is how every build def in shadow-cljs.edn is laid out.
+ */
+function buildsMissingWarningsAsErrors(edn) {
+  const src = stripEdnComments(edn);
+  const swept = new Set(enumerateCompiledBuilds(edn));
+  const keys = [...src.matchAll(/^ {2}:(\S+)/gm)];
+  return keys
+    .map((m, i) => ({
+      build: m[1],
+      block: src.slice(m.index, i + 1 < keys.length ? keys[i + 1].index : src.length),
+    }))
+    .filter(({ build, block }) => swept.has(build) && !/:warnings-as-errors\s+true\b/.test(block))
+    .map(({ build }) => build)
+    .sort();
+}
+
 // ---------------------------------------------------------------------------
 // Build-summary parsing. shadow-cljs prints one summary line per build:
-//   [:examples/login-helix] Build completed. (196 files, 1 compiled, 1 warnings, 7.47s)
-// `compile` exits 0 regardless of the warnings count, so we parse the count
-// ourselves and treat any non-zero warnings as a failure. A build that
-// errors hard instead prints `Build failed` (and shadow exits non-zero),
-// which we surface separately via the spawn status.
+//   [:examples/login-helix] Build completed. (196 files, 1 compiled, 0 warnings, 7.47s)
+// A warning fails the build (`:warnings-as-errors`, above), so the summary
+// carries no verdict here; it is read only to confirm that every requested
+// build was compiled.
 //
-// TWO OTHER LANES READ THIS SAME LINE, each with its own four-line parser:
-// `scripts/compile-node-test.cjs` (the `:node-test` family) and
-// `bench/fresco/src/re_frame/bench/fresco/lane_build.cjs` (`:fresco-bench`). All
-// three refuse an unreadable summary; they are deliberately NOT unified, and
-// `compile-node-test.cjs`'s header carries the measured reasons and the test
-// for whether a fourth lane should mint its own. Read it before
-// generalising anything here.
+// Two other lanes read the same line for its warning count, each with its own
+// parser: `bench/fresco/src/re_frame/bench/fresco/lane_build.cjs`
+// (`:fresco-bench`) and `fresco/scripts/check_modules_compile.cjs`
+// (`:fresco-modules-compile`). They are deliberately not unified with this one,
+// which reads no count at all.
 //
 // THE SLASH IN THE PATTERN BELOW IS LOAD-BEARING, and not merely an id capture:
 // `reconcileRequestedBuilds` treats a summary whose id was NOT requested as a
@@ -212,48 +230,20 @@ function prefixesBelowFloor(builds) {
 // sharing this regex owes that measurement first.
 // ---------------------------------------------------------------------------
 
-const COMPLETED_RE =
-  /\[(:[\w.-]+\/[\w.-]+)\]\s+Build completed\..*?(\d+)\s+warnings/g;
+const COMPLETED_RE = /\[(:[\w.-]+\/[\w.-]+)\]\s+Build completed\./g;
 const FAILED_RE = /\[(:[\w.-]+\/[\w.-]+)\]\s+Build failed/g;
 
 /**
- * Parse shadow-cljs compile output into per-build outcomes.
+ * Parse shadow-cljs compile output into the build ids it reports as
+ * completed and as failed, in output order.
  *
  * @param {string} output  combined stdout+stderr of `shadow-cljs compile`.
- * @returns {{completed: Array<{build:string,warnings:number}>, failed: string[]}}
+ * @returns {{completed: string[], failed: string[]}}
  */
 function parseBuildSummaries(output) {
-  const completed = [];
-  const failed = [];
-  let m;
-  COMPLETED_RE.lastIndex = 0;
-  while ((m = COMPLETED_RE.exec(output)) !== null) {
-    completed.push({ build: m[1], warnings: Number(m[2]) });
-  }
-  FAILED_RE.lastIndex = 0;
-  while ((m = FAILED_RE.exec(output)) !== null) {
-    failed.push(m[1]);
-  }
-  return { completed, failed };
+  const ids = (re) => [...output.matchAll(re)].map((m) => m[1]);
+  return { completed: ids(COMPLETED_RE), failed: ids(FAILED_RE) };
 }
-
-/**
- * The builds with a non-zero warning count, e.g.
- * [{ build: ':examples/login-helix', warnings: 1 }].
- */
-function buildsWithWarnings(output) {
-  return parseBuildSummaries(output).completed.filter((b) => b.warnings > 0);
-}
-
-/**
- * A warning-shaped marker that shadow-cljs prints when a build emits a
- * compile warning — `------ WARNING #1 - :undeclared-var --------------`.
- * Used as a corroborating signal: if such a marker appears in the captured
- * output but NO parsable per-build summary carries `warnings > 0`, the
- * summary parser has drifted (or shadow's summary format changed) and the
- * warning evidence would otherwise be silently erased — a false green.
- */
-const WARNING_MARKER_RE = /-{2,}\s*WARNING\b/;
 
 /**
  * Normalise a build coord to the colon-prefixed form shadow-cljs prints in
@@ -269,27 +259,21 @@ function normaliseBuildId(id) {
 /**
  * Reconcile the parsed compile summaries against the list of builds that
  * were REQUESTED of `shadow-cljs compile` (the enumeration), on the
- * assumption the child exited 0 (no hard `Build failed`). Returns a list of
- * problem strings; an empty list means every requested build produced
- * exactly one parsable completed summary AND no orphan warning marker was
- * left unaccounted for.
+ * assumption the child exited 0. Returns a list of problem strings; an empty
+ * list means every requested build produced exactly one parsable completed
+ * summary.
  *
- * THE FALSE-GREEN THIS CLOSES. The gate's teeth are the
- * per-build `warnings` count parsed out of each summary line. Failing ONLY
- * on a parsed `warnings > 0` row (or a non-zero child exit) is not enough:
- * if a requested build's summary line never appears in the captured
- * output — or appears in a shape the summary regex does not match (a
- * shadow-cljs format change, a `1 warning` singular, a truncated line) —
- * then `buildsWithWarnings` returns `[]`, the child exits 0, and the
+ * THE FALSE-GREEN THIS CLOSES. A zero exit says no build failed, not that
+ * every requested build was compiled. If a requested build's summary line
+ * never appears in the captured output — or appears in a shape the summary
+ * regex does not match (a shadow-cljs format change, a truncated line) — the
  * gate would report SUCCESS having verified nothing about that build. So a
  * missing or unparseable summary is a FAILURE, not a silent pass:
  *
  *   - every requested build must have EXACTLY ONE completed summary;
  *   - a build with zero summaries is `missing` (drift / disappeared);
  *   - a build with more than one summary is `duplicate` (ambiguous output);
- *   - a completed summary for a build that was NOT requested is `unexpected`;
- *   - a WARNING marker in the output with no parsable warning row anywhere
- *     is `orphan-warning` (the parser drifted past warning evidence).
+ *   - a completed summary for a build that was NOT requested is `unexpected`.
  *
  * @param {string[]} requested  enumerated build ids (colon-stripped form).
  * @param {string}   output     combined compile output.
@@ -301,7 +285,7 @@ function reconcileRequestedBuilds(requested, output) {
 
   // Count completed summaries per (normalised) build coord.
   const counts = new Map();
-  for (const { build } of completed) {
+  for (const build of completed) {
     const k = normaliseBuildId(build);
     counts.set(k, (counts.get(k) || 0) + 1);
   }
@@ -315,13 +299,13 @@ function reconcileRequestedBuilds(requested, output) {
       problems.push(
         `${id}: requested but NO parsable "Build completed." summary was ` +
           `found in shadow-cljs output (the build's summary disappeared or ` +
-          `no longer matches the parser — warning evidence for it would be ` +
-          `silently erased; refusing to pass it green).`,
+          `no longer matches the parser — nothing confirms it compiled; ` +
+          `refusing to pass it green).`,
       );
     } else if (n > 1) {
       problems.push(
         `${id}: ${n} "Build completed." summaries parsed (expected exactly ` +
-          `one) — ambiguous output; cannot trust the warning count.`,
+          `one) — ambiguous output; cannot tell which compile it reports.`,
       );
     }
   }
@@ -337,20 +321,6 @@ function reconcileRequestedBuilds(requested, output) {
     }
   }
 
-  // 3) A WARNING marker with no parsable warning row anywhere means the
-  //    summary parser drifted past real warning evidence (the exact
-  //    false-green class: warnings present, exit 0, parser blind).
-  if (
-    WARNING_MARKER_RE.test(output) &&
-    buildsWithWarnings(output).length === 0
-  ) {
-    problems.push(
-      `a WARNING marker appears in the compile output but NO per-build ` +
-        `summary carries warnings>0 — the summary parser has drifted past ` +
-        `real warning evidence (warnings would ship green).`,
-    );
-  }
-
   return problems;
 }
 
@@ -360,8 +330,8 @@ module.exports = {
   stripEdnComments,
   enumerateCompiledBuilds,
   prefixesBelowFloor,
+  buildsMissingWarningsAsErrors,
   parseBuildSummaries,
-  buildsWithWarnings,
   normaliseBuildId,
   reconcileRequestedBuilds,
 };
@@ -388,6 +358,20 @@ if (require.main === module) {
           `pass a vacuous gate.`,
       );
     }
+    process.exit(1);
+  }
+
+  const unflagged = buildsMissingWarningsAsErrors(edn);
+  if (unflagged.length > 0) {
+    console.error(
+      `check-examples-compile: ${unflagged.length} swept build(s) do not set ` +
+        `:warnings-as-errors true, so a warning would compile green:`,
+    );
+    for (const b of unflagged) console.error(`  ${b}`);
+    console.error(
+      '  Add `:compiler-options {:warnings-as-errors true}` to each build in ' +
+        'shadow-cljs.edn.',
+    );
     process.exit(1);
   }
 
@@ -422,9 +406,8 @@ if (require.main === module) {
   console.log(`> shadow-cljs compile ${builds.join(' ')}`);
 
   // Tee shadow's output to the console live (so CI logs show progress and
-  // any warning/error context) while accumulating it for warning analysis.
-  // `compile` exits 0 even on warnings, so the captured text — not the exit
-  // code alone — is the source of truth for the zero-warning bar.
+  // any warning/error context) while accumulating it for the coverage
+  // reconciliation below.
   const child = spawn(process.execPath, args, {
     cwd: IMPL_ROOT,
     stdio: ['inherit', 'pipe', 'pipe'],
@@ -446,13 +429,16 @@ if (require.main === module) {
   });
 
   child.on('close', (code) => {
-    // 1) Hard failure: a missing :require'd namespace / unbalanced form
-    //    makes shadow exit non-zero (and print `Build failed`).
+    // 1) A missing :require'd namespace, an unbalanced form or a warning
+    //    (fatal under :warnings-as-errors) makes shadow exit non-zero. It
+    //    compiles the requested builds in turn and stops at the first
+    //    failure, so the builds after it were not compiled at all.
     if (code !== 0) {
       console.error(
         `\ncheck-examples-compile: shadow-cljs compile failed (exit ${code}). ` +
-          `One or more swept builds has a hard compile error (missing ns / ` +
-          `:require / unbalanced form).`,
+          `A swept build has a compile error or a warning (missing ns / ` +
+          `:require / unbalanced form / :undeclared-var ...); its message is ` +
+          `printed above, and the builds after it were not compiled.`,
       );
       const { failed } = parseBuildSummaries(captured);
       if (failed.length > 0) {
@@ -461,44 +447,18 @@ if (require.main === module) {
       process.exit(code == null ? 1 : code);
     }
 
-    // 2) Soft failure: `compile` exits 0 on warnings (e.g. an :undeclared-var
-    //    from a typo'd init-fn / symbol). Fail the gate so such a regression
-    //    cannot ship green. Every swept build is warning-free, so any
-    //    non-zero count is a real regression.
-    const warned = buildsWithWarnings(captured);
-    if (warned.length > 0) {
-      console.error(
-        `\ncheck-examples-compile: ${warned.length} build(s) compiled ` +
-          `with WARNINGS — failing the gate (warnings are treated as errors ` +
-          `here because shadow-cljs 'compile' exits 0 on warnings and ` +
-          `:warnings-as-errors only bites on 'release'):`,
-      );
-      for (const { build, warnings } of warned) {
-        console.error(`  ${build}: ${warnings} warning(s)`);
-      }
-      console.error(
-        `  See the per-build warning output above (e.g. an :undeclared-var ` +
-          `from a typo'd init-fn / symbol is exactly the regression class ` +
-          `this gate exists to catch).`,
-      );
-      process.exit(1);
-    }
-
-    // 3) Coverage reconciliation: a clean exit + zero parsed
-    //    warning rows is NOT sufficient. A requested build whose summary is
-    //    missing/unparsable, a duplicate/unexpected summary, or a WARNING
-    //    marker the parser missed all mean the warning analysis above was
-    //    BLIND for at least one build — a false green. Verify every requested
-    //    build produced exactly one parsable completed summary before
-    //    declaring success.
+    // 2) Coverage reconciliation: a clean exit is NOT sufficient. A
+    //    requested build whose summary is missing/unparsable, or a
+    //    duplicate/unexpected summary, means nothing confirms that build
+    //    compiled — a false green. Verify every requested build produced
+    //    exactly one parsable completed summary before declaring success.
     const coverageProblems = reconcileRequestedBuilds(builds, captured);
     if (coverageProblems.length > 0) {
       console.error(
         `\ncheck-examples-compile: ${coverageProblems.length} build-summary ` +
           `coverage problem(s) — shadow-cljs exited 0 but the gate could not ` +
-          `confirm a clean warning analysis for every requested build. A ` +
-          `missing/unparsable summary FAILS the gate (it would otherwise ship ` +
-          `a warning silently green):`,
+          `confirm that every requested build compiled. A missing/unparsable ` +
+          `summary FAILS the gate:`,
       );
       for (const p of coverageProblems) console.error(`  ${p}`);
       process.exit(1);

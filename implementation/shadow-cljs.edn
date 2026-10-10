@@ -667,6 +667,18 @@
             8061 {:roots ["fresco/testbed/hmr"
                           "out/fresco-hmr-testbed"]}}
 
+ ;; Every `:node-test` build is warnings-fatal, whatever compiles it: the
+ ;; npm wrappers, a bare `npx shadow-cljs compile <id>`, or a script that
+ ;; spawns shadow-cljs itself. A warning in a test namespace is a defect
+ ;; that still lets the suite pass. A bare `"` in a deftest docstring
+ ;; turns the rest of it into undeclared vars, which compile to
+ ;; `undefined`, so the suite reports the counts of the clean tree. The
+ ;; swept `:examples/*` and `:testbeds/*` builds below set the same flag
+ ;; one by one. A blanket default would also catch the advanced builds
+ ;; and `:browser-test`, whose warning counts nothing holds at zero.
+ :target-defaults
+ {:node-test {:compiler-options {:warnings-as-errors true}}}
+
  :builds
  {:node-test
   {:target    :node-test
@@ -1239,12 +1251,18 @@
   ;; :asset-path is "." so the bundle's runtime resolves siblings (cljs_base,
   ;; cljs-runtime, etc.) relative to the page rather than the document root —
   ;; necessary because each example is served from its own subdirectory.
+  ;;
+  ;; Every `:examples/*` and `:testbeds/*` build sets `:compiler-options
+  ;; {:warnings-as-errors true}`, so a warning fails it however it is
+  ;; compiled. scripts/check-examples-compile.cjs refuses a build under either
+  ;; prefix that leaves the flag out.
   ;; ============================================================================
 
   :examples/counter
   {:target     :browser
    :output-dir "out/examples/counter"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    ;; goog.DEBUG=false is pinned for RELEASE ONLY, not shared
    ;; :compiler-options. The bundle-isolation gate greps the `release`
    ;; counter bundle (scripts/check-bundle-isolation.cjs, out/examples/
@@ -1298,6 +1316,7 @@
   {:target     :browser
    :output-dir "out/examples/counter-slim-and-fast"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn reagent-slim.counter.core/run}}}
 
   ;; The slim counter's CI twin, and the ONLY build that compiles
@@ -1347,7 +1366,8 @@
   {:target           :browser
    :output-dir       "out/examples/counter-perf"
    :asset-path       "."
-   :compiler-options {:closure-defines {re-frame.performance/enabled? true}}
+   :compiler-options {:warnings-as-errors true
+                      :closure-defines {re-frame.performance/enabled? true}}
    :modules          {:main {:init-fn counter.core/run}}}
 
   ;; Two-frame isolation testbed
@@ -1376,6 +1396,7 @@
   {:target           :browser
    :output-dir       "out/examples/two-frame-isolation"
    :asset-path       "."
+   :compiler-options {:warnings-as-errors true}
    :modules          {:main {:init-fn two-frame-isolation.core/run}}
    :devtools         {:preloads [re-frame2-pair.runtime
                                  day8.re-frame2-xray.preload]}}
@@ -1401,6 +1422,7 @@
   {:target           :browser
    :output-dir       "out/examples/standard-epochs"
    :asset-path       "."
+   :compiler-options {:warnings-as-errors true}
    :modules          {:main {:init-fn standard-epochs.core/run}}
    :devtools         {:preloads [re-frame2-pair.runtime
                                  day8.re-frame2-xray.preload]}}
@@ -1426,6 +1448,7 @@
   {:target           :browser
    :output-dir       "out/examples/routes-epochs"
    :asset-path       "."
+   :compiler-options {:warnings-as-errors true}
    :modules          {:main {:init-fn routes-epochs.core/run}}
    :devtools         {:preloads [re-frame2-pair.runtime
                                  day8.re-frame2-xray.preload]}}
@@ -1458,6 +1481,7 @@
   {:target           :browser
    :output-dir       "out/examples/machine-epochs"
    :asset-path       "."
+   :compiler-options {:warnings-as-errors true}
    :modules          {:main {:init-fn machine-epochs.core/run}}
    :devtools         {:preloads [re-frame2-pair.runtime
                                  day8.re-frame2-xray.preload]}}
@@ -1483,6 +1507,7 @@
   {:target           :browser
    :output-dir       "out/examples/edn-inspector"
    :asset-path       "."
+   :compiler-options {:warnings-as-errors true}
    :modules          {:main {:init-fn edn-inspector.core/run}}
    :devtools         {:preloads [re-frame2-pair.runtime]}}
 
@@ -1517,6 +1542,7 @@
   {:target           :browser
    :output-dir       "out/examples/managed-http"
    :asset-path       "."
+   :compiler-options {:warnings-as-errors true}
    :modules          {:main {:init-fn managed-http.core/run}}
    :devtools         {:preloads [re-frame2-pair.runtime
                                  day8.re-frame2-xray.preload]}}
@@ -1541,6 +1567,7 @@
   {:target           :browser
    :output-dir       "out/testbeds/panel-gallery"
    :asset-path       "."
+   :compiler-options {:warnings-as-errors true}
    :modules          {:main {:init-fn panel-gallery.core/run}}
    :devtools         {:preloads [re-frame2-pair.runtime]}}
 
@@ -1548,36 +1575,42 @@
   {:target     :browser
    :output-dir "out/examples/temperature"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn seven-guis.temperature.core/run}}}
 
   :examples/flight-booker
   {:target     :browser
    :output-dir "out/examples/flight-booker"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn seven-guis.flight-booker.core/run}}}
 
   :examples/timer
   {:target     :browser
    :output-dir "out/examples/timer"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn seven-guis.timer.core/run}}}
 
   :examples/nine-states
   {:target     :browser
    :output-dir "out/examples/nine-states"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn nine-states.core/run}}}
 
   :examples/routing
   {:target     :browser
    :output-dir "out/examples/routing"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn routing.core/run}}}
 
   :examples/todomvc
   {:target     :browser
    :output-dir "out/examples/todomvc"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn todomvc.core/run}}}
 
   ;; Spec 013 — Flows worked example. THE canonical Flows
@@ -1589,6 +1622,7 @@
   {:target     :browser
    :output-dir "out/examples/flows"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn flows.core/run}}}
 
   ;; Spec 014 — managed HTTP counter.  Demonstrates
@@ -1602,30 +1636,35 @@
   {:target     :browser
    :output-dir "out/examples/managed-http-counter"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn managed-http-counter.core/run}}}
 
   :examples/crud
   {:target     :browser
    :output-dir "out/examples/crud"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn seven-guis.crud.core/run}}}
 
   :examples/circle-drawer
   {:target     :browser
    :output-dir "out/examples/circle-drawer"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn seven-guis.circle-drawer.core/run}}}
 
   :examples/cells
   {:target     :browser
    :output-dir "out/examples/cells"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn seven-guis.cells.core/run}}}
 
   :examples/login
   {:target     :browser
    :output-dir "out/examples/login"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn login.core/run}}}
 
   ;; Reagent design-led example. Three-pane editorial layout
@@ -1637,6 +1676,7 @@
   {:target     :browser
    :output-dir "out/examples/notebook"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn notebook.core/run}}}
 
   ;; UIx-substrate examples.
@@ -1649,12 +1689,14 @@
   {:target     :browser
    :output-dir "out/examples/counter-uix"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn uix.counter.core/run}}}
 
   :examples/login-uix
   {:target     :browser
    :output-dir "out/examples/login-uix"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn uix.login.core/run}}}
 
   ;; UIx design-led example. Analytics-dashboard layout
@@ -1665,6 +1707,7 @@
   {:target     :browser
    :output-dir "out/examples/dashboard-uix"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn uix.dashboard.core/run}}}
 
   ;; The THIRD login arm, on Fresco (re-frame2's own native view
@@ -1675,6 +1718,7 @@
   {:target     :browser
    :output-dir "out/examples/login-fresco"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn fresco.login.core/run}}}
 
   ;; The SERVER half of the Fresco login arm: the module
@@ -1712,13 +1756,15 @@
    :output-dir  "out/examples/login-fresco-server"
    :output-to   "out/examples/login-fresco-server/server.js"
    :exports-var fresco.login.server/module
-   :compiler-options {:optimizations  :simple
+   :compiler-options {:warnings-as-errors true
+                      :optimizations  :simple
                       :infer-externs  false}}
 
   :examples/realworld
   {:target     :browser
    :output-dir "out/examples/realworld"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn realworld-http.core/run}}}
 
   ;; RealWorld (Conduit) on EP-0003 (Spec 016) RESOURCES + MUTATIONS.
@@ -1733,6 +1779,7 @@
   {:target     :browser
    :output-dir "out/examples/realworld-resources"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn realworld-resources.core/run}}
    ;; Xray in dev, the same preload `:examples/counter` carries, so
    ;; favouriting an article shows the write and the reads it invalidated in
@@ -1751,6 +1798,7 @@
   {:target     :browser
    :output-dir "out/examples/boot"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn boot.core/run}}}
 
   ;; State-machines walkthrough — companion to docs/machines/concepts.md.
@@ -1761,6 +1809,7 @@
   {:target     :browser
    :output-dir "out/examples/state-machine-walkthrough"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn state-machine-walkthrough.views/run}}}
 
   ;; SSR + hydration walkthrough. The static index.html
@@ -1772,6 +1821,7 @@
   {:target     :browser
    :output-dir "out/examples/ssr"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn ssr.core/run}}}
 
   ;; Spec 016 — Resources worked example. Declarative
@@ -1784,6 +1834,7 @@
   {:target     :browser
    :output-dir "out/examples/resources"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn resources.core/run}}}
 
   ;; EP-0021 — infinite-resource (load-more / infinite-scroll feed) worked
@@ -1799,6 +1850,7 @@
   {:target     :browser
    :output-dir "out/examples/infinite-feed"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn infinite-feed.core/run}}}
 
   ;; EP-0019 — OPTIMISTIC MUTATION + ROLLBACK flagship worked example.
@@ -1820,6 +1872,7 @@
   {:target     :browser
    :output-dir "out/examples/linearlite"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn linearlite.core/run}}}
 
   ;; Spec 016 §SSR — resource SSR preload + hydration worked example.
@@ -1832,6 +1885,7 @@
   {:target     :browser
    :output-dir "out/examples/resources-ssr"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn resources-ssr.core/run}}}
 
   ;; Streaming SSR + :rf/suspense-boundary worked example.
@@ -1848,6 +1902,7 @@
   {:target     :browser
    :output-dir "out/examples/ssr-streaming"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn ssr-streaming.core/run}}}
 
   ;; Pattern-LongRunningWork worked example —
@@ -1860,6 +1915,7 @@
   {:target     :browser
    :output-dir "out/examples/long-running-work"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn long-running-work.core/run}}}
 
   ;; The canonical counter with the seven
@@ -1879,6 +1935,7 @@
   {:target           :browser
    :output-dir       "out/examples/counter-with-stories"
    :asset-path       "."
+   :compiler-options {:warnings-as-errors true}
    :modules          {:main {:init-fn counter-with-stories.core/run}}
    ;; The re-frame2-pair.runtime preload lets pair-MCP
    ;; probe this Story showcase's live runtime alongside Xray (the
@@ -1910,6 +1967,7 @@
   {:target           :browser
    :output-dir       "out/examples/nine-states-with-stories"
    :asset-path       "."
+   :compiler-options {:warnings-as-errors true}
    :modules          {:main {:init-fn nine-states.stories-host/run}}
    ;; The re-frame2-pair.runtime preload lets pair-MCP probe this Story
    ;; showcase's live runtime alongside Xray.
@@ -1939,6 +1997,7 @@
   {:target           :browser
    :output-dir       "out/examples/login-with-stories"
    :asset-path       "."
+   :compiler-options {:warnings-as-errors true}
    :modules          {:main {:init-fn login.stories-host/run}}
    ;; The re-frame2-pair.runtime preload lets pair-MCP probe this Story
    ;; showcase's live runtime alongside Xray.
@@ -1957,6 +2016,7 @@
   {:target           :browser
    :output-dir       "out/examples/login-form"
    :asset-path       "."
+   :compiler-options {:warnings-as-errors true}
    :modules          {:main {:init-fn login-form.core/run}}
    ;; The re-frame2-pair.runtime preload lets pair-MCP probe this Story
    ;; showcase's live runtime alongside Xray.
@@ -1982,6 +2042,7 @@
   {:target           :browser
    :output-dir       "out/examples/fresco-counter"
    :asset-path       "."
+   :compiler-options {:warnings-as-errors true}
    :modules          {:main {:init-fn fresco-counter.core/run}}
    ;; pair-MCP + inline Xray, matching the sibling Story testbed builds.
    :devtools         {:preloads [re-frame2-pair.runtime
@@ -2027,6 +2088,7 @@
   {:target     :browser
    :output-dir "out/examples/websocket"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn websocket.core/run}}}
 
   ;; ============================================================================
@@ -2055,6 +2117,7 @@
   {:target     :browser
    :output-dir "out/testbeds/deliberate-throw"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn deliberate-throw.core/run}}
    :devtools   {:preloads [re-frame2-pair.runtime
                            day8.re-frame2-xray.preload]}}
@@ -2067,6 +2130,7 @@
   {:target     :browser
    :output-dir "out/testbeds/schema-violation"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn schema-violation.core/run}}
    :devtools   {:preloads [re-frame2-pair.runtime
                            day8.re-frame2-xray.preload]}}
@@ -2079,6 +2143,7 @@
   {:target     :browser
    :output-dir "out/testbeds/http-toggle"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn http-toggle.core/run}}
    :devtools   {:preloads [re-frame2-pair.runtime
                            day8.re-frame2-xray.preload]}}
@@ -2093,6 +2158,7 @@
   {:target     :browser
    :output-dir "out/testbeds/multi-frame"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn multi-frame.core/run}}
    :devtools   {:preloads [re-frame2-pair.runtime
                            day8.re-frame2-xray.preload]}}
@@ -2106,6 +2172,7 @@
   {:target     :browser
    :output-dir "out/testbeds/deep-machine"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn deep-machine.core/run}}
    :devtools   {:preloads [re-frame2-pair.runtime
                            day8.re-frame2-xray.preload]}}
@@ -2120,6 +2187,7 @@
   {:target     :browser
    :output-dir "out/testbeds/long-flow-w-failure"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn long-flow-w-failure.core/run}}
    :devtools   {:preloads [re-frame2-pair.runtime
                            day8.re-frame2-xray.preload]}}
@@ -2134,6 +2202,7 @@
   {:target     :browser
    :output-dir "out/testbeds/drain-depth-trigger"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn drain-depth-trigger.core/run}}
    :devtools   {:preloads [re-frame2-pair.runtime
                            day8.re-frame2-xray.preload]}}
@@ -2148,6 +2217,7 @@
   {:target     :browser
    :output-dir "out/testbeds/non-trivial-app-db"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn non-trivial-app-db.core/run}}
    :devtools   {:preloads [re-frame2-pair.runtime
                            day8.re-frame2-xray.preload]}}
@@ -2162,6 +2232,7 @@
   {:target     :browser
    :output-dir "out/testbeds/large-dispatcher"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn large-dispatcher.core/run}}
    :devtools   {:preloads [re-frame2-pair.runtime
                            day8.re-frame2-xray.preload]}}
@@ -2183,6 +2254,7 @@
   {:target     :browser
    :output-dir "out/testbeds/tenant-switcher"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn tenant-switcher.core/run}}
    :devtools   {:preloads [re-frame2-pair.runtime
                            day8.re-frame2-xray.preload]}}
@@ -2205,6 +2277,7 @@
   {:target     :browser
    :output-dir "out/examples/testbed-ssr-basic"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn ssr-basic.core/run}}
    ;; The re-frame2-pair.runtime preload lets pair-MCP probe this dev
    ;; testbed's live runtime alongside Xray.
@@ -2221,6 +2294,7 @@
   {:target     :browser
    :output-dir "out/examples/testbed-ssr-hydration-mismatch"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn ssr-hydration-mismatch.core/run}}
    ;; The re-frame2-pair.runtime preload lets pair-MCP probe this dev
    ;; testbed's live runtime alongside Xray.
@@ -2237,6 +2311,7 @@
   {:target     :browser
    :output-dir "out/examples/testbed-ssr-multi-frame"
    :asset-path "."
+   :compiler-options {:warnings-as-errors true}
    :modules    {:main {:init-fn ssr-multi-frame.core/run}}
    ;; The re-frame2-pair.runtime preload lets pair-MCP probe this dev
    ;; testbed's live runtime alongside Xray.
