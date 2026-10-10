@@ -68,10 +68,12 @@
          ;; Xray does not maintain a second chart implementation.
          day8/re-frame2-machines-viz {:local/root "../machines-viz"}
 
-         ;; Reagent Slim supplies the default transitive adapter. Xray
-         ;; renders through `re-frame.substrate.adapter`, so the adapter
-         ;; installed by the host still governs the runtime path.
-         day8/reagent-slim {:local/root "../../implementation/adapters/reagent-slim"}
+         ;; NO SUBSTRATE ADAPTER COORDINATE. The host app brings its own
+         ;; adapter, and nothing in `src` requires one. An adapter here would
+         ;; be a second provider on the host's classpath: Reagent Slim
+         ;; publishes its adapter at `re-frame.adapter.reagent`, the very
+         ;; namespace `day8/re-frame2-reagent` ships, so a stock-Reagent host
+         ;; would get whichever of the two classpath order picked.
 
          ;; Xray declares stock Reagent itself; core is Reagent-free
          ;; (re-frame.views late-binds via `:adapter/current-component`), so
@@ -99,8 +101,7 @@
          ;; the machines-viz chart tree, not here.
          ;;
          ;; This is dev-only (Xray is a devtools panel excluded from
-         ;; production bundles) and independent of the reagent-slim adapter
-         ;; above, which carries no stock Reagent.
+         ;; production bundles).
          ;; Test code requires reagent.* freely.
          reagent/reagent {:mvn/version "2.0.1"}
 
