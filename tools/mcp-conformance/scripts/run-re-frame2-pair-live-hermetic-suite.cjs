@@ -1917,15 +1917,15 @@ if (require.main === module) {
 // the SIGTERM grace then SIGKILLs it (the reject does not cancel the
 // fallback) so the child is actually reaped, not leaked.
 //
-// `readPortFile` + `isContainmentEscape` are exported for the
-// call-site regression harness (`port-file-escape.test.cjs`): it drives
+// `readPortFile` is exported for the call-site regression harness
+// (`port-file-escape.test.cjs`): it drives
 // `readPortFile` against a temp fixture whose `.shadow-cljs` is symlinked
 // outside, proving the poller REFUSES an external port file (throws)
 // rather than raw-reading it — the read-side guarantee that lets the
 // cleanup loop's escape-refusal be safe.
 //
-// `makeCleanup` + `settledWithin` + `waitForChildExit` are exported for the
-// teardown regression harness (`runner-cleanup.test.cjs`): it
+// `makeCleanup` is exported for the teardown regression harness
+// (`runner-cleanup.test.cjs`): it
 // drives the REAL teardown against a fake promise-returning browser and a
 // slow-exiting fake child, proving the awaited browser-close + the
 // SIGTERM→exit→SIGKILL escalation are WAITED for (or hard-capped), never
@@ -1961,8 +1961,9 @@ if (require.main === module) {
 // grading through `makeCleanup`, the dirty-report prose through
 // `finalizeConformance`. Exporting them would advertise a test seam that
 // invites coupling to the helper instead of the decision it serves.
-// `makeShadowTreeReaper` + `ownedDescendants` + `classifyRootRow` + `pidAlive`
-// are exported for the owned-tree regression harness
+//
+// `makeShadowTreeReaper` + `ownedDescendants` are exported for the owned-tree
+// regression harness
 // (`runner-cleanup.test.cjs`). The factory is driven with injected
 // `readTable`/`treeKill`/`isAlive` fakes so the ownership walk, the
 // recycled-PID guard (on the ROOT row as well as on descendants) and the
@@ -1972,19 +1973,12 @@ if (require.main === module) {
 // clean, GREEN, exit-0 run.
 module.exports = {
   runTrusted,
-  SETUP_COMMAND_TIMEOUT_MS,
   readPortFile,
-  isContainmentEscape,
   makeCleanup,
-  settledWithin,
   finalizeConformance,
-  waitForChildExit,
   spawnAndGradeInnerTest,
   gradeInnerTestOutcome,
   wipeStalePortFileCandidate,
   makeShadowTreeReaper,
   ownedDescendants,
-  classifyRootRow,
-  rootOwnershipEvidence,
-  pidAlive,
 };

@@ -79,8 +79,8 @@
 (defn- literal-as-token?
   "True iff `kw`'s `pr-str` literal appears in `text` as a COMPLETE keyword
   token (not as a prefix of a longer keyword). Uses the same
-  keyword-extender-aware boundary regex the slot-name / indicator near-miss
-  pins use, so `:rf.resource/load-more` does not match inside
+  keyword-extender-aware boundary regex the slot-name near-miss pin uses,
+  so `:rf.resource/load-more` does not match inside
   `:rf.resource/load-more-skipped`."
   [kw text]
   (boolean (re-find (rf.mcp-conformance.fixtures/variant-regex (pr-str kw)) text)))
