@@ -48,8 +48,7 @@
   helper. A frame object / generation / image is presented as the inert data
   it already is — `make-frame` returns an inert map and `assemble` seals an
   inert generation (EP-0023 §Image — \"an image is data, not registration\")."
-  (:require [clojure.string :as str]
-            [day8.re-frame2-xray.panels.common-helpers :as common]))
+  (:require [day8.re-frame2-xray.panels.common-helpers :as common]))
 
 ;; ===========================================================================
 ;; Generation projection — an image as its `[kind id]` descriptor set
@@ -165,34 +164,6 @@
   (->> live-frames
        (sort-by (comp str key))
        (mapv (fn [[fid fobj]] (project-frame-row fid fobj)))))
-
-;; ===========================================================================
-;; Frame-derived resolution — the lookup path (EP-0023 §Specification)
-;; ===========================================================================
-
-(defn resolve-in-frame
-  "Project the FRAME-DERIVED RESOLUTION of one `[kind id]` through `frame`'s
-  generation (EP-0023 §Specification — `target frame -> resolved image
-  generation -> registration resolution`). `resolve-fn` is the
-  generation-level resolver (`re-frame.image-assembly/resolve-descriptor`,
-  passed in so this stays pure). Returns
-
-      {:kind kind :id id
-       :resolved? <bool>                    ;; did the frame's generation resolve it?
-       :provenance {…}}                     ;; the resolving descriptor's provenance,
-                                            ;; nil when unresolved
-
-  This is what makes the image/frame split visible: the SAME `[kind id]`
-  resolves to DIFFERENT descriptors (or to nothing) depending on which frame
-  asks, because each frame runs its own image generation. Pure `data -> data`
-  (given a pure `resolve-fn`); JVM-testable."
-  [resolve-fn frame kind id]
-  (let [gen        (:rf.frame/generation frame)
-        descriptor (when gen (resolve-fn gen kind id))]
-    {:kind       kind
-     :id         id
-     :resolved?  (some? descriptor)
-     :provenance (when descriptor (descriptor-provenance descriptor))}))
 
 ;; ===========================================================================
 ;; Top-level projection

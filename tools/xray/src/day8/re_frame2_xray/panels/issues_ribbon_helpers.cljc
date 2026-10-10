@@ -47,10 +47,9 @@
   includes `:rf.error/`, `:rf.warning/`, `:rf.fx/`,
   `:rf.cofx/`, `:rf.ssr/`, `:rf.epoch/`, `:rf.http/`,
   `:rf.http.interceptor/`, `:rf.frame/`, and `:rf.route.nav-token/`,
-  with more added as the catalogue grows. The panel's projection
-  reads the keyword namespace directly (see `category-prefix` below),
-  so new prefixes flow through without code change — consult the
-  catalogue for the authoritative list rather than this comment.
+  with more added as the catalogue grows. The projection keys on
+  `:op-type`, so new prefixes flow through without code change — consult
+  the catalogue for the authoritative list rather than this comment.
 
   ## Severity
 
@@ -69,14 +68,6 @@
   and could trip auto-open-on-error. Lifecycle / success-path traces
   (`:op-type` `:info`, `:rf.event`, `:rf.fx`, `:rf.frame`, `:rf.sub/*`,
   `:rf.view/*`, etc.) are NOT issues and never reach the panel.
-
-  ## Category prefix
-
-  The panel groups by the keyword namespace of `:operation`. Per
-  Spec 009 a consumer routing on the prefix gets the domain
-  provenance (`:rf.error/*` vs `:rf.warning/*` vs `:rf.ssr/*` ...).
-  The helper exposes `category-prefix` as the canonical projection,
-  used for the row's muted `category` cell.
 
   ## No filtering
 
@@ -117,8 +108,7 @@
   returns the head record. The `:no-focus` empty-state is reserved
   for the truly degenerate case where focus is nil AND history is
   empty (no event-bundles have settled yet)."
-  (:require [clojure.string :as str]
-            [day8.re-frame2-xray.panels.shared.focus-resolver :as focus]))
+  (:require [day8.re-frame2-xray.panels.shared.focus-resolver :as focus]))
 
 ;; ---- severity classification --------------------------------------------
 
@@ -144,89 +134,6 @@
   [{:keys [op-type] :as _ev}]
   (some? (op-type->severity op-type)))
 
-;; ---- category-prefix projection -----------------------------------------
-
-(defn category-prefix
-  "Project a trace event's `:operation` onto its category prefix —
-  the keyword namespace (e.g. `\"rf.error\"`, `\"rf.warning\"`,
-  `\"rf.ssr\"`). Per Spec 009 §Error namespace convention the prefix
-  carries domain provenance. Returns nil for events whose `:operation`
-  has no namespace (the catalogue's `:rf.route.nav-token/*` etc. still
-  match — the namespace is `rf.route.nav-token`).
-
-  Pure data → string-or-nil; JVM-testable."
-  [{:keys [operation] :as _ev}]
-  (when (keyword? operation)
-    (namespace operation)))
-
-(defn category-label
-  "Project a trace event onto the row's muted `category` cell — the
-  unqualified name of `:operation` (e.g. `handler-exception`,
-  `hydration-mismatch`). Per the Figma design the category column is
-  the terse op name, NOT the full namespaced keyword (the prefix
-  rides the description / source coord). Falls back to the
-  category-prefix when `:operation` has no name, then to nil. Pure
-  data → string-or-nil; JVM-testable."
-  [{:keys [operation] :as ev}]
-  (cond
-    (keyword? operation) (name operation)
-    (some? operation)    (str operation)
-    :else                (category-prefix ev)))
-
-;; ---- short description --------------------------------------------------
-
-(defn short-description
-  "Build the per-row one-line description. Per the Figma design rows
-  render: `severity · category · short description · timestamp · ↗`.
-  The description is the `:operation` keyword + (when available) a
-  terse summary lifted from `:tags`.
-
-  Reads (in priority order):
-    1. `[:tags :reason]`           — most categories carry this
-    2. `[:tags :exception-message]` — handler / fx exceptions
-    3. `[:tags :rf.event/v]`        — dispatched event vector
-    4. `[:tags :unresolved-input]`  — `:rf.error/no-such-sub` (the query
-                                      vector that failed to resolve; per
-                                      Spec 009 §Error catalogue +
-                                      `re-frame.subs` emit)
-    5. `[:tags :failing-id]`        — registrar miss / effect-map shape
-    6. `[:tags :path]`              — schema validation
-    7. `(str operation)` only — fallback
-
-  Pure data → string; JVM-testable."
-  [{:keys [operation tags] :as _ev}]
-  (let [op-str (if operation (str operation) "(unknown)")
-        detail (or (:reason tags)
-                   (:exception-message tags)
-                   (when (vector? (:rf.event/v tags))
-                     (pr-str (:rf.event/v tags)))
-                   (when (some? (:unresolved-input tags))
-                     (try (pr-str (:unresolved-input tags))
-                          (catch #?(:clj Throwable :cljs :default) _ nil)))
-                   (when (some? (:failing-id tags))
-                     (str (:failing-id tags)))
-                   (when (some? (:path tags))
-                     (try (pr-str (:path tags))
-                          (catch #?(:clj Throwable :cljs :default) _ nil))))]
-    (if (and detail (not (str/blank? (str detail))))
-      (str op-str " — " detail)
-      op-str)))
-
-;; ---- source-coord projection --------------------------------------------
-
-(defn source-coord
-  "Extract a `file:line` string from `:rf.trace/trigger-handler`'s
-  `:source-coord` slot. Per Spec 009 every emit inside a dispatch
-  carries this slot when handler scope is bound. Returns nil when no
-  coord is available. Pure data →
-  string-or-nil; JVM-testable."
-  [ev]
-  (when-let [trigger (:rf.trace/trigger-handler ev)]
-    (let [{:keys [file line]} (:source-coord trigger)]
-      (when file
-        (cond-> file
-          line (str ":" line))))))
-
 ;; ---- per-issue projection ------------------------------------------------
 
 (defn project-issue
@@ -237,10 +144,6 @@
        :severity        <:error :warning>
        :op-type         <kw>
        :operation       <kw>
-       :category        <string-or-nil>  ;; muted category cell
-       :category-prefix <string-or-nil>  ;; domain provenance
-       :description     <string>
-       :source-coord    <string-or-nil>
        :recovery        <kw-or-nil>
        :raw             <trace-event>}
 
@@ -254,10 +157,6 @@
      :severity        (op-type->severity op-type)
      :op-type         op-type
      :operation       operation
-     :category        (category-label ev)
-     :category-prefix (category-prefix ev)
-     :description     (short-description ev)
-     :source-coord    (source-coord ev)
      :recovery        recovery
      :raw             ev}))
 

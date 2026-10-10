@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.panels.overflow-indicator
-  "Shared overflow-indicator row + capped-list builder for long-list
-  panels.
+  "Shared overflow-indicator row for long-list panels.
 
   ## Why this lives in its own ns
 
@@ -20,14 +19,8 @@
   The indicator is a `[:li]` so it slots into the same `[:ul]` the
   capped rows live in — keyboard / scroll behaviour stays consistent.
   The user-visible text matches the `machine_inspector.cljs` ribbon
-  pattern (`N of M`) on the transition-history surface.
-
-  ## capped-list builder
-
-  `capped-list` folds the cap-list-then-append-overflow shape into one
-  fn so a per-panel view stays focused on the row hiccup. No requirer
-  calls it: each calls `overflow-row` directly after
-  `common-helpers/cap-rows`."
+  pattern (`N of M`) on the transition-history surface. Each requirer
+  calls `overflow-row` directly after `common-helpers/cap-rows`."
   (:require [day8.re-frame2-xray.panels.common-helpers :as common]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens sans-stack mono-stack]]))
@@ -66,35 +59,3 @@
      (str " " (common/pluralize hidden-count "row"))
      " hidden — narrow the filter or selection to see more."]))
 
-(defn capped-list
-  "Build a `[:ul ...]` of `rows` capped at the 200-row panel budget,
-  appending the shared overflow indicator when the cap drops rows.
-
-  `opts` is `{:panel-id <string> :ul-attrs <map> :row-fn <fn>}`.
-
-    :panel-id — stable string used in both the overflow indicator's
-                testid (`rf-xray-<panel-id>-overflow-indicator`) and
-                the caller's own per-row testid scheme. Caller-owned.
-
-    :ul-attrs — the attribute map for the `[:ul]` wrapper — testid,
-                style, etc. Passed through verbatim so per-panel
-                styling (background colour, padding) stays in the
-                caller.
-
-    :row-fn   — `(fn [row] hiccup)` rendering one row. Hiccup-only;
-                meta-keys (^{:key …}) live in the caller's row-fn so
-                each panel keeps its own keying convention.
-
-  Returns a hiccup vector. Pure fn; JVM-runnable.
-
-  Cap source-of-truth lives in `common-helpers/panel-row-cap` (200,
-  per spec/007 §Performance budget). The overflow indicator is the
-  `[:li]` rendered from `overflow-row` and is `conj`-ed onto the
-  `[:ul]` only when the cap drops at least one row."
-  [rows {:keys [panel-id ul-attrs row-fn]}]
-  (let [[capped over-cap? hidden] (common/cap-rows rows)]
-    (cond-> (into [:ul ul-attrs] (map row-fn capped))
-      over-cap?
-      (conj (overflow-row {:panel-id     panel-id
-                           :over-cap?    over-cap?
-                           :hidden-count hidden})))))
