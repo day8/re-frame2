@@ -66,10 +66,10 @@ the situation they cover:
 
 - [`re-frame2-setup/`](re-frame2-setup) — scaffold a fresh
   re-frame2 ClojureScript project. One unqualified prompt takes an empty
-  directory to a served `shadow-cljs watch` counter via the canonical
-  6-step path — zero-interview default (Reagent, the generator template's
-  pinned baseline), with the skill running the install and the terminating
-  compile itself and reporting the URL. Complementary to the generator template under
+  directory to a served `shadow-cljs watch` counter via its
+  [canonical six-step path](re-frame2-setup/SKILL.md#canonical-greenfield-path-six-steps),
+  which the skill runs itself — zero-interview default (Reagent, the
+  generator template's pinned baseline). Complementary to the generator template under
   [`tools/template/`](../tools/template): use the template when you want a
   one-shot scaffold. (Pre-split, the published `:template` coordinate can't
   resolve — [`tools/template/README.md`](../tools/template/README.md)
@@ -162,9 +162,10 @@ skill" table mapping the other skills' triggers to a route. Those
 cross-referenced cells drift in lockstep. This section is the
 single source of truth. Per-skill `SKILL.md` files (and the docs-site
 mirror's human-facing flow) point here instead of duplicating. 2
-hand-offs are worth knowing: `re-frame2-setup` exits to `re-frame2` when
-the counter mounts, and `re-frame-migration` exits to `re-frame2` when the
-migration report is signed off.
+hand-offs are worth knowing: `re-frame2-setup` exits to `re-frame2` at its
+hand-off, once the dev server is serving the counter, and
+`re-frame-migration` exits to `re-frame2` when the migration report is
+signed off.
 
 ### Trigger → skill
 
@@ -187,7 +188,7 @@ migration report is signed off.
 - Spec-reading, architecture questions, design discussion belong to [`SKILL-REDIRECT.md`](../SKILL-REDIRECT.md) — not to `re-frame2-pair` (no runtime) and not to `re-frame2` (not authoring).
 - Generic debugging retrospectives, post-mortems on shell sessions, IDE workflows, or test-suite runs are out of scope for `re-frame2-pair-retro` — there is no pair-tool surface to improve.
 - Mid-session pair work stays in `re-frame2-pair`; switch to `re-frame2-pair-retro` only when the user explicitly asks for a retro, or for a post-error post-mortem within the re-frame2-pair session — not as a default mode during routine pair work.
-- "Adding re-frame2 to an existing app with other state management or non-trivial code" is an authoring task — route to `re-frame2/`, not `re-frame2-setup/`. Setup is greenfield-only and exits once the counter mounts.
+- "Adding re-frame2 to an existing app with other state management or non-trivial code" is an authoring task — route to `re-frame2/`, not `re-frame2-setup/`. Setup is greenfield-only and exits at its hand-off.
 - Xray vs re-frame2-pair: human panel vs agent runtime — not read vs write. `re-frame2-xray` tours the visible panel: how to launch it and which tab/mode a human opens first. The moment the user asks the agent to touch a running runtime — read-only included (read a sub, get a path, snapshot state, walk traces), as much as dispatching, mutating `app-db`, hot-swapping, or time-travelling — that is `re-frame2-pair`, even if the word "Xray" appears in the prompt.
 - `re-frame2-implementor` is scoped to the 8 in-scope hosts. Per [`spec/000-Vision.md`](../spec/000-Vision.md) §scope footnote, the only in-scope implementation targets are the 8 JS-cross-compile-to-React+VDOM host languages (ClojureScript, TypeScript, F# / Fable, Kotlin/JS, Squint, Scala.js, PureScript, Melange / ReScript / Reason). A prompt asking to implement re-frame2 against a non-React substrate (Vue, Solid, Svelte, vanilla DOM, native UI, a terminal UI) or a non-cross-compile-to-JS host (Python, Ruby, native Rust, Go, server-side Kotlin / Java / Swift) is out of scope — a deliberate scope choice, not an oversight. There is no implementation track to sequence: surface the scope footnote and stop, or route the architecture question to [`SKILL-REDIRECT.md`](../SKILL-REDIRECT.md) — do not start Phase 1 / Phase 2 implementation work.
 
@@ -219,10 +220,19 @@ family rule — single source below:
 | `re-frame-migration` | migrate v1 code on an existing codebase | **split** — the skill runs the project's discovered noninteractive install / compile / test gates; the programmer owns the boot smoke when no drivable runtime is connected | compile + tests clean by the skill's own run, **and** the boot smoke-test clean — driven through a connected runtime, or run by the programmer from the skill's checklist and reported as pending until then | trust-the-explicit-invoker baseline — an explicit "migrate this repo" authorises the Type-A edits and the project's own gates; Type-B rewrites stay ask-first, batched into one checkpoint |
 | `reagent-fresco-migration` | migrate Reagent views to Fresco on an existing re-frame2 app | **split** — the skill runs the discovered safe noninteractive gates; the programmer owns the interactive/visual step | the skill's discovered **compile + tests** pass per closed subtree **and** the programmer has **rendered** and eyeballed the converted views | trust-the-explicit-invoker baseline — the skill discovers and runs the nearest safe noninteractive gate (compile the subtree, run its tests), but "compiles" is not the done-bar: interpreted Fresco moves most view errors to run time by design, so a converted view must still be *rendered* and eyeballed, which stays the programmer's when there is no runtime to drive |
 | `re-frame2` (authoring) | author code on an existing re-frame2 app | **split** — the skill runs the project's discovered noninteractive compile / test / lint gate; the programmer owns interactive / visual checks and anything needing a live runtime (`re-frame2-pair`) | the nearest declared gate passes on the changed path, with the exact command + result reported | trust-the-explicit-invoker baseline — the skill already discovers the gate from `deps.edn` / `shadow-cljs.edn` / `package.json` / the nearest README, so it runs it and reports rather than relaying the command to the human; it still drives no runtime of its own (that stays `re-frame2-pair`'s) |
-| `re-frame2-setup` | scaffold greenfield | **split** — the skill writes the files, runs `npm install` + a terminating `npx shadow-cljs compile app`, starts the watch, and reports the URL; the programmer confirms the counter in the browser | the skill's own install + compile pass and the dev server is serving, **and** the author sees the counter advance 0→1 (compile success alone is not a mount claim) | one prompt produces one served SPA — zero-interview default (Reagent + the template-baseline pin); the browser confirmation stays the author's because the skill drives no runtime of its own |
+| `re-frame2-setup` | scaffold greenfield | **split** — the skill runs its [canonical greenfield path](re-frame2-setup/SKILL.md#canonical-greenfield-path-six-steps) itself: `npm install`, the terminating compile and `npm test`, then the watch and the URL it printed; the browser smoke checks are handed to the programmer | the skill's own install, compile and starter test pass and the dev server is serving; the browser checks (the counter advances 0→1, hot reload) are handed off and reported unverified until observed — compile success is never a mount claim | one prompt produces one served SPA — zero-interview default (Reagent + the template-baseline pin); the browser checks stay the author's because the skill drives no runtime of its own |
 | `re-frame2-improver` | critique existing code | nobody runs; static critique | one complete severity-ordered critique in the requesting turn, findings cross-linked to canonical idioms | read-only by default; a direct "review and apply/fix" request authorises safe in-scope `Edit`s (redesigns stay proposals); runs no suite |
 | `re-frame2-xray` | question-first tour of the devtools panel | nobody runs; read-only | n/a (read-only tour) | owns the human panel tour; agent runtime access — read or write — is `re-frame2-pair`'s |
 | `re-frame2-pair-retro` | retro on a pair session | nobody runs the app; read-only — drafts an issue the user files | a complete one-turn retrospective, with an optional copy-pasteable issue draft (tool- vs framework-shaped) | meta-skill over `re-frame2-pair`; no runtime of its own |
+
+## Authoring rules
+
+Four rules bind every skill here, whatever its role. Each is stated only in this section; a skill's own docs link here rather than restating one.
+
+1. **One owner per fact.** A fact about the framework, a tool or a procedure is stated in one file. Summaries — `SKILL.md` routers, READMEs, the `docs/skills/` pages, `spec/design.md` — name the owner and link it, and never copy its conditions, because a copy is the one the next fix misses.
+2. **Copy census before folding feedback.** Before fixing a reported fact, search its key tokens across the skill (`SKILL.md`, `references/`, `spec/`, `evals/`), its `docs/skills/` page, and the sources it cites (the corpus, the tool's docs). Fix every copy in the same commit, or collapse them to the owner, and list the copies in the PR body. Bump a tool pin rather than adding a version caveat.
+3. **Load references by relevance.** Start from the leaf the task names, add others as their concerns apply, and leave unrelated leaves unloaded. No count caps: a cap truncates exactly the task that composes several concerns.
+4. **Report observed results apart from inferred or handed-off ones.** A proxy — a compile, a grep hit, a catalogue match, a slice score — never stands in for the thing it proxies. This holds in every role: [§Verification posture](#verification-posture--follows-role-by-design) says who runs what, and this rule says how the result is reported.
 
 ## Layout convention
 
