@@ -1435,6 +1435,47 @@
     (is (true? (rf/replace-frame-state! :test/main {:rf.db/app {:n 7}})))
     (is (= [:seed :rf.epoch/db-replaced] (mapv :event-id (rf/epoch-history :test/main))))))
 
+;; ---- replay is fenced to the same exact incarnation -------------------------
+
+(deftest replay-fenced-to-exact-incarnation-leaves-same-id-successor-untouched
+  (testing "replay's lookup resolves incarnation A, then A is destroyed and a
+            same-id successor B seated before the dispatch: the replay is
+            refused with :rf.error/no-such-handler and B's frame-state and
+            history stay at their baselines"
+    (rf/make-frame {:id :test/rep})
+    (rf/reg-event :set-owner-rep (fn [_ [_ o]] {:db {:owner o}}))
+    (rf/dispatch-sync [:set-owner-rep :A] {:frame :test/rep})
+    (let [source-id  (:epoch-id (last (rf/epoch-history :test/rep)))
+          real-check rf.epoch.tool-pair/check-replay-preconditions!
+          b-baseline (atom nil)
+          result     (with-redefs [rf.epoch.tool-pair/check-replay-preconditions!
+                                   (fn [frame-id epoch-id]
+                                     ;; The REAL lookup passes against live A; then churn to B.
+                                     (let [r (real-check frame-id epoch-id)]
+                                       (rf/destroy-frame! frame-id)
+                                       (rf/make-frame {:id frame-id})
+                                       (rf/dispatch-sync [:set-owner-rep :B] {:frame frame-id})
+                                       (reset! b-baseline [(rf/frame-state-value frame-id)
+                                                           (rf/epoch-history frame-id)])
+                                       r))]
+                       (rf/replay-epoch! :test/rep source-id))]
+      (is (= {:ok? false :reason :rf.error/no-such-handler :kind :frame}
+             (select-keys result [:ok? :reason :kind])))
+      (is (= @b-baseline [(rf/frame-state-value :test/rep) (rf/epoch-history :test/rep)])))))
+
+(deftest replay-discards-a-caller-supplied-expected-incarnation
+  (testing "the incarnation fence is replay's own: a caller value under
+            :rf.frame/expected-incarnation is discarded, so it can neither
+            refuse a live replay nor aim one"
+    (rf/make-frame {:id :test/rep-own})
+    (rf/reg-event :bump-rep (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+    (rf/dispatch-sync [:bump-rep] {:frame :test/rep-own})
+    (let [res (rf/replay-epoch! :test/rep-own
+                                (:epoch-id (last (rf/epoch-history :test/rep-own)))
+                                {:rf.frame/expected-incarnation (Object.)})]
+      (is (true? (:ok? res)))
+      (is (= {:n 2} (rf/app-db-value :test/rep-own)) "the replayed event ran on the live frame"))))
+
 ;; ---- the fenced tail ops are themselves fan-outs ---------------------------
 ;;
 ;; The host-work quiesce walks a chain of late-bound hooks and the deferred
