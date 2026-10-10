@@ -16,8 +16,8 @@
 ;; Runtime routing state is rooted at `[:rf.runtime/routing]`. It contains
 ;; `:current`, `:pending-navigation` when a guard blocks, and may contain
 ;; resource-integration bookkeeping while the resources artefact is loaded.
-;; Scroll positions and allocator high-water marks are host-side transient
-;; caches keyed by frame id, not runtime-db state.
+;; Scroll positions (keyed by frame id) and the process-global allocator
+;; high-water marks are host-side transient caches, not runtime-db state.
 ;;
 ;; Consumers add this artefact alongside the core artefact:
 ;;
