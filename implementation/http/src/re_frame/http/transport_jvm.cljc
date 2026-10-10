@@ -116,9 +116,7 @@
    (defn jvm-build-request
      "Build a JDK `HttpRequest` for one attempt from the encoded request
      map. Selects the body publisher by `body` shape (none / String /
-     bytes / stringified-else), applies the per-attempt `:timeout-ms`
-     (the `(pos? …)` guard treats both `nil` and `0` as the no-timeout
-     opt-out — see the inline note), and sets each header individually
+     bytes / stringified-else) and sets each header individually
      so a JDK header-validation throw can be isolated to the offending
      header (surfaced as a `:rf.warning/http-header-invalid` trace rather
      than sinking the whole request). `sensitive?` is carried
@@ -137,7 +135,7 @@
      `ex-info` like this one to the `:rf.http/transport` catch-all — it
      has no failure category or `:rf.error/*` id of its own. Per
      Spec 014 §JVM transport — absolute URLs required."
-     [{:keys [method url headers body timeout-ms sensitive?]}]
+     [{:keys [method url headers body sensitive?]}]
      (let [uri (URI/create url)
            _   (when-not (.isAbsolute uri)
                  (throw (ex-info
@@ -158,17 +156,6 @@
                        (bytes? body) (HttpRequest$BodyPublishers/ofByteArray ^bytes body)
                        :else (HttpRequest$BodyPublishers/ofString ^String (str body)))]
        (.method b (str/upper-case (name method)) publisher)
-       ;; Per Spec 014 §`:timeout-ms` security defaults: BOTH `nil` and
-       ;; `0` are explicit opt-outs (no per-attempt timeout). `0` is
-       ;; truthy in Clojure, so `(when timeout-ms …)` is NOT enough — and
-       ;; `(Duration/ofMillis 0)` throws `IllegalArgumentException` on the
-       ;; JDK, surfacing the opt-out as a spurious `:rf.http/transport`
-       ;; failure. The `(pos? …)` guard collapses `nil`/`0`/negative to
-       ;; "no timeout" so the JDK request carries no per-request deadline.
-       ;; This deadline bounds only the wait for response HEADERS; `jvm-fetch`
-       ;; extends the same budget over the body.
-       (when (and timeout-ms (pos? timeout-ms))
-         (.timeout b (Duration/ofMillis (long timeout-ms))))
        (doseq [[k v] (rf.http.encoding/normalize-header-pairs headers)]
          ;; Surface JDK HttpClient header-validation throws
          ;; via a `:rf.warning/http-header-invalid` trace rather than
@@ -286,21 +273,20 @@
      2xx (a non-2xx body is the raw error text the 4xx/5xx paths carry,
      same as CLJS — see `cljs-fetch`).
 
-     `:timeout-ms` bounds the WHOLE attempt, body included.
-     `HttpRequest.Builder.timeout` (set in `jvm-build-request`) bounds only the
-     wait for response HEADERS, so on its own a server that answered promptly
-     and then stalled its body would hold the attempt past its budget
+     `:timeout-ms` bounds the WHOLE attempt, headers and body: the returned
+     future carries an `orTimeout` deadline. `HttpRequest.Builder.timeout`
+     would bound only the wait for response HEADERS, so a server that answered
+     promptly and then stalled its body would hold the attempt past its budget
      indefinitely — or deliver success after it. Spec 014 §`:timeout-ms` security defaults
      names exactly that slow-loris body as what the default exists to bound.
-     The returned future therefore carries its own `orTimeout` deadline, and
-     when that fires the upstream `sendAsync` future is CANCELLED too: that
+     When the deadline fires the upstream `sendAsync` future is CANCELLED too: that
      cancellation is what reaches the JDK exchange and closes the connection,
      where timing out the result alone would leave the download running behind
      a request the app has already been told timed out. The timeout lands as a
      `TimeoutException`, which `classify-jvm-error` maps to `:rf.http/timeout`;
      the JDK withdraws the deadline when the future completes any other way
      (success, failure, or a lifecycle abort's `.cancel`); and `nil` / `0` arm
-     nothing, exactly as for the builder timeout. The CLJS host gets the same
+     nothing (`0` is truthy, hence the `pos?` guard). The CLJS host gets the same
      bound by racing fetch-plus-body-read against its timer (`cljs-fetch`)."
      [opts]
      (let [client ^HttpClient (jvm-http-client-for (:redirect opts))
@@ -347,17 +333,17 @@
    (defn classify-jvm-error
      "Map a JVM-side throwable to a `:rf.http/*` failure shape.
 
-     The JDK reliably surfaces `HttpTimeoutException` for
-     per-attempt timeouts and `CancellationException` for explicit
-     cancellations, so classification uses instance checks only.
+     The per-attempt deadline `jvm-fetch` arms over the whole attempt
+     surfaces as a `java.util.concurrent.TimeoutException`, the client's
+     connect timeout as the JDK's `HttpTimeoutException`, and an explicit
+     cancellation as a `CancellationException`, so classification uses
+     instance checks only.
      `str/includes? msg \"timed out\"` / `\"abort\"` fallbacks would
      misclassify a downstream service's error body (whose message
      happened to contain those words) as `:rf.http/timeout` /
      `:rf.http/aborted`, polluting the failure taxonomy. Anything not
      matching an instance check stays at `:rf.http/transport` — the
-     correct catch-all for unknown JDK failures. A
-     `java.util.concurrent.TimeoutException` is the whole-attempt deadline
-     `jvm-fetch` arms over body consumption, and is a timeout too.
+     correct catch-all for unknown JDK failures.
 
      The optional `timeout-ms` (the configured per-attempt
      limit, in scope at the `run-attempt!` call sites) fills the
@@ -365,9 +351,8 @@
      CLJS path (Spec 014 §Failure categories types `:rf.http/timeout` as
      `:elapsed-ms` / `:limit-ms`).
 
-     `:elapsed-ms` is populated on the JVM. The JDK's
-     `HttpTimeoutException` does not itself surface the elapsed wall
-     clock, so `run-attempt!` captures a monotonic start mark
+     `:elapsed-ms` is populated on the JVM. Neither timeout exception
+     surfaces the elapsed wall clock, so `run-attempt!` captures a monotonic start mark
      (`System/nanoTime`) before issuing the request and passes the
      measured wall-clock delta here. This matches the CLJS
      path's VALUE semantics, not just its shape: `cljs-fetch` likewise

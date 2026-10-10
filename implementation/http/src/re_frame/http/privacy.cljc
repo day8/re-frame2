@@ -16,7 +16,7 @@
   sibling namespaces:
 
   - `re-frame.http.privacy-headers` — header denylist + `redact-headers`.
-  - `re-frame.http.url` — query-param denylist + `redact-url` /
+  - `re-frame.http.url` — query-param denylist +
     `redact-url-query-string`. (URL *building* — `url-encode` /
     `params->query` / `merge-params` — lives in `re-frame.http.encoding`,
     not here.)
@@ -329,29 +329,28 @@
 
   `carriers` is the registration-owned carrier extension map
   `{:headers #{..} :query-params #{..}}`, or `nil`."
-  ([tags sensitive?] (redact-request-tags-with-flag tags sensitive? nil))
-  ([tags sensitive? carriers]
-   (let [[tags url-hit?] (redact-url-in tags sensitive? (:query-params carriers))
-         ;; Always-on query-param denylist over the structured `:params` map (a
-         ;; sensitive request redacts the whole map below instead).
-         [tags params-hit?] (if (and (not sensitive?) (map? (:params tags)))
-                              (let [[params hit?] (redact-denylisted-params
-                                                    (:params tags) (:query-params carriers))]
-                                [(cond-> tags hit? (assoc :params params)) hit?])
-                              [tags false])
-         tags' (cond-> tags
-                 ;; Always-on header redaction (built-in defaults plus extensions).
-                 (map? (:headers tags))
-                 (update :headers rf.http.privacy-headers/redact-headers (:headers carriers))
+  [tags sensitive? carriers]
+  (let [[tags url-hit?] (redact-url-in tags sensitive? (:query-params carriers))
+        ;; Always-on query-param denylist over the structured `:params` map (a
+        ;; sensitive request redacts the whole map below instead).
+        [tags params-hit?] (if (and (not sensitive?) (map? (:params tags)))
+                             (let [[params hit?] (redact-denylisted-params
+                                                   (:params tags) (:query-params carriers))]
+                               [(cond-> tags hit? (assoc :params params)) hit?])
+                             [tags false])
+        tags' (cond-> tags
+                ;; Always-on header redaction (built-in defaults plus extensions).
+                (map? (:headers tags))
+                (update :headers rf.http.privacy-headers/redact-headers (:headers carriers))
 
-                 ;; Sensitive-request redaction — body becomes the sentinel.
-                 (and sensitive? (contains? tags :body))
-                 (assoc :body redacted-sentinel)
+                ;; Sensitive-request redaction — body becomes the sentinel.
+                (and sensitive? (contains? tags :body))
+                (assoc :body redacted-sentinel)
 
-                 ;; Sensitive-request redaction — params (URL query string) too.
-                 (and sensitive? (contains? tags :params))
-                 (assoc :params redacted-sentinel))]
-     [tags' (or url-hit? params-hit?)])))
+                ;; Sensitive-request redaction — params (URL query string) too.
+                (and sensitive? (contains? tags :params))
+                (assoc :params redacted-sentinel))]
+    [tags' (or url-hit? params-hit?)]))
 
 (defn redact-request-tags
   "Given a tags map about to ride a `:rf.http/*` trace event, redact
@@ -366,9 +365,8 @@
   `project-managed-fx-args` calls it to redact a managed fx's `:request`
   map, which needs no flag; the `prepare-emit-*` composers use the
   `*-with-flag` forms, which also report whether a URL value was redacted."
-  ([tags sensitive?] (first (redact-request-tags-with-flag tags sensitive? nil)))
-  ([tags sensitive? carriers]
-   (first (redact-request-tags-with-flag tags sensitive? carriers))))
+  [tags sensitive? carriers]
+  (first (redact-request-tags-with-flag tags sensitive? carriers)))
 
 (defn redact-failure-with-flag
   "Like `redact-failure` but returns `[failure url-redacted?]` so callers
@@ -376,51 +374,50 @@
   stamp `:sensitive?` without re-walking the URL.
 
   `carriers` is the registration-owned carrier extension map, or `nil`."
-  ([failure sensitive?] (redact-failure-with-flag failure sensitive? nil))
-  ([failure sensitive? carriers]
-   (when failure
-     (let [[failure url-hit?] (redact-url-in failure sensitive? (:query-params carriers))
-           failure' (cond-> failure
-                      (map? (:headers failure))
-                      (update :headers rf.http.privacy-headers/redact-headers (:headers carriers))
+  [failure sensitive? carriers]
+  (when failure
+    (let [[failure url-hit?] (redact-url-in failure sensitive? (:query-params carriers))
+          failure' (cond-> failure
+                     (map? (:headers failure))
+                     (update :headers rf.http.privacy-headers/redact-headers (:headers carriers))
 
-                      (and sensitive? (contains? failure :body))
-                      (assoc :body redacted-sentinel)
+                     (and sensitive? (contains? failure :body))
+                     (assoc :body redacted-sentinel)
 
-                      (and sensitive? (contains? failure :body-text))
-                      (assoc :body-text redacted-sentinel)
+                     (and sensitive? (contains? failure :body-text))
+                     (assoc :body-text redacted-sentinel)
 
-                      (and sensitive? (contains? failure :decoded))
-                      (assoc :decoded redacted-sentinel)
+                     (and sensitive? (contains? failure :decoded))
+                     (assoc :decoded redacted-sentinel)
 
-                      ;; Accept-failure carries the user's domain failure-map at :detail
-                      ;; — opaque to us; redact wholesale when sensitive.
-                      (and sensitive? (contains? failure :detail))
-                      (assoc :detail redacted-sentinel)
+                     ;; Accept-failure carries the user's domain failure-map at :detail
+                     ;; — opaque to us; redact wholesale when sensitive.
+                     (and sensitive? (contains? failure :detail))
+                     (assoc :detail redacted-sentinel)
 
-                      ;; A string `:cause` is the free-text throw
-                      ;; message from the interceptor/transport path. It is
-                      ;; author-controlled and can echo a secret the
-                      ;; interceptor was handling (e.g. a token-validation
-                      ;; message embedding the token), so it rides the same
-                      ;; sensitive redaction as the response-side slots. The
-                      ;; `string?` guard preserves keyword `:cause`
-                      ;; discriminators (e.g. decode-failure's
-                      ;; `:cause :too-many-keys`) — those are security-relevant
-                      ;; signals, not secret payload (http-decode §too-many-keys).
-                      (and sensitive? (string? (:cause failure)))
-                      (assoc :cause redacted-sentinel)
+                     ;; A string `:cause` is the free-text throw
+                     ;; message from the interceptor/transport path. It is
+                     ;; author-controlled and can echo a secret the
+                     ;; interceptor was handling (e.g. a token-validation
+                     ;; message embedding the token), so it rides the same
+                     ;; sensitive redaction as the response-side slots. The
+                     ;; `string?` guard preserves keyword `:cause`
+                     ;; discriminators (e.g. decode-failure's
+                     ;; `:cause :too-many-keys`) — those are security-relevant
+                     ;; signals, not secret payload (http-decode §too-many-keys).
+                     (and sensitive? (string? (:cause failure)))
+                     (assoc :cause redacted-sentinel)
 
-                      ;; A bad-return diagnostic's `:returned` is whatever an
-                      ;; interceptor handed back instead of a map — author-
-                      ;; controlled, and typically a slice of the request or
-                      ;; response it was given, so it rides the same sensitive
-                      ;; redaction. `some?` keeps a nil return visible: nil
-                      ;; carries no data, and it is the commonest bad return
-                      ;; (a `:before` written as `(when token …)`).
-                      (and sensitive? (some? (:returned failure)))
-                      (assoc :returned redacted-sentinel))]
-       [failure' url-hit?]))))
+                     ;; A bad-return diagnostic's `:returned` is whatever an
+                     ;; interceptor handed back instead of a map — author-
+                     ;; controlled, and typically a slice of the request or
+                     ;; response it was given, so it rides the same sensitive
+                     ;; redaction. `some?` keeps a nil return visible: nil
+                     ;; carries no data, and it is the commonest bad return
+                     ;; (a `:before` written as `(when token …)`).
+                     (and sensitive? (some? (:returned failure)))
+                     (assoc :returned redacted-sentinel))]
+      [failure' url-hit?])))
 
 (defn redact-failure
   "Given a failure map (per Spec 014 §Failure categories) about to ride
@@ -444,10 +441,9 @@
   - `http-middleware/raise-chain-error!`, projecting every chain error
     before it is thrown, since the thrown ex-info reaches core's fx boundary
     and the reply-tail fence. A thrown value carries no stamp."
-  ([failure sensitive?] (redact-failure failure sensitive? nil))
-  ([failure sensitive? carriers]
-   (when failure
-     (first (redact-failure-with-flag failure sensitive? carriers)))))
+  [failure sensitive? carriers]
+  (when failure
+    (first (redact-failure-with-flag failure sensitive? carriers))))
 
 (defn redact-response-meta
   "Redact the sensitive response-header carriers on a canonical reply's

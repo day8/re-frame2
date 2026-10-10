@@ -467,11 +467,12 @@
      co-located default, so a request that addressed only its success
      branch (`:on-success` / a success-only `:reply-to` is impossible — a
      `:reply-to` seeds BOTH branches, so this is the `:on-success`-alone
-     case) has no failure target."
+     case) has no failure target.
+
+  `encoding/reply-target` lowers both to a nil `:value`, so that is the
+  whole test."
   [ctx]
-  (let [explicit (:explicit-on-failure ctx)]
-    (or (not (:supplied? explicit))
-        (nil? (:value explicit)))))
+  (nil? (:value (:explicit-on-failure ctx))))
 
 (defn- emit-reply-trace!
   "Emit a managed-async completion trace row built from the

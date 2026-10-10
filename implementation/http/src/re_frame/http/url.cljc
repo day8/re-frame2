@@ -197,12 +197,11 @@
 
   Decode is comparison-only and total: a malformed escape decodes to
   `nil`, so matching falls back to the raw name and never throws."
-  ([param-name] (sensitive-query-param-name? param-name nil))
-  ([param-name frame-policy]
-   (boolean
-     (or (sensitive-query-param? param-name frame-policy)
-         (when-let [decoded (percent-decode-name param-name)]
-           (sensitive-query-param? decoded frame-policy))))))
+  [param-name frame-policy]
+  (boolean
+    (or (sensitive-query-param? param-name frame-policy)
+        (when-let [decoded (percent-decode-name param-name)]
+          (sensitive-query-param? decoded frame-policy)))))
 
 ;; ---- URL query-string redaction -------------------------------------------
 
@@ -326,16 +325,3 @@
                 redacted-url   (str base "?" (str/join "&" redacted-pairs)
                                     (or fragment ""))]
             [redacted-url @changed?]))))))
-
-(defn redact-url
-  "Convenience wrapper around `redact-url-query-string` that returns only
-  the redacted URL string. Use when the caller does not need the
-  any-redacted? flag (e.g. inside a generic tag-walker).
-
-  Public for direct test assertion only; production reaches
-  URL redaction via `re-frame.http.privacy`'s `prepare-emit-*` composers
-  (which use `redact-url-query-string` directly for the flag). No
-  production caller invokes this single-value wrapper."
-  ([url-str sensitive?] (first (redact-url-query-string url-str sensitive? nil)))
-  ([url-str sensitive? frame-policy]
-   (first (redact-url-query-string url-str sensitive? frame-policy))))

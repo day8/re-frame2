@@ -54,7 +54,7 @@
 ;; secret; a keyword :cause is a discriminator, never payload.
 (deftest redact-failure-redacts-payload-slots-only-when-sensitive
   (are [failure sensitive? slot expected]
-       (= expected (slot (rf.http.privacy/redact-failure failure sensitive?)))
+       (= expected (slot (rf.http.privacy/redact-failure failure sensitive? nil)))
     {:kind :rf.http/http-4xx :body "{password: shhh}"}      true  :body      :rf/redacted
     {:kind :rf.http/decode-failure :body-text "raw secret"} true  :body-text :rf/redacted
     {:kind :rf.http/accept-failure :detail {:pii "..."}}    true  :detail    :rf/redacted
