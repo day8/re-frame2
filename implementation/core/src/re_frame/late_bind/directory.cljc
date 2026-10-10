@@ -188,8 +188,10 @@
    ;; SEAM, not decoupling: its emit-time surface rides
    ;; `interop/debug-enabled?` and is gated at the trace/emit! call sites,
    ;; so the hop keeps the lookup off the always-on registration path. The
-   ;; always-on `:classification/redact-event-by-registration` prod redactor is
-   ;; reached through the SAME indirection. `re-frame.classification/validate-classification!`
+   ;; always-on `:classification/redact-event-by-registration` prod redactor —
+   ;; the registration pass every always-on event-shaped slot takes, the
+   ;; event-emit and error-emit records included — is reached through the SAME
+   ;; indirection. `re-frame.classification/validate-classification!`
    ;; is always-on, same-artefact, and already bundled, so the seam rationale
    ;; does not apply to it: reg-event / reg-fx / reg-cofx / reg-sub call it by
    ;; DIRECT REQUIRE. See the per-key notes below.
@@ -216,7 +218,9 @@
    ;;   :classification/registration-classification,
    ;;   :classification/project-trace-event.
    ;; ALWAYS-ON production survivor still reached through the indirection:
-   ;;   :classification/redact-event-by-registration (the production egress redactor).
+   ;;   :classification/redact-event-by-registration (the production egress
+   ;;   redactor, which the sink route and the always-on event-emit / error-emit
+   ;;   records apply through `re-frame.projection/project-event-slot`).
    ;; `re-frame.classification/validate-classification!` is reached by DIRECT
    ;; REQUIRE rather than a late-bind hook: it is the ONE always-on, NON-dev-gated
    ;; surface, so the DCE-seam rationale does not apply. There is no
@@ -231,7 +235,7 @@
     :description "Emit-time chokepoint for trace bus — walks the assembled trace event's tags and substitutes sentinels at declared paths (Spec 015 §Egress projection). EP-0025: no value-match, no propagation — path-based redaction only."}
    {:key         :classification/redact-event-by-registration
     :producer-ns 're-frame.classification
-    :description "ALWAYS-ON (NOT a DCE seam — the registration classification is populated in production too; only the emit-time TRACE projection is dev-gated): apply an event handler's REGISTRATION-OWNED :sensitive / :large classification to a [event-id arg-map] vector (EP-0015 — event args are registration-owned transient payloads). Consumed by re-frame.projection for the :rf.observe/error / handled-event :event slot."}
+    :description "ALWAYS-ON (NOT a DCE seam — the registration classification is populated in production too; only the emit-time TRACE projection is dev-gated): apply an event handler's REGISTRATION-OWNED :sensitive / :large classification to a [event-id arg-map] vector (EP-0015 — event args are registration-owned transient payloads). Consumed by re-frame.projection/project-event-slot — the one event projection the frame-owned sink route and the always-on re-frame.event-emit / re-frame.error-emit records share — and by the router's halted-epoch record, the managed-HTTP reply addresses (re-frame.http.privacy) and a mutation's :reply-to address (re-frame.resources.classification)."}
 
    ;; ---- re-frame.frame-classification (EP-0015 §9 observability) ----
    ;; The frame engine (`re-frame.frame/upsert-frame!`) consults this to validate the
@@ -355,7 +359,7 @@
     :description "Walk a Malli EDN form at a base-path; return paths whose props carry :sensitive? true. Consumed by re-frame.http.privacy-body (a :rf.http/managed :decode schema's response-body classification) and re-frame.resources.classification (a :params-schema's validation-failure trace redaction)."}
    {:key         :schemas/schema-has-opaque-child?
     :producer-ns 're-frame.schemas
-    :description "True when a Malli schema's per-slot marks may sit where the extract hooks cannot see them: an opaque root, or a vector form with an opaque descendant ([:ref ...], a local :registry, an embedded compiled value, an unclassified op). Consumed by re-frame.http.privacy-body, which stamps a :decode body :classify for off-box egress only when this answers false, and by re-frame.resources.classification, whose invalid-params redaction redacts :params slot by slot only when this answers false and redacts the whole slot otherwise."}
+    :description "True when a Malli schema's per-slot marks may sit where an index-free match of the extracted marks cannot reach them: an opaque root, a vector form with an opaque descendant ([:ref ...], a local :registry, an embedded compiled value, an unclassified op), or a mark below a :map-of the walk reaches before any named slot (re-frame.schemas.walker/schema-has-unanchored-map-of-mark?). The facade fn re-frame.schemas/schema-has-opaque-child? answers opacity alone, for the validation surfaces, which see a :map-of mark through Malli's :in path. Consumed by re-frame.http.privacy-body, which stamps a :decode body :classify for off-box egress only when this answers false, and by re-frame.resources.classification, whose invalid-params redaction redacts :params slot by slot only when this answers false and redacts the whole slot otherwise."}
    {:key         :schemas/schema-has-qualified-ref?
     :producer-ns 're-frame.schemas
     :description "True when a Malli schema names a registry schema by QUALIFIED keyword: at the root, at a real child-schema position of a vector form, or as a :map entry with no explicit child schema (Malli's implicit reference). Map keys, :enum / := operands and dispatch values are data and never count. Consumed by re-frame.http.privacy-body, which stamps a :decode body :classify for off-box egress only when this answers false; validation surfaces do not consult it and keep such a reference walkable."}
