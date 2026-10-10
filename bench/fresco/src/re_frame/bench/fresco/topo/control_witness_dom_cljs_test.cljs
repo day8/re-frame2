@@ -136,17 +136,15 @@
            factor is derived from `model/elements-for` and is bounded away
            from 1.00. Neither number is 2.00, because the `ul` does not
            double — which is `census_clock_arms/ctl-predicted`'s discipline"
-    (doseq [arm rf.bench.fresco.topo.arms/arm-ids]
-      (let [p (rf.bench.fresco.topo.control-app/predicted arm)
-            {:keys [lo hi]} (rf.bench.fresco.topo.control-app/band-of arm)]
-        (is (> p 1.9) (str arm "'s predicted factor is " p))
-        (is (< p 2.0) (str arm "'s prediction must be BELOW 2.00 — the chrome does
-                           not double, and a control printing a round 2.00 is one
-                           that did not derive it"))
-        (is (< 1.471 lo)
-            (str arm "'s band must REFUSE the recorded changed-set run,
-                 whose worst round is 1.471. A band that admitted it would be a
-                 widening wearing a new control's clothes"))))))
+    (is (= [] (for [arm rf.bench.fresco.topo.arms/arm-ids
+                    :let [p  (rf.bench.fresco.topo.control-app/predicted arm)
+                          lo (:lo (rf.bench.fresco.topo.control-app/band-of arm))]
+                    :when (not (and (< 1.9 p 2.0) (< 1.471 lo)))]
+                [arm p lo]))
+        "every predicted factor sits in (1.9, 2.0) — BELOW 2.00, since the
+         chrome does not double and a control printing a round 2.00 did not
+         derive it — and every band REFUSES the recorded changed-set run,
+         whose worst round is 1.471")))
 
 (deftest the-rendered-scale-control-doubles-the-work-on-every-arm
   (testing "THE RENDERED-SCALE CONTROL'S DISCRIMINATING POWER, in exact
@@ -260,14 +258,16 @@
   (testing "three gates, any of which refuses. The sign gate exists because
            a band alone admits a control certifying that MORE WORK READS
            FASTER, which a live run has captured"
-    (let [{:keys [predicted]} (rf.bench.fresco.topo.control-app/band-of :fine)]
-      (is (:ok? (rf.bench.fresco.topo.control-app/verdict :fine (repeat 5 predicted) clean))
-          "a run measuring exactly its prediction passes")
-      (is (not (:ok? (rf.bench.fresco.topo.control-app/verdict :fine [predicted predicted 1.40 predicted predicted] clean)))
-          "ONE round below the band refuses the whole control — the strict rule,
-           so a good round cannot vouch for a bad one")
-      (is (not (:ok? (rf.bench.fresco.topo.control-app/verdict :fine (repeat 5 0.5) clean)))
-          "a negative-sign run refuses on the sign, not merely on the band")
-      (is (re-find #"SIGN" (:why (rf.bench.fresco.topo.control-app/verdict :fine (repeat 5 0.5) clean))))
-      (is (not (:ok? (rf.bench.fresco.topo.control-app/verdict :fine [] clean)))
-          "and a control that measured nothing certifies nothing"))))
+    (let [{:keys [predicted]} (rf.bench.fresco.topo.control-app/band-of :fine)
+          verdict #(rf.bench.fresco.topo.control-app/verdict :fine % clean)
+          negative (verdict (repeat 5 0.5))]
+      (is (= {:exact true :one-round-low false :negative-sign [false true] :empty false}
+             {:exact         (:ok? (verdict (repeat 5 predicted)))
+              :one-round-low (:ok? (verdict [predicted predicted 1.40 predicted predicted]))
+              :negative-sign [(:ok? negative) (some? (re-find #"SIGN" (:why negative)))]
+              :empty         (:ok? (verdict []))})
+          "a run measuring exactly its prediction passes; ONE round below the
+           band refuses the whole control — the strict rule, so a good round
+           cannot vouch for a bad one; a negative-sign run refuses on the
+           sign, not merely on the band; and a control that measured nothing
+           certifies nothing"))))
