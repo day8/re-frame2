@@ -39,7 +39,7 @@
   in the `fresco-bench-compile` job), where every claim degrades to a
   stated skip; no lane runs it in a browser.
   The fence's own algebra is proved without a browser in
-  `arm1/runtime_cljs_test`."
+  `arm1/hydrate_cljs_test` and `arm1/staged_read_tear_cljs_test`."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
