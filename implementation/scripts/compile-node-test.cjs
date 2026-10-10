@@ -61,114 +61,14 @@
 // namespaces at RUNTIME, needs no recompile, and cannot poison anything —
 // see the comment on shadow-cljs.edn's `:node-test` build.
 //
-// A COMPILE THAT SUCCEEDS WITH WARNINGS IS NOT A GREEN LANE.  A bare `"` in a
-// docstring inside a test namespace does not necessarily drop that namespace
-// out of the build.  Planted in
-// `security/test/re_frame/security/ssr_escaping_security_cljs_test.cljc` and
-// run with `npm run test:security`:
-//
-//   * inside the NS DOCSTRING — the ns form does not read, and the build FAILS,
-//     exit 1, naming the file and the line.  This script's exit-status check
-//     catches it.
-//   * inside a DEFTEST DOCSTRING, one form further down — the bare quote closes
-//     the string early and reopens it before the line ends, so the file still
-//     READS.  `one frame per app` becomes four bare symbols in the test body,
-//     which compile to `undefined` in JavaScript and evaluate harmlessly.  The
-//     build completes, the suite runs, and the numbers are IDENTICAL to the
-//     clean tree: `Ran 93 tests containing 705 assertions. / 0 failures, 0
-//     errors.`, exit 0.  The one thing that moves is the tally: `0 warnings`
-//     becomes `4 warnings`, all of them `Use of undeclared Var`.
-//
-// So the namespace stays in the build and the test count does not drop, and a
-// repair that fails when the selector matches fewer namespaces than expected
-// would not catch this: nothing is missing.  What catches it is a READER for
-// the number shadow-cljs already prints.
-//
-// THE TALLY IS THE GATE, and it needs no bookkeeping to stay honest.  Every
-// `:node-test`-family lane compiles warning-free, so a floor of zero is the
-// bound that cannot go stale, in the same spirit as
-// `RF2_MIN_TESTS`'s default of 1, and it carries no knob: a warning in a test
-// build is a defect, and an env var to permit one would be this bug wearing a
-// hat.
-//
-// THE SAME RULE EXISTS ONE LANE OVER, which is the strongest evidence that
-// this is the right shape and not an invention.  `check-examples-compile.
-// cjs` parses the identical shadow-cljs line for the `:examples/*` builds, reds
-// on `warnings > 0`, and treats the unreadable case the same way: a summary
-// that never appears or does not match is a FAILURE, because otherwise the gate
-// would report SUCCESS having verified nothing about that build.
-//
-// NOT SHARED, and the reason is at source rather than laziness.  That parser is
-// anchored on a build id containing a slash (`[:examples/counter]`), which
-// no `:node-test`-family id carries, so it matches nothing here and could not be
-// called as it stands.  Generalising it would mean editing the examples gate to
-// serve this one; two four-line readers in the lanes that own them is the
-// smaller thing, and the divergence is deliberate where they differ: that gate
-// treats a singular `1 warning` as UNPARSEABLE and fails, this one reads it and
-// fails NAMING the count.  Both red; this one says why.
-//
-// THERE ARE THREE READERS, NOT TWO — and this is the one place that says so.
-// `lane_build.cjs` reads the same line, cites the same examples gate, and gives
-// the same slash-anchor reason for not reusing it.  The roster is stated here,
-// and the other two files point here rather than restate it:
-//
-//     implementation/scripts/check-examples-compile.cjs   :examples/* + :testbeds/*
-//     implementation/scripts/compile-node-test.cjs        :node-test-family (this)
-//     bench/fresco/src/re_frame/bench/fresco/lane_build.cjs  :fresco-bench (repo root)
-//
-// AND ONE LANE THAT READS NOTHING, declared here because a roster that lists
-// only its readers would claim a completeness it does not have:
-//
-//     npm run test:tools-machines-viz    :machines-viz-node-test    NO READER
-//
-// `tools/machines-viz/shadow-cljs.edn` declares `:machines-viz-node-test` with
-// `:target :node-test` — a `:node-test`-family build by construction, and a
-// required PR check (test.yml's `cljs-tools-machines-viz`) — but the lane
-// compiles it as `clojure -M:cljs-test -m shadow.cljs.devtools.cli compile
-// machines-viz-node-test`, bare shadow through the artefact's own classpath.
-// So it has NEITHER half of this script: no warnings-fatal read, and no
-// unlink-before-compile.  Its `&&` chain does stop a FAILED compile running a
-// stale bundle, so the stale-bundle exposure is bounded; the warnings one is
-// not — a broken deftest docstring in that artefact compiles to warnings, runs,
-// counts every test, and exits 0.
-//
-// It is UNGATED deliberately rather than by oversight.  By the test stated
-// below, its selection policy is this file's (take the LAST tally row), so the
-// right repair is for it to CALL this reader — not for a fourth parser to be
-// written — and that needs a spawn form this script does not have: it runs
-// shadow-cljs's own `runner.js` under `process.execPath` from IMPL_DIR, which
-// cannot express "through another artefact's `clojure -M:cljs-test` alias, from
-// another directory".  The form it needs is `--via-clojure-alias <alias> --cwd
-// <dir>`, and then this row moves up into the roster above.
-//
-// A HEADCOUNT OF READERS IS THE WRONG TRIGGER for sharing one.  Against the
-// three live parsers, no single pattern serves all three as they stand — the
-// examples regex matches ZERO bare-keyword ids,
-// and this one reads a summary carrying no `[:id]` bracket at all, which
-// that lane's regex cannot.  Nor is the examples slash merely a capture: it is a
-// FILTER, and that gate fails on any summary whose id was not requested, so an
-// id-agnostic shared pattern would hand it every id shadow prints and re-open a
-// settled question inside a gate over 54 builds.  What actually differs between
-// the three is not the regex but the SELECTION POLICY over the rows it yields:
-// that gate reconciles a requested SET, `lane_build.cjs` requires every row to
-// read zero, and this one takes the LAST row so a dependency's summary is never
-// mistaken for the lane's.  A shared module would remove three regexes and leave
-// three policies.
-//
-// SO THE TEST FOR THE NEXT LANE IS ITS POLICY, NOT THE HEADCOUNT.  A lane whose
-// selection policy one of the three already implements should call that reader's
-// export — all three export their parser — instead of writing a fourth.  A lane
-// with a genuinely new policy writes its own four lines and adds itself above.
-// Duplication is affordable here precisely because the shared property cannot
-// fail quietly: all three refuse an unreadable summary, so a shadow-cljs
-// reformat produces three RED gates and one afternoon's work, never a pass.
-//
-// NOT A NAG, deliberately.  shadow-cljs already prints its own `Build
-// completed. (N files, M compiled, W warnings, Ts)` line on every run, so the
-// reach is on the page whether this passes or fails and there is nothing to
-// restate.  What this adds is not the number but a consequence attached to
-// it.  This script therefore says nothing extra on a clean compile and speaks
-// only when the tally is non-zero or unreadable.
+// WARNINGS ARE FATAL IN THE BUILD CONFIG, NOT HERE. shadow-cljs.edn's
+// `:target-defaults` sets `:warnings-as-errors true` for every `:node-test`
+// build, so a warning fails the compile and arrives here as a nonzero exit,
+// exactly as it does for a bare `npx shadow-cljs compile <id>`. A test build
+// needs that more than most: a bare `"` inside a deftest docstring closes the
+// string early, the words after it become undeclared vars that compile to
+// `undefined`, and the suite still reports the clean tree's test and assertion
+// counts.
 //
 // Usage: node scripts/compile-node-test.cjs <build-id> <output-to> [extra shadow-cljs args...]
 const { spawn } = require('node:child_process');
@@ -176,28 +76,6 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const IMPL_DIR = path.resolve(__dirname, '..');
-
-// shadow-cljs colours its output, and a colour reset can land between the
-// number and its noun.
-const ANSI = /\[[0-9;]*m/g;
-
-// The tally line, read from the WHOLE captured output rather than a chunk, so a
-// line split across two reads still matches.  The LAST match wins: one
-// invocation compiles one build id, and anything earlier belongs to a
-// dependency's own build.
-const BUILD_COMPLETED =
-  /Build completed\.\s*\(\s*(\d+)\s+files?,\s*(\d+)\s+compiled,\s*(\d+)\s+warnings?,/g;
-
-function buildTally(text) {
-  let last = null;
-  for (const match of text.replace(ANSI, '').matchAll(BUILD_COMPLETED)) last = match;
-  if (!last) return null;
-  return {
-    files: Number(last[1]),
-    compiled: Number(last[2]),
-    warnings: Number(last[3]),
-  };
-}
 
 // Where a config-merged compile writes its runtime: beside its own bundle, out
 // of reach of the cache clear (see Part 2 of the header). Forward slashes, so
@@ -207,33 +85,17 @@ function configMergeOutputDir(outputPath) {
   return path.join(dir, `${name}.config-merge`).split(path.sep).join('/');
 }
 
-// Run shadow-cljs, streaming its output through UNCHANGED while capturing it.
-// The stream has to stay live — a lane that compiles for three minutes in
-// silence is a worse tool than one that reports nothing — so this is `spawn`
-// with a tee rather than `spawnSync` with a pipe, which would withhold every
-// line until the build ended.
-function runCapturing(command, args, options) {
+// Run shadow-cljs with its output going straight to this process's own, so a
+// lane that compiles for minutes reports as it goes.
+function run(command, args, options) {
   return new Promise((resolve) => {
-    const child = spawn(command, args, {
-      ...options,
-      stdio: ['inherit', 'pipe', 'pipe'],
-    });
-    let captured = '';
-    for (const [stream, sink] of [
-      [child.stdout, process.stdout],
-      [child.stderr, process.stderr],
-    ]) {
-      stream.on('data', (chunk) => {
-        captured += chunk.toString();
-        sink.write(chunk);
-      });
-    }
-    child.on('error', (error) => resolve({ error, captured }));
+    const child = spawn(command, args, { ...options, stdio: 'inherit' });
+    child.on('error', (error) => resolve({ error }));
     // BOTH arguments. `close` reports a signal death as (null, 'SIGTERM') —
     // the status is NULL, and the signal name is the only place the cause is
     // written down. Dropping the second argument would throw that away and
     // leave the caller a status it cannot tell apart from "no idea".
-    child.on('close', (status, signal) => resolve({ status, signal, captured }));
+    child.on('close', (status, signal) => resolve({ status, signal }));
   });
 }
 
@@ -284,7 +146,7 @@ async function main(argv) {
     console.error(`compile-node-test: could not resolve shadow-cljs: ${err.message}`);
     return 1;
   }
-  const result = await runCapturing(
+  const result = await run(
     process.execPath,
     [shadowCljsBin, 'compile', buildId, ...runtimeArgs, ...extraArgs],
     { cwd: IMPL_DIR }
@@ -309,7 +171,7 @@ async function main(argv) {
   // shadow-cljs JVM all land here.
   //
   // So the seam is: a NUMERIC status is the child's own verdict and passes
-  // through untouched (0 continues into the output/tally checks below; 1, 3,
+  // through untouched (0 continues into the output check below; 1, 3,
   // anything else is returned as-is). Any NON-numeric completion is abnormal
   // by construction and normalises to a stable 1.
   if (result.status !== 0) {
@@ -333,38 +195,6 @@ async function main(argv) {
     return 1;
   }
 
-  // Everything above asks whether the compile RAN; this asks what it
-  // found. See the header for the measurement: a broken string literal one form
-  // below the ns form leaves a lane that compiles, runs, and reports test counts
-  // identical to the clean tree — the only moving number is this one.
-  const tally = buildTally(result.captured);
-  if (!tally) {
-    console.error(
-      `compile-node-test: shadow-cljs compile ${buildId} exited 0 and wrote ` +
-        `${outputTo}, but printed no "Build completed." tally, so the warning ` +
-        `count for this lane is UNKNOWN. Refusing rather than reporting a green ` +
-        `for a question that was never answered — a warning here is how a broken ` +
-        `docstring reaches a suite that still counts every test.`
-    );
-    return 1;
-  }
-  if (tally.warnings > 0) {
-    console.error(
-      `\ncompile-node-test: ${buildId} compiled ${tally.compiled} of ` +
-        `${tally.files} files with ${tally.warnings} WARNING(S). The warnings ` +
-        `are printed above; every :node-test-family lane compiles warning-free, ` +
-        `so this is a regression rather than a backlog.\n` +
-        `  This is a gate because a test suite can be GREEN and wrong: a bare ` +
-        `double-quote inside a deftest docstring closes the string early, the ` +
-        `words after it become bare symbols, and in JavaScript those compile to ` +
-        `\`undefined\` and evaluate harmlessly. The suite then reports the same ` +
-        `test and assertion counts as the clean tree while the docstring it was ` +
-        `meant to carry is gone. "Use of undeclared Var" in a test namespace is ` +
-        `that shape.\n`
-    );
-    return 1;
-  }
-
   return 0;
 }
 
@@ -372,4 +202,4 @@ if (require.main === module) {
   main(process.argv.slice(2)).then((code) => process.exit(code));
 }
 
-module.exports = { main, buildTally };
+module.exports = { main };

@@ -42,7 +42,6 @@ fs.writeFileSync(
     'const out = process.env.RF2_PROOF_OUTPUT;',
     "const TALLY = '[:signal-proof] Build completed. (2 files, 2 compiled, 0 warnings, 0.42s)\\n';",
     "if (mode === 'signal') {",
-    // The first byte of output is the parent's cue to kill.
     "  process.stdout.write('[:signal-proof] Compiling ...\\n');",
     '  setInterval(() => {}, 1000);',
     '  setTimeout(() => process.exit(0), 15000);',
@@ -55,8 +54,8 @@ fs.writeFileSync(
   ].join('\n'),
 );
 
-// The kill is issued by the wrapper's own process against its own child, so
-// `close` reports a real (null, 'SIGTERM').
+// The kill is issued by the wrapper's own process against its own child once it
+// has spawned, so `close` reports a real (null, 'SIGTERM').
 const PRELOAD = path.join(lane, 'preload.cjs');
 fs.writeFileSync(
   PRELOAD,
@@ -74,7 +73,7 @@ fs.writeFileSync(
     'cp.spawn = function (...args) {',
     '  const child = origSpawn.apply(this, args);',
     "  if (process.env.RF2_PROOF_MODE === 'signal') {",
-    "    child.stdout.once('data', () => child.kill('SIGTERM'));",
+    "    child.once('spawn', () => child.kill('SIGTERM'));",
     '  }',
     '  return child;',
     '};',

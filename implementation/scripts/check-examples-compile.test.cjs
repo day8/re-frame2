@@ -2,9 +2,10 @@
 /*
  * Tests for `check-examples-compile.cjs`, the standalone-build compile gate. Its
  * compile list is derived from shadow-cljs.edn's `:examples/*` and `:testbeds/*`
- * build ids, and shadow-cljs exits 0 on warnings, so these pin the two places it
- * could go green without compiling: an enumeration that under-counts, and summary
- * parsing that misses a warning or a build. Discovered by `npm run test:scripts`.
+ * build ids, and each of those builds makes its own warnings fatal, so these pin
+ * the three places it could go green without judging a build: an enumeration that
+ * under-counts, a build that does not set `:warnings-as-errors`, and summary
+ * parsing that misses a build. Discovered by `npm run test:scripts`.
  */
 
 'use strict';
@@ -15,8 +16,8 @@ const {
   readShadowEdn,
   enumerateCompiledBuilds,
   prefixesBelowFloor,
+  buildsMissingWarningsAsErrors,
   parseBuildSummaries,
-  buildsWithWarnings,
   reconcileRequestedBuilds,
 } = require('./check-examples-compile.cjs');
 
@@ -82,21 +83,43 @@ it('a mid-line / prose :examples/... token is NOT counted as a build', () => {
   assert.deepStrictEqual(builds, ['examples/real']);
 });
 
-// `shadow-cljs compile` exits 0 on warnings, so the gate fails on the per-build
-// summary lines' warning counts.
+// The flag is the gate's teeth: shadow-cljs fails a flagged build on a warning,
+// and compiles an unflagged one's warnings green.
+
+it('every swept build in the real shadow-cljs.edn sets :warnings-as-errors true', () => {
+  assert.deepStrictEqual(buildsMissingWarningsAsErrors(realEdn), []);
+});
+
+it('a swept build without the flag is named, whatever its neighbours or comments say', () => {
+  const edn = [
+    ' :builds',
+    ' {:node-test',
+    '  {:target :node-test',
+    '   :compiler-options {:warnings-as-errors true}}',
+    '  :examples/flagged',
+    '  {:target :browser',
+    '   :compiler-options {:warnings-as-errors true}}',
+    '  ;; :warnings-as-errors true lives in a comment, which proves nothing',
+    '  :examples/commented',
+    '  {:target :browser',
+    '   :modules {:main {:init-fn a/run}}}',
+    '  :testbeds/bare',
+    '  {:target :browser}',
+    '  :testbeds/disabled',
+    '  {:target :browser',
+    '   :compiler-options {:warnings-as-errors false}}}',
+  ].join('\n');
+  assert.deepStrictEqual(buildsMissingWarningsAsErrors(edn), [
+    'examples/commented',
+    'testbeds/bare',
+    'testbeds/disabled',
+  ]);
+});
 
 const CLEAN_OUTPUT = [
   '[:examples/login-uix] Compiling ...',
   '[:examples/login-uix] Build completed. (188 files, 187 compiled, 0 warnings, 5.10s)',
   '[:examples/login-helix] Build completed. (196 files, 195 compiled, 0 warnings, 5.47s)',
-].join('\n');
-
-const WARNED_OUTPUT = [
-  '[:examples/login-helix] Compiling ...',
-  '------ WARNING #1 - :undeclared-var --------------',
-  ' Use of undeclared Var login-helix.core/this-symbol-does-not-exist',
-  '[:examples/login-helix] Build completed. (196 files, 1 compiled, 1 warnings, 5.47s)',
-  '[:examples/login-uix] Build completed. (188 files, 0 compiled, 0 warnings, 5.10s)',
 ].join('\n');
 
 const FAILED_OUTPUT = [
@@ -105,21 +128,11 @@ const FAILED_OUTPUT = [
   'The required namespace "login-uix.missing" is not available.',
 ].join('\n');
 
-it('parseBuildSummaries reads per-build warning counts', () => {
+it('parseBuildSummaries reads the completed build ids in output order', () => {
   assert.deepStrictEqual(parseBuildSummaries(CLEAN_OUTPUT), {
-    completed: [
-      { build: ':examples/login-uix', warnings: 0 },
-      { build: ':examples/login-helix', warnings: 0 },
-    ],
+    completed: [':examples/login-uix', ':examples/login-helix'],
     failed: [],
   });
-});
-
-it('a warning (typo\'d var) IS detected so the gate fails RED', () => {
-  const warned = buildsWithWarnings(WARNED_OUTPUT);
-  assert.deepStrictEqual(warned, [
-    { build: ':examples/login-helix', warnings: 1 },
-  ]);
 });
 
 it('a hard "Build failed" is surfaced via parseBuildSummaries.failed', () => {
@@ -127,9 +140,8 @@ it('a hard "Build failed" is surfaced via parseBuildSummaries.failed', () => {
   assert.deepStrictEqual(failed, [':examples/login-uix']);
 });
 
-// A clean exit with zero parsed warning rows is not proof every build was
-// analysed: a missing, duplicate or unexpected summary, or a WARNING marker no
-// parsed row accounts for, must fail the gate.
+// A clean exit is not proof every requested build was compiled: a missing,
+// duplicate or unexpected summary must fail the gate.
 
 it('reconcile is clean when every requested build has exactly one summary', () => {
   const problems = reconcileRequestedBuilds(
@@ -147,26 +159,6 @@ it('a requested build with NO parsable summary is a coverage FAILURE (false-gree
   assert.ok(
     problems.length === 1 && problems[0].includes(':examples/dashboard-uix') && /NO parsable/.test(problems[0]),
     `expected one missing-summary problem for dashboard-uix, got: ${problems}`,
-  );
-});
-
-it('an UNPARSEABLE warning summary (singular "1 warning") FAILS the gate', () => {
-  // A drift to the singular `1 warning` leaves the summary unparseable and the
-  // WARNING marker orphaned: both teeth must fire, or the warning vanishes.
-  const drifted = [
-    '[:examples/login-helix] Compiling ...',
-    '------ WARNING #1 - :undeclared-var --------------',
-    ' Use of undeclared Var login-helix.core/typo',
-    '[:examples/login-helix] Build completed. (196 files, 1 compiled, 1 warning, 5.47s)',
-  ].join('\n');
-  const problems = reconcileRequestedBuilds(['examples/login-helix'], drifted);
-  assert.ok(
-    problems.some((p) => /NO parsable/.test(p)),
-    `expected a missing-summary problem, got: ${problems}`,
-  );
-  assert.ok(
-    problems.some((p) => /WARNING marker/.test(p)),
-    `expected an orphan-WARNING-marker problem, got: ${problems}`,
   );
 });
 
@@ -190,14 +182,6 @@ it('an UNEXPECTED completed summary (not requested) is a coverage FAILURE', () =
     ),
     `expected an unexpected-summary problem for login-helix, got: ${problems}`,
   );
-});
-
-it('reconcile stays clean when a parsable warning row accounts for the WARNING marker (the orphan check does not double-report a real warning)', () => {
-  const problems = reconcileRequestedBuilds(
-    ['examples/login-helix', 'examples/login-uix'],
-    WARNED_OUTPUT,
-  );
-  assert.deepStrictEqual(problems, [], `expected no coverage problems, got: ${problems}`);
 });
 
 if (failed > 0) {
