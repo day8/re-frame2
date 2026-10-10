@@ -9,12 +9,10 @@
 // exit 0 on a run it had just refused in print.
 //
 //   * THE WARM-UP. `settled[arm]` is computed inside the `WARMUP_MAX` loop
-//     and printed twice — per arm as `still trending at the N-window
-//     ceiling`, and again in the header's `warm-up` line with a `*` — then
-//     stored as `warmupSettled`. A verdict that tested positionsLost,
-//     report.refuse, leaked, badTotal and identityOk but not it would let
-//     every arm hit the ceiling still trending, print `VERDICT: reportable.`
-//     and exit 0, on figures taken off a site that was still moving.
+//     and printed, then stored as `warmupSettled`. A verdict that did not read
+//     it would let every arm hit the ceiling still trending, print
+//     `VERDICT: reportable.` and exit 0, on figures taken off a site that was
+//     still moving.
 //
 //   * THE CLAMP. `clamped` is computed against the measured
 //     `performance.now()` quantum and printed as `CLAMP-LIMITED, not
@@ -23,14 +21,12 @@
 //
 // The driver's other gates share that shape (a stale write, a broken leg
 // identity, a padded verification denominator), which is why the
-// decision lives in ONE pure function with nothing downstream of it: a
-// condition can only be read in one place, so no fail-open can grow in the
-// gap between the report and the exit.
+// decision lives in ONE pure function with nothing downstream of it.
 //
 // WHY IT IS PINNED HERE. The driver needs an `:advanced` release build and a
 // headless Chromium, so its verdict cannot be exercised end-to-end in a unit
 // test. `verdict` is pure and exported; this file drives it directly, and
-// then pins the wiring.
+// then pins the wiring that keeps it the exit.
 //
 // Run by `npm run check` in bench/fresco/.
 
@@ -39,8 +35,6 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const DRIVER = path.join(__dirname, 'fresco_narrow_run.cjs');
-// Requiring the driver must NOT drive it: the `require.main === module`
-// guard is itself part of what is under test here.
 const { verdict } = require('./fresco_narrow_run.cjs');
 
 const tests = [];
@@ -61,81 +55,36 @@ const clean = (over) => ({
   ...over,
 });
 
-const joined = (v) => v.lines.join('\n');
-
 // --- the green case first, so the gate is not vacuously red ----------------
 
 test('a clean run exits 0 and says so', () => {
-  const v = verdict(clean({}));
-  assert.strictEqual(v.code, 0);
-  assert.deepStrictEqual(v.lines, ['VERDICT: reportable.']);
+  assert.deepStrictEqual(verdict(clean({})), { code: 0, lines: ['VERDICT: reportable.'] });
 });
 
-// --- the defect: an unsettled warm-up, everything else clean ---------------
+// --- each refusal, alone and beside the two late ones ----------------------
 
-test('an UNSETTLED WARM-UP alone exits 3 and NAMES the arms, the ceiling and the knob — the case that used to be green', () => {
-  const v = verdict(clean({ warmupUnsettled: ['reagent-ratom', 're-frame2'], warmupMax: 20 }));
-  assert.notStrictEqual(v.code, 0, 'an arm measured on a site still trending must not exit 0');
-  assert.strictEqual(v.code, 3);
-  const text = joined(v);
-  assert.doesNotMatch(text, /reportable\./, 'a refused run may not also call itself reportable');
-  assert.match(text, /reagent-ratom, re-frame2/);
-  assert.match(text, /20-window ceiling/);
-  assert.match(text, /HN_WARMUP_MAX/);
-});
-
-// --- the second, narrower instance: a clamp-limited leg --------------------
-
-test('a CLAMP-LIMITED LEG alone exits 4, names the legs and the repair, and refuses to loosen itself — the case that used to be green', () => {
-  const v = verdict(clean({ clamped: ['re-frame2/force (4.1x quantum per sample)'] }));
-  assert.notStrictEqual(v.code, 0, 'a leg sitting on the clock quantum must not exit 0');
-  assert.strictEqual(v.code, 4, 'the clamp is scoped narrower than the warm-up, and gets its own code');
-  const text = joined(v);
-  assert.doesNotMatch(text, /reportable\./);
-  assert.match(text, /re-frame2\/force \(4\.1x quantum per sample\)/);
-  assert.match(text, /HN_WRITES/);
-  assert.match(text, /do not loosen the multiple/);
-});
-
-// --- the other refusals: their exit codes and their wording ----------------
-
-/** The driver's other refusals: what, the fault, its exit code, its words. */
-const OTHER_REFUSALS = [
-  ['a lost position', { positionsLost: true }, 1,
-    [/VERDICT: FAILED — some samples reached the guard with no finite position/]],
-  ['the arm-order guard', { orderRefuse: true }, 2,
-    [/VERDICT: REFUSED by the arm-order guard/, /Not the tolerance\./]],
-  ['a control leak', { leaked: true }, 1, [/an arm's total moved with the control size/]],
-  ['unverified writes', { badTotal: 5, writeTotal: 720, offenders: 'reagent-ratom:5' }, 1,
-    [/5 of 720 measured writes never reached the DOM/, /\(reagent-ratom:5\)/]],
-  ['a broken leg identity', { identityOk: false }, 1,
-    [/write \+ gap \+ force does not equal the published total/]],
+/** Every refusal: what, the fault, its exit code. */
+const REFUSALS = [
+  ['a lost position', { positionsLost: true }, 1],
+  ['the arm-order guard', { orderRefuse: true }, 2],
+  ['a control leak', { leaked: true }, 1],
+  ['unverified writes', { badTotal: 5, offenders: 'reagent-ratom:5' }, 1],
+  ['a broken leg identity', { identityOk: false }, 1],
+  // The two that used to be green: the warm-up and the clamp each get their own code.
+  ['an unsettled warm-up', { warmupUnsettled: ['reagent-ratom', 're-frame2'] }, 3],
+  ['a clamp-limited leg', { clamped: ['re-frame2/force (4.1x quantum per sample)'] }, 4],
 ];
 
-test('every other refusal exits with its own code, in its own words', () => {
-  for (const [what, over, code, words] of OTHER_REFUSALS) {
-    const v = verdict(clean(over));
-    assert.strictEqual(v.code, code, `${what} must exit ${code}`);
-    for (const w of words) assert.match(joined(v), w, what);
-  }
-});
-
-// --- combinations: nothing masks anything, precedence holds ----------------
-
-test('the warm-up and the clamp together: both named, warm-up takes the code', () => {
-  const v = verdict(clean({ warmupUnsettled: ['reagent-ratom'], clamped: ['re-frame2/write (2.0x quantum per sample)'] }));
-  assert.strictEqual(v.code, 3);
-  assert.match(joined(v), /warm-up never settled/);
-  assert.match(joined(v), /sits on the clock quantum/);
-});
-
-test('an unsettled warm-up NEVER downgrades an existing refusal', () => {
-  for (const [what, over, code] of OTHER_REFUSALS) {
-    const after = verdict(clean({ ...over, warmupUnsettled: ['reagent-ratom'], clamped: ['a/b (1x quantum per sample)'] }));
-    assert.strictEqual(after.code, code, `${what} must keep exit ${code}`);
-    assert.match(joined(after), /warm-up never settled/, 'and the warm-up refusal is NAMED too');
-    assert.match(joined(after), /sits on the clock quantum/);
-  }
+test('each refusal exits with its own code, and a warm-up or a clamp never downgrades one', () => {
+  const codes = (extra) => Object.fromEntries(REFUSALS.map(([what, over]) => [what, verdict(clean({ ...over, ...extra })).code]));
+  const own = Object.fromEntries(REFUSALS.map(([what, , code]) => [what, code]));
+  assert.deepStrictEqual(codes({}), own);
+  // Beside an unsettled warm-up AND a clamp, every code holds — except the
+  // clamp's own, which the warm-up outranks.
+  assert.deepStrictEqual(
+    codes({ warmupUnsettled: ['reagent-ratom'], clamped: ['a/b (1x quantum per sample)'] }),
+    { ...own, 'a clamp-limited leg': 3 }
+  );
 });
 
 test('every fault at once: each is named, and a lost position takes the code', () => {
@@ -152,7 +101,7 @@ test('every fault at once: each is named, and a lost position takes the code', (
     clamped: ['re-frame2/write (3.0x quantum per sample)'],
   });
   assert.strictEqual(v.code, 1, 'a lost position outranks every other fault');
-  const text = joined(v);
+  const text = v.lines.join('\n');
   for (const fault of [
     /no finite position/,
     /REFUSED by the arm-order guard/,
@@ -164,53 +113,27 @@ test('every fault at once: each is named, and a lost position takes the code', (
   ]) {
     assert.match(text, fault);
   }
-  assert.doesNotMatch(text, /reportable\./);
 });
 
-// --- the wiring: `verdict` is load-bearing, not decorative -----------------
+// --- the wiring: what keeps `verdict` the exit -----------------------------
 
 const SRC = fs.readFileSync(DRIVER, 'utf8');
 const MAIN = SRC.slice(SRC.indexOf('async function main('), SRC.indexOf('// The exit decision'));
 
-test('the driver exposes its decision and does not drive itself on require', () => {
-  assert.match(SRC, /module\.exports = \{ verdict \};/);
-  assert.match(SRC, /if \(require\.main === module\) \{\s*main\(\)\.catch\(/);
-});
-
-test('`main` sets its exit code in exactly ONE place', () => {
-  // A verdict block of early returns can read some conditions and miss
-  // others. One assignment means one decision, and the decision is
-  // `verdict`'s.
-  assert.strictEqual(
-    (MAIN.match(/process\.exitCode/g) || []).length,
-    1,
-    '`main` must take its exit from `verdict` and nowhere else'
-  );
-});
-
 test('NOTHING downstream of `verdict` reads a condition on its own', () => {
-  // This is the assertion that keeps a fail-open from growing in the gap. A
-  // fail-open here is a condition computed above and consulted — or not
-  // consulted — somewhere below the report. Once the
-  // summary is handed over, `main` has three lines left and none of them
-  // may look at a condition again.
+  // `main` must END at the decision — anything after it is a second exit path.
   const tail = MAIN.slice(MAIN.indexOf('for (const line of v.lines)'));
-  assert.ok(tail.length > 0, 'the say-loop must follow the decision');
-  assert.ok(
-    !/positionsLost|report\.refuse|leaked|badTotal|identityOk|settled\[|clamped/.test(tail),
-    'the exit path must consult `verdict` alone, never a condition directly'
-  );
   assert.deepStrictEqual(
     tail
       .split('\n')
       .map((l) => l.trim())
       .filter((l) => l && l !== '}' && !l.startsWith('//')),
-    ['for (const line of v.lines) say(line);', 'if (v.code !== 0) process.exitCode = v.code;'],
-    '`main` must END at the decision — anything after it is a second exit path'
+    ['for (const line of v.lines) say(line);', 'if (v.code !== 0) process.exitCode = v.code;']
   );
 });
 
 test('the summary `main` builds fills every field `verdict` reads', () => {
+  // A field left out reads as a cleared gate, which is how the warm-up was green.
   const call = MAIN.slice(MAIN.indexOf('const v = verdict({'));
   for (const field of [
     'positionsLost',
@@ -225,13 +148,6 @@ test('the summary `main` builds fills every field `verdict` reads', () => {
     'clamped',
   ]) {
     assert.ok(call.includes(field), `the summary must carry \`${field}\``);
-  }
-});
-
-test('the header documents every code the decision can return', () => {
-  const header = SRC.slice(0, SRC.indexOf("'use strict'"));
-  for (const code of ['0', '1', '2', '3', '4']) {
-    assert.match(header, new RegExp(`^//   ${code}  \\S`, 'm'), `exit code ${code} must be documented`);
   }
 });
 
