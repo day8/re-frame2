@@ -136,39 +136,24 @@
     (let [b  (mounted! readout-body)
           rx (rf.bench.fresco.arm1.runtime/cell-reaction (key-of [:hic/n]))]
       (try
-        (is (some? rx)
-            "precondition — the commit built a cell and it holds a reaction")
-        (is (satisfies? ratom/IRunnable rx)
-            "precondition — under this adapter a subscription IS a bare
-             Reagent Reaction, so a silent channel here is the arm's fault
-             and not the host's")
-        (is (capturing? rx)
-            "the commit ACTIVATED it: the reaction is subscribed to its
-             sources. Without activation this is nil — watchable, watched,
-             and unable to notify")
-        (is (zero? @(:hits b))
-            "and the activation itself fanned nothing at the boundary — it
-             runs BEFORE the watch, so there is no priming notification")
+        (is (= [true true 0]
+               [(satisfies? ratom/IRunnable rx) (capturing? rx) @(:hits b)])
+            "under this adapter a subscription IS a bare Reagent Reaction, so
+             a silent channel here is the arm's fault and not the host's; the
+             commit ACTIVATED it, so it is subscribed to its sources; and the
+             activation fanned nothing at the boundary — it runs BEFORE the
+             watch, so there is no priming notification")
 
-        (write! [:hic/set-n 2])
-        (is (= 1 @(:hits b))
-            "THE MEASUREMENT A DEAF CHANNEL LEAVES AT ZERO: the write
-             became re-render work. This is the whole of the arm's
-             dirty channel — the
-             cell's watch is `mark-dirty!`'s only caller")
-
-        (testing "…and the channel stays armed rather than firing once
-                  and lapsing"
-          (write! [:hic/set-n 3])
-          (is (= 2 @(:hits b))))
-
-        (testing "…and the boundary reads the moved value back through the
-                  cell it holds, so the notification is not a bare ping"
+        (let [first-write  (do (write! [:hic/set-n 2]) @(:hits b))
+              second-write (do (write! [:hic/set-n 3]) @(:hits b))]
           (reset! !last-read ::never)
           (rf.bench.fresco.arm1.runtime/render-body frame-id readout-body {})
-          (is (= 3 @!last-read)
-              "the re-render the notification bought read 3 — a WARM read,
-               straight off the cell's reaction"))
+          (is (= [1 2 3] [first-write second-write @!last-read])
+              "THE MEASUREMENT A DEAF CHANNEL LEAVES AT ZERO: each write
+               became re-render work — the cell's watch is `mark-dirty!`'s
+               only caller — the channel stays armed rather than lapsing,
+               and the re-render reads the moved value back through the
+               cell it holds, so the notification is not a bare ping"))
         (finally
           ((:release! b)))))))
 
@@ -183,18 +168,13 @@
     (fresh! 7)
     (let [b (mounted! readout-body)]
       (try
-        (write! [:hic/set-n 7])
-        (is (zero? @(:hits b))
-            "an equal re-write moved nothing, so nothing was fanned")
-
-        (write! [:hic/set-other :noise])
-        (is (zero? @(:hits b))
-            "…and neither did a write to an unrelated app-db key")
-
-        (testing "positive control — the two silences above are silences,
-                  not a dead channel that would make this row vacuous"
-          (write! [:hic/set-n 8])
-          (is (= 1 @(:hits b))))
+        (is (= [0 0 1]
+               [(do (write! [:hic/set-n 7]) @(:hits b))
+                (do (write! [:hic/set-other :noise]) @(:hits b))
+                (do (write! [:hic/set-n 8]) @(:hits b))])
+            "an equal re-write and a write to an unrelated app-db key fan
+             nothing; the positive control makes those silences silences,
+             not a dead channel that would make this row vacuous")
         (finally
           ((:release! b)))))))
 
@@ -209,9 +189,8 @@
             deaf. A `reg-sub` replacement evicts the sub-cache entry and
             disposes the reaction; the rebuild lands on a macrotask"
     (fresh! 1)
-    (let [b (mounted! readout-body)]
-      (write! [:hic/set-n 2])
-      (is (= 1 @(:hits b)) "precondition — the original attachment notifies")
+    (let [b        (mounted! readout-body)
+          original (do (write! [:hic/set-n 2]) @(:hits b))]
       ;; The replacement. Same query id, a different computation.
       (rf/reg-sub :hic/n (fn [db _] (* 10 (:n db))))
       (async done
@@ -220,14 +199,13 @@
             (try
               (let [rx     (rf.bench.fresco.arm1.runtime/cell-reaction (key-of [:hic/n]))
                     before @(:hits b)]
-                (is (some? rx) "the rebuild re-subscribed")
-                (is (capturing? rx)
-                    "and ACTIVATED the replacement — the second caller of
-                     `wire-cell!` gets the same activation as the first")
                 (write! [:hic/set-n 3])
-                (is (= (inc before) @(:hits b))
-                    "a write after the re-registration still becomes
-                     re-render work: the rebuilt attachment notifies, once"))
+                (is (= [1 true 1] [original (capturing? rx) (- @(:hits b) before)])
+                    "the original attachment notifies; the rebuild
+                     re-subscribed and ACTIVATED the replacement — the
+                     second caller of `wire-cell!` gets the same activation
+                     as the first — so a write after the re-registration
+                     still becomes re-render work, once"))
               (finally
                 ((:release! b))
                 (done))))
