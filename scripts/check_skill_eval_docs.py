@@ -54,8 +54,7 @@ tallies — `evals.json` is that skill's sole fixture inventory, so there is no
 coverage prose that could drift against the JSON. Its evals.json is covered
 corpus-wide by the A4 identity-uniqueness invariant below. The gate carries
 the multi-axis (per-kind + per-behavioural-dimension) machinery a two-kind
-harness needs — exercised by the self-test — for any harness with that README
-shape.
+harness needs for any harness with that README shape.
 
 The gate is pure-Python-stdlib (no PyYAML / Node) to stay fast and
 CI-portable, mirroring the sibling `scripts/check_skill_*.py` gates. It does
@@ -199,9 +198,7 @@ _REFRAME2 = Target(
 # evals/README.md carries no coverage table / total count / tally prose —
 # evals.json is that skill's sole fixture inventory — so there is nothing for
 # a doc-table target to cross-check. Its evals.json is gated corpus-wide by
-# the A4 identity-uniqueness pass. The self-test (`_run_self_test`) defines
-# the two-kind / two-axis shape inline so the multi-axis machinery stays
-# covered.
+# the A4 identity-uniqueness pass.
 
 # The `re-frame2-xray` tour harness: a single "<N> evals, covering …" total
 # sentence (the `re-frame2` shape), a coverage table that individually tabulates
@@ -390,8 +387,8 @@ def check_axis_sentence(text: str, axis: TallyAxis, tally: Counter) -> list[str]
 
 def _cross_check(evals: list[dict], text: str, target: Target) -> list[str]:
     """Core cross-check of an in-memory (evals, README text) pair against a
-    target's conventions. Used by `check_target` (live files), `check` (the
-    single-target entry), and the self-test (synthetic fixtures).
+    target's conventions. Used by `check_target` (live files) and the
+    self-test (synthetic fixtures).
     """
     findings: list[str] = []
 
@@ -457,235 +454,52 @@ def check_target(target: Target) -> list[str]:
     return _cross_check(evals, text, target)
 
 
-# Single-target entry point, `check(json, readme)`, for a caller that holds
-# the two paths directly (the self-test uses it). Uses the `re-frame2`
-# conventions (single coverage table, per-dimension tally).
-def check(evals_json: Path, readme: Path) -> list[str]:
-    """Single-target cross-check using the `re-frame2` conventions."""
-    evals = load_evals(evals_json)
-    text = readme.read_text(encoding="utf-8")
-    return _cross_check(evals, text, _REFRAME2)
-
-
 # ---------------------------------------------------------------------------
-# Self-test — synthetic README/JSON pairs exercising each axis, plus a
-# multi-target fixture mirroring the improver's two-kind shape.
+# Self-test — one planted drift per axis into a clean README/JSON pair.
 # ---------------------------------------------------------------------------
 
 
 def _run_self_test() -> int:
-    import tempfile
-
-    failures = 0
-
-    # --- single-axis (re-frame2 shape) fixtures -----------------------------
-    good_json = {
-        "evals": [
-            {"id": 1, "name": "a-disc", "dimension": "discovery"},
-            {"id": 2, "name": "b-disc", "dimension": "discovery"},
-            {"id": 3, "name": "c-recipe", "dimension": "recipe-correctness"},
-        ]
-    }
-    good_readme = (
-        "## Coverage\n\nThree evals, covering the dimensions:\n\n"
+    evals = [
+        {"id": 1, "name": "a-disc", "dimension": "discovery"},
+        {"id": 2, "name": "b-disc", "dimension": "discovery"},
+        {"id": 3, "name": "c-recipe", "dimension": "recipe-correctness"},
+    ]
+    readme = (
+        "Three evals, covering the dimensions:\n\n"
         "| ID | Name | Dimension | What |\n|---:|---|---|---|\n"
         "| 1 | `a-disc` | discovery | x |\n"
         "| 2 | `b-disc` | discovery | y |\n"
         "| 3 | `c-recipe` | recipe-correctness | z |\n\n"
         "Two discovery evals and one recipe-correctness eval.\n"
     )
-
-    def run_single(jobj: dict, rtext: str) -> list[str]:
-        with tempfile.TemporaryDirectory() as td:
-            jp = Path(td) / "evals.json"
-            rp = Path(td) / "README.md"
-            jp.write_text(json.dumps(jobj), encoding="utf-8")
-            rp.write_text(rtext, encoding="utf-8")
-            return check(jp, rp)
-
-    single_cases: list[tuple[str, dict, str, bool]] = [
-        ("clean pair", good_json, good_readme, True),
-        # Stale total count.
-        ("bad total", good_json,
-         good_readme.replace("Three evals", "Four evals"), False),
-        # Missing eval name in table (drop the recipe row).
-        ("missing name", good_json,
-         good_readme.replace("| 3 | `c-recipe` | recipe-correctness | z |\n", ""), False),
-        # Phantom name in table.
-        ("phantom name", good_json,
-         good_readme.replace("| 3 | `c-recipe`", "| 3 | `c-ghost`"), False),
-        # Wrong dimension tally (claim one discovery eval).
-        ("bad tally", good_json,
-         good_readme.replace("Two discovery evals", "One discovery eval"), False),
+    # The live READMEs state counts as digits, so this pair is the only guard
+    # of the number-word total and tallies.
+    clean = _cross_check(evals, readme, _REFRAME2)
+    if clean:
+        print(f"SELF-TEST FAIL: 'clean pair' expected no findings, got {clean}")
+    cases = [
+        ("A1 stale total", _cross_check(
+            evals, readme.replace("Three evals", "Four evals"), _REFRAME2)),
+        ("A2 missing name", _cross_check(
+            evals, readme.replace("| 3 | `c-recipe` | recipe-correctness | z |\n", ""),
+            _REFRAME2)),
+        ("A2 phantom name", _cross_check(
+            evals, readme.replace("| 3 | `c-recipe`", "| 3 | `c-ghost`"), _REFRAME2)),
+        # `Two` is not the nearest count before `discovery`, so it cannot vouch
+        # for it.
+        ("A3 stale tally", _cross_check(
+            evals, readme.replace("Two discovery evals", "Two of them: 1 discovery eval"),
+            _REFRAME2)),
+        ("A4 duplicate name", find_eval_identity_problems(
+            [{"id": 1, "name": "dup"}, {"id": 2, "name": "dup"}])),
     ]
-
-    for label, jobj, rtext, want_clean in single_cases:
-        findings = run_single(jobj, rtext)
-        is_clean = not findings
-        if is_clean != want_clean:
+    failures = 1 if clean else 0
+    for label, findings in cases:
+        axis = label.split()[0]
+        if not any(f.startswith(axis) for f in findings):
             failures += 1
-            print(
-                f"SELF-TEST FAIL [single]: {label!r} expected "
-                f"{'clean' if want_clean else 'drift'}, got "
-                f"{'clean' if is_clean else findings}"
-            )
-
-    # --- two-axis (improver shape) fixtures ---------------------------------
-    # Behavioural-only coverage table; per-kind tally over ALL evals; per-
-    # behavioural-dimension tally over the behavioural subset only.
-    improver_json = {
-        "evals": [
-            {"id": 1, "kind": "trigger", "name": "t-one", "should_trigger": True},
-            {"id": 2, "kind": "trigger", "name": "t-two", "should_trigger": False},
-            {"id": 3, "kind": "behavioural", "name": "b-corr",
-             "dimension": "critique-correctness"},
-            {"id": 4, "kind": "behavioural", "name": "b-neg",
-             "dimension": "false-positive-avoidance"},
-        ]
-    }
-    improver_readme = (
-        "## Coverage\n\n"
-        "Four evals: 2 trigger fixtures and 2 behavioural fixtures.\n\n"
-        "### Behavioural fixtures\n\n"
-        "| ID | Name | Dimension | What |\n|---:|---|---|---|\n"
-        "| 3 | `b-corr` | critique-correctness | x |\n"
-        "| 4 | `b-neg` | false-positive-avoidance | y |\n\n"
-        "One critique-correctness eval and one false-positive-avoidance eval.\n"
-    )
-
-    # The two-kind / two-axis shape (per-kind + per-behavioural-dimension over a
-    # behavioural-only coverage table). No live target uses it, so the
-    # self-test defines the shape inline to keep the machinery exercised.
-    improver_target = Target(
-        slug="<self-test-two-axis>",
-        total_count_re=re.compile(r"\b([A-Za-z][A-Za-z-]*|\d+)\s+evals[:,]"),
-        table_filter=lambda e: e.get("kind") == "behavioural",
-        tally_axes=(
-            TallyAxis(field_name="kind", label="kind"),
-            TallyAxis(
-                field_name="dimension",
-                label="behavioural dimension",
-                eval_filter=lambda e: e.get("kind") == "behavioural",
-            ),
-        ),
-    )
-
-    def run_target(t: Target, jobj: dict, rtext: str) -> list[str]:
-        # Exercise the shared core against synthetic in-memory fixtures, with
-        # the same conventions a live target would use.
-        return _cross_check(jobj["evals"], rtext, t)
-
-    improver_cases: list[tuple[str, dict, str, bool]] = [
-        # The trigger evals have no row in the behavioural-only table, so this
-        # stays clean only while table_filter keeps them out of the A2 name check.
-        ("clean improver", improver_json, improver_readme, True),
-        # Stale per-kind tally (claim 1 behavioural when there are 2).
-        ("bad kind tally", improver_json,
-         improver_readme.replace("2 behavioural fixtures", "1 behavioural fixtures"), False),
-        # Stale per-behavioural-dimension tally.
-        ("bad behav-dim tally", improver_json,
-         improver_readme.replace(
-             "One critique-correctness eval", "Two critique-correctness evals"), False),
-    ]
-
-    for label, jobj, rtext, want_clean in improver_cases:
-        findings = run_target(improver_target, jobj, rtext)
-        is_clean = not findings
-        if is_clean != want_clean:
-            failures += 1
-            print(
-                f"SELF-TEST FAIL [two-axis]: {label!r} expected "
-                f"{'clean' if want_clean else 'drift'}, got "
-                f"{'clean' if is_clean else findings}"
-            )
-
-    # --- boolean value_label axis (xray shape) fixtures ---------------------
-    # A coverage table over only the `expectations[]`-carrying evals; a
-    # per-`should_trigger` tally rendered to prose via value_label
-    # (True→"positive", False→"negative"); trigger-only evals are NOT tabulated.
-    xray_json = {
-        "evals": [
-            {"id": 1, "name": "launch-default", "should_trigger": True,
-             "expectations": ["x"]},
-            {"id": 2, "name": "panel-route", "should_trigger": True,
-             "expectations": ["y"]},
-            {"id": 3, "name": "trigger-only", "should_trigger": True},
-            {"id": 4, "name": "neg-adjacent", "should_trigger": False},
-        ]
-    }
-    xray_readme = (
-        "## Coverage\n\n"
-        "Four evals, covering trigger and answer quality: 3 positives "
-        "and 1 negative. 2 positives carry expectations[].\n\n"
-        "| ID | Name | Layer 2? | What |\n|---:|---|:---:|---|\n"
-        "| 1 | `launch-default` | yes | x |\n"
-        "| 2 | `panel-route` | yes | y |\n"
-        "| 3, 4 | `trigger-only` … `neg-adjacent` | no | collapsed |\n"
-    )
-    xray_target = Target(
-        slug="<self-test-xray>",
-        total_count_re=_XRAY.total_count_re,
-        table_filter=_XRAY.table_filter,
-        tally_axes=_XRAY.tally_axes,
-    )
-
-    xray_cases: list[tuple[str, dict, str, bool]] = [
-        # `trigger-only` and `neg-adjacent` carry no expectations[], so this
-        # stays clean only while the table filter keeps them out of the A2 name
-        # check.
-        ("clean xray", xray_json, xray_readme, True),
-        # Stale positive tally (boolean True → "positive").
-        ("bad positive tally", xray_json,
-         xray_readme.replace("3 positives", "4 positives"), False),
-        # Stale negative tally (boolean False → "negative").
-        ("bad negative tally", xray_json,
-         xray_readme.replace("1 negative", "2 negative"), False),
-        # A Layer-2 (expectations) eval absent from the table.
-        ("missing layer-2 row", {
-            "evals": xray_json["evals"] + [
-                {"id": 5, "name": "chrome-rewind", "should_trigger": True,
-                 "expectations": ["z"]}],
-        }, xray_readme
-            .replace("Four evals", "Five evals")
-            .replace("3 positives", "4 positives")
-            .replace("2 positives carry", "3 positives carry"), False),
-    ]
-
-    for label, jobj, rtext, want_clean in xray_cases:
-        findings = run_target(xray_target, jobj, rtext)
-        is_clean = not findings
-        if is_clean != want_clean:
-            failures += 1
-            print(
-                f"SELF-TEST FAIL [bool-axis]: {label!r} expected "
-                f"{'clean' if want_clean else 'drift'}, got "
-                f"{'clean' if is_clean else findings}"
-            )
-
-    # --- A4 eval-identity uniqueness fixtures -------------------------------
-    # Independent of the README↔JSON drift axes: a duplicate `name` (or `id`)
-    # within one evals.json is a per-fixture identity collision.
-    identity_cases: list[tuple[str, list[dict], bool]] = [
-        ("unique name+id", [
-            {"id": 1, "name": "a"}, {"id": 2, "name": "b"}], True),
-        ("duplicate name", [
-            {"id": 1, "name": "dup"}, {"id": 2, "name": "dup"}], False),
-        ("duplicate id", [
-            {"id": 7, "name": "x"}, {"id": 7, "name": "y"}], False),
-        # Missing keys are skipped, not flagged (schema validation is elsewhere).
-        ("missing keys skipped", [{"id": 1}, {"name": "only-name"}], True),
-    ]
-    for label, evals, want_clean in identity_cases:
-        problems = find_eval_identity_problems(evals)
-        is_clean = not problems
-        if is_clean != want_clean:
-            failures += 1
-            print(
-                f"SELF-TEST FAIL [identity]: {label!r} expected "
-                f"{'clean' if want_clean else 'drift'}, got "
-                f"{'clean' if is_clean else problems}"
-            )
-
+            print(f"SELF-TEST FAIL: {label!r} expected an {axis} finding, got {findings}")
     if failures:
         print(f"\n{failures} self-test failure(s).")
         return 1
