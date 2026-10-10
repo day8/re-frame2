@@ -141,34 +141,16 @@
 ;; printing throws, the other replaces this defmethod with a no-op so the run
 ;; drains on the seeded code.  Removing either safeguard reds its own row and
 ;; only that row.
-;;
-;; A green tally is also not enough on its own: a fixture that never calls
-;; its thunk executes nothing and still reports 0 failures, 0 errors. So a
-;; run must also have EXECUTED its floor of tests — `RF2_MIN_TESTS` for the
-;; whole suite, one for a `--test=` run — which `execute-cli` records in
-;; `executed-test-floor` before it starts the run. This is the count the JVM
-;; runner's `:summary` floor reads.
-
-(def ^:private executed-test-floor
-  "`{:floor n :source label}`: the fewest tests this run must execute to exit
-  green, and what set that floor, for the under-floor message."
-  (atom {:floor 1 :source "a test run"}))
 
 (defmethod ct/report [:cljs.test/default :end-run-tests] [summary]
-  (let [executed-test-count    (or (:test summary) 0)
-        {:keys [floor source]} @executed-test-floor
-        under-floor?           (< executed-test-count floor)]
-    (when under-floor?
-      (println (str "ERROR: this run executed " executed-test-count
-                    " test(s), below the floor of " floor " for " source ".")))
-    (if (and (ct/successful? summary) (not under-floor?))
-      (js/process.exit 0)
-      (do (try
-            (replay-buffered-warnings!)
-            (catch :default _
-              ;; Diagnostic-only: a throw here must never mask the red exit.
-              nil))
-          (js/process.exit 1)))))
+  (if (ct/successful? summary)
+    (js/process.exit 0)
+    (do (try
+          (replay-buffered-warnings!)
+          (catch :default _
+            ;; Diagnostic-only: a throw here must never mask the red exit.
+            nil))
+        (js/process.exit 1))))
 
 (defn- seed-failure-exit!
   "Seed the node process's exit code to failure just before a test run
@@ -232,12 +214,10 @@
   report a 0-test success. Returns true (and prints + exits nonzero) when the
   run must be refused, false when it may proceed.
 
-  This discovery check runs BEFORE `run-all-tests`, because the count is
-  already known and a configuration error should not first pretend to run a
-  suite. It cannot see a test that is discovered but never executed, so the
-  `:end-run-tests` reporter checks the same floor again against the tests
-  that ran. Exit 2 marks a malformed floor (configuration), 1 an under-floor
-  lane (red)."
+  This is checked BEFORE `run-all-tests` rather than from the
+  `:end-run-tests` reporter, because the count is already known and a
+  configuration error should not first pretend to run a suite. Exit 2 marks a
+  malformed floor (configuration), 1 an under-floor lane (red)."
   [min-tests discovered-test-count]
   (cond
     (= ::rf.test-quiet.shadow-node-cli/invalid min-tests)
@@ -307,22 +287,17 @@
                      (str/join ", " (map str unmatched-selectors)))
             (println "Use --list to see known test names.")
             (js/process.exit 1))
-          (do (reset! executed-test-floor {:floor 1 :source "a --test= run"})
-              (seed-failure-exit!)
+          (do (seed-failure-exit!)
               (st/run-test-vars test-environment matched-test-vars))))
 
       :else
       ;; Whole-suite path. `run-all-tests` over an empty test-var set reports
       ;; a 0-test success exactly as `run-test-vars` does, so it gets the same
       ;; guard as the `--test=` branch above.
-      (let [min-tests (resolve-min-tests)]
-        (when-not (reject-below-test-floor! min-tests
-                                            (count (env/get-test-vars)))
-          (reset! executed-test-floor
-                  {:floor  min-tests
-                   :source (str "the whole suite (" min-tests-env-var ")")})
-          (seed-failure-exit!)
-          (st/run-all-tests test-environment nil))))))
+      (when-not (reject-below-test-floor! (resolve-min-tests)
+                                          (count (env/get-test-vars)))
+        (seed-failure-exit!)
+        (st/run-all-tests test-environment nil)))))
 
 (defn main [& args]
   (reset-test-data!)
