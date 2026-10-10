@@ -1,67 +1,25 @@
 (ns re-frame.bench.fresco.amp-merge-arms-cljs-test
   "THE ARRAY-MAP CLIFF, AND THE `:&` LADDER PAIRS THAT STAY OFF IT.
 
-  `amp_merge_clock_app`'s decomposition ladder prices the codec's
-  `merge-caller` cleanly and the AUTHOR's share only as a SUM, and the
-  reason is not statistical. One helper cannot omit a key for three
-  fields out of four without an `assoc`, so `field-explicit` writes
-  `:class` unconditionally and the ladder's `:helper` and `:no-dissoc`
-  arms both carry a `:class nil` passenger — which would be a single map
-  entry if a map entry were a smooth cost. It is not:
-  `cljs.core/PersistentArrayMap`'s `HASHMAP-THRESHOLD` is EIGHT, and the
-  entry that would make nine promotes the whole map to a
-  `PersistentHashMap`. Rungs (1) and (3) therefore compare two map
-  REPRESENTATIONS, not two maps.
+  `cljs.core/PersistentArrayMap`'s threshold is eight entries: a ninth
+  promotes the map to a `PersistentHashMap`. `field-explicit` writes
+  `:class` unconditionally, so `amp_merge_clock_app`'s rungs (1) and (3)
+  carry a `:class nil` passenger and compare two map REPRESENTATIONS. Rungs
+  (1') and (3') split the author's share with pairs that stay on one side
+  of the cliff, and this file keeps them there: a rung whose arms drift
+  across it reads as a number rather than as a fault.
 
-  Rungs (1') and (3') split the author's share with two arms whose pairs
-  stay on one side of the cliff. This file is what stops them rotting: a
-  rung whose arms drift across the boundary reads as a number rather than
-  as a fault, which is the class of defect the whole lane exists to refuse.
-
-  ## What is checked mechanically and what is checked by reading
-
-  Every field HELPER on the page is called here — the arms' own code,
-  never a copy of it — and what the helper contributes to the element's
-  attribute map is pinned exactly.
-
-  The CALL-SITE literals are not reachable. They live inside bodies that
-  read subscriptions, and `fresco`'s `sub` refuses outside a boundary
-  render (`:rf.error/fresco-sub-outside-render`), so a test cannot
-  evaluate one. Where a claim needs a call site, this file supplies the
-  remainder map ITSELF and hands the SAME map to both arms of the pair —
-  which is the stronger statement anyway, because it makes the two arms
-  provably differ by the thing under test and by nothing else.
-
-  The one fact held by reading is [[expanded-attr-keys]], `:expanded`'s
-  own eight keys in its own order. `:expanded` is a FROZEN arm — the
-  published figure is read off it — so the half of rung (1')'s equality
-  that cannot change is the half this file cannot reach, and the half
-  that can change is pinned below.
-
-  ## Anti-vacuity
-
-  [[the-old-rungs-crossed-the-cliff]] asserts the DEFECT: on a classless
-  field the ladder's own helpers land a nine-entry `PersistentHashMap`
-  where the frozen arms land an eight-entry `PersistentArrayMap`. Unless
-  that reads true, every equality above it is an equality between two
-  things that were never in danger of differing, and this file would
-  pass while checking nothing.
-
-  The threshold itself is `cljs.core`'s, and no row pins it bare: every
-  row reads it off the arms' own maps, so a compiler that moved it would
-  red them where it matters."
+  Every field helper is called here — the arms' own code. Call-site
+  literals sit inside bodies that read subscriptions, which `fresco`'s
+  `sub` refuses outside a render, so this file hands the SAME remainder map
+  to both arms of a pair. [[expanded-attr-keys]] is held by reading: it is
+  the frozen `:expanded` arm's own keys, and the arm that can move is
+  pinned against it. [[the-old-rungs-crossed-the-cliff]] asserts the defect
+  itself, so the equalities above it are not between two things that were
+  never in danger of differing."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.bench.fresco.amp-merge-clock-app :as rf.bench.fresco.amp-merge-clock-app]
             [re-frame.bench.fresco.front.codec :as rf.bench.fresco.front.codec]))
-
-;; ---------------------------------------------------------------------------
-;; The witness's own inputs
-;; ---------------------------------------------------------------------------
-;;
-;; Plain data, handed to BOTH arms of every pair. The arms' own call sites
-;; are unreachable (see the namespace docstring), and re-spelling them here
-;; would be the second-authority shape this lane refuses everywhere else —
-;; so nothing here claims to be a copy of one.
 
 (def ^:private draft
   {:title "A title" :description "A description" :body "A body" :tagList "a,b"
@@ -77,129 +35,75 @@
    :data-testid "editor-description"})
 
 (def ^:private classless-remainder+nil-class
-  "The same field as the `:helper` and `:no-dissoc` arms write it: one
-  helper cannot omit a key for three fields out of four, so the key is
-  written and the value is nil. THE PASSENGER, spelled out."
+  "The same field as the `:helper` and `:no-dissoc` arms write it: the
+  passenger key, written with a nil value."
   {:class nil
    :type "text" :name "description" :placeholder "What's this article about?"
    :data-testid "editor-description"})
 
 (def ^:private title-remainder
-  "The title field — 100 of 400, and the only one carrying a class."
+  "The title field — the only one carrying a class."
   {:class "form-control-lg"
    :type "text" :name "title" :placeholder "Article Title"
    :data-testid "editor-title"})
 
 (def ^:private expanded-attr-keys
-  "`expanded-body`'s attribute keys, in the order it writes them.
-
-  READ from the frozen arm rather than computed, because a body that
-  reads subscriptions cannot be evaluated outside a boundary render. It
-  is safe to hold this way and only this way: `:expanded` is frozen —
-  the published `:&` figure is read off it — so the vector cannot go
-  stale without the freeze breaking first, and it is `field-lean`, the
-  arm that CAN move, whose keys are pinned against it below."
+  "`expanded-body`'s attribute keys, in the order it writes them."
   [:type :name :placeholder :data-testid :value :disabled :on-blur :on-input])
 
-;; ---------------------------------------------------------------------------
-;; Reading a helper's answer
-;; ---------------------------------------------------------------------------
+(defn- input-of [hiccup] (nth hiccup 1))
 
-(defn- input-of
-  "The `[:input …]` vector a field helper builds: the fieldset's first
-  child."
-  [hiccup]
-  (nth hiccup 1))
-
-(defn- attrs-of
-  "The attribute map a field helper writes into its element."
-  [hiccup]
-  (nth (input-of hiccup) 1))
+(defn- attrs-of [hiccup] (nth (input-of hiccup) 1))
 
 (defn- presented
-  "The map the CODEC actually meets — `merge-caller` run over the
-  element's attribute map, which folds a `:&` remainder in and answers
-  the map by identity when there is none. The `:&` arms and the
-  spelled-key arms are therefore read through one function rather than
-  two, so a comparison between them is a comparison of the same
-  quantity."
+  "The map the codec meets: `merge-caller` over the element's attributes,
+  so `:&` arms and spelled-key arms are read through one function."
   [hiccup]
   (rf.bench.fresco.front.codec/merge-caller (attrs-of hiccup)))
 
-;; ---------------------------------------------------------------------------
-;; Rung (1') — the author's wrapper, cleanly
-;; ---------------------------------------------------------------------------
+(defn- shape [m] [m (vec (keys m)) (type m)])
 
 (deftest rung-1-prime-writes-expandeds-eight-keys-and-no-ninth
   (let [lean (attrs-of (rf.bench.fresco.amp-merge-clock-app/field-lean draft errors id :description false
-                                       classless-remainder))]
-    (testing "`field-lean` writes `:expanded`'s keys, in `:expanded`'s order"
-      (is (= expanded-attr-keys (vec (keys lean)))))
-    (testing "and therefore stays on `:expanded`'s side of the cliff"
-      (is (instance? PersistentArrayMap lean)))
-    (testing "no `:class` key reaches the element at all"
-      (is (not (contains? lean :class))
-          "the passenger is absent, which is the whole point of this arm"))
-    (testing "and the codec meets that map by identity — there is no `:&` here"
-      (is (identical? lean (rf.bench.fresco.front.codec/merge-caller lean))))))
+                                                                     classless-remainder))]
+    (is (= [expanded-attr-keys PersistentArrayMap true]
+           [(vec (keys lean)) (type lean) (identical? lean (rf.bench.fresco.front.codec/merge-caller lean))])
+        "`:expanded`'s keys in its order, an array map, and no `:&` for the codec to fold")))
 
 (deftest the-lg-helper-differs-from-the-plain-one-by-the-TAG-alone
   (let [plain (rf.bench.fresco.amp-merge-clock-app/field-lean    draft errors id :description false classless-remainder)
         lg    (rf.bench.fresco.amp-merge-clock-app/field-lean-lg draft errors id :description false classless-remainder)]
-    (testing "same remainder in, same attribute map out"
-      (is (= (attrs-of plain) (attrs-of lg)))
-      (is (= (vec (keys (attrs-of plain))) (vec (keys (attrs-of lg))))
-          "in the same order, so the codec walks them identically")
-      (is (= (type (attrs-of plain)) (type (attrs-of lg)))))
-    (testing "the title's extra class rides the tag, the way `:expanded` has it"
-      (is (= :input.form-control (nth (input-of plain) 0)))
-      (is (= :input.form-control.form-control-lg (nth (input-of lg) 0))))))
-
-;; ---------------------------------------------------------------------------
-;; Rung (3') — the author's round trip, cleanly
-;; ---------------------------------------------------------------------------
+    (is (= (shape (attrs-of plain)) (shape (attrs-of lg))))
+    (is (= [:input.form-control :input.form-control.form-control-lg]
+           [(first (input-of plain)) (first (input-of lg))])
+        "the title's extra class rides the tag, the way `:expanded` has it")))
 
 (deftest rung-3-primes-two-arms-present-the-codec-the-same-map
-  (doseq [[label k remainder entries representation]
-          [["a classless field" :description classless-remainder 8 PersistentArrayMap]
-           ["the title field"   :title       title-remainder     9 PersistentHashMap]]]
-    (testing label
-      (let [;; `:merged` puts `:k` and `:busy?` INTO the caller map and
-            ;; its helper takes them back out; `:no-dissoc-lean` passes
-            ;; them as arguments. Both are handed the SAME remainder, so
-            ;; the round trip is the only thing between them.
-            merged (presented (rf.bench.fresco.amp-merge-clock-app/field draft errors id
-                                         (merge {:k k :busy? false} remainder)))
-            lean   (presented (rf.bench.fresco.amp-merge-clock-app/field-no-dissoc draft errors id k false
-                                                   remainder))]
-        (is (= merged lean) "the same attribute map")
-        (is (= (vec (keys merged)) (vec (keys lean))) "in the same order")
-        (is (= entries (count merged)))
-        (is (instance? representation merged))
-        (is (instance? representation lean))))))
-
-;; ---------------------------------------------------------------------------
-;; Anti-vacuity — the cliff rungs (1) and (3) cross, asserted rather than described
-;; ---------------------------------------------------------------------------
+  ;; `:merged` puts `:k` and `:busy?` INTO the caller map and takes them back
+  ;; out; `:no-dissoc-lean` passes them as arguments. Same remainder in, so
+  ;; the round trip is the only thing between them.
+  (doseq [[k remainder entries representation]
+          [[:description classless-remainder 8 PersistentArrayMap]
+           [:title       title-remainder     9 PersistentHashMap]]]
+    (let [merged (presented (rf.bench.fresco.amp-merge-clock-app/field draft errors id
+                                                                       (merge {:k k :busy? false} remainder)))
+          lean   (presented (rf.bench.fresco.amp-merge-clock-app/field-no-dissoc draft errors id k false
+                                                                                 remainder))]
+      (is (= [(shape merged) entries representation]
+             [(shape lean) (count lean) (type merged)])
+          (str k)))))
 
 (deftest the-old-rungs-crossed-the-cliff
-  (testing "rung (1): `field-explicit` writes `:class` whether or not there is one"
+  (testing "rung (1): `field-explicit` writes a nil `:class` and lands a nine-entry hash map"
     (let [old (attrs-of (rf.bench.fresco.amp-merge-clock-app/field-explicit draft errors id :description false
-                                            classless-remainder))]
-      (is (contains? old :class))
-      (is (nil? (:class old)) "the passenger, and its value is nil")
-      (is (= 9 (count old)))
-      (is (instance? PersistentHashMap old)
-          "a hash map where `:expanded` and `field-lean` build an array map")))
-
+                                                                          classless-remainder))]
+      (is (= [true nil 9 PersistentHashMap]
+             [(contains? old :class) (:class old) (count old) (type old)]))))
   (testing "rung (3): the `:class nil` call site crosses where `:merged` does not"
     (let [merged (presented (rf.bench.fresco.amp-merge-clock-app/field draft errors id
-                                       (merge {:k :description :busy? false}
-                                              classless-remainder)))
+                                                                       (merge {:k :description :busy? false}
+                                                                              classless-remainder)))
           old    (presented (rf.bench.fresco.amp-merge-clock-app/field-no-dissoc draft errors id :description false
-                                                 classless-remainder+nil-class))]
-      (is (= 9 (count old)))
-      (is (instance? PersistentHashMap old))
-      (is (not= (type merged) (type old))
-          (str "rung (3)'s two arms are a map REPRESENTATION apart on 300 of "
-               "the page's 400 fields, which is why it reads NEGATIVE")))))
+                                                                                 classless-remainder+nil-class))]
+      (is (= [9 PersistentHashMap PersistentArrayMap]
+             [(count old) (type old) (type merged)])))))
