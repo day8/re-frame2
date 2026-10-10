@@ -1,13 +1,20 @@
 (ns re-frame.http-decode-test
   "The response-body decode pipeline in `re-frame.http.decode`: Malli
   decode, coercion and validation, JSON media-type sniffing, the keyword cap
-  and the Malli-absent degradation. Malli is on this test classpath through
-  the schemas test dep, so the schema branch runs the real Malli."
-  (:require [clojure.test :refer [are deftest is]]
+  and the refusal of a schema `:decode` when Malli is absent. Malli is on
+  this test classpath through the schemas test dep, so the schema branch runs
+  the real Malli."
+  (:require [clojure.test :refer [are deftest is use-fixtures]]
+            [re-frame.core :as rf]
             [re-frame.http.decode :as rf.http.decode]
+            [re-frame.http.managed]
+            [re-frame.http.transport :as rf.http.transport]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
-(def ^:private malli-decode @#'rf.http.decode/malli-decode)
+(use-fixtures :each
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (deftest decode-response-body-schema-success-parses-then-coerces
   (is (= {:title "hello" :id 42 :status :active}
@@ -69,25 +76,61 @@
     "application/jsonrequest"                    "{\"ok\":true}"
     "text/plain"                                 "{\"ok\":true}"))
 
-(deftest malli-absent-decode-passes-through-and-warns-once
-  ;; The Malli resolve delays are realised with Malli present on this
-  ;; classpath, so the absent shape is rebound directly.
-  (let [latch    @#'rf.http.decode/malli-absent-warned?
-        prior    @latch
-        captured (atom [])]
+;; ---- Malli absent ------------------------------------------------------------
+;;
+;; The Malli resolve delays are realised with Malli present on this classpath,
+;; so the absent shape is rebound directly.
+
+(defmacro ^:private without-malli [& body]
+  `(with-redefs [rf.http.decode/malli-decode-fn      (delay nil)
+                 rf.http.decode/malli-transformer-fn (delay nil)
+                 rf.http.decode/malli-validate-fn    (delay nil)]
+     ~@body))
+
+(defn- error-id [thunk]
+  (try (thunk) :no-throw
+       (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))
+
+(deftest schema-decode-without-malli-is-refused-at-dispatch
+  (let [issued   (atom [])
+        captured (atom [])
+        request  (fn [decode]
+                   [:rf.http/managed {:request  {:url "http://127.0.0.1:9/x"}
+                                      :decode   decode
+                                      :reply-to [:decode/reply]}])]
+    (rf/reg-event :decode/reply (fn [_ _] {}))
+    (rf/reg-event :decode/load
+      (fn [_ _] {:fx [(request [:map [:id :int]]) (request :json)]}))
     (try
-      (reset! latch false)
       (rf.trace.tooling/register-listener! ::cap #(swap! captured conj %))
-      (with-redefs [rf.http.decode/malli-decode-fn      (delay nil)
-                    rf.http.decode/malli-transformer-fn (delay nil)
-                    rf.http.decode/malli-validate-fn    (delay nil)]
-        (is (= "notanumber" (malli-decode :int "notanumber")))
-        (malli-decode [:map [:id :int]] {:id 1})
-        (malli-decode :keyword "foo"))
-      (is (= [[:warning :int]]
+      (without-malli
+        (with-redefs [rf.http.transport/run-attempt! #(swap! issued conj (:decode %))]
+          (rf/dispatch-sync [:decode/load])))
+      (is (= [:json] @issued)
+          "the schema request never reached the transport; the :json one did")
+      (is (= [:rf.error/schemas-artefact-missing]
              (->> @captured
-                  (filter #(= :rf.warning/http-malli-absent (:operation %)))
-                  (mapv (juxt :op-type #(get-in % [:tags :schema]))))))
+                  (filter #(and (= :rf.error/fx-handler-exception (:operation %))
+                                (= :rf.http/managed (get-in % [:tags :rf.fx/id]))))
+                  (mapv #(:rf.error/id (ex-data (get-in % [:tags :exception])))))))
       (finally
-        (rf.trace.tooling/unregister-listener! ::cap)
-        (reset! latch prior)))))
+        (rf.trace.tooling/unregister-listener! ::cap)))))
+
+(deftest non-schema-decodes-need-no-malli
+  (without-malli
+    (are [decode out] (= out (rf.http.decode/decode-response-body
+                               {:body-text "{\"id\":1}"
+                                :headers   {"content-type" "application/json"}
+                                :decode    decode}))
+      :auto                 {:id 1}
+      :json                 {:id 1}
+      :text                 "{\"id\":1}"
+      (fn [body _] (count body)) 8)))
+
+(deftest schema-decode-without-malli-throws-at-decode
+  (without-malli
+    (is (= :rf.error/schemas-artefact-missing
+           (error-id #(rf.http.decode/decode-response-body
+                        {:body-text "{\"id\":\"not-an-int\"}"
+                         :headers   {"content-type" "application/json"}
+                         :decode    [:map [:id :int]]}))))))

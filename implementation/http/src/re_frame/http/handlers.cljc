@@ -23,6 +23,7 @@
             [re-frame.frame          :as rf.frame]
             [re-frame.interop        :as rf.interop]
             [re-frame.trace          :as rf.trace]
+            [re-frame.http.decode    :as rf.http.decode]
             [re-frame.http.encoding  :as rf.http.encoding]
             [re-frame.http.middleware :as rf.http.middleware]
             [re-frame.http.privacy   :as rf.http.privacy]
@@ -218,7 +219,8 @@
   schema-walker hook is unbound. At RESPONSE time that check would fire
   after the request had already succeeded on the wire; forcing it here fails
   the dispatch instead, so the request is never issued. See the
-  `decode-schema-marks` binding below."
+  `decode-schema-marks` binding below. Throws the same error, for the same
+  reason, when `:decode` is any schema and Malli is not loaded to run it."
   [{:keys [request decode accept retry timeout-ms request-id abort-signal]
     :or   {timeout-ms 30000}
     :as   args-map}
@@ -278,6 +280,11 @@
         ;; walks the schema again: the walk is unmemoised,
         ;; and a second schema walk is cheap next to a network round trip.
         _            (rf.http.privacy-body/decode-schema-marks decode)
+        ;; The same holds for Malli itself: a schema `:decode` that Malli is
+        ;; not loaded to run would let the response through unvalidated, so
+        ;; it is refused here, before the request goes out.
+        _            (when (rf.http.privacy-body/schema-decode? decode)
+                       (rf.http.decode/assert-malli-resolved! decode))
         ;; Keyword-interning DoS guard. The reserved
         ;; `:rf.http/max-decoded-keys` arg overrides the JSON reader's
         ;; default cap on unique decoded object keys. Absent → reader
