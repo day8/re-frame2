@@ -16,19 +16,16 @@
            (rf.schemas.validator/run-printer rf.schemas.digest-parity-fixtures/fn-bearing-schema)))))
 
 (deftest jvm-printer-limits-never-reach-digest-bytes
-  (testing "an ambient *print-length* / *print-level* neither reaches the
-            digest nor leaves truncated bytes in the print memo"
+  (testing "an ambient *print-length* / *print-level* never reaches the
+            digest"
     ;; Collection-valued map keys and set members also send the bound through
     ;; the canonicaliser's pr-str key comparator, where it would merge them.
     (let [schema   [:map {:doc-keys {[:k 1] :x [:k 2] :y} :doc-set #{[:m 1] [:m 2]}}
                     [:a :int]]
-          digest   (fn []
-                     (rf.schemas.validator/clear-edn-print-cache!)
-                     (rf.schemas.digest-parity-fixtures/compute-digest {[:s] schema}))
+          digest   #(rf.schemas.digest-parity-fixtures/compute-digest {[:s] schema})
           baseline (digest)]
       (doseq [[length level] [[1 nil] [nil 1]]]
         (is (= baseline (binding [*print-length* length
                                   *print-level*  level]
                           (digest)))
-            (pr-str [length level])))
-      (rf.schemas.validator/clear-edn-print-cache!))))
+            (pr-str [length level]))))))

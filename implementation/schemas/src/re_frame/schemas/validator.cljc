@@ -45,8 +45,7 @@
   The Malli adapter publishes its functions through late binding. The façade
   loads that adapter automatically; the absent-hook soft-pass remains a
   defensive contract for substitute ports and isolated tests."
-  (:require [re-frame.late-bind :as rf.late-bind]
-            [re-frame.schemas.cache :as rf.schemas.cache]))
+  (:require [re-frame.late-bind :as rf.late-bind]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -183,15 +182,26 @@
     (whole-number-double? form) (long form)
     :else          form))
 
-(defn- compute-edn-print
-  "The pure serialisation step behind `default-edn-print` — `pr-str`
-  over a canonicalised EDN form with the digest pipeline's print-flag
-  bindings. Same `schema-value` always returns byte-identical bytes.
+(defn default-edn-print
+  "The default schema-print companion. Per Spec 010 §Schema digest —
+  serialise a schema value to the stable UTF-8 byte-source string the
+  digest pipeline hashes. The default uses `pr-str` over a canonicalised
+  EDN form: map-keys emitted in `compare-by-pr-str` order, metadata
+  stripped, namespaced-map printing disabled. This is the cross-runtime
+  contract every Malli-EDN-compatible port shares. Same `schema-value`
+  always returns byte-identical bytes.
 
   `*print-length*` / `*print-level*` are reset too: an ambient REPL or tool
   binding would otherwise truncate both the canonicaliser's `pr-str` key
-  comparator and the final bytes, and the memo would keep the truncated
-  string process-wide."
+  comparator and the final bytes.
+
+  Ports that ship a non-EDN schema language register their own printer via
+  `set-schema-fns!`'s `:print` key; the digest then reflects the registered
+  validator's serialisation contract rather than the framework's Malli-EDN
+  default.
+
+  Prints afresh on every call and retains nothing, so a schema replaced by
+  a re-registration or dropped with its frame is not kept alive here."
   [schema-value]
   (binding [*print-meta*           false
             *print-readably*       true
@@ -200,35 +210,6 @@
             *print-length*         nil
             *print-level*          nil]
     (pr-str (canonicalise-schema-form schema-value))))
-
-;; The process-lifetime print cache is bounded by boot-time schema
-;; cardinality and can be cleared by test fixtures that generate schemas.
-(let [[memo clear!] (rf.schemas.cache/clearable-memo compute-edn-print)]
-
-  (def
-    ^{:doc "The default schema-print companion. Per Spec 010
-            §Schema digest line 491 — serialise a schema value to the
-            stable UTF-8 byte-source string the digest pipeline hashes.
-            The default uses `pr-str` over a canonicalised EDN form:
-            map-keys emitted in `compare-by-pr-str` order, metadata
-            stripped, namespaced-map printing disabled. This is the
-            cross-runtime contract every Malli-EDN-compatible port shares.
-
-            Ports that ship a non-EDN schema language register their own
-            printer via `set-schema-fns!`'s `:print` key; the digest then
-            reflects the registered validator's serialisation contract
-            rather than the framework's Malli-EDN default.
-
-            Memoised by immutable schema value and clearable for test
-            isolation via `clear-edn-print-cache!`."
-      :arglists '([schema-value])}
-    default-edn-print memo)
-
-  (def
-    ^{:doc "Reset the `default-edn-print` memo cache. Intended for test
-            fixtures that generate fresh schemas. Returns nil."
-      :arglists '([])}
-    clear-edn-print-cache! clear!))
 
 (def default-schema-fns
   "The framework's own validator bundle, as a public VALUE — the state the

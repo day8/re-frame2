@@ -275,9 +275,7 @@
   {:namespace "re-frame.schemas", :var "app-schema-meta", :tier :tooling, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "app-schemas", :tier :tooling, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "app-schemas-digest", :tier :tooling, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.schemas", :var "clear-edn-print-cache!", :tier :implementation, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "clear-schemas-by-frame!", :tier :implementation, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.schemas", :var "clear-sensitive-paths-cache!", :tier :implementation, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "clear-validator-unavailable-warned!", :tier :implementation, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "clear-walker-opaque-warned!", :tier :implementation, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "default-schema-fns", :tier :advanced, :kind :var, :owner "010", :status "v1", :facade? false, :runtime-verified? true}

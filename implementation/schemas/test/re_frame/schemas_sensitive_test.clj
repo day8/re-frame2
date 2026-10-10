@@ -73,14 +73,12 @@
     []
     {[1 :pw] {:sensitive? true :source :schema}}))
 
-(deftest sensitive-extractor-hook-is-unmemoized
-  (testing "the cross-artefact hook walks unmemoised, so a per-request schema
-            (managed HTTP `:decode`) leaves nothing behind in the never-evicted
-            memo"
+(deftest sensitive-extractor-hook-walks-a-per-request-schema
+  (testing "the cross-artefact hook returns the marks of a schema built per
+            call (managed HTTP `:decode`)"
     (let [hook   (rf.late-bind/get-fn :schemas/extract-sensitive-paths-from-schema)
           schema [:map [:id [:= 7]] [:ssn {:sensitive? true} :string]]]
-      (is (= {[:ssn] {:sensitive? true :source :schema}} (hook schema [])))
-      (is (not (identical? (hook schema []) (hook schema [])))))))
+      (is (= {[:ssn] {:sensitive? true :source :schema}} (hook schema []))))))
 
 (deftest schema-sensitive-at?-sibling-does-not-taint-a-wrapped-leaf
   (testing "a failing leaf reached through a transparent :maybe, or beside a

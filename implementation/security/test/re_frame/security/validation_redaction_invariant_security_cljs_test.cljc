@@ -92,7 +92,6 @@
   [op f]
   (with-trace-recorder! [traces]
     (f)
-    #?(:clj (rf.schemas/clear-sensitive-paths-cache!))
     (first (filter #(= op (:operation %)) @traces))))
 
 (defn- capture-failure

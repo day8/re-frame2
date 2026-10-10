@@ -26,8 +26,7 @@
   keyword registry references are flag-invisible and therefore require the
   vector form for precise privacy declarations.
   The traversal is parameterized by flag key so both supported flags share the
-  same operator and path semantics."
-  (:require [re-frame.schemas.cache :as rf.schemas.cache]))
+  same operator and path semantics.")
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -366,68 +365,23 @@
   [schema base-path]
   (walk-flagged-schema :large? schema base-path {}))
 
-(defn walk-sensitive-paths-from-schema
-  "The UNMEMOISED sensitive-path walk: the same `{path declaration}` map as
-  `extract-sensitive-paths-from-schema`, computed afresh and retaining
-  nothing.
+(defn extract-sensitive-paths-from-schema
+  "Walk a Malli schema form at `base-path` and return a
+  `{path {:sensitive? true ...}}` map for every `:sensitive? true` slot
+  found. Per Spec 010 §`:sensitive?` — privacy in schema-validation error
+  traces.
 
-  This is the extractor for a schema built PER CALL rather than registered
-  at boot — a managed-HTTP request's `:decode`, where a literal operand such
-  as `[:= id]` makes every request's schema a distinct value. Fed to the
-  never-evicted memo, each such schema would be a permanent entry. So
-  this, not the memo, is what the
-  `:schemas/extract-sensitive-paths-from-schema` late-bind hook publishes to
-  other artefacts."
+  Used by the validation emit-sites (`validate-app-schema!` and the
+  per-step `validate-event!` / `validate-fx!` / `validate-sub!` helpers,
+  plus the EP-0017 recordable-cofx `:rf.error/cofx-value-invalid` path via
+  `redact-validation-tags`) to decide whether the failing slot's value MUST
+  be redacted before the trace event ships, and published to other
+  artefacts as the `:schemas/extract-sensitive-paths-from-schema` late-bind
+  hook. It walks afresh on every call and retains nothing, so a schema
+  built per call (a managed-HTTP request's `:decode`) or replaced by a
+  re-registration is not kept alive here."
   [schema base-path]
   (walk-flagged-schema :sensitive? schema base-path {}))
-
-;; The sensitive-path walk is memoized for boot-time schema reuse and
-;; clearable by fixtures that generate many distinct schemas.
-(let [[memo clear!]
-      (rf.schemas.cache/clearable-memo walk-sensitive-paths-from-schema)]
-
-  (def
-    ^{:doc "Walk a registered Malli schema form at `base-path` and return
-            a `{path {:sensitive? true ...}}` map for every `:sensitive?
-            true` slot found. Per Spec 010 §`:sensitive?` — privacy in
-            schema-validation error traces.
-
-            Used by the validation emit-sites (`validate-app-schema!` and
-            the per-step `validate-event!` / `validate-fx!` /
-            `validate-sub!` helpers, plus the EP-0017 recordable-cofx
-            `:rf.error/cofx-value-invalid` path via
-            `redact-validation-tags`) to decide whether the failing slot's
-            value MUST be redacted before the trace event ships.
-
-            Memoised by `(schema, base-path)`: the failure branch
-            (`schema-sensitive-at?`) re-walks the same
-            registered schema on every consecutive failure, and the walk
-            is pure over immutable schema values. The cache is never
-            evicted, so it is bounded only while every schema it sees is
-            a REGISTERED one — schemas are registered once at app-boot, so
-            steady-state cache size equals the registry size. A schema
-            built per call (a managed-HTTP request's `:decode`) must go
-            through `walk-sensitive-paths-from-schema` instead, which is
-            what the late-bind hook publishes; handing such schemas to
-            this memo grows it by one permanent entry per distinct value.
-
-            The memo is clearable for test isolation via
-            `clear-sensitive-paths-cache!`."
-      :arglists '([schema base-path])}
-    extract-sensitive-paths-from-schema memo)
-
-  (def
-    ^{:doc "Reset the `extract-sensitive-paths-from-schema` memo cache.
-            The walker memo is process-
-            lifetime and bounded by the (registered-schema, base-path)
-            cardinality in real apps (schemas register once at boot, and
-            per-call schemas take the unmemoised walk), so
-            production never needs this — but a test that registers many
-            distinct fresh schemas (`schemas_concurrency_stress_test`)
-            calls it in fixture teardown so the cache doesn't grow
-            unbounded across the suite. Returns nil."
-      :arglists '([])}
-    clear-sensitive-paths-cache! clear!))
 
 (defn schema-has-sensitive?
   "True when the registered schema declares ANY slot sensitive —
