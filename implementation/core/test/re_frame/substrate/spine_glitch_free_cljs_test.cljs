@@ -234,8 +234,9 @@
 ;; ---- notification fan-out -------------------------------------------------
 
 (deftest nan-to-nan-derived-does-not-fan-out-on-no-move
-  ;; Movement is judged by rf=, under which ##NaN equals itself (raw `not=`
-  ;; would fire); an ordinary move on the same tick still notifies.
+  ;; Movement is judged by the spine's movement relation, `moved?`, under which
+  ;; ##NaN equals itself (raw `not=` would fire); an ordinary move on the same
+  ;; tick still notifies.
   (let [{:keys [make-derived replace! root]} (build-graph)
         nan-d (make-derived [root] (fn [_db] js/NaN))
         ord-d (make-derived [root] (fn [db] (:a db)))

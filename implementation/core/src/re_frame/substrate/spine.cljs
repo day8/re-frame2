@@ -13,7 +13,7 @@
       shared per-adapter epoch scheduler so a multi-input derived value
       recomputes glitch-free and notifies once per coherent input epoch;
       reifies the re-frame-owned `re-frame.disposable/IDisposable`, and —
-      because its fan-out is `rf=`-gated — the optional re-frame-owned
+      because its fan-out is movement-gated — the optional re-frame-owned
       `re-frame.movement/IMovementWitness`).
     * React root renderer (createRoot + render, hydrateRoot for
       hydrate).
@@ -587,32 +587,35 @@
 ;; before any render reads the reaction, an observable cross-adapter
 ;; divergence (extra body invocations, different trace timing) that
 ;; contradicts Spec 006 §No-op via value equality's "body runs on demand"
-;; intent. The sentinel is never `rf=` any real value, so the first post-
-;; construction change always notifies — the same first-change-notifies
-;; semantics Reagent gives.
+;; intent. A step from the sentinel to any real value is always `moved?`, so
+;; the first post-construction change always notifies — the same
+;; first-change-notifies semantics Reagent gives.
 
 (def ^:private unset
   "Sentinel for a derived value whose baseline has not yet been computed.
-  Distinct object identity so it can never `rf=` a real derived value (incl.
-  `nil`/`false`), making the first flush after construction always notify."
+  Distinct object identity, so a step from it to any real derived value (incl.
+  `nil`/`false`) is always `moved?`, making the first flush after construction
+  always notify."
   (js-obj))
 
-(defn- rf=
-  "The frozen per-slot MOVEMENT law, spelled
-  spine-local for the React-hook derived-value fan-out gate: `Object.is(a,b)
-  OR (= a b)`. Kept core-local (a transcription, NOT a `:require`) so core
-  depends on no view artefact. The load-bearing consequence: `##NaN` is STABLE
-  (`Object.is(##NaN, ##NaN)` is true), so a derived value that stays NaN across
-  a source tick reports NO movement and does not fan out — unlike raw `=`/`not=`,
-  under which `(= ##NaN ##NaN)` is false so every NaN reads as fresh and fans
-  out on a no-move. (`-0.0`/`+0.0` compare EQUAL via the `=` branch, exactly as
-  a plain `not=` gate would; NaN→NaN is the sole pair this gate treats
-  differently from raw `=`.) One frozen
-  relation across the direct adapter and the view layer, so the fan-out
-  boundaries agree on cardinality."
+(defn- moved?
+  "True when a step from `a` to `b` is a MOVEMENT under the frozen per-slot
+  movement relation that gates the React-hook derived-value fan-out: `a` and
+  `b` are unmoved when `Object.is(a,b) OR (= a b)`. Kept core-local (a
+  transcription, NOT a `:require`) so core depends on no view artefact.
+
+  This is Spec 006's movement relation, deliberately NOT its `rf=`, and named
+  apart so it does not claim that name. The load-bearing difference: `##NaN` is
+  STABLE (`Object.is(##NaN, ##NaN)` is true), so a derived value that stays NaN
+  across a source tick reports NO movement and does not fan out — unlike raw
+  `=`/`not=`, under which `(= ##NaN ##NaN)` is false so every NaN reads as
+  fresh and fans out on a no-move. (`-0.0`/`+0.0` compare EQUAL via the `=`
+  branch, exactly as a plain `not=` gate would; NaN→NaN is the sole pair this
+  gate treats differently from raw `=`.) One frozen relation across the direct
+  adapter and the view layer, so the fan-out boundaries agree on cardinality."
   [a b]
-  (or ^boolean (js/Object.is a b)
-      (= a b)))
+  (not (or ^boolean (js/Object.is a b)
+           (= a b))))
 
 (defn build-recompute-fn
   "Arity-specialised recompute-closure factory for a derived value.
@@ -697,10 +700,11 @@
           ;;
           ;; Written in exactly two places:
           ;;
-          ;;   W2 SOUNDNESS — armed inside `notify`'s `rf=` gate, which is
+          ;;   W2 SOUNDNESS — armed inside `notify`'s `moved?` gate, which is
           ;;     precisely the instant movement is ESTABLISHED: `prev-state`
           ;;     already holds `nu` (flush! writes it before notifying), and
-          ;;     the gate has just proven `(not (rf= prev nu))`.
+          ;;     the gate has just proven `(moved? prev nu)`, which implies
+          ;;     `(not (= prev nu))`.
           ;;   W1 FRESHNESS — cleared on `mark-dirty!`'s 0->1 transition.
           ;;     This container is PULL-based (`deref-derived` recomputes on
           ;;     every `-deref`), so once an input change is observed its
@@ -728,14 +732,14 @@
           ;; Movement-gated, failure-contained fan-out.
           ;; Two disciplines at this one boundary:
           ;;
-          ;;   1. Gate on the frozen `rf=` MOVEMENT law, not raw `not=`. Raw
+          ;;   1. Gate on the frozen `moved?` relation, not raw `not=`. Raw
           ;;      `(not= ##NaN ##NaN)` is true, so a derived value that stays
           ;;      NaN across a source tick would fan out on a NO-move — a false
-          ;;      direct invalidation the view layer (also `rf=`-gated) does not
-          ;;      raise. `rf=` treats NaN→NaN as
+          ;;      direct invalidation the view layer (gated on the same
+          ;;      relation) does not raise. `moved?` treats NaN→NaN as
           ;;      stable, so the fan-out boundaries agree on cardinality.
-          ;;      The `unset` baseline is never `rf=` a real value, so the first
-          ;;      post-construction change always notifies.
+          ;;      A step from the `unset` baseline to a real value is always
+          ;;      `moved?`, so the first post-construction change notifies.
           ;;
           ;;   2. CONTAIN a throwing subscriber, then SURFACE the primary
           ;;      failure. A bare `run!` would abort at the first throw,
@@ -764,7 +768,7 @@
           ;;      which surfaces it identically. Only two-plus subscribers pay
           ;;      the capture volatile + `run!` closure.
           notify         (fn [prev nu]
-                           (when-not (rf= prev nu)
+                           (when (moved? prev nu)
                              ;; W2 — record the departure at the exact instant
                              ;; movement is established, BEFORE fan-out, so a
                              ;; subscriber that reads this container from
@@ -827,8 +831,9 @@
           ;; the baseline, and a `replace-container!` change after that
           ;; notifies `[prev-derived new-derived]`. If a
           ;; change flushes before any deref ever happened (no reader),
-          ;; `prev-state` is still `unset`; `unset` is never `rf=` any real
-          ;; value (incl. nil/false) so the first flush still notifies — the same
+          ;; `prev-state` is still `unset`, and a step from `unset` to any real
+          ;; value (incl. nil/false) is `moved?`, so the first flush still
+          ;; notifies — the same
           ;; first-change-notifies semantics Reagent gives. (The baseline is
           ;; the *derived* value, never the raw source: the
           ;; flush thunk compares the recomputed derived value against the
@@ -949,13 +954,13 @@
           (swap! watchers dissoc k)
           nil)
         ;; Re-frame-owned OPTIONAL movement witness. This
-        ;; container gates its own propagation on `rf=` (see `notify`
-        ;; above), which is exactly the precondition `re-frame.movement`'s
+        ;; container gates its own propagation on `moved?` (see `notify`
+        ;; above), which implies the `(not (= prev nu))` `re-frame.movement`'s
         ;; W2 requires, so it can publish. A raw `cljs.core/Atom` source, a
         ;; Reagent `Reaction`, the plain-atom derived value and test-react's
         ;; derived value all publish NOTHING — and that is the correct
         ;; answer for them, not an omission: their propagation is not
-        ;; `rf=`-gated (the raw-atom coordinator fans out on every `reset!`)
+        ;; movement-gated (the raw-atom coordinator fans out on every `reset!`)
         ;; or they have no notify step at all. Consumers resolve the
         ;; capability once, by `satisfies?`, and fall back to the
         ;; comparison they would have made anyway.

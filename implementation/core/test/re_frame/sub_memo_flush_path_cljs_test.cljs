@@ -12,7 +12,8 @@
   the new value, and (b) a return to an `=` value within one drain. The
   movement witness may only skip comparisons whose answer it already knows, so
   each of these must keep its body-run count. A plain value-equal commit never
-  reaches a `:db` sub's guard at all: the app-db projection's `rf=` gate stops it.
+  reaches a `:db` sub's guard at all: the app-db projection's movement gate
+  stops it.
 
   The interleavings are driven from a watcher on the app-db projection, which
   runs inside its `notify` fan-out, after the witness is armed and before the
