@@ -6,7 +6,9 @@
   while the reply DELIVERED to the app stays raw."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
+            [malli.registry :as mr]
             [re-frame.core :as rf]
+            [re-frame.epoch.tool-pair :as rf.epoch.tool-pair]
             [re-frame.fx :as rf.fx]
             [re-frame.http.managed :as rf.http.managed]
             ;; load-bearing: binds the shared schema walker hooks the
@@ -72,6 +74,12 @@
 (defn- reg-carriers! [carriers]
   (rf.fx/reg-fx :rf.http/managed {:carriers carriers} rf.http.managed/managed-handler))
 
+(defn- off-box
+  "The trace row as epoch's off-box trace-events projector leaves it: the body
+  slot of an `:omit`-stamped row is replaced, a `:classify` row passes as is."
+  [ev]
+  (first (#'rf.epoch.tool-pair/omit-off-box-http-bodies [ev] {})))
+
 ;; ---- failure rows: headers and URL ------------------------------------------
 
 (deftest sensitive-headers-redacted-in-failure-tags
@@ -124,6 +132,63 @@
                                :rf.http/replied)]
       (is (= {:token :rf/redacted :user-id 42} (get-in ev [:tags :value])))
       (is (= :classify (get-in ev [:tags :rf.http/off-box-body]))))))
+
+(def ^:private user-schema
+  [:map [:id :int] [:token {:sensitive? true} :string]])
+
+(defn- with-default-registry-schema
+  "Run `f` with `k` naming `schema` in Malli's default registry, so a decoder
+  can reference it by keyword; the registry is restored afterwards."
+  [k schema f]
+  (let [saved @@#'mr/registry*]
+    (try
+      (mr/set-default-registry! (mr/composite-registry saved {k schema}))
+      (f)
+      (finally
+        (mr/set-default-registry! saved)))))
+
+(defn- assert-omitted-off-box
+  "The row for a `decode` whose marks the walker cannot see: stamped `:omit`,
+  no secret off-box, and the app still receives the raw body."
+  [decode]
+  (let [[ev] (managed-trace! (respond 200 "application/json" "{\"id\":1,\"token\":\"SECRET\"}")
+                             (fn [base] {:request  {:url (str base "/user")}
+                                         :decode   decode
+                                         :reply-to [:test/ok]})
+                             :rf.http/replied)]
+    (is (= :omit (get-in ev [:tags :rf.http/off-box-body])))
+    (is (not (str/includes? (pr-str (off-box ev)) "SECRET")))
+    (is (= {:id 1 :token "SECRET"} (:value (delivered-reply))))))
+
+(deftest ref-decoder-is-omitted-off-box
+  (with-default-registry-schema :app/user user-schema
+    #(assert-omitted-off-box [:ref :app/user])))
+
+(deftest local-registry-decoder-is-omitted-off-box
+  (assert-omitted-off-box [:schema {:registry {:app/u2 user-schema}} :app/u2]))
+
+(deftest vector-of-maps-decoder-redacts-every-element
+  (testing "a mark inside a collection's element schema redacts that slot in
+            every element, on the dev trace and off-box, while the unmarked
+            :id and the unmarked sibling [:meta :token] stay visible"
+    (let [[ev] (managed-trace! (respond 200 "application/json"
+                                        (str "{\"items\":[{\"id\":1,\"token\":\"SECRET-1\"},"
+                                             "{\"id\":2,\"token\":\"SECRET-2\"}],"
+                                             "\"meta\":{\"token\":\"public\"}}"))
+                               (fn [base] {:request  {:url (str base "/users")}
+                                           :decode   [:map
+                                                      [:items [:vector user-schema]]
+                                                      [:meta [:map [:token :string]]]]
+                                           :reply-to [:test/ok]})
+                               :rf.http/replied)
+          redacted {:items [{:id 1 :token :rf/redacted} {:id 2 :token :rf/redacted}]
+                    :meta  {:token "public"}}]
+      (is (= redacted (get-in ev [:tags :value])))
+      (is (= :classify (get-in ev [:tags :rf.http/off-box-body])))
+      (is (= redacted (get-in (off-box ev) [:tags :value])))
+      (is (= {:items [{:id 1 :token "SECRET-1"} {:id 2 :token "SECRET-2"}]
+              :meta  {:token "public"}}
+             (:value (delivered-reply)))))))
 
 (deftest response-body-whole-body-sensitive-decode-schema-redacts-all
   (let [[ev] (managed-trace! (respond 200 "application/json" "\"opaque-token-value\"")

@@ -13,6 +13,36 @@
 (deftest off-box-disposition-omits-opaque-registry-ref
   (is (= :omit (rf.http.privacy-body/off-box-body-disposition :my-app/token-schema))))
 
+;; A vector form can still hide its marks behind a reference the walker
+;; resolves nowhere, so `:classify` needs the walker to report no opaque
+;; descendant.
+(deftest off-box-disposition-omits-a-vector-form-the-walker-reports-opaque
+  (are [decode] (= :omit (rf.http.privacy-body/off-box-body-disposition decode))
+    [:ref :app/user]
+    [:schema {:registry {:app/u2 [:map [:token {:sensitive? true} :string]]}} :app/u2]
+    [:map [:user [:ref :app/user]]]
+    [:map [:items [:vector [:ref :app/user]]]]))
+
+(deftest off-box-disposition-classifies-a-walkable-vector-form
+  (are [decode] (= :classify (rf.http.privacy-body/off-box-body-disposition decode))
+    [:map [:token {:sensitive? true} :string] [:user-id :int]]
+    [:map [:items [:vector [:map [:id :int] [:token {:sensitive? true} :string]]]]]
+    [:string {:sensitive? true}]))
+
+(deftest classify-decoded-redacts-a-collection-mark-in-every-element
+  (is (= {:items [{:id 1 :token :rf/redacted} {:id 2 :token :rf/redacted}]
+          :meta  {:token "public"}}
+         (rf.http.privacy-body/classify-decoded
+           {:items [{:id 1 :token "a"} {:id 2 :token "b"}] :meta {:token "public"}}
+           [:map
+            [:items [:vector [:map [:id :int] [:token {:sensitive? true} :string]]]]
+            [:meta [:map [:token :string]]]])))
+  (testing "a position-pinned tuple mark still matches only its own element"
+    (is (= {:pair ["x" {:token :rf/redacted}]}
+           (rf.http.privacy-body/classify-decoded
+             {:pair ["x" {:token "s"}]}
+             [:map [:pair [:tuple :string [:map [:token {:sensitive? true} :string]]]]])))))
+
 (deftest classify-decoded-elides-large-slot
   (let [out (rf.http.privacy-body/classify-decoded
               {:blob (apply str (repeat 100 "x")) :user-id 42}
@@ -34,10 +64,11 @@
 ;; while a schema declaring none keeps working without the artefact.
 
 (defn- with-walker-unbound
-  "Run `f` with both shared schema-walker hooks removed; restore them after."
+  "Run `f` with every shared schema-walker hook removed; restore them after."
   [f]
   (let [hook-keys [:schemas/extract-sensitive-paths-from-schema
-                   :schemas/extract-large-paths-from-schema]
+                   :schemas/extract-large-paths-from-schema
+                   :schemas/schema-has-opaque-child?]
         saved     (select-keys @rf.late-bind/hooks hook-keys)
         refresh!  #(doseq [k hook-keys] (rf.late-bind/invalidate-cache! k))]
     (try
@@ -57,6 +88,11 @@
                    (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))
         {:token "bearer-secret"} [:map [:token {:sensitive? true} :string]]
         {:blob "huge"}           [:map [:blob {:large? true} :string]]))))
+
+(deftest unbound-walker-fails-closed-off-box
+  (testing "without the walker nothing can show a vector form complete"
+    (with-walker-unbound
+      #(is (= :omit (rf.http.privacy-body/off-box-body-disposition [:map [:id :int]]))))))
 
 (deftest unbound-walker-is-silent-for-a-markless-schema
   (testing "only a :sensitive? / :large? PROP is a mark: a plain schema, a field

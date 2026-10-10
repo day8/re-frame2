@@ -136,6 +136,9 @@
 ;; `extract-sensitive-paths-from-schema` must never see.
 (rf.late-bind/set-fn! :schemas/extract-large-paths-from-schema     extract-large-paths-from-schema)
 (rf.late-bind/set-fn! :schemas/extract-sensitive-paths-from-schema rf.schemas.walker/walk-sensitive-paths-from-schema)
+;; Whether those extractors saw every mark: a schema with an opaque
+;; descendant can carry marks neither of them reaches.
+(rf.late-bind/set-fn! :schemas/schema-has-opaque-child? schema-has-opaque-child?)
 
 ;; Test-support hooks (consumed by re-frame.test-support's
 ;; make-reset-runtime-fixture).
