@@ -62,10 +62,10 @@
   the HTML-export path the guides teach. See `emit-react-interop` for the
   detection and for why both React `$$typeof` shapes are accepted.
 
-  COMPONENT-SHAPE PARITY. The static path must render the
-  same Form-1/Form-2/Form-3 view shapes the live renderer does — a
-  view that renders correctly in the browser must render to HTML, not
-  throw. Calling the head once and recursing on the result is correct
+  COMPONENT-SHAPE PARITY. The static path renders the same
+  Form-1/Form-2/Form-3 view shapes the live renderer does, but with no
+  component instance, so a render that reads its instance throws
+  (IMPL-SPEC §8.1 lists what the walker cannot render). Calling the head once and recursing on the result is correct
   ONLY for Form-1 (the body IS hiccup): a Form-2 head
   `(fn [x] (fn [x] [:li x]))` returns its inner render closure, and
   recursing on that bare fn would hit `emit-element` and throw
