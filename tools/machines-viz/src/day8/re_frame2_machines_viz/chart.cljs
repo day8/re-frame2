@@ -372,17 +372,17 @@
 (defn elk-edge-label-pos
   "Lift an elk edge's COMPUTED label position into a `{:x :y}` map
   (absolute / flow coords under `elk.json.edgeCoords ROOT`), or nil when
-  elk placed no label (the events-as-nodes default, where the transition
-  text rides on the event-NODE so the edge's label is empty and elk
-  reserves no slot for it).
+  the edge has no label or elk gave it no `x` / `y`.
 
   elk attaches the placed label as the first entry of the edge's
-  `labels` array with an `x` / `y` it computed (centred on the route per
-  `elk.edgeLabels.placement CENTER`). A label with no `x` (elk did not
-  place it — empty text) lifts to nil so the renderer keeps its
-  geometric anchor. This is the LABEL analogue of `elk-edge-points`: elk
-  owns label PLACEMENT, the renderer just paints where elk says, in place
-  of a middle-segment-midpoint heuristic for any labelled edge."
+  `labels` array with an `x` / `y` it computed (`elk.edgeLabels.placement
+  CENTER`). It places the empty, zero-size label `->elk-edge` feeds every
+  `__in` / `__out` edge too, so under events-as-nodes this returns a
+  position for every routed edge. The transition text rides on the
+  event-NODE and no projected edge renders label text, so nothing is
+  painted there. This is the LABEL analogue of `elk-edge-points`: elk
+  owns label PLACEMENT, and a labelled edge paints where elk says in
+  place of a middle-segment-midpoint heuristic."
   [^js edge]
   (let [labels (or (.-labels edge) #js [])]
     (when (pos? (alength labels))
@@ -398,11 +398,10 @@
   {:x :y}}}`.
 
   `:edge-labels` carries elk's COMPUTED label position per edge (the
-  LABEL analogue of `:edge-points`'s routed bend-points). It is empty
-  under events-as-nodes (the transition text rides on the event-NODE so
-  edges carry no label for elk to place); a labelled edge type would
-  populate it and the renderer would paint at elk's position instead of
-  the geometric midpoint.
+  LABEL analogue of `:edge-points`'s routed bend-points). elk places the
+  empty label every `__in` / `__out` edge carries, so the map holds an
+  entry per routed edge; under events-as-nodes the transition text rides
+  on the event-NODE, so no edge renders text at those positions.
 
   Public-by-convention as a test seam (mirrors `elk-edge-points` /
   `invoke-elk-layout!`): a regression bridges this PRODUCER to the
@@ -441,8 +440,8 @@
   ;; Pure recursive walk threading a 3-key accumulator. `acc` carries
   ;; `:positions` (node-id → box), `:edge-points` (edge-id → routed
   ;; bend-points), and `:edge-labels` (edge-id → elk's COMPUTED label
-  ;; position; the label analogue of `:edge-points`, empty under
-  ;; events-as-nodes since the transition text rides on the event-NODE).
+  ;; position; the label analogue of `:edge-points`, one per routed edge
+  ;; since elk places each edge's empty label too).
   ;; `array-seq` lifts elk's JS `.children`/`.edges` arrays in index
   ;; order so `assoc` last-write-wins ordering is deterministic.
   (letfn [(collect-edges [acc ^js node]
@@ -1578,10 +1577,10 @@
                                ;; :data {:points}.
                                :edge-points       edge-points
                                ;; elk's computed label positions; the
-                               ;; projector attaches each labelled edge's
-                               ;; position to :data {:labelPos} (empty under
-                               ;; events-as-nodes, where the label rides on
-                               ;; the event-node).
+                               ;; projector attaches each edge's position
+                               ;; to :data {:labelPos}. Under events-as-
+                               ;; nodes no edge renders label text there:
+                               ;; the label rides on the event-node.
                                :edge-labels       edge-labels
                                ;; The fired-this-epoch edge-id set; the
                                ;; projector marks each matching edge :fired.

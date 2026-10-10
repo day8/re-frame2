@@ -11,14 +11,14 @@
 
     - `transition-edge` — the canonical (and only) edge type. Renders
       the route ELK computed (a smooth poly-path THROUGH ELK's bend-
-      points) with the event label sitting where ELK placed it
+      points), and a non-empty event label where ELK placed it
       (`:labelPos`, ELK's reserved label channel) behind a small
-      backplate rect. When ELK placed no label (the events-as-nodes
-      default — the transition text rides on the event-NODE) the anchor
-      falls back to a geometric midpoint heuristic. Under events-as-nodes
-      EVERY projected edge is this type; `:after`-timer specifics ride
-      the event-NODE (`:variant \"after\"` + `:afterMs`), not a distinct
-      edge type.
+      backplate rect, or at a geometric midpoint heuristic when ELK gave
+      no position. Under events-as-nodes the transition text rides on
+      the event-NODE, so every projected edge carries an empty label and
+      renders none. EVERY projected edge is this type; `:after`-timer
+      specifics ride the event-NODE (`:variant \"after\"` + `:afterMs`),
+      not a distinct edge type.
 
   There is no `spawn` edge type. Per Spec 005 `:spawn` / `:spawn-all`
   are state-entry actions that bring CHILD actor machines into existence;
@@ -203,9 +203,11 @@
        `{:x :y}`, fed from `chart.cljs`'s `elk.edgeLabels.placement`)
        when elk placed one — so a labelled edge's text sits in the
        collision-free channel elk reserved, NOT at a renderer-side
-       heuristic. When elk placed NO label (the events-as-nodes default
-       — the transition text rides on the event-NODE so the edge carries
-       no label), the anchor falls back to the geometric heuristic:
+       heuristic. elk places the empty label every events-as-nodes edge
+       carries too, so a routed edge normally has one; the anchor matters
+       only when the edge renders label text, which no events-as-nodes
+       edge does. Without a `label-pos` the anchor falls back to the
+       geometric heuristic:
          cross-hierarchy edges anchor near the SOURCE-SIDE first bend
          point (just outside the container the edge exits); other edges
          use the routed middle-segment midpoint.
@@ -227,7 +229,7 @@
                            (number? (:x label-pos))
                            (number? (:y label-pos)))
                       [(:x label-pos) (:y label-pos)]
-                      ;; No elk label (events-as-nodes default): heuristic.
+                      ;; No elk label position: heuristic.
                       cross-hierarchy?
                       (cross-hierarchy-label-anchor points)
                       :else
@@ -395,11 +397,12 @@
         ;; `#js {:x :y}`. Present only when elk computed a multi-point
         ;; route; nil for a simple edge (bezier fallback).
         points     (.-points d)
-        ;; elk's COMPUTED label position (a `#js {:x :y}`, absolute coords)
-        ;; for a labelled edge; nil under events-as-nodes (the label rides
-        ;; on the event-node so the edge carries none). When present,
-        ;; `edge-path` anchors the label here — elk's reserved channel —
-        ;; instead of the geometric midpoint heuristic.
+        ;; elk's COMPUTED label position (a `#js {:x :y}`, absolute coords).
+        ;; elk places even the empty label an events-as-nodes edge carries,
+        ;; so a routed edge normally has one. When present, `edge-path`
+        ;; anchors the label here — elk's reserved channel — instead of the
+        ;; geometric midpoint heuristic; the anchor positions only a
+        ;; non-empty label.
         label-pos  (let [lp (.-labelPos d)]
                      (when lp {:x (.-x lp) :y (.-y lp)}))
         ;; Under events-as-nodes every parsed transition is its OWN

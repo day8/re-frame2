@@ -1221,11 +1221,12 @@
                            label at elk's placement instead of the
                            geometric middle-segment midpoint — so a
                            labelled edge's text sits where elk reserved a
-                           collision-free channel. Empty under
-                           events-as-nodes (the transition text rides on
-                           the event-NODE, ELK-placed already), so this
-                           is normally `{}` and the edge keeps its
-                           geometric anchor. Defaults to `{}`.
+                           collision-free channel. elk places the empty
+                           label every `__in` / `__out` edge carries, so
+                           the map holds an entry per routed edge; under
+                           events-as-nodes the transition text rides on
+                           the event-NODE and no edge paints a label.
+                           Defaults to `{}`.
     :fired-edge-ids      — a SET of canonical edge-ids (parity gap G3;
                            the EXACT `:id` scheme `chart.layout` mints)
                            that fired THIS epoch.
@@ -1736,9 +1737,9 @@
                       in-points    (get edge-points (str (:id e) "__in"))
                       out-points   (get edge-points (str (:id e) "__out"))
                       ;; elk's computed label positions for the two
-                      ;; segments (LABEL analogue of the routes). Empty
-                      ;; under events-as-nodes (label is on the event-node);
-                      ;; present for any labelled edge.
+                      ;; segments (LABEL analogue of the routes). elk
+                      ;; places each segment's empty label, so both are
+                      ;; normally present; the text is on the event-node.
                       in-label-pos  (get edge-labels (str (:id e) "__in"))
                       out-label-pos (get edge-labels (str (:id e) "__out"))]
                   {:edge      e
@@ -1949,9 +1950,9 @@
                          ;; → event-node; `__out`: event-node → target-state).
                          ;; nil when elk emitted no route (bezier fallback).
                          :points     points
-                         ;; elk's computed label position (nil under events-
-                         ;; as-nodes; renderer falls back to its geometric
-                         ;; anchor).
+                         ;; elk's computed label position for this half's
+                         ;; empty label (nil when elk gave none); it
+                         ;; positions no text, as `:eventLabel` is empty.
                          :labelPos   label-pos
                          :internal   false
                          :machineLevel (boolean (:machine-level? edge))

@@ -544,9 +544,11 @@ PLACEMENT: `default-elk-options` sets `elk.edgeLabels.placement CENTER`
 instead of the old middle-segment-midpoint heuristic. **Under
 events-as-nodes the transition text rides on the event-NODE** (already
 ELK-measured + -placed via `elk-event-child` + the d9ro2 measure pass),
-so the `__in` / `__out` edges carry an empty label, `:edge-labels` is
-empty, and the geometric midpoint anchor remains only as the
-no-ELK-label fallback. There is also no live self-loop edge to special-
+so the `__in` / `__out` edges carry an empty label. ELK places that empty
+label too, so `:edge-labels` holds an entry for every routed edge, but no
+edge renders label text, so nothing is painted there; the geometric
+midpoint anchor remains the fallback for an edge with no ELK label
+position. There is also no live self-loop edge to special-
 case: a spec self-transition projects as `state → event-node → state`
 (two ordinary edges, both ELK-routed), so the renderer-side self-loop
 fan + the cross-hierarchy source-bend anchor in `chart.edges` are
