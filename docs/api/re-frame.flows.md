@@ -180,7 +180,7 @@ Development builds trace each flow's lifecycle. Every `:rf.flow/*` event carries
 | `:rf.flow/registered` | A flow is registered in a frame for the first time. | `:inputs`, `:path` |
 | `:rf.registry/handler-replaced` | A registration replaces a flow with a different definition (`:kind :flow`, the flow id under `:id`). | `:frame`, `:different-fn?` |
 | `:rf.flow/computed` | `derive-fn` ran and its result was written. | `:input-values`, `:before`, `:result`, `:path`, `:elapsed-ms` |
-| `:rf.flow/skip` | The inputs were `=` to the last run, so `derive-fn` did not run. | `:reason :inputs-value-equal`, `:input-paths-unchanged` |
+| `:rf.flow/skip` | The inputs were `=` to the last run, so `derive-fn` did not run. | `:reason :inputs-value-equal`, `:input-paths-unchanged`; `:repaired? true` when the visit wrote the flow's remembered output back |
 | `:rf.flow/cleared` | A flow was cleared. | `:path` |
 | `:rf.flow/failed` | The flow threw; see [When a flow throws](#when-a-flow-throws). | `:phase`, `:path`, `:exception-message`, `:exception-data`, `:inputs` |
 

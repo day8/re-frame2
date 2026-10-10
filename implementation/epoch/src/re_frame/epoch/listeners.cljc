@@ -378,17 +378,10 @@
   "Publish a destroyed frame's terminal epoch evidence and drop its id-keyed
   stores.
 
-  Two arities:
-
-    * `[frame-id owner-token terminal-evidence]` — the destroy-recipe arity.
-      `terminal-evidence` is the bundle `snapshot-terminal-destroy-evidence!`
-      captured BEFORE dissoc; publishing that snapshot (rather than re-reading
-      the now-shared id-keyed stores) is what keeps predecessor A's evidence
-      intact after a same-id successor B has claimed those stores.
-
-    * `[frame-id owner-token fs-before fs-after committed-at]` — the direct-seam
-      arity for tools / unit pins, where no same-id successor can race the
-      stores: it snapshots at call time and delegates to the arity above.
+  `terminal-evidence` is the bundle `snapshot-terminal-destroy-evidence!`
+  captured BEFORE dissoc; publishing that snapshot (rather than re-reading the
+  now-shared id-keyed stores) is what keeps predecessor A's evidence intact
+  after a same-id successor B has claimed those stores.
 
   If a run-start was buffered, listeners receive a raw `:halted-destroy` record
   (pre-run + destroy-time whole-frame snapshots plus the destroying event's
@@ -438,10 +431,6 @@
   so nothing is owed). The frame's deferred-silence window opened by
   `snapshot-terminal-destroy-evidence!` is closed here in a `finally`, reclaiming
   the frame's marks once its last outstanding predecessor resolves (BOUNDED)."
-  ([frame-id owner-token fs-before fs-after committed-at]
-   (on-frame-destroyed! frame-id owner-token
-                       (snapshot-terminal-destroy-evidence!
-                         frame-id fs-before fs-after committed-at)))
   ([frame-id owner-token terminal-evidence]
    ;; Sole-condition `interop/debug-enabled?` gate so :advanced + goog.DEBUG=false
    ;; dead-code-eliminates this whole path (Spec 009 §Production builds). Two

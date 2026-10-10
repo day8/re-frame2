@@ -255,7 +255,7 @@
   ;; (`re-frame.epoch.listeners/on-frame-destroyed!`) directly — the
   ;; `re-frame.epoch` facade publishes it only through the
   ;; `:epoch/on-frame-destroyed` late-bind hook.
-  (rf.epoch.listeners/on-frame-destroyed! :rf/default nil nil nil nil))
+  (rf.epoch.listeners/on-frame-destroyed! :rf/default nil nil))
 
 ;; ---- Spec-Schemas §`:rf/epoch-record` — reg-view* wrapper ---------------
 
