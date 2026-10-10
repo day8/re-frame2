@@ -1,62 +1,29 @@
 (ns re-frame.bench.fresco.walk-profile-baseline-cljs-test
-  "THE ABLATION BASELINE IS THE *OLD* WALK — pinned.
+  "THE ABLATION BASELINE IS THE *OLD* WALK.
 
-  `walk_profile_app`'s `local` arm is two things at once: the ablation
-  baseline every phase delta is subtracted from, and the OLD arm of the
-  in-process A/B that prices the codec candidate. The second
-  role is the fragile one. Every helper the candidate cheapened that the
-  baseline still reaches for in `front.codec` is a piece of the
-  candidate the baseline has already absorbed, and the A/B then quotes a
-  reduction smaller than the one it took — silently, with no arm going
-  red, because both numbers still look plausible.
+  `walk_profile_app`'s `local` arm is both the ablation baseline and the
+  OLD arm of the in-process A/B that prices the codec candidate. Every
+  shipping `front.codec` helper the baseline reaches for is a piece of the
+  candidate it has already absorbed, and the A/B then quotes a smaller
+  reduction with no arm going red. So both halves of its prop conversion
+  are frozen locally (`local-prop-cache`, `local-convert-prop-value`).
 
-  The candidate reorders `rf.bench.fresco.front.codec/convert-prop-value`'s
-  branches, so both halves of the baseline's prop conversion are frozen
-  locally: the prop-NAME half in `local-prop-cache`, the prop-VALUE half
-  in `local-convert-prop-value`. This file exists because a `walk-value`
-  pointed at the obvious `rf.bench.fresco.front.codec/` name is exactly
-  what a refactor reaches for.
-
-  ## What is asserted, and why in this shape
-
-  1. The frozen converter answers what the shipping one answers, value
-     for value and identity for identity. Only the ORDER of the tests
-     differs, so a freeze that changed an answer would be a bug in the
-     instrument rather than a baseline.
-  2. The baseline arm never ENTERS the shipping helpers. There is no
-     output that distinguishes `string?`-first from `fn?`-first — both
-     converters are total and agree everywhere — so the only honest
-     witness counts entries rather than compares results. Each count is
-     paired with a CONTROL that drives the shipping walk through the
-     same probe, so a zero can never be read off a probe that was never
-     live.
-
-  Pointing `walk-value` at `rf.bench.fresco.front.codec/convert-prop-value` fails (2) and
-  leaves (1) green, which is the whole point: (1) is why the freeze is
-  safe, (2) is why the freeze is there.
-
-  ## Deliberately not asserted
-
-  `rf.bench.fresco.front.codec/cached-parse` keeps the candidate's cheaper reserved-name check
-  in the baseline. That residue is deliberate and reasoned on
-  `walk-profile-app/local-convert-prop-value`'s docstring — the
-  `parse-raw` benefit line prices the tag cache and needs both its arms
-  on one parse implementation — so a test here would only re-litigate
-  it, and would go red the day someone freezes it properly."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  Two claims: the frozen converter answers what the shipping one answers
+  (why the freeze is safe), and the baseline arm never ENTERS the shipping
+  helpers (why the freeze is there). No output tells `string?`-first from
+  `fn?`-first, so the second counts entries, each beside a CONTROL that
+  shows the probe live. `codec/cached-parse`'s reserved-name check stays in
+  the baseline deliberately — `local-convert-prop-value`'s docstring says
+  why — so nothing here asserts it."
+  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.bench.fresco.front.codec :as rf.bench.fresco.front.codec]
             [re-frame.bench.fresco.walk-profile-app :as rf.bench.fresco.walk-profile-app]))
 
 (use-fixtures :each {:before (fn [] (rf.bench.fresco.front.codec/reset-caches!))})
 
-;; ---------------------------------------------------------------------------
-;; Fixtures
-;; ---------------------------------------------------------------------------
-
 (def ^:private keyword-keyed
-  "Census-shaped markup: keyword-keyed attribute maps, string values, a
-  propless element (the short-circuit lane), a nested `:style` map (the
-  converter's recursive branch) and a literal `:key`."
+  "Census-shaped markup: keyword-keyed attributes, string values, a
+  propless element, a nested `:style` map and a literal `:key`."
   [:div.home-page
    [:div.banner
     [:h1.logo-font "conduit"]]
@@ -66,91 +33,57 @@
     [:a.tag-pill.tag-default {:key "clj" :href "#" :data-testid "tag-clj"} "clj"]]])
 
 (def ^:private string-keyed
-  "A string-keyed attribute map — the one spelling that reaches
-  `rf.bench.fresco.front.codec/cached-prop-name` on the SHIPPING side, so the control for the
-  prop-name probe has something to count."
+  "The one spelling that reaches `cached-prop-name` on the SHIPPING side,
+  so the prop-name control has something to count."
   [:div {"data-testid" "string-keyed" "aria-label" "x"}])
 
-(defn- probe
-  "Run `thunk` with `v` installed over the shipping var `restore` names,
-  counting entries. Answers the count."
+(defn- entries
+  "How many times `thunk` enters the shipping fn `install!` wraps."
   [install! restore! thunk]
   (let [n (atom 0)]
     (install! n)
     (try (thunk) (finally (restore!)))
     @n))
 
-;; ---------------------------------------------------------------------------
-;; 1. The freeze is behaviour-preserving
-;; ---------------------------------------------------------------------------
-
 (deftest the-frozen-converter-answers-what-the-shipping-one-answers
-  (testing "the classes the codec answers BY IDENTITY, answered by identity"
-    (let [f      (fn [_] nil)
-          obj    #js {:a 1}
-          arr    (array 1 2)]
-      (doseq [v ["href" f obj arr 42 nil true false]]
-        (is (identical? v (rf.bench.fresco.walk-profile-app/local-convert-prop-value v))
-            (str "frozen converter must pass " (pr-str v) " through by identity"))
-        (is (identical? (rf.bench.fresco.front.codec/convert-prop-value v)
-                        (rf.bench.fresco.walk-profile-app/local-convert-prop-value v))
-            (str "frozen and shipping must agree by identity on " (pr-str v))))))
-
-  (testing "the classes the codec CONVERTS, converted the same way"
-    (doseq [v [:active
-               'sym
-               {:background-color "red" :z-index 3}
-               {:outer {:font-weight "bold"}}
-               ["a" "b"]
-               #{"a"}
-               [:conduit/show-your-feed]]]
-      (is (= (js->clj (rf.bench.fresco.front.codec/convert-prop-value v))
-             (js->clj (rf.bench.fresco.walk-profile-app/local-convert-prop-value v)))
-          (str "frozen and shipping must agree on " (pr-str v)))))
-
-  (testing "a nested map camelCases its keys, through the frozen name lookup"
-    (is (= {"backgroundColor" "red"}
-           (js->clj (rf.bench.fresco.walk-profile-app/local-convert-prop-value {:background-color "red"})))))
-
-  (testing "the two are DISTINCT functions — a freeze that aliased the
-            shipping var would satisfy every assertion above"
-    (is (not (identical? rf.bench.fresco.front.codec/convert-prop-value rf.bench.fresco.walk-profile-app/local-convert-prop-value)))))
-
-;; ---------------------------------------------------------------------------
-;; 2. The baseline arm does not enter the shipping helpers
-;; ---------------------------------------------------------------------------
+  (let [shipping rf.bench.fresco.front.codec/convert-prop-value
+        local    rf.bench.fresco.walk-profile-app/local-convert-prop-value
+        by-identity ["href" (fn [_] nil) #js {:a 1} (array 1 2) 42 nil true false]
+        converted   [:active 'sym {:background-color "red" :z-index 3} {:outer {:font-weight "bold"}}
+                     ["a" "b"] #{"a"} [:conduit/show-your-feed]]]
+    (is (= (mapv shipping by-identity) (mapv local by-identity))
+        "the classes the codec passes through, passed through by identity")
+    (is (= (mapv (comp js->clj shipping) converted) (mapv (comp js->clj local) converted))
+        "the classes the codec converts, converted the same way")
+    (is (= [{"backgroundColor" "red"} false]
+           [(js->clj (local {:background-color "red"})) (identical? shipping local)])
+        "it really converts, and it is a distinct function — an alias of the
+         shipping var would satisfy both equalities above")))
 
 (deftest the-baseline-arm-never-enters-the-shipping-value-converter
-  (let [real rf.bench.fresco.front.codec/convert-prop-value
+  (let [real     rf.bench.fresco.front.codec/convert-prop-value
         install! (fn [n] (set! rf.bench.fresco.front.codec/convert-prop-value
                                (fn [v] (swap! n inc) (real v))))
-        restore! (fn [] (set! rf.bench.fresco.front.codec/convert-prop-value real))]
-
-    (testing "CONTROL — the shipping walk does enter it, so the probe is live"
-      (is (pos? (probe install! restore! #(rf.bench.fresco.front.codec/as-element keyword-keyed)))
-          "the shipping walk must reach convert-prop-value on this fixture"))
-
-    (testing "the local arm converts every value through its OWN frozen copy"
-      (is (zero? (probe install! restore! #(rf.bench.fresco.walk-profile-app/walk-arm rf.bench.fresco.walk-profile-app/M-FULL keyword-keyed)))
-          (str "the `local` arm is the in-process A/B's OLD arm; entering the "
-               "shipping converter absorbs the codec candidate into the "
-               "baseline it is measured against")))
-
-    (testing "and so does the no-value ablation, which converts nothing at all"
-      (is (zero? (probe install! restore! #(rf.bench.fresco.walk-profile-app/walk-arm rf.bench.fresco.walk-profile-app/M-NO-VALUE keyword-keyed)))))))
+        restore! (fn [] (set! rf.bench.fresco.front.codec/convert-prop-value real))
+        walk     (fn [mode] (entries install! restore!
+                                     #(rf.bench.fresco.walk-profile-app/walk-arm mode keyword-keyed)))]
+    (is (= [true 0 0]
+           [(pos? (entries install! restore! #(rf.bench.fresco.front.codec/as-element keyword-keyed)))
+            (walk rf.bench.fresco.walk-profile-app/M-FULL)
+            (walk rf.bench.fresco.walk-profile-app/M-NO-VALUE)])
+        "the shipping walk enters it (the probe is live); the local arm and the
+         no-value ablation never do")))
 
 (deftest the-baseline-arm-never-enters-the-shipping-prop-name-cache
-  (let [real rf.bench.fresco.front.codec/cached-prop-name
+  (let [real     rf.bench.fresco.front.codec/cached-prop-name
         install! (fn [n] (set! rf.bench.fresco.front.codec/cached-prop-name
                                (fn [k] (swap! n inc) (real k))))
-        restore! (fn [] (set! rf.bench.fresco.front.codec/cached-prop-name real))]
-
-    (testing "CONTROL — the shipping walk does enter it on a string-keyed map"
-      (is (pos? (probe install! restore! #(rf.bench.fresco.front.codec/as-element string-keyed)))
-          "the shipping walk must reach cached-prop-name on this fixture"))
-
-    (testing "the local arm names every prop through local-prop-name"
-      (is (zero? (probe install! restore! #(rf.bench.fresco.walk-profile-app/walk-arm rf.bench.fresco.walk-profile-app/M-FULL keyword-keyed)))
-          "keyword-keyed props must take the frozen string-valued cache")
-      (is (zero? (probe install! restore! #(rf.bench.fresco.walk-profile-app/walk-arm rf.bench.fresco.walk-profile-app/M-FULL string-keyed)))
-          "string-keyed props must take the frozen path too"))))
+        restore! (fn [] (set! rf.bench.fresco.front.codec/cached-prop-name real))
+        walk     (fn [markup] (entries install! restore!
+                                       #(rf.bench.fresco.walk-profile-app/walk-arm rf.bench.fresco.walk-profile-app/M-FULL markup)))]
+    (is (= [true 0 0]
+           [(pos? (entries install! restore! #(rf.bench.fresco.front.codec/as-element string-keyed)))
+            (walk keyword-keyed)
+            (walk string-keyed)])
+        "the shipping walk enters it on a string-keyed map; the local arm
+         names keyword- and string-keyed props through its own cache")))
