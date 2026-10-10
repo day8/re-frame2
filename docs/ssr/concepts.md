@@ -729,7 +729,7 @@ A page can hydrate more than one root — a header and a cart mounted into separ
     (js/console.warn "root did not boot:" (pr-str root-id) error)))
 ```
 
-Each root hydrates and mounts inside its own failure boundary: one that throws is reported with an always-on `:rf.error/root-boot-failed` record and the others carry on, so pass the mount as `:mount-fn` rather than mounting after the call. The first root installs the payload and the rest find it installed. Two roots installing *different* payloads into one frame throw `:rf.error/frame-payload-conflict` before anything is installed. The [`hydrate-page!`](../api/re-frame.ssr.md#hydrate-page) entry covers the per-root `:container` and `:manifest` options.
+Each root hydrates and mounts inside its own failure boundary: one that throws is reported with an always-on `:rf.error/root-boot-failed` record and the others carry on, so pass the mount as `:mount-fn` rather than mounting after the call. The first root installs the payload and the rest find it installed. Two roots installing *different* payloads into one frame throw `:rf.error/frame-payload-conflict` before anything is installed.
 
 ### Render on Node
 

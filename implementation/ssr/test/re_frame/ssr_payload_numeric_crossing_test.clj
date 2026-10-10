@@ -1,6 +1,6 @@
 (ns re-frame.ssr-payload-numeric-crossing-test
-  "The hydration payload obeys the numeric crossing rule the root manifest
-  enforces. On a JVM host the payload is `pr-str`'d and
+  "The hydration payload obeys the numeric crossing rule (Spec 011 §The
+  numeric crossing rule). On a JVM host the payload is `pr-str`'d and
   read back by the browser's EDN reader, which reads a Long past 2^53, a
   BigInt, a BigDecimal, a Ratio or a Float back as a DIFFERENT value — and the
   server reads its own value back perfectly, so nothing else catches it.

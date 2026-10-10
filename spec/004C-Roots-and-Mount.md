@@ -1,104 +1,24 @@
-# Spec 004C — Root identity and mount — the descriptor/manifest contract
+# Spec 004C — Root identity and mount
 
-> Status: v1-required. Root identity, Root Descriptor v1, element locators, render-time
-> props, the hydrating-root boot sequence, and fail-loud conflict detection. Owns the
-> descriptor/manifest schema family (`:rf.root/*`); the
-> Stage-5 Root Manifest is its additive extension (co-owned with
-> [011](011-SSR.md)). The identity model is exact — a
-> **root** is one React DOM render/hydration unit, a **frame** is one re-frame2
-> state world, roots ↔ frames are many-to-many, and mount position is never
+> Status: v1-required. Root identity, the two rules a root keeps at mount, idempotent
+> payload install across a page's roots, and fail-loud payload conflict. The identity
+> model is exact — a **root** is one React DOM render/hydration unit, a **frame** is one
+> re-frame2 state world, roots ↔ frames are many-to-many, and mount position is never
 > identity.
 
-> **What realises this contract.** `re-frame.ssr.manifest` validates, assembles, emits
-> and discovers Root Manifests (§2, §4, §5); `re-frame.ssr.install` runs a hydrating
-> root's preflight and keeps the payload-install ledger (§3, §6, §7); and
-> `re-frame.ssr/hydrate!` runs the boot sequence of §10. This Spec owns no mount verb:
-> the client-root grammar is
+> **What realises this contract.** `re-frame.ssr.install` keeps the payload-install
+> ledger (§6, §7), and `re-frame.ssr/hydrate!` runs a hydrating root's preflight and
+> seed in the order of §10. This Spec owns no mount verb: the client-root grammar is
 > [006 §The client root](006-ReactiveSubstrate.md#the-client-root-adapter-owned-reusable),
-> which every React view adapter publishes, `re-frame.fresco` included. No shipped
-> substrate derives a Root Descriptor from a mount site, so a descriptor reaches
-> `re-frame.ssr.manifest/manifest` from its caller.
+> which every React view adapter publishes, `re-frame.fresco` included.
 
 ## 1. Root identity — required, host-authored, derivable
 
-**Every root has a `root-id`, and it is the root's identity.** The root descriptor and
-manifest carry it as `:root-id`; a hydrating root reads it from its manifest's content
-(§3), and the payload-install ledger attributes each claim to it (§6). A root-id is a
-qualified keyword (canonical: `:page/shop`) or a vector of a qualified keyword plus
-scalar disambiguators — keyword, string, or integer (`[:shop/product-panel :left]`).
-The dev-only `:root-id-provenance` records how the root-id was arrived at, and never
-rides a shipped manifest (§2).
-
-**Root-id slug** (one deterministic, **injective** function, used by synthesised
-locators (§4) — distinct valid root-ids ALWAYS
-yield distinct slugs). It is a decodable canonical form over the DOM-safe alphabet
-`[A-Za-z0-9_-]`: `_` is the sole metacharacter — every character outside `[A-Za-z0-9-]`
-(**including `_` itself**) is reversibly escaped `_<lowercase-hex-code-unit>_`, and each
-structural boundary carries an uppercase `_`-tag the escape never emits (`_S` keyword
-namespace/name separator; `_V` vector lead-in; `_K`/`_T`/`_I` a vector element's
-keyword/string/integer type). A keyword root encodes to `enc(namespace) _S enc(name)`
-(namespace absent → `enc(name)`); a vector root to `_V` followed by its type-tagged,
-escaped elements. `:page/shop` → `"page_Sshop"`; `[:shop/app :left]` →
-`"_V_Kshop_Sapp_Kleft"`. Because every boundary is *marked* rather than inferred from a
-data character, the mapping is losslessly decodable and thus injective — no two distinct
-root-ids can alias to one slug (a lossy "normalise every disallowed char to
-`-`" transform would: `:a/b-c` and `:a-b/c` would both flatten to `a-b-c`).
-
-## 2. The Root Descriptor v1 — the named, versioned S1 subset
-
-The Stage-1 "root descriptor" is **Root Descriptor v1**, key family
-`:rf.root/*`, versioned by `:rf.root/schema-version 1`. It is the **static subset of
-the Stage-5 Root Manifest** — same schema family, same version field, one
-compatibility rule (below). Every field is a per-root static fact about the root's
-source: no server, no render, no reactivity.
-
-```clojure
-{:rf.root/schema-version 1
- :root-id              :page/shop                 ; canonical (§1)
- :root-id-provenance   :authored                  ; dev only; never in shipped manifests
- :view-id              :shop/app                  ; the mounted view's registered id (§5)
- :props-shape          :literal                   ; :literal | :dynamic
- :static-props         {:promo :spring}           ; present iff :props-shape :literal (§5)
- :frame-plans          [{:frame-id :shop
-                         :config-fingerprint "…"}] ; static ENSURE plans (§6)
- :template-fingerprint "…"}                       ; over the root template
-```
-
-**Fingerprint/digest algorithms — ownership.** `:render-fingerprint` and the semantic
-normalization `N` it hashes are owned by
-[004B-UI-Tree-and-Conversion.md](004B-UI-Tree-and-Conversion.md)
-(§Semantic normalization). The `:template-fingerprint` and `:config-fingerprint`
-algorithms belong to the descriptor's producer, not to this Spec;
-this Spec pins only the fields and their comparison semantics.
-
-**Root Manifest v1 (Stage 5)** = Root Descriptor v1 (minus dev-only
-`:root-id-provenance`) **plus the render-time extension keys**, exactly the
-hydration-salient fields carried by [011 §Root Manifest v1](011-SSR.md#root-manifest-v1):
-
-| Extension key | Meaning | When produced |
-|---|---|---|
-| `:element-locator` | `{:id "shop-root"}` — §4 | server render |
-| `:props` | actual serialised props values (Spec 011 EDN-safe encoder) | server render |
-| `:frame-payload-ids` | full referenced payload set observed at render — plans ∪ provider-scoped frames (§6) | server render |
-| `:render-fingerprint` | over the rendered structural output | server render |
-| `:identifier-prefix` | resolved prefix the server actually used (§3) | server render |
-| `:phase` | `:server` (the only v1 value; the field exists so a future phase is additive) | server render |
-
-**The compatibility rule (no churn):**
-
-1. The manifest is a **strict superset** of the descriptor: every descriptor key
-   appears in the manifest with identical name, type, and meaning. No key is renamed,
-   retyped, or re-semanticised between S1 and S5.
-2. **Readers MUST ignore unknown keys.** S5 tooling reads S1 descriptors; S1
-   tooling reads S5 manifests and simply sees no extension keys.
-3. **Additive keys do not bump `:rf.root/schema-version`.** Only a breaking change to
-   an existing key bumps the integer; the S5 manifest is additive by construction.
-4. One version field governs the family: a manifest declares the same
-   `:rf.root/schema-version` as the descriptor it extends. Version incompatibility at
-   hydration is `:rf.error/root-manifest-invalid` (§7).
-
-The split lets the descriptor stand without a server: S1 is the descriptor, and S5
-ships the manifest as its extension.
+**Every root has a `root-id`, and it is the root's identity.** A hydrating root's
+root-id is the `:root-id` its host passes (§3), and the payload-install ledger
+attributes each claim to it (§6). A root-id is a qualified keyword (canonical:
+`:page/shop`) or a vector of a qualified keyword plus scalar disambiguators — keyword,
+string, or integer (`[:shop/product-panel :left]`).
 
 ## 3. The mount grammar and the host signature set
 
@@ -110,15 +30,12 @@ the first `render!` through a handle creates its root, or hydrates one under
 and ordering.
 
 - **A hydrating root hydrates as the server rendered it.** Its root-id is the
-  `:root-id` in the manifest adjacent to its container (§4), which
-  `re-frame.ssr.install/preflight!` reads from the manifest's content. A container with
-  no discoverable manifest fails loud with `:rf.error/root-manifest-invalid`, data
-  `{:missing :manifest}`: a hydrating root never guesses its identity. Its
-  `identifierPrefix` must be the one the server rendered under — the manifest's
-  `:identifier-prefix`, where an omitted one is React's empty prefix `""` — or every
-  `useId` resolves differently from the server's bytes. Fresco's door and the
-  Reagent, reagent-slim and UIx client roots take it as the `:identifier-prefix`
-  `render!` opt.
+  `:root-id` its host passes to `re-frame.ssr/hydrate!` (or on its `hydrate-page!`
+  entry), which records it as the payload's installer and names it in a conflict. Its
+  `identifierPrefix` must be the one the server rendered under — React's empty prefix
+  `""` when the server set none — or every `useId` resolves differently from the
+  server's bytes. The host passes it as the `:identifier-prefix` `render!` opt, which
+  Fresco's door and the Reagent, reagent-slim and UIx client roots all take.
 - **Frame preflight runs before React.** A root door that ensures its frame does so
   before `createRoot`: ENSURE creates the frame if absent and drains its
   `:initial-events` synchronously, so the first paint is the seeded one, and a frame
@@ -133,66 +50,10 @@ and ordering.
   (empty first render → commit-phase `useLayoutEffect` ENSURE → populated second render)
   runs the *opposite* order and scopes a component subtree, not a host root.
 
-## 4. Element locators
+## 6. Payload references and idempotent install
 
-**Locator vocabulary v1 is closed: `{:id string}`.** No CSS selectors, no XPath, no
-positional locators — an id is stable under fragment reordering, which is the point
-(mount position is never identity).
-
-- **SSR, host-authored container** (the guide-08 shape — `[:div#shop-root]` in the page
-  skeleton): the server render captures the container's id → `:element-locator
-  {:id "shop-root"}`. A container without an id gets no locator — never a synthesised
-  one on a host-owned element. Nothing is lost: a hydrating root is handed its
-  container and finds its manifest positionally (below), so no root is found by its
-  locator.
-- **SSR, emitter-synthesised container** (the server emitter is asked to produce the
-  container itself): id is generated deterministically as
-  `"rf2-root-" + root-id-slug` — unique per page because the slug is **injective** (§1),
-  so distinct root-ids yield distinct slugs, and a page's root-ids are required to be
-  unique (§7): two synthesised locators collide only on a page that breaks that
-  requirement. The registry that refuses such a page is §7's Layer 2, whose status is
-  *specified, not yet implemented*, so until it ships nothing refuses a page that
-  renders one root-id twice.
-- **Manifest placement:** the manifest rides a script element **adjacent** (immediately
-  following sibling) to the root's container, EDN-safe-encoded per Spec 011.
-  Discovery (`re-frame.ssr.manifest/discover`) finds the manifest *positionally*
-  (adjacent to its container) and takes identity from its *content*. The script
-  element's convention — `type="application/edn"` and the bare `data-rf-root` marker —
-  is [011 §The wire form](011-SSR.md#the-wire-form).
-- **Client-only mounts have no element-locator** — the host passes the DOM node
-  directly; the descriptor never contains a locator (it is a manifest extension key,
-  §2). Identity is root-id alone.
-
-## 5. Extracting view-id and serialised props from a root form
-
-- **`:view-id`** = the registered id of the root's mounted view. Nested views inside it
-  are ordinary template content, not root identity.
-- **Props:** the mounted view's props map in the root form.
-    - Every value a literal EDN datum → `:props-shape :literal`, recorded verbatim as
-      `:static-props` in the descriptor.
-    - Any non-literal expression → `:props-shape :dynamic`; no static props are recorded
-      (no guessing).
-    - Either way, the **manifest** `:props` records the *render-time values*, serialised
-      through the Spec 011 EDN-safe encoder at server render. A value the encoder cannot
-      carry fails the server render for that root: `:rf.error/root-manifest-invalid`,
-      data `{:unserialisable-prop :chart-fn}` — fail-loud, never a silently truncated
-      manifest. Hydration then applies the manifest's props (the server-rendered truth),
-      and `:props-shape :dynamic` tells tools why descriptor and manifest may differ.
-
-## 6. Frame-plan extraction and payload references
-
-- **`:frame-plans`** records the root's static frame-ENSURE plans in the descriptor, one
-  `{:frame-id … :config-fingerprint …}` per plan: the plan's literal frame id, and a
-  fingerprint of its static config source.
-- **`frame-provider` references are dynamic:** `frame-provider` scopes a live frame
-  *handle* — handles are runtime values, so provider-scoped
-  frames are **not statically extractable** and do not appear in `:frame-plans`.
-  Instead, the **manifest's** `:frame-payload-ids` (render-time) records the full
-  referenced set the server render actually scoped: plan ids ∪ provider-scoped frame
-  ids. That is how a manifest can list a provider-scoped frame — say `:frame/session` —
-  that no static plan declares. Descriptor = static plans; manifest = full render-time
-  reference set;
-  additive per §2's compatibility rule.
+- A **payload id is a frame id**: the payload a root references is the one for the frame
+  it hydrates into, so the two are one identifier, not two.
 - Payload install is **idempotent and order-independent**: the first
   hydrating root referencing a payload installs it; later roots find it live and do
   not re-seed. Conflict is the exception, and it is fail-loud (§7). Install is the
@@ -202,32 +63,13 @@ positional locators — an id is stable under fragment reordering, which is the 
   "The first hydrating root installs it" therefore describes the ORDER the two-call boot
   runs in across N roots on a page, not a step hidden inside the hydrating root.
 
-## 7. Duplicate and conflict detection — fail-loud, three layers
+## 7. Conflict detection — fail-loud
 
 All ids below follow the one-catalogue `:rf.error/*` scheme; each carries a data map
 naming both parties.
 
-**Layer 2 — server render time (S5).**
-
-> **Status: specified, not yet implemented.** No shipped code keeps this registry or
-> raises its two conflicts. `re-frame.ssr.manifest` supplies the manifest shape, wire
-> and finder the registry will use.
-
-Page assembly registers each root's manifest in a per-response registry. A second
-registration with an equal root-id fails the render: `:rf.error/duplicate-root-id`
-(server tier, projected per Spec 011). The registry is what catches **independently
-rendered page fragments** composed into one response, whose roots no single render
-sees together. The same registry asserts **identifier-prefix uniqueness** across the
-page's roots (`:rf.error/root-manifest-invalid`, data `{:conflict :identifier-prefix}`)
-— two roots sharing a prefix would collide `useId` output. Uniqueness is over each
-root's effective prefix: its authored `:identifier-prefix`, or React's empty prefix `""`
-where none is authored (§3). Two roots that both omit it therefore conflict exactly as
-two equal authored prefixes do.
-
 | Id | When |
 |---|---|
-| `:rf.error/duplicate-root-id` | equal root-id in one response's page registry (Layer 2) |
-| `:rf.error/root-manifest-invalid` | manifest missing or unreadable at hydrate, not a Root Manifest v1 (schema-version incompatible), a host-authored container without an id, unserialisable props at emit, prefix conflict (Layer 2) |
 | `:rf.error/frame-payload-conflict` | below |
 | `:rf.ssr/hydration-mismatch` | server↔client render-tree fingerprint/digest disagreement at hydration (a Spec 009 catalogue row this Spec does not own) |
 
@@ -246,8 +88,7 @@ overwrite; an **equal** digest is the idempotent no-op of §6.
 
 | Surface | Stage |
 |---|---|
-| Root Descriptor v1, the root-id and its slug | **S1** (the S1 "root descriptor" deliverable, defined by §2 above; stage roster per [EP-0030 §Stages S1–S7](../docs/EP/EP-0030-the-compiled-view-substrate-program.md#stages-s1s7)) |
-| Root Manifest v1 extension keys, the hydrating-root boot sequence (manifest discovery/validation → payload install → hydrate) — `re-frame.ssr/hydrate!` runs `re-frame.ssr.install/preflight!` (manifest discovery/validation and the install decision) and then `:rf/hydrate`, before the view layer's hydrating root adopts the DOM — locator generation, Layer-2 registry, payload-**content-digest** conflict preflight (`:rf.error/frame-payload-conflict`) | **S5** (the S5 "root manifests" deliverable — the additive extension of S1; see [011 §Root Manifest v1](011-SSR.md#root-manifest-v1)) |
+| The hydrating-root boot sequence (payload frame-id check → install decision → hydrate) — `re-frame.ssr/hydrate!` validates the payload's `:rf/frame-id`, runs `re-frame.ssr.install/preflight!` (the install decision) and then `:rf/hydrate`, before the view layer's hydrating root adopts the DOM — and the payload-**content-digest** conflict preflight (`:rf.error/frame-payload-conflict`) | **S5** (stage roster per [EP-0030 §Stages S1–S7](../docs/EP/EP-0030-the-compiled-view-substrate-program.md#stages-s1s7)) |
 
 ## Q24–Q28 coverage
 
@@ -255,9 +96,7 @@ overwrite; an **equal** digest is the idempotent no-op of §6.
   there is no `ui.test/render`
   ([008 §The `ui.test` contract](008-Testing.md#the-uitest-contract--headless-testing-for-compiled-views)).
 - **Q25** (where root-id is authored/derived; the full signature set) → §1, §3.
-- **Q26** (S1 descriptor schema; churn-free evolution to the S5 manifest) → §2.
-- **Q27** (locator generation SSR/client; duplicate detection across compilation
-  units/page fragments) → §4, §7.
-- **Q28** (frame-plan extraction) → §6 pins the `:frame-plans` record; **no Spec owns**
-  extraction itself — the top-region syntactic grammar (which wrapper forms are legal
-  and their compile diagnostics) — see [README](README.md) on the vacant 004 slot.
+- **Q26–Q28** (a static root descriptor and its evolution, locator generation and
+  duplicate detection across page fragments, frame-plan extraction) → no Spec: a root's
+  identity is the `:root-id` its host passes (§1), its container is the DOM node the host
+  hands `render!` (§3), and a payload reference is a frame id (§6).
