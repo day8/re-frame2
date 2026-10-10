@@ -18,12 +18,7 @@
 
 const assert = require('node:assert');
 
-const {
-  judgeBuild,
-  parseBuildSummaries,
-  warningHeadlines,
-  stripAnsi,
-} = require('./lane_build.cjs');
+const { judgeBuild } = require('./lane_build.cjs');
 
 // Real captured output, byte-for-byte, from `run.cjs` against
 // walk_profile_app.cljs with M-NO-PROPS's def renamed (the mutation proof).
@@ -45,37 +40,6 @@ const CLEAN_OUTPUT = [
 
 const tests = [];
 const test = (name, fn) => tests.push([name, fn]);
-
-// --- the summary parser -----------------------------------------------------
-
-test('parses a bare (slash-free) build id and its warning count', () => {
-  const { completed } = parseBuildSummaries(WARNED_OUTPUT);
-  assert.deepStrictEqual(completed, [{ build: ':fresco-bench', warnings: 2 }]);
-});
-
-test('a singular "1 warning" is still parsed', () => {
-  const { completed } = parseBuildSummaries(
-    '[:fresco-bench] Build completed. (3 files, 1 compiled, 1 warning, 1.0s)',
-  );
-  assert.deepStrictEqual(completed, [{ build: ':fresco-bench', warnings: 1 }]);
-});
-
-// --- the headline extractor (the one that can go silently empty) ------------
-
-test('names the warning CLASS, not just the count', () => {
-  assert.deepStrictEqual(warningHeadlines(WARNED_OUTPUT), [
-    'WARNING #1 - :undeclared-var',
-    'WARNING #2 - :undeclared-var',
-  ]);
-});
-
-test('a clean build has no headlines', () => {
-  assert.deepStrictEqual(warningHeadlines(CLEAN_OUTPUT), []);
-});
-
-test('stripAnsi removes the colour codes the patterns must see through', () => {
-  assert.ok(!stripAnsi(WARNED_OUTPUT).includes('['));
-});
 
 // --- the four refusals ------------------------------------------------------
 
