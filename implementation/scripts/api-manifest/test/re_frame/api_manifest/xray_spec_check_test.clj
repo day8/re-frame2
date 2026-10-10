@@ -4,7 +4,7 @@
   `day8.re-frame2-xray.*/<var>` symbol strictly by [namespace var] (every
   panel namespace carries a `Panel`, so a bare-name match would pass a stale
   panel namespace), a bare `mount-*!` by Xray var name, and an `(rf/<var>`
-  facade call by any manifest var name."
+  facade call by re-frame.core var name."
   (:require [clojure.test :refer [deftest is]]
             [re-frame.api-manifest.projection :as rf.api-manifest.projection]
             [re-frame.api-manifest.xray-spec-check :as rf.api-manifest.xray-spec-check]))
@@ -40,6 +40,20 @@
                                    {:var "sub-cache" :line 512 :raw "rf/sub-cache"}]
                     :facade-allow #{"sub-cache"}}))
       "facade (rf/<var>: an unmanifested name is flagged unless allowlisted"))
+
+(deftest facade-references-resolve-in-re-frame-core-only
+  ;; `rf` names re-frame.core, so a facade call left behind after its var
+  ;; moved to another namespace is red although the var still exists there.
+  (let [probs (rf.api-manifest.xray-spec-check/reconcile
+                {:rows            [{:namespace "re-frame.core" :var "dispatch"}
+                                   {:namespace "re-frame.machines" :var "machine-transition"}]
+                 :qualified-refs  [] :bare-refs []
+                 :facade-refs     [{:var "dispatch" :line 1 :raw "rf/dispatch"}
+                                   {:var "machine-transition" :line 2 :raw "rf/machine-transition"}]
+                 :qualified-allow #{} :bare-allow #{} :facade-allow #{}
+                 :rel             "tools/xray/spec/API.md"})]
+    (is (= [[2 "rf/machine-transition"]] (map (juxt :line :raw) probs)))
+    (is (re-find #"\bre-frame\.core\b" (str (:detail (first probs)))))))
 
 (deftest live-spec-names-qualified-and-facade-references
   ;; The check's floor is an aggregate over all three shapes, so one

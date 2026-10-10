@@ -9,8 +9,9 @@
 
   It uses the same call-position discipline as the guide check: every
   call-position
-  `(rf/<var>` / `(rf.story/<var>` reference must resolve to a manifest row, so
-  a reference to a renamed / removed / never-manifested public surface goes RED.
+  `(rf/<var>` / `(rf.story/<var>` reference must resolve to a manifest row in
+  the namespace its alias names, so a reference to a renamed / moved / removed
+  / never-manifested public surface goes RED.
 
   Per-capability `docs/<cap>/api.md` files are scanned by a one-level glob that
   also discovers future capability docs.
@@ -36,15 +37,11 @@
   sub-namespace alias (`(rf.machines/…`, `(rf.http/…`, `(rf.routing/…`) is
   outside this check entirely.
 
-  RESOLUTION LATITUDE. A reference resolves when its bare var name is carried
-  by ANY manifest row — `check!` below builds exactly that: a BARE-NAME SET
-  over every manifest row (`(set (map :var rows))`). This is correct here: the
-  API reference legitimately names vars across several public namespaces
-  (`re-frame.core`, `re-frame.story`, `re-frame.machines`, …) under the `rf`
-  alias, and a REMOVED var has no manifest row in ANY namespace, so it is
-  still caught. (The manifest drift-check + api-md-check pin namespace-exact
-  classification; this projection only asks `does this name still exist as a
-  public surface?`.)
+  RESOLUTION. A reference resolves only against the rows of the namespace its
+  alias names (`alias-namespaces`): `(rf/<var>` against `re-frame.core`,
+  `(rf.story/<var>` against `re-frame.story`. A call left behind after its var
+  moved to another namespace is RED although the var still exists there,
+  because a reader copies the call as written and it fails.
 
   REMOVAL-NOTE / TOMBSTONE TOLERANCE. Mirroring how `api-md-check` tolerates
   `spec/API.md` removal notes and how `doc-guide-check` file-scopes removed
@@ -107,48 +104,56 @@
    reports."
   20)
 
-(defn reconcile
-  "Pure reconciler, so the file-scoped allowlist contract is
-   unit-testable with synthetic inputs. Returns the seq of problem maps for
-   the supplied call-position references.
+(def ^:private alias-namespaces
+  "Each call-position alias the check extracts, and the one namespace it names."
+  {"rf" "re-frame.core" "rf.story" "re-frame.story"})
 
-   `references`  — `[{:var :line :raw :file} ...]` (`:file` repo-relative).
-   `manifest-vars` — set of bare var names ANY manifest row carries (a name
-                     in this set still names a live public surface).
+(defn reconcile
+  "Pure reconciler, so the alias resolution and the file-scoped allowlist
+   contract are unit-testable with synthetic inputs. Returns the seq of
+   problem maps for the supplied call-position references.
+
+   `references`  — `[{:alias :var :line :raw :file} ...]` (`:file` repo-relative).
+   `rows`        — manifest rows (each `{:namespace :var ...}`).
    `scoped-allow`— `{removed-name -> #{approved repo-relative file paths}}`
                    (the `:doc-api-known-unmanifested-scoped` sidecar key).
 
-   A reference resolves (no problem) when its var is carried by some manifest
-   row, OR its var is on the scoped allowlist AND its file is in that name's
-   approved-file set. A reference to a scoped removed name in a NON-approved
-   file is flagged as a removed-API leak into live reference prose; an unknown
-   name with no manifest row and no scope entry is flagged as an unresolved
-   reference."
-  [{:keys [references manifest-vars scoped-allow]}]
-  (keep (fn [{:keys [var line raw file]}]
-          (cond
-            (contains? manifest-vars var) nil
-            (contains? scoped-allow var)
-            (when-not (contains? (get scoped-allow var) file)
+   A reference resolves (no problem) when its var has a row in the namespace
+   its alias names, OR its var is on the scoped allowlist AND its file is in
+   that name's approved-file set. A reference to a scoped removed name in a
+   NON-approved file is flagged as a removed-API leak into live reference
+   prose; any other unresolved reference is flagged with the namespace it was
+   looked up in."
+  [{:keys [references rows scoped-allow]}]
+  (let [alias-vars (update-vals alias-namespaces
+                                #(set (map :var (rf.api-manifest.projection/rows-in-ns rows %))))]
+    (keep (fn [{:keys [alias var line raw file]}]
+            (cond
+              (contains? (get alias-vars alias) var) nil
+              (contains? scoped-allow var)
+              (when-not (contains? (get scoped-allow var) file)
+                {:file file :line line :raw raw
+                 :detail (format (str "removed API named outside its approved "
+                                      "removal/migration file(s) %s — live API "
+                                      "reference prose must not call removed APIs")
+                                 (vec (sort (get scoped-allow var))))})
+              :else
               {:file file :line line :raw raw
-               :detail (format (str "removed API named outside its approved "
-                                    "removal/migration file(s) %s — live API "
-                                    "reference prose must not call removed APIs")
-                               (vec (sort (get scoped-allow var))))})
-            :else
-            {:file file :line line :raw raw
-             :detail "no manifest row (renamed / removed / never-manifested public surface)"}))
-        references))
+               :detail (format (str "no %s manifest row (renamed / moved / removed / "
+                                    "never-manifested public surface)")
+                               (get alias-namespaces alias))}))
+          references)))
 
 (defn references-in-files
   "Extract both `(rf/<var>` and `(rf.story/<var>` call-position references from
-   `files` (io/file seq), each tagged with its repo-relative `:file`. Public so
-   a test can pin that the Story API reference still reaches the check."
+   `files` (io/file seq), each tagged with its `:alias` and repo-relative
+   `:file`. Public so a test can pin that the Story API reference still
+   reaches the check."
   [files]
   (for [file  files
-        alias ["rf" "rf.story"]
+        alias (keys alias-namespaces)
         ref   (rf.api-manifest.projection/alias-call-references alias (rf.api-manifest.projection/numbered-lines file))]
-    (assoc ref :file (rf.api-manifest.projection/repo-relative file))))
+    (assoc ref :alias alias :file (rf.api-manifest.projection/repo-relative file))))
 
 ;; ---------------------------------------------------------------------------
 ;; Page + member coverage.
@@ -279,9 +284,6 @@
 (defn check!
   []
   (let [rows          (rf.api-manifest.projection/manifest-rows)
-        ;; Resolution target: bare var names ANY manifest row carries. A
-        ;; removed surface has no row in ANY namespace, so it is still caught.
-        manifest-vars (set (map :var rows))
         scoped-allow  (or (:doc-api-known-unmanifested-scoped (rf.api-manifest.gen/read-sidecar)) {})
         ;; Directory trees — fail loud if a tree moves/renames.
         dir-files     (mapcat (fn [[label segs]]
@@ -302,9 +304,9 @@
                                  {:file (str privacy-file)})))
         files         (concat [privacy-file] dir-files)
         references    (references-in-files files)
-        var-problems  (reconcile {:references    references
-                                  :manifest-vars manifest-vars
-                                  :scoped-allow  scoped-allow})
+        var-problems  (reconcile {:references   references
+                                  :rows         rows
+                                  :scoped-allow scoped-allow})
         ;; Keyword-drift guards (EP-0017/EP-0011/EP-0015): spec/Privacy.md is
         ;; the EP-0015 surface, so a reintroduced retired `:rf.egress/*`
         ;; profile keyword goes RED here alongside any var-resolution drift.

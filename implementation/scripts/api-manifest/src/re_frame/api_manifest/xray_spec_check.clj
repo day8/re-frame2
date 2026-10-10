@@ -32,11 +32,9 @@
   a sub-namespace alias — `(rf.subs.tooling/sub-topology …)` on the same
   table, `(rf.http/...` — is outside
   this check, the same latitude `doc-api-check` records for its own
-  surfaces. Resolution is by BARE VAR NAME against every manifest row, not
-  namespace-exact: it answers `does this name still exist as a public
-  surface?`, which is what catches a removed name, and leaves
-  namespace-exact classification to the manifest drift-check and
-  `api-md-check`.
+  surfaces. Shape (3) resolves against `re-frame.core` rows, the namespace
+  `rf` names, so a call to a var that has moved off core is red just as a
+  call to a removed one is.
   Prose, keywords, config keys and CSS vars remain unchecked by design.
 
   TWO RESOLUTION PATHS, TWO ALLOWLISTS. The two reference
@@ -122,9 +120,9 @@
    `bare-refs`       — bare `mount-*!` refs `{:var :line :raw}`, resolved
                        against the bare-var index.
    `facade-refs`     — call-position `(rf/<var>` refs `{:var :line :raw}`,
-                       resolved against a bare-name set over
-                       ALL manifest rows — not the Xray-filtered ones,
-                       because these name the re-frame CORE facade.
+                       resolved against `re-frame.core` rows — not the
+                       Xray-filtered ones — because `rf` names the
+                       re-frame CORE facade.
    `qualified-allow` — set of `[ns var]` vectors knowingly unmanifested.
    `bare-allow`      — set of bare var-name strings knowingly unmanifested.
    `facade-allow`    — set of bare var-name strings knowingly unmanifested
@@ -153,17 +151,15 @@
                               :detail "no day8.re-frame2-xray manifest row"}))
                          bare-refs)
         ;; Facade path: `(rf/<var>` names the re-frame CORE
-        ;; surface, so it resolves against a bare-name set over ALL rows
-        ;; — deliberately NOT `xray-rows`, which would redden every
-        ;; framework reference in the file.
-        all-vars   (set (map :var rows))
+        ;; surface, so it resolves against `re-frame.core` rows alone.
+        core-vars  (set (map :var (rf.api-manifest.projection/rows-in-ns rows "re-frame.core")))
         fac-probs  (keep (fn [{:keys [var line raw]}]
-                           (when-not (or (contains? all-vars var)
+                           (when-not (or (contains? core-vars var)
                                          (contains? facade-allow var))
                              {:file rel :line line :raw raw
-                              :detail (str "no manifest row for this re-frame.core facade "
-                                           "reference (renamed / removed / never-manifested "
-                                           "public surface)")}))
+                              :detail (str "no re-frame.core manifest row for this facade "
+                                           "reference (renamed / moved / removed / "
+                                           "never-manifested public surface)")}))
                          facade-refs)]
     (concat qual-probs bare-probs fac-probs)))
 
