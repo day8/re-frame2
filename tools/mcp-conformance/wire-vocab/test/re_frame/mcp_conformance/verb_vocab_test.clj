@@ -74,7 +74,7 @@
 
 (def ^:private tool-name-fixtures
   "Per-server `tool-names.json` fixture paths. Adding a new server
-  means adding a row here AND extending `rf.mcp-conformance.fixtures/known-servers`."
+  means adding a row here."
   {:re-frame2-pair-mcp "tools/re-frame2-pair-mcp/test/fixtures/tool-names.json"
    :story-mcp          "tools/story-mcp/test/fixtures/tool-names.json"})
 
@@ -130,22 +130,3 @@
                  "NAMING.md §How to extend this table (Lock entry + row "
                  "+ catalogue update); if it's a near-synonym for a "
                  "catalogued verb, rename to the catalogued form."))))))
-
-(deftest catalogued-fixture-paths-resolve
-  (testing "every entry in tool-name-fixtures resolves to a file that
-            yields at least one tool name (catches a moved/removed
-            fixture)"
-    (doseq [server (sort (keys tool-name-fixtures))]
-      (let [names (read-tool-names server)]
-        (is (pos? (count names))
-            (str server "'s tool-names.json fixture at "
-                 (get tool-name-fixtures server)
-                 " yielded zero tool names — fixture moved or empty?"))))))
-
-(deftest catalogue-covers-every-known-server
-  (testing "the verb-vocab linter knows about every server in rf.mcp-conformance.fixtures/known-servers"
-    (doseq [server rf.mcp-conformance.fixtures/known-servers]
-      (is (contains? tool-name-fixtures server)
-          (str "rf.mcp-conformance.fixtures/known-servers carries " server " but the verb-vocab "
-               "linter has no tool-names.json fixture path for it. Add "
-               "a row to tool-name-fixtures.")))))

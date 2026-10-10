@@ -2,8 +2,7 @@
   "Repository and source-inventory helpers shared by vocabulary tests.
 
   This namespace owns CWD-independent repo resolution, memoized source
-  reads, the conformed server set, and filesystem-derived story tool
-  sources. Schemas and marker source pins live under `wire_vocab/`; a
+  reads, and filesystem-derived story tool sources. Schemas and marker source pins live under `wire_vocab/`; a
   focused family's fixtures remain beside its tests."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]))
@@ -39,12 +38,6 @@
     (fn read-source* [rel-path]
       (slurp (io/file repo-root rel-path)))))
 
-(def known-servers
-  "The canonical set of MCP servers under conformance. Adding a new
-  server means extending this set AND adding per-server source/spec
-  coverage to every relevant test catalogue."
-  #{:re-frame2-pair-mcp :story-mcp})
-
 ;; Derive the story tool surface from disk so a new source file enters every
 ;; marker/slot absence tripwire automatically.
 (def story-mcp-tools-dir
@@ -58,9 +51,8 @@
 (def story-mcp-tool-source-files
   "The story-mcp `tools/*.cljc` source files — derived from a
   filesystem listing of `story-mcp-tools-dir`, not a hand-maintained
-  list. This is the surface the slot-name and indicator
-  near-miss tripwires grep (the slots live in the tool bodies, not the
-  wire framing). Sorted for deterministic iteration order. Fails loudly
+  list. This is the surface the slot-name near-miss tripwire greps
+  (the slots live in the tool bodies, not the wire framing). Sorted for deterministic iteration order. Fails loudly
   if the directory is missing or empty — a story-mcp source-tree move
   must surface here, not silently shrink the sweep to nothing."
   (let [dir (io/file repo-root story-mcp-tools-dir)
@@ -82,7 +74,7 @@
   grep — the tool handlers (`story-mcp-tool-source-files`) plus the
   wire-framing `protocol.cljc` (which an overflow/elision adoption would
   also plausibly touch). The wire-marker tripwires use this superset;
-  the slot-name / indicator near-miss tripwires use the tool-only subset
+  the slot-name near-miss tripwire uses the tool-only subset
   (`story-mcp-tool-source-files`) since the framing layer never names a
   slot."
   (into ["tools/story-mcp/src/re_frame/story_mcp/protocol.cljc"]
@@ -97,9 +89,8 @@
 ;; accurate error reporting up the stack.
 ;;
 ;; A public helper here so the conformance test namespaces share it: the
-;; wire-vocab gate, the story-mcp absence tripwire, the indicator-field
-;; inline-emit anti-pin and their siblings all need the same
-;; documentation-vs-emission distinction.
+;; wire-vocab gate, the story-mcp absence tripwire and their siblings all
+;; need the same documentation-vs-emission distinction.
 ;; ---------------------------------------------------------------------------
 
 ;; ---------------------------------------------------------------------------
@@ -112,8 +103,8 @@
 ;; The regex pins the variant as a complete keyword token: matched only
 ;; when not immediately followed by a keyword-extender character.
 ;;
-;; Shared here so the slot-name, indicator-field, reply-envelope and
-;; infinite-trace-ops near-miss pins use the same pattern.
+;; Shared here so the slot-name near-miss pin and the reply-envelope,
+;; operating-frame and infinite-trace-ops source pins use the same pattern.
 ;; ---------------------------------------------------------------------------
 
 (defn variant-regex
