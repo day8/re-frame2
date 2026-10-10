@@ -57,18 +57,13 @@
      directly (the same atoms the private façade aliases hold) — no
      external test path needed.
 
-  2. Reinstate the namespace-load listener and late-bind registrations the
-     SSR / routing / head / machines namespaces install at load. The
-     published fixture clears the trace-tooling + event-emit listener
-     registries each test (`trace-tooling/clear-listeners!` /
-     `event-emit/clear-event-listeners!`), which drops the always-on SSR
-     `::error-projection` error-emit listener and its dev-trace twin; without
-     them a render-/drain-
-     time throw recovers to a silent HTTP 200 instead of the fail-closed
-     5xx the SSR contract mandates. A `:reload` re-runs each ns body so
-     those listeners — and the routing late-bind hooks `reg-route`
-     resolves through (`:routing/reg-route`, Spec 012) — resurrect. This
-     restores them."
+  2. Reinstate the registrations the SSR / routing / head / machines
+     namespaces install at load, which the published fixture's registrar
+     reset wipes. A `:reload` re-runs each ns body so they — the SSR
+     events and effects, and the routing late-bind hooks `reg-route`
+     resolves through (`:routing/reg-route`, Spec 012) — resurrect. SSR's
+     two error-capture hooks are not listeners, so the fixture's listener
+     clears never touch them."
   []
   (reset! rf.ssr.request/request-slots {})
   (reset! rf.ssr.response/response-slots {})

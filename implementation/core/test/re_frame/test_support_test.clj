@@ -98,7 +98,6 @@
    :epoch/clear-history!              1
    :epoch/clear-epoch-listeners!      1
    :epoch/reset-config!               1
-   :ssr/reinstall-error-projection!   1
    :adapter/clear-warn-once-caches!   1})
 
 (deftest make-reset-runtime-fixture-fires-every-hook-the-documented-number-of-times
@@ -184,14 +183,20 @@
         (rf.observability/clear-observability-default!)
         (rf.trace/clear-frame-no-emit!)))))
 
-(deftest make-reset-runtime-fixture-reinstates-the-ssr-error-projection
-  ;; `re-frame.ssr` installs its error-projection listener at load, and the
-  ;; reset's error-listener clear must not take it away from the next test.
-  (let [present? #(contains? @@#'rf.error-emit/listeners :re-frame.ssr/error-projection)
-        in-body  (atom :unset)]
-    (is (present?) "control: the listener is installed before the reset")
-    ((fixture) (fn [] (reset! in-body (present?))))
-    (is (true? @in-body))))
+(deftest make-reset-runtime-fixture-keeps-the-ssr-error-capture
+  ;; `re-frame.ssr` captures errors through a late-bind hook, not an error
+  ;; listener, so the reset's error-listener clear has nothing of SSR's to
+  ;; take away and the next test still projects.
+  (let [observe (fn []
+                  {:hook?         (some? (rf.late-bind/get-fn :ssr/capture-error-record))
+                   :ssr-listener? (boolean
+                                    (some #(and (keyword? %) (= "re-frame.ssr" (namespace %)))
+                                          (keys @@#'rf.error-emit/listeners)))})
+        in-body (atom :unset)]
+    (is (= {:hook? true :ssr-listener? false} (observe))
+        "control: re-frame.ssr is loaded, and registers no error listener")
+    ((fixture) (fn [] (reset! in-body (observe))))
+    (is (= {:hook? true :ssr-listener? false} @in-body))))
 
 ;; ---- `:init-fn` runs under the body's ambient frame -----------------------
 ;;

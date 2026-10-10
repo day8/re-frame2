@@ -1300,8 +1300,9 @@
 (defn- deliver-to-tooling!
   "Push `event` onto its in-flight frame's run-keyed ring (when the run has a
   `:dispatch-id` and a `:frame`; frameless emits skip the ring per B3),
-  then fan out to every registered listener. Listener throws are
-  isolated. No-op in production.
+  hand it to SSR's dev capture hook `:ssr/capture-error-trace` when that is
+  published, then fan out to every registered listener. Hook and listener
+  throws are isolated. No-op in production.
 
   `retain?` gates ONLY the ring push. Under retentionless
   structural delivery (`re-frame.trace/call-with-structural-delivery`) it is
@@ -1329,6 +1330,15 @@
   ([event continue?] (deliver-to-tooling! event continue? true))
   ([event continue? retain?]
    (when retain? (push-to-ring! event))
+   ;; SSR's dev error capture rides this late-bind hook, not the listener
+   ;; registry: it sees every event a listener would, synchronously and
+   ;; before any deferral, owns neither dev print, and survives
+   ;; `clear-listeners!`. Its body is a pure `swap!` on SSR's buffer, so it
+   ;; is safe inside a drain-owned delivery.
+   (when-some [capture (rf.late-bind/get-fn-cached :ssr/capture-error-trace)]
+     (try
+       (capture event)
+       (catch #?(:clj Throwable :cljs :default) _ nil)))
    (if-let [deferred-queue (current-deferred-fanout-queue)]
      ;; DEFER. A drain-owned emit — one raised
      ;; while the framework owns a frame's `:drain-lock` — is appended, never

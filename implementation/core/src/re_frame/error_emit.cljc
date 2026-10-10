@@ -97,6 +97,29 @@
   code should never call this. Returns nil."
   (:clear registry))
 
+(defn- fan-out!
+  "Deliver `record` to every registered listener, then to the SSR capture
+  hook `:ssr/capture-error-record` while the emitting continuation is still
+  live. Both corpus fan-out sites call this, BEFORE their sink route, so a
+  throwing route never starves either delivery.
+
+  The hook is how `re-frame.ssr` buffers a server frame's errors for status
+  projection. It is not a listener — a framework artefact that needs every
+  record permanently rides a late-bind hook rather than the registry — so
+  `clear-error-listeners!` never removes it and it owns no record for the
+  console fallback. UNGATED: SSR status projection is a production
+  contract, so the hook fires under `goog.DEBUG=false` and
+  `-Dre-frame.debug=false`. A throwing hook is dropped, as a throwing
+  listener is. Returns nil."
+  [record]
+  ((:fan-out registry) record rf.trace/continuation-live?)
+  (when (rf.trace/continuation-live?)
+    (when-some [capture (rf.late-bind/get-fn-cached :ssr/capture-error-record)]
+      (try
+        (capture record)
+        (catch #?(:clj Throwable :cljs :default) _ nil))))
+  nil)
+
 ;; ---- unowned-error dev console fallback -----------------------------------
 ;;
 ;; An UNTOOLED dev build DOES surface a framework refusal, on every host.
@@ -143,6 +166,9 @@
 ;;           is one undifferentiated corpus-wide door and the framework
 ;;           cannot tell an indifferent owner from an attentive one without
 ;;           inventing per-category ownership, which is deliberately absent.
+;;           A framework artefact's permanent consumer (SSR's projection)
+;;           rides a late-bind hook beside this fan-out ([[fan-out!]]), is
+;;           not a listener, and so never owns.
 ;;
 ;;       (b) the record's OWNING FRAME declares an `:observability :errors`
 ;;           policy and at least one of its entries resolved to a REGISTERED
@@ -696,7 +722,7 @@
            ;; Elision is callback-bearing. Corpus sibling fanout is one
            ;; already-linearized publication; frame routing is a later one.
            (when (rf.trace/continuation-live?)
-             ((:fan-out registry) record rf.trace/continuation-live?)
+             (fan-out! record)
              ;; EP-0015 §9: frame-owned observability sink route. Pass the RAW
              ;; event so the sink projects under its own egress profile rather
              ;; than double-eliding. `raw-identity-event?`
@@ -988,7 +1014,7 @@
   same-id successor's sink. Most records on this path are frameless, which is
   the same arm: they too reach the process default."
   [record route-frame?]
-  ((:fan-out registry) record rf.trace/continuation-live?)
+  (fan-out! record)
   (let [routed (if (rf.trace/continuation-live?)
                  (if-some [route-error-record! (rf.late-bind/get-fn-cached
                                                  :observability/route-error-record)]

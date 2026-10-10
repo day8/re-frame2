@@ -38,12 +38,7 @@
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
-    {:adapter rf.substrate.plain-atom/adapter
-     ;; Any registered error listener owns every record, and the reset
-     ;; re-installs a framework namespace's load-time one (SSR's error
-     ;; projection) when that namespace is on the classpath — which would
-     ;; silence the print here only in a whole-suite run.
-     :init-fn rf.error-emit/clear-error-listeners!}))
+    {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- captured-err
   "Run `thunk` with `*err*` bound to a fresh writer; return what it wrote."

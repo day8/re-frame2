@@ -513,7 +513,7 @@
   performs — every non-`:error` slot rides onto `:tags`, `:recovery`
   defaults to `:no-recovery` — so an event handed to `ssr/project-error`
   from here is byte-for-byte the event the runtime's own always-on
-  projection listener would have handed it."
+  projection capture would have handed it."
   [record]
   {:op-type   :error
    :operation (:error record)
@@ -972,9 +972,8 @@
        :exception  e})
     (finally
       ;; The always-on registries are corpus-wide and are NOT
-      ;; cleared by `tf/reset-runtime` (the `re-frame.ssr` façade's own
-      ;; `::error-projection` listener lives there and must survive). Drop
-      ;; ONLY the two stand-ins this run registered, on every exit path.
+      ;; cleared by `tf/reset-runtime`. Drop ONLY the two stand-ins this run
+      ;; registered, on every exit path.
       (clear-always-on-listeners!))))
 
 ;; ---- the test entrypoint -------------------------------------------------
