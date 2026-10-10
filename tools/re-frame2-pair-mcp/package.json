@@ -12,7 +12,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "shadow-cljs compile server",
+    "build": "node scripts/build.cjs",
     "watch": "shadow-cljs watch server",
     "gen:descriptors": "node scripts/descriptor-manifest-gen.cjs",
     "check:descriptors": "node scripts/descriptor-manifest-gen.cjs --check",

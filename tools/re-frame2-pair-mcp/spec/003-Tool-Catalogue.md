@@ -3761,6 +3761,7 @@ with no shadow build running gets the onboarding text rather than a
 {:ok? true
  :tool "get-re-frame2-pair-instructions"
  :tool-contract "<tool-count>-<8 hex>"
+ :built-from "<git commit>"
  :text "<prose>"}
 ```
 
@@ -3776,6 +3777,17 @@ an absent or different value sends the user to rebuild and restart the
 server rather than letting a missing tool read as an application finding.
 `test/re_frame2_pair_mcp/tool_contract_test.cljs` holds the skill's stated
 value to the registry's.
+
+`:built-from` is the git commit the server was built from. `npm run
+build` (`scripts/build.cjs`) bakes `git rev-parse HEAD` into the bundle
+as the `built-from` closure define; a build made any other way — a
+`shadow-cljs watch`, or no git — reports `"unknown"`. It exists because
+`:tool-contract` cannot see a behaviour change that keeps every name and
+argument key: when a reply lacks something the skill describes, the
+skill asks whether the newest commit touching `src/` is an ancestor of
+`:built-from` (`git merge-base --is-ancestor`) before treating the gap
+as an application finding, and sends the user to rebuild and restart the
+server when it is not.
 
 The `:text` slot is a single string the agent host renders
 verbatim. It carries no `:rf.size/large-elided` markers (no app-db

@@ -9,7 +9,11 @@
                         :compiler-options
                         {:optimizations  :simple
                          :closure-defines
-                         {re-frame.mcp-base.diff-encode/validate-patches? false}}}
+                         {re-frame.mcp-base.diff-encode/validate-patches? false
+                          ;; `npm run build` (scripts/build.cjs) sets the source's
+                          ;; git commit; any other build reports "unknown".
+                          re-frame2-pair-mcp.tools.get-re-frame2-pair-instructions/built-from
+                          #shadow/env ["RF2_PAIR_MCP_BUILT_FROM" "unknown"]}}}
           :server-test {:target :node-test
                         :output-to "out/server-test.js"
                         :ns-regexp "-test$"

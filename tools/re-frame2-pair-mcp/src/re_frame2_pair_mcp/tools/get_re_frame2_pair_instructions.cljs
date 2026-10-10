@@ -26,6 +26,15 @@
   answer to the onboarding-text question."
   (:require [re-frame2-pair-mcp.tools.wire :as wire]))
 
+(goog-define built-from
+  ;; The git commit this server was built from. `npm run build`
+  ;; (scripts/build.cjs) bakes it in through the `:server` build's
+  ;; closure-defines; any other build reports "unknown". The skill
+  ;; checks it by ancestry against the newest server-source commit, which
+  ;; catches a server that predates a behaviour change `:tool-contract`
+  ;; cannot see.
+  "unknown")
+
 (def instructions-text
   "Inline onboarding prose. Inline `(str ...)` of `\\n`-glued lines —
   see the ns docstring for the rationale (mirrors story-mcp).
@@ -132,12 +141,13 @@
 (defn get-re-frame2-pair-instructions-tool
   "Return the agent-onboarding text beside the server's `tool-contract`
   fingerprint (`registry/tool-contract`, passed in by the registry, which
-  requires this ns). `conn` and `args` are accepted for shape uniformity
-  with the other tool handlers but ignored — the text is inline and the
-  call carries no per-request state."
+  requires this ns) and its `built-from` commit. `conn` and `args` are
+  accepted for shape uniformity with the other tool handlers but ignored —
+  the text is inline and the call carries no per-request state."
   [_conn _args tool-contract]
   (js/Promise.resolve
     (wire/ok-text {:ok? true
                    :tool "get-re-frame2-pair-instructions"
                    :tool-contract tool-contract
+                   :built-from built-from
                    :text instructions-text})))
