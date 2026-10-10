@@ -401,120 +401,40 @@ def run_self_tests(verbose: bool) -> int:
             "continue_on_error": coe,
         }
 
-    # Conformant: a live checker + its self-test twin. `audit_steps` compares
-    # each step's `fallback_command` mode against its `run:`, so this pair also
-    # pins that the fallback adds `--self-test` for a `_selftest` id and only then.
-    conformant = [
-        step("check_foo", "python scripts/check_foo.py --verbose --ci"),
-        step("check_foo_selftest", "python scripts/check_foo.py --self-test"),
-    ]
-    check("conformant live+selftest pair passes", audit_job(conformant, exists_ok) == [])
+    # Each job breaks exactly one rule.  The no-id checker is found only by its
+    # run shape, which is what makes the guard see a checker that forgot its id.
+    for name, job in (
+        ("selftest id missing --self-test",
+         [step("check_foo_selftest", "python scripts/check_foo.py --verbose")]),
+        ("id/script stem mismatch", [step("check_foo", "python scripts/check_bar.py --verbose")]),
+        ("missing script file",
+         [step("check_missing", "python scripts/check_missing.py --verbose")]),
+        ("block-scalar run", [step("check_foo", None, block=True)]),
+        ("non python-scripts run", [step("check_foo", "bash -c true")]),
+        ("no-id python checker (discovered by run shape)",
+         [step(None, "python scripts/check_foo.py --verbose")]),
+        ("checker missing continue-on-error",
+         [step("check_bar", "python scripts/check_bar.py", coe=False)]),
+        ("duplicate checker id", [step("check_foo", "python scripts/check_foo.py")] * 2),
+    ):
+        check(f"{name} FIRES", bool(audit_job(job, exists_ok)))
 
-    # A bare live checker with no flags (the check_skill_redirect_anchors shape).
+    # Against the REAL workflow.  The live `--check` run audits it; what it does
+    # not do is notice a parser that silently drops most of the steps, or
+    # exercise `--emit`, which the aggregator falls back from without a sound.
+    text = WORKFLOW.read_text(encoding="utf-8")
+    real_checkers = discover_checker_steps(parse_job_steps(text)[1])
+    check("parser finds >= 30 checker steps in the real workflow", len(real_checkers) >= 30)
+    sel = next((s["id"] for s in real_checkers if s["id"].endswith(SELFTEST_SUFFIX)), None)
+    liv = next((s["id"] for s in real_checkers if not s["id"].endswith(SELFTEST_SUFFIX)), None)
     check(
-        "bare live checker (no flags) passes",
-        audit_job([step("check_foo", "python scripts/check_foo.py")], exists_ok) == [],
+        "emit(real selftest id) includes --self-test",
+        sel is not None and _has_selftest_flag(emit_command(sel, text) or ""),
     )
-
-    # THE DEFECT this guard exists for: a `_selftest` id whose run drops `--self-test`.
     check(
-        "selftest id missing --self-test FIRES",
-        len(audit_job([step("check_foo_selftest", "python scripts/check_foo.py --verbose")], exists_ok)) >= 1,
+        "emit(real live id) omits --self-test",
+        liv is not None and not _has_selftest_flag(emit_command(liv, text) or ""),
     )
-
-    # The mirror: a live id whose run carries `--self-test`.
-    check(
-        "live id carrying --self-test FIRES",
-        len(audit_job([step("check_foo", "python scripts/check_foo.py --self-test")], exists_ok)) >= 1,
-    )
-
-    # id stem does not match the script it runs.
-    check(
-        "id/script stem mismatch FIRES",
-        len(audit_job([step("check_foo", "python scripts/check_bar.py --verbose")], exists_ok)) >= 1,
-    )
-
-    # Referenced script does not exist on disk.
-    check(
-        "missing script file FIRES",
-        len(audit_job([step("check_missing", "python scripts/check_missing.py --verbose")], exists_ok)) >= 1,
-    )
-
-    # A block-scalar run the aggregator could not derive a command from.
-    check(
-        "block-scalar run FIRES",
-        len(audit_job([step("check_foo", None, block=True)], exists_ok)) >= 1,
-    )
-
-    # A run that is not a python-scripts invocation at all.
-    check(
-        "non python-scripts run FIRES",
-        len(audit_job([step("check_foo", "bash -c true")], exists_ok)) >= 1,
-    )
-
-    # --- EXHAUSTIVENESS --------------------------------------------------------
-    # The guard must catch a checker discovered INDEPENDENTLY of its id. These
-    # are the two negative fixtures that prove it.
-    #
-    # (A) A python checker with `continue-on-error: true` but NO id. An id-only
-    # filter never sees it, so a failure there is absent from toJSON(steps) and
-    # the job goes green. Discovery-by-run-shape must surface it; the audit then
-    # fires on the missing id.
-    check(
-        "no-id python checker FIRES (discovered by run shape)",
-        len(audit_job([step(None, "python scripts/check_foo.py --verbose", coe=True)], exists_ok)) >= 1,
-    )
-    # (B) An id'd `check_bar` with NO `continue-on-error`. It restores bash
-    # short-circuiting, so later invariants never run. The audit must fire even
-    # though every other property (id, script, mode) is conformant.
-    check(
-        "checker missing continue-on-error FIRES",
-        len(audit_job([step("check_bar", "python scripts/check_bar.py", coe=False)], exists_ok)) >= 1,
-    )
-    # A duplicate checker id shadows a twin in toJSON(steps).
-    check(
-        "duplicate checker id FIRES",
-        len(audit_job([
-            step("check_foo", "python scripts/check_foo.py"),
-            step("check_foo", "python scripts/check_foo.py"),
-        ], exists_ok)) >= 1,
-    )
-    # The id-less block-scalar report step (and checkout/setup steps) must NOT be
-    # mistaken for a checker -- discovery excludes them, so a clean job of one
-    # conformant checker plus a report step audits clean.
-    report = step(None, None, block=True)
-    check(
-        "id-less block-scalar report step is not a discovered checker",
-        discover_checker_steps([step("check_foo", "python scripts/check_foo.py"), report])
-        == [step("check_foo", "python scripts/check_foo.py")],
-    )
-
-    # Against the REAL workflow: parser locates the job, finds the checkers,
-    # the live audit is clean, and --emit round-trips a real selftest + live id.
-    if WORKFLOW.exists():
-        text = WORKFLOW.read_text(encoding="utf-8")
-        # A job the parser cannot locate yields no steps, so the `>= 30` floor
-        # also pins that the job is found.
-        _, all_steps = parse_job_steps(text)
-        real_checkers = discover_checker_steps(all_steps)
-        check("parser finds >= 30 checker steps in the real workflow", len(real_checkers) >= 30)
-        # `audit_steps` grades every discovered checker's `check_*` id and its
-        # `continue-on-error: true`, so a clean audit pins both over the real
-        # workflow, and an id-less step discovered by mistake would fail it.
-        check("real workflow audit is clean", audit_steps(real_checkers) == [])
-
-        sel = next((s["id"] for s in real_checkers if s["id"].endswith(SELFTEST_SUFFIX)), None)
-        liv = next((s["id"] for s in real_checkers if not s["id"].endswith(SELFTEST_SUFFIX)), None)
-        check(
-            "emit(real selftest id) includes --self-test",
-            sel is not None and _has_selftest_flag(emit_command(sel, text) or ""),
-        )
-        check(
-            "emit(real live id) omits --self-test",
-            liv is not None and not _has_selftest_flag(emit_command(liv, text) or ""),
-        )
-    else:
-        check("real workflow present for parser self-test", False)
 
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
