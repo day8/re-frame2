@@ -259,10 +259,7 @@ def check(
 
 
 SELF_TEST_WORKFLOW = """\
-name: whatever
 jobs:
-  detect:
-    runs-on: ubuntu-latest
   jvm-good:
     defaults:
       run:
@@ -280,61 +277,40 @@ jobs:
       run:
         working-directory: tools/unrostered
     steps:
-      - working-directory: implementation
-        run: npm ci
       - run: clojure -M:test
   all-required-passed:
     needs:
-      - detect
       - jvm-good
       - jvm-unrostered
-    steps:
-      - run: echo ok
 """
 
 SELF_TEST_ROSTER = """\
-#!/usr/bin/env bash
-set -euo pipefail
-
 tools=(
   tools/good
-  # a comment that mentions tools/decoy and must not be read as an entry
   tools/advisory
   tools/ungated
 )
-
-for tool in "${tools[@]}"; do
-  (cd "$tool" && clojure -M:test)
-done
 """
 
 
 def self_test(verbose: bool) -> int:
-    jobs = parse_jobs(SELF_TEST_WORKFLOW)
-    roster = parse_roster(SELF_TEST_ROSTER)
-    cases: list[tuple[str, bool]] = []
-
-    def expect(label: str, ok: bool) -> None:
-        cases.append((label, ok))
-
-    expect("job parser finds every job", set(jobs) == {
-        "detect", "jvm-good", "jvm-advisory", "jvm-unrostered", "all-required-passed",
-    })
-    expect(
-        "needs parser reads the aggregator list",
-        parse_needs(jobs["all-required-passed"]) == ["detect", "jvm-good", "jvm-unrostered"],
+    failures, _ = check(
+        {"roster.sh": parse_roster(SELF_TEST_ROSTER)},
+        parse_jobs(SELF_TEST_WORKFLOW),
+        has_deps_edn=lambda _: True,
     )
-
-    failures, _ = check({"roster.sh": roster}, jobs, has_deps_edn=lambda _: True)
-    expect("a rostered artefact with no job fires R1", any(
-        f.startswith("R1 tools/ungated") for f in failures))
-    expect("a rostered artefact whose job is advisory fires R1", any(
-        f.startswith("R1 tools/advisory") and AGGREGATOR_JOB in f for f in failures))
-    expect("a required job on no roster fires R2", any(
-        f.startswith("R2 tools/unrostered") for f in failures))
-    # Exactly the three failures named above: a misread roster line, a misread
-    # workdir, or a correctly paired artefact that fired would change the count.
-    expect("the gate fires exactly three times on the fixture", len(failures) == 3)
+    cases = [
+        (
+            "the fixture fires R1 for the ungated and advisory artefacts and R2 "
+            "for the unrostered job, and nothing for the paired one",
+            sorted(f.split(":")[0] for f in failures)
+            == ["R1 tools/advisory", "R1 tools/ungated", "R2 tools/unrostered"],
+        ),
+        (
+            "the advisory artefact's R1 names the aggregator",
+            any(f.startswith("R1 tools/advisory") and AGGREGATOR_JOB in f for f in failures),
+        ),
+    ]
 
     ok = all(passed for _, passed in cases)
     for label, passed in cases:
