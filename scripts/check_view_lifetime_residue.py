@@ -47,8 +47,8 @@ import re
 # is ever exempted from the scan.
 _STEM = "l" + "eas"
 
-# A violation is the stem followed by a word tail (e / es / ed / ing),
-# case-insensitively, that is NOT the tail of "re<stem>e" or "p<stem>e"
+# A violation is the stem followed by `e` or `ing` (with no trailing boundary,
+# `e` also covers the `es` / `ed` inflections), case-insensitively, that is NOT the tail of "re<stem>e" or "p<stem>e"
 # (release / please / displease and their inflections). The exclusion is a
 # fixed-width negative lookbehind on the two / one character(s) that precede the
 # stem, so a genuine occurrence sharing a line with the word "release" is
@@ -56,7 +56,7 @@ _STEM = "l" + "eas"
 # trailing word boundary, so identifier forms are caught too: snake
 # `<stem>_id`, camel `<stem>Id` and `view<Stem>`, kebab `<stem>-manager`.
 _PATTERN = re.compile(
-    r"(?<!re)(?<!p)" + _STEM + r"(?:e|es|ed|ing)",
+    r"(?<!re)(?<!p)" + _STEM + r"(?:e|ing)",
     re.IGNORECASE,
 )
 
@@ -206,7 +206,7 @@ def main(argv: list[str] | None = None) -> int:
         "--self-test",
         action="store_true",
         help="Prove the matcher discriminates (prose / snake / camel / filename "
-        "positives, release/please/survivor negatives) and exit.",
+        "positives, release/please/displease negatives) and exit.",
     )
     args = parser.parse_args(argv)
 

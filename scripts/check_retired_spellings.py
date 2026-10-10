@@ -162,9 +162,8 @@ retired SHAPES:
       coordinate — the opening quote is immediately followed by `front.`/
       `arm1.`, and the literal closes with no whitespace in between. That is
       exactly the `str/starts-with?` / `=` comparison shape, and it is what
-      keeps the rule off the two shipped refusal MESSAGES that name the
-      prototype in backticked prose (`impl/collector.cljs:1738` and `:1790`) —
-      those literals are sentences, so they carry spaces and cannot match.
+      keeps the rule off a message that names the prototype in prose: such a
+      literal is a sentence, so it carries spaces and cannot match.
 
       Both delimiters must be REAL — a `"` preceded by a backslash is an
       escaped quote INSIDE a larger literal, not a boundary of one. Without
@@ -198,18 +197,11 @@ retired SHAPES:
       rule ships with NO allow-list and needs none:
 
         * A preceding `:` is DENIED, so the separately-retired KEYWORD
-          `:rf/machine-has-tag?` cannot fire this rule, and neither can the
-          deny-site `docs/machines/tags.md` that spells it to forbid it
-          ("There is no `machine-has-tag?` function and no
-          `[:rf/machine-has-tag? …]`").
-        * The `/` must be IMMEDIATELY before `machine-has-tag?`. That is what
-          keeps the rule off the ~60 private `defn-` test helpers in
-          `implementation/adapters/reagent/test/` — `machine-has-tag?`,
-          `settings-machine-has-tag?`, `tags-machine-has-tag?` and their call
-          sites are all UNQUALIFIED, and they are correct — DO NOT
-          TOUCH. It also keeps it off every prose roster that lists the
-          name after a slash-and-space (a prose roster of API names), which is
-          how the playground README and `sci/deps.edn` spell it.
+          `:rf/machine-has-tag?` cannot fire this rule.
+        * The `/` must be IMMEDIATELY before `machine-has-tag?`, so an
+          UNQUALIFIED helper or call site of that name (a private test helper,
+          say) never fires, and neither does a prose roster that lists the
+          name after a slash-and-space.
         * The shipped subscription `:rf.machine/has-tag?` carries `/has-tag?`,
           not `/machine-has-tag?`, so it cannot collide.
 
@@ -283,7 +275,7 @@ WHY RULE (g) IS THE ONLY WIDE ONE
 
 Rules (a)-(f) are narrow because their retired spellings COLLIDE with
 sanctioned vocabulary: `:frame` and `:url` are live public keys, `front.` is a
-directory shorthand, `machine-has-tag?` is a private test helper. Every line of
+directory shorthand, `machine-has-tag?` is a legal private-helper name. Every line of
 scoping above is buying discrimination against a legitimate neighbour.
 
 `hicasso` has no neighbour. It is a coined product name that collides with no
@@ -1110,11 +1102,10 @@ class Finding(NamedTuple):
 #
 # `#"..."` regex literals and `\"` escapes inside strings are handled by the
 # simple state machine below. The `retired-redirect-target-keys` DEF — the
-# vector literal `[:url :to]` that names the retired keys — is intentionally
-# NOT a redirect-fx form (it carries no `:rf.server/*redirect` tag in the same
-# window), so it does not match (b) regardless. And `[:url :to]` as bare
-# keywords are not in map-entry position (no value follows), so the
-# map-entry shape would not match them anyway.
+# vector literal `[:url :to]` that names the retired keys — stays green on the
+# window alone. `:url ` does match the map-entry key pattern (a keyword
+# followed by whitespace), but the docstrings around the def that name
+# `:rf.server/redirect` are masked, so no redirect tag survives in its window.
 
 _LINE_COMMENT_RE = re.compile(r";.*$")
 

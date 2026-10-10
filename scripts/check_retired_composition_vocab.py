@@ -523,10 +523,6 @@ _RETAINED_CLAIM_FORMS: tuple[tuple[str, str], ...] = (
     ("realm-readers-remain",
      r"(?:realm[- ]scoped|realm)\s+readers?\b[^.\n]*?\bremain"),
 )
-_RETAINED_CLAIM_RE = re.compile(
-    "|".join(pattern for _name, pattern in _RETAINED_CLAIM_FORMS),
-    re.IGNORECASE,
-)
 _RETAINED_CLAIM_RES = tuple(
     (name, re.compile(pattern, re.IGNORECASE))
     for name, pattern in _RETAINED_CLAIM_FORMS
@@ -549,9 +545,6 @@ _DELETED_NS_READS: tuple[tuple[str, str], ...] = (
     ("re-frame.app-value/", r"re-frame\.app-value/[\w.+!?<>=-]+"),
     ("re-frame.migration/migration-map",
      r"re-frame\.migration/migration-map\b"),
-)
-_DELETED_NS_READ_RE = re.compile(
-    "|".join(pattern for _name, pattern in _DELETED_NS_READS)
 )
 _DELETED_NS_READ_RES = tuple(
     (name, re.compile(pattern)) for name, pattern in _DELETED_NS_READS

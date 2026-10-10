@@ -379,8 +379,9 @@ def main(argv: Iterable[str]) -> int:
     parser.add_argument("--ci", action="store_true",
                         help="Emit GitHub-Actions ::error:: lines (auto-on under GITHUB_ACTIONS).")
     parser.add_argument("--self-test", action="store_true",
-                        help="Run built-in fixtures (both agree cases + both "
-                             "contradiction directions + the sibling-mention guard) and exit.")
+                        help="Run built-in fixtures (an agree case, both "
+                             "contradiction directions, silence, the sibling-mention "
+                             "guard and a stance in the skill README) and exit.")
     args = parser.parse_args(list(argv))
 
     if args.self_test:
