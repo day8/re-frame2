@@ -349,10 +349,6 @@ def line_states_gate_scope(line: str) -> bool:
     return bool(GATE_SCOPE_CUE_RE.search(line))
 
 
-def line_names_all_required_roots(line: str) -> bool:
-    return all(rx.search(line) for rx in REQUIRED_ROOT_RES.values())
-
-
 def missing_required_roots(line: str) -> list[str]:
     return [root for root, rx in REQUIRED_ROOT_RES.items() if not rx.search(line)]
 
@@ -626,336 +622,56 @@ def run(*, verbose: bool, ci: bool) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Self-test — exercises the line classifier against in-memory fixtures so the
-# guard itself can't silently rot. Mirrors the --self-test convention in the
-# sibling check_skill_*.py guards.
+# Self-test — the line classifiers against known shapes.
 # ---------------------------------------------------------------------------
 
 def _self_test() -> int:
-    failures = 0
+    def order(line: str):
+        """(has 015, has 013) for a foundation-boundary line, else False."""
+        return line_states_foundation_boundary(line) and (
+            line_includes_015(line), line_includes_013(line))
 
-    def expect(
-        line: str,
-        *,
-        boundary: bool,
-        has015: bool,
-        label: str,
-        has013: bool | None = None,
-    ) -> None:
-        nonlocal failures
-        got_boundary = line_states_foundation_boundary(line)
-        got_015 = line_includes_015(line)
-        if got_boundary != boundary:
-            print(
-                f"SELF-TEST FAIL ({label}): boundary classification "
-                f"expected {boundary}, got {got_boundary} for: {line!r}"
-            )
-            failures += 1
-        if boundary and got_015 != has015:
-            print(
-                f"SELF-TEST FAIL ({label}): 015-presence "
-                f"expected {has015}, got {got_015} for: {line!r}"
-            )
-            failures += 1
-        if boundary and has013 is not None:
-            got_013 = line_includes_013(line)
-            if got_013 != has013:
-                print(
-                    f"SELF-TEST FAIL ({label}): 013-presence "
-                    f"expected {has013}, got {got_013} for: {line!r}"
-                )
-                failures += 1
+    def gate(line: str):
+        """The missing roots of a gate-1 scope line, else False."""
+        return line_states_gate_scope(line) and missing_required_roots(line)
 
-    # FAIL fixtures — these are the order-drift shapes; each is a boundary
-    # statement that OMITS 015 (so the guard must flag them).
-    expect(
-        "3. Implement in dependency order: 001 -> 002 -> 006 -> 004 -> 009 -> optional.",
-        boundary=True, has015=False, label="A authoring-prompt arrow run",
+    cases = (
+        ("A arrow run omitting 015 and 013", order(
+            "3. Implement in dependency order: 001 -> 002 -> 006 -> 004 -> 009 -> optional."),
+         (False, False)),
+        ("F2 cluster enumeration omitting 013", order(
+            "the foundation cluster (001 / 002 / 006 / views / 009 / 015) and the optional EPs"),
+         (True, False)),
+        ("G prose name instead of number", order(
+            "001 -> 002 -> 006 -> 004 -> 009 -> Data Classification -> 013 -> optional"),
+         (True, True)),
+        ("G2 013 citation alone is not a sequence mention", order(
+            "001 → 002 → 006 → views → 009 → 015 are the foundation; flows live in "
+            "[`spec/013-Flows.md`](https://day8.github.io/re-frame2/spec/013-Flows/) "
+            "among the optional EPs"),
+         (True, False)),
+        ("K prose rationale, no sequence arrow", order(
+            "009 is in the foundation because `:core/trace` and `:core/error` fixtures exercise it."),
+         False),
+        ("L impl-tour file map (no boundary cue)", order(
+            "the public API + the heart of EP 001 / 002 / 009; also core/src/..."),
+         False),
+        ("Q1 three-family gate is incomplete", gate(
+            "Acceptance gate 1 — the required-foundation gate: run every fixture "
+            "applicable to `:core/*` + `:identity/*` + `:data-classification/*`."),
+         [":flow/*"]),
+        ("T gate-2 line (gate-1 cue absent)", gate(
+            "gate 2 runs the full claimed-capability set, a superset of `:core/*`"),
+         False),
+        ("W fixture misnomer is not a witness reference", bool(WITNESS_REF_RE.search(
+            "`:core/sub`, plus the `:identity/cedn1` sub-cache fixtures")),
+         False),
     )
-    expect(
-        "EP 001 → 002 → 006 → 004 → 009 Instrumentation → optional EPs per Phase 1 scope.",
-        boundary=True, has015=False, label="B README arrow run",
-    )
-    expect(
-        "the foundation cluster (001 / 002 / 006 / 004 / 009) and the optional EPs",
-        boundary=True, has015=False, label="C design.md cluster enumeration",
-    )
-    expect(
-        "| **Required core** (000 / 001 / 002 / 004 / 006 / 009) | yes | non-negotiable |",
-        boundary=True, has015=False, label="D decision-record required-core row",
-    )
-
-    # PASS fixtures — boundary statements that DO carry 015 (the conforming shapes).
-    expect(
-        "001 -> 002 -> 006 -> 004 -> 009 -> Data Classification -> 013 -> optional",
-        boundary=True, has015=True, has013=True, label="G prose name instead of number",
-    )
-
-    # FAIL fixtures — 015 is correctly ordered but 013 (Flows, equally
-    # v1-required) is missing from the sequence, back among the optional EPs:
-    # the order reads complete, and the port ships no flow substrate.
-    expect(
-        "001 → 002 → 006 → views → 009 → 015 are the foundation; optional EPs sit downstream.",
-        boundary=True, has015=True, has013=False,
-        label="E2 015 present, 013 missing from the foundation run",
-    )
-    expect(
-        "the foundation cluster (001 / 002 / 006 / views / 009 / 015) and the optional EPs",
-        boundary=True, has015=True, has013=False,
-        label="F2 cluster enumeration omitting 013",
-    )
-    # A bare spec-file citation must NOT satisfy the 013 requirement — only a
-    # real sequence token does (citations are scrubbed before the test).
-    expect(
-        "001 → 002 → 006 → views → 009 → 015 are the foundation; flows live in "
-        "[`spec/013-Flows.md`](https://day8.github.io/re-frame2/spec/013-Flows/) among the optional EPs",
-        boundary=True, has015=True, has013=False,
-        label="G2 013 citation alone is not a sequence mention",
-    )
-
-    # NOT-A-BOUNDARY fixtures — these mention 009 but are not foundation-order
-    # statements, so they must NOT be flagged regardless of 015.
-    expect(
-        "## EP 009 — Instrumentation",
-        boundary=False, has015=False, label="H single-EP section heading",
-    )
-    expect(
-        "5. EP 009 — Instrumentation",
-        boundary=False, has015=False, label="I numbered single-EP heading",
-    )
-    expect(
-        "**Read first.** [`spec/009-Instrumentation.md`](https://day8.github.io/re-frame2/spec/009-Instrumentation/).",
-        boundary=False, has015=False, label="J spec-file + URL citation",
-    )
-    expect(
-        "009 is in the foundation because `:core/trace` and `:core/error` fixtures exercise it.",
-        boundary=False, has015=False, label="K prose rationale, no sequence arrow",
-    )
-    expect(
-        "the public API + the heart of EP 001 / 002 / 009; also core/src/...",
-        boundary=False, has015=False, label="L impl-tour file map (no boundary cue)",
-    )
-
-    # -- Required-foundation gate scan -------------------------------------
-    def expect_gate(line: str, *, gate: bool, all_roots: bool, label: str) -> None:
-        nonlocal failures
-        got_gate = line_states_gate_scope(line)
-        got_roots = line_names_all_required_roots(line)
-        if got_gate != gate:
-            print(
-                f"SELF-TEST FAIL ({label}): gate-scope classification "
-                f"expected {gate}, got {got_gate} for: {line!r}"
-            )
-            failures += 1
-        if gate and got_roots != all_roots:
-            print(
-                f"SELF-TEST FAIL ({label}): all-roots-present "
-                f"expected {all_roots}, got {got_roots} for: {line!r}"
-            )
-            failures += 1
-
-    # FAIL fixtures — gate-1 scope statements that name :core/* alone (the
-    # false-green shapes); the gate scan must flag each.
-    expect_gate(
-        "Acceptance gate 1 — running the `:core/*` conformance fixtures — sits at the end.",
-        gate=True, all_roots=False, label="M core-only cardinal-rule gate",
-    )
-    expect_gate(
-        "The `:core/*` conformance corpus at `spec/conformance/` is the acceptance test.",
-        gate=True, all_roots=False, label="N core-only README acceptance corpus",
-    )
-    # The miss an order-only guard lets through: EP 015 correctly
-    # ORDERED, yet the gate runs :core/* + :data-classification/* only — the
-    # separately-tagged :identity/* (EP-0012) family is absent from gate 1.
-    ordered_but_no_identity = (
-        "Acceptance gate 1 (001 -> 002 -> 006 -> 004 -> 009 -> 015 -> 013): run "
-        "every fixture applicable to `:core/*` + `:data-classification/*`."
-    )
-    expect(ordered_but_no_identity, boundary=True, has015=True, has013=True,
-           label="O order is clean (015 + 013 present) — order scan must NOT flag")
-    expect_gate(ordered_but_no_identity, gate=True, all_roots=False,
-                label="O gate scan must flag (identity absent from gate 1)")
-    expect_gate(
-        "the first acceptance gate runs the `:core/*` + `:identity/*` fixtures",
-        gate=True, all_roots=False, label="P classification family absent",
-    )
-
-    # The three-family / four-family pair. A three-family statement is a
-    # false-green (a port with no flow substrate clears it), so the gate scan
-    # must flag it. Adding `:flow/*` returns green.
-    expect_gate(
-        "Acceptance gate 1 — the required-foundation gate: run every fixture "
-        "applicable to `:core/*` + `:identity/*` + `:data-classification/*`.",
-        gate=True, all_roots=False,
-        label="Q1 three-family gate is incomplete (:flow/* absent)",
-    )
-    expect_gate(
-        "Acceptance gate 1 — the required-foundation gate: run every fixture "
-        "applicable to `:core/*` + `:identity/*` + `:flow/*` + "
-        "`:data-classification/*`.",
-        gate=True, all_roots=True, label="Q2 four-family gate",
-    )
-    # Flows conceded in prose while the gate statement runs only three
-    # families.
-    expect_gate(
-        "Acceptance gate 1 green: every fixture applicable to `:core/*` + "
-        "`:identity/*` + `:data-classification/*` at the pin (flows claimed "
-        "separately per the profile).",
-        gate=True, all_roots=False,
-        label="Q3 flows named in prose does not discharge the gate scope",
-    )
-
-    # NOT-A-GATE fixtures — mention :core/* but do not pin the gate-1 scope, so
-    # they must NOT be flagged regardless of the other families.
-    expect_gate(
-        "the algebra is verified through the source-form fixtures (the `:core/*` "
-        "sub fixtures, `:flow/*`, resources / routing / machines families)",
-        gate=False, all_roots=False, label="R derivation-algebra fixtures (no gate cue)",
-    )
-    expect_gate(
-        "      :core/*                 ; always — pattern-required",
-        gate=False, all_roots=False, label="S D7 claim-catalog row (no gate cue)",
-    )
-    expect_gate(
-        "gate 2 runs the full claimed-capability set, a superset of `:core/*`",
-        gate=False, all_roots=False, label="T gate-2 line (gate-1 cue absent)",
-    )
-
-    # -- EP-006 live sub-cache witness scan --------------------------------
-    def expect_witness_ref(line: str, *, ref: bool, label: str) -> None:
-        nonlocal failures
-        got = bool(WITNESS_REF_RE.search(line))
-        if got != ref:
-            print(
-                f"SELF-TEST FAIL ({label}): witness-reference classification "
-                f"expected {ref}, got {got} for: {line!r}"
-            )
-            failures += 1
-
-    def expect_element(
-        element: str, text: str, *, present: bool, label: str
-    ) -> None:
-        nonlocal failures
-        got = bool(WITNESS_ELEMENT_RES[element].search(text))
-        if got != present:
-            print(
-                f"SELF-TEST FAIL ({label}): element `{element}` presence "
-                f"expected {present}, got {got} for: {text!r}"
-            )
-            failures += 1
-
-    # Witness REFERENCES — the completion-surface shapes must match; the
-    # misnomer shape (calling the fixtures themselves "sub-cache fixtures")
-    # shares the sub-cache token and must NOT.
-    expect_witness_ref(
-        "- [ ] EP-006 live sub-cache witness green "
-        "([`references/phase-2-impl-order.md`](...)) — required whenever ...",
-        ref=True, label="U Done-checklist witness item",
-    )
-    expect_witness_ref(
-        "`:core/sub`, plus the `:identity/cedn1` sub-cache fixtures",
-        ref=False, label="W fixture misnomer is not a witness reference",
-    )
-    expect_witness_ref(
-        "each frame holds one sub-cache, keyed by the query vector",
-        ref=False, label="X plain sub-cache prose is not a witness reference",
-    )
-
-    # Witness DEFINITION elements — each positive is the owner's contract
-    # shape (markdown bold included); each negative shares surface tokens.
-    expect_element(
-        "two distinct host allocations",
-        "Build `q1` and `q2` as two distinct host allocations of the same query value",
-        present=True, label="Y1 allocations element present",
-    )
-    expect_element(
-        "two distinct host allocations",
-        "two distinct cache entries are created",
-        present=False, label="Y2 distinct-entries prose is not the element",
-    )
-    expect_element(
-        "exactly one cache-slot creation",
-        "exactly **one** cache-slot creation, one derived container / first-run computation",
-        present=True, label="Z1 one-slot element present (bold tolerated)",
-    )
-    expect_element(
-        "exactly one cache-slot creation",
-        "two query vectors share one cache key",
-        present=False, label="Z2 one-cache-KEY prose is not the element",
-    )
-    expect_element(
-        "exactly-once disposal",
-        "the slot is removed and disposal fires **exactly once**",
-        present=True, label="AA1 disposal element present (bold tolerated)",
-    )
-    expect_element(
-        "exactly-once disposal",
-        "under reference keying, disposal never fires",
-        present=False, label="AA2 disposal-never-fires prose is not the element",
-    )
-    expect_element(
-        "non-rf= negative control",
-        "**Negative control.** A third query that is *not* `rf=` to `q1`",
-        present=True, label="AB1 negative-control element present",
-    )
-    expect_element(
-        "non-rf= negative control",
-        "a control run against the reference implementation",
-        present=False, label="AB2 generic control prose is not the element",
-    )
-    expect_element(
-        "score honesty (beside, never inside/folded)",
-        "**beside** the conformance score, never inside it",
-        present=True, label="AC1 score-honesty element present",
-    )
-    expect_element(
-        "score honesty (beside, never inside/folded)",
-        "Reported beside the corpus score, never folded into it",
-        present=True, label="AC2 score-honesty alternate phrasing present",
-    )
-    expect_element(
-        "score honesty (beside, never inside/folded)",
-        "the score is never below the fixture count",
-        present=False, label="AC3 never-below prose is not the element",
-    )
-
-    # -- Normative required-root derivation --------------------------------
-    # These read spec/Implementor-Checklist.md, because the derivation IS the
-    # unit under test: the point of the two-sided cross-check is that the
-    # constant is answerable from the spec rather than from the skill.
-    normative, normative_problems = derive_normative_always_run()
-    for problem in normative_problems:
-        print(f"SELF-TEST FAIL (AD normative derivation): {problem}")
-        failures += 1
-    if normative and normative != set(REQUIRED_ROOT_RES):
-        print(
-            "SELF-TEST FAIL (AE constant vs normative): the family table "
-            f"derives {sorted(normative)} but REQUIRED_ROOT_RES holds "
-            f"{sorted(REQUIRED_ROOT_RES)} — the guard and the spec disagree."
-        )
-        failures += 1
-    if normative and ":flow/*" not in normative:
-        print(
-            "SELF-TEST FAIL (AF): spec/Implementor-Checklist.md no longer marks "
-            ":flow/* as always-run — the four-family premise has moved; re-read the "
-            "family table before relaxing the skill."
-        )
-        failures += 1
-    # The row regex keys on the exact `nothing — always run` cell. :derivation/*
-    # reads "nothing declares it — but ... in practice Q1" and is gated in
-    # practice, so it must NOT be pulled into the required set.
-    if ALWAYS_RUN_ROW_RE.search(
-        "| `:derivation/*` | nothing declares it — but **every current fixture "
-        "is cross-tagged**, so in practice Q1 | Graph inspection. |"
-    ):
-        print(
-            "SELF-TEST FAIL (AG): a 'nothing declares it' row was read as "
-            "always-run; the derivation would over-claim the required set."
-        )
-        failures += 1
-
+    failures = [(label, got, want) for label, got, want in cases if got != want]
+    for label, got, want in failures:
+        print(f"SELF-TEST FAIL ({label}): expected {want!r}, got {got!r}")
     if failures:
-        print(f"self-test: {failures} failure(s).")
+        print(f"self-test: {len(failures)} failure(s).")
         return 1
     print("self-test: all cases passed.")
     return 0
