@@ -446,7 +446,7 @@
    `:allow-raw-state? false` mode the moment a state-emitting MCP tool
    first fires. Operators who passed `--allow-sensitive-reads` at server
    launch get `:allow-raw-state? true` instead."
-  [{:keys [allow-raw-state?] :as opts}]
+  [opts]
   (swap! raw-state-config merge (select-keys opts [:allow-raw-state?]))
   (assoc @raw-state-config :ok? true))
 
@@ -520,7 +520,7 @@
                           :rf.egress/local-raw
                           :rf.egress/off-box-tool)}))
 
-(declare attach-cascade db-diff-summary machine-transitions-summary cascade-summary)
+(declare attach-cascade cascade-summary)
 
 (defn app-db-reset!
   "Replace the operating frame's app-db with v. Logged explicitly via
@@ -1648,32 +1648,6 @@
 ;; :sensitive-paths machinery upstream of us already ran by the time
 ;; we read :db-before / :db-after, so we never see raw sensitive values.
 
-(defn- db-diff-summary
-  "Top-level (depth-1) path summary of the db-before -> db-after delta.
-  Returns `{:changed-paths [...] :added-paths [...] :removed-paths [...]}`.
-  Each path is a one-key vector (e.g. `[:cart]`) — operators drill in
-  via `get-path` for the full subtree. Bounded by the depth-1 walk so
-  cascade-summary stays under the wire cap regardless of db size."
-  [db-before db-after]
-  (pure/db-diff-summary db-before db-after))
-
-(defn- machine-transitions-summary
-  "Project machine-transition trace events out of an epoch's
-  `:trace-events`. Returns a vector of compact `{:machine-id :from :to
-  :phase}` maps, or nil when no machine activity. Per Spec 005 the
-  machine-step trace stream uses `:rf.machine/transition` ops with
-  `:tags {:machine-id :from :to :phase}`."
-  [trace-events]
-  (pure/machine-transitions-summary trace-events))
-
-(defn- outcome-tier
-  "Project the epoch's detailed `:outcome` cause onto the consumer-
-  facing three-tier summary (`:ok` / `:blocked` / `:error`). Mirrors
-  `re-frame.epoch.assembly/outcome->consumer-facing` (the same projection
-  pinned in the framework). When `:outcome` is absent, defaults to `:ok`."
-  [outcome]
-  (pure/outcome-tier outcome))
-
 ;; ---- contained cascade errors --------------------------------------------
 ;;
 ;; A handler / machine-action throw does NOT halt the drain: the
@@ -1681,7 +1655,7 @@
 ;; `:outcome :ok`, and the throw rides the trace stream under a
 ;; `:rf.error/*` op (Spec-Schemas §`:rf/epoch-record` §Outcomes; the
 ;; reference runtime never emits `:halted-handler-exception`). So
-;; `outcome-tier` alone reads such an epoch as `:ok` — and because the
+;; `pure/outcome-tier` alone reads such an epoch as `:ok` — and because the
 ;; aborted action committed no `:db` and fired no fx, the `:no-op?`
 ;; heuristic (no db-change AND no fx) would also misfire. Left unhandled
 ;; that is a silent-green-on-error trap for any NON-visual consumer
@@ -1693,90 +1667,13 @@
 ;; `:outcome :error` + surfacing the errors under an `:errors` slot
 ;; (`:no-op?` exclusion lives downstream in `consequence-from-summary`).
 ;;
-;; `cascade-error-ops` MIRRORS the Xray Epoch panel's `cascade-exception-
+;; `pure/cascade-error-ops` MIRRORS the Xray Epoch panel's `cascade-exception-
 ;; ops` (`tools/xray/.../panels/epoch/projection.cljc`) — the structured
 ;; summary and the human panel agree on exactly which `:rf.error/*` ops
 ;; count as a cascade-level throw. Schema-VALIDATION failures
 ;; (`:rf.error/schema-validation-failure`) are deliberately NOT here: a
 ;; rejected-but-rolled-back cascade is not a thrown action, and its
 ;; outcome is governed elsewhere.
-
-(def ^:private cascade-error-ops
-  "Closed set of cascade-level `:rf.error/*` trace ops that mark an epoch
-  whose cascade contained a thrown handler / machine action.
-  Mirrors Xray's `cascade-exception-ops` so the structured summary and the
-  human Epoch panel agree on what counts as a throw."
-  pure/cascade-error-ops)
-
-(defn- cascade-errors
-  "Project the contained cascade-exception trace events out of an epoch's
-  `:trace-events` into a vector of compact descriptors, or nil when the
-  cascade carried no contained throw.
-
-  Each descriptor carries `:operation` (the `:rf.error/*` op) plus, when
-  the trace event stamped them, `:message` (the exception's `.getMessage`
-  via `:exception-message`) and the machine attribution
-  (`:machine-id` / `:action-id`) a machine-action throw rides. The shape
-  is intentionally compact — an operator who wants the full exception
-  (stack / ex-data) reads the epoch's `:trace-events` directly or opens
-  the Xray Epoch panel."
-  [trace-events]
-  (pure/cascade-errors trace-events))
-
-(defn- redact-sensitive-event-vector
-  "Egress guard for the cascade-summary `:event-vector` slot — the
-  fail-closed projection the framework's `project-egress` applies to an
-  epoch record's `:trigger-event` slot (`epoch/tool_pair.cljc`
-  §`elide-trigger-event-slot`), reproduced here
-  because the cascade-summary rides OUTSIDE the wire-path projection.
-
-  The `:event-vector` slot copies the epoch's RAW `:trigger-event` — the
-  original dispatch vector, e.g. `[:auth/login {:password \"hunter2\"}]`
-  or `[:login \"topsecret\"]`. The event ARGS are registration-owned
-  transient payloads (Spec 015 §151 §Registration-owned transient
-  classification) — the SAME class as the `:effects` `:args` slot — NOT
-  rooted at the frame's app-db, so the app-db-path classification walker
-  cannot prove ANY of them safe. A secret carried IN the event vector
-  therefore rides off-box verbatim regardless of whether the epoch is
-  declared `:rf.epoch/sensitive?`: a guard keying redaction to the
-  `:rf.epoch/sensitive?` rollup ALONE would let a NON-declared trigger-event
-  (`[:login \"topsecret\"]` with no declared-sensitive db slot) leak
-  the password off-box. `cascade-summary` is the ONE place
-  the trigger-event leaves the runtime, and the consuming MCP tools
-  (`restore-epoch` passes the runtime map through verbatim;
-  `dispatch-dry-run` deliberately does NOT walk `:cascade-summary`,
-  treating it as a counts-only projection) trust this projection to be
-  already-safe.
-
-  Fail-closed (gate OFF — the published-build default; the MCP server
-  flips `raw-state-config` to OFF the moment a state-emitting tool first
-  fires unless the operator launched with `--allow-sensitive-reads`):
-  the head `<event-id>` keyword (a non-payload summary — the SAME value
-  the record carries in its `:event-id` slot) is RETAINED while every
-  positional / map arg is replaced with the `:rf/redacted` sentinel, so
-  `[:login \"topsecret\"]` egresses as `[:login :rf/redacted]` and
-  `[:auth/login {:password p}]` as `[:auth/login :rf/redacted]`. A
-  consumer still sees WHICH event ran, never its args. This matches
-  `elide-trigger-event-slot` exactly — the fail-close fires on EVERY
-  epoch (sensitive or not), because the args are unprovable regardless.
-  A degenerate non-vector / empty slot (or a value already scalarised)
-  redacts wholesale to `:rf/redacted` — nothing safe to expose.
-
-  Raw only on opt-in: when the gate is ON the operator deliberately
-  asked for raw reads (the cascade-summary's equivalent of the
-  `:rf.egress/include-event-args? true` trusted-local opt), so the verbatim
-  trigger-event rides through.
-
-  `sensitive?` is the epoch's `:rf.epoch/sensitive?` rollup — retained in
-  the signature because callers thread it, but the args fail closed
-  whether or not it is set (it governs only the cascade-summary's
-  `:sensitive?` annotation slot, not this redaction). Idempotent: a
-  second pass over an already-projected `[<id> :rf/redacted …]`
-  re-redacts the (already-`:rf/redacted`) tail to the same sentinels.
-  Nil-preserving."
-  [trigger-event sensitive?]
-  (pure/redact-sensitive-event-vector trigger-event sensitive?
-                                      (:allow-raw-state? @raw-state-config)))
 
 (defn cascade-summary
   "Project an assembled `:rf/epoch-record` into the compact wire shape

@@ -28,12 +28,6 @@
     ambiguous-frame-error        pure/ambiguous-frame-envelope
     nearest-ids                  pure/nearest-ids
     validate-registered          pure/validate-against-known
-    cascade-error-ops            pure/cascade-error-ops
-    cascade-errors               pure/cascade-errors
-    db-diff-summary              pure/db-diff-summary
-    outcome-tier                 pure/outcome-tier
-    machine-transitions-summary  pure/machine-transitions-summary
-    redact-sensitive-event-vector pure/redact-sensitive-event-vector
     cascade-summary              pure/cascade-summary
     consequence-from-summary     pure/consequence-from-summary
     restore-cascade-summary      pure/restore-cascade-projection
@@ -53,7 +47,7 @@
           (str rt-name " must be defined and delegate to " pure-sym)))))
 
 (deftest raw-state-gate-is-threaded-into-the-redaction-fns
-  (doseq [rt-name '[redact-sensitive-event-vector cascade-summary restore-cascade-summary]]
+  (doseq [rt-name '[cascade-summary restore-cascade-summary]]
     (is (rt/mentions? :allow-raw-state? (named-form rt-name))
         (str rt-name " must thread the live :allow-raw-state? gate into the pure fn"))))
 
