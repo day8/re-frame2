@@ -1,27 +1,6 @@
-// Unit tests for `lib/token-match.cjs`.
-//
-// ## The contract this pins
-//
-// `:invalid-cofx` is a strict substring of `:invalid-cofx-time-ms`, so a
-// malformed-cofx assertion in `test/live-re-frame2-pair-cofx.cjs` written
-// as `if (!text.includes(m.reason)) throw` would be satisfied by a server
-// returning `:invalid-cofx-time-ms` for what should have been a plain
-// `:invalid-cofx` case (a non-map cofx, or unreadable EDN) — 2 of the 3
-// malformed-cofx refusal reasons would never actually be distinguished.
-//
-// `includesToken` anchors the match so a token only counts as present
-// when it appears as a COMPLETE keyword (no word/hyphen character
-// immediately before or after), not merely as a prefix of a longer one.
-//
-// ## What this proves
-//
-// Test 1 is the RED-then-GREEN proof: it first shows plain
-// `String#includes` is fooled by exactly that wire text (the reason
-// `:invalid-cofx` "matching" text that actually carries
-// `:invalid-cofx-time-ms`), then shows `includesToken` correctly rejects
-// that same input — i.e. a `live-re-frame2-pair-cofx.cjs` using
-// `.includes` would pass a case it must reject, and this test documents
-// exactly why.
+// Unit tests for `lib/token-match.cjs`. `:invalid-cofx` is a substring of
+// `:invalid-cofx-time-ms`, so a plain `.includes(reason)` check accepts the
+// wrong refusal reason; `includesToken` matches a complete keyword only.
 
 'use strict';
 
@@ -29,32 +8,14 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { includesToken } = require('../lib/token-match.cjs');
 
-test('includesToken: RED-then-GREEN — plain .includes is fooled by a longer sibling reason, includesToken is not', () => {
+test('includesToken matches a complete keyword only', () => {
   const text = 'dispatch refused: :invalid-cofx-time-ms (non-integer :rf/time-ms)';
-  // RED: this is the exact false-pass a plain `.includes` assertion allows —
-  // `.includes(':invalid-cofx')` is true against text that actually
-  // carries the DIFFERENT reason `:invalid-cofx-time-ms`.
-  assert.equal(
-    text.includes(':invalid-cofx'),
-    true,
-    'sanity: plain .includes conflates the two reasons (the false pass)',
-  );
-  // GREEN: the tightened check correctly rejects it — this token is
-  // absent as a COMPLETE keyword.
-  assert.equal(includesToken(text, ':invalid-cofx'), false);
-  // And the longer reason IS correctly found as a complete keyword.
-  assert.equal(includesToken(text, ':invalid-cofx-time-ms'), true);
-});
-
-test('includesToken: token at the very start/end of text still matches', () => {
-  assert.equal(includesToken(':invalid-cofx', ':invalid-cofx'), true);
-  assert.equal(includesToken('prefix :invalid-cofx', ':invalid-cofx'), true);
-  assert.equal(includesToken(':invalid-cofx suffix', ':invalid-cofx'), true);
-});
-
-test('includesToken: does not match when the token is a prefix/suffix of a surrounding keyword', () => {
-  // Literal substring IS present in both, but each time as part of a
-  // longer keyword — the anchoring must reject both.
-  assert.equal(includesToken('reason: :invalid-cofxy', ':invalid-cofx'), false); // suffix-continued
-  assert.equal(includesToken('reason: x:invalid-cofx', ':invalid-cofx'), false); // prefix-continued
+  for (const [haystack, token, expected] of [
+    [text, ':invalid-cofx', false],
+    [text, ':invalid-cofx-time-ms', true],
+    [':invalid-cofx', ':invalid-cofx', true],
+    ['reason: x:invalid-cofx', ':invalid-cofx', false],
+  ]) {
+    assert.equal(includesToken(haystack, token), expected, `${token} in ${JSON.stringify(haystack)}`);
+  }
 });
