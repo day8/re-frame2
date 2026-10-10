@@ -79,8 +79,9 @@
   (rf/dispatch-sync [:init])
   (let [acc (collect-traces! ::layer-1-no-derefers)]
     (try
-      @(rf/subscribe [:sub/a])
-      (rf/unsubscribe [:sub/a])
+      (let [r (rf/subscribe [:sub/a])]
+        @r
+        (rf/unsubscribe r))
       (is (= [:rf.sub] (mapv :op-type (dispose-events @acc))))
       (is (= (tags-for :no-more-derefers [:sub/a]) (dispose-tags acc)))
       (finally
@@ -121,20 +122,22 @@
   ;; `:rf.warning/sub-input-dispose-exception` rather than discarded.
   (reg-sum-subs!)
   (let [acc           (collect-traces! ::input-dispose-throw)
-        ;; `rf/unsubscribe` captured the fn VALUE at load, so redefining the
-        ;; per-input release (`unsubscribe-if-reaction`, the identity-guarded
-        ;; one the on-dispose walk calls) leaves the parent's own release real.
+        ;; The parent's own release goes straight to the cache's
+        ;; identity-guarded decrement, so redefining the per-input release
+        ;; (`unsubscribe-if-reaction`, which the on-dispose walk calls) leaves
+        ;; the parent's release real.
         real-unsub    @#'rf.subs/unsubscribe
         real-unsub-if @#'rf.subs/unsubscribe-if-reaction
-        cache         (:sub-cache (rf.frame/frame :rf/default))]
+        cache         (:sub-cache (rf.frame/frame :rf/default))
+        r             (rf/subscribe [:sub/sum])]
     (try
-      @(rf/subscribe [:sub/sum])
+      @r
       (with-redefs [rf.subs/unsubscribe-if-reaction
                     (fn [frame-id query-v reaction]
                       (if (= query-v [:sub/a])
                         (throw (ex-info "boom: custom adapter -dispose threw" {:query-v query-v}))
                         (real-unsub-if frame-id query-v reaction)))]
-        (real-unsub :rf/default [:sub/sum]))
+        (real-unsub r))
       (is (= {[:sub/sum] nil [:sub/b] nil}
              (select-keys (slot-ref-counts cache) [[:sub/sum] [:sub/b]]))
           ":sub/b released and the parent evicted despite the :sub/a throw")
@@ -176,7 +179,7 @@
         (is (= held (slot-ref-counts cache)))
         (when rf.interop/debug-enabled?
           (is (empty? (dispose-events @acc)) "no :rf.sub/dispose while the explicit hold lives"))
-        (rf/unsubscribe [:sub/sum])
+        (rf/unsubscribe r)
         (is (= {[:sub/sum] nil [:sub/a] nil [:sub/b] nil} (slot-ref-counts cache))
             "the unsubscribe evicted the parent and cascaded to both inputs")
         (when rf.interop/debug-enabled?

@@ -1335,10 +1335,21 @@
   parallel to `subscribe`'s opts form."}
   subscribe-once rf.subs/subscribe-once)
 
-(def ^{:doc "Decrement the ref-count on the cached subscription for
-  `query-v`; ref-count → 0 disposes the entry **synchronously**
-  (per Spec 006 §Reference counting and disposal).
+(def ^{:doc "Return one counted share of `r` — the reaction `subscribe`
+  returned — to the sub-cache; the last share disposes the entry
+  **synchronously** (per Spec 006 §Reference counting and disposal).
   Returns nil. Per spec/API.md §Dispatch and subscribe.
+
+      (let [r (subscribe [:items])]
+        …
+        (unsubscribe r))
+
+  Each call returns ONE share, so N subscribes need N releases. The release
+  is identity-guarded: a reaction whose slot is gone — evicted by
+  re-registration, `clear-sub-cache!` or hot reload, or its frame destroyed
+  and re-made — is a silent no-op that never touches the successor entry,
+  and so is `nil`. No frame is resolved, so a release is safe from any
+  context. A query vector is refused with `:rf.error/bad-unsubscribe-arg`.
 
   Verb-axis carve-out (per Conventions §Tear-down verb axis):
   the `un-` prefix is reserved as the singular form for

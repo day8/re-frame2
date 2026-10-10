@@ -426,7 +426,7 @@
             ;; A live read in the OTHER frame, so the negative half below is
             ;; measured with an instrument demonstrably able to see an entry
             ;; in that frame's cache.
-            _probe (rf/subscribe [:hlive/left] {:frame app-frame})
+            probe (rf/subscribe [:hlive/left] {:frame app-frame})
             {:keys [container root]} (mount-panel! :rf/xray)]
         (try
           (is (some? (q container "[data-testid=\"rf-xray-fresco-sub-strip\"]"))
@@ -452,7 +452,7 @@
           (finally
             ;; Release the imperative probe explicitly: an imperative
             ;; subscriber must not rely on a view's reaction lifecycle.
-            (rf/unsubscribe [:hlive/left] {:frame app-frame})
+            (rf/unsubscribe probe)
             (teardown! root container)))))))
 
 ;; ===========================================================================

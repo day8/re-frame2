@@ -50,7 +50,7 @@
   [query-v db]
   (let [r (rf/subscribe query-v)
         reactive @r]
-    (rf/unsubscribe query-v)
+    (rf/unsubscribe r)
     {:reactive reactive
      :once     (rf/subscribe-once query-v)
      :compute  (rf.subs/compute-sub query-v db)}))

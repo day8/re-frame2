@@ -314,7 +314,7 @@
               rung 1 buys over the pure compute beneath it"
       (is (= 0 @!runs)))
 
-    (rf.subs/unsubscribe frame-id [:coldprobe/counted]))
+    (rf.subs/unsubscribe reaction))
 
   ;; THE CONTROL. Same key, same body, same value — with the warm reaction
   ;; released, so rung 1 has nothing to find and the read falls to the

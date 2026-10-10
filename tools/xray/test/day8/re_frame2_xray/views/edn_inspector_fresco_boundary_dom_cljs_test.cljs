@@ -200,7 +200,7 @@
   (if-not (browser?)
     (is true ":node — the :browser-test runner drives the real React mount")
     (let [_ (setup!)
-          _probe (rf/subscribe [::n] {:frame app-frame})
+          probe (rf/subscribe [::n] {:frame app-frame})
           {:keys [container root]} (mount-host! :rf/xray)]
       (try
         (is (some? (container-node container))
@@ -213,7 +213,7 @@
                  "the application frame's, which this instrument can read. "
                  ":rf/xray cache keys: " (pr-str (keys (cache-of :rf/xray)))))
         (finally
-          (rf/unsubscribe [::n] {:frame app-frame})
+          (rf/unsubscribe probe)
           (teardown! root container))))))
 
 ;; ===========================================================================

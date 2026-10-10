@@ -82,4 +82,4 @@
           (is (= [0 1] @seen)
               "exactly one tracker re-run for the following valid commit"))
         (r/dispose! tracker)
-        (rf/unsubscribe fid [:reject.test/n])))))
+        (rf/unsubscribe sub)))))

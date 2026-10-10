@@ -130,8 +130,7 @@
     (rf/reg-sub :hydrec/dyn-delay (fn [_db _] @reaction))
     (rf/reg-machine :hydrec/dyn dynamic-delay-machine)
     (with-redefs [rf.subs/subscribe            (fn ([_q] reaction) ([_q _o] reaction))
-                  rf.subs/unsubscribe          (fn ([_q] nil)
-                                                 ([_frame q] (swap! unsubs conj q) nil))
+                  rf.subs/unsubscribe-if-reaction (fn [_frame q _r] (swap! unsubs conj q) nil)
                   rf.interop/schedule-after!   (fn [_thunk _ms] ::handle)
                   rf.interop/cancel-scheduled! (fn [_h] nil)]
       (let [rt-waiting (server-runtime-db :hydrec/dyn [[:go]])

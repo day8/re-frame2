@@ -3198,7 +3198,8 @@
                 ;; COMMITTED STEADY STATE — `committed-ref` already holds THIS
                 ;; key's reaction, so `subscribe-fn` is holding a durable +1. A
                 ;; BALANCED, net-zero round trip (`rf.subs/subscribe`, deref,
-                ;; `rf.subs/unsubscribe`) bumps 1 → 2 and drops back to 1, never
+                ;; `rf.subs/unsubscribe-if-reaction`) bumps 1 → 2 and drops back
+                ;; to 1, never
                 ;; crossing the disposal edge, and the render retains nothing.
                 ;; React may DISCARD a memo and re-run this factory on unchanged
                 ;; deps whenever it likes — each re-run is its own
@@ -3263,7 +3264,8 @@
                                 ;; to take — the disposal edge is unreachable.
                                 (let [r (rf.subs/subscribe stable-query-v {:frame stable-frame-kw})
                                       v (when r @r)]
-                                  (rf.subs/unsubscribe stable-frame-kw stable-query-v)
+                                  (when r
+                                    (rf.subs/unsubscribe-if-reaction stable-frame-kw stable-query-v r))
                                   v)
                                 ;; Cold: keep the +1 for the commit. The token is
                                 ;; queued and its reaper armed INSIDE `escrow!`,
@@ -3410,7 +3412,8 @@
                 ;; force-update callback; its returned cleanup runs on unmount,
                 ;; on a subscribe-identity change, and on teardown. This is where
                 ;; the DURABLE sub-cache ref-count is taken (`rf.subs/subscribe`) and
-                ;; released (`rf.subs/unsubscribe`) — never in render — so a render
+                ;; released (`rf.subs/unsubscribe-if-reaction`) — never in render —
+                ;; so a render
                 ;; abandoned before commit owns nothing beyond the reaper's
                 ;; horizon. We re-subscribe by (frame, query) here rather than
                 ;; trust a handle carried out of the render phase; that
@@ -3607,7 +3610,7 @@
                                   (set! (.-current committed-ref) nil)))
                               ;; RELEASE THE REACTION WE ACTUALLY HOLD, not the
                               ;; (frame, query) ADDRESS. An address-only
-                              ;; `rf.subs/unsubscribe` would be correct only if
+                              ;; release would be correct only if
                               ;; a cache slot could never be replaced under a
                               ;; live holder. It can: hot reload, an explicit
                               ;; `clear-sub-cache!` and a frame generation

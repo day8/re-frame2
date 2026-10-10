@@ -168,7 +168,7 @@
       (let [_ (setup!)
             ;; A live read in the OTHER frame, so the zero below is measured
             ;; by an instrument shown able to see that frame's cache.
-            _probe (rf/subscribe [::n] {:frame app-frame})
+            probe (rf/subscribe [::n] {:frame app-frame})
             _ (seed-one-armed-timer!)
             {:keys [container root]} (mount-overlay! :rf/xray)]
         (try
@@ -184,7 +184,7 @@
           (is (pos? (ref-count-of app-frame [::n]))
               "NON-VACUITY: the same instrument does see the probe's entry there")
           (finally
-            (rf/unsubscribe [::n] {:frame app-frame})
+            (rf/unsubscribe probe)
             (teardown! root container)))))))
 
 (deftest w5-unmount-clears-the-tick-loop-mount-gate

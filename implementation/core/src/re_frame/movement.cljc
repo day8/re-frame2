@@ -44,7 +44,7 @@
     `(not (= L V))`. QED.
 
   The source OWNS the signal (movement is its own notion, defined by its
-  own `rf=` gate) and core PULLS it. So `make-derived-value`'s pinned
+  own propagation gate) and core PULLS it. So `make-derived-value`'s pinned
   `(source-containers compute-fn)` signature is untouched, and so is
   `compute-fn`'s pinned one-arg-per-source shape (Spec 006
   §`make-derived-value`).
@@ -60,7 +60,7 @@
 
   In this repo exactly ONE implementor exists — the React-hook spine's
   `make-derived-value` reify (`re-frame.substrate.spine`), whose `notify`
-  is `rf=`-gated. The Reagent / reagent-slim `Reaction`, the plain-atom
+  fires only when its value moves. The Reagent / reagent-slim `Reaction`, the plain-atom
   derived value (JVM and CLJS), test-react's derived value, and every raw
   `cljs.core/Atom` / `clojure.lang.Atom` publish nothing.
 

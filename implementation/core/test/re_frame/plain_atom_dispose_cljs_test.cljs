@@ -32,14 +32,14 @@
   (rf/reg-sub :ab {:inputs [[:a] [:b]]} (fn [[a b] _] (+ a b)))
   (rf/reg-sub :ac {:inputs [[:a] [:c]]} (fn [[a c] _] (+ a c)))
   (rf/dispatch-sync [:init])
-  (rf.subs/subscribe [:ab] {:frame :rf/default})
-  (rf.subs/subscribe [:ac] {:frame :rf/default})
-  (is (= {[:ab] 1 [:ac] 1 [:a] 2 [:b] 1 [:c] 1} (ref-counts)))
-  (rf.subs/unsubscribe :rf/default [:ab])
-  (is (= {[:ac] 1 [:a] 1 [:c] 1} (ref-counts))
-      "the shared input dropped by exactly one; :b went with its only holder")
-  (rf.subs/unsubscribe :rf/default [:ac])
-  (is (= {} (ref-counts))))
+  (let [ab (rf.subs/subscribe [:ab] {:frame :rf/default})
+        ac (rf.subs/subscribe [:ac] {:frame :rf/default})]
+    (is (= {[:ab] 1 [:ac] 1 [:a] 2 [:b] 1 [:c] 1} (ref-counts)))
+    (rf.subs/unsubscribe ab)
+    (is (= {[:ac] 1 [:a] 1 [:c] 1} (ref-counts))
+        "the shared input dropped by exactly one; :b went with its only holder")
+    (rf.subs/unsubscribe ac)
+    (is (= {} (ref-counts)))))
 
 (deftest dispose-is-re-entrant-safe-on-cljs-plain-atom
   ;; A callback that re-enters `-dispose`, and a second plain `-dispose`, must

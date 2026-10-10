@@ -688,7 +688,8 @@
     (set! (.-disposed cell) true)
     (when-some [r (.-reaction cell)] (remove-watch r cell-watch-key))
     (swap! !cells dissoc (.-subKey cell))
-    (rf.subs/unsubscribe (.-frameKw cell) (.-queryV cell)))
+    (when-some [r (.-reaction cell)]
+      (rf.subs/unsubscribe-if-reaction (.-frameKw cell) (.-queryV cell) r)))
   nil)
 
 (defn- arm-cell-reaper!

@@ -4,8 +4,9 @@
   The supported shape is deliberately small: `reg-view*` registers a per-mount
   outer callable, that callable captures one immutable frame handle, and the
   returned `reagent.core/create-class` closes over it. Lifecycle callbacks run
-  after ambient resolver scope has unwound, so one-shot reads and imperative
-  teardown name the captured frame explicitly. Ordinary reactive deref stays in
+  after ambient resolver scope has unwound, so one-shot reads name the captured
+  frame explicitly and imperative teardown releases the reaction the mount
+  acquired. Ordinary reactive deref stays in
   `:reagent-render`, acquired once per render owner through `r/with-let` — and
   it is NOT released by hand: a render-phase read is owned by the
   render owner, which holds one reference per (owning reaction, slot) and releases
@@ -79,6 +80,9 @@
 (defn- no-frame-context? [e]
   (= :rf.error/no-frame-context (:rf.error/id (ex-data e))))
 
+(defn- bad-unsubscribe-arg? [e]
+  (= :rf.error/bad-unsubscribe-arg (:rf.error/id (ex-data e))))
+
 (defn- cache-state
   "Stable, reaction-free view of a frame's real subscription cache."
   [frame-id]
@@ -110,6 +114,7 @@
 (defn- form-3-class [events instance-id handle]
   (let [{:keys [frame subscribe]} handle
         state (r/atom {:instance instance-id :mount-count 0})
+        !live (atom nil)
         record! (fn [phase more]
                   (swap! events conj
                          (merge {:phase phase
@@ -157,8 +162,10 @@
                one-shot-value
                (rf/subscribe-once lifecycle-query {:frame frame})
                ;; Deliberately rare imperative subscription: this fixture
-               ;; owns it and pairs it with frame-first teardown below.
-               live-value @(subscribe lifecycle-query)]
+               ;; owns it and releases the reaction it acquired on unmount.
+               live (subscribe lifecycle-query)
+               live-value @live]
+           (reset! !live live)
            (swap! state #(-> %
                              (update :mount-count inc)
                              (assoc :mounted? true)))
@@ -174,11 +181,12 @@
                bare-unsubscribe-error
                (caught #(rf/unsubscribe lifecycle-query))
                after-bare (cache-state frame)]
-           ;; The failed bare teardown must not be mistaken for cleanup.
-           ;; This user lifecycle owns only the imperative subscription.
-           ;; Reagent owns the render reaction through `with-let`; releasing
-           ;; it here would break StrictMode's transient replay.
-           (rf/unsubscribe frame lifecycle-query)
+           ;; The refused address-form teardown must not be mistaken for
+           ;; cleanup. This user lifecycle owns only the imperative
+           ;; subscription. Reagent owns the render reaction through
+           ;; `with-let`; releasing it here would break StrictMode's
+           ;; transient replay.
+           (rf/unsubscribe @!live)
            (swap! state assoc :mounted? false)
            (record! :will-unmount
                     {:bare-unsubscribe-error bare-unsubscribe-error
@@ -296,12 +304,12 @@
                 (let [a-unmounts (filter #(= frame-a (:frame %)) (of-phase @events :will-unmount))]
                   (is (= [[true true true] [true true true]]
                          (map (fn [{:keys [bare-unsubscribe-error before-bare after-bare after-explicit]}]
-                                [(no-frame-context? bare-unsubscribe-error)
+                                [(bad-unsubscribe-arg? bare-unsubscribe-error)
                                  (= before-bare after-bare)
                                  (= (dec (ref-count before-bare lifecycle-query))
                                     (ref-count after-explicit lifecycle-query))])
                               a-unmounts))
-                      "each A instance cleaned up once: the bare unsubscribe raised no-frame-context without altering the cache, and the explicit frame-first teardown released exactly one owner"))
+                      "each A instance cleaned up once: an address-form unsubscribe raised :rf.error/bad-unsubscribe-arg without altering the cache, and releasing the acquired reaction released exactly one owner"))
 
                 (act-fn #(rdc/unmount root-b))
                 (-> (next-microtask)
@@ -516,7 +524,7 @@
   the seed and the `deref-capture` which puts the shared reaction on the push
   path. Unmount disposes the owner BEFORE releasing the cache slot."
   [feeds instance-id handle]
-  (let [{:keys [frame subscribe]} handle
+  (let [{:keys [subscribe]} handle
         !driver   (r/atom nil)                    ; per-MOUNT reactive owner
         !reaction (r/atom nil)
         feed!     (fn [v] (swap! feeds update instance-id (fnil conj []) v))]
@@ -532,7 +540,7 @@
        :component-will-unmount
        (fn [_]
          (some-> @!driver r/dispose!)               ; STOP this mount's owner first
-         (rf/unsubscribe frame gauge-query)         ; RELEASE — frame-first; ref-count -1
+         (rf/unsubscribe @!reaction)                ; RELEASE — the acquired reaction; ref-count -1
          (reset! !driver nil)
          (reset! !reaction nil))})))
 

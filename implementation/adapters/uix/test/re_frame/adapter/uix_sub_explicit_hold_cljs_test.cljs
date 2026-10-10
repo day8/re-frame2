@@ -42,7 +42,7 @@
         (remove-watch held ::w)
         (is (= [0 1] [(count @traces) (:ref-count (slot [::sum]))])
             "dropping the watch evicted nothing; the explicit hold remains")
-        (rf/unsubscribe [::sum])
+        (rf/unsubscribe held)
         (is (= [{::sum 1 ::a 1 ::b 1} [nil nil nil]]
                [(dispose-counts @traces) (mapv slot [[::sum] [::a] [::b]])])
             "the unsubscribe evicted the sub and both inputs, each exactly once")))))

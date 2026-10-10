@@ -125,7 +125,7 @@
       (let [entry-after (get @cache [:coldread/reuse])]
         (is (= [11 1 true (:ref-count entry-before)]
                [@seen @!runs (identical? (:reaction entry-before) (:reaction entry-after)) (:ref-count entry-after)])))
-      (rf.subs/unsubscribe f [:coldread/reuse]))))
+      (rf.subs/unsubscribe held))))
 
 ;; ---------------------------------------------------------------------------
 ;; The error contract the probe must keep

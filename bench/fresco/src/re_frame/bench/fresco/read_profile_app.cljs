@@ -668,19 +668,23 @@
         (let [^js cell (aget cells i)]
           (when-some [r (.-reaction cell)]
             (remove-watch r cell-watch-key)
-            (rf.subs/unsubscribe frame-id (.-queryV cell))))))))
+            (rf.subs/unsubscribe-if-reaction frame-id (.-queryV cell) r)))))))
 
 (defn- build-only!
   "141 bare `subscribe` + deref on `frame-id`, holding every reference.
-  Answers the teardown (a plain `unsubscribe` per key, synchronous
+  Answers the teardown (one identity-guarded release per key, synchronous
   dispose at 1 -> 0)."
   [frame-id ^js roster]
-  (let [n (alength roster)]
+  (let [n  (alength roster)
+        rs (make-array n)]
     (dotimes [i n]
-      @(rf.subs/subscribe (aget roster i) {:frame frame-id}))
+      (let [r (rf.subs/subscribe (aget roster i) {:frame frame-id})]
+        (aset rs i r)
+        @r))
     (fn teardown []
       (dotimes [i n]
-        (rf.subs/unsubscribe frame-id (aget roster i))))))
+        (when-some [r (aget rs i)]
+          (rf.subs/unsubscribe-if-reaction frame-id (aget roster i) r))))))
 
 (def phase-b-arm-ids
   "The phase-B roster IN SLOT ORDER — **the vector index IS the arm's

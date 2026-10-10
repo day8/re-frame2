@@ -11,7 +11,6 @@
             [re-frame.machines.spawn-order :as rf.machines.spawn-order]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.machines.timer :as rf.machines.timer]
-            [re-frame.subs :as rf.subs]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace.tooling :as rf.trace.tooling]))
@@ -78,39 +77,45 @@
       (finally
         (rf.trace.tooling/unregister-listener! ::destroy-tail-fence)))))
 
-;; Releasing a subscription-vector `:after` timer decrements the shared
-;; (frame, query-v) ref-count. Once a cancelled-trace listener has destroyed A,
-;; a same-id B may hold the same query, so A must skip the decrement.
-(deftest sub-vec-timer-release-decrements-only-for-a-live-owner
-  (doseq [[lose-a? expected-unsubscribes] [[true 0] [false 1]]]
-    (let [frame-a     (keyword "rf2-i4aj9c" (str "subvec-" lose-a?))
-          unsub-count (atom 0)
-          fired?      (atom false)]
+;; Releasing a subscription-vector `:after` timer returns the entry's own
+;; reaction to the sub-cache. Once a cancelled-trace listener has destroyed A
+;; and a same-id B holds the same query, A's release must leave B's slot alone;
+;; with no successor it returns A's one reference and the slot is disposed.
+(deftest sub-vec-timer-release-returns-only-its-own-reaction
+  (rf/reg-sub :i4aj9c/dyn (fn [_ _] 5000))
+  (doseq [lose-a? [true false]]
+    (let [frame-a (keyword "rf2-i4aj9c" (str "subvec-" lose-a?))
+          q       [:i4aj9c/dyn]
+          fired?  (atom false)
+          b-held  (atom nil)
+          slot    #(get @(:sub-cache (rf.frame/frame frame-a)) q)]
       (rf/make-frame {:id frame-a})
       (swap! rf.machines.timer/after-timers assoc-in
-             [frame-a {:parent actor-id :spawn [] :delay [:i4aj9c/dyn]}]
-             {:handle nil :reaction (atom 5000) :sub-watcher-key ::a-watch
+             [frame-a {:parent actor-id :spawn [] :delay q}]
+             {:handle nil :reaction (rf/subscribe q {:frame frame-a}) :sub-watcher-key ::a-watch
               :resolved-ms 5000 :epoch 0 :state :running
               :region nil :delay-source :sub :token ::a-token})
-      (with-redefs [rf.subs/unsubscribe (fn ([_] (swap! unsub-count inc) nil)
-                                          ([_ _] (swap! unsub-count inc) nil))]
-        (rf.trace.tooling/register-listener!
-          ::subvec-fence
-          (fn [ev]
-            (when (and lose-a?
-                       (= :rf.machine.timer/cancelled (:operation ev))
-                       (compare-and-set! fired? false true))
-              (rf.frame/destroy-frame! frame-a)
-              (rf/make-frame {:id frame-a}))))
-        (try
-          (let [token-a     (rf.frame/frame-incarnation-token frame-a)
-                owner-gone? #(not (rf.frame/event-continuation-live? frame-a token-a))]
-            (rf.frame/call-with-event-owner-token frame-a token-a
-              #(rf.machines.timer/cancel-actor-timers! frame-a actor-id owner-gone?)))
-          (is (= expected-unsubscribes @unsub-count) (str "lose-a? " lose-a?))
-          (finally
-            (rf.trace.tooling/unregister-listener! ::subvec-fence)
-            (swap! rf.machines.timer/after-timers dissoc frame-a)))))))
+      (rf.trace.tooling/register-listener!
+        ::subvec-fence
+        (fn [ev]
+          (when (and lose-a?
+                     (= :rf.machine.timer/cancelled (:operation ev))
+                     (compare-and-set! fired? false true))
+            (rf.frame/destroy-frame! frame-a)
+            (rf/make-frame {:id frame-a})
+            (reset! b-held (rf/subscribe q {:frame frame-a})))))
+      (try
+        (let [token-a     (rf.frame/frame-incarnation-token frame-a)
+              owner-gone? #(not (rf.frame/event-continuation-live? frame-a token-a))]
+          (rf.frame/call-with-event-owner-token frame-a token-a
+            #(rf.machines.timer/cancel-actor-timers! frame-a actor-id owner-gone?)))
+        (if lose-a?
+          (is (= [1 true] [(:ref-count (slot)) (identical? @b-held (:reaction (slot)))])
+              "A's release leaves B's slot at one reference, holding B's reaction")
+          (is (nil? (slot)) "with no successor, A's release returns its one reference"))
+        (finally
+          (rf.trace.tooling/unregister-listener! ::subvec-fence)
+          (swap! rf.machines.timer/after-timers dissoc frame-a))))))
 
 (defn- install-watching-adapter!
   "Install a plain-atom adapter whose container write lands, then runs

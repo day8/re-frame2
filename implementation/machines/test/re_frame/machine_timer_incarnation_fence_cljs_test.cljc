@@ -111,7 +111,7 @@
               (install-entry! frame-id k b-entry)))))
       (try
         (with-redefs [rf.subs/subscribe          (fn ([_] reaction) ([_ _] reaction))
-                      rf.subs/unsubscribe        (fn ([_] nil) ([_ _] nil))
+                      rf.subs/unsubscribe-if-reaction (fn [_ _ _] nil)
                       rf.interop/schedule-after! (fn [_thunk _ms] (fresh-handle))]
           ;; Arm a real sub-vec `:after` timer: installs A's entry and attaches
           ;; the `on-sub-changed!` watcher to `reaction`.

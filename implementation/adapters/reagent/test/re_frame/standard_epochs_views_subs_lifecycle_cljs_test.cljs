@@ -60,9 +60,9 @@
 
 (defn- unmount-a!
   "The unmount path: every subscribe A made on mount drops its derefer."
-  [{:keys [threshold]}]
-  (rf/unsubscribe [:standard-epochs/chain-labelled])
-  (rf/unsubscribe [:standard-epochs/greater-than? threshold]))
+  [{:keys [chain gt]}]
+  (rf/unsubscribe chain)
+  (rf/unsubscribe gt))
 
 (defn- sub-cache []
   @(:sub-cache (rf.frame/frame :rf/default)))

@@ -52,7 +52,7 @@
       (rf/reg-sub :t/root-ms (fn [_db _] @delay-reaction))
       (rf/reg-machine :ps7o/root root-dynamic-machine)
       (with-redefs [rf.subs/subscribe   (fn ([_q] delay-reaction) ([_q _o] delay-reaction))
-                    rf.subs/unsubscribe (fn ([_] nil) ([_ _] nil))
+                    rf.subs/unsubscribe-if-reaction (fn [_ _ _] nil)
                     rf.interop/schedule-after!
                     (fn [_thunk ms] (swap! arms conj ms) ::handle)]
         (rf/dispatch-sync [:ps7o/root [:rf.machine/start]])
@@ -95,7 +95,7 @@
                                  :expired {}}}
                    :b {:initial :idle :states {:idle {}}}}})
       (with-redefs [rf.subs/subscribe   (fn ([_q] delay-reaction) ([_q _o] delay-reaction))
-                    rf.subs/unsubscribe (fn ([_] nil) ([_ _] nil))
+                    rf.subs/unsubscribe-if-reaction (fn [_ _ _] nil)
                     rf.interop/schedule-after!
                     (fn [_thunk ms] (swap! arms conj ms) ::handle)]
         (rf/dispatch-sync [:ps7o/region [:rf.machine/start]])

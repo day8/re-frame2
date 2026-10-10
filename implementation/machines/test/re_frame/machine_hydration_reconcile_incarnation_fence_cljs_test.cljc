@@ -62,18 +62,19 @@
   (rf.frame/replace-runtime-db! frame-id runtime-db)
   (rf.machines.hydrate/rearm-after-timers! frame-id))
 
-(def ^:private no-host-work {:subscribes 0 :unsubscribes 0 :arms 0})
+(def ^:private no-host-work {:subscribes 0 :arms 0})
 
 (defn- with-host-stubs!
   "Run `f` with subscriptions and the host clock stubbed, tallying every
-  subscribe, unsubscribe and host arm into `counts`."
+  subscribe and host arm into `counts`. Releases are not tallied: each is
+  identity-guarded on the reaction its own entry holds, so one that runs after
+  the swap finds nothing of A's in B's cache and cannot land there."
   [counts f]
   (let [reaction (atom 2500)
         tally!   (fn [k] (swap! counts update k inc))]
     (with-redefs [rf.subs/subscribe            (fn ([_q] (tally! :subscribes) reaction)
                                                  ([_q _o] (tally! :subscribes) reaction))
-                  rf.subs/unsubscribe          (fn ([_q] (tally! :unsubscribes) nil)
-                                                 ([_f _q] (tally! :unsubscribes) nil))
+                  rf.subs/unsubscribe-if-reaction (fn [_f _q _r] nil)
                   rf.interop/schedule-after!   (fn [_thunk _ms] (tally! :arms) ::handle)
                   rf.interop/cancel-scheduled! (fn [_h] nil)]
       (f))))
@@ -176,8 +177,7 @@
         (install-republishing! cfid (server-runtime-db [[:hydfence/sched [[:go]]]])
                                :rf.machine.timer/scheduled #(reset! counts no-host-work))))
     (is (= {:timers {} :counts no-host-work} {:timers (inner cfid) :counts @counts})
-        (str "B holds no A-derived slot and no host clock was armed in its name; nor was A's "
-             "`(frame, query-v)` hold released by bare id, which now denotes B"))
+        "B holds no A-derived slot and no host clock was armed in its name")
     ;; Spec 005 §Trace event catalogue pairs `/scheduled` with `/fired` or
     ;; `/cancelled` by (actor-id, state, epoch); an announced attempt the abort
     ;; left open would stand for a wall-clock window that never opened.
