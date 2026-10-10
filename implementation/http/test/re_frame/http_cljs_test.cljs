@@ -1,5 +1,5 @@
 (ns re-frame.http-cljs-test
-  "CLJS-only coverage of the Fetch transport: CORS classification, the native
+  "CLJS-only coverage of the Fetch transport: cross-origin classification, the native
   body readers, the Fetch init and its headers, timeouts, and the external
   `:abort-signal` binding."
   (:require [cljs.test :refer-macros [are deftest is async]]
@@ -31,13 +31,16 @@
   (with-stub-location "https://app.example"
     (fn []
       (are [err url out] (= out (classify-cljs-error err url))
-        ;; Only a TypeError can be CORS. `:cause` is the class-name string, so
-        ;; the failure map stays EDN-serializable.
+        ;; A Fetch network rejection is a TypeError whatever its cause, so
+        ;; against another origin it may be a CORS rejection or a plain network
+        ;; drop: it is a transport failure that says the URL was cross-origin.
+        ;; `:cause` is the class-name string, so the failure map stays
+        ;; EDN-serializable.
         (js/Error. "connection-reset") "https://other.invalid/x"
         {:kind :rf.http/transport :message "connection-reset" :cause "Error"}
 
         (js/TypeError. "Failed to fetch") "https://other.invalid/x?a=1"
-        {:kind :rf.http/cors :message "Failed to fetch" :url "https://other.invalid/x?a=1"}
+        {:kind :rf.http/transport :message "Failed to fetch" :cause "TypeError" :cross-origin? true}
 
         (js/TypeError. "Failed to fetch") "https://app.example/api/items"
         {:kind :rf.http/transport :message "Failed to fetch" :cause "TypeError"}
@@ -47,7 +50,7 @@
 
         ;; A protocol-relative URL carries its own host.
         (js/TypeError. "Failed to fetch") "//other.invalid/x"
-        {:kind :rf.http/cors :message "Failed to fetch" :url "//other.invalid/x"}
+        {:kind :rf.http/transport :message "Failed to fetch" :cause "TypeError" :cross-origin? true}
 
         (js/TypeError. "Failed to fetch") "//app.example/x"
         {:kind :rf.http/transport :message "Failed to fetch" :cause "TypeError"}
@@ -450,6 +453,36 @@
                              (get-in reply [:error :stage]) (in-flight-empty?)])))))
           (.catch (fn [e] (is false (str "unexpected: " e)) nil))
           (.then (fn [_] (restore) (done)))))))
+
+(deftest cljs-cross-origin-network-drop-retries-as-transport
+  ;; The browser rejects a network drop to another origin with the same
+  ;; TypeError as a CORS rejection, so a `:rf.http/transport` policy retries it.
+  (async done
+    (reset-runtime!)
+    (let [replies  (record-replies!)
+          attempts (atom 0)
+          orig     (.-fetch js/globalThis)
+          location (aget js/globalThis "location")]
+      (aset js/globalThis "location" #js {:origin "https://app.example"})
+      (set! (.-fetch js/globalThis)
+            (fn [_url _init]
+              (swap! attempts inc)
+              (js/Promise.reject (js/TypeError. "Failed to fetch"))))
+      (issue! {:request {:url "https://api.other.example/x"}
+               :retry   {:on #{:rf.http/transport} :max-attempts 2
+                         :backoff {:base-ms 1 :factor 1 :max-ms 1}}})
+      (-> (rf.test-support/poll-until
+            #(seq @replies)
+            {:timeout-ms 2000 :label "cljs cross-origin drop reply"})
+          (.then (fn [_]
+                   (let [failure (:error (first @replies))]
+                     (is (= [2 :rf.http/transport true]
+                            [@attempts (:kind failure) (:cross-origin? failure)])))))
+          (.catch (fn [e] (is false (str "unexpected: " e)) nil))
+          (.then (fn [_]
+                   (set! (.-fetch js/globalThis) orig)
+                   (aset js/globalThis "location" location)
+                   (done)))))))
 
 ;; ---- the external :abort-signal ----------------------------------------------
 ;;

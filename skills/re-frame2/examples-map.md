@@ -35,7 +35,7 @@ The single-feature scaffold: everything a typical login flow needs, in one file.
 
 ## managed_http_counter — `examples/core/managed_http_counter/`
 
-A compact Spec 014 demo — a counter where each button issues a `:rf.http/managed` request: success, 4xx failure, retry-recover (canned-stub), and abort. Includes a tiny `/api/` directory served as canned JSON so the example runs without a backend. Point at this example when verifying the canonical shape of an `:rf.http/managed` call, the eight-category `:rf.http/*` failure taxonomy, `:request-id` cancellation via `:rf.http/managed-abort`, or the encode/decode pipeline. It configures no `:retry` policy — the retry-recover button is a canned success reply standing in for a recovered retry. The compact, single-feature complement to RealWorld for Spec 014; the canonical Pattern-ManagedHTTP example. Exercises 014 HTTPRequests and Pattern-AsyncEffect.
+A compact Spec 014 demo — a counter where each button issues a `:rf.http/managed` request: success, 4xx failure, retry-recover (canned-stub), and abort. Includes a tiny `/api/` directory served as canned JSON so the example runs without a backend. Point at this example when verifying the canonical shape of an `:rf.http/managed` call, the seven-category `:rf.http/*` failure taxonomy, `:request-id` cancellation via `:rf.http/managed-abort`, or the encode/decode pipeline. It configures no `:retry` policy — the retry-recover button is a canned success reply standing in for a recovered retry. The compact, single-feature complement to RealWorld for Spec 014; the canonical Pattern-ManagedHTTP example. Exercises 014 HTTPRequests and Pattern-AsyncEffect.
 
 ## nine_states — `examples/patterns/nine_states/`
 

@@ -44,7 +44,6 @@
   "The closed set of `:rf.http/*` failure categories permitted in
   `:retry :on`. Per Spec 014 §Closed-set `:retry :on` validation."
   #{:rf.http/transport
-    :rf.http/cors
     :rf.http/timeout
     :rf.http/http-4xx
     :rf.http/http-5xx})
@@ -98,7 +97,7 @@
             (when (seq bad-members)
               (throw (rf.error/thrown-ex-info
                        :rf.error/http-bad-retry-on :rf.http/managed
-                       "`:retry :on` must be drawn exclusively from the closed retryable set #{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}; `:rf.http/aborted`, `:rf.http/decode-failure`, and `:rf.http/accept-failure` are non-retryable by construction"
+                       "`:retry :on` must be drawn exclusively from the closed retryable set #{:rf.http/transport :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}; `:rf.http/aborted`, `:rf.http/decode-failure`, and `:rf.http/accept-failure` are non-retryable by construction"
                        {:extra {:bad-members   bad-members
                                 :retryable-set retryable-categories}})))))))))
 

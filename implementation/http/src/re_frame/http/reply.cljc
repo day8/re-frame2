@@ -142,7 +142,7 @@
   `:max-attempts` (the retry ceiling). Fields already present on `failure`
   (e.g. an `:rf.http/aborted` map's own `:request-id`) are OVERWRITTEN with
   the ctx value for uniformity; `:max-attempts` is omitted when absent (no
-  retry policy). Applies to ALL eight failure categories — the field set is
+  retry policy). Applies to ALL seven failure categories — the field set is
   category-independent identity, distinct from each category's own tags."
   [failure {:keys [method url request-id max-attempts attempt] :as ctx}]
   (cond-> (assoc failure

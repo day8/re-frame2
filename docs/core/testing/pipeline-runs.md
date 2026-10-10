@@ -58,7 +58,7 @@ Create a fresh [frame](../glossary.md#frame), call [`dispatch-sync`](../glossary
 
 The test can substitute values at two points without touching the handlers. The clock is a declared [coeffect](../glossary.md#coeffect), so the test can supply an exact value. The request is an effect in the returned map, so the test can answer it without a network.
 
-Managed HTTP appends a reply map to the `:on-success` or `:on-failure` event: `{:status :ok :value <decoded-body> …}` or `{:status :error :error <failure-map> …}`. That is why `:todo/fetched` destructures `:value` (here the decoded vector of todos) and `:todo/fetch-failed` destructures `:error`, whose `:kind` is one of eight `:rf.http/*` categories. [Managed HTTP](../../async/http.md) lists the full reply map.
+Managed HTTP appends a reply map to the `:on-success` or `:on-failure` event: `{:status :ok :value <decoded-body> …}` or `{:status :error :error <failure-map> …}`. That is why `:todo/fetched` destructures `:value` (here the decoded vector of todos) and `:todo/fetch-failed` destructures `:error`, whose `:kind` is one of seven `:rf.http/*` categories. [Managed HTTP](../../async/http.md) lists the full reply map.
 
 ## The test
 

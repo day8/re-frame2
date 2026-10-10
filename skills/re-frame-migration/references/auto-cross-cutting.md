@@ -153,10 +153,10 @@ The old names are **removed** — stale call sites raise unresolved-symbol at co
 The `:retry :on` set on `:rf.http/managed` requests no longer accepts arbitrary `:rf.http/*` keywords. The closed retryable subset is:
 
 ```
-#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}
+#{:rf.http/transport :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}
 ```
 
-Any keyword outside this set in `:retry :on` raises `:rf.error/http-bad-retry-on` at fx-call time, before the request is issued. The three excluded `:rf.http/*` categories (`:rf.http/aborted` / `:rf.http/decode-failure` / `:rf.http/accept-failure`) are deterministic on retry and were silently retrying as a no-op. Sweep `:retry :on` sets, drop excluded categories. v1 had no `:rf.http/managed` fx; v2-pre-rename codebases only.
+Any keyword outside this set in `:retry :on` raises `:rf.error/http-bad-retry-on` at fx-call time, before the request is issued. The three excluded `:rf.http/*` categories (`:rf.http/aborted` / `:rf.http/decode-failure` / `:rf.http/accept-failure`) are deterministic on retry and were silently retrying as a no-op. `:rf.http/cors` is not a category: a cross-origin network failure is `:rf.http/transport`. Sweep `:retry :on` sets, drop excluded categories and `:rf.http/cors`. v1 had no `:rf.http/managed` fx; v2-pre-rename codebases only.
 
 **Cross-references.** [`MIGRATION.md` §M-31b](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-31b-rfhttpmanaged-retry-on-is-a-closed-set); [Spec 014 §Closed-set `:retry :on` validation](https://github.com/day8/re-frame2/blob/main/spec/014-HTTPRequests.md#closed-set-retry-on-validation).
 

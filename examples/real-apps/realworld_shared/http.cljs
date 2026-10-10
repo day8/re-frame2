@@ -127,15 +127,15 @@
                    (string? body) body
                    :else nil)]
     (or body-msg
-        ;; The closed `:rf.http/*` set, exhaustively — `:rf.http/cors`
-        ;; included, which is the arm a reader meets FIRST the moment they
-        ;; point either app at the hosted Conduit API from a dev origin. With
-        ;; no arm of its own it fell through to the default below and printed
-        ;; the browser's own raw TypeError text ("Failed to fetch"), which
-        ;; names neither the cause nor the fix.
+        ;; The closed `:rf.http/*` set, exhaustively. A transport failure
+        ;; against the hosted Conduit API is cross-origin from any dev
+        ;; origin, and the browser reports a CORS refusal and a network drop
+        ;; identically, so its message names both causes rather than the raw
+        ;; TypeError text ("Failed to fetch").
         (case (:kind failure)
-          :rf.http/transport      "Network error — please try again."
-          :rf.http/cors           "Blocked by the browser's cross-origin policy — check the API's CORS configuration."
+          :rf.http/transport      (if (:cross-origin? failure)
+                                    "Couldn't reach the API — check your connection, or the API's CORS configuration."
+                                    "Network error — please try again.")
           :rf.http/timeout        "Request timed out."
           :rf.http/http-4xx       (str "Request rejected (status " (:status failure) ").")
           :rf.http/http-5xx       (str "Server error (status " (:status failure) ").")

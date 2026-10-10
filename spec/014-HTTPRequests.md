@@ -27,7 +27,7 @@ The **CLJS reference implementation ships `:rf.http/managed`**, backed by Fetch 
 
 If an implementation ships ONLY a subset (e.g., no JVM transport), it claims the relevant capability rows and the conformance corpus exercises only those.
 
-**Artefact (CLJS reference).** As a per-feature artefact split, the CLJS reference's managed-HTTP surface ships in the separate Maven artefact `day8/re-frame2-http` — `re-frame.http.managed` namespace, the production `:rf.http/managed` / `:rf.http/managed-abort` fxs registered at ns-load time, the in-flight request registry, the Fetch / HttpClient transport adapters, the encode / decode pipeline, the retry-with-backoff machinery, the eight-category `:rf.http/*` failure taxonomy, AND a sibling `re-frame.http.test-support` namespace (test-only) which carries the canned-stub fxs (`:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`) and the `with-request-stubs` scoped helper (the single discoverable home for HTTP test surfaces). The core artefact (`day8/re-frame2`) does not carry any of this; apps that don't issue managed-HTTP requests build an `:advanced` bundle clean of every `:rf.http/*` symbol and trace string. See [MIGRATION §M-31](../migration/from-re-frame-v1/README.md#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http) for the deps swap.
+**Artefact (CLJS reference).** As a per-feature artefact split, the CLJS reference's managed-HTTP surface ships in the separate Maven artefact `day8/re-frame2-http` — `re-frame.http.managed` namespace, the production `:rf.http/managed` / `:rf.http/managed-abort` fxs registered at ns-load time, the in-flight request registry, the Fetch / HttpClient transport adapters, the encode / decode pipeline, the retry-with-backoff machinery, the seven-category `:rf.http/*` failure taxonomy, AND a sibling `re-frame.http.test-support` namespace (test-only) which carries the canned-stub fxs (`:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`) and the `with-request-stubs` scoped helper (the single discoverable home for HTTP test surfaces). The core artefact (`day8/re-frame2`) does not carry any of this; apps that don't issue managed-HTTP requests build an `:advanced` bundle clean of every `:rf.http/*` symbol and trace string. See [MIGRATION §M-31](../migration/from-re-frame-v1/README.md#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http) for the deps swap.
 
 ## Role
 
@@ -139,10 +139,10 @@ The `:rf.http/managed` fx accepts a single args map. The reference card below li
 
 | Slot | Default | Meaning | Recovery on failure |
 |---|---|---|---|
-| `:request` | required | The wire envelope — `:method` / `:url` / `:headers` / `:params` / `:body` / `:request-content-type` / `:credentials` / `:mode` / `:redirect` / `:cache` / `:referrer` / `:integrity` / `:sensitive?`. See [§Request envelope](#request-envelope). | A bad envelope surfaces as `:rf.http/transport`, `:rf.http/cors`, `:rf.http/http-4xx`, or `:rf.http/http-5xx` depending on how the host rejects it. |
+| `:request` | required | The wire envelope — `:method` / `:url` / `:headers` / `:params` / `:body` / `:request-content-type` / `:credentials` / `:mode` / `:redirect` / `:cache` / `:referrer` / `:integrity` / `:sensitive?`. See [§Request envelope](#request-envelope). | A bad envelope surfaces as `:rf.http/transport`, `:rf.http/http-4xx`, or `:rf.http/http-5xx` depending on how the host rejects it. |
 | `:decode` | `:auto` | Response-body decoder: a Malli schema, a fn `(response-text headers → decoded)`, or one of `:json` / `:text` / `:blob` / `:array-buffer` / `:form-data` / `:auto`. Runs only on 2xx. See [§Decoding](#decoding). | `:rf.http/decode-failure` (schema reject, JSON parse, custom-fn throw). |
 | `:accept` | `{:ok decoded}` | Post-decode normaliser `(decoded → {:ok v} | {:failure m})` — lets a structurally-valid 200 surface as a domain failure. Runs only after a successful 2xx decode (non-2xx classifies by status before decode, so `:accept` never sees it). See [§`:accept` — domain-failure normalisation](#accept--domain-failure-normalisation). | `:rf.http/accept-failure` (the user map rides at `:detail`). |
-| `:retry` | no retry | Retry policy `{:on #{categories} :max-attempts N :backoff {:base-ms :factor :max-ms :jitter}}`. `:on` is a closed subset of `#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}`. See [§Retry and backoff](#retry-and-backoff). | Invalid `:retry :on` member → `:rf.error/http-bad-retry-on` at fx-call time. Retries exhaust → the final failure category. |
+| `:retry` | no retry | Retry policy `{:on #{categories} :max-attempts N :backoff {:base-ms :factor :max-ms :jitter}}`. `:on` is a closed subset of `#{:rf.http/transport :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}`. See [§Retry and backoff](#retry-and-backoff). | Invalid `:retry :on` member → `:rf.error/http-bad-retry-on` at fx-call time. Retries exhaust → the final failure category. |
 | `:timeout-ms` | `30000` | Per-attempt wall-clock timeout in ms. `nil` or `0` opts out (no timeout). See [§`:timeout-ms` security defaults](#timeout-ms-security-defaults). | `:rf.http/timeout` when the budget elapses. |
 | `:reply-to` | none | Unified reply target — one event vector for **both** the success and the failure reply; the app branches on the canonical envelope's `:status`. Lowers to the same internal descriptor as the sugar below, and is **exclusive** with it. `nil` is the fire-and-forget spelling. See [§Reply addressing](#reply-addressing). | — (`:reply-to` does not itself fail; it routes the reply.) |
 | `:on-success` | none | Where to dispatch the success reply — the split routing sugar. `nil` silences it. **Not together with `:reply-to`.** See [§Reply addressing](#reply-addressing). | — (`:on-success` does not itself fail.) |
@@ -188,7 +188,7 @@ Six keys on the args map / request envelope are **CLJS-only** — semantically m
 | `:integrity` | `:request` map | Ignored. Subresource-integrity is a browser-only verification path. |
 | `:credentials` | `:request` map | Ignored. The browser same-origin/`:include` cookie model has no faithful `HttpClient` analogue — the shared client configures no `CookieHandler`, so cookies are neither sent nor stored regardless of the value. (Unlike `:redirect`, which IS honoured on the JVM via the redirect-policy client.) |
 
-The trace event's `:tags` carry the key name and the request URL, and the event is stamped `:sensitive?` per [§Privacy](#privacy); the URL is redacted on the way to the trace surface — its denylisted query-param values always, and all of its query-param values when the request is sensitive (per-call `:sensitive?` or `[:request :sensitive?]`). The trace is informational only — there is no `:rf.error/*` for this path, and the request is not classified as a failure. Cross-host portable code SHOULD avoid these six keys when JVM support matters, or feature-flag them at the call site. See also [§`:rf.http/cors` is CLJS-only](#rfhttpcors-is-cljs-only) for the symmetric failure-category asymmetry.
+The trace event's `:tags` carry the key name and the request URL, and the event is stamped `:sensitive?` per [§Privacy](#privacy); the URL is redacted on the way to the trace surface — its denylisted query-param values always, and all of its query-param values when the request is sensitive (per-call `:sensitive?` or `[:request :sensitive?]`). The trace is informational only — there is no `:rf.error/*` for this path, and the request is not classified as a failure. Cross-host portable code SHOULD avoid these six keys when JVM support matters, or feature-flag them at the call site. See also [§Cross-origin classification is CLJS-only](#cross-origin-classification-is-cljs-only) for the symmetric failure-map asymmetry.
 
 A related but distinct JVM degradation is **shape**, not silent no-op: a binary `:decode` is **honoured** on the JVM but yields a different host shape.
 
@@ -369,7 +369,7 @@ This is deliberate. Retry decisions that depend on more than category + attempt 
 
 | Key | Type | Purpose |
 |---|---|---|
-| `:on` | set of retryable-category keywords | Which failure categories trigger a retry. **Closed set** — must be drawn exclusively from the *retryable* subset of [§Failure categories](#failure-categories-closed-set): `#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}`. Common defaults: `#{:rf.http/transport :rf.http/http-5xx :rf.http/timeout}`. See [§Closed-set `:retry :on` validation](#closed-set-retry-on-validation) below. |
+| `:on` | set of retryable-category keywords | Which failure categories trigger a retry. **Closed set** — must be drawn exclusively from the *retryable* subset of [§Failure categories](#failure-categories-closed-set): `#{:rf.http/transport :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}`. Common defaults: `#{:rf.http/transport :rf.http/http-5xx :rf.http/timeout}`. See [§Closed-set `:retry :on` validation](#closed-set-retry-on-validation) below. |
 | `:max-attempts` | int | Total attempts including the first. `1` = no retry. Absent ⇒ no retry (equivalently `1`). |
 | `:backoff` | map | Exponential backoff config. |
 | `:backoff.:base-ms` | int | Initial delay (ms). |
@@ -382,18 +382,17 @@ This is deliberate. Retry decisions that depend on more than category + attempt 
 `:retry :on` is restricted to the **retryable subset** of the failure-category vocabulary:
 
 ```clojure
-#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}
+#{:rf.http/transport :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}
 ```
 
-A category is in the retryable subset when re-issuing the *same* request can plausibly yield a different outcome — the only thing transport retry can change is whether the transport itself succeeds. The first three are the obvious transient cases; 4xx and CORS are admitted because a meaningful slice of them is transient too, even though most instances are permanent:
+A category is in the retryable subset when re-issuing the *same* request can plausibly yield a different outcome — the only thing transport retry can change is whether the transport itself succeeds. The first three are the obvious transient cases; 4xx is admitted because a meaningful slice of it is transient too, even though most instances are permanent:
 
 | Category | Why it is admitted as retryable |
 |---|---|
-| `:rf.http/transport` | Network / DNS / connection-reset errors are the canonical transient failure — a retry over a recovered link succeeds. |
+| `:rf.http/transport` | Network / DNS / connection-reset errors are the canonical transient failure — a retry over a recovered link succeeds. In the browser this includes a Fetch rejection against a cross-origin URL, which may instead be a CORS refusal the browser reports the same way ([§Cross-origin classification](#cross-origin-classification)); a CORS misconfiguration simply fails again on each attempt until `:max-attempts` is spent. |
 | `:rf.http/timeout` | A slow upstream that blew the per-attempt budget may answer within budget on a later attempt. |
 | `:rf.http/http-5xx` | 5xx is a server-side fault (overload, a crashed-and-restarted node, a transient dependency outage) — the canonical "back off and try again" case. |
 | `:rf.http/http-4xx` | Admitted because the transient 4xx slice is real — `408 Request Timeout`, `425 Too Early`, and especially `429 Too Many Requests` resolve on a backed-off retry. Most 4xx are permanent client errors and should NOT be blanket-retried; this category is opt-in (`:on` is caller-chosen), and a caller that adds it SHOULD pair it with a narrow `:max-attempts`. (Body-conditional 4xx retry — "retry only when the body says rate-limited" — is **semantic** retry and belongs to a state machine, per [§Boundary — transport vs semantic retry](#boundary--transport-vs-semantic-retry).) |
-| `:rf.http/cors` | Admitted because a CORS rejection can be transient: a preflight that failed against a momentarily-misconfigured or just-deploying edge may succeed on a later attempt. Like 4xx it is frequently a permanent configuration error, so it is opt-in and should carry a narrow `:max-attempts`; the heuristic emission caveat in [§CORS classification](#cors-classification--heuristic-emission) applies. |
 
 The other `:rf.http/*` categories from [§Failure categories](#failure-categories-closed-set) are **non-retryable by construction** and rejected when they appear in `:retry :on`:
 
@@ -463,7 +462,7 @@ Pair tools and 10x panels surface the per-attempt trace; user code only sees the
 
 When a response arrives, the runtime classifies the outcome in this fixed order:
 
-1. **Transport / timeout / abort.** A network error, per-attempt timeout, or abort short-circuits the rest. Classified as `:rf.http/transport`, `:rf.http/cors`, `:rf.http/timeout`, or `:rf.http/aborted`. The body never enters the picture. Per [§Abort precedence (abort always wins)](#abort-precedence-abort-always-wins) abort dominates the rest of this list — a request marked aborted always classifies as `:rf.http/aborted` regardless of any later-arriving decode / status / transport observation for the same request.
+1. **Transport / timeout / abort.** A network error, per-attempt timeout, or abort short-circuits the rest. Classified as `:rf.http/transport`, `:rf.http/timeout`, or `:rf.http/aborted`. The body never enters the picture. Per [§Abort precedence (abort always wins)](#abort-precedence-abort-always-wins) abort dominates the rest of this list — a request marked aborted always classifies as `:rf.http/aborted` regardless of any later-arriving decode / status / transport observation for the same request.
 2. **HTTP status.** Once a response lands, status is checked **before** the body is touched.
     - `2xx` → success-eligible; proceed to decode.
     - `4xx` → `:rf.http/http-4xx`; the raw response text is surfaced at `:body`. Decode is skipped.
@@ -492,7 +491,7 @@ Every failure carries a `:kind` keyword (under the framework-reserved `:rf.http/
 
 ### Self-identifying failure maps
 
-**Every** failure map — all eight categories — additionally carries a category-independent **request-identity echo**, so the failure names *which* request failed, not only *what kind* of failure it was. The `:kind` answers server-vs-network-vs-code; these four fields answer *which endpoint*, so production triage of "`:rf.http/timeout` spiking — which URL, first attempt or the fourth?" is answerable from the reply alone:
+**Every** failure map — all seven categories — additionally carries a category-independent **request-identity echo**, so the failure names *which* request failed, not only *what kind* of failure it was. The `:kind` answers server-vs-network-vs-code; these four fields answer *which endpoint*, so production triage of "`:rf.http/timeout` spiking — which URL, first attempt or the fourth?" is answerable from the reply alone:
 
 | Field | Meaning |
 |---|---|
@@ -505,8 +504,7 @@ The framework already holds this identity at finalisation; it is stamped onto th
 
 | `:kind` | When | Tags |
 |---|---|---|
-| `:rf.http/transport` | Network / DNS / connection-refused / connection-reset error before the HTTP transaction completed — **also** a request-preparation failure (a throwing `:body` thunk or a body the encoder rejects; see [§Body encoding](#body-encoding)), which carries an extra `:stage :request-prep` tag | `:message`, `:cause`, (`:stage` on a prep failure) |
-| `:rf.http/cors` | The fetch rejected with a `TypeError` for a cross-origin URL — the [§CORS classification](#cors-classification--heuristic-emission) heuristic. That catches a rejected preflight or a response the browser's CORS policy blocked, and also a plain network drop to a cross-origin host, which the browser reports the same way. Distinct from `:transport` because a CORS rejection is a configuration error, not a network error. CLJS-only; JVM never emits this. | `:message`, `:url` |
+| `:rf.http/transport` | Network / DNS / connection-refused / connection-reset error before the HTTP transaction completed — in the browser, any Fetch network rejection, including one against a cross-origin URL that may be a CORS refusal (see [§Cross-origin classification](#cross-origin-classification)) — **also** a request-preparation failure (a throwing `:body` thunk or a body the encoder rejects; see [§Body encoding](#body-encoding)), which carries an extra `:stage :request-prep` tag | `:message`, `:cause`, (`:stage` on a prep failure), (`:cross-origin? true` on a browser Fetch rejection against a cross-origin URL) |
 | `:rf.http/timeout` | Per-attempt timeout fired | `:elapsed-ms` (measured wall-clock delta, `>= :limit-ms`, same semantics on both hosts — see [§JVM transport](#jvm-transport--degraded-behaviour-for-cljs-only-options)), `:limit-ms` (the configured per-attempt budget) |
 | `:rf.http/http-4xx` | Non-2xx 4xx response | `:status`, `:status-text`, `:body` (the raw response text — decode is skipped on non-2xx; see [§Classification order](#classification-order)), `:headers` |
 | `:rf.http/http-5xx` | Non-2xx 5xx response | same as `:http-4xx` |
@@ -516,9 +514,9 @@ The framework already holds this identity at finalisation; it is stamped onto th
 
 The category vocabulary is **closed for v1** — additions require a Spec change. The `:rf.http/*` namespace makes these unambiguous wherever they leak: trace events, error projector, `:retry :on` sets, epoch records.
 
-#### CORS classification — heuristic emission
+#### Cross-origin classification
 
-Browsers surface CORS rejections opaquely, so the category is heuristic: the CLJS reference emits `:rf.http/cors` when the rejection shape is a `TypeError` against a cross-origin URL (the strongest signal the browser surfaces without dropping to the network panel). The classifier ships with conformance tests that pin the heuristic + the `:rf.http/cors` `:retry :on` membership. JVM never emits this category — host CORS belongs to the browser fetch stack. Per [Security.md §Input validation / boundary parsing](Security.md#input-validation--boundary-parsing) (CORS classification row in the catalogue references).
+Browsers surface a CORS refusal opaquely: Fetch rejects it with the same `TypeError` it raises for a network drop (offline, a DNS failure, a refused or reset connection), so the page cannot tell the two apart. The CLJS reference therefore classifies a Fetch `TypeError` as `:rf.http/transport`, and stamps `:cross-origin? true` on it when the URL is cross-origin to the page — a hint that a CORS refusal is one possible cause, for a message or a log to name. A retry policy naming `:rf.http/transport` retries such a failure like any other network drop. A same-origin URL, a `data:` / `blob:` / `file:` URL and a non-`TypeError` rejection carry no hint. The JVM never stamps it — host CORS belongs to the browser fetch stack. Per [Security.md §Input validation / boundary parsing](Security.md#input-validation--boundary-parsing) (cross-origin classification row in the catalogue references).
 
 > Cross-reference: see [Security.md §What is explicitly out of scope](Security.md#what-is-explicitly-out-of-scope) — CORS itself is a host-platform concern; the framework classifies the rejection but does not configure CORS.
 
@@ -1159,7 +1157,7 @@ Internally the wrapper machine has:
 
 - `:rf.machine.spawn/spawned` — the synthetic event the runtime dispatches to spawns without a `:start` (per [Spec 005 §Spawning](005-StateMachines.md#spawning--dynamic-actors)). The wrapper's `:fire-request` action runs, emitting the underlying `:rf.http/managed` fx with `:on-success` / `:on-failure` pointing back at the wrapper actor's own id (so the reply lands at the wrapper, not at the user's handler).
 - `:rf.http/succeeded` — fired when the underlying fx succeeds; records `value` at `:data :rf/result` and transitions to `:succeeded`.
-- `:rf.http/failed` — fired when the underlying fx fails (any of the eight `:rf.http/*` failure categories, per [§Failure categories](#failure-categories-closed-set)); records `failure` at `:data :rf/result` and transitions to `:failed`.
+- `:rf.http/failed` — fired when the underlying fx fails (any of the seven `:rf.http/*` failure categories, per [§Failure categories](#failure-categories-closed-set)); records `failure` at `:data :rf/result` and transitions to `:failed`.
 
 `value` is the decoded-and-accepted payload (`(:value reply)` off the canonical reply the wrapper's `:on-success` target received) and `failure` is the classified `:rf.http/*` map (`(:error reply)` per [§Reply payload shape](#reply-payload-shape--the-one-canonical-envelope)).
 
@@ -1356,7 +1354,7 @@ Handler-meta `:sensitive?` is **not** a source — there is no handler-level `:s
 
 ### 4. Trace-event redaction + stamping rules
 
-For every `:rf.http/*` trace event the runtime emits (`:rf.http/retry-attempt`, `:rf.http/aborted-on-actor-destroy`, the eight `:rf.http/*` failure categories from [§Failure categories](#failure-categories-closed-set), `:rf.warning/failure-swallowed`), and for the error rows of the interceptor chain and the reply tail (`:rf.error/http-interceptor-failed`, `:rf.error/http-interceptor-bad-return`, `:rf.error/http-reply-tail-failed`), implementations MUST:
+For every `:rf.http/*` trace event the runtime emits (`:rf.http/retry-attempt`, `:rf.http/aborted-on-actor-destroy`, the seven `:rf.http/*` failure categories from [§Failure categories](#failure-categories-closed-set), `:rf.warning/failure-swallowed`), and for the error rows of the interceptor chain and the reply tail (`:rf.error/http-interceptor-failed`, `:rf.error/http-interceptor-bad-return`, `:rf.error/http-reply-tail-failed`), implementations MUST:
 
 1. **Redact denylisted headers** in `:headers` slots regardless of the effective `:sensitive?` flag.
 2. **Redact denylisted query-string parameter values** in `:url` slots regardless of the effective `:sensitive?` flag. Param-name + position preserved; the value is replaced inline with the `:rf/redacted` text token. The same names written as keys of a request-side `:params` map (the key's wire name — `name` of a keyword, else `str`) have their values replaced by `:rf/redacted` too, and such a hit counts toward the stamp in rule 6, so a parameter gets one treatment whichever spelling carries it.
@@ -1477,11 +1475,11 @@ Per [§Implementation status](#implementation-status) `:rf.http/managed` is the 
 
 ### Failure categories are a closed set
 
-Per [§Failure categories (closed set)](#failure-categories-closed-set) the failure taxonomy under `:rf.http/*` (`:transport`, `:cors`, `:timeout`, `:http-4xx`, `:http-5xx`, `:decode-failure`, `:accept-failure`, `:aborted`) is closed for v1. Additions require a Spec change. Apps that want domain-level discrimination layer `:accept` (per [§`:accept` — domain-failure normalisation](#accept--domain-failure-normalisation)) — they don't extend the framework's failure taxonomy. This keeps the `:rf.http/*` trace vocabulary decidable for tools and the [Spec 009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) finite.
+Per [§Failure categories (closed set)](#failure-categories-closed-set) the failure taxonomy under `:rf.http/*` (`:transport`, `:timeout`, `:http-4xx`, `:http-5xx`, `:decode-failure`, `:accept-failure`, `:aborted`) is closed for v1. Additions require a Spec change. Apps that want domain-level discrimination layer `:accept` (per [§`:accept` — domain-failure normalisation](#accept--domain-failure-normalisation)) — they don't extend the framework's failure taxonomy. This keeps the `:rf.http/*` trace vocabulary decidable for tools and the [Spec 009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) finite.
 
-### `:rf.http/cors` is CLJS-only
+### Cross-origin classification is CLJS-only
 
-Per [§Failure categories (closed set)](#failure-categories-closed-set) the `:rf.http/cors` row is CLJS-only — JVM transports never emit it. CORS is a browser-policy concern; the JVM has no cross-origin policy to enforce. The asymmetry is documented so tools that consume the trace stream don't assume the row exists on every host.
+Per [§Cross-origin classification](#cross-origin-classification) the `:cross-origin?` hint on a `:rf.http/transport` failure is CLJS-only — JVM transports never stamp it. CORS is a browser-policy concern; the JVM has no cross-origin policy to enforce. The asymmetry is documented so tools that consume the trace stream don't assume the hint exists on every host.
 
 ### Per-frame interceptor chain with both request- and response-side phases
 

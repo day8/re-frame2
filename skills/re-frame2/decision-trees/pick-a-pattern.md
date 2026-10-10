@@ -16,7 +16,7 @@ A few neighbouring patterns share enough vocabulary to get confused. These rules
 Both move data over HTTP. The difference is **who owns the lifecycle vocabulary**.
 
 - **RemoteData** — the `app-db` slice is the protagonist. The feature wants the canonical 5-key slice (`:status` / `:data` / `:error` / `:loaded-at` / `:attempt`) and routes through the four-event lifecycle (`:load → :loaded | :load-failed`). The fx underneath could be `:http`, `:rf.http/managed`, IndexedDB, a wrapped JS library — any AsyncEffect-shaped pipe. Choose RemoteData when the *slice shape* and *state-enum semantics* are the thing.
-- **ManagedHTTP** — the `:rf.http/managed` fx is the protagonist. The feature wants retry-with-backoff, the eight-category failure taxonomy, abort tokens, in-flight de-dup, the encode/decode pipeline. Choose ManagedHTTP when the *fx contract* (its inputs, its replies, its retry policy) is the thing.
+- **ManagedHTTP** — the `:rf.http/managed` fx is the protagonist. The feature wants retry-with-backoff, the seven-category failure taxonomy, abort tokens, in-flight de-dup, the encode/decode pipeline. Choose ManagedHTTP when the *fx contract* (its inputs, its replies, its retry policy) is the thing.
 
 If both, **load RemoteData first, ManagedHTTP second** — RemoteData owns the slice; ManagedHTTP plugs into it. The escape hatch into a state-machine-driven HTTP flow (semantic retries that aren't transport-retries) is documented inside the ManagedHTTP leaf.
 

@@ -74,7 +74,7 @@
   Apps that don't issue any managed-HTTP requests don't drag the
   in-flight request registry, the Fetch / HttpClient transport
   adapters, the encode / decode pipeline, the retry-with-backoff
-  machinery, the eight-category `:rf.http/*` failure taxonomy, or any
+  machinery, the seven-category `:rf.http/*` failure taxonomy, or any
   of the `:rf.http/*` keyword strings onto the classpath.
 
   ## Ownership

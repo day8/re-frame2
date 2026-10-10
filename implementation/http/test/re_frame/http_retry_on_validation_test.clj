@@ -16,7 +16,7 @@
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (def ^:private closed-set
-  #{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx})
+  #{:rf.http/transport :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx})
 
 (deftest retryable-categories-is-the-closed-set
   (is (= closed-set rf.http.handlers/retryable-categories)))
@@ -44,6 +44,11 @@
          (bad-members (call-managed! {:on #{:rf.http/transport :rf.http/http-5xx
                                              :rf.http/aborted :rf.http/decode-failure}
                                       :max-attempts 3})))))
+
+(deftest cors-is-not-a-category
+  ;; A cross-origin network failure is `:rf.http/transport`.
+  (is (= (expected-bad-members #{:rf.http/cors})
+         (bad-members (call-managed! {:on #{:rf.http/cors} :max-attempts 3})))))
 
 (deftest non-set-on-shapes-rejected
   ;; A bare keyword would otherwise throw a raw ISeq coercion error, and a

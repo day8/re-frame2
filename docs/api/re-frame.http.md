@@ -72,7 +72,7 @@ There is no `re-frame.http` namespace and no per-verb helper. The fx are address
         - `:json`, `:text`, `:blob`, `:array-buffer` or `:form-data` forces one.
         - A Malli schema parses JSON and validates it. It decodes only a response whose `Content-Type` is JSON or absent; any other type fails as `:rf.http/decode-failure`. It needs Malli at run time, and `day8/re-frame2-http` does not bring it: add `day8/re-frame2-schemas` and require `re-frame.schemas` at boot. Without Malli, a request with a schema `:decode` is refused at dispatch with `:rf.error/schemas-artefact-missing`, before anything is sent. See [Response-body classification](#response-body-classification) for the schema's `:sensitive?` and `:large?` props.
         - A fn `(fn [body-text headers] → value)` does it all. It receives the raw body text (`""` for an empty body), and a throw fails as `:rf.http/decode-failure`.
-    - `:retry`: `:on` must be a set drawn from the retryable kinds `#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}`; `#{}` or `nil` retries nothing. `:max-attempts` counts the first attempt, so `3` means up to two retries; without it nothing is retried. `:backoff` defaults to `{:base-ms 250 :factor 2 :max-ms 5000}`, and `:jitter true` adds ±25%. Only the final failure reaches your reply target.
+    - `:retry`: `:on` must be a set drawn from the retryable kinds `#{:rf.http/transport :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}`; `#{}` or `nil` retries nothing. `:max-attempts` counts the first attempt, so `3` means up to two retries; without it nothing is retried. `:backoff` defaults to `{:base-ms 250 :factor 2 :max-ms 5000}`, and `:jitter true` adds ±25%. Only the final failure reaches your reply target.
     - `:request-id`: issuing a new request with the same id while one is in flight supersedes it, and the old reply is never delivered. Ids are per frame, so two frames running the same code do not cancel each other.
 
     The `:request` envelope:
@@ -233,12 +233,11 @@ The cell below answers two requests from [stubs](#testing-without-a-network) and
 
 ## Failure kinds (closed set)
 
-A failure's `:kind` is one of eight values, all reserved under `:rf.http/*`. The set is closed, so a handler's `case` on `:kind` can be exhaustive.
+A failure's `:kind` is one of seven values, all reserved under `:rf.http/*`. The set is closed, so a handler's `case` on `:kind` can be exhaustive.
 
 | `:kind` | Meaning | Tags |
 |---|---|---|
-| `:rf.http/transport` | Network, DNS or connection error before any HTTP response (in the browser, against a same-origin URL; see `:rf.http/cors`), or a `:body` that could not be prepared. | `:message`, `:cause`; `:stage :request-prep` for a body failure |
-| `:rf.http/cors` | A Fetch network rejection (a `TypeError`) against a cross-origin URL (CLJS only). The browser reports a CORS rejection and a network failure the same way, so a dropped connection to a cross-origin host also reads as `:rf.http/cors`. | `:message`, `:url` |
+| `:rf.http/transport` | Network, DNS or connection error before any HTTP response, or a `:body` that could not be prepared. In the browser a Fetch rejection against a cross-origin URL carries `:cross-origin? true`: the browser reports a CORS refusal and a dropped connection the same way, so it may be either. | `:message`, `:cause`; `:stage :request-prep` for a body failure; `:cross-origin? true` (CLJS only) |
 | `:rf.http/timeout` | The per-attempt timeout fired. | `:elapsed-ms`, `:limit-ms`; on the JVM also `:message` |
 | `:rf.http/http-4xx` | A 4xx response, or any other non-2xx status below 500 (a 1xx, or a 3xx that was not followed). | `:status`, `:status-text`, `:body` (raw text), `:headers` |
 | `:rf.http/http-5xx` | A 5xx response. | `:status`, `:status-text`, `:body` (raw text), `:headers` |
