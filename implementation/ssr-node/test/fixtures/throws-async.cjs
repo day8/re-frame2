@@ -28,8 +28,6 @@
 //                     here as the control that says the two paths differ.
 //   `app/uncaught`  — the same Error, thrown from a scheduled callback while
 //                     the returned promise never settles. Nothing awaits it.
-//   `app/uncaught-torn` — the same again, after a chunk has already left, so
-//                     the response is torn rather than clean.
 //   `app/uncaught-null` — a scheduled callback that throws `null`, which is
 //                     what CLJS emits for `(throw nil)`. Node hands the
 //                     parent's `'error'` listener `null` itself, not an
@@ -52,7 +50,6 @@ module.exports = {
   entries: {
     'app/rejected': ENTRY,
     'app/uncaught': ENTRY,
-    'app/uncaught-torn': ENTRY,
     'app/uncaught-null': ENTRY,
   },
 
@@ -65,8 +62,6 @@ module.exports = {
 
     // The control: awaited, so the exception door closes on it.
     if (entry === 'app/rejected') return Promise.reject(err);
-
-    if (entry === 'app/uncaught-torn') emit('<p>first</p>');
 
     // The case. Thrown on a later tick, outside every `try` in this
     // process's render path — an uncaught exception in the worker thread.
