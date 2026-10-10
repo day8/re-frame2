@@ -516,12 +516,12 @@
 ;; Frame teardown reaches all routing-owned host-side state through one
 ;; optional late-bound hook.
 (defn- release-routing-host-caches!
-  "Release a destroyed frame's scroll and allocator caches, drop the frame's
-  URL claim, and reconcile the browser URL listener. The
-  `:routing/on-frame-destroyed!` teardown body."
+  "Release a destroyed frame's scroll cache, drop the frame's URL claim, and
+  reconcile the browser URL listener. The `:routing/on-frame-destroyed!`
+  teardown body. The nav allocators are process-global and outlive the
+  frame, so a same-id successor never re-issues a predecessor's token."
   [frame-id]
   (rf.routing.scroll/release-frame! frame-id)
-  (rf.routing.nav-counters/release-frame! frame-id)
   ;; Drop the destroyed frame's URL claim FIRST so `url-owner-frame-id` resolves
   ;; to the successor claimant (or nil), THEN reconcile the browser listener via
   ;; the single strategy-aware op. Reconciliation rebinds to the successor's

@@ -26,9 +26,8 @@
             [re-frame.routing.readiness :as rf.routing.readiness]
             [re-frame.trace :as rf.trace]))
 
-;; Per Spec 012 §Multi-frame routing: nav-token and pending-nav id
-;; counters are per-frame, monotone, and unbounded — see Spec 012
-;; §Navigation tokens, step 1. A token need only be unique within the
+;; Nav-token and pending-nav id counters are process-global, monotone, and
+;; unbounded — see Spec 012 §Navigation tokens, step 1. A token need only be unique within the
 ;; lifetime of any in-flight async continuation (equality against the
 ;; current slice token is the only operation on it), which a monotone
 ;; counter satisfies without ever wrapping. Overflow is a non-concern:
@@ -158,7 +157,7 @@
 ;; (programmatic `:rf.route/navigate` and URL-driven
 ;; `:rf.route/handle-url-change`) once the target slice
 ;; fields have been resolved. Both:
-;;   1. allocate a fresh per-frame nav-token (the cascade-begin marker)
+;;   1. allocate a fresh nav-token (the cascade-begin marker)
 ;;      from the injected host-side counter snapshot — PURE: read the
 ;;      next id, publish it, and emit the high-water bump as an fx;
 ;;   2. emit `:rf.route.nav-token/allocated`, then `emit-activation-

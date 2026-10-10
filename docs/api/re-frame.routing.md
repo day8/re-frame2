@@ -761,16 +761,16 @@ Saved scroll positions are kept in a per-frame LRU cache on the host, keyed by f
 
 ### Navigation counters and state classification
 
-The counters that allocate navigation tokens and pending-navigation ids are per-frame high-water marks kept on the host, not in `runtime-db`. An epoch restore replaces `runtime-db` wholesale; keeping the counters outside it means a restore cannot rewind them and reissue a token that a slow in-flight continuation still holds.
+The counters that allocate navigation tokens and pending-navigation ids are process-global high-water marks kept on the host, not in `runtime-db`. An epoch restore replaces `runtime-db` wholesale; keeping the counters outside it means a restore cannot rewind them and reissue a token that a slow in-flight continuation still holds. Keeping them process-global means a frame made under a destroyed frame's id cannot restart them either.
 
 #### `counter-snapshot`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (counter-snapshot frame-id) → {:nav-token-counter N :pending-nav-counter M} or {}
+  (counter-snapshot) → {:nav-token-counter N :pending-nav-counter M} or {}
   ```
-- **Description**: Returns the counters for `frame-id` from the host cache, or `{}` when there are none. The allocation coeffects take the next navigation token and pending-navigation id from this value.
+- **Description**: Returns the counters from the host cache, or `{}` before the first allocation. The allocation coeffects take the next navigation token and pending-navigation id from this value.
 
 #### `routing-state-classification`
 

@@ -51,7 +51,7 @@
   (testing "replaying a block re-presents the recorded pn-1 though the host
             counter has moved on (a re-mint would give pn-2)"
     (block-fixture!)
-    (rf.routing.nav-counters/commit-counter! :rf/default :pending-nav-counter 1)
+    (rf.routing.nav-counters/commit-counter! :pending-nav-counter 1)
     ;; The link door can block or commit, so its record carries both allocations.
     (replay! [:rf.route/url-requested {:url "/home"}]
              {:rf.route/nav-allocation         {:token "nav-2" :counter 2}
@@ -62,7 +62,7 @@
   (testing "replaying a commit re-presents the recorded nav-1 though the host
             counter has moved on (a re-mint would give nav-6)"
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
-    (rf.routing.nav-counters/commit-counter! :rf/default :nav-token-counter 5)
+    (rf.routing.nav-counters/commit-counter! :nav-token-counter 5)
     ;; A `handle-url-change` record carries both allocations: both generate live.
     (replay! [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}]
              {:rf.route/nav-allocation         {:token "nav-1" :counter 1}
