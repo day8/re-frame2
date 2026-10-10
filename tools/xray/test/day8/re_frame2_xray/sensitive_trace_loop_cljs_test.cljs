@@ -76,17 +76,16 @@
 ;; keys on Xray's reserved namespace. Counted as redacted host events, each
 ;; would cost one `:rf.xray/note-sensitive-suppressed` dispatch into
 ;; `:rf/xray`: a Resources consumer's shell mount measures 126 such reads,
-;; past the router's depth-100 cap — `:rf.error/drain-depth-exceeded` on
-;; every boot, with Xray's own `:rf.xray.edn-inspector/set-width` events
-;; dropped behind the flood.
+;; so every boot would add 126 to the REDACTED count with no host data
+;; redacted.
 
 (def ^:private shell-mount-burst
   "The measured boot burst: frameless `:rf.xray*` sub reads in one mount."
   126)
 
 (defn- xray-queue-depth
-  "Envelopes sitting undrained in `:rf/xray`'s router queue — the quantity
-  the router's depth cap counts."
+  "Envelopes sitting undrained in `:rf/xray`'s external lane (the router's
+  `:queue`)."
   []
   (count (:queue @(:router (rf.frame/frame :rf/xray)))))
 
@@ -134,11 +133,11 @@
 ;;
 ;; Section (1) covers the TRIGGER (Xray counting its own reads); this section
 ;; covers the AMPLIFIER. With one `:rf.xray/note-sensitive-suppressed` per
-;; suppressed trace, a genuine host burst of more than ~100 frameless
-;; sensitive traces in one task would carry `:rf/xray`'s queue past the
-;; router's depth-100 cap, so the halt would be misattributed to Xray and
-;; Xray's own queued UI events dropped behind it. The counts are coalesced to
-;; one dispatch per task instead.
+;; suppressed trace, a genuine host burst of frameless sensitive traces in
+;; one task would queue one `:rf/xray` event per trace. Each is a family of
+;; its own, so `:drain-depth` never halts the burst, but `:rf/xray` would
+;; still process one event per trace for what is one count. The counts are
+;; coalesced to one dispatch per task instead.
 ;;
 ;; The burst runs through the real `rf.trace/emit!` → collector → privacy-gate
 ;; path. Dispatches are counted as ARRIVALS in `:rf/xray`'s router queue across
@@ -147,7 +146,7 @@
 ;; compare two different moments, not two behaviours.
 
 (def ^:private host-burst
-  "Past the router's depth-100 cap, with margin."
+  "The host burst: frameless sensitive host-sub traces emitted in one task."
   150)
 
 (defn- watch-note-arrivals!
@@ -188,8 +187,7 @@
           (try
             (testing "150 frameless sensitive HOST traces emitted in
                       one task. One dispatch per trace would mean 150
-                      dispatches, a drain halt at depth 100, and a badge
-                      stuck at 100."
+                      dispatches into :rf/xray for one count."
               (is (= host-burst (config/suppressed-count))
                   "every suppressed trace is counted — the atom stays exact")
               (is (= 1 @arrived)
