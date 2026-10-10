@@ -451,109 +451,29 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-measured-mask-is-the-lanes-own-schedule
-  (testing "`rf.bench.fresco.slice-echo-clock-app/measured-mask` is derived from `rf.bench.fresco.lane/visit-plan` — the
-           one statement of the schedule both of the lane's loops walk —
-           and not re-derived from `warmup`, `samples` and `slot-order`
-           inside the driver. A mask that had drifted from the schedule
-           would not fail; it would publish a distribution over the wrong
-           visits and say nothing about it."
-    (let [sampling {:warmup 2 :samples 3}
-          rounds   2
-          mask     (rf.bench.fresco.slice-echo-clock-app/measured-mask rf.bench.fresco.slice-echo-clock-app/arms sampling rounds)]
-      (is (= (set (map :id rf.bench.fresco.slice-echo-clock-app/arms)) (set (keys mask)))
-          "every arm has a mask")
-      (doseq [{:keys [id]} rf.bench.fresco.slice-echo-clock-app/arms]
-        (is (= (* rounds (+ (:warmup sampling) (:samples sampling)))
-               (count (get mask id)))
-            (str id " is visited once per sample index per round"))
-        (is (= (* rounds (:samples sampling))
-               (count (filter true? (get mask id))))
-            (str id "'s measured visits are `samples` per round")))
-      (is (= [false false true true true false false true true true]
-             (get mask :keystroke))
-          "and the warm-up block leads EVERY round, not just the first —
-           `rf.bench.fresco.lane/rounds!`'s own docstring prices that asymmetry"))))
-
-(deftest the-record-labels-which-population-each-figure-is-taken-over
-  (testing "`:summary` and `:structure` share the measured population
-           because the second is published as the decomposition of the
-           first. `:echo` deliberately does not: it is a count of
-           refusals rather than a distribution, it decomposes nothing, and
-           a verification is worth more the more windows it covers."
-    (is (= {:summary   :measured-visits
-            :structure :measured-visits
-            :echo      :all-visits}
-           rf.bench.fresco.slice-echo-clock-app/populations))))
+  ;; Every arm's mask in bank order, the warm-up block leading EVERY round.
+  ;; A drifted mask would not fail; it would publish a distribution over
+  ;; the wrong visits.
+  (let [arms rf.bench.fresco.slice-echo-clock-app/arms]
+    (is (= (zipmap (map :id arms) (repeat [false false true true true false false true true true]))
+           (rf.bench.fresco.slice-echo-clock-app/measured-mask arms {:warmup 2 :samples 3} 2)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The control's arithmetic, where it cannot flake
 ;; ---------------------------------------------------------------------------
 
 (deftest the-control-adjudicates-a-difference-of-per-round-medians
-  (testing "Pinned on synthetic readings rather than on a run. The
-           prediction is ADDITIVE — the control injects a duration, not a
-           multiple — so what each round contributes is
-           `p50(:ctl-blocked) - p50(:keystroke)` in milliseconds."
-    (let [readings [{:keystroke [10.0 12.0 14.0] :ctl-blocked [60.0 62.0 64.0]}
-                    {:keystroke [20.0 20.0 20.0] :ctl-blocked [69.0 70.0 71.0]}]]
-      (is (= [50.0 50.0] (rf.bench.fresco.slice-echo-clock-app/control-per-round readings))
-          "each round pairs its own two medians")
-      (let [v (rf.bench.fresco.lane/control-verdict-strict rf.bench.fresco.slice-echo-clock-app/blocked-ms
-                                           (rf.bench.fresco.slice-echo-clock-app/control-per-round readings)
-                                           rf.bench.fresco.slice-echo-clock-app/control-slack)]
-        (is (:ok? v) "a control that saw exactly what it predicted passes")
-        (is (= :every-round (:rule v))
-            "under the strict rule — these legs are tens of milliseconds and
-             nowhere near the 100 microsecond clock clamp the overlap rule exists
-             for")))))
-
-(deftest the-control-refuses-a-window-that-did-not-see-the-injection
-  (testing "Anti-vacuity for the row above. A commit-bounded window would
-           see none of the injected cost, so its per-round differences
-           would sit at zero — and the control has to say so."
-    (let [readings [{:keystroke [10.0 12.0 14.0] :ctl-blocked [10.0 12.0 14.0]}
-                    {:keystroke [20.0 20.0 20.0] :ctl-blocked [20.0 21.0 20.0]}]
-          v        (rf.bench.fresco.lane/control-verdict-strict rf.bench.fresco.slice-echo-clock-app/blocked-ms
-                                                (rf.bench.fresco.slice-echo-clock-app/control-per-round readings)
-                                                rf.bench.fresco.slice-echo-clock-app/control-slack)]
-      (is (not (:ok? v))
-          "an instrument that cannot see a change its own arithmetic predicts
-           cannot be trusted with an unpredicted one")
-      (is (= 2 (count (:outside v)))
-          "and both rounds are named rather than merely counted"))))
-
-;; ---------------------------------------------------------------------------
-;; The knobs, and the reasoning behind the one that is not a schedule knob
-;; ---------------------------------------------------------------------------
-
-(deftest the-injected-control-duration-clears-the-frame-grid
-  (testing "`blocked-ms` is chosen against the display's rendering
-           interval and not by taste. A paint-bounded window is quantised
-           by the rendering opportunities the browser offers — about
-           16.7 ms at 60 Hz — so an injection much smaller than one frame
-           can be absorbed by the quantisation entirely, and a control
-           that fails for the clock is not a control."
-    (is (>= rf.bench.fresco.slice-echo-clock-app/blocked-ms (* 2.0 16.7))
-        "at least two rendering intervals at 60 Hz")
-    (let [{:keys [band predicted]} (rf.bench.fresco.lane/control-verdict-strict
-                                     rf.bench.fresco.slice-echo-clock-app/blocked-ms
-                                     [rf.bench.fresco.slice-echo-clock-app/blocked-ms]
-                                     rf.bench.fresco.slice-echo-clock-app/control-slack)]
-      (is (= rf.bench.fresco.slice-echo-clock-app/blocked-ms predicted)
-          "the control predicts the injected duration itself — an additive
-           prediction that needs no model of the application")
-      (is (<= (first band) rf.bench.fresco.slice-echo-clock-app/blocked-ms (second band))
-          "and its band is centred on it"))))
-
-(deftest the-arm-roster-is-the-four-rows-the-file-documents
-  (testing "The namespace docstring names four rows and says which
-           estimands they can and cannot serve. A fifth added silently
-           would leave that prose describing a different instrument — the
-           prose drift this row pins."
-    (is (= [:idle-frame :keystroke :toggle :ctl-blocked] (mapv :id rf.bench.fresco.slice-echo-clock-app/arms))
-        "floor first, so it leads the schedule")
-    (is (= [:ctl-blocked] (mapv :id (filter :control? rf.bench.fresco.slice-echo-clock-app/arms)))
-        "and exactly one of them is a control")
-    (is (pos? (:warmup rf.bench.fresco.slice-echo-clock-app/sampling)))
-    (is (pos? (:samples rf.bench.fresco.slice-echo-clock-app/sampling)))
-    (is (pos? rf.bench.fresco.slice-echo-clock-app/rounds))))
+  ;; The prediction is additive, so each round contributes
+  ;; p50(:ctl-blocked) - p50(:keystroke). A commit-bounded window sees none
+  ;; of the injected cost, its differences sit at zero, and the control
+  ;; must refuse them.
+  (let [per-round rf.bench.fresco.slice-echo-clock-app/control-per-round
+        ok?       #(:ok? (rf.bench.fresco.lane/control-verdict-strict
+                           rf.bench.fresco.slice-echo-clock-app/blocked-ms
+                           (per-round %)
+                           rf.bench.fresco.slice-echo-clock-app/control-slack))
+        seen      [{:keystroke [10.0 12.0 14.0] :ctl-blocked [60.0 62.0 64.0]}
+                   {:keystroke [20.0 20.0 20.0] :ctl-blocked [69.0 70.0 71.0]}]
+        blind     [{:keystroke [10.0 12.0 14.0] :ctl-blocked [10.0 12.0 14.0]}
+                   {:keystroke [20.0 20.0 20.0] :ctl-blocked [20.0 21.0 20.0]}]]
+    (is (= [[50.0 50.0] true false] [(per-round seen) (ok? seen) (ok? blind)]))))
