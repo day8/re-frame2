@@ -622,7 +622,7 @@ The same handler runs **on the server during SSR** (no `:platforms` exclusion) �
 
 | Form | Behaviour |
 |---|---|
-| `[rf/route-link {:to :route/cart} "Cart"]` | Renders `<a href="...">` and intercepts plain primary-button clicks itself — its registered view body (per [§Standard runtime events](#standard-runtime-events)) calls `.preventDefault` and dispatches `:rf.route/url-requested`. The dispatch **carries the frame address captured at render time** (per [EP-0002 carried-invariant](002-Frames.md) — the render-time scope — a `with-frame`, or a `frame-provider` (SCOPE) / `frame-root` (ENSURE) boundary — has unwound by the time the click fires, so the click closure pins the rendering frame just as a `capture-frame` does for view bodies; resolving the frame ambiently at click time would raise `:rf.error/no-frame-context` or route to the wrong frame). Modifier keys (cmd-click, middle-click, shift-click) defer to the browser; the link follows the `href` natively. |
+| `[rf/route-link {:to :route/cart} "Cart"]` | Renders `<a href="...">` and intercepts plain primary-button clicks itself — its registered view body (per [§Standard runtime events](#standard-runtime-events)) calls `.preventDefault` and dispatches `:rf.route/url-requested`. The dispatch **is pinned to the frame incarnation captured at render time** (per [EP-0002 carried-invariant](002-Frames.md) — the render-time scope — a `with-frame`, or a `frame-provider` (SCOPE) / `frame-root` (ENSURE) boundary — has unwound by the time the click fires, so the click closure pins the rendering frame's incarnation through a `capture-frame`, as view bodies do; resolving the frame ambiently at click time would raise `:rf.error/no-frame-context` or route to the wrong frame). A retained anchor whose incarnation was destroyed refuses its click and its prefetch with `:rf.error/frame-destroyed`, never navigating a successor made under the same id. Modifier keys (cmd-click, middle-click, shift-click) defer to the browser; the link follows the `href` natively. |
 | `[:a {:href "..."} ...]` (plain anchor in user view code) | Browser-native navigation. The runtime does **not** intercept; clicking causes a full page load if the URL is on the same origin and an external navigation otherwise. Apps that want SPA-style interception on plain anchors install it at the **host adapter** layer (a top-level `click` listener on the document that consults `match-url`); the runtime's contract stops at `route-link` plus `:rf.route/url-requested`. |
 
 `rf/route-link` is the stock-Reagent registered view at `:route/link`, below. A
@@ -663,8 +663,8 @@ the same way, the SSR shell included, which must not accept a mode the hydrated
 client rejects. Wherever the warm-up is installed as a handler FUNCTION — `rf/route-link`
 on both hosts — it **composes with**, rather than replaces, a caller-supplied
 `:on-mouse-enter` / `:on-focus` / `:on-touch-start`. Every surface dispatches to the same
-render-time-captured frame the click handler targets, so a prefetch warms the
-frame that rendered the link, never a sibling. (A surface whose grammar admits only
+render-time-captured frame incarnation the click handler targets, so a prefetch
+warms the frame that rendered the link, never a sibling or a same-id successor. (A surface whose grammar admits only
 one intent per position cannot compose; see **One value per claimed position** below.)
 
 **Validation and the warm-up are both shared; only the wiring is the substrate's.**

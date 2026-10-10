@@ -11,7 +11,7 @@
   |---|---|---|
   | `h/error-boundary`'s `:on-error` report | `collector/dispatch!`, in `impl.boundary/report!` | the frame keyword, read from React context AT CATCH TIME |
   | the internal mount witness door | `collector/dispatch!`, in `impl.mount/dispatch!` | `(:frame handle)` — a keyword, retained for the root's whole life |
-  | `intent/navigate-head` | routing's `:routing/activate-link!`, in `impl.intent/navigate-handler` | the frame keyword, closed over at RENDER and resolved at CLICK |
+  | `intent/navigate-head` | routing's `:routing/activate-link!`, in `impl.intent/navigate-handler` | the `capture-frame` bundle of the incarnation it rendered under, pinned at RENDER |
 
   ## The axis, and why \"it resolves late\" is not the fault
 
@@ -52,9 +52,10 @@
     into two successive incarnations (section 2);
   - the mount witness door retains an **address**, and the root it names
     reads that same address, measured side by side (section 3);
-  - `intent/navigate-head` retains an address too, and routing documents it
-    so deliberately (`activate-link!`: *the dispatch always lands on the
-    CURRENTLY-committed frame (retarget-safe)*)."
+  - `intent/navigate-head` retains a **capability**: its vector carries the
+    bundle pinned to the incarnation the link rendered under, so a retained
+    link refuses once that incarnation is gone, while a link rendered under
+    the successor navigates the successor (section 4)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
@@ -347,15 +348,13 @@
 ;; 4. SEAM 3 — `intent/navigate-head` (`impl.intent/navigate-handler`)
 ;; ---------------------------------------------------------------------------
 
-;; The one seam where a frame keyword is closed over at RENDER and resolved at
-;; CLICK — structurally the shape the pinning repairs. It is nonetheless the
-;; deliberate semantics, and not Fresco's to change: `route-link` "restates NO
-;; routing law", and routing's own `activate-link!` names the behaviour in
-;; terms — *`:frame render-frame` is an explicit dispatch opt … so the dispatch
-;; always lands on the CURRENTLY-committed frame (retarget-safe)*. Core agrees
-;; from the other end: `router/dispatch!` carries
-;; `:rf.frame/expected-incarnation` only for a `capture-frame` op and states it
-;; is "nil for every ordinary / address-directed dispatch".
+;; A link is painted under one incarnation and clicked later, so what its
+;; navigate vector retains decides where the click lands. `route-link` puts the
+;; boundary's pinned `capture-frame` bundle in the vector — its frame memo row's
+;; `:ops`, the bundle the ambient dispatch closes over — and routing's
+;; `activate-link!` dispatches through it. The click is therefore a capability
+;; like every lowered callback: refused once its incarnation is destroyed, and
+;; never delivered to a successor seated under the same id.
 ;;
 ;; The hook is SET EXPLICITLY in every row below and restored afterwards. It
 ;; must be: `re-frame.routing` publishes `:routing/activate-link!` at ns-load,
@@ -375,15 +374,18 @@
 (defn- lower-navigate
   "Lower one `[intent/navigate-head {…}]` under the ambient binding a boundary body
   runs — `impl.collector/run-once`'s, spelled out — and answer the closure the
-  browser would call. The map is exactly what `route-link` mints."
+  browser would call. The map is shaped as `route-link` mints it, `:frame`
+  carrying the live incarnation's pinned bundle."
   [tag]
   (rf.fresco.impl.intent/with-frame frame-id (rf.fresco.impl.collector/frame-dispatch frame-id)
     (fn []
-      (rf.fresco.impl.intent/lower-prop :on-click
-                         [rf.fresco.impl.intent/navigate-head {:frame   frame-id
-                                                :payload [:seams/mark tag]
-                                                :native? false
-                                                :veto    nil}]))))
+      (rf.fresco.impl.intent/lower-prop
+        :on-click
+        [rf.fresco.impl.intent/navigate-head
+         {:frame   (:ops (rf.fresco.impl.collector/frame-row frame-id))
+          :payload [:seams/mark tag]
+          :native? false
+          :veto    nil}]))))
 
 (defn- click-event []
   #js {:button           0
@@ -394,7 +396,7 @@
        :defaultPrevented false
        :preventDefault   (fn [] js/undefined)})
 
-(deftest navigate-hands-routing-an-address-and-nothing-incarnation-shaped
+(deftest navigate-hands-routing-the-incarnation-it-rendered-under
   ;; What crosses the Fresco/routing seam is the whole of Fresco's exposure
   ;; here, so it is measured directly rather than inferred from the outcome.
   (let [seen (atom [])
@@ -402,44 +404,41 @@
     (with-activate-link rec
       (fn []
         (incarnate! "A")
-        (let [under-a (lower-navigate :nav)]
+        (let [under-a (lower-navigate :nav)
+              ops-a   (:ops (rf.fresco.impl.collector/frame-row frame-id))]
           (reincarnate! "B")
           ((lower-navigate :nav) (click-event))       ; lowered under B
           (under-a (click-event))                     ; lowered under A, fired under B
           (let [[[frame-b _] [frame-a _]] @seen]
             (is (= 2 (count @seen)) "both closures reached routing")
-            (is (keyword? frame-a)
-                "what a RETAINED navigate closure hands routing is a keyword —
-                 an address; there is no bundle, no token and no closure in it
-                 for an incarnation to be recorded in")
-            (is (= frame-id frame-a))
-            (is (= frame-b frame-a)
-                "and it is the SAME value the closure lowered under the
-                 successor hands over, so the two are indistinguishable at the
-                 seam: `navigate-head` carries nothing that could tell them
-                 apart even if routing wanted to")))))))
+            (is (identical? ops-a frame-a)
+                "a RETAINED navigate closure hands routing the bundle pinned to
+                 the incarnation it rendered under")
+            (is (= frame-id (:frame frame-a)) "…which still names the public id")
+            (is (not (identical? frame-a frame-b))
+                "and the closure lowered under the successor hands over the
+                 successor's own bundle, so routing can tell the two apart")))))))
 
-(deftest navigate-through-real-routing-reaches-the-live-incarnation
+(deftest navigate-through-real-routing-refuses-a-retained-link
   ;; The consequence, through routing's REAL `activate-link!` rather than a
   ;; paraphrase of it — the caller-veto / modifier / native-anchor law and the
-  ;; `router/dispatch!` opts are the shipped ones.
+  ;; dispatch through the pinned bundle are the shipped ones.
   (async done
     (with-activate-link rf.routing.link/activate-link!
       (fn []
         (incarnate! "A")
-        (let [on-click (lower-navigate :navigated)]
+        (let [retained (lower-navigate :retained)]
           (reincarnate! "B")
-          (is (nil? (marked))
-              "sanity: the successor starts unmarked, so the assertion below
-               has something to measure")
-          (on-click (click-event))
+          (let [{:keys [refusals]} (with-refusals #(retained (click-event)))]
+            (is (= [frame-id] (map :frame refusals))
+                "a link rendered under the PREDECESSOR refuses, loudly"))
+          ((lower-navigate :fresh) (click-event))
           (letfn [(poll [n]
                     (cond
                       (some? (marked))
-                      (do (is (= :navigated (marked))
-                              "a link rendered under the PREDECESSOR navigates
-                               the LIVE app — routing's documented retarget-safety,
-                               and the reason this seam must not be pinned")
+                      (do (is (= :fresh (marked))
+                              "only the link rendered under the successor
+                               navigates it; the retained one wrote nothing")
                           (done))
 
                       (zero? n)
