@@ -106,7 +106,7 @@ A mutation is the write-side counterpart of a resource: it describes a write and
      :decode  :json}))
 ```
 
-- **The request fn** (the third argument) describes the HTTP write the way a resource describes its read. As with resources, the runtime decides where the reply goes, so it must not supply `:on-success`, `:on-failure` or `:request-id`.
+- **The request fn** (the third argument) describes the HTTP write the way a resource describes its read. As with resources, the runtime decides where the reply goes, so it must not supply `:request-id`, `:on-success`, `:on-failure` or `:reply-to`. A continuation goes in the call-site `:reply-to` on the execute instead ([below](#publish-from-the-editor--and-continue-with-reply-to)).
 - **`:invalidates`** declares which tags the write makes stale on success. Favoriting breaks reads in *two* scopes — the article and lists in the reader's viewer scope, the feed in their session scope — so it returns a vector of *descriptors*, one per scope, each naming a scope and the tags to stale there. Each scope is resolved when the write's reply arrives.
 
 !!! warning "Gotcha — name the scope each tag lives in"
