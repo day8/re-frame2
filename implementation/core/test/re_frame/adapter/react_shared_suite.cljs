@@ -5567,114 +5567,175 @@
                     (finish!)))))
             240))))))
 
-;; ---- get-snap's ESCROW LEG, on that same schedule -------------------------
+;; ---- get-snap's PRE-COMMIT LEG, on that same schedule ---------------------
 ;;
-;; THE INTERACTION. `get-snap` reads, in order, (1) the committed reaction,
-;; (2) the reaction this hook's UNSPENT escrow token is holding, (3) the value
-;; the render phase froze. Leg (2) is live only because the hand-off's +1
-;; keeps the entry tenanted — so if the reaper really wins before React's
-;; passive subscribe, leg (2) could already be SPENT when consulted, `get-snap`
-;; would fall through to the frozen value, and the concurrent-lane window the
-;; first-commit row pins would reopen on exactly the schedule that matters.
-;; The two properties are one property; asserting only the first would leave
-;; the second free to break silently.
+;; THE INTERACTION. Before its commit, `get-snap` answers from (1) the
+;; committed reaction, (2) the reaction this hook's UNSPENT escrow token is
+;; holding, or (3) once the reaper has SPENT that token, a one-shot live read of
+;; the same query. The reaper spends the token on its own clock, so whether (2)
+;; or (3) answers depends only on how long the render takes to reach its
+;; commit. Both must be able to report movement: a value frozen at render time
+;; compares equal to itself, so it can never report a write to React's
+;; pre-commit store-consistency check, and on a transition lane that check is
+;; all that stands between a write in the render→commit gap and a stale first
+;; commit. The hand-off's horizon is a performance margin, so it must not also
+;; be the lifetime of that check.
 ;;
 ;; THE OBSERVATION is the render→commit first-commit row above, re-run with
-;; nothing forcing the schedule. A frozen render value compares equal to
-;; itself, so it can never report movement to React's pre-commit store-consistency check; a
-;; live reaction can. On a transition lane React re-reads every store before
-;; committing and throws the render away if one moved, so the FIRST committed,
-;; layout-visible DOM discriminates the two legs directly: `g=1` means leg (2)
-;; answered live, `g=0` means it did not and the frozen value answered instead.
+;; nothing forcing the schedule. On a transition lane React re-reads every
+;; store before committing and throws the render away if one moved, so the
+;; FIRST committed, layout-visible DOM discriminates the answers directly:
+;; `g=1` means the pre-commit read answered live, `g=0` means a value frozen at
+;; render answered instead.
 ;;
-;; DETERMINISM. The write is issued from the RENDER BODY of a sibling that
-;; renders after the subscriber, so it lands between that read and the commit by
-;; render ORDER, not by timing. The probe is mounted through the adapter render
-;; slot in an `:idle` phase and switched to the probe phase by a
-;; `React/startTransition` on a state setter the mount effect stashed — the
-;; transition is what buys the lane, and the root is the one the public render
-;; slot created.
+;; TWO STATES AT THE CHECK, each a moved row beside an unmoved control on its
+;; own frame. In both, the write is issued from the RENDER BODY of a sibling
+;; that renders after the subscriber, so it lands between that read and the
+;; commit by render ORDER, not by timing.
 ;;
-;; AND THE ANSWER IS YES — the interaction does NOT occur, even
-;; though the reap really does win. The two are not the same moment. React's
-;; pre-commit store-consistency check runs in the SAME host task as the render
-;; that produced the tree, so no macrotask — the reaper included — can have run
-;; between the escrow and the check; the token is necessarily unspent there.
-;; What the reaper beats is the PASSIVE-EFFECT flush, which is a later task.
-;; So on the public schedule leg (2) answers and the render→commit window
-;; stays shut, while the adoption one task later does not happen. Both rows
-;; below are green for that reason, and they are asserted together so that a
-;; change to the horizon cannot quietly cost the window that is closed.
+;;   TOKEN UNSPENT. A render that completes in one host task reaches its
+;;   pre-commit check before any macrotask can run, the reaper included, so
+;;   (2) answers.
+;;
+;;   TOKEN SPENT. A time-sliced transition render can yield after the
+;;   subscriber's read and resume later, and when the host runs the reaper
+;;   during that yield the render reaches its check with the token spent, the
+;;   escrowed reaction disposed and nothing committed: (3) answers. Whether a
+;;   host runs a due timer before React's continuation task is a scheduling
+;;   detail no test can pin, so this row puts the render in that state
+;;   deterministically. It records the host timers armed from the transition's
+;;   start to the subscriber's read, which is where the reaper is armed, and
+;;   the sibling runs them before it writes, as an elapsed horizon would have.
+;;
+;; DETERMINISM. The probe is mounted through the adapter render slot in an
+;; `:idle` phase and switched to the probe phase by a `React/startTransition`
+;; on a state setter the mount effect stashed. The transition is what buys the
+;; lane, and the root is the one the public render slot created. Every wait is
+;; on a condition the probe records, except that a token-spent row first waits
+;; past the reap horizon, so no earlier row's reaper is still pending to adopt
+;; the subscriber's token into its own burst.
+
+(defn- record-host-timers!
+  "Start recording every positive-delay `setTimeout` the page arms, passing each
+  call through unchanged. Answers `[recorded stop!]`: `recorded` is an atom of
+  `[handle callback]` pairs, and `stop!` (idempotent) restores the original."
+  []
+  (let [original (.-setTimeout js/globalThis)
+        recorded (atom [])
+        stopped? (volatile! false)]
+    (set! (.-setTimeout js/globalThis)
+          (fn [& args]
+            (let [handle (.apply original js/globalThis (into-array args))]
+              (when (pos? (second args))
+                (swap! recorded conj [handle (first args)]))
+              handle)))
+    [recorded
+     (fn stop! []
+       (when-not @stopped?
+         (vreset! stopped? true)
+         (set! (.-setTimeout js/globalThis) original)))]))
 
 (defn- run-public-schedule-escrow-leg-row!
   "Mount the gap probe once, COLD, on `frame`, through the public adapter render
-  slot with no `act`, with (`:move? true`) or without the render-phase write,
-  and hand the row to `k`. Continuation-passing because every step of this
-  schedule is a host turn."
+  slot with no `act`, and hand the row to `k`. Continuation-passing because
+  every step of this schedule is a host turn.
+
+  `:move? true` writes 1 to the read key from the probe's one-shot render-phase
+  hook. With `:spent? true` that hook first runs the host timers armed between
+  the transition's start and the subscriber's read, which spends the escrow
+  token, and records what it ran and whether the entry was reaped."
   [{:keys [probe-gap-public-element gap-public-set-phase gap-write! gap-armed?
            gap-first-commit gap-mount-node gap-db-read gap-observed gap-query
            refcount-target]}
-   {:keys [frame move?]}
+   {:keys [frame move? spent?]}
    k]
   (rf/make-frame {:id frame :doc "public-schedule escrow-leg row"})
   (rf/dispatch-sync [::gap-seed] {:frame frame})
   (reset! refcount-target frame)
-  (let [cache      (:sub-cache (rf.frame/frame frame))
-        mount-node (make-mount-node!)
-        unmount    (atom nil)
-        release!   (fn [] (when-let [u @unmount] (try (u) (catch :default _ nil))))]
+  (let [cache        (:sub-cache (rf.frame/frame frame))
+        mount-node   (make-mount-node!)
+        unmount      (atom nil)
+        stop-timers! (atom nil)
+        timers-run   (atom nil)
+        reaped?      (atom nil)
+        write!       (fn [] (rf/dispatch-sync [::gap-set 1] {:frame frame}))
+        release!     (fn []
+                       (when-let [stop! @stop-timers!] (stop!))
+                       (when-let [u @unmount] (try (u) (catch :default _ nil))))
+        start!       (fn [set-phase base]
+                       (when spent?
+                         (let [[recorded stop!] (record-host-timers!)]
+                           (reset! stop-timers! stop!)
+                           ;; The subscriber renders, and arms the reaper, before
+                           ;; this sibling's hook runs, so its timer is recorded.
+                           (reset! gap-write!
+                                   (fn []
+                                     (stop!)
+                                     (let [armed @recorded]
+                                       (reset! timers-run (count armed))
+                                       (doseq [[handle callback] armed]
+                                         (js/clearTimeout handle)
+                                         (callback)))
+                                     (reset! reaped? (nil? (get @cache [gap-query])))
+                                     (when move? (write!))))))
+                       ;; Arm only now — the idle phase must not consume the one shot.
+                       (reset! gap-armed? true)
+                       (React/startTransition (fn [] (set-phase :probe)))
+                       (await-settlement!
+                         (fn [] (some? @gap-first-commit))
+                         (fn []
+                           (let [row (assoc base
+                                            :mounted?     true
+                                            :timers-run   @timers-run
+                                            :reaped?      @reaped?
+                                            :first-commit @gap-first-commit
+                                            :settled      {:dom (.-textContent mount-node)
+                                                           :db  (:n (rf/app-db-value frame))}
+                                            :observed     @gap-observed)]
+                             (release!)
+                             (k row)))
+                         240))]
     (reset! gap-mount-node mount-node)
     (reset! gap-db-read (fn [] (:n (rf/app-db-value frame))))
     (reset! gap-first-commit nil)
     (reset! gap-observed [])
     (reset! gap-armed? false)
     (reset! gap-public-set-phase nil)
-    (reset! gap-write! (when move?
-                         (fn [] (rf/dispatch-sync [::gap-set 1] {:frame frame}))))
+    (reset! gap-write! (when move? write!))
     (reset! unmount (rf.substrate.adapter/render (probe-gap-public-element) mount-node {}))
     (await-settlement!
       (fn [] (some? @gap-public-set-phase))
       (fn []
         (let [set-phase @gap-public-set-phase
-              cold?     (nil? (get @cache [gap-query]))]
-          (if (nil? set-phase)
-            (do (release!)
-                (k {:moved? move? :cold? cold? :mounted? false}))
-            (do
-              ;; Arm only now — the idle phase must not consume the one shot.
-              (reset! gap-armed? true)
-              (React/startTransition (fn [] (set-phase :probe)))
-              (await-settlement!
-                (fn [] (some? @gap-first-commit))
-                (fn []
-                  (let [row {:moved?       move?
-                             :cold?        cold?
-                             :mounted?     true
-                             :first-commit @gap-first-commit
-                             :settled      {:dom (.-textContent mount-node)
-                                            :db  (:n (rf/app-db-value frame))}
-                             :observed     @gap-observed}]
-                    (release!)
-                    (k row)))
-                240)))))
+              base      {:moved? move?
+                         :spent? (boolean spent?)
+                         :cold?  (nil? (get @cache [gap-query]))}]
+          (cond
+            (nil? set-phase) (do (release!)
+                                 (k (assoc base :mounted? false)))
+            spent?           (settle-past-the-horizon! (fn [] (start! set-phase base)))
+            :else            (start! set-phase base))))
       240)))
 
 (defn assert-use-sub-escrow-leg-answers-on-the-public-mount-schedule
-  "On the PUBLIC mount schedule — adapter render
-  slot, no `act`, no `flushSync` — `get-snap`'s escrow leg is still reachable,
-  so a write landing in the render→commit gap is REPORTED to React's
-  pre-commit store-consistency check and the first commit is fresh. Beside an
-  unmoved control on its own frame, so a null result cannot be mistaken for a
-  probe that never fired.
+  "On the PUBLIC mount schedule — adapter render slot, no `act`, no
+  `flushSync` — a write landing in the render→commit gap is REPORTED to
+  React's pre-commit store-consistency check and the first commit is fresh,
+  both when the escrow token is unspent at the check and when the reaper has
+  already spent it, the state a time-sliced transition render reaches when it
+  yields past the reap horizon and resumes. Each beside an unmoved control on
+  its own frame, so a null result cannot be mistaken for a probe that never
+  fired.
 
   cfg keys: the render→commit gap side-channels (`:gap-write!` `:gap-armed?`
   `:gap-first-commit` `:gap-mount-node` `:gap-db-read` `:gap-observed`
   `:gap-query`), plus `:probe-gap-public-element` (an idle/probe phase root
   whose mount effect stashes its state setter), `:gap-public-set-phase`,
-  `:refcount-target`, and one frame per row (`:pm-gap-frame` /
-  `:pm-gap-control-frame`)."
+  `:refcount-target`, and one frame per token-unspent row (`:pm-gap-frame` /
+  `:pm-gap-control-frame`). The two token-spent rows run on frames this suite
+  names itself."
   [{:keys [name gap-query pm-gap-frame pm-gap-control-frame] :as cfg}]
-  (testing (str name " — get-snap's escrow leg still answers on the PUBLIC mount schedule")
+  (testing (str name " — get-snap's pre-commit leg answers on the PUBLIC mount schedule, with the escrow token unspent and spent")
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises the assertion")
       (async done
@@ -5687,42 +5748,77 @@
             (run-public-schedule-escrow-leg-row!
               cfg {:frame pm-gap-frame :move? true}
               (fn [moved]
-                ;; ---- the probe is sound before anything is concluded ------
-                (doseq [[label row] [[:control control] [:moved moved]]]
-                  (is (:mounted? row)
-                      (str label ": the probe root mounted through the public "
-                           "adapter render slot and its mount effect stashed the "
-                           "phase setter. Row " row))
-                  (is (:cold? row)
-                      (str label ": the probe mounted COLD — `get-snap`'s "
-                           "pre-commit path is only reachable with no live cache "
-                           "entry. Row " row))
-                  (is (some? (:first-commit row))
-                      (str label ": the observer's layout effect fired, so there "
-                           "IS a first commit to read. Row " row)))
-                ;; ---- THE UNMOVED CONTROL ---------------------------------
-                (is (= {:dom "g=0" :db 0} (:first-commit control))
-                    (str "control: nothing moved, so the first commit shows the "
-                         "seeded value and agrees with app-db. Row " control))
-                ;; ---- the injection landed INSIDE the gap ------------------
-                (is (= 1 (:db (:first-commit moved)))
-                    (str "moved: app-db had already moved to 1 by the first "
-                         "commit — the write landed in the gap, not after it. "
-                         "Row " moved))
-                ;; ---- THE LOAD-BEARING ROW --------------------------------
-                (is (= "g=1" (:dom (:first-commit moved)))
-                    (str "moved: the pre-commit re-read SAW the write, so "
-                         "`get-snap` answered from the LIVE reaction the escrow "
-                         "token still holds — leg (2) — and not from the frozen "
-                         "render value, which compares equal to itself and could "
-                         "report nothing. React discarded the torn render and the "
-                         "FIRST commit is fresh. `g=0` here means the reaper "
-                         "spent the token before the check and the render→commit "
-                         "window has reopened on the schedule that ships. Row "
-                         moved))
-                (is (= {:dom "g=1" :db 1} (:settled moved))
-                    (str "moved settles fresh. Row " moved))
-                (done)))))))))
+                (run-public-schedule-escrow-leg-row!
+                  cfg {:frame ::spent-gap-control-frame :move? false :spent? true}
+                  (fn [spent-control]
+                    (run-public-schedule-escrow-leg-row!
+                      cfg {:frame ::spent-gap-frame :move? true :spent? true}
+                      (fn [spent-moved]
+                        ;; ---- the probe is sound before anything is concluded --
+                        (doseq [[label row] [[:control control]
+                                             [:moved moved]
+                                             [:spent-control spent-control]
+                                             [:spent-moved spent-moved]]]
+                          (is (:mounted? row)
+                              (str label ": the probe root mounted through the public "
+                                   "adapter render slot and its mount effect stashed the "
+                                   "phase setter. Row " row))
+                          (is (:cold? row)
+                              (str label ": the probe mounted COLD — `get-snap`'s "
+                                   "pre-commit path is only reachable with no live cache "
+                                   "entry. Row " row))
+                          (is (some? (:first-commit row))
+                              (str label ": the observer's layout effect fired, so there "
+                                   "IS a first commit to read. Row " row)))
+                        ;; ---- the token really was spent before the check ------
+                        (doseq [[label row] [[:spent-control spent-control]
+                                             [:spent-moved spent-moved]]]
+                          (is (= 1 (:timers-run row))
+                              (str label ": exactly one host timer was armed between "
+                                   "the transition's start and the subscriber's read — "
+                                   "the escrow reaper — and the sibling ran it. Row " row))
+                          (is (true? (:reaped? row))
+                              (str label ": the reaper spent the token and the escrowed "
+                                   "entry was disposed before the render reached its "
+                                   "pre-commit check, so no live reaction stands behind "
+                                   "the hook there. Row " row)))
+                        ;; ---- THE UNMOVED CONTROLS ----------------------------
+                        (is (= {:dom "g=0" :db 0} (:first-commit control))
+                            (str "control: nothing moved, so the first commit shows the "
+                                 "seeded value and agrees with app-db. Row " control))
+                        (is (= {:dom "g=0" :db 0} (:first-commit spent-control))
+                            (str "spent control: nothing moved, so the first commit shows "
+                                 "the seeded value and agrees with app-db. Row "
+                                 spent-control))
+                        ;; ---- the injection landed INSIDE the gap --------------
+                        (is (= 1 (:db (:first-commit moved)))
+                            (str "moved: app-db had already moved to 1 by the first "
+                                 "commit — the write landed in the gap, not after it. "
+                                 "Row " moved))
+                        (is (= 1 (:db (:first-commit spent-moved)))
+                            (str "spent moved: app-db had already moved to 1 by the "
+                                 "first commit — the write landed in the gap, not after "
+                                 "it. Row " spent-moved))
+                        ;; ---- THE LOAD-BEARING ROWS ----------------------------
+                        (is (= "g=1" (:dom (:first-commit moved)))
+                            (str "moved: the pre-commit re-read SAW the write, so "
+                                 "`get-snap` answered from the LIVE reaction the unspent "
+                                 "escrow token holds and not from the frozen render "
+                                 "value, which compares equal to itself and could report "
+                                 "nothing. React discarded the torn render and the FIRST "
+                                 "commit is fresh. Row " moved))
+                        (is (= "g=1" (:dom (:first-commit spent-moved)))
+                            (str "spent moved: the pre-commit re-read SAW the write "
+                                 "although the reaper had already spent the token, so "
+                                 "React discarded the torn render and the FIRST commit "
+                                 "is fresh. `g=0` here means the check read the value "
+                                 "frozen at render, and the stale frame committed and "
+                                 "was layout-visible. Row " spent-moved))
+                        (is (= {:dom "g=1" :db 1} (:settled moved))
+                            (str "moved settles fresh. Row " moved))
+                        (is (= {:dom "g=1" :db 1} (:settled spent-moved))
+                            (str "spent moved settles fresh. Row " spent-moved))
+                        (done)))))))))))))
 
 (defn assert-use-sub-adopted-provisional-reaper-is-a-noop
   "The escrow token is ONE-SHOT. Once the commit has adopted and
