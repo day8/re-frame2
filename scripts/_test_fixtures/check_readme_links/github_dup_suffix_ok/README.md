@@ -1,18 +1,16 @@
 # GitHub Duplicate Suffix
 
-Three headings below slugify identically. GitHub's heading slugger keeps the
-first as-is and appends `-1`, `-2`, ... to each later one, so links to
-[the first errors section](#errors), [the second](#errors-1) and
-[the third](#errors-2) all resolve.
+GitHub's heading slugger keeps the first of three identical headings as-is and
+appends `-1`, `-2` to the later ones. A generated id is itself taken: the last
+heading slugifies naturally to `errors-1`, which the second already claimed, so
+it renders as `errors-1-1`. Links to [the first](#errors),
+[the second](#errors-1), [the third](#errors-2) and [the last](#errors-1-1)
+all resolve.
 
 ## Errors
 
-First occurrence — id `errors`.
+## Errors
 
 ## Errors
 
-Second occurrence — id `errors-1`.
-
-## Errors
-
-Third occurrence — id `errors-2`.
+## Errors-1
