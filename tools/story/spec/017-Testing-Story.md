@@ -2810,10 +2810,10 @@ resolvable there is the **framework base** every explicit composition is
 layered over
 ([spec/002 §Image resolution and composition](../../../spec/002-Frames.md#image-resolution-and-composition)):
 the loaded registrations with no source namespace whose id sits under the
-reserved `:rf` root, `:rf.http/managed-test-stub` among them. Before that
-base existed (rf2-3x7nj.5.2), such a frame received the `:fx-overrides`
-redirect, could not resolve its target, and failed **open**: the request
-fell through to the REAL `:rf.http/managed` transport.
+reserved `:rf` root, `:rf.http/managed-test-stub` among them. Without that
+base such a frame would receive the `:fx-overrides` redirect, fail to
+resolve its target, and fail **open**: the request would fall through to
+the REAL `:rf.http/managed` transport.
 
 A frame that owns a fixture is also composed with one further library-owned
 image, `:rf.story/network-fixture` (`re-frame.story.network/fixture-image`),
@@ -2821,7 +2821,7 @@ carrying **exactly one** inline `:reg-fx` — the handler the install just put
 in the source store, over the same frame-scoped route map. It is layered
 after every app image (so nothing authored shadows the fixture) and before
 the runtime image, which keeps its LAST position; the two select disjoint
-sets. It predates the framework base and is now redundant but harmless: its
+sets. The framework base makes it redundant, and it is harmless: its
 one registration shadows the base's entry for the same handler, which the
 shadow report records against `:rf/framework`. Two properties are normative
 here. The fixture image MUST republish
