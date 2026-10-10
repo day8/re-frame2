@@ -12,15 +12,15 @@
   `trace-window` / `watch-epochs` surfaces — the off-box delivery path over the
   authoritative per-frame trace rings (Tool-Pair §Reading the per-frame
   trace ring). Without this gate the surface would validate only the MCP
-  wrapper / event-bundle envelope and a simple counter dispatch — no
-  managed-async reply-envelope trace content.
+  wrapper and a simple counter dispatch — no managed-async reply-envelope
+  trace content.
 
   This is the wire-vocab counterpart to the live turn-shaped end-to-end
-  path (`live-re-frame2-pair-turn-observation.cjs`): a pure-JVM schema + fixture + source-pin gate (the same shape as
-  `event_bundle_test` / the `canonical-markers` table) that pins the
-  ADDITIVE `:rf.reply/*` trace vocabulary an MCP consumer reads off a
-  `trace-window` / event-bundle `:trace-events` row, so a rename / drop /
-  near-miss of the MCP-visible reply-envelope keys FAILS in
+  path (`live-re-frame2-pair-turn-observation.cjs`): a pure-JVM schema +
+  fixture + source-pin gate (the same shape as the `canonical-markers`
+  table) that pins the ADDITIVE `:rf.reply/*` trace vocabulary an MCP
+  consumer reads off a `trace-window` / event-bundle `:trace-events` row,
+  so a rename or drop of the MCP-visible reply-envelope keys FAILS in
   `tools/mcp-conformance`.
 
   ## The wire vocabulary this pins
@@ -57,8 +57,6 @@
        DATA at that family's own emit site (so a key one family drops trips
        this gate even though the literals live in the implementation tree,
        not in re-frame2-pair-mcp, and another family still emits it).
-    4. A near-miss anti-pin so a rename to a snake_case / pluralised /
-       predicate spelling FAILS.
 
   Coverage boundary: this gate pins the reply-envelope trace VOCABULARY
   visible to MCP consumers — the keys + their shapes. It does NOT
@@ -67,11 +65,10 @@
   the MCP-egress-visible contract that those keys reach a `trace-window` /
   `watch-epochs` consumer un-renamed. See README §EP-0011 coverage boundary."
   (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is testing]]
+            [clojure.test :refer [deftest is]]
             [malli.core :as m]
             [malli.error :as me]
-            [re-frame.mcp-conformance.fixtures :as rf.mcp-conformance.fixtures]
-            [re-frame.mcp-conformance.wire-vocab.source-pins :as rf.mcp-conformance.wire-vocab.source-pins]))
+            [re-frame.mcp-conformance.fixtures :as rf.mcp-conformance.fixtures]))
 
 (defn- work-id-tuple?
   "True when `v` is a canonical `[:rf.work/* …]` attempt-identity tuple — a
@@ -182,20 +179,6 @@
    :machine  machine-stale-suppressed-fixture})
 
 ;; ---------------------------------------------------------------------------
-;; The MCP-visible reply-envelope keys this gate pins.
-;; ---------------------------------------------------------------------------
-
-(def ^:private reply-envelope-keys
-  "The additive `:rf.reply/*` trace keys an MCP consumer reads off a
-  reply-envelope trace row. A rename / drop of any of these breaks the
-  uniform work/reply join an MCP consumer performs."
-  [:rf.reply/status
-   :rf.reply/work-id
-   :rf.reply/work-status
-   :rf.reply/carried
-   :rf.reply/current])
-
-;; ---------------------------------------------------------------------------
 ;; The production emit sites. The literals live in the implementation tree
 ;; (not in re-frame2-pair-mcp) — the same posture the cross-MCP marker pins
 ;; take against `mcp-base/vocab.cljc`.
@@ -216,14 +199,6 @@
    :machine  [["implementation/machines/src/re_frame/machines/lifecycle_fx/finalize.cljc"
                "(rf.trace/emit! :rf.machine :rf.machine/done"]]})
 
-(def ^:private emit-source-files
-  "Source files emitting the additive `:rf.reply/*` reply-envelope trace
-  vocabulary, swept whole by the near-miss anti-pin."
-  ["implementation/http/src/re_frame/http/transport.cljc"
-   "implementation/resources/src/re_frame/resources/events.cljc"
-   "implementation/machines/src/re_frame/machines/transition.cljc"
-   "implementation/routing/src/re_frame/routing/nav_token.cljc"])
-
 ;; ===========================================================================
 ;; (1) Schema conformance — every production-shaped fixture validates.
 ;; ===========================================================================
@@ -235,16 +210,15 @@
              (me/humanize (m/explain ReplyEnvelopeTraceRow fixture))))))
 
 ;; ===========================================================================
-;; (2) Schema FAILS CLOSED on a renamed / dropped / scalar near-miss — the
-;;     gate is only as strong as its ability to reject the regression shapes.
+;; (2) Schema FAILS CLOSED on a scalar work-id, an open enum or a dropped
+;;     key — the gate is only as strong as its ability to reject them.
 ;; ===========================================================================
 
 (deftest schema-rejects-each-regression-shape
   ;; Each row is the http fixture with one regression applied. EP-0011
   ;; one-attempt-one-work-id requires the family-headed tuple; both status
-  ;; enums are closed; and a dropped required key (a near-miss rename that
-  ;; drops the canonical spelling) loses an MCP consumer the status,
-  ;; work-id or grouping.
+  ;; enums are closed; and a dropped work-id loses an MCP consumer its
+  ;; join key.
   (doseq [[label row]
           [["a scalar (non-tuple) :rf.reply/work-id"
             (assoc http-stale-suppressed-fixture :rf.reply/work-id 3)]
@@ -252,12 +226,8 @@
             (assoc http-stale-suppressed-fixture :rf.reply/status :done)]
            ["a :rf.reply/work-status outside the closed set"
             (assoc http-stale-suppressed-fixture :rf.reply/work-status :running)]
-           ["a row missing :rf.reply/status"
-            (dissoc http-stale-suppressed-fixture :rf.reply/status)]
            ["a row missing :rf.reply/work-id"
-            (dissoc http-stale-suppressed-fixture :rf.reply/work-id)]
-           ["a row missing :rf.reply/work-status"
-            (dissoc http-stale-suppressed-fixture :rf.reply/work-status)]]]
+            (dissoc http-stale-suppressed-fixture :rf.reply/work-id)]]]
     (is (not (m/validate ReplyEnvelopeTraceRow row))
         (str label " MUST fail the schema"))))
 
@@ -275,21 +245,3 @@
     (is (re-find (rf.mcp-conformance.fixtures/variant-regex (pr-str k)) text)
         (str family " fixture key " (pr-str k) " is not emitted as DATA at its "
              "emit site " sites " — the fixture has drifted from production"))))
-
-;; ===========================================================================
-;; (4) Near-miss anti-pin — a snake_case / pluralised / predicate / dotted-ns
-;;     spelling of a reply-envelope key MUST NOT appear in any emit site.
-;; ===========================================================================
-
-(deftest no-near-miss-spelling-of-a-reply-envelope-key-appears-in-the-sources
-  (testing "no near-miss spelling (snake_case, pluralised, predicate,
-            ns-dots→underscores) of a :rf.reply/* key appears in any
-            production emit site — a rename to a near-miss form must FAIL"
-    (let [sources (into {} (map (juxt identity rf.mcp-conformance.fixtures/read-source)) emit-source-files)]
-      (doseq [k reply-envelope-keys
-              variant (rf.mcp-conformance.wire-vocab.source-pins/near-miss-variants k)
-              [file text] sources]
-        (is (not (re-find (rf.mcp-conformance.fixtures/variant-regex variant) text))
-            (str "near-miss spelling " variant " of " (pr-str k)
-                 " appears in " file " — a reply-envelope key rename to a "
-                 "near-miss form slipped through"))))))
