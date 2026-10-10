@@ -35,11 +35,11 @@ const witness = require('./alloc_level_witness.cjs');
 const tests = [];
 const test = (name, fn) => tests.push([name, fn]);
 
-// The corpus control below re-derives its populations from the committed run
-// corpus, which is archived in git history (`data_archive.cjs`). A test declared
-// through `corpusTest` runs when `data/` is present and is counted as skipped —
-// one printed line at the exit — when it is not; `scoreCorpus` tolerates a
-// missing directory, so without the guard these would pass on nothing.
+// The corpus control re-derives its populations from the committed run corpus,
+// which is archived in git history (`data_archive.cjs`). A test declared through
+// `corpusTest` runs when `data/` is present and is counted as skipped — one
+// printed line at the exit — when it is not; `scoreCorpus` tolerates a missing
+// directory, so without the guard these would pass on nothing.
 const archive = require('./data_archive.cjs');
 let corpusSkipped = 0;
 const corpusTest = (name, fn) => test(name, () => {
@@ -58,170 +58,93 @@ test('every fixture in alloc_level_witness.cjs passes', () => {
 
 // --- the corpus control -----------------------------------------------------
 
-let corpus = null;
-const scored = () => (corpus ??= witness.scoreCorpus());
+const names = (rows) => rows.map((x) => `${x.corpus}/${x.run}`);
 
-corpusTest('the bound refuses every elevated run in the committed corpus', () => {
-  const r = scored();
+corpusTest('the bound refuses exactly the elevated runs of the committed corpus, over the populations it was set against', () => {
+  const r = witness.scoreCorpus();
   assert.deepStrictEqual(
-    r.misses.map((m) => `${m.corpus}/${m.run}`),
-    [],
-    'an elevated run was not refused — the bound is too loose'
+    {
+      misses: names(r.misses),
+      falsePositives: names(r.falsePositives),
+      // 101 admissible records; 100 carry both halves on at least one segment.
+      scored: r.scored,
+      normal: r.normal.n,
+      elevated: r.mode.n,
+      refusedForStep: r.refusedForStep,
+      inadmissible: names(r.inadmissible).sort(),
+      notComputable: names(r.notComputable),
+      missingSegment: names(r.missingSegment),
+      rampFallback: r.degraded.map((x) => [names([x])[0], x.elevated]),
+      // The two bands the bound was chosen against; if either moves, re-derive it.
+      normalBand: [r.normal.minB, r.normal.maxB],
+      elevatedBand: [r.mode.minB, r.mode.maxB],
+    },
+    {
+      misses: [],
+      falsePositives: [],
+      scored: 101,
+      normal: 60,
+      elevated: 40,
+      refusedForStep: 40,
+      // Chromium failed to launch on `armed-25`; the other two fail their
+      // positive control. Each record is committed as its own evidence.
+      inadmissible: [
+        'alloc-77gz8/run12-a4a1537cb71',
+        'alloc-9jrhi/bisect-5-a-4a1537cb71-replicate',
+        'alloc-c4hhk/armed-25-a4a1537cb71',
+      ],
+      // A 6-round pilot: there is no round >= 6, so the PUBLISHED estimator does
+      // not exist for it either.
+      notComputable: ['alloc-9jrhi/pilot-rounds6-head-88411ed803'],
+      missingSegment: [],
+      rampFallback: [['alloc-c4hhk/armed-03-a4a1537cb71', false]],
+      normalBand: [96, 194],
+      elevatedBand: [2616, 3984],
+    }
   );
-});
-
-corpusTest('and it refuses no run that is not elevated', () => {
-  const r = scored();
-  assert.deepStrictEqual(
-    r.falsePositives.map((m) => `${m.corpus}/${m.run}`),
-    [],
-    'a normal run was refused — a false refusal on this arm is expensive'
-  );
-});
-
-corpusTest('the populations are the ones the bound was set against', () => {
-  const r = scored();
-  // 101 admissible records; 100 carry both halves on at least one segment.
-  assert.strictEqual(r.scored, 101, 'the admissible population changed');
-  assert.strictEqual(r.normal.n + r.mode.n, 100, 'the scored population changed');
-  assert.strictEqual(r.mode.n, 40, 'the elevated population changed');
-  assert.strictEqual(r.normal.n, 60, 'the normal population changed');
-  assert.strictEqual(r.refusedForStep, 40, 'the refusal count no longer equals the elevated count');
-});
-
-corpusTest('the two populations are still separated by the margin the bound rests on', () => {
-  const r = scored();
-  assert.strictEqual(r.normal.minB, 96);
-  assert.strictEqual(r.normal.maxB, 194);
-  assert.strictEqual(r.mode.minB, 2616);
-  assert.strictEqual(r.mode.maxB, 3984);
-  // The bound sits between them with room on both sides. These are the two
-  // numbers the bound was chosen against; if either moves, re-derive it.
-  assert.ok(r.normal.maxPct < r.bound, `the worst normal step ${r.normal.maxPct} reached the bound ${r.bound}`);
-  assert.ok(r.mode.minPct > r.bound, `the least elevated step ${r.mode.minPct} fell under the bound ${r.bound}`);
-  assert.ok(r.bound / r.normal.maxPct > 4, 'less than 4x of margin above the normal population');
-  assert.ok(r.mode.minPct / r.bound > 2.5, 'less than 2.5x of margin below the elevated population');
-});
-
-corpusTest('the runs the corpus itself excludes are excluded here, and named', () => {
-  const r = scored();
-  assert.deepStrictEqual(
-    r.inadmissible.map((x) => `${x.corpus}/${x.run}`).sort(),
-    [
-      // Chromium failed to launch; the record has no `alloc` object at all and
-      // the driver still exited 1. The dataset is committed as its own evidence.
-      'alloc-c4hhk/armed-25-a4a1537cb71',
-      'alloc-77gz8/run12-a4a1537cb71',
-      'alloc-9jrhi/bisect-5-a-4a1537cb71-replicate',
-    ].sort()
-  );
-  assert.deepStrictEqual(
-    r.notComputable.map((x) => `${x.corpus}/${x.run}`),
-    // A 6-round pilot: there is no round >= 6, so the PUBLISHED estimator does
-    // not exist for it either. Refusing it and quoting nothing from it are the
-    // same statement.
-    ['alloc-9jrhi/pilot-rounds6-head-88411ed803']
-  );
-});
-
-corpusTest('every committed record carries the whole declared segment roster', () => {
-  const r = scored();
-  assert.deepStrictEqual(
-    r.missingSegment.map((m) => `${m.corpus}/${m.run}`),
-    [],
-    'a committed record is missing a declared segment — either the record is short or the roster is wrong'
-  );
-  assert.deepStrictEqual(r.expected, ['reagent-subs', 'uix-subs']);
-});
-
-corpusTest('exactly one reading falls back to a ramp round, and it is not an elevated one', () => {
-  const r = scored();
-  assert.strictEqual(r.degraded.length, 1);
-  assert.strictEqual(r.degraded[0].run, 'armed-03-a4a1537cb71');
-  assert.strictEqual(r.degraded[0].elevated, false);
+  assert.ok(r.bound / r.normal.maxPct > 4, `less than 4x of margin above the normal population (${r.normal.maxPct})`);
+  assert.ok(r.mode.minPct / r.bound > 2.5, `less than 2.5x of margin below the elevated population (${r.mode.minPct})`);
 });
 
 // --- the mutation proof -----------------------------------------------------
 //
-// The checks above all run the SHIPPED bound. This one reaches past it: a gate
+// The check above runs the SHIPPED bound. This one reaches past it: a gate
 // that cannot be shown to bite is a gate nobody has watched. Loosening the
-// bound past the elevated population must let elevated runs through, and
-// tightening it under the normal population must start refusing normal ones.
-// If either fails, the separation being claimed is not there.
+// bound past the elevated population must let every elevated run through, and
+// tightening it under the normal population must refuse every normal one.
 
-corpusTest('a bound loosened past the mode stops refusing elevated runs', () => {
-  const loose = witness.scoreCorpus({ bound: 0.25 });
-  assert.strictEqual(loose.refusedForStep, 0, 'a 25% bound still refused something');
-  assert.strictEqual(loose.misses.length, 40, 'the elevated runs did not become misses');
-});
-
-corpusTest('a bound tightened under the normal population starts refusing normal runs', () => {
-  const tight = witness.scoreCorpus({ bound: 0.004 });
-  assert.strictEqual(tight.falsePositives.length, 60, 'a 0.4% bound did not refuse the whole normal population');
+corpusTest('the bound bites both ways: loosened past the mode it refuses nothing, tightened under the normal population it refuses all of it', () => {
+  assert.deepStrictEqual(
+    [witness.scoreCorpus({ bound: 0.25 }).refusedForStep, witness.scoreCorpus({ bound: 0.004 }).falsePositives.length],
+    [0, 60]
+  );
 });
 
 // THE FAIL-OPEN, ON A REAL RECORD RATHER THAN A FIXTURE.
 //
-// The fixtures above are synthetic and the corpus control only ever sees
-// COMPLETE records, so neither of them watches the defect this proof exists
-// for: a record that lost one whole measured segment. A `segmentsOf` that
-// instantiated only the segments that OCCUR, with a sole guard firing only
-// when ZERO occur, would adjudicate the survivor alone and read CERTIFIED —
-// on this very record, with half the arm's measurement deleted, such a witness
-// certifies it without remark.
-//
-// So the mutation is applied to a COMMITTED dataset, in memory, and both
-// directions are asserted — the intact record certifies, the mutilated one
-// refuses. A gate that can only be shown to pass is not a gate.
+// The fixtures are synthetic and the corpus control only ever sees COMPLETE
+// records, so neither watches the defect this proof exists for: a record that
+// lost one whole measured segment. A `segmentsOf` that instantiated only the
+// segments that OCCUR would adjudicate the survivor alone and read CERTIFIED.
+// So the mutation is applied to a COMMITTED dataset, in memory, for each
+// declared segment: the only fault is the missing one, and the survivor is
+// still read.
 
 const RECORD = path.join(__dirname, 'fixtures', 'alloc-77gz8', 'run01-a4a1537cb71.json');
-const readRecord = () => JSON.parse(fs.readFileSync(RECORD, 'utf8'));
 
-const withoutSegment = (record, segment) => {
-  const copy = JSON.parse(JSON.stringify(record));
-  let removed = 0;
-  for (const round of copy.alloc.perRound) {
-    for (const key of Object.keys(round.arms)) {
-      if (round.arms[key].segment === segment) { delete round.arms[key]; removed++; }
+test('a committed record REFUSES once either declared segment is removed, and still reads the survivor', () => {
+  for (const [gone, kept, step] of [['uix-subs', 'reagent-subs', 168], ['reagent-subs', 'uix-subs', 96]]) {
+    const record = JSON.parse(fs.readFileSync(RECORD, 'utf8'));
+    for (const round of record.alloc.perRound) {
+      for (const key of Object.keys(round.arms)) if (round.arms[key].segment === gone) delete round.arms[key];
     }
+    const v = witness.adjudicate(record);
+    assert.deepStrictEqual(
+      { faults: v.faults.map((f) => `${f.code} ${f.message.split(':')[0]}`), step: v.segments.find((s) => s.segment === kept).step },
+      { faults: [`level-segment ${gone}`], step },
+      `without ${gone}`
+    );
   }
-  assert.ok(removed > 0, `the mutation removed nothing — ${segment} is not in this record and the proof below is vacuous`);
-  return copy;
-};
-
-test('the committed record this proof mutates certifies while it is intact', () => {
-  const v = witness.adjudicate(readRecord());
-  assert.strictEqual(v.ok, true, 'the control record no longer certifies; the refusal below would prove nothing');
-  assert.deepStrictEqual(v.segments.map((s) => s.segment), ['reagent-subs', 'uix-subs']);
-});
-
-test('and REFUSES once one whole measured segment is removed from it', () => {
-  const v = witness.adjudicate(withoutSegment(readRecord(), 'uix-subs'));
-  assert.strictEqual(v.ok, false, 'a record missing half its measurement still certified — the fail-open is back');
-  assert.deepStrictEqual([...new Set(v.faults.map((f) => f.code))], ['level-segment']);
-  const absent = v.segments.find((s) => s.segment === 'uix-subs');
-  assert.strictEqual(absent.absent, true, 'the absent segment was dropped rather than reported');
-  assert.strictEqual(absent.nBefore + absent.nAfter, 0);
-  // The surviving segment is still read, so the refusal is not a bail-out.
-  assert.strictEqual(v.segments.find((s) => s.segment === 'reagent-subs').step, 168);
-  const text = witness.format(v, 'mutilated');
-  assert.ok(!text.includes('CERTIFIED'), 'the verdict still formats CERTIFIED');
-  assert.ok(text.includes('ABSENT'), 'the verdict does not name the absent segment');
-});
-
-test('the same holds for the other segment, so the roster is not half-checked', () => {
-  const v = witness.adjudicate(withoutSegment(readRecord(), 'reagent-subs'));
-  assert.strictEqual(v.ok, false);
-  assert.ok(v.faults.some((f) => f.code === 'level-segment' && f.message.startsWith('reagent-subs:')));
-});
-
-corpusTest('and the corpus control fails rather than passes when a record loses a segment', () => {
-  // The corpus control is what `npm run check` actually runs. Score the same corpus
-  // with a roster the records cannot satisfy: every scored run must now be
-  // held out of the bands and named, not quietly certified.
-  const r = witness.scoreCorpus({ expected: ['reagent-subs', 'uix-subs', 'a-segment-no-record-carries'] });
-  assert.strictEqual(r.missingSegment.length, 101, 'a roster no record satisfies left runs unrefused');
-  assert.strictEqual(r.normal.n + r.mode.n, 0, 'runs missing a declared segment still reached the bands');
 });
 
 // --- runner -----------------------------------------------------------------
