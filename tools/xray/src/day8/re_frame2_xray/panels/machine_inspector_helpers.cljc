@@ -1002,8 +1002,9 @@
   (`:from-highlight` / `:to-highlight` / `:current-state` /
   `:fired-edge-ids`), and the section's own `:data-*` attrs are recomputed
   from `record` on each ordinary re-render. With the instance preserved,
-  ELK runs once per topology (`[definition direction layout-options
-  density]`) and Prev/Next only re-paints highlights at stable positions.
+  ELK runs once per layout key (`[definition elk-direction layout-options
+  density context-rows adaptive?]`, the chart's `compute-layout-key`) and
+  Prev/Next only re-paints highlights at stable positions.
 
   ### What IS in the key
 

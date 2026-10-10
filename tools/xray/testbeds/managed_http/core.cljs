@@ -230,10 +230,10 @@
          :frame    frame
          :abort-fn (fn [reason]
                      ;; Frame-EXACT cleanup, for the same reason lookup is
-                     ;; frame-scoped. `clear-in-flight!`'s one-arg form is an
-                     ;; ANY-FRAME sweep — it would clear this id in EVERY
-                     ;; frame, so a sibling mount's live slot would be
-                     ;; deregistered along with this one.
+                     ;; frame-scoped. This closure is built alongside the
+                     ;; handle it cancels, so it holds a frame but no handle,
+                     ;; and clearing by (frame, id) leaves a sibling mount's
+                     ;; live slot under the same id untouched.
                      (rf.http.registry/clear-in-flight-in-frame! frame request-id)
                      ;; The canonical abort reply: :status :cancelled
                      ;; with the :rf.http/aborted map under :error.
@@ -337,9 +337,9 @@
          ;; index keeps ghosts for an actor that no longer exists, and the
          ;; registry strip below shows them.
          ;;
-         ;; Frame-EXACT for the same reason the seed fx's closure is: the
-         ;; one-arg `clear-in-flight!` is an ANY-FRAME sweep that would drop
-         ;; a sibling mount's live slot under the same id.
+         ;; Frame-EXACT for the same reason the seed fx's closure is: it
+         ;; holds a frame but not its own handle, and clearing by (frame, id)
+         ;; cannot drop a sibling mount's live slot under the same id.
          :abort-fn (fn [_reason]
                      (rf.http.registry/clear-in-flight-in-frame! frame request-id))
          :frame    frame
