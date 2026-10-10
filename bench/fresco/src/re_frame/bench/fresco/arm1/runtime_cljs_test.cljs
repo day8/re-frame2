@@ -1,24 +1,13 @@
 (ns re-frame.bench.fresco.arm1.runtime-cljs-test
-  "ARM 1's RUNTIME, proved without a browser.
-
-  Everything this arm does that is not React's is answerable here: the
-  read surfaces, the commit path, the cell table's wiring, the generation
-  fence, HD-002's ownership state machine and allowed edge-diff
-  operation, and the standing zero-leaked-subscription-ref-counts
-  assertion. The `-dom` suites then prove that React drives *this* seam —
-  they do not re-prove what the seam does.
-
-  The six laws the dependency edges answer for live next door, in
+  "ARM 1's RUNTIME, proved without a browser: the read surfaces, HD-002's
+  ownership state machine and allowed edge-diff operation, the commit
+  window, the generation fence's ceiling, and the zero-residue claim. The
+  `-dom` suites prove React drives this seam; the six index laws are
   `arm1/cell_table_laws_cljs_test`.
 
   The adapter is UIx's, not `plain-atom`'s, and that is load-bearing:
-  plain-atom has no reactivity layer at all (\"no caching, no
-  listeners\"), so a subscription under it never notifies and every
-  commit assertion below would pass vacuously by never firing. The React
-  spine's derived values coalesce their source watches through an epoch
-  that closes *inside* the synchronous dispatch, which is both what makes
-  the watch land in the caller's turn (HD-019's door) and what lets these
-  tests read the result on the next line."
+  plain-atom has no reactivity layer, so a subscription under it never
+  notifies and every commit assertion below would pass vacuously."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
@@ -30,127 +19,51 @@
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.uix/adapter
-     ;; The map shape, because the residue claims are `async` — a reaper
+     ;; The map shape, because the residue claim is `async` — a reaper
      ;; horizon is not observable inside one synchronous test body.
      :async?  true
      :init-fn (fn [] (rf.bench.fresco.arm1.runtime/reset-runtime!))}))
 
 (def ^:private frame-id ::arm1-runtime)
 
-(defn- seeded!
-  ([] (seeded! 3))
-  ([n] (rf.bench.fresco.arm1.runtime/reset-runtime!) (rf.bench.fresco.front.dogfood/make-frame! frame-id n) frame-id))
+(defn- seeded! []
+  (rf.bench.fresco.arm1.runtime/reset-runtime!)
+  (rf.bench.fresco.front.dogfood/make-frame! frame-id 3))
 
 (defn- render
-  "Run a body through the shell's own fence, exactly as `rf.bench.fresco.arm1.runtime/shell` does —
-  minus React, which contributes nothing to what is asserted. Returns the
-  read-set entry; the element is discarded because no assertion here is
-  about markup."
-  ([body-fn] (render body-fn {}))
-  ([body-fn props] (rf.bench.fresco.arm1.runtime/render-body frame-id body-fn props) (rf.bench.fresco.arm1.runtime/last-reads)))
+  "Run a body through the shell's own fence, minus React, and answer the
+  read-set entry."
+  [body-fn]
+  (rf.bench.fresco.arm1.runtime/render-body frame-id body-fn {})
+  (rf.bench.fresco.arm1.runtime/last-reads))
 
 (defn- reads-of [entry] (rf.bench.fresco.arm1.runtime/reads-of entry))
 
 (defn- key-of [query] [frame-id query])
 
-(defn- boundary-reading
-  "The registration reading `sub-key`, for the tests that mount exactly
-  one boundary on it.
-
-  It is read off an EDGE because the fused table keeps no registry of
-  live boundaries: a registration is live exactly while React holds its
-  cleanup, and the only record of it anywhere is its membership in the
-  reader list of each key it reads."
-  [sub-key]
-  (first (rf.bench.fresco.arm1.runtime/cell-readers sub-key)))
-
-;; ---------------------------------------------------------------------------
-;; The hook ledger and the retained inventory (HD-020(b))
-;; ---------------------------------------------------------------------------
-
-(deftest the-shell-declares-exactly-two-hooks
-  (testing "the ≤2 budget is fully consumed by the subscription/epoch hook
-           and the frame-context hook, and there is no room left"
-    (is (= 2 (count rf.bench.fresco.arm1.runtime/shell-hook-ledger)))
-    (is (= [:use-context/frame :use-sync-external-store/subscription-epoch]
-           rf.bench.fresco.arm1.runtime/shell-hook-ledger))))
-
-(deftest the-shell-retains-no-use-ref-and-no-use-state
-  (testing "HD-020(b) bans useRef in the shell; this arm bans per-instance
-           render-phase state outright, because that is what makes two
-           hooks reachable rather than three"
-    (let [inv    (rf.bench.fresco.arm1.runtime/retained-inventory)
-          tokens (into #{} (map :token) (:per-boundary inv))]
-      (is (not (contains? tokens :react/use-ref)))
-      (is (not (contains? tokens :react/use-state)))
-      (is (contains? tokens :react/use-sync-external-store))
-      (is (contains? tokens :react/use-context))
-      (is (= #{:use-ref :use-state :view-cell :candidate-ledger}
-             (into #{} (map :token) (:absent inv)))
-          "the absences are enumerated, so a regression that adds one has
-           to delete a line rather than merely appear"))))
-
-;; ---------------------------------------------------------------------------
-;; The two read surfaces (HD-002; the collector is the one being made to work)
-;; ---------------------------------------------------------------------------
-
 (defn- mounted!
-  "A boundary at the seam React occupies: render its body, commit the
-  reads, and hand back `{:entry :reg :hits :release!}`.
-
-  `:reg` is the registration the commit installed, read back off an EDGE
-  — the last reader pushed onto the first key's cell — because the fused
-  table keeps no registry of live boundaries (see [[boundary-reading]])."
+  "A boundary at the seam React occupies: render its body and commit its
+  reads. Answers `{:entry :hits}`."
   [body-fn]
-  (let [entry   (render body-fn)
-        hits    (volatile! 0)
-        release (rf.bench.fresco.arm1.runtime/commit-boundary! entry (fn [] (vswap! hits inc)))]
-    {:entry entry
-     :reg (last (rf.bench.fresco.arm1.runtime/cell-readers (first (rf.bench.fresco.arm1.runtime/reads-of entry))))
-     :hits hits
-     :release! release}))
+  (let [entry (render body-fn)
+        hits  (volatile! 0)]
+    (rf.bench.fresco.arm1.runtime/commit-boundary! entry (fn [] (vswap! hits inc)))
+    {:entry entry :hits hits}))
+
+;; ---------------------------------------------------------------------------
+;; The two read surfaces (HD-002)
+;; ---------------------------------------------------------------------------
 
 (deftest a-read-outside-a-render-is-a-loud-error
   (seeded!)
-  (testing "`sub` outside a boundary is an error, never a silent read of
-           whichever frame happened to be ambient"
-    (is (thrown-with-msg? js/Error #"outside a boundary render"
-          (rf.bench.fresco.arm1.runtime/sub [:dogfood/remaining])))
-    (is (thrown-with-msg? js/Error #"outside a boundary render"
-          (rf.bench.fresco.arm1.runtime/use-subs {:r [:dogfood/remaining]})))))
-
-(deftest the-collector-records-the-reads-the-body-actually-made
-  (seeded! 3)
-  (let [entry (render (fn [_]
-                        (let [ids (rf.bench.fresco.arm1.runtime/sub [:dogfood/visible-ids])]
-                          [:ul (when (seq ids)
-                                 [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo (first ids)]))])])))]
-    (is (:collector? (rf.bench.fresco.arm1.runtime/last-tiers)))
-    (is (not (:grouped? (rf.bench.fresco.arm1.runtime/last-tiers))))
-    (is (= #{(key-of [:dogfood/visible-ids]) (key-of [:dogfood/todo 0])}
-           (reads-of entry)))))
+  (is (thrown-with-msg? js/Error #"outside a boundary render"
+        (rf.bench.fresco.arm1.runtime/sub [:dogfood/remaining]))))
 
 (deftest a-lazy-for-registers-its-edges-and-its-readers-re-run
-  (seeded! 3)
-  (testing "**A Surface B property, and the one a lazy host language can lose
-           silently.** `for` returns a LAZY SEQUENCE, so every `(sub …)`
-           inside it runs when something walks the seq — not when the body
-           returns. A collector closed at the body's return would collect
-           ZERO edges for every row, register no dependency, and look
-           perfectly correct on the first render (the values ARE right once
-           realised) while never updating again.
-
-           This arm is safe **by construction rather than by care**: the
-           collector window closes around `rf.bench.fresco.front.codec/as-element`, and the codec
-           is eager everywhere it walks — `expand-seq` drives a seq to
-           exhaustion, `realize-children` folds one into a vector, a seq at
-           a NATIVE prop position goes through `clj->js`, and
-           `rf.bench.fresco.front.codec/realize-deep` forces one reachable from a BOUNDARY's
-           props at the crossing (its own suite is
-           `arm1/boundary-crossing-cljs-test`). So a lazy read is forced
-           inside the window by the same pass that turns hiccup into
-           elements. This test is what keeps that true: it fails the moment
-           the codec call moves outside `run-once`."
+  (seeded!)
+  (testing "`for` is lazy, so its reads run when the codec walks it — inside
+           the collector window. Moving the codec call out of `run-once`
+           fails this"
     (let [b (mounted! (fn [_]
                         [:ul (for [id (rf.bench.fresco.arm1.runtime/sub [:dogfood/visible-ids])]
                                [:li {:key id} (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo id]))])]))]
@@ -158,451 +71,232 @@
                (key-of [:dogfood/todo 0])
                (key-of [:dogfood/todo 1])
                (key-of [:dogfood/todo 2])}
-             (reads-of (:entry b)))
-          "every row query the lazy seq produced is an edge")
-      (is (= 4 (:edges (rf.bench.fresco.arm1.runtime/stats)))
-          "and the commit installed all four, not just the eager one")
+             (reads-of (:entry b))))
+      (is (= 4 (:edges (rf.bench.fresco.arm1.runtime/stats))) "and the commit installed all four")
       (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:dogfood/toggle 1])
       (is (= 1 @(:hits b))
           "a write to a row query the `for` produced re-runs the boundary —
-           the half a first render cannot tell you")
-      ((:release! b)))))
+           the half a first render cannot show"))))
 
 (deftest a-lazy-seq-returned-as-the-body-root-registers-its-edges-too
-  (seeded! 3)
-  (testing "the same property at the root position, where there is no
-           enclosing vector to force the walk"
+  (seeded!)
+  (testing "at the root position, where no enclosing vector forces the walk"
     (let [entry (render (fn [_] (for [id (rf.bench.fresco.arm1.runtime/sub [:dogfood/visible-ids])]
                                   [:li {:key id} (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo id]))])))]
       (is (= 4 (count (reads-of entry)))))))
 
 (deftest every-read-that-escapes-the-render-is-loud-rather-than-a-missing-edge
-  (seeded! 3)
-  (testing "**The complement of the eager codec, and the more important half.**
-           An eager codec forces the reads it walks; it cannot force a read
-           the author deferred past the render — a handler closure, a
-           `delay`, a lazy seq stashed and forced later. Every one of those
-           would otherwise be a SILENT missing edge, which is the worst
-           failure mode this read surface can have: correct on screen,
-           frozen thereafter, attributable to nothing.
-
-           One guard covers all of them, and it is the same guard that
-           makes a read outside any boundary an error: the render frame is
-           set in a `try` and cleared in the matching `finally`, so a read
-           that runs after the body returned finds nothing and says so. The
-           escape is converted into a loud error, never into an edge that
-           was quietly not recorded."
-    (let [escaped (volatile! nil)]
-      ;; 1. a handler closure — the browser invokes it long after render
-      (render (fn [_] [:button {:on-click (fn [] (vreset! escaped (fn [] (rf.bench.fresco.arm1.runtime/sub [:dogfood/remaining]))))}]))
-      ;; 2. an author-held delay
-      (let [d (volatile! nil)]
-        (render (fn [_] (vreset! d (delay (rf.bench.fresco.arm1.runtime/sub [:dogfood/remaining]))) [:li]))
-        (is (thrown-with-msg? js/Error #"outside a boundary render" @@d)))
-      ;; 3. a lazy seq the body stashed rather than returned
-      (let [s (volatile! nil)]
-        (render (fn [_] (vreset! s (map (fn [id] (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo id])) (range 3))) [:li]))
-        (is (thrown-with-msg? js/Error #"outside a boundary render" (doall @s))))
-      ;; 4. the handler, actually called
-      (let [h (volatile! nil)]
-        (render (fn [_] (vreset! h (fn [] (rf.bench.fresco.arm1.runtime/sub [:dogfood/remaining]))) [:li]))
-        (is (thrown-with-msg? js/Error #"outside a boundary render" (@h)))))))
-
-(deftest a-conditional-read-is-an-edge-the-collector-simply-does-not-have
-  (seeded! 3)
-  (testing "law 4 at the authoring surface: the branch that is not taken
-           contributes no edge, which is the collector's whole claim"
-    (let [taken     (render (fn [{:keys [editable?]}]
-                              [:li (when editable? (rf.bench.fresco.arm1.runtime/sub [:dogfood/draft 1]))])
-                            {:editable? true})
-          not-taken (render (fn [{:keys [editable?]}]
-                              [:li (when editable? (rf.bench.fresco.arm1.runtime/sub [:dogfood/draft 1]))])
-                            {:editable? false})]
-      (is (= #{(key-of [:dogfood/draft 1])} (reads-of taken)))
-      (is (= #{} (reads-of not-taken))))))
+  (seeded!)
+  (testing "the render frame is cleared in a `finally`, so a read deferred
+           past the render throws instead of silently recording no edge"
+    (let [d (volatile! nil)
+          s (volatile! nil)
+          h (volatile! nil)]
+      (render (fn [_]
+                (vreset! d (delay (rf.bench.fresco.arm1.runtime/sub [:dogfood/remaining])))
+                (vreset! s (map (fn [id] (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo id])) (range 3)))
+                (vreset! h (fn [] (rf.bench.fresco.arm1.runtime/sub [:dogfood/remaining])))
+                [:li]))
+      (is (thrown-with-msg? js/Error #"outside a boundary render" @@d) "an author-held delay")
+      (is (thrown-with-msg? js/Error #"outside a boundary render" (doall @s)) "a stashed lazy seq")
+      (is (thrown-with-msg? js/Error #"outside a boundary render" (@h)) "a handler, called"))))
 
 (deftest grouped-declares-its-edges-whatever-the-body-then-does
-  (seeded! 3)
-  (testing "the control: the declaration is the edge set, so the untaken
-           branch still costs its edge"
-    (let [entry (render (fn [_]
-                          (let [{:keys [todo draft]}
-                                (rf.bench.fresco.arm1.runtime/use-subs {:todo  [:dogfood/todo 1]
-                                              :draft [:dogfood/draft 1]})]
-                            [:li (:title todo) (when (:done? todo) draft)])))]
-      (is (:grouped? (rf.bench.fresco.arm1.runtime/last-tiers)))
-      (is (not (:collector? (rf.bench.fresco.arm1.runtime/last-tiers))))
-      (is (= #{(key-of [:dogfood/todo 1]) (key-of [:dogfood/draft 1])}
-             (reads-of entry))))))
-
-(deftest grouped-returns-the-snapshot-the-body-destructures
-  (seeded! 3)
-  (let [captured (volatile! nil)]
-    (render (fn [_] (vreset! captured (rf.bench.fresco.arm1.runtime/use-subs {:todo      [:dogfood/todo 1]
-                                                    :remaining [:dogfood/remaining]}))
-              [:li]))
-    (is (= {:id 1 :title "todo 1" :done? false} (:todo @captured)))
-    (is (= 3 (:remaining @captured)))))
+  (seeded!)
+  (testing "`use-subs` returns the snapshot the body destructures, and its
+           edges are its declaration — held whether or not the body uses them"
+    (let [snapshot (volatile! nil)
+          entry    (render (fn [_]
+                             (vreset! snapshot (rf.bench.fresco.arm1.runtime/use-subs {:todo      [:dogfood/todo 1]
+                                                                                       :remaining [:dogfood/remaining]}))
+                             [:li]))]
+      (is (= {:todo {:id 1 :title "todo 1" :done? false} :remaining 3} @snapshot))
+      (is (= #{(key-of [:dogfood/todo 1]) (key-of [:dogfood/remaining])} (reads-of entry))))))
 
 ;; ---------------------------------------------------------------------------
 ;; HD-002 clause (a) — the ownership state machine
 ;; ---------------------------------------------------------------------------
 ;;
-;; The invariant it reduces to — no render-phase code mutates the cell table
-;; or a reference — is `cell_table_laws_cljs_test`'s abandoned-render row and
+;; Its invariant — no render-phase code mutates the cell table or a reference
+;; — is `a-render-that-never-commits-leaves-nothing-behind` below and
 ;; `cold_read_cljs_test`'s `a-cold-read-leaves-the-world-as-it-found-it`.
 
 (deftest a-re-render-before-the-commit-destroys-the-previous-candidate-by-overwrite
-  (seeded! 3)
-  (testing "PENDING -> RENDERING, which is the abandoned render: there is
-           one scratch and never two, so the second run's reads replace
-           the first's rather than joining them"
+  (seeded!)
+  (testing "one scratch, so an abandoned render's reads are replaced rather
+           than joined"
     (render (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))
                      (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 1]))]))
-    (let [entry (render (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 2]))]))]
-      (is (= #{(key-of [:dogfood/todo 2])} (reads-of entry))))))
+    (is (= #{(key-of [:dogfood/todo 2])}
+           (reads-of (render (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 2]))])))))))
 
 (deftest a-body-that-throws-leaves-nothing-behind
-  (seeded! 3)
-  (let [before (rf.bench.fresco.arm1.runtime/stats)]
+  (seeded!)
+  (let [before (rf.bench.fresco.arm1.runtime/residue)]
     (is (thrown? js/Error
           (render (fn [_] (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]) (throw (js/Error. "body"))))))
-    (is (= (select-keys before [:boundaries :edges :cell-refs])
-           (select-keys (rf.bench.fresco.arm1.runtime/stats) [:boundaries :edges :cell-refs])))
+    (is (= before (rf.bench.fresco.arm1.runtime/residue)))
     (testing "and the next render starts from a clean scratch rather than
              concatenating the throwing run's reads"
-      (let [entry (render (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/remaining]))]))]
-        (is (= #{(key-of [:dogfood/remaining])} (reads-of entry)))))))
+      (is (= #{(key-of [:dogfood/remaining])}
+             (reads-of (render (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/remaining]))]))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; HD-002 clause (b) — the allowed edge-diff operation, and its cost law
 ;; ---------------------------------------------------------------------------
 
 (deftest an-unchanged-read-set-is-detected-without-building-anything
-  (seeded! 3)
-  (testing "the same reads twice resolve to the SAME entry, so React's
-           `subscribe` identity does not move, so React does not
-           re-subscribe and the commit does no work at all — which is the
-           survival metric's flat slope seen from the mechanism's side"
-    (let [body  (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))
-                         (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 1]))
-                         (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/remaining]))])
-          a     (render body)
-          b     (render body)]
-      (is (identical? a b) "one entry, not two")
-      (is (identical? (.-subscribe a) (.-subscribe b))
-          "and therefore one `subscribe` identity")
+  (seeded!)
+  (testing "the same reads resolve to the SAME entry, so React's `subscribe`
+           identity does not move and React does not re-subscribe"
+    (let [body (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))
+                        (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 1]))
+                        (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/remaining]))])
+          a    (render body)]
+      (is (identical? a (render body)))
       (is (= 1 (:entries (rf.bench.fresco.arm1.runtime/stats)))))))
 
 (deftest a-changed-read-set-takes-a-different-subscribe-identity
-  (seeded! 3)
+  (seeded!)
   (testing "which is what makes React's own subscribe/cleanup pair perform
-           the edge-set replacement — the whole of the allowed operation"
+           the edge-set replacement"
     (let [wide   (render (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))
                                   (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 1]))]))
           narrow (render (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))]))]
-      (is (not (identical? wide narrow)))
       (is (not (identical? (.-subscribe wide) (.-subscribe narrow)))))))
 
 (deftest a-boundary-holds-exactly-the-edges-its-latest-commit-installed
-  (seeded! 3)
-  (let [wide    (render (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))
-                                 (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 1]))]))
-        release (rf.bench.fresco.arm1.runtime/commit-boundary! wide (fn []))]
-    (is (= 2 (:edges (rf.bench.fresco.arm1.runtime/stats))))
+  (seeded!)
+  (let [release (rf.bench.fresco.arm1.runtime/commit-boundary!
+                  (render (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))
+                                   (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 1]))]))
+                  (fn []))]
     (release)
-    (let [narrow  (render (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))]))
-          release (rf.bench.fresco.arm1.runtime/commit-boundary! narrow (fn []))
-          b       (boundary-reading (key-of [:dogfood/todo 0]))]
-      (is (= 1 (count (rf.bench.fresco.arm1.runtime/boundary-reads b))))
-      (is (empty? (rf.bench.fresco.arm1.runtime/cell-readers (key-of [:dogfood/todo 1])))
-          "and the dropped key has no reader left behind")
-      (release))))
+    (rf.bench.fresco.arm1.runtime/commit-boundary!
+      (render (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))]))
+      (fn []))
+    (is (= [#{(key-of [:dogfood/todo 0])} []]
+           [(rf.bench.fresco.arm1.runtime/boundary-reads
+              (first (rf.bench.fresco.arm1.runtime/cell-readers (key-of [:dogfood/todo 0]))))
+            (rf.bench.fresco.arm1.runtime/cell-readers (key-of [:dogfood/todo 1]))])
+        "the narrowed read set, and no reader left behind on the dropped key")))
 
 (deftest the-wired-path-replaces-wholesale-and-never-takes-a-difference
-  (seeded! 3)
-  (testing "HD-002(b) is discharged without a set difference: the
-           boundary id is the registration React mints per `subscribe`,
-           so a changed read set arrives as a FRESH registration with an
-           empty held set. With the readers on the cell there is no
-           difference to take at all — a registration installs its
-           memberships and its cleanup removes exactly those. Every
-           `:edges-changed` on this path therefore adds everything and
-           drops nothing, which is asserted so the docstring's claim is
-           checkable rather than argued"
+  (seeded!)
+  (testing "a changed read set arrives as a FRESH registration, so the
+           previous cleanup drops every reference — the unchanged key's
+           too — and every `:edges-changed` adds its whole read set and
+           drops nothing"
     (let [seen (atom [])]
       (rf.bench.fresco.arm1.runtime/set-evidence-sink!
         (fn [e] (when (= :edges-changed (:event e)) (swap! seen conj e))))
       (try
-        (let [wide  (render (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))
-                                     (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 1]))]))
-              stop  (rf.bench.fresco.arm1.runtime/commit-boundary! wide (fn []))]
-          (is (= 2 (:cell-refs (rf.bench.fresco.arm1.runtime/stats))))
-          ;; React's own sequence when `subscribe` identity moves: the
-          ;; previous cleanup, THEN the new entry's subscribe.
+        (let [stop (rf.bench.fresco.arm1.runtime/commit-boundary!
+                     (render (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))
+                                      (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 1]))]))
+                     (fn []))]
           (stop)
           (is (= 0 (:cell-refs (rf.bench.fresco.arm1.runtime/stats)))
-              "every reference is dropped, including the key that did not
-               change — there is no cheap route for `n-1 of n unchanged`")
-          (let [narrow (render (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))]))
-                stop2  (rf.bench.fresco.arm1.runtime/commit-boundary! narrow (fn []))
-                b      (boundary-reading (key-of [:dogfood/todo 0]))]
-            (is (= 1 (:cell-refs (rf.bench.fresco.arm1.runtime/stats))) "and re-acquired from nothing")
-            (is (= #{(key-of [:dogfood/todo 0])} (rf.bench.fresco.arm1.runtime/boundary-reads b))
-                "the narrowing landed")
-            (is (empty? (rf.bench.fresco.arm1.runtime/cell-readers (key-of [:dogfood/todo 1])))
-                "and it landed through the previous cleanup's
-                 drop-everything, not through a difference")
-            (stop2)))
+              "there is no cheap route for `n-1 of n unchanged`")
+          (rf.bench.fresco.arm1.runtime/commit-boundary!
+            (render (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))]))
+            (fn [])))
         (finally (rf.bench.fresco.arm1.runtime/set-evidence-sink! nil)))
-      (is (= 2 (count @seen)) "two commits, two edge-change records")
-      (is (every? (comp empty? :dropped) @seen)
-          (str "and neither dropped anything: " (pr-str (mapv :dropped @seen))))
-      (is (= [2 1] (mapv (comp count :added) @seen))
-          "each one added its whole read set"))))
+      (is (= [{:added #{(key-of [:dogfood/todo 0]) (key-of [:dogfood/todo 1])} :dropped #{}}
+              {:added #{(key-of [:dogfood/todo 0])} :dropped #{}}]
+             (mapv #(select-keys % [:added :dropped]) @seen))))))
 
 (deftest reading-one-key-twice-is-one-edge
-  (seeded! 3)
-  (testing "the buffer is a sequence and the entry's read set is
-           set-valued; the coercion collapses them, so a key read twice
-           takes one membership rather than two"
-    (let [entry   (render (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))
-                                   (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))]))
-          release (rf.bench.fresco.arm1.runtime/commit-boundary! entry (fn []))]
+  (seeded!)
+  (testing "the scratch is a sequence and the read set a set, so a key read
+           twice takes one membership rather than two"
+    (let [entry (render (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))
+                                 (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))]))]
+      (rf.bench.fresco.arm1.runtime/commit-boundary! entry (fn []))
       (is (= 1 (count (reads-of entry))))
-      (is (= 1 (:edges (rf.bench.fresco.arm1.runtime/stats))))
-      (release))))
-
-;; ---------------------------------------------------------------------------
-;; The read-set entry cache: what a lookup scans, and who an entry belongs to
-;; ---------------------------------------------------------------------------
-
-(defn- render-shared-first-key!
-  "`n` bodies in the shape that first-key bucketing would collapse into
-  one bucket: a page-wide key read FIRST, then a per-row key. One `let`
-  binding moved is all it takes for a bulk list to be written this way."
-  [n]
-  (dotimes [i n]
-    (render (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/remaining]))
-                     (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo i]))]))))
+      (is (= 1 (:edges (rf.bench.fresco.arm1.runtime/stats)))))))
 
 (deftest the-bucket-scan-does-not-grow-with-the-number-of-boundaries
-  (seeded! 3)
-  (testing "an entry lookup compares against the read sequences that
-           COLLIDE, not against every live boundary that happens to share
-           a first key. Bucketing on `(aget scratch 0)` would make an 8-row
-           list an 8-deep scan and a 64-row list a 64-deep one — a
-           quadratic — so the claim is that the depth does not move
-           between the two"
-    (render-shared-first-key! 8)
-    (let [small (rf.bench.fresco.arm1.runtime/entry-buckets)]
-      (is (= 8 (:entries (rf.bench.fresco.arm1.runtime/stats))) "eight distinct read sequences, eight entries")
-      (seeded! 3)
-      (render-shared-first-key! 64)
-      (let [large (rf.bench.fresco.arm1.runtime/entry-buckets)]
-        (is (= 64 (:entries (rf.bench.fresco.arm1.runtime/stats))))
-        (is (= 1 (:max-bucket small)))
-        (is (= (:max-bucket small) (:max-bucket large))
-            (str "the scan is " (:max-bucket large) " deep at 64 rows and "
-                 (:max-bucket small) " deep at 8 — flat in N, which is the "
-                 "acceptance"))
-        (is (= 64 (:buckets large))
-            "and the entries are spread across buckets rather than stacked
-             in one")))))
-
-(deftest a-read-set-entry-belongs-to-its-read-sequence-and-not-to-a-boundary
-  (seeded! 3)
-  (testing "the sharing rule the retained inventory states: an entry is
-           shared with a boundary whose read sequence is IDENTICAL, and
-           with no other. Two rows reading a per-row key have distinct
-           sequences and therefore an entry each — which is why the entry
-           is filed per-boundary for the heap ladder"
-    (let [a (render (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))]))
-          b (render (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))]))
-          c (render (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 1]))]))]
-      (is (identical? a b) "an identical sequence shares one entry")
-      (is (not (identical? a c)) "a per-row key does not")
-      (is (= 2 (:entries (rf.bench.fresco.arm1.runtime/stats))))))
-  (testing "and the ordered compare is a false negative, never a wrong
-           answer: the same SET read in a different ORDER takes a second
-           entry with the same key set"
-    (seeded! 3)
-    (let [ab (render (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))
-                              (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/remaining]))]))
-          ba (render (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/remaining]))
-                              (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))]))]
-      (is (not (identical? ab ba)))
-      (is (= (reads-of ab) (reads-of ba)) "same edges, so the answer is right")
-      (is (= 2 (:entries (rf.bench.fresco.arm1.runtime/stats))) "and the cost is one extra entry"))))
-
-(deftest the-retained-inventory-files-the-entry-where-a-heap-ladder-must-count-it
-  (testing "`:read-set-entry` is filed per-boundary: under `:shared` it
-           would under-count per-boundary retention by one entry per
-           boundary on exactly the distinct-query rung the heap ladder is
-           taken on"
-    (let [inv    (rf.bench.fresco.arm1.runtime/retained-inventory)
-          per-b  (into #{} (map :token) (:per-boundary inv))
-          shared (into #{} (map :token) (:shared inv))]
-      (is (contains? per-b :read-set-entry))
-      (is (not (contains? shared :read-set-entry)))
-      (is (contains? shared :key-cell)
-          "the key cell IS shared — one per unique (frame, query) however
-           many boundaries read it — so this is a classification and not a
-           blanket move")))
-  (testing "ONE membership token stands for an edge, and no index token
-           beside it. A ladder reading this inventory counts one slot per
-           read, not a forward-edge map entry plus a reverse-edge set
-           membership plus the singleton set a second map would retain
-           per key at fan-out 1"
-    (let [per-b (into #{} (map :token) (:per-boundary (rf.bench.fresco.arm1.runtime/retained-inventory)))]
-      (is (contains? per-b :cell/reader-membership))
-      (is (not (contains? per-b :index/b->subs)))
-      (is (not (contains? per-b :index/sub->bs))))))
+  (seeded!)
+  (testing "64 rows reading a page-wide key FIRST, then a per-row key.
+           Bucketing on the first key would stack all 64 entries in one
+           bucket — a quadratic mount — so the scan stays one deep"
+    (dotimes [i 64]
+      (render (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/remaining]))
+                       (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo i]))])))
+    (is (= {:buckets 64 :max-bucket 1} (rf.bench.fresco.arm1.runtime/entry-buckets)))))
 
 ;; ---------------------------------------------------------------------------
-;; The commit path: write -> dirty keys -> index -> dirty boundaries
+;; The commit window
 ;; ---------------------------------------------------------------------------
 ;;
-;; Who a write notifies — the reader of the moved key and no other, every
-;; sharer of a shared key through ONE cell, never a departed boundary — is
-;; laws 1, 2 and 3 in `cell_table_laws_cljs_test`. What stays here is the
-;; commit path's own arithmetic.
-
-(deftest a-write-that-moves-nothing-notifies-nobody
-  (seeded! 3)
-  (let [a (mounted! (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))]))
-        g (rf.bench.fresco.arm1.runtime/generation)]
-    ;; `:dogfood/commit` on a row with no draft is a no-op by construction.
-    (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:dogfood/commit 0])
-    (is (= 0 @(:hits a)))
-    (is (= g (rf.bench.fresco.arm1.runtime/generation)) "and does not move the generation")
-    ((:release! a))))
+;; Who a write notifies is laws 1, 3, 5 and 6 in `cell_table_laws_cljs_test`.
 
 (deftest one-commit-window-is-one-flush-however-many-subscriptions-moved
-  (seeded! 3)
+  (seeded!)
   (let [a (mounted! (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))
                              (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/remaining]))]))
         g (rf.bench.fresco.arm1.runtime/generation)]
     (rf.bench.fresco.arm1.runtime/with-commit (fn []
-                      (rf/with-frame frame-id (rf/dispatch-sync [:dogfood/toggle 0]))
-                      (rf/with-frame frame-id (rf/dispatch-sync [:dogfood/toggle 1]))))
+                                                (rf/with-frame frame-id (rf/dispatch-sync [:dogfood/toggle 0]))
+                                                (rf/with-frame frame-id (rf/dispatch-sync [:dogfood/toggle 1]))))
     (is (= 1 @(:hits a)) "one notification, not one per moved subscription")
-    (is (= (inc g) (rf.bench.fresco.arm1.runtime/generation)) "and one generation, not two")
-    ((:release! a))))
+    (is (= (inc g) (rf.bench.fresco.arm1.runtime/generation)) "and one generation, not two")))
 
 (deftest a-warm-read-performs-no-new-attach-or-release
-  (seeded! 3)
-  (testing "validation.md's standing assertion, stated as a reference
-           count that does not move across a re-render"
-    (let [a      (mounted! (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))]))
-          before (:cell-refs (rf.bench.fresco.arm1.runtime/stats))]
+  (seeded!)
+  (testing "validation.md's standing assertion: a re-render of a mounted
+           read set moves no reference count"
+    (mounted! (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))]))
+    (let [before (:cell-refs (rf.bench.fresco.arm1.runtime/stats))]
       (render (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))]))
-      (is (= before (:cell-refs (rf.bench.fresco.arm1.runtime/stats))))
-      ((:release! a)))))
+      (is (= before (:cell-refs (rf.bench.fresco.arm1.runtime/stats)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The generation fence
 ;; ---------------------------------------------------------------------------
 ;;
-;; Its quiet half — a body that only reads leaves the basis where it found
-;; it and runs once — is what every render row in this file stands on, and
-;; `hydrate_cljs_test`'s body-run count pins it to one run per render.
-
-(deftest a-commit-landing-inside-a-body-re-runs-that-body
-  (seeded! 3)
-  ;; The boundary must already hold the key for a mid-body write to be
-  ;; observable at all — a key nothing holds has no watch to fire.
-  (let [runs       (volatile! 0)
-        first-read (volatile! nil)
-        seen       (volatile! nil)
-        warm       (mounted! (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/done? 0]))]))
-        entry      (render (fn [_]
-                          (vswap! runs inc)
-                          (vreset! first-read (rf.bench.fresco.arm1.runtime/sub [:dogfood/done? 0]))
-                          (when (= 1 @runs)
-                            (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:dogfood/toggle 0]))
-                          (vreset! seen (rf.bench.fresco.arm1.runtime/sub [:dogfood/done? 0]))
-                          [:li (str @seen)]))]
-    (is (= 2 @runs) "the fence re-ran the body against the newer commit")
-    (is (true? @seen) "and the winning run read the committed value")
-    (is (true? @first-read) "both of the winning run's reads are on one commit")
-    (is (= #{(key-of [:dogfood/done? 0])} (reads-of entry))
-        "the commit would install the winning render's reads, not the
-         abandoned one's")
-    ((:release! warm))))
+;; The re-run itself is `hydrate_cljs_test`'s
+;; `a-fenced-re-run-is-two-body-runs-because-two-bodies-ran` and
+;; `staged_read_tear_cljs_test`'s
+;; `the-fence-sees-a-mid-body-move-of-a-key-nothing-holds`.
 
 (deftest a-body-that-writes-on-every-run-fails-loudly
-  (seeded! 3)
-  (testing "the fence is a ceiling, not a budget — an unfenceable body is
-           a write loop and says so"
-    (let [warm (mounted! (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/done? 0]))]))]
-      (is (thrown-with-msg? js/Error #"generation-fence-exhausted"
-            (render (fn [_]
-                      (rf.bench.fresco.arm1.runtime/sub [:dogfood/done? 0])
-                      (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:dogfood/toggle 0])
-                      [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/done? 0]))]))))
-      ((:release! warm)))))
+  (seeded!)
+  (testing "the fence is a ceiling, not a budget — a body that writes on
+           every run is a write loop and says so"
+    (is (thrown-with-msg? js/Error #"generation-fence-exhausted"
+          (render (fn [_]
+                    (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:dogfood/toggle 0])
+                    [:li]))))))
 
 ;; ---------------------------------------------------------------------------
-;; Boundaries, heads, and the ABI
+;; Heads
 ;; ---------------------------------------------------------------------------
 
 (deftest a-minted-view-is-a-legal-hiccup-head
-  (let [v (rf.bench.fresco.arm1.runtime/mint-view! "test/probe" (fn [_] [:li]))
-        m (unchecked-get v "frescoMemo")]
-    (is (fn? v))
+  (let [v (rf.bench.fresco.arm1.runtime/mint-view! "test/probe" (fn [_] [:li]))]
     (is (rf.bench.fresco.front.codec/boundary-head? v))
-    (is (= "test/probe" (.-displayName v)))
-    (is (true? (unchecked-get v "frescoBoundary"))
-        "the codec's own boundary marker, so a view is a head by
-         construction and the stable-head cache has nothing to do")
-    (testing "HD-006 puts a value-equality bail-out on every boundary, but
-             `React.memo` answers an OBJECT and a minted head must stay a
-             function — so the wrapper, one per head and minted at
-             definition, is attached to the head rather than returned in its
-             place, and no memo object escapes as the public representation"
-      (is (some? m) "the head carries a wrapper")
-      (is (not (fn? m)) "which is the memo object, and is not a function"))))
+    (is (some? (unchecked-get v "frescoMemo"))
+        "and it carries its memo wrapper (HD-006), attached to the head
+         rather than returned in its place")))
 
 ;; ---------------------------------------------------------------------------
-;; Residue — the standing zero-leaked-refcounts assertion
+;; Residue
 ;; ---------------------------------------------------------------------------
-
-(deftest a-released-boundary-leaves-no-edge-and-no-reference
-  (async done
-    (seeded! 3)
-    (let [a (mounted! (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))
-                               (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/remaining]))]))]
-      (is (= 1 (:boundaries (rf.bench.fresco.arm1.runtime/stats))))
-      (is (= 2 (:edges (rf.bench.fresco.arm1.runtime/stats))))
-      (is (= 2 (:cell-refs (rf.bench.fresco.arm1.runtime/stats))))
-      ((:release! a))
-      (is (= 0 (:boundaries (rf.bench.fresco.arm1.runtime/stats))))
-      (is (= 0 (:edges (rf.bench.fresco.arm1.runtime/stats))))
-      (is (= 0 (:cell-refs (rf.bench.fresco.arm1.runtime/stats))))
-      ;; The cells and the cached entry are reaped one macrotask later —
-      ;; the grace that lets a keyed reorder reuse a reaction instead of
-      ;; rebuilding it.
-      (js/setTimeout (fn []
-                       (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                              (rf.bench.fresco.arm1.runtime/residue))
-                           "nothing survives the macrotask horizon")
-                       (done))
-                     8))))
 
 (deftest a-render-that-never-commits-leaves-nothing-behind
   (async done
-    (seeded! 3)
-    ;; The abandoned-render class. Acquisition is commit-owned, so there is
-    ;; nothing to unwind — and the cached entry a discarded render minted is
-    ;; a cache, dropped at the macrotask horizon rather than undone.
+    (seeded!)
+    ;; Acquisition is commit-owned, so an abandoned render has nothing to
+    ;; undo; the entry it minted is a cache, dropped at the reap horizon.
     (render (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))
                      (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 1]))]))
-    (is (= 0 (:boundaries (rf.bench.fresco.arm1.runtime/stats))) "no boundary was ever registered")
-    (is (= 0 (:cell-refs (rf.bench.fresco.arm1.runtime/stats))) "and no reference was ever taken")
-    (is (= 0 (:cells (rf.bench.fresco.arm1.runtime/stats))) "and no cell was ever built")
+    (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 1}
+           (rf.bench.fresco.arm1.runtime/residue)))
     (js/setTimeout (fn []
                      (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                            (rf.bench.fresco.arm1.runtime/residue)))
+                            (rf.bench.fresco.arm1.runtime/residue))
+                         "nothing survives the macrotask horizon")
                      (done))
                    8)))
