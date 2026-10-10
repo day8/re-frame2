@@ -21,6 +21,9 @@
      still fails. All four are pinned at the REAL process boundary, the
      two safeguards each through their own fault fixture: invoking the
      defmethod in-process would call `js/process.exit`.
+   - EXECUTED-TEST FLOOR: a `--test=` run whose selector matches but whose
+     fixture runs nothing exits nonzero, at the process boundary through
+     its own fault fixture.
    - The buffered `console.warn` ring is bounded, and replayed in full on a
      red run."
   ;; NB: must NOT require re-frame.test-quiet.shadow-node — that ns is
@@ -290,4 +293,23 @@
     (is (nil? error) (spawn-error-explanation error))
     (is (str/includes? stdout "EXIT-INTEGRITY-NO-EXIT-DISPATCH-INSTALLED") stdout)
     (is (str/includes? stdout "0 failures, 0 errors.") stdout)
+    (is (= 1 status) (str stdout stderr))))
+
+;; ----------------------------------------------------------------------
+;; Executed-test floor: a run is green only if it EXECUTED tests. The fault
+;; fixture's selector matches a discovered var, so the unmatched-selector
+;; guard passes; its `:once` fixture then never calls its thunk, leaving a
+;; clean 0-test tally that only the executed count can refuse.
+
+(def ^:private skipped-thunk-fixture-ns
+  "re-frame.test-quiet-skipped-thunk-fixture-cljs-test")
+
+(deftest focused-run-that-executes-no-test-exits-nonzero
+  (let [{:keys [status stdout stderr error]}
+        (spawn-runner [(str "--test=" skipped-thunk-fixture-ns)]
+                      {:env {:RF2_TQ_SKIPPED_THUNK_FIXTURE "1"}})]
+    (is (nil? error) (spawn-error-explanation error))
+    (is (str/includes? stdout "SKIPPED-THUNK-FIXTURE-ARMED") stdout)
+    (is (str/includes? stdout "Ran 0 tests containing 0 assertions.") stdout)
+    (is (str/includes? stdout "ERROR: this run executed 0 test(s)") stdout)
     (is (= 1 status) (str stdout stderr))))
