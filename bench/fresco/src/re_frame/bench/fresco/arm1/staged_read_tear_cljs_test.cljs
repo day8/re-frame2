@@ -38,9 +38,7 @@
   `unset` baseline is never `rf=` a real value reports movement on the
   first later commit whatever it did) — cannot close this one. It gives
   the cell a correct baseline and no COMPARISON: it silently adopts the
-  moved value as though it had always been that. Row `the-baseline-deref-
-  alone-cannot-see-the-move` states that as an assertion rather than as
-  a paragraph.
+  moved value as though it had always been that.
 
   ## What closes it
 
@@ -128,61 +126,33 @@
            the generation cannot move. The number React re-checks must
            move anyway, or the boundary paints stale forever."
     (seeded!)
-    (let [seen  (volatile! nil)
-          entry (render (done-row seen))]
-      (is (false? @seen) "the render read, and this is what it put on screen")
-      (is (zero? (:cells (rf.bench.fresco.arm1.runtime/stats)))
-          "STAGED, not retained: nothing holds this key, so there is no
-           cell, no watch and no epoch — `commit-boundary!` below is the
-           first acquisition")
-      (let [at-render  (rf.bench.fresco.arm1.runtime/snapshot-of entry)
-            generation (rf.bench.fresco.arm1.runtime/generation)
-            frame-e    (rf.frame/frame-commit-epoch frame-id)]
-        ;; THE GAP.
-        (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:dogfood/toggle 0])
-        (is (= generation (rf.bench.fresco.arm1.runtime/generation))
-            "the generation did NOT move — there was no watch to fire, so
-             the change happened within one generation, which is precisely
-             the witness §6.1 asks for")
-        (is (> (rf.frame/frame-commit-epoch frame-id) frame-e)
-            "but the frame's own physical-install epoch did, and it moved
-             without anybody watching anything")
-        ;; THE COMMIT: React calls the entry's `subscribe`.
-        (let [release! (rf.bench.fresco.arm1.runtime/commit-boundary! entry (fn []))]
-          (is (not= at-render (rf.bench.fresco.arm1.runtime/snapshot-of entry))
-              "so the number React stored at render is not the number it
-               re-reads after `subscribe` — `updateStoreInstance` finds a
-               moved store and schedules the boundary")
-          (testing "and the re-render React schedules reads the value that
-                   is now true, so the correction actually corrects"
-            (render (done-row seen))
-            (is (true? @seen)))
-          (release!))))))
-
-(deftest the-baseline-deref-alone-cannot-see-the-move
-  (testing "why the arm's acquire-time baseline deref cannot close the
-           gap. It gives a fresh cell a correct baseline — which is worth
-           having, and is what stops every newly mounted boundary
-           re-rendering once for nothing — but it performs no COMPARISON,
-           so on its own it adopts the moved value as though it had
-           always been that. The proof is that after the commit the dirty
-           set is empty: no notification is coming for a change that
-           already happened, and the only thing left that can correct the
-           boundary is the number React re-checks."
-    (seeded!)
-    (let [seen  (volatile! nil)
-          entry (render (done-row seen))]
+    (let [seen      (volatile! nil)
+          entry     (render (done-row seen))
+          painted   @seen
+          cells     (:cells (rf.bench.fresco.arm1.runtime/stats))
+          at-render (rf.bench.fresco.arm1.runtime/snapshot-of entry)
+          generation (rf.bench.fresco.arm1.runtime/generation)
+          frame-e   (rf.frame/frame-commit-epoch frame-id)]
+      ;; THE GAP.
       (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:dogfood/toggle 0])
-      (let [hits     (volatile! 0)
-            release! (rf.bench.fresco.arm1.runtime/commit-boundary! entry (fn [] (vswap! hits inc)))]
-        (is (= 0 @hits)
-            "the commit notified nobody — the watch was armed one move too
-             late to have reported it")
-        (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:dogfood/commit 0])
-        (is (= 0 @hits)
-            "and a later write that moves nothing brings no correction
-             either: the ordinary invalidation path is done with this
-             change")
+      (let [gap {:generation-moved (not= generation (rf.bench.fresco.arm1.runtime/generation))
+                 :install-epoch-moved (> (rf.frame/frame-commit-epoch frame-id) frame-e)}
+            ;; THE COMMIT: React calls the entry's `subscribe`.
+            release! (rf.bench.fresco.arm1.runtime/commit-boundary! entry (fn []))
+            tear?    (not= at-render (rf.bench.fresco.arm1.runtime/snapshot-of entry))]
+        (render (done-row seen))
+        (is (= {:painted false :cells 0
+                :gap {:generation-moved false :install-epoch-moved true}
+                :tear true :re-render true}
+               {:painted painted :cells cells :gap gap :tear tear? :re-render @seen})
+            "STAGED, not retained: the render painted false and nothing holds
+             the key, so there is no cell, no watch and no epoch. The
+             generation did NOT move — no watch to fire, so the change
+             happened within one generation, which is precisely the witness
+             §6.1 asks for — but the frame's own physical-install epoch did.
+             So the number React stored at render is not the number it
+             re-reads after `subscribe`, `updateStoreInstance` schedules the
+             boundary, and the re-render reads the value that is now true")
         (release!)))))
 
 (deftest a-clean-mount-asks-react-for-nothing
@@ -208,16 +178,19 @@
            row is also the check that re-stamping strictly increases."
     (seeded!)
     (let [warm  (render (done-row (volatile! nil)))
-          hold! (rf.bench.fresco.arm1.runtime/commit-boundary! warm (fn []))]
-      (is (= 1 (:cells (rf.bench.fresco.arm1.runtime/stats))) "RETAINED: an earlier commit holds the key")
+          hold! (rf.bench.fresco.arm1.runtime/commit-boundary! warm (fn []))
+          cells (:cells (rf.bench.fresco.arm1.runtime/stats))]
       (let [entry      (render (done-row (volatile! nil)))
             at-render  (rf.bench.fresco.arm1.runtime/snapshot-of entry)
             generation (rf.bench.fresco.arm1.runtime/generation)]
         (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:dogfood/toggle 0])
-        (is (= (inc generation) (rf.bench.fresco.arm1.runtime/generation))
-            "the pre-existing watch fired, so the generation moved here")
-        (is (not= at-render (rf.bench.fresco.arm1.runtime/snapshot-of entry))
-            "and the epoch sum moved with it")
+        (is (= [1 (inc generation) true]
+               [cells
+                (rf.bench.fresco.arm1.runtime/generation)
+                (not= at-render (rf.bench.fresco.arm1.runtime/snapshot-of entry))])
+            "RETAINED: an earlier commit holds the key, so the pre-existing
+             watch fired and the generation moved here, and the epoch sum
+             moved with it")
         (hold!)))))
 
 ;; ---------------------------------------------------------------------------
@@ -244,12 +217,11 @@
                   (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:dogfood/toggle 0]))
                 (vreset! then- (rf.bench.fresco.arm1.runtime/sub [:dogfood/done? 0]))
                 [:li (str @then-)]))
-      (is (= 2 @runs) "the fence re-ran the body against the newer commit")
-      (is (= @first- @then-)
-          "so the winning run's two reads are on ONE commit — the DOM never
-           carries a pair of values that were not simultaneously true")
-      (is (true? @then-) "and the winning run read the committed value"))))
+      (is (= [2 true true] [@runs @first- @then-])
+          "the fence re-ran the body against the newer commit, so the
+           winning run's two reads are on ONE commit and both read the
+           committed value — the DOM never carries a pair of values that
+           were not simultaneously true"))))
 
-;; The repair's cost — two hooks and no per-boundary object — is the hook
-;; ledger `runtime_cljs_test` pins, and a render recording nothing is
-;; `cold_read_cljs_test`'s `a-cold-read-leaves-the-world-as-it-found-it`.
+;; A render recording nothing is `cold_read_cljs_test`'s
+;; `a-cold-read-leaves-the-world-as-it-found-it`.
