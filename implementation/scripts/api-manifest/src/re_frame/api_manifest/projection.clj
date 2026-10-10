@@ -37,14 +37,15 @@
   (:vars (rf.api-manifest.gen/read-committed-manifest)))
 
 ;; NB: there is deliberately NO shared row index here. Each
-;; check builds the projection its own contract needs — a bare-name set
-;; (`doc-api-check`), a per-namespace var set (`rows-in-ns` below), tier sets
-;; (`api-md-check`), a strict `[namespace var]` set (`xray-spec-check`) — and
-;; those are DISTINCT contracts, not four spellings of one. Bare-name latitude
-;; is sound where a surface names vars across several public namespaces under
-;; one alias; it is unsound for the Xray panel symbols, where every panel
-;; namespace carries the same `:var "Panel"`. Consolidating them would trade a real
-;; guarantee for a shared helper.
+;; check builds the projection its own contract needs — a bare-name index
+;; (`api-md-check`'s unqualified rows), a per-namespace var set (`rows-in-ns`
+;; below, one per call alias), tier sets (`api-md-check`), a strict
+;; `[namespace var]` set (`xray-spec-check`) — and those are DISTINCT
+;; contracts, not four spellings of one. Bare-name latitude is sound only
+;; where a bare name is unambiguous in practice; it is unsound for an alias
+;; call, which names one namespace, and for the Xray panel symbols, where
+;; every panel namespace carries the same `:var "Panel"`. Consolidating them
+;; would trade a real guarantee for a shared helper.
 
 (defn rows-in-ns
   "Manifest rows whose `:namespace` is `ns-str`."
