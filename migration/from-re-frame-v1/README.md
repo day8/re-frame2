@@ -1396,11 +1396,11 @@ The READ surface is **not** on the façade (rf2-wad2fl — front-porch shrink): 
 
 **Type A** (mechanical, dep-only).
 
-As the second per-feature artefact split (Strategy B), Spec 005's state-machine surface — `reg-machine`, `make-machine-handler`, `machine-transition`, the framework-shipped `:rf/machine` reg-sub, the `:rf.machine/spawn` and `:rf.machine/destroy` actor-lifecycle fxs, the in-snapshot `:rf/spawn-counter` allocator (per-id-prefix, defaulting to the spawned child's `:machine-id`; lives inside each machine's snapshot for pure-functional allocation), and the `re-frame.machines` namespace — ships as a separate Maven artefact `day8/re-frame2-machines`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the machine-transition engine, or the `:rf.machine.spawn/spawned` / `:rf.machine/destroyed` trace strings; an app that doesn't register any machines builds an `:advanced` bundle clean of every machine-related symbol.
+As the second per-feature artefact split (Strategy B), Spec 005's state-machine surface — `reg-machine`, `machine-transition`, the framework-shipped `:rf/machine` reg-sub, the `:rf.machine/spawn` and `:rf.machine/destroy` actor-lifecycle fxs, the in-snapshot `:rf/spawn-counter` allocator (per-id-prefix, defaulting to the spawned child's `:machine-id`; lives inside each machine's snapshot for pure-functional allocation), and the `re-frame.machines` namespace — ships as a separate Maven artefact `day8/re-frame2-machines`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the machine-transition engine, or the `:rf.machine.spawn/spawned` / `:rf.machine/destroyed` trace strings; an app that doesn't register any machines builds an `:advanced` bundle clean of every machine-related symbol.
 
 **What to look for** in the codebase:
 
-- Any call to `re-frame.core/reg-machine`, or to `make-machine-handler` / `machine-transition` / `reg-machine*` under any spelling — the pre-split `re-frame.core/make-machine-handler` included. (A `machines` enumeration call is a hit too, but it has no v2 successor NAME: the accessor is retired and the read is now the `:rf/machine?` filter over `(rf/registrations {:source :store :kind :event})`.) `reg-machine` and `defmachine` stay on the façade, but the non-registration helpers do **not** (see **Public API** below), so a `re-frame.core/`-spelled helper call site is both a detection hit *and* a site to re-point at `re-frame.machines`.
+- Any call to `re-frame.core/reg-machine`, or to `machine-transition` / `reg-machine*` under any spelling. A `make-machine-handler` call under any spelling is a hit too, with no public successor: register the machine instead (see [M-57](#m-57-machine-handler-builder--create-machine-handler-has-no-public-successor)). (A `machines` enumeration call is a hit too, but it has no v2 successor NAME: the accessor is retired and the read is now the `:rf/machine?` filter over `(rf/registrations {:source :store :kind :event})`.) `reg-machine` and `defmachine` stay on the façade, but the non-registration helpers do **not** (see **Public API** below), so a `re-frame.core/`-spelled helper call site is both a detection hit *and* a site to re-point at `re-frame.machines`.
 - Any subscription to the framework-shipped `:rf/machine` reg-sub (for example `(rf/subscribe [:rf/machine machine-id])`).
 - A direct `(:require [re-frame.machines])` clause.
 
@@ -1408,9 +1408,9 @@ As the second per-feature artefact split (Strategy B), Spec 005's state-machine 
 
 Every namespace that calls `rf/reg-machine` / `rf/defmachine` (or relies on the `:rf/machine` framework sub registration) MUST `(:require [re-frame.machines :as rf.machines])` so the namespace's load-time hook registrations fire before the call site runs. Without the require, the late-bind hook table is empty at the moment the call resolves and the wrapper raises `:rf.error/machines-artefact-missing` with a clear "add the machines artefact" message.
 
-Take the alias while you are there. `rf.machines` is the canonical alias for a framework subsystem namespace ([Conventions §Require-alias dialect](../../spec/Conventions.md#require-alias-dialect--a-framework-subsystem-namespace-is-aliased-rf)), and it is the spelling the helper call sites below and in [M-57](#m-57-machine-handler-builder-verb-unification--create-machine-handler--make-machine-handler) are written against. A bare `(:require [re-frame.machines])` fires the hook registrations but introduces no alias, so those call sites will not resolve.
+Take the alias while you are there. `rf.machines` is the canonical alias for a framework subsystem namespace ([Conventions §Require-alias dialect](../../spec/Conventions.md#require-alias-dialect--a-framework-subsystem-namespace-is-aliased-rf)), and it is the spelling the helper call sites below are written against. A bare `(:require [re-frame.machines])` fires the hook registrations but introduces no alias, so those call sites will not resolve.
 
-**Public API.** `(rf/reg-machine ...)` and `(rf/defmachine ...)` stay on the `re-frame.core` facade — the registration macros late-bind through the hook table to the machines artefact's implementation, and throw `:rf.error/machines-artefact-missing` when the artefact is absent. The non-registration helpers are **not** facade exports: call them as `(rf.machines/machine-transition ...)` / `(rf.machines/make-machine-handler ...)` on the `re-frame.machines` namespace you already require at boot. (Neither machine QUERY has an accessor: enumerate with `(into {} (filter (fn [[_ m]] (:rf/machine? m))) (rf/registrations {:source :store :kind :event}))`, and read one machine's registered spec as `(:rf/machine (rf/handler-meta {:source :store :kind :event :id id}))` — the generic registrar query plus the documented inner-key projection.) (The tiering rule is `reg-*` macros + primary ergonomic verbs on `rf/`, advanced query/codec functions in their owning namespace — the same split as routing / resources / schemas.)
+**Public API.** `(rf/reg-machine ...)` and `(rf/defmachine ...)` stay on the `re-frame.core` facade — the registration macros late-bind through the hook table to the machines artefact's implementation, and throw `:rf.error/machines-artefact-missing` when the artefact is absent. The non-registration helper is **not** a facade export: call it as `(rf.machines/machine-transition ...)` on the `re-frame.machines` namespace you already require at boot. (Neither machine QUERY has an accessor: enumerate with `(into {} (filter (fn [[_ m]] (:rf/machine? m))) (rf/registrations {:source :store :kind :event}))`, and read one machine's registered spec as `(:rf/machine (rf/handler-meta {:source :store :kind :event :id id}))` — the generic registrar query plus the documented inner-key projection.) (The tiering rule is `reg-*` macros + primary ergonomic verbs on `rf/`, advanced query/codec functions in their owning namespace — the same split as routing / resources / schemas.)
 
 **Why:** see [Conventions §Adapter shipping convention](../../spec/Conventions.md#adapter-shipping-convention) (extended for per-feature artefacts); per-feature artefact splits give bundle-isolation through artefact split.
 
@@ -1872,7 +1872,7 @@ Per [005 §Spawn-and-join via `:spawn-all`](../../spec/005-StateMachines.md#spaw
 
 **New trace events.** The 009 trace vocabulary picks up four `:spawn-all` lifecycle events (`:rf.machine.spawn-all/started` / `*/all-completed` / `*/some-completed` / `*/any-failed`) plus `:rf.machine.spawn/cancelled-on-join-resolution` for per-sibling cancellation. Observers that filter by exact `:operation` keyword learn to recognise the new ones; observers that filter by `:op-type :machine` see them automatically. Per [009 §`:op-type` vocabulary](../../spec/009-Instrumentation.md#op-type-vocabulary).
 
-**New error categories.** `make-machine-handler` rejects malformed `:spawn-all` slots at registration time with `:rf.error/machine-spawn-all-bad-shape` (missing `:id`, missing required join-event slot, no `:machine-id`, or an inline `:definition` — a child is a registered machine), `:rf.error/machine-spawn-all-duplicate-id` (two children share an `:id`), or `:rf.error/machine-spawn-all-with-spawn` (a state declares both `:spawn` and `:spawn-all`). All registration-time; the runtime never sees a malformed `:spawn-all`. Per [005 §Errors](../../spec/005-StateMachines.md#errors_1).
+**New error categories.** Registration rejects malformed `:spawn-all` slots with `:rf.error/machine-spawn-all-bad-shape` (missing `:id`, missing required join-event slot, no `:machine-id`, or an inline `:definition` — a child is a registered machine), `:rf.error/machine-spawn-all-duplicate-id` (two children share an `:id`), or `:rf.error/machine-spawn-all-with-spawn` (a state declares both `:spawn` and `:spawn-all`). All registration-time; the runtime never sees a malformed `:spawn-all`. Per [005 §Errors](../../spec/005-StateMachines.md#errors_1).
 
 **What to do.** Nothing for compatibility; this is purely additive. Apps wanting spawn-and-join sugar adopt `:spawn-all` per the Spec 005 worked example (auth + hydrate flow). The `:actor/spawn-and-join` capability in [005 §Capability matrix](../../spec/005-StateMachines.md#capability-matrix) is claimed by the v1 CLJS reference; ports declaring a narrower capability list reject `:spawn-all` at registration with `:rf.error/machine-grammar-not-in-v1`.
 
@@ -2353,7 +2353,7 @@ The rename is a **deliberate divergence** from xstate vocabulary — see [005 §
 | `:rf.error/machine-invoke-all-duplicate-id` | `:rf.error/machine-spawn-all-duplicate-id` | registration-time error category |
 | `:rf.error/machine-invoke-all-with-invoke` | `:rf.error/machine-spawn-all-with-spawn` | registration-time error category (`:spawn` and `:spawn-all` mutually exclusive on a state) |
 | `:rf.error/invoke-timeout-ms-removed` | `:rf.error/spawn-timeout-ms-removed` | registration-time error (per M-44) |
-| `:rf.invoke/*` (generated action namespace) | `:rf.machine.spawn/*` | desugared entry/exit action ids generated by `make-machine-handler` (machine-rooted family — same namespace as the spawn trace ops, distinct member keys) |
+| `:rf.invoke/*` (generated action namespace) | `:rf.machine.spawn/*` | desugared entry/exit action ids generated by machine registration (machine-rooted family — same namespace as the spawn trace ops, distinct member keys) |
 
 **Detect.** v1 codebases adopting `:invoke` / `:invoke-all` state-node keys, and any code reading the snapshot-internal `:rf/invoke-*` keys or filtering trace events on `:rf.machine.invoke*/*`.
 
@@ -2387,37 +2387,39 @@ The rename is a **deliberate divergence** from xstate vocabulary — see [005 §
 
 **Mechanical sweep.** A repository-wide text rename over the table above will land the change. Order longer keys before shorter (`:invoke-all` before `:invoke`, `:rf/invoke-all-id` before `:rf/invoke-id`); the `:rf.machine.invoke-all/` and `:rf.machine.invoke/` trace-op prefixes rewrite to `:rf.machine.spawn-all/` and `:rf.machine.spawn/` respectively (the new prefix sits in the `:rf.machine.*` namespace and does NOT collide with the existing `:rf.machine/spawn` fx-id since they live in different namespaces).
 
-**No alias.** Per pre-alpha posture (no back-compat shims), the old names are **removed** — `make-machine-handler` does not accept `:invoke` / `:invoke-all` and will treat them as unknown state-node keys.
+**No alias.** Per pre-alpha posture (no back-compat shims), the old names are **removed** — registration does not accept `:invoke` / `:invoke-all` and treats them as unknown state-node keys.
 
 **Cross-references.** [005 §Declarative `:spawn`](../../spec/005-StateMachines.md#declarative-spawn) (the canonical surface); [005 §Spawn-and-join via `:spawn-all`](../../spec/005-StateMachines.md#spawn-and-join-via-spawn-all); [005 §Deliberate name divergence — `:spawn` (NOT `:invoke`)](../../spec/005-StateMachines.md#deliberate-name-divergence--spawn-not-invoke) (the rationale); [CP-5-MachineGuide §Lessons from xstate](../../spec/CP-5-MachineGuide.md#lessons-from-xstate-deliberate-divergences) (where the divergence sits in the broader xstate-comparison table); [M-34](#m-34-spawn-id-tracking-moved-from-data-pending-to-runtime-owned-rfruntimemachines-spawned-) (the parent runtime-owned spawn-id tracking change this rename now aligns names with); [M-43](#m-43-spawn-all-spawn-and-join-is-added--additive-no-user-side-action) (the original `:invoke-all` add — supplanted by this rename); [M-44](#m-44-timeout-ms-removed-from-spawn--spawn-all--use-parent-states-after) (the `:timeout-ms` retirement — same surface, prior step).
 
 
 ---
 
-### M-57. Machine-handler builder verb unification — `create-machine-handler` → `make-machine-handler`
+### M-57. Machine-handler builder — `create-machine-handler` has no public successor
 
-**Type A** (mechanical). Single-symbol global rename.
+**Type A** (mechanical).
 
-Per audit-of-audits state-machines #12, the machine-handler builder is renamed from `create-machine-handler` to `make-machine-handler` to align with the `make-*` verb already used by the sibling `make-frame`. `create-*` was the lone outlier in the public-API surface; the new name slots into the existing factory-verb convention.
+The machine-handler builder is internal to the machines artefact. A machine registers through `reg-machine` / `reg-machine*`, which builds its handler and stamps the registration metadata that `[:schemas :data]` validation and the machine tooling read. A test drives the machine through `machine-transition`, or registers it in a test frame ([005 §Testing](../../spec/005-StateMachines.md#testing)).
 
 | Old | New | Surface |
 |---|---|---|
-| `re-frame.core/create-machine-handler` | `re-frame.machines/make-machine-handler` | the public builder fn |
-| `:machines/create-machine-handler` | `:machines/make-machine-handler` | the late-bind hook key |
+| `re-frame.core/create-machine-handler` | none — register with `rf/reg-machine` (or `re-frame.machines/reg-machine*`) | the public builder fn |
+| `:machines/create-machine-handler` | none | the late-bind hook key |
 
-**Detect.** v2-pre-rename codebases trip this. v1 had no machine substrate; v1-→-v2 migrations land directly on the new name. The builder also moved off the `re-frame.core` facade in [M-28](#m-28-state-machines-spec-005-ship-in-a-separate-artefact--day8re-frame2-machines) — apply both changes together, so the renamed call lands on `re-frame.machines`.
+**Detect.** v2-pre-rename codebases trip this. v1 had no machine substrate, so v1-→-v2 migrations never meet the builder.
 
 ```clojure
 ;; before
-(def my-handler (rf/create-machine-handler my-machine-spec))
+(rf/reg-event :my/flow (rf/create-machine-handler my-machine-spec))
 
 ;; after
-(def my-handler (rf.machines/make-machine-handler my-machine-spec))  ;; alias from M-28's require
+(rf/reg-machine :my/flow my-machine-spec)
 ```
+
+A test that called the built handler directly, with hand-built coeffects, tests the same logic with `(rf.machines/machine-transition my-machine-spec snapshot event)`, or registers the machine in a test frame.
 
 **No alias.** Per pre-alpha posture (no back-compat shims), the old name is **removed** — stale call sites raise unresolved-symbol at compile time.
 
-**Cross-references.** [005-StateMachines §Registration](../../spec/005-StateMachines.md); [API.md §State machines](../../spec/API.md); [Conventions §Factory-verb convention](../../spec/Conventions.md) (where `make-*` sits in the verb-shape catalogue).
+**Cross-references.** [005 §`reg-machine` — public registration surface](../../spec/005-StateMachines.md#reg-machine--public-registration-surface); [005 §Testing](../../spec/005-StateMachines.md#testing); [API.md §State machines](../../spec/API.md).
 
 ---
 
@@ -2629,7 +2631,7 @@ At least one of `:before` / `:after` MUST be supplied — a no-op interceptor is
 
 **Type A** (mechanical). Single-symbol global rename.
 
-Per audit-of-audits testing #14, the per-test fixture builder is renamed from `reset-runtime-fixture-factory` to `make-reset-runtime-fixture` to align with the `make-*` factory verb already used by `make-frame` and (per [M-57](#m-57-machine-handler-builder-verb-unification--create-machine-handler--make-machine-handler)) `make-machine-handler`. The `-factory` suffix mis-read as "do the reset" rather than "build a fixture for `use-fixtures :each`"; the new name lands in the established factory-verb convention and reads as what it is (a builder that returns a fixture fn).
+Per audit-of-audits testing #14, the per-test fixture builder is renamed from `reset-runtime-fixture-factory` to `make-reset-runtime-fixture` to align with the `make-*` factory verb already used by `make-frame`. The `-factory` suffix mis-read as "do the reset" rather than "build a fixture for `use-fixtures :each`"; the new name lands in the established factory-verb convention and reads as what it is (a builder that returns a fixture fn).
 
 | Old | New | Surface |
 |---|---|---|
@@ -2649,7 +2651,7 @@ Per audit-of-audits testing #14, the per-test fixture builder is renamed from `r
 
 **No alias.** Per pre-alpha posture (no back-compat shims), the old name is **removed** — stale call sites raise unresolved-symbol at compile time.
 
-**Cross-references.** [Spec 008 §Built-in test-runner namespace](../../spec/008-Testing.md#built-in-test-runner-namespace); [API.md §Testing](../../spec/API.md); [Conventions §Factory-verb convention](../../spec/Conventions.md) (where `make-*` sits in the verb-shape catalogue). Sibling renames in the same `make-*` family: [M-57](#m-57-machine-handler-builder-verb-unification--create-machine-handler--make-machine-handler) (`make-machine-handler`).
+**Cross-references.** [Spec 008 §Built-in test-runner namespace](../../spec/008-Testing.md#built-in-test-runner-namespace); [API.md §Testing](../../spec/API.md); [Conventions §Factory-verb convention](../../spec/Conventions.md) (where `make-*` sits in the verb-shape catalogue).
 
 ---
 
