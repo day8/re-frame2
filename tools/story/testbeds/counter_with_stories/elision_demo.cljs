@@ -44,9 +44,10 @@
   4. **Always-on `event-emit` listener** — the demo registers a
      console-logger directly on `re-frame.event-emit`, the substrate's
      own implementation-tier registry, because what it exists to show is
-     the RAW record the wire walker acts on. The listener receives one
-     record per processed event and fires under `:advanced` +
-     `goog.DEBUG=false` where the trace surface is DCE'd. It is NOT the
+     the RAW record the registration pass and the wire walker act on. The
+     listener receives one record per processed event and fires under
+     `:advanced` + `goog.DEBUG=false` where the trace surface is DCE'd.
+     It is NOT the
      production observability door: that is
      `rf/register-observability-sink!` against a frame's `:observability`
      policy, or the `(rf/configure! {:observability …})` process default,
@@ -59,9 +60,9 @@
   - **Click 'Sign in (sensitive)'** — dispatches `:auth/sign-in`.
     In Xray the event's `:password` reads `:rf/redacted` while its
     `:email` rides raw. The console line from the always-on listener
-    is honest about its scope: it shows the original event vector,
-    because the registration classification redacts on the trace
-    surface, not in the implementation-tier event-emit record.
+    shows the same: the registration classification applies on every
+    observation surface, the implementation-tier event-emit record
+    included.
 
   - **Click 'Upload large avatar (inline)'** — dispatches
     `:user.avatar/upload` with a 20 kB string in the event payload.
@@ -220,8 +221,9 @@
 ;; under the owning frame's classification and the entry's egress
 ;; profile, and it is the ONLY production observation door.
 ;;
-;; This demo is about the RAW record instead — what the wire walker itself
-;; substitutes into, one layer under projection — so it registers a
+;; This demo is about the RAW record instead — what the event's registration
+;; pass and the wire walker substitute into, one layer under the sink's
+;; profile projection — so it registers a
 ;; console-logger on `re-frame.event-emit` directly, at boot and UNGATED,
 ;; and visitors can watch the frame-driven substitution (declared-large
 ;; app-db slots become markers; unschema'd inline payloads ride through
@@ -233,12 +235,11 @@
 
 (defn- log-record! [record]
   ;; Format the record terse for browser-console readability. The
-  ;; `:event` slot has already been passed through
-  ;; `rf.elision/elide-wire-value` against the frame's app-db
-  ;; classification. A registration-classified payload path (the
-  ;; `:auth/sign-in` password) is redacted on the trace surface, not
-  ;; here, and unnominated large leaves ride through raw (there is no
-  ;; runtime size auto-elision).
+  ;; `:event` slot has already been projected: the event registration's
+  ;; classification first (the `:auth/sign-in` password reads
+  ;; `:rf/redacted`), then `rf.elision/elide-wire-value` against the
+  ;; frame's app-db classification. Unnominated large leaves ride
+  ;; through raw (there is no runtime size auto-elision).
   (js/console.log "[event-emit demo]" (pr-str record)))
 
 (defn install-listener!

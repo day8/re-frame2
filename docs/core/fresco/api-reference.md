@@ -394,7 +394,7 @@ ht/tree-version
 | `ht/revision` | the `::h/revision` value a native form carries, as the runtime reads it |
 | `ht/materialize` | what an event vector becomes at dispatch, given the target's value and checked flag, as a pure function |
 | `ht/canonical-dom` | a DOM subtree serialised with attribute names sorted and the development annotations `data-rf2-source-coord` and `data-rf-view` removed |
-| `ht/capture-intents` | runs `f` and returns `{:value <f's value> :intents [event-v …]}` — the events dispatched into `frame-kw` meanwhile. Other frames' events are ignored |
+| `ht/capture-intents` | runs `f` and returns `{:value <f's value> :intents [event-v …]}` — the events dispatched into `frame-kw` meanwhile. Other frames' events are ignored. An event whose registration declares `:sensitive` paths is captured with those paths as `:rf/redacted`, as on every other observation surface |
 | `ht/fire!` | converts one handler position to its React callback and invokes it with an event described as data; returns `{:intents […] :prevented? bool}` |
 | `ht/tree` | runs one hook-free body under injected read fixtures and returns its versioned semantic tree. `opts` takes only `:subs`; any other key throws |
 | `ht/tree-version` | the structural-tree schema version `ht/tree` stamps on its root |

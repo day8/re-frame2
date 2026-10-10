@@ -610,6 +610,12 @@
   `rf/register-listener!` vocabulary — which is a fact under this helper,
   not part of what it promises callers.
 
+  An event whose registration declares `:sensitive` paths is captured
+  with those paths as `:rf/redacted`, as on every other observation
+  surface, while `ht/intents` reports what the tree offers raw — so a test
+  comparing the two for a classified event writes `:rf/redacted` in the
+  captured expectation.
+
   Events from other frames are ignored, so a capture taken while another
   frame is live is still this frame's. The listener is registered when
   `f` starts and removed when it returns, whatever `f` does, so neither a

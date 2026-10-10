@@ -71,13 +71,17 @@
   (Xray, Story) are not user-domain observable signal.
 
   That is the one handler-meta key this substrate consults. Data
-  sensitivity is per-path, not per-handler: the record's `:event` runs
-  through `re-frame.elision/elide-wire-value` against the frame's
-  `[:rf.runtime/elision]` registry (Spec 015), which redacts a sensitive
-  value inside the record rather than suppressing the record."
-  (:require [re-frame.elision       :as rf.elision]
-            [re-frame.emit-substrate :as rf.emit-substrate]
+  sensitivity is per-path, not per-handler, and the record's `:event` is
+  projected in two steps (Spec 015), each redacting a sensitive value inside
+  the record rather than suppressing the record: first the event
+  registration's own `:sensitive` / `:large` paths, resolved in the frame's
+  generation, then `re-frame.elision/elide-wire-value` against the frame's
+  `[:rf.runtime/elision]` registry. Both come from
+  `re-frame.projection/project-event-slot`, the pass the frame-owned sink
+  route and the error-emit record also run."
+  (:require [re-frame.emit-substrate :as rf.emit-substrate]
             [re-frame.late-bind     :as rf.late-bind]
+            [re-frame.projection    :as rf.projection]
             [re-frame.registrar     :as rf.registrar]
             [re-frame.trace         :as rf.trace]))
 
@@ -119,11 +123,13 @@
   Short-circuits to a no-op when the registry is empty (one deref +
   empty-map check). Otherwise looks up the event's handler-meta and
   drops the record when `:rf.trace/no-emit?` is set.
-  Surviving records run through `re-frame.elision/elide-wire-value`
-  ONCE with off-box defaults (large → `:rf.size/large-elided`;
-  sensitive paths → `:rf/redacted`), then fan out through the emit-
-  substrate registry. Listener exceptions are caught inside the
-  registry's fan-out.
+  A surviving record's `:event` is projected ONCE, with off-box defaults,
+  by `re-frame.projection/project-event-slot`: the event registration's
+  `:sensitive` / `:large` paths in `frame`'s generation, then the
+  wire-walker against `frame`'s durable classification (large →
+  `:rf.size/large-elided`; sensitive → `:rf/redacted`). The record then
+  fans out through the emit-substrate registry. Listener exceptions are
+  caught inside the registry's fan-out.
 
   Called by `router.cljc` once per processed event after the cascade
   body settles (`:db` committed, flows run, `:fx` walked). Published
@@ -139,7 +145,7 @@
       (when (and (rf.trace/continuation-live?)
                  (not (rf.trace/no-emit?-from-meta handler-meta)))
         (let [elided-event (try
-                             (rf.elision/elide-wire-value event {:frame frame})
+                             (rf.projection/project-event-slot event {:frame frame})
                              (catch #?(:clj Throwable :cljs :default) e
                                (when (rf.trace/continuation-live?) (throw e))))]
           ;; Elision/classification is callback-bearing. Listener sibling fanout

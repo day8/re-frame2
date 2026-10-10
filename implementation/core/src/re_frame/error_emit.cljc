@@ -56,13 +56,15 @@
   proper carries no gate.
 
   Sensitive data marking is path-based per the data-classification
-  mechanism (separate spec doc); handler-meta `:sensitive?` is not
-  consulted here. The per-path elision wire-walker is the load-bearing
-  redaction surface on this path."
-  (:require [re-frame.elision        :as rf.elision]
-            [re-frame.emit-substrate :as rf.emit-substrate]
+  mechanism (Spec 015); a boolean handler-meta `:sensitive?` is not
+  consulted here. A dispatched event's `:event` is redacted in two steps:
+  the event registration's own `:sensitive` / `:large` paths, then the
+  per-path elision wire-walker against the frame's durable classification
+  (`re-frame.projection/project-event-slot`)."
+  (:require [re-frame.emit-substrate :as rf.emit-substrate]
             [re-frame.interop        :as rf.interop]
             [re-frame.late-bind      :as rf.late-bind]
+            [re-frame.projection     :as rf.projection]
             [re-frame.registrar      :as rf.registrar]
             [re-frame.source-coords  :as rf.source-coords]
             [re-frame.trace          :as rf.trace]))
@@ -452,21 +454,6 @@
         :else
         (coord-in :event)))))
 
-(defn- redact-event-by-registration
-  "Apply the dispatched event's REGISTRATION-owned `:sensitive` / `:large` marks
-  through the always-on `:classification/redact-event-by-registration` hook, run
-  inside `frame-id`'s resolution scope (`:live-frame/call-with-frame-resolution`)
-  so an image-local declaration answers for its own record — the same pass
-  `re-frame.projection/redact-event-by-registration` gives the sink route. Both
-  hooks are late-bound; an unbound one is inert (pass-through / ambient scope)."
-  [event frame-id]
-  (if-let [redact (rf.late-bind/get-fn-cached :classification/redact-event-by-registration)]
-    (if-let [with-owner (when (some? frame-id)
-                          (rf.late-bind/get-fn-cached :live-frame/call-with-frame-resolution))]
-      (with-owner frame-id #(redact event))
-      (redact event))
-    event))
-
 ;; ---- emission -------------------------------------------------------------
 
 (defn dispatch-on-error!
@@ -502,10 +489,10 @@
   There is no app-steering recovery policy. Recovery is framework-owned
   (the per-category typed defaults); observability is this listener.
 
-  Builds the tight error-record ONCE, runs
-  `re-frame.elision/elide-wire-value` against `:event` with off-box
-  defaults (large → `:rf.size/large-elided`; per-path sensitive
-  declarations → `:rf/redacted`), then fans out to every listener.
+  Builds the tight error-record ONCE, projects a dispatched `:event`
+  with off-box defaults (the event registration's `:sensitive` / `:large`
+  paths, then the wire-walker: large → `:rf.size/large-elided`; sensitive
+  → `:rf/redacted`), then fans out to every listener.
 
   ## Payload hygiene (production-surviving — enforce at every site)
 
@@ -513,12 +500,12 @@
   :exception :elapsed-ms}`, plus an optional `:failing-id` / `:reason`)
   is production-surviving and is NOT privacy-
   gated like the dev trace. Every caller MUST keep identifiers tight,
-  elide `:event` (done here via the wire-walker), and carry NO raw
-  app-db slice. Sensitive-data redaction on this path is path-based:
-  the per-frame `:rf.runtime/elision` registry's `:sensitive-
-  declarations` drive the wire-walker's per-slot substitutions.
-  Handler-meta `:sensitive?` is not consulted; path-marked
-  classification is the mechanism (separate spec doc).
+  leave `:event` to the projection here, and carry NO raw app-db slice.
+  Sensitive-data redaction on this path is path-based: the event
+  registration's `:sensitive` paths, then the per-frame
+  `:rf.runtime/elision` registry's `:sensitive-declarations`, drive the
+  per-slot substitutions. A boolean handler-meta `:sensitive?` is not
+  consulted; path-marked classification is the mechanism (Spec 015).
 
   ## Component attribution
 
@@ -625,15 +612,16 @@
                ;;
                ;; The event REGISTRATION's own `:sensitive` / `:large` marks
                ;; (EP-0015 — event args are registration-owned) apply FIRST,
-               ;; exactly as on the dev trace (`project-event-tags`) and the
-               ;; sink route (`projection/project-event-slot`); without them
-               ;; this record would ship a declared-sensitive arg RAW while both
-               ;; sibling channels redacted it.
+               ;; resolved in `frame-id`'s generation, exactly as on the dev
+               ;; trace (`project-event-tags`), the sink route and the
+               ;; event-emit record, which all share
+               ;; `projection/project-event-slot`; without them this record
+               ;; would ship a declared-sensitive arg RAW while its sibling
+               ;; channels redacted it.
                elided-event (if (or raw-identity-event? (nil? event))
                               event
                               (try
-                                (-> (redact-event-by-registration event frame-id)
-                                    (rf.elision/elide-wire-value {:frame frame-id}))
+                                (rf.projection/project-event-slot event {:frame frame-id})
                                 (catch #?(:clj Throwable :cljs :default) e
                                   (when (rf.trace/continuation-live?)
                                     (throw e)))))
