@@ -82,7 +82,8 @@ it is cheap: a bare JVM, no re-frame2 loaded, no files touched.
   | `:local-reactive-cell` (`r/atom`), `:with-let`, `:cell-disposal` | MIG-16 in a view; a top-level store is MIG-20 |
   | `:derived-cell` (`cursor`, `track`, `reaction`, `run!`) | MIG-19; a `run!` watcher over a store is MIG-20 |
   | `:lifecycle-class` (`create-class`) | MIG-17, or MIG-36 for the update protocol |
-  | `:as-element`, `:adapt-react-class`, `:react-create-element` | MIG-09/10 |
+  | `:as-element` | a kept Reagent island stays as it is ([`mental-model.md`](mental-model.md#two-renderers-in-one-tree)); Hiccup Fresco should lower is replaced through MIG-09/10 |
+  | `:adapt-react-class`, `:react-create-element` | MIG-09/10 |
   | `:outward-bridge` (`reactify-component`) | MIG-22 |
   | `:props-helper` (`merge-props`) | MIG-28 |
   | `:reagent-partial` (`r/partial`) | MIG-27; at a `[:>]` crossing, the fixer's W4 |
@@ -113,10 +114,9 @@ returning a `fn` and nothing else marks it, so the census counts the `r/atom`
 such a component closes over and reports nothing about the shape. A confident
 wrong number would be worse. Nor does it see an ordinary third-party Reagent
 head: `[rc/v-box …]` calls no Reagent API, so a file of re-com views can report
-zero entries and still cross into Reagent at every such head. Inventory those
-providers and callers by hand
-([`catalog-judgment.md`](catalog-judgment.md#mig-09--10--22--foreign-react-and-the-props-that-cross-it)
-MIG-22).
+zero entries and still cross into Reagent at every such head, which MIG-22 has
+you inventory by hand
+([`catalog-judgment.md`](catalog-judgment.md#mig-09--10--22--foreign-react-and-the-props-that-cross-it)).
 
 ## Step 1 — Scope a closed subtree
 
@@ -125,31 +125,34 @@ first, shared components last**, closing the subtree bottom-up until a root or
 an already-converted parent mounts it. Each pass then ends renderable and
 tested, which is what lets an interrupted migration resume cleanly.
 
-Leaf-first is the clean default, not a hard wall. If a converted view must sit
-under a parent staying on Reagent, the outward bridge mounts it there —
-`(def card* (h/as-component card))`, declared once at top level beside the view,
-and the Reagent parent mounts `card*` as an ordinary React component. Reach for
-it deliberately, not as a way to skip the bottom-up discipline: it is a foreign
-boundary with its own prop crossing. Flag any inbound Reagent call site you are
-not bridging — that view is a boundary, and the subtree above it waits.
+Leaf-first is the clean default, not a hard wall. A converted view that must
+sit under a parent staying on Reagent, UIx or plain React mounts there through
+one of two **bridge doors**, and the props the caller passes pick the door:
 
-**Preserve Clojure values at that crossing.** A Reagent parent using
-`[:> card* {:status :ready :item item}]` converts the keyword to a string and
-the map to a JavaScript object before `h/as-component` sees them. The bridge
-decodes prop *names* but does not reconstruct those values, so the converted
-view's keyword comparisons and map lookups break. In a Reagent parent, embed
-the Fresco element directly when you want its ordinary Clojure props:
+- **`h/as-element` in the Reagent parent's child position** —
+  `[:section (h/as-element [card {:status :ready :item item}])]`. The props
+  travel as a Fresco props map, so every Clojure value arrives exactly as
+  written. This is the door for ordinary Clojure props.
+- **A stable `h/as-component`**, declared once at top level beside the view —
+  `(def card* (h/as-component card))` — used through a raw or foreign props
+  route: a React parent passing its own props, or
+  `(r/create-element card* #js {"status" :ready "item" item})` with camelCase
+  names and the original values, never `clj->js`'d. Its decode is shallow: it
+  maps the names back, puts children at `:children`, and takes each value as
+  the caller built it.
 
-```clojure
-(defn reagent-parent [item]
-  [:section (h/as-element [card {:status :ready :item item}])])
-```
+A Reagent `[:> card* …]` alters most values before the bridge sees them: a
+keyword arrives as its name, a map as a JavaScript object, a set, vector or
+other collection as an array, and a callable that is not a plain function (an
+`r/partial`) as a fresh wrapper. Only strings, numbers, booleans, plain
+functions and JavaScript objects cross it unchanged, so `[:>]` suits only a
+caller whose props are all of those. Either way the frame comes from React
+context: keep the existing frame provider above the parent.
 
-Keep the existing frame provider above the parent. If the parent needs the
-React component returned by `h/as-component`, use
-`(r/create-element card* #js {"status" :ready "item" item})` to hand it raw
-React props with Clojure values preserved; write camelCase names in that JS
-object. Do not use `clj->js` on the values you are preserving.
+Reach for a bridge deliberately, not as a way to skip the bottom-up discipline
+([`mental-model.md`](mental-model.md#two-renderers-in-one-tree)). Flag any
+inbound Reagent call site you are not bridging — that view is a boundary, and
+the subtree above it waits.
 
 ## Step 2 — Gate every candidate view (whole-view law)
 
@@ -189,7 +192,8 @@ change.
 
 Two things to do *before* you call a view converted. Both are greps, and a hit
 is a question rather than a verdict: resolve it by what the closure is bound to,
-and by which renderer lowers the vector.
+and by which renderer lowers the vector
+([`mental-model.md`](mental-model.md#two-renderers-in-one-tree)).
 
 - **Grep the body for surviving closures.** An ambient `#(dispatch …)` — one
   still bound to `rf/dispatch` — that crosses to React by identity fails at
@@ -202,9 +206,8 @@ and by which renderer lowers the vector.
   to clear the grep.
 - **Grep for `^{:key` in the view's lists.** Fresco reads no metadata, so in
   Hiccup Fresco lowers a survivor is an absent key, not a tidy-up — move it to
-  the `:key` prop (MIG-07). Hiccup inside an `r/as-element` island the author
-  chose to keep is lowered by Reagent, which does read `^{:key …}`, so that key
-  stays.
+  the `:key` prop (MIG-07). In a kept Reagent island Reagent lowers it, so that
+  key stays.
 
 ## Step 4 — Fix requires and the root last
 
@@ -295,13 +298,11 @@ original and the Fresco candidate against isolated copies of the same seeded
 frame, drives one interaction script through both, and compares canonical DOM
 and the intent stream at each checkpoint.
 
-**Both arms are handed to the Fresco runtime**, so the Reagent original has to
-cross a renderer boundary the way any foreign component does — an unmarked
-`(defn …)` in head position is not a legal Fresco head and raises
-`:rf.error/fresco-bad-head` before anything is compared. Reactify the original
+**Both arms are handed to the Fresco runtime**, so the Reagent original crosses
+in as a retained Reagent component
+([`mental-model.md`](mental-model.md#two-renderers-in-one-tree)): reactify it
 **once at top level** (a component allocated per render is a new element type
-and remounts the subtree), then cross it with `[:> …]` or a declared
-`h/defhost`:
+and remounts the subtree), then cross it with `[:> …]` or a declared `h/defhost`:
 
 ```clojure
 ;; Once, at top level.
@@ -326,10 +327,9 @@ with your port. `{:id 7}` sidesteps it; anything longer gets an explicit
 mapping on the reference side.
 
 **An original that dispatches needs its frame carried across the crossing.**
-Reactifying moves the component out of the Fresco render scope, so an ambient
-`dispatch` / `subscribe` closure inside it has no frame to resolve against.
-Supply frame-bound callbacks at the crossing (or keep a capture the original
-already took) — the wrapper alone does not repair arbitrary ambient closures.
+Reactified, an ambient `dispatch` / `subscribe` closure inside it has no frame
+to resolve against, and the wrapper does not repair it: supply frame-bound
+callbacks at the crossing, or keep a capture the original already took.
 
 Three disciplines make it worth its cost. **Add a sabotage control first** —
 change a candidate prop deliberately and confirm the run turns red at the
@@ -368,13 +368,10 @@ that must not change.
 ### Settling a tree that still holds a Reagent renderer
 
 `hm/settle!` is the empty `flushSync`: it commits what React already holds and
-nothing else. In an all-Fresco tree that is all a stimulus leaves behind, so it
-is the whole settle. A tree that still mounts a retained Reagent component — a
-reactified original, an `r/as-element` island, a Reagent library under a
-converted parent — has a second queue: Reagent batches a dirty component's
-re-render onto its own animation-frame tick, and no Fresco door drains it.
-
-So name what a step is waiting for before choosing the door:
+nothing else, which is the whole settle of an all-Fresco tree. A tree that still
+mounts a retained Reagent component has Reagent's own render queue as well
+([`mental-model.md`](mental-model.md#two-renderers-in-one-tree)), so name what a
+step is waiting for before choosing the door:
 
 | Pending work | Who holds it | The door |
 |---|---|---|
@@ -383,12 +380,10 @@ So name what a step is waiting for before choosing the door:
 | a re-render of a retained Reagent component | Reagent's render queue | `(react-dom/flushSync (fn [] (r/flush)))` |
 | an update React has already scheduled | React | `hm/settle!` |
 
-`r/flush` drains Reagent's queue, re-rendering each dirty component through
-`forceUpdate`, and inside `flushSync` those updates commit before it returns.
-Called bare, whether they commit at once depends on whether some Reagent root
-has already rendered on the page — Reagent makes its drain synchronous only
-from its own root render, and a Fresco mount is not one — so a bare call passes
-or fails by test order. `re-frame.adapter.reagent/flush-views!` drains the same
+Inside `flushSync`, the components `r/flush` re-renders commit before it
+returns. Called bare, they commit at once only if some Reagent root has already
+rendered on the page — a Fresco mount is not one — so a bare call passes or
+fails by test order. `re-frame.adapter.reagent/flush-views!` drains the same
 queue inside React's `act`, which this kit deliberately does not use.
 
 A converted report hosts a retained Reagent grid that sizes its row window from
@@ -464,29 +459,8 @@ rendered and tested — a clean compile, or a bridge wrapper nothing mounts, is
 not acceptance. That is why the unit of a pass is a *closed subtree*, not a
 lone file.
 
-A Reagent caller can close it through either of two bridge doors without being
-converted itself, and the props it actually passes pick the door (spellings in
-[Step 1](#step-1--scope-a-closed-subtree); MIG-22):
-
-- **`h/as-element` in the Reagent parent's child position** —
-  `[:section (h/as-element [card props])]`. The props travel as a Fresco props
-  map, so every Clojure value arrives exactly as written. This is the door for
-  ordinary Clojure props.
-- **A stable `h/as-component`**, declared once at top level, used through a
-  raw or foreign props route: `r/create-element` with a `#js` props object
-  holding the original values, or a React parent passing its own props. Its
-  decode is shallow — it maps the names back and takes each value as the caller
-  built it.
-
-A map the view looks into, a keyword it compares, a set it tests, or a function
-it calls or compares by identity has to arrive as that same Clojure value, and
-a Reagent `[:> card* …]` alters most of them before the bridge sees them: a
-keyword arrives as its name, a map as a JavaScript object, a set, vector or
-other collection as an array, and a callable that is not a plain function (an
-`r/partial`) as a fresh wrapper. Only strings, numbers, booleans, plain
-functions and JavaScript objects cross it unchanged, so `[:>]` suits only a
-caller whose props are all of those; any other caller takes `h/as-element` or
-the raw route.
+A Reagent caller can close it without being converted itself, through either
+bridge door ([Step 1](#step-1--scope-a-closed-subtree) says which; MIG-22).
 
 ## Resuming an interrupted migration
 

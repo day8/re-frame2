@@ -138,10 +138,11 @@ author's to write.
 ### L6 — Incremental, closed-subtree passes
 
 Migrate leaf → root, closing a subtree from the bottom up. A recommended default,
-not a hard wall: `h/as-element` in a Reagent parent's child position, or
-`h/as-component` through raw or foreign props, bridges a converted view up to a
-parent staying on Reagent, UIx or plain React, so a stranded view is never
-un-renderable.
+not a hard wall: a bridge door mounts a converted view under a parent staying on
+Reagent, UIx or plain React, so a stranded view is never un-renderable. Its
+conditions live once, in [`procedure.md`](../references/procedure.md#step-1--scope-a-closed-subtree)
+Step 1, and the mixed tree they create is taught in
+[`mental-model.md`](../references/mental-model.md#two-renderers-in-one-tree).
 
 ### L7 — The skill runs the compile/test gates; the programmer owns visual confirmation
 

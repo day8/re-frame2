@@ -321,24 +321,17 @@ Two migration behaviours are worth pre-empting:
   event-first foreign callback the vector is legal and shorter.
 
 **MIG-22 — a third-party Reagent wrapper (re-com et al.) is a Reagent
-component, not a React one.** `r/reactify-component` makes it crossable, and the
-census reports every call to that bridge API (`:outward-bridge`) — not every
-use of a third-party Reagent component. An ordinary head such as
-`[rc/v-box …]` or `[rc/input-text …]` calls no Reagent API, so the census never
-lists it, and a file the census reports clean, or does not recognise, can
-still cross into a Reagent library at every such head. Inventory those by
-hand — each library namespace that provides Reagent components, and each view
-that calls one as a head — because every such caller is a crossing this rule
-decides. That is two renderers in one tree: a judgment call, worth measuring.
-The cleaner move is often the **outward** bridge — keep
-the wrapper subtree on Reagent and hand a converted Fresco view up to it with
-`(def card* (h/as-component card))`, declared once at top level beside the view.
-The parent's props arrive as the view's ordinary props map, children at
-`:children`, and the frame comes from React context. That decode is shallow:
-a Reagent `[:>]` converts keyword/map/vector values before the bridge sees
-them. Preserve Clojure props with `h/as-element` in the Reagent parent's child
-position, or raw props through `r/create-element`; the concrete spellings are
-in [`procedure.md`](procedure.md#step-1--scope-a-closed-subtree).
+component, not a React one.** `r/reactify-component` makes it crossable, and
+the census reports every call to that bridge API (`:outward-bridge`) — but not
+an ordinary head such as `[rc/v-box …]`, which calls no Reagent API
+([`procedure.md`](procedure.md#step-0--run-the-reporter-and-read-both-halves)
+Step 0). Inventory by hand each library namespace that provides Reagent
+components and each view that calls one as a head: every such caller is a
+crossing this rule decides, between two renderers in one tree
+([`mental-model.md`](mental-model.md#two-renderers-in-one-tree)). The cleaner
+move is often to keep the wrapper subtree on Reagent and hand converted views
+up into it through a bridge door
+([`procedure.md`](procedure.md#step-1--scope-a-closed-subtree) Step 1).
 
 ## MIG-26 — ambient `subscribe`/`dispatch` in a plain `defn`
 
@@ -355,8 +348,9 @@ into a callback fails when it fires — three ids, tabled with the complaint
 shape in [`gotchas.md`](gotchas.md) §Three leftovers, three ids.
 
 Classify each site by three facts before you route it: **which renderer runs
-it**, and inside whose render (a Fresco body, a retained Reagent component, or
-no render at all); **when it is invoked and when it reads**; and whether the
+it** ([`mental-model.md`](mental-model.md#two-renderers-in-one-tree)), and
+inside whose render (a Fresco body, a retained Reagent component, or no render
+at all); **when it is invoked and when it reads**; and whether the
 behaviour wants **a snapshot or ongoing updates**. Then route it in this order:
 
 1. **It runs during a Fresco render** → leave it in the helper, deref-dropped
