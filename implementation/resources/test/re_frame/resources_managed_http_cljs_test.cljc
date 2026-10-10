@@ -20,6 +20,7 @@
    ;; load-bearing side-effecting requires: register the :rf.resource/*
    ;; events + subs + the generation cofx/fx these tests dispatch.
    [re-frame.resources]
+   [re-frame.resources.mutation-runtime :as rf.resources.mutation-runtime]
    [re-frame.resources.registry :as rf.resources.registry]
    [re-frame.resources.state :as rf.resources.state]
    [re-frame.resources.transport.http :as rf.resources.transport.http]
@@ -100,7 +101,7 @@
 ;; ===========================================================================
 
 (deftest reserved-reply-keys-rejected
-  (doseq [reserved [:request-id :on-success :on-failure]]
+  (doseq [reserved [:request-id :on-success :on-failure :reply-to]]
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-reserved-request-key"
           (rf.resources.transport.http/build-managed-args
@@ -114,15 +115,36 @@
         (str reserved " is rejected"))))
 
 (deftest reserved-reply-keys-rejected-end-to-end
-  ;; the handler throw is routed to the runtime error path, so the observable
-  ;; fail-closed guarantee is that no request reaches the transport
-  (rf/reg-resource :rr/article
-                   (article-spec)
+  ;; The handler throw is routed to the runtime error path, so the observable
+  ;; fail-closed guarantee is that no request reaches the transport and the
+  ;; event commits nothing: no entry is left :loading for the key. `:reply-to`
+  ;; is reserved with the split keys because managed HTTP refuses it beside the
+  ;; runtime's own `:on-success` / `:on-failure`, after the event has committed.
+  (doseq [[resource reply] [[:rr/article {:on-success [:my/handler]}]
+                            [:rr/reply-to {:reply-to [:my/handler]}]]]
+    (reset! last-managed-args nil)
+    (rf/reg-resource resource
+                     (article-spec)
+                     (fn [{:keys [slug]} _]
+                       (merge {:request {:method :get :url (str "/a/" slug)}} reply)))
+    (let [k (ensure-article! resource)]
+      (is (nil? @last-managed-args)
+          (str (ffirst reply) ": a :request with a reserved reply key never reaches the transport"))
+      (is (nil? (entry k))
+          (str (ffirst reply) ": the refused ensure leaves no entry behind, :loading or otherwise")))))
+
+(deftest reserved-reply-keys-rejected-on-execute
+  ;; A mutation lowers through the same managed-HTTP seam, so the same refusal
+  ;; holds there: nothing reaches the transport and no instance is left :pending.
+  (rf/reg-mutation :rr/save
+                   {:params-schema [:map [:slug :string]]}
                    (fn [{:keys [slug]} _]
-                     {:request {:method :get :url (str "/a/" slug)}
-                      :on-success [:my/handler]}))
-  (ensure-article! :rr/article)
-  (is (nil? @last-managed-args) "a :request with a reserved reply key never reaches the transport"))
+                     {:request  {:method :put :url (str "/a/" slug)}
+                      :reply-to [:my/handler]}))
+  (rf/dispatch-sync [:rf.mutation/execute {:mutation :rr/save :params {:slug "w"} :instance :rr/save-1}])
+  (is (nil? @last-managed-args) "a mutation :request carrying :reply-to never reaches the transport")
+  (is (nil? (get-in (runtime-db) (rf.resources.mutation-runtime/instance-path :rr/save-1)))
+      "the refused execute leaves no instance behind, :pending or otherwise"))
 
 (deftest lowering-supplies-reply-addressing-and-passes-spec014-keys
   (rf/reg-resource :lo/article

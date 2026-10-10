@@ -58,15 +58,20 @@
   `:on-failure` from the scoped resource key and current generation; an app
   that supplies them itself could bypass stale-suppression (point a reply
   at an event other than the verifying internal handler, or reuse a
-  request-id the runtime correlates work by). Rejected loudly."
-  #{:request-id :on-success :on-failure})
+  request-id the runtime correlates work by). `:reply-to`, Spec 014's
+  unified addressing key, is reserved with them: managed HTTP refuses it
+  beside the runtime's `:on-success` / `:on-failure`, and that refusal
+  lands at fx time, after the event has committed its in-flight entry.
+  Rejected loudly, inside the event."
+  #{:request-id :on-success :on-failure :reply-to})
 
 (defn reject-reserved-reply-keys!
   "Reject an app `:request` (the Spec 014 managed-HTTP args map) that
   supplies any runtime-owned reply-addressing key (`reserved-reply-keys`).
   Throws `:rf.error/resource-reserved-request-key`. Per Spec 016 §Transport
   (\"an app `:request` that bypasses stale-suppression by supplying
-  `:request-id` / `:on-success` / `:on-failure` is rejected\"). `where`
+  `:request-id` / `:on-success` / `:on-failure` / `:reply-to` is
+  rejected\"). `where`
   names the dispatch surface; `resource-key` carries the scoped key for the
   diagnostic. Returns `http-args` unchanged when it conforms."
   [http-args resource-key where]
@@ -80,11 +85,14 @@
              " — :request-id / :on-success / "
              ":on-failure are supplied by resource "
              "lowering from the scoped resource key "
-             "and current generation. An app-supplied "
+             "and current generation, and :reply-to "
+             "cannot sit beside them. An app-supplied "
              "reply target bypasses stale suppression "
              "(the correctness boundary). Remove them "
-             "from the :request return. Per Spec 016 "
-             "§Transport.")
+             "from the :request return; a caller that "
+             "wants a continuation passes :reply-to to "
+             ":rf.resource/ensure or :rf.mutation/execute "
+             "instead. Per Spec 016 §Transport.")
         {:recovery :fix-registration
          :extra    {:keys         (vec offending-keys)
                     :resource/key resource-key}}))
@@ -118,8 +126,8 @@
   `:accept` / `:retry` and the nested `:request` envelope pass through
   UNCHANGED (transport retry belongs to managed HTTP). An app `:request`
   that supplies the runtime-owned `:request-id` / `:on-success` /
-  `:on-failure` itself is REJECTED here (`reject-reserved-reply-keys!`) — it
-  would bypass stale suppression."
+  `:on-failure`, or `:reply-to`, itself is REJECTED here
+  (`reject-reserved-reply-keys!`) — it would bypass stale suppression."
   [{:keys [http-args request-id work-id scope frame-id generation where
            on-success-id on-failure-id reply-payload]
     resource-key :resource/key}]
