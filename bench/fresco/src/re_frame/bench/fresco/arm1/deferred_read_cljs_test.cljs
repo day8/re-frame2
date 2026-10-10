@@ -93,6 +93,18 @@
   (let [element (rf.bench.fresco.arm1.runtime/render-body frame-id body-fn props)]
     {:element element :entry (rf.bench.fresco.arm1.runtime/last-reads) :reads (rf.bench.fresco.arm1.runtime/reads-of (rf.bench.fresco.arm1.runtime/last-reads))}))
 
+(defn- unrefused
+  "The labels of the `[label props]` cases the crossing walk did NOT refuse
+  with the deferred-read error — empty when every one was refused."
+  [cases]
+  (into []
+        (comp (remove (fn [[_ v]]
+                        (= :rf.error/fresco-deferred-read-at-boundary
+                           (try (rf.bench.fresco.front.codec/realize-deep v) nil
+                                (catch :default e (:rf.error/id (ex-data e)))))))
+              (map first))
+        cases))
+
 ;; ---------------------------------------------------------------------------
 ;; The bodies
 ;; ---------------------------------------------------------------------------
@@ -125,12 +137,12 @@
            that wrote the crossing rather than on the child that would
            otherwise have been blamed for the read"
     (let [e (try (render parent-delay-body {}) nil (catch :default e e))]
-      (is (some? e) "the crossing refuses")
-      (is (= :rf.error/fresco-deferred-read-at-boundary (:rf.error/id (ex-data e))))
-      (is (= 'front.codec/boundary-element (:where (ex-data e)))
-          "the position that refused is the crossing, not the child")
-      (is (= :hand-a-function-or-deref-it-in-this-body (:recovery (ex-data e))))
-      (is (re-find #"unforced `delay` reached a boundary's props" (ex-message e))))))
+      (is (= [:rf.error/fresco-deferred-read-at-boundary
+              'front.codec/boundary-element
+              :hand-a-function-or-deref-it-in-this-body]
+             ((juxt :rf.error/id :where :recovery) (ex-data e)))
+          "the crossing refuses, and the position that refused is the
+           crossing, not the child"))))
 
 (deftest the-refused-crossing-installs-nothing
   (seeded!)
@@ -146,15 +158,12 @@
            descends into, which is the same reach the seq realisation
            already had — a bare prop, inside a vector, inside a map,
            inside a seq, and inside a realised lazy seq"
-    (doseq [[label v] [["a bare prop"            {:d (delay 1)}]
-                       ["inside a vector"        {:d [(delay 1)]}]
-                       ["inside a nested map"    {:d {:k (delay 1)}}]
-                       ["inside a list"          {:d (list (delay 1))}]
-                       ["inside a lazy seq"      {:d (map (fn [_] (delay 1)) (range 1))}]
-                       ["inside a set"           {:d #{(delay 1)}}]]]
-      (is (thrown-with-msg? js/Error #"unforced `delay` reached a boundary's props"
-                            (rf.bench.fresco.front.codec/realize-deep v))
-          label))))
+    (is (= [] (unrefused [["a bare prop"            {:d (delay 1)}]
+                          ["inside a vector"        {:d [(delay 1)]}]
+                          ["inside a nested map"    {:d {:k (delay 1)}}]
+                          ["inside a list"          {:d (list (delay 1))}]
+                          ["inside a lazy seq"      {:d (map (fn [_] (delay 1)) (range 1))}]
+                          ["inside a set"           {:d #{(delay 1)}}]])))))
 
 ;; ---------------------------------------------------------------------------
 ;; 1b — the same deferral, held as a map KEY
@@ -183,15 +192,12 @@
            literal is a `PersistentArrayMap`, which compares keys with `=`
            and hashes nothing at all, so a one-entry map never so much as
            looks at its key. Both halves go through the same refusal."
-    (doseq [[label v] [["a key of the props map"          {(delay 1) :marked}]
-                       ["a key of a nested map"           {:m {(delay 1) :marked}}]
-                       ["inside a COLLECTION key"         {:m {[(delay 1)] :marked}}]
-                       ["a key of a map inside a vector"  {:v [{(delay 1) :marked}]}]
-                       ["a key of a map inside a seq"     {:v (list {(delay 1) :marked})}]
-                       ["a key of a map inside a set"     {:v #{{(delay 1) :marked}}}]]]
-      (is (thrown-with-msg? js/Error #"unforced `delay` reached a boundary's props"
-                            (rf.bench.fresco.front.codec/realize-deep v))
-          label))))
+    (is (= [] (unrefused [["a key of the props map"          {(delay 1) :marked}]
+                          ["a key of a nested map"           {:m {(delay 1) :marked}}]
+                          ["inside a COLLECTION key"         {:m {[(delay 1)] :marked}}]
+                          ["a key of a map inside a vector"  {:v [{(delay 1) :marked}]}]
+                          ["a key of a map inside a seq"     {:v (list {(delay 1) :marked})}]
+                          ["a key of a map inside a set"     {:v #{{(delay 1) :marked}}}]])))))
 
 (deftest a-key-held-delay-is-refused-before-the-child-can-cache-it
   (seeded!)
@@ -230,10 +236,9 @@
           props  {:m {d :marked}}
           first' (render child-derefs-key-body props)
           again  (render child-derefs-key-body props)]
-      (is (= #{(key-of [:dogfood/todo 1])} (:reads first'))
-          "the first walk files the read under whoever forced it")
-      (is (= #{} (:reads again))
-          "and the second calls `sub` zero times, so the edge is dropped"))))
+      (is (= [#{(key-of [:dogfood/todo 1])} #{}] [(:reads first') (:reads again)])
+          "the first walk files the read under whoever forced it, and the
+           second calls `sub` zero times, so the edge is dropped"))))
 
 (deftest a-delay-in-the-children-position-is-refused-too
   (seeded!)
@@ -256,11 +261,10 @@
                              [child-derefs {:d d}]))
                          {})
           props  (crossing-props (:element parent))]
-      (is (= #{(key-of [:dogfood/todo 1])} (:reads parent))
-          "the read is the parent's, because the parent forced it")
-      (is (realized? (:d props)))
-      (is (= #{} (:reads (render child-derefs-body props)))
-          "and the child reads nothing, which is correct: it is not the reader"))))
+      (is (= [#{(key-of [:dogfood/todo 1])} true #{}]
+             [(:reads parent) (realized? (:d props)) (:reads (render child-derefs-body props))])
+          "the read is the parent's, because the parent forced it, and the
+           child reads nothing, which is correct: it is not the reader"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — the fault the refusal replaces, as a witness
@@ -279,11 +283,10 @@
     (let [d      (delay (:title (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 1])))
           first' (render child-derefs-body {:d d})
           again  (render child-derefs-body {:d d})]
-      (is (= #{(key-of [:dogfood/todo 1])} (:reads first'))
-          "the first walk files the read under whoever forced it")
-      (is (= #{} (:reads again))
-          "and the second walk calls `sub` zero times, so the read set
-           collapses, React re-subscribes, and the edge is dropped"))))
+      (is (= [#{(key-of [:dogfood/todo 1])} #{}] [(:reads first') (:reads again)])
+          "the first walk files the read under whoever forced it, and the
+           second calls `sub` zero times, so the read set collapses, React
+           re-subscribes, and the edge is dropped"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3 — the shapes that are NOT in the class, verified rather than argued
@@ -299,12 +302,11 @@
           props  (crossing-props (:element parent))
           first' (render child-calls-body props)
           again  (render child-calls-body props)]
-      (is (= #{} (:reads parent))
-          "the parent read nothing: it wrote a function, it did not read")
-      (is (= #{(key-of [:dogfood/todo 1])} (:reads first')))
-      (is (= #{(key-of [:dogfood/todo 1])} (:reads again))
-          "and again on the next render, which is the whole difference
-           from a delay"))))
+      (is (= [#{} #{(key-of [:dogfood/todo 1])} #{(key-of [:dogfood/todo 1])}]
+             [(:reads parent) (:reads first') (:reads again)])
+          "the parent read nothing — it wrote a function, it did not read —
+           and the child reads on every render, which is the whole
+           difference from a delay"))))
 
 (deftest a-function-prop-not-called-in-the-render-is-already-loud
   (seeded!)
@@ -329,8 +331,7 @@
           props  (crossing-props (:element parent))
           calls  (render (fn [{:keys [f]}] [:li (str (f))]) props)
           skips  (render (fn [_] [:li "static"]) props)]
-      (is (= #{(key-of [:dogfood/todo 1])} (:reads calls)))
-      (is (= #{} (:reads skips))))))
+      (is (= [#{(key-of [:dogfood/todo 1])} #{}] [(:reads calls) (:reads skips)])))))
 
 ;; ---------------------------------------------------------------------------
 ;; 4 — the declared limit
@@ -361,18 +362,17 @@
                             [:li])
                           {})
           reader  (render (fn [_] [:li (str (doall @!parked))]) {})]
-      (is (= #{} (:reads parent))
-          "the writing body reads nothing — the seq is unrealised when it returns")
-      (is (= #{(key-of [:dogfood/todo 0])
-               (key-of [:dogfood/todo 1])
-               (key-of [:dogfood/todo 2])}
-             (:reads reader))
-          "and every row lands on whichever body happened to force it")))
+      (is (= [#{} #{(key-of [:dogfood/todo 0])
+                    (key-of [:dogfood/todo 1])
+                    (key-of [:dogfood/todo 2])}]
+             [(:reads parent) (:reads reader)])
+          "the writing body reads nothing — the seq is unrealised when it
+           returns — and every row lands on whichever body happened to
+           force it")))
   (testing "the same, one step nearer: the reference is at a boundary
            prop, so the codec SEES it and still may not open it"
     (let [box    (atom (map (fn [id] (:title (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo id]))) (range 3)))
           parent (render (fn [_] [child-derefs {:d box}]) {})
           props  (crossing-props (:element parent))
           child  (render (fn [{:keys [d]}] [:li (str (doall @d))]) props)]
-      (is (= #{} (:reads parent)))
-      (is (= 3 (count (:reads child)))))))
+      (is (= [#{} 3] [(:reads parent) (count (:reads child))])))))
