@@ -4,12 +4,13 @@
 
   The routing implementation is split into per-concern siblings under
   `re-frame.routing.*` (see `re-frame.routing`'s docstring). The JVM test
-  surface mirrors that split: `routing-registry-test`,
+  surface mirrors that split — `routing-registry-test`,
   `routing-navigation-test`, `routing-can-leave-test`,
   `routing-nav-token-test`, `routing-scroll-test`, `routing-url-bound-test`,
-  `routing-subs-test`, and the pure `routing-plan-test`. Each requires this namespace for the shared
-  `reset-runtime` fixture so the rf.registrar/runtime reset + façade `:reload`
-  recovery lives in ONE place rather than copied per file.
+  `routing-subs-test` and their siblings — and each namespace that registers
+  routes requires this one for the shared `reset-runtime` fixture, so the
+  rf.registrar/runtime reset + façade `:reload` recovery lives in ONE place
+  rather than copied per file.
 
   Per the consumer-test pattern: `reset-runtime` wipes the
   registrar (`clear-all!`), re-inits the plain-atom substrate, and

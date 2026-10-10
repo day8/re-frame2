@@ -325,7 +325,7 @@ no-op the fx so they don't race with the URL-owning frame (per Spec 012
   reason (the `:effects-routed` contract asserts the real routed URL, the
   open-redirect gate already cleared it, and a blanket redaction over-reaches
   bare paths). Carrier-bearing route-miss / blocked URLs are scrubbed at
-  their diagnostic emit sites (`url-egress/redact-url-carriers`).
+  their diagnostic emit sites (`re-frame.privacy.url/redact-url-carriers`).
 
   Carries the `:rf.fx.nav/replace-url-args` `:schema`, the
   same `:string` gate its `:rf.nav/push-url` sibling carries — the

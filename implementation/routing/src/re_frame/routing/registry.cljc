@@ -1069,10 +1069,11 @@
 ;; `:query-defaults` MEANS:
 ;;
 ;;   `query-with-defaults`    — fill absent keys. `match-url` calls it for the
-;;                              URL-bearing doors; `re-frame.routing.resolve/
-;;                              resolved-target` calls it for the named-address
-;;                              doors, which is the ONE seam every door's target
-;;                              is shaped through.
+;;                              URL-bearing doors, `re-frame.routing.resolve/
+;;                              resolved-target` for `{:to …}` navigation and
+;;                              `[:rf.route/prefetch …]`, and `route-url` itself
+;;                              before it validates, so a link's href resolves
+;;                              the same query.
 ;;   `query-without-defaults` — drop a key already at its declared default, on
 ;;                              URL EMISSION only.
 ;;

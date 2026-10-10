@@ -165,10 +165,10 @@
              payload))
 
 (defn dirty?
-  "Is there unsaved work in `editor`? The ONE definition — the guard sub,
-  the badge and the save button all call this rather than each
-  recomputing the comparison, so they cannot drift (the R-A6 failure,
-  in its navigation form)."
+  "Is there unsaved work in `editor`? The ONE definition — the guard sub
+  and the badge's sub both call this rather than each recomputing the
+  comparison, so they cannot drift (the R-A6 failure, in its navigation
+  form)."
   [editor]
   (not= (:draft editor) (:baseline editor)))
 
