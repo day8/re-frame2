@@ -1,7 +1,6 @@
 (ns re-frame.ssr.root-manifest-cljs-test
   "Root Manifest v1 (Spec 011 §Root Manifest v1; schema family Spec 004C §2):
-  validation (`problems`), assembly (`manifest`), locators, the render-time
-  prop screen, the wire form (`script-html` / `read-manifest`) and CLJS
+  validation (`problems`), assembly (`manifest`), the render-time prop screen, the wire form (`script-html` / `read-manifest`) and CLJS
   discovery, all driven over hand-built manifests. Runs on the JVM and Node.
 
   No substrate emits a Root Descriptor, so the subset property (an unmodified
@@ -42,7 +41,7 @@
               :some.future/key        [:whatever]}))))
 
 ;; ---------------------------------------------------------------------------
-;; Assembly and locators
+;; Assembly
 ;; ---------------------------------------------------------------------------
 
 (deftest assembly-validates-its-extension-facts
@@ -56,18 +55,6 @@
       (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
                    (rf.ssr.manifest/manifest 'test d bad))
           (str "ill-formed extension fact fails at ASSEMBLY: " (pr-str bad))))))
-
-(deftest host-authored-container-needs-an-id
-  (is (= {:id "shop-root"} (rf.ssr.manifest/host-locator 'test "shop-root")))
-  ;; The emitter never synthesises an id onto host-owned markup.
-  (doseq [bad [nil "   "]]
-    (is (= {:rf.error/id :rf.error/root-manifest-invalid :missing :container-id}
-           (select-keys (invalid-data #(rf.ssr.manifest/host-locator 'test bad))
-                        [:rf.error/id :missing]))
-        (str "host container id " (pr-str bad)))))
-
-(deftest synthesised-locator-inherits-slug-injectivity
-  (is (= {:id "rf2-root-page_Sshop"} (rf.ssr.manifest/synthesised-locator "page_Sshop"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Render-time props (004C §5) — fail loud, never truncate

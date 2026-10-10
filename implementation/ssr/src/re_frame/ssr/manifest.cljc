@@ -189,40 +189,6 @@
     m))
 
 ;; ---------------------------------------------------------------------------
-;; Element locators (004C §4) — the closed `{:id string}` vocabulary
-;; ---------------------------------------------------------------------------
-
-(defn host-locator
-  "The locator for a HOST-AUTHORED container (the page skeleton supplied
-  `[:div#shop-root]`): its `id`, verbatim. A host-authored container
-  WITHOUT an id fails the server render — the emitter never synthesises
-  an id onto an element the host owns, because the host's own markup
-  would then disagree with the manifest (004C §4)."
-  [where container-id]
-  (if (and (string? container-id) (not (str/blank? container-id)))
-    {:id container-id}
-    (rf.error/throw-error!
-     :rf.error/root-manifest-invalid where
-     (str "a host-authored root container has no `id` — the manifest's "
-          ":element-locator vocabulary is the closed `{:id …}` form, and "
-          "the emitter never synthesises an id onto host-owned markup "
-          "(the host's markup would then disagree with the manifest). "
-          "Give the container an id, or let the emitter produce the "
-          "container itself")
-     {:recovery :give-the-root-container-an-id
-      :extra    {:missing :container-id}})))
-
-(defn synthesised-locator
-  "The locator for an EMITTER-SYNTHESISED container: `\"rf2-root-\" +
-  root-id-slug`. Unique per page for free — the slug is injective over
-  root-id (004C §1) and root-ids are page-unique (004C §7), so two
-  synthesised locators can never collide. The slug is passed in rather
-  than recomputed: it is the view compiler's value, and the SSR
-  artefact depends on no view artefact."
-  [root-id-slug]
-  {:id (str "rf2-root-" root-id-slug)})
-
-;; ---------------------------------------------------------------------------
 ;; Render-time props (004C §5)
 ;; ---------------------------------------------------------------------------
 

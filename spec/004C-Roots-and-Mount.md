@@ -141,9 +141,10 @@ positional locators — an id is stable under fragment reordering, which is the 
 
 - **SSR, host-authored container** (the guide-08 shape — `[:div#shop-root]` in the page
   skeleton): the server render captures the container's id → `:element-locator
-  {:id "shop-root"}`. A host-authored container without an id fails the server render
-  (`:rf.error/root-manifest-invalid`, data `{:missing :container-id}`) — never a
-  synthesised locator on a host-owned element.
+  {:id "shop-root"}`. A container without an id gets no locator — never a synthesised
+  one on a host-owned element. Nothing is lost: a hydrating root is handed its
+  container and finds its manifest positionally (below), so no root is found by its
+  locator.
 - **SSR, emitter-synthesised container** (the server emitter is asked to produce the
   container itself): id is generated deterministically as
   `"rf2-root-" + root-id-slug` — unique per page because the slug is **injective** (§1),
