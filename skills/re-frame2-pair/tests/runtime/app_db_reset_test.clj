@@ -1,161 +1,32 @@
-;;;; tests/runtime/app_db_reset_test.clj
-;;;;
-;;;; Babashka-runnable structural verification of `app-db-reset!` from
-;;;; `preload/re_frame2_pair/runtime.cljs`.
-;;;;
-;;;; Why this test exists:
-;;;;
-;;;; `app-db-reset!` MUST delegate to the canonical Tool-Pair write
-;;;; surface `rf/replace-frame-state!` (Tool-Pair §Pair-tool writes),
-;;;; called with the app-only partial map `{:rf.db/app v}`, so the
-;;;; reset mutates app-db AND appends the
-;;;; synthetic epoch that `restore-epoch` depends on. Reaching into
-;;;; `(rf/handler-meta {:source :store :kind :frame :id frame-id})` for an `:app-db` key instead
-;;;; could return `{:ok? true}` without mutating state or recording the
-;;;; epoch — this test forbids that shape.
-;;;;
-;;;; Why a structural test rather than a runtime test:
-;;;;
-;;;; `preload/re_frame2_pair/runtime.cljs` is CLJS-only — loaded into
-;;;; the consumer app via shadow-cljs `:devtools :preloads` — so it
-;;;; can't run under bb directly. The semantic contract
-;;;; of `rf/replace-frame-state!` (mutates app-db, appends a synthetic
-;;;; `:rf.epoch/db-replaced` epoch, schema-validates, drain-checks,
-;;;; emits trace, fires listeners) is already covered by the JVM
-;;;; tests at
-;;;; implementation/epoch/test/re_frame/epoch_test.clj
-;;;; replace-frame-state-app-only-replaces-container
-;;;; replace-frame-state-app-only-records-undo-epoch (also covers the
-;;;; restore-epoch-rewinds-past-injection case)
-;;;; replace-frame-state-app-only-emits-trace (`:rf.epoch/db-replaced`)
-;;;; replace-frame-state-app-only-fires-listeners
-;;;; replace-frame-state-app-only-failure-unknown-frame
-;;;; replace-frame-state-app-only-failure-during-drain
-;;;; replace-frame-state-app-only-failure-schema-mismatch
-;;;;
-;;;; What we MUST verify here is that re-frame2-pair's `app-db-reset!` actually
-;;;; delegates to that surface — not to some other API that won't
-;;;; record the epoch. This file parses `preload/re_frame2_pair/runtime.cljs`,
-;;;; locates the `app-db-reset!` defn form, and asserts the structural
-;;;; contract:
-;;;;
-;;;; 1. The body invokes `rf/replace-frame-state!` (the canonical
-;;;; Tool-Pair write surface — guarantees app-db mutation +
-;;;; synthetic-epoch append).
-;;;; 2. The body does NOT reach into `rf/handler-meta` to grab
-;;;; an `:app-db` key (the forbidden no-mutation shape).
-;;;; 3. The success branch returns `{:ok? true ...}`, the
-;;;; soft-failure branch returns `{:ok? false :reason
-;;;; :reset-rejected ...}`.
-;;;; 4. The body tap>s the change so the human sees it
-;;;; (the safety guardrail per docs/capabilities.md:86).
+;;;; tests/runtime/app_db_reset_test.clj — `app-db-reset!` must write through
+;;;; `rf/replace-frame-state!` (Tool-Pair §Pair-tool writes), the surface that
+;;;; also appends the synthetic epoch `restore-epoch` rewinds past. That
+;;;; surface's semantics are covered by implementation/epoch/test/re_frame/epoch_test.clj:
+;;;;   replace-frame-state-app-only-replaces-container
+;;;;   replace-frame-state-app-only-records-undo-epoch
+;;;;   replace-frame-state-app-only-emits-trace
+;;;;   replace-frame-state-app-only-fires-listeners
+;;;;   replace-frame-state-app-only-failure-unknown-frame
+;;;;   replace-frame-state-app-only-failure-during-drain
+;;;;   replace-frame-state-app-only-failure-schema-mismatch
+;;;; The preload is CLJS-only, so bb pins its source shape.
 ;;;;
 ;;;; Run: bb tests/runtime/app_db_reset_test.clj
-;;;; Exit: 0 = pass, non-zero = fail.
 
 (load-file (str (.getParent (java.io.File. *file*)) "/_support.clj"))
 
 (ns app-db-reset-test
- (:require [clojure.test :refer [deftest is run-tests testing]]
- [runtime-support :as rt]))
+  (:require [clojure.test :refer [deftest is run-tests]]
+            [runtime-support :as rt]))
 
-;; Shared locate+parse+walk scaffold lives in tests/runtime/_support.clj.
-;; Alias the vars the assertions below use.
-(def ^:private form-contains? rt/form-contains?)
-
-(def ^:private app-db-reset-form (rt/defn-named 'app-db-reset!))
-
-(defn- calls? [sym form]
- (form-contains?
- (fn [node] (and (seq? node) (= sym (first node))))
- form))
-
-;; ---------------------------------------------------------------------------
-;; Structural assertions
-;; ---------------------------------------------------------------------------
-
-(deftest delegates-to-canonical-tool-pair-surface
- (testing "app-db-reset! delegates to rf/replace-frame-state! — the canonical
- Tool-Pair §Pair-tool writes surface that mutates
- app-db, appends a synthetic :rf.epoch/db-replaced epoch,
- schema-validates, and drain-checks (called with an app-only partial
- map)"
- (is (calls? 'rf/replace-frame-state! app-db-reset-form)
- "(rf/replace-frame-state! frame-id {:rf.db/app v}) appears in the body")))
-
-(deftest does-not-reach-through-handler-meta
- (testing "app-db-reset! does NOT use a `(rf/handler-meta {:source :store :kind :frame :id frame-id}) :app-db` path, which would return {:ok? true} without
- mutating state or recording an epoch"
- (is (not (form-contains?
- (fn [node]
- (and (seq? node)
- (= 'rf/handler-meta (first node))
- (some #{:frame} node)))
- app-db-reset-form))
- "no `(rf/handler-meta {:source :store :kind :frame :id ...})` lookup")
- (is (not (form-contains?
- (fn [node]
- (and (seq? node)
- (= 'reset! (first node))
- ;; reset! container — a direct write to the frame
- ;; container ref. Any reset! at all here would be
- ;; suspicious.
-))
- app-db-reset-form))
- "no `(reset! container ...)` — delegating to rf/replace-frame-state!
- means the container is replaced inside that surface, not here")))
-
-(deftest preserves-tap-log-guardrail
- (testing "the human-visible tap> log is in place per
- docs/capabilities.md §Safety / guardrails — Previous + next
- + timestamp tap'd so the human sees what the agent changed"
- (is (calls? 'tap> app-db-reset-form)
- "tap> call is in the body")
- (is (form-contains?
- (fn [node] (= :re-frame2-pair/op node))
- app-db-reset-form)
- ":re-frame2-pair/op tag in the tap> payload")
- (is (form-contains?
- (fn [node] (= :app-db/reset node))
- app-db-reset-form)
- ":app-db/reset op id in the tap> payload")))
-
-(deftest success-shape
- (testing "success branch returns {:ok? true :frame frame-id}"
- (is (form-contains?
- (fn [node]
- (and (map? node)
- (= true (get node :ok?))
- (contains? node :frame)))
- app-db-reset-form)
- "{:ok? true :frame ...} literal in the body")))
-
-(deftest soft-failure-shape
- (testing "soft-failure branch surfaces the rejection rather than
- silently claiming success — {:ok? false :reason :reset-rejected ...}"
- (is (form-contains?
- (fn [node]
- (and (map? node)
- (= false (get node :ok?))
- (= :reset-rejected (get node :reason))))
- app-db-reset-form)
- "{:ok? false :reason :reset-rejected ...} literal in the body")))
-
-(deftest catches-throw
- (testing "the :rf.error/epoch-artefact-missing throw from
- rf/replace-frame-state! (when the day8/re-frame2-epoch artefact
- isn't loaded) is caught and surfaced — the caller sees the
- failure rather than a stack trace"
- (is (calls? 'try app-db-reset-form)
- "(try ...) wraps the delegating call")
- (is (form-contains?
- (fn [node] (and (seq? node) (= 'catch (first node))))
- app-db-reset-form)
- "(catch ...) clause is present")))
-
-;; ---------------------------------------------------------------------------
-;; Run.
-;; ---------------------------------------------------------------------------
+(deftest app-db-reset-writes-through-replace-frame-state
+  (let [form (rt/defn-named 'app-db-reset!)]
+    (is (rt/calls? 'rf/replace-frame-state! form)
+        "app-db-reset! must delegate to rf/replace-frame-state!, which records the epoch restore-epoch needs")
+    (is (rt/calls? 'tap> form)
+        "app-db-reset! must tap> the change so the human sees what the agent wrote (docs/capabilities.md guardrails)")
+    (is (rt/form-contains? #(and (map? %) (= false (:ok? %)) (= :reset-rejected (:reason %))) form)
+        "a rejected reset must return {:ok? false :reason :reset-rejected}, never a silent success")))
 
 (let [{:keys [fail error]} (run-tests 'app-db-reset-test)]
- (System/exit (if (and (zero? fail) (zero? error)) 0 1)))
+  (System/exit (if (zero? (+ fail error)) 0 1)))

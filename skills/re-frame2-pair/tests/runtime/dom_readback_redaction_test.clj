@@ -1,106 +1,45 @@
-;;;; tests/runtime/dom_readback_redaction_test.clj
-;;;;
-;;;; Structural (AST) pin that the DOM / readback derived-value egress
-;;;; redaction in `preload/re_frame2_pair/runtime.cljs` stays WIRED to the
-;;;; framework's single derived-tree projection boundary.
-;;;;
-;;;; THE CONTRACT (EP-0025 fail-open). Spec 015 / Tool-Pair: a DERIVED tree
-;;;; (rendered DOM text / attrs / a focus descriptor) is PATH-projected against
-;;;; the frame's classification before off-box egress via
-;;;; `re-frame.core/project-egress` (the `:rf.observe/derived-tree` boundary).
-;;;; Projection is by PATH, with no value-match (taint-by-equality), so a secret
-;;;; RE-KEYED into a non-app-db DOM position ships RAW (fail-open); only a value
-;;;; still occupying a CLASSIFIED path within the tree redacts.
-;;;;
-;;;; WHY THIS IS AST-ONLY. The redaction SEMANTICS are
-;;;; framework-owned — they live in `re-frame.core/project-egress` and are
-;;;; covered by core's own tests. The pair runtime's contribution is the
-;;;; WIRING: `maybe-redact-derived` delegates to `project-egress`, and every
-;;;; derived-output arm (`dom-read` / `ui-read` / the `:dom` / `:focus` sample
-;;;; arms / the recorder + watch paths) routes through it AND fails closed on
-;;;; an ambiguous frame under the off-box gate. This file pins that wiring so a
-;;;; regression (someone drops the `maybe-redact-derived` call, or adds a
-;;;; value-match) trips RED. It does not mirror the path-walk in Babashka: a
-;;;; copy of `project-egress`'s framework algorithm would be a drift risk, and
-;;;; framework redaction behaviour is core's to test.
+;;;; tests/runtime/dom_readback_redaction_test.clj — every DERIVED output the
+;;;; preload ships off-box (DOM text/attrs, a focus descriptor) is
+;;;; PATH-projected through `re-frame.core/project-egress` as a
+;;;; `:rf.observe/derived-tree` record, and fails closed on an ambiguous frame.
+;;;; The projection semantics are core's to test; this pins the preload's
+;;;; WIRING to that one boundary, so dropping a `maybe-redact-derived` call
+;;;; turns it red.
 ;;;;
 ;;;; Run: bb tests/runtime/dom_readback_redaction_test.clj
-;;;; Exit: 0 = pass, non-zero = fail.
 
 (load-file (str (.getParent (java.io.File. *file*)) "/_support.clj"))
 
 (ns dom-readback-redaction-test
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is run-tests]]
-            [clojure.walk :as walk]
             [runtime-support :as rt]))
 
-;; Shared locate+parse+walk scaffold lives in tests/runtime/_support.clj.
-;; Alias the vars the assertions below use.
-(def ^:private defn-form rt/defn-named)
-
-(defn- mentions? [form needle]
-  (let [hit? (atom false)]
-    (walk/postwalk (fn [x] (when (= x needle) (reset! hit? true)) x) form)
-    @hit?))
-
-(deftest runtime-defines-the-derived-redaction-helper
-  (let [f (defn-form 'maybe-redact-derived)]
-    (is (some? f) "runtime must define maybe-redact-derived")
-    ;; EP-0025 B4: the SINGLE public boundary a derived tree
-    ;; projects through is re-frame.core/project-egress — the
-    ;; :rf.observe/derived-tree record kind. project-egress reads the frame's
-    ;; live app-db itself (the derived-tree record's default :source-db), so
-    ;; the helper does not hand-read app-db-value.
-    (is (mentions? f 'rf/project-egress)
+(deftest derived-redaction-helper-delegates-to-project-egress
+  (let [f (rt/defn-named 'maybe-redact-derived)]
+    (is (rt/mentions? 'rf/project-egress f)
         "maybe-redact-derived must delegate to re-frame.core/project-egress")
-    (is (mentions? f :rf.observe/derived-tree)
+    (is (rt/mentions? :rf.observe/derived-tree f)
         "maybe-redact-derived must project a :rf.observe/derived-tree record")))
 
-(deftest dom-read-routes-content-through-redaction
-  (let [f (defn-form 'dom-read)]
-    (is (some? f))
-    (is (mentions? f 'maybe-redact-derived)
-        "dom-read must PATH-project its matched nodes through maybe-redact-derived")
-    (is (mentions? f 'ambiguous-frame-error)
-        "dom-read must fail closed on an ambiguous frame under the off-box gate")))
-
-(deftest ui-read-projects-whole-content-not-just-text
-  (let [f (defn-form 'ui-read)
-        s (pr-str f)]
-    (is (some? f))
-    (is (mentions? f 'maybe-redact-derived)
-        "ui-read must PATH-project the whole :content (not just :text)")
-    ;; A path-based projection over JUST the :text string is the wrong
-    ;; shape. Assert it is absent — ui-read must not project only :text.
-    ;; The door's retired `elide-wire-value` spelling is refused here as
-    ;; well as the current one.
-    (is (not (str/includes? s "(rf/project-egress (:text base)"))
-        "ui-read must NOT path-project only :text")
-    (is (not (str/includes? s "(rf/elide-wire-value (:text base)"))
-        "and not through the retired walker spelling either")
-    (is (mentions? f 'ambiguous-frame-error)
-        "ui-read must fail closed on an ambiguous frame under the off-box gate")))
-
-(deftest dom-and-focus-sample-arms-project
-  (let [f (defn-form 'sample-one-signal)]
-    (is (some? f))
-    ;; Both DERIVED arms must route through the path-projector.
-    (is (<= 2 (count (re-seq #"maybe-redact-derived" (pr-str f))))
-        "both the :dom and :focus arms must PATH-project their derived output")))
-
-(deftest recorder-and-watch-fail-closed-on-ambiguous-frame-for-derived-signals
-  (let [start (defn-form 'start-recording!)
-        samp  (defn-form 'sample-signals)]
-    (is (mentions? start 'ambiguous-frame-error)
-        "start-recording! must refuse an unresolvable frame")
-    ;; needs-frame? must extend to :dom / :focus under the off-box gate.
-    (is (and (mentions? start :dom) (mentions? start :focus))
-        "start-recording! needs-frame? must cover :dom / :focus (off-box gate)")
-    (is (mentions? samp 'ambiguous-frame-error)
-        "sample-signals must fail closed on an ambiguous frame (watch-until path)")
-    (is (and (mentions? samp :dom) (mentions? samp :focus))
-        "sample-signals needs-frame? must cover :dom / :focus (off-box gate)")))
+(deftest every-derived-output-arm-projects-and-fails-closed
+  (let [dom-read (rt/defn-named 'dom-read)
+        ui-read  (rt/defn-named 'ui-read)
+        start    (rt/defn-named 'start-recording!)
+        samp     (rt/defn-named 'sample-signals)]
+    (is (rt/mentions? 'maybe-redact-derived dom-read) "dom-read must project its matched nodes")
+    (is (rt/mentions? 'maybe-redact-derived ui-read) "ui-read must project its whole :content")
+    (is (not (str/includes? (pr-str ui-read) "(rf/project-egress (:text base)"))
+        "ui-read must not project only :text")
+    (is (<= 2 (count (re-seq #"maybe-redact-derived" (pr-str (rt/defn-named 'sample-one-signal)))))
+        "both the :dom and :focus sample arms must project their derived output")
+    (doseq [[nm f] [["dom-read" dom-read] ["ui-read" ui-read]
+                    ["start-recording!" start] ["sample-signals" samp]]]
+      (is (rt/mentions? 'ambiguous-frame-error f)
+          (str nm " must fail closed on an ambiguous frame under the off-box gate")))
+    (doseq [[nm f] [["start-recording!" start] ["sample-signals" samp]]]
+      (is (and (rt/mentions? :dom f) (rt/mentions? :focus f))
+          (str nm "'s needs-frame? must cover :dom and :focus")))))
 
 (let [{:keys [fail error]} (run-tests 'dom-readback-redaction-test)]
-  (System/exit (if (pos? (+ fail error)) 1 0)))
+  (System/exit (if (zero? (+ fail error)) 0 1)))

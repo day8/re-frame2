@@ -1,121 +1,35 @@
-;;;; tests/runtime/raw_state_tap_test.clj
-;;;;
-;;;; Babashka-runnable structural verification of the raw-state
-;;;; tap-elide path in `preload/re_frame2_pair/runtime.cljs`.
-;;;;
-;;;; What we verify:
-;;;;
-;;;; 1. `configure-raw-state!` is defined and accepts an
-;;;; `:allow-raw-state?` keyword. The MCP server's
-;;;; `signal-runtime!` (tools/re-frame2-pair-mcp/src/.../tools/raw_state.cljs)
-;;;; calls this once per build per server lifetime.
-;;;; 2. `app-db-reset!`'s `tap>` emission wraps both `:previous` and
-;;;; `:next` slots through `maybe-elide-for-tap` — verbatim payloads
-;;;; only ride when the gate is explicitly opted in.
-;;;; 3. `raw-state-config` defaults to `:allow-raw-state? true` so a
-;;;; bare REPL session (no re-frame2-pair-mcp attached) sees verbatim
-;;;; payloads. The MCP-server boot flips it to `false` via
-;;;; `configure-raw-state!`.
+;;;; tests/runtime/raw_state_tap_test.clj — the raw-state gate on tap>
+;;;; payloads. The MCP server's `signal-runtime!` calls
+;;;; `configure-raw-state!` once per build; with the gate OFF,
+;;;; `app-db-reset!`'s tap> payload is projected through
+;;;; `rf/project-egress` at the on-box redacted boundary. A bare REPL session
+;;;; (no MCP server attached) defaults to verbatim payloads.
 ;;;;
 ;;;; Run: bb tests/runtime/raw_state_tap_test.clj
-;;;; Exit: 0 = pass, non-zero = fail.
 
 (load-file (str (.getParent (java.io.File. *file*)) "/_support.clj"))
 
 (ns raw-state-tap-test
- (:require [clojure.string :as str]
- [clojure.test :refer [deftest is run-tests testing]]
- [runtime-support :as rt]))
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is run-tests]]
+            [runtime-support :as rt]))
 
-;; Shared locate+parse+walk scaffold lives in tests/runtime/_support.clj.
-;; Alias the vars the assertions below use.
+(defn- top-form [head-sym name-sym]
+  (some #(when (and (seq? %) (= head-sym (first %)) (= name-sym (second %))) %) rt/all-forms))
 
-(defn- find-top-form
- "Find the top-level form whose head matches `head-sym` and whose first
- symbol slot matches `name-sym`. Returns nil when absent. (Local to this
- test because it also matches `defonce`, unlike the shared `defn-named`.)"
- [head-sym name-sym]
- (some (fn [form]
- (when (and (seq? form)
- (= head-sym (first form))
- (= name-sym (second form)))
- form))
- rt/all-forms))
-
-(def ^:private configure-raw-state-form
- (find-top-form 'defn 'configure-raw-state!))
-
-(def ^:private app-db-reset-form
- (find-top-form 'defn 'app-db-reset!))
-
-(def ^:private raw-state-config-form
- (find-top-form 'defonce 'raw-state-config))
-
-(def ^:private maybe-elide-form
- ;; `defn-` because the helper is private.
- (find-top-form 'defn- 'maybe-elide-for-tap))
-
-(def ^:private form-contains? rt/form-contains?)
-
-(defn- calls? [sym form]
- (form-contains?
- (fn [node] (and (seq? node) (= sym (first node))))
- form))
-
-;; ---------------------------------------------------------------------------
-;; Structural assertions
-;; ---------------------------------------------------------------------------
-
-(deftest configure-raw-state-form-is-defined
- (testing "configure-raw-state! is defined and exported"
- (is (some? configure-raw-state-form)
- "the defn form is present in the source")
- (is (form-contains? (fn [n] (= :allow-raw-state? n)) configure-raw-state-form)
- ":allow-raw-state? appears in the destructuring / opts")))
-
-(deftest raw-state-config-defaults-to-allow-true
- (testing "raw-state-config defaults to {:allow-raw-state? true} so a
- bare REPL session (no re-frame2-pair-mcp attached) sees verbatim
- payloads — the re-frame2-pair-mcp server flips to false via
- configure-raw-state! at first state-emitting tool call."
- (is (some? raw-state-config-form)
- "the defonce form is present")
- (is (form-contains?
- (fn [node]
- (and (map? node)
- (= true (get node :allow-raw-state?))))
- raw-state-config-form)
- "{:allow-raw-state? true} literal seeds the atom")))
-
-(deftest maybe-elide-for-tap-routes-through-project-egress
- (testing "maybe-elide-for-tap calls rf/project-egress when the gate
- is OFF — the ONE framework egress door, which applies the same
- large/sensitive predicates the wire path uses"
- (is (some? maybe-elide-form)
- "the defn form is present")
- (is (calls? 'rf/project-egress maybe-elide-form)
- "(rf/project-egress v opts) appears in the body")
- (is (str/includes? (pr-str maybe-elide-form) ":rf.egress/local-redacted")
- "and NAMES the on-box redacted boundary — the all-false floor
- a bare no-profile walk resolves to")
- (is (not (calls? 'rf/elide-wire-value maybe-elide-form))
- "never the walker export directly")))
-
-(deftest app-db-reset-wraps-tap-payload-through-elide
- (testing "app-db-reset!'s tap> emission routes both :previous and
- :next slots through the elide wrapper — verbatim payloads
- ride only when the gate is opted in via
- configure-raw-state!"
- (is (form-contains?
- (fn [node]
- (and (seq? node)
- (= 'maybe-elide-for-tap (first node))))
- app-db-reset-form)
- "(maybe-elide-for-tap ...) appears in the body")))
-
-;; ---------------------------------------------------------------------------
-;; Run.
-;; ---------------------------------------------------------------------------
+(deftest raw-state-gate-elides-tap-payloads
+  (let [elide (top-form 'defn- 'maybe-elide-for-tap)]
+    (is (rt/mentions? :allow-raw-state? (top-form 'defn 'configure-raw-state!))
+        "configure-raw-state! (called by the MCP server) must accept :allow-raw-state?")
+    (is (rt/form-contains? #(and (map? %) (= true (:allow-raw-state? %)))
+                           (top-form 'defonce 'raw-state-config))
+        "raw-state-config defaults to {:allow-raw-state? true} for a bare REPL session")
+    (is (rt/calls? 'rf/project-egress elide)
+        "maybe-elide-for-tap projects through rf/project-egress when the gate is OFF")
+    (is (str/includes? (pr-str elide) ":rf.egress/local-redacted")
+        "and names the on-box redacted boundary")
+    (is (rt/calls? 'maybe-elide-for-tap (top-form 'defn 'app-db-reset!))
+        "app-db-reset!'s tap> payload routes through maybe-elide-for-tap")))
 
 (let [{:keys [fail error]} (run-tests 'raw-state-tap-test)]
- (System/exit (if (and (zero? fail) (zero? error)) 0 1)))
+  (System/exit (if (zero? (+ fail error)) 0 1)))

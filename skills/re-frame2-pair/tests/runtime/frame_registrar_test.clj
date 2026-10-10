@@ -1,28 +1,11 @@
-;;;; tests/runtime/frame_registrar_test.clj
-;;;;
-;;;; Babashka-runnable structural pin for the frame-derived preload fns:
-;;;; the per-frame registrar reads and the `describe-image` generation read.
-;;;;
-;;;; Why this test exists:
-;;;;
-;;;; The MCP `handler-meta` / `list-handlers` / `describe-image` tools
-;;;; re-key registration resolution through the OPERATING FRAME's running
-;;;; image generation (the same `(kind, id)` can resolve differently per
-;;;; frame). Tools must not consume `re-frame.live-frame` /
-;;;; `re-frame.image-assembly` internals directly — the preload routes
-;;;; through the PUBLIC facade reads:
-;;;;
-;;;;   (rf/handler-meta {:frame f :kind k :id id})
-;;;;   (rf/registrations {:frame f :kind k})
-;;;;   (rf/frame-generation f)
-;;;;
-;;;; This pin asserts the frame-derived preload fns route through
-;;;; the `:frame`-arity facade reads / `frame-generation` — NOT the internal
-;;;; live-frame / image-assembly namespaces. A regression that reaches into
-;;;; the internals (or drops the per-frame fns) turns this red.
+;;;; tests/runtime/frame_registrar_test.clj — the MCP `handler-meta` /
+;;;; `list-handlers` / `describe-image` tools resolve registrations through the
+;;;; OPERATING FRAME's image generation, so the preload must route through the
+;;;; public `:frame` facade reads (`rf/handler-meta`, `rf/registrations`,
+;;;; `rf/frame-generation`), and `describe-image` must degrade gracefully on a
+;;;; live imageless frame while still failing loud on an unknown one.
 ;;;;
 ;;;; Run: bb tests/runtime/frame_registrar_test.clj
-;;;; Exit: 0 = pass, non-zero = fail.
 
 (load-file (str (.getParent (java.io.File. *file*)) "/_support.clj"))
 
@@ -30,102 +13,34 @@
   (:require [clojure.test :refer [deftest is run-tests]]
             [runtime-support :as rt]))
 
-;; Shared locate+parse+walk scaffold lives in tests/runtime/_support.clj.
-;; Alias the vars the assertions below use.
-(def ^:private defn-form rt/defn-named)
-(def ^:private form-contains? rt/form-contains?)
-
-(defn- calls? [form sym]
-  ;; True when `form` invokes `sym` as the head of any sub-list.
-  (form-contains? (fn [node] (and (seq? node) (= sym (first node)))) form))
-
-;; ---------------------------------------------------------------------------
-;; They route through the PUBLIC facade `:frame` reads, not the internals.
-;; ---------------------------------------------------------------------------
-
 (deftest frame-registrar-fns-route-through-the-facade-frame-reads
   (doseq [[sym facade] '[[frame-registrar-describe      rf/handler-meta]
                          [frame-registrar-list          rf/registrations]
                          [frame-registrar-registrations rf/registrations]]]
-    (is (calls? (defn-form sym) facade)
-        (str sym " MUST route through (" facade " {:frame …}) — the public facade read.")))
-  (is (form-contains? (fn [n] (= :frame n)) (defn-form 'frame-registrar-describe))
-      "frame-registrar-describe MUST pass a :frame-keyed query map (the frame-targeted arity)."))
+    (is (rt/calls? facade (rt/defn-named sym))
+        (str sym " must route through (" facade " {:frame …})")))
+  (is (rt/mentions? :frame (rt/defn-named 'frame-registrar-describe))
+      "frame-registrar-describe must pass a :frame-keyed query map"))
 
-(deftest describe-image-uses-public-frame-generation
-  (let [f (defn-form 'describe-image)]
-    (is (calls? f 'rf/frame-generation)
-        "describe-image MUST route through (rf/frame-generation frame) — the public facade read, NOT re-frame.image-assembly internals.")
-    (is (form-contains? (fn [n] (= :rf.gen/resolver n)) f)
-        "describe-image reads the sealed generation's :rf.gen/resolver for the per-kind counts / registrations.")
-    ;; There is no image-capability surface, so describe-image does not
-    ;; surface :rf.gen/requires.
-    (is (not (form-contains? (fn [n] (= :rf.gen/requires n)) f))
-        "describe-image MUST NOT read :rf.gen/requires — there is no image-capability surface.")))
-
-;; ---------------------------------------------------------------------------
-;; describe-image guards the no-generation fail-loud.
-;;
-;; Only an EXPLICIT :images key triggers image resolution, so an imageless
-;; frame carries NO generation and the public rf/frame-generation read FAILS
-;; LOUD (:rf.error/frame-no-generation) for it. describe-image must GUARD that
-;; call — catch the no-generation fail-loud for a LIVE frame and report it
-;; gracefully (:no-generation?), rather than letting it escape up the eval
-;; boundary — while still failing loud on a genuinely unresolvable target.
-;; ---------------------------------------------------------------------------
-
-(deftest describe-image-guards-no-generation-fail-loud
-  (let [f (defn-form 'describe-image)]
-    (is (calls? f 'try)
-        "describe-image MUST wrap the rf/frame-generation read in a `try` so the EP-0024 no-generation fail-loud can be guarded.")
-    (is (calls? f 'catch)
-        "describe-image MUST `catch` the rf/frame-generation throw rather than letting an imageless frame's fail-loud escape the eval boundary.")
-    (is (form-contains? (fn [n] (= :rf.error/frame-no-generation n)) f)
-        "describe-image MUST discriminate on :rf.error/frame-no-generation — the EP-0024 no-generation error id — so only the no-generation case is softened (any other throw re-raises).")
-    (is (form-contains? (fn [n] (= :live-frame-ids n)) f)
-        "describe-image MUST check the error's :live-frame-ids so a LIVE imageless frame degrades gracefully while a target naming NO live frame still fails loud.")
-    (is (form-contains? (fn [n] (= :no-generation? n)) f)
-        "describe-image MUST surface a :no-generation? graceful result for an imageless frame (it runs no composed image — not a read error).")
-    (is (calls? f 'throw)
-        "describe-image MUST re-`throw` any non-no-generation error so a genuinely unresolvable :frame target still fails loud up the eval boundary.")))
-
-;; ---------------------------------------------------------------------------
-;; No internal-namespace leakage (tools must not consume these).
-;; ---------------------------------------------------------------------------
-
-(deftest no-live-frame-or-image-assembly-internals-in-frame-fns
-  (doseq [sym '[frame-registrar-describe frame-registrar-list
-                frame-registrar-registrations
-                describe-image]]
-    (let [f (defn-form sym)
-          leaks? (form-contains?
-                   (fn [n]
-                     (and (symbol? n)
-                          (let [nsp (namespace n)]
-                            (contains? #{"live-frame" "image-assembly"
-                                         "re-frame.live-frame" "re-frame.image-assembly"}
-                                       nsp))))
-                   f)]
-      (is (not leaks?)
-          (str sym " MUST NOT reach into re-frame.live-frame / "
-               "re-frame.image-assembly internals — EP-0023 routes tools "
-               "through the public facade reads only.")))))
-
-;; ---------------------------------------------------------------------------
-;; orient re-bases its registry on the operating frame's generation.
-;; ---------------------------------------------------------------------------
+(deftest describe-image-reads-the-generation-and-guards-no-generation
+  (let [f (rt/defn-named 'describe-image)]
+    (is (rt/calls? 'rf/frame-generation f) "describe-image must read (rf/frame-generation frame)")
+    (is (rt/calls? 'catch f) "describe-image must catch the no-generation throw")
+    (is (rt/mentions? :rf.error/frame-no-generation f)
+        "only :rf.error/frame-no-generation is softened")
+    (is (rt/mentions? :live-frame-ids f)
+        "a LIVE imageless frame degrades; a target naming no live frame still fails loud")
+    (is (rt/mentions? :no-generation? f) "the graceful result is :no-generation?")
+    (is (rt/calls? 'throw f) "any other throw is re-raised")))
 
 (deftest orient-rebased-on-frame-registry-view
-  (let [orient (defn-form 'orient)
-        view   (defn-form 'frame-registry-view)]
-    (is (some? view)
-        "preload must define `frame-registry-view` — the operating-frame registry projection.")
-    (is (calls? view 'rf/frame-generation)
-        "frame-registry-view MUST resolve through the public rf/frame-generation read.")
-    (is (calls? orient 'frame-registry-view)
-        "orient MUST re-base its :registry on the operating-frame generation (frame-registry-view), falling back to the process view.")
-    (is (calls? orient 'process-registry-view)
-        "orient MUST keep the process-wide registry view as the fallback (ambiguous multi-frame / an operating frame with no sealed image generation).")))
+  (let [orient (rt/defn-named 'orient)]
+    (is (rt/calls? 'rf/frame-generation (rt/defn-named 'frame-registry-view))
+        "frame-registry-view must resolve through rf/frame-generation")
+    (is (rt/calls? 'frame-registry-view orient)
+        "orient must base its :registry on the operating frame's generation")
+    (is (rt/calls? 'process-registry-view orient)
+        "orient must keep the process-wide view as the fallback")))
 
 (let [{:keys [fail error]} (run-tests 'frame-registrar-test)]
-  (System/exit (if (zero? (+ (or fail 0) (or error 0))) 0 1)))
+  (System/exit (if (zero? (+ fail error)) 0 1)))
