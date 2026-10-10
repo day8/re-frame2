@@ -1,32 +1,14 @@
-;;;; tests/runtime/machine_describe_test.clj
+;;;; tests/runtime/machine_describe_test.clj — the preload's MACHINE DOOR,
+;;;; `machine-describe` and `machines-list`, which the MCP `handler-meta` /
+;;;; `list-handlers` tools call by name for the virtual `:machine` kind.
 ;;;;
-;;;; Babashka-runnable pin for the preload's MACHINE DOOR — `machine-describe`
-;;;; and `machines-list`, the two fns the MCP `handler-meta` / `list-handlers`
-;;;; tools call for the virtual `:machine` kind.
-;;;;
-;;;; Why this test exists:
-;;;;
-;;;; 1. A machine spec carries FN VALUES nested under `:guards` and
-;;;;    `:actions` (Spec 005). `pr-str` of a Function emits
-;;;;    `#object[Function …]` — unreadable EDN, which the MCP result codec
-;;;;    tags `:unserializable`, hiding the whole spec behind a preview. A
-;;;;    top-level `dissoc :handler-fn` cannot reach a nested fn, so the door
-;;;;    has to run the same recursive `strip-fns` walk `registrar-describe`
-;;;;    does, for the same reason the resources kinds do.
-;;;;
-;;;; 2. `machines-list` must SORT. The MCP tool documents one stable id
-;;;;    vector across every kind, `registrar-list` sorts, and machines are
-;;;;    the one kind whose ids arrive in registration order.
-;;;;
-;;;; The second half of this file is BEHAVIOURAL, not structural: it reads
-;;;; `fn-slot-sentinel` and `strip-fns` out of the preload's own source,
-;;;; evaluates them, and runs the real walk over a real machine spec. The
-;;;; preload as a whole cannot be loaded here (it requires the re-frame
-;;;; runtime and targets a browser), but those two forms are plain Clojure,
-;;;; so the assertion is over the shipped code rather than over a copy of it.
+;;;; A machine spec nests FN VALUES under `:guards` / `:actions` (Spec 005);
+;;;; `pr-str` of a fn is unreadable EDN, which the MCP codec tags
+;;;; `:unserializable`, hiding the whole spec. So the door runs `strip-fns`.
+;;;; The second test reads `fn-slot-sentinel` and `strip-fns` out of the
+;;;; preload source and RUNS them, so it exercises the shipped walk.
 ;;;;
 ;;;; Run: bb tests/runtime/machine_describe_test.clj
-;;;; Exit: 0 = pass, non-zero = fail.
 
 (load-file (str (.getParent (java.io.File. *file*)) "/_support.clj"))
 
@@ -34,85 +16,21 @@
   (:require [clojure.test :refer [deftest is run-tests]]
             [runtime-support :as rt]))
 
-(def ^:private defn-form rt/defn-named)
-(def ^:private form-contains? rt/form-contains?)
+(deftest machine-door-is-public-strips-fns-reports-misses-and-sorts
+  (let [describe (rt/defn-named 'machine-describe)
+        list-fn  (rt/defn-named 'machines-list)]
+    ;; An eval form shipped over nREPL cannot reach a defn-.
+    (is (= 'defn (first describe)) "machine-describe must be a PUBLIC defn")
+    (is (= 'defn (first list-fn)) "machines-list must be a PUBLIC defn")
+    (is (rt/mentions? 'strip-fns describe) "machine-describe must run strip-fns over the spec it returns")
+    (is (rt/mentions? :not-a-machine describe)
+        "a miss returns {:ok? false :reason :not-a-machine}, which handler-meta renames to :not-registered")
+    (is (rt/mentions? 'sort list-fn)
+        "machines-list must sort: list-handlers documents one stable sorted vector for every kind")))
 
-(def ^:private machine-describe-form (defn-form 'machine-describe))
-(def ^:private machines-list-form    (defn-form 'machines-list))
-
-;; ---------------------------------------------------------------------------
-;; The door exists, and it is PUBLIC.
-;;
-;; Public matters: the MCP tools reach these by name inside an eval form
-;; shipped over nREPL. A `defn-` is spelled identically and is unreachable.
-;; ---------------------------------------------------------------------------
-
-(deftest machine-door-fns-are-public
-  ;; A missing fn reads as not-a-public-defn too: `(first nil)` is nil.
-  (is (= 'defn (first machine-describe-form))
-      (str "machine-describe must be a PUBLIC defn — the MCP `handler-meta "
-           "{kind \"machine\"}` tool calls it, and an eval form cannot reach a defn-"))
-  (is (= 'defn (first machines-list-form))
-      (str "machines-list must be a PUBLIC defn — the MCP `list-handlers "
-           "{kind \"machine\"}` tool calls it, and an eval form cannot reach a defn-")))
-
-;; ---------------------------------------------------------------------------
-;; machine-describe strips fns.
-;; ---------------------------------------------------------------------------
-
-(deftest machine-describe-strips-nested-fns
-  ;; Matched as a bare SYMBOL rather than a call head: the body threads
-  ;; (`-> spec (dissoc …) strip-fns`), exactly as `registrar-describe` does,
-  ;; so the walker never appears at the head of a list.
-  (is (form-contains? (fn [node] (= 'strip-fns node)) machine-describe-form)
-      (str "machine-describe MUST run `strip-fns` over the spec it returns. A "
-           "machine spec's `:guards` / `:actions` are maps of FN VALUES (Spec "
-           "005), and `pr-str` of a Function emits `#object[Function …]` — the "
-           "MCP result codec then tags the WHOLE response `:unserializable` and "
-           "the caller loses the spec "
-           "entirely.")))
-
-(deftest machine-describe-still-reports-a-miss
-  (is (form-contains? (fn [node] (= :not-a-machine node)) machine-describe-form)
-      (str "machine-describe must return a structured "
-           "`{:ok? false :reason :not-a-machine :id id}` on a miss — the MCP "
-           "handler-meta tool renames that reason to `:not-registered` so the "
-           "miss envelope is uniform across kinds, and a nil would instead "
-           "surface as `:unexpected-shape`.")))
-
-;; ---------------------------------------------------------------------------
-;; machines-list sorts.
-;; ---------------------------------------------------------------------------
-
-(deftest machines-list-sorts-its-ids
-  (is (form-contains? (fn [node] (= 'sort node)) machines-list-form)
-      (str "machines-list must SORT the id vector. `registrar-list` sorts, and "
-           "tools/re-frame2-pair-mcp/spec/003-Tool-Catalogue.md documents "
-           "`list-handlers` as returning a stable sorted vector for every kind "
-           "— machines are the one kind whose ids arrive in registration order, "
-           "so an unsorted door would make the two branches of that tool disagree.")))
-
-;; ---------------------------------------------------------------------------
-;; BEHAVIOURAL — the shipped strip-fns walk over a real machine spec.
-;;
-;; `fn-slot-sentinel` and `strip-fns` are read out of the preload source and
-;; evaluated here, so what runs below is the code that ships, not a copy. The
-;; rest of the preload cannot be loaded (it requires the re-frame runtime), but
-;; these two forms are plain Clojure.
-;; ---------------------------------------------------------------------------
-
-(def ^:private sentinel-form
-  ;; A plain `def`, not a `defn`, so `rt/defn-named` does not see it.
-  (some (fn [form]
-          (when (and (seq? form)
-                     (= 'def (first form))
-                     (= 'fn-slot-sentinel (second form)))
-            form))
-        rt/all-forms))
-
-;; nil when either form is missing, which makes every walk test below error.
-(def ^:private strip-fns-fn
-  (let [sentinel sentinel-form
+(def ^:private strip-fns
+  (let [sentinel (some #(when (and (seq? %) (= 'def (first %)) (= 'fn-slot-sentinel (second %))) %)
+                       rt/all-forms)
         walker   (rt/defn-named 'strip-fns)]
     (when (and sentinel walker)
       (binding [*ns* (create-ns 'machine-describe-test.shipped)]
@@ -121,27 +39,18 @@
         (eval walker)
         @(ns-resolve 'machine-describe-test.shipped 'strip-fns)))))
 
-(def ^:private machine-spec-with-fns
-  "A machine spec shaped like Spec 005's: fn values nested one level down under
-  `:guards` and `:actions`, beside the serializable structure a caller wants."
-  {:initial :idle
-   :states  {:idle {:on {:go :running}} :running {}}
-   :data    {:retries 0}
-   :guards  {:can-go? (fn [_ _] true)}
-   :actions {:log! (fn [_ _] nil)}})
-
 (deftest shipped-strip-fns-replaces-guard-and-action-fns
-  ;; Every fn slot becomes the readable `:rf/fn` keyword and nothing else
-  ;; changes, so the spec survives `pr-str` → read on the MCP wire.
-  (let [stripped (strip-fns-fn machine-spec-with-fns)]
-    (is (= :rf/fn (get-in stripped [:guards :can-go?]))
-        "a fn-valued :guards entry arrives as the readable :rf/fn sentinel")
-    (is (= :rf/fn (get-in stripped [:actions :log!]))
-        "a fn-valued :actions entry arrives as the readable :rf/fn sentinel")
-    (is (= {:idle {:on {:go :running}} :running {}} (:states stripped))
-        "the serializable structure around the fns is untouched")
-    (is (= {:retries 0} (:data stripped))
-        "…including the :data map")))
+  (is (= {:initial :idle
+          :states  {:idle {:on {:go :running}} :running {}}
+          :data    {:retries 0}
+          :guards  {:can-go? :rf/fn}
+          :actions {:log! :rf/fn}}
+         (strip-fns {:initial :idle
+                     :states  {:idle {:on {:go :running}} :running {}}
+                     :data    {:retries 0}
+                     :guards  {:can-go? (fn [_ _] true)}
+                     :actions {:log! (fn [_ _] nil)}}))
+      "every fn slot becomes :rf/fn and nothing else changes"))
 
 (let [{:keys [fail error]} (run-tests 'machine-describe-test)]
-  (System/exit (if (zero? (+ (or fail 0) (or error 0))) 0 1)))
+  (System/exit (if (zero? (+ fail error)) 0 1)))

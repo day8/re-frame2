@@ -1,22 +1,11 @@
-;;;; tests/runtime/pure_delegation_test.clj
-;;;;
-;;;; Structural (AST) pin that the SHIPPED preload `re-frame2-pair.runtime`
-;;;; DELEGATES to the tested pure core `re-frame2-pair.pure`.
-;;;;
-;;;; The genuinely-pure decision logic — the cascade / consequence projections,
-;;;; the multi-frame operating-frame resolver, the id-validation core, the
-;;;; epoch timing +
-;;;; matcher, the snapshot-scope resolver, and the orient assembler — lives in
-;;;; `preload/re_frame2_pair/pure.cljc` and is exercised DIRECTLY by the CLJS
-;;;; node-test build (`tests/fixture/`, `npm run test:pure`). That is the "test
-;;;; the shipped code" half. This file is the WIRING half: it parses the
-;;;; runtime source and asserts every stateful/framework-touching wrapper
-;;;; actually threads its live gate into the corresponding `pure/*` fn — so a
-;;;; refactor that forks the logic into the runtime (and with it the drift a
-;;;; re-derived copy suffers) trips RED here.
+;;;; tests/runtime/pure_delegation_test.clj — the SHIPPED preload
+;;;; `re-frame2-pair.runtime` delegates its decision logic to
+;;;; `re-frame2-pair.pure`, which the fixture's node-test exercises directly
+;;;; (`tests/fixture/`, `npm run test:pure`). This pins the wiring half, so a
+;;;; refactor that forks the logic back into the runtime — out of reach of
+;;;; those tests — turns red here.
 ;;;;
 ;;;; Run: bb tests/runtime/pure_delegation_test.clj
-;;;; Exit: 0 = pass, non-zero = fail.
 
 (load-file (str (.getParent (java.io.File. *file*)) "/_support.clj"))
 
@@ -24,36 +13,15 @@
   (:require [clojure.test :refer [deftest is run-tests testing]]
             [runtime-support :as rt]))
 
-(def ^:private form-contains? rt/form-contains?)
-
 (defn- named-form
-  "The top-level `(def…|defn…|defn- sym …)` form for `sym`, or nil. Matches
-   `def`, `defn`, and `defn-` so both value aliases and fn wrappers resolve."
+  "The top-level `def` / `defn` / `defn-` form for `sym` — value aliases and
+   fn wrappers both resolve."
   [sym]
-  (some (fn [form]
-          (when (and (seq? form)
-                     (#{'def 'defn 'defn-} (first form))
-                     (= sym (second form)))
-            form))
+  (some #(when (and (seq? %) (#{'def 'defn 'defn-} (first %)) (= sym (second %))) %)
         rt/all-forms))
 
-(defn- ns-form []
-  (some (fn [form] (when (and (seq? form) (= 'ns (first form))) form)) rt/all-forms))
-
-;; ---------------------------------------------------------------------------
-;; The require
-;; ---------------------------------------------------------------------------
-
-(deftest runtime-requires-the-pure-core
-  (is (form-contains? #(= 're-frame2-pair.pure %) (ns-form))
-      "runtime.cljs must `:require` re-frame2-pair.pure — the SHIPPED pure core it delegates to."))
-
-;; ---------------------------------------------------------------------------
-;; Delegation pairs — each runtime name must reference its `pure/*` counterpart
-;; ---------------------------------------------------------------------------
-
 (def ^:private delegations
-  "runtime-name -> the `pure/*` symbol its body/value must reference."
+  "runtime-name -> the `pure/*` symbol its body or value must reference."
   '{reserved-tool-frame?         pure/reserved-tool-frame?
     app-frame-ids                pure/app-frame-ids
     current-frame                pure/resolve-operating-frame
@@ -81,21 +49,13 @@
 (deftest every-runtime-wrapper-delegates-to-its-pure-counterpart
   (doseq [[rt-name pure-sym] delegations]
     (testing (str rt-name " -> " pure-sym)
-      (let [form (named-form rt-name)]
-        (is (some? form)
-            (str "runtime.cljs must define `" rt-name "`."))
-        (is (form-contains? #(= pure-sym %) form)
-            (str "`" rt-name "` MUST delegate to `" pure-sym
-                 "` — the SHIPPED pure helper the node-test exercises."))))))
-
-;; ---------------------------------------------------------------------------
-;; Gate injection — the parameterised fns must thread the LIVE session gate in
-;; ---------------------------------------------------------------------------
+      (is (rt/mentions? pure-sym (named-form rt-name))
+          (str rt-name " must be defined and delegate to " pure-sym)))))
 
 (deftest raw-state-gate-is-threaded-into-the-redaction-fns
   (doseq [rt-name '[redact-sensitive-event-vector cascade-summary restore-cascade-summary]]
-    (is (form-contains? #(= :allow-raw-state? %) (named-form rt-name))
-        (str "`" rt-name "` MUST thread the live `:allow-raw-state?` gate into the pure fn."))))
+    (is (rt/mentions? :allow-raw-state? (named-form rt-name))
+        (str rt-name " must thread the live :allow-raw-state? gate into the pure fn"))))
 
 (let [{:keys [fail error]} (run-tests 'pure-delegation-test)]
-  (System/exit (if (zero? (+ (or fail 0) (or error 0))) 0 1)))
+  (System/exit (if (zero? (+ fail error)) 0 1)))

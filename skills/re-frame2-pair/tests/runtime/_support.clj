@@ -1,57 +1,29 @@
-;;;; tests/runtime/_support.clj
+;;;; tests/runtime/_support.clj — the locate+parse+walk harness the
+;;;; `tests/runtime/*` structural pins share. Load it from a sibling with
 ;;;;
-;;;; Shared babashka test scaffold for the `tests/runtime/*` structural
-;;;; pins. Every structural-pin test needs to locate, slurp and parse
-;;;; `preload/re_frame2_pair/runtime.cljs`, then walk the parsed forms
-;;;; looking for a named defn / a predicate hit. That locate+parse+walk
-;;;; harness lives here once, shared across the runtime tests.
+;;;;   (load-file (str (.getParent (java.io.File. *file*)) "/_support.clj"))
 ;;;;
-;;;; Per-test ASSERTIONS stay in each test file — only the mechanical
-;;;; locate+parse+walk harness collapses here.
-;;;;
-;;;; Load it from a sibling test with:
-;;;;
-;;;;   (load-file (str (.getParent (io/file *file*)) "/_support.clj"))
-;;;;
-;;;; then `(:require [runtime-support :as rt])` or refer the vars. The
-;;;; load-file path is resolved off the loading test's own `*file*`, so it
-;;;; works regardless of the cwd `bb` was launched from.
+;;;; The path resolves off the loading test's own `*file*`, so any cwd works.
 
 (ns runtime-support
   (:require [clojure.java.io :as io]
             [clojure.walk :as walk]))
 
-(def ^:private this-file
-  ;; Absolute path to THIS support file, so we can resolve runtime.cljs
-  ;; relative to the skill tree rather than the (unknown) launch cwd.
-  (-> *file* io/file .getAbsoluteFile))
-
 (def runtime-cljs-path
-  "Absolute path to `preload/re_frame2_pair/runtime.cljs`. Resolved off
-   this file's location: tests/runtime/_support.clj → skill root →
-   preload/…. Exits 2 when the source can't be found, so a moved/renamed
-   runtime fails loud."
-  (let [skill-root (-> this-file
-                       .getParentFile   ;; tests/runtime/
-                       .getParentFile   ;; tests/
-                       .getParentFile)  ;; skills/re-frame2-pair/
-        f          (io/file skill-root "preload" "re_frame2_pair" "runtime.cljs")]
+  "Absolute path to `preload/re_frame2_pair/runtime.cljs`. Exits 2 when it
+   cannot be found, so a moved runtime fails loud."
+  (let [f (io/file (-> *file* io/file .getAbsoluteFile .getParentFile .getParentFile .getParentFile)
+                   "preload" "re_frame2_pair" "runtime.cljs")]
     (if (.exists f)
       (.getPath f)
       (do (binding [*out* *err*]
-            (println "ERROR: cannot locate preload/re_frame2_pair/runtime.cljs from"
-                     (.getPath this-file)))
+            (println "ERROR: cannot locate" (.getPath f)))
           (System/exit 2)))))
 
 (defn read-all-forms
-  "Read every top-level form from `src`.
-
-   `:read-cond :allow :features #{:cljs}` keeps reader conditionals on the
-   `:cljs` branch. `*default-data-reader-fn*` swallows unknown tagged
-   literals — notably the `#js {...}` / `#js [...]` the CLJS preload
-   carries. Without it the bb reader (which has
-   no `js` tag) HALTS on the first `#js`, silently dropping every form
-   after it — including defns near the end of the file."
+  "Every top-level form in `src`, read on the `:cljs` branch. The default
+   data-reader swallows `#js` literals, which would otherwise halt the bb
+   reader and silently drop every form after the first one."
   [^String src]
   (binding [*default-data-reader-fn* (fn [_tag v] v)]
     (let [pbr (java.io.PushbackReader. (java.io.StringReader. src))]
@@ -60,24 +32,29 @@
                         (catch Exception _ ::eof))]
           (if (= ::eof form) acc (recur (conj acc form))))))))
 
-(def all-forms
-  "Every top-level form parsed from the live runtime source."
-  (read-all-forms (slurp runtime-cljs-path)))
+(def all-forms (read-all-forms (slurp runtime-cljs-path)))
 
 (defn form-contains?
-  "True when any node within `form` satisfies `pred` (postwalk)."
+  "True when any node within `form` satisfies `pred`."
   [pred form]
   (let [hit? (atom false)]
     (walk/postwalk (fn [node] (when (pred node) (reset! hit? true)) node) form)
     @hit?))
 
 (defn defn-named
-  "The top-level `(defn sym ...)` or `(defn- sym ...)` form for `sym`, or
-   nil. Matches both public and private defns."
+  "The top-level `(defn sym …)` or `(defn- sym …)` form, or nil."
   [sym]
   (some (fn [form]
-          (when (and (seq? form)
-                     (#{'defn 'defn-} (first form))
-                     (= sym (second form)))
+          (when (and (seq? form) (#{'defn 'defn-} (first form)) (= sym (second form)))
             form))
         all-forms))
+
+(defn calls?
+  "True when `form` invokes `sym` as the head of any list."
+  [sym form]
+  (form-contains? (fn [node] (and (seq? node) (= sym (first node)))) form))
+
+(defn mentions?
+  "True when `x` appears anywhere within `form`."
+  [x form]
+  (form-contains? #(= x %) form))
