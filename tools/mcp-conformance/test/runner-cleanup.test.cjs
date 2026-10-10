@@ -21,7 +21,6 @@ const path = require('node:path');
 
 const {
   makeCleanup,
-  finalizeConformance,
   makeShadowTreeReaper,
   ownedDescendants,
 } = require(path.join(__dirname, '..', 'scripts', 'run-re-frame2-pair-live-hermetic-suite.cjs'));
