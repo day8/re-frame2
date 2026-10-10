@@ -531,9 +531,9 @@
    §Pair-tool writes), in its app-only partial-map form. That
    surface bypasses the event pipeline (no event, no pipeline run) but DOES
    record a synthetic `:rf/epoch-record` with `:event-id
-   :rf.epoch/db-replaced` so that `restore-epoch` of that record with
-   `{:to :before}` undoes the injection. Use sparingly — prefer
-   `dispatch` for any change you want the event pipeline to see.
+   :rf.epoch/db-replaced` so that `restore-epoch` can rewind past the
+   injection. Use sparingly — prefer `dispatch` for any change you want
+   the event pipeline to see.
 
    The `tap>` emission default-elides both `:previous`
    and `:next` slots when the raw-state gate is OFF (the published-
@@ -2000,8 +2000,7 @@
    normal `epoch-by-id` lookup wouldn't surface anything. Instead we
    project against the TARGET epoch (the one we restored TO) and
    compute the `:db-diff` from `pre-db` (the db state immediately
-   before the restore) to the state installed — the target's `:db-after`,
-   or its `:db-before` when `to` is `:before`. That answers the
+   before the restore) to the target's `:db-after`. That answers the
    programmer's actual question — 'what is now different from where I
    was?' — using the cascade-summary vocabulary everyone already knows.
 
@@ -2014,41 +2013,33 @@
    cannot undo (http requests already sent, navigation already pushed,
    storage already written). Programmers reading 'I just rewound' need
    to know which side-effects already escaped the framework."
-  ([pre-db frame-id target-epoch-id] (restore-cascade-summary pre-db frame-id target-epoch-id nil))
-  ([pre-db frame-id target-epoch-id to]
-   (when-let [target (epoch-by-id target-epoch-id frame-id)]
-     (pure/restore-cascade-projection pre-db target frame-id target-epoch-id
-                                      (:allow-raw-state? @raw-state-config) to))))
+  [pre-db frame-id target-epoch-id]
+  (when-let [target (epoch-by-id target-epoch-id frame-id)]
+    (pure/restore-cascade-projection pre-db target frame-id target-epoch-id
+                                     (:allow-raw-state? @raw-state-config))))
 
 (defn restore-epoch
-  "(rf/restore-epoch! frame-id epoch-id opts). Returns a structured envelope:
+  "(rf/restore-epoch! frame-id epoch-id). Returns a structured envelope:
 
      - `{:ok? true :restored? true :epoch-id <id> :frame <id>
          :cascade-summary {...} :unreplayable-effects [...]}` on success.
        The cascade-summary projects the TARGET epoch's shape; the
        `:db-diff` slot is computed from the live db at restore-time to
-       the state installed — the target's `:db-after`, or its
-       `:db-before` under `{:to :before}`. `:unreplayable-effects`
-       enumerates the fx the original cascade fired that the restore
-       cannot undo.
+       the target's `:db-after`. `:unreplayable-effects` enumerates the
+       fx the original cascade fired that the restore cannot undo.
      - `false` on any failure mode. Failure traces fire under
        `:rf.epoch/*` — read them with
        `(re-frame.trace.tooling/trace-buffer frame-id {:flat true :op-type :error})`
        (frame-id first; `:op-type` is a `:flat-only` filter).
 
-   `opts` is `rf/restore-epoch!`'s: `{:to :before}` installs the record's
-   `:frame-state-before` rather than its `:frame-state-after`. The arities
-   mirror `pair-dispatch-sync!`'s shape — 1-arity reads `(current-frame)`,
-   2-arity is explicit, and the 3-arity resolves a nil `frame-id` to
-   `(current-frame)`."
+   The two arities mirror `pair-dispatch-sync!`'s shape — 1-arity reads
+   `(current-frame)`, 2-arity is explicit."
   ([epoch-id] (restore-epoch epoch-id (current-frame)))
-  ([epoch-id frame-id] (restore-epoch epoch-id frame-id nil))
-  ([epoch-id frame-id opts]
-   (let [frame-id (or frame-id (current-frame))
-         pre-db   (rf/app-db-value frame-id)
-         ok?      (rf/restore-epoch! frame-id epoch-id opts)]
+  ([epoch-id frame-id]
+   (let [pre-db (rf/app-db-value frame-id)
+         ok?    (rf/restore-epoch! frame-id epoch-id)]
      (if ok?
-       (let [extras (restore-cascade-summary pre-db frame-id epoch-id (:to opts))]
+       (let [extras (restore-cascade-summary pre-db frame-id epoch-id)]
          (merge {:ok? true :restored? true :epoch-id epoch-id :frame frame-id}
                 extras))
        ;; Return the framework's `false` on failure — the MCP
