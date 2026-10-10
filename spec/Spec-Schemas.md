@@ -319,7 +319,7 @@ The argument carried by the one standard framework interceptor reference, `[:rf.
   Path)                                               ;; Path = :rf/path (see :rf/path below)
 ```
 
-A non-vector or otherwise malformed path arg is `:rf.error/path-interceptor-bad-path` — raised by the standard path `:factory` at chain assembly (and at registration-time ref validation), and propagated verbatim through `resolve-factory` rather than masked as `:rf.error/interceptor-factory-arity` (per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)).
+A non-vector or otherwise malformed path arg is `:rf.error/path-interceptor-bad-path` — raised by the standard path `:factory` at chain assembly, and propagated verbatim through `resolve-factory` rather than masked as `:rf.error/interceptor-factory-arity` (per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)).
 
 ### `:rf/registration-metadata`
 

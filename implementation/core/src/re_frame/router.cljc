@@ -607,18 +607,17 @@
                 :replacement v}}))
 
 (defn- override-replacement
-  "Resolve an `:interceptor-overrides` replacement VALUE to an executable
-  interceptor (or nil to remove). Per EP-0022 §`:interceptor-overrides`:
-  public override replacements are a `nil`
-  (remove) or an interceptor REFERENCE (keyword / `[id arg]`, resolved through
-  the registrar). A value-valued override — an inline interceptor
-  value (or any non-ref non-nil) — is `:rf.error/interceptor-override-invalid`,
-  keeping the override map serializable + inspectable across story / SSR / test
-  / tool surfaces."
+  "Check an `:interceptor-overrides` replacement VALUE and return it: `nil`
+  (remove) or an interceptor REFERENCE (keyword / `[id arg]`), which takes the
+  matched reference's place in the authored chain and resolves with the rest
+  of it. Per EP-0022 §`:interceptor-overrides`, a value-valued override — an
+  inline interceptor value (or any non-ref non-nil) — is
+  `:rf.error/interceptor-override-invalid`, keeping the override map
+  serializable + inspectable across story / SSR / test / tool surfaces."
   [k replacement]
   (cond
-    (nil? replacement)                      nil
-    (rf.interceptor-registry/interceptor-ref? replacement) (rf.interceptor-registry/resolve-ref replacement)
+    (nil? replacement)                                     nil
+    (rf.interceptor-registry/interceptor-ref? replacement) replacement
     :else
     (throw-override-invalid!
       k replacement
@@ -636,68 +635,56 @@
 
 (defn- matching-override-key
   "Return the FIRST `overrides` key whose canonical interceptor reference
-  matches chain `entry` (`rf.interceptor-registry/override-key-matches?`), or nil. The shared
-  entry→override-key matcher for both `apply-icpt-overrides` (which acts on the
-  match) and `override-summary` (which tallies it). A non-map entry — the
-  framework handler-wrapper sentinel etc. — matches nothing; callers guard for
-  it before calling here."
-  [overrides entry]
-  (some (fn [k] (when (rf.interceptor-registry/override-key-matches? k entry) k))
+  matches the authored chain reference `ref`
+  (`rf.interceptor-registry/override-key-matches?`), or nil. The shared
+  ref→override-key matcher for both `apply-icpt-overrides` (which acts on the
+  match) and `override-summary` (which tallies it). Only references are
+  offered: the framework handler-wrapper, a value, matches nothing, and
+  callers guard for it before calling here."
+  [overrides ref]
+  (some (fn [k] (when (rf.interceptor-registry/override-key-matches? k ref) k))
         (keys overrides)))
 
 (defn- apply-icpt-overrides
   "Per Spec 002 §`:interceptor-overrides` (EP-0022 — exact-reference
-  matching): walk `chain` and substitute / remove interceptors against
-  `overrides`. Matching is by **canonical interceptor reference**
-  (`rf.interceptor-registry/override-key-matches?`), not merely by `:id`:
+  matching): walk the AUTHORED `chain` and substitute / remove references
+  against `overrides`, before any reference resolves. Matching is by
+  **canonical interceptor reference**
+  (`rf.interceptor-registry/override-key-matches?`):
 
-    - a bare-keyword key matches only an entry authored as that keyword;
-    - an `[id arg]` key matches ONLY the entry whose AUTHORED ref is `ref=` to
-      that exact vector — so `{[:rf.interceptor/path [:cart]] nil}` removes
-      only that exact reference, leaving a sibling `[:rf.interceptor/path
-      [:cart :items]]` in the chain.
+    - a bare-keyword key matches only a reference authored as that keyword;
+    - an `[id arg]` key matches ONLY a reference `ref=` to that exact vector —
+      so `{[:rf.interceptor/path [:cart]] nil}` removes only that exact
+      reference, leaving a sibling `[:rf.interceptor/path [:cart :items]]` in
+      the chain.
 
-  A matched entry is replaced by its override value (`override-replacement`); a
-  `nil`-valued override removes the entry. `chain` carries EXECUTABLE
-  interceptor values (refs already resolved + authored-ref-stamped by
-  `prepare-handler-ctx`). A malformed override key or replacement is
+  A matched reference is replaced by its override's replacement reference
+  (`override-replacement`); a `nil`-valued override removes it. Returns the
+  edited chain of references, which `prepare-handler-ctx` then resolves, so a
+  removed or replaced reference is never built and its factory never runs.
+  Calls no authored code. A malformed override key or replacement is
   `:rf.error/interceptor-override-invalid`.
 
   HOT PATH no-op: when `overrides` is empty the chain is returned unchanged."
-  ([chain overrides]
-   (apply-icpt-overrides chain overrides (constantly true)))
-  ([chain overrides continue?]
-   (if (empty? overrides)
-     chain
-     (do
-       ;; Validate keys once (cheap; override maps are tiny — test / story /
-       ;; SSR / tool surfaces). A malformed key fails the whole dispatch loudly.
-       (doseq [k (keys overrides)]
-         (when-not (valid-override-key? k)
-           (throw-override-invalid!
-             k (get overrides k)
-             (str "interceptor-override key `" (pr-str k) "` is not an interceptor "
-                  "reference (expected a keyword id or an `[id arg]` 2-vector)."))))
-       ;; Replacement refs may invoke parameterized interceptor factories. Stop
-       ;; before/after each such callback once exact ownership is lost.
-       (loop [entries (seq chain)
-              out     []]
-         (cond
-           (not (continue?)) nil
-           (nil? entries) out
-           :else
-           (let [entry (first entries)
-                 value (try
-                         (if-not (map? entry)
-                           entry
-                           (if-let [k (matching-override-key overrides entry)]
-                             (override-replacement k (get overrides k))
-                             entry))
-                         (catch #?(:clj Throwable :cljs :default) e
-                           (if (continue?) (throw e) nil)))]
-             (if (continue?)
-               (recur (next entries) (cond-> out (some? value) (conj value)))
-               nil))))))))
+  [chain overrides]
+  (if (empty? overrides)
+    chain
+    (do
+      ;; Validate keys once (cheap; override maps are tiny — test / story /
+      ;; SSR / tool surfaces). A malformed key fails the whole dispatch loudly.
+      (doseq [k (keys overrides)]
+        (when-not (valid-override-key? k)
+          (throw-override-invalid!
+            k (get overrides k)
+            (str "interceptor-override key `" (pr-str k) "` is not an interceptor "
+                 "reference (expected a keyword id or an `[id arg]` 2-vector)."))))
+      (into []
+            (keep (fn [entry]
+                    (if-let [k (when (rf.interceptor-registry/interceptor-ref? entry)
+                                 (matching-override-key overrides entry))]
+                      (override-replacement k (get overrides k))
+                      entry)))
+            chain))))
 
 ;; ---- envelope override capture for strict replay --------------------------
 ;;
@@ -746,9 +733,7 @@
   §`:tags` interceptor family). Summarises which authored
   interceptor references an `:interceptor-overrides` map (merged per-frame +
   per-call, per-call winning) actually acted on for THIS dispatch, by walking
-  the PRE-override `resolved-chain` (whose entries still carry their authored
-  ref under `rf.interceptor-registry/authored-ref-key`, before any matched entry was
-  removed/replaced) against the override keys.
+  the PRE-override authored chain against the override keys.
 
   Returns `nil` when `overrides` is empty (the hot no-override path — the tag
   is then omitted entirely).
@@ -774,11 +759,11 @@
   This helper is pure and feeds ONLY the dev-only `:rf.event/run-start` trace
   emit, so it DCEs in `:advanced` production builds with the rest of that emit
   (Spec 009 §Production builds)."
-  [resolved-chain overrides]
+  [authored-chain overrides]
   (when (seq overrides)
     (let [matched (reduce
                     (fn [acc entry]
-                      (if-not (map? entry)
+                      (if-not (rf.interceptor-registry/interceptor-ref? entry)
                         acc
                         (if-let [k (matching-override-key overrides entry)]
                           (let [removed? (nil? (get overrides k))]
@@ -787,7 +772,7 @@
                                 (update (if removed? :removed :replaced) conj k)))
                           acc)))
                     {:matched [] :replaced [] :removed []}
-                    resolved-chain)]
+                    authored-chain)]
       (assoc matched :count (count (:matched matched))))))
 
 (defn- validate-event!
@@ -2431,11 +2416,13 @@
   Chain assembly order, per Spec 002:
   1. Prepend per-frame `:interceptors` to the handler's own chain
      (additive — §`:interceptors` — *add* interceptors).
-  2. Walk the assembled chain and apply `:interceptor-overrides`
-     (replace / remove by EXACT canonical reference per
-     §`:interceptor-overrides` — a bare keyword matches only that authored
+  2. Walk the assembled chain of AUTHORED references and apply
+     `:interceptor-overrides` (replace / remove by EXACT canonical reference
+     per §`:interceptor-overrides` — a bare keyword matches only that authored
      keyword, an `[id arg]` only the exact authored reference); `nil`-valued
-     overrides remove the matched interceptor from the chain.
+     overrides remove the matched reference from the chain.
+  3. Resolve the surviving references, once. A removed or replaced reference
+     is never built, so its factory never runs.
 
   HOT PATH: fires on every dispatch. On the override-free path (no
   per-frame / per-call `:fx-overrides`, no per-frame / per-call
@@ -2452,22 +2439,24 @@
         prepended-chain (if (seq extra-interceptors)
                           (vec (concat extra-interceptors (:interceptors handler-meta)))
                           (:interceptors handler-meta))
+        ;; Overrides edit the authored references before any resolves; the
+        ;; edit is pure, so only the resolution below needs the owner fence.
+        overridden-chain (when (live?)
+                           (apply-icpt-overrides prepended-chain icpt-overrides))
         ;; Per Spec 002 §Validation and resolution timing + §Effective chain
-        ;; ordering (EP-0022 reference-only): resolve
+        ;; ordering (EP-0022 reference-only): resolve the surviving
         ;; interceptor REFERENCES (frame `:interceptors` refs ++ event
-        ;; `:interceptors` refs) to their registered executable values at chain
-        ;; assembly. REFERENCE-ONLY — a stale inline interceptor value in the
-        ;; chain fails LOUD (`:rf.error/inline-interceptor-removed`); only the
-        ;; framework's appended handler-wrapper (`:rf/default? true`) passes
-        ;; through. Hot-path skip: when the chain is nothing but that framework
-        ;; default (the common no-authored-chain shape) the walk is bypassed.
-        ;; Refs resolve through the active registrar.
-        resolved-chain  (when (live?)
-                          (if (rf.interceptor-registry/chain-needs-resolution? prepended-chain)
-                            (rf.interceptor-registry/resolve-chain prepended-chain live?)
-                            prepended-chain))
-        base-chain      (when (and (live?) (some? resolved-chain))
-                          (apply-icpt-overrides resolved-chain icpt-overrides live?))
+        ;; `:interceptors` refs, as overridden) to their registered executable
+        ;; values at chain assembly. REFERENCE-ONLY — a stale inline interceptor
+        ;; value in the chain fails LOUD (`:rf.error/inline-interceptor-removed`);
+        ;; only the framework's appended handler-wrapper (`:rf/default? true`)
+        ;; passes through. Hot-path skip: when the chain is nothing but that
+        ;; framework default (the common no-authored-chain shape) the walk is
+        ;; bypassed. Refs resolve through the active registrar.
+        base-chain      (when (and (live?) (some? overridden-chain))
+                          (if (rf.interceptor-registry/chain-needs-resolution? overridden-chain)
+                            (rf.interceptor-registry/resolve-chain overridden-chain live?)
+                            overridden-chain))
         ;; The frame-declared sensitive-path overlap with the chain's
         ;; `:path` slices. It feeds both the in-chain schema-redaction
         ;; interceptor and the OUT-OF-CHAIN projection (`:emit-event`) that
@@ -2518,13 +2507,13 @@
      ;; (id-only / counts) for the `:rf.event/run-start` trace tag
      ;; `:rf.interceptor/override-summary`. `nil` on the hot no-override path
      ;; (`icpt-overrides` is the shared empty sentinel) — the tag is then
-     ;; omitted entirely. Computed from the PRE-override `resolved-chain` (which
-     ;; still carries the authored refs the overrides matched against) + the
-     ;; merged per-frame + per-call `icpt-overrides` map — `base-chain` is the
-     ;; POST-override chain (matched entries already removed/replaced), so the
-     ;; matcher must walk `resolved-chain`. Pure + feeds only the dev-only
-     ;; run-start emit, so it DCEs in `:advanced` production.
-     :override-summary (override-summary resolved-chain icpt-overrides)
+     ;; omitted entirely. Computed from the PRE-override authored
+     ;; `prepended-chain` + the merged per-frame + per-call `icpt-overrides`
+     ;; map — `base-chain` is the POST-override chain (matched references
+     ;; already removed/replaced), so the matcher must walk `prepended-chain`.
+     ;; Pure + feeds only the dev-only run-start emit, so it DCEs in
+     ;; `:advanced` production.
+     :override-summary (override-summary prepended-chain icpt-overrides)
      :emit-event   (if (seq redaction-paths)
                      (rf.privacy/redact-event (:event envelope) redaction-paths)
                      (:event envelope))

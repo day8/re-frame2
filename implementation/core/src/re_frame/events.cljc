@@ -169,21 +169,20 @@
 (defn- validate-refs-registered!
   "Per Spec 002 §Validation and resolution timing — registration-time
   validation: every interceptor REFERENCE in `chain` must name a registered
-  interceptor. A reference to an absent id throws
-  `:rf.error/unregistered-interceptor` at registration so typos die before
+  interceptor, in the shape that registration takes. A reference to an absent
+  id throws `:rf.error/unregistered-interceptor` and a mis-shaped one
+  `:rf.error/interceptor-factory-arity` at registration, so typos die before
   dispatch. Only refs are checked here; the appended framework handler-wrapper
   (the one inline value a chain carries) is
   skipped — any other inline value has already been rejected by
-  `validate-meta-interceptors!`. Resolution is deferred to chain assembly (the
-  router) so hot-reloaded descriptors are picked up on the next dispatch."
+  `validate-meta-interceptors!`. Nothing is built: resolution is deferred to
+  chain assembly (the router), so hot-reloaded descriptors are picked up on
+  the next dispatch and a factory runs only for a reference that survives
+  that dispatch's `:interceptor-overrides`."
   [chain]
   (doseq [entry chain]
     (when (rf.interceptor-registry/interceptor-ref? entry)
-      ;; resolve-ref throws the structured :rf.error/unregistered-interceptor /
-      ;; :rf.error/interceptor-factory-arity if the ref cannot resolve. We
-      ;; discard the resolved value — this is a pure existence/shape check; the
-      ;; actual resolution rides the dispatch-time chain assembly.
-      (rf.interceptor-registry/resolve-ref entry)))
+      (rf.interceptor-registry/check-ref! entry)))
   chain)
 
 ;; ---- `:boundary?` — registration-time validation -------------------------

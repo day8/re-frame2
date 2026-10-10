@@ -55,12 +55,15 @@
         "the root focus saw and wrote the whole db")))
 
 (deftest path-bad-path-arg-is-structured-error
+  ;; Registration builds nothing, so the factory's own error surfaces when the
+  ;; first dispatch builds the chain.
+  (rf/reg-event :bad/path
+    {:interceptors [[:rf.interceptor/path :not-a-vector]]}
+    (fn [{:keys [db]} _] {:db db}))
   (is (thrown-with-msg?
         #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
         #":rf.error/path-interceptor-bad-path"
-        (rf/reg-event :bad/path
-          {:interceptors [[:rf.interceptor/path :not-a-vector]]}
-          (fn [{:keys [db]} _] {:db db})))))
+        (rf/dispatch-sync [:bad/path]))))
 
 ;; ---- :interceptor-overrides exact-reference matching -----------------------
 
@@ -90,9 +93,9 @@
 ;; ---- registry resolution ---------------------------------------------------
 
 (deftest resolve-chain-rejects-inline-values-and-malformed-entries
-  ;; `make-frame` validates a frame's `:interceptors` chain through
-  ;; `resolve-chain`, so these are the frame-chain errors; `reg-event` rejects
-  ;; the same entries earlier, at `:where rf/reg-event`.
+  ;; `make-frame` checks a frame's `:interceptors` chain by the same entry
+  ;; rules, so these are the frame-chain errors; `reg-event` rejects the same
+  ;; entries earlier, at `:where rf/reg-event`.
   (let [inline (rf.interceptor/->interceptor* :id :stale/inline :before identity :after identity)]
     (is (= {:rf.error/id :rf.error/inline-interceptor-removed
             :where       'rf/resolve-chain

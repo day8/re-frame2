@@ -1,7 +1,8 @@
 (ns re-frame.interceptor-overrides-test
   "`:interceptor-overrides` (Spec 002): replacements are references only,
-  per-call wins over per-frame, and a bare-keyword key matches only an entry
-  authored as that keyword.
+  per-call wins over per-frame, a bare-keyword key matches only an entry
+  authored as that keyword, and a reference an override removes or replaces is
+  never built.
   Removal, replacement and unmatched keys are pinned on the chain that ran by
   `re-frame.interceptor-override-summary-trace-test`, and exact `[id arg]`
   matching by `re-frame.interceptor-runtime-complete-cljs-test`."
@@ -57,6 +58,27 @@
                       {:frame :test/scoped
                        :interceptor-overrides {::log ::call-stub}})
     (is (= [:call-stub] @log))))
+
+(deftest overridden-reference-is-never-built
+  ;; Overrides edit the authored references before any of them resolves, so a
+  ;; factory whose reference an override removes or replaces never runs — not
+  ;; even one a hot reload has made throw.
+  (let [built (atom [])
+        ran   (atom [])]
+    (rf/reg-interceptor ::fact
+      {:factory (fn [arg] (swap! built conj [::fact arg]) {:before identity})})
+    (rf/reg-interceptor ::stand-in
+      {:factory (fn [arg] (swap! built conj [::stand-in arg]) {:before identity})})
+    (rf/reg-event :test/run
+      {:interceptors [[::fact 1]]}
+      (fn [{:keys [db]} [_ tag]] (swap! ran conj tag) {:db db}))
+    (is (= [] @built) "registration checks the reference without building it")
+    (rf/dispatch-sync [:test/run :removed] {:interceptor-overrides {[::fact 1] nil}})
+    (rf/dispatch-sync [:test/run :replaced] {:interceptor-overrides {[::fact 1] [::stand-in 2]}})
+    (is (= [[::stand-in 2]] @built) "only the replacement was built")
+    (rf/reg-interceptor ::fact {:factory (fn [_] (throw (ex-info "factory boom" {})))})
+    (rf/dispatch-sync [:test/run :removed-after-reload] {:interceptor-overrides {[::fact 1] nil}})
+    (is (= [:removed :replaced :removed-after-reload] @ran))))
 
 (deftest bare-keyword-key-never-matches-by-entry-id
   ;; Every resolved entry carries an `:id`: a factory-built one its factory
