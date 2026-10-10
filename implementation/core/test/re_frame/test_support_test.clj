@@ -4,14 +4,17 @@
   `make-reset-runtime-fixture` and `destroy-frame!` — every late-bind reset
   hook fires the documented number of times, so a dropped row breaks here at
   the seam rather than as long-range cross-test pollution."
-  (:require [clojure.test :refer [deftest is use-fixtures report]]
+  (:require [clojure.test :refer [deftest is testing use-fixtures report]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.flows :as rf.flows]
             [re-frame.late-bind :as rf.late-bind]
+            [re-frame.observability :as rf.observability]
             [re-frame.schemas :as rf.schemas]
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]
             [re-frame.trace.tooling :as rf.trace.tooling]
             [re-frame.test-support :as rf.test-support]))
 
@@ -95,6 +98,7 @@
    :epoch/clear-history!              1
    :epoch/clear-epoch-listeners!      1
    :epoch/reset-config!               1
+   :ssr/reinstall-error-projection!   1
    :adapter/clear-warn-once-caches!   1})
 
 (deftest make-reset-runtime-fixture-fires-every-hook-the-documented-number-of-times
@@ -139,6 +143,55 @@
       (is (= [:pre :post :pre] @order))
       (finally
         (reset! rf.late-bind/hooks snapshot)))))
+
+;; ---- make-reset-runtime-fixture observer isolation ------------------------
+
+(deftest make-reset-runtime-fixture-drops-the-observers-a-previous-test-left
+  ;; Two test bodies, in a fixed order, under one fixture. A leaves an error
+  ;; listener, a sink, a process-default policy and a trace-disabled frame
+  ;; behind; B emits an error into a frame whose policy names A's sink. B's own
+  ;; listener and sink are the control proving the error reached both routes.
+  (let [fixture (fixture)
+        a-seen  (atom [])
+        b-seen  (atom [])]
+    (try
+      (fixture
+        (fn []
+          (rf.error-emit/register-error-listener! ::a-listener
+                                                  #(swap! a-seen conj [:listener (:error %)]))
+          (rf/register-observability-sink! ::a-sink #(swap! a-seen conj [:sink (:error %)]))
+          (rf/configure! {:observability {:errors [{:sink ::a-sink}]}})
+          (rf.trace/set-frame-no-emit! ::tool true)))
+      (fixture
+        (fn []
+          (testing "the process default and the trace-disabled frame are gone"
+            (is (nil? (rf.observability/current-observability-config)))
+            (is (not (rf.trace/frame-trace-disabled? ::tool))))
+          (rf.error-emit/register-error-listener! ::b-listener
+                                                  #(swap! b-seen conj [:listener (:error %)]))
+          (rf/register-observability-sink! ::b-sink #(swap! b-seen conj [:sink (:error %)]))
+          (rf/make-frame {:id            ::app
+                          :observability {:errors [{:sink ::a-sink} {:sink ::b-sink}]}})
+          (rf/reg-event ::boom (fn [_ _] (throw (ex-info "boom" {}))))
+          (rf/dispatch-sync [::boom] {:frame ::app})))
+      (is (= [[:listener :rf.error/handler-exception] [:sink :rf.error/handler-exception]]
+             @b-seen)
+          "control: test B's error reached its own listener and sink")
+      (is (= [] @a-seen) "neither of test A's callbacks fired in test B")
+      (finally
+        (run! rf.error-emit/unregister-error-listener! [::a-listener ::b-listener])
+        (run! rf.observability/unregister-observability-sink! [::a-sink ::b-sink])
+        (rf.observability/clear-observability-default!)
+        (rf.trace/clear-frame-no-emit!)))))
+
+(deftest make-reset-runtime-fixture-reinstates-the-ssr-error-projection
+  ;; `re-frame.ssr` installs its error-projection listener at load, and the
+  ;; reset's error-listener clear must not take it away from the next test.
+  (let [present? #(contains? @@#'rf.error-emit/listeners :re-frame.ssr/error-projection)
+        in-body  (atom :unset)]
+    (is (present?) "control: the listener is installed before the reset")
+    ((fixture) (fn [] (reset! in-body (present?))))
+    (is (true? @in-body))))
 
 ;; ---- `:init-fn` runs under the body's ambient frame -----------------------
 ;;

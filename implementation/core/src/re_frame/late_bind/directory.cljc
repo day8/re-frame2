@@ -622,6 +622,9 @@
    {:key         :ssr/on-frame-destroyed
     :producer-ns 're-frame.ssr
     :description "Clear the SSR side-channel atoms (pending-error-traces, request-slots, response-slots) for a destroyed frame, per Spec 011 §Per-request frame teardown contract. The `:rf/response` accumulator lives in response-slots rather than `app-db`, so it neither leaks into the hydration payload nor costs a full app-db swap per fx."}
+   {:key         :ssr/reinstall-error-projection!
+    :producer-ns 're-frame.ssr
+    :description "Test-isolation reset: re-register the always-on `::error-projection` error-emit listener `re-frame.ssr` installs at ns-load. The shared make-reset-runtime-fixture clears every error listener before its post-dispose hooks, and its reset-hook table fires this one so a later SSR test still projects a render-time throw to its error status. Unbound when the ssr artefact is absent, so the row no-ops."}
 
    ;; ---- re-frame.ssr.manifest (Root Manifest v1 discovery) -----------------
    {:key         :ssr/discover-root-manifest
