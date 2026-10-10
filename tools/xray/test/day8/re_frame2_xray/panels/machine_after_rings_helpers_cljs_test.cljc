@@ -36,6 +36,13 @@
 
 ;; ---- which records the chart draws a ring for ---------------------------
 
+(defn- active-timers
+  "The rings pipeline the production sub runs in two halves:
+  `timers-for-machine` over the buffer, then the now-keyed `prune-timers`."
+  ([buf machine-id] (active-timers buf machine-id nil))
+  ([buf machine-id now-ms]
+   (h/prune-timers (h/timers-for-machine buf machine-id) now-ms)))
+
 (deftest active-timers-keeps-armed-and-cancelled
   ;; No clock, so nothing is aged: a scheduled timer is an armed ring, a
   ;; fire closes it, and a cancel keeps it as a crossed ring at its last
@@ -44,7 +51,7 @@
         armed {:machine-id :auth/login :state :idle :armed-at 1000
                :fires-at 6000 :duration-ms 5000 :epoch 0 :status :armed
                :delay-source :literal :delay-key nil :sub-id nil}]
-    (are [buf expected] (= expected (h/active-timers-for-machine buf :auth/login))
+    (are [buf expected] (= expected (active-timers buf :auth/login))
       [arm]
       [armed]
 
@@ -63,7 +70,7 @@
              (cancelled 1300 :auth/login :idle 1)]]
     (is (= [[:cancelled 1300]]
            (mapv (juxt :status :closed-at)
-                 (h/active-timers-for-machine buf :auth/login 1400))))
+                 (active-timers buf :auth/login 1400))))
     (is (= 2 (count (h/timers-for-machine buf :auth/login)))
         "each epoch folds to its own record; the now-keyed prune collapses them")))
 
@@ -74,10 +81,10 @@
   (let [buf [(scheduled 1000 :auth/login :idle 5000  0)
              (scheduled 1000 :auth/login :idle 30000 0)]]
     (is (= [5000 30000]
-           (sort (map :duration-ms (h/active-timers-for-machine buf :auth/login 2000)))))
+           (sort (map :duration-ms (active-timers buf :auth/login 2000)))))
     (is (= [30000]
            (map :duration-ms
-                (h/active-timers-for-machine
+                (active-timers
                   (conj buf (fired 6000 :auth/login :idle 0 :delay 5000))
                   :auth/login 6000))))))
 
@@ -85,8 +92,8 @@
   ;; An :armed record whose :fired trace was evicted from the buffer would
   ;; otherwise stay on screen for ever; it goes 5s past its deadline.
   (let [buf [(scheduled 1000 :auth/login :idle 1000 0)]] ; fires-at 2000
-    (is (= 1 (count (h/active-timers-for-machine buf :auth/login 7000))))
-    (is (= [] (h/active-timers-for-machine buf :auth/login 7001)))))
+    (is (= 1 (count (active-timers buf :auth/login 7000))))
+    (is (= [] (active-timers buf :auth/login 7001)))))
 
 ;; ---- ring geometry and colour -------------------------------------------
 

@@ -462,27 +462,6 @@
         (vec (sort-by (fn [r] (or (:armed-at r) 0))
                       (concat armed (vals newest))))))))
 
-(defn active-timers-for-machine
-  "Return the timer records the chart should render rings for at
-  wall-clock instant `now-ms` — [[timers-for-machine]] composed with
-  [[prune-timers]].
-
-  `display-frame` narrows the buffer to the frame whose instance is ON
-  SCREEN — NOT to `:rf.xray/target-frame`, which is the collector's
-  target and a fallback only; see [[project-timers]] for
-  why, and for what nil means.
-
-  One entry point because the JVM helper suite drives the whole
-  pipeline through it; the production sub takes the two halves
-  separately so the expensive one is not re-run per animation frame."
-  ([trace-buffer machine-id]
-   (active-timers-for-machine trace-buffer machine-id nil nil))
-  ([trace-buffer machine-id now-ms]
-   (active-timers-for-machine trace-buffer machine-id now-ms nil))
-  ([trace-buffer machine-id now-ms display-frame]
-   (prune-timers (timers-for-machine trace-buffer machine-id display-frame)
-                 now-ms)))
-
 ;; ---- ring geometry ------------------------------------------------------
 
 (defn ring-fraction
@@ -529,23 +508,17 @@
     :else              :red))
 
 (defn timer-color
-  "Resolve the colour for a `timer` record at instant `now-ms`. Combines
-  `ring-fraction` + `ring-color` with status-based overrides:
+  "Resolve the colour for a `timer` record at instant `now-ms` — the
+  records `timers-for-machine` keeps, `:armed` or `:cancelled`:
 
+    - `:armed` → fraction-driven (`ring-fraction` + `ring-color`)
     - `:cancelled` → `:gray` (the view also draws the diagonal cross)
-    - `:fired` / `:stale` / `:guard-suppressed` / `:skipped` → `:gray`
-    - `:armed` → fraction-driven (`ring-color`)
 
   Pure fn — JVM-runnable. Used by both the SVG renderer and the JVM
   test suite."
   [timer now-ms]
-  (case (:status timer)
-    :cancelled        :gray
-    :fired            :gray
-    :stale            :gray
-    :guard-suppressed :gray
-    :skipped          :gray
-    :armed            (ring-color (ring-fraction timer now-ms))
+  (if (= :armed (:status timer))
+    (ring-color (ring-fraction timer now-ms))
     :gray))
 
 (defn ms-remaining
@@ -557,14 +530,11 @@
 
 (defn format-timer-tooltip
   "Human-readable tooltip for a ring hover. Pure fn — used by the
-  `<title>` element in the SVG (zero-cost accessible tooltip).
+  `<title>` element in the SVG (zero-cost accessible tooltip), for the
+  records `timers-for-machine` keeps:
 
     `:armed`        → 'state · 1234ms remaining · fires @5678'
-    `:cancelled`    → 'state · cancelled · last @1234'
-    `:fired`        → 'state · fired @1234'
-    `:stale`        → 'state · stale (epoch mismatch)'
-    `:skipped`      → 'state · skipped (server-side)'
-    `:guard-suppressed` → 'state · fired but guard suppressed'"
+    `:cancelled`    → 'state · cancelled @1234'"
   [{:keys [state status fires-at duration-ms closed-at] :as timer}
    now-ms]
   (let [state-s (if (keyword? state) (str state) (pr-str state))
@@ -580,22 +550,6 @@
 
       :cancelled
       (str state-s " · cancelled"
-           (when closed-at (str " @" closed-at))
-           dur)
-
-      :fired
-      (str state-s " · fired"
-           (when closed-at (str " @" closed-at))
-           dur)
-
-      :stale
-      (str state-s " · stale (epoch mismatch)" dur)
-
-      :skipped
-      (str state-s " · skipped (server-side)" dur)
-
-      :guard-suppressed
-      (str state-s " · fired (guard suppressed)"
            (when closed-at (str " @" closed-at))
            dur)
 

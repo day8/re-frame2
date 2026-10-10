@@ -222,7 +222,6 @@
    :rf.xray.column-widths/reset
    :rf.xray/cancellation-cascade-close
    :rf.xray/cancellation-cascade-open
-   :rf.xray/cancellation-cascade-set-expanded
    :rf.xray/cancellation-cascade-toggle-expand
    :rf.xray/clear-machine-selection
    :rf.xray/clear-reset-flash

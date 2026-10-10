@@ -7,8 +7,6 @@
     `:rf.xray/cancellation-cascade-close`   ; popover close
     `:rf.xray/cancellation-cascade-toggle-expand` ; show-all-N toggle
     `:rf.xray/focus-trace-entry`            ; jump-to-trace from a row
-    `:rf.xray/cancellation-cascade-set-expanded`
-       ; set the show-all-N flag explicitly
 
   All events run against Xray's `:rf/xray` frame; the storage slots
   live at `:cancellation-cascade-popover-open?`,
@@ -48,10 +46,6 @@
   (rf/reg-event :rf.xray/cancellation-cascade-toggle-expand
     (fn [{:keys [db]} _event]
       {:db (update db :cancellation-cascade-expanded? not)}))
-
-  (rf/reg-event :rf.xray/cancellation-cascade-set-expanded
-    (fn [{:keys [db]} [_ expanded?]]
-      {:db (assoc db :cancellation-cascade-expanded? (boolean expanded?))}))
 
   ;; ---- focus-trace-entry: row-click jump --------------------------------
   ;;
