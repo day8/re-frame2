@@ -363,12 +363,55 @@
                       :rf.flow/output-path  output-path
                       :cause                e}})))))
 
+(defn- reassert-output!
+  "The equal-input visit of `evaluate-flow!`: `:derive` does not run.
+
+  A flow owns its `:output-path` (Spec 013 §Dirty-check semantics), so when the
+  candidate db no longer holds the output `row` remembers — a handler replaced
+  the db, rebuilt the output's parent map, or wrote the slot — the remembered
+  output is written back. An absent slot differs from every value, so a
+  remembered nil comes back as a present key. A slot that already holds the
+  value leaves `db` untouched.
+
+  The visit's `:rf.flow/skip` carries `:repaired? true` when it wrote. A write
+  that cannot be installed fails as `:output-write`, as a recompute's would."
+  [frame-id owner-token exact-owner? db flow new-inputs row]
+  (let [path    (:output-path flow)
+        output  (:output row)
+        repair? (and (contains? row :output)
+                     (not= output (get-in db path ::absent)))
+        new-db  (if repair?
+                  (try
+                    (assoc-in db path output)
+                    (catch #?(:clj Throwable :cljs :default) e
+                      (flow-eval-failure! frame-id owner-token exact-owner?
+                                          flow new-inputs :output-write e)))
+                  db)]
+    (if (= stale-incarnation new-db)
+      stale-incarnation
+      (do
+        (when rf.interop/debug-enabled?
+          (rf.trace/emit! :flow :rf.flow/skip
+                       (cond-> {:flow-id               (:id flow)
+                                :reason                :inputs-value-equal
+                                :input-paths-unchanged (:inputs flow)
+                                :frame                 frame-id}
+                         repair? (assoc :repaired? true))))
+        (if (owner-live? frame-id owner-token exact-owner?)
+          new-db
+          stale-incarnation)))))
+
 (defn- evaluate-flow!
   "Evaluate one flow against the pending frame-state.
 
   Returns the transformed db, or `stale-incarnation` when the owning
   incarnation died mid-visit — the same two-outcome discrimination
   `run-flows-on-db*` itself returns to its own caller.
+
+  Inputs `=`-equal to the flow's dirty-check row skip `:derive` and re-assert
+  the row's remembered output ([[reassert-output!]]). Changed inputs run
+  `:derive`, write its value, and store the inputs and that value together as
+  the new row.
 
   A failure is rethrown with the failing flow id AND the
   failing PHASE for router attribution — `:derive` for the authored callback,
@@ -385,18 +428,9 @@
           new-inputs (read-inputs db runtime-db flow)
           ;; Read and write the captured A-owned cell, never a bare-id lookup
           ;; that could resolve to replacement B after a callback.
-          old-inputs (rf.flows.registry/pass-flow-last-inputs pass flow-id)]
-      (if (= new-inputs old-inputs)
-        (do
-          (when rf.interop/debug-enabled?
-            (rf.trace/emit! :flow :rf.flow/skip
-                         {:flow-id               flow-id
-                          :reason                :inputs-value-equal
-                          :input-paths-unchanged (:inputs flow)
-                          :frame                 frame-id}))
-          (if (owner-live? frame-id owner-token exact-owner?)
-            db
-            stale-incarnation))
+          row        (rf.flows.registry/pass-flow-row pass flow-id)]
+      (if (= new-inputs (:inputs row))
+        (reassert-output! frame-id owner-token exact-owner? db flow new-inputs row)
         ;; The authored `:derive` callback and the framework's own output
         ;; installation are caught by SEPARATE `try` forms.  The split is the
         ;; whole attribution mechanism: an `assoc-in` that cannot write the
@@ -424,8 +458,8 @@
                                         (get-in db (:output-path flow)))
                       new-db          (assoc-in db (:output-path flow)
                                                 new-output)]
-                  (rf.flows.registry/pass-set-flow-last-inputs!
-                    pass flow-id new-inputs)
+                  (rf.flows.registry/pass-set-flow-row!
+                    pass flow-id new-inputs new-output)
                   (when rf.interop/debug-enabled?
                     (rf.trace/emit! :flow :rf.flow/computed
                                  {:flow-id      flow-id
