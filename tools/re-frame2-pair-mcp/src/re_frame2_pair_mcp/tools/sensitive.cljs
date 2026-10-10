@@ -97,8 +97,8 @@
   "Walk a snapshot's per-frame map and drop `:sensitive? true` items
   from the `:traces` and `:epochs` slices. Returns
   `[scrubbed dropped-count]`. Non-trace slices (:app-db, :sub-cache,
-  :machines) pass through unchanged — redaction of those payloads is
-  the `redact-interceptor` interceptor's job, not the forwarder's.
+  :machines) pass through unchanged — redaction inside those payloads
+  is not this forwarder's job.
 
   Epoch records carry a sensitivity stamp: the epoch assembler computes
   the `:rf.epoch/sensitive?` rollup at record-assembly time and the

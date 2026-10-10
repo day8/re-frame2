@@ -106,7 +106,7 @@
  ;; The flow :derive fn — opaque in the static graph (the :derive token,
  ;; never serialized / never run by static inspection). A simple identity
  ;; body keeps registration valid; the flow VALUE law is pinned elsewhere
- ;; (flow-recompute-on-input-change.edn + the reference whole-value tests).
+ ;; (flow-recompute-on-input-change.edn).
  :fixture/flow-bodies
  {:cart/materialized-total [[:fn :identity [:event-arg 0]]]}
 

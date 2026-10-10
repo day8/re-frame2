@@ -4,8 +4,8 @@
   Unlike the wrapper-shaped markers in `schemas/canonical-markers`,
   `:rf/redacted` rides the wire as a **bare keyword scalar** — a literal
   value substituted in-place for a sensitive leaf by the framework's
-  `rf/elide-wire-value` walker and by the `redact-interceptor`
-  interceptor. There is no map payload, no `:handle`, no re-fetch
+  `rf/elide-wire-value` walker. There is no map payload, no `:handle`,
+  no re-fetch
   affordance; the value is gone. Per Spec 009 §Privacy and
   `mcp-base/vocab.cljc` `redacted-sentinel`.
 

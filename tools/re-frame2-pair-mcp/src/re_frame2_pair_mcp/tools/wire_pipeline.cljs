@@ -12,8 +12,8 @@
   let-sequence and the abbreviated trace-window / watch-epochs /
   get-path pipelines — several local-obvious copies of one rule, which
   cost nothing until the rule changes. A named pipeline encodes the
-  invariant once; a future step (say a `redact-interceptor` walker)
-  lands here once instead of in three places.
+  invariant once; a future step lands here once instead of in three
+  places.
 
   ## Ordering invariant
 

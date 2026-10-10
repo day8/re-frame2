@@ -230,33 +230,34 @@ implementation/
                              that sit above several artefacts: the shared :status /
                              :rf.reply/work-status / :work/id / canonical-stale vocabulary across
                              every managed-async family (HTTP, resources, mutations,
-                             machines, routing) plus the shared egress-projection
-                             boundaries (`trace-summary`, `project-egress`). Reply-target
-                             functor laws are owned by core and its timer probe.
+                             machines, routing) plus the egress projection of reply
+                             slots through `trace-summary`. Core owns the
+                             `project-egress` profiles, and core and its timer probe
+                             own the reply-target functor laws.
     test/re_frame/                 JVM + CLJS cross-family reply conformance suites.
 
   derivation-conformance/    Cross-family derivation/process-algebra conformance tier
                              (EP-0014) — test-only, no shipped namespace. Holds the
-                             umbrella axes that sit above several artefacts: the
-                             EP-0014 algebra axes (lowering, classification, graph
-                             edges, whole-value, lifecycle, evaluation) proven across
-                             all five families (subscriptions, flows, resources, route
-                             facts, machines) through the graph composer
-                             (`re-frame.derivation.graph`).
+                             umbrella axes that sit above several artefacts: graph
+                             edges, lifecycle release, on-demand evaluation and graph
+                             egress, proven across all five families (subscriptions,
+                             flows, resources, route facts, machines) through the
+                             graph composer (`re-frame.derivation.graph`). Each
+                             family's own suite pins its lowering and classification.
     test/re_frame/                 JVM + CLJS cross-family derivation conformance suites.
 
   event-conformance/         One-form event-MODEL conformance tier (EP-0018) —
                              test-only, no shipped namespace. Holds the umbrella
-                             regression lock on the one-form event-registration
-                             public contract: `reg-event` as the single public
-                             form (reg-event-fx semantics), the three retired
-                             names (`reg-event-db`/`-fx`/`-ctx`) surviving only as
-                             `^:no-doc` throwing stubs, the single
-                             `:rf/event-handler` wrapper (no `:event/kind` sub-tag),
-                             and preserved realm-routing. Spans the events runtime,
-                             the public facade, the error-emit channel, and the
-                             realm registrar.
-    test/re_frame/                 JVM + CLJS one-form event-model conformance suite.
+                             regression lock on the boundaries of the one-form
+                             event contract: supplied recordable coeffects validated
+                             at the durable boundary, the closed effects map at the
+                             final effects boundary, silent `:rf.db/runtime` writes
+                             for framework-authority handlers only, the three
+                             retired names (`reg-event-db`/`-fx`/`-ctx`) throwing
+                             and registering nothing, and live dispatch staying
+                             inside an image-loaded frame. Core's tests hold the
+                             single `:rf/event-handler` wrapper.
+    test/re_frame/                 JVM + CLJS one-form event-model conformance suites.
 ```
 
 ## Status by spec area
