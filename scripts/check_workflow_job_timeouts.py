@@ -130,177 +130,44 @@ def audit_document(doc) -> tuple[list[tuple[str, str]], int]:
 
 
 # ---------------------------------------------------------------------------
-# Self-test.  A live sweep over a clean tree cannot tell the
-# difference between "every job is capped" and "the checker has stopped
-# looking" — and this repo has a named defect class for exactly that: a control
-# built so it cannot meet the case it exists to catch.  A scanner whose
-# permanent test plants the forbidden entry first and alone would miss every
-# forbidden entry after the first.
-#
-# So the negative controls below include the two shapes that specifically defeat
-# a naive implementation: a step-level cap masquerading as a job cap (which a
-# grep cannot tell apart), and an uncapped job sitting SECOND behind a capped
-# one (which a checker that stops at the first job, or inspects only jobs[0],
-# would sail past).
+# Self-test: one workflow holding every job shape.  The capped job comes first
+# and the offenders after it, so a checker that stops at the first job or the
+# first offender reports the wrong list.
 # ---------------------------------------------------------------------------
-_ACCEPT = (
-    (
-        "job cap AND a step cap — the common real shape",
-        """\
-name: t
-on:
-  pull_request:
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - name: slow install
-        timeout-minutes: 8
-        run: echo hi
-""",
-    ),
-    (
-        "reusable-workflow call is exempt (GitHub rejects the key there)",
-        """\
-name: t
-on:
-  pull_request:
-jobs:
-  call:
-    uses: ./.github/workflows/other.yml
-""",
-    ),
-    (
-        "every job capped, several files' worth of jobs",
-        """\
-name: t
-on:
-  pull_request:
-jobs:
-  a:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - run: echo a
-  b:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - run: echo b
-""",
-    ),
-)
-
-_REJECT = (
-    (
-        "STEP-level cap only — the shape a grep cannot tell from a job cap",
-        """\
-name: t
-on:
-  pull_request:
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: slow install
-        timeout-minutes: 8
-        run: echo hi
-""",
-        ["build"],
-    ),
-    (
-        "uncapped job SECOND, behind a capped one",
-        """\
-name: t
-on:
-  pull_request:
+_SELF_TEST_WORKFLOW = """\
 jobs:
   capped:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
+  call:
+    uses: ./.github/workflows/other.yml
+  step-only:
     steps:
-      - run: echo a
+      - timeout-minutes: 8
+  empty:
+    timeout-minutes:
   uncapped:
     runs-on: ubuntu-latest
-    steps:
-      - run: echo b
-""",
-        ["uncapped"],
-    ),
-    (
-        "two uncapped jobs — both must be named, not just the first",
-        """\
-name: t
-on:
-  pull_request:
-jobs:
-  one:
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo a
-  two:
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo b
-""",
-        ["one", "two"],
-    ),
-    (
-        "key present but empty, which caps nothing",
-        """\
-name: t
-on:
-  pull_request:
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    timeout-minutes:
-    steps:
-      - run: echo hi
-""",
-        ["build"],
-    ),
-)
+"""
+_SELF_TEST_OFFENDERS = ["step-only", "empty", "uncapped"]
 
 
 def run_self_test(verbose: bool) -> int:
     import yaml
 
-    failures = []
-
-    for label, text in _ACCEPT:
-        offenders, examined = audit_document(yaml.safe_load(text))
-        if offenders:
-            failures.append(
-                f"ACCEPT case rejected — {label}: flagged {[o[0] for o in offenders]}"
-            )
-        elif examined == 0:
-            failures.append(f"ACCEPT case examined NO jobs — {label}")
-        elif verbose:
-            print(f"  ok  accepted: {label} ({examined} job(s))")
-
-    for label, text, expected in _REJECT:
-        offenders, _ = audit_document(yaml.safe_load(text))
-        got = sorted(o[0] for o in offenders)
-        if got != sorted(expected):
-            failures.append(
-                f"REJECT case wrong — {label}: expected {sorted(expected)}, got {got}"
-            )
-        elif verbose:
-            reasons = "; ".join(f"{j}: {w}" for j, w in offenders)
-            print(f"  ok  rejected: {label} -> {reasons}")
-
-    if failures:
-        print("FAIL check_workflow_job_timeouts self-test:", file=sys.stderr)
-        for problem in failures:
-            print(f"  - {problem}", file=sys.stderr)
+    offenders, examined = audit_document(yaml.safe_load(_SELF_TEST_WORKFLOW))
+    got = [job_id for job_id, _ in offenders]
+    if got != _SELF_TEST_OFFENDERS:
+        print(
+            "FAIL check_workflow_job_timeouts self-test: expected offenders "
+            f"{_SELF_TEST_OFFENDERS}, got {got}",
+            file=sys.stderr,
+        )
         return 1
+    if verbose:
+        for job_id, why in offenders:
+            print(f"  ok  {job_id}: {why}")
 
-    print(
-        "PASS check_workflow_job_timeouts self-test "
-        f"({len(_ACCEPT)} accept + {len(_REJECT)} reject cases)"
-    )
+    print(f"PASS check_workflow_job_timeouts self-test ({examined} job shapes)")
     return 0
 
 
