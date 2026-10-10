@@ -105,9 +105,10 @@
 
 (def terminal-statuses
   "The terminal mutation-instance statuses (the write has settled). A
-  terminal instance is cleared by an explicit causal `:rf.mutation/clear`
-  (NOT a form-error reset) or pruned by registration teardown. Per EP-0003
-  §Mutations (failure-state lifetime + causal clear/reset)."
+  terminal instance under a caller-supplied id is cleared by an explicit causal
+  `:rf.mutation/clear` (NOT a form-error reset) or pruned by registration
+  teardown; one under a generated id is cleared by the runtime once settled.
+  Per EP-0003 §Mutations (failure-state lifetime + causal clear/reset)."
   #{:success :error})
 
 (defn terminal?

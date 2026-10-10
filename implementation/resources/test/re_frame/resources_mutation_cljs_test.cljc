@@ -612,6 +612,73 @@
     (is (= :pending (:status (instance il))))
     (is (seq? (:instance/id (instance il))))))
 
+;; ---- generated-id retirement -------------------------------------------------
+;; The caller never holds a generated instance id, so nothing it writes could
+;; clear that row. The runtime retires it once the reply is accepted and any
+;; continuation has run; a caller-supplied instance keeps its row.
+
+(defn- mutation-ledger-rows []
+  (filter #(= :rf.mutation (first (:resource/key %)))
+          (vals (:rf.runtime/work-ledger (runtime-db)))))
+
+(deftest generated-instances-retire-after-settle
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
+  (dotimes [i 20]
+    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug (str "a" i)}}])
+    (if (even? i)
+      (reply-success! @last-managed-args {:saved i})
+      (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 503})))
+  (is (= 0 (count (instances))))
+  (is (= 0 (count (mutation-ledger-rows)))))
+
+(deftest supplied-instance-error-row-survives-until-cleared
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
+  (rf/dispatch-sync [:rf.mutation/execute
+                     {:mutation :m/save :params {:slug "w"} :instance :form/save}])
+  (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 503})
+  (is (= :error (:status (instance :form/save))))
+  (is (= 1 (count (mutation-ledger-rows))))
+  (rf/dispatch-sync [:rf.mutation/clear {:instance :form/save}])
+  (is (nil? (instance :form/save)))
+  (is (= 0 (count (mutation-ledger-rows)))))
+
+(deftest concurrent-generated-instances-each-continue-once-then-retire
+  ;; Each continuation still observes its own settled row (§Phase order), so
+  ;; retirement runs after it.
+  (let [all-args (atom [])
+        seen     (atom [])]
+    (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (swap! all-args conj args) nil))
+    (rf/reg-mutation :m/save (save-article-spec) save-article-request)
+    (rf/reg-event :test/save-replied
+                  (fn [_ [_ tag reply]]
+                    (swap! seen conj [tag (:value reply) (:status (instance (:instance reply)))])
+                    {}))
+    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "a"}
+                                             :reply-to [:test/save-replied :a]}])
+    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "b"}
+                                             :reply-to [:test/save-replied :b]}])
+    (let [[args-a args-b] @all-args]
+      (is (= 2 (count (instances))))
+      (reply-success! args-b {:id :b})
+      (reply-success! args-a {:id :a})
+      (is (= [[:b {:id :b} :success] [:a {:id :a} :success]] @seen))
+      (is (= 0 (count (instances))))
+      (is (= 0 (count (mutation-ledger-rows)))))))
+
+(deftest late-reply-for-a-retired-generated-instance-is-suppressed
+  (reg-capture-continuation!)
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
+  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"}
+                                           :reply-to [:test/save-replied]}])
+  (let [args @last-managed-args]
+    (reply-success! args {:first true})
+    (is (= 0 (count (instances))))
+    (is (= [:rf.mutation/stale-suppressed]
+           (mapv :operation (record-mutation-traces! #(reply-success! args {:late true})))))
+    (is (= [{:first true}] (mapv (comp :value second) @replied)))
+    (is (= 0 (count (instances))))
+    (is (= 0 (count (mutation-ledger-rows))))))
+
 ;; ---- subs and introspection -------------------------------------------------
 
 (deftest mutation-subs-project-view-model
