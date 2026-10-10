@@ -13,8 +13,9 @@
             [re-frame.ssr.error-projector :as rf.ssr.error-projector]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
-;; Clearing the registry also drops the façade's own `::error-projection`
-;; listener, so a test here sees only what its recorder sees.
+;; Clearing the registry leaves this namespace's recorder alone on it, so a
+;; test here sees only what its recorder sees. SSR's own capture rides a
+;; late-bind hook, not the registry, and keeps projecting.
 (use-fixtures :each
   (fn [t]
     (rf.ssr.test-fixture/reset-runtime

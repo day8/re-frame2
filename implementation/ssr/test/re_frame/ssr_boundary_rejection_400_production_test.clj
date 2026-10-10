@@ -18,8 +18,8 @@
             [re-frame.ssr.error-listener :as rf.ssr.error-listener]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
-;; The fixture must not clear the always-on registry: `re-frame.ssr`'s
-;; `::error-projection` listener there IS the production projection path.
+;; `re-frame.ssr`'s always-on capture hook (`:ssr/capture-error-record`) IS
+;; the production projection path under test here.
 (use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 ;; `:qty` fails the schema; `:note` rides an undeclared key, which no

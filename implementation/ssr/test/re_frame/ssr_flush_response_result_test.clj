@@ -13,8 +13,9 @@
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
             [re-frame.trace :as rf.trace]))
 
-;; Clear listeners BEFORE the reset: the reset re-installs the façade's
-;; always-on projection listener, which is the production projection path.
+;; A listener another namespace left behind is cleared. SSR's always-on
+;; capture, the production projection path, rides a late-bind hook rather
+;; than the registry, so it stays.
 (use-fixtures :each
   (fn [t]
     (rf.error-emit/clear-error-listeners!)

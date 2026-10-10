@@ -11,7 +11,7 @@
   transitively loads every runtime concern under `re-frame.routing.*` (each owns
   one cohesive concern, see below) and runs the registrations
   (`reg-event` / `reg-fx` / `reg-sub` / the late-bind lifecycle hooks /
-  `register-error-listener!` / `reg-view*`) at the bottom of this file.
+  `reg-view*`) at the bottom of this file.
 
   Registrations live here rather than in the concern namespaces so a
   `(require 're-frame.routing :reload)` on a fresh registrar

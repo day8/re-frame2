@@ -460,12 +460,6 @@
                                        re-apply it through `configure!` in
                                        their `:init-fn` (which runs after the
                                        post-dispose reset hooks).
-    :ssr/reinstall-error-projection! — put back the always-on error listener
-                                       `re-frame.ssr` installs at load, which
-                                       the error-listener clear above
-                                       removed. Without it a render-time
-                                       throw in a later SSR test projects no
-                                       error status.
     :adapter/clear-warn-once-caches! — clear per-adapter
                                        `warned-non-dom-roots` warn-once
                                        caches. Chained — re-frame.views
@@ -488,7 +482,6 @@
    {:hook :epoch/clear-history!            :phase :post-dispose}
    {:hook :epoch/clear-epoch-listeners!          :phase :post-dispose}
    {:hook :epoch/reset-config!             :phase :post-dispose}
-   {:hook :ssr/reinstall-error-projection! :phase :post-dispose}
    {:hook :adapter/clear-warn-once-caches! :phase :post-dispose}])
 
 (defn- run-reset-hooks!

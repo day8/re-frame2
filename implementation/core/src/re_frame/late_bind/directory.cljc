@@ -620,9 +620,12 @@
    {:key         :ssr/on-frame-destroyed
     :producer-ns 're-frame.ssr
     :description "Clear the SSR side-channel atoms (pending-error-traces, request-slots, response-slots) for a destroyed frame, per Spec 011 §Per-request frame teardown contract. The `:rf/response` accumulator lives in response-slots rather than `app-db`, so it neither leaks into the hydration payload nor costs a full app-db swap per fx."}
-   {:key         :ssr/reinstall-error-projection!
+   {:key         :ssr/capture-error-record
     :producer-ns 're-frame.ssr
-    :description "Test-isolation reset: re-register the always-on `::error-projection` error-emit listener `re-frame.ssr` installs at ns-load. The shared make-reset-runtime-fixture clears every error listener before its post-dispose hooks, and its reset-hook table fires this one so a later SSR test still projects a render-time throw to its error status. Unbound when the ssr artefact is absent, so the row no-ops."}
+    :description "SSR's always-on error capture `(fn [record])`: buffers a promoted error-emit record that names a `:platform :server` frame for that frame's status projection (Spec 011 §Server error projection). Called by `re-frame.error-emit`'s corpus fan-out for every promoted record, after the listener registry and before the sink route, while the emitting continuation is live; a throw is dropped. UNGATED — it fires under `goog.DEBUG=false` and `-Dre-frame.debug=false`, because status projection is a production contract. A hook, not an `:errors` listener: it owns no record for the dev console fallback and `clear-error-listeners!` never removes it. Unbound when the ssr artefact is absent, so nothing is captured."}
+   {:key         :ssr/capture-error-trace
+    :producer-ns 're-frame.ssr
+    :description "SSR's dev error capture `(fn [trace-event])`: buffers an `:op-type :error` trace event whose `[:tags :frame]` names a `:platform :server` frame for that frame's status projection, covering the dev-only error categories that have no always-on record. Called synchronously by `re-frame.trace.tooling`'s delivery for every trace event, after the ring push and before the listener fan-out or its deferral; a throw is dropped. Dev-only, because the tooling delivery is. A hook, not a `:trace` listener: it owns no warning print and `clear-listeners!` never removes it. Unbound when the ssr artefact is absent, so nothing is captured."}
 
    ;; ---- re-frame.ssr.manifest (Root Manifest v1 discovery) -----------------
    {:key         :ssr/discover-root-manifest

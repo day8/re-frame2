@@ -1,16 +1,16 @@
 (ns re-frame.ssr
   "Server-side rendering and hydration façade.
 
-  Requiring this namespace installs the SSR event, effect, coeffect, error
-  projector, and listener registrations. It also eagerly loads the head
-  namespace so its late-bound host hook is available.
+  Requiring this namespace installs the SSR event, effect, coeffect and error
+  projector registrations, and publishes the late-bind hooks core reaches it
+  through, its two error-capture hooks among them. It also eagerly loads the
+  head namespace so its late-bound host hook is available.
 
   The façade exposes pure HTML emission and hashing, client hydration,
   per-frame request and response side channels, error projection, and the
   headless adapter. Core reaches this optional artefact
   only through `re-frame.late-bind`; this artefact may depend on core."
   (:require [re-frame.cofx :as rf.cofx]
-            [re-frame.error-emit :as rf.error-emit]
             [re-frame.events :as rf.events]
             [re-frame.fx :as rf.fx]
             [re-frame.late-bind :as rf.late-bind]
@@ -30,10 +30,7 @@
             [re-frame.ssr.server-fx-schemas :as rf.ssr.server-fx-schemas]
             [re-frame.ssr.substrate :as rf.ssr.substrate]
             ;; The S5 structural-tree -> HTML serialiser.
-            [re-frame.ssr.ui-tree :as rf.ssr.ui-tree]
-            ;; Listener registration lives on the tooling surface so production
-            ;; code that does not use SSR does not retain trace tooling.
-            [re-frame.trace.tooling :as rf.trace.tooling]))
+            [re-frame.ssr.ui-tree :as rf.ssr.ui-tree]))
 
 ;; ---- public-surface re-exports --------------------------------------------
 ;;
@@ -333,7 +330,7 @@ explicitly."
    :platforms #{:server}}
   rf.ssr.request/request-cofx)
 
-;; ---- error-projector registry + trace-listener ----------------------------
+;; ---- error-projector registry ---------------------------------------------
 ;;
 ;; Per Spec 011 §Default projector + §Server error projection.
 
@@ -341,7 +338,15 @@ explicitly."
                      {:doc "Built-in default projector. Spec 011 §Default projector mapping."}
                      default-error-projector-fn)
 
-;; The always-on listener survives `interop/debug-enabled? = false`, so the
+;; ---- error capture --------------------------------------------------------
+;;
+;; Server error projection captures through two late-bind hooks that core's
+;; delivery code calls beside its listener fan-out. Neither is a listener. A
+;; listener registration means somebody is watching, so it owns the dev
+;; console prints, and a test's listener clear removes it; SSR's capture is a
+;; permanent framework consumer that must do neither.
+;;
+;; The always-on capture survives `interop/debug-enabled? = false`, so the
 ;; SSR `:rf/public-error` projection contract holds even when the trace
 ;; surface is gated off. It consumes `:rf.error/*` records GENERICALLY, so
 ;; its coverage is exactly the always-on axis's promoted set (Spec 009
@@ -357,26 +362,21 @@ explicitly."
 ;; categories. A sub that throws mid-render projects a fail-closed 5xx under
 ;; production hardening instead of recovering to nil and producing an HTTP
 ;; 200; an unroutable URL projects 404 instead of a soft-404 200.
-(defn- install-error-projection-listener! []
-  (rf.error-emit/register-error-listener! ::error-projection
-                                          rf.ssr.error-listener/error-emit-projection-listener))
+(rf.late-bind/set-fn! :ssr/capture-error-record
+                      rf.ssr.error-listener/error-emit-projection-listener)
 
-(install-error-projection-listener!)
-
-;; The development trace listener covers the same categories on the DEV
-;; trace bus, plus the one that rides it ALONE and so DCEs under
-;; `interop/debug-enabled? = false`: `:rf.error/no-such-route` (the
-;; `route-url` caller-misuse throw, catalogued diagnostic). Categories on
-;; BOTH axes — `:rf.error/sub-exception`, `:rf.error/no-such-handler`,
+;; The dev capture covers the same categories on the DEV trace delivery,
+;; plus the dev-only ones, which have no always-on record and so project
+;; only while `interop/debug-enabled?` holds. Categories on BOTH axes —
+;; `:rf.error/sub-exception`, `:rf.error/no-such-handler`,
 ;; `:rf.error/drain-depth-exceeded`, and the `:boundary? true`
 ;; `:rf.error/schema-validation-failure`, whose check runs in every build
 ;; (Spec 010 §Production builds) — buffer twice in dev; the always-on
-;; axis is their production status source of truth. Both listeners share id
-;; `::error-projection` to keep the contract surface addressable as one
-;; logical projector — `apply-error-projection!` 1-arity keeps the highest
-;; projected status, so the duplicate buffer entry under dev is benign.
-(rf.trace.tooling/register-listener! ::error-projection
-                                  rf.ssr.error-listener/error-projection-listener)
+;; axis is their production status source of truth, and the 1-arity
+;; `apply-error-projection!` keeps the highest projected status, so the
+;; duplicate buffer entry is benign.
+(rf.late-bind/set-fn! :ssr/capture-error-trace
+                      rf.ssr.error-listener/error-projection-listener)
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
@@ -395,9 +395,6 @@ explicitly."
 ;; (`pending-error-traces`, `request-slots`, `response-slots`) for the
 ;; destroyed frame.
 (rf.late-bind/set-fn! :ssr/on-frame-destroyed  on-frame-destroyed!)
-;; The test-support reset clears every error listener, then fires this hook so
-;; the always-on projection listener above is back for the next test.
-(rf.late-bind/set-fn! :ssr/reinstall-error-projection! install-error-projection-listener!)
 
 ;; `re-frame.ssr.head` is required above so its `:ssr/reg-head` late-bind
 ;; hook lands at ssr-ns load time on both JVM and CLJS. Reading a head is a

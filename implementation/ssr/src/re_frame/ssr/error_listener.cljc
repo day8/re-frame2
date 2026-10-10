@@ -1,11 +1,14 @@
 (ns re-frame.ssr.error-listener
-  "Trace-listener + per-frame error-trace buffer + projection drain +
+  "Error capture + per-frame error-trace buffer + projection drain +
   `get-response`. Per Spec 011 §Server error projection — the
-  runtime-side glue that ties trace events to the active projector and
-  stamps the public-error's `:status` onto the response accumulator.
+  runtime-side glue that ties error records and trace events to the active
+  projector and stamps the public-error's `:status` onto the response
+  accumulator.
 
-  Listeners buffer candidate errors instead of projecting inside the callback.
-  The settle-point drain then chooses the final error, respects redirect
+  The two capture fns ride late-bind hooks that core's delivery code calls
+  beside its listener fan-out; `re-frame.ssr` publishes them. They buffer
+  candidate errors instead of projecting inside the callback. The
+  settle-point drain then chooses the final error, respects redirect
   precedence, and updates the per-frame response accumulator atomically."
   (:require [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
@@ -23,9 +26,9 @@
 ;; addressable without a static require). UNGATED — it fires under
 ;; `interop/debug-enabled? = false` so off-box shippers (Sentry / Datadog)
 ;; on a `-Dre-frame.debug=false` JVM SSR host see the structured record the
-;; dev trace surface would have elided. The corresponding
-;; `error-emit-projection-listener` is registered with id `::error-projection`
-;; (re-frame.ssr façade), so this record drives status projection for the
+;; dev trace surface would have elided. The always-on capture
+;; `error-emit-projection-listener` (the `:ssr/capture-error-record` hook)
+;; receives this record, so it drives status projection for the
 ;; projection-eligible categories and is skipped (observability-only) for
 ;; the recoverable-degradation members — same `non-projection-eligible-error?`
 ;; gate that governs the wire (promotion changes what SHIPPERS see, never
@@ -97,11 +100,11 @@
 ;; re-flush, would let the buffered trace re-project → its generic 5xx
 ;; and silently flip 4xx→5xx. Skipping it here closes that hole by
 ;; construction — symmetric with the head category, enforced at the same
-;; chokepoint across both buffering listeners.
+;; chokepoint across both capture hooks.
 ;; One further non-projecting category also uses the always-on axis:
 ;;
 ;;   `:rf.error/sanitised-on-projection` — the projector-fallback path. Both
-;;   listeners also guard it explicitly (the re-entry guard); its place
+;;   capture fns also guard it explicitly (the re-entry guard); its place
 ;;   in the set keeps the classification uniform and keeps the one-shot,
 ;;   never-re-enter-projection contract enforced at the same chokepoint.
 ;;
@@ -121,8 +124,8 @@
 ;; is the one stated at the head of this block and it is absolute here:
 ;; PROMOTION CHANGES WHAT SHIPPERS SEE, NEVER WHAT THE WIRE DOES.
 ;;
-;; The skip is at this chokepoint, so it is symmetric across BOTH buffering
-;; listeners. Were these categories projection-eligible on the
+;; The skip is at this chokepoint, so it is symmetric across BOTH capture
+;; hooks. Were these categories projection-eligible on the
 ;; trace-cb path, a rejected
 ;; redirect could stamp a 500 in a dev build while a production build
 ;; answered 200. The wire is the same in both postures.
@@ -162,8 +165,8 @@
   [operation]
   (contains? non-projection-eligible-errors operation))
 
-;; Per-frame buffer of captured error trace events. The trace listener
-;; appends here synchronously when the error fires; apply-pending-
+;; Per-frame buffer of captured error trace events. Both capture hooks
+;; append here synchronously when the error fires; apply-pending-
 ;; error-projection! drains the buffer and stamps the projected status
 ;; onto :rf/response.
 ;;
@@ -290,22 +293,22 @@
           ;; Build the event in the same envelope shape the trace bus
           ;; produces, so projector implementations that case on
           ;; :operation see the same key whether the event arrived via
-          ;; the listener-buffer drain (drain-time errors) or our
+          ;; the capture-buffer drain (drain-time errors) or our
           ;; synthesised render-time path (Spec 011 §Server error
           ;; projection §Pipeline step 1: "an exception occurs
           ;; (handler, fx, sub, render-time view)").
           trace-event {:op-type   :error
                        :operation :rf.error/ssr-render-failed
                        :tags      tags}]
-      ;; Drain the listener buffer first so an earlier in-drain trace
+      ;; Drain the capture buffer first so an earlier in-drain trace
       ;; (e.g. an :rf.error/fx-handler-exception that fired during
       ;; on-create) is not silently dropped if the render-time throw
       ;; reaches us after a drain that buffered a trace. The 1-arity
       ;; call is a no-op when the buffer is empty.
       (apply-error-projection! frame-id)
       ;; Emit on the trace bus so monitoring listeners see the rich
-      ;; internal trace event for the render-time failure. The
-      ;; listener will buffer the trace under :ssr.error/render-failed;
+      ;; internal trace event for the render-time failure. The dev
+      ;; capture will buffer the trace under :ssr.error/render-failed;
       ;; we drain it again via the 1-arity call below so the buffer
       ;; clears.
       (rf.trace/emit-error! :rf.error/ssr-render-failed tags)
@@ -313,9 +316,10 @@
       ;; an off-box shipper on a `-Dre-frame.debug=false` JVM SSR host sees
       ;; the structured render-failure record (the dev trace above is
       ;; elided there). `:rf.error/ssr-render-failed` is PROJECTION-ELIGIBLE
-      ;; — the always-on `error-emit-projection-listener` (id
-      ;; `::error-projection`) buffers it onto the SAME pending-error-traces
-      ;; atom as the dev listener; the `consume-pending-traces!` clear below
+      ;; — the always-on `error-emit-projection-listener` (the
+      ;; `:ssr/capture-error-record` hook) buffers it onto the SAME
+      ;; pending-error-traces atom as the dev capture; the
+      ;; `consume-pending-traces!` clear below
       ;; drops BOTH buffered duplicates, so the wire status is driven solely
       ;; by the DIRECT `apply-error-projection!` call (no double-stamp, no
       ;; re-project on a later flush). Union record shape.
@@ -334,7 +338,7 @@
       ;; returns the public-error map the caller uses to render the
       ;; wire body.
       (let [public-error (apply-error-projection! frame-id trace-event)]
-        ;; Clear any duplicate buffer entry the listeners appended above
+        ;; Clear any duplicate buffer entry the capture hooks appended above
         ;; (apply-error-projection! 2-arity does not drain). Without
         ;; this a later settle would re-project the same event.
         ;; Clears BOTH the dev-trace AND the always-on buffered duplicates.
@@ -342,18 +346,21 @@
         public-error))))
 
 (defn error-projection-listener
-  "Dev-only trace-cb listener — captures error trace events bound to a
-  server frame in the per-frame pending-error-traces buffer. Projection waits
-  until the settle point so the host observes one result, the worst
-  buffered status, and redirect precedence is applied once. Registered in the `re-frame.ssr`
-  façade under `::error-projection`.
+  "Dev error capture — buffers error trace events bound to a server frame
+  in the per-frame pending-error-traces buffer. Projection waits until the
+  settle point so the host observes one result, the worst buffered status,
+  and redirect precedence is applied once.
 
-  This listener covers every `:rf.error/*` category that fires through
-  `trace/emit-error!` — which is a SUPERSET of the always-on axis, not a
-  disjoint set. ONE projection-eligible category rides the dev bus ALONE
-  and therefore elides under `interop/debug-enabled? = false`:
-  `:rf.error/no-such-route` (the `route-url` caller-misuse throw, Spec 009
-  catalogues it diagnostic).
+  `re-frame.ssr` publishes it as the `:ssr/capture-error-trace` late-bind
+  hook, which `re-frame.trace.tooling` calls for every delivered trace
+  event. It is a hook rather than a `:trace` listener because a listener
+  owns the dev warning print and `clear-listeners!` removes it; the hook
+  does neither.
+
+  It covers every `:rf.error/*` category that fires through
+  `trace/emit-error!` — a SUPERSET of the always-on axis, not a disjoint
+  set. A dev-only category, one with no always-on record, therefore
+  projects in dev and elides under `interop/debug-enabled? = false`.
 
   The rest arrive on BOTH buses, and the always-on
   `error-emit-projection-listener` (below) is their production status
@@ -366,7 +373,7 @@
   `:rf.error/schema-validation-failure` from the
   `:boundary? true` step-1 check, which the default projector's
   `:where`-gated arm maps to 400 (RFC 9110 §15.5.1: a refused request
-  payload is a client fault, not a server one). In dev both listeners fire
+  payload is a client fault, not a server one). In dev both captures fire
   for those — the settle keeps the highest projected status, so the
   duplicate projects the same status twice and is benign.
 
@@ -396,10 +403,9 @@
           (buffer-error-trace! frame-id event))))))
 
 (defn error-emit-projection-listener
-  "Always-on error-emission listener. Captures `:rf.error/*` records delivered via
-  `register-error-listener!` and buffers them onto the per-frame
-  pending-error-traces buffer in the same trace-event shape the
-  projector consumes.
+  "Always-on error capture. Buffers the promoted `:rf.error/*` records
+  `re-frame.error-emit` fans out onto the per-frame pending-error-traces
+  buffer, in the same trace-event shape the projector consumes.
 
   The error-emit record arrives in the UNION shape `{:error <kw> :frame
   <id-or-nil> :time <ms> + flat category-specific keys}`. The event-centric
@@ -414,9 +420,13 @@
   category was promoted. `:operation` is the record's `:error`; `:recovery`
   defaults to `:no-recovery` when the record didn't carry one.
 
-  Registered in the `re-frame.ssr` façade under `::error-projection`.
-  Survives `interop/debug-enabled? = false` — Spec 011 §Server error
-  projection holds when development tracing is disabled."
+  `re-frame.ssr` publishes it as the `:ssr/capture-error-record` late-bind
+  hook, which the error-emit fan-out calls for every promoted record beside
+  its listener registry. It is a hook rather than an `:errors` listener
+  because a listener owns the dev console fallback and
+  `clear-error-listeners!` removes it; the hook does neither. Survives
+  `interop/debug-enabled? = false` — Spec 011 §Server error projection
+  holds when development tracing is disabled."
   [record]
   (let [operation (:error record)]
     ;; Symmetric with the trace-cb guard above — refuse our own
