@@ -3,10 +3,11 @@
   `:type :parallel` state anywhere below the machine root (Spec 005 §Parallel
   regions: parallel is root-only)."
   (:require [clojure.test :refer [deftest is]]
-            [re-frame.machines :as rf.machines]))
+            [re-frame.machines]
+            [re-frame.machines.lifecycle-fx.registration :as rf.machines.lifecycle-fx.registration]))
 
 (defn- refusal-id [machine]
-  (try (rf.machines/make-machine-handler machine) :registered
+  (try (rf.machines.lifecycle-fx.registration/make-machine-handler machine) :registered
        (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))
 
 (deftest parallel-registration-time-validation

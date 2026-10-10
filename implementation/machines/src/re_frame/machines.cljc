@@ -24,8 +24,7 @@
     - Pure machine-transition fn (JVM- and CLJS-runnable, deterministic).
 
   Public surface re-exported from the sub-namespaces:
-    - `reg-machine*`, `make-machine-handler` —
-      `re-frame.machines.lifecycle-fx.registration`
+    - `reg-machine*` — `re-frame.machines.lifecycle-fx.registration`
     - `validate-machine!` — `re-frame.machines.lifecycle-fx.validation`
       (the pure registration-time validator; the conformance corpus's
       `:reg-machine` Mode-B op pins the registration-error taxonomy
@@ -76,7 +75,6 @@
 ;; `[:rf.runtime/machines :spawn-counter <id-prefix>]` slot.
 
 (def reg-machine*           rf.machines.lifecycle-fx.registration/reg-machine*)
-(def make-machine-handler rf.machines.lifecycle-fx.registration/make-machine-handler)
 ;; Boundary-validation surface for the `[:schemas :data]` schema on `reg-machine`
 ;; (Spec 005 §Schema validation, Spec 010 §Per-step recovery row 7). The
 ;; pre-commit walker validates every candidate snapshot's `:data` against its
@@ -412,7 +410,6 @@
 ;; runtime always reaches through this hook to the plain-fn surface.
 
 (rf.late-bind/set-fn! :machines/reg-machine            reg-machine*)
-(rf.late-bind/set-fn! :machines/make-machine-handler make-machine-handler)
 (rf.late-bind/set-fn! :machines/machine-transition     machine-transition)
 ;; There is no `:machines/machines` hook: enumerating machines is a `filter`
 ;; over the generic registrar query any caller can write. The `machine-meta`

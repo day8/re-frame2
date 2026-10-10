@@ -1,6 +1,6 @@
 (ns re-frame.machine-schema-arity-test
-  "The single registration home, the fail-loud guard, and the public
-  `reg-machine` event-vector `:schema` arity.
+  "The single registration home and the public `reg-machine` event-vector
+  `:schema` arity.
 
   Background. A machine carrying a `[:schemas :data]` schema must flow through the
   single registration home so the `:rf/machine?` / `:rf/machine`
@@ -9,8 +9,7 @@
   without the stamp the schema validates nothing.
 
   The single home (`reg-machine*` and its event-`:schema` arity) stamps the
-  meta. `make-machine-handler` is the fail-loud guard: a `[:schemas :data]`-bearing
-  spec reaching it outside the single registration home raises.
+  meta.
 
   A `[:schemas :data]` schema is validation-only; it does not run a second
   egress-classification side-effect. Durable machine `:data` egress
@@ -28,12 +27,7 @@
    2. **Event-vector :schema arity.** The `:schema` on the opts map validates
       the dispatched OUTER event vector at the `:where :event` boundary
       (rejecting a malformed vector BEFORE the handler runs), while the
-      `[:schemas :data]` schema validates the machine's `:data`. Both live together.
-
-   3. **Fail-loud guard.** The bare `(reg-event id meta
-      (make-machine-handler spec))` path on a `[:schemas :data]`-bearing spec
-      RAISES `:rf.error/machine-schema-requires-reg-machine` rather than
-      silently no-opping. A schema-LESS spec stays legal on the bare path."
+      `[:schemas :data]` schema validates the machine's `:data`. Both live together."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             ;; Loading the machines artefact publishes its late-bind hooks
@@ -137,20 +131,6 @@
     (rf/dispatch-sync
       [flow-id [:auth.login/submit {:email "a@b.com" :password "longenough"}]])
     (is (= :submitting (rf.machines.test-support/machine-state flow-id)))))
-
-;; ---- (3) fail-loud guard on the bare unstamped-with-schema direct path -----
-
-(deftest bare-direct-path-with-data-schema-fails-loud
-  (testing "the bare (reg-event id meta (make-machine-handler spec)) path on
-            a [:schemas :data]-bearing spec RAISES rather than silently no-opping"
-    (is (= :rf.error/machine-schema-requires-reg-machine
-           (try (rf.machines/make-machine-handler
-                  {:initial :idle
-                   :data    {:attempts 0 :token nil :error nil}
-                   :schemas {:data AuthLoginData}
-                   :states  {:idle {}}})
-                nil
-                (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e))))))))
 
 ;; ---- single-home invariants ------------------------------------------------
 

@@ -1,7 +1,7 @@
 ;; day8/re-frame2-machines — optional state-machine artefact.
 ;;
 ;; Per Spec 005 §State machines the machine grammar
-;; (`reg-machine`, `make-machine-handler`, `machine-transition`,
+;; (`reg-machine`, `reg-machine*`, `machine-transition`,
 ;; the `:rf/machine` framework sub, the `:rf.machine/spawn` /
 ;; `:rf.machine/destroy` effect handlers) ships as a separate
 ;; Maven artefact so apps that don't register any machines don't drag

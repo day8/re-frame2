@@ -6,6 +6,7 @@
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines :as rf.machines]
+            [re-frame.machines.lifecycle-fx.registration :as rf.machines.lifecycle-fx.registration]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
@@ -17,7 +18,7 @@
    :b {:initial :one :states {:one {} :two {}}}})
 
 (defn- refusal-id [machine]
-  (try (rf.machines/make-machine-handler machine) :registered
+  (try (rf.machines.lifecycle-fx.registration/make-machine-handler machine) :registered
        (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))
 
 (defn- step [m data event]

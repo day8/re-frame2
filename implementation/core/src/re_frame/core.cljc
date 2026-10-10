@@ -752,8 +752,7 @@
      validates the dispatched OUTER event vector at the `:where :event`
      boundary, so a machine that needs BOTH a live `[:schemas :data]` AND an
      event-vector schema (the login / realworld auth shape) is expressible
-     through this blessed surface — no hand-stamped `reg-event` +
-     `make-machine-handler` composition. The framework-owned `:rf/machine?` /
+     through this one surface. The framework-owned `:rf/machine?` /
      `:rf/machine` keys are stamped by the registration home and MUST NOT
      appear in `opts`."
      ([machine-id machine]

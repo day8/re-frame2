@@ -7,13 +7,14 @@
   sanctioned spellings (a) and (b) and the limit that separates them."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is]]
-            [re-frame.machines :as rf.machines]))
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.lifecycle-fx.registration :as rf.machines.lifecycle-fx.registration]))
 
 ;; ---- registration ----------------------------------------------------------
 
 (deftest region-state-cross-region-target-rejected-with-a-region-aware-message
   (try
-    (rf.machines/make-machine-handler
+    (rf.machines.lifecycle-fx.registration/make-machine-handler
       {:type    :parallel
        :regions {:a {:initial :one
                      :states  {:one {:on {:go {:target [:b :two]}}}
@@ -31,7 +32,7 @@
   (is (thrown-with-msg?
         clojure.lang.ExceptionInfo
         #":rf.error/machine-unresolved-target"
-        (rf.machines/make-machine-handler
+        (rf.machines.lifecycle-fx.registration/make-machine-handler
           {:type    :parallel
            :regions {:a {:initial :one
                          :on      {:go {:target [:b :two]}}
@@ -40,7 +41,7 @@
                          :states  {:one {} :two {}}}}}))))
 
 (deftest in-region-target-shadowing-a-sibling-region-name-still-resolves
-  (is (fn? (rf.machines/make-machine-handler
+  (is (fn? (rf.machines.lifecycle-fx.registration/make-machine-handler
              {:type    :parallel
               :regions {:a {:initial :one
                             :states  {:one {:on {:go {:target [:b :two]}}}

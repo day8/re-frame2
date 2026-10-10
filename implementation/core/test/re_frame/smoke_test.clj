@@ -13,7 +13,7 @@
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
             [re-frame.routing]
-            [re-frame.machines :as rf.machines]
+            [re-frame.machines]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
             [re-frame.schemas :as rf.schemas]
@@ -140,14 +140,14 @@
   ;; the spawn counter lives in each parent snapshot, so independent frames
   ;; never share an actor-id sequence
   (rf/reg-machine :worker {:initial :running :data {} :states {:running {}}})
-  (rf/reg-event :flow (rf.machines/make-machine-handler
-                        {:initial :idle
-                         :data    {}
-                         :states  {:idle    {:on {:start :working}}
-                                   :working {:spawn {:machine-id :worker
-                                                     :id-prefix  :worker
-                                                     :start      [:begin]}
-                                             :on    {:done :idle}}}}))
+  (rf/reg-machine :flow
+                  {:initial :idle
+                   :data    {}
+                   :states  {:idle    {:on {:start :working}}
+                             :working {:spawn {:machine-id :worker
+                                               :id-prefix  :worker
+                                               :start      [:begin]}
+                                       :on    {:done :idle}}}})
   (rf/make-frame {:id :left})
   (rf/make-frame {:id :right})
   (rf/dispatch-sync [:flow [:start]] {:frame :left})
