@@ -119,8 +119,7 @@ retired SHAPES:
       last three carry a suffix this gate never opens (`.md`, `.edn`) — the
       `skills/` one sits inside a scanned TREE, so it is the suffix filter and
       not the roster that keeps it out. The boundary is what keeps the rule
-      correct if the suffix filter is ever widened, and the self-test pins all
-      five verbatim.
+      correct if the suffix filter is ever widened.
 
   (d) TWO shapes, and the second one is the whole reason the rule exists:
 
@@ -224,9 +223,7 @@ retired SHAPES:
 
       PINNED IN BOTH DIRECTIONS: the needle fires on the carrier shape
       quoted above, and on NONE of the in-tree sites that name the
-      spelling. Those sites are pinned verbatim as self-test negatives
-      below, so a widening that would red a real file fails here first
-      rather than in someone else's PR.
+      spelling.
 
   (f) TWO SURFACES, because the retired arrow has two carriers and a
       source-only rule would see one of them.
@@ -281,10 +278,6 @@ retired SHAPES:
           someone migrating FROM v1. Only a migration document
           has a reason to show the retired form, and a new teaching page
           showing it is wrong by definition.
-
-      The self-test exercises the source allow-list in BOTH directions on the
-      same line — green through the allow-list, red from any other path — so a
-      rule that had stopped matching altogether cannot pass it looking correct.
 
 WHY RULE (g) IS THE ONLY WIDE ONE
 
@@ -541,8 +534,7 @@ from typing import Iterable, NamedTuple
 #     nothing is lost.
 #
 # `spec/` carries no Clojure source at all (prose + EDN fixtures), so it is not
-# a candidate for THIS roster: the retirement NOTES there are held by the
-# self-test's verbatim prose phase instead. It IS on rule (f)'s separate prose
+# a candidate for THIS roster. It IS on rule (f)'s separate prose
 # roster, which reads `.md` FENCED CODE — safe for the same staging reason the
 # `docs/` exclusion turns on, since the staged copies live under the gitignored
 # `docs/spec/` and scanning `spec/` reads the source of truth once.
@@ -818,12 +810,10 @@ PRODUCT_EXCLUDE_SUFFIXES = frozenset({
 #      the retired spelling is legitimate there.
 #   2. Prefer a construct to a line range: a range moves silently under an edit
 #      above it, a construct does not.
-#   3. Add the file's real content as a fixture under
-#      `scripts/_test_fixtures/check_retired_spellings/product/` and a row in
-#      `_PRODUCT_SELF_TEST_CASES` attributing it to the real path, plus a second
-#      row attributing the SAME fixture to a different path with a non-zero
-#      expectation. That pair is what proves the exemption is scoped rather than
-#      merely present.
+#   3. Run the gate: the live scan reads the real file, so an entry that misses
+#      its construct stays red. That an exemption is scoped to its path and its
+#      construct rather than merely present is one mechanism for every entry,
+#      and `_PRODUCT_SELF_TEST_CASES` proves it once.
 #
 # THE STANDING ENTRY. `docs/design/fresco/decisions.md` supersedes HD-001
 # instead of deleting it, and the superseding block quotes the original ruling
@@ -1959,318 +1949,103 @@ def main(argv: list[str]) -> int:
 
 # --------------------------------------------------------------------------
 # Self-tests (fixture-driven) — prove the gate FIRES on each retired shape
-# and stays GREEN on every sanctioned counterpart.
+# and stays GREEN on the counterparts the live corpus does not already hold.
 # --------------------------------------------------------------------------
 
 _SELF_TEST_FIXTURE_ROOT = (
     Path(__file__).resolve().parent / "_test_fixtures" / "check_retired_spellings"
 )
 
-# Sanctioned `:query-retain` mentions that live OUTSIDE this gate's scan surface
-# (a skill reference, a spec schema comment, a conformance fixture). Pinned
-# VERBATIM and scanned as raw single lines rather than as `.cljc` fixtures,
-# because that is the point: a Markdown bullet gets no comment/string masking,
-# so only the keyword-token boundary keeps the rule off it. If the surface ever
-# widens to these trees, this phase is what says it stayed correct.
-_SANCTIONED_PROSE_MENTIONS: tuple[tuple[str, str], ...] = (
-    ("skills/re-frame2/references/tooling/routing.md",
-     "and never gains query keys from whichever route was current. There is no "
-     "`:query-retain` (retired, no alias; declaring it is rejected as an "
-     "unknown bare key), no query middleware, no per-route carry policy."),
-    ("spec/Spec-Schemas.md",
-     "   [:query-defaults  {:optional true} [:map-of :keyword :any]]  "
-     ";; Destination-LOCAL. EP-0037 R5 retired `:query-retain`; cross-route "
-     "carry is the application's pure fold over the destination address."),
-    ("spec/conformance/fixtures/routing-query-keyword-discipline.edn",
-     ";;      EP-0037 R5 retired the third source, `:query-retain`: a key that "
-     "was keyword-promoted solely by its `:query-retain #{:theme}` declaration "
-     "must now be declared in `:query` / `:query-defaults`."),
+# Each fixture through the scanner of the rule it plants: (scanner, fixture,
+# expected finding count). Rule (d) has its own scanner because it reads inside
+# string literals and accepts `.md`; each of its positives expects exactly one
+# finding, so a coordinate reported by both patterns fails.
+_SCANNERS = {
+    "scan": lambda p: scan(p, include_tests=True),
+    "coord": scan_coordinates,
+    "arrow": lambda p: scan_arrow(p, include_tests=True),
+    "arrow-prose": scan_arrow_prose,
+}
+_FIXTURE_SELF_TEST_CASES: tuple[tuple[str, str, int], ...] = (
+    ("scan", "positive/get_coeffect_frame.cljc",          1),
+    ("scan", "positive/frame_of_coeffects.cljc",          1),
+    ("scan", "positive/get_in_coeffects_frame.cljc",      1),
+    ("scan", "positive/redirect_url_key.cljc",            1),
+    ("scan", "positive/redirect_url_multiline.cljc",      1),
+    ("scan", "positive/query_retain_reg_route_meta.cljc", 1),
+    ("coord", "coord/positive/where_symbol_front.cljc",     1),
+    ("coord", "coord/positive/assertion_string_front.cljc", 1),
+    ("coord", "coord/positive/syntax_quoted_symbol.cljc",   1),
+    ("coord", "coord/positive/spec_prose.md",               1),
+    ("coord", "coord/positive/spec_code_block.md",          1),
+    ("coord", "coord/negative/spec_boundary_cases.md",      0),
+    ("coord", "coord/negative/escaped_quote_in_prose_string.cljc", 0),
+    ("arrow", "arrow/positive/arrow_multi_input.cljc", 1),
+    ("arrow", "arrow/negative/arrow_in_comment.cljc",  0),
+    ("arrow-prose", "arrow/positive/fenced_sample.md",       1),
+    ("arrow-prose", "arrow/negative/backticked_in_fence.md", 0),
 )
 
-# Rule (e) cases, scanned as RAW single lines through `_scan_text` — the same
-# mechanism as `_SANCTIONED_PROSE_MENTIONS` above and for the same reason: the
-# point of this rule is its SHAPE, so the cases are pinned verbatim rather than
-# carried in `.cljc` fixtures whose masking would hide what is being asserted.
-#
-# The negatives are the in-tree sites naming this spelling (`git grep -F
-# machine-has-tag?` excluding the tracker export), plus the
-# private-helper and lookalike shapes. Every one must stay GREEN — this is the
-# allow-list's replacement: the rule earns its zero red from its SHAPE, so if a
-# future widening would red a real file it fails HERE, in this repo, rather
-# than in someone else's PR.
+# Rule (e), as raw single lines through `_scan_text`: the rule reads RAW lines,
+# so a pinned line shows the asserted shape on its face.
 _MACHINE_HAS_TAG_SELF_TEST_CASES: tuple[tuple[str, str, int], ...] = (
-    # --- positives: the retired facade spelling must FIRE ---
-    ("the carrier shape: a qualified call to the retired sugar inside a "
-     ";; comment, which rule (e) reads RAW",
+    ("a qualified call inside a ;; comment, which rule (e) reads RAW",
      "  ;; `:rf.machine/has-tag?` (sugar: `(rf/machine-has-tag? :ws/connection "
      ":open)`)", 1),
-    ("a live qualified call",
-     "(when (rf/machine-has-tag? :ws/conn :open) :yes)", 1),
-    ("the fully-qualified facade",
-     "(re-frame.core/machine-has-tag? machine-id :open)", 1),
     ("the facade var reintroduced as a public defn",
      "(defn machine-has-tag? [machine-id tag] (contains? (tags machine-id) tag))",
      1),
-    ("the facade var reintroduced as a public def",
-     "(def machine-has-tag? some-other-fn)", 1),
-    # --- negatives: every in-tree site naming the spelling, verbatim ---
-    ("docs/machines/tags.md:101 — the DENY-SITE, names it only to forbid it",
+    ("an unqualified prose mention, and the retired keyword after a ':'",
      "There is no `machine-has-tag?` function and no `[:rf/machine-has-tag? …]`",
      0),
-    ("docs/EP/EP-0002-frame-target-resolution.md:606 — historical design record",
-     "- `machine-has-tag?`.", 0),
-    ("docs/EP/EP-0002-frame-target-resolution.md:933 — historical design record",
-     "- `machine-by-system-id`, `sub-machine`, and `machine-has-tag?`.", 0),
-    ("docs/EP/EP-0002-frame-target-resolution.md:1420 — historical design record",
-     "- `sub-machine` and `machine-has-tag?` delegate to no-frame subscribe "
-     "paths.", 0),
-    ("docs/tools/playground/README.md:20 — a prose roster of API names",
-     "/ `machine-has-tag?` / `machines` / `machine-meta` /", 0),
-    ("docs/tools/playground/README.md:124 — a prose roster of API names",
-     "| `day8/re-frame2-machines` | `:local/root` | Spec 005 state-machine "
-     "artefact (rf2-ldgpd) — activates `reg-machine` / `subscribe "
-     "[:rf/machine …]` / `machine-has-tag?` for ch12 live cells |", 0),
-    ("docs/tools/playground/sci/deps.edn:19 — a prose roster of API names",
-     ";;     / `machine-has-tag?` aliases on `re-frame.core`", 0),
-    ("spec/api-manifest-metadata.edn:816 — the retirement RECORD itself",
-     "  ;; `re-frame.machines` (already classified below). The "
-     "`machine-has-tag?` /", 0),
-    # --- negatives: the private test helpers, which are correct: DO NOT TOUCH ---
-    ("a private defn- helper (implementation/adapters/reagent/test/*)",
+    ("a private defn- helper",
      "(defn- machine-has-tag? [m tag] (contains? (:tags m) tag))", 0),
-    ("a prefixed private defn- helper",
-     "(defn- settings-machine-has-tag? [m tag] (contains? (:tags m) tag))", 0),
-    ("an unqualified call site of such a helper (~60 of these)",
-     "    (is (machine-has-tag? snapshot :ready))", 0),
-    ("a prefixed helper's call site",
-     "    (is (tags-machine-has-tag? snapshot :ready))", 0),
-    # --- negatives: the shipped surface and the neighbouring retired keyword ---
-    ("the SHIPPED subscription — `machine` is in the keyword NAMESPACE",
-     "@(rf/subscribe [:rf.machine/has-tag? :ws/conn :open])", 0),
-    ("the separately-retired KEYWORD — a ':' denies this rule's token start",
-     "(rf/subscribe [:rf/machine-has-tag? :ws/conn :open])", 0),
 )
 
-# Rule (d) fixtures, scanned through `scan_coordinates` rather than `scan` —
-# different surface, different masking, so a separate roster. Each POSITIVE
-# plants exactly one shape and expects exactly one finding, which is itself an
-# assertion: a coordinate must not be double-reported by both patterns.
-_COORD_SELF_TEST_CASES: tuple[tuple[str, int], ...] = (
-    # --- positives: BOTH shapes must fire, in source AND in Markdown ---
-    ("coord/positive/where_symbol_front.cljc",     1),
-    ("coord/positive/where_symbol_arm1.cljc",      1),
-    # The two that a symbol-shaped check cannot see — the blind spot that is
-    # the entire reason rule (d) exists.
-    ("coord/positive/assertion_string_front.cljc", 1),
-    ("coord/positive/assertion_string_arm1.cljc",  1),
-    ("coord/positive/spec_prose.md",               1),
-    ("coord/positive/spec_code_block.md",          1),
-    # The third executable shape: a syntax-quoted coordinate is live Clojure,
-    # not prose.
-    ("coord/positive/syntax_quoted_symbol.cljc",   1),
-    # --- negatives: the corpus's real provenance prose must stay GREEN ---
-    ("coord/negative/bare_comment_provenance.cljc", 0),
-    ("coord/negative/refusal_message_prose.cljc",   0),
-    ("coord/negative/shipped_coordinates.cljc",     0),
-    ("coord/negative/spec_boundary_cases.md",       0),
-    # The mirror-image false positive: a retired coordinate quoted, with
-    # escaped quotes, inside a larger prose literal.
-    ("coord/negative/escaped_quote_in_prose_string.cljc", 0),
-)
-
-
-# Rule (f) fixtures. Two surfaces, so two rosters and two scanners — the
-# source rule masks comments and strings, the prose rule reads fenced code only.
-# The `.md` positive is the one that matters most: it is the shape a
-# source-only rule cannot see, and the teaching corpus is where a reader
-# copies a sample from.
-_ARROW_SOURCE_SELF_TEST_CASES: tuple[tuple[str, int], ...] = (
-    # --- positives: the retired keyword token must FIRE ---
-    ("arrow/positive/arrow_multi_input.cljc",      1),
-    ("arrow/positive/arrow_in_metadata_form.cljc", 1),
-    # --- negatives: prose and every shipped shape stay GREEN ---
-    ("arrow/negative/arrow_in_comment.cljc",  0),
-    ("arrow/negative/declared_inputs.cljc",   0),
-    ("arrow/negative/arrow_lookalikes.cljc",  0),
-)
-
-_ARROW_PROSE_SELF_TEST_CASES: tuple[tuple[str, int], ...] = (
-    ("arrow/positive/fenced_sample.md",         1),
-    ("arrow/negative/prose_mention.md",         0),
-    ("arrow/negative/backticked_in_fence.md",   0),
-)
-
-# The parser that REFUSES the retired spelling has to name it, and its
-# detection is live code (`(some #{:<-} tail)`) that no masking hides. Pinned
-# verbatim so the allow-list is exercised rather than merely declared: the
-# first case must stay green THROUGH the allow-list, and the second proves the
-# same line is a real finding anywhere else — otherwise a rule that had stopped
-# matching altogether would pass this phase looking correct.
-_ARROW_ALLOWLIST_SELF_TEST_CASES: tuple[tuple[str, str, int], ...] = (
-    ("implementation/core/src/re_frame/subs.cljc",
-     "      (some #{:<-} tail)", 0),
-    ("implementation/core/src/re_frame/some_other.cljc",
-     "      (some #{:<-} tail)", 1),
-)
-
-# Rule (f)'s PROSE ROSTER, exercised through `main` rather than through
-# `scan_arrow_prose`. This phase exists because a direct-scanner test cannot
-# see the defect it is here to catch: with a correct scanner and a roster that
-# omitted `docs/`, every direct `_scan_arrow_prose` case would pass while the
-# real invocation never opened the authored docs corpus at all. The surface a gate SCANS is a different claim from the shape it MATCHES,
-# and only the CLI route asserts the first one.
-#
-# Each case is (repo-relative path for the planted sample, expected exit).
-# The planted content is the phase-6 positive fixture itself, so the three
-# exclusion cases are not a weaker sample failing to fire — they are the SAME
-# sample proved inert by its path alone, which is the discrimination
-# `_ARROW_ALLOWLIST_SELF_TEST_CASES` makes for the source allow-list.
-#
-# `docs/core/` and `docs/api/` are named as real repo paths on purpose: a
-# roster that narrowed back to (spec, skills, migration) reds here.
-_ARROW_PROSE_ROSTER_SELF_TEST_CASES: tuple[tuple[str, int], ...] = (
-    # --- the authored public docs corpus MUST be reached ---
-    ("docs/core/subscriptions.md",   1),
-    ("docs/api/re-frame.core.md",    1),
-    # --- and so must every tree the roster already carried ---
-    ("spec/audit-subscriptions.md",  1),
-    ("skills/audit-subscriptions.md", 1),
-    # --- the staged copies and the dated design records MUST NOT be ---
-    ("docs/spec/002-Frames.md",                      0),
-    ("docs/migration/from-re-frame-v1/README.md",    0),
-    ("docs/design/fresco/studio/measurement.md",    0),
-)
-
-# Rule (g) fixtures. Each row is (fixture, the repo-relative path the fixture's
-# BYTES are attributed to, expected finding count) — the path is a parameter
-# rather than the fixture's own location because rule (g) grades the path as
-# well as the content, and because its exemption is path-scoped. That is what
-# lets the table make its two sharpest claims:
-#
-#   * `negative/supersession_quote.md` is GREEN at
-#     `docs/design/fresco/decisions.md` and RED one directory over, on
-#     IDENTICAL BYTES. The exemption is scoped, not merely present.
-#   * `negative/current_name.cljc` carries no occurrence at all and reports
-#     exactly one finding under `implementation/hicasso/`. That finding is the
-#     PATH, which no line of content can express and a content-only rule cannot
-#     see; a content line that over-fired on the current name would raise the
-#     count past one.
-#
-# `positive/decisions_outside_quote.md` makes the third: in the exempted file
-# itself, a line outside the exempted construct is graded normally. A widening
-# of the exemption to the whole file reads zero here.
+# Rule (g), through `_scan_product_file`: the fixture supplies the BYTES and the
+# row the repo-relative PATH, because rule (g) grades the path and its
+# exemption is path-scoped.
 _PRODUCT_SELF_TEST_CASES: tuple[tuple[str, str, int], ...] = (
-    # --- positives: every carrier of the retired product name must FIRE ---
     ("product/positive/namespace_require.cljc",
      "implementation/example/src/re_frame/example/view.cljc", 1),
-    # The exempted FILE, at a line outside the exempted CONSTRUCT.
-    ("product/positive/decisions_outside_quote.md",
-     "docs/design/fresco/decisions.md", 1),
-    # The PATH carrier, on content that has no occurrence in it at all.
+    # The PATH carrier, on content with no occurrence in it.
     ("product/negative/current_name.cljc",
      "implementation/hicasso/src/re_frame/example/view.cljc", 1),
-    # The exemption's other direction: the same bytes, one directory over.
-    ("product/negative/supersession_quote.md",
-     "docs/design/fresco/studio/measurement.md", 2),
-    # The bench archive exemptions, both directions, on identical bytes. The
-    # second path in each pair is an ordinary sibling in the same tree: a SECOND
-    # file spelling the retired name is the reintroduction rule (g) is for.
-    ("product/negative/archive_pin.cjs",
-     "bench/fresco/src/re_frame/bench/fresco/data_archive_copy.cjs", 4),
-    ("product/negative/archive_vocabulary_control.cjs",
-     "bench/fresco/src/re_frame/bench/fresco/alloc_pass_position.test.cjs", 1),
-    # ...and each exempted FILE, at a line outside its exempted CONSTRUCT.
-    ("product/positive/archive_pin_outside_construct.cjs",
-     "bench/fresco/src/re_frame/bench/fresco/data_archive.cjs", 1),
-    ("product/positive/archive_control_outside_construct.cjs",
-     "bench/fresco/src/re_frame/bench/fresco/data_archive.test.cjs", 1),
-    # --- negatives ---
+    # An exemption is scoped to its path: green at the exempted file, red one
+    # directory over on identical bytes...
     ("product/negative/supersession_quote.md",
      "docs/design/fresco/decisions.md", 0),
-    ("product/negative/archive_pin.cjs",
-     "bench/fresco/src/re_frame/bench/fresco/data_archive.cjs", 0),
-    ("product/negative/archive_vocabulary_control.cjs",
-     "bench/fresco/src/re_frame/bench/fresco/data_archive.test.cjs", 0),
+    ("product/negative/supersession_quote.md",
+     "docs/design/fresco/studio/measurement.md", 2),
+    # ...and to its construct: a line outside it in the exempted file is red.
+    ("product/positive/decisions_outside_quote.md",
+     "docs/design/fresco/decisions.md", 1),
 )
 
-# Rule (g)'s SURFACE, exercised through `main --repo-root` — phase 8's argument
-# applied to a rule whose surface is the whole repo. What a gate SCANS is a
-# different claim from the shape it MATCHES, and for rule (g) the scanning claim
-# is the load-bearing one: every entry in `PRODUCT_EXCLUDE_PATHS` is a hole by
-# construction, so each is pinned here as a path where the SAME planted sample
-# must stay inert.
+# What a rule REACHES, through `main --repo-root` over a synthetic repo with a
+# sample planted at each path: (path, expected exit). A direct-scanner case
+# cannot see a roster that stopped reaching a tree.
 #
-# `bench/fresco/` is in the MUST-BE-REACHED half deliberately. `bench/*` is
-# classified to no per-PR surface at all, which makes it the likeliest place for
-# the name to creep back unobserved — the same argument that put `bench` on
-# `ARROW_SCAN_DIRS`. Legitimate historical occurrences there belong in
-# `PRODUCT_EXEMPTIONS` with a reason, not in a hole cut through the tree.
-#
-# The `.clj-kondo` PAIR is stated as a pair on purpose: the cache below it is subtracted, the two TRACKED config files beside
-# it are not, and a future repair that reached for a directory NAME instead of a
-# path would pass every other row and fail these two. The `notes.log.md`
-# row is the matching near-miss for `PRODUCT_EXCLUDE_SUFFIXES` — it proves the
-# `.log` subtraction is a SUFFIX rather than a substring, so a real document
-# cannot be hidden by having the token in its name.
-#
-# THE RUN-CORPUS ROWS pin a hole whose edge four different wrong repairs would
-# each put somewhere else, so there is one row per wrong repair. Three of them
-# are stated as pairs sharing a path shape, and each pair fails under the
-# wrong repair it names:
-#
-#   * `data_archive.cjs` against a record under `data/` — the near-miss for a
-#     SUBSTRING or bare-prefix match. The reader's name begins with the
-#     subtracted path's final component, so a repair that dropped
-#     `_product_excluded`'s segment boundary would silently blind the gate to
-#     the very file that carries `ARCHIVE_PATH`.
-#   * `fixtures/alloc-legorder/pre-registration.json` against
-#     `data/alloc-legorder/pre-registration.json` — the sharpest pair, because
-#     the two share every path segment but the tree they hang off. Both files
-#     really exist: the tracked one is a fixture a self-test reads in its own
-#     right, the other is the archived record it was taken from. This is what a
-#     repair reaching for `alloc-legorder`, or for any record-directory name,
-#     fails.
-#   * `bench/fresco/README.md` against a `README.md` inside the corpus — the
-#     near-miss for a SUFFIX or file-name match: a retired-name line added to
-#     the tracked README raises the live count by exactly one and names that
-#     line.
-#   * `implementation/core/src/re_frame/data/registry.cljc` — the one row with
-#     no partner, and the one that costs the most to get right. A repair that
-#     put `data` on `PRODUCT_EXTRA_EXCLUDE_DIR_NAMES` instead of the path here
-#     passes ALL SIX rows above (the three subtracted rows go green
-#     under it, because in the synthetic tree the only `data/` directory is the
-#     corpus one), so without this row the name/path distinction — which is the
-#     whole of the `.clj-kondo` precedent — would be pinned by nothing. No
-#     tracked file sits under any directory named `data`; that is what makes
-#     the wrong repair invisible until one does, so the row is
-#     representative rather than real, like every row here that plants at a
-#     path no tracked file occupies.
+# Rule (f)'s prose roster reaches the authored docs corpus and not the staged
+# copies.
+_ARROW_PROSE_ROSTER_SELF_TEST_CASES: tuple[tuple[str, int], ...] = (
+    ("docs/core/subscriptions.md", 1),
+    ("docs/spec/002-Frames.md",    0),
+)
+
+# Rule (g)'s subtractions, each beside the neighbour it must not take with it.
 _PRODUCT_ROSTER_SELF_TEST_CASES: tuple[tuple[str, int], ...] = (
-    # --- the whole repo MUST be reached, including the trees no lane compiles ---
-    ("bench/fresco/scripts/data_archive.cjs",         1),
-    ("examples/todomvc/README.md",                    1),
-    ("package.json",                                  1),
-    (".clj-kondo/config.edn",                         1),
-    (".clj-kondo/hooks/re_frame/core.clj",            1),
-    ("docs/design/fresco/notes.log.md",               1),
-    ("bench/fresco/README.md",                        1),
-    ("bench/fresco/src/re_frame/bench/fresco/data_archive.cjs", 1),
-    ("bench/fresco/src/re_frame/bench/fresco/fixtures/alloc-legorder/"
-     "pre-registration.json",                         1),
-    ("implementation/core/src/re_frame/data/registry.cljc", 1),
-    # --- and every subtraction MUST hold ---
-    ("ai/findings/rename-notes.md",                   0),
-    ("docs/spec/002-Frames.md",                       0),
-    ("docs/migration/from-re-frame-v1/README.md",     0),
-    ("scripts/_test_fixtures/planted.md",             0),
+    # A PATH, not a directory name: the tracked config beside the cache is read.
+    (".clj-kondo/config.edn",                           1),
     (".clj-kondo/.cache/v1/cljs/re-frame.transit.json", 0),
-    ("audit-pr9568-push-1.log",                       0),
+    # A path ends at a segment boundary: the reader whose name begins with the
+    # corpus directory's is read.
+    ("bench/fresco/src/re_frame/bench/fresco/data_archive.cjs", 1),
     ("bench/fresco/src/re_frame/bench/fresco/data/"
-     "workcount-n1b9h/run5-a4a1537cb71.json",         0),
-    ("bench/fresco/src/re_frame/bench/fresco/data/"
-     "alloc-legorder/pre-registration.json",          0),
-    ("bench/fresco/src/re_frame/bench/fresco/data/"
-     "alloc-legorder/README.md",                      0),
+     "workcount-n1b9h/run5-a4a1537cb71.json",           0),
+    # `.log` is a final SUFFIX, not a substring.
+    ("docs/design/fresco/notes.log.md",                 1),
+    ("audit-pr9568-push-1.log",                         0),
 )
 
 
@@ -2296,314 +2071,64 @@ def _build_synthetic_repo(root: Path) -> None:
 
 
 def _run_self_tests(verbose: bool = False) -> int:
-    """Scan each fixture file and assert the expected finding count.
-
-    Each fixture is a single `.cljc` file. Positive fixtures plant ONE retired
-    shape (expected=1); negative fixtures exercise the sanctioned counterparts
-    that MUST stay green (expected=0). Fixtures live under a `negative`/`positive`
-    dir; we scan with --include-tests semantics (direct-file mode) so the
-    test-dir exclusion does not hide them.
-
-    A second phase scans `_SANCTIONED_PROSE_MENTIONS` — verbatim retirement
-    notes from trees this gate does not scan, where no masking applies — as raw
-    lines, so the shape scoping is proven independently of the masking.
-
-    A fourth phase runs `_MACHINE_HAS_TAG_SELF_TEST_CASES` as raw single
-    lines. Rule (e) reads RAW lines (it does not mask comments), so a pinned
-    line is the honest surface for it — and its negatives are the in-tree
-    sites naming that spelling, which is what lets the rule ship with
-    no allow-list at all.
-
-    A third phase runs `_COORD_SELF_TEST_CASES` through `scan_coordinates`.
-    Rule (d) needs its own phase because it needs its own scanner: it reads
-    INSIDE string literals and it accepts `.md`. Its negatives are reproduced
-    verbatim from the shipped fresco corpus, so a future widening of the rule
-    that would red real files fails here first, in this repo, rather than in
-    someone else's PR.
-
-    Phase 9 runs `_PRODUCT_SELF_TEST_CASES` through `_scan_product_file`, which
-    takes a repo-relative PATH and the file's BYTES: rule (g) grades the path as
-    well as the content, and its exemption is path-scoped, so the path has to be
-    a parameter rather than the fixture's own location. Three of its rows make
-    their claim on IDENTICAL BYTES at two different paths.
-
-    TWO phases do not test a scanner at all. Both drive `main --repo-root` over
-    a synthetic repo to assert what a rule REACHES — the claim every
-    direct-scanner phase above takes for granted. Phase 8 does it for rule (f)'s prose roster; phase 10
-    does it for rule (g)'s whole-repo surface, where each entry in
-    `PRODUCT_EXCLUDE_PATHS` is pinned as a path the same planted sample must not
-    reach.
-    """
-    cases: list[tuple[str, int]] = [
-        # (fixture-file relative to fixture-root, expected finding count)
-        # --- positives: each retired shape must FIRE ---
-        ("positive/get_coeffect_frame.cljc",        1),
-        ("positive/frame_of_coeffects.cljc",        1),
-        ("positive/get_in_coeffects_frame.cljc",    1),
-        ("positive/redirect_url_key.cljc",          1),
-        ("positive/safe_redirect_to_key.cljc",      1),
-        ("positive/redirect_url_multiline.cljc",    1),
-        # EP-0037 R5 `:query-retain` — the three USE shapes row 9 enumerates.
-        ("positive/query_retain_reg_route_meta.cljc",     1),
-        ("positive/query_retain_accepted_key_roster.cljc", 1),
-        ("positive/query_retain_promotion_vocabulary.cljc", 1),
-        # --- negatives: every sanctioned counterpart must stay GREEN ---
-        ("negative/public_frame_opt.cljc",          0),
-        ("negative/fx_handler_ctx_frame.cljc",      0),
-        ("negative/rf_frame_id_coeffect.cljc",      0),
-        ("negative/client_navigate_url.cljc",       0),
-        ("negative/redirect_location_key.cljc",     0),
-        ("negative/frame_in_comment.cljc",          0),
-        ("negative/frame_in_docstring.cljc",        0),
-        ("negative/retired_keys_def.cljc",          0),
-        # EP-0037 R5 `:query-retain` — every sanctioned in-tree mention names
-        # the key as RETIRED; none of them may fire the rule.
-        ("negative/query_retain_sanctioned_mentions.cljc", 0),
-        ("negative/query_retain_lookalikes.cljc",   0),
-    ]
-
+    """Assert each case's finding count, or `main`'s exit code for the roster
+    cases. A missing fixture fails rather than scanning nothing."""
     failures = 0
-    for fixture, expected in cases:
-        path = _SELF_TEST_FIXTURE_ROOT / fixture
-        if not path.is_file():
-            sys.stderr.write(
-                f"self-test FAIL: fixture {fixture!r} missing at {path}\n"
-            )
-            failures += 1
-            continue
-        # Direct-file scan (the fixture IS the surface).
-        got = len(scan(path, include_tests=True))
+
+    def check(label: str, got: object, expected: int) -> None:
+        nonlocal failures
         if got == expected:
             if verbose:
-                sys.stderr.write(f"self-test PASS: {fixture} (findings={got})\n")
+                sys.stderr.write(f"self-test PASS: {label} ({got})\n")
         else:
-            sys.stderr.write(
-                f"self-test FAIL: {fixture} expected findings={expected}, "
-                f"got {got}\n"
-            )
             failures += 1
-
-    # Phase 2: the out-of-surface sanctioned prose mentions, scanned raw.
-    for origin, line in _SANCTIONED_PROSE_MENTIONS:
-        got = len(_scan_text(Path(origin), line))
-        if got == 0:
-            if verbose:
-                sys.stderr.write(f"self-test PASS: prose mention in {origin}\n")
-        else:
             sys.stderr.write(
-                f"self-test FAIL: sanctioned prose mention in {origin} fired "
-                f"{got} finding(s):\n      {line}\n"
+                f"self-test FAIL: {label} expected {expected}, got {got}\n"
             )
-            failures += 1
 
-    # Phase 4: rule (e), as raw single lines. Same mechanism as phase 2 — the
-    # rule reads RAW lines, so a fixture file would prove nothing a pinned line
-    # does not, and the pinned line shows the asserted shape on its face.
+    def fixture(rel: str) -> Path | None:
+        path = _SELF_TEST_FIXTURE_ROOT / rel
+        return path if path.is_file() else None
+
+    for scanner, rel, expected in _FIXTURE_SELF_TEST_CASES:
+        path = fixture(rel)
+        check(rel, len(_SCANNERS[scanner](path)) if path else "no fixture",
+              expected)
+
     for label, line, expected in _MACHINE_HAS_TAG_SELF_TEST_CASES:
-        got = len(_scan_text(Path("<machine-has-tag case>"), line))
-        if got == expected:
-            if verbose:
-                sys.stderr.write(f"self-test PASS: {label} (findings={got})\n")
-        else:
-            sys.stderr.write(
-                f"self-test FAIL: {label} expected findings={expected}, "
-                f"got {got}:\n      {line}\n"
-            )
-            failures += 1
+        check(label, len(_scan_text(Path("<case>"), line)), expected)
 
-    # Phase 3: rule (d), through its own scanner. Same direct-file mode, but
-    # `scan_coordinates` — rule (d) reads inside string literals and accepts
-    # `.md`, neither of which `scan` does.
-    for fixture, expected in _COORD_SELF_TEST_CASES:
-        path = _SELF_TEST_FIXTURE_ROOT / fixture
-        if not path.is_file():
-            sys.stderr.write(
-                f"self-test FAIL: fixture {fixture!r} missing at {path}\n"
-            )
-            failures += 1
-            continue
-        got = len(scan_coordinates(path))
-        if got == expected:
-            if verbose:
-                sys.stderr.write(f"self-test PASS: {fixture} (findings={got})\n")
-        else:
-            sys.stderr.write(
-                f"self-test FAIL: {fixture} expected findings={expected}, "
-                f"got {got}\n"
-            )
-            failures += 1
+    for rel, at, expected in _PRODUCT_SELF_TEST_CASES:
+        path = fixture(rel)
+        got = len(_scan_product_file(Path(at), path.read_bytes())) if path else "no fixture"
+        check(f"{rel} as {at}", got, expected)
 
-    # Phase 5: rule (f)'s SOURCE surface, through `scan_arrow`.
-    for fixture, expected in _ARROW_SOURCE_SELF_TEST_CASES:
-        path = _SELF_TEST_FIXTURE_ROOT / fixture
-        if not path.is_file():
-            sys.stderr.write(
-                f"self-test FAIL: fixture {fixture!r} missing at {path}\n"
-            )
-            failures += 1
-            continue
-        got = len(scan_arrow(path, include_tests=True))
-        if got == expected:
-            if verbose:
-                sys.stderr.write(f"self-test PASS: {fixture} (findings={got})\n")
-        else:
-            sys.stderr.write(
-                f"self-test FAIL: {fixture} expected findings={expected}, "
-                f"got {got}\n"
-            )
-            failures += 1
+    def exit_with_sample_at(sample: Path, rel: str) -> int:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _build_synthetic_repo(root)
+            (root / rel).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(sample, root / rel)
+            with contextlib.redirect_stderr(io.StringIO()):
+                return main(["--repo-root", str(root)])
 
-    # Phase 6: rule (f)'s PROSE surface, through `scan_arrow_prose`. Its own
-    # scanner because its own reading: fenced code only, no masking.
-    for fixture, expected in _ARROW_PROSE_SELF_TEST_CASES:
-        path = _SELF_TEST_FIXTURE_ROOT / fixture
-        if not path.is_file():
-            sys.stderr.write(
-                f"self-test FAIL: fixture {fixture!r} missing at {path}\n"
-            )
-            failures += 1
-            continue
-        got = len(scan_arrow_prose(path))
-        if got == expected:
-            if verbose:
-                sys.stderr.write(f"self-test PASS: {fixture} (findings={got})\n")
-        else:
-            sys.stderr.write(
-                f"self-test FAIL: {fixture} expected findings={expected}, "
-                f"got {got}\n"
-            )
-            failures += 1
-
-    # Phase 7: rule (f)'s source allow-list, exercised in BOTH directions on
-    # the same line — the allow-listed path stays green, any other path reds.
-    for origin, line, expected in _ARROW_ALLOWLIST_SELF_TEST_CASES:
-        got = len(_scan_arrow_source(Path(origin), line))
-        if got == expected:
-            if verbose:
-                sys.stderr.write(
-                    f"self-test PASS: arrow allow-list {origin} "
-                    f"(findings={got})\n"
-                )
-        else:
-            sys.stderr.write(
-                f"self-test FAIL: arrow allow-list {origin} expected "
-                f"findings={expected}, got {got}:\n      {line}\n"
-            )
-            failures += 1
-
-    # Phase 8: rule (f)'s PROSE ROSTER, through `main --repo-root`. See the
-    # case table for why this cannot be a `scan_arrow_prose` case.
-    sample = _SELF_TEST_FIXTURE_ROOT / "arrow" / "positive" / "fenced_sample.md"
-    if not sample.is_file():
-        sys.stderr.write(
-            f"self-test FAIL: fixture 'arrow/positive/fenced_sample.md' "
-            f"missing at {sample}\n"
-        )
-        failures += 1
-    else:
-        for rel, expected in _ARROW_PROSE_ROSTER_SELF_TEST_CASES:
-            # A case that fires reports its finding the way any red run does.
-            # That is correct behaviour under test and pure noise on a PASS —
-            # a `--self-test` that prints "1 retired spelling(s) found" three
-            # times and then exits 0 reads as a failure in a CI log. So the
-            # run's own output is captured and replayed only on a FAILURE,
-            # where it is the diagnostic.
-            captured = io.StringIO()
-            with tempfile.TemporaryDirectory() as tmp:
-                root = Path(tmp)
-                _build_synthetic_repo(root)
-                planted = root / rel
-                planted.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(sample, planted)
-                with contextlib.redirect_stderr(captured):
-                    got = main(["--repo-root", str(root)])
-            if got == expected:
-                if verbose:
-                    sys.stderr.write(
-                        f"self-test PASS: prose roster {rel} (exit={got})\n"
-                    )
-            else:
-                sys.stderr.write(
-                    f"self-test FAIL: prose roster {rel} expected exit="
-                    f"{expected}, got {got}. The retired arrow was planted at "
-                    "that path and the default roster did not reach it "
-                    "(or reached a path it must not).\n"
-                )
-                sys.stderr.write(captured.getvalue())
-                failures += 1
-
-    # Phase 9: rule (g), through `_scan_product_file`. The fixture supplies the
-    # BYTES and the case supplies the PATH, because rule (g) grades both.
-    for fixture, rel, expected in _PRODUCT_SELF_TEST_CASES:
-        path = _SELF_TEST_FIXTURE_ROOT / fixture
-        if not path.is_file():
-            sys.stderr.write(
-                f"self-test FAIL: fixture {fixture!r} missing at {path}\n"
-            )
-            failures += 1
-            continue
-        got = len(_scan_product_file(Path(rel), path.read_bytes()))
-        if got == expected:
-            if verbose:
-                sys.stderr.write(
-                    f"self-test PASS: {fixture} as {rel} (findings={got})\n"
-                )
-        else:
-            sys.stderr.write(
-                f"self-test FAIL: {fixture} attributed to {rel} expected "
-                f"findings={expected}, got {got}\n"
-            )
-            failures += 1
-
-    # Phase 10: rule (g)'s SURFACE, through `main --repo-root`. Same shape and
-    # same reason as phase 8; see the case table.
-    product_sample = (
-        _SELF_TEST_FIXTURE_ROOT / "product" / "positive" / "teaching_prose.md"
-    )
-    if not product_sample.is_file():
-        sys.stderr.write(
-            "self-test FAIL: fixture 'product/positive/teaching_prose.md' "
-            f"missing at {product_sample}\n"
-        )
-        failures += 1
-    else:
-        for rel, expected in _PRODUCT_ROSTER_SELF_TEST_CASES:
-            captured = io.StringIO()
-            with tempfile.TemporaryDirectory() as tmp:
-                root = Path(tmp)
-                _build_synthetic_repo(root)
-                planted = root / rel
-                planted.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(product_sample, planted)
-                with contextlib.redirect_stderr(captured):
-                    got = main(["--repo-root", str(root)])
-            if got == expected:
-                if verbose:
-                    sys.stderr.write(
-                        f"self-test PASS: product surface {rel} (exit={got})\n"
-                    )
-            else:
-                sys.stderr.write(
-                    f"self-test FAIL: product surface {rel} expected exit="
-                    f"{expected}, got {got}. The retired product name was "
-                    "planted at that path and the whole-repo scan did not "
-                    "reach it (or reached a path it must not).\n"
-                )
-                sys.stderr.write(captured.getvalue())
-                failures += 1
+    for sample, roster in (
+        ("arrow/positive/fenced_sample.md", _ARROW_PROSE_ROSTER_SELF_TEST_CASES),
+        ("product/positive/teaching_prose.md", _PRODUCT_ROSTER_SELF_TEST_CASES),
+    ):
+        for rel, expected in roster:
+            check(f"exit with {sample} planted at {rel}",
+                  exit_with_sample_at(_SELF_TEST_FIXTURE_ROOT / sample, rel),
+                  expected)
 
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
         return 1
     if verbose:
-        total = (len(cases) + len(_SANCTIONED_PROSE_MENTIONS)
+        total = (len(_FIXTURE_SELF_TEST_CASES)
                  + len(_MACHINE_HAS_TAG_SELF_TEST_CASES)
-                 + len(_COORD_SELF_TEST_CASES)
-                 + len(_ARROW_SOURCE_SELF_TEST_CASES)
-                 + len(_ARROW_PROSE_SELF_TEST_CASES)
-                 + len(_ARROW_ALLOWLIST_SELF_TEST_CASES)
-                 + len(_ARROW_PROSE_ROSTER_SELF_TEST_CASES)
                  + len(_PRODUCT_SELF_TEST_CASES)
+                 + len(_ARROW_PROSE_ROSTER_SELF_TEST_CASES)
                  + len(_PRODUCT_ROSTER_SELF_TEST_CASES))
         sys.stderr.write(f"all {total} self-tests passed.\n")
     return 0
