@@ -7,9 +7,9 @@
 
   Capture has two sinks. The public registry-meta (`rf/handler-meta`) is
   dev-only: under `-Dre-frame.debug=false` `merge-coords` returns user-meta
-  unchanged. The always-on `error-coords-by-id` registry, which the error-emit
-  substrate reads for off-box shippers, is filled by `rf.registrar/register!`
-  in both postures. So each claim is asserted on the always-on sink, with the
+  unchanged. The always-on `error-coords-by-id` index, which tooling reads to
+  resolve an id outside any frame, is filled by `rf.registrar/register!` in
+  both postures. So each claim is asserted on the always-on sink, with the
   public-meta claim in a `(when rf.interop/debug-enabled? …)` arm. `reg-flow`
   and `reg-app-schema` store their coords in their own artefacts' side-tables,
   never through `register!`, so they have only the dev sink."

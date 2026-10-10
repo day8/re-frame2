@@ -4,20 +4,19 @@
 
   `re-frame.fresco.substrate` assembles its whole contract surface out of
   `spine/make-react-spine` and `spine/make-react-adapter`, which is precisely
-  the shape the shared suite was parameterised for: its own docstring says
-  *any future React-hook adapter picks up the whole surface by adding one
-  entry file like this one*. So every spine-shared behaviour — the dispose
-  MUSTs, source-coord and view-id stamping, the frame-context-corrupted
-  diagnostic, warn-once, the write-after-destroy guard, `render-to-string`
-  and its late-bind chain, the hook publication set and its directory
-  cross-check, `make-derived-value`'s per-arity and watch-baseline
-  contracts, the two-partition invalidation law, managed HTTP, the headless
-  cross-Spec subset and the public-surface guard — is asserted here against
-  the Fresco adapter without a line of it being written twice.
+  the shape the shared suite is parameterised for, so one entry file like
+  this one picks up the whole surface. Every spine-shared behaviour — the
+  dispose MUSTs, source-coord and view-id stamping, the
+  frame-context-corrupted diagnostic, the frame-provider branches, warn-once,
+  `render-to-string` and its late-bind chain, `make-derived-value`'s
+  per-arity and watch-baseline contracts, the two-partition invalidation law,
+  managed HTTP, the headless cross-Spec subset and the public-surface guard —
+  is asserted here against the Fresco adapter without a line of it being
+  written twice.
 
-  Roughly fifty `deftest` forwarders are generated from the `test-specs`
-  literal in `re-frame.adapter.react-shared-suite-tests`; that macro ns owns
-  the canonical list, and a new shared assertion appears here on the next
+  One `deftest` forwarder per row is generated from the `test-specs` literal
+  in `re-frame.adapter.react-shared-suite-tests`; that macro ns owns the
+  canonical list, and a new shared assertion appears here on the next
   compile with no edit to this file.
 
   WHAT THIS FILE DOES NOT COVER, and why that is not a gap: Fresco's own
