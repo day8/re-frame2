@@ -154,8 +154,9 @@
               shape a mounted application has
     FSWRITE-N the SAME write against a frame holding N `:frame-state` subs
               instead — the same fixed-arity-1 memo wrapper, but reading the
-              frame's RAW physical container rather than the `rf=`-gated
-              app-db projection. It is the control for `RFWRITE-N`
+              frame's RAW physical container rather than the app-db
+              projection, which fans out only when its value moved. It is the
+              control for `RFWRITE-N`
 
   `RFWRITE-N` is measured at four values of N and the SLOPE between them is
   the per-subscription cost — the number this harness is about. A slope
@@ -542,8 +543,8 @@
 
   Both kinds route to `subs.memo`'s fixed-arity-1 wrapper, but they differ in
   the ONE fact the movement witness keys on: a `:db` sub's source is the
-  app-db PROJECTION (a derived container whose fan-out is `rf=`-gated, so it
-  publishes a witness), while a `:frame-state` sub's source is the frame's ONE
+  app-db PROJECTION (a derived container that fans out only when its value
+  moved, so it publishes a witness), while a `:frame-state` sub's source is the frame's ONE
   physical container — a raw atom, which cannot. So this ladder's slope must be
   UNCHANGED by the witness while the `RFWRITE-N` slope falls by the `=` term,
   and the pair of slopes is the ladder-level statement of the same two-sided
@@ -957,8 +958,8 @@
 ;;
 ;;   P-MEMOW   the shipped wrapper over a WITNESSING source — a real spine
 ;;             derived container, which publishes
-;;             `re-frame.movement/IMovementWitness` because its fan-out is
-;;             `rf=`-gated — driven in the FLUSH-PATH shape.
+;;             `re-frame.movement/IMovementWitness` because it fans out
+;;             only when its value moved — driven in the FLUSH-PATH shape.
 ;;   P-MEMOWC  the shipped wrapper over the RAW ATOM under that same derived
 ;;             container, so `witness-src` resolves nil and the guard
 ;;             expression is byte-for-byte the plain `=` guard.
@@ -1006,7 +1007,7 @@
 (defn- arm-p-memo-w []
   (let [{:keys [n memos-w w-src db-a db-b]} @rig
         cur (if (vswap! w-flip not) db-a db-b)]
-    ;; Move the witnessing source: `notify`'s `rf=` gate arms its witness
+    ;; Move the witnessing source: `notify`'s movement gate arms its witness
     ;; with the value the 300 wrappers below each hold in `last-db`.
     (rf.substrate.adapter/replace-container! w-src cur)
     (dotimes [k n]
@@ -1188,8 +1189,8 @@
   ;; The `:frame-state` ladder's subs. Same fixed-arity-1 memo wrapper as the
   ;; `:db` ladder's, same registration shape; the ONE difference
   ;; is the signal source the reactive build resolves — the frame's raw
-  ;; physical container rather than the `rf=`-gated app-db projection. That is
-  ;; the fact the movement witness keys on, so this ladder's slope is the
+  ;; physical container rather than the app-db projection, which fans out only
+  ;; when its value moved. That is the fact the movement witness keys on, so this ladder's slope is the
   ;; control for the `RFWRITE-N` ladder's.
   (doseq [i (range cells-n)]
     (let [body (fn [fs _] (get-in fs [rf.frame/app-partition-key :cells i]))
@@ -1272,7 +1273,7 @@
         ;; as their lone source:
         ;;
         ;;   w-*   wrappers over the DERIVED container, which publishes
-        ;;         `IMovementWitness` (its fan-out is `rf=`-gated)
+        ;;         `IMovementWitness` (it fans out only when its value moved)
         ;;   wc-*  wrappers over the RAW container underneath it, which cannot
         ;;
         ;; so `P-MEMOWC − P-MEMOW` isolates the guard and nothing else.
