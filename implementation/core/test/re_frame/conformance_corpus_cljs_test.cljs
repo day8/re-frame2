@@ -152,6 +152,39 @@
    ["a known axis beside an unknown key"
     [{:sensitive [[:secret]] :rf.test/bogus [[:secret]]}]]])
 
+;; Mirror of the JVM `unknown-top-level-key-fails-loud`: the conformance README
+;; binds every host's harness to fail naming a top-level key it does not
+;; implement.
+
+(def ^:private top-level-key-fixture
+  {:fixture/id           :rf.test/top-level-key-guard
+   :fixture/spec-version "1.0"
+   :fixture/capabilities #{:core/event-handler}
+   :fixture/handlers     {:event {:counter/set [[:set [:count] 1]]}}
+   :fixture/frame-config {}
+   :fixture/dispatches   [[:counter/set]]
+   :fixture/expect       {:final-app-db {:count 1}}})
+
+(deftest unknown-top-level-key-fails-loud-cljs
+  (reset! pretest-registrar @rf.registrar/kind->id->metadata)
+  (reset! pretest-source-store @rf.source-store/kind->id->ns->descriptor)
+  (try
+    (is (:passed? (rf.conformance-runner/run-corpus-fixture
+                    "top-level-key-guard.edn" top-level-key-fixture host))
+        "control: the fixture passes the corpus gates as written")
+    (let [result (rf.conformance-runner/run-corpus-fixture
+                   "top-level-key-guard.edn"
+                   (assoc top-level-key-fixture :fixture/dispatchess [[:counter/set]])
+                   host)]
+      (is (not (:passed? result)) "a misspelt setup key must fail the fixture")
+      (is (= [:fixture/dispatchess] (:unknown-fixture-keys result)))
+      (is (some? (re-find #":fixture/dispatchess" (str (:error result))))
+          "the failure names the key"))
+    (finally
+      (reset! rf.registrar/kind->id->metadata @pretest-registrar)
+      (reset! rf.source-store/kind->id->ns->descriptor @pretest-source-store)
+      (rf.image-assembly/clear-generation-cache!))))
+
 (deftest classification-op-map-guard-cljs
   (reset! pretest-registrar @rf.registrar/kind->id->metadata)
   (reset! pretest-source-store @rf.source-store/kind->id->ns->descriptor)

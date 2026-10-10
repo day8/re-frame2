@@ -8,7 +8,9 @@
   The runner's self-tests live here: the runner is one `.cljc`, so a check
   that it bites on the JVM is the same check on CLJS. The classification-op
   guard keeps a CLJS mirror too, because the FixtureFile schema in
-  spec/Spec-Schemas.md names both as its durable negative."
+  spec/Spec-Schemas.md names both as its durable negative, and so does the
+  top-level-key guard, because the conformance README binds every host's
+  harness to fail naming a key it does not implement."
   (:require [clojure.test :refer [deftest is]]
             [clojure.java.io :as io]
             [clojure.edn :as edn]
@@ -219,15 +221,42 @@
   (is (seq (rf.conformance-runner/unknown-expect-keys
              {:fixture/expect {:rf.test/no-such-expectation 1}}))))
 
+;; ---- the top-level fixture-key guard ----------------------------------------
+
+(def ^:private top-level-key-fixture
+  {:fixture/id           :rf.test/top-level-key-guard
+   :fixture/spec-version "1.0"
+   :fixture/capabilities #{:core/event-handler}
+   :fixture/handlers     {:event {:counter/set [[:set [:count] 1]]}}
+   :fixture/frame-config {}
+   :fixture/dispatches   [[:counter/set]]
+   :fixture/expect       {:final-app-db {:count 1}}})
+
+(deftest unknown-top-level-key-fails-loud
+  (is (:passed? (rf.conformance-runner/run-corpus-fixture
+                  "top-level-key-guard.edn" top-level-key-fixture host))
+      "control: the fixture passes the corpus gates as written")
+  (let [result (rf.conformance-runner/run-corpus-fixture
+                 "top-level-key-guard.edn"
+                 (assoc top-level-key-fixture :fixture/dispatchess [[:counter/set]])
+                 host)]
+    (is (not (:passed? result)) "a misspelt setup key must fail the fixture")
+    (is (= [:fixture/dispatchess] (:unknown-fixture-keys result)))
+    (is (string/includes? (str (:error result)) ":fixture/dispatchess")
+        "the failure names the key")))
+
 ;; ---- neuter probe for routing/door-parity ---------------------------------
 ;;
 ;; The runner's matchers are order-preserving SUBSET matchers, so a door
 ;; asserted only by the absence of a further effect would pass with that door
 ;; deleted. Each door has a distinct destination; this probe holds that.
 
+(defn- corpus-fixture [fname]
+  (or (some (fn [[n f]] (when (= n fname) f)) (all-fixtures))
+      (throw (ex-info (str fname " is missing from the corpus") {}))))
+
 (defn- door-parity-fixture []
-  (or (some (fn [[n f]] (when (= n "routing-door-parity.edn") f)) (all-fixtures))
-      (throw (ex-info "routing-door-parity.edn is missing from the corpus" {}))))
+  (corpus-fixture "routing-door-parity.edn"))
 
 (defn- without-door
   "The fixture with the 0-based `:fixture/dispatches` index `idx` removed."
@@ -250,6 +279,24 @@
                               :params   {:slug "raw-url"}
                               :expect   "/articles/DELIBERATELY-WRONG"}])))
         "a wrong :fixture/calls expectation must red the door-parity fixture")))
+
+;; ---- :fixture/compute-subs ---------------------------------------------------
+;;
+;; The one corpus fixture carrying the key also computes the same subs under
+;; `:sub-values`, so the corpus alone cannot tell whether the runner invokes
+;; the queries.
+
+(deftest compute-subs-invokes-each-query
+  (let [fixture (corpus-fixture "error-sub-exception.edn")
+        passes? (fn [f] (:passed? (rf.conformance-runner/run-fixture f host)))
+        unknown (rf.conformance-runner/run-fixture
+                  (assoc fixture :fixture/compute-subs [[:no/such-sub]]) host)]
+    (is (passes? fixture) "the fixture passes as shipped")
+    (is (passes? (update fixture :fixture/expect dissoc :sub-values))
+        "computing [:cart/count] alone emits the sub-exception trace the fixture expects")
+    (is (not (:passed? unknown)) "a query naming no registered sub fails the fixture")
+    (is (some #(string/includes? % "[:no/such-sub]") (:compute-sub-failures unknown))
+        "the failure names the query")))
 
 ;; ---- the :expect-graph guard ----------------------------------------------
 
