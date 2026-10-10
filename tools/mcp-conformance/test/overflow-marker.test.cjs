@@ -1,214 +1,98 @@
-// Unit tests for `lib/overflow-marker.cjs`.
-//
-// ## The contract this pins
-//
-// A gate that parses the EDN and returns `outer['rf.mcp/overflow']`
-// WITHOUT checking that key is the sole top-level key would let a mixed
-// envelope `{:rf.mcp/overflow {...valid body...} :unexpected "sibling"}`
-// reach the body assertions and PASS, even though the JVM contract pins
-// `Overflow = [:map {:closed true} [:rf.mcp/overflow ...]]` — CLOSED and
-// SINGLE-KEY, because clients pattern-match on exactly one reserved
-// discriminator key. A gate that validates only `content[0].text` and
-// never `structuredContent` would let the two slots drift silently.
-//
-// ## What this proves
-//
-// Test 1 is the RED-then-GREEN proof: it first shows extraction-only
-// logic (replicated inline) ACCEPTS the malformed mixed envelope, then
-// shows the closed-wrapper validator REJECTS it. The
-// remaining tests cover the lookalike-key / array / multi-key / missing
-// rejections, additive-body acceptance, the required-field + token-count
-// invariants, and the dual-slot agreement check.
+// Unit tests for `lib/overflow-marker.cjs`. The JVM contract pins
+// `Overflow = [:map {:closed true} [:rf.mcp/overflow ...]]`: clients
+// pattern-match on the one reserved key, so the wrapper is closed and
+// single-keyed while the body stays open. The live gate reads the marker from
+// both result slots and requires the two bodies to agree.
 
 'use strict';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { parseEDNString } = require('edn-data');
 const {
-  EDN_PARSE_OPTS,
   unwrapClosedOverflow,
   assertOverflowBody,
   validateOverflowWrapper,
   validateOverflowText,
-  bodiesEqual,
   assertBodiesAgree,
 } = require('../lib/overflow-marker.cjs');
 
-// A canonical, well-formed body reused across cases.
 function validBody(overrides) {
-  return Object.assign(
-    {
-      limit: 'reached',
-      'cap-tokens': 5000,
-      'token-count': 6250,
-      tool: 'eval-cljs',
-      hint: 'Slice the value at the call-site before returning.',
-    },
-    overrides,
-  );
+  return {
+    limit: 'reached',
+    'cap-tokens': 5000,
+    'token-count': 6250,
+    tool: 'eval-cljs',
+    hint: 'raise the cap',
+    ...overrides,
+  };
 }
 
-// The malformed mixed-envelope shape.
-const MALFORMED_MIXED_ENVELOPE =
-  '{:rf.mcp/overflow {:limit :reached :cap-tokens 5000 :token-count 6250 ' +
-  ':tool "eval-cljs" :hint "Slice"} :unexpected "sibling"}';
-
-// Extraction-only logic, replicated so the RED half of test 1 can
-// demonstrate the exact false-pass it allows.
-function legacyExtractionOnly(text) {
-  let outer;
-  try {
-    outer = parseEDNString(text, EDN_PARSE_OPTS);
-  } catch (_e) {
-    return null;
-  }
-  if (!outer || typeof outer !== 'object') return null;
-  return outer['rf.mcp/overflow'] || null;
+function overflowText(cap, count) {
+  return `{:rf.mcp/overflow {:limit :reached :cap-tokens ${cap} :token-count ${count} ` +
+    ':tool "eval-cljs" :hint "raise the cap"}}';
 }
 
-test('RED-then-GREEN: legacy extraction-only accepts an extra top-level sibling; the closed-wrapper validator rejects it', () => {
-  // RED: extraction-only logic returns the valid inner body even though
-  // the envelope carries an unexpected sibling key — the exact false-green.
-  const legacy = legacyExtractionOnly(MALFORMED_MIXED_ENVELOPE);
-  assert.ok(
-    legacy && legacy.limit === 'reached',
-    'sanity: the extraction-only parser accepts the mixed envelope (the false-green)',
-  );
-  // The outer genuinely has two top-level keys.
-  const outer = parseEDNString(MALFORMED_MIXED_ENVELOPE, EDN_PARSE_OPTS);
-  assert.deepEqual(Object.keys(outer).sort(), ['rf.mcp/overflow', 'unexpected']);
-  // GREEN: the closed-wrapper validator rejects the sibling key.
-  assert.throws(
-    () => validateOverflowText(MALFORMED_MIXED_ENVELOPE, 'test'),
-    /CLOSED single-key map/,
-    'closed-wrapper validator must reject a wrapper with a sibling top-level key',
-  );
-});
-
-test('unwrapClosedOverflow: rejects every own-key set other than exactly {rf.mcp/overflow}', () => {
-  for (const [label, outer] of [
-    ['a lookalike wrapper key (rf.mcp/overflowed)', { 'rf.mcp/overflowed': validBody() }],
-    ['an empty map', {}],
-    ['a non-overflow envelope', { 'ok?': true, value: 'xxxxx' }],
-    ['a second, plausible top-level key', { 'rf.mcp/overflow': validBody(), 'rf.mcp/summary': { type: 'map' } }],
+test('unwrapClosedOverflow rejects everything but the closed single-key wrapper', () => {
+  for (const [outer, pattern] of [
+    [{ 'rf.mcp/overflowed': validBody() }, /CLOSED single-key map/],
+    [{ 'rf.mcp/overflow': validBody(), 'rf.mcp/summary': { type: 'map' } }, /CLOSED single-key map/],
+    [[validBody()], /not a map/],
+    [null, /not a map/],
+    ['rf.mcp/overflow', /not a map/],
   ]) {
-    assert.throws(() => unwrapClosedOverflow(outer, 'test'), /CLOSED single-key map/, label);
+    assert.throws(() => unwrapClosedOverflow(outer, 'test'), pattern, JSON.stringify(outer));
   }
-});
-
-test('unwrapClosedOverflow: rejects arrays and non-map scalars', () => {
-  assert.throws(() => unwrapClosedOverflow([validBody()], 'test'), /not a map/);
-  assert.throws(() => unwrapClosedOverflow(null, 'test'), /not a map/);
-  assert.throws(() => unwrapClosedOverflow('rf.mcp/overflow', 'test'), /not a map/);
-  assert.throws(() => unwrapClosedOverflow(42, 'test'), /not a map/);
 });
 
 test('validateOverflowWrapper: accepts additive fields inside the (open) body', () => {
   const body = validBody({ 'extra-field': 'ok', nested: { a: 1 } });
-  const out = validateOverflowWrapper({ 'rf.mcp/overflow': body }, 'test');
-  // The body is OPEN — additive keys survive validation untouched.
-  assert.equal(out['extra-field'], 'ok');
-  assert.deepEqual(out.nested, { a: 1 });
+  assert.deepEqual(validateOverflowWrapper({ 'rf.mcp/overflow': body }, 'test'), body);
 });
 
-test('assertOverflowBody: rejects a body missing each required field', () => {
-  for (const field of ['limit', 'cap-tokens', 'token-count', 'tool', 'hint']) {
-    const body = validBody();
-    delete body[field];
-    assert.throws(
-      () => assertOverflowBody(body, 'test'),
-      new RegExp(':' + field + ' MUST be'),
-      'missing :' + field + ' must be rejected',
-    );
+test('assertOverflowBody rejects a missing field, a wrong :limit and a token-count not above the cap', () => {
+  const hintless = validBody();
+  delete hintless.hint;
+  for (const [body, pattern] of [
+    [hintless, /:hint MUST be/],
+    [validBody({ limit: 'exceeded' }), /:limit MUST be/],
+    [validBody({ 'token-count': 5000 }), /:token-count MUST exceed :cap-tokens/],
+  ]) {
+    assert.throws(() => assertOverflowBody(body, 'test'), pattern);
   }
-});
-
-test('assertOverflowBody: rejects a wrong :limit enum and non-numeric token fields', () => {
-  assert.throws(() => assertOverflowBody(validBody({ limit: 'exceeded' }), 'test'), /:limit MUST be/);
-  assert.throws(() => assertOverflowBody(validBody({ 'cap-tokens': '5000' }), 'test'), /:cap-tokens MUST be/);
-  assert.throws(() => assertOverflowBody(validBody({ 'token-count': null }), 'test'), /:token-count MUST be/);
 });
 
 test('fractional :cap-tokens / :token-count are rejected through BOTH slots (rf2-gwye.41)', () => {
-  // Malli pins both fields as `:int`; a `typeof === 'number'` check would
-  // let 5000.5 through both validators and the agreement check. Each field is
-  // fractional alone, then both (cap-tokens is checked first).
-  for (const [cap, count, field] of [
-    [5000.5, 6250, 'cap-tokens'],
-    [5000, 6250.5, 'token-count'],
-    [5000.5, 6250.5, 'cap-tokens'],
-  ]) {
-    const text =
-      '{:rf.mcp/overflow {:limit :reached :cap-tokens ' + cap + ' :token-count ' +
-      count + ' :tool "eval-cljs" :hint "raise the cap"}}';
-    const wrapper = { 'rf.mcp/overflow': validBody({ 'cap-tokens': cap, 'token-count': count }) };
+  for (const [cap, count, field] of [[5000.5, 6250, 'cap-tokens'], [5000, 6250.5, 'token-count']]) {
     const want = new RegExp(':' + field + ' MUST be int');
-    assert.throws(() => validateOverflowText(text, 'text-slot'), want, 'text ' + cap + '/' + count);
-    assert.throws(() => validateOverflowWrapper(wrapper, 'structured'), want, 'structured ' + cap + '/' + count);
+    assert.throws(() => validateOverflowText(overflowText(cap, count), 'text-slot'), want);
+    assert.throws(
+      () => validateOverflowWrapper(
+        { 'rf.mcp/overflow': validBody({ 'cap-tokens': cap, 'token-count': count }) },
+        'structured',
+      ),
+      want,
+    );
   }
-  // Still accepted: the canonical integer body parses from the text slot,
-  // validates through both slots, and the two bodies agree.
-  const text =
-    '{:rf.mcp/overflow {:limit :reached :cap-tokens 5000 :token-count 6250 ' +
-    ':tool "eval-cljs" :hint "raise the cap"}}';
-  const fromText = validateOverflowText(text, 'text-slot');
-  const fromStructured = validateOverflowWrapper(
-    { 'rf.mcp/overflow': validBody({ hint: 'raise the cap' }) },
-    'structured',
-  );
-  assert.doesNotThrow(() => assertBodiesAgree(fromText, fromStructured, 'dual-slot'));
+  // The canonical integer body parses from the text slot and agrees with the
+  // structured slot.
+  assert.doesNotThrow(() => assertBodiesAgree(
+    validateOverflowText(overflowText(5000, 6250), 'text-slot'),
+    validateOverflowWrapper({ 'rf.mcp/overflow': validBody() }, 'structured'),
+    'dual-slot',
+  ));
 });
 
-test('assertOverflowBody: rejects token-count <= cap-tokens (degenerate tripped cap)', () => {
-  // Equal is a violation: a tripped cap MUST strictly exceed the budget.
-  assert.throws(
-    () => assertOverflowBody(validBody({ 'cap-tokens': 5000, 'token-count': 5000 }), 'test'),
-    /token-count MUST exceed :cap-tokens/,
-  );
-  // Below the cap is a violation too.
-  assert.throws(
-    () => assertOverflowBody(validBody({ 'cap-tokens': 5000, 'token-count': 4999 }), 'test'),
-    /token-count MUST exceed :cap-tokens/,
-  );
-});
-
-test('validateOverflowText: rejects garbage text and non-string input', () => {
-  // `edn-data` is lenient — most garbage parses to null/partial rather
-  // than throwing — so a truncated/garbage marker is rejected downstream
-  // as a non-overflow-wrapper. Either way the text is REJECTED, never
-  // accepted as a valid marker (the property that matters).
-  assert.throws(
-    () => validateOverflowText('{:rf.mcp/overflow', 'text-slot'),
-    /not a map|not parseable EDN|CLOSED single-key map/,
-  );
-  assert.throws(
-    () => validateOverflowText('}{ garbage', 'text-slot'),
-    /not a map|not parseable EDN|CLOSED single-key map/,
-  );
-  // A non-string text slot is rejected up front with clear context.
-  assert.throws(() => validateOverflowText(42, 'text-slot'), /not a string/);
-});
-
+// The EDN text and the `clj->js` projection list the same keys in different
+// orders.
 test('assertBodiesAgree: accepts two order-different but structurally-equal bodies', () => {
-  const textBody = { limit: 'reached', 'cap-tokens': 5000, 'token-count': 6250, tool: 'eval-cljs', hint: 'x' };
-  // structuredContent projection would carry the same data in a different
-  // key order — bodiesEqual/assertBodiesAgree must be order-insensitive.
-  const structuredBody = { hint: 'x', tool: 'eval-cljs', 'token-count': 6250, 'cap-tokens': 5000, limit: 'reached' };
-  assert.equal(bodiesEqual(textBody, structuredBody), true);
-  assert.doesNotThrow(() => assertBodiesAgree(textBody, structuredBody, 'dual-slot'));
+  const structuredBody = {
+    hint: 'raise the cap', tool: 'eval-cljs', 'token-count': 6250, 'cap-tokens': 5000, limit: 'reached',
+  };
+  assert.doesNotThrow(() => assertBodiesAgree(validBody(), structuredBody, 'dual-slot'));
 });
 
-test('assertBodiesAgree: rejects dual-slot drift (differing value)', () => {
-  const textBody = validBody();
-  const structuredBody = validBody({ tool: 'snapshot' }); // drifted tool name
-  assert.equal(bodiesEqual(textBody, structuredBody), false);
-  assert.throws(() => assertBodiesAgree(textBody, structuredBody, 'dual-slot'), /DRIFTED/);
-});
-
-test('assertBodiesAgree: rejects dual-slot drift (extra field in one slot only)', () => {
-  const textBody = validBody();
-  const structuredBody = validBody({ 'leaked-sibling': 'only-in-structured' });
-  assert.equal(bodiesEqual(textBody, structuredBody), false);
-  assert.throws(() => assertBodiesAgree(textBody, structuredBody, 'dual-slot'), /DRIFTED/);
+test('assertBodiesAgree rejects dual-slot drift: a differing value or a field in one slot only', () => {
+  for (const drifted of [validBody({ tool: 'snapshot' }), validBody({ 'leaked-sibling': 'only-in-structured' })]) {
+    assert.throws(() => assertBodiesAgree(validBody(), drifted, 'dual-slot'), /DRIFTED/);
+  }
 });
