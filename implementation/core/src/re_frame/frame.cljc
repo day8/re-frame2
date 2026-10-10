@@ -2271,8 +2271,8 @@
     thread that already holds it would self-deadlock (see
     `current-thread-owns-drain-serialization?`).
   - Otherwise: spin-CAS-acquire `:drain-lock` (the same acquire shape
-    `re-frame.router/drain-block!` uses — bounded wait: an active drainer holds
-    it for at most `drain-depth` events), stamp this thread as the
+    `re-frame.router/drain-block!` uses — an active drainer holds it until
+    both of its lanes are empty), stamp this thread as the
     `:serialized-holder`, run `f`, then clear the holder and release the lock
     in a `finally`.
 
@@ -2326,7 +2326,8 @@
                ;; re-kicked `drain-try!` CAS-acquire the now-free lock.
                (let [router  (:router frame-record)
                      strand? (locking router
-                               (let [pending? (seq (:queue @router))
+                               (let [pending? (or (seq (:queue @router))
+                                                  (seq (:internal @router)))
                                      closing? (frame-incarnation-closing?
                                                 frame-id drain-lock)]
                                  (reset! drain-lock false)
@@ -2348,7 +2349,7 @@
   ;; The three canonical expansions:
   ;;   :default    -> {} (explicit no-op; identical to omitting :preset)
   ;;   :test       -> redirect :rf.http/managed to its canned-success stub
-  ;;                  (Spec 014); explicit :drain-depth 100 (matches the
+  ;;                  (Spec 014); explicit :drain-depth 1000 (matches the
   ;;                  framework default — surfaced so tooling can read the
   ;;                  bound off frame-meta without consulting the global default);
   ;;                  :rf.cofx/mint-policy :strict (per EP-0017 §6 — a
@@ -2381,7 +2382,7 @@
   (case preset
     :default    {}
     :test       {:fx-overrides        {:rf.http/managed :rf.http/managed-canned-success}
-                 :drain-depth         100
+                 :drain-depth         1000
                  ;; Per EP-0017 §6: the :test preset
                  ;; defaults the cofx MINT POLICY to :strict — a declared-absent
                  ;; generator-backed recordable fact under a test frame is
@@ -2488,12 +2489,16 @@
     ;; boundary.
     :app-db      app-db
     :runtime-db  runtime-db
-    :router      (atom {:queue rf.interop/empty-queue :scheduled? false})
+    ;; Two FIFO lanes (Spec 002 §Run-to-completion): `:queue` is the
+    ;; EXTERNAL lane, `:internal` holds the in-flight family's pending work.
+    :router      (atom {:queue      rf.interop/empty-queue
+                        :internal   rf.interop/empty-queue
+                        :scheduled? false})
    ;; Single-drainer invariant: a separate CAS-able cell that admits
    ;; at most one thread into `drain!` at a time. On the JVM the
    ;; executor's `next-tick` callback can wake while the calling
    ;; thread is mid-drain (e.g. `dispatch-sync!`); without this guard,
-   ;; both threads' peek+pop sequence on `:queue` is non-atomic and
+   ;; both threads' peek+pop sequence on the lanes is non-atomic and
    ;; double-processes / drops envelopes. The loser of the CAS no-ops;
    ;; the winning drainer rechecks the queue before releasing the
    ;; flag so envelopes queued in the gap are not orphaned. CLJS is
@@ -3744,9 +3749,9 @@
   where no fx ctx `(:envelope m)` is in reach. The motivating case is the machine
   completion carriers. Such code hands the result to `re-frame.fx/child-dispatch!`
   so the child inherits run propagation (Spec 002 §Run propagation). The
-  envelope is the one the router DEQUEUED, before its machine-origin tag, so
-  `:rf.machine/internal?` is present only when the event itself was a
-  front-of-queue continuation. The caller decides the child's queue position."
+  envelope is the one the router DEQUEUED. The child's lane is not the
+  envelope's business: a dispatch made from inside the in-flight event joins
+  the frame's internal lane (Spec 002 §Run-to-completion)."
   [frame-id]
   (let [owner *event-owner*]
     (when (= frame-id (:frame owner))
@@ -4181,9 +4186,10 @@
                                      {:token candidate-token
                                       :transaction-owner transaction-owner})
                                (swap! router
-                                      (fn [{:keys [queue destroy-claim-dropped-count]
+                                      (fn [{:keys [queue internal destroy-claim-dropped-count]
                                             :as state}]
                                         (let [dropped (+ (count queue)
+                                                         (count internal)
                                                          (or destroy-claim-dropped-count 0))]
                                           ;; Preserve the claim-time count until
                                           ;; an actual drain observes the claim.
@@ -4194,6 +4200,7 @@
                                           ;; one interruption report.
                                           (cond-> (-> state
                                                       (assoc :queue rf.interop/empty-queue
+                                                             :internal rf.interop/empty-queue
                                                              :scheduled? false)
                                                       (dissoc :destroy-claim-report-emitted?))
                                             (pos? dropped)

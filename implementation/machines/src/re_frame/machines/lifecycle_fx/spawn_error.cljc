@@ -101,15 +101,16 @@
   completion caused by a FRESH event, such as an `:after` wake-up, inherits
   nothing, because that event carried nothing.
 
-  `:source :machine-spawn` is re-stamped, never inherited. `:rf.machine/internal?`
-  is dropped so the carrier keeps its FIFO place. Outside a
+  `:source :machine-spawn` is re-stamped, never inherited. The carrier is
+  dispatched inside the finishing event, so it joins the frame's internal lane
+  in FIFO order, as part of that event's family (Spec 002
+  §Run-to-completion). Outside a
   router pipeline (pure-fn / conformance callers) the envelope is nil and
   `child-dispatch!` falls back to `{:frame frame-id}`; it no-ops when the
   `:router/dispatch!` hook is absent."
   [frame-id event]
   (rf.fx/child-dispatch! frame-id
-                         (some-> (rf.frame/current-event-envelope frame-id)
-                                 (dissoc :rf.machine/internal?))
+                         (rf.frame/current-event-envelope frame-id)
                          event
                          {:source :machine-spawn})
   nil)

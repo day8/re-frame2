@@ -2,8 +2,8 @@
   "Run propagation crosses the machine SPAWN edge (Spec 002 §Run propagation):
   per-call `:fx-overrides` and the `:origin` / `:trace-id` lineage reach every
   fx a spawned child fires, the child's first event keeps `:source
-  :machine-spawn` and its FIFO place (it is not machine-internal), and a
-  per-frame `:fx-overrides` reaches the children too."
+  :machine-spawn` and carries no ordering opt (its lane follows from where it
+  is dispatched), and a per-frame `:fx-overrides` reaches the children too."
   (:require
    #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
@@ -72,8 +72,9 @@
     (is (every? #(= {:source :machine-spawn :origin :sp/tool :trace-id "sp-trace"}
                     (select-keys % [:source :origin :trace-id]))
                 @fired))
-    (is (= [nil] (map :rf.machine/internal? (filter #(= :machine-spawn (:source %)) @sink)))
-        "the one spawn dispatch is not machine-internal, so the newborn's first event stays FIFO")))
+    (is (= [#{:frame :fx-overrides :interceptor-overrides :trace-id :origin :source}]
+           (map (comp set keys) (filter #(= :machine-spawn (:source %)) @sink)))
+        "the one spawn dispatch carries the inherited lineage and its :source, and no ordering opt")))
 
 (deftest per-frame-overrides-still-reach-spawned-children
   (let [fired (register-probe!)]

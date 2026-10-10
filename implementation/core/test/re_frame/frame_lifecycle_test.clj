@@ -297,7 +297,7 @@
   ;; managed HTTP with a strict mint policy, :story fails a runaway cascade fast
   (doseq [[preset fx-overrides drain-depth mint-policy]
           [[:default nil nil nil]
-           [:test {:rf.http/managed :rf.http/managed-canned-success} 100 :strict]
+           [:test {:rf.http/managed :rf.http/managed-canned-success} 1000 :strict]
            [:story {:rf.http/managed :rf.http/managed-canned-success} 16 nil]]]
     (let [id (keyword "p" (name preset))]
       (rf/make-frame {:id id :preset preset})
@@ -308,8 +308,8 @@
 
 (deftest preset-user-keys-win-on-conflict
   (rf/make-frame {:id :p/override :preset      :test
-                  :drain-depth 1000})
-  (is (= [:test 1000 {:rf.http/managed :rf.http/managed-canned-success}]
+                  :drain-depth 5000})
+  (is (= [:test 5000 {:rf.http/managed :rf.http/managed-canned-success}]
          ((juxt :preset :drain-depth :fx-overrides) (:config (rf.frame/frame :p/override))))
       "the user's :drain-depth wins and the other expansion entries still apply"))
 

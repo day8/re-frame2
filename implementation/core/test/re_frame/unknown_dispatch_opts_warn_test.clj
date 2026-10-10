@@ -111,6 +111,6 @@
   ;; (the capture-frame token) and :rf.flow/settle? (Spec 013 §Sequencing)
   (is (= #{:frame :fx-overrides :interceptor-overrides :trace-id :source
            :source-detail :origin :rf.cofx :rf.cofx/mint-policy
-           :rf.trace/call-site :rf.machine/internal? :rf.flow/settle?
+           :rf.trace/call-site :rf.flow/settle?
            :step-index :rf.frame/expected-incarnation}
          rf.router.diagnostics/known-dispatch-opts)))
