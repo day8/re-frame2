@@ -1,7 +1,8 @@
 (ns re-frame2-pair-mcp.restore-epoch-test
   "The restore-epoch write tool: refused without touching the runtime
-  while `--allow-writes` is off, the caller's epoch id and the frame
-  reach the runtime as data, a runtime map passes through (an
+  while `--allow-writes` is off, the caller's epoch id, frame and restore
+  target reach the runtime as data, an unknown target is refused before
+  it, a runtime map passes through (an
   `:ok? false` one as an error), and the raw-state posture is signalled
   before the restore eval."
   (:require [cljs.test :refer-macros [deftest is async]]
@@ -73,6 +74,32 @@
           (.then (fn [_]
                    (is (= '(re-frame2-pair.runtime/restore-epoch (quote 12) :stories)
                           (cljs.reader/read-string (last @forms))))
+                   (done)))))))
+
+(deftest forwards-to-as-the-runtime-opts
+  ;; `:to "before"` asks for the record's `:frame-state-before`. Without a
+  ;; frame the runtime resolves the operating frame from the nil slot.
+  (async done
+    (let [named   (atom [])
+          default (atom [])]
+      (-> (restore! named true #js {:epoch-id "12" :frame ":stories" :to "before"})
+          (.then (fn [_] (restore! default true #js {:epoch-id "12" :to ":before"})))
+          (.then (fn [_]
+                   (is (= '(re-frame2-pair.runtime/restore-epoch (quote 12) :stories {:to :before})
+                          (cljs.reader/read-string (last @named))))
+                   (is (= '(re-frame2-pair.runtime/restore-epoch (quote 12) nil {:to :before})
+                          (cljs.reader/read-string (last @default))))
+                   (done)))))))
+
+(deftest refuses-an-unknown-to-without-touching-runtime
+  (async done
+    (let [forms (atom [])]
+      (-> (restore! forms true #js {:epoch-id "7" :to "sideways"})
+          (.then (fn [r]
+                   (is (tu/error? r))
+                   (is (= :invalid-to (:reason (tu/extract-edn r))))
+                   (is (not-any? #(str/includes? % "restore-epoch") @forms)
+                       "a refused :to never reaches the runtime")
                    (done)))))))
 
 (deftest surfaces-isError-when-runtime-returns-structured-failure-map
