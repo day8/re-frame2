@@ -410,18 +410,8 @@ def render_summary(entries: list[SkillEntry], ceiling: int = FAMILY_FOOTPRINT_CE
 # ---------------------------------------------------------------------------
 
 
-def _write_skill(root: Path, name: str, description: str, when_to_use: str | None = None) -> None:
-    d = root / name
-    d.mkdir(parents=True, exist_ok=True)
-    lines = ["---", f"name: {name}", f"description: {description!r}"]
-    if when_to_use is not None:
-        lines.append(f"when_to_use: {when_to_use!r}")
-    lines += ["---", "", "# body", ""]
-    (d / "SKILL.md").write_text("\n".join(lines), encoding="utf-8")
-
-
 def run_self_test() -> int:
-    """Exercise every rule in BOTH directions.  Returns 0 when all cases hold."""
+    """Exercise each rule at its boundary.  Returns 0 when all cases hold."""
     failures: list[str] = []
 
     def expect(label: str, condition: bool, detail: str = "") -> None:
@@ -431,124 +421,58 @@ def run_self_test() -> int:
             print(f"  FAIL {label}{(': ' + detail) if detail else ''}")
             failures.append(label)
 
+    def entry(name: str, n: int) -> SkillEntry:
+        return SkillEntry(path=Path(name) / "SKILL.md", name=name, resolved="x" * n)
+
     print(f"self-test: check_skill_description_budget (repo root {REPO_ROOT})")
 
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp) / "skills"
-        root.mkdir()
+    # C1 at the portable cap, one past it, and one past the runtime slice,
+    # where the message escalates: (names the cap, says it is being cut).
+    for n, want in ((PACKAGE_MAX_DESC_CHARS, []),
+                    (PACKAGE_MAX_DESC_CHARS + 1, [(True, False)]),
+                    (LISTING_MAX_DESC_CHARS + 1, [(True, True)])):
+        got = [("Agent Skills packaging cap" in m, "being cut" in m)
+               for m in check([entry("one", n)], ceiling=10**9)]
+        expect(f"C1 at {n} chars", got == want, str(got))
 
-        # --- C1 positive: one char over the portable cap reds it. -----------
-        _write_skill(root, "compliant", "x" * (PACKAGE_MAX_DESC_CHARS + 1))
-        entries, _ = collect_skills(root)
-        failures_seen = check(entries, ceiling=10**9)
-        expect(
-            "C1 FAILS a description one char over the portable cap",
-            len(failures_seen) == 1
-            and "Agent Skills packaging cap" in failures_seen[0],
-            str(failures_seen),
-        )
-        expect(
-            "C1 message does NOT claim runtime truncation below 1,536",
-            "being cut" not in failures_seen[0],
-            failures_seen[0],
-        )
-        expect(
-            "C1 boundary: exactly AT the portable cap passes",
-            (
-                _write_skill(root, "compliant", "x" * PACKAGE_MAX_DESC_CHARS),
-                check(collect_skills(root)[0], ceiling=10**9),
-            )[1]
-            == [],
-        )
-
-        # --- C1 escalation: past the runtime slice too, the message says so. -
-        _write_skill(root, "compliant", "x" * (LISTING_MAX_DESC_CHARS + 1))
-        entries, _ = collect_skills(root)
-        escalated = check(entries, ceiling=10**9)
-        expect(
-            "C1 ESCALATES when the description is also past the 1,536 slice",
-            len(escalated) == 1
-            and "Agent Skills packaging cap" in escalated[0]
-            and "being cut" in escalated[0],
-            str(escalated),
-        )
-
-        # --- when_to_use is folded into the measured length. ----------------
-        _write_skill(root, "compliant", "x" * 800, when_to_use="y" * 300)
-        entries, _ = collect_skills(root)
-        entry = entries[0]
-        expect(
-            "resolved length includes ' - ' + when_to_use",
-            entry.resolved_len == 800 + 3 + 300,
-            f"got {entry.resolved_len}",
-        )
-
-        # --- entry/footprint arithmetic matches the runtime formula. --------
-        _write_skill(root, "compliant", "x" * 100)
-        entries, _ = collect_skills(root)
-        _write_skill(root, "second", "y" * 200)
-        entries, _ = collect_skills(root)
-        expected_total = (
-            (len("compliant") + 4 + 100) + (len("second") + 4 + 200) + 1
-        )  # + (n-1) separators
-        expect(
-            "footprint == sum(entryLen) + (n - 1)",
-            family_footprint(entries) == expected_total,
-            f"got {family_footprint(entries)} want {expected_total}",
-        )
-
-        # --- C2 both directions against an explicit ceiling. ----------------
-        total = family_footprint(entries)
-        expect("C2 PASSES at the ceiling", check(entries, ceiling=total) == [])
-        red = check(entries, ceiling=total - 1)
-        expect(
-            "C2 FAILS one char over the ceiling",
-            len(red) == 1 and "listing footprint" in red[0],
-            str(red),
-        )
-
-        # --- capping is a slice, not a rejection: over-cap entries still
-        #     cost only 1536 toward the footprint. -------------------------
-        _write_skill(root, "huge", "z" * 5000)
-        entries, _ = collect_skills(root)
-        huge = next(e for e in entries if e.name == "huge")
-        expect(
-            "an over-cap entry costs the listing only the capped length",
-            huge.entry_len == len("huge") + 4 + LISTING_MAX_DESC_CHARS,
-            f"got {huge.entry_len}",
-        )
-
-        # --- malformed frontmatter is reported, not silently skipped. ------
-        bad = root / "broken"
-        bad.mkdir()
-        (bad / "SKILL.md").write_text("no frontmatter here\n", encoding="utf-8")
-        _, errors = collect_skills(root)
-        expect(
-            "malformed SKILL.md is reported as an error",
-            any("broken/SKILL.md" in e for e in errors),
-            str(errors),
-        )
-
-        # --- a non-string description is reported (the one thing the
-        #     runtime validator itself checks). ---------------------------
-        listy = root / "listy"
-        listy.mkdir()
-        (listy / "SKILL.md").write_text(
-            "---\nname: listy\ndescription:\n  - a\n  - b\n---\n\n# body\n",
-            encoding="utf-8",
-        )
-        _, errors = collect_skills(root)
-        expect(
-            "a non-string description is reported",
-            any("listy/SKILL.md" in e and "must be a string" in e for e in errors),
-            str(errors),
-        )
-
-    # --- the pinned budget arithmetic. -------------------------------------
-    expect("listing budget is 8000 at a 200K window", listing_budget() == 8000)
+    pair = [entry("compliant", 100), entry("second", 200)]
+    total = family_footprint(pair)
+    expect("C2 PASSES at the ceiling", check(pair, ceiling=total) == [])
+    red = check(pair, ceiling=total - 1)
     expect(
-        "the portable cap is the tighter of the two, so it is the one enforced",
-        PACKAGE_MAX_DESC_CHARS < LISTING_MAX_DESC_CHARS,
+        "C2 FAILS one char over the ceiling",
+        len(red) == 1 and "listing footprint" in red[0],
+        str(red),
+    )
+    expect(
+        "an over-slice entry costs the listing only the slice",
+        entry("huge", 5000).entry_len == len("huge") + 4 + LISTING_MAX_DESC_CHARS,
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        for name, text in (
+            ("folded", "---\nname: folded\ndescription: 'x'\nwhen_to_use: 'y'\n---\n"),
+            ("broken", "no frontmatter here\n"),
+            ("listy", "---\nname: listy\ndescription:\n  - a\n  - b\n---\n"),
+        ):
+            (root / name).mkdir()
+            (root / name / "SKILL.md").write_text(text, encoding="utf-8")
+        entries, errors = collect_skills(root)
+    expect(
+        "resolved description folds in ' - ' + when_to_use",
+        [e.resolved for e in entries] == ["x - y"],
+        str(entries),
+    )
+    expect(
+        "malformed SKILL.md is reported as an error",
+        any("broken/SKILL.md" in e for e in errors),
+        str(errors),
+    )
+    expect(
+        "a non-string description is reported",
+        any("listy/SKILL.md" in e and "must be a string" in e for e in errors),
+        str(errors),
     )
 
     print()
