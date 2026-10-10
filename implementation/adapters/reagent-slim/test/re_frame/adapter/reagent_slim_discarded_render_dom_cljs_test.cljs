@@ -485,7 +485,8 @@
                   (is (= [1 1 1] [(alength instances) @renders (ref-count frame-kw query-v)])
                       "[instances renders ref-count]: one committed instance, never re-rendered by a reattach, holding one reference")
                   (is (and (some? @first-rea)
-                           (identical? @first-rea (.-cljsRenderRea ^js (aget instances 0))))
+                           (let [^js inst (aget instances 0)]
+                             (identical? @first-rea (.-cljsRenderRea inst))))
                       "past the horizon the committed instance still holds the Reaction its first render built")
                   (flush-render! #(rf/dispatch-sync [::control-bump] {:frame frame-kw}))
                   (is (= "n=2" (.-textContent node))

@@ -217,11 +217,10 @@ function buildsMissingWarningsAsErrors(edn) {
 // carries no verdict here; it is read only to confirm that every requested
 // build was compiled.
 //
-// Two other lanes read the same line for its warning count, each with its own
+// One other lane reads the same line for its warning count, with its own
 // parser: `bench/fresco/src/re_frame/bench/fresco/lane_build.cjs`
-// (`:fresco-bench`) and `fresco/scripts/check_modules_compile.cjs`
-// (`:fresco-modules-compile`). They are deliberately not unified with this one,
-// which reads no count at all.
+// (`:fresco-bench`). It is deliberately not unified with this one, which
+// reads no count at all.
 //
 // THE SLASH IN THE PATTERN BELOW IS LOAD-BEARING, and not merely an id capture:
 // `reconcileRequestedBuilds` treats a summary whose id was NOT requested as a

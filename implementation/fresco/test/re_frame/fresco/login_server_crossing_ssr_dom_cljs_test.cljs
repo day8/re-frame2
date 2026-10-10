@@ -206,7 +206,7 @@
   A key this table does not carry answers `nil`, so a renamed constant
   fails the row loudly rather than comparing two absences."
   [k]
-  (let [v (gobj/get (.-CODE @protocol) k)]
+  (let [v (gobj/get (.-CODE ^js @protocol) k)]
     (assert (string? v) (str "protocol.cjs CODE has no " k))
     v))
 
@@ -257,7 +257,7 @@
   ([frame-id] (crossing! frame-id nil))
   ([frame-id opts]
    (hand-to-module!
-     (.validateRequest @protocol (request-js (wire-of frame-id) opts) tables #js {}))))
+     (.validateRequest ^js @protocol (request-js (wire-of frame-id) opts) tables #js {}))))
 
 (defn- rendered!
   "The same crossing WITHOUT the request validator, for the DOM rows.
@@ -318,14 +318,14 @@
 
 (deftest the-server-bundle-satisfies-the-render-module-contract
   (testing "the entry table, which every lane can read"
-    (let [entry (aget (.-entries module) app-policy/root-entry)]
+    (let [^js entry (aget (.-entries module) app-policy/root-entry)]
       (is (some? entry) "the module publishes the entry a host names")
       (is (= [":auth" ":auth.login/server-notice"] (vec (.-stateAllowlist entry)))
           "both allowlists, in the EDN spelling the protocol's key grammar admits")
       (is (= [":rf.runtime/machines"] (vec (.-runtimeAllowlist entry))))))
   (crossing-row!
     (fn []
-      (is (some? (.validateModule @protocol module "fresco.login.server"))
+      (is (some? (.validateModule ^js @protocol module "fresco.login.server"))
           "the sidecar's own door - a malformed entry table fails here, not at deploy"))))
 
 ;; ---------------------------------------------------------------------------

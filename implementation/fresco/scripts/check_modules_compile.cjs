@@ -13,14 +13,15 @@
 //   1. THE OPTIONAL MODULES — motion, overlay, forms, native, server, substrate. They are
 //      unreachable from the public door BY CONSTRUCTION (the invariant
 //      `check_optional_module_reachability.py` enforces), so no compile that
-//      starts at the door sees them. Their own tests do compile them — under
-//      `:node-test-fresco`, which sets `:infer-externs false`, and under
-//      `:browser-test`, which infers and then exits 0 on the warnings like
-//      every other shadow build. Compiled in two places and JUDGED in none:
-//      an `:infer-warning` on `(.. el -style -anchorName)` in
-//      `impl/overlay.cljs` would pass both. Under `:advanced` Closure renames a
-//      property it cannot see an extern for, so the trigger claim would
-//      break silently in every consumer that ships an overlay.
+//      starts at the door sees them. Their own tests compile them under
+//      `:node-test-fresco`, which sets `:infer-externs false` and so never
+//      raises the `:infer-warning` class, and under `:browser-test` only as
+//      far as a `-dom-cljs-test` requires them. Here every module compiles
+//      with inference on, so an `:infer-warning` on `(.. el -style
+//      -anchorName)` in `impl/overlay.cljs` fails this gate whichever tests
+//      exist. Under `:advanced` Closure renames a property it cannot see an
+//      extern for, so the trigger claim would break silently in every
+//      consumer that ships an overlay.
 //
 //      The entries are READ FROM THE ROSTER — `check_optional_module_
 //      reachability.py --module-namespaces` — never restated here. A
@@ -44,11 +45,13 @@
 // ## The build
 //
 // `:fresco-modules-compile` in `implementation/shadow-cljs.edn` — a plain
-// `:browser` module with `:infer-externs :auto`, entries merged in through
-// `--config-merge`. `:browser` is MEASURED rather than assumed: the
-// instruments' closure reads DOM-element properties in core's `spine.cljs`
-// that only Closure's browser externs can infer, and the same rows under a
-// `:node-script` id raise four `:infer-warning`s there. A dev
+// `:browser` module with `:infer-externs :auto` and `:warnings-as-errors`,
+// entries merged in through `--config-merge`, which shadow-cljs deep-merges
+// into the build, so the flag holds in both passes below and a warning
+// arrives here as a nonzero exit. `:browser` is MEASURED rather than
+// assumed: the instruments' closure reads DOM-element properties in core's
+// `spine.cljs` that only Closure's browser externs can infer, and the same
+// rows under a `:node-script` id raise four `:infer-warning`s there. A dev
 // `compile`, not a release: the classes closed here — a deleted def, a renamed
 // require, a dropped arity, an undeclared var, an un-externable property — are
 // resolved by the analyser before optimisation, and `:infer-warning` is bound
@@ -57,11 +60,11 @@
 // CONTROL, re-run whenever this gate is touched: read a property no extern
 // declares on an UNTAGGED parameter. In `impl/overlay.cljs`, rewrite
 // `claim-anchor!`'s `(when anchor-id` as `(when (.-anchorNameBogus anchor-id)`
-// -> exit 1, `WARNING #1 - :infer-warning`, `Cannot infer target type in
-// expression (. anchor-id -anchorNameBogus)`; restore -> exit 0. Dropping the
-// `^js` on `claim-anchor!`'s `el` is NOT a control: that `el` is bound from
-// `(.getElementById js/document ...)`, which the analyser already types `js`,
-// so the hint is redundant and the mutation reads 0 warnings.
+// -> exit 1, the `:infer-warning` raised as an error (`Cannot infer target
+// type in expression (. anchor-id -anchorNameBogus)`); restore -> exit 0.
+// Dropping the `^js` on `claim-anchor!`'s `el` is NOT a control: that `el` is
+// bound from `(.getElementById js/document ...)`, which the analyser already
+// types `js`, so the hint is redundant and the mutation reads 0 warnings.
 //
 // ## Limits
 //
@@ -231,99 +234,22 @@ function verifyRoster(rows, impl = IMPL) {
 }
 
 // ---------------------------------------------------------------------------
-// The warnings-fatal build door. shadow-cljs exits 0 when a build emits
-// warnings, so the exit status alone checks the one condition that does not
-// happen; the verdict is read off the `Build completed.` summary instead, and
-// a summary the parser cannot find is a REFUSAL rather than a pass. The same
-// judgement the bench lane's `lane_build.cjs` makes, carried here rather than
-// required across the boundary — the lane is off this package's classpath on
-// purpose. The one other reader of this line,
-// `scripts/check-examples-compile.cjs`, reads no count and is deliberately not
-// unified with it.
+// The build door. `:fresco-modules-compile` sets `:warnings-as-errors`, so
+// shadow-cljs fails the compile on a warning itself, in both passes, and the
+// exit status is the whole verdict: there is no output left to parse.
 // ---------------------------------------------------------------------------
 
-const ANSI_RE = /\x1B\[[0-9;]*m/g;
-const COMPLETED_RE = /\[(:[^\]\s]+)\]\s+Build completed\.[^\n]*?(\d+)\s+warnings?/g;
-const WARNING_MARKER_RE = /-{2,}\s*WARNING #/;
-const WARNING_HEADLINE_RE = /-{2,}\s*(WARNING #[^\n]*?)\s*-{3,}\s*$/gm;
-
-function stripAnsi(s) {
-  return String(s).replace(ANSI_RE, '');
-}
-
-/** Decide a build from shadow's exit status and its captured output. */
-function judgeBuild({ status, output }) {
-  const src = stripAnsi(output);
-  const completed = [];
-  let m;
-  COMPLETED_RE.lastIndex = 0;
-  while ((m = COMPLETED_RE.exec(src)) !== null) {
-    completed.push({ build: m[1], warnings: Number(m[2]) });
-  }
-
-  if (status !== 0) {
-    return {
-      ok: false,
-      reason: `shadow-cljs exited ${status}`,
-      detail: ['see the compiler output above'],
-    };
-  }
-  if (completed.length === 0) {
-    return {
-      ok: false,
-      reason: 'shadow-cljs exited 0 but NO parsable "Build completed." summary was found in its output',
-      detail: [
-        'the warning count is read from that line, so its absence means this',
-        'build was NOT checked for warnings — refusing to pass it green.',
-      ],
-    };
-  }
-  const warned = completed.filter((b) => b.warnings > 0);
-  if (warned.length > 0) {
-    const headlines = [];
-    WARNING_HEADLINE_RE.lastIndex = 0;
-    while ((m = WARNING_HEADLINE_RE.exec(src)) !== null) headlines.push(m[1].trim());
-    return {
-      ok: false,
-      reason: warned.map((b) => `${b.build} compiled with ${b.warnings} warning(s)`).join('; '),
-      detail: [
-        ...headlines.map((h) => `  ${h}`),
-        'A warning is a FAILURE here. Under :advanced an un-externable property',
-        'is renamed and an undeclared var is `undefined`. Fix the source; do',
-        'not lower the warning.',
-      ],
-    };
-  }
-  if (WARNING_MARKER_RE.test(src)) {
-    return {
-      ok: false,
-      reason: 'a "------ WARNING" block appears in the compiler output but every parsed summary reads 0 warnings',
-      detail: ['the summary parser has drifted past real warning evidence.'],
-    };
-  }
-  return { ok: true };
-}
-
-/** Build `buildId` through shadow-cljs's own JS entry-point, warnings-fatal. */
+/** Build `buildId` through shadow-cljs's own JS entry-point; any failure ends the process. */
 function shadowBuild({ impl, mode, buildId, configMerge, tag }) {
   const runner = path.join(impl, 'node_modules', 'shadow-cljs', 'cli', 'runner.js');
   const args = [runner, mode, buildId];
   if (configMerge) args.push('--config-merge', configMerge);
-  const r = spawnSync(process.execPath, args, {
-    cwd: impl,
-    encoding: 'utf8',
-    maxBuffer: 256 * 1024 * 1024,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  const output = `${r.stdout || ''}${r.stderr || ''}`;
-  // Echo FIRST and in full, before any verdict.
-  if (output) process.stderr.write(output);
-  const verdict = r.error
-    ? { ok: false, reason: `could not run shadow-cljs: ${r.error.message}`, detail: [] }
-    : judgeBuild({ status: r.status, output });
-  if (!verdict.ok) {
-    console.error(`\n[${tag}] BUILD REFUSED — ${verdict.reason}`);
-    for (const line of verdict.detail) console.error(`[${tag}] ${line}`);
+  const r = spawnSync(process.execPath, args, { cwd: impl, stdio: 'inherit' });
+  if (r.error || r.status !== 0) {
+    const reason = r.error
+      ? `could not run shadow-cljs: ${r.error.message}`
+      : `shadow-cljs exited ${r.status ?? r.signal}`;
+    console.error(`\n[${tag}] BUILD REFUSED — ${reason}`);
     process.exit(1);
   }
 }
@@ -396,7 +322,6 @@ module.exports = {
   optionalModuleNamespaces,
   namespaceOf,
   verifyRoster,
-  judgeBuild,
   MIN_MODULE_NAMESPACES,
   MODULE_ROSTER,
   MODULE_ROSTER_FLAG,
