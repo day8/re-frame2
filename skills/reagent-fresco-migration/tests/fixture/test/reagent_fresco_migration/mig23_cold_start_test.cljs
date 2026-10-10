@@ -168,7 +168,10 @@
 
   (testing "A kept island keeps its keys — Reagent, not Fresco, lowers an r/as-element island inside a converted view"
     (reset! kept-island nil)
-    (let [keys-of (fn [el] (some->> el .-props .-children array-seq (mapv #(.-key %))))
+    (let [keys-of (fn [^js el]
+                    (when el
+                      (let [^js props (.-props el)]
+                        (mapv (fn [^js child] (.-key child)) (array-seq (.-children props))))))
           html    (:html (rf.fresco.server/render
                            (assoc render-opts :hiccup [island-parent {}])))]
       (is (re-find #"^<section[^>]*><ul><li>a</li><li>b</li></ul></section>$" html)
