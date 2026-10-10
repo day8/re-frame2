@@ -96,6 +96,15 @@
   [instance-id]
   [mutations-key (instance-key-id instance-id)])
 
+(defn generated-instance-id?
+  "True iff `instance-id` is one the runtime generated for an execute that
+  supplied no `:instance` (`[:rf.mutation/instance <mutation-id> <generation>]`).
+  The `:rf.mutation/*` head is reserved, so a caller-supplied id never has it.
+  The runtime retires a generated-id instance after its last settle, since the
+  caller never held the id and so cannot clear the row."
+  [instance-id]
+  (and (vector? instance-id) (= :rf.mutation/instance (first instance-id))))
+
 ;; ---- durable mutation-instance shape -------------------------------------
 ;;
 ;; Plain EDN — host handles (AbortControllers) live in the work-ledger side

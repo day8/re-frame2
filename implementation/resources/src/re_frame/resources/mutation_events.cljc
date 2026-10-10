@@ -124,12 +124,6 @@
   (or supplied-instance
       [:rf.mutation/instance mutation-id generation]))
 
-(defn- generated-instance-id?
-  "True iff `instance-id` is one `mint-instance-id` generated. The
-  `:rf.mutation/*` head is reserved, so a caller-supplied id never has it."
-  [instance-id]
-  (and (vector? instance-id) (= :rf.mutation/instance (first instance-id))))
-
 (defn- retire-fx
   "The fx retiring a GENERATED-id instance once its reply is accepted: a
   `:rf.mutation/clear` of that one instance, which drops its row and its ledger
@@ -2248,7 +2242,7 @@
                remove-timer-fx       (into remove-timer-fx)
                inv-fxs               (into inv-fxs)
                cont-fx               (conj cont-fx)
-               (generated-instance-id? instance-id) (conj (retire-fx instance-id)))}))))
+               (rf.resources.mutation-runtime/generated-instance-id? instance-id) (conj (retire-fx instance-id)))}))))
 
 (defn failed-handler
   "`:rf.mutation.internal/failed` — a mutation write failed. Verifies frame
@@ -2498,4 +2492,4 @@
                (seq (:recovery-fx rolled)) (into (:recovery-fx rolled))
                inv-fxs (into inv-fxs)
                cont-fx (conj cont-fx)
-               (generated-instance-id? instance-id) (conj (retire-fx instance-id)))}))))
+               (rf.resources.mutation-runtime/generated-instance-id? instance-id) (conj (retire-fx instance-id)))}))))
