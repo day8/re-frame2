@@ -491,25 +491,6 @@ There is no `machines` or `machine-meta` function. A machine is an `:event` regi
                :green {:on {:go {:target :red}}}}})
   ```
 
-### `re-frame.machines/make-machine-handler`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (re-frame.machines/make-machine-handler spec) → event-handler fn
-  ```
-- **Description**: Compiles a transition table into the event-handler function that `reg-machine` would register, and returns it without registering it.
-    - A spec with a `[:schemas :data]` schema throws `:rf.error/machine-schema-requires-reg-machine`. This path does not record the `:rf/machine` registration metadata the schema check reads, so the schema would validate nothing. Register such a machine with `reg-machine` or `reg-machine*`.
-- **Example**:
-  ```clojure
-  ;; Build the handler fn without registering it (e.g. to inspect or compose it).
-  (def handler
-    (rf.machines/make-machine-handler
-      {:initial :idle
-       :states  {:idle    {:on {:start {:target :running}}}
-                 :running {}}}))
-  ```
-
 ### `re-frame.machines/machine-transition`
 
 - **Kind**: function
@@ -662,7 +643,7 @@ These run the registration-time checks and the `:data` schema checks. The three 
   ```clojure
   (re-frame.machines/validate-machine! machine)
   ```
-- **Description**: Runs every registration-time check on a machine definition and throws on a violation. `make-machine-handler` calls it first, so every registration runs it.
+- **Description**: Runs every registration-time check on a machine definition and throws on a violation. Every machine registration runs it first.
     - It checks the whole [machine spec](#machine-spec): the closed key sets, transition shapes and targets, guard and action refs, timers, choice, final, history, parallel and spawn rules.
     - `:regions` is accepted only on a `:type :parallel` node, because regions only run on a `:type :parallel` root. On a flat or compound root it throws `:rf.error/machine-root-slot-not-supported` before any other check reads the root; the error's `:offending-keys` lists every root key the runtime does not read there. On a state it throws `:rf.error/machine-unknown-node-key`.
     - It throws the grammar ids listed under [Registration errors](#registration-errors). The `opts`, artefact, `:region-order`, `:rf.cofx/requires` and `:sensitive` / `:large` checks run in `reg-machine` around it, so this function alone does not throw those.

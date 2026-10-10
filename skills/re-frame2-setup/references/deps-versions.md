@@ -31,7 +31,7 @@ Every `day8/re-frame2*` artefact ships at **one VERSION, in lockstep**, every re
 | `day8/re-frame2-reagent` | substrate | **Always (for a Reagent app).** The Reagent adapter map. |
 | `day8/re-frame2-uix` | substrate | Instead of `-reagent` if you target UIx. |
 | `day8/re-frame2-schemas` | per-feature | When you call `reg-app-schema` / `reg-app-schemas`, or put a `:schema` on a registration. `:require` `re-frame.schemas` first — it self-wires its Malli adapter (no separate `re-frame.schemas.malli` require) and a registered schema then validates (Spec 010); without the artefact `reg-app-schema` / `reg-app-schemas` throw `:rf.error/schemas-artefact-missing` — loud, not a silent soft-pass. |
-| `day8/re-frame2-machines` | per-feature | When you call `reg-machine` or `make-machine-handler`. |
+| `day8/re-frame2-machines` | per-feature | When you call `reg-machine` or `machine-transition`. |
 | `day8/re-frame2-routing` | per-feature | When you dispatch `:rf.route/*` events or register routes. |
 | `day8/re-frame2-flows` | per-feature | When you call `reg-flow`. |
 | `day8/re-frame2-http` | per-feature | When an event returns `[:rf.http/managed request]` in `:fx`; this is an effect, not an event to dispatch. |
@@ -131,7 +131,7 @@ Add them **at the moment** the author writes code that calls into them — not b
 | If the author writes... | Add to `deps.edn`... |
 |---|---|
 | `(rf/reg-app-schema ...)` or a `:schema` on a registration | `day8/re-frame2-schemas` (and `:require [re-frame.schemas]`) |
-| `(rf/reg-machine ...)` or `(re-frame.machines/make-machine-handler ...)` | `day8/re-frame2-machines` |
+| `(rf/reg-machine ...)` or `(re-frame.machines/machine-transition ...)` | `day8/re-frame2-machines` |
 | `(rf/reg-route ...)` or dispatches `:rf.route/handle-url-change` | `day8/re-frame2-routing` |
 | `(rf/reg-flow ...)` | `day8/re-frame2-flows` |
 | `[:rf.http/managed ...]` as an `:fx` entry | `day8/re-frame2-http` |

@@ -49,7 +49,7 @@ For each row, the implementor declares **yes** (the implementation supports the 
 
 #### Q1. State machines?
 
-The FSM/actor substrate from [005](005-StateMachines.md) — transition tables, `make-machine-handler`, the `[:rf.runtime/machines]` reserved runtime-db storage, drain extensions for `:raise`/`:always`/`:after`, hierarchy support, declarative `:spawn`. Substantial work. The pattern remains useful without machines (events / subs / fx / app-db / views are self-sufficient); many small frameworks ship without machines initially.
+The FSM/actor substrate from [005](005-StateMachines.md) — transition tables, the machine event handler, the `[:rf.runtime/machines]` reserved runtime-db storage, drain extensions for `:raise`/`:always`/`:after`, hierarchy support, declarative `:spawn`. Substantial work. The pattern remains useful without machines (events / subs / fx / app-db / views are self-sufficient); many small frameworks ship without machines initially.
 
 **Declaring yes implies** picking an FSM-richness capability list and an actor-model capability list per [005 §Capability matrix](005-StateMachines.md#capability-matrix). The CLJS reference claims flat-FSM + hierarchical compound + `:always` + `:after` + `:fsm/tags` + `:fsm/parallel-regions`, plus own-state + spawn/destroy + cross-actor `:fx` + declarative `:spawn` + spawn-and-join (`:spawn-all`). Smaller ports can claim less; conformance grades against the claimed list.
 

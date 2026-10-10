@@ -154,7 +154,7 @@ The M-rule numbering in [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/
 | 31 | **M-27** | Triggered by `reg-app-schema` / `:schema` keys (incl. `:schema` on `reg-event-*` — the key is `:schema` post-M-54, was `:spec` pre-M-54). Add `day8/re-frame2-schemas`. |
 | 31a | **M-61** | If the codebase calls `re-frame.schemas/validate-app-db!` / `validate-sub-return!` directly or publishes the matching late-bind hook keys. Rename to `validate-app-schema!` / `validate-sub!`. Pairs with M-27. v2-pre-rename only. |
 | 32 | **M-28** | Triggered by `reg-machine` / `[:rf/machine ...]`. Add `day8/re-frame2-machines`. |
-| 32a | **M-57** | If the codebase uses `(rf/create-machine-handler ...)`. Rename to `make-machine-handler`. Also rename `:machines/create-machine-handler` late-bind hook key. Pairs with M-28. v2-pre-rename only. |
+| 32a | **M-57** | If the codebase uses `(rf/create-machine-handler ...)` or its `:machines/create-machine-handler` late-bind hook key: there is no public successor. Register the machine with `reg-machine` / `reg-machine*`; test it with `machine-transition` or a frame. Pairs with M-28. v2-pre-rename only. |
 | 33 | **M-29** | Triggered by `reg-route` / `:rf.route/*` events. Add `day8/re-frame2-routing`. Pairs with M-14 (the `not-found` requirement). |
 | 34 | **M-30** | Triggered by `reg-flow` or by M-21's `on-changes` rewrite. Add `day8/re-frame2-flows` — **and** apply the v1→v2 flow-map conversion (a Type-B `:live?` re-home rides along). See [`breaking-changes.md` §M-30](breaking-changes.md#m-30-also-carries-the-flow-map-conversion). |
 | 35 | **M-31** | Triggered by `:rf.http/managed` fx. Add `day8/re-frame2-http`. |

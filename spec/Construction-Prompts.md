@@ -460,7 +460,7 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 - A diagram exporter can label the transition arrow with the guard's name.
 - A Level-1 test can stub the spec's `:actions :begin-submit` for deterministic HTTP behaviour by re-defining one entry in the spec — no need to re-register a global handler.
 - A conformance fixture can assert "the `:failed` event in `:submitting` runs the `:record-failure` action."
-- `make-machine-handler` validates every keyword reference against `:guards` / `:actions` at registration time — typos surface immediately as `:rf.error/machine-unresolved-guard` / `:rf.error/machine-unresolved-action`, not at runtime when the transition fires.
+- Registration validates every keyword reference against `:guards` / `:actions` — typos surface immediately as `:rf.error/machine-unresolved-guard` / `:rf.error/machine-unresolved-action`, not at runtime when the transition fires.
 
 **Template — internal vs external self-transitions:**
 
@@ -530,7 +530,7 @@ A hand-emitted `:rf.machine/spawn` from an action carries no declarative invoke-
 - `machine-transition` is a **pure function** — `(definition, snapshot, event) → {:status :ok :snapshot … :fx […]}` on success, `{:status :error :error {…}}` on an engine-reported failure (the one shape under [005 §Level 1 — pure `machine-transition`](005-StateMachines.md#level-1--pure-machine-transition)). JVM-runnable, headless-testable; owned by `re-frame.machines`.
 - The actor system boundary is the frame; cross-machine messages within a frame settle via run-to-completion drain.
 
-**Headless tests — three levels:**
+**Headless tests — two levels:**
 
 ```clojure
 ;; Level 1 — pure transition function (fastest; FSM logic only).
@@ -542,20 +542,8 @@ A hand-emitted `:rf.machine/spawn` from an action carries no declarative invoke-
     (is (= :ok status))
     (is (= :submitting (:state snapshot)))))
 
-;; Level 2 — unregistered handler fn (handler-level wiring; still no test frame).
-;; Possible because make-machine-handler is a pure factory.
-;; Snapshots live at [:rf.runtime/machines :snapshots <id>] in runtime-db (runtime-managed):
-;; the handler reads the snapshot from the :rf.db/runtime cofx and writes it back
-;; as a :rf.db/runtime effect — NOT app-db's :db.
+;; Level 2 — registered in a test frame (full integration; required for boot, schemas and spawn lifecycle).
 (deftest auth-login-happy-path-l2
-  (let [handler (rf.machines/make-machine-handler {:initial :idle ...})
-        cofx    {:rf.db/runtime {:rf.runtime/machines {:snapshots {:auth.login/flow {:state :idle :data {}}}}}}
-        effects (handler cofx [:auth.login/flow [:submit {:email "..."}]])
-        runtime (:rf.db/runtime effects)]
-    (is (= :submitting (get-in runtime [:rf.runtime/machines :snapshots :auth.login/flow :state])))))
-
-;; Level 3 — registered in a test frame (full integration; required for spawn lifecycle).
-(deftest auth-login-happy-path-l3
   (rf/with-new-frame [f (rf/make-frame {})]
     (rf/dispatch-sync [:auth/init] {:frame f})   ;; seed via a setup dispatch
     (rf/dispatch-sync [:auth.login/flow [:submit {:email "..."}]] {:frame f})
@@ -598,7 +586,7 @@ For projections, compose against `:rf/machine` by declaring it under `:inputs`:
 - All states are listed in `:states`; no string-based or computed state names.
 - Every input the machine listens to is in some state's `:on` map.
 - **Non-trivial guards and actions are named in the machine's `:guards` / `:actions` maps and referenced by keyword from the transition table, not inline.** Inline fns are reserved for single non-branching expressions per [005 §Inspectability bias](005-StateMachines.md#inspectability-bias).
-- Every keyword reference under `:guard` / `:action` (in `:on`, `:always`, `:entry`, `:exit`) is a key in the spec's `:guards` / `:actions` map — `make-machine-handler` validates this at registration time and raises `:rf.error/machine-unresolved-{guard|action}` on miss.
+- Every keyword reference under `:guard` / `:action` (in `:on`, `:always`, `:entry`, `:exit`) is a key in the spec's `:guards` / `:actions` map — registration validates this and raises `:rf.error/machine-unresolved-{guard|action}` on miss.
 - No `reg-machine-guard` / `reg-machine-action` calls — there are no such APIs; guards and actions are machine-scoped.
 - `:guard` and `:action` are single fns (or single keyword references) — not vectors.
 - No `[:assign ...]`, `[:raise ...]`, `[:fx ...]` data forms in transition slots — actions return `{:data {...} :fx [...]}` directly.

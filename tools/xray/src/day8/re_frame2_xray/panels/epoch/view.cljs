@@ -3766,7 +3766,7 @@
 
   The cascade is REQUIRED non-empty for machine handlers — the
   substrate emits at least one `:rf.machine/transition` per macrostep
-  (`make-machine-handler`'s emit shape). The empty-state branch is
+  (the machine handler's emit shape). The empty-state branch is
   defensive only (fixtures that synthesise a machine handler without
   any cascade events).
 

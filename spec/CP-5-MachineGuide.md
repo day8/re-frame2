@@ -29,8 +29,6 @@ Two equivalent surfaces register a machine; CP-5-generated scaffolds default to 
 
 Both forms live in `re-frame.machines` (the `day8/re-frame2-machines` artefact). The `reg-machine` / `defmachine` **macros** are re-exported on the `re-frame.core` façade (they capture call-site source-coords); the plain-fn `reg-machine*` is **not** re-exported — reach it through `re-frame.machines/reg-machine*` (the non-registration / plain-fn machine surface lives in its owning namespace). See [API.md §Machines](API.md#machines) and [005 §`reg-machine` — public registration surface](005-StateMachines.md#reg-machine--public-registration-surface) for the canonical contract.
 
-Beneath both sits `make-machine-handler`, the pure factory that turns a spec into the handler fn. The bare `reg-event` + factory composition reaches the *same* registry slot but does not stamp the registration metadata, so it is the composition seam for callers that must build a handler *without* registering one — code-gen and loader pipelines minting handlers for computed ids — and not the authoring surface. See [005 §`make-machine-handler` is a pure factory](005-StateMachines.md#make-machine-handler-is-a-pure-factory).
-
 ## The inline-fn escape hatch
 
 CP-5 says: **default to named guards and actions**; inline fns are an escape hatch for trivial logic, not the default form. The test for "trivial" is **single non-branching expression**.
@@ -79,7 +77,7 @@ For the third case (compound predicate), prefer naming the compound — `:eligib
 
 ## v1 grammar subset
 
-v1 ships the **machine-as-event-handler foundation** — `make-machine-handler`, `machine-transition`, the `[:rf.machine/spawn ...]` and `[:rf.machine/destroy ...]` lifecycle fx, the reserved fx-id `:raise` (machine-internal), the `[:rf.runtime/machines :snapshots <id>]` runtime-db storage scheme, four-level drain, machine-scoped `:guards` / `:actions` declaration with registration-time validation, and the discovery lens (the `:rf/machine?` filter over `(rf/registrations {:source :store :kind :event})` plus the per-id `:rf/machine` registrar projection).
+v1 ships the **machine-as-event-handler foundation** — the machine handler `reg-machine` registers, `machine-transition`, the `[:rf.machine/spawn ...]` and `[:rf.machine/destroy ...]` lifecycle fx, the reserved fx-id `:raise` (machine-internal), the `[:rf.runtime/machines :snapshots <id>]` runtime-db storage scheme, four-level drain, machine-scoped `:guards` / `:actions` declaration with registration-time validation, and the discovery lens (the `:rf/machine?` filter over `(rf/registrations {:source :store :kind :event})` plus the per-id `:rf/machine` registrar projection).
 
 The grammar this foundation interprets (per [005 §Capability matrix](005-StateMachines.md#capability-matrix)):
 

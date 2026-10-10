@@ -210,7 +210,7 @@ re-frame currently uses `re-frame.interop` (with separate `.clj` and `.cljs` imp
 - Override application (`:fx-overrides`, `:interceptor-overrides`, `:interceptors`).
 - `app-db` mutation and snapshot reading.
 - Cofx injection.
-- Machine transition evaluation (`machine-transition` is a pure function; `make-machine-handler` is a pure factory producing a JVM-runnable event handler body).
+- Machine transition evaluation (`machine-transition` is a pure function; a machine's event handler is built purely from its spec and runs on the JVM).
 - Sub-graph *static topology* (`sub-topology` — the dependency graph derived from `:inputs` declarations, pure data from the registrar).
 - Sub-graph *computation* (computing a sub's value from `app-db` directly, without the reactive-tracking layer).
 - The public registrar query API (`registrations`, `handler-meta`, `frame-ids`, `frame-meta`, `app-db-value`, `frame-state-value`, `sub-topology`).
@@ -468,7 +468,7 @@ The above sections (Abstract, Constraints and goals, Pattern, Hard constraints, 
 
 The foundation hooks ship in 002; the two ergonomic libraries below both ship in-tree.
 
-- **Spec 005 — State Machines.** Builds on foundation hooks in 002 (machines as event handlers, pure factory `make-machine-handler`, pure `machine-transition`, the `:raise` reserved fx-id (machine-internal), and the `:rf.machine/spawn` / `:rf.machine/destroy` canonical actor-lifecycle fx-ids). Pattern adopted from xstate. Shipped: `implementation/machines/`, conformance-pinned.
+- **Spec 005 — State Machines.** Builds on foundation hooks in 002 (machines as event handlers, pure `machine-transition`, the `:raise` reserved fx-id (machine-internal), and the `:rf.machine/spawn` / `:rf.machine/destroy` canonical actor-lifecycle fx-ids). Pattern adopted from xstate. Shipped: `implementation/machines/`, conformance-pinned.
 - **Spec 007 — Stories, Variants, Workspaces.** Storybook-class tooling. Layered on Specs 002 and 008. Shipped: the `re-frame.story` library in `tools/story/`.
 
 ### New / deferred
@@ -553,7 +553,7 @@ A `reg-fx` handler receives a **separate, smaller** map (`:frame` — the frame 
 
 ### Macro budget
 
-Macros (CLJS reference): `reg-event`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-view`, `reg-app-schema`, `reg-route`, `with-frame`. All registration is macro-based to capture source coords and elide docstrings in prod. (State machines themselves use `reg-event` — a machine is an event handler whose body comes from `make-machine-handler`; guards and actions are declared in the machine's own `:guards` / `:actions` maps, not via separate registration calls; per [005](005-StateMachines.md).) Source-coord capture via macros is a CLJS-implementation choice; other-language ports use stack inspection or codegen.
+Macros (CLJS reference): `reg-event`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-view`, `reg-app-schema`, `reg-route`, `with-frame`. All registration is macro-based to capture source coords and elide docstrings in prod. (State machines themselves register as event handlers, through `reg-machine`; guards and actions are declared in the machine's own `:guards` / `:actions` maps, not via separate registration calls; per [005](005-StateMachines.md).) Source-coord capture via macros is a CLJS-implementation choice; other-language ports use stack inspection or codegen.
 
 Not macros: `dispatch`, `dispatch-sync`, `subscribe`. All are functions accepting an optional opts-map second argument. `reg-view`'s lexical injection handles the multi-frame ergonomics inside views without making them macros. re-frame2 does **not** ship `dispatch-to`, `dispatch-with`, or `dispatch-sync-with` — the two-arg form covers those cases.
 

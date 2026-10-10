@@ -187,7 +187,7 @@ For testing state machine transitions, skip the frame entirely:
     (is (= [[:dispatch [:auth/check-credentials]]] fx))))
 ```
 
-`machine-transition` is a pure function — no frame, no `app-db`, no router. Test the logic in isolation; integration tests cover the wiring. See [005 §Testing](005-StateMachines.md#testing) for the full three-level test pyramid (pure `machine-transition`, unregistered handler fn from `make-machine-handler`, registered in test frame).
+`machine-transition` is a pure function — no frame, no `app-db`, no router. Test the logic in isolation; integration tests cover the wiring. See [005 §Testing](005-StateMachines.md#testing) for the full two-level test pyramid (pure `machine-transition`, and the machine registered in a test frame).
 
 ### Pattern 5 — single-frame e2e fixture
 

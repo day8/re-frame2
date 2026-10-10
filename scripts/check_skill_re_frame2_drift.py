@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""No-bead-id + verification-posture + launcher-canonical + machine-handler-
-recipe + managed-http-recipe + form-action-CSRF drift guard for the re-frame2
+"""No-bead-id + verification-posture + launcher-canonical + managed-http-
+recipe + form-action-CSRF drift guard for the re-frame2
 (authoring) skill.
 
 `spec/design.md` is the single normative source for the skill's locked
@@ -51,21 +51,6 @@ no-bead-id arms cover other skills' leaves):
      fails if the launcher stops citing a canonical file or grows a box-drawing
      tree / a "Locks to preserve verbatim" (or "Cardinal rules to bake in")
      block.
-
-  4. **The machine-registration footgun.** A leaf teaching the bare
-     `(reg-event id meta (make-machine-handler spec))` route as if it were a
-     normal way to author a machine teaches a footgun. That direct path does
-     NOT stamp the `:rf/machine?` / `:rf/machine` registration metadata or the
-     per-element source coordinates that machine introspection, `(machine-meta
-     id)`, visualisers, and Xray resolve through, and a `[:schemas :data]`-
-     bearing spec throws `:rf.error/machine-schema-requires-reg-machine` on it.
-     `reg-machine` is the sole normal application-authoring recipe — it already
-     registers the machine AS an event handler and stamps that metadata. This
-     guard rejects a POSITIVE fenced recipe that co-locates `reg-event` and
-     `make-machine-handler`, while ALLOWING an inline (non-fenced) implementation
-     warning that names the shape — so the advanced-note mention on
-     `reg-machine.md` / `api-cheatsheet.md` stays legal, but a copy-pasteable
-     footgun recipe fails the build in any user-facing leaf.
 
   5. **The co-located Managed-HTTP reply.** There is no co-located reply
      default: every
@@ -309,15 +294,8 @@ HANDOFF_RESIDUE_RE = re.compile(
     re.IGNORECASE,
 )
 
-# --- Rule 4: no positive bare `reg-event` + `make-machine-handler` recipe in a
-#     fenced code block (the machine-registration footgun). `reg-machine` is the
-#     sole normal application-authoring recipe; the bare direct path skips the
-#     `:rf/machine?` / source-coord stamp and trips
-#     `:rf.error/machine-schema-requires-reg-machine` on a `[:schemas :data]`
-#     spec. Scanned per-FENCED-BLOCK (the two tokens land on different lines of
-#     one block), so an inline single-backtick warning that names the shape in
-#     prose — the advanced-note mention — is allowed; only a
-#     copy-pasteable positive recipe is rejected.
+# --- Fenced code blocks. The cross-line rules scan per FENCED BLOCK, because
+#     their tokens land on different lines of one block.
 FENCE_RE = re.compile(r"^\s*```")
 
 
@@ -340,37 +318,6 @@ def fenced_blocks(text: str):
                 in_block, block_lines = False, []
         elif in_block:
             block_lines.append(line)
-
-
-REG_EVENT_TOKEN_RE = re.compile(r"\breg-event\b")
-MAKE_MACHINE_HANDLER_TOKEN_RE = re.compile(r"\bmake-machine-handler\b")
-MACHINE_HANDLER_MSG = (
-    "MACHINE-HANDLER-FOOTGUN: this fenced recipe registers a machine via the "
-    "bare `reg-event` + `make-machine-handler` route. That path does NOT stamp "
-    "the :rf/machine? / :rf/machine registration metadata or the per-element "
-    "source coordinates that machine introspection, (machine-meta id), "
-    "visualisers, and Xray resolve through, and a [:schemas :data]-bearing spec "
-    "throws :rf.error/machine-schema-requires-reg-machine on it. Author normal "
-    "machines with `rf/reg-machine` — the sole normal application-authoring "
-    "recipe; it already registers the machine AS an event handler. Demote "
-    "make-machine-handler to an inline advanced-note mention, never a positive "
-    "fenced recipe."
-)
-
-
-def machine_handler_recipe_problems(text: str) -> list[tuple[int, str]]:
-    """Rule 4 — a fenced code block that co-locates `reg-event` and
-    `make-machine-handler` is the machine-registration footgun (a positive
-    recipe for the metadata-skipping direct path). Returns
-    (opening-fence-lineno, message) tuples. Takes the whole file body so the
-    self-test can pass a fenced fixture directly; an inline single-backtick
-    mention in prose never enters a fenced block, so it is allowed."""
-    problems: list[tuple[int, str]] = []
-    for block_start, body in fenced_blocks(text):
-        if (REG_EVENT_TOKEN_RE.search(body)
-                and MAKE_MACHINE_HANDLER_TOKEN_RE.search(body)):
-            problems.append((block_start, MACHINE_HANDLER_MSG))
-    return problems
 
 
 # --- Rule 5: no co-located Managed-HTTP reply-contract teaching.
@@ -1489,12 +1436,9 @@ def find_drift(files: list[Path]) -> tuple[list[str], int]:
                           + reply_contract_problems(line)
                           + retired_listener_problems(line)):
                 problems.append(f"{rel}:{lineno}: {label}\n    {line.strip()}")
-        # Rules 4 & 5a — the machine-registration footgun and the targetless
-        # Managed-HTTP recipe are cross-line shapes (their tokens land on
-        # different lines of one fenced block), so they are scanned per-block
-        # rather than per-line.
-        for start_lineno, label in machine_handler_recipe_problems(body):
-            problems.append(f"{rel}:{start_lineno}: {label}")
+        # Rule 5a — the targetless Managed-HTTP recipe is a cross-line shape
+        # (its tokens land on different lines of one fenced block), so it is
+        # scanned per-block rather than per-line.
         for start_lineno, label in managed_http_recipe_problems(body):
             problems.append(f"{rel}:{start_lineno}: {label}")
         # Rule 8 — the JVM with-frame thunk "function form", scanned over the
@@ -1647,7 +1591,7 @@ def run(*, verbose: bool, ci: bool) -> int:
     if verbose:
         print(
             "re-frame2 no-bead-id + verify-posture + launcher-canonical + "
-            "machine-handler-recipe + managed-http-recipe + uix-hooks + "
+            "managed-http-recipe + uix-hooks + "
             "form-action-csrf + withframe-thunk + canonical-frame-recipe "
             "guard: scanned "
             f"{len(files)} user-facing leaves ({lines_checked} lines), "
@@ -1661,8 +1605,7 @@ def run(*, verbose: bool, ci: bool) -> int:
             print(
                 "re-frame2-drift: no bead-id leaks, the gate-running grants are "
                 "in the front-matter with no author-hand-off residue in the "
-                "leaves, no bare reg-event + make-machine-handler recipe, "
-                "no co-located Managed-HTTP reply-contract teaching, the UIx "
+                "leaves, no co-located Managed-HTTP reply-contract teaching, the UIx "
                 "hooks leaves each carry a coherent defui + use-sub + "
                 "use-frame recipe with no residue shape (no :contextType "
                 "attribution, semantic reversal, reg-view-macro registration, or "
@@ -1693,8 +1636,7 @@ def run(*, verbose: bool, ci: bool) -> int:
         f"\nre-frame2-drift: {len(problems)} drift issue(s) — keep internal "
         "bead ids out of the user-facing leaves (L10), keep the run-the-gate "
         "posture (L3: the agent runs the project's declared gate and reports; "
-        "the grants stay in the front-matter), author machines with reg-machine (not a "
-        "bare reg-event + make-machine-handler recipe), address every Managed-"
+        "the grants stay in the front-matter), address every Managed-"
         "HTTP reply with an explicit :reply-to/:on-success/:on-failure (no "
         "co-located `:rf/reply` default exists), keep each UIx hooks "
         "stateful-component leaf carrying a coherent defui + use-sub "
@@ -1782,16 +1724,7 @@ def _self_test() -> int:
     ):
         expect(launcher_problems, text, dirty=True, label=label)
 
-    # --- Rules 4 and 5a, per fenced block; 5b and 5c, per line.
-    expect(
-        machine_handler_recipe_problems,
-        "```clojure\n"
-        "(rf/reg-event :app/boot\n"
-        "  (re-frame.machines/make-machine-handler\n"
-        "    {:initial :configuring :states {}}))\n"
-        "```\n",
-        dirty=True, label="H1 fenced reg-event wrapping make-machine-handler",
-    )
+    # --- Rule 5a, per fenced block; 5b and 5c, per line.
     expect(
         managed_http_recipe_problems,
         "```clojure\n"

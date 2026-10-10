@@ -49,17 +49,16 @@ inspects the returned `:fx` description. This call starts from the snapshot you
 provide; it does not boot a singleton, execute timers or actors, or run the
 registered schema-validation boundary. Test those behaviors through a frame.
 
-## Three useful test levels
+## Two useful test levels
 
 | Level | What it tests | When to use |
 |---|---|---|
 | `machine-transition` | table logic, guards, action effects | default |
-| unregistered handler (`make-machine-handler`) | the event handler `reg-machine` would register, built without registering it | rare |
-| registered test frame | dispatch, tracing, spawn/destroy, actor messaging | actor-heavy integration |
+| registered test frame | boot, schemas, coeffects, dispatch, tracing, spawn/destroy, actor messaging | integration |
 
 Keep most tests at the first level. It is fast, deterministic, and does not require a browser.
 
-The third level runs the real pipeline in a fresh frame, so it is the one that exercises spawned actors and replies. Stub the HTTP the table issues ([Test a pipeline run](../core/testing/pipeline-runs.md) has the recipe):
+The second level runs the real pipeline in a fresh frame, so it is the one that exercises spawned actors and replies. Stub the HTTP the table issues ([Test a pipeline run](../core/testing/pipeline-runs.md) has the recipe):
 
 ```clojure
 (ns app.login-frame-test

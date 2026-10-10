@@ -37,7 +37,7 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
 
 ## Canonical declaration
 
-`reg-machine` **is** the registration home for the connection machine — it registers the machine as an event handler and stamps the `:rf/machine?` / source-coordinate metadata the `:rf/machine` sub, the declarative `:spawn` resolver, and the tooling rely on, so author it with `reg-machine`, never wrap it by hand. (`reg-machine` / `defmachine` stay on the `rf/` façade; the lower-level `re-frame.machines/make-machine-handler` factory is an advanced schema-less escape hatch — see [`../references/state-machines/reg-machine.md`](../references/state-machines/reg-machine.md) §Driving a machine as a discrete event-driven flow.)
+`reg-machine` **is** the registration home for the connection machine — it registers the machine as an event handler and stamps the `:rf/machine?` / source-coordinate metadata the `:rf/machine` sub, the declarative `:spawn` resolver, and the tooling rely on, so author it with `reg-machine`, never wrap it by hand. (`reg-machine` / `defmachine` stay on the `rf/` façade.)
 
 ```clojure
 ;; The socket actor is spawned on the :active parent, so the runtime binds its

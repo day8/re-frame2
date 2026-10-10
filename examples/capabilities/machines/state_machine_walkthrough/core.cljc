@@ -211,9 +211,7 @@
 ;; IS an event handler. `reg-machine` is just sugar over a `reg-event` whose body
 ;; happens to interpret the table above. When you need registration metadata
 ;; (`:doc`, `:interceptors`, ...), reach for the 3-arity —
-;; `(reg-machine machine-id {:doc "..."} m)` — same machine, more knobs, no
-;; hand-stamped `reg-event` + `re-frame.machines/make-machine-handler`
-;; composition needed.
+;; `(reg-machine machine-id {:doc "..."} m)` — same machine, more knobs.
 
 (rf/reg-machine :walkthrough.login/flow login-flow)
 

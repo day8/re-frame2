@@ -100,7 +100,7 @@ const PAGE = `<!DOCTYPE html>
   <pre class="language-cljs-rf2">(require '[reagent2.core :as r]
          '[re-frame.core :as rf])
 ;; A two-state toggle as a real reg-machine — exercises the machines artefact's
-;; reg-machine* / make-machine-handler / :rf/machine sub late-bind hooks
+;; reg-machine* / :rf/machine sub late-bind hooks
 ;; baked into the bundle.
 (rf/reg-machine :rf2smoke/toggle
   {:initial :off
