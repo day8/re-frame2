@@ -7,7 +7,7 @@
 
   The spine mounts through the `react-dom/client` MODULE, which has no Vars
   to `with-redefs`, so each proof is read off the committed tree: NODE
-  IDENTITY across a re-render proves one Root and one Fragment wrapper (a
+  IDENTITY across a re-render proves one Root and one wrapper chain (a
   second `createRoot`, or a different wrapper shape, remounts and mints a new
   node), and a hydrating first render ADOPTING the server node proves
   `hydrateRoot` ran once."
@@ -64,7 +64,7 @@
           (is (= "v1" (some-> node-1 .-textContent)) "first render committed v1")
           (react-dom/flushSync (fn [] (rf.adapter.uix/render! h (tree "v2") el)))
           (is (= ["v2" true] [(some-> (probe el) .-textContent) (identical? node-1 (probe el))])
-              "the update committed into the SAME node — one Root, one Fragment wrapper")
+              "the update committed into the SAME node — one Root, one wrapper chain")
           (react-dom/flushSync (fn [] (rf.adapter.uix/render! h (tree "v3") el)))
           (is (= ["v3" true 1]
                  [(some-> (probe el) .-textContent) (identical? node-1 (probe el))

@@ -50,7 +50,7 @@
 
 ;; After-render parity on the NATIVE-mount path (raw createRoot +
 ;; .render, the documented boot idiom that bypasses the spine's
-;; Fragment-wrap sentinel). The singleton driver root gives it the same
+;; wrapping sentinel). The singleton driver root gives it the same
 ;; post-commit timing as the :render-slot path.
 (deftest after-render-fires-on-native-mount-uix
   (rf.adapter.react-shared-suite/assert-after-render-fires-on-native-mount cfg))

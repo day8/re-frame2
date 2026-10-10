@@ -1035,8 +1035,8 @@
   (`unmount-op` = `.unmount`) and the ratom-family render (`unmount-op` =
   the injected `unmount-root`), so the `dispose-adapter!` active-roots drain
   always sees the live set. The root constructor / tree-wrap
-  (Fragment+sentinel vs none) differs per spine and stays in each render;
-  only this tracking tail is shared.
+  (the after-render sentinel vs none) differs per spine and stays in each
+  render; only this tracking tail is shared.
 
   The thunk is IDEMPOTENT, as Spec 006 §`render` requires of the returned
   unmount-fn: membership in the active set is the single
@@ -1234,9 +1234,8 @@
   the hydration commit React reports mismatches against (mirroring the compiled
   tier's `PhaseFlipper` clearing `adoption-ref` on the `:server` commit). Renders
   its children and no DOM of its own, so it adds nothing to hydrate and cannot
-  itself mismatch. The React-hook spine mounts it childless beside the tree;
-  the ratom spine wraps the tree in it, because a sibling ahead of the tree
-  would move every `useId` position in it away from the server's.
+  itself mismatch. Both spines wrap the tree in it, because a sibling ahead of
+  the tree would move every `useId` position in it away from the server's.
 
   Public so the mounted-DOM window-bounding proof can mount the REAL closer to
   shut the window it drives the reporter across."
@@ -1301,9 +1300,9 @@
   `active-roots-cell`, drained by `dispose-adapter!`, and released at
   most once.
 
-  `:update!` re-renders through the SAME Fragment wrapper the mount used
-  (see below), so a later render reconciles against the same top element
-  rather than remounting the subtree under a shifted child position.
+  `:update!` re-renders through the SAME wrapper the mount used (see
+  below), so a later render reconciles against the same top element rather
+  than remounting the subtree under a shifted child position.
 
   FAIL-LOUD ELEMENT-SLOT GUARD. The `render-tree` slot is
   ELEMENT-shaped (Spec 006 §`render` — this spine
@@ -1322,22 +1321,24 @@
   aggregator that funnels through the adapter `:render` slot (e.g.
   Xray's `panels.cljs` mount-<panel>! fns) by construction.
 
-  The user's `render-tree` is wrapped in a Fragment alongside an
-  `after-render-sentinel` element. The sentinel is a bare
-  React function component that fires `React.useLayoutEffect` on every
-  commit and drains the per-adapter after-render queue; it renders no
-  DOM. See `make-after-render-machinery` for the queue / sentinel
-  factory.
+  The user's `render-tree` is wrapped in an `after-render-sentinel`
+  element: a bare React function component that renders its children,
+  adds no DOM, and fires `React.useLayoutEffect` on every commit that
+  renders it, draining the per-adapter after-render queue. See
+  `make-after-render-sentinel` for the sentinel.
 
-  On the HYDRATE path (`:hydrate? true`) the React root is created with a
-  framework `onRecoverableError` that surfaces a hydration MISMATCH as the
+  On the HYDRATE path (`:hydrate? true`) the React root is created with
+  `:identifier-prefix` as React's `identifierPrefix` — which `useId` needs to
+  match the server's — and, when warranted, with a framework
+  `onRecoverableError` that surfaces a hydration MISMATCH as the
   `:rf.ssr/hydration-mismatch` diagnostic, composed OVER any host-supplied
-  `:on-recoverable-error` opt (see `hydrate-root-options`). The
-  framework emit is bounded to the hydration ADOPTION WINDOW by a root-local flag
-  the `adoption-window-closer` (mounted into the hydrating tree) clears on the
-  hydration commit, so a LATER recoverable error is not mislabelled a mismatch. A
-  plain (non-hydrating) mount installs neither reporter nor closer and pays zero
-  cost.
+  `:on-recoverable-error` opt (see `hydrate-root-options`). The framework emit
+  is bounded to the hydration ADOPTION WINDOW by a root-local flag the
+  `adoption-window-closer`, wrapping the tree inside the sentinel, clears on
+  the hydration commit, so a LATER recoverable error is not mislabelled a
+  mismatch. Each wrapper has the tree as its only child, so the tree keeps
+  the `useId` positions the server gave it: a sibling ahead of it would move
+  them. A plain (non-hydrating) mount installs neither reporter nor closer.
 
   This render path IS the canonical native UIx hydration entry — the ONLY
   native mount route that installs the framework reporter. Hydrate through
@@ -1352,38 +1353,35 @@
     ;; Spec 006 §`render` types `:hydrate?` as a boolean; non-bool
     ;; truthy values are undefined-behaviour (no defensive coercion).
     (let [hydrate?     (:hydrate? opts)
-          ;; On the hydrate path mint the root-local adoption-window
-          ;; flag and build the composed reporter opts (nil when no host callback
-          ;; AND debug off — production zero-cost); non-hydrating mounts get none.
+          ;; On the hydrate path mint the root-local adoption-window flag and
+          ;; build the root options: the composed reporter (nil when no host
+          ;; callback AND debug off) plus the identifier prefix, if given.
           adoption-ref (when hydrate? #js {:adopting true})
-          ropts        (when hydrate? (hydrate-root-options opts adoption-ref))
-          ;; The wrap is a CLOSURE rather than a one-off value, so
-          ;; every later `render!` through a client-root handle reconciles against
-          ;; the IDENTICAL Fragment shape — same child arity, same child positions.
-          ;; A bare tree where the Fragment stood, or a dropped closer slot, would
-          ;; shift the user's subtree one index and remount it.
+          reporter     (when hydrate? (hydrate-root-options opts adoption-ref))
+          prefix       (when hydrate? (:identifier-prefix opts))
+          root-options (if (some? prefix)
+                         (js/Object.assign #js {:identifierPrefix prefix} reporter)
+                         reporter)
+          ;; The closer rides ONLY when a reporter is installed: it clears
+          ;; `adoption-ref` on the hydration commit, closing the window so a
+          ;; later recoverable error is not mislabelled a mismatch. Its effect
+          ;; deps are `#js []`, so re-rendering it on an update is inert: the
+          ;; window stays closed.
+          closer-props (when reporter #js {:rfAdoption adoption-ref})
+          ;; The wrap is a CLOSURE rather than a one-off value, so every later
+          ;; `render!` through a client-root handle reconciles against the
+          ;; IDENTICAL wrapper chain. A dropped closer would change the element
+          ;; type under the sentinel and remount the user's subtree.
           wrap         (fn wrap [tree]
                          (React/createElement
-                           (.-Fragment React)
+                           after-render-sentinel-cmp
                            nil
-                           (React/createElement after-render-sentinel-cmp nil)
-                           ;; The window-closer rides ONLY when a reporter is
-                           ;; installed: it clears `adoption-ref` on the hydration
-                           ;; commit, closing the window so a later recoverable error
-                           ;; is not mislabelled a mismatch. Renders nil (no DOM), so
-                           ;; it adds nothing to hydrate and cannot itself mismatch.
-                           ;; Its effect deps are `#js []`, so re-rendering it on an
-                           ;; update is inert — the window stays closed.
-                           (when ropts
-                             (React/createElement adoption-window-closer
-                                                  #js {:rfAdoption adoption-ref}))
-                           tree))
+                           (if closer-props
+                             (React/createElement adoption-window-closer closer-props tree)
+                             tree)))
           root         (if hydrate?
-                         ;; A hydrating native root adopts the server
-                         ;; DOM; install the composed onRecoverableError reporter
-                         ;; when warranted (host callback or debug), else no opts.
-                         (if ropts
-                           (react-dom-client/hydrateRoot mount-point (wrap render-tree) ropts)
+                         (if root-options
+                           (react-dom-client/hydrateRoot mount-point (wrap render-tree) root-options)
                            (react-dom-client/hydrateRoot mount-point (wrap render-tree)))
                          (let [r (react-dom-client/createRoot mount-point)]
                            (.render r (wrap render-tree))
@@ -1402,7 +1400,7 @@
 (defn make-render
   "Build the Spec 006 §`render` one-shot slot for this React-hook spine:
   `(render-tree mount-point opts) → unmount-fn`. A thin projection of
-  `make-mount-client-root!` — the create-or-hydrate path, the Fragment +
+  `make-mount-client-root!` — the create-or-hydrate path, the
   after-render-sentinel wrap, the element-slot guard and the active-root
   tracking all live there, and this door simply keeps the unmount thunk
   and discards the rest of the live-root map.
@@ -1425,14 +1423,14 @@
 ;; adapters would be a silent no-op.
 ;;
 ;; Architecture. Per-adapter queue cell + a sentinel function component
-;; injected at the root of every mounted tree (via `make-render`'s
-;; Fragment wrap). The sentinel uses `React.useLayoutEffect` to drain
+;; wrapping every tree mounted through the spine (`make-mount-client-root!`'s
+;; wrap). The sentinel uses `React.useLayoutEffect` to drain
 ;; the queue after each commit — same DOM-mutations-applied / pre-paint
 ;; timing semantics as Reagent's `r/after-render`. When `after-render`
 ;; is called, the sentinel's stashed `setState` bumps a tick to force a
 ;; commit so its `useLayoutEffect` fires and drains the queue.
 ;;
-;; Native-mount parity. The Fragment-wrap sentinel only
+;; Native-mount parity. The wrapping sentinel only
 ;; enters the tree when an app mounts through the adapter's `:render`
 ;; slot. But the documented boot idiom (and the adapter testbeds)
 ;; mounts via the substrate-native renderer directly (`uix-dom/render-
@@ -1449,12 +1447,12 @@
 ;; present. The hook mounts the sentinel component into a detached
 ;; (never-attached-to-the-document) React root via `createRoot`; the
 ;; sentinel's mount LAYOUT effect stashes its `set-tick` setter into
-;; `set-tick-ref` exactly as the Fragment-wrap sentinel does, so the
+;; `set-tick-ref` exactly as the wrapping sentinel does, so the
 ;; same `set-tick` → commit → `useLayoutEffect`-drain machinery
 ;; drives post-commit timing on the native-mount path too. The driver
 ;; root is created once per adapter and reused for the process lifetime
-;; (it renders no DOM — the sentinel returns nil — so a detached host
-;; node is sufficient and never touches the document). An app-tree
+;; (it renders no DOM — the sentinel has no children there — so a detached
+;; host node is sufficient and never touches the document). An app-tree
 ;; sentinel, when present, still wins: it claims `set-tick-ref` and the
 ;; driver root simply sits idle.
 ;;
@@ -1502,7 +1500,10 @@
 
 (defn make-after-render-sentinel
   "Build the sentinel React function component for an adapter. The
-  sentinel returns nil (no DOM impact) and:
+  sentinel renders its children and adds no DOM of its own, so the spine
+  WRAPS each mounted tree in it — a single-child chain leaves every `useId`
+  position in the tree where the server put it — and the singleton driver
+  root mounts it childless. It:
 
     1. On mount, stashes its `setState` setter in `set-tick-ref` so
        `:adapter/after-render` can trigger a commit. Cleared on unmount.
@@ -1513,9 +1514,10 @@
        (a documented guarantee); its flushing of PASSIVE `useEffect`s is a
        React-19 implementation detail, not a contract — so a passive
        install would not be robust across React versions/configs.
-    2. On every commit, fires `React.useLayoutEffect` to drain
-       `queue-cell` — same timing as `r/after-render`'s post-commit
-       run.
+    2. On every commit that renders it, fires `React.useLayoutEffect`
+       to drain `queue-cell` — same timing as `r/after-render`'s
+       post-commit run. A tick re-render returns the same children
+       element, so React bails out of the tree beneath it.
 
   The sentinel uses raw React hooks (`React/useState`,
   `React/useLayoutEffect`) rather than the substrate's hook ns so the
@@ -1523,9 +1525,9 @@
   using this spine.
 
   Returned value is the bare function component, suitable for
-  `(React/createElement sentinel-cmp nil)`."
+  `(React/createElement sentinel-cmp nil tree)`."
   [queue-cell set-tick-ref]
-  (fn after-render-sentinel [_props]
+  (fn after-render-sentinel [^js props]
     (let [tick+setter (React/useState 0)
           set-tick    (aget tick+setter 1)]
       ;; Install the setter from a LAYOUT effect, not a passive useEffect.
@@ -1557,7 +1559,7 @@
         (fn layout-effect []
           (drain-after-render-queue! queue-cell)
           js/undefined))
-      nil)))
+      (.-children props))))
 
 (defn- dom-available?
   "True when a `document` capable of creating elements is reachable —
@@ -1604,7 +1606,7 @@
        tick — React schedules a commit, the sentinel's `useLayoutEffect`
        fires, and the queue drains in post-commit / pre-paint order.
     3. Otherwise (the documented native-mount path, where the
-       app mounted via the substrate-native renderer and no Fragment-wrap
+       app mounted via the substrate-native renderer and no wrapping
        sentinel is in the tree) lazily mounts the per-adapter SINGLETON
        DRIVER ROOT — a detached React root carrying the same sentinel —
        and bumps its now-stashed tick, giving the native-mount path the
