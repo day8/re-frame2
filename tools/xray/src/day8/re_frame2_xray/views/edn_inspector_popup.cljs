@@ -188,38 +188,16 @@
   "Register the popup's subscription surface.
 
   - `:rf.xray.edn-inspector-popup/stack`   — the open-popups stack vector
-  - `:rf.xray.edn-inspector-popup/entries` — the per-popup payload map
-  - `:rf.xray.edn-inspector-popup/open?`   — boolean; true when stack non-empty
-  - `:rf.xray.edn-inspector-popup/top`     — top-of-stack mount-id or nil
-  - `:rf.xray.edn-inspector-popup/entry`   — `[mount-id]` → that entry
-                                            (so a view can pick the
-                                            value + opts for its own
-                                            mount without reading
-                                            siblings)"
+  - `:rf.xray.edn-inspector-popup/entries` — the per-popup payload map"
   []
   (rf/reg-sub stack-slot
     (fn [db _] (get db stack-slot)))
 
   (rf/reg-sub entries-slot
-    (fn [db _] (get db entries-slot)))
-
-  (rf/reg-sub :rf.xray.edn-inspector-popup/open?
-    {:inputs [[stack-slot]]}
-    (fn [[stack] _]
-      (boolean (seq stack))))
-
-  (rf/reg-sub :rf.xray.edn-inspector-popup/top
-    {:inputs [[stack-slot]]}
-    (fn [[stack] _]
-      (top-entry stack)))
-
-  (rf/reg-sub :rf.xray.edn-inspector-popup/entry
-    {:inputs [[entries-slot]]}
-    (fn [[entries] [_ mount-id]]
-      (get entries mount-id))))
+    (fn [db _] (get db entries-slot))))
 
 (defn install-events!
-  "Register the popup's open / close / clear events. Every dispatch
+  "Register the popup's open / close events. Every dispatch
   site passes an explicit `{:frame …}` envelope — the instance frame
   `popup-chrome` captures at render time — so the event lands on that
   frame even after React's click/keydown context has popped."
@@ -246,13 +224,7 @@
           (-> db
               (update stack-slot pop-entry top)
               (update entries-slot dissoc top))
-          db))}))
-
-  (rf/reg-event :rf.xray.edn-inspector-popup/close-all
-    (fn [{:keys [db]} _]
-      {:db (-> db
-          (assoc stack-slot [])
-          (assoc entries-slot {}))})))
+          db))})))
 
 (defn install!
   "Idempotent install for the popup's Xray-side registrations.
@@ -410,15 +382,8 @@
 ;; `popup-chrome` — the node-lane rows — get the Reagent hiccup,
 ;; and only the boundary opts in.
 ;;
-;; The parameter and its Reagent default are not scaffolding: the NODE
-;; LANE depends on them. The `popup-chrome` tests call it
-;; without `:inspector` and so render through [[reagent-inspector]], and one
-;; walks the body asserting a THREE-element fn mount — which is
-;; `[ei/edn-inspector value opts]`, and which [[fresco-inspector]]'s
-;; two-element `[ei/edn-inspector-view {…}]` would fail. [[reagent-inspector]]
-;; is load-bearing in `edn_inspector_popup_wireup_cljs_test` too, where
-;; its head grading `:invalid` is what keeps the boundary row beside it
-;; non-vacuous. Dropping either makes a live assertion UNWRITABLE, not idle.
+;; The node-lane `popup-chrome` tests call it without `:inspector`, so they
+;; render through [[reagent-inspector]].
 
 (defn reagent-inspector
   "The embedded widget as a REAGENT head — `[ei/edn-inspector value opts]`,

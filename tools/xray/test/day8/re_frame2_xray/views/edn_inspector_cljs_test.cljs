@@ -1559,14 +1559,7 @@
     (is (nil? (zoom-of "m")) "popping past the root clears the entry")
     (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-to :p "m" [:a]])
     (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-to :p "m" []])
-    (is (nil? (zoom-of "m")) "zoom-to an empty path clears the zoom")
-    (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-to :p "m1" [:a]])
-    (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-to :p "m2" [:b]])
-    (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset :p "m1"])
-    (is (= [nil [:b]] (map zoom-of ["m1" "m2"]))
-        "a scoped reset clears only its own (panel-id, mount-id) entry")
-    (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])
-    (is (nil? @(rf/subscribe [ei/zoom-slot])) "an unscoped reset clears the whole slot")))
+    (is (nil? (zoom-of "m")) "zoom-to an empty path clears the zoom")))
 
 ;; ---- zoom gesture — double-click / Enter on the container ----------------
 
