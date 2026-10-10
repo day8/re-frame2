@@ -588,9 +588,9 @@ jobs:
       # untouched. Removed-context prose + inline spans + masked docstrings/
       # comments never fire; :include-ns/:exclude-ns/:replace fire only in
       # image/make-frame proximity. docs/EP/** is the allowlisted historical
-      # record. Self-test first (proves each live shape fires + every sanctioned
-      # counterpart stays green), then the live scan. See
-      # scripts/check_retired_image_keys.py.
+      # record. Self-test first (proves each retired token fires on its own
+      # fixture; the live scan holds every sanctioned counterpart green), then
+      # the live scan. See scripts/check_retired_image_keys.py.
       - name: Self-test the retired EP-0026 image-key gate
         run: python scripts/check_retired_image_keys.py --self-test --verbose
 

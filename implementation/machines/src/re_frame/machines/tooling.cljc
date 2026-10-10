@@ -469,21 +469,3 @@
                                (keyword? (second q)))
                       (second q))))
             (:input-signals meta)))))
-
-;; ---- bundle-isolation sentinel ------------------------------------------
-;;
-;; Following the flows / subs / trace tooling split pattern:
-;; `implementation/scripts/check-bundle-isolation.cjs` greps the counter
-;; bundle for this exact string. The string lives ONLY in this
-;; file's source body — no other namespace, no docstring, no test fixture
-;; references it — so its presence in the production counter bundle proves the
-;; tooling sibling's body got pulled in (most likely via a stray `:require`
-;; from a production-reachable ns). The whole machines artefact is already
-;; bundle-isolated from counter (counter never `:require`s `re-frame.machines`),
-;; so this sentinel is the belt-and-braces guard the sibling pattern
-;; standardises. The string survives `:advanced` because string literals are
-;; not renamed; it sits outside any gate so DCE cannot drop the literal
-;; independently of the surrounding ns body.
-
-(defonce ^:private bundle-isolation-sentinel
-  "rf.machines.tooling/sentinel:rf2-2axssk-2026-06-12:do-not-rename")

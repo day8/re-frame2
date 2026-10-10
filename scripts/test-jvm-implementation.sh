@@ -62,7 +62,7 @@ artefacts=(
   # is `.cljc` and runs in BOTH runtimes. Its own `:test` alias
   # (implementation/derivation-conformance/deps.edn) runs the SAME `.cljc`
   # namespaces under the JVM so the `:clj`-side composition (the pure-data
-  # algebra views, the whole-value law over JVM data) is exercised — the
+  # algebra views over JVM data) is exercised — the
   # CLJS side (the always-on `:node-test` gate) runs only the `:cljs` arm.
   # The suite supplies an EXPLICIT contributor map on BOTH
   # hosts, so it deliberately does NOT exercise JVM `default-contributors`
@@ -70,10 +70,11 @@ artefacts=(
   # `default-contributors-resolves-every-jvm-sibling` and
   # `default-contributors-wires-the-machine-selector-targets-surface` in
   # implementation/core/test/re_frame/derivation_graph_test.clj. It
-  # proves the four EP-0014 laws (lowering / storage+eval+lifecycle
-  # classification / graph edges / whole-value) across all five families
-  # — subscriptions, flows, resources, route facts, machines — through
-  # the graph composer.
+  # proves the cross-family laws (graph edges / lifecycle release /
+  # on-demand reads / graph egress) across all five families —
+  # subscriptions, flows, resources, route facts, machines — through the
+  # graph composer; each family's own suite pins its lowering and
+  # classification.
   implementation/derivation-conformance
   # The EP-0018 one-form event-MODEL conformance tier is
   # `.cljc` and runs in BOTH runtimes. Its own `:test` alias

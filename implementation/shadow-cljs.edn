@@ -259,10 +259,10 @@
                 ;; family — HTTP, resources, mutations, machines, routing —
                 ;; produces the ONE shared :status / :rf.reply/work-status /
                 ;; :rf.reply/work-id / canonical-stale shape) and
-                ;; the shared egress-projection boundaries (`trace-summary`,
-                ;; `project-egress`) that keep classified and large reply
-                ;; slots off the wire. Reply-target functor laws are owned
-                ;; by core and its timer probe. The tests sit ABOVE several
+                ;; the egress projection (`trace-summary`) that keeps
+                ;; classified and large reply slots off the wire. Core owns
+                ;; the `project-egress` profiles, and core and its timer probe
+                ;; own the reply-target functor laws. The tests sit ABOVE several
                 ;; artefacts (core, http, resources, machines, routing), so
                 ;; — like security/ — they live in their own top-level
                 ;; reply-conformance/ surface; the cross-artefact node-test
@@ -276,13 +276,14 @@
                 ;; §Validation / Conformance; spec/Derivations.md
                 ;; §Conformance). The umbrella conformance the per-artefact
                 ;; `*-algebra-view` suites + the composer-mechanics test
-                ;; cannot hold: the four EP-0014 LAWS proven ACROSS all five
-                ;; families (subs, flows, resources, route facts, machines)
-                ;; THROUGH the graph composer (`re-frame.derivation.graph`)
-                ;; — (a) LOWERING to the correct node kind/superkind,
-                ;; (b) storage/evaluation/lifecycle CLASSIFICATION per
-                ;; family, (c) graph EDGES (input/param/selector) in static +
-                ;; live graphs, (d) the semantic WHOLE-VALUE law. The tests
+                ;; cannot hold: all five families (subs, flows, resources,
+                ;; route facts, machines) composed THROUGH the graph composer
+                ;; (`re-frame.derivation.graph`) into one static or live
+                ;; graph, checked for graph EDGES (input/param/selector) and
+                ;; their canonical order, lifecycle release, on-demand reads
+                ;; that write no durable state, and graph egress redaction.
+                ;; Each family's own suite and the corpus fixtures pin its
+                ;; lowering and classification. The tests
                 ;; sit ABOVE several artefacts (core + flows/resources/
                 ;; routing/machines), so — like reply-conformance/ and
                 ;; security/ — they live in their own top-level
@@ -294,25 +295,22 @@
                 "derivation-conformance/test"
                 ;; The EP-0018 one-form event-MODEL conformance tier
                 ;; (EP-0018 §Conformance). The umbrella REGRESSION
-                ;; LOCK on the public event contract:
-                ;; `reg-event` is the SINGLE public event form (reg-event-fx
-                ;; semantics — coeffects in, a closed effects map out,
-                ;; `:rf.cofx/requires` uniform); the THREE retired names
-                ;; (reg-event-db / -fx / -ctx) exist ONLY as facade-exported
-                ;; ^:no-doc throwing stubs raising their exact hard errors
-                ;; (production-survivable — fan out on the always-on error
-                ;; channel THEN throw); ONE :rf/event-handler wrapper
-                ;; (:rf/default? true), no :event/kind, reg-event-ctx NOT a
-                ;; public facade var. Every assertion is ADVERSARIAL — a
-                ;; re-introduced old form, a second wrapper id, a returning
-                ;; :event/kind, or a reg-event-ctx facade promotion goes RED.
+                ;; LOCK on the boundaries of the public event contract that
+                ;; core's focused suites could weaken while staying green:
+                ;; supplied recordable coeffects are validated at the durable
+                ;; boundary; the closed effects map is enforced at the final
+                ;; effects boundary, with no db-return convenience; only
+                ;; framework-authority handlers write :rf.db/runtime
+                ;; silently; the THREE retired names (reg-event-db / -fx /
+                ;; -ctx) throw, register nothing and fan out on the
+                ;; always-on error channel; and live dispatch stays inside an
+                ;; image-loaded frame. Core's tests hold the single
+                ;; :rf/event-handler wrapper and the absent :event/kind.
                 ;; The contract spans the events runtime + the public facade +
                 ;; the error-emit channel — wider than any single artefact's
                 ;; test tree — so (like reply-conformance/ +
                 ;; derivation-conformance/) it lives in its own top-level
-                ;; event-conformance/ surface. (No frame-query section: that
-                ;; contract is locked in core's facade-frame-read + the
-                ;; sibling event-frame-isolation conformance ns.)
+                ;; event-conformance/ surface.
                 ;; Namespaces end in `-cljs-test`, so they run under the
                 ;; always-on :node-test gate (`cljs-test$` matches); the JVM
                 ;; counterpart is event-conformance/deps.edn `:test`.
@@ -778,8 +776,9 @@
     ;; buffer stays empty and a synchronous getEntriesByType('measure')
     ;; read finds nothing. This runner asserts the entry NAMES/BUCKETS,
     ;; so it flips retention ON to keep the buffer populated for the
-    ;; synchronous read. The clear-after-emit behaviour is
-    ;; unit-tested separately in re-frame.performance-cljs-test.
+    ;; synchronous read, so this runner cannot observe clear-after-emit.
+    ;; re-frame.performance-cljs-test carries those assertions, guarded
+    ;; by the flag, and no lane compiles it with the flag on.
     :closure-defines {re-frame.performance/enabled?        true
                       re-frame.performance/retain-entries? true}}}
 

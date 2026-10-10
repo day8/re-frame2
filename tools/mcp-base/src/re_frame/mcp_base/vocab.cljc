@@ -173,8 +173,8 @@
 
 (def redacted-sentinel
   "Literal value substituted **in-place** for a sensitive leaf by the
-  framework's `rf/project-egress` walker and by the `redact-interceptor`
-  interceptor. Unlike `:rf.size/large-elided`, this is a **scalar
+  framework's `rf/project-egress` walker. Unlike `:rf.size/large-elided`,
+  this is a **scalar
   sentinel** — there is no map payload, no `:handle`, no re-fetch
   affordance. The value is gone; the agent sees `:rf/redacted` and
   MUST NOT attempt to recover it.
