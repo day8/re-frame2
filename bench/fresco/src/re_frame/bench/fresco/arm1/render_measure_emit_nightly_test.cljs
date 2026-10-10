@@ -42,8 +42,10 @@
   witness is a `React.memo` bail-out (a server render has no previous
   render to compare against); the property that MATTERS there is
   \"a boundary React did not invoke produces no measure\", and
-  [[a-head-react-never-invoked-produces-no-measure]] states exactly
-  that, at the level a headless runner can state it."
+  [[each-rendered-boundary-emits-one-prefixed-render-measure]] states
+  it at the level a headless runner can: the stream names the heads
+  that rendered and no other, so a minted head no tree contains is
+  never mentioned."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
@@ -161,15 +163,13 @@
             decision. A build without the goog-defines would make every
             row below vacuous, so the flags are a row rather than a
             precondition nobody checks."
-    (is rf.performance/enabled?
-        (str "re-frame.performance/enabled? is FALSE in this runner. This ns "
-             "needs a build with "
+    (is (= {:enabled? true :retain-entries? true}
+           {:enabled? rf.performance/enabled? :retain-entries? rf.performance/retain-entries?})
+        (str "This ns needs a build with "
              "(:closure-defines {re-frame.performance/enabled? true "
-             "re-frame.performance/retain-entries? true}); run it there."))
-    (is rf.performance/retain-entries?
-        (str "re-frame.performance/retain-entries? is FALSE, so each measure is "
-             "cleared right after emit and a synchronous getEntriesByType read "
-             "finds nothing. Flip it for this runner."))))
+             "re-frame.performance/retain-entries? true}); run it there. "
+             "Without retain-entries? each measure is cleared right after emit "
+             "and a synchronous getEntriesByType read finds nothing."))))
 
 ;; ---------------------------------------------------------------------------
 ;; 1 — one measure per boundary render, named by the head
@@ -185,12 +185,13 @@
     (rf.bench.fresco.arm1.runtime/reset-body-runs!)
     (let [html  (server-html [measured-page {}])
           names (render-measure-names)]
-      (is (re-find #"quarterly" html) "the page really rendered")
-      (is (= 3 (rf.bench.fresco.arm1.runtime/body-runs)) "three boundary bodies ran")
-      (is (= #{page-name title-name note-name}
-             (set (map #(subs % (count render-prefix)) names)))
-          "one entry per rendered head, each named by its displayName")
-      (is (= 3 (count names)) "and exactly one entry each — no double-emit"))))
+      (is (= [true 3 {page-name 1 title-name 1 note-name 1}]
+             [(some? (re-find #"quarterly" html))
+              (rf.bench.fresco.arm1.runtime/body-runs)
+              (frequencies (map #(subs % (count render-prefix)) names))])
+          "the page really rendered, three boundary bodies ran, and there is
+           exactly one entry per rendered head — no double-emit — each named
+           by its displayName"))))
 
 (deftest the-measure-carries-a-duration-and-allocates-no-marks
   (testing "The entry shape Spec 009 documents: a `measure` with a
@@ -199,12 +200,10 @@
     (fresh!)
     (clear-measures!)
     (server-html [measured-page {}])
-    (let [e (entry-named (str render-prefix page-name))]
-      (is (some? e) "the page's entry is present")
-      (is (number? (.-duration e)))
-      (is (>= (.-duration e) 0) "a duration, not a sentinel"))
-    (is (zero? (rf-mark-count))
-        "the :render bracket allocates no rf: marks")))
+    (let [d (.-duration (entry-named (str render-prefix page-name)))]
+      (is (= [true 0] [(and (number? d) (>= d 0)) (rf-mark-count)])
+          "the page's entry carries a duration, not a sentinel, and the
+           :render bracket allocates no rf: marks"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — it is PER RENDER, not per mint
@@ -220,36 +219,15 @@
     (rf.bench.fresco.arm1.runtime/reset-body-runs!)
     (dotimes [_ 3]
       (server-html [measured-page {}]))
-    (is (= 9 (rf.bench.fresco.arm1.runtime/body-runs)))
-    (is (= 9 (count (render-measure-names)))
-        "one measure per body run — the fence never retried, so the two
-         counters are the same number arrived at two ways")
-    (is (= 3 (count (filter #(= % (str render-prefix title-name))
-                            (render-measure-names))))
-        "and the per-head count is three")))
+    (is (= [9 {page-name 3 title-name 3 note-name 3}]
+           [(rf.bench.fresco.arm1.runtime/body-runs)
+            (frequencies (map #(subs % (count render-prefix)) (render-measure-names)))])
+        "one measure per body run, three per head — the fence never
+         retried, so the two counters are the same number arrived at two
+         ways")))
 
 ;; ---------------------------------------------------------------------------
-;; 3 — a boundary React never invoked emits nothing
-;; ---------------------------------------------------------------------------
-
-(deftest a-head-react-never-invoked-produces-no-measure
-  (testing "HD-028's rider on the measure stream. The bracket sits on the
-            component fn, BELOW React's memo comparator, so a boundary
-            React skips is a boundary that emits nothing — the same law
-            that makes `body-runs` a measurement of adoption rather than
-            an inference from the memo. Stated here as the property a
-            headless runner can state: a minted head that no tree
-            contains is never mentioned."
-    (fresh!)
-    (clear-measures!)
-    (server-html [measured-page {}])
-    (let [names (render-measure-names)]
-      (is (seq names) "the page did emit — this row is not vacuous")
-      (is (not-any? #(.includes % "never-rendered-row") names)
-          "and the head React never invoked is absent from the stream"))))
-
-;; ---------------------------------------------------------------------------
-;; 4 — the unhappy path still reports
+;; 3 — the unhappy path still reports
 ;; ---------------------------------------------------------------------------
 
 (deftest a-throwing-body-still-emits-its-measure
@@ -264,15 +242,16 @@
       (try
         (server-html [throwing-page {}])
         (catch :default e (reset! thrown e)))
-      (is (some? @thrown) "the exception propagated")
       (let [names (render-measure-names)]
-        (is (some #(.endsWith % "/throwing-row") names)
-            "the throwing boundary's measure was emitted from the finally")
-        (is (some #(.endsWith % "/throwing-page") names)
-            "and so was its parent's")))))
+        (is (= [true true true]
+               [(some? @thrown)
+                (boolean (some #(.endsWith % "/throwing-row") names))
+                (boolean (some #(.endsWith % "/throwing-page") names))])
+            "the exception propagated, the throwing boundary's measure was
+             emitted from the finally, and so was its parent's")))))
 
 ;; ---------------------------------------------------------------------------
-;; 5 — the frame-prop twin is wired too
+;; 4 — the frame-prop twin is wired too
 ;; ---------------------------------------------------------------------------
 
 (deftest the-frame-prop-boundary-reports-on-the-same-channel
@@ -287,8 +266,9 @@
                  "frame-prop/measured-row"
                  (fn [_] [:li.fp (str (rf.bench.fresco.arm1.runtime/sub [:rm-on/title]))]))
           html (server-html [row {}])]
-      (is (re-find #"quarterly" html) "the frame-fed boundary rendered")
-      (is (= 1 (rf.bench.fresco.arm1.runtime/body-runs)))
-      (is (= [(str render-prefix "frame-prop/measured-row")]
-             (render-measure-names))
-          "and it emitted exactly one entry, named the same way"))))
+      (is (= [true 1 [(str render-prefix "frame-prop/measured-row")]]
+             [(some? (re-find #"quarterly" html))
+              (rf.bench.fresco.arm1.runtime/body-runs)
+              (render-measure-names)])
+          "the frame-fed boundary rendered, and it emitted exactly one
+           entry, named the same way"))))
