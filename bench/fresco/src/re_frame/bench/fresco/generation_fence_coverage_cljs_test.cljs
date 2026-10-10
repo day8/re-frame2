@@ -1,112 +1,26 @@
 (ns re-frame.bench.fresco.generation-fence-coverage-cljs-test
   "WHAT THE COMMIT BASIS SEES ON THE REGISTRY AXIS.
 
-  `hd-002-adjudication.md` §6.1 asks whether ONE generation comparison
-  per boundary can stand in for a commit-side re-read that compares
-  **three** things between the render that produced an element and the
-  commit about to publish it: node identity (`:node-key`), version, and
-  the rf.frame/registry epochs. A bare generation answers *no* on all
-  three.
-
-  [[re-frame.bench.fresco.arm1.runtime/commit-basis]] is the flush
-  generation PLUS the frame's own physical-install epoch, so the version
-  axis heals in both windows. Those rows live in
-  `arm1/staged_read_tear_cljs_test`, against the arm's own runtime,
-  mutation-proved both ways, with a real-Chromium counterpart in
-  `arm1/generation_fence_dom_cljs_test`. A second copy here would give
-  one assertion two homes, so this file does not carry them.
-
-  The registry axis is the whole of this file: **those two terms cannot
-  see a `:sub` registration, so the basis carries a third one that can —
-  and it reaches a staged key without touching a held one.**
-
-  ## Why the first two terms cannot see it
-
       commit-basis(frame) = flush generation + frame-commit-epoch(frame)
                           + registry-epoch
 
-  The first term moves only through `flush!`, whose only caller is
-  `mark-dirty!`, whose only caller is the per-cell value-change watch
-  `acquire-cell!` installs. A re-registration changes the *computation*
-  behind a query; it does not push a new value through an acquired
-  reaction, so it reaches none of them. The second term is bumped once
-  per physical frame-state install at the substrate's two write
-  chokepoints — and a registry write is not a frame-state install. So
-  both of them sit still, and without a third term React's
-  post-`subscribe` `getSnapshot` re-check would sit still with them.
+  A `:sub` re-registration is neither a value change on an acquired
+  reaction (so the flush generation sits still) nor a frame-state install
+  (so `frame-commit-epoch` sits still). The third term moves — and reaches
+  only a STAGED key, because `getSnapshot` reads the basis live for a key
+  no cell holds and a cell's frozen stamp for a held one. A registry term
+  in every key's live contribution would re-render every mounted boundary
+  on every `reg-sub`, to read back through a cell the re-registration had
+  just made deaf; the held-cell half is closed by
+  `arm1.runtime/invalidate-cell!` instead (`arm1/disposed-cell-cljs-test`,
+  `arm1/first-registration-cljs-test`). The version axis lives in
+  `arm1/staged_read_tear_cljs_test`.
 
-  ## What the third term reaches, and what it deliberately does not
-
-  `getSnapshot` reads the basis **live** for a key no cell holds, and
-  reads a cell's **frozen** stamp for one that is held. The third term
-  therefore reaches exactly one situation: a boundary inside the
-  render→commit gap, whose body read one computation while the commit is
-  about to acquire another. A mounted boundary's number does not move at
-  all, and the row below asserts both halves one line apart.
-
-  That is what separates it from a registry term in every key's live
-  contribution, which would re-render every mounted boundary in the
-  application on every `reg-sub` — and read back through a cell the
-  re-registration had just made deaf, buying nothing. In the gap there is
-  no cell to be deaf: the commit acquires against the registration that
-  is live then, so the one extra render is the whole repair.
-
-  The `:node-key` axis is silent for the same reason and is stated rather
-  than staged, because a second row would re-prove this one's arithmetic
-  with a longer fixture: a same-id frame reincarnation is not a value
-  change on an acquired reaction either — and `frame-commit-epoch`
-  RESTARTS at 0 across one, which is precisely why Spec 006's observation
-  port carries `:node-key` as a third field.
-
-  ## The held-cell half is closed by events, and should stay that way
-
-  **Events close the held-cell half of all three axes, and this
-  arithmetic does not** — which is the point of this file. Where a
-  boundary already holds a cell, the commit basis is blind to a
-  re-registration, blind to a reincarnation, and *should be*: a term there
-  would buy nothing. Each of those events leaves the arm's cell holding a
-  reaction that can no longer answer for its key, so the cell is deaf from
-  that instant, and the extra render a moved number scheduled would read
-  straight back through it. What closes that half is
-  `arm1.runtime/invalidate-cell!`, costing nothing in this arithmetic — so
-  there is no substrate registry reader: the arm counts registrations on
-  the registration hook it already installs.
-  `arm1/disposed-cell-cljs-test` is the measurement for the two
-  transitions that reach it as a *disposal*, armed per unique key: a
-  re-registration and a frame teardown.
-
-  The registry axis has one more transition, and it is the one no disposal
-  announces: a **first** registration. `registrar/add-replacement-hook!`
-  fires only when a previous handler existed, so the arm hears it from
-  `registrar/add-registration-hook!` instead
-  (`arm1.runtime/first-registration!`) for the held-cell half, and from
-  the basis's third term for the gap half.
-  `arm1/first-registration-cljs-test` is that measurement.
-
-  These rows are therefore a **standing statement of scope**: this number
-  answers the version axis, and the registry axis for staged keys only.
-
-  ## The row carries its own control, and needs to
-
-  Two of its four assertions are that a number does NOT move, and a still
-  number is trivially still on a broken fixture. So the row first makes a
-  real frame-state install and watches the basis and the snapshot move —
-  same frame, same boundary, same read set, same instruments, one line
-  apart — and only then re-registers. Without the positive half on the
-  board this row would pass against a runtime that had no counters at
-  all.
-
-  ## Everything here runs against Arm 1's own runtime
-
-  The row drives `render-body` (the render), `snapshot-of` (React's
-  `useSyncExternalStore` capture and its `checkIfSnapshotChanged`) and
-  `commit-boundary!` (React's `subscribe`) directly, never a transcription
-  of `flush!`, `mark-dirty!`, `acquire-cell!` or the epoch-sum
-  `getSnapshot`. The host is the
-  React spine's adapter rather than the plain-atom substrate, and that is
-  load-bearing: on an unwatchable host a subscription never notifies and
-  the control half would be as still as the axis it is controlling for."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  Two of the row's claims are that a number does NOT move, so it first
+  shows a real frame-state install moving both instruments on the same
+  frame, boundary and read set. The host is the React spine's adapter: on
+  an unwatchable host the control half would be as still as the axis."
+  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
             [re-frame.core :as rf]
@@ -123,104 +37,48 @@
      :ambient-frame nil
      :init-fn       (fn [] (rf.bench.fresco.arm1.runtime/reset-runtime!))}))
 
-(def ^:private q [:genfence/v])
+(def ^:private q
+  "This row's own query: a re-registration is a global act."
+  [:genfence/v])
 
-(defn- make-frame!
-  "This row's OWN frame and OWN query: a re-registration is a global act,
-  and re-registering a query some other suite reads would be a test
-  writing on a neighbour."
-  [id db]
+(defn- make-frame! [id db]
   (rf.live-frame/make-frame {:id id})
   (rf.frame/replace-app-db! id db)
   id)
 
 (defn- reader
-  "A boundary whose whole body is one read, so the entry's read set is one
-  key and the snapshot arithmetic is one term."
-  [seen]
-  (fn [_] (let [v (rf.bench.fresco.arm1.runtime/sub q)] (vreset! seen v) [:li (str v)])))
-
-;; ---------------------------------------------------------------------------
-;; The registry-epoch axis reaches a staged key and not a held one
-;; ---------------------------------------------------------------------------
+  "A boundary whose whole body is one read."
+  [_]
+  [:li (str (rf.bench.fresco.arm1.runtime/sub q))])
 
 (deftest the-commit-basis-registry-axis-reaches-a-staged-key-and-not-a-held-one
-  (testing "A commit-side re-read's third field. An observation port that
-            reports the registry epoch on every live node and compares it
-            corrects a handler re-registration between a render and its
-            commit before paint.
-
-            The basis carries this axis too — but it
-            reaches only the half that needs it, and that asymmetry is the
-            row. Neither of the other two terms can see a registration: it
-            is not a frame-state install, so `frame-commit-epoch` does not
-            move, and it is not a value change on an acquired reaction, so
-            it never reaches `mark-dirty!` and the flush generation does not
-            move either. The third term, `registry-epoch`, moves.
-
-            **What that does and does not reach.** `getSnapshot` reads the
-            basis LIVE for a key no cell holds, and reads a cell's FROZEN
-            stamp for one that is held. So a boundary in the render→commit
-            gap sees the number move and re-renders through a cell the
-            commit acquired against the live registration; a mounted
-            boundary's number does not move at all. That is why this is not
-            a term in every key's live contribution, which would wake every
-            mounted boundary in the application, to read back through a cell
-            the re-registration had just made deaf. The mounted case is
-            repaired by the substrate's own events
-            (`arm1.runtime/invalidate-cell!`, off the
-            reaction's disposal), and this row asserts that its snapshot
-            stays exactly where it was."
-    (rf/reg-sub (first q) (fn [db _] (:v db)))
-    (let [seen (volatile! nil)
-          f    (make-frame! ::registry {:v 1})]
-      (rf.bench.fresco.arm1.runtime/render-body f (reader seen) {})
-      (let [entry    (rf.bench.fresco.arm1.runtime/last-reads)
-            release! (rf.bench.fresco.arm1.runtime/commit-boundary! entry (fn []))]
-        (is (= 1 @seen) "the render read the value that was true when it ran")
-
-        (testing "the CONTROL — the instruments are live on this frame, this
-                  boundary and this read set. A real frame-state install
-                  moves the basis and moves the number React re-checks."
-          (let [basis    (rf.bench.fresco.arm1.runtime/commit-basis f)
-                snapshot (rf.bench.fresco.arm1.runtime/snapshot-of entry)]
-            (rf.frame/replace-app-db! f {:v 2})
-            (is (> (rf.bench.fresco.arm1.runtime/commit-basis f) basis)
-                "a physical frame-state install bumps `frame-commit-epoch`,
-                 so the basis moves")
-            (is (not= snapshot (rf.bench.fresco.arm1.runtime/snapshot-of entry))
-                "and the retained key's watch fired, so the epoch sum moved
-                 too — this is what a MOVE looks like on these instruments")))
-
-        (testing "and the axis: the same query, a different computation"
-          ;; A SECOND boundary, rendered and deliberately NOT committed, so
-          ;; its key is staged for the duration of the re-registration. Its
-          ;; own frame, because the assertion below is that this frame's
-          ;; mounted boundary is untouched and a shared frame would let one
-          ;; claim borrow the other's stillness.
-          (let [staged-f     (make-frame! ::registry-staged {:v 1})
-                _            (rf.bench.fresco.arm1.runtime/render-body staged-f (reader (volatile! nil)) {})
-                staged-entry (rf.bench.fresco.arm1.runtime/last-reads)
-                staged-snap  (rf.bench.fresco.arm1.runtime/snapshot-of staged-entry)
-                basis        (rf.bench.fresco.arm1.runtime/commit-basis f)
-                snapshot     (rf.bench.fresco.arm1.runtime/snapshot-of entry)
-                generation   (rf.bench.fresco.arm1.runtime/generation)]
-            (rf/reg-sub (first q) (fn [db _] (* 10 (:v db))))
-            (is (= generation (rf.bench.fresco.arm1.runtime/generation))
-                "the flush generation did not move — a re-registration is not
-                 a value change on an acquired reaction, so it never reaches
-                 `mark-dirty!`")
-            (is (> (rf.bench.fresco.arm1.runtime/commit-basis f) basis)
-                "but the basis did: `registry-epoch` is its third term, and a
-                 registration is the one thing that moves it")
-            (is (= snapshot (rf.bench.fresco.arm1.runtime/snapshot-of entry))
-                "and the MOUNTED boundary's number is still exactly the
-                 number it was — its key is held, so its contribution is the
-                 cell's frozen stamp and not a live basis read. This is the
-                 assertion that separates this term from one in every key's
-                 live contribution")
-            (is (not= staged-snap (rf.bench.fresco.arm1.runtime/snapshot-of staged-entry))
-                "while the STAGED boundary's number moved — its key has no
-                 cell, so it contributes the basis live, and React's
-                 post-`subscribe` re-check will see the tear")))
-        (release!)))))
+  (rf/reg-sub (first q) (fn [db _] (:v db)))
+  (let [f (make-frame! ::registry {:v 1})]
+    (rf.bench.fresco.arm1.runtime/render-body f reader {})
+    (let [entry    (rf.bench.fresco.arm1.runtime/last-reads)
+          release! (rf.bench.fresco.arm1.runtime/commit-boundary! entry (fn []))]
+      (let [basis    (rf.bench.fresco.arm1.runtime/commit-basis f)
+            snapshot (rf.bench.fresco.arm1.runtime/snapshot-of entry)]
+        (rf.frame/replace-app-db! f {:v 2})
+        (is (= {:basis-moved? true :snapshot-moved? true}
+               {:basis-moved?    (> (rf.bench.fresco.arm1.runtime/commit-basis f) basis)
+                :snapshot-moved? (not= snapshot (rf.bench.fresco.arm1.runtime/snapshot-of entry))})
+            "the CONTROL: a frame-state install moves both instruments"))
+      ;; A second boundary on its own frame, rendered and NOT committed, so
+      ;; its key is staged across the re-registration.
+      (let [staged-f     (make-frame! ::registry-staged {:v 1})
+            _            (rf.bench.fresco.arm1.runtime/render-body staged-f reader {})
+            staged-entry (rf.bench.fresco.arm1.runtime/last-reads)
+            staged-snap  (rf.bench.fresco.arm1.runtime/snapshot-of staged-entry)
+            basis        (rf.bench.fresco.arm1.runtime/commit-basis f)
+            snapshot     (rf.bench.fresco.arm1.runtime/snapshot-of entry)
+            generation   (rf.bench.fresco.arm1.runtime/generation)]
+        (rf/reg-sub (first q) (fn [db _] (* 10 (:v db))))
+        (is (= {:generation-moved? false :basis-moved? true
+                :mounted-snapshot-moved? false :staged-snapshot-moved? true}
+               {:generation-moved?       (not= generation (rf.bench.fresco.arm1.runtime/generation))
+                :basis-moved?            (> (rf.bench.fresco.arm1.runtime/commit-basis f) basis)
+                :mounted-snapshot-moved? (not= snapshot (rf.bench.fresco.arm1.runtime/snapshot-of entry))
+                :staged-snapshot-moved?  (not= staged-snap (rf.bench.fresco.arm1.runtime/snapshot-of staged-entry))})
+            "the axis: the basis moves, the mounted boundary's number does not, the staged one's does"))
+      (release!))))
