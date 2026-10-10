@@ -761,22 +761,18 @@ invocation:
       {:hash            h
        :unchanged-since <ms>
        :tool            <name>
-       :via             :result-hash | :precheck
        :hint            "<agent-host instruction string>"}}
      ```
      instead of the full payload. Touch the entry to the tail
-     (LRU bookkeeping). The `:via` slot tells the agent host which
-     cache path produced the hit — `:result-hash` (post-eval text
-     hash) or `:precheck` (pre-eval app-db-hash short-circuit, the
-     cheaper path; see § Precheck eligibility below). Canonical
-     marker shape: [`003-Tool-Catalogue.md` §Universal: per-session
-     response cache](003-Tool-Catalogue.md).
+     (LRU bookkeeping). Canonical marker shape:
+     [`003-Tool-Catalogue.md` §Universal: per-session response
+     cache](003-Tool-Catalogue.md).
    - **Hit, different hash**: state moved on; store the new
      hash + `:sent-at`, return the fresh result.
 
-**Why hash the result, not app-db directly**. The bead
-proposed `(hash app-db)`. The framing here is one step
-downstream: by the time the result is built, it has been
+**Why hash the result, not app-db directly**. The hash is
+taken one step downstream of app-db: by the time the result
+is built, it has been
 path-sliced, summarised, diff-encoded, deduped, scrubbed.
 Two calls with the same args against the same upstream state
 produce the same serialised text — so hashing the text catches
@@ -786,54 +782,17 @@ instead of per-tool hash strategies.
 
 **Scope**. The cache saves wire bytes, not the nREPL round-
 trip — the tool still runs server-side and the result is
-built locally. Saving the round-trip too needs a server-side hash precheck
-(ship a cheap runtime hash first, run the tool only on a
-miss) — see *Precheck eligibility* below for why no tool
-takes it.
+built locally.
 
-**Precheck eligibility (rf2-36xod follow-on; rf2-3ljsa; rf2-ww877w;
-rf2-ajhwbm)**. The precheck landed:
-`(re-frame2-pair.runtime/app-db-hash frame)` is shipped first, and a
-match short-circuits the tool eval. Because that hash is
-`(hash app-db@frame)` ONLY, a tool is precheck-eligible solely when its
-result is a pure function of `app-db@frame` — but as of rf2-ajhwbm, NO
-tool currently qualifies. For `snapshot` the candidate was the single
-app-db-derived slice `{:app-db}`; the other four slices change WITHOUT
-an app-db write, so a snapshot retaining any of them (including the
-default all-five `:include`) is NOT precheck-eligible and falls back to
-the post-eval result-hash cache above, which hashes the full text and
-so never serves a stale slice:
-
-- `:machines` is RUNTIME-DB state (rf2-ww877w) — EP-0001 (rf2-vzld77)
-  moved machine snapshots out of app-db into the durable runtime-db
-  partition (`[:rf.runtime/machines :snapshots]`), so a machine
-  transition rewrites the slice while `(hash app-db)` stays constant.
-- `:sub-cache` is a reactive cache over external inputs.
-- `:epochs`/`:traces` accrue a record on every pipeline run, even a
-  no-`:db` handler.
-- `:app-db` (rf2-ajhwbm) LOOKED sound — it IS the frame db — but the
-  resolved `:app-db` slice is walked through
-  `re-frame.core/project-egress` before it crosses the wire, exactly
-  like `get-path` below. A later elision declaration (or a
-  sensitive/large classification flip) can re-shape the egress of an
-  UNCHANGED app-db subtree while `(hash app-db)` stays constant — a
-  precheck hit under the old rule would re-serve the PRIOR,
-  differently-redacted payload: a staleness / privacy regression, not
-  merely a missed optimisation. So even the narrowest `{:include
-  [:app-db]}` snapshot is now precheck-ineligible.
-
-`get-path` is also NOT precheck-eligible (rf2-ww877w): although it
-reads an app-db subtree, its wire result is post-processed by
-`re-frame.core/project-egress`, whose elision registry lives in the
-runtime-db partition (`[:rf.runtime/elision]`). A later elision
-declaration (or a sensitive/large classification flip) can re-shape
-the egress of an UNCHANGED subtree, which the `(hash app-db)` precheck
-hash cannot observe — so `get-path` falls back to the post-eval
-result-hash cache, which hashes the actual post-elision text.
-
-Both tools' precheck-target dispatch stays in place as infrastructure
-for a future tool whose result is genuinely pure over `app-db@frame`
-alone (see `precheck.cljs`'s ns docstring).
+**Why no pre-eval hash**. A read's wire value is the
+post-`project-egress` text, and egress depends on runtime-db
+state — the elision and sensitive registries, the egress
+profile, the per-call `include-sensitive` gate — as well as
+app-db. So no hash of app-db taken before the tool runs can
+decide a hit soundly: an unchanged app-db can sit beside a
+differently redacted payload. The cache hashes the final
+text instead, which every one of those inputs has already
+shaped.
 
 **Why opt-in by default**. Agent hosts that haven't been
 taught the `:rf.mcp/cache-hit` marker shape would receive a
@@ -855,16 +814,12 @@ var.
 
 **Bypass policy**. Action tools (`dispatch`, `eval-cljs`,
 `tail-build`) bypass — their return value is the result of an
-action, not a read. Volatile runtime-state reads bypass too —
-`get-operating-frame`, whose resolved triple is a function of the
-live frame registry plus the per-session pin: both axes can move
-WITHOUT an app-db mutation and WITHOUT a `set-operating-frame` /
-`reset-operating-frame` call (a frame mount/unmount, or a runtime
-reload with a different live frame set), and the result-hash cache only
-flushes on an explicit operating-frame mutation — so caching it could
-serve a stale `:rf.mcp/cache-hit` masking a newly ambiguous session or
-a newly available app frame. `:isError` results bypass — a transient
-failure must not mask a future successful read.
+action, not a read. `get-operating-frame` bypasses too: it
+reports session state — the live frame registry plus the
+per-session pin — not frame state, and its reply is small, so a
+marker would save little. `:isError` results bypass — the
+marker is a success result, so a hit standing in for a failure
+would drop its `isError` flag.
 
 **Cross-MCP vocabulary**. `:rf.mcp/cache-hit` is the wire
 marker name. It joins the `:rf.mcp/*` family already declared

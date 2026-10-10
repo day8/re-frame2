@@ -1,6 +1,6 @@
 (ns re-frame2-pair-mcp.invoke-test
-  "The seams between `tools/invoke`'s steps (precheck, dispatch, cache,
-  cap). Each step has its own unit suite (`cache_test`, `wire_cap_test`).
+  "The seams between `tools/invoke`'s steps (dispatch, cache, cap). Each
+  step has its own unit suite (`cache_test`, `wire_cap_test`).
 
   `invoke` is async and `with-redefs` restores synchronously, so each test
   `set!`s its stubs and the `:after` fixture restores them: it runs after
@@ -10,18 +10,15 @@
             [re-frame2-pair-mcp.cache :as cache]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.tools :as tools]
-            [re-frame2-pair-mcp.tools.precheck :as precheck]
             [re-frame2-pair-mcp.tools.operating-frame :as operating-frame]
             [re-frame2-pair-mcp.tools.snapshot :as snapshot]))
 
-(def ^:private orig-fetch-precheck-hash precheck/fetch-precheck-hash)
 (def ^:private orig-snapshot-tool snapshot/snapshot-tool)
 (def ^:private orig-reset-operating-frame-tool operating-frame/reset-operating-frame-tool)
 
 (use-fixtures :each
   {:before (fn [] (cache/clear!))
    :after  (fn []
-             (set! precheck/fetch-precheck-hash orig-fetch-precheck-hash)
              (set! snapshot/snapshot-tool orig-snapshot-tool)
              (set! operating-frame/reset-operating-frame-tool orig-reset-operating-frame-tool)
              (cache/clear!))})
@@ -38,14 +35,15 @@
 
 (def ^:private big-payload (pr-str {:huge (apply str (repeat 8000 "x"))}))
 
-(deftest result-hash-hit-when-precheck-ineligible
+(deftest repeat-read-answers-with-cache-hit-marker
   (async done
     (let [args (tu/args->js {:cache "true"})]
       (stub-snapshot! #(mcp-result "{:db {:k :v}}"))
       (-> (tools/invoke nil "snapshot" args nil)
           (.then (fn [_] (tools/invoke nil "snapshot" args nil)))
           (.then (fn [result]
-                   (is (= :result-hash (:via (marker result :rf.mcp/cache-hit))))
+                   (is (= {:tool "snapshot"}
+                          (select-keys (marker result :rf.mcp/cache-hit) [:tool :via])))
                    (done)))))))
 
 (deftest is-error-still-subject-to-cap
@@ -91,30 +89,6 @@
         (.then (fn [_]
                  (is (zero? (cache/size)) "caching is opt-in")
                  (done))))))
-
-(deftest precheck-target-get-path-is-ineligible
-  ;; get-path egresses through `project-egress`, whose elision registry
-  ;; lives in runtime-db, so the app-db hash cannot see a redaction change.
-  (is (nil? (precheck/precheck-target "get-path" (tu/args->js {:frame "rf/default" :path "[:k]"})))))
-
-(deftest single-frame-appdb-only-snapshot-no-longer-precheck-hits
-  ;; The app-db-only slice still egresses through `project-egress`, so an
-  ;; unchanged app-db hash can sit beside a re-redacted payload. The stub
-  ;; hash matches on every call, so a precheck would serve the first
-  ;; payload again; the egressed text differs, so the answer is fresh.
-  (async done
-    (let [args    (tu/args->js {:cache "true" :frames #js ["rf/default"] :include #js ["app-db"]})
-          fetches (atom 0)
-          calls   (atom 0)]
-      (set! precheck/fetch-precheck-hash
-            (fn [_conn _args _target] (swap! fetches inc) (js/Promise.resolve 1234)))
-      (stub-snapshot! #(mcp-result (str "{:app-db {:k :v} :call " (swap! calls inc) "}")))
-      (-> (tools/invoke nil "snapshot" args nil)
-          (.then (fn [_] (tools/invoke nil "snapshot" args nil)))
-          (.then (fn [result]
-                   (is (zero? @fetches))
-                   (is (nil? (marker result :rf.mcp/cache-hit)))
-                   (done)))))))
 
 (deftest operating-frame-change-flushes-cache
   ;; The cache key cannot include the operating frame an omitted-`:frame`

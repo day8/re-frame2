@@ -45,5 +45,5 @@
 (deftest cache-hit-marker-key-keeps-namespace-in-structured-slot
   ;; The marker is built outside the tool callbacks, so it must route
   ;; through `wire/result` too.
-  (let [result (cache/cache-hit-result {:hash 12345 :unchanged-since 1700000000000} "snapshot" :result-hash)]
+  (let [result (cache/cache-hit-result {:hash 12345 :unchanged-since 1700000000000} "snapshot")]
     (is (some? (j/get-in result [:structuredContent "rf.mcp/cache-hit"])))))

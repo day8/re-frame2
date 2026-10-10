@@ -75,8 +75,7 @@
 (deftest apply-cap-short-circuits-on-wire-bounded-markers
   ;; No overflow of an overflow, even under a 1-token cap.
   (doseq [marker [{:rf.mcp/cache-hit {:hash 42 :unchanged-since 0
-                                      :tool "snapshot" :via :result-hash
-                                      :hint "..."}}
+                                      :tool "snapshot" :hint "..."}}
                   {:rf.mcp/overflow {:limit :reached :tool "snapshot"
                                      :cap-tokens 100 :token-count 200
                                      :hint "..."}}]]

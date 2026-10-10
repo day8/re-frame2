@@ -24,7 +24,7 @@
 //
 //   MCP `tools/call` frame on stdio
 //     -> `out/server.js` (the SHIPPED bundle, `:simple` optimised)
-//     -> `tools/invoke` (build resolution, precheck, cache, cap)
+//     -> `tools/invoke` (build resolution, cache, cap)
 //     -> `fresco-tool/<read>-tool`
 //     -> `probe/eval-after-runtime!` (the `__re_frame2_pair_runtime`
 //        preload probe + the JVM-side liveness re-check)

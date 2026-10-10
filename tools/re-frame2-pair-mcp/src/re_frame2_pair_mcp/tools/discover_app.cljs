@@ -24,8 +24,9 @@
   same universal rule the other discover-app precondition failures
   follow (unhealthy runtime / `:debug-disabled` /
   `:no-frames-registered` all use `err-text`). Keeping it `isError` also
-  keeps the response cache from ever masking a later valid mapping (cache
-  eligibility bypasses `isError` results)."
+  keeps it out of the response cache (cache eligibility bypasses
+  `isError` results), so a repeat comes back as the failure, never as a
+  success-shaped cache-hit marker."
   [port]
   (wire/err-text
     {:ok?    false
@@ -179,7 +180,7 @@
               ;; known-tool failure per spec/003's universal isError
               ;; rule, not a success carrying bad news — err-text (not
               ;; ok-text) so the host surfaces it as a failure and the
-              ;; response cache never masks it.
+              ;; response cache never answers it with a cache-hit marker.
               (not (:ok? health))
               (js/Promise.resolve (wire/err-text health))
 

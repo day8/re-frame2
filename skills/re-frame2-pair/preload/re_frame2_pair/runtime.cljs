@@ -1256,8 +1256,8 @@
 ;; NO session-side capture buffer that mirrors the ring: such a buffer
 ;; only fills while a listener is attached, so it would return EMPTY while
 ;; the ring HELD epochs — a silent-WRONG-read. The epoch
-;; listener below drives ONLY the per-frame app-db-hash cache (a derived
-;; scalar, not a record copy) and the pair-epoch attribution.
+;; listener below drives ONLY the pair-epoch attribution (a derived set
+;; of ids, not a record copy).
 
 (defonce ^:private pair-epochs
   ;; Frame-qualified attribution of epochs THIS skill dispatched (`:origin
@@ -1271,71 +1271,9 @@
   ;; it is NOT a second unbounded mirror of the epoch ring.
   (atom {}))
 
-;; ---- O(1) per-frame app-db hash cache ------------------------------------
-;;
-;; The re-frame2-pair-mcp precheck issues `(hash app-db)` to decide a
-;; cache hit before running the tool eval. `(hash <persistent-map>)` is
-;; cached on the map node itself in CLJS — the first call walks; every
-;; subsequent call returns the cached integer in O(1) (per
-;; `cljs.core/-hash` on `PersistentArrayMap` / `PersistentHashMap`). So
-;; the wire saving from a precheck-side cache here is small for the
-;; precheck hot path itself.
-;;
-;; What *is* expensive is the route through `(re-frame2-pair.runtime/
-;; snapshot frame)` → `(rf/app-db-value frame-id)` → dereferences and
-;; map lookups, which the precheck eval form has to thread on every
-;; call. With the per-frame cached integer here, the precheck form
-;; resolves to a single atom deref + map lookup, completely independent
-;; of app-db size or structure.
-;;
-;; The cache is updated whenever an epoch settles — every mutation path
-;; (dispatch via the router, `rf/replace-frame-state!` synthetic `:rf.epoch/
-;; db-replaced`, `rf/restore-epoch!`) produces an assembled-epoch record
-;; that arrives at `on-epoch-settled`. We update the cache there from
-;; `(:db-after record)`. On the first read for a frame, if the slot is
-;; absent (no epoch has fired yet for this frame), we compute it lazily
-;; from `(rf/app-db-value frame-id)` and stash it.
-;;
-;; `app-db-hash` is the only accessor; callers needing a path-scoped
-;; hash hash the slice themselves.
-
-(defonce ^:private frame-db-hashes
-  ;; frame-id -> cached `(hash app-db)` integer
-  (atom {}))
-
-(defn- update-frame-db-hash!
-  "Update the cached hash for `frame-id` from the epoch record's
-   `:db-after` slot. Called from the epoch listener."
-  [frame-id db-after]
-  (swap! frame-db-hashes assoc frame-id (hash db-after)))
-
-(defn app-db-hash
-  "Cheap O(1) accessor for the current `(hash app-db)` of `frame-id`.
-
-   Cached by the epoch listener at every settled mutation. On the first
-   read for a frame whose hash hasn't been observed yet (no epoch
-   fired since session start), the value is computed lazily from
-   `(rf/app-db-value frame-id)` and stashed.
-
-   Returns an integer hash, or `nil` if the frame doesn't exist.
-
-   The re-frame2-pair-mcp precheck form threads through this accessor
-   so the cache-hit decision is a single integer compare rather than a
-   full app-db walk."
-  ([] (app-db-hash (current-frame)))
-  ([frame-id]
-   (when frame-id
-     (or (get @frame-db-hashes frame-id)
-         (let [db (rf/app-db-value frame-id)
-               h  (hash db)]
-           (swap! frame-db-hashes assoc frame-id h)
-           h)))))
-
-;; The per-frame app-db-hash cache and the pair-epoch attribution ride
-;; the same `register-epoch-listener!` slot — combined into
-;; `on-epoch-settled` below to keep listener ordering deterministic.
-;; The listener derives a scalar hash and remembers attribution; it
-;; does NOT retain a copy of the ring (reads go straight to
+;; The pair-epoch attribution rides the `:epoch` listener slot through
+;; `on-epoch-settled` below. The listener remembers attribution; it does
+;; NOT retain a copy of the ring (reads go straight to
 ;; `(rf/epoch-history frame-id)`).
 
 (declare on-epoch-settled)
@@ -1525,15 +1463,12 @@
       (swap! pair-epochs pure/attribute-pair-epoch record registered live-ids))))
 
 (defn- on-epoch-settled
-  "Assembled-epoch listener. Drives derived state only — the per-frame
-   app-db-hash cache (a scalar, for the precheck cache-hit decision) and the
+  "Assembled-epoch listener. Drives derived state only — the
    frame-qualified pair-epoch attribution (`attribute-pair-epoch!`). It does
    NOT retain a copy of the epoch ring: every
    epoch read hits `(rf/epoch-history frame-id)` directly, so there is no
    session-side buffer to drift."
   [record]
-  (when-let [frame-id (:frame record)]
-    (update-frame-db-hash! frame-id (:db-after record)))
   (attribute-pair-epoch! record))
 
 ;; ---------------------------------------------------------------------------

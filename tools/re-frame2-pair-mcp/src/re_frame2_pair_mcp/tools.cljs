@@ -23,7 +23,6 @@
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.cap :as cap]
             [re-frame2-pair-mcp.tools.probe :as probe]
-            [re-frame2-pair-mcp.tools.precheck :as precheck]
             [re-frame2-pair-mcp.tools.operating-frame :as operating-frame]
             [re-frame2-pair-mcp.tools.registry :as registry]
             [re-frame2-pair-mcp.tools.descriptors :as descriptors]))
@@ -147,8 +146,8 @@
 ;; Wire-boundary pipeline.
 ;;
 ;; Steps thread through `boundary-step/run-step-pipeline`. Each
-;; step's `:run` receives the live context (carrying `:result` and
-;; `:precheck-hash`) and returns a Promise of the next context. The
+;; step's `:run` receives the live context (carrying `:result`) and
+;; returns a Promise of the next context. The
 ;; `:skip-when?` predicates encode the per-step skip rules
 ;; declaratively — no inline conditionals in the orchestrator. The
 ;; predicate's semantics are skip-this-step, not halt-the-chain.
@@ -160,7 +159,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- canonicalize-build-step
-  "Step -1 — forgiving suffix→canonical build resolution.
+  "Step 0 — forgiving suffix→canonical build resolution.
   Runs BEFORE every other step so the conn's `:build-alias` cache is
   populated before any per-tool body reads `wire/arg-build`. Resolves the
   requested build (`wire/requested-build` — explicit `:build` arg, else
@@ -222,24 +221,6 @@
                    ctx))
           (.catch (fn [_] ctx))))))
 
-(defn- precheck-step
-  "Step 0 — cheap-hash short-circuit. For precheck-eligible
-  tools (cache enabled AND tool registers a precheck-target), fetches
-  the runtime-side hash via one bencode round-trip and consults the
-  cache. On a hit, writes the marker to `:result` (which trips
-  subsequent steps' `:skip-when?` predicates). On a miss, records
-  the fetched hash in `:precheck-hash` so `apply-cache` can attach
-  it to the future entry."
-  [{:keys [conn name args cache-opts] :as ctx}]
-  (if-let [target (and (:enabled? cache-opts)
-                       (precheck/precheck-target name args))]
-    (-> (precheck/fetch-precheck-hash conn args target)
-        (.then (fn [h]
-                 (assoc ctx
-                   :precheck-hash h
-                   :result        (cache/precheck cache-opts h)))))
-    (js/Promise.resolve ctx)))
-
 (defn- dispatch-step
   "Step 1 — per-tool dispatch. Runs the actual tool implementation; its
   Promise resolves to the JS-shape MCP result, which becomes the
@@ -251,10 +232,9 @@
 (defn- apply-cache-step
   "Step 2 — post-eval result-hash cache. On a hash match
   replaces `:result` with the cache-hit marker; on a miss stores the
-  new hash (plus the precheck-hash from step 0 if present) and leaves
-  `:result` unchanged."
-  [{:keys [result cache-opts precheck-hash] :as ctx}]
-  (->> (cache/apply-cache result (assoc cache-opts :precheck-hash precheck-hash))
+  new hash and leaves `:result` unchanged."
+  [{:keys [result cache-opts] :as ctx}]
+  (->> (cache/apply-cache result cache-opts)
        (assoc ctx :result)))
 
 (defn- apply-cap-step
@@ -281,21 +261,19 @@
        (boolean (j/get result-js :isError))))
 
 (def wire-boundary-pipeline
-  "The five-step wire-boundary pipeline. Order matters — see step
+  "The four-step wire-boundary pipeline. Order matters — see step
   docstrings for the per-step semantics.
 
   | Step                 | When the step is skipped (`:skip-when?`)         |
   |----------------------|--------------------------------------------------|
   | `:canonicalize-build`| never — populates the forgiving suffix→canonical |
   |                      | build alias before any per-tool `arg-build` read |
-  | `:precheck`       | never — runs unconditionally; produces a marker     |
-  |                   | result ONLY for eligible cacheable tools            |
-  | `:dispatch`       | a prior step already produced a `:result` (i.e.     |
-  |                   | precheck hit)                                       |
-  | `:apply-cache`    | `:isError` result (errors must not poison cache) OR |
-  |                   | result is already a wire-bounded marker             |
-  | `:apply-cap`      | result is a wire-bounded marker (cache-hit /        |
-  |                   | overflow are sub-cap by construction)               |
+  | `:dispatch`          | never — runs the tool                            |
+  | `:apply-cache`       | `:isError` result (the success-shaped marker     |
+  |                      | must not stand in for a failure) OR result is    |
+  |                      | already a wire-bounded marker                    |
+  | `:apply-cap`         | result is a wire-bounded marker (cache-hit /     |
+  |                      | overflow are sub-cap by construction)            |
 
   Cache before cap is the right order: a cache hit emits a sub-100-
   byte marker that's trivially under any reasonable cap, so flipping
@@ -309,11 +287,8 @@
   predicate (skip-this-step, not halt-the-chain)."
   [{:name       :canonicalize-build
     :run        canonicalize-build-step}
-   {:name       :precheck
-    :run        precheck-step}
    {:name       :dispatch
-    :run        dispatch-step
-    :skip-when? (fn [{:keys [result]}] (some? result))}
+    :run        dispatch-step}
    {:name       :apply-cache
     :run        apply-cache-step
     :skip-when? (fn [{:keys [result]}]
@@ -359,37 +334,22 @@
 
   ## Wire-boundary pipeline
 
-  The five-step pipeline lives in `wire-boundary-pipeline` and is
+  The four-step pipeline lives in `wire-boundary-pipeline` and is
   threaded by `boundary-step/run-step-pipeline`:
 
-  -1. **`:canonicalize-build`** (`probe/canonicalize-build!`) —
+  0. **`:canonicalize-build`** (`probe/canonicalize-build!`) —
      resolves an explicit or sticky `:build` suffix to the canonical
      running build id before any later step reads it. A bare-default
      call skips the round-trip; see `canonicalize-build-step`.
 
-  0. **`:precheck`** (`precheck/fetch-precheck-hash`) —
-     for precheck-eligible tools, issue one cheap nREPL eval to
-     compute the runtime-side hash and compare to the stored
-     `:precheck-hash`. On a match, write the
-     `{:rf.mcp/cache-hit ... :via :precheck}` marker to `:result`
-     — the tool eval is SKIPPED entirely. Saves the full pipeline
-     cost. On a miss (or for tools without precheck wiring),
-     records the fetched hash in `:precheck-hash` for step 2 to
-     attach to the next entry.
-
-  1. **`:dispatch`** — per-tool implementation. Skipped if the
-     precheck step already produced a result.
+  1. **`:dispatch`** — per-tool implementation.
 
   2. **`:apply-cache`** (`cache/apply-cache`) —
      post-eval per-session response cache keyed on a hash of the
      result's text payload. On a hit the result is replaced with
-     `{:rf.mcp/cache-hit ... :via :result-hash}` — the agent host
-     already has the byte-identical bytes from the prior call. Read-
-     only tools only; `:isError` results bypass entirely; already-
-     marker results bypass entirely (a precheck hit is already the
-     cache-hit envelope). When a precheck-hash was fetched in step
-     0, it's recorded alongside the result hash so the NEXT call
-     can short-circuit via the precheck path.
+     `{:rf.mcp/cache-hit ...}` — the agent host already has the
+     byte-identical bytes from the prior call. Read-only tools only;
+     `:isError` results and already-marker results bypass entirely.
 
   3. **`:apply-cap`** (`cap/apply-cap`) — responses
      whose serialised size exceeds the per-call cap (default 5,000
@@ -434,9 +394,9 @@
       (js/Promise.resolve (wire/err-text cap))
       (let [enabled? (args/parse-bool-arg args :cache)
             ;; Fold the RESOLVED build into the
-            ;; cache identity so a precheck-hash collision across two
-            ;; builds on the one nREPL connection can't serve the wrong
-            ;; build's payload. `arg-build` is a pure read (runs AFTER
+            ;; cache identity so identical response text under two
+            ;; builds on the one nREPL connection is a fresh store, not
+            ;; a hit. `arg-build` is a pure read (runs AFTER
             ;; `stick-build!` above so the sticky default is current);
             ;; the build-alias canonicalisation runs in the pipeline's
             ;; first step, but the raw resolved id is a sufficient
@@ -453,12 +413,12 @@
         (-> (bs/run-and-extract wire-boundary-pipeline ctx)
             ;; A successful operating-frame mutation
             ;; (set / reset) shifts where every omitted-`:frame` read
-            ;; resolves, so any cached payload keyed only on `(tool, build,
-            ;; args)` would be served against the WRONG frame (the
-            ;; identical-app-db-hash multi-frame case). Flush the whole
-            ;; response cache here at the chokepoint — keeping the cache ns
-            ;; free of an operating-frame require cycle. Skipped on an
-            ;; error result (the pin didn't change).
+            ;; resolves, and the cache key `(tool, build, args)` cannot
+            ;; see that. Flush the whole response cache so every hit stays
+            ;; a same-frame comparison and `:unchanged-since` dates a read
+            ;; of the frame the call resolves to — here at the chokepoint,
+            ;; keeping the cache ns free of an operating-frame require
+            ;; cycle. Skipped on an error result (the pin didn't change).
             (.then (fn [result-js]
                      (when (and (operating-frame/operating-frame-mutating? name)
                                 (not (isError? result-js)))

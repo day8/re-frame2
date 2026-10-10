@@ -39,7 +39,7 @@ Unqualified envelope slots — `:dropped-sensitive`, `:elided-large` — are per
 | `dedup-table-key` | `:rf.mcp/dedup-table` | `{<cache-map>}` (`re-frame.mcp-base.dedup`) |
 | `diff-from-key` | `:rf.mcp/diff-from` | Slot pointer keyword (`:db-before`) |
 | `cursor-stale-reason` | `:rf.mcp/cursor-stale` | Error-result `:reason` value for an invalid continuation position |
-| `cache-hit-key` | `:rf.mcp/cache-hit` | `{:tool … :digest … :hint …}` (content-free; agent host correlates by cache key) |
+| `cache-hit-key` | `:rf.mcp/cache-hit` | `{:hash … :unchanged-since … :tool … :hint …}` (content-free; agent host correlates by cache key) |
 | `summary-key` | `:rf.mcp/summary` | `{<tree-summary>}` (lazy-summary projection) |
 | `invalid-arg-key` | `:rf.mcp/invalid-arg` | `{:arg <kw> :value <supplied> :hint <str>}` — payload of an `isError: true` result rejecting a malformed per-call arg. See [`cap.md` §Out-of-domain `:max-tokens` is rejected](cap.md#out-of-domain-max-tokens-is-rejected). |
 | `result-key` | `:rf.mcp/result` | `{:rf.mcp/result <tag> …}` — typed evaluation outcome (`:value`, `:nil`, `:eval-error`, or `:unserializable`). See [Tool-Pair §Wire fidelity](../../../spec/Tool-Pair.md). |

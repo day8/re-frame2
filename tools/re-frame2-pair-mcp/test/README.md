@@ -9,7 +9,7 @@ integration scripts.
 |---|---|
 | Does a per-tool function build the right eval form / wire envelope? | **CLJS** — `re_frame2_pair_mcp/<tool>_test.cljs` |
 | Does a cross-cutting concern (cache, cap, dedup, elision, sensitive) reshape an envelope correctly? | **CLJS** — `re_frame2_pair_mcp/<concern>_test.cljs` |
-| Do `tools/invoke`'s precheck, dispatch, cache and cap steps compose correctly at their seams? | **CLJS** — `re_frame2_pair_mcp/invoke_test.cljs` |
+| Do `tools/invoke`'s dispatch, cache and cap steps compose correctly at their seams? | **CLJS** — `re_frame2_pair_mcp/invoke_test.cljs` |
 | Does the full tool catalogue (the ordered `registry/tools` list) still produce the documented EDN wire shape per (tool × args × stub-conn)? | **CLJS** — `re_frame2_pair_mcp/conformance_test.cljs` |
 | Does the compiled `out/server.js` complete an MCP handshake and surface the documented tool descriptors? | **JS** — `stdio-roundtrip.js` |
 | Does the persistent nREPL socket survive multiple ops on one server process without leaking / hanging? | **JS** — `live-nrepl.js` |
@@ -55,7 +55,7 @@ What this layer covers:
   `diff_encode_epochs_test.cljs`. Each is a unit suite over its
   concern's public surface.
 - Pipeline glue — `invoke_test.cljs` covers the seams between
-  precheck, dispatch, cache and cap; `sticky_build_invoke_test.cljs`
+  dispatch, cache and cap; `sticky_build_invoke_test.cljs`
   covers build resolution through `tools/invoke`.
 - Conformance corpus — `conformance_test.cljs`: one
   inline-fixture corpus driving every tool through `tools/invoke`

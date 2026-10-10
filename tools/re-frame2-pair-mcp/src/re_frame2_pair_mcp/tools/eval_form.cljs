@@ -2,9 +2,8 @@
   "Mini-DSL for composing the CLJS eval forms tools ship over nREPL.
 
   Many call-sites — `dispatch`, `trace-window`, `watch-epochs`,
-  `snapshot`, `get-path`, `list-subscriptions` (reactive sub-cache),
-  plus `precheck-form` — need
-  CLJS source strings. Building them by raw `str` concatenation carries
+  `snapshot`, `get-path`, `list-subscriptions` (reactive sub-cache) —
+  need CLJS source strings. Building them by raw `str` concatenation carries
   two costs this DSL avoids:
 
   1. The runtime namespace prefix (`re-frame2-pair.runtime/`) would

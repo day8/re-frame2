@@ -39,25 +39,12 @@
   tool uniformly (snapshot, get-path, trace-window, etc.) instead of
   needing per-tool hash strategies.
 
-  Two paths can produce a hit:
-
-  - **Precheck** — an entry carries a cheap `:precheck-hash` fetched
-    via one bencode round-trip. The precheck eval is
-    `(re-frame2-pair.runtime/app-db-hash frame)` — an O(1) accessor
-    over a per-frame integer cache the runtime keeps current via its
-    epoch listener (every settled mutation updates the cached hash).
-    Before running the tool, the MCP server fetches the current
-    precheck-hash; if it matches the stored `:precheck-hash` for
-    `(tool, args)`, the server emits the `:rf.mcp/cache-hit` marker
-    WITHOUT running the tool. Saves both wire bytes AND the
-    heavyweight tool eval + transform pipeline.
-  - **Result-hash** — the match-after-eval backstop: run the tool,
-    hash the result text, and emit the marker only when it matches the
-    stored hash. Saves the wire bytes.
-
-  See `precheck` (decide before running the tool) vs `apply-cache`
-  (decide after running the tool — the backstop for tools without a
-  precheck wiring).
+  Hashing the final text is also what makes a hit sound. A read's
+  wire value passes through `rf/project-egress`, which reads
+  runtime-db state (the elision and sensitive registries, the egress
+  profile, the per-call `include-sensitive` gate) as well as app-db,
+  so no hash taken before the tool runs could decide a hit. The tool
+  always runs; a hit saves the wire bytes, not the eval.
 
   ## LRU policy
 
@@ -89,13 +76,8 @@
    {:hash             <integer>
     :unchanged-since  <ms-since-epoch>
     :tool             \"<tool-name>\"
-    :via              :precheck | :result-hash
     :hint             \"<agent-host instruction string>\"}}
   ```
-
-  `:via :precheck` signals the hit short-circuited the full tool eval;
-  `:via :result-hash` is the match-after-eval path. Same wire
-  vocabulary, different cost saved.
 
   The `:rf.mcp/*` namespace matches the wire-vocabulary convention
   used by `:rf.mcp/overflow`, `:rf.mcp/dedup-table`, `:rf.mcp/summary`,
@@ -160,18 +142,19 @@
   The key includes the resolved BUILD as well as
   `(tool, args-fingerprint)`. The same `(tool, args)` against two
   different shadow-cljs builds reachable over the one nREPL connection is
-  two distinct reads; folding the build into the key keeps a
-  precheck-hash collision across builds from serving one build's
-  payload for the other. `build` is the resolved build-id keyword (from
+  two distinct reads; folding the build into the key keeps every hit a
+  same-build comparison, so identical response text under two builds is
+  a fresh store, not a hit. `build` is the resolved build-id keyword (from
   `wire/arg-build`); a call without one passes nil and keys on
   `(tool, args)` alone.
 
   Note: the OPERATING FRAME for an omitted-`:frame` call is not knowable
   here (it resolves runtime-side), so it cannot be folded into the key.
   That axis is covered by clearing the whole cache on every operating-
-  frame change (`operating-frame` tools call `cache/clear!`), which
-  eliminates any cross-frame stale hit regardless of app-db-hash
-  collisions."
+  frame change (the `invoke` chokepoint calls `cache/clear!` after a
+  successful `set-operating-frame` / `reset-operating-frame`), which
+  keeps every hit a same-frame comparison, so `:unchanged-since` dates a
+  read of the frame the call resolves to."
   ([tool args] (cache-key tool args nil))
   ([tool args build]
    [tool build (args->fingerprint args)]))
@@ -268,29 +251,22 @@
        "no fresh state to inspect since :unchanged-since."))
 
 (defn cache-hit-payload
-  "Build the structured wire marker that replaces a cached response.
-  `via` defaults to `:result-hash` (the match-after-eval path); pass
-  `:precheck` for the skip-the-tool-eval path."
-  ([entry] (cache-hit-payload entry :result-hash))
-  ([{:keys [tool hash sent-at]} via]
-   {:rf.mcp/cache-hit {:hash            hash
-                       :unchanged-since sent-at
-                       :tool            tool
-                       :via             via
-                       :hint            cache-hit-hint}}))
+  "Build the structured wire marker that replaces a cached response."
+  [{:keys [tool hash sent-at]}]
+  {:rf.mcp/cache-hit {:hash            hash
+                      :unchanged-since sent-at
+                      :tool            tool
+                      :hint            cache-hit-hint}})
 
 (defn cache-hit-result
   "Wrap `cache-hit-payload` in the MCP `{:content [{:type \"text\" ...}]}`
-  envelope plus the `:structuredContent` slot. `via` annotates which
-  cache path produced the hit (`:result-hash` = post-eval match;
-  `:precheck` = pre-eval short-circuit)."
-  ([entry tool] (cache-hit-result entry tool :result-hash))
-  ([entry tool via]
-   ;; Route through `wire/result` so the cache-hit marker's
-   ;; structuredContent keeps its namespace: a raw `clj->js` truncates
-   ;; the `:rf.mcp/cache-hit` marker key to `"cache-hit"`, so SDK-friendly
-   ;; hosts reading structuredContent miss the marker entirely.
-   (wire/result (cache-hit-payload (assoc entry :tool tool) via) false)))
+  envelope plus the `:structuredContent` slot."
+  [entry tool]
+  ;; Route through `wire/result` so the cache-hit marker's
+  ;; structuredContent keeps its namespace: a raw `clj->js` truncates
+  ;; the `:rf.mcp/cache-hit` marker key to `"cache-hit"`, so SDK-friendly
+  ;; hosts reading structuredContent miss the marker entirely.
+  (wire/result (cache-hit-payload (assoc entry :tool tool)) false))
 
 ;; ---------------------------------------------------------------------------
 ;; The wire-boundary entry-point.
@@ -303,12 +279,11 @@
   each entry in the single-source-of-truth registry, so cache.cljs
   doesn't redeclare the allowlist. The name here keeps the
   call-site vocabulary (`cache/cacheable?`) for the tests and for the
-  `apply-cache` / `precheck` use sites below."
+  `apply-cache` / `withhold!` use sites below."
   registry/cacheable?)
 
 (defn apply-cache
-  "Wire-boundary cache check (match-after-eval path). Returns
-  either:
+  "Wire-boundary cache check, run after the tool. Returns either:
 
     - `result-js` unchanged (cache disabled, tool not cacheable,
       isError result, or fresh store) — and as a side effect records
@@ -317,14 +292,10 @@
       hash matches the prior entry for `(tool, args)`.
 
   Errors are never cached: an `:isError` result is passed through
-  untouched and does NOT poison the cache. That keeps a transient
-  failure from masking a future successful read.
-
-  If `:precheck-hash` is supplied (the value fetched from the runtime
-  via the precheck wiring), it is stored alongside the result hash so
-  the NEXT call can short-circuit via `precheck` without re-running the
-  tool."
-  [result-js {:keys [tool args enabled? precheck-hash build]}]
+  untouched and records nothing. The cache-hit marker is a success
+  result, so a hit standing in for a failure would drop its `isError`
+  flag."
+  [result-js {:keys [tool args enabled? build]}]
   (cond
     (not enabled?)               result-js
     (nil? result-js)             result-js
@@ -337,9 +308,8 @@
           now        (.getTime (js/Date.))]
       (if (and prior (= (:hash prior) h))
         (do (record-hit! k)
-            (cache-hit-result prior tool :result-hash))
-        (do (store! k (cond-> {:hash h :sent-at now :tool tool}
-                        (some? precheck-hash) (assoc :precheck-hash precheck-hash)))
+            (cache-hit-result prior tool))
+        (do (store! k {:hash h :sent-at now :tool tool})
             result-js)))))
 
 (defn withhold!
@@ -357,57 +327,10 @@
   Dropping the candidate entry leaves the fast hit-before-cap path
   intact for genuinely delivered responses (an under-cap payload leaves
   its entry standing), and no overflow marker is ever cached as if it
-  were the source payload. The whole entry goes, `:precheck-hash`
-  included — that hash short-circuits a future call to the very same
-  cache-hit marker, so retaining it would make the same false claim
-  through the pre-eval door.
+  were the source payload.
 
   Takes the same `cache-opts` map `apply-cache` does. A no-op when the
   cache is off or the tool is not cacheable, since nothing was stored."
   [{:keys [tool args enabled? build]}]
   (when (and enabled? (cacheable? tool))
     (forget! (cache-key tool args build))))
-
-;; ---------------------------------------------------------------------------
-;; Precheck — decide cache-hit BEFORE running the tool.
-;; ---------------------------------------------------------------------------
-
-(defn precheck
-  "Pre-eval cache check. Returns either:
-
-    - `nil` — no decision; the caller proceeds with the full tool eval
-      and feeds the result back through `apply-cache`.
-    - A `{:rf.mcp/cache-hit ... :via :precheck}` MCP result — the
-      caller short-circuits and returns this directly, skipping the
-      tool eval entirely.
-
-  Decision rule: only when (a) cache is enabled, (b) the tool is
-  cacheable, (c) the (tool, args) key has a prior entry, (d) that
-  prior entry has a stored `:precheck-hash`, and (e) the
-  `current-precheck-hash` argument matches it.
-
-  `current-precheck-hash` is the value the MCP server fetched in a
-  single bencode round-trip: `(re-frame2-pair.runtime/app-db-hash
-  frame)` — an O(1) accessor over the runtime's per-frame cached
-  hash, kept current by its epoch listener. When the caller has no
-  precheck wiring for this tool (yet), it passes `nil` and this fn
-  returns `nil`, leaving the post-eval path in charge.
-
-  This fn does NOT mutate the cache on a miss — the subsequent
-  `apply-cache` call records the new result+precheck-hash together
-  after the tool runs.
-
-  On a hit, it does touch the LRU (so the entry stays warm)."
-  [{:keys [tool args enabled? build]} current-precheck-hash]
-  (cond
-    (not enabled?)                       nil
-    (not (cacheable? tool))              nil
-    (nil? current-precheck-hash)         nil
-    :else
-    (let [k     (cache-key tool args build)
-          prior (lookup k)]
-      (when (and prior
-                 (some? (:precheck-hash prior))
-                 (= (:precheck-hash prior) current-precheck-hash))
-        (record-hit! k)
-        (cache-hit-result prior tool :precheck)))))

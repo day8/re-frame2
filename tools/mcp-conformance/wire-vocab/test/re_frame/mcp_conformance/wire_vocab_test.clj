@@ -235,7 +235,7 @@
                                                                    :reason :effect :hint nil
                                                                    :handle [:rf.elision/at [:a]]}}]
                             [CacheHit {:rf.mcp/cache-hit {:hash 1 :unchanged-since 1 :tool "snapshot"
-                                                          :via :precheck :hint "..."}}]]]
+                                                          :hint "..."}}]]]
     (is (not (m/validate schema (assoc wrapper :sneaky :key)))
         (str (ffirst wrapper) " MUST be a single key — an extra sibling fails"))))
 
