@@ -36,7 +36,7 @@ Two registrars are on the `re-frame.core` facade: `rf/reg-head` and `rf/reg-erro
   ```
 - **Description**: Renders hiccup to an HTML string in one walk of the tree. Pure and JVM-runnable.
     - It resolves callable-headed views (a Var or `(rf/view :id)`), `:tag#id.cls` shorthand and HTML5 void elements, and escapes text and attribute values.
-    - Inline `<script>` / `<style>` string content is HTML raw text: emitted verbatim, never entity-escaped and never refused. The only rewrite is React's: an embedded `</script>` / `</style>` is respelled so the parser cannot end the element early. The output is byte-identical across `render-to-string`, the streaming shell walk and `emit-ui-tree`.
+    - Inline `<script>` / `<style>` string content is HTML raw text: emitted verbatim, never entity-escaped and never refused. The only rewrite is React's: an embedded `</script>` / `</style>` is respelled so the parser cannot end the element early. The output is byte-identical across `render-to-string` and `emit-ui-tree`.
     - Put structured data on its own channel: JSON-LD and other head content through `reg-head`, which escapes `<` as `\u003c`, and state through the `__rf_payload` hydration payload.
     - It drops props that have no HTML form, as react-dom does: `on*` handlers and other fn-valued props, `:key` and `:ref`, and the `:children` and `:dangerouslySetInnerHTML` props. `:dangerouslySetInnerHTML` becomes the element's body instead of an attribute: its `:__html` is written raw, as react-dom writes it, so the markup is yours to make safe. It wins over any children, a void element ignores it, and a `nil` `:__html` gives an empty body. A `javascript:` URL in `:href`, `:src`, `:action`, `:form-action` or `:xlink-href` is replaced by react-dom's blocked-URL placeholder.
 - **Options** (all optional):
@@ -47,7 +47,6 @@ Two registrars are on the `re-frame.core` facade: `rf/reg-head` and `rf/reg-erro
     - `:rf.error/invalid-hiccup-head` — a vector head that is neither a keyword nor a callable (a string, `nil`, a number, a collection), or an unrecognised `:rf/*` keyword head.
     - `:rf.error/ssr-invalid-attribute-name` — a malformed attribute key.
     - `:rf.error/ssr-reagent-native-head` — a `:>` interop head.
-    - `:rf.error/ssr-suspense-boundary-outside-stream` — a streaming [`boundary`](#boundary) reached this non-streaming emitter.
     - `:rf.error/ssr-nonrenderable-component` — a component still returned a fn after its Form-2 render fn was called; return hiccup from the render fn.
 - **Example**:
   ```clojure
@@ -308,75 +307,6 @@ The Node renderer's state is not this payload: [`re-frame.ssr.ring.node/renderer
   (rf/make-frame {:id :app/main :platform :client :ssr {:on-mismatch :hard-error}})
   ```
 
-## Streaming
-
-Streaming sends the page shell first, with a fallback in place of each region marked with `boundary`, then renders each region and sends it as its own chunk. Use it when a few regions are slow to produce and the rest of the page should not wait for them; a page with no such region is simpler to serve without streaming. In the browser, `streaming-install!` applies the chunks as they arrive, and you hydrate from its `:on-ready` callback once the stream has finished. On the server, [`re-frame.ssr.ring/stream-handler`](re-frame.ssr.ring.md#stream-handler) runs the sequence under [Streaming render](#streaming-render). [Streaming](../ssr/streaming.md) walks through the wiring.
-
-### `boundary`
-
-- **Kind**: component (server and client)
-- **Signature**:
-  ```clojure
-  (boundary attrs & body) → hiccup
-  ```
-- **Description**: Marks `body` as a streamed region. `attrs` requires two keys:
-    - `:id` — the boundary's identity, unique on the page and stable across renders; it pairs an arriving chunk with its placeholder. A keyword or a string.
-    - `:fallback` — hiccup rendered in the shell while `body` is still resolving, and rendered again by this component when the boundary is reported failed.
-
-    On the server and the client:
-
-    - Server: expands to the `:rf/suspense-boundary` marker the shell walker defers on. That marker is wire syntax; do not write it yourself.
-    - Client: renders `body`, or `:fallback` when `:id` is in the page's failed-boundary record, written when the stream finalises. With no record (a client-only mount, a page that did not stream) it renders `body`.
-
-    This is not React Suspense: there are no promises, thrown thenables or selective hydration. The server decides what defers; the client shows the fallback and swaps in content as chunks arrive.
-
-- **Errors**:
-    - `:rf.error/suspense-boundary-invalid-attrs` — `attrs` is not a map carrying both `:id` and `:fallback`.
-    - `:rf.error/suspense-boundary-duplicate-id` — two boundaries on the page share an `:id` (compared by its printed form). The last one registered gets the chunk and the earlier one keeps its fallback.
-    - `:rf.error/ssr-suspense-boundary-outside-stream` — the boundary reached `render-to-string` or `ssr-handler` rather than `stream-handler`.
-- **Example**:
-  ```clojure
-  (require '[re-frame.ssr :as ssr])
-
-  [ssr/boundary {:id :card.revenue :fallback [card-skeleton :revenue]}
-   [card-view :revenue]]
-  ```
-
-### `streaming-install!`
-
-- **Kind**: function (ClojureScript only)
-- **Signature**:
-  ```clojure
-  (streaming-install! opts) → stop! (0-arity fn)
-  ```
-- **Description**: Installs the client-side streaming runtime, which applies streamed chunks to the page as they arrive. Install it before the first chunks can land; its initial sweep also picks up chunks that arrived earlier. Idempotent per chunk.
-    - It watches the document for chunks. It turns each inert fallback `<template>` into a visible mount, swaps in resolved subtrees, and merges each subtree's hydration delta into the `:frame`'s `app-db`.
-    - It disconnects itself once the final `__rf_payload` node lands; from there, the `hydrate!` you call from `:on-ready` installs the final state.
-    - The returned `stop!` disconnects it early. Stopping early abandons the stream: finalisation does not run and `:on-ready` never fires.
-    - A page with no payload script at all, such as a client-only load, never finalises either, so `:on-ready` never fires there.
-    - Failures do not stop the stream. Each reports an always-on `:rf.ssr/suspense-boundary-failed` record carrying `:id` and `:recovery`: `:inline-fallback` (the server's render of the region threw; its fallback stays), `:skipped-delta` (a delta chunk did not read as an EDN map and was not merged) or `:quarantined-delta` (a delta arrived for a failed boundary and was not merged).
-- **Options**:
-    - `:frame` — required; the frame that receives the deltas, as its id or as the frame value `make-frame` returns. Without it, `streaming-install!` emits and throws `:rf.error/no-frame-context`.
-    - `:root` — the DOM root to watch; default `js/document`.
-    - `:payload-id` — the final-payload `<script>` id; default `"__rf_payload"`.
-    - `:on-ready` — a 1-arity fn called exactly once when the stream has finalised, with `{:resolved #{ids} :failed #{ids}}`. Call `hydrate!` and the adapter's hydrating render from here, and only from here: hydrating earlier, on a timer or by polling for the payload, meets DOM that still carries the stream's wrappers, and React discards the streamed markup. It runs synchronously inside `streaming-install!` if the payload had already landed, so define everything it uses first.
-- **Example**:
-  ```clojure
-  ;; Streaming bootstrap: install before the first chunks can land (the initial
-  ;; sweep also covers chunks that arrived earlier), and hydrate on :on-ready.
-  (defonce app-root (reagent-adapter/client-root))
-
-  (rf/make-frame {:id :app/main :platform :client})
-  (ssr/streaming-install!
-    {:frame    :app/main
-     :on-ready (fn [_outcomes]
-                 (let [payload (ssr/hydrate! {:frame :app/main})]
-                   (reagent-adapter/render! app-root
-                                            [rf/frame-provider {:frame :app/main} [(rf/view :app/root)]]
-                                            (js/document.getElementById "app")
-                                            {:hydrate? (some? payload)})))})
-  ```
-
 ## Error projection
 
 When a server-side handler, effect, subscription or view throws, the error is mapped through an error projector to a client-safe `:rf/public-error` (`:status`, `:code`, `:message`, `:retryable?`), and only that shape reaches the response. A frame names its projector in its [`:ssr` config](#frame-ssr-config), `{:public-error-id … :dev-error-detail? …}` on `make-frame` / `frame-root`, or through `ssr-handler`'s `:ssr` option. The config is per frame, not a `configure` key, so frames in one process can use different projectors and detail settings. [When the server throws](../ssr/concepts.md#when-the-server-throws) explains the model.
@@ -386,7 +316,7 @@ What the client sees is the projected `:status`.
 - Under the Ring handler a projected 4xx keeps the page, so the app renders its own not-found or bad-request view and still hydrates; a projected 5xx replaces the page with the error page, rendered from the public error alone by `ssr-handler`'s `:error-view` ([`ssr-handler`](re-frame.ssr.ring.md#ssr-handler) has the failure table).
 - A failed `:initial-events` step is not projected: an event handler, interceptor, coeffect or flow that throws there, or a rejected `:rf.cofx` value, aborts frame construction, and the request answers through `ssr-handler`'s `:on-error`. [`reg-error-projector`](#reg-error-projector) lists which errors reach a projector.
 - Only the response is sanitised: the full error still reaches trace listeners and the `:observability :errors` sinks.
-- Three failures are reported without changing the status: a head function that throws (the page renders with an empty head), a refused `:rf.server/safe-redirect` (the page renders without the redirect) and a failed streaming boundary (the region keeps its fallback).
+- Two failures are reported without changing the status: a head function that throws (the page renders with an empty head) and a refused `:rf.server/safe-redirect` (the page renders without the redirect).
 
 ### `reg-error-projector`
 
@@ -686,120 +616,6 @@ Not for application code — used by adapters, tools and the test harness.
   ;; The tree arrives already rendered; this call only folds it to markup.
   (ssr/emit-ui-tree tree {:doctype? true})
   ```
-
-### Streaming render
-
-The server half of streaming, in the order a host calls it: `streaming-render-shell` renders the shell and collects continuations, `streaming-render-continuation` renders each deferred subtree, and `streaming-build-final-payload` builds the final `__rf_payload` chunk. The four template builders produce the chunk markup for each boundary. [`re-frame.ssr.ring/stream-handler`](re-frame.ssr.ring.md#stream-handler) runs this sequence for you.
-
-#### `streaming-render-shell`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (streaming-render-shell root-hiccup)
-    → {:shell-html "..." :continuations [{:id :subtree :fallback} ...]}
-  ```
-- **Description**: Renders the shell in one walk of the tree. At each `:rf/suspense-boundary` it emits a `<template …suspense-fallback>` placeholder and records a continuation. Returns the shell HTML, ready to flush, and the continuations to drain.
-    - Throws propagate: every [`render-to-string`](#render-to-string) error, and `:rf.error/suspense-boundary-invalid-attrs` for a boundary without both `:id` and `:fallback`. Boundaries whose `:id`s print the same emit `:rf.error/suspense-boundary-duplicate-id`, and only the last one is kept in `:continuations`.
-- **Example**:
-  ```clojure
-  ;; Host adapter: render the shell to flush immediately, keep the continuations.
-  (let [{:keys [shell-html continuations]}
-        (rf/with-frame fid (ssr/streaming-render-shell hiccup))]
-    ;; flush shell-html now; drain `continuations` as each subtree settles
-    shell-html)
-  ```
-
-#### `streaming-render-continuation`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (streaming-render-continuation frame-id entry)
-    → {:id :html :delta :failed? :continuations}
-  ```
-- **Description**: Renders one continuation against `frame-id`'s `app-db`.
-    - It snapshots `app-db` before and after and returns the change as `:delta`: each new or changed top-level key mapped to its full new value, `{}` when nothing changed. The delta is unfiltered, so apply the same `:payload` allowlist as the final payload before writing it with [`streaming-hydrate-delta-script`](#streaming-hydrate-delta-script); `stream-handler` does this for you.
-    - A nested `:rf/suspense-boundary` inside the subtree becomes a new continuation, returned under `:continuations` for the host to append to the tail of its FIFO drain queue (`[]` when there are none).
-    - On a throw, it emits `:rf.ssr/suspense-boundary-failed` and returns the original fallback HTML with `:failed? true`, no `:delta` and no nested continuations. If the fallback render also throws, `:html` is `""`.
-- **Example**:
-  ```clojure
-  ;; Drain the FIFO queue against fid's app-db, emitting each chunk;
-  ;; nested boundaries discovered mid-drain append at the tail.
-  (loop [queue continuations]
-    (when-let [entry (first queue)]
-      (let [{:keys [id html delta failed? continuations]}
-            (rf/with-frame fid (ssr/streaming-render-continuation fid entry))]
-        ;; flush this subtree's resolved HTML + hydrate-delta as the next chunk
-        (recur (into (vec (rest queue)) continuations)))))
-  ```
-
-#### `streaming-build-final-payload`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (streaming-build-final-payload frame-id render-hash opts)
-    → canonical :rf/hydration-payload
-  ```
-- **Description**: Builds the final `__rf_payload` chunk. Call it after every continuation has drained.
-    - If `frame-id` is destroyed or re-created while the payload is built, `:rf/app-db` is `:rf/redacted` and `:rf/runtime-db` is omitted.
-- **Options**:
-    - `:payload` — required; a non-empty sequential of top-level `app-db` keyword keys (normally a vector), or `:rf.ssr.payload/whole-app-db` to ship the whole `app-db`. Omitting it throws `:rf.error/ssr-missing-payload-policy`. The [Ring payload option](re-frame.ssr.ring.md#ssr-handler) gives the full validation rules.
-    - `:version` — overrides the payload's `:rf/version`, which otherwise comes from the SSR artefact's compiled-in pattern-protocol constant. It takes an integer, or a string of digits (within the JVM `Long` range); `nil` keeps the default, and any other value is ignored with a `:rf.ssr/invalid-version` warning.
-    - `:client-frame-id` — the stable wire `:rf/frame-id`. Absent, the payload omits the key.
-    - `:failed-boundaries` — the set of boundary ids whose continuation returned `:failed? true`. It is carried into the `runtime-db` slice the client `boundary` reads.
-    - `:head-hash` — written as `:rf/head-hash`; omitted when `nil`.
-    - `:schema-digest` — written as `:rf/schema-digest`, for the client's schema-digest check.
-    - `:payload-include-sensitive` — the same permit as `ssr-handler`'s option: app-db paths classified `:sensitive` whose raw value may ship.
-- **Errors**:
-    - `:rf.error/ssr-missing-payload-policy`, `:rf.error/ssr-unknown-payload-policy`, `:rf.error/ssr-malformed-payload-allowlist` — the `:payload` policy, as for `ssr-handler`.
-    - `:rf.error/ssr-hydration-payload-invalid` (JVM) — a number the browser would read back as a different value.
-- **Example**:
-  ```clojure
-  ;; After every continuation drains, build the canonical __rf_payload chunk.
-  ;; No :version opt — the builder sources :rf/version from the SSR artefact's
-  ;; compiled-in pattern-protocol constant. Pass :version only to force skew.
-  (rf/with-frame fid
-    (ssr/streaming-build-final-payload
-      fid render-hash {:payload :rf.ssr.payload/whole-app-db}))
-  ```
-
-#### `streaming-fallback-template`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (streaming-fallback-template id fallback-html) → HTML string
-  ```
-- **Description**: Wraps a boundary's fallback markup in the inline `<template data-rf2-suspense-fallback>` placeholder that goes in the shell. A `<template>`'s content is inert and never painted; the client streaming runtime turns each one into a visible mount.
-
-#### `streaming-resolved-template`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (streaming-resolved-template id resolved-html) → HTML string
-  ```
-- **Description**: Builds the chunk flushed when a continuation drains successfully. The client streaming runtime swaps the matching fallback placeholder for this content.
-
-#### `streaming-failed-template`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (streaming-failed-template id fallback-html) → HTML string
-  ```
-- **Description**: Builds the chunk for a failed continuation: the same shape as `streaming-resolved-template`, plus a `data-rf2-suspense-failed` marker. The fallback stays inline and the client runtime reports the failure without turning the page into a `500`.
-
-#### `streaming-hydrate-delta-script`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (streaming-hydrate-delta-script id delta-edn) → HTML string
-  ```
-- **Description**: Builds a subtree's hydration delta chunk (`application/edn`). The client reads the EDN and merges the delta into `app-db` as the subtree streams in.
 
 ### The response accumulator
 

@@ -404,7 +404,6 @@ nav:
     - "Growing the server":
       - "Control the response": ssr/response.md
       - "Head metadata": ssr/head.md
-      - "Streaming": ssr/streaming.md
     - "Operating":
       - "Testing": ssr/testing.md
       - "Examples": ssr/examples.md

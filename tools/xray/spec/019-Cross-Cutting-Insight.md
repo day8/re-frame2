@@ -32,8 +32,8 @@ Managed-Effects live. The four surfaces share three structural properties
 that make them hard to debug from code alone:
 
 1. **They unfold over wall-clock time.** A machine `:after` fires 30s after
-   entry; a route's `:on-match` cascade lands 200ms after click; a streaming
-   SSR boundary resolves seven chunks deep; an `:rf.http/managed` retry hits
+   entry; a route's `:on-match` cascade lands 200ms after click; an
+   `:rf.http/managed` retry hits
    its third attempt after exponential backoff. Stack traces are
    insufficient — the wall clock IS the bug surface.
 2. **They span boundaries.** Server → client (SSR); browser → backend
@@ -85,7 +85,7 @@ HTTP `:rf.http/managed` because both speak the same wall-clock language.
 ### §1.1 Wall-clock timelines
 
 Time IS the bug surface for `:after` timers, HTTP retry backoffs, route
-nav-token races, WebSocket reconnects, streaming SSR boundary resolutions.
+nav-token races, WebSocket reconnects.
 
 **Sub-idioms:**
 
@@ -522,20 +522,6 @@ exactly what crossed the wire and what did not.
 (rf2-gbz39 Option (c) — inline issue surfacing; the dedicated Issues tab
 was removed) — server error projection trace (S-C5).
 
-#### S.3 — "Streaming SSR shipped a chunk that hydrated incorrectly."
-
-**Bug class:** Per-subtree delta merged into client app-db but the view
-tree didn't update as expected.
-
-**Insight Xray provides:** A **streaming SSR boundary timeline** in the
-Trace tab — vertical waterfall showing shell flush time, per-boundary
-fallback emit times, per-boundary resolution times (or failures), final
-payload chunk status. Each boundary that failed shows the throwable + the
-fallback retention status.
-
-**Affordance:** Trace tab — streaming SSR boundary waterfall (F-C10 /
-S-C10).
-
 #### S.4 — Other SSR bug classes (catalogued)
 
 - **S.5** Head/meta hydration mismatch — head-model inspector (S-C6).
@@ -830,7 +816,7 @@ idiom.
 
 |                         | Machines                                | Routes                                  | SSR                                          | Managed-Fx                              |
 |-------------------------|------------------------------------------|------------------------------------------|----------------------------------------------|------------------------------------------|
-| **Wall-clock timeline** | `:after` countdown rings (M-C2)          | Nav-token swimlanes (R-C3)               | Streaming boundary waterfall (S-C10)         | Retry timeline (F-C3); WebSocket reconnect (F.3) |
+| **Wall-clock timeline** | `:after` countdown rings (M-C2)          | Nav-token swimlanes (R-C3)               | —                                            | Retry timeline (F-C3); WebSocket reconnect (F.3) |
 | **Boundary diff**       | Shift-click instance divergence (M.4)    | URL vs slice drift watchdog (R-C8)       | Hydration mismatch bisector (S-C2)           | Wire-boundary diff (F-C2)                |
 | **Cascade tree**        | Cancellation cascade visualiser (M-C3)   | `:on-match` event chain (R-C4)           | Per-request response accumulator (F-C7)      | Active managed-effects dashboard (F-C4)  |
 | **Schema explanation**  | Snapshot diff per transition (M-C10)    | Validation explanation in `:rf.route/not-found` (R-C6) | Server error projection (S-C5)               | Args validation (Spec 010 boundary) explainer (Issues) |
@@ -854,7 +840,7 @@ separate axis — see §0). The placement is uniform across areas:
 | **Epoch** (`e`) | Per-fx **wire-boundary diff** (F-C2). `:on-match` event chain (R-C4). Retry timeline (F-C3). Head model inspector (S-C6). Server error projection (S-C5). Per-fx source-coord chip (F-C6). Plus the **inline issue surfacing** (rf2-gbz39 Option (c) — the former Issues tab's content): hydration mismatch bisector (S-C2 — the SSR hero), flow cascade-halt alarm (F-C8), pending-navigation card (R-C7), CRLF + open-redirect rendering (F-C11), open-redirect advisory (R-C10), inline Malli validation explanations, per-request frame teardown summary (S-C8). |
 | **App-db** (`a`) | current-route slice (`:rf/route` runtime area, `[:rf.runtime/routing :current]` in runtime-db) always-visible at top (R-C2). Hydration diff in App-db tab (S-C3). Route-chain visualiser (R-C9). Trusted-shell opt visualiser (S-C9). |
 | **Views** (`v`) | (Largely unchanged. Flows do NOT surface here: the reactive graph is strictly app-db → subs → views (`021-Dynamic-Panel-Designs.md` §3.2), and there is no "Re-rendered" group — the mounted / re-rendered / unmounted grouping is superseded `012-Views.md`'s unbuilt design, and `(rerendered)` survives only as a per-node label on a View node. A flow may FEED the cascade by writing a db-path its subs watch, but per-epoch flow detail is the Epoch panel's **FLOW** step; REGISTERED flows are browsed in the **Static Flows tab**.) |
-| **Trace** (`t`) | **Wall-clock axis** for timer rings, retry waterfalls, deferred-dispatch arrivals. Nav-token timeline as sticky header (or via the popover below, once built). Streaming SSR boundary waterfall (F-C10 / S-C10). Skipped-on-platform tally chip (F-C9). |
+| **Trace** (`t`) | **Wall-clock axis** for timer rings, retry waterfalls, deferred-dispatch arrivals. Nav-token timeline as sticky header (or via the popover below, once built). Skipped-on-platform tally chip (F-C9). |
 | **Machines** (`m`) | All of §2.1's M-C* features. The cancellation cascade visualiser (M-C3) is the tab's hero growth. |
 
 | Popover | Cross-cutting role |
@@ -946,7 +932,6 @@ Each is a small PR (<300 LoC); each lights up a meaningful workflow.
     epochs, WebSocket connection epochs.
 12. **F-C4 — Active managed-effects dashboard.** Ribbon chip + popover
     dashboard.
-13. **F-C10 / S-C10 — Streaming SSR boundary timeline.**
 
 ### Phase 5 — Polish + operational (when in real use)
 

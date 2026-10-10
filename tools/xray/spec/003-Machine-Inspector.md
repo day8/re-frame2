@@ -2249,9 +2249,7 @@ What was "a flurry of confusing trace lines" becomes "one decision and
 its consequences, laid out vertically."
 
 **Affordance:** Cancellation cascade visualiser (M-C3) — the Machines
-tab's hero growth. Also a template for SSR cancellation cascade (when a
-streaming SSR boundary times out, the same waterfall idiom shows what
-cleanup ran).
+tab's hero growth.
 
 **Shipped as:** the cascade-grouping projection plus the
 **cancellation-cascade popover** (rf2-59e7k) — a vertical waterfall of

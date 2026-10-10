@@ -10,18 +10,15 @@ them step by step.
 <a id="when-the-table-grows"></a>
 <a id="controlling-the-response--rfserver"></a>
 <a id="head-metadata----opengraph-json-ld"></a>
-<a id="streaming-rfsuspense-boundary"></a>
-<a id="streaming-ssrboundary"></a>
 
 Status codes, headers and redirects are on [Control the response](response.md),
-`<title>` and social metadata on [Head metadata](head.md), and progressive
-delivery on [Streaming](streaming.md).
+and `<title>` and social metadata on [Head metadata](head.md).
 
 ??? info "For JavaScript developers"
 
-    Coming from Next.js or Remix? You keep first-paint HTML, loaders, form
-    actions and streaming, without a separate server layer. A "loader" is
-    ordinary events in a per-request frame, and streaming is one hiccup marker.
+    Coming from Next.js or Remix? You keep first-paint HTML, loaders and form
+    actions, without a separate server layer. A "loader" is ordinary events in
+    a per-request frame.
     Full map: [Coming from Next.js](coming-from-nextjs.md).
 
 !!! note "Optional artefact"
@@ -226,6 +223,10 @@ Only blocking route resources are waited for. The drain after `:initial-events` 
 ??? note "The render budget"
 
     The wait has a 5-second deadline. A blocking fetch that runs past it settles as a first-load failure: the resource enters `:error` with `{:kind :rf.http/timeout :reason :ssr-blocking-timeout}`, the view renders its error state instead of hanging the request, and the runtime records `:rf.error/resource-ssr-blocking-timeout`.
+
+#### A slow region
+
+The server renders the whole page in one response; it does not stream regions. To keep one slow region from holding up the page, declare its data as a route resource with `:blocking? false` and render the resource's `:loading` state as the region's skeleton. The page ships at once, skeleton included, and the client fetches the region's data after hydration ([Show progress across pages](../routing/how-to/load-page-data.md#show-progress-across-pages)). The region fills in once the bundle has booted and the fetch has returned, and a client without JavaScript keeps the skeleton.
 
 ### `:payload` — the fail-closed allowlist
 
@@ -597,7 +598,7 @@ A few things change between your REPL and a production server:
 
 - **Run the JVM as a release build.** Start it with `-Dre-frame.debug=false`. That elides development-only work — the trace stream, most schema checks — and keeps what the framework relies on, such as `:boundary? true` schema checks and error projection. [Configure dev and prod](../core/how-to/configure-dev-and-prod.md) has the switches.
 - **Declare an error sink.** With traces elided, the always-on error records are what reach your monitoring: server-side handler and render failures, and in the browser the hydration-mismatch record. Name a sink with `(rf/configure! {:observability {:errors [{:sink :app/sentry}]}})` — [Report errors in production](../core/how-to/report-errors-in-production.md).
-- **Size the server for one thread per request.** Each request gets its own frame, so requests can't see each other's state. `ssr-handler` runs on the calling server thread; the [streaming](streaming.md) handler also holds one thread per response in flight, so size your server's worker and accept-queue limits for that.
+- **Size the server for one thread per request.** Each request gets its own frame, so requests can't see each other's state. `ssr-handler` runs on the calling server thread, so your server's worker and accept-queue limits bound the requests in flight.
 - **Ship the client and server bundles together.** The payload is only right for the client built from the same code. The version and [schema-digest](#deploy-drift-checks-come-along-for-free) checks tell you when they drift; they warn rather than stop the page.
 
 ## Troubleshooting
@@ -672,7 +673,7 @@ Sometimes the user's own browser needs a classified value: a CSRF token the page
    :payload-include-sensitive [[:session :csrf]]})   ;; app-db PATHS, not keys
 ```
 
-The raw value is taken from the allowlisted slice, so a permit for a path outside the allowlist does nothing. A permit never reaches through a classified ancestor: if all of `:session` is sensitive, permit `[:session]` or classify at the leaves. Permitting a whole map releases everything under it, so prefer leaves, and never permit a long-lived bearer token. The same permit applies to the streaming payload, a Fresco render and a Node renderer's render state, so the HTML and the payload agree. Written unwrapped — `[:session :csrf]` for `[[:session :csrf]]` — it throws `:rf.error/ssr-malformed-payload-allowlist` at construction.
+The raw value is taken from the allowlisted slice, so a permit for a path outside the allowlist does nothing. A permit never reaches through a classified ancestor: if all of `:session` is sensitive, permit `[:session]` or classify at the leaves. Permitting a whole map releases everything under it, so prefer leaves, and never permit a long-lived bearer token. The same permit applies to a Fresco render and a Node renderer's render state, so the HTML and the payload agree. Written unwrapped — `[:session :csrf]` for `[[:session :csrf]]` — it throws `:rf.error/ssr-malformed-payload-allowlist` at construction.
 
 A value the *browser* produced — a password the user is typing — is not permitted; the client re-seeds it after hydration. On the hiccup tier, call `hydrate!` without `:render-tree-fn`, re-seed, then call `verify-hydration!` yourself, so the check sees the re-seeded state:
 
@@ -884,9 +885,7 @@ happen to agree today.
 
 `:renderer` is validated at construction, so a misconfigured deployment fails
 at boot rather than at the first request. Omitting it keeps the JVM-local
-render, unchanged to the byte. `stream-handler` refuses the option:
-streaming renders its shell and every continuation from a server-resolved
-`:root-view`, and a body rendered whole has no continuations.
+render, unchanged to the byte.
 
 #### 4. Two policies, and why they differ
 

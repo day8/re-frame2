@@ -1,8 +1,6 @@
 # re-frame.ssr.ring
 
-Serve server-rendered re-frame2 pages from a Ring-compatible server. `ssr-handler` returns a Ring handler that renders one request per call; `stream-handler` returns one that streams the response in chunks. For each request the handler creates a frame, runs your setup events, renders the root view and returns a Ring response map; it never writes to a socket itself.
-
-Start with `ssr-handler`. Switch to `stream-handler` when a page has regions that are slow to produce and the rest of the page should reach the browser before them: mark those regions with [`ssr/boundary`](re-frame.ssr.md#boundary), and the handler sends the shell first and each region after it. Streaming has costs: it accepts no `:html-shell` or `:renderer`, holds a thread for each response in flight, and needs [`ssr/streaming-install!`](re-frame.ssr.md#streaming-install) on the client. A page with no boundary gains nothing from it.
+Serve server-rendered re-frame2 pages from a Ring-compatible server. `ssr-handler` returns a Ring handler that renders one request per call. For each request the handler creates a frame, runs your setup events, renders the root view and returns a Ring response map; it never writes to a socket itself.
 
 Ships in the `day8/re-frame2-ssr-ring` artefact, which depends on `day8/re-frame2-ssr`. The rendering, head model, hydration, SSR events and `:rf.server/*` fx this handler drives are documented on [`re-frame.ssr`](re-frame.ssr.md).
 
@@ -55,7 +53,7 @@ Those are the three required options; [The simplest server](../ssr/concepts.md#t
         - A non-empty sequential of top-level `app-db` keyword keys is an allowlist. Use a vector; lists and lazy sequences are accepted too. Sets are not allowlists. Only the listed keys ship in `:rf/app-db`; every other key is dropped, including keys added later.
         - `:rf.ssr.payload/whole-app-db` ships all of `app-db`. Use it only when the whole `app-db` is safe to expose.
         - At construction, an absent value, an empty allowlist or an unsupported non-keyword shape (such as a set) throws `:rf.error/ssr-missing-payload-policy`, an unrecognised keyword throws `:rf.error/ssr-unknown-payload-policy`, and an allowlist with non-keyword entries throws `:rf.error/ssr-malformed-payload-allowlist`.
-        - The payload is written as EDN and read back by the browser, so a number the browser would read back as a different value fails the request with `:rf.error/ssr-hydration-payload-invalid`, naming the path and class: an integer outside −(2^53 − 1) through 2^53 − 1, or any `BigInt`, `BigInteger`, `BigDecimal`, `Ratio` or `Float`, map keys and set members included. Narrow the value (an id to a string, money to integer cents) or leave its key off the allowlist. A symbol whose text contains `</` or `<!` fails with `:rf.error/ssr-edn-script-breakout`. Either failure is projected like a render throw, so the request answers the error page. Under `stream-handler` the final payload is built after the head commits, so the same failure truncates the stream (`:rf.error/ssr-streaming-writer-failed`, `:phase :final-payload`).
+        - The payload is written as EDN and read back by the browser, so a number the browser would read back as a different value fails the request with `:rf.error/ssr-hydration-payload-invalid`, naming the path and class: an integer outside −(2^53 − 1) through 2^53 − 1, or any `BigInt`, `BigInteger`, `BigDecimal`, `Ratio` or `Float`, map keys and set members included. Narrow the value (an id to a string, money to integer cents) or leave its key off the allowlist. A symbol whose text contains `</` or `<!` fails with `:rf.error/ssr-edn-script-breakout`. Either failure is projected like a render throw, so the request answers the error page.
     - `:payload-include-sensitive` — a sequential of non-empty `app-db` path vectors that the frame classifies `:sensitive` but whose raw value may ship anyway, e.g. `[[:session :csrf]]`. Only paths inside the `:payload` allowlist; without this option every classified value ships as `:rf/redacted`. A malformed value throws `:rf.error/ssr-malformed-payload-allowlist` at construction ([Classified values inside the allowlist](../ssr/concepts.md#classified-values-inside-the-allowlist)).
     - `:client-frame-id` — a stable frame id written as the payload's `:rf/frame-id`, for deployments where server and client agree on one ahead of time. Default `nil`, which omits `:rf/frame-id`. Never use a per-request gensym: the client rejects a present and different id with `:rf.error/hydration-frame-id-mismatch`.
     - `:error-view` and `:on-error` — the two failure handlers, described in the table below.
@@ -78,7 +76,6 @@ Those are the three required options; [The simplest server](../ssr/concepts.md#t
         - A throw is projected like any render-time throw.
         - Omitted, the handler renders locally: resolve `:root-view`, hash, render.
         - re-frame2 ships one other renderer, `re-frame.ssr.ring.node/renderer`, which renders on a Node sidecar ([`renderer`](re-frame.ssr.ring.node.md#renderer)).
-        - `stream-handler` rejects this option at construction.
         - `:render-state` belongs to [`re-frame.ssr.ring.node/renderer`](re-frame.ssr.ring.node.md#renderer); a copy at the handler's top level is ignored.
 
     The per-request frame takes no other `make-frame` keys. To ship its error and event records off-box, declare the process default with `(rf/configure! {:observability …})` ([`configure!`](re-frame.core.md#configure)).
@@ -103,44 +100,6 @@ Those are the three required options; [The simplest server](../ssr/concepts.md#t
        :ssr            {:public-error-id :app/public-error}
        :error-view     :app/error-page                  ;; registered view; receives the public error
        :script-src     "/js/main.js"}))
-  ```
-
-### `stream-handler`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (stream-handler opts) → (fn [ring-request] ring-response)
-  ```
-- **Description**: Returns a synchronous Ring handler whose response body streams as the page renders: the page shell first, with each [`boundary`](re-frame.ssr.md#boundary) region's fallback in place, then each region as it renders, then the final hydration payload. The body is a `java.io.PipedInputStream`, and the host server chooses the framing (chunked transfer on HTTP/1.1). On the client, hydrate from [`ssr/streaming-install!`](re-frame.ssr.md#streaming-install)'s `:on-ready`. [Streaming](../ssr/streaming.md) walks through both halves.
-    - A boundary whose drain changed `app-db` also carries a speculative hydration delta for its subtree, filtered through the same `:payload` policy as the final payload. A delta that is empty or entirely off the allowlist emits no delta script.
-    - The final chunk carries the canonical full hydration payload. If a speculative delta and the payload ever disagree, the payload wins.
-    - Failures are isolated per boundary: a boundary whose render throws keeps its fallback, with a `:rf.ssr/suspense-boundary-failed` trace, while the rest of the page streams on.
-    - A tree with no boundaries still goes through the chunked path, with zero continuations: shell prefix, shell HTML, final payload, shell suffix.
-    - A `:redirect` set during the drain short-circuits to a bodiless `Location` response before any chunk is written.
-    - The shell renders on the request thread, before the response head is committed. A throw from the root view or the shell walk, or a projected 5xx found at that point, fails closed to a non-200 projected error page (`:rf.error/ssr-render-failed` through the projector), and no writer thread starts.
-    - Once the head is committed the status cannot change. A failure while writing the rest of the stream, other than a boundary's render, emits the always-on `:rf.error/ssr-streaming-writer-failed` record, with a `:phase` tag naming the chunk in flight, and closes the stream, truncating the response; it is never projected.
-    - Any `Content-Length` header set during the drain is removed (case-insensitively), so the host server controls the framing.
-    - Each in-flight streamed request gets one raw daemon `java.lang.Thread`. There is no framework pool and no framework cap on in-flight streams. On every exit path the writer closes the pipe and destroys the frame. A body nobody reads, such as one dropped by Ring's `wrap-head`, ends the same way once its blocked write has seen no byte consumed for 60 seconds. The ceiling is the host server's accept-queue or worker-thread limit (Jetty, http-kit, Aleph); size that limit for high streaming concurrency or slow-client hardening.
-- **Options**: the same as `ssr-handler`: `:initial-events` (vector or `(fn [request] → …)`), `:root-view`, `:payload`, `:payload-include-sensitive`, `:client-frame-id`, `:url-strategy`, `:fx-overrides`, `:ssr-blocking-timeout-ms`, `:ssr`, `:on-error`, `:error-view`, `:emit-hash?`, `:version`, `:schema-digest` and `:content-type`, plus `:lang` and the four shell-hook options `:head`, `:body-end`, `:script-src` and `:app-element-id`, which [`default-streaming-prefix`](#default-streaming-prefix) and [`default-streaming-suffix`](#default-streaming-suffix) apply. Two are rejected when non-`nil` at construction with `:rf.error/ssr-streaming-unsupported-opt`:
-    - `:html-shell` — the streaming path flushes a prefix and a suffix around the continuation chunks, so a one-piece shell fn can never run. Customise the envelope with the shell-hook options, or use `ssr-handler` when you need a one-piece shell.
-    - `:renderer` — the shell and every continuation render from the JVM-resolved `:root-view`, so a body rendered whole elsewhere has nothing to split. `:root-view` is therefore required here.
-- **Example**:
-  ```clojure
-  (require '[ring.adapter.jetty :as jetty]
-           '[re-frame.core      :as rf]
-           '[re-frame.ssr.ring  :as ssr.ring])
-
-  ;; Same opts as ssr-handler, minus :html-shell and :renderer (rejected at
-  ;; construction). Customise the streaming envelope via the trusted shell-hook opts.
-  (def handler
-    (ssr.ring/stream-handler
-      {:initial-events [[:rf/server-init]]
-       :root-view      (fn [] ((rf/view :app/root)))
-       :payload        [:articles :session-user]
-       :script-src     "/js/main.js"}))
-
-  (jetty/run-jetty handler {:port 3000 :join? false})
   ```
 
 ### `ssr-middleware`
@@ -223,8 +182,8 @@ Those are the three required options; [The simplest server](../ssr/concepts.md#t
   ```clojure
   (default-on-error request throwable) → ring-response
   ```
-- **Description**: The fixed `500` response `ssr-handler` and `stream-handler` return when `:on-error` is omitted.
-    - It covers failures outside projection: per-request setup (including failed initial-event steps), and header or cookie materialisation. A root or shell render failure goes through the projector and `:error-view`, including when a streaming shell fails before its writer starts.
+- **Description**: The fixed `500` response `ssr-handler` returns when `:on-error` is omitted.
+    - It covers failures outside projection: per-request setup (including failed initial-event steps), and header or cookie materialisation. A root or shell render failure goes through the projector and `:error-view`.
     - It ignores the throwable and returns a generic plain-text body, because `.getMessage` can reveal internal topology: JDBC URLs, deploy paths, partial SQL, server class names. For a branded body, supply an `:on-error` that likewise returns a fixed response and ignores the throwable.
 - **Example**:
   ```clojure
@@ -238,42 +197,6 @@ Those are the three required options; [The simplest server](../ssr/concepts.md#t
 ## Framework integration
 
 Not for application code — used by adapters, tools and the test harness.
-
-### `default-streaming-prefix`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (default-streaming-prefix head-html opts) → HTML string
-  ```
-- **Description**: Returns the first streamed chunk: the document open, `<head>`, body open and the app element's open tag, matching `default-html-shell`. It uses the same `:html-attrs` / `:lang` fallback as the non-streaming shell, so the two envelopes cannot diverge.
-    - `head-html` — the resolved head fragment.
-    - `opts` — honours `:html-attrs`, `:body-attrs`, `:lang` (default `"en"`), `:app-element-id` (default `"app"`), `:head-hash` (stamped as `data-rf-head-hash` on `<head>`, omitted when `nil`) and `:render-hash`.
-    - When `:render-hash` is supplied (the handler passes it when `:emit-hash?` is true), `data-rf-render-hash` is stamped on the `#app` element, the streamed document's first DOM root, as the non-streaming handler stamps its root element.
-- **Example**:
-  ```clojure
-  ;; The first streamed chunk — open + <head> + <body> + app-div-open.
-  (ssr.ring/default-streaming-prefix
-    "<title>MyApp</title>"                  ;; resolved head HTML
-    {:lang "en" :app-element-id "app"})
-  ;; => "<!DOCTYPE html><html lang=\"en\"><head>…</head><body><div id=\"app\">"
-  ```
-
-### `default-streaming-suffix`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (default-streaming-suffix opts) → HTML string
-  ```
-- **Description**: Returns the chunk flushed after the final payload: the bootstrap `<script>` (`:script-src`, attribute-escaped; `nil` or absent means `"/main.js"`, and `false` omits the tag), the raw `:body-end` HTML, and `</body></html>`.
-    - It does not close the app element. The shell chunk closes `#app`, so the resolved templates, hydration-delta scripts and final `__rf_payload` script all stream outside it, as in the non-streaming `default-html-shell`.
-- **Example**:
-  ```clojure
-  ;; The trailing chunk — bootstrap <script>, raw :body-end, document close.
-  (ssr.ring/default-streaming-suffix {:script-src "/js/main.js"})
-  ;; => "<script src=\"/js/main.js\"></script></body></html>"
-  ```
 
 ### `cookie->set-cookie-header`
 

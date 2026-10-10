@@ -595,15 +595,6 @@ At per-request frame destroy time, Xray verifies each slot was released.
 Surfaces a one-line "frame destroyed cleanly" + slot tally, or a leak
 warning if any slot persists. Summary only; deep audit lives in CI.
 
-### Streaming SSR boundary timeline
-
-When the focused cascade involves streaming SSR
-(`:rf.ssr/suspense-boundary-*` traces present), render a vertical
-waterfall in the Trace tab — shell flush time, per-boundary fallback
-emit times, per-boundary resolution times (or failures), final payload
-chunk status. Each boundary that failed shows the throwable + fallback
-retention status.
-
 ### Side-by-side SSR replay (post-v1 dream)
 
 Xray offers a "replay SSR" affordance: given the live runtime, spin up

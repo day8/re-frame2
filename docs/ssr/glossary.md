@@ -47,7 +47,7 @@ See [Data the first render needs](concepts.md#data-the-first-render-needs).
 
 What `day8/re-frame2-ssr-ring` provides. `ssr-handler` returns a plain Ring handler
 that runs one request through a per-request frame and returns a Ring response map;
-`stream-handler` is the same with a streamed body; `ssr-middleware` sends the
+`ssr-middleware` sends the
 requests its `:match?` predicate accepts (every GET by default) to an `ssr-handler`
 and everything else to the handler it wraps, such as static assets and API routes.
 Request keys that Ring middleware adds, such as `:form-params` (`wrap-params`),
@@ -172,24 +172,6 @@ app's own page. Failures the projector cannot see, such as the per-request frame
 failing to set up or a header that cannot be written, go to `:on-error`, a
 `(fn [request throwable] …)` returning a Ring response, whose default is a fixed
 plain-text `500`. See [When the server throws](concepts.md#when-the-server-throws).
-
-### **suspense boundary**
-
-The streaming component `ssr/boundary`: an `:id`, a `:fallback` and a subtree. On
-the server it defers the subtree to a later chunk; in the browser it renders the
-subtree, so one view serves both. The server sends the page shell with fallbacks in
-place, then each boundary's subtree as its data resolves. A boundary that throws
-keeps its fallback and emits a trace; the rest of the page streams on.
-`:rf/suspense-boundary` is internal wire syntax, never written by hand.
-See [Streaming](streaming.md).
-
-### **hydration delta**
-
-In a streamed page, the app-db changes a [suspense boundary](#suspense-boundary)'s
-drain made, sent with that boundary's chunk and filtered through the same
-`:payload` allowlist, so the region's subscriptions see the right state when it
-swaps in. The final chunk carries the full payload, and where the two disagree the
-payload wins. See [Streaming](streaming.md).
 
 ### **Node renderer**
 
