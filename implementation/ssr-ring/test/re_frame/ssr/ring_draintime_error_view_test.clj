@@ -72,6 +72,20 @@
     (is (str/includes? body "APP-NOT-FOUND-UI"))
     (is (str/includes? body "__rf_payload"))))
 
+(deftest draintime-500-then-route-404-takes-the-error-arm
+  (reg-drain-boom-event!)
+  (rf/reg-event :init/boom-then-miss {:platforms #{:server}}
+    (fn [_ _] {:fx [[:test/boom-fx nil]
+                    [:dispatch [:rf.route/handle-url-change "/no-such-page"]]]}))
+  (let [{:keys [status body]} ((rf.ssr.ring/ssr-handler
+                                 {:initial-events [[:init/boom-then-miss]]
+                                  :root-view      (counting-root)
+                                  :payload        :rf.ssr.payload/whole-app-db})
+                               request)]
+    (is (= 500 status))
+    (is (zero? @root-calls))
+    (is (not (str/includes? body "__rf_payload")))))
+
 (deftest custom-503-error-arm-vs-appwritten-500-app-arm
   (testing "a custom projected 503 takes the error arm"
     (rf/reg-error-projector :myapp/degraded

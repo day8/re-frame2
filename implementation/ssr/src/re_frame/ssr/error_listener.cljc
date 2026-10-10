@@ -68,11 +68,11 @@
 ;; the dev-only `error-projection-listener` and the always-on
 ;; `error-emit-projection-listener` route through here) makes the
 ;; degraded-200 outcome a PROPERTY OF THE PROJECTOR, not an incidental
-;; consequence of `ssr-handler` reading `get-response` (ring.clj:343)
-;; BEFORE `build-full-response` fires the head trace (pipeline.clj:286).
+;; consequence of `ssr-handler` settling the response
+;; BEFORE `build-full-response` fires the head trace.
 ;; Without this skip the immunity would be timing-only: a reorder (head
-;; resolution before `get-response`, a second flush after the render, a
-;; re-read of `get-response` on the same frame) would let a buffered head
+;; resolution before the settle, or another settle after the render)
+;; would let a buffered head
 ;; trace project the default `:rf.error/*` → status and silently flip a
 ;; degraded 200 to a 4xx/5xx. The skip closes that hole by construction.
 ;;
@@ -88,8 +88,8 @@
 ;; ALREADY stamped the projected status and cleared the buffer
 ;; (consume-pending-traces!) — so without this skip it would be re-buffered
 ;; and left in `pending-error-traces` until frame-destroy. That would be
-;; harmless only while nothing re-reads `get-response`/`flush-response!` on the
-;; frame after that point (the re-flush at pipeline.clj:331 lives on
+;; harmless only while nothing settles the
+;; frame again after that point (the post-render settle lives on
 ;; the HAPPY path inside `build-full-response*`, which the error-view-
 ;; failed catch never reaches) and the default projector maps it to the
 ;; same 500 the render-time path already stamped. A CUSTOM projector
@@ -211,6 +211,21 @@
         (swap-vals! pending-error-traces dissoc frame-address)]
     (get prior-traces frame-address [])))
 
+(defn- worse-public-error
+  "The public error with the higher `:status`, `b` among equals."
+  [a b]
+  (if (> (:status a) (:status b)) a b))
+
+(defn- stamp-projected-status!
+  "Stamp `public-error`'s `:status` onto frame-id's response unless a
+  redirect stands, and return `public-error`."
+  [frame-id public-error]
+  (when-not (:redirect (rf.ssr.response/response-of frame-id))
+    (rf.ssr.response/swap-response! frame-id
+                                    (fn [response]
+                                      (assoc response :status (:status public-error)))))
+  public-error)
+
 (defn apply-error-projection!
   "Project an error trace event via the active projector for frame-id
   and stamp the public-error's :status onto the response accumulator.
@@ -222,12 +237,13 @@
   Two arities:
 
     (apply-error-projection! frame-id)
-      Drain frame-id's error-trace buffer and project the LAST trace
-      (last-write-wins, mirroring the multi-status policy). Hosts that
-      drive their own SSR loop call this after drain settles so the
-      response carries the projector's status. The runtime also calls
-      it automatically from get-response so a host reading the resolved
-      response always sees up-to-date projection.
+      Drain frame-id's error-trace buffer, project EVERY trace, and keep
+      the highest projected status (the later one among equals), so a
+      server fault anywhere in the request outranks a client fault in
+      either order (Spec 011 §Drain-time error classification). Hosts
+      that drive their own SSR loop call this after the drain settles so
+      the response carries the projector's status;
+      `flush-response-result!` is the settle that calls it.
 
     (apply-error-projection! frame-id trace-event)
       Project the given trace-event directly. Host adapters that catch
@@ -238,19 +254,14 @@
   `:redirect`, the redirect's :status is locked through and this fn
   does not overwrite it."
   ([frame-id]
-   (when-let [last-trace (when (and frame-id (rf.ssr.error-projector/server-frame? frame-id))
-                           (last (consume-pending-traces! frame-id)))]
-     (apply-error-projection! frame-id last-trace)))
+   (when (and frame-id (rf.ssr.error-projector/server-frame? frame-id))
+     (when-let [public-errors (seq (mapv #(rf.ssr.error-projector/project-error frame-id %)
+                                         (consume-pending-traces! frame-id)))]
+       (stamp-projected-status! frame-id (reduce worse-public-error public-errors)))))
   ([frame-id trace-event]
    (when (and frame-id trace-event (rf.ssr.error-projector/server-frame? frame-id))
-     (let [public-error     (rf.ssr.error-projector/project-error frame-id trace-event)
-           current-response (rf.ssr.response/response-of frame-id)
-           redirect         (:redirect current-response)]
-       (when-not redirect
-         (rf.ssr.response/swap-response! frame-id
-                                  (fn [response]
-                                    (assoc response :status (:status public-error)))))
-       public-error))))
+     (stamp-projected-status! frame-id
+                              (rf.ssr.error-projector/project-error frame-id trace-event)))))
 
 (defn project-render-exception!
   "Route a render-time `Throwable` through the SSR error projector for
@@ -341,7 +352,7 @@
       (let [public-error (apply-error-projection! frame-id trace-event)]
         ;; Clear any duplicate buffer entry the listeners appended above
         ;; (apply-error-projection! 2-arity does not drain). Without
-        ;; this a later peek/flush would re-project the same event.
+        ;; this a later settle would re-project the same event.
         ;; Clears BOTH the dev-trace AND the always-on buffered duplicates.
         (consume-pending-traces! frame-id)
         public-error))))
@@ -349,8 +360,8 @@
 (defn error-projection-listener
   "Dev-only trace-cb listener — captures error trace events bound to a
   server frame in the per-frame pending-error-traces buffer. Projection waits
-  until the settle point so the host observes one last-write-wins result and
-  redirect precedence is applied once. Registered in the `re-frame.ssr`
+  until the settle point so the host observes one result, the worst
+  buffered status, and redirect precedence is applied once. Registered in the `re-frame.ssr`
   façade under `::error-projection`.
 
   This listener covers every `:rf.error/*` category that fires through
@@ -372,8 +383,8 @@
   `:boundary? true` step-1 check, which the default projector's
   `:where`-gated arm maps to 400 (RFC 9110 §15.5.1: a refused request
   payload is a client fault, not a server one). In dev both listeners fire
-  for those — last-write-wins + idempotent projection makes the duplicate
-  benign.
+  for those — the settle keeps the highest projected status, so the
+  duplicate projects the same status twice and is benign.
 
   THE BOUNDARY ENTRY IS NOT DEV-ONLY. Boundary
   validation is ungated per Spec 010 §Production builds (one of several
@@ -470,9 +481,8 @@
   `:rf.server/_status-writes` / `:rf.server/_redirect-writes`
   bookkeeping keys are stripped.
 
-  Use this from debug paths or midpoint inspections where draining the
-  projector buffer (the side-effect baked into `get-response`) would
-  consume a trace the host had not yet observed."
+  Reading never changes what the settle (`flush-response-result!`) later
+  sees, so a debug path or midpoint inspection may call this at any time."
   [frame-id]
   (-> (rf.ssr.response/response-of frame-id)
       (dissoc rf.ssr.response/status-writes-key rf.ssr.response/redirect-writes-key)))
@@ -493,12 +503,13 @@
   projected: an app that manually `:rf.server/set-status`-es a 500 with no
   error projected returns `:public-error nil` and stays on the app arm.
 
-  Side-effecting — this is the SAME single drain `flush-response!` /
-  `get-response` perform, so calling it consumes the pending trace: a
-  SECOND call returns `{:response … :public-error nil}` for the
-  already-consumed projection. `flush-response!` and `get-response`
-  delegate to `(:response (flush-response-result! …))`. Per Spec 011
-  §Server error projection §Drain-time
+  Side-effecting — this is the settle, and the only reader that drains:
+  calling it consumes the pending traces, so a SECOND call returns
+  `{:response … :public-error nil}` for the already-consumed projection.
+  Every buffered trace is projected and the highest status wins
+  (`apply-error-projection!`). `peek-response`, `get-response` and
+  `flush-response!` are pure reads and never steal the classification.
+  Per Spec 011 §Server error projection §Drain-time
   error classification."
   [frame-id]
   (let [public-error (apply-error-projection! frame-id)]
@@ -506,36 +517,24 @@
      :public-error public-error}))
 
 (defn flush-response!
-  "Drain any pending error projection for `frame-id` and return the
-  resolved response. Side-effecting — every call clears the projector
-  buffer; the first call after an error trace wins (last-write-wins,
-  mirroring `:rf.server/set-status`).
-
-  This is the explicit-side-effect spelling. `get-response` is the
-  canonical host-adapter alias for the same drain-then-read sequence;
-  `peek-response` is the pure-read counterpart for callers that want
-  to opt out of the drain side effect. `flush-response-result!` is the
-  variant that ALSO returns the projected `:public-error` for classification."
+  "PURE read of the resolved response for `frame-id` — the same read as
+  `peek-response`. It drains nothing: `flush-response-result!` is the
+  settle that projects buffered errors."
   [frame-id]
-  (:response (flush-response-result! frame-id)))
+  (peek-response frame-id))
 
 (defn get-response
   "Read the resolved response accumulator for a frame. Public surface
-  for host adapters that consume the accumulator after drain to build
-  the wire response. The internal `:rf.server/_status-writes` /
+  for host adapters that consume the accumulator to build the wire
+  response. The internal `:rf.server/_status-writes` /
   `:rf.server/_redirect-writes` bookkeeping keys are stripped.
 
-  Flushes any pending error projections before reading so the
-  response's `:status` reflects the active projector's output. Per
-  Spec 011 §Server error projection — \"runtime sets `:rf.server/set-
-  status` to the public-error's :status\".
-
-  `get-response` is the canonical host-adapter alias for the drain-
-  then-read sequence. `flush-response!` is the explicit-side-effect
-  spelling; `peek-response` is the pure read. All three exist so
-  callers can opt into the side-effect explicitly."
+  A PURE read, the same as `peek-response`: it projects no buffered
+  error, so reading the response never changes the later settle. Call
+  `flush-response-result!` first for a `:status` that carries the
+  projector's output (Spec 011 §Server error projection)."
   [frame-id]
-  (flush-response! frame-id))
+  (peek-response frame-id))
 
 (defn pending-error-trace?
   "PURE predicate — true when `frame-id` has at least one buffered error

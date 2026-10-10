@@ -42,7 +42,7 @@
                   :ssr {:public-error-id :rf.ssr/default-error-projector :dev-error-detail? false}})
   frame-id)
 
-(defn- status [frame-id] (:status (rf.ssr/get-response frame-id)))
+(defn- status [frame-id] (:status (:response (rf.ssr/flush-response-result! frame-id))))
 
 (deftest two-server-frames-navigate-reject-stamps-only-the-emitting-frame
   (when rf.interop/debug-enabled?

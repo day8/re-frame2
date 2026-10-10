@@ -84,8 +84,8 @@
         accepted (server-frame)]
     (rf/dispatch-sync [:api/ingest bad-payload]  {:frame refused})
     (rf/dispatch-sync [:api/ingest good-payload] {:frame accepted})
-    (is (= [400 200] [(:status (rf.ssr/flush-response! refused))
-                      (:status (rf.ssr/flush-response! accepted))]))))
+    (is (= [400 200] [(:status (:response (rf.ssr/flush-response-result! refused)))
+                      (:status (:response (rf.ssr/flush-response-result! accepted)))]))))
 
 (deftest every-buffered-entry-projects-the-same-400
   (testing "a dev build buffers the rejection on both buses and the drain

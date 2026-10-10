@@ -45,7 +45,7 @@
     (with-redefs [rf.interop/debug-enabled? false]
       (rf.ssr.error-listener/project-render-exception! f (ex-info "render boom" {}))
       (is (= 1 (count (records-of seen :rf.error/ssr-render-failed))))
-      (is (= 500 (:status (rf.ssr/get-response f)))
+      (is (= 500 (:status (:response (rf.ssr/flush-response-result! f))))
           "the direct projection's 500, not double-stamped or re-projected"))))
 
 (deftest sanitised-on-projection-reaches-listener-under-debug-off
@@ -91,4 +91,4 @@
       (let [f (server-frame)]
         (rf.ssr.error-listener/error-emit-projection-listener
           {:error category :frame f :time 0 :exception (ex-info "synthetic" {})})
-        (is (= status (:status (rf.ssr/get-response f))) (str category))))))
+        (is (= status (:status (:response (rf.ssr/flush-response-result! f)))) (str category))))))

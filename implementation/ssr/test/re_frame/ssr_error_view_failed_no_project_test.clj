@@ -32,7 +32,7 @@
                              :exception "synthetic error-view failure"
                              :ex-class  "clojure.lang.ExceptionInfo"
                              :recovery  :fell-back-to-default-error-template})
-      (is (= 200 (:status (rf.ssr/get-response f)))))))
+      (is (= 200 (:status (:response (rf.ssr/flush-response-result! f))))))))
 
 (deftest dev-path-genuine-drain-time-error-still-projects-non-200
   (testing "the skip is targeted, not a listener that drops everything"
@@ -40,11 +40,11 @@
       (let [f (server-frame)]
         (rf.trace/emit-error! :rf.error/sub-exception
                               {:frame f :exception (ex-info "sub boom" {}) :recovery :no-recovery})
-        (is (not= 200 (:status (rf.ssr/get-response f))))))))
+        (is (not= 200 (:status (:response (rf.ssr/flush-response-result! f)))))))))
 
 (deftest always-on-path-error-view-failed-record-is-not-buffered-or-projected
   (let [f (server-frame)]
     (rf.ssr.error-listener/error-emit-projection-listener
       {:error :rf.error/ssr-ring-error-view-failed :frame f :time 0
        :exception (ex-info "synthetic error-view failure" {})})
-    (is (= 200 (:status (rf.ssr/get-response f))))))
+    (is (= 200 (:status (:response (rf.ssr/flush-response-result! f)))))))

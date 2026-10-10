@@ -131,7 +131,7 @@
     2. set-request! populates the per-frame request slot (Ring-adapter
        parity — exercises the side-channel that needs cleanup).
     3. Drain settles synchronously via dispatch-sync.
-    4. ssr/get-response flushes the response accumulator.
+    4. ssr/flush-response-result! settles the response accumulator.
     5. render-to-string against a registered view emits HTML.
     6. ssr/clear-request! is INTENTIONALLY omitted here so the
        `:ssr/on-frame-destroyed` hook is the only path that clears the
@@ -155,9 +155,9 @@
     (let [tree [(rf/view :load-test/page)]
           html (rf/with-frame server-frame
                  (rf.ssr/render-to-string tree {:render-hash (rf.ssr/render-tree-hash tree)}))]
-      ;; Step 4 — flush the response accumulator (also triggers any
-      ;; pending-error-trace drain).
-      (rf.ssr/get-response server-frame)
+      ;; Step 4 — settle the response accumulator (drains any pending
+      ;; error trace).
+      (rf.ssr/flush-response-result! server-frame)
       ;; Step 7 — destroy. Intentionally NO clear-request! call.
       (rf/destroy-frame! server-frame)
       html)))
