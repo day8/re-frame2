@@ -35,15 +35,17 @@
 
 (defwrapper restore-epoch!
   "Rewind the named frame's WHOLE frame-state — BOTH the app-db AND
-  runtime-db partitions — to the named epoch's `:frame-state-after`, via
+  runtime-db partitions — to the named epoch's `:frame-state-after`, or with
+  `opts` `{:to :before}` to its `:frame-state-before`, via
   `replace-frame-state!` (EP-0001). This
   revives machine snapshots, the route slice, elision declarations, and SSR
   metadata (runtime-db state) alongside app-db — not just the app-db
-  partition. The canonical `:frame-state-after` is the ONLY restore source:
+  partition. Those two canonical snapshots are the ONLY restore sources:
   the `:db-after` slot is a retained app-db PROJECTION for tool diffs, never
-  a restore source (a record carrying no `:frame-state-after` is
-  malformed/unreachable on the current build path — there is no db-only
-  fallback). Per Tool-Pair §Time-travel: returns `true` on success,
+  a restore source (there is no db-only fallback). Restoring the synthetic
+  record `replace-frame-state!` leaves `{:to :before}` undoes the injection,
+  even when it is the only record retained. A `:to` other than `:after` or
+  `:before` throws. Per Tool-Pair §Time-travel: returns `true` on success,
   `false` on any
   of the seven documented failure modes (each emits a structured
   `:rf.epoch/*` error trace and leaves `app-db` unchanged) and `false`
@@ -56,7 +58,8 @@
   `:rf.epoch/restore-version-mismatch`.
   Late-bound via `:epoch/restore-epoch!`."
   {:hook :epoch/restore-epoch! :artefact epoch-artefact :on-absent :false}
-  ([frame-id epoch-id] :delegate))
+  ([frame-id epoch-id] :delegate)
+  ([frame-id epoch-id opts] :delegate))
 
 (defwrapper replay-epoch!
   "Re-drive the named retained epoch's recorded event through the frame's
@@ -147,8 +150,9 @@
   use it for evolved-state-shape probes after a handler hot-swap,
   story-tool fixture setup, conformance-harness state seeding, and
   time-travel from JSON-loaded bug repros. Records a synthetic
-  `:rf/epoch-record` so `restore-epoch!` can rewind the previous state;
-  emits `:rf.epoch/db-replaced` on success.
+  `:rf/epoch-record` so `restore-epoch!` can rewind the previous state —
+  restoring that record `{:to :before}` undoes the injection; emits
+  `:rf.epoch/db-replaced` on success.
 
   App-only injection: `(replace-frame-state! frame-id {:rf.db/app v})`;
   an app-only reset is `(replace-frame-state! frame-id

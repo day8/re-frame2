@@ -959,6 +959,87 @@
       (is (nil? (get-in (rf/frame-state-value :test/main) [:rf.db/runtime :rf.runtime/routing]))
           "the runtime-db partition rewound past the injection too"))))
 
+;; ---- restore {:to :before} ---------------------------------------------------
+;;
+;; Every record carries both snapshots. Restoring a record's
+;; `:frame-state-before` undoes an injection whose synthetic record is the only
+;; one retained, and reaches the state before the oldest retained event.
+
+(def ^:private both-partitions-injected
+  {:rf.db/app     {:injected true}
+   :rf.db/runtime {:rf.runtime/routing {:r :injected}}})
+
+(deftest restore-to-before-undoes-an-injection-with-no-earlier-record
+  (testing "on a fresh frame the synthetic record is the only record, and
+            restoring it :before reinstalls the pre-injection state in both
+            partitions"
+    (rf/make-frame {:id :test/fresh})
+    (let [pre-injection (rf/frame-state-value :test/fresh)]
+      (is (true? (rf/replace-frame-state! :test/fresh both-partitions-injected)))
+      (is (= [:rf.epoch/db-replaced] (mapv :event-id (rf/epoch-history :test/fresh))))
+      (is (true? (rf/restore-epoch! :test/fresh
+                                    (:epoch-id (peek (rf/epoch-history :test/fresh)))
+                                    {:to :before})))
+      (is (= pre-injection (rf/frame-state-value :test/fresh)))))
+  (testing "at depth 1 the injection evicts the only real record, and restoring
+            the synthetic record :before still reinstalls that record's state"
+    (rf/configure! {:epoch-history {:depth 1}})
+    (rf/make-frame {:id :test/shallow})
+    (rf/reg-event :seed-one (fn [_ _] {:db {:n 1}}))
+    (rf/dispatch-sync [:seed-one] {:frame :test/shallow})
+    (let [pre-injection (rf/frame-state-value :test/shallow)]
+      (is (true? (rf/replace-frame-state! :test/shallow both-partitions-injected)))
+      (is (= [:rf.epoch/db-replaced] (mapv :event-id (rf/epoch-history :test/shallow))))
+      (is (true? (rf/restore-epoch! :test/shallow
+                                    (:epoch-id (peek (rf/epoch-history :test/shallow)))
+                                    {:to :before})))
+      (is (= {:n 1} (rf/app-db-value :test/shallow)))
+      (is (= pre-injection (rf/frame-state-value :test/shallow))))))
+
+(deftest restore-to-before-reaches-past-an-evicted-predecessor
+  (testing "the oldest retained event's before-state restores after the record
+            that produced it has been evicted"
+    (rf/configure! {:epoch-history {:depth 2}})
+    (rf/make-frame {:id :test/evicted})
+    (rf/reg-event :set-n (fn [_ [_ n]] {:db {:n n}}))
+    (doseq [n [1 2 3]] (rf/dispatch-sync [:set-n n] {:frame :test/evicted}))
+    (let [oldest (first (rf/epoch-history :test/evicted))]
+      (is (= [2 3] (mapv #(get-in % [:db-after :n]) (rf/epoch-history :test/evicted))))
+      (is (true? (rf/restore-epoch! :test/evicted (:epoch-id oldest) {:to :before})))
+      (is (= {:n 1} (rf/app-db-value :test/evicted)))
+      (is (nil? (rf.epoch.state/last-settled-epoch-id :test/evicted))
+          "no retained record settled into the restored state, so nothing is anchored"))))
+
+(deftest restore-to-before-then-replay-reproduces-the-recorded-after-state
+  (testing "for a deterministic handler, restoring E :before and replaying E
+            yields E's recorded :frame-state-after"
+    (rf/make-frame {:id :test/rerun})
+    (rf/reg-event :bump (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+    (doseq [_ (range 3)] (rf/dispatch-sync [:bump] {:frame :test/rerun}))
+    (let [e (second (rf/epoch-history :test/rerun))]
+      (is (true? (rf/restore-epoch! :test/rerun (:epoch-id e) {:to :before})))
+      (is (= {:n 1} (rf/app-db-value :test/rerun)))
+      (is (true? (:ok? (rf/replay-epoch! :test/rerun (:epoch-id e)))))
+      (is (= (:frame-state-after e) (rf/frame-state-value :test/rerun))))))
+
+(deftest restore-to-before-validates-the-before-snapshot
+  (testing "the preconditions check the snapshot being installed: a
+            before-state that fails a schema tightened since it was recorded is
+            refused, while the same record's valid after-state restores"
+    (rf/make-frame {:id :test/main})
+    (rf/reg-event :set (fn [_ [_ n]] {:db {:n n}}))
+    (rf/dispatch-sync [:set "not-an-int"] {:frame :test/main})
+    (rf/dispatch-sync [:set 0] {:frame :test/main})
+    (rf/dispatch-sync [:set 5] {:frame :test/main})
+    (rf/reg-app-schema [:n] {:frame :test/main} [:int])
+    (let [target   (second (rf/epoch-history :test/main))
+          recorded (record-trace!)]
+      (is (false? (rf/restore-epoch! :test/main (:epoch-id target) {:to :before})))
+      (is (= {:n 5} (rf/app-db-value :test/main)) "app-db unchanged")
+      (is (= [[:n]] (:failing-paths (tags-of @recorded :rf.epoch/restore-schema-mismatch))))
+      (is (true? (rf/restore-epoch! :test/main (:epoch-id target) {:to :after})))
+      (is (= {:n 0} (rf/app-db-value :test/main))))))
+
 (deftest replace-frame-state!-raises-when-epoch-artefact-missing
   (testing "with the :epoch/replace-frame-state! hook absent, rf/replace-frame-state!
             raises :rf.error/epoch-artefact-missing rather than degrading silently"

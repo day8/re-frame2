@@ -65,8 +65,8 @@
             orig-check rf.epoch.tool-pair/check-restore-preconditions!]
         (with-redefs
           [rf.epoch.tool-pair/check-restore-preconditions!
-           (fn [f e]
-             (let [result (orig-check f e)]
+           (fn [& args]
+             (let [result (apply orig-check args)]
                (when (compare-and-set! barrier-armed? true false)
                  (deliver precond-passed result)
                  (await-latch release-precond))

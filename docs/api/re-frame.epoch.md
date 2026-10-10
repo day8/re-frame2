@@ -109,7 +109,7 @@ You call everything on this page through `rf/`, including listeners (`rf/registe
 | `:event-id` | keyword | The event's id. A `replace-frame-state!` record carries `:rf.epoch/db-replaced`. |
 | `:trigger-event` | event vector | The event as dispatched, arguments included. |
 | `:dispatch-id` | id | Links the record to its run in the trace stream. |
-| `:frame-state-before`, `:frame-state-after` | `{:rf.db/app … :rf.db/runtime …}` | The whole frame-state before and after the event. `restore-epoch!` installs `:frame-state-after`. |
+| `:frame-state-before`, `:frame-state-after` | `{:rf.db/app … :rf.db/runtime …}` | The whole frame-state before and after the event. `restore-epoch!` installs `:frame-state-after`, or `:frame-state-before` with `{:to :before}`. |
 | `:db-before`, `:db-after` | map | The `app-db` partition of the two frame-states, for diffs. |
 | `:trace-events` | vector of trace events | The raw trace the event produced. |
 | `:sub-runs`, `:renders`, `:effects` | vectors of rows | Structured summaries of the trace; the row shapes are below. |
@@ -135,10 +135,12 @@ You call everything on this page through `rf/`, including listeners (`rf/registe
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (restore-epoch! frame-target epoch-id) → boolean
+  (restore-epoch! frame-target epoch-id)      → boolean
+  (restore-epoch! frame-target epoch-id opts) → boolean
   ```
-- **Description**: Rewinds the frame to the named epoch's `:frame-state-after` in one atomic write. Both partitions rewind: `app-db` and `runtime-db` alike, so machine snapshots and the route slice go back too.
+- **Description**: Rewinds the frame to the named epoch's `:frame-state-after` in one atomic write, or with `opts` `{:to :before}` to its `:frame-state-before`. Both partitions rewind: `app-db` and `runtime-db` alike, so machine snapshots and the route slice go back too.
     - `frame-target` is a frame-id keyword or the frame value `rf/make-frame` returns.
+    - `{:to :before}` undoes a `replace-frame-state!` write: restore the record it left `:before`. That needs no earlier epoch, so it works on a fresh frame too. It also reaches the state before the oldest retained event. `:to` defaults to `:after`; any other value throws.
     - Returns `true` on success and emits `:rf.epoch/restored`. Returns `false` and does nothing in a production build, or when the `day8/re-frame2-epoch` artefact is not loaded.
     - The history is kept: epochs recorded after the target stay in the ring, so you can still restore or replay them. A restore records no epoch of its own.
     - Work the frame had in flight belongs to the abandoned timeline, so a successful restore cancels or settles it, and a late reply from before the restore changes nothing:
@@ -205,7 +207,7 @@ You call everything on this page through `rf/`, including listeners (`rf/registe
     - `frame-target` is a frame-id keyword or the frame value `rf/make-frame` returns.
     - `new-frame-state` is a partial frame-state map: any subset of `{:rf.db/app … :rf.db/runtime …}`. A key that is present replaces that partition; a key that is absent leaves its partition unchanged. Writing one partition never touches the other.
     - This is the only frame-state write function. There is no `replace-app-db!`, `reset-app-db!` or `replace-runtime-db!`; write the one partition you mean.
-    - Each successful write records a synthetic `:rf/epoch-record`, so `restore-epoch!` can rewind past it, and emits `:rf.epoch/db-replaced`. Returns `true`.
+    - Each successful write records a synthetic `:rf/epoch-record`, so `restore-epoch!` can rewind past it, and emits `:rf.epoch/db-replaced`. Restoring that record with `{:to :before}` undoes the write. Returns `true`.
 - **Errors**:
     - Throws `:rf.error/epoch-artefact-missing` when the `day8/re-frame2-epoch` artefact is not loaded. It cannot quietly return `false` as the other functions do, because the record it writes is what makes the write undoable.
     - Otherwise, a refused write returns `false`, changes nothing, and emits one of these error traces on the `:trace` stream, as for `restore-epoch!`:

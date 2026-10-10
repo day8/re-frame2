@@ -1680,9 +1680,10 @@ See [Observability](../core/observability.md).
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (restore-epoch! frame-target epoch-id) → boolean
+  (restore-epoch! frame-target epoch-id)      → boolean
+  (restore-epoch! frame-target epoch-id opts) → boolean
   ```
-- **Description**: Development builds only: rewinds `frame-target`, a frame id or a live frame value, to the state the named epoch recorded, `app-db` and `runtime-db` together, and returns `true`, or `false` when it refuses. See [`restore-epoch!`](re-frame.epoch.md#restore-epoch) for the full contract.
+- **Description**: Development builds only: rewinds `frame-target`, a frame id or a live frame value, to the state the named epoch recorded, `app-db` and `runtime-db` together, and returns `true`, or `false` when it refuses. With `opts` `{:to :before}` it installs the state from before the epoch's event instead. See [`restore-epoch!`](re-frame.epoch.md#restore-epoch) for the full contract.
 
 ### `replay-epoch!`
 

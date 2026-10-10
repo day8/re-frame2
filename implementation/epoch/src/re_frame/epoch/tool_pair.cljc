@@ -351,14 +351,25 @@
 
 ;; ---- restore preconditions + perform --------------------------------------
 
+(defn- restore-source
+  "The record slot a restore in direction `to` installs: `:after` reinstalls
+  the epoch's `:frame-state-after`, `:before` its `:frame-state-before`. Any
+  other `to` throws."
+  [to]
+  (case to
+    :after  :frame-state-after
+    :before :frame-state-before))
+
 (defn check-restore-preconditions!
   "Validate the documented preconditions for restoring `frame-id`
-  to `epoch-id`. Returns a result map:
+  to `epoch-id`'s snapshot in direction `to` — `:after` (the 2-arity) or
+  `:before`. Each check reads the snapshot being installed. Returns a result
+  map:
 
     {:outcome :ok :epoch <epoch> :incarnation-token <token>}
                  — all checks passed; `:epoch` is the resolved history
-                   record whose `:frame-state-after` is the restore target,
-                   and `:incarnation-token` is the EXACT identity token of
+                   record whose snapshot in direction `to` is the restore
+                   target, and `:incarnation-token` is the EXACT identity token of
                    the frame incarnation these checks resolved against.
                    `restore-epoch!` carries it to the write boundary so
                    `perform-restore!` refuses to install into a same-id
@@ -372,137 +383,139 @@
                    precondition test stays a pure data check.
 
   See `restore-epoch!` for the refusal catalogue."
-  [frame-id epoch-id]
-  (let [frame-result      (frame-exists-or-fail frame-id)
-        frame-record      (:frame-record frame-result)
-        ;; The EXACT incarnation identity token (the record's `:drain-lock`, per
-        ;; `frame-incarnation-token`) DERIVED FROM THE SAME captured record — NOT
-        ;; an independent bare-id re-resolve. A same-id successor B seated between
-        ;; the record capture above and here can therefore never supply the
-        ;; token: the ticket pairs THIS record's resolved epoch/history with THIS
-        ;; record's own incarnation (an
-        ;; independent `frame-incarnation-token` re-resolve could pair A's
-        ;; retained epoch/history with B's live token). Carried out on the `:ok`
-        ;; result so the write boundary can reject a stale install after a
-        ;; destroy + same-id reconstruction. nil when the frame is
-        ;; absent — the (1) frame-registered branch fails first in that case.
-        incarnation-token (some-> frame-record :drain-lock)]
-    (cond
-      ;; (1) Frame registered?
-      (= :fail (:outcome frame-result))
-      frame-result
+  ([frame-id epoch-id] (check-restore-preconditions! frame-id epoch-id :after))
+  ([frame-id epoch-id to]
+   (let [source            (restore-source to)
+         frame-result      (frame-exists-or-fail frame-id)
+         frame-record      (:frame-record frame-result)
+         ;; The EXACT incarnation identity token (the record's `:drain-lock`, per
+         ;; `frame-incarnation-token`) DERIVED FROM THE SAME captured record — NOT
+         ;; an independent bare-id re-resolve. A same-id successor B seated between
+         ;; the record capture above and here can therefore never supply the
+         ;; token: the ticket pairs THIS record's resolved epoch/history with THIS
+         ;; record's own incarnation (an
+         ;; independent `frame-incarnation-token` re-resolve could pair A's
+         ;; retained epoch/history with B's live token). Carried out on the `:ok`
+         ;; result so the write boundary can reject a stale install after a
+         ;; destroy + same-id reconstruction. nil when the frame is
+         ;; absent — the (1) frame-registered branch fails first in that case.
+         incarnation-token (some-> frame-record :drain-lock)]
+     (cond
+       ;; (1) Frame registered?
+       (= :fail (:outcome frame-result))
+       frame-result
 
-      ;; (2) In-flight drain?
-      (drain-in-flight? frame-record)
-      {:outcome :fail
-       :op      :rf.epoch/restore-during-drain
-       :tags    {:frame       frame-id
-                 :rf.epoch/id epoch-id}}
+       ;; (2) In-flight drain?
+       (drain-in-flight? frame-record)
+       {:outcome :fail
+        :op      :rf.epoch/restore-during-drain
+        :tags    {:frame       frame-id
+                  :rf.epoch/id epoch-id}}
 
-      :else
-      (let [history (rf.epoch.state/history-for frame-id)
-            epoch-record (find-epoch-in history epoch-id)]
-        (cond
-          ;; Exact-owner gate on the history/validation snapshot.
-          ;; `state/history-for` above (and every validator below)
-          ;; resolves by BARE frame-id; a same-id successor seated DURING this
-          ;; precondition sampling means the captured incarnation is no longer
-          ;; live, so the history/validation snapshot may belong to — or would
-          ;; be paired against — the successor. Refuse with the SAME canonical
-          ;; no-such-handler failure the write boundary uses rather than resolve
-          ;; or validate against a stale incarnation. (Belt-and-braces with the
-          ;; record-derived token above: even if a race slips past here the
-          ;; ticket still carries A's token, so the exact write rejects B.)
-          (not (rf.frame/event-continuation-live? frame-id incarnation-token))
-          {:outcome :fail
-           :op      :rf.error/no-such-handler
-           :tags    {:kind  :frame
-                     :frame frame-id}}
+       :else
+       (let [history (rf.epoch.state/history-for frame-id)
+             epoch-record (find-epoch-in history epoch-id)]
+         (cond
+           ;; Exact-owner gate on the history/validation snapshot.
+           ;; `state/history-for` above (and every validator below)
+           ;; resolves by BARE frame-id; a same-id successor seated DURING this
+           ;; precondition sampling means the captured incarnation is no longer
+           ;; live, so the history/validation snapshot may belong to — or would
+           ;; be paired against — the successor. Refuse with the SAME canonical
+           ;; no-such-handler failure the write boundary uses rather than resolve
+           ;; or validate against a stale incarnation. (Belt-and-braces with the
+           ;; record-derived token above: even if a race slips past here the
+           ;; ticket still carries A's token, so the exact write rejects B.)
+           (not (rf.frame/event-continuation-live? frame-id incarnation-token))
+           {:outcome :fail
+            :op      :rf.error/no-such-handler
+            :tags    {:kind  :frame
+                      :frame frame-id}}
 
-          ;; (3) Epoch present in current history?
-          (nil? epoch-record)
-          {:outcome :fail
-           :op      :rf.epoch/restore-unknown-epoch
-           :tags    {:frame        frame-id
-                     :rf.epoch/id  epoch-id
-                     :history-size (count history)}}
+           ;; (3) Epoch present in current history?
+           (nil? epoch-record)
+           {:outcome :fail
+            :op      :rf.epoch/restore-unknown-epoch
+            :tags    {:frame        frame-id
+                      :rf.epoch/id  epoch-id
+                      :history-size (count history)}}
 
-          ;; Halted records contain partial state and are not restore targets.
-          ;; Refuse before schema, handler, and version checks so
-          ;; the failure surfaces with the actual halt context, not
-          ;; a downstream consequence of the partial db.
-          (not= :ok (get epoch-record :outcome :ok))
-          {:outcome :fail
-           :op      :rf.epoch/restore-non-ok-record
-           :tags    {:frame       frame-id
-                     :rf.epoch/id epoch-id
-                     :outcome     (:outcome epoch-record)
-                     :halt-reason (:halt-reason epoch-record)}}
+           ;; Halted records contain partial state and are not restore targets.
+           ;; Refuse before schema, handler, and version checks so
+           ;; the failure surfaces with the actual halt context, not
+           ;; a downstream consequence of the partial db.
+           (not= :ok (get epoch-record :outcome :ok))
+           {:outcome :fail
+            :op      :rf.epoch/restore-non-ok-record
+            :tags    {:frame       frame-id
+                      :rf.epoch/id epoch-id
+                      :outcome     (:outcome epoch-record)
+                      :halt-reason (:halt-reason epoch-record)}}
 
-          :else
-          (let [;; The canonical restore target is the whole frame state.
-                ;; The app-db partition
-                ;; feeds the schema check; the runtime-db partition feeds
-                ;; machine/route reference and version checks. Both are
-                ;; read off the canonical `:frame-state-after` — the only
-                ;; restore target `build-record` ever emits (the `:db-after`
-                ;; slot is a retained app-db PROJECTION for tool diffs, never
-                ;; a restore source). A record with no `:frame-state-after`
-                ;; is malformed/unreachable on the current build path.
-                recorded-frame-state (:frame-state-after epoch-record)
-                recorded-app-db      (get recorded-frame-state
-                                          rf.frame/app-partition-key)
-                recorded-runtime-db  (get recorded-frame-state
-                                          rf.frame/runtime-partition-key)]
-            ;; Bind each probe once so the failure path walks the recorded
-            ;; db / schema set / machine map exactly once per check.
-            (if-let [failing-paths
-                     (seq (failing-schema-paths frame-id recorded-app-db))]
-              ;; (4) Schema mismatch?
-              ;; Per Spec 010 §Schema digest + Tool-Pair §Time-travel:
-              ;; the trace carries both the digest pinned on the
-              ;; epoch record (recorded) and the current frame's
-              ;; live digest, so pair tools can pinpoint *what
-              ;; changed* about the schema set, not merely *that*
-              ;; it changed.
-              {:outcome :fail
-               :op      :rf.epoch/restore-schema-mismatch
-               :tags    {:frame                  frame-id
-                         :rf.epoch/id            epoch-id
-                         :schema-digest-recorded (:schema-digest epoch-record)
-                         :schema-digest-current  (rf.epoch.assembly/current-schema-digest frame-id)
-                         :failing-paths          (vec failing-paths)}}
+           :else
+           (let [;; The canonical restore target is the whole frame state.
+                 ;; The app-db partition
+                 ;; feeds the schema check; the runtime-db partition feeds
+                 ;; machine/route reference and version checks. Both are
+                 ;; read off the canonical snapshot being installed —
+                 ;; `:frame-state-after` or `:frame-state-before`, which every
+                 ;; record `build-record` emits carries (the `:db-after` slot
+                 ;; is a retained app-db PROJECTION for tool diffs, never a
+                 ;; restore source).
+                 recorded-frame-state (get epoch-record source)
+                 recorded-app-db      (get recorded-frame-state
+                                           rf.frame/app-partition-key)
+                 recorded-runtime-db  (get recorded-frame-state
+                                           rf.frame/runtime-partition-key)]
+             ;; Bind each probe once so the failure path walks the recorded
+             ;; db / schema set / machine map exactly once per check.
+             (if-let [failing-paths
+                      (seq (failing-schema-paths frame-id recorded-app-db))]
+               ;; (4) Schema mismatch?
+               ;; Per Spec 010 §Schema digest + Tool-Pair §Time-travel:
+               ;; the trace carries both the digest pinned on the
+               ;; epoch record (recorded) and the current frame's
+               ;; live digest, so pair tools can pinpoint *what
+               ;; changed* about the schema set, not merely *that*
+               ;; it changed.
+               {:outcome :fail
+                :op      :rf.epoch/restore-schema-mismatch
+                :tags    {:frame                  frame-id
+                          :rf.epoch/id            epoch-id
+                          :schema-digest-recorded (:schema-digest epoch-record)
+                          :schema-digest-current  (rf.epoch.assembly/current-schema-digest frame-id)
+                          :failing-paths          (vec failing-paths)}}
 
-              (if-let [missing-reference-details
-                       (seq (missing-references recorded-runtime-db))]
-                ;; (5) Missing handler referenced from runtime-db?
-                {:outcome :fail
-                 :op      :rf.epoch/restore-missing-handler
-                 :tags    {:frame       frame-id
-                           :rf.epoch/id epoch-id
-                           :missing     (vec missing-reference-details)}}
+               (if-let [missing-reference-details
+                        (seq (missing-references recorded-runtime-db))]
+                 ;; (5) Missing handler referenced from runtime-db?
+                 {:outcome :fail
+                  :op      :rf.epoch/restore-missing-handler
+                  :tags    {:frame       frame-id
+                            :rf.epoch/id epoch-id
+                            :missing     (vec missing-reference-details)}}
 
-                (if-let [{:keys [machine-id machine-type recorded current]}
-                         (machine-version-mismatch recorded-runtime-db)]
-                  ;; (6) Machine snapshot version drift?
-                  ;; `:machine-type` identifies a spawned actor's
-                  ;; TYPE (keyword or inline-definition map) alongside its
-                  ;; instance `:machine-id`; nil/omitted for a singleton whose
-                  ;; key is its own type. Spawned-actor drift is caught:
-                  ;; the current version resolves via `:rf/machine-type`, not
-                  ;; the unregistered instance-id key.
-                  {:outcome :fail
-                   :op      :rf.epoch/restore-version-mismatch
-                   :tags    (cond-> {:frame            frame-id
-                                     :rf.epoch/id      epoch-id
-                                     :machine-id       machine-id
-                                     :version-recorded recorded
-                                     :version-current  current}
-                              (some? machine-type) (assoc :machine-type machine-type))}
+                 (if-let [{:keys [machine-id machine-type recorded current]}
+                          (machine-version-mismatch recorded-runtime-db)]
+                   ;; (6) Machine snapshot version drift?
+                   ;; `:machine-type` identifies a spawned actor's
+                   ;; TYPE (keyword or inline-definition map) alongside its
+                   ;; instance `:machine-id`; nil/omitted for a singleton whose
+                   ;; key is its own type. Spawned-actor drift is caught:
+                   ;; the current version resolves via `:rf/machine-type`, not
+                   ;; the unregistered instance-id key.
+                   {:outcome :fail
+                    :op      :rf.epoch/restore-version-mismatch
+                    :tags    (cond-> {:frame            frame-id
+                                      :rf.epoch/id      epoch-id
+                                      :machine-id       machine-id
+                                      :version-recorded recorded
+                                      :version-current  current}
+                               (some? machine-type) (assoc :machine-type machine-type))}
 
-                  {:outcome :ok
-                   :epoch epoch-record
-                   :incarnation-token incarnation-token})))))))))
+                   {:outcome :ok
+                    :epoch epoch-record
+                    :incarnation-token incarnation-token}))))))))))
 
 ;; ---- replay-epoch! preconditions + perform (Tool-Pair §Replay) -------------
 ;;
@@ -1076,9 +1089,11 @@
   nil)
 
 (defn perform-restore!
-  "Install the target epoch's whole `:frame-state-after` after validation,
-  FENCED to the exact frame incarnation the preconditions resolved against
-  (`incarnation-token`, from `check-restore-preconditions!`).
+  "Install the target epoch's whole frame-state snapshot in direction `to` —
+  `:frame-state-after` for `:after` (the 3-arity), `:frame-state-before` for
+  `:before` — after validation, FENCED to the exact frame incarnation the
+  preconditions resolved against (`incarnation-token`, from
+  `check-restore-preconditions!`).
 
   App-db and runtime-db are restored atomically; `:db-after` is only a tool
   projection. Optional subsystems reconcile captured durable state against
@@ -1128,93 +1143,100 @@
   restore holds one serial position relative to any drain. A
   restore invoked reentrantly from the active drainer refuses with
   `:rf.epoch/restore-during-drain` rather than deadlocking or splicing."
-  [frame-id incarnation-token epoch]
-  (serialize-tool-write!
-    frame-id
-    :rf.epoch/restore-during-drain
-    {:frame frame-id :rf.epoch/id (:epoch-id epoch)}
-    (fn []
-      (if-not (rf.frame/event-continuation-live? frame-id incarnation-token)
-        ;; The incarnation these preconditions resolved against is no longer
-        ;; live — a same-id SUCCESSOR was seated (or the frame was destroyed /
-        ;; is being torn down) between validation and this write. Refuse BEFORE
-        ;; the reconcile so no subsystem state is reconciled against a stale
-        ;; incarnation, and route to the SAME canonical no-such-handler failure a
-        ;; destroyed-frame write race uses. The successor stays
-        ;; byte-for-byte untouched; no success telemetry fires.
-        (do (emit-precondition-failure! :rf.error/no-such-handler
-                                        {:kind :frame :frame frame-id})
-            false)
-        (let [;; Whole `:frame-state-after` is the only restore source.
-              recorded-frame-state (:frame-state-after epoch)
-              ;; Reconcile runtime subsystems before the atomic install,
-              ;; the same way SSR hydration reconciles its installed slice — so a
-              ;; mid-flight captured snapshot does not install stranded
-              ;; `:loading` / `:fetching` entries pointing at vanished attempts,
-              ;; and a pre-restore reply cannot write stale data into a restored
-              ;; entry.
-              ;; Thread the restored epoch's causal time
-              ;; (`:committed-at` = the committing token's `:rf.cofx`
-              ;; `:rf/time-ms`) so the reconcile stamps a dangled-on-restore
-              ;; mutation instance's durable `:settled-at` from a replay-stable
-              ;; causal input, not the live install clock (EP-0010 §Restore/Replay).
-              ;; Thread the EXACT incarnation token too, so the reconcile's
-              ;; pre-write host-table clear is fenced to this incarnation — a
-              ;; callback that churns A to B mid-reconcile cannot make the bare-id
-              ;; clear release B's host handles.
-              reconciled-frame-state
-              (reconcile-runtime-db-on-restore frame-id recorded-frame-state
-                                               (:committed-at epoch)
-                                               incarnation-token)
-              ;; Write both partitions through the one physical frame container,
-              ;; via the EXACT-INCARNATION arity: it resolves through the
-              ;; validated incarnation's own record and returns nil if a same-id
-              ;; successor has reseated `frame-id`, so the install can never
-              ;; redirect into that successor. Under the drain lock the
-              ;; container's re-read matches the value installed. Nil means the
-              ;; incarnation was lost after the gate (destroyed, or reseated); a
-              ;; non-nil changed-key-set (even empty) means it landed on the
-              ;; exact incarnation.
-              changed-keys
-              (rf.frame/replace-frame-state! frame-id incarnation-token
-                                          reconciled-frame-state)]
-          (if (nil? changed-keys)
-            (do (emit-precondition-failure! :rf.error/no-such-handler
-                                            {:kind :frame :frame frame-id})
-                false)
-            (do ;; Before the first callback boundary, so no callback sees the
-                ;; installed state beside a stale cache.
-                (reset-flows-dirty-check! frame-id incarnation-token)
-                (rf.trace/emit! :rf.epoch :rf.epoch/restored
-                             {:frame       frame-id
-                              :rf.epoch/id (:epoch-id epoch)})
-                ;; The exact-incarnation install committed, so the public result
-                ;; is TRUE and stays truthful regardless of what follows. But the
-                ;; `:rf.epoch/restored` emit above is a synchronous callback
-                ;; boundary: a trace listener can destroy A and seat a same-id
-                ;; successor B. Every framework-owned tail op below addresses the
-                ;; frame by BARE id (`set-last-settled-epoch!`, the resources
-                ;; trace commit, the machines/http host-work quiesce chain), so
-                ;; each is fenced to the EXACT incarnation the restore installed
-                ;; Re-check liveness before each — the trace
-                ;; commit and the quiesce chain themselves fan out to
-                ;; listeners/hooks that may churn — so once A is lost the
-                ;; remaining A-only tail work is STOPPED rather than RETARGETED
-                ;; onto B: no B anchor is stamped, no B resource trace committed,
-                ;; no B host handle released or aborted.
-                (when (rf.frame/event-continuation-live? frame-id incarnation-token)
-                  ;; Restore triggers no ordinary event, so explicitly anchor its
-                  ;; repaint/subscription/unmount back-fill to the restored epoch.
-                  (rf.epoch.state/set-last-settled-epoch! frame-id (:epoch-id epoch)))
-                (when (rf.frame/event-continuation-live? frame-id incarnation-token)
-                  ;; Deferred subsystem success traces are valid only after install.
-                  (commit-resources-restore-traces! reconciled-frame-state
-                                                     frame-id incarnation-token))
-                (when (rf.frame/event-continuation-live? frame-id incarnation-token)
-                  ;; Host timers and HTTP handles are not frame state; cancel the
-                  ;; abandoned timeline only after the new state is installed.
-                  (quiesce-orphaned-async-host-work! frame-id incarnation-token))
-                true)))))))
+  ([frame-id incarnation-token epoch]
+   (perform-restore! frame-id incarnation-token epoch :after))
+  ([frame-id incarnation-token epoch to]
+   (serialize-tool-write!
+     frame-id
+     :rf.epoch/restore-during-drain
+     {:frame frame-id :rf.epoch/id (:epoch-id epoch)}
+     (fn []
+       (if-not (rf.frame/event-continuation-live? frame-id incarnation-token)
+         ;; The incarnation these preconditions resolved against is no longer
+         ;; live — a same-id SUCCESSOR was seated (or the frame was destroyed /
+         ;; is being torn down) between validation and this write. Refuse BEFORE
+         ;; the reconcile so no subsystem state is reconciled against a stale
+         ;; incarnation, and route to the SAME canonical no-such-handler failure a
+         ;; destroyed-frame write race uses. The successor stays
+         ;; byte-for-byte untouched; no success telemetry fires.
+         (do (emit-precondition-failure! :rf.error/no-such-handler
+                                         {:kind :frame :frame frame-id})
+             false)
+         (let [;; The whole snapshot in direction `to` is the restore source.
+               recorded-frame-state (get epoch (restore-source to))
+               ;; Reconcile runtime subsystems before the atomic install,
+               ;; the same way SSR hydration reconciles its installed slice — so a
+               ;; mid-flight captured snapshot does not install stranded
+               ;; `:loading` / `:fetching` entries pointing at vanished attempts,
+               ;; and a pre-restore reply cannot write stale data into a restored
+               ;; entry.
+               ;; Thread the restored epoch's causal time
+               ;; (`:committed-at` = the committing token's `:rf.cofx`
+               ;; `:rf/time-ms`) so the reconcile stamps a dangled-on-restore
+               ;; mutation instance's durable `:settled-at` from a replay-stable
+               ;; causal input, not the live install clock (EP-0010 §Restore/Replay).
+               ;; Thread the EXACT incarnation token too, so the reconcile's
+               ;; pre-write host-table clear is fenced to this incarnation — a
+               ;; callback that churns A to B mid-reconcile cannot make the bare-id
+               ;; clear release B's host handles.
+               reconciled-frame-state
+               (reconcile-runtime-db-on-restore frame-id recorded-frame-state
+                                                (:committed-at epoch)
+                                                incarnation-token)
+               ;; Write both partitions through the one physical frame container,
+               ;; via the EXACT-INCARNATION arity: it resolves through the
+               ;; validated incarnation's own record and returns nil if a same-id
+               ;; successor has reseated `frame-id`, so the install can never
+               ;; redirect into that successor. Under the drain lock the
+               ;; container's re-read matches the value installed. Nil means the
+               ;; incarnation was lost after the gate (destroyed, or reseated); a
+               ;; non-nil changed-key-set (even empty) means it landed on the
+               ;; exact incarnation.
+               changed-keys
+               (rf.frame/replace-frame-state! frame-id incarnation-token
+                                           reconciled-frame-state)]
+           (if (nil? changed-keys)
+             (do (emit-precondition-failure! :rf.error/no-such-handler
+                                             {:kind :frame :frame frame-id})
+                 false)
+             (do ;; Before the first callback boundary, so no callback sees the
+                 ;; installed state beside a stale cache.
+                 (reset-flows-dirty-check! frame-id incarnation-token)
+                 (rf.trace/emit! :rf.epoch :rf.epoch/restored
+                              {:frame       frame-id
+                               :rf.epoch/id (:epoch-id epoch)})
+                 ;; The exact-incarnation install committed, so the public result
+                 ;; is TRUE and stays truthful regardless of what follows. But the
+                 ;; `:rf.epoch/restored` emit above is a synchronous callback
+                 ;; boundary: a trace listener can destroy A and seat a same-id
+                 ;; successor B. Every framework-owned tail op below addresses the
+                 ;; frame by BARE id (`set-last-settled-epoch!`, the resources
+                 ;; trace commit, the machines/http host-work quiesce chain), so
+                 ;; each is fenced to the EXACT incarnation the restore installed
+                 ;; Re-check liveness before each — the trace
+                 ;; commit and the quiesce chain themselves fan out to
+                 ;; listeners/hooks that may churn — so once A is lost the
+                 ;; remaining A-only tail work is STOPPED rather than RETARGETED
+                 ;; onto B: no B anchor is stamped, no B resource trace committed,
+                 ;; no B host handle released or aborted.
+                 (when (rf.frame/event-continuation-live? frame-id incarnation-token)
+                   ;; Restore triggers no ordinary event, so explicitly anchor its
+                   ;; repaint/subscription/unmount back-fill to the restored epoch.
+                   ;; The anchor also names the state a later halt record
+                   ;; snapshots, and the epoch never settled into its own
+                   ;; before-state, so a `:before` restore clears it instead.
+                   (if (= :before to)
+                     (rf.epoch.state/drop-last-settled-epoch! frame-id)
+                     (rf.epoch.state/set-last-settled-epoch! frame-id (:epoch-id epoch))))
+                 (when (rf.frame/event-continuation-live? frame-id incarnation-token)
+                   ;; Deferred subsystem success traces are valid only after install.
+                   (commit-resources-restore-traces! reconciled-frame-state
+                                                      frame-id incarnation-token))
+                 (when (rf.frame/event-continuation-live? frame-id incarnation-token)
+                   ;; Host timers and HTTP handles are not frame state; cancel the
+                   ;; abandoned timeline only after the new state is installed.
+                   (quiesce-orphaned-async-host-work! frame-id incarnation-token))
+                 true))))))))
 
 ;; ---- replace-frame-state! preconditions ------------------------------------
 ;;
@@ -1307,7 +1329,7 @@
         atomic install.
 
   `replace-frame-state!` records a synthetic `:rf.epoch/db-replaced` epoch so
-  that `restore-epoch!` can rewind past
+  that `restore-epoch!` of it `{:to :before}` undoes
   the injection — the caller's invariant is \"undo works after this call\"
   (Tool-Pair §Pair-tool writes, the same invariant the artefact-missing
   wrapper raises to honour at `core-epoch.cljc`). Under

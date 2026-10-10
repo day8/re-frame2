@@ -418,14 +418,23 @@
 ;; ---- restore --------------------------------------------------------------
 ;;
 (defn ^:no-doc restore-epoch!
-  "Rewind the frame to the named epoch's canonical `:frame-state-after`
-  — the WHOLE frame-state, reinstalling app-db AND runtime-db as two
-  separate partitions in one atomic write (reviving
-  machine snapshots, the route slice, elision declarations, and SSR
-  metadata, not just the app-db partition). `:frame-state-after` is the
-  only restore source — every record `build-record` emits carries it; the
-  retained `:db-after` is an OPTIONAL app-db projection for tool diffs,
-  never a restore source. Emits `:rf.epoch/restored` on success.
+  "Rewind the frame to one of the named epoch's canonical frame-state
+  snapshots — its `:frame-state-after` by default, or its
+  `:frame-state-before` with `opts` `{:to :before}` — the WHOLE
+  frame-state, reinstalling app-db AND runtime-db as two separate
+  partitions in one atomic write (reviving machine snapshots, the route
+  slice, elision declarations, and SSR metadata, not just the app-db
+  partition). Those two snapshots are the only restore sources — every
+  record `build-record` emits carries both; the retained `:db-after` is an
+  OPTIONAL app-db projection for tool diffs, never a restore source. Emits
+  `:rf.epoch/restored` on success.
+
+  `{:to :before}` is how an injection is undone: the synthetic record
+  `replace-frame-state!` leaves carries the pre-injection state as its
+  `:frame-state-before`, so restoring it `:before` works even when it is the
+  only record retained. It likewise reaches the state before the oldest
+  retained event after the record that produced that state was evicted. A
+  `:to` other than `:after` or `:before` throws.
 
   Failure modes (each is a no-op on the frame-state and emits a
   structured error trace):
@@ -446,26 +455,29 @@
     :rf.epoch/restore-non-ok-record    — target epoch's :outcome is not :ok
                                          (halted records carry partial state and
                                          are not valid restore targets)
-    :rf.epoch/restore-schema-mismatch  — db-after no longer validates
+    :rf.epoch/restore-schema-mismatch  — the restored app-db no longer
+                                         validates
     :rf.epoch/restore-missing-handler  — referenced registration absent
     :rf.epoch/restore-version-mismatch — machine snapshot version drift
 
   `frame-id` is the frame's id or the frame value `rf/make-frame` returns.
 
   Returns `true` on success, `false` on any failure."
-  [frame-id epoch-id]
-  (if-not rf.interop/debug-enabled?
-    false
-    (let [frame-id (rf.frame/frame-target->id frame-id)
-          {:keys [outcome epoch op tags incarnation-token]}
-          (rf.epoch.tool-pair/check-restore-preconditions! frame-id epoch-id)]
-      (case outcome
-        ;; Carry the EXACT incarnation token the preconditions resolved against
-        ;; to the write boundary, so a same-id successor seated in between never
-        ;; receives this epoch's state.
-        :ok   (rf.epoch.tool-pair/perform-restore! frame-id incarnation-token epoch)
-        :fail (do (rf.epoch.tool-pair/emit-precondition-failure! op tags)
-                  false)))))
+  ([frame-id epoch-id] (restore-epoch! frame-id epoch-id nil))
+  ([frame-id epoch-id opts]
+   (if-not rf.interop/debug-enabled?
+     false
+     (let [frame-id (rf.frame/frame-target->id frame-id)
+           to       (or (:to opts) :after)
+           {:keys [outcome epoch op tags incarnation-token]}
+           (rf.epoch.tool-pair/check-restore-preconditions! frame-id epoch-id to)]
+       (case outcome
+         ;; Carry the EXACT incarnation token the preconditions resolved against
+         ;; to the write boundary, so a same-id successor seated in between never
+         ;; receives this epoch's state.
+         :ok   (rf.epoch.tool-pair/perform-restore! frame-id incarnation-token epoch to)
+         :fail (do (rf.epoch.tool-pair/emit-precondition-failure! op tags)
+                   false))))))
 
 ;; ---- replay (Tool-Pair §Replay) --------------------------------------------
 ;;
@@ -695,7 +707,8 @@
   the frame's id or the frame value `rf/make-frame` returns.
 
   Records a synthetic `:rf/epoch-record` so `restore-epoch!` can rewind the
-  previous state; emits `:rf.epoch/db-replaced` on success.
+  previous state — restoring that record `{:to :before}` undoes the
+  injection; emits `:rf.epoch/db-replaced` on success.
 
   Failure modes (each is a no-op on the frame-state and returns `false`,
   emitting a structured error trace):
