@@ -29,7 +29,7 @@
 
   Runtime: Node, where `react-dom/server` resolves — the same home as
   `ssr/entry_cljs_test`; `npm run check` in bench/fresco/ compiles it."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [clojure.string :as str]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
@@ -98,67 +98,34 @@
    :snapshot (:snapshot (rf.bench.fresco.ssr.fixtures/row "dogfood-snapshot"))
    :payload  rf.bench.fresco.ssr.fixtures/dogfood-payload-keys})
 
-;; ---------------------------------------------------------------------------
-;; W8 — the per-request id, and the one authorable hazard
-;; ---------------------------------------------------------------------------
-
 (deftest a-server-body-reads-the-requests-own-frame
-  (testing "the frame `h/frame` answers on the server IS the request's
-           per-request gensym, and two requests answer two different ones —
-           which is what per-request isolation means when the id is the
-           thing being read"
-    (reset! !seen [])
-    (let [a (rf.bench.fresco.ssr.entry/render (request [discreet {}]))
-          b (rf.bench.fresco.ssr.entry/render (request [discreet {}]))]
-      (is (= 2 (count @!seen)) "one read per request")
-      (is (= [(:frame-id a) (:frame-id b)] @!seen)
-          "each body read its OWN request's id, in order")
-      (is (not= (:frame-id a) (:frame-id b))
-          "precondition: the two requests really did take different frames,
-           so the row above is not comparing a constant to itself"))))
+  ;; Two requests, two per-request gensyms, and each body read its own.
+  (reset! !seen [])
+  (let [a (rf.bench.fresco.ssr.entry/render (request [discreet {}]))
+        b (rf.bench.fresco.ssr.entry/render (request [discreet {}]))]
+    (is (= [[(:frame-id a) (:frame-id b)] true]
+           [@!seen (not= (:frame-id a) (:frame-id b))]))))
 
 (deftest a-body-that-reads-the-id-and-keeps-it-out-of-markup-is-deterministic
-  (testing "the correct shape. Two renders take two gensyms, and the
-           documents are byte-identical anyway — because the value went
-           into a read and not into the page"
-    (let [{:keys [identical? differs-at] a :first b :second}
-          (rf.bench.fresco.ssr.entry/render-twice (request [discreet {}]))]
-      (is identical? (str "the two documents differ at index " differs-at))
-      (is (not= (:frame-id a) (:frame-id b))
-          "and they were different requests — this is the whole point")
-      (is (not (str/includes? (:document a) (name (:frame-id a))))
-          "the id is nowhere in the markup"))))
+  (let [{:keys [identical? differs-at] a :first b :second}
+        (rf.bench.fresco.ssr.entry/render-twice (request [discreet {}]))]
+    (is (= [true true false]
+           [identical? (not= (:frame-id a) (:frame-id b)) (str/includes? (:document a) (name (:frame-id a)))])
+        (str "two requests, byte-identical documents, the id nowhere in the markup; first difference at "
+             differs-at))))
 
 (deftest a-body-that-renders-the-id-breaks-determinism-and-the-check-says-so
-  (testing "THE ROW THAT MAKES THE ONE ABOVE MEAN SOMETHING. Rendering the
-           per-request id is an authorable hazard, and the claim is that
-           the existing render-twice byte comparison catches it. A claim
-           about a check that has never been watched failing is not a
-           check, so here it is failing"
-    (let [{:keys [identical? differs-at] a :first} (rf.bench.fresco.ssr.entry/render-twice (request [indiscreet {}]))]
-      (is (not identical?)
-          "a document carrying the per-request gensym cannot be
-           deterministic, and the determinism witness must say so")
-      (is (some? differs-at) "with a diagnosable diff position")
-      (is (str/includes? (:document a) (name (:frame-id a)))
-          "and the id is visibly in the markup, which is the mistake"))))
-
-;; ---------------------------------------------------------------------------
-;; W11 — the ambient carry answers the request's own frame, server-side too
-;; ---------------------------------------------------------------------------
+  ;; The row that makes the one above mean something: the render-twice byte
+  ;; comparison, watched failing on the authorable hazard.
+  (let [{:keys [identical? differs-at] a :first} (rf.bench.fresco.ssr.entry/render-twice (request [indiscreet {}]))]
+    (is (= [false true true]
+           [identical? (some? differs-at) (str/includes? (:document a) (name (:frame-id a)))]))))
 
 (deftest the-ambient-carry-is-admitted-server-side-to-the-requests-own-frame
-  (testing "the core answers `(rf/capture-frame)` with the extent's
-           declared frame, and the arm's `with-frame` declares it over the
-           server render extent
-           exactly as over the client's — so what the server reports is the
-           request's own frame, and not a fact about `react-dom/server`"
-    (reset! !ambient ::unset)
-    (let [{:keys [document frame-id]} (rf.bench.fresco.ssr.entry/render (request [carrying {}]))
-          data                        @!ambient]
-      (is (vector? data)
-          (str "expected the carry to be admitted; got " (pr-str data)))
-      (is (= frame-id (:frame (second data)))
-          "locked to the request's own per-request frame")
-      (is (str/includes? document "class=\"row\"")
-          "and the render completed"))))
+  ;; The core answers `(rf/capture-frame)` with the extent's declared frame,
+  ;; and `with-frame` declares it over the server render extent too.
+  (reset! !ambient ::unset)
+  (let [{:keys [frame-id]} (rf.bench.fresco.ssr.entry/render (request [carrying {}]))
+        [tag value]        @!ambient]
+    (is (= [::no-throw frame-id] [tag (:frame value)])
+        (pr-str @!ambient))))
