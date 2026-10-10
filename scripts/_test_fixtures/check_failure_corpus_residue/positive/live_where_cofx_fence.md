@@ -1,6 +1,6 @@
 # schema-violation teaching (positive fixture)
 
-Replicates the rf2-2oqj59 stale Button-C teaching: a live `:where :cofx`
+A stale Button-C teaching: a live `:where :cofx`
 value inside a fenced code block, teaching the RETIRED schema-validation
 surface. The gate MUST fire on the fenced line.
 

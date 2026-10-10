@@ -407,28 +407,16 @@ _SELF_TEST_FIXTURE_ROOT = (
 
 
 def _run_self_tests(verbose: bool = False) -> int:
-    """Scan each fixture file and assert the expected finding count.
+    """Scan each fixture file and assert the EXACT finding count.
 
-    Positive fixtures plant a LIVE `:where :cofx` inside a markdown code fence
-    or in live testbed source, and the assertion is EXACT — the count must be
-    the one declared, not merely non-zero, because `>= 1` would be a
-    fail-open shape. Negative fixtures exercise the
-    counterparts that MUST stay green: removed-context prose (its inline code
-    spans included, since they sit outside any fence), a `;` comment in a
-    fence, a source docstring / `;` comment mention, and the bare `:cofx`
-    data-key (no `:where` head).
+    Prose, source comments, source strings and the bare `:cofx` data key all
+    occur in the live corpus, so the gate's own live run guards those green
+    shapes.
     """
     cases: list[tuple[str, int]] = [
-        # (fixture relative to fixture-root, expected finding count)
-        # --- positives: a LIVE :where :cofx must FIRE ---
         ("positive/live_where_cofx_fence.md",        1),
         ("positive/live_where_cofx_source.cljs",     1),
-        # --- negatives: removed-context forms must stay GREEN ---
-        ("negative/removed_context_prose.md",        0),
         ("negative/masked_clj_comment_in_fence.md",  0),
-        ("negative/source_comment_mention.cljs",     0),
-        ("negative/source_docstring_mention.cljs",   0),
-        ("negative/bare_cofx_datakey.cljs",          0),
     ]
 
     failures = 0
