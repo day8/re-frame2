@@ -83,18 +83,16 @@
 ;;
 ;; The standing law: A CLEANUP PATH THAT POSSESSES AN ISSUING FRAME
 ;; MUST BE FRAME-EXACT. Frame-scoped keys alone do not cover cleanup: a
-;; cleanup that falls back to a frame-less sweep — the `clear-in-flight!`
-;; fallback taken when a handle is not yet published, or an abort closure
-;; making the 1-arg call despite carrying a `:frame` stamp — reintroduces the
-;; cross-frame reach through CLEANUP, deleting a sibling frame's live slot and
-;; leaving its request unregistered and unabortable.
+;; cleanup that falls back to a frame-less sweep reintroduces the cross-frame
+;; reach through CLEANUP, deleting a sibling frame's live slot and leaving its
+;; request unregistered and unabortable.
 ;;
 ;; No warning enforces this, deliberately: a registry fn cannot see whether its
 ;; caller had a frame to give (there is no ambient ctx down here), so any check
 ;; would have to fire on the legitimate resources sweep as readily as on a
 ;; mistake. The enforcement is structural instead — every frame-bearing entry
-;; point has a frame-bearing arity, and NO production path
-;; reaches the 1-arg `clear-in-flight!` sweep at all.
+;; point has a frame-bearing arity, and `clear-in-flight!` has no frame-less
+;; sweep at all.
 
 (defn- scoped-key
   "The internal cancellation key: the ISSUING FRAME paired with the caller's
@@ -288,12 +286,11 @@
      already published the handle to the index but the forward-reference cell
      the abort-fn reads has not been `reset!` yet.
 
-  Falling through to the 1-arg ANY-FRAME sweep there would delete EVERY
-  frame's slot under the raw id — reintroducing, in the cleanup half, exactly
-  the cross-frame reach the frame-scoped keys keep out of the abort/supersede
-  half. Being unconditional is not the same as being unscoped: within one
-  frame it is precisely as safe as that sweep (a same-frame successor cannot
-  exist in either window), and it simply cannot see a sibling frame.
+  An ANY-FRAME sweep there would delete EVERY frame's slot under the raw id —
+  reintroducing, in the cleanup half, exactly the cross-frame reach the
+  frame-scoped keys keep out of the abort/supersede half. Being unconditional
+  is not the same as being unscoped: a same-frame successor cannot exist in
+  either window, and it simply cannot see a sibling frame.
 
   A nil `request-id` is a no-op: an anonymous request is indexed only in
   `actor-in-flight` or `anonymous-in-flight`, where it is reachable only by
@@ -308,32 +305,22 @@
   nil)
 
 (defn clear-in-flight!
-  "Clear a request handle from both indexes. Three arities:
+  "Clear a request handle from both indexes. Two arities:
 
-   - 1-arg `[request-id]` — the resolve-by-id, ANY-FRAME form.
-     Resolves every frame's handle registered under this raw `request-id`
-     and walks both indexes (the handle stores `:frame` and `:actor-id` so
-     the actor-index slot can be located by identity). It carries no frame,
-     so it cannot be frame-scoped; it is the seam for callers holding an
-     already-frame-qualified token (resources' `[:rf.req frame-id work-id]`,
-     per Spec 016), for which at most one frame can ever match. Prefer the
-     2-arg form, which IS frame-exact. No-op when `request-id` is nil —
-     anonymous requests use the 2-arg form below.
    - 2-arg `[request-id handle]` — the natural-completion form used by
      the per-host attempt loops. Both args are taken from the captured
      ctx + handle pair, so the cleanup is index-walks by identity and
      does not depend on `request-id` being non-nil. This arity covers
      anonymous-request natural completion from inside spawned actors.
-     A NIL `handle` has no frame to be exact about and falls back to the
-     ANY-FRAME 1-arg sweep — which is why a caller that HOLDS a frame must
-     use the 3-arity below instead, even when its handle may be nil.
+     A nil `handle` is a no-op: there is no identity to clear by, which is
+     why a caller whose handle may still be nil uses the 3-arity below.
    - 3-arg `[frame-id request-id handle]` — the same natural-completion
      cleanup, told which frame is doing it. Pass everything
      you know and the registry uses the most precise key available: a non-nil
      `handle` clears by identity exactly as the 2-arg form does (the frame is
      read off the handle, so the `frame-id` argument is redundant and
      ignored), while a nil one clears `frame-id`'s own slot through
-     `clear-in-flight-in-frame!` rather than sweeping every frame's. This is
+     `clear-in-flight-in-frame!`. This is
      the arity every transport cleanup site uses, because each one holds a
      ctx carrying `:frame` while its handle cell can still be nil inside the
      publication window.
@@ -358,59 +345,26 @@
   supersession exists to prevent. For single-request cleanup the slot
   still holds `handle`, so the identity check passes and the
   dissoc runs."
-  ([request-id]
-   (when request-id
-     ;; `swap-vals!` (core on both runtimes) yields the pre-swap snapshot from
-     ;; the winning CAS attempt, so the handles we then walk out of the actor
-     ;; index are exactly the ones this call removed.
-     (let [[previous _] (swap-vals!
-                          in-flight
-                          (fn [request-index]
-                            (reduce-kv (fn [index k _]
-                                         (if (= request-id (second k))
-                                           (dissoc index k)
-                                           index))
-                                       request-index request-index)))]
-       (doseq [[k handle] previous
-               :when (= request-id (second k))]
-         (remove-from-actor-index! handle))))
-   nil)
   ([request-id handle]
-   (if (nil? handle)
-     ;; A nil `handle` (an abort that fired before the handle was
-     ;; published to `@handle-cell` / `@handle-holder`) carries no `:frame`, so
-     ;; THIS arity has no key to be exact about and falls back to the ANY-FRAME
-     ;; clear above.
-     ;;
-     ;; That fallback is the reason a frame-bearing caller
-     ;; must not reach this arity with a possibly-nil handle. That the
-     ;; pre-publication window precedes any successor, leaving nothing to
-     ;; protect, holds only for a SAME-FRAME successor.
-     ;; A SIBLING frame that was already live under the same raw id is not a
-     ;; successor at all, and the sweep deletes its slot — leaving a live
-     ;; request unregistered and unabortable. Every transport site therefore
-     ;; passes `(:frame ctx)` through the 3-arity above; this branch serves
-     ;; only a caller that genuinely has no frame.
-     (clear-in-flight! request-id)
-     (do
-       (when request-id
-         (let [k (scoped-key (:frame handle) request-id)]
-           (swap! in-flight
-                  (fn [request-index]
-                    ;; Drop the slot ONLY while it still holds THIS
-                    ;; handle, so a same-id successor is never evicted.
-                    (if (identical? (get request-index k) handle)
-                      (dissoc request-index k)
-                      request-index)))))
-       (remove-from-actor-index! handle)
-       ;; An id-less handle's only slot is its frame's.
-       (remove-from-anonymous-index! handle)))
+   (when handle
+     (when request-id
+       (let [k (scoped-key (:frame handle) request-id)]
+         (swap! in-flight
+                (fn [request-index]
+                  ;; Drop the slot ONLY while it still holds THIS
+                  ;; handle, so a same-id successor is never evicted.
+                  (if (identical? (get request-index k) handle)
+                    (dissoc request-index k)
+                    request-index)))))
+     (remove-from-actor-index! handle)
+     ;; An id-less handle's only slot is its frame's.
+     (remove-from-anonymous-index! handle))
    nil)
   ([frame-id request-id handle]
    ;; The frame-bearing form. A published handle keys itself
    ;; (its own `:frame` stamp is what `scoped-key` reads), so `frame-id` only
-   ;; does work in the pre-publication window, where it is the difference
-   ;; between clearing this frame's slot and sweeping every frame's.
+   ;; does work in the pre-publication window, where it names the one slot
+   ;; to clear.
    (if (nil? handle)
      (clear-in-flight-in-frame! frame-id request-id)
      (clear-in-flight! request-id handle))

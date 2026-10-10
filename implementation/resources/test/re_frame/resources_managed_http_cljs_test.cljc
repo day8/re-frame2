@@ -307,14 +307,17 @@
 (defn- seed-in-flight!
   "Seed the REAL in-flight registry under `request-id`, as the live transport
   does, with an `:abort-fn` that records its reason into the returned atom and
-  clears the registry as production's abort does."
+  clears the registry as production's abort does: by the stamped handle,
+  published to a cell after registration."
   [request-id]
-  (let [recorder (atom [])]
-    (rf.http.registry/record-in-flight!
-      request-id nil
-      {:abort-fn (fn [reason]
-                   (swap! recorder conj [request-id reason])
-                   (rf.http.registry/clear-in-flight! request-id))})
+  (let [recorder    (atom [])
+        handle-cell (atom nil)]
+    (reset! handle-cell
+            (rf.http.registry/record-in-flight!
+              request-id nil
+              {:abort-fn (fn [reason]
+                           (swap! recorder conj [request-id reason])
+                           (rf.http.registry/clear-in-flight! request-id @handle-cell))}))
     recorder))
 
 (deftest clear-resource-aborts-managed-http-in-flight

@@ -997,9 +997,8 @@
     (finalise-failure! ctx (aborted-failure ctx abort-state))
     (when-not (already-replied? ctx)
       ;; Frame-bearing clear. `(:handle ctx)` is nil on the
-      ;; synthetic / test-path ctxs this fn documents, and a nil handle in the
-      ;; 2-arg form falls through to the ANY-FRAME sweep. Passing `(:frame ctx)`
-      ;; keeps the fallback inside the completing attempt's own frame.
+      ;; synthetic / test-path ctxs this fn documents, and with a nil handle
+      ;; `(:frame ctx)` names the completing attempt's own slot to clear.
       (rf.http.registry/clear-in-flight! (:frame ctx) (:request-id ctx) (:handle ctx))
       ;; Terminal completion: evict this id's issuance counter
       ;; (conditional-atomic; skips when a live re-issue has bumped past it).
@@ -1093,7 +1092,7 @@
                         (aborted-failure ctx abort-state)
                         failure)]
       ;; Frame-bearing clear, as in `finalise-success!`: a nil
-      ;; `(:handle ctx)` must fall back within this frame, never sweep siblings.
+      ;; `(:handle ctx)` clears this frame's slot, never a sibling's.
       (rf.http.registry/clear-in-flight! (:frame ctx) (:request-id ctx) (:handle ctx))
       ;; Terminal completion: evict this id's issuance counter
       ;; (conditional-atomic; skips when a live re-issue has bumped past it, so
@@ -1257,12 +1256,11 @@
                        ;;
                        ;; Pass the frame too. `@handle-cell`
                        ;; is nil for as long as the publication window below is
-                       ;; open, and a nil handle in the 2-arg form sweeps EVERY
-                       ;; frame's slot under this raw id. That window precedes
-                       ;; any SAME-FRAME successor, but a sibling frame running
-                       ;; the same reusable app code can already be live under
-                       ;; the same id — and deleting its slot leaves a live
-                       ;; request unregistered and unabortable.
+                       ;; open, and the frame then names the one slot to clear.
+                       ;; That window precedes any SAME-FRAME successor, but a
+                       ;; sibling frame running the same reusable app code can
+                       ;; already be live under the same id, and its slot is
+                       ;; not this request's to delete.
                        (rf.http.registry/clear-in-flight! (:frame ctx) request-id @handle-cell)
                        ;; Dispatch guarded by the SHARED once-only
                        ;; reply guard so a prior-phase abort-fn (the just-
@@ -1994,10 +1992,9 @@
                                   ;; Pass the frame too. On
                                   ;; the JVM another thread can fire this
                                   ;; just-published abort-fn while
-                                  ;; `@handle-holder` is still nil, and a nil
-                                  ;; handle in the 2-arg form sweeps every
-                                  ;; frame's slot under this raw id. The frame
-                                  ;; keeps that fallback inside our own scope.
+                                  ;; `@handle-holder` is still nil, and the
+                                  ;; frame then names the one slot to clear,
+                                  ;; never a sibling frame's.
                                   (rf.http.registry/clear-in-flight! (:frame ctx) request-id @handle-holder)
                                   ;; The abort closure dispatches a synthesised reply directly
                                   ;; (no finalise-failure! re-entry). The
