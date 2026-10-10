@@ -111,9 +111,9 @@
 
 (defn- walker-sees-every-mark?
   "True iff the schemas artefact's walker reports `decode` free of any opaque
-  descendant AND of any qualified-keyword registry reference, so the marks the
-  extract hooks return are all the marks there are. False when either hook is
-  unbound: nothing can then show it."
+  descendant or unanchored `:map-of` mark AND of any qualified-keyword registry
+  reference, so the marks the extract hooks return reach every marked slot of
+  the body. False when either hook is unbound: nothing can then show it."
   [decode]
   (let [opaque-child?  (rf.late-bind/get-fn-cached :schemas/schema-has-opaque-child?)
         qualified-ref? (rf.late-bind/get-fn-cached :schemas/schema-has-qualified-ref?)]
@@ -126,7 +126,8 @@
   "True iff `decode` is a Malli-schema `:decode` whose per-slot marks the
   shared schema walker sees IN FULL — the raw EDN VECTOR form
   (`[op props? children...]`, the shape `(rf/reg-app-schema …)` users write)
-  with no opaque descendant and no qualified-keyword registry reference.
+  with no opaque descendant, no unanchored `:map-of` mark and no
+  qualified-keyword registry reference.
 
   This is narrower than `schema-decode?`, which is
   true for ANY non-mode/non-fn `:decode`, including schemas whose marks the
@@ -150,7 +151,14 @@
       (`re-frame.schemas/schema-has-opaque-child?`): an explicit `[:ref …]`,
       a local `:registry`, an embedded compiled value or an unclassified op,
       at any depth. The marks behind it live in a shape the walk resolves
-      nowhere.
+      nowhere;
+    - a vector form with a mark below a `:map-of` no named slot anchors
+      (`[:map-of :string [:map [:token {:sensitive? true} :string]]]`, or the
+      same behind a `:vector`) — `re-frame.schemas.walker/schema-has-unanchored-map-of-mark?`,
+      reported through the same `:schemas/schema-has-opaque-child?` hook. The
+      walker writes the mark without the key it sits under, and an index-free
+      match rides a map key only after a named segment, so no path it returns
+      reaches the slot.
 
   Such a decode yields only the marks the walker can see, possibly none, even
   when the underlying schema DOES mark slots sensitive. Treating it as
@@ -261,8 +269,9 @@
   the request's `:decode`. Returns one of:
 
     :classify  — the body has an INTROSPECTABLE Malli `:decode` schema (the
-                 raw EDN VECTOR form, with no opaque descendant and no
-                 qualified-keyword registry reference); ride it
+                 raw EDN VECTOR form, with no opaque descendant, no
+                 unanchored `:map-of` mark and no qualified-keyword
+                 registry reference); ride it
                  with the schema's per-slot marks, which the emit site
                  already applied on-box via `classify-decoded`;
     :omit      — the body is UNSCHEMATIZED (`:auto` / `:json` / `:text` /
@@ -270,8 +279,9 @@
                  walker cannot see in full (a keyword registry ref, at the
                  root or — qualified — anywhere inside a vector form, a
                  compiled `m/schema` object, a `[:ref …]` or local
-                 `:registry` at any depth, or any schema when a walker hook
-                 is unbound); whole-sensitive, omitted entirely.
+                 `:registry` at any depth, a mark below a `:map-of` no named
+                 slot anchors, or any schema when a walker hook is
+                 unbound); whole-sensitive, omitted entirely.
 
   An unschematized body OR an opaque-schema body fails CLOSED off-box
   (EP-0015 issue 5 — fail-closed when classification is UNKNOWN).

@@ -614,8 +614,9 @@
 
 (defn- walker-sees-every-mark?
   "True iff the schemas artefact's walker reports `schema` free of any opaque
-  descendant, so the marks the extract hooks return are all the marks there
-  are. False when the walker's hook is unbound: nothing can then show it."
+  descendant and of any mark below a `:map-of` no named slot anchors, so the
+  marks the extract hooks return reach every marked slot of the params. False
+  when the walker's hook is unbound: nothing can then show it."
   [schema]
   (if-let [opaque-child? (rf.late-bind/get-fn-cached :schemas/schema-has-opaque-child?)]
     (not (opaque-child? schema))
@@ -634,9 +635,10 @@
       non-sensitive failing field stays diagnostic). The walker writes a mark
       inside a collection's element schema without an element index, so the
       marks match INDEX-FREE and the slot redacts in every element. When the
-      walker cannot see every mark (an opaque descendant, or no walker bound)
-      the whole `:params` slot redacts to `:rf/redacted`, the same fail-closed
-      answer the shared seam gives `:error`;
+      marks cannot reach every marked slot (an opaque descendant, a mark below
+      a `:map-of` at the params root that no named slot anchors, or no walker
+      bound) the whole `:params` slot redacts to `:rf/redacted`, the same
+      fail-closed answer the shared seam gives `:error`;
     - `:error` (the explainer output, which carries the failing params VERBATIM
       under Malli's `:value` slots) is routed through THE shared schema-aware
       redaction seam `:schemas/redact-validation-tags`: the whole `:error` blob

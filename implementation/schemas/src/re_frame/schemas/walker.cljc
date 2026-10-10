@@ -695,6 +695,66 @@
                  (some schema-has-qualified-ref? children)))))
     :else false))
 
+;; ---- marks below an unanchored `:map-of` ----------------------------------
+;;
+;; The walk writes a mark inside a `:map-of` value without the key it sits
+;; under (`[:map-of :string [:map [:token {:sensitive? true} :string]]]` marks
+;; `[:token]`), and a consumer matching the marks index-free lets a path ride a
+;; map key only once the path's first named segment has matched
+;; (`re-frame.classification/redact-with-paths`). Below a named slot or a
+;; pinned position that holds; below a `:map-of` the walk reaches while its
+;; base path is still empty, no extracted path reaches the mark. A mark the
+;; walk writes AT that base path (`[]`) claims the whole value and is reached.
+
+(defn- unanchored-map-of-mark?
+  "The recursion behind `schema-has-unanchored-map-of-mark?`: descends only the
+  positions `walk-flags` descends at an unchanged, empty base path. `spliced?`
+  is as there."
+  [schema spliced?]
+  (if-not (and (vector? schema) (pos? (count schema)))
+    false
+    (let [op       (nth schema 0)
+          children (schema-children schema)
+          splices? (contains? regex-ops op)]
+      (cond
+        (= :map-of op)
+        (boolean (some (fn [flag-key]
+                         (some seq (keys (walk-flagged-schema flag-key schema [] {}))))
+                       [:sensitive? :large?]))
+
+        ;; A named slot or a pinned position anchors every mark below it.
+        (or (contains? name-bearing-ops op)
+            (and (contains? position-bearing-ops op)
+                 (not (and spliced? splices?))
+                 (fixed-width-sequence? op children)))
+        false
+
+        (or (contains? dispatch-bearing-ops op) (= :catn op))
+        (boolean (some #(unanchored-map-of-mark? (entry-child-schema %) splices?) children))
+
+        :else
+        (boolean (some #(unanchored-map-of-mark? % splices?) children))))))
+
+(defn schema-has-unanchored-map-of-mark?
+  "True when `schema` carries a `:sensitive?` / `:large?` mark below a
+  `:map-of` the walk reaches before any named slot: at the root, or behind a
+  `:vector`, another `:map-of`, a transparent wrapper or a dispatch branch. The
+  extracted path omits the key the mark sits under, and an index-free match
+  rides a map key only after the path's first named segment, so no extracted
+  path reaches that mark. A `:map` slot or a pinned `:tuple` / `:cat` position
+  above the `:map-of` anchors it, and a mark the walk writes at the root path
+  claims the whole value — both answer false.
+
+  The opacity walk does not consult this: validation surfaces align Malli's
+  `:in` path through `:map-of` keys and see every such mark. The consumers that
+  match the extracted marks index-free — the off-box HTTP body stamp and the
+  invalid-params projection — read it through the
+  `:schemas/schema-has-opaque-child?` hook and fail closed on it.
+
+  Returns boolean. Pure."
+  [schema]
+  (unanchored-map-of-mark? schema false))
+
 (defn- prefix?
   "True when `prefix` is a prefix of `path` (or equal). Both are
   indexed vectors compared element-wise. Single-pass with no lazy-seq
