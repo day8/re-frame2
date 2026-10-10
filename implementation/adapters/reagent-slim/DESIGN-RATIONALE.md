@@ -164,7 +164,7 @@ In stock Reagent, `convert-prop-value` stringifies any keyword passed as a prop 
 
 The narrowed shape removes the symptom by removing the cause under the slim adapter. `:value` is not in the HTML-attribute set, so a keyword passed as `:value` survives prop-conversion. The Provider receives the keyword. The defensive `coerce-context-value` is no longer load-bearing for the slim adapter path. It survives the rewrite because the classic adapter (`day8/re-frame2-reagent`) still uses stock Reagent's prop-conversion and the helper is the defensive cover for any user code that mounts a Provider via raw `[:> (.-Provider frame-context) {:value :foo}]` hiccup directly. The canonical user-facing surface (`rf/frame-provider`) routes through Reagent's `:r>` interop head so namespaced frame-ids survive the React-context round trip on every adapter — see Spec 002 §`frame-provider` for the prop-conversion bypass.
 
-The audit cross-check confirmed the breakage surface is bounded: across re-com, re-frame-10x, Dash8, rf8, none of the four codebases visibly relies on stringification of non-HTML props. The dev-mode warning catches any incidental users whose code we did not audit.
+The audit cross-check confirmed the breakage surface is bounded: across re-com, re-frame-10x, Dash8, rf8, none of the four codebases visibly relies on stringification of non-HTML props.
 
 ### Slim impact
 
@@ -176,9 +176,7 @@ Largest single correctness win in the rewrite. The rf2-d4sf defensive workaround
 
 ### Migration note
 
-If your code today writes `[:div {:class :primary}]` or `[:span {:id :greeting}]`, behaviour is identical — those prop names are in the HTML-attribute set. If your code writes a keyword value to a non-HTML prop name and depended on Reagent stringifying it, the dev-mode warning will fire and you will see a `console.warn` in the browser. Fix the call site (usually by using `name` explicitly).
-
-The four audited codebases trigger zero such warnings. Most apps will trigger zero. The warning exists for the case we did not audit.
+If your code today writes `[:div {:class :primary}]` or `[:span {:id :greeting}]`, behaviour is identical — those prop names are in the HTML-attribute set. If your code writes a keyword value to a non-HTML prop name and depended on Reagent stringifying it, the component now receives the keyword; pass `(name v)` at the call site. The four audited codebases have no such call site.
 
 ---
 
