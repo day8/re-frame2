@@ -512,12 +512,11 @@ instance props can express.
 > on it although the class slot is taken by `class-names` ahead of the
 > conversion, because the roster states which slots are attribute-bound.
 >
-> **No dev warning accompanies this.** `reagent-slim` warns once per non-HTML
-> keyword prop because it narrowed the rule underneath an installed Reagent
-> codebase and the warning is that migration's safety net; Fresco has no such
-> codebase, and a keyword at a host prop is the taught spelling of this
-> decision's flagship case, so warning on the happy path would be a nag. The
-> guide teaches the rule instead (`docs/core/fresco/09-interop.md`, "provide
+> **No dev warning accompanies this.** A keyword at a host prop is the taught
+> spelling of this decision's flagship case, so warning on the happy path would
+> be a nag. `reagent-slim` is silent at the same seam for the same reason: it
+> passes a keyword at a non-attribute prop through unchanged and logs nothing.
+> The guide teaches the rule instead (`docs/core/fresco/09-interop.md`, "provide
 > that value explicitly"), and the Reagent-side hazard is the codemod's
 > ([the codemod against the landed escape](studio/reagent-codemod-against-the-landed-escape.md)).
 

@@ -128,8 +128,8 @@ Three facts finish it, each checkable at source.
 | `implementation/fresco/scripts/check_source_coord_elision.cjs` | source coordinates leave the production bundle | `test:browser-prod-elision`, `test.yml` + `expensive-tests.yml` | KEEP |
 | `bench:fresco` | the benchmark runner | the budget and ladder pages it feeds; **not a gate**, and `check_gate_scheduling.py` carries that disposition in writing | KEEP |
 | `build:fresco-release` | the release build plus its two bundle gates | `test.yml`'s `cljs` job, every PR | KEEP |
-| `ssr:fresco-bake` | bakes the prototype SSR corpus | `bake_bytes.test.cjs`, in the bench's `npm run check`, which `expensive-tests.yml` runs nightly — the command itself is operator-run | KEEP, and see [the obligation below](#the-one-row-whose-condition-has-fired) |
-| `ssr:fresco-serve` | serves the prototype SSR entry | the same driver, the same byte test; the command is operator-run | KEEP, as above |
+| `ssr:bake` | bakes the prototype SSR corpus; a `bench/fresco/package.json` script | `bake_bytes.test.cjs`, in the bench's `npm run check`, which `expensive-tests.yml` runs nightly — the command itself is operator-run | KEEP, and see [the obligation below](#the-one-row-whose-condition-has-fired) |
+| `ssr:serve` | serves the prototype SSR entry; a `bench/fresco/package.json` script | the same driver, the same byte test; the command is operator-run | KEEP, as above |
 | `test:fresco-compile` | the compile gate | `test.yml` + `scripts/test-fast-pr.sh`, every PR | KEEP |
 | `test:fresco-controlled` | the three-engine controlled-input testbed | required `cljs-fresco-controlled` job, every PR | KEEP |
 | `test:fresco-hmr` | 36 real hot reloads through `shadow-cljs watch`, three engines | required `cljs-fresco-hmr` job, every PR | KEEP |
@@ -153,7 +153,7 @@ Three facts finish it, each checkable at source.
 
 **Thirty-six rows, no removals.** That is the honest result and not a comfortable one to report, because a census whose every row passes invites the suspicion that the bar moved. Two things carried it: the npm-script half of the population is **already** gated — `scripts/check_gate_scheduling.py` asks every `test:`/`bench:`/`build:` command where it runs and currently reports *51 gate commands, 43 scheduled, 8 declared, 0 of them known holes* — and the four stopped spikes are retained under an explicit rule, that a negative verdict without its reproduction is unfalsifiable.
 
-The rows that reach furthest are the ones this census would have removed if the bar were "runs in CI": `witness:fresco-native-ime` and `ssr:fresco-serve` are operator commands. Both are kept, and the cells say why rather than claiming a job that does not exist — which is the whole discipline of the Consumer column.
+The rows that reach furthest are the ones this census would have removed if the bar were "runs in CI": `witness:fresco-native-ime` and `ssr:serve` are operator commands. Both are kept, and the cells say why rather than claiming a job that does not exist — which is the whole discipline of the Consumer column.
 
 **[Amended 2026-08-15, `rf2-uvazt`.]** A third row stood here when this census was taken: `check_naming_census.py`, then a checker no lane ran, whose cell named `rf2-st1x5` as the bead that would change its answer rather than writing the answer it expected to have. `rf2-st1x5` landed in PR #8279 while this page's own closure re-run was in flight, so the row no longer reaches — the checker is a required CI job on every PR, and its cell above records what it became. The discipline held: the cell was written to be falsified, and was.
 
