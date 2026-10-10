@@ -569,8 +569,9 @@ Related: [Run to completion](run-to-completion.md).
 
 Processing every queued [event](#event) (update and commit for each) before the
 [render phase](#render-phase) runs once for all of them, so the UI updates once from
-settled state. A drain stops early if it hits the re-entrancy depth limit or its frame
-is destroyed.
+settled state. A drain stops early if its frame is destroyed. A runaway dispatch cycle
+halts only its own family, one event from outside plus everything it dispatches, at the
+frame's `:drain-depth`, and the drain carries on with the next event from outside.
 
 Related: [Effects: run to completion](effects.md#run-to-completion),
 [Run to completion (detail)](run-to-completion.md).

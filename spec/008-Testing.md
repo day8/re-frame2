@@ -360,7 +360,7 @@ The grades, the registrar (`reg-cofx`, value-returning + graded), and the satisf
 
 ### The `:test` frame preset — strict-mint by default
 
-A test frame declares its intent — and gets the deterministic defaults — with `{:preset :test}` (per [002 §Frame presets](002-Frames.md#frame-presets--capability-bundles-for-common-configurations)). The preset expands to three fixed entries: `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}` (the canonical Spec 014 HTTP fx redirected to its canned-success stub so test frames never reach the network), `:drain-depth 100` (the framework default, surfaced so tooling reads "this is a test frame" from `frame-meta`), and **`:rf.cofx/mint-policy :strict`**.
+A test frame declares its intent — and gets the deterministic defaults — with `{:preset :test}` (per [002 §Frame presets](002-Frames.md#frame-presets--capability-bundles-for-common-configurations)). The preset expands to three fixed entries: `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}` (the canonical Spec 014 HTTP fx redirected to its canned-success stub so test frames never reach the network), `:drain-depth 1000` (the framework default per-family budget, surfaced so tooling reads "this is a test frame" from `frame-meta`), and **`:rf.cofx/mint-policy :strict`**.
 
 ```clojure
 (rf/make-frame {:id :test/auth-flow :preset :test})

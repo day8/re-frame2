@@ -126,7 +126,7 @@ These keys live in the frame config: `:drain-depth`, `:fx-overrides`, `:intercep
 (rf/make-frame
   {:id             :app
    :initial-events [[:todo/initialise]]
-   :drain-depth    100
+   :drain-depth    1000
    :observability  {:errors [{:sink :app.sinks/sentry}]}})
 ```
 
@@ -148,7 +148,7 @@ The frame config accepts more keys than this page covers, such as `:preset` and 
 
 These run in every build, dev and production alike, and each [fails loud](../glossary.md#fail-loud-not-silent) with a structured `:rf.error/*`:
 
-- **Drain depth** (default 100, per-frame `:drain-depth`): a runaway dispatch [drain](../glossary.md#drain--run-to-completion) halts at the limit with `:rf.error/drain-depth-exceeded` instead of freezing the tab. Events already settled stay committed (each [commit](../glossary.md#commit) is atomic on its own); the event that would exceed the limit does not run. The recovery is `:no-recovery`, because reaching the limit means a dispatch cycle to fix, not a number to raise.
+- **Drain depth** (default 1000, per-frame `:drain-depth`): the limit bounds one family, an event from outside plus every event it dispatches, transitively, and the count restarts with each event from outside. A runaway dispatch cycle halts its family at the limit with `:rf.error/drain-depth-exceeded` instead of freezing the tab. Events already settled stay committed (each [commit](../glossary.md#commit) is atomic on its own); the event that would exceed the limit does not run, the family's remaining queued events are discarded, and the [drain](../glossary.md#drain--run-to-completion) carries on with the next event from outside. The recovery is `:no-recovery`, because reaching the limit means a dispatch cycle to fix, not a number to raise.
 - **HTTP keyword cap** (`:rf.http/max-decoded-keys`, default 10000): a hostile JSON reply can't intern unbounded keywords in a long-running process; the decode fails and your `:on-failure` runs.
 - **Request timeout** (`:timeout-ms`, default 30000): every [managed HTTP](../../resources/glossary.md#managed-http) attempt has a wall-clock timeout, which defends against slow-loris servers. Opting out takes an explicit `:timeout-ms nil` that a reviewer can see.
 - **CRLF rejection**: the server-side `:rf.server/*` response effects won't put `\r` or `\n` on the wire. A header `:value` containing one throws `:rf.error/header-invalid-value`, a redirect location containing one throws `:rf.error/redirect-invalid-location`, and cookies are structured maps that can't be string-spliced.
