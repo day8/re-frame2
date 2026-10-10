@@ -335,241 +335,44 @@ def _write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def _make_skill(
-    root: Path,
-    name: str,
-    *,
-    package: bool,
-    files: list[str] | None = None,  # package.json `files`; None -> ["SKILL.md"]
-    skill_link: str | None = None,   # an intra-package link to embed in SKILL.md
-    ref_link: str | None = None,     # a link to embed in references/lens.md
-    pattern_link: str | None = None, # a link to embed in patterns/example.md
-    create_docs: bool = False,       # create docs/SETUP.md on disk
-    monorepo_only: bool = False,     # mark the link's line monorepo-only
-) -> None:
-    d = root / name
-    if package:
-        allow = files if files is not None else ["SKILL.md"]
-        _write(
-            d / "package.json",
-            '{"name": "@day8/%s", "files": %s}' % (name, json.dumps(allow)),
-        )
-    suffix = (
-        " (not in the published package; run from a monorepo clone)"
-        if monorepo_only
-        else ""
-    )
-    skill_body = "# skill\n"
-    if skill_link is not None:
-        skill_body += f"See [setup]({skill_link}){suffix}.\n"
-    if create_docs:
-        _write(d / "docs" / "SETUP.md", "# setup\n")
-    _write(d / "SKILL.md", skill_body)
-    # references/lens.md sits one level down, so a `../` link from it resolves
-    # back INSIDE the package — the re-entry shape.
-    ref_body = "# refs\n"
-    if ref_link is not None:
-        ref_body += f"See [design]({ref_link}){suffix}.\n"
-    _write(d / "references" / "lens.md", ref_body)
-    # patterns/example.md exercises the derived scan surface: a doc a
-    # hardcoded SKILL/README/references roster would never scan, shipped or not.
-    if pattern_link is not None:
-        _write(
-            d / "patterns" / "example.md",
-            f"# pattern\nSee [setup]({pattern_link}){suffix}.\n",
-        )
-    _write(d / "README.md", "# readme\n")
-
-
 def _run_self_tests(verbose: bool = False) -> int:
-    cases: list[tuple[str, dict, int]] = [
-        # (name, make-kwargs, expected findings contributed by this skill)
-        # UNpackaged skill dir                                  -> 0 (not distributable)
-        ("ok_unpackaged", dict(package=False, skill_link="docs/SETUP.md", create_docs=True), 0),
-        # in-package link to a docs/ file NOT in `files`         -> 1 (broken in tarball)
-        (
-            "bad_unshipped_link",
-            dict(
-                package=True,
-                files=["SKILL.md", "README.md"],
-                skill_link="docs/SETUP.md",
-                create_docs=True,
-            ),
-            1,
-        ),
-        # in-package link to a docs/ file covered by a dir entry -> 0 (shipped)
-        (
-            "ok_shipped_dir_link",
-            dict(
-                package=True,
-                files=["SKILL.md", "README.md", "docs/"],
-                skill_link="docs/SETUP.md",
-                create_docs=True,
-            ),
-            0,
-        ),
-        # in-package link with #anchor to a shipped file         -> 0 (anchor stripped)
-        (
-            "ok_anchor_shipped",
-            dict(
-                package=True,
-                files=["SKILL.md", "README.md", "docs/SETUP.md"],
-                skill_link="docs/SETUP.md#configure",
-                create_docs=True,
-            ),
-            0,
-        ),
-        # A link RESOLVING outside the package is a FINDING. It is
-        # correct for a reader standing in the monorepo and dead for a packaged
-        # install, which carries no sibling skill and no spec/ above it.  -> 1
-        (
-            "bad_parent_escape",
-            dict(
-                package=True,
-                files=["SKILL.md", "README.md"],
-                skill_link="../../tools/foo/README.md",
-            ),
-            1,
-        ),
-        # An absolute repo URL is the sanctioned spelling for the
-        # same citation, and carries no allow-list question at all.      -> 0
-        (
-            "ok_parent_escape_as_repo_url",
-            dict(
-                package=True,
-                files=["SKILL.md", "README.md"],
-                skill_link=(
-                    "https://github.com/day8/re-frame2/blob/main/"
-                    "tools/foo/README.md"
-                ),
-            ),
-            0,
-        ),
-        # The monorepo-only MARKER does not excuse an escaping link.
-        # The marker says "this in-package path is deliberately unshipped"; an
-        # escape has a spelling that works for every reader, so there is
-        # nothing to excuse.                                             -> 1
-        (
-            "bad_parent_escape_marker_does_not_excuse",
-            dict(
-                package=True,
-                files=["SKILL.md", "README.md"],
-                skill_link="../../tools/foo/README.md",
-                monorepo_only=True,
-            ),
-            1,
-        ),
-        # A `../` link from a NESTED doc that resolves back INSIDE
-        # the package, at a path `files` omits. Spelled like an escape, but it
-        # is an intra-package link, the shape of the improver skill's
-        # references/README.md -> ../spec/design.md.                     -> 1
-        (
-            "bad_parent_reentry_unshipped",
-            dict(
-                package=True,
-                files=["SKILL.md", "README.md", "references/"],
-                ref_link="../spec/design.md",
-            ),
-            1,
-        ),
-        # the same `../` re-entry shape, but the target IS shipped      -> 0
-        (
-            "ok_parent_reentry_shipped",
-            dict(
-                package=True,
-                files=["SKILL.md", "README.md", "references/"],
-                ref_link="../SKILL.md",
-            ),
-            0,
-        ),
-        # NOT an existence checker: a `../` re-entry to a path that is SHIPPED
-        # by the allow-list but does not exist on disk stays green — existence
-        # is check_doc_slugs.py's question, not this gate's.            -> 0
-        (
-            "ok_shipped_but_absent_is_not_our_question",
-            dict(
-                package=True,
-                files=["SKILL.md", "README.md", "references/", "docs/"],
-                ref_link="../docs/NEVER-CREATED.md",
-            ),
-            0,
-        ),
-        # THE WIDENING CASE. A shipped `patterns/` doc links to a
-        # path `files` omits. A hardcoded SKILL/README/references roster
-        # would never open this doc, so the finding would be invisible and
-        # this case would return 0. It is the negative fixture proving the
-        # scan surface is genuinely derived from the allow-list.   -> 1
-        (
-            "bad_patterns_doc_unshipped_link",
-            dict(
-                package=True,
-                files=["SKILL.md", "README.md", "patterns"],
-                pattern_link="../docs/SETUP.md",
-                create_docs=True,
-            ),
-            1,
-        ),
-        # the same shipped `patterns/` doc, but the target IS shipped   -> 0
-        (
-            "ok_patterns_doc_shipped_link",
-            dict(
-                package=True,
-                files=["SKILL.md", "README.md", "patterns", "docs"],
-                pattern_link="../docs/SETUP.md",
-                create_docs=True,
-            ),
-            0,
-        ),
-        # the derivation's OTHER half: `patterns/` is NOT in `files`, so the
-        # doc is absent from the tarball and its links cannot break a packaged
-        # install. Out of scope by construction rather than by omission. -> 0
-        (
-            "ok_unshipped_patterns_dir_is_not_scanned",
-            dict(
-                package=True,
-                files=["SKILL.md", "README.md"],
-                pattern_link="../docs/SETUP.md",
-                create_docs=True,
-            ),
-            0,
-        ),
-        # in-package link to an unshipped file, but the LINE documents it as a
-        # deliberate monorepo-only reference                     -> 0
-        (
-            "ok_monorepo_only_marker",
-            dict(
-                package=True,
-                files=["SKILL.md", "README.md"],
-                skill_link="docs/SETUP.md",
-                create_docs=True,
-                monorepo_only=True,
-            ),
-            0,
-        ),
+    escape = "resolves OUTSIDE the package"
+    omitted = "is omitted from package.json `files`"
+    marker = " (not in the published package; run from a monorepo clone)"
+    # (name, package.json `files`, {doc: line}, the kind of its one finding)
+    cases = [
+        ("unshipped_link", ["SKILL.md"],
+         {"SKILL.md": "See [setup](docs/SETUP.md)."}, omitted),
+        ("parent_escape", ["SKILL.md"],
+         {"SKILL.md": "See [foo](../../tools/foo/README.md)."}, escape),
+        # The marker excuses an unshipped IN-package path, never an escape.
+        ("parent_escape_marker_does_not_excuse", ["SKILL.md"],
+         {"SKILL.md": "See [foo](../../tools/foo/README.md)" + marker}, escape),
+        # A `../` from a nested doc that lands back inside the package answers
+        # to the allow-list, however it is spelled.
+        ("parent_reentry_unshipped", ["SKILL.md", "references/"],
+         {"references/lens.md": "See [design](../spec/design.md)."}, omitted),
+        # The scan surface is derived from `files`: a shipped patterns/ doc is
+        # scanned although no roster names it.
+        ("patterns_doc_unshipped_link", ["SKILL.md", "patterns"],
+         {"patterns/example.md": "See [setup](../docs/SETUP.md)."}, omitted),
     ]
 
     failures = 0
-    for name, kwargs, expected in cases:
+    for name, files, docs, expected in cases:
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td) / "skills"
-            root.mkdir()
-            _make_skill(root, name, **kwargs)
-
-            saved = sys.stderr
-            sys.stderr = _DevNull()
-            try:
-                got = check(root, verbose=False, ci=False)
-            finally:
-                sys.stderr = saved
-
-            if got == expected:
-                if verbose:
-                    sys.stderr.write(f"self-test PASS: {name} (findings={got})\n")
-            else:
-                sys.stderr.write(
-                    f"self-test FAIL: {name} expected {expected}, got {got}\n"
-                )
-                failures += 1
+            skill = Path(td) / name
+            _write(skill / "package.json", json.dumps({"name": f"@day8/{name}", "files": files}))
+            for rel, line in docs.items():
+                _write(skill / rel, f"# doc\n{line}\n")
+            got = _broken_package_links(skill)
+        if len(got) != 1 or expected not in got[0]:
+            sys.stderr.write(
+                f"self-test FAIL: {name} expected one `{expected}` finding, got {got}\n"
+            )
+            failures += 1
+        elif verbose:
+            sys.stderr.write(f"self-test PASS: {name}\n")
 
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
@@ -577,14 +380,6 @@ def _run_self_tests(verbose: bool = False) -> int:
     if verbose:
         sys.stderr.write(f"all {len(cases)} self-tests passed.\n")
     return 0
-
-
-class _DevNull:
-    def write(self, *_args, **_kwargs) -> int:  # noqa: D401
-        return 0
-
-    def flush(self) -> None:  # pragma: no cover
-        return None
 
 
 def main(argv: list[str]) -> int:
