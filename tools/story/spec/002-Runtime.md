@@ -108,8 +108,8 @@ When `destroy-variant!` fires, any
 [spec/005 state machines](../../../spec/005-StateMachines.md) the
 variant's lifecycle spawned receive their `:rf.machine/destroy` event
 as part of frame teardown (per
-[spec/005 §`:rf.machine/destroy`](../../../spec/005-StateMachines.md#raise-rfmachinespawn-and-rfmachinedestroy-are-reserved-fx-ids-inside-fx),
-rf2-rkedz). The destroy event runs the actor's `:exit` action,
+[spec/005 §`:rf.machine/destroy`](../../../spec/005-StateMachines.md#raise-rfmachinespawn-and-rfmachinedestroy-are-reserved-fx-ids-inside-fx)).
+The destroy event runs the actor's `:exit` action,
 dissociates its snapshot at `[:rf.runtime/machines :snapshots <actor-id>]`, and clears
 its event handler from the frame-local registry — symmetric with the
 `:rf.machine/spawn` that brought the actor into being. Story is a
@@ -164,11 +164,9 @@ fine; the rule is "thread `db` through, do not throw it away".
 Domain-key clearing is the host's business; the reserved `:rf.story/*`
 namespace is Story's.
 
-The originating evidence is commit `c2accadf` (rf2-2uwp1, cart-total
-Story slice): `:cart/initialise` was a whole-`db` replacement and wiped
-the variant frame's lifecycle slots the moment the variant ran the
-event. The fix threaded `db` through instead of throwing it away —
-`(fn [{:keys [db]} _event] {:db (assoc db ...)})`. Host apps
+An init event that replaces the whole `db` wipes the variant frame's
+lifecycle slots the moment the variant runs it; threading `db` through —
+`(fn [{:keys [db]} _event] {:db (assoc db ...)})` — keeps them. Host apps
 integrating Story SHOULD audit their init/reset events for the same
 anti-pattern.
 
@@ -203,7 +201,7 @@ the variant's OWN `:args` and does NOT walk `:extends` / `:compose`. Reach
 for it only when that raw fold is what you mean. A consumer that wants the
 scenario's args and calls it renders a story default in place of an
 inherited value, and saving that snapshot writes the default onto a new
-variant as an override the author never made (rf2-gwye.7).
+variant as an override the author never made.
 
 Deep-merge (per Storybook's convention) for nested maps;
 override-by-replacement for vectors. This convention matches Phase 1
@@ -220,7 +218,7 @@ For a render against variant V belonging to story S:
    rendered tree.
 3. `:frame-setup` decorators fire at frame creation (before phase 1
    loaders), in the same order. Their `:init` dispatches are bracketed
-   by a scoped trace listener (rf2-294yq5.1): a pipeline exception
+   by a scoped trace listener: a pipeline exception
    thrown by an `:init` handler (or its cofx / interceptor) is captured
    and projected onto `[:rf.story/assertions]` as a `:rf.error/exception`
    record with `:phase :phase-0-setup`, so the run aggregates as FAILED.
@@ -247,9 +245,9 @@ Strict order, per spec/007:
    `:loaders` and `:loaders-complete-when` here are the RESOLVED slots the
    plan compiler produced — composed fragments' loaders first, then the
    `:extends`-merged variant chain's — never the raw registered body, which
-   cannot see an inherited or composed fixture. Reading the raw body ran no
-   loaders at all for a child that only `:extends` or `:compose`s one, and
-   reported the run as passing (rf2-gwye.5).
+   cannot see an inherited or composed fixture. Reading the raw body would run
+   no loaders at all for a child that only `:extends` or `:compose`s one, and
+   report the run as passing.
 2. **Phase 2 — Events.** For each event in
    `(concat story-events variant-events)`:
    - `dispatch-sync` in order. Drain to completion between events.
@@ -400,28 +398,28 @@ runtime's phase-1 driver in two complementary places:
    `runtime/run-loaders!`. Catches synchronous throws that escape
    re-frame's interceptor chain (rare — most handler throws are
    caught one level deeper).
-2. **Per-phase trace listener (rf2-z2dq8)** registered around the
+2. **Per-phase trace listener** registered around the
    loader walk. re-frame's interceptor chain catches pipeline-internal
    throws and emits an `:rf.error/*` trace event rather than
    re-throwing. Per the framework router's `classify-pipeline-exception`
-   (rf2-mszrz) the throw is attributed to its TRUE failing component:
+   the throw is attributed to its TRUE failing component:
    `:rf.error/coeffect-exception` (a cofx injector threw),
    `:rf.error/interceptor-exception` (a user interceptor threw), or
    `:rf.error/handler-exception` (the event handler itself threw). The
    listener captures ALL THREE — the one projection predicate
-   `re-frame.story.error/pipeline-exception-event?` (rf2-294yq5.2) —
+   `re-frame.story.error/pipeline-exception-event?` —
    into a per-frame `pending-exceptions` atom; the driver's `finally`
    block then calls `play/drain-pending-exceptions! variant-id
    :phase-1-loaders` to project each captured event onto
    `[:rf.story/assertions]` as a `:rf.error/exception` record. Capturing
-   only `:rf.error/handler-exception` (the pre-rf2-294yq5 behaviour) was
-   a false green: a loader/event/play/teardown path whose cofx injector
-   or user interceptor threw passed silently. The originating
+   only `:rf.error/handler-exception` would be a false green: a
+   loader/event/play/teardown path whose cofx injector or user
+   interceptor threw would pass silently. The originating
    `:operation` and `:failing-id` are preserved on the record so a cofx
    failure is distinguishable from a handler failure. The same listener
    captures a FOURTH operation that is not a chain throw at all:
    `:rf.error/no-such-handler`, the dispatch that resolved no handler on
-   the frame (rf2-0ae7o.13). The router refuses it before any pipeline
+   the frame. The router refuses it before any pipeline
    runs and settles no epoch for it, so the epoch tape never sees it and
    this listener is the one capture that can. Its record carries the
    refused event, the event id as `:failing-id`, and a composed message
@@ -491,7 +489,7 @@ exception) onto `[:rf.story/assertions]` with `:phase :phase-1-loaders`,
 the predicate value verbatim in `:predicate`, and a human-readable
 `:reason` string. The lifecycle machine PARKS at `:loading` — it does
 NOT transition to `:error`. Phases 2, 3, and 4 do NOT run; the
-canvas's loading skeleton (rf2-0s4p1) stays engaged; `run-variant`
+canvas's loading skeleton stays engaged; `run-variant`
 resolves with `:lifecycle :loading` and the assertion vector
 populated.
 
@@ -592,7 +590,7 @@ torn-down frame and may either no-op or surface as
    scope). See [`001-Authoring.md`](001-Authoring.md) §reg-decorator
    `:teardown`.
 
-3. **`:loaders-teardown` slot on the variant body** (rf2-lqs0b) —
+3. **`:loaders-teardown` slot on the variant body** —
    symmetric with `:loaders` on the variant body itself. Best fit when
    the resource is opened by a variant-level `:loaders` event and the
    cleanup is too small to justify spawning a machine actor (single
@@ -638,21 +636,21 @@ the variant body).
 1. Per-variant accumulators are dropped (`frames/clear-stub-call-log!`,
    the play module's per-frame `pending-exceptions` slot) AND the
    per-frame play trace listener is unregistered
-   (`play/remove-trace-listener!` — rf2-294yq5.4). Dropping only the
-   `pending-exceptions` entry left the listener registered against a
-   destroyed frame, where `clear-all-play-state!` could no longer find
-   it; long-running / hot-reload sessions accumulated stale listener
+   (`play/remove-trace-listener!`). Dropping only the
+   `pending-exceptions` entry would leave the listener registered against
+   a destroyed frame, where `clear-all-play-state!` cannot find it, so
+   long-running / hot-reload sessions would accumulate stale listener
    closures inspecting every future trace event.
 2. Lifecycle watchers are cleared
    (`loaders/clear-watchers!`).
 3. **The RUN's `:loaders-teardown` events dispatch-sync into the variant
-   frame in declared order.** Symmetric counterpart of `:loaders`
-   (rf2-lqs0b). "The run's" is load-bearing: the events are the RESOLVED
+   frame in declared order.** Symmetric counterpart of `:loaders`.
+   "The run's" is load-bearing: the events are the RESOLVED
    slot (composed + inherited, like `:loaders`) CAPTURED when the frame was
    allocated, so the cleanup releases what THIS run's loaders opened.
-   Re-reading the current registration at teardown meant an ordinary edit or
-   hot reload between a run and its destroy ran a cleanup whose setup never
-   fired, and skipped the one that did (rf2-gwye.6). A cleanup edited, added
+   Re-reading the current registration at teardown would let an ordinary edit
+   or hot reload between a run and its destroy run a cleanup whose setup never
+   fired, and skip the one that did. A cleanup edited, added
    or removed while a variant is mounted takes effect on the NEXT run.
 4. **The variant's `:frame-setup` decorator `:teardown` events
    dispatch-sync into the variant frame** in reverse-declaration order
@@ -716,7 +714,7 @@ other and obeys the framework's path-level data-classification contract
 ([spec/015-Data-Classification.md](../../../spec/015-Data-Classification.md)).
 Two rules, both inherited from the spec/015 §Propagation rules and
 spec/Security.md §Author guidance for exceptions under path-level
-`:sensitive?` (rf2-dv79m):
+`:sensitive?`:
 
 1. **Event-level `:sensitive?` honoured.** If the event that triggered
    the exception was registered with `{:sensitive [paths]}` (per
@@ -791,26 +789,25 @@ the hash includes:
 - The variant's `:component` view-id **override** — the renderer resolves
   variant-first (`(or (:component variant) (:component story))`), so a
   variant's own `:component` decides which view renders; two variants
-  differing only in it must get distinct hashes (rf2-bah5o2)
+  differing only in it must get distinct hashes
 - The variant's `:sub-overrides` / `:db-seed` / `:network` /
   `:fx-overrides` / `:interceptor-overrides` / `:images` render inputs —
   pinned subscription outputs the renderer surfaces, the pre-script app-db
-  seed, the stubbed HTTP replies a fetch-on-mount view settles to
-  (rf2-9zj0nc), the handlers its effects are redirected to (rf2-38gqa), the
+  seed, the stubbed HTTP replies a fetch-on-mount view settles to, the
+  handlers its effects are redirected to, the
   interceptors it swaps, and the behaviour images its handlers resolve
   through, together with its parent story's `:images`; an `:extends`
   ancestor's `:images` never reach the child's frame and are not hashed
-  (rf2-0ae7o.8)
 - The same render-input slots of each registered fragment the variant's
   `:compose` names, in declared order, because
   [017 §Strict composition](017-Testing-Story.md#strict-composition) folds
   them into the variant's world; a variant composing no such input keeps
-  the identity it had (rf2-pt0d1)
+  the identity it had
 - The same render-input slots, minus `:script` / `:plays` / `:images`, of each
   registered `:extends` ancestor, nearest first, because
   [017 §`:extends`](017-Testing-Story.md#extends--inherits-context-never-behaviour)
   passes an ancestor's world down and never its behaviour; a variant whose
-  ancestors carry no such input keeps the identity it had (rf2-0ae7o.5)
+  ancestors carry no such input keeps the identity it had
 - Parent story `:component` id (the story-level default, via
   `re-frame.story.identity/story-body-slice`)
 - Parent story decorators
@@ -858,7 +855,7 @@ carries no rendering slot.
 
 `run-variant` runs the four-phase lifecycle:
 
-1. **Fresh-run boundary** (rf2-294yq5.3): an existing frame is reset to
+1. **Fresh-run boundary**: an existing frame is reset to
    fresh app/runtime state **in place**, after its Story teardown walks.
    Frame identity, sub-cache and projection reactions survive so mounted
    views stay reactive; the lifecycle snapshot does not, so loaders rerun.
@@ -910,7 +907,7 @@ operations listed in [API §Historical effect vocabulary](API.md#historical-effe
 
 | Cofx id | Shape | Notes |
 |---|---|---|
-| `:story/active-modes` | `[<mode-id> ...]` | The chrome toolbar's active mode-set (rf2-p0mv). Event-handler code reads it via this cofx; view code subscribes via `[:story/active-modes]`. See [`010-Toolbar.md`](010-Toolbar.md). |
+| `:story/active-modes` | `[<mode-id> ...]` | The chrome toolbar's active mode-set. Event-handler code reads it via this cofx; view code subscribes via `[:story/active-modes]`. See [`010-Toolbar.md`](010-Toolbar.md). |
 | `:story/active-args` | `{<arg-key> <value>}` | Deep-merge of all active modes' `:args`. Subscribe via `[:story/active-args]`. See [`010-Toolbar.md`](010-Toolbar.md). |
 
 ## Substrate hooks
