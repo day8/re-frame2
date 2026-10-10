@@ -556,8 +556,10 @@
   **TWO ROSTERS, TWO CONTEXTS, ONE WALK.** [[surface]] is Reagent's API and
   [[substrate-surface]] is re-frame2's own adapter API; the file's `ns`
   form is read once per roster (`ns-context` takes the roster predicate)
-  and every node is offered to both. Reagent is tried first, and
-  [[roster-overlap]] is empty so the order decides nothing.
+  and every node is offered to both. The rosters share one name,
+  `flush-views!`, and the order decides nothing for it: each arm fires only
+  when this file's `ns` form binds that arm's alias (see
+  [[substrate-surface]]).
 
   **The two recognition flags are asymmetric, deliberately.**
 
@@ -817,11 +819,6 @@
                      (or file "-") (or line "-") (or col "-")
                      (name class) (name verdict)
                      (or (:api detail) (:symbol detail) "")))))
-
-(defn scan-string
-  "Programmatic entry point over one source string."
-  ([s] (scan-string s nil))
-  ([s file] (scan s (some-> file str))))
 
 (defn describe
   "A one-line human summary, for the CLI tail.
