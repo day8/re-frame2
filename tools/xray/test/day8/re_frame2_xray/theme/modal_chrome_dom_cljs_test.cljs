@@ -14,6 +14,14 @@
   committed DOM can answer that: a node-lane tree walk sees the `:ref` as
   a value and never runs it.
 
+  ## A re-render, not a remount
+
+  The rows re-render by moving a ratom the view reads and flushing
+  Reagent's queue, which updates the mounted component in place. A
+  second `rdc/render` would not do: each call hands React a new root
+  component type, so React would unmount the dialog and mount a fresh
+  one, and a fresh dialog rightly takes focus to its first control.
+
   ## Test target
 
   The ns ends in `-dom-cljs-test`, so it runs under the `:browser-test`
@@ -21,6 +29,7 @@
   loads it, where every row reports the skip rather than passing
   silently."
   (:require [cljs.test :refer-macros [deftest is testing]]
+            [reagent.core :as r]
             [reagent.dom.client :as rdc]
             ["react-dom" :as react-dom]
             [day8.re-frame2-xray.theme.modal-chrome :as modal-chrome]))
@@ -32,9 +41,9 @@
        (some? (.-createElement js/document))))
 
 (defn- witness
-  "An open modal whose second control's label carries `pass`, so each new
-  `pass` is a real re-render of the same dialog."
-  [pass]
+  "An open modal whose second control's label carries the value of the
+  `pass*` ratom, so moving it re-renders the same dialog."
+  [pass*]
   (modal-chrome/modal-chrome
     {:positioning      :fixed
      :backdrop-style   {}
@@ -44,7 +53,7 @@
      :dialog-testid    "modal-chrome-witness-dialog"
      :dialog-tab-index "-1"}
     [:button {:data-testid "modal-chrome-witness-first"} "first"]
-    [:button {:data-testid "modal-chrome-witness-second"} (str "second " pass)]))
+    [:button {:data-testid "modal-chrome-witness-second"} (str "second " @pass*)]))
 
 ;; Every accessor is nil-tolerant: the browser lane runs as one block with
 ;; no try/catch, so a throw on an absent node would abort every namespace
@@ -58,10 +67,12 @@
 
 (defn- active [] (.-activeElement js/document))
 
-(defn- render!
-  "Render `[witness pass]` into `root`, committed before this returns."
-  [root pass]
-  (react-dom/flushSync (fn [] (rdc/render root [witness pass]))))
+(defn- re-render!
+  "Move the witness's ratom and flush Reagent's queue, so the mounted
+  dialog has re-rendered in place when this returns."
+  [pass*]
+  (swap! pass* inc)
+  (r/flush))
 
 (defn- open!
   "Focus a fresh opener button outside the dialog, then mount the dialog
@@ -69,12 +80,13 @@
   []
   (let [opener    (.createElement js/document "button")
         container (.createElement js/document "div")
-        root      (rdc/create-root container)]
+        root      (rdc/create-root container)
+        pass*     (r/atom 0)]
     (.appendChild (.-body js/document) opener)
     (.appendChild (.-body js/document) container)
     (.focus opener)
-    (render! root 0)
-    {:opener opener :container container :root root}))
+    (react-dom/flushSync (fn [] (rdc/render root [witness pass*])))
+    {:opener opener :container container :root root :pass* pass*}))
 
 (defn- close!
   "Unmount inside `flushSync`, so the ref's teardown has run when this
@@ -92,13 +104,13 @@
             every render, so React never detaches and re-attaches it"
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
-      (let [{:keys [container root] :as handles} (open!)
+      (let [{:keys [container root pass*] :as handles} (open!)
             second-btn (fn [] (q container "modal-chrome-witness-second"))]
         (try
           (focus! (second-btn))
           (is (and (some? (second-btn)) (identical? (second-btn) (active)))
               "precondition: the dialog's SECOND control holds focus")
-          (render! root 1)
+          (re-render! pass*)
           (is (= "second 1" (some-> (second-btn) .-textContent))
               "the re-render committed — the second control's label moved")
           (is (and (some? (second-btn)) (identical? (second-btn) (active)))
@@ -113,11 +125,11 @@
             unmounting returns it to the opener"
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
-      (let [{:keys [opener container root] :as handles} (open!)]
+      (let [{:keys [opener container root pass*] :as handles} (open!)]
         (try
           (is (identical? (q container "modal-chrome-witness-first") (active))
               "mount moved focus to the dialog's first control")
-          (render! root 1)
+          (re-render! pass*)
           (close! root)
           (is (identical? opener (active))
               "unmount restored focus to the opener")
