@@ -4,11 +4,6 @@
 ;; (6) has to reach them too: a discard in front of a whole require form, and a
 ;; discard of one libspec inside a LIVE one, are different spans and only the
 ;; second leaves the enclosing form standing.
-;;
-;; As with its sibling, `run_self_tests` strips the `#_` markers from this
-;; file's own text and asserts the result fires on `directory` and `routing` —
-;; without that twin, a scanner that had simply stopped reading runtime
-;; requires would read this fixture green and look correct.
 (ns re-frame.fixtures.discard-runtime-require
   (:require [re-frame.core :as rf]))
 
