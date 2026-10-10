@@ -69,14 +69,16 @@
   lowered per actor instance into the registry as the absolute runtime-db
   path `[:rf.runtime/machines :snapshots <actor-id> :data …]` under
   `:source :machine`. `re-frame.classification/frame-snapshot-classification`
-  re-roots those declarations snapshot-relative (`[:data …]`); here we strip
-  the leading `:data` segment to index into the snapshot's bare `:data` map
-  and redact via
-  the SHARED frame-independent `re-frame.classification/redact-with-paths`
-  walker — `:sensitive` slots to
+  re-roots those declarations snapshot-relative (`[:data …]`), and the
+  projector walks `{:data <the snapshot's :data>}` against them, `:data`
+  anchor intact, through the SHARED frame-independent
+  `re-frame.classification/redact-with-paths` walker — `:sensitive` slots to
   `:rf/redacted`. The declarations are INDEX-FREE, so `[:data :items :token]`
-  names the field in every element of a `:items` vector, as the durable
-  walker the trace path uses reads it. `:large` slots ride whole: the hydration wire applies no
+  names the field in every element of a `:items` vector and `[:data :token]`
+  names it under every key of a `:data` keyed by id, as the durable walker
+  the trace path uses reads them. The anchor is what lets a key at the top
+  of `:data` ride: the walker never lets a declaration's first segment float
+  past a key. `:large` slots ride whole: the hydration wire applies no
   size elision. Snapshot egress does not consult per-slot `:sensitive?` / `:large?`
   schema marks; the frame classification registry is the egress source of truth.
 
@@ -89,18 +91,17 @@
   (if-not (and (map? snapshot) (contains? snapshot :data) frame-id)
     snapshot
     (let [{:keys [sensitive]} (rf.classification/frame-snapshot-classification frame-id actor-id)
-          ;; frame-snapshot-classification returns snapshot-rooted paths ([:data …]);
-          ;; the SSR projector walks the bare :data MAP, so strip the leading
-          ;; :data segment to index into it directly.
-          strip   (fn [paths] (into [] (comp (filter #(= :data (first %)))
-                                             (map #(subvec (vec %) 1)))
-                                    paths))
-          s-paths (strip sensitive)]
+          ;; Snapshot-rooted paths ([:data …]), walked over a `{:data …}`
+          ;; wrapper so the `:data` anchor stays the declaration's first
+          ;; segment and a key directly under it can ride.
+          s-paths (filterv #(= :data (first %)) sensitive)]
       ;; No large paths: the hydration wire applies no size
       ;; elision (the `:rf.egress/ssr-hydration` profile's rule), because the
       ;; client re-materialises the actor from this `:data`.
       (if (seq s-paths)
-        (update snapshot :data rf.classification/redact-with-paths s-paths [] {:index-free? true})
+        (assoc snapshot :data
+               (:data (rf.classification/redact-with-paths
+                        {:data (:data snapshot)} s-paths [] {:index-free? true})))
         snapshot))))
 
 (defn project-ssr-runtime-db
