@@ -3,9 +3,7 @@
 
   HD-020(c) rules that \"the runtime ships one internal class-based
   boundary exposed as `h/boundary` (`:fallback`/`:reset-key`/`:on-error`);
-  it is the P1 witness's *real error boundary*\". The P1 witness roster
-  (`re-frame.bench.fresco.front.witnesses`) names it by that
-  description, in its `:foreign/host-and-error-boundary` row.
+  it is the P1 witness's *real error boundary*\".
   This is it, and it is deliberately the smallest thing that satisfies
   the three keys. The decision's words are quoted as it wrote them; the
   export is spelled `h/error-boundary`, which is what the naming ledger

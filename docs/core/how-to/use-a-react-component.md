@@ -49,7 +49,7 @@ Reagent turns the props map into a JavaScript object before the component sees i
 | a vector, list or set | a JavaScript array made by `clj->js`, whose map keys are not camelCased |
 | a keyword, such as `:small` | its name, `"small"` |
 
-reagent-slim differs on the last row. It passes a keyword prop value through unchanged, except under `:class`, `:id`, `:role`, `data-*` and `aria-*`, and a development build warns once; keywords inside a nested map still become strings. Write a string wherever the library documents one, and both adapters agree.
+reagent-slim differs on the last row. It passes a keyword prop value through unchanged, except under `:class`, `:id`, `:role`, `data-*` and `aria-*`; keywords inside a nested map still become strings. Write a string wherever the library documents one, and both adapters agree.
 
 Children after the props map are hiccup, converted like any other child.
 

@@ -154,7 +154,7 @@ in detail.
 
 `convert-prop-value` stringifies named values (keywords, symbols) only when they appear under documented HTML-attribute prop names: `:class`, `:id`, `:role`, `:data-*`, `:aria-*`. Keywords passed as values to any other prop name pass through unchanged.
 
-In dev mode, a one-shot `console.warn` fires when a keyword value reaches a non-listed prop name — the safety-net for incidental users who relied on the silent stringification.
+Nothing warns when a keyword value reaches a non-listed prop name. The pass-through is the contract rather than a fault: a keyword `:value` on a context Provider is the case the narrowing exists for, so a warning would fire on the very path it serves.
 
 ### Why
 
