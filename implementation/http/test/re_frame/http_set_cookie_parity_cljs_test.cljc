@@ -1,11 +1,13 @@
 (ns re-frame.http-set-cookie-parity-cljs-test
-  "Host-symmetric response-header shape for `Set-Cookie` (Spec 014 §Request
-  envelope: a multi-valued header is a vector of strings), asserted on both
-  hosts from one source.
+  "Host-symmetric response-header shape (Spec 014 §Successful-response
+  metadata: a repeated `Set-Cookie` is a vector of its lines, any other
+  repeated header one comma-folded string), asserted on both hosts from one
+  source.
 
   A bare `Headers.forEach` on CLJS yields only the LAST `Set-Cookie` line, so
   the CLJS transport recovers the unfolded lines through
-  `Headers.getSetCookie()`; the JVM rides every wire line as a vector element.
+  `Headers.getSetCookie()`; the JVM rides every `Set-Cookie` wire line as a
+  vector element and folds every other repeated header as Fetch does.
   Each host's native headers object is built here and flattened through that
   host's transport helper."
   (:require
@@ -46,6 +48,14 @@
         v       (get (decode-headers {"Set-Cookie" cookies}) "set-cookie")]
     (is (vector? v))
     (is (= cookies v))))
+
+(deftest repeated-header-folds-except-set-cookie-cross-host
+  ;; Fetch delivers a repeated header comma-folded and offers no unfold, so
+  ;; the JVM folds it too (RFC 9110 §5.3); Set-Cookie alone stays a vector.
+  (let [m (decode-headers {"Vary"       ["Accept" "Origin"]
+                           "Set-Cookie" ["a=1; Path=/" "b=2; Path=/"]})]
+    (is (= "Accept, Origin" (get m "vary")))
+    (is (= ["a=1; Path=/" "b=2; Path=/"] (get m "set-cookie")))))
 
 (deftest no-set-cookie-leaves-map-untouched-cross-host
   (is (= {"content-type" "application/json"}

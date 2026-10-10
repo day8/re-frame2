@@ -85,7 +85,7 @@
                (-> (:meta reply)
                    (select-keys [:status :headers])
                    (update :headers select-keys ["x-request-cost" "set-cookie"])))
-            "headers ride lower-cased; a multi-valued header is one vector of verbatim lines")
+            "headers ride lower-cased; a repeated Set-Cookie is one vector of verbatim lines")
         (is (string? (get-in reply [:meta :status-text]))))
       (finally (stop-server! srv)))))
 

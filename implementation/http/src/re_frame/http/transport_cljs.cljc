@@ -29,33 +29,23 @@
 
 #?(:cljs
    (defn- fetch-headers->map
-     "Flatten a Fetch `Headers` object into a plain Clojure map, matching
-     the JVM transport's `jvm-headers->map` response-headers SHAPE
-     contract (Spec 014 §Request envelope: `string → string`,
-     or `string → vector of strings` for a multi-valued header).
+     "Flatten a Fetch `Headers` object into a plain Clojure map in the
+     response-header shape the JVM transport's `jvm-headers->map` also
+     produces (Spec 014 §Successful-response metadata): lower-cased names,
+     a repeated header folded into one comma-separated string, and a
+     repeated `Set-Cookie` a vector of its lines.
 
-     `Headers.forEach`
-     iterates ONE pair per (case-folded) name with multi-valued headers
-     COMMA-FOLDED into a single string — and for `Set-Cookie` specifically
-     the Fetch spec keeps it OUT of the combined view (`forEach` yields
-     only the LAST `Set-Cookie` line; the earlier lines are dropped). That
-     diverges from the JVM, where `jvm-headers->map` rides every wire line
-     of a multi-valued header as a vector element — so through `forEach`
-     alone a two-cookie response would decode to a 2-element `[\"session=…\" \"csrf=…\"]` vector on
-     the JVM but a single (last-cookie-only) string on CLJS, silently
-     LOSING the first `Set-Cookie` and comma-folding any other repeated
-     header. Comma-folding `Set-Cookie` is invalid because cookie attribute
-     values may themselves contain commas.
+     `Headers.forEach` iterates ONE pair per (case-folded) name and already
+     folds every repeated header into one `\", \"`-joined string — every
+     header except `Set-Cookie`, which the Fetch spec keeps OUT of the
+     combined view, so the map `forEach` builds keeps only the LAST
+     `Set-Cookie` line. Folding `Set-Cookie` would be wrong anyway, because
+     cookie attribute values contain commas.
 
-     The Fetch API exposes `Headers.getSetCookie()` precisely to recover
-     the unfolded `Set-Cookie` lines (browser + Node 18.7+ / undici). We
-     use it to restore the per-line vector shape so a multi-valued
-     `Set-Cookie` decodes IDENTICALLY on both hosts; a single `Set-Cookie`
-     stays a plain string (matching the JVM's single-valued fast path).
-     Other repeated headers remain comma-folded by `forEach` — Fetch
-     offers no unfold for them and that residual is a documented Fetch
-     limitation, not a data-loss bug (only `Set-Cookie` both loses lines
-     AND is RFC-illegal to fold)."
+     `Headers.getSetCookie()` (browser + Node 18.7+ / undici) returns the
+     unfolded `Set-Cookie` lines, so a repeated `Set-Cookie` becomes the
+     vector of every line and a single one stays a plain string — the same
+     shape on both hosts."
      [^js fetch-headers]
      (let [out #js {}]
        (.forEach fetch-headers
