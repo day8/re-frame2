@@ -1,71 +1,32 @@
 (ns re-frame.testbed.open-in-editor-client-cljs-test
-  "Client half of the open-in-editor contract.
-
-  `re-frame.testbed.open-in-editor-server` decides; this namespace pins what
-  the BROWSER does with that decision, because the failure it guards lives
-  across the seam rather than on either side of it. A 200 would be a claim
-  about a child process EXITING, not about the source coordinate ARRIVING:
-  `launch-editor` has no `windsurf` case in its `get-args.js` switch, so it
-  would launch Windsurf with the bare file and exit 0, and an endpoint
-  answering 200 makes `fetch-launcher!` skip the `windsurf://file/…:27:9`
-  fallback that carries the coordinate. Every layer would report success
-  while the programmer landed at the wrong line.
-
-  A server-only test asserting a status code would pass while that
-  user-visible defect survives, so the property pinned here is the one the
-  user feels: a DECLINED endpoint answer runs the coordinate-preserving
-  fallback exactly once, and a 2xx suppresses it.
-
-  The server-side half is `re-frame.testbed.open-in-editor-server-test`.
-
-  This suite drives the REAL client seam — `build-url` and `fetch-launcher!`
-  from `re-frame.source-coords.open-endpoint`, unmodified — with
-  `globalThis.fetch` stubbed to answer a chosen status. Nothing is launched
-  and no dev server is required, which is what makes it runnable in CI."
+  "Client half of the open-in-editor contract: what the browser does with the
+  endpoint's answer. A declined answer must run the coordinate-preserving
+  `editor://` fallback exactly once and a 2xx must suppress it, because a 200
+  for a launch that dropped the coordinate would leave the user at the wrong
+  line. Drives the real `build-url` and `fetch-launcher!` with
+  `globalThis.fetch` stubbed. The server half is
+  `re-frame.testbed.open-in-editor-server-test`."
   (:require [cljs.test :refer-macros [deftest is testing async]]
             [re-frame.source-coords.editor-uri :as rf.source-coords.editor-uri]
             [re-frame.source-coords.open-endpoint :as rf.source-coords.open-endpoint]))
 
-(def ^:private coord
-  "The coordinate every click here opens: `src/app.cljs`, line 27, column 9."
-  {:file "src/app.cljs" :line 27 :column 9})
+(def ^:private coord {:file "src/app.cljs" :line 27 :column 9})
 
-(def ^:private declining-statuses
-  "Every non-2xx the server can answer with: 400 (`missing-file`,
-  `malformed-query`), 403 (`forbidden`), 405 (`method-not-allowed`), 422
-  (`file-not-found`, `launch-failed`, and the Windsurf
-  `editor-position-unsupported` decline). The client's contract is on the
-  CLASS, not on any one member: whatever the endpoint declines with, the
-  coordinate-preserving URI gets its turn."
-  [400 403 405 422])
+(def ^:private custom-editor
+  "A `{:custom …}` preference, which like nil sends no `editor=`."
+  {:custom "myeditor://open?f={file}&l={line}&c={column}"})
 
 (def ^:private real-fetch
-  "The platform `fetch`, captured at load.
-
-  `click!` swaps this process global and puts it back. Every test below
-  asserts the global is `identical?` to THIS again afterwards, because a stub
-  left installed would silently answer for every later namespace in the shared
-  `:node-test` build — a leak a green suite hides rather than reports."
+  "The platform `fetch`. A stub left installed would answer for every later
+  namespace in the shared `:node-test` build."
   (.-fetch js/globalThis))
 
-(defn- ->response
-  "A minimal `fetch` Response stand-in. `fetch-launcher!` reads only `.ok`,
-  which the platform derives from the status the same way."
-  [status]
-  #js {:ok (and (>= status 200) (<= status 299)) :status status})
+(defn- fetch-restored? []
+  (identical? real-fetch (.-fetch js/globalThis)))
 
 (defn- click!
-  "Drive one source-coord click through the real client seam and return a
-  promise of what the user would have got.
-
-  `globalThis.fetch` is replaced by a stub answering `status` — standing in
-  for the dev-server's decision — and the fallback thunk is the one the Xray
-  and Story open-seams pass: it resolves the coordinate through
-  `rf.source-coords.editor-uri/editor-uri` and hands the URI to a capturing navigator instead
-  of `Location.assign`.
-
-  Resolves to `{:requested <endpoint url> :navigated <uri-or-nil>
-  :fallbacks <n>}`. The original `fetch` is restored on both outcomes."
+  "One source-coord click through the real client seam, with `fetch` answering
+  `status`. Resolves to `{:requested url :navigated uri-or-nil :fallbacks n}`."
   [{:keys [editor status]}]
   (let [requested (atom nil)
         navigated (atom nil)
@@ -75,7 +36,7 @@
     (set! (.-fetch js/globalThis)
           (fn [url _opts]
             (reset! requested url)
-            (js/Promise.resolve (->response status))))
+            (js/Promise.resolve #js {:ok (<= 200 status 299) :status status})))
     (-> (rf.source-coords.open-endpoint/fetch-launcher!
           (rf.source-coords.open-endpoint/build-url coord editor)
           (fn []
@@ -89,139 +50,62 @@
         (.catch (fn [err] (restore!) (throw err))))))
 
 (defn- click-each!
-  "Run `click!` over `specs` ONE AT A TIME, resolving to a vector of outcomes
-  each merged with its spec.
-
-  Sequential deliberately. `click!` swaps a process global, so overlapping
-  runs nest their save/restore — the second saves the first's stub as the
-  `original` it will later reinstate, and the suite finishes with a stub still
-  answering `fetch` for every namespace after it. `js/Promise.all` over these
-  is exactly that mistake; `real-fetch` is the assertion that catches it."
+  "`click!` over `specs` one at a time: overlapping runs would nest the global
+  `fetch` save/restore and leave a stub installed."
   [specs]
   (reduce (fn [p spec]
-            (.then p (fn [acc]
-                       (.then (click! spec)
-                              (fn [outcome] (conj acc (merge spec outcome)))))))
+            (.then p (fn [acc] (.then (click! spec) #(conj acc %)))))
           (js/Promise.resolve [])
           specs))
 
-(defn- fetch-restored?
-  "Whether the process-global `fetch` is the platform's again."
-  []
-  (identical? real-fetch (.-fetch js/globalThis)))
-
-;; ---- the request the client sends ---------------------------------------
-
 (deftest endpoint-request-carries-the-whole-coordinate
-  (testing "the client asks for 27:9 explicitly — the coordinate is present
-            in the request, so any later loss is the server's or the
-            launcher's, not a malformed ask"
-    (let [url (rf.source-coords.open-endpoint/build-url coord :windsurf)]
-      (is (= (str rf.source-coords.open-endpoint/endpoint-path
-                  "?file=src%2Fapp.cljs&line=27&column=9&editor=windsurf")
-             url)))))
+  (testing "every request carries 27:9; only a named editor adds `editor=`, so
+            a nil or `{:custom …}` preference leaves the server to auto-detect"
+    (let [bare (str rf.source-coords.open-endpoint/endpoint-path
+                    "?file=src%2Fapp.cljs&line=27&column=9")]
+      (is (= [(str bare "&editor=windsurf") bare bare]
+             (map #(rf.source-coords.open-endpoint/build-url coord %)
+                  [:windsurf nil custom-editor]))))))
 
 (deftest open-coord-hands-the-built-url-to-the-launcher
-  (testing "`open-coord!` composes `build-url` with the launcher seam, so the
-            contract pinned below on `fetch-launcher!` is the contract the
-            tool open-seams actually get"
-    (let [seen (atom nil)
-          prev (rf.source-coords.open-endpoint/set-launcher!
-                 (fn [url _fallback!] (reset! seen url)))]
-      (try
-        (rf.source-coords.open-endpoint/open-coord! coord :windsurf (fn [] nil))
-        (is (= (rf.source-coords.open-endpoint/build-url coord :windsurf) @seen))
-        (finally
-          (rf.source-coords.open-endpoint/set-launcher! prev))))))
-
-;; ---- what the client does with the server's answer -----------------------
+  (let [seen (atom nil)
+        prev (rf.source-coords.open-endpoint/set-launcher!
+               (fn [url _fallback!] (reset! seen url)))]
+    (try
+      (rf.source-coords.open-endpoint/open-coord! coord :windsurf (fn [] nil))
+      (is (= (rf.source-coords.open-endpoint/build-url coord :windsurf) @seen))
+      (finally
+        (rf.source-coords.open-endpoint/set-launcher! prev)))))
 
 (deftest every-declining-status-reaches-the-fallback
-  (testing "the client's contract is on non-2xx as a CLASS: each status the
-            endpoint can decline with runs the coordinate-preserving fallback
-            exactly once, so the server may choose any of them"
+  (testing "each non-2xx the endpoint answers with (400, 403, 405, 422) runs
+            the fallback exactly once"
     (async done
-      (-> (click-each! (map (fn [status] {:editor :windsurf :status status})
-                            declining-statuses))
+      (-> (click-each! (for [status [400 403 405 422]] {:editor :windsurf :status status}))
           (.then (fn [outcomes]
-                   (is (= (count declining-statuses) (count outcomes))
-                       "every declining status was actually exercised")
-                   (doseq [{:keys [status fallbacks]} outcomes]
-                     (is (= 1 fallbacks) (str "status " status " → one fallback")))
-                   (is (fetch-restored?) "the fetch stub was not left installed")
+                   (is (= [[1 1 1 1] true] [(mapv :fallbacks outcomes) (fetch-restored?)]))
                    (done)))
           (.catch (fn [err] (is false (str "click! threw: " err)) (done)))))))
 
 (deftest a-2xx-answer-suppresses-the-fallback
-  (testing "the other half: a 200 is FINAL to this
-            client — the URI fallback never runs, so the coordinate a
-            bare-file launch drops is gone for good. This is why the
-            endpoint must decline rather than anything downstream"
+  (testing "a 200 is final: the fallback never runs"
     (async done
       (-> (click! {:editor :windsurf :status 200})
-          (.then (fn [{:keys [requested navigated fallbacks]}]
-                   (is (some? requested) "the endpoint was asked")
-                   (is (zero? fallbacks)
-                       "a 2xx suppresses the fallback — were the endpoint to
-                        answer 200 for Windsurf, nothing downstream could
-                        recover 27:9")
-                   (is (nil? navigated)
-                       "no coordinate-preserving URI was ever navigated")
-                   (is (fetch-restored?) "the fetch stub was not left installed")
+          (.then (fn [{:keys [requested fallbacks]}]
+                   (is (= [true 0 true] [(some? requested) fallbacks (fetch-restored?)]))
                    (done)))
           (.catch (fn [err] (is false (str "click! threw: " err)) (done)))))))
 
-;; ---- the no-hint path ----------------------------------------------------
-;;
-;; `editor->param` sends no `editor=` at all for a nil preference and for
-;; `{:custom …}`, which puts the server on `launch-editor`'s auto-detect —
-;; where the binary is chosen from the running process list and can be one
-;; `get-args.js` has no position case for. The server declines that too.
-;; What the tests below witness is the half the server cannot: that declining
-;; actually leaves the user better off, because the fallback these two
-;; preferences reach still carries 27:9.
-
-(def ^:private custom-editor
-  "A `{:custom …}` preference, the other shape that sends no `editor=`."
-  {:custom "myeditor://open?f={file}&l={line}&c={column}"})
-
-(deftest no-editor-hint-requests-take-the-auto-detect-path
-  (testing "both no-hint preferences omit `editor=` entirely, so the
-            server auto-detects — this is the request that could get a
-            bare-file 200 without the server's decline"
-    (is (= (str rf.source-coords.open-endpoint/endpoint-path
-                "?file=src%2Fapp.cljs&line=27&column=9")
-           (rf.source-coords.open-endpoint/build-url coord nil))
-        "a nil preference sends the coordinate and no editor")
-    (is (= (str rf.source-coords.open-endpoint/endpoint-path
-                "?file=src%2Fapp.cljs&line=27&column=9")
-           (rf.source-coords.open-endpoint/build-url coord custom-editor))
-        "a {:custom …} preference likewise — the template is the client's own
-         business, so the server is told nothing about it")))
-
 (deftest declined-no-hint-answer-still-lands-on-the-coordinate
-  (testing "declining the auto-detect path only helps
-            if the fallback it hands over to keeps 27:9. For a nil preference
-            that is `editor-uri`'s default scheme; for `{:custom …}` it is the
-            user's own template, which the endpoint's auto-detect ignores
-            entirely. Both carry the coordinate a bare-file launch drops"
+  (testing "a declined auto-detect request falls back once to a URI that keeps
+            27:9: the default scheme for nil, the user's own template for
+            `{:custom …}`"
     (async done
-      (-> (click-each! [{:editor nil            :status 422}
-                        {:editor custom-editor :status 422}])
+      (-> (click-each! [{:editor nil :status 422} {:editor custom-editor :status 422}])
           (.then (fn [outcomes]
-                   (is (= 2 (count outcomes)) "both preferences were exercised")
-                   (doseq [{:keys [editor fallbacks]} outcomes]
-                     (is (= 1 fallbacks)
-                         (str editor " → the fallback ran exactly once")))
-                   (let [{:keys [navigated]} (first outcomes)]
-                     (is (= "vscode://file/src/app.cljs:27:9" navigated)
-                         "a nil preference falls back to the default scheme,
-                          line 27 column 9 intact"))
-                   (let [{:keys [navigated]} (second outcomes)]
-                     (is (= "myeditor://open?f=src/app.cljs&l=27&c=9" navigated)
-                         "a {:custom …} preference gets its OWN template with
-                          27 and 9 substituted — declining honours the
-                          configuration an auto-detect launch would override"))
-                   (is (fetch-restored?) "the fetch stub was not left installed")
+                   (is (= [[1 "vscode://file/src/app.cljs:27:9"]
+                           [1 "myeditor://open?f=src/app.cljs&l=27&c=9"]
+                           true]
+                          (conj (mapv (juxt :fallbacks :navigated) outcomes) (fetch-restored?))))
                    (done)))
           (.catch (fn [err] (is false (str "click! threw: " err)) (done)))))))
