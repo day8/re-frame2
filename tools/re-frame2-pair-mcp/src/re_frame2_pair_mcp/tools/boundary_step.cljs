@@ -6,7 +6,7 @@
   `invoke` (in `tools.cljs`) drives every MCP `tools/call` through a
   short, ordered sequence of phases:
 
-      precheck → dispatch → apply-cache → apply-cap
+      canonicalize-build → dispatch → apply-cache → apply-cap
 
   Each phase carries its own short-circuit rule (`apply-cache` skips
   `:isError`; `apply-cap` skips nothing). Expressing the sequence as
@@ -39,19 +39,16 @@
   ## Context shape
 
   ```clojure
-  {:conn          <nrepl-conn>
-   :name          \"<tool-name>\"
-   :args          <js-args>
-   :extra         <mcp-extra>
-   :result        <js-mcp-result or nil>
-   :precheck-hash <int or nil>}
+  {:conn   <nrepl-conn>
+   :name   \"<tool-name>\"
+   :args   <js-args>
+   :extra  <mcp-extra>
+   :result <js-mcp-result or nil>}
   ```
 
   Every step receives this context. The `:result` slot is the running
   payload — nil before `:dispatch` runs, populated thereafter. Steps
-  that produce a result write it; steps that consume it read it. The
-  `:precheck-hash` slot is the cheap precheck hash; the
-  `apply-cache` step consumes it to record on a miss.
+  that produce a result write it; steps that consume it read it.
 
   ## Skip-when semantics
 
@@ -64,7 +61,8 @@
   `apply-cap`'s predicate fires on a `marker?` result (a cache-hit
   or overflow envelope is already a wire-bounded marker — capping
   it is wasted work). `apply-cache`'s predicate fires on an
-  `:isError` result (errors must not poison the cache).
+  `:isError` result (the success-shaped cache-hit marker must not stand
+  in for a failure).
 
   Predicates are pure over the context's current `:result` slot —
   no global state, no side effects. A skipped step leaves the

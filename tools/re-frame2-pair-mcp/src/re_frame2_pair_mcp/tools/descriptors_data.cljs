@@ -2005,7 +2005,7 @@
                      "newest server-source commit means a stale build too. :text is a single slot the agent host renders verbatim. "
                      "Examples: "
                      "1. Session bootstrap: {} -> {:ok? true :tool \"get-re-frame2-pair-instructions\" :tool-contract \"30-1a2b3c4d\" :built-from \"<commit>\" :text \"re-frame2-pair quick reference...\"}. "
-                     "2. Cached on second call (universal cache opt-in): {:cache true} -> {:rf.mcp/cache-hit {:hash ... :via :result-hash :hint \"...\"}} (after the first uncached call). "
+                     "2. Cached on second call (universal cache opt-in): {:cache true} -> {:rf.mcp/cache-hit {:hash ... :hint \"...\"}} (after the first uncached call). "
                      "3. With budget override: {:max-tokens 0} -> {:ok? true :text \"...\"} (cap disabled; the text always fits comfortably).")
    ;; Measured, not estimated. The response is a fixed inline string with no
    ;; narrowing args, so its cost is knowable exactly;

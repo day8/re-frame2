@@ -345,8 +345,9 @@ Post-Lock additions accumulated as follows:
   mega-op (a recorder spanning multiple signal kinds — see Lock #8);
   `read-recording` rides the `read-` prefix; `watch-until` introduces
   the `watch-` blocking-predicate prefix (Lock #8). All three are
-  read-only observation (no app mutation) and `:cacheable? false` (the
-  recording state is volatile, not a function of an app-db hash).
+  read-only observation (no app mutation) and `:cacheable? false`
+  (`record` installs a recorder, `read-recording` may drain or stop
+  it, and `watch-until`'s result depends on when its predicate trips).
 - **rf2-zomfq** added the **operating-frame triplet** —
   `set-operating-frame`, `reset-operating-frame`, `get-operating-frame`
   — the three [Tool-Pair §Tool-surface obligations][tp-tsobl] ops that
@@ -372,20 +373,9 @@ Post-Lock additions accumulated as follows:
   name wins for cross-server mental-model transfer (re-frame-pair-improver
   / Xray / Story carry the same trio). See Lock #8 + NAMING.md §The verb
   table for the catalogue addition. All three are `:cacheable? false`: `set` /
-  `reset` are session-state writes; `get` is a read of VOLATILE runtime
-  state — the live frame registry plus the per-session pin — NOT a
-  function of an app-db hash. Both axes can move WITHOUT an app-db
-  mutation and WITHOUT a `set` / `reset` call (a frame mount/unmount, or
-  a runtime reload with a different live frame set), and the result-hash
-  cache only flushes on an explicit operating-frame mutation — so a
-  cacheable `get` could serve a stale `:rf.mcp/cache-hit` for byte-
-  identical empty args, masking a newly ambiguous session or a newly
-  available app frame. It is non-cacheable — a volatile-state read.
-  An earlier revision marked `get` `:cacheable? true` on the theory that
-  set/reset cache-flushes covered every pin change; that missed the
-  registry-mutation axis above. If caching is ever wanted here, add a
-  runtime frame-registry/session-pin generation token to the cache
-  identity — do NOT key it on tool/build/args alone.
+  `reset` are session-state writes; `get` reports session state — the
+  live frame registry plus the per-session pin — not frame state, and
+  its reply is small, so a cache-hit marker would save little.
 - **rf2-3bu3d.7 / rf2-3bu3d.8** added the **read-orientation pair** —
   `read-sub` and `orient`. `read-sub {sub-id}` is the validated single-
   subscription read: resolve the named subscription against the reactive

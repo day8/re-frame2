@@ -292,27 +292,8 @@ with a tiny marker:
  {:hash            <integer>
   :unchanged-since <ms-since-epoch>
   :tool            "<tool-name>"
-  :via             :result-hash | :precheck
   :hint            "<agent-host instruction string>"}}
 ```
-
-The `:via` slot names the cache path that produced the hit:
-
-- **`:result-hash`** — the post-eval path, and the only one any
-  tool takes. The tool ran server-side; the result's text was
-  hashed; the hash matched the stored entry for `(tool, args)`.
-  The MCP server saved the **wire bytes** but paid the full
-  nREPL round-trip and the local transform pipeline.
-- **`:precheck`** — reserved for a pre-eval short-circuit: one
-  cheap round-trip fetches `(re-frame2-pair.runtime/app-db-hash
-  frame)`, and a match against the stored `:precheck-hash`
-  skips the tool eval. **No tool is precheck-eligible**, so no
-  hit carries it: every read tool's wire result passes through
-  `project-egress`, whose elision registry lives in runtime-db,
-  so an unchanged app-db hash can sit beside a differently
-  redacted payload. See
-  [`Principles.md` §Per-session response cache](Principles.md#per-session-response-cache-rf2-3rt1f),
-  *Precheck eligibility*.
 
 The agent host already has the byte-identical bytes from the
 prior `tools/call`; re-shipping doubles the conversation cost
@@ -340,20 +321,14 @@ were the source payload.
 Action tools (`dispatch`, `eval-cljs`, `tail-build`)
 bypass the cache — their return value is the
 result of an action,
-not frame state. `get-operating-frame` bypasses for the same reason:
-its resolved triple is a function of the live **frame registry** plus
-the per-session **pin**, both of which can move WITHOUT an app-db
-mutation and WITHOUT a `set-operating-frame` / `reset-operating-frame`
-call (a frame mount/unmount, or a runtime reload with a different live
-frame set). The cache key cannot fold the registry/pin in, and the
-result-hash cache only flushes on an explicit operating-frame mutation
-— so caching it could serve a stale `:rf.mcp/cache-hit` for byte-
-identical empty args, masking a newly ambiguous session or a newly
-available app frame. It is non-cacheable.
+not frame state. `get-operating-frame` bypasses too: it reports
+session state — the live **frame registry** plus the per-session
+**pin** — not frame state, and its reply is small, so a marker
+would save little.
 (`list-subscriptions` opts IN — it reads the live reactive sub-cache,
 a pure function of frame state, just like `snapshot`; rf2-qicji.)
-`:isError` results bypass too; a transient failure must not
-mask a future successful read.
+`:isError` results bypass too: the marker is a success result,
+so a hit standing in for a failure would drop its `isError` flag.
 
 The marker key `:rf.mcp/cache-hit` matches the cross-MCP wire-
 vocabulary family (`:rf.mcp/overflow`, `:rf.mcp/dedup-table`,
@@ -364,9 +339,10 @@ The cache saves wire bytes, not the nREPL round-trip — the
 tool still runs server-side and the result is built locally.
 A typical "inspect, dispatch, inspect" workflow re-ships the
 full app-db on the second inspect; with the cache it ships
-~100 bytes. Saving the round-trip too needs a precheck hash
-that covers every input to the result, which no tool has (see
-`:precheck` above).
+~100 bytes. The tool always runs: its wire value is the
+post-`project-egress` text, which depends on runtime-db state as
+well as app-db, so no pre-eval hash of app-db can decide a hit (see
+[`Principles.md` §Per-session response cache](Principles.md#per-session-response-cache-rf2-3rt1f)).
 
 ## Universal: `:reason` keyword vocabulary (`:ok? false` responses)
 
@@ -453,8 +429,8 @@ agent reads as data rather than a fault — e.g. `watch-until`'s
 `:watch-timeout` (the predicate simply did not hold in the window) — which
 is documented as non-`isError` at each such tool. Keeping failures
 `isError` is also what keeps them out of the response cache (cache
-eligibility bypasses `isError` results), so a transient failure can never
-be cached and mask a later successful read.
+eligibility bypasses `isError` results), so a repeated failure comes back
+as the failure, never as a success-shaped cache-hit marker.
 
 #### `:unknown-tool` recovery hint (rf2-tkmik)
 
@@ -520,8 +496,9 @@ operator asked for that port), and — per the §"Every `:ok? false`
 response is `isError: true`" rule above — it rides as an **`isError`
 result** (rf2-bcayt7), the same envelope its sibling discover-app
 precondition failures use. Keeping it `isError` also keeps an unresolved
-port out of the response cache, so it can never mask a later valid
-port→build mapping. An explicit `build` arg wins over `port`.
+port out of the response cache, so a repeat comes back as the failure,
+never as a success-shaped cache-hit marker. An explicit `build` arg wins
+over `port`.
 
 **Single-build auto-selection (rf2-v70kv).** When you omit `build` and
 **exactly one** shadow-cljs build is running, discover-app auto-selects
@@ -2433,7 +2410,8 @@ path that doesn't resolve (`:ok? false :reason :path-not-found`,
 `isError: true`). The deepest-valid-prefix lets the agent re-aim without
 a binary search. Because the miss surfaces through the error channel it
 is never response-cached (cache eligibility keys off `isError`), so a
-later successful read of the same path is not masked by a stale failure.
+repeated miss comes back as the miss, never as a success-shaped cache-hit
+marker.
 
 When `elision` is enabled (default), a value at or below a path
 classified `:large` returns a `:rf.size/large-elided` marker (with a
@@ -3560,8 +3538,8 @@ response is `isError: true`" rule — rf2-01jwrq):
 
 Because `describe-image` is `:cacheable?` and the response cache bypasses
 `isError` results, keeping the `:ambiguous-frame` refusal `isError: true`
-also keeps it OUT of the cache — a transient ambiguous-frame can never be
-cached and mask a later valid read.
+also keeps it OUT of the cache — a repeated refusal comes back as the
+refusal, never as a success-shaped cache-hit marker.
 
 **Drill-down**: `describe-image` is the per-frame overview; drill a specific
 `(kind, id)` with `handler-meta {:frame … :kind … :id …}` for the full
@@ -3732,8 +3710,8 @@ Agent-onboarding text (rf2-fnpqg). Returns inline prose: a
 `## Routing rules` section of six rules naming which tool to reach
 for at each decision, then the conventions — the EDN posture, the
 `:origin :pair` tagged-mutation convention, and the wire-boundary
-pipeline (precheck →
-elision → diff-encode → dedup → cap).
+pipeline (elision →
+diff-encode → dedup → response cache → cap).
 
 **It does not enumerate the tools** (rf2-wyza). It used to — a
 per-tool `## Tool catalogue` that was 75% of the blob and the only

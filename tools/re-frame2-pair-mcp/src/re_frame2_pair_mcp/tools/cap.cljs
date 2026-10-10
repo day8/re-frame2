@@ -183,7 +183,7 @@
   ## `:isError` is NOT a short-circuit (intentional asymmetry vs cache)
 
   Unlike `cache/apply-cache` — which passes `:isError` through
-  untouched so a transient failure can't poison the cache —
+  untouched so a failure never becomes a success-shaped cache-hit —
   `apply-cap` measures and (if over budget) wraps an `:isError`
   result in `:rf.mcp/overflow` like any other payload — and the
   replacement keeps `isError: true`, so the failure stays visible.

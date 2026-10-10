@@ -259,11 +259,6 @@
   args)` pair — the marker itself is content-free (no fresh state
   observed since `:unchanged-since`).
 
-  `:via` distinguishes the two hit paths: `:result-hash`
-  (match-after-eval) ran the tool and discovered the hash matched;
-  `:precheck` short-circuited the eval entirely. Same
-  vocabulary, different cost saved.
-
   Single-server (re-frame2-pair-mcp); the `:rf.mcp/*` namespace reserves
   it cross-MCP per Conventions §Reserved namespaces — a future MCP
   server adopting a session cache ships the same shape."
@@ -272,7 +267,6 @@
    [:hash            [:or :int :string]]
    [:unchanged-since :int]
    [:tool            [:or :string :keyword]]
-   [:via             [:enum :result-hash :precheck]]
    [:hint            [:or :string :keyword]]])
 
 (def CacheHit
@@ -556,8 +550,8 @@
 
    {:key      :rf.mcp/cache-hit
     :schema   CacheHit
-    ;; re-frame2-pair-mcp emits it (the result-hash + precheck paths in
-    ;; `cache.cljs/cache-hit-payload`). The literal lives in
+    ;; re-frame2-pair-mcp emits it from `cache.cljs/cache-hit-payload`.
+    ;; The literal lives in
     ;; `mcp-base/vocab.cljc` as `cache-hit-key`, where every cross-MCP
     ;; marker is canonicalised.
     :servers  #{:re-frame2-pair-mcp}
@@ -566,12 +560,4 @@
                 {:hash            -1234567890
                  :unchanged-since 1715760000000
                  :tool            "snapshot"
-                 :via             :result-hash
-                 :hint            "Payload byte-identical to the prior tools/call ..."}}
-               :re-frame2-pair-mcp-precheck
-               {:rf.mcp/cache-hit
-                {:hash            42
-                 :unchanged-since 1715760123456
-                 :tool            "watch-epochs"
-                 :via             :precheck
-                 :hint            "Pre-eval cache hit (rf2-36xod) — state unchanged."}}}}])
+                 :hint            "Payload byte-identical to the prior tools/call ..."}}}}])

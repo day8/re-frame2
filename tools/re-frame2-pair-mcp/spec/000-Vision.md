@@ -49,8 +49,7 @@ added.
                               ▼  invoke
                        ┌─────────────────────────────────────────────┐
                        │  tools.cljs — wire-boundary pipeline        │
-                       │    precheck → dispatch → apply-cache        │
-                       │             → apply-cap                     │
+                       │    dispatch → apply-cache → apply-cap       │
                        └─────────────────────────────────────────────┘
                               │
                               ▼  per-tool body
@@ -93,7 +92,6 @@ src tree carries further concern ns — `source_uri`,
 |---|---|
 | Wire-bounded markers          | `tools/wire.cljs`, `tools/wire_pipeline.cljs` |
 | Boundary step protocol        | `tools/boundary_step.cljs`        |
-| Precheck (early-exit gates)   | `tools/precheck.cljs`             |
 | Cache (per-session response)  | `cache.cljs`                      |
 | Cap (token-budget pipeline)   | `tools/cap.cljs`                  |
 | Dedup (structural)            | `re-frame.mcp-base.dedup` (required directly) |

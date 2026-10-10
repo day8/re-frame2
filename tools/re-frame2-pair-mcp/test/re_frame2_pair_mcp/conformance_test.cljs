@@ -165,8 +165,8 @@
    ;; `read-string`s to `1` — not a keyword build-id — so the resolver
    ;; returns nil and discover-app emits `:port-unresolved`. This fixture
    ;; pins that it rides as an `isError` result (a known-tool `:ok? false`
-   ;; failure), NOT a success-shaped ok-text envelope that the response
-   ;; cache could retain and mask a later valid port→build mapping.
+   ;; failure), NOT a success-shaped ok-text envelope, so the response
+   ;; cache never answers a repeat with a cache-hit marker.
    {:fixture/id    :discover-app/port-unresolved
     :fixture/doc   "discover-app with a :port that maps to no build rides as isError carrying :port-unresolved (every :ok? false is isError; never a cacheable ok-text)."
     :fixture/tool  "discover-app"

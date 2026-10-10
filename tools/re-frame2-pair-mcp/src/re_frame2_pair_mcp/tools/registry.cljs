@@ -108,38 +108,26 @@
     :handler    (ignoring-extra #(read-sub/read-sub-tool %1 %2))
     ;; Validated one-shot subscription read. A function of
     ;; frame state (the sub's deref) — idempotent across same-state calls,
-    ;; cacheable like get-path / snapshot. The precheck-hash short-circuit
-    ;; keys on (hash app-db); a sub value derives from app-db, so a cache
-    ;; keyed on app-db is correct for the common case (the :cache default
-    ;; is opt-in per-call).
+    ;; cacheable like get-path / snapshot.
     :cacheable? true
     :descriptor data/read-sub}
    {:name       "read-dom"
     :handler    (ignoring-extra #(read-dom/read-dom-tool %1 %2))
     ;; Read of live rendered DOM — a function of view-plane state, not
-    ;; frame state. NOT cacheable: the precheck-hash short-circuit keys
-    ;; on `(hash app-db)`, but the DOM can change without an app-db
-    ;; mutation (a portal, a third-party widget, an async layout), so a
-    ;; cache keyed on app-db would serve stale render reads. Same posture
-    ;; as the action tools.
+    ;; frame state. NOT cacheable — the same posture as the action tools.
     :cacheable? false
     :descriptor data/read-dom}
    {:name       "read-ui"
     :handler    (ignoring-extra #(read-ui/read-ui-tool %1 %2))
     ;; The typed ui/read op — rendered view content + the
     ;; producing entity, riding the view<->DOM map. Read of live rendered
-    ;; DOM, same posture as read-dom: NOT cacheable — the precheck-hash
-    ;; short-circuit keys on `(hash app-db)`, but the DOM (and the live
-    ;; sub-cache the :subs-read slice reads) can change without an app-db
-    ;; mutation, so a cache keyed on app-db would serve stale render reads.
+    ;; DOM, same posture as read-dom: NOT cacheable.
     :cacheable? false
     :descriptor data/read-ui}
    ;; The three read-only re-frame.fresco.tool reads — the adapter-neutral
-   ;; evidence a pairing agent reads from a running app. NOT cacheable: the
-   ;; read-set entry cache, the cell table and their epochs move with every
-   ;; commit and every mount, none of which bumps the app-db precheck hash the
-   ;; cache keys on, so a cache would serve stale evidence (the read-ui /
-   ;; read-dom posture).
+   ;; evidence a pairing agent reads from a running app: the read-set entry
+   ;; cache, the cell table and their epochs, which move with every commit
+   ;; and every mount. NOT cacheable (the read-ui / read-dom posture).
    {:name       "read-mounted-boundaries"
     :handler    (ignoring-extra #(fresco-tool/read-mounted-boundaries-tool %1 %2))
     :cacheable? false
@@ -162,9 +150,9 @@
     :descriptor data/record}
    {:name       "read-recording"
     :handler    (ignoring-extra #(record/read-recording-tool %1 %2))
-    ;; Reads the volatile recording change-log (and may drain / stop it) —
-    ;; the return value is the live recording buffer, not a pure function
-    ;; of app-db, so a precheck-hash cache would serve stale logs.
+    ;; Reads the volatile recording change-log, and may drain / stop it —
+    ;; a side effect on the recording registry, so the same non-cacheable
+    ;; posture as `record` and the action tools.
     :cacheable? false
     :descriptor data/read-recording}
    {:name       "watch-until"
@@ -191,7 +179,8 @@
     ;; function of the frame's sealed generation, cacheable like the other
     ;; read tools. The generation is inert until a re-`make-frame` reload
     ;; (there is no dedicated `reload-images!` verb; reloading is
-    ;; re-construction), so the precheck-hash cache opt-in is safe.
+    ;; re-construction), so a repeat read with `cache true` hits until a
+    ;; reload.
     :cacheable? true
     :descriptor data/describe-image}
    {:name       "set-operating-frame"
@@ -208,26 +197,11 @@
     :descriptor data/reset-operating-frame}
    {:name       "get-operating-frame"
     :handler    (ignoring-extra #(operating-frame/get-operating-frame-tool %1 %2))
-    ;; NOT cacheable —
-    ;; a read of volatile process/runtime state, not a function of frame
-    ;; app-db. The resolved triple (`:frames` / `:app-frames` / `:selected`
-    ;; / `:operating`) depends on the live frame registry plus the per-
-    ;; session pin, and BOTH axes can move WITHOUT an app-db mutation and
-    ;; WITHOUT a `set-operating-frame` / `reset-operating-frame` call —
-    ;; e.g. a frame mounts/unmounts or a connected runtime reloads with a
-    ;; different live frame set. The cache key is only
-    ;; `[tool build (args->fingerprint args)]` (see `cache/cache-key`); it
-    ;; cannot fold in the registry/pin, and the result-hash cache only
-    ;; clears on an explicit operating-frame mutation (see
-    ;; `operating-frame-mutating?` in `tools.cljs`). So a repeated
-    ;; `get-operating-frame {cache true}` over byte-identical empty args
-    ;; could serve a `:rf.mcp/cache-hit` marker telling the agent to reuse
-    ;; stale frame-discovery data — hiding a newly ambiguous session or a
-    ;; newly available app frame. Marking it non-cacheable keeps the read
-    ;; always-fresh; the triple is cheap to recompute. If caching is ever
-    ;; wanted here, add a runtime frame-registry/session-pin generation
-    ;; token to the cache identity — do NOT key it on tool/build/args
-    ;; alone.
+    ;; NOT cacheable — it reports session state, not frame state: the
+    ;; resolved triple (`:frames` / `:app-frames` / `:selected` /
+    ;; `:operating`) is a function of the live frame registry plus the
+    ;; per-session pin. Its reply is small, so a cache-hit marker would
+    ;; save little.
     :cacheable? false
     :descriptor data/get-operating-frame}
    {:name       "get-re-frame2-pair-instructions"

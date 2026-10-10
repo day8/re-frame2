@@ -751,8 +751,8 @@
   (API §Result shape; 001-Wire-Protocol §JSON-RPC error codes). Using
   `wire/err-text` (not `wire/ok-text`) is what makes that true: the host
   surfaces the failure to the LLM as an error rather than a success-shaped
-  value, AND the response cache (which bypasses `:isError` results) cannot
-  cache a transient failure and mask a later successful read.
+  value, AND the response cache (which bypasses `:isError` results) never
+  answers a repeat of it with a success-shaped cache-hit marker.
 
   ## RELAY 2 of two — and it carries BOTH halves of the exception
 
@@ -971,8 +971,8 @@
 
   Keeping every failure `isError` is also what keeps it out of the
   response cache (cache eligibility bypasses `isError` results), so a
-  transient failure on a `:cacheable?` tool (describe-image) can never be
-  cached and mask a later successful read.
+  repeated failure on a `:cacheable?` tool (describe-image) comes back as
+  the failure, never as a success-shaped cache-hit marker.
 
   Used by describe-image / record / read-recording /
   list-subscriptions — tools whose runtime fn already speaks the

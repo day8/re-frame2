@@ -91,11 +91,11 @@
   :rf.mcp/cursor-stale)
 
 (def cache-hit-key
-  "Top-level marker on a response that short-circuited via the
-  per-session cache. Shape:
-    `{:rf.mcp/cache-hit {:tool ... :digest ... :hint ...}}`. The agent
-  re-uses the previously-shipped payload (the marker is content-free —
-  the agent host correlates by cache key)."
+  "Top-level marker that replaces a response byte-identical to the one
+  the per-session cache last sent for the same call. Shape:
+    `{:rf.mcp/cache-hit {:hash ... :unchanged-since ... :tool ... :hint ...}}`.
+  The agent re-uses the previously-shipped payload (the marker is
+  content-free — the agent host correlates by cache key)."
   :rf.mcp/cache-hit)
 
 (def summary-key

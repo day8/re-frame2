@@ -89,9 +89,9 @@
 ;; deliberately can NOT include the resolved operating frame for an
 ;; omitted-`:frame` call (that resolves runtime-side, after the key is
 ;; built). So a `get-path {path X}` with no `:frame` arg, cached against
-;; operating frame A, would serve A's payload after the session switches
-;; to frame B if B happens to share A's app-db-hash (the multi-frame
-;; identical-initial-db case). To prevent that, the WHOLE response cache
+;; operating frame A, would answer a byte-identical read of frame B with
+;; a marker whose `:unchanged-since` dates A's read. To keep every hit a
+;; same-frame comparison, the WHOLE response cache
 ;; flushes whenever the operating frame changes — and to avoid a
 ;; `cache → registry → operating-frame → cache` require cycle (registry
 ;; wires these handlers, cache reads registry's `cacheable?`), the flush
