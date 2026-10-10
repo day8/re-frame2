@@ -124,7 +124,8 @@ The raw React root is never exposed. `rf/destroy-adapter!` also releases it, exa
   (render! handle render-tree mount-point opts) → nil
   ```
 - **Description**: Renders `render-tree` (hiccup) into the DOM element `mount-point` through `handle`: the first call creates the React root, and every later call updates it. Returns nil.
-    - With `{:hydrate? true}` the first call hydrates the server-rendered markup already inside `mount-point` instead (see [`re-frame.ssr`](re-frame.ssr.md)). Later calls never create a second root or hydrate a second time. `:hydrate?` is the only `opts` key.
+    - With `{:hydrate? true}` the first call hydrates the server-rendered markup already inside `mount-point` instead (see [`re-frame.ssr`](re-frame.ssr.md)). Later calls never create a second root or hydrate a second time.
+    - A hydrating first call also reads `:on-recoverable-error`, which React calls with each error it recovers from (in a development build, a hydration mismatch emits `:rf.ssr/hydration-mismatch` first), and `:identifier-prefix`, which React's `useId` needs to match the server's and must be the prefix the server rendered under.
     - Because later calls update the same root, one call serves as both the boot path and the `^:dev/after-load` hook. `mount-point` is read on the first call only.
     - After `unmount!`, or after `rf/destroy-adapter!` has released the root, the next `render!` mounts afresh.
     - Call `rf/init!` before the first `render!`. `render!` does not check for an adapter, but the first frame or subscription the tree creates raises `:rf.error/no-adapter-installed`, or `:rf.error/adapter-disposed` after `rf/destroy-adapter!`. Install an adapter again before rendering afresh.
