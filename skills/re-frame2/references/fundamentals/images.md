@@ -48,7 +48,7 @@ Frame ids are **process-local and unique** — two live frames may not both clai
 
 ## Composing patterns
 
-- **Override behaviour through a later image, not a global install** — compose a small overrides image *after* the app image (its `:registrations` shadow the earlier ones; image order decides), then read the `:rf.gen/shadows` report on `rf/frame-generation` to assert exactly what it overrode. The canonical test recipe is [`../cross-cutting/testing.md` §Behaviour isolation in tests](../cross-cutting/testing.md#behaviour-isolation-in-tests--image-not-a-global-install).
+- **Override behaviour through a later image, not a global install** — compose a small overrides image *after* the app image (its `:registrations` shadow the earlier ones; image order decides), then read the `:rf.gen/shadows` report on `rf/frame-generation` to assert exactly what it overrode. The canonical test recipe is [`../cross-cutting/testing-doubles.md` §Behaviour isolation in tests](../cross-cutting/testing-doubles.md#behaviour-isolation-in-tests--image-not-a-global-install).
 - **Isolate *behaviour* with a later overrides image; isolate *state* with a fresh frame.** A frame created with no `:images` resolves against the shared registrar.
 
 ## Deeper material
