@@ -462,19 +462,21 @@
   images)
 
 (defn- validate-frame-interceptors!
-  "Resolve the frame's `:interceptors` chain against `generation`, the sealed
+  "Check the frame's `:interceptors` chain against `generation`, the sealed
   generation the frame will run, and throw the error the chain would raise at
   dispatch: `:rf.error/unregistered-interceptor` for an id with no
   registration, `:rf.error/inline-interceptor-removed` for an inline value,
   `:rf.error/invalid-interceptor-ref` for a malformed entry,
-  `:rf.error/interceptor-factory-arity` for a ref the factory cannot build
-  (Spec 002 §Validation and resolution timing: a live `make-frame` fails at
-  registration). The resolved values are discarded; dispatch resolves the chain
-  again, so a re-registered interceptor is picked up on the next event."
+  `:rf.error/interceptor-factory-arity` for a reference whose shape does not
+  match its registration (Spec 002 §Validation and resolution timing: a live
+  `make-frame` fails at registration). Nothing is built: dispatch resolves the
+  chain, so a re-registered interceptor is picked up on the next event and a
+  factory runs only for a reference that survives that dispatch's
+  `:interceptor-overrides`."
   [interceptors generation]
   (when (some? interceptors)
     (binding [rf.registrar/*generation* generation]
-      (rf.interceptor-registry/resolve-chain (vec interceptors))))
+      (rf.interceptor-registry/check-chain! interceptors)))
   nil)
 
 ;; ===========================================================================

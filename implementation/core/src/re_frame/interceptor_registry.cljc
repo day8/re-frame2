@@ -32,6 +32,10 @@
     static descriptor; an `[id arg]` vector resolves a `:factory` and builds
     for the arg.
 
+  - `check-ref!` / `check-chain!` — the registration-time check: each
+    reference names a registered id in the shape that registration takes.
+    Neither builds anything, so no factory runs at registration.
+
   - `resolve-chain` — the chain-assembly seam (EP-0022 reference-only
     grammar). Walk an event/frame `:interceptors` chain and resolve every
     REFERENCE to its registered interceptor value. An INLINE interceptor
@@ -212,19 +216,6 @@
            (keyword? (first x)))))
 
 ;; ---- exact-reference matching (Spec 002 §`:interceptor-overrides`) ---------
-;;
-;; The reserved slot a resolved chain entry carries so its AUTHORED reference
-;; survives resolution — `:interceptor-overrides` exact-reference matching
-;; (EP-0022) keys on this. A bare-keyword ref stamps the keyword; an
-;; `[id arg]` ref stamps the full vector. An entry without an authored ref
-;; (the framework default-wrapper, the only inline value a chain carries)
-;; matches no override: it is framework machinery, not an authored reference.
-
-(def authored-ref-key
-  "The reserved key under which a resolved chain entry carries its AUTHORED
-  interceptor reference (the bare keyword or `[id arg]` vector that produced
-  it). Read by the override matcher for exact-reference matching."
-  :rf/interceptor-ref)
 
 (defn ref=
   "True when interceptor references `a` and `b` denote the SAME reference under
@@ -244,27 +235,25 @@
 
 (defn override-key-matches?
   "True when `override-key` (an `:interceptor-overrides` map key, already
-  validated as a bare keyword or `[id arg]` reference) matches the resolved
-  chain `entry` per Spec 002 §`:interceptor-overrides`: the key must denote
-  the entry's AUTHORED reference.
+  validated as a bare keyword or `[id arg]` reference) matches the AUTHORED
+  chain reference `ref` per Spec 002 §`:interceptor-overrides`.
 
-    - a bare KEYWORD key matches only an entry authored as that same bare
+    - a bare KEYWORD key matches only a `ref` authored as that same bare
       keyword — never an `[id arg]` instance of that id, so
       `{:rf.interceptor/path nil}` removes no path interceptor;
-    - an `[id arg]` VECTOR key matches ONLY the entry whose authored ref is
-      `ref=` to that exact vector — so `{[:rf.interceptor/path [:cart]] nil}`
-      removes only that exact reference and leaves a sibling
+    - an `[id arg]` VECTOR key matches ONLY a `ref` that is `ref=` to that
+      exact vector — so `{[:rf.interceptor/path [:cart]] nil}` removes only
+      that exact reference and leaves a sibling
       `[:rf.interceptor/path [:cart :items]]` intact.
 
-  An entry's `:id` plays no part. The framework's `:rf/event-handler` wrapper
-  carries no authored ref, so it matches no key and no override map can
-  remove or replace the event handler. `entry` is a resolved executable
-  interceptor value; its authored ref rides `authored-ref-key`."
-  [override-key entry]
-  (let [authored (get entry authored-ref-key)]
-    (if (keyword? override-key)
-      (= override-key authored)
-      (ref= override-key authored))))
+  Overrides edit the authored chain before any reference resolves, so a
+  built interceptor's `:id` plays no part, and the framework's
+  `:rf/event-handler` wrapper — a value, not a reference — matches no key: no
+  override map can remove or replace the event handler."
+  [override-key ref]
+  (if (keyword? override-key)
+    (= override-key ref)
+    (ref= override-key ref)))
 
 (defn- registration-coords
   "The registration-site source coords the `reg-interceptor` MACRO captured
@@ -378,14 +367,9 @@
   interceptor's exception-trace chip jumps to the factory's `reg-interceptor`
   site (a built value carrying its OWN `:source-coord` keeps it; the
   framework `:rf.interceptor/path` registers programmatically, so it stays
-  coord-free)."
+  coord-free). `descriptor` is a `:factory` descriptor: [[registered-meta]]
+  has already checked the reference's shape."
   [ref id arg descriptor coords]
-  (when-not (factory-descriptor? descriptor)
-    (throw-factory-arity!
-      ref id
-      (str "parameterized interceptor reference `" (pr-str ref) "` targets id `"
-           id "`, which is registered as a STATIC interceptor (no `:factory`). "
-           "Only `:factory` interceptors accept an `[id arg]` reference.")))
   (let [built (try
                 ((:factory descriptor) arg)
                 (catch #?(:clj Throwable :cljs :default) e
@@ -425,13 +409,62 @@
              "neither a static descriptor (`{:before}` / `{:after}`) nor an "
              "executable interceptor for arg `" (pr-str arg) "`: " (pr-str built) ".")))))
 
+(defn- registered-meta
+  "Look up the registration `ref` names through the active (realm-aware)
+  registrar, check the reference's SHAPE against it, and return the
+  registration's metadata. Throws `:rf.error/unregistered-interceptor` when the
+  id is absent, `:rf.error/interceptor-factory-arity` when a bare keyword names
+  a `:factory` or an `[id arg]` names a static interceptor, and
+  `:rf.error/invalid-interceptor-ref` for a structurally-malformed entry. Runs
+  no factory."
+  [ref]
+  (cond
+    (keyword? ref)
+    (let [meta (rf.registrar/lookup interceptor-kind ref)]
+      (when (nil? meta)
+        (throw-unregistered-interceptor! ref ref))
+      (when (factory-descriptor? (:rf/interceptor-descriptor meta))
+        (throw-factory-arity!
+          ref ref
+          (str "interceptor reference `" ref "` is a bare keyword, but id `" ref
+               "` is registered as a `:factory` interceptor — a factory MUST be "
+               "referenced as `[" ref " arg]`.")))
+      meta)
+
+    (and (vector? ref) (= 2 (count ref)) (keyword? (first ref)))
+    (let [id   (first ref)
+          meta (rf.registrar/lookup interceptor-kind id)]
+      (when (nil? meta)
+        (throw-unregistered-interceptor! ref id))
+      (when-not (factory-descriptor? (:rf/interceptor-descriptor meta))
+        (throw-factory-arity!
+          ref id
+          (str "parameterized interceptor reference `" (pr-str ref) "` targets id `"
+               id "`, which is registered as a STATIC interceptor (no `:factory`). "
+               "Only `:factory` interceptors accept an `[id arg]` reference.")))
+      meta)
+
+    :else
+    (throw-invalid-ref! ref)))
+
+(defn check-ref!
+  "Check an interceptor REFERENCE at registration (Spec 002 §Validation and
+  resolution timing): it names a registered id, in the shape that registration
+  takes. Throws what [[registered-meta]] throws; returns `ref`.
+
+  Builds nothing. A factory runs only when a dispatch assembles a chain the
+  reference survives into, so a reference an `:interceptor-overrides` map
+  removes never reaches its factory, and a factory that cannot build for its
+  arg fails at that dispatch."
+  [ref]
+  (registered-meta ref)
+  ref)
+
 (defn resolve-ref
   "Resolve an interceptor REFERENCE (bare keyword or `[id arg]` 2-vector) to an
   executable interceptor value, looked up through the active (realm-aware)
-  registrar. Throws `:rf.error/unregistered-interceptor` when the id is absent,
-  `:rf.error/interceptor-factory-arity` when an `[id arg]` ref targets a
-  non-factory (or the factory cannot build), and `:rf.error/invalid-interceptor-ref`
-  for a structurally-malformed entry.
+  registrar. Throws what [[registered-meta]] throws, and
+  `:rf.error/interceptor-factory-arity` when a factory cannot build for the arg.
 
   Per Spec 002 §Validation and resolution timing: resolution happens at
   chain assembly, so a hot-reloaded interceptor descriptor is picked up on the
@@ -445,32 +478,37 @@
   `:rf.error/interceptor-exception` trace names the registration site
   (the Xray Epoch INTERCEPTOR row's jump-to-source chip)."
   [ref]
-  (cond
-    (keyword? ref)
-    (let [meta (rf.registrar/lookup interceptor-kind ref)]
-      (when (nil? meta)
-        (throw-unregistered-interceptor! ref ref))
-      (let [descriptor (:rf/interceptor-descriptor meta)]
-        (when (factory-descriptor? descriptor)
-          (throw-factory-arity!
-            ref ref
-            (str "interceptor reference `" ref "` is a bare keyword, but id `" ref
-                 "` is registered as a `:factory` interceptor — a factory MUST be "
-                 "referenced as `[" ref " arg]`.")))
-        (descriptor->interceptor ref descriptor (registration-coords meta))))
-
-    (and (vector? ref) (= 2 (count ref)) (keyword? (first ref)))
-    (let [[id arg] ref
-          meta     (rf.registrar/lookup interceptor-kind id)]
-      (when (nil? meta)
-        (throw-unregistered-interceptor! ref id))
-      (resolve-factory ref id arg (:rf/interceptor-descriptor meta)
-                       (registration-coords meta)))
-
-    :else
-    (throw-invalid-ref! ref)))
+  (let [meta       (registered-meta ref)
+        descriptor (:rf/interceptor-descriptor meta)
+        coords     (registration-coords meta)]
+    (if (keyword? ref)
+      (descriptor->interceptor ref descriptor coords)
+      (let [[id arg] ref]
+        (resolve-factory ref id arg descriptor coords)))))
 
 ;; ---- chain resolution (the chain-assembly seam) ---------------------------
+
+(defn- chain-entry
+  "Classify one event/frame `:interceptors` chain entry: a REFERENCE goes to
+  `on-ref`, the framework's own appended handler-wrapper
+  (`rf.interceptor/framework-default-interceptor?`) passes through untouched,
+  an INLINE interceptor value is `:rf.error/inline-interceptor-removed`, and
+  anything else is `:rf.error/invalid-interceptor-ref`."
+  [entry on-ref]
+  (cond
+    (interceptor-ref? entry)                              (on-ref entry)
+    (rf.interceptor/framework-default-interceptor? entry) entry
+    (interceptor-value? entry)                            (throw-inline-interceptor-removed! entry)
+    :else                                                 (throw-invalid-ref! entry)))
+
+(defn check-chain!
+  "Check an event/frame `:interceptors` chain at registration: every reference
+  passes [[check-ref!]], and an inline value or malformed entry throws what
+  [[resolve-chain]] would. Builds nothing. Returns nil."
+  [chain]
+  (doseq [entry chain]
+    (chain-entry entry check-ref!))
+  nil)
 
 (defn resolve-chain
   "Resolve an event/frame `:interceptors` chain entry-by-entry into executable
@@ -488,12 +526,9 @@
 
   `chain` is a sequential of refs (+ the framework default tail); returns a
   vector of executable interceptor values suitable for
-  `re-frame.interceptor/execute-chain`.
-
-  A resolved-from-reference entry is stamped with its AUTHORED reference under
-  `authored-ref-key` (`:rf/interceptor-ref`) so `:interceptor-overrides`
-  exact-reference matching (Spec 002 §`:interceptor-overrides`) can match the
-  full `[id arg]` it came from — not merely its `:id`.
+  `re-frame.interceptor/execute-chain`. The router hands it the chain
+  `:interceptor-overrides` has already edited, so only surviving references
+  are built.
 
   Refs resolve through the active (realm-aware) registrar — see the ns docstring."
   ([chain]
@@ -513,18 +548,7 @@
          :else
          (let [entry (first entries)
                value (try
-                       (cond
-                         ;; A reference — resolve it and stamp the AUTHORED ref
-                         ;; so exact-reference override matching can key on the
-                         ;; full `[id arg]`.
-                         (interceptor-ref? entry)
-                         (assoc (resolve-ref entry) authored-ref-key entry)
-                         ;; The framework's own appended handler-wrapper.
-                         (rf.interceptor/framework-default-interceptor? entry) entry
-                         ;; Inline values are a hard reference-grammar error.
-                         (interceptor-value? entry)
-                         (throw-inline-interceptor-removed! entry)
-                         :else (throw-invalid-ref! entry))
+                       (chain-entry entry resolve-ref)
                        (catch #?(:clj Throwable :cljs :default) e
                          ;; A factory may destroy its owner and then throw. Once
                          ;; ownership is gone, even that returned failure is

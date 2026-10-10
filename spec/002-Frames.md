@@ -2567,7 +2567,7 @@ The effective interceptor chain for one dispatch is assembled in this order:
 
 Groups 1 and 2 are **authored references** and resolve through the same process-global registrar that resolved the event handler (per [§Frame addressing](#frames-reference-realms) — resolution is process-global; the frame supplies state, not a separate registrar). There is no registrar-patching API.
 
-After refs resolve, the runtime applies the merged override map (frame `:interceptor-overrides` < dispatch-opts `:interceptor-overrides`): a replacement ref is resolved through the same registrar before execution; a `nil` replacement removes the matching ref from the chain.
+The runtime applies the merged override map (frame `:interceptor-overrides` < dispatch-opts `:interceptor-overrides`) to the authored refs before any of them resolves: a replacement ref takes the matching ref's place, and a `nil` replacement removes it. The surviving refs then resolve through the same registrar, once. A ref an override removes or replaces is never resolved, so its factory never runs.
 
 Framework dispatch-time interceptors that are **not** authored image members are governed by their owning specs — flow transformation, for instance, wraps after the authored chain in the position [013](013-Flows.md) requires (the outermost `:after`, per [§Drain-loop pseudocode](#drain-loop-pseudocode)). The reference-based naming applies to authored interceptors, not subsystem-owned dispatch machinery.
 
@@ -2575,7 +2575,7 @@ Framework dispatch-time interceptors that are **not** authored image members are
 
 Event and frame metadata store interceptor **references**, not resolved interceptor maps. The runtime resolves references when assembling the dispatch chain.
 
-- **Registration-time validation.** A live `reg-event` / `make-frame` that references an interceptor id with no registration fails at registration — `:rf.error/unregistered-interceptor`. Typos die before dispatch semantics apply.
+- **Registration-time validation.** A live `reg-event` / `make-frame` that references an interceptor id with no registration fails at registration — `:rf.error/unregistered-interceptor` — and so does a ref whose shape does not match its registration (a bare keyword naming a `:factory`, or an `[id arg]` naming a static interceptor) — `:rf.error/interceptor-factory-arity`. Typos die before dispatch semantics apply. Registration runs no factory: a factory that cannot build for its arg fails when a dispatch assembles a chain its ref survives into.
 - **Image-assembly validation.** Image values ([EP-0023](../docs/EP/EP-0023-image-loaded-frames.md)) validate refs during assembly of the resolved image generation — the explicit phase that selects descriptors, validates collisions and references, and seals a generation before the frame runs.
 - **Dispatch-time guard.** A dispatch-time unknown-ref failure exists only as a defensive guard against corrupt state or a hot-reload race.
 
