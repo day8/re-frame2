@@ -174,16 +174,25 @@
   It also supplies that ctx's `:chain`, the issue-time capture
   taken before the `:before` walk, so the stub's `:after` walk resolves
   exactly as the real transport's does: from the request's own capture,
-  never from the live registry."
-  [{:keys [origin-event explicit-on reply-payload kind frame middleware-ctx chain]}]
+  never from the live registry.
+
+  Both branch descriptors travel to the tail, which picks one from the
+  FINAL envelope's `:status`, so a canned success an `:after` rejects
+  reaches the failure target exactly as a live one does. The request's
+  `:url` and effective `:sensitive?` are read off the post-`:before` ctx."
+  [{:keys [origin-event args-map reply-payload frame middleware-ctx chain]}]
   (rf.http.middleware/run-after-then-dispatch!
-    {:frame          frame
-     :middleware-ctx middleware-ctx
-     :chain          chain
-     :origin-event   origin-event
-     :explicit-on    explicit-on
-     :reply-payload  reply-payload
-     :kind           kind}))
+    {:frame               frame
+     :middleware-ctx      middleware-ctx
+     :chain               chain
+     :origin-event        origin-event
+     ;; The SAME lowering fn the live fx uses: the unified `:reply-to` when
+     ;; present (both branches), else each branch's own sugar key.
+     :explicit-on-success (rf.http.encoding/reply-target args-map :on-success)
+     :explicit-on-failure (rf.http.encoding/reply-target args-map :on-failure)
+     :reply-payload       reply-payload
+     :url                 (get-in middleware-ctx [:request :url])
+     :sensitive?          (rf.http.privacy/request-sensitive? middleware-ctx)}))
 
 (defn- with-request-correlation
   "Echo the args-map's `:request-id` onto a canned `reply` as
@@ -243,15 +252,13 @@
                        (some? meta*) (assoc :meta meta*))]
     (dispatch-canned-reply!
       {:origin-event   origin-event
-       ;; The canned stub honours the SAME reply-addressing keys
-       ;; as the live fx, through the SAME lowering fn: the
-       ;; unified `:reply-to` when present (both branches), else this branch's
-       ;; `:on-success` sugar. There is no co-located default, so under
-       ;; `:on-failure`-only addressing the success reply is silenced
-       ;; (build-reply-event nil).
-       :explicit-on    (rf.http.encoding/reply-target args-map :on-success)
+       ;; The canned stub honours the SAME reply-addressing keys as the live
+       ;; fx. There is no co-located default, so under `:on-failure`-only
+       ;; addressing a reply whose FINAL envelope is `:ok` is silenced
+       ;; (build-reply-event nil); one an `:after` turned into an error
+       ;; reaches the `:on-failure` target.
+       :args-map       args-map
        :reply-payload  reply
-       :kind           :success
        :frame          frame-id
        :middleware-ctx middleware-ctx
        :chain          chain})
@@ -289,9 +296,8 @@
       {:origin-event   origin-event
        ;; Same reply-addressing keys as the live fx, through the
        ;; same lowering fn.
-       :explicit-on    (rf.http.encoding/reply-target args-map :on-failure)
+       :args-map       args-map
        :reply-payload  reply
-       :kind           :failure
        :frame          frame-id
        :middleware-ctx middleware-ctx
        :chain          chain})

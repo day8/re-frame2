@@ -545,10 +545,68 @@
      :slot-noun  ":after did not return a response map"}
     response))
 
+(defonce ^:private failure-swallowed-warned?
+  ;; One-shot latch so the "real failure swallowed by
+  ;; `:on-failure nil`" warning fires once per runtime, not once per
+  ;; swallowed request. Fire-and-forget telemetry beacons (`:on-failure
+  ;; nil`) are a legitimate steady-state pattern, so a per-request trace
+  ;; would be noise; the single warning makes the FIRST silently-dropped
+  ;; non-aborted failure visible (the no-silent-swallow principle) without
+  ;; flooding the trace surface for callers who knowingly opted out.
+  (atom false))
+
+(defn- warn-failure-swallowed!
+  "Surface a swallowed real failure once per runtime.
+
+  When a reply's final envelope routes to the failure branch and that branch
+  has no target — an explicit `:on-failure nil`, or a failure branch left
+  unaddressed — `build-reply-event` silences the reply (fire-and-forget). But
+  a NON-aborted failure (transport / 5xx / decode / accept / timeout, or a
+  success an `:after` turned into an error) routed into that silence is a real
+  error the app never sees — the anti-pattern the committed no-silent-swallow
+  principle calls out. Emit a one-shot `:rf.warning/failure-swallowed` so the
+  dropped failure is observable in dev / tooling.
+
+  Aborts (`:rf.http/aborted`, any reason) are EXCLUDED: a cancelled
+  request that no longer wants its reply is correct-by-design silence,
+  not a swallowed error."
+  [failure url sensitive?]
+  (when (and rf.interop/debug-enabled?
+             (not= :rf.http/aborted (:kind failure))
+             (compare-and-set! failure-swallowed-warned? false true))
+    (rf.trace/emit! :warning :rf.warning/failure-swallowed
+                 (rf.http.privacy/prepare-emit-tags
+                   {:url     url
+                    :failure failure
+                    :reason  (str "an HTTP request failed with `:kind "
+                                  (pr-str (:kind failure))
+                                  "` but the failure reply had no target "
+                                  "(`:on-failure nil`, or the failure branch "
+                                  "was left unaddressed) — the failure was "
+                                  "dropped with no handler. If the silence is "
+                                  "intentional (fire-and-forget telemetry), "
+                                  "ignore this; otherwise supply an "
+                                  "`:on-failure` or `:reply-to` target.")}
+                   (true? sensitive?)))))
+
 (defn run-after-then-dispatch!
   "The shared reply tail: thread `reply-payload` through the per-frame
-  `:after` interceptor chain, then hand the result to the late-bind
-  reply router (`encoding/dispatch-reply-via-late-bind!`).
+  `:after` interceptor chain, route the FINAL envelope by its `:status`, and
+  hand it to the late-bind reply router
+  (`encoding/dispatch-reply-via-late-bind!`).
+
+  The branch is chosen AFTER the chain, from the envelope the chain returned:
+  `:status :ok` goes to the success target, any other `:status` (or none) to
+  the failure target. `:on-success` / `:on-failure` are routing sugar over one
+  reply, so the handler a reply reaches always agrees with its `:status` — an
+  `:after` that rejects a 200 lands the error on the failure pipeline, and one
+  that treats a 404 as empty lands the `:ok` on the success pipeline.
+  `:reply-to` lowers to the same target for both branches, so it receives the
+  final envelope either way. The request is already finalised when this runs,
+  so an `:after`-produced failure is terminal and never re-enters retry.
+
+  A non-aborted reply routed to a failure branch with no target is dropped;
+  `warn-failure-swallowed!` makes the first one per runtime observable.
 
   Single source of truth for the two reply paths, which differ only in
   the `:after`-guard:
@@ -564,25 +622,30 @@
      chain.
 
   `opts` carries `:frame`, `:middleware-ctx`, `:chain` (the
-  request's issue-time chain capture, which travels with the ctx), the
-  three keys `dispatch-reply-via-late-bind!` consumes (`:origin-event`,
-  `:explicit-on`, `:kind`), and the EP-0010 `:completed-at` causal
-  completion time threaded onto the reply dispatch's `:rf.cofx`
-  No-op when the router is absent / the reply is silenced
-  (delegated to `dispatch-reply-via-late-bind!`).
+  request's issue-time chain capture, which travels with the ctx),
+  `:origin-event`, both branch descriptors `:explicit-on-success` /
+  `:explicit-on-failure` (`encoding/reply-target`'s `{:supplied? :value}`),
+  the request's `:url` and effective `:sensitive?` (read only by the swallow
+  warning), and the EP-0010 `:completed-at` causal completion time threaded
+  onto the reply dispatch's `:rf.cofx`. No-op when the router is absent / the
+  reply is silenced (delegated to `dispatch-reply-via-late-bind!`).
 
   The `:after` walk is keyed off the presence of
   `:middleware-ctx`, which is the synthetic-caller guard above; a caller
   carrying a ctx carries its captured chain with it, and an EMPTY chain
   runs no `:after` rather than falling back to the live registry."
-  [{:keys [frame middleware-ctx chain origin-event explicit-on reply-payload kind completed-at]}]
+  [{:keys [frame middleware-ctx chain origin-event explicit-on-success explicit-on-failure
+           reply-payload url sensitive? completed-at]}]
   (let [final-payload (if middleware-ctx
                         (run-after-chain! frame chain middleware-ctx reply-payload)
-                        reply-payload)]
+                        reply-payload)
+        success?      (= :ok (:status final-payload))
+        explicit-on   (if success? explicit-on-success explicit-on-failure)]
+    (when (and (not success?) (nil? (:value explicit-on)))
+      (warn-failure-swallowed! (:error final-payload) url sensitive?))
     (rf.http.encoding/dispatch-reply-via-late-bind!
       {:origin-event  origin-event
        :explicit-on   explicit-on
        :reply-payload final-payload
-       :kind          kind
        :completed-at  completed-at}
       frame)))

@@ -1,7 +1,8 @@
 (ns re-frame.http-interceptors-test
   "JVM tests for Spec 014 §Middleware — the per-frame HTTP interceptor chain:
   registration and clearing, chain order and frame scope, what a chain error
-  publishes, and issue-time chain capture on the live transport.
+  publishes, issue-time chain capture on the live transport, and how the
+  final `:status` an `:after` returns picks the reply's branch.
 
   Requests go to an in-process JDK `HttpServer`, so a test asserts on what
   actually reached the wire. Every test that sends a request awaits its REPLY
@@ -16,6 +17,7 @@
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.http.managed :as rf.http.managed]
             [re-frame.http.middleware :as rf.http.middleware]
+            [re-frame.http.test-support]
             [re-frame.test-support :as rf.test-support]
             [re-frame.trace.tooling :as rf.trace.tooling])
   (:import [com.sun.net.httpserver HttpServer HttpHandler HttpExchange]
@@ -610,3 +612,115 @@
             (is (= 1 @befores) ":before runs once per request, not once per attempt")
             (is (= [[:issue-time :stamped]] @log)
                 "the retried attempt's reply walked the chain captured at issue")))))))
+
+;; ---- the final :status picks the branch ------------------------------------
+;;
+;; Under split addressing the whole `:after` chain runs first, and the FINAL
+;; envelope's `:status` picks the target: `:ok` goes to `:on-success`, anything
+;; else to `:on-failure`. `:reply-to` addresses both branches, so it receives
+;; the final envelope either way.
+
+(def ^:private split {:on-success [::succeeded] :on-failure [::failed]})
+
+(defn- reg-routing-handlers! []
+  (doseq [[id handler] [[::succeeded :on-success] [::failed :on-failure] [::unified :reply-to]]]
+    (rf/reg-event id
+      (fn [{:keys [db]} [_ reply]] {:db (update db ::routed (fnil conj []) [handler reply])}))))
+
+(defn- routed!
+  "Issue one `:rf.http/managed` GET of `url` whose reply addressing is
+  `addressing`, with `extra` merged into its args, and return the
+  `[handler reply]` pairs THIS request was routed to once one has landed. A
+  request dispatches one reply, so the vector is complete when it is
+  non-empty."
+  ([url addressing] (routed! url addressing {} {}))
+  ([url addressing extra dispatch-opts]
+   (reg-routing-handlers!)
+   (rf/reg-event ::load-routed (fn [_ [_ args]] {:fx [[:rf.http/managed args]]}))
+   (let [routed #(::routed (rf/app-db-value :rf/default) [])
+         before (count (routed))]
+     (rf/dispatch-sync [::load-routed (merge {:request {:url url} :decode :json} addressing extra)]
+                       dispatch-opts)
+     (rf.test-support/poll-until #(let [rs (routed)] (when (< before (count rs)) (subvec rs before)))
+                                 {:timeout-ms 10000 :label "http-interceptors routed reply"}))))
+
+(defn- reg-reclassify! []
+  (rf/reg-http-interceptor :reclassify
+    {:after (fn [_ctx resp]
+              (if (= :ok (:status resp))
+                {:status :error :error {:kind :app/domain-error}}
+                resp))}))
+
+(defn- handler-and-status [[handler reply]] [handler (:status reply)])
+
+(deftest after-reclassifying-ok-to-error-routes-to-on-failure
+  (testing "an :after that turns a 200 into {:status :error …} delivers the error
+            envelope to :on-failure, and :on-success does not run"
+    (with-server ok!
+      (fn [base]
+        (reg-reclassify!)
+        (let [routed (routed! (str base "/reclassified") split)]
+          (is (= [[:on-failure :error]] (mapv handler-and-status routed)))
+          (is (= {:kind :app/domain-error} (:error (second (first routed))))))))))
+
+(deftest after-reclassifying-error-to-ok-routes-to-on-success
+  (testing "an :after that treats a 404 as empty delivers the :ok envelope and
+            its :value to :on-success"
+    (with-server #(write-response! % 404 "{}")
+      (fn [base]
+        (rf/reg-http-interceptor :accept-404
+          {:after (fn [_ctx resp]
+                    (if (= 404 (get-in resp [:error :status]))
+                      (-> resp (dissoc :error) (assoc :status :ok :value []))
+                      resp))})
+        (let [routed (routed! (str base "/missing") split)]
+          (is (= [[:on-success :ok]] (mapv handler-and-status routed)))
+          (is (= [] (:value (second (first routed))))))))))
+
+(deftest any-final-status-but-ok-routes-to-on-failure
+  (testing "the else-branch is :on-failure: a status-less or unknown final
+            :status never reaches a success handler"
+    (with-server ok!
+      (fn [base]
+        (doseq [[label after] [["no :status" #(dissoc %2 :status)]
+                               ["an unknown :status" #(assoc %2 :status :partial)]]]
+          (testing label
+            (rf/reg-http-interceptor :restatus {:after after})
+            (is (= [:on-failure] (mapv first (routed! (str base "/restatus") split))))))))))
+
+(deftest reply-to-receives-the-final-envelope
+  (testing ":reply-to addresses both branches, so it receives the reclassified
+            envelope"
+    (with-server ok!
+      (fn [base]
+        (reg-reclassify!)
+        (is (= [[:reply-to :error]]
+               (mapv handler-and-status (routed! (str base "/unified") {:reply-to [::unified]}))))))))
+
+(deftest canned-success-routes-on-the-final-status
+  (testing "the canned success stub shares the reply tail, so a reclassifying
+            :after routes its reply to :on-failure too"
+    (reg-reclassify!)
+    (is (= [[:on-failure :error]]
+           (mapv handler-and-status
+                 (routed! "/canned" split {}
+                          {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}}))))))
+
+(deftest after-reclassification-is-terminal
+  (testing "an :after that mints a retryable failure kind routes it to
+            :on-failure without re-issuing the request"
+    (let [hits (atom 0)]
+      (with-server (fn [ex] (swap! hits inc) (ok! ex))
+        (fn [base]
+          (rf/reg-http-interceptor :mint-5xx
+            {:after (fn [_ctx resp]
+                      (if (= :ok (:status resp))
+                        (-> resp (dissoc :value :meta)
+                            (assoc :status :error :error {:kind :rf.http/http-5xx :status 503}))
+                        resp))})
+          (let [routed (routed! (str base "/minted") split
+                                {:retry {:on #{:rf.http/http-5xx} :max-attempts 3
+                                         :backoff {:base-ms 5 :factor 1 :max-ms 10}}}
+                                {})]
+            (is (= [[:on-failure :error]] (mapv handler-and-status routed)))
+            (is (= 1 @hits) "the server saw one attempt")))))))

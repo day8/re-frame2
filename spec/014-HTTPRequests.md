@@ -327,7 +327,7 @@ The 10-second **connect** timeout is configured separately at the shared JDK Htt
 
 ## `:accept` — domain-failure normalisation
 
-**`:accept` is shipped, specified here, untaught, and secondary to the ordinary request map.** It is the one way a 2xx domain failure selects the failure PIPELINE rather than a branch inside the success handler: an `:after` interceptor is not equivalent, since `dispatch-reply!` selects the branch destination BEFORE the response-side chain transforms the payload, so an `:after` returning `{:status :error …}` would send an error-shaped payload to the SUCCESS target. **Promote it** to a taught option with a worked example when a named consumer needs a 2xx domain failure to select the failure pipeline. **No deadline.** Absence of call sites is evidence against a *convenience*, not against a capability whose discriminator is written down.
+**`:accept` is shipped, specified here, untaught, and secondary to the ordinary request map.** It classifies a 2xx domain failure **per request**, declared beside `:decode`, where an [`:after` interceptor](#after--response-side-ctx--response-contract) is frame-wide middleware over every request the frame issues. It runs as step 4 of [§Classification order](#classification-order), so its failure is the closed-taxonomy `:rf.http/accept-failure`, carrying the pre-`:accept` body at `:decoded` under the [response-body classification](#response-body-classification-ep-0015-5) redaction, and a malformed or throwing `:accept` is itself classified rather than stranding the caller (below). **Promote it** to a taught option with a worked example when a named consumer needs a 2xx domain failure to select the failure pipeline. **No deadline.** Absence of call sites is evidence against a *convenience*, not against a capability whose discriminator is written down.
 
 After decoding, the user's `:accept` fn classifies the decoded value:
 
@@ -618,7 +618,7 @@ The canonical reply payload is appended as the last argument to the dispatched e
 [:article/load-error {:status :error :error failure-map …}]
 ```
 
-`:on-success` / `:on-failure` are **pure routing sugar** — both receive the identical [canonical reply envelope](#reply-payload-shape--the-one-canonical-envelope); they only route it to two named handlers instead of one branching handler. Each reply lands on its own single-purpose handler — the failure path is named rather than a branch inside the request handler. This is the shape to reach for by default.
+`:on-success` / `:on-failure` are **pure routing sugar** — both receive the identical [canonical reply envelope](#reply-payload-shape--the-one-canonical-envelope); they only route it to two named handlers instead of one branching handler, on the reply's **final** `:status` (`:ok` to `:on-success`, anything else to `:on-failure` — see [§`:after`](#after--response-side-ctx--response-contract)). Each reply lands on its own single-purpose handler — the failure path is named rather than a branch inside the request handler. This is the shape to reach for by default.
 
 ### Unified target — one handler (`:reply-to`)
 
@@ -645,7 +645,7 @@ Fire-and-forget — the **one** spelling for "deliberately no receiver". Useful 
 
 An explicit `nil` on a single branch (`:on-failure nil` with `:on-success` supplied) remains valid — that is the split form silencing one of its two branches, which is a different statement from silencing the whole reply.
 
-A silenced `:on-failure` (an explicit `nil`, or a failure branch left unaddressed while the success branch was addressed) drops the failure reply with no handler. To keep this honest against the no-silent-swallow principle, the runtime emits a **one-shot `:rf.warning/failure-swallowed`** trace (per runtime, dev-only) the first time a NON-aborted failure (`:rf.http/transport` / `:rf.http/http-5xx` / `:rf.http/timeout` / `:rf.http/decode-failure` / `:rf.http/accept-failure` / …) is dropped — the silence is observable rather than invisible. Aborted requests (`:rf.http/aborted`, any reason) are excluded: a cancelled request that no longer wants its reply is correct silence, not a swallowed error. The warning is informational; there is no `:rf.error/*` for the path.
+A silenced `:on-failure` (an explicit `nil`, or a failure branch left unaddressed while the success branch was addressed) drops, with no handler, every reply whose final `:status` is not `:ok`. To keep this honest against the no-silent-swallow principle, the runtime emits a **one-shot `:rf.warning/failure-swallowed`** trace (per runtime, dev-only) the first time a NON-aborted failure (`:rf.http/transport` / `:rf.http/http-5xx` / `:rf.http/timeout` / `:rf.http/decode-failure` / `:rf.http/accept-failure` / an error an `:after` returned / …) is dropped — the silence is observable rather than invisible. Aborted requests (`:rf.http/aborted`, any reason) are excluded: a cancelled request that no longer wants its reply is correct silence, not a swallowed error. The warning is informational; there is no `:rf.error/*` for the path.
 
 ## Aborts
 
@@ -866,6 +866,8 @@ Each `:after` receives `(fn [ctx response] response')`:
 | `response` | map | The canonical reply envelope — `{:status :ok :value <decoded> :meta {…} …}`, `{:status :error :error <failure-map> …}`, or `{:status :cancelled :error <aborted-map> …}`. The shape matches the reply-payload `build-reply-event` appends to the user's `:on-success` / `:on-failure` event vector. On a successful live-transport completion `:meta` carries the actual response status / status text / normalized headers ([§Successful-response metadata](#successful-response-metadata--meta)), so a response-side transform reads real wire facts, not just the decoded `:value`. |
 
 Returns the (possibly-transformed) response map. The runtime threads each `:after`'s return value through the next `:after`, then substitutes the final response into the reply-payload before `:on-success` / `:on-failure` fire.
+
+**The final response's `:status` picks the branch.** Under split addressing a final `:status :ok` goes to `:on-success` and any other `:status`, or none, goes to `:on-failure`; `:reply-to` receives the final response either way. So an `:after` can reject a 200 whose body says `{"ok": false}` onto the failure pipeline, or treat a 404 as an empty `:ok`. Reclassification is terminal: the request is already finalised when the chain runs, so an error an `:after` returns is never retried, whatever its `:kind` ([§Retry and backoff](#retry-and-backoff)). An `:after` returns a canonical envelope: keep the correlation and identity facts (`:correlation`, `:rf.reply/work-id`, `:rf.frame/id`, …), and keep `:value` / `:error` coherent with the `:status` it returns. The `:rf.http/replied` completion row records the envelope from before the chain, so it can differ from the reply delivered.
 
 #### Motivating use cases
 
