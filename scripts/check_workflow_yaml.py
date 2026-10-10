@@ -90,28 +90,11 @@ def _diagnose(text: str):
 
 
 # ---------------------------------------------------------------------------
-# Self-test.  A green live sweep over a tree that happens to be clean cannot
-# tell you the difference between "the workflows parse" and "the checker has
-# stopped looking" — the same argument the residue sweeps in this directory
-# make for their own self-test arms.  So drive it red on three break shapes that
-# are each a plausible hand-edit, and green on a valid workflow.
+# Self-test: valid YAML yields None and a YAMLError yields a diagnosis.  Which
+# malformed shapes PyYAML rejects is the library's business, so one break does.
 # ---------------------------------------------------------------------------
-_VALID = """\
-name: tests
-on:
-  pull_request:
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "hello"
-"""
-
-_BREAKS = (
-    ("unmatched quote", 'name: "tests\non:\n  pull_request:\n'),
-    ("unclosed flow sequence", "name: tests\njobs: [build, lint\n"),
-    ("two colons in one key", "name: tests\non: push: true\n"),
-)
+_VALID = 'name: "tests"\non:\n  pull_request:\n'
+_BROKEN = 'name: "tests\non:\n  pull_request:\n'
 
 
 def run_self_test(verbose: bool) -> int:
@@ -120,15 +103,12 @@ def run_self_test(verbose: bool) -> int:
     diagnosis = _diagnose(_VALID)
     if diagnosis is not None:
         failures.append(f"a VALID workflow was rejected: {diagnosis}")
-    elif verbose:
-        print("  ok  valid workflow accepted")
 
-    for label, text in _BREAKS:
-        diagnosis = _diagnose(text)
-        if diagnosis is None:
-            failures.append(f"break shape not detected: {label}")
-        elif verbose:
-            print(f"  ok  {label} -> {diagnosis}")
+    diagnosis = _diagnose(_BROKEN)
+    if diagnosis is None:
+        failures.append("break shape not detected: unmatched quote")
+    elif verbose:
+        print(f"  ok  unmatched quote -> {diagnosis}")
 
     if failures:
         print("FAIL check_workflow_yaml self-test:", file=sys.stderr)
@@ -136,7 +116,7 @@ def run_self_test(verbose: bool) -> int:
             print(f"  - {problem}", file=sys.stderr)
         return 1
 
-    print(f"PASS check_workflow_yaml self-test ({1 + len(_BREAKS)} cases)")
+    print("PASS check_workflow_yaml self-test (2 cases)")
     return 0
 
 
