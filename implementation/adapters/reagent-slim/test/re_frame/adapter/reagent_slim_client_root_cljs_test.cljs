@@ -9,7 +9,8 @@
             [reagent2.dom.client :as rdc]
             [re-frame.frame :as rf.frame]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
-            [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]))
+            [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]
+            [re-frame.substrate.spine :as rf.substrate.spine]))
 
 (defn- with-fresh-slim-adapter [test-fn]
   (reset! rf.frame/frames {})
@@ -66,6 +67,16 @@
       (body-fn))
     @calls))
 
+(defn- closer-child
+  "The tree beneath a hydrating root's adoption-window closer, or `tree`
+  itself when the closer does not wrap it."
+  [tree]
+  (if (and (vector? tree)
+           (= :r> (first tree))
+           (identical? rf.substrate.spine/adoption-window-closer (second tree)))
+    (nth tree 3)
+    tree))
+
 (defn- calls-of-kind [calls call-kind]
   (filter #(= call-kind (first %)) calls))
 
@@ -102,7 +113,10 @@
       (is (= [[]
               [[:hydrate-root mount [:div "ssr"]]]
               [[:render root [:div "v2"]] [:render root [:div "v3"]]]]
-             (by-kind calls))))))
+             (mapv (partial mapv (fn [[k r t]] [k r (closer-child t)])) (by-kind calls))))
+      (is (every? #(not= (nth % 2) (closer-child (nth % 2)))
+                  (concat (calls-of-kind calls :hydrate-root) (calls-of-kind calls :render)))
+          "the hydration and every later update render through the window closer"))))
 
 (deftest unmount-is-idempotent-and-a-later-render-mounts-afresh
   (testing "unmount! twice reaches rdc/unmount once; render! afterwards mounts afresh"
