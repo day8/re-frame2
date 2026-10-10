@@ -58,7 +58,7 @@
   render's dynamic extent beside `*dispatch*`; `nil` outside a render.
   `re-frame.fresco.impl.route-link/route-link` reads it at render time,
   because a browser click fires after the extent has unwound and the
-  frame's pinned bundle must travel as data."
+  frame must travel as data."
   nil)
 
 (def ^:private ambient-frame-refusal
@@ -466,8 +466,7 @@
     :else                veto))
 
 (defn- unwrap-navigate
-  "The map inside `[navigate-head {…}]` — `:frame` (the rendering
-  incarnation's pinned `capture-frame` bundle), `:payload`, `:native?`
+  "The map inside `[navigate-head {…}]` — `:frame`, `:payload`, `:native?`
   and `:veto` (docs/design/fresco/decisions.md HD-027). Not validated:
   `route-link` mints this form and nothing else writes it, so a render
   pays nothing per link to re-read a map the library constructed. Not a

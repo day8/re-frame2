@@ -72,7 +72,6 @@
   coupling is structural, not a rule somebody has to keep."
   (:require [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.fresco.impl.generation :as rf.fresco.impl.generation]
             [re-frame.late-bind :as rf.late-bind]))
 
 ;; frame-kw -> {:incarnation <token or nil>   the exact incarnation this row
@@ -154,21 +153,17 @@
   ([frame-kw] (swap! !frame-ops dissoc frame-kw) nil))
 
 (defn- on-frame-destroyed!
-  "Core's step-7 destroy hook — retire the dying frame's install epoch into
-  the commit basis, then drop the destroyed frame's row.
+  "Core's step-7 destroy hook — drop the destroyed frame's row.
 
   UNCONDITIONAL by key, and it needs no incarnation token to be safe about
   it: a same-id successor is constructable
   only AFTER `dissoc-frame!` (step 10) and this fires at step 7, so whatever
   row stands under `frame-kw` here belongs to an incarnation that is already
   dead — the dying one, or an earlier one whose successor never looked up.
-  The same ordering is why the retire reads the dying incarnation's epoch:
-  core clears it only at `dissoc-frame!`.
 
   A 1-arity fn rather than `forget-frame-ops!` itself, so the hook's arity
   is the contract rather than an accident of that door having two."
   [frame-kw]
-  (rf.fresco.impl.generation/retire-frame-epoch! frame-kw)
   (forget-frame-ops! frame-kw))
 
 (rf.late-bind/set-fn! :fresco/on-frame-destroyed! on-frame-destroyed!)

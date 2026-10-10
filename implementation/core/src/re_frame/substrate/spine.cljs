@@ -3045,15 +3045,6 @@
         ;; (frame, query) pair — a silent correctness bug. The `useRef` path
         ;; has no false-positive equality and stays cheap (one extra
         ;; ref, one allocation-free `=` compare per render).
-        ;;
-        ;; The tuple carries the frame's INCARNATION token beside its
-        ;; keyword, compared with `identical?`, as `use-frame`'s memo does. A
-        ;; frame destroyed and re-made under the same id answers to an `=`
-        ;; keyword, so a keyword-only key would keep a mounted hook on the
-        ;; dead incarnation's disposed reaction — reading the destroyed
-        ;; frame's state, and never notified again — while the token change
-        ;; makes the next render resubscribe to the successor. A nil token
-        ;; (the id is not live at render) is a legitimate key value.
         use-subscribe-2
         (fn use-subscribe-2 [frame-kw query-v]
           (let [key-ref (React/useRef nil)
@@ -3102,16 +3093,14 @@
                 ;; cleanup must not release the NEW target's token.
                 provisional-ref (React/useRef nil)
                 stable-key
-                (let [prev        (.-current key-ref)
-                      incarnation (rf.frame/frame-incarnation-token frame-kw)]
+                (let [prev (.-current key-ref)
+                      new-key #js [frame-kw query-v]]
                   (if (and prev
                            (= (aget prev 0) frame-kw)
-                           (= (aget prev 1) query-v)
-                           (identical? (aget prev 2) incarnation))
+                           (= (aget prev 1) query-v))
                     prev
-                    (let [new-key #js [frame-kw query-v incarnation]]
-                      (set! (.-current key-ref) new-key)
-                      new-key)))
+                    (do (set! (.-current key-ref) new-key)
+                        new-key)))
                 ;; Destructure the stable tuple's components so the
                 ;; downstream call sites see JS-ref-stable values for
                 ;; same-by-= subsequent renders.
