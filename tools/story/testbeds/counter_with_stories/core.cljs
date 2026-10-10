@@ -106,9 +106,9 @@
     ;; Install the always-on event-emit listener. The listener prints
     ;; one record per dispatched event to the browser console,
     ;; without needing the trace surface or Xray attached. The
-    ;; `:auth/sign-in` password shows raw there: its registration
-    ;; classification redacts it on the trace surface (Xray, the Story
-    ;; recorder), not in this implementation-tier record.
+    ;; `:auth/sign-in` password shows `:rf/redacted` there, as on the
+    ;; trace surface (Xray, the Story recorder): its registration
+    ;; classification applies to this implementation-tier record too.
     (elision/install-listener!))
   ;; Install the CI-as-test global hook the Playwright
   ;; play-script runner reads. Inert until the runner polls it; safe

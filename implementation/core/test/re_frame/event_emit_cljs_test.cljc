@@ -11,7 +11,10 @@
             [re-frame.event-emit :as rf.event-emit]
             [re-frame.flows :as rf.flows]
             [re-frame.frame :as rf.frame]
+            [re-frame.image :as rf.image]
             [re-frame.late-bind :as rf.late-bind]
+            [re-frame.live-frame :as rf.live-frame]
+            [re-frame.privacy :as rf.privacy]
             [re-frame.registrar :as rf.registrar]
             [re-frame.schemas :as rf.schemas]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -65,6 +68,56 @@
         "one record per processed event, carrying only the tight keys")
     (is (number? (:time (first @seen))))
     (is (nat-int? (:elapsed-ms (first @seen))))))
+
+(deftest listener-event-applies-the-registration-marks
+  ;; A payload classified at registration reaches the listener redacted, as it
+  ;; does on the dev trace, the error-emit record and the sink route. The
+  ;; correction is at observation, so the handler still runs on the real value.
+  (let [seen     (record-events!)
+        received (atom nil)]
+    (rf/reg-event :auth/login {:sensitive [[:password]]}
+      (fn [_ [_ {:keys [password]}]] (reset! received password) {}))
+    (rf/reg-event :auth/hello (fn [_ _] {}))
+    (rf/dispatch-sync [:auth/login {:user "alice" :password "SECRET"}])
+    (rf/dispatch-sync [:auth/hello {:user "bob" :password "PLAIN"}])
+    (is (= [:auth/login {:user "alice" :password rf.privacy/redacted-sentinel}]
+           (:event (first @seen)))
+        "the registration's :sensitive path is redacted on the record")
+    (is (= [:auth/hello {:user "bob" :password "PLAIN"}]
+           (:event (second @seen)))
+        "an unmarked event's payload arrives unchanged")
+    (is (= "SECRET" @received) "the handler received the real value")))
+
+(defn- install-login-frame!
+  "Seal `frame-id`'s generation from an image whose only registration is an
+  inline `:ifzi/login` event carrying `classification`. The empty descriptor
+  pool keeps live source-store registrations out."
+  [frame-id image-id classification]
+  (rf.live-frame/make-frame
+    {:id     frame-id
+     :images [(rf.image/image {:id            image-id
+                               :registrations {:reg-event [[:ifzi/login classification
+                                                            (fn [_cofx _ev] {})]]}})]}
+    []))
+
+(deftest listener-event-resolves-the-marks-in-the-record-owners-generation
+  ;; An image-local declaration is visible only inside its frame's resolution
+  ;; scope, so the registration pass has to run in the record owner's
+  ;; generation rather than the ambient `:rf/default` one.
+  (install-login-frame! :ifzi/owner :ifzi/image {:sensitive [[:password]]})
+  (let [seen (record-events!)]
+    (rf/dispatch-sync [:ifzi/login {:user "ann" :password "secret"}] {:frame :ifzi/owner})
+    (is (= [[:ifzi/login {:user "ann" :password rf.privacy/redacted-sentinel}]]
+           (mapv :event @seen))
+        "a dispatch into the image-loaded frame redacts its declared path")
+    ;; The router already runs the emit inside the frame's scope, so only a
+    ;; call made from the ambient scope shows the substrate binds the owner.
+    (reset! seen [])
+    (rf.event-emit/dispatch-on-event! [:ifzi/login {:user "ann" :password "secret"}]
+                                      :ifzi/login :ifzi/owner 0 :ok 0)
+    (is (= [[:ifzi/login {:user "ann" :password rf.privacy/redacted-sentinel}]]
+           (mapv :event @seen))
+        "a record emitted from the ambient scope resolves in its own frame")))
 
 (deftest listener-reports-a-throwing-effect-as-ok-beside-its-error-record
   ;; `:ok` certifies the commit and a completed `:fx` walk, not that every

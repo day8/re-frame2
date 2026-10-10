@@ -50,10 +50,10 @@ The privacy contract classifies at the **owner of the data** — the three-owner
 | Owner declaration | Stamps top-level trace `:sensitive?`? | Recorder behaviour |
 |---|---|---|
 | Durable app-db `:sensitive` **classification effect** (returned alongside `:db`) | **Yes** — the sensitive handler scope is stamped | Row redacted → `[:rf/redacted]` |
-| Registration `:sensitive [[:path]]` | **Yes** — the event-emit record is stamped for the named payload paths | Row redacted → `[:rf/redacted]` |
+| Registration `:sensitive [[:path]]` | **No** — the trace event's named payload paths already read `:rf/redacted`, so nothing is stamped | Row kept, the named paths `:rf/redacted` |
 | Handler-meta `{:sensitive? true}` | **No** — not honoured; ignored | Row kept, payload verbatim — **do not rely on this** |
 
-So to get a recorded login / 2FA / API-key flow suppressed, classify the secret's *path* at its owner (see the three-owner table): a durable app-db secret via the writing event's `:sensitive` classification effect, or a payload-only secret in the submit handler's registration `:sensitive` metadata. Either route stamps the trace event and triggers whole-row redaction. The contract is **fail-open** — a path you never classify ships its row verbatim.
+So to get a recorded login / 2FA / API-key flow suppressed, classify the secret's *path* at its owner (see the three-owner table): a durable app-db secret via the writing event's `:sensitive` classification effect, which stamps the trace event and triggers whole-row redaction, or a payload-only secret in the submit handler's registration `:sensitive` metadata, which keeps the row and redacts the named paths inside it. The contract is **fail-open** — a path you never classify ships its row verbatim.
 
 > **Surfaces that do not exist.** The non-existent-API list (`redact-interceptor` / `add-marks` / frame `:sensitive {:app-db …}` and what to use instead) is owned by [`../cross-cutting/privacy-and-elision.md` §Surfaces that do not exist](../cross-cutting/privacy-and-elision.md#surfaces-that-do-not-exist--use-the-model) — reaching for any of them is a wrong turn; classify the secret's *path* at its owner instead.
 

@@ -312,11 +312,17 @@
         (redact event)))
     event))
 
-(defn- project-event-slot
+(defn project-event-slot
   "Project an event-shaped slot: the event registration's marks FIRST (the
   EVENT owner — EP-0015), then the frame-policy size/sensitive
   walk. A sentinel the registration pass writes is inert under the subsequent
-  walk."
+  walk.
+
+  The one event projection every always-on route shares: this ns's sink
+  route, and the `re-frame.event-emit` / `re-frame.error-emit` records, which
+  call it with `{:frame <owner>}` so the registration pass resolves in the
+  owner's generation and the walk reads the owner's durable classification.
+  A nil owner keeps the ambient resolution, and the walk then fails closed."
   [event elision-opts]
   (-> event
       (redact-event-by-registration elision-opts)
