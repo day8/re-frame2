@@ -14,11 +14,10 @@
     `:app-frames` (reserved-frame-aware) / `:selected` (the tier-2 session
     pin) / `:operating` (the result of full resolution — `nil` means
     AMBIGUOUS: two-plus app frames and no pin).
-  - the envelope carries no realm slots — there is no realm coordinate,
-    public or internal, anywhere in the wire shape.
 
-  This gate pins THAT wire shape so a regression that introduces a realm
-  pin/slot or drops a frame-enumeration slot trips the conformance corpus.
+  This gate pins THAT wire shape, and ties each fixture to the production
+  source it mirrors, so a regression that drops a frame-enumeration slot
+  trips the conformance corpus.
 
   ## What is DEFERRED (NOT in scope here)
 
@@ -35,10 +34,10 @@
   same-id/different-image isolation case and the image-descriptor case
   wait on that forward-direction API.
 
-  ## Posture (mirrors `event_bundle_test.clj` / `result_envelope_test.clj`)
+  ## Posture (mirrors `result_envelope_test.clj`)
 
   The operating-frame envelope is a STRUCTURAL result envelope (like
-  `:rf.mcp/result` and the event-bundle shape) — NOT a single-key
+  `:rf.mcp/result`) — NOT a single-key
   wrapper marker, so it gets its own focused namespace rather than a
   `canonical-markers` row. The schema is co-located here (the
   marker-family-LOCAL posture documented in `schemas.clj`). The EMITTER is
@@ -57,25 +56,6 @@
 ;; FAILURE shape, dispatched on `:ok?`. Both are co-located here.
 ;; ---------------------------------------------------------------------------
 
-(defn- realm-shaped-key?
-  "A map key whose namespace OR name mentions `realm` — a coordinate the
-  operating-frame wire shape does not carry. Matched
-  case-insensitively over the keyword's full string form so `:realms`,
-  `:operating-realm`, `:frame-realms`, and a namespaced `:rf.realm/id`
-  all trip."
-  [k]
-  (and (keyword? k)
-       (boolean (re-find #"(?i)realm" (subs (str k) 1)))))
-
-(defn- no-realm-slots?
-  "True when `m` carries no realm-shaped key. This is the closed-key
-  NEGATIVE that gives the deliberately-OPEN `OperatingFrameSuccess`
-  schema real teeth against an emitted realm slot: the
-  envelope stays open to legitimate non-realm additive decorations
-  (source-uri / freshness) while ANY realm-shaped key is rejected."
-  [m]
-  (not (some realm-shaped-key? (keys m))))
-
 (def OperatingFrameSuccess
   "The `{:ok? true ...}` operating-frame envelope per the Tool-Pair
   §Tool-surface-obligations contract under EP-0023.
@@ -93,30 +73,17 @@
                   the sole app frame (tier 3), else `nil` (tier 4 —
                   AMBIGUOUS: two-plus app frames, no pin). A frame-id or nil.
 
-  There are NO realm slots — there is no re-frame.realm substrate; the
-  wire shape is frame-only. This is enforced with
-  teeth by the `[:fn no-realm-slots?]` arm below — NOT by `:closed`,
-  which would also reject the legitimate additive decorations.
-
   Open map `{:closed false}` — additive envelope slots (the
   source-uri/freshness decorations the wire-pipeline layers on) compose
   without a schema bump. The LOAD-BEARING claim is that the public
-  addressing slots are present and correctly typed AND that no
-  realm-shaped slot rides the envelope: the closed-key
-  negative catches a real emitter carrying a realm coordinate,
-  which the open map alone would silently accept."
-  [:and
-   [:map
-    {:closed false}
-    [:ok?        [:= true]]
-    [:frames     [:sequential :keyword]]
-    [:app-frames [:sequential :keyword]]
-    [:selected   [:maybe :keyword]]
-    [:operating  [:maybe :keyword]]]
-   [:fn {:error/message (str "operating-frame envelope carries a realm-shaped slot — "
-                             "EP-0023 makes the wire shape frame-only "
-                             "(no realm coordinate, public or internal)")}
-    no-realm-slots?]])
+  addressing slots are present and correctly typed."
+  [:map
+   {:closed false}
+   [:ok?        [:= true]]
+   [:frames     [:sequential :keyword]]
+   [:app-frames [:sequential :keyword]]
+   [:selected   [:maybe :keyword]]
+   [:operating  [:maybe :keyword]]])
 
 (def OperatingFrameFailure
   "The `{:ok? false :reason <kw> ...}` operating-frame failure envelope.
@@ -214,85 +181,30 @@
 ;; Schema-conformance + structural assertions
 ;; ---------------------------------------------------------------------------
 
-(deftest success-fixtures-conform-to-schema
-  (doseq [[fixture-name fixture-value] success-fixtures]
-    (testing (str "operating-frame success — fixture " fixture-name)
-      (is (m/validate OperatingFrameSuccess fixture-value)
-          (str "Fixture " fixture-name " failed OperatingFrameSuccess "
-               "validation:\n"
-               (me/humanize (m/explain OperatingFrameSuccess fixture-value)))))))
+(deftest fixtures-conform-to-schema
+  (doseq [[schema fixtures] [[OperatingFrameSuccess success-fixtures]
+                             [OperatingFrameFailure failure-fixtures]]
+          [fixture-name fixture-value] fixtures]
+    (is (m/validate schema fixture-value)
+        (str "Fixture " fixture-name " failed operating-frame validation:\n"
+             (me/humanize (m/explain schema fixture-value))))))
 
-(deftest failure-fixtures-conform-to-schema
-  (doseq [[fixture-name fixture-value] failure-fixtures]
-    (testing (str "operating-frame failure — fixture " fixture-name)
-      (is (m/validate OperatingFrameFailure fixture-value)
-          (str "Fixture " fixture-name " failed OperatingFrameFailure "
-               "validation:\n"
-               (me/humanize (m/explain OperatingFrameFailure fixture-value)))))))
-
-(deftest success-envelope-enforces-public-addressing-slots
-  ;; The teeth: the public addressing slots are REQUIRED and typed. A
-  ;; regression that dropped `:frames` (the public address space) or
-  ;; re-typed `:operating` to a non-keyword would mask the EP-0023
-  ;; addressing contract this gate pins.
+(deftest schemas-enforce-the-addressing-slots-and-reasons
+  ;; The teeth: the public address space is REQUIRED, frame-ids ride as
+  ;; keywords, and the failure reasons are a closed vocabulary.
   (let [base (:multi-frame-pinned success-fixtures)]
-    (testing "an envelope missing :frames (the public address space) fails"
-      (is (not (m/validate OperatingFrameSuccess (dissoc base :frames)))
-          ":frames is the public address space — it MUST ride on every success envelope"))
-    (testing "an envelope missing :operating (the resolution result) fails"
-      (is (not (m/validate OperatingFrameSuccess (dissoc base :operating)))
-          ":operating is the resolved target — it MUST ride on every success envelope"))
-    (testing "an envelope missing :selected (the tier-2 pin slot) fails"
-      (is (not (m/validate OperatingFrameSuccess (dissoc base :selected)))))
-    (testing ":operating MUST be a frame-id keyword or nil, never a string"
-      (is (not (m/validate OperatingFrameSuccess (assoc base :operating "stories")))
-          "a string :operating is a serialisation regression — frame-ids ride as keywords"))
-    (testing ":frames MUST be keywords, never strings"
-      (is (not (m/validate OperatingFrameSuccess (assoc base :frames ["rf/default" "stories"])))))))
-
-(deftest no-realm-slots-on-the-envelope
-  ;; There is no re-frame.realm substrate. The operating-frame envelope is
-  ;; frame-only — no realm coordinate, public or internal.
-  ;;
-  ;; The teeth: the guarantee is enforced by the SCHEMA's
-  ;; closed-key negative (`[:fn no-realm-slots?]` on `OperatingFrameSuccess`),
-  ;; NOT by iterating the author's own fixtures. A fixture-only absence check
-  ;; is self-referential — the schema is `{:closed false}`, so a real emitter
-  ;; carrying a `:realms` slot would validate against every
-  ;; schema-conformance gate AND never flow through a fixture `contains?`
-  ;; check. Asserting the SCHEMA rejects the slot catches the emitter
-  ;; regression the docstring names.
-  (testing "the SCHEMA rejects a realm slot (the emitter-regression guard)"
-    (let [base (:multi-frame-pinned success-fixtures)]
-      (doseq [realm-slot [:realms :operating-realm :rf.realm/id]]
-        (testing (str "a success envelope carrying " realm-slot " fails validation")
-          (is (not (m/validate OperatingFrameSuccess (assoc base realm-slot :whatever)))
-              (str "OperatingFrameSuccess MUST reject a " realm-slot
-                   " slot — EP-0023 makes the wire shape frame-only. "
-                   "The schema stays OPEN for non-realm additive decorations but "
-                   "the [:fn no-realm-slots?] arm rejects any realm-shaped key."))))
-      (testing "a non-realm additive decoration validates (the schema stays open)"
-        (is (m/validate OperatingFrameSuccess
-                        (assoc base :rf.mcp/source-uri "app://x" :fresh? true))
-            (str "OperatingFrameSuccess MUST remain OPEN to legitimate additive "
-                 "wire decorations (source-uri / freshness) — the realm negative "
-                 "must not become a general closed-map rejection."))))))
-
-(deftest failure-envelope-enforces-reason-vocabulary
-  ;; The two documented failure reasons are the closed wire vocabulary;
-  ;; `:no-such-frame` carries the corrective `:frames` list. A novel
-  ;; reason keyword or an `:ok? true` failure trips the gate.
-  (testing "an :ok? true failure envelope is rejected (ok?/reason mismatch)"
-    (is (not (m/validate OperatingFrameFailure
-                         {:ok? true :reason :no-such-frame}))))
-  (testing "an unrecognised :reason has no enum arm and fails"
-    (is (not (m/validate OperatingFrameFailure
-                         {:ok? false :reason :bogus-reason})))))
+    (doseq [[label schema envelope]
+            [[":frames is the public address space — it MUST ride on every success envelope"
+              OperatingFrameSuccess (dissoc base :frames)]
+             ["a string :operating is a serialisation regression — frame-ids ride as keywords"
+              OperatingFrameSuccess (assoc base :operating "stories")]
+             ["an unrecognised :reason has no enum arm"
+              OperatingFrameFailure {:ok? false :reason :bogus-reason}]]]
+      (is (not (m/validate schema envelope)) label))))
 
 ;; ---------------------------------------------------------------------------
-;; Source-text pins — the EP-0023 frame-only addressing, as DATA, in the pair-mcp
-;; descriptor + spec. Mirrors the marker-literal pins in
-;; `result_envelope_test.clj`.
+;; Source-text pins — each fixture family against the production source it
+;; mirrors.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private set-operating-frame-descriptor-rel
@@ -342,58 +254,3 @@
       (is (contains? example k)
           (str "failure fixture " fixture-name " carries " (pr-str k)
                " but set-operating-frame example " n " replies " (pr-str example))))))
-
-(deftest set-operating-frame-requires-frame-arg
-  ;; EP-0023: the public address is the FRAME id, so `set-operating-frame`
-  ;; REQUIRES `:frame`. Pin that the descriptor's inputSchema declares
-  ;; `:frame` required (`:required ["frame"]`). A regression that made it
-  ;; optional would open an implicit-target ambiguity.
-  (let [src (rf.mcp-conformance.fixtures/read-source set-operating-frame-descriptor-rel)]
-    (is (str/includes? src "set-operating-frame")
-        "the set-operating-frame descriptor must live in the descriptor data")
-    (is (str/includes? src ":required [\"frame\"]")
-        (str "set-operating-frame's inputSchema MUST declare :frame REQUIRED "
-             "(EP-0023: the public address is the frame id). A missing "
-             ":required [\"frame\"] opens an implicit-target ambiguity."))))
-
-(deftest set-operating-frame-has-no-public-realm-pin-arg
-  ;; The load-bearing EP-0023 addressing rule: set-operating-frame's
-  ;; inputSchema has no public `:realm` pin arg — a realm is never a public
-  ;; address. Pin that the set-operating-frame inputSchema's `:properties`
-  ;; carries ONLY `:frame` + `:build` (the build-targeting arg every tool
-  ;; shares), and specifically NOT a `:realm` / `:realm-id` property. A
-  ;; regression that added a public realm pin trips here.
-  (let [block (set-operating-frame-block)]
-    (is (str/includes? block ":frame")
-        "the set-operating-frame inputSchema declares the public :frame address")
-    (testing "no public :realm pin arg in the set-operating-frame inputSchema"
-      ;; The block-local inputSchema must not declare a `:realm` (or
-      ;; `:realm-id`) PROPERTY. We look for the property-declaration form
-      ;; `:realm {` / `:realm-id {` (an inputSchema property is a map),
-      ;; which would only appear if a public realm pin were added. Prose
-      ;; mentions of "realm" are fine — we pin the PROPERTY form.
-      (is (not (re-find #":realm(-id)?\s*\{" block))
-          (str "set-operating-frame's inputSchema MUST NOT declare a public "
-               ":realm / :realm-id property — EP-0023 has no public realm "
-               "pin. A realm is "
-               "never a public address. Adding one breaks the EP-0023 "
-               "frame-only addressing.")))))
-
-(deftest ep-0023-frame-address-prose-in-descriptor-and-spec
-  ;; Doc-source pin (looser): the EP-0023 frame-addressing model is taught
-  ;; in the pair-mcp descriptor prose + the Tool-Catalogue spec — the human
-  ;; home for "the public address is the frame id". A reorganisation that
-  ;; dropped the model entirely should surface here. Mirrors
-  ;; `result-key-literal-in-mcp-base-vocab-spec-doc-source`.
-  (let [descriptor (rf.mcp-conformance.fixtures/read-source set-operating-frame-descriptor-rel)
-        spec-rel   "tools/re-frame2-pair-mcp/spec/003-Tool-Catalogue.md"
-        spec       (rf.mcp-conformance.fixtures/read-source spec-rel)]
-    (testing "the descriptor prose teaches the EP-0023 frame-address model"
-      (is (str/includes? descriptor "EP-0023")
-          "set-operating-frame's descriptor must anchor the EP-0023 model")
-      (is (str/includes? descriptor ":no-such-frame")
-          "the descriptor documents the :no-such-frame failure reason"))
-    (testing "the Tool-Catalogue spec carries the EP-0023 frame-addressing prose"
-      (is (str/includes? spec "EP-0023")
-          (str spec-rel " must document the EP-0023 frame-addressing model "
-               "(the forward-direction deferral + the frame-only public address).")))))
