@@ -29,7 +29,8 @@
 // ## EXIT CODES
 //
 //     0  stopped by SIGTERM or SIGINT after a graceful close
-//     1  the service could not start: the module refused, or the port is taken
+//     1  the service failed: it could not start (the module refused, or the
+//        port is taken), or a terminated isolate could not be replaced
 //     2  the command line was wrong
 //
 // Node on Windows has no graceful signal — a `kill` there terminates the
@@ -163,9 +164,17 @@ async function main(argv) {
     })}\n`,
   );
 
-  const signal = await new Promise((resolve) => {
-    for (const sig of ['SIGTERM', 'SIGINT']) process.once(sig, () => resolve(sig));
-  });
+  const signal = await Promise.race([
+    new Promise((resolve) => {
+      for (const sig of ['SIGTERM', 'SIGINT']) process.once(sig, () => resolve(sig));
+    }),
+    service.whenFailed.then(() => null),
+  ]);
+  if (signal === null) {
+    log('a terminated isolate could not be replaced: exiting for the supervisor to restart the service');
+    await transport.close();
+    return 1;
+  }
   log(`${signal}: closing`);
   await transport.close();
   await service.close();

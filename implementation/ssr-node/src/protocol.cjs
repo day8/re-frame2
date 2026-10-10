@@ -296,7 +296,8 @@ const ISOLATE_LOST_REFUSAL =
 
 /**
  * What a caller waiting for capacity is told when the pool could not
- * replace a terminated isolate.
+ * replace a terminated isolate — and every caller after it, since that
+ * failure closes the service for good.
  *
  * THE SAME LAW AGAIN, STATED BY A THIRD RECEIVER — and this one exists
  * because one refusal has two AUDIENCES, not because a different failure
@@ -325,8 +326,8 @@ const ISOLATE_LOST_REFUSAL =
  *
  * The diagnosis goes to the operator, and on this path that costs nothing:
  * the loop over waiters tells no one when NOBODY is queued, so without a
- * stderr write a failed replacement would shrink the pool by an isolate in
- * silence. The stderr write is therefore unconditional.
+ * stderr write a failed replacement would end the service with its cause
+ * untold. The stderr write is therefore unconditional.
  */
 const REPLACEMENT_FAILED_REFUSAL =
   'the service could not replace a terminated isolate, so the capacity you were waiting for ' +

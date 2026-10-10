@@ -11,7 +11,9 @@
 //               being decided by the wrong process.
 //   REPLACEMENT a terminated isolate is never reused (see `isolate.cjs`),
 //               so the pool spawns a fresh one and the caller after next
-//               never notices.
+//               never notices. A replacement that will not boot ends the
+//               service: the pool can never reach its configured size
+//               again, and a supervisor restart is the recovery.
 //   IDENTITY    every isolate loads the same bundle from the same path.
 //               A replacement that comes back with a DIFFERENT buildId
 //               means the artefact changed on disk under a running
@@ -38,8 +40,8 @@ const { Isolate } = require('./isolate.cjs');
  * that handler is the boot phase, which has its own diagnostic. This path
  * has no second reporter at all: the caller-facing statement is a loop over
  * `waiters`, so without this a replacement that failed with an EMPTY queue
- * would reach nobody — the pool would shrink by an isolate and the process
- * would say nothing. That silence is more dangerous than a leak, because a
+ * would reach nobody — the service would end and nothing would say
+ * why. That silence is more dangerous than a leak, because a
  * leak is at least visible to somebody.
  *
  * `detail` is printed as well as the message because for one boot failure
@@ -93,6 +95,12 @@ class Pool {
     this.entries = null;
     /** Replacements performed. A rising count is a service killing renders. */
     this.replacementCount = 0;
+    /** True once a replacement failed to boot; the pool is then closed for good. */
+    this.failed = false;
+    /** Resolves once a failed replacement has closed the pool. */
+    this.whenFailed = new Promise((resolve) => {
+      this._signalFailed = resolve;
+    });
   }
 
   async start() {
@@ -167,6 +175,7 @@ class Pool {
 
   /** An idle isolate, or a `Refusal`. Never a queue with no bottom. */
   acquire() {
+    if (this.failed) return Promise.reject(this._replacementFailedRefusal());
     if (this.closed) {
       return Promise.reject(new Refusal(CODE.SERVICE_CLOSED, 'the service is closed', {}));
     }
@@ -205,9 +214,13 @@ class Pool {
         (replacement) => {
           if (replacement) this._offer(replacement);
         },
-        // A pool that cannot replace an isolate is a pool that shrinks.
-        // Every waiter is refused rather than left holding a promise that
-        // will only ever be settled by its own admission timer.
+        // A pool that cannot replace an isolate can never reach its
+        // configured size again, so it ENDS rather than shrinks: every
+        // waiter and every later caller is refused with one stable code,
+        // the remaining workers are terminated, `/health` stops answering
+        // ok, and `bin/serve.cjs` exits non-zero for its supervisor to
+        // restart. In-flight renders on healthy siblings are refused as on
+        // any shutdown.
         //
         // AND EVERY BOOT REFUSAL STOPS HERE. Forwarding `err` when it is a
         // `Refusal`, or interpolating `err.message` when it is not, would
@@ -237,17 +250,22 @@ class Pool {
         // rather than a courtesy.
         (err) => {
           reportReplacementFault(this.modulePath, err);
+          if (this.failed) return;
+          this.failed = true;
           for (const waiter of this.waiters.splice(0)) {
             clearTimeout(waiter.timer);
-            waiter.reject(
-              new Refusal(CODE.ISOLATE_LOST, REPLACEMENT_FAILED_REFUSAL, { poolSize: this.size }),
-            );
+            waiter.reject(this._replacementFailedRefusal());
           }
+          this.close().then(this._signalFailed, this._signalFailed);
         },
       );
       return;
     }
     this._offer(isolate);
+  }
+
+  _replacementFailedRefusal() {
+    return new Refusal(CODE.ISOLATE_LOST, REPLACEMENT_FAILED_REFUSAL, { poolSize: this.size });
   }
 
   _offer(isolate) {
