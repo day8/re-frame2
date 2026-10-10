@@ -17,18 +17,6 @@
                            :where       'rf/guarded
                            :reason      msg})))))
 
-;; An `if` / `do` / `cond` chain is equally transparent.
-(defn branched
-  [ok? reason]
-  (let [msg (str reason " [:rf.error/branched]")]
-    (if ok?
-      nil
-      (do
-        (prn :about-to-throw)
-        (cond
-          :else (throw (ex-info msg {:rf.error/id :rf.error/branched
-                                     :where       'rf/branched})))))))
-
 ;; A nested `let` that binds a DIFFERENT name does not shadow the message.
 (defn nested-other-binding
   [reason]

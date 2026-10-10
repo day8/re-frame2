@@ -19,21 +19,6 @@
                      :reason      msg
                      :unknown     (vec unknown)}))))
 
-;; The same one hop away through the ASSEMBLED token form — the bracket pair is
-;; split across the `(str …)` pieces with a LITERAL keyword between them.
-(defn assembled
-  [reason]
-  (let [msg (str reason " [" :rf.error/assembled-let-bound "]")]
-    (throw (ex-info msg {:rf.error/id :rf.error/assembled-let-bound
-                         :where       'rf/assembled}))))
-
-;; A `human-message` derivation bound before the throw is equally conformant.
-(defn via-builder
-  [data]
-  (let [msg (human-message :rf.error/via-builder data)]
-    (throw (ex-info msg {:rf.error/id :rf.error/via-builder
-                         :where       'rf/via-builder}))))
-
 ;; INNERMOST binding wins, the way Clojure resolves it: the outer `msg` has no
 ;; token, the inner one does, and the inner one is what is thrown.
 (defn shadowed
