@@ -80,7 +80,8 @@
   production builds the trace surface elides entirely and no body walk runs."
   (:require [re-frame.late-bind :as rf.late-bind]
             [re-frame.error :as rf.error]
-            [re-frame.classification :as rf.classification]))
+            [re-frame.classification :as rf.classification]
+            [re-frame.privacy :as rf.privacy]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -318,3 +319,39 @@
       (rf.classification/redact-with-paths decoded (keys sensitive) (keys large)
                                            {:index-free? true})
       decoded)))
+
+;; ---------------------------------------------------------------------------
+;; The success reply's value: the decoded body, or what `:accept` made of it.
+;;
+;; The `:decode` schema's marks are paths into the DECODED body. An `:accept`
+;; that reshapes it (`{:ok (:session decoded)}`) hands on a value those paths
+;; no longer line up with, so a mark would miss its slot and the slot would
+;; ride verbatim. The value is therefore classified per-slot only when it IS
+;; the decoded body, and is otherwise unschematized. `:accept` itself always
+;; receives the raw body: classification is a trace projection, never a change
+;; to application data.
+;; ---------------------------------------------------------------------------
+
+(defn classify-success-value
+  "The dev-trace projection of a success reply's `value`, given the
+  pre-`:accept` `decoded` body and the request's `decode`. A `value`
+  `identical?` to `decoded` — no `:accept`, or one returning `{:ok decoded}` —
+  is classified per-slot by `classify-decoded`. Any other value is
+  unschematized: it redacts wholesale to `:rf/redacted` when `decode` declares
+  any `:sensitive?` mark, since the marked slot may now sit anywhere in it,
+  and rides unchanged otherwise. Pure."
+  [value decoded decode]
+  (cond
+    (identical? value decoded)                      (classify-decoded value decode)
+    (seq (:sensitive (decode-schema-marks decode))) rf.privacy/redacted-sentinel
+    :else                                           value))
+
+(defn success-value-disposition
+  "The off-box disposition of a success reply's `value`: `decode`'s
+  `off-box-body-disposition` when `value` is the decoded body itself, and
+  `:omit` for a value an `:accept` reshaped, whose shape no schema describes.
+  Pure."
+  [value decoded decode]
+  (if (identical? value decoded)
+    (off-box-body-disposition decode)
+    :omit))

@@ -236,6 +236,48 @@
     (is (= :classify (get-in ev [:tags :rf.http/off-box-body])))
     (is (= {:token :rf/redacted :status "rejected"} (get-in ev [:tags :decoded])))))
 
+;; ---- a success value an `:accept` reshaped ----------------------------------
+
+(def ^:private session-decode
+  [:map [:session [:map [:token {:sensitive? true} :string]]]])
+
+(defn- session-trace!
+  "The replied row for a session body decoded by `session-decode` and handed
+  to `accept` (none when nil), and the value the app received."
+  [accept]
+  (let [[ev] (managed-trace! (respond 200 "application/json" "{\"session\":{\"token\":\"SECRET\"}}")
+                             (fn [base] (cond-> {:request  {:url (str base "/session")}
+                                                 :decode   session-decode
+                                                 :reply-to [:test/ok]}
+                                          accept (assoc :accept accept)))
+                             :rf.http/replied)]
+    [ev (:value (delivered-reply))]))
+
+(deftest reshaped-success-value-is-redacted-and-omitted-off-box
+  (testing "the :decode schema's marks no longer line up with a value an
+            :accept reshaped, so it is unschematized: redacted wholesale on
+            the dev trace and stamped :omit, while the app receives it raw"
+    (let [[ev delivered] (session-trace! (fn [v] {:ok (:session v)}))]
+      (is (= :omit (get-in ev [:tags :rf.http/off-box-body])))
+      (is (= :rf/redacted (get-in ev [:tags :value])))
+      (is (not (str/includes? (pr-str (off-box ev)) "SECRET")))
+      (is (= {:token "SECRET"} delivered)))))
+
+(defn- assert-classified-per-slot
+  "A success value that IS the decoded body keeps per-slot classification."
+  [accept]
+  (let [[ev delivered] (session-trace! accept)]
+    (is (= {:session {:token :rf/redacted}} (get-in ev [:tags :value])))
+    (is (= :classify (get-in ev [:tags :rf.http/off-box-body])))
+    (is (= {:session {:token :rf/redacted}} (get-in (off-box ev) [:tags :value])))
+    (is (= {:session {:token "SECRET"}} delivered))))
+
+(deftest success-value-without-accept-is-classified-per-slot
+  (assert-classified-per-slot nil))
+
+(deftest success-value-an-accept-passes-through-is-classified-per-slot
+  (assert-classified-per-slot (fn [v] {:ok v})))
+
 ;; ---- the `:rf.http/replied` completion row ----------------------------------
 
 (deftest replied-trace-redacts-denylisted-headers-in-the-failure-error-slot
