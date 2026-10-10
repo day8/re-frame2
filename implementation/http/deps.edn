@@ -62,6 +62,11 @@
                        ;; Cancellation-cascade tests drive actor destruction;
                        ;; machines is a test-only dependency.
                        day8/re-frame2-machines   {:local/root "../machines"}
+                       ;; The response-body privacy tests pass the emitted
+                       ;; `:rf.http/replied` row through epoch's off-box
+                       ;; trace-events projector, which enforces the
+                       ;; `:rf.http/off-box-body` stamp.
+                       day8/re-frame2-epoch      {:local/root "../epoch"}
                        ;; Silent-on-success reporter.
                        day8/re-frame2-test-quiet {:local/root "../test-quiet"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}

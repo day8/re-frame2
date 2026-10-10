@@ -108,34 +108,50 @@
          (not (fn? decode))
          (not (and (keyword? decode) (contains? keyword-decode-modes decode))))))
 
+(defn- walker-sees-every-mark?
+  "True iff the schemas artefact's walker reports `decode` free of any opaque
+  descendant, so the marks the extract hooks return are all the marks there
+  are. False when the walker's hook is unbound: nothing can then show it."
+  [decode]
+  (if-let [opaque-child? (rf.late-bind/get-fn-cached :schemas/schema-has-opaque-child?)]
+    (not (opaque-child? decode))
+    false))
+
 (defn introspectable-schema-decode?
-  "True iff `decode` is a Malli-schema `:decode` the shared schema walker can
-  actually INTROSPECT for per-slot marks — i.e. the raw EDN VECTOR form
-  (`[op props? children...]`, the shape `(rf/reg-app-schema …)` users write).
+  "True iff `decode` is a Malli-schema `:decode` whose per-slot marks the
+  shared schema walker sees IN FULL — the raw EDN VECTOR form
+  (`[op props? children...]`, the shape `(rf/reg-app-schema …)` users write)
+  with no opaque descendant.
 
   This is narrower than `schema-decode?`, which is
-  true for ANY non-mode/non-fn `:decode`, including OPAQUE schema values the
-  walker treats as a leaf and returns `{}` marks for:
+  true for ANY non-mode/non-fn `:decode`, including schemas whose marks the
+  walker cannot reach and so returns no paths for:
 
     - a KEYWORD REGISTRY REF (`:my-app/token-schema`) — a bare keyword is a
       valid Malli schema (registry ref), but the walker (per Spec 010 §The
       `:schema` value is opaque to re-frame) MUST NOT consult the registry /
       validator, so it cannot see the ref'd schema's per-slot marks;
     - a COMPILED `m/schema` object / a map / any non-vector non-keyword form
-      — also an opaque leaf to the pure-data walker.
+      — also an opaque leaf to the pure-data walker;
+    - a vector form the walker reports opaque
+      (`re-frame.schemas/schema-has-opaque-child?`): an explicit `[:ref …]`,
+      a local `:registry`, an embedded compiled value or an unclassified op,
+      at any depth. The marks behind it live in a shape the walk resolves
+      nowhere.
 
-  An opaque-leaf decode returns NO `:sensitive?` / `:large?` paths even when
-  the underlying schema DOES mark slots sensitive. Treating it as
-  `schema-decode?` → `:classify` would ride the body UNCHANGED off-box — the
+  Such a decode yields only the marks the walker can see, possibly none, even
+  when the underlying schema DOES mark slots sensitive. Treating it as
+  `schema-decode?` → `:classify` would ride those slots UNCHANGED off-box — the
   fail-open egress. The off-box projection therefore gates on this
-  predicate (fail-CLOSED to `:omit` for an opaque schema); only an
-  introspectable vector form earns `:classify`. The on-box dev-trace
+  predicate (fail-CLOSED to `:omit`), as it does when the schemas artefact is
+  absent and no walker can answer. The on-box dev-trace
   per-slot classification (`classify-decoded`) still keys on `schema-decode?`
-  — it is a harmless no-op on an opaque leaf, and the local operator sees
-  their own raw process anyway."
+  — it applies whatever marks the walker does see, and the local operator
+  sees their own raw process anyway."
   [decode]
   (and (schema-decode? decode)
-       (vector? decode)))
+       (vector? decode)
+       (walker-sees-every-mark? decode)))
 
 ;; ---------------------------------------------------------------------------
 ;; Per-slot marks from the `:decode` schema (the shared walker hooks).
@@ -233,20 +249,22 @@
   the request's `:decode`. Returns one of:
 
     :classify  — the body has an INTROSPECTABLE Malli `:decode` schema (the
-                 raw EDN VECTOR form); ride it with the schema's per-slot
-                 marks, which the emit site already applied on-box via
-                 `classify-decoded`;
+                 raw EDN VECTOR form, with no opaque descendant); ride it
+                 with the schema's per-slot marks, which the emit site
+                 already applied on-box via `classify-decoded`;
     :omit      — the body is UNSCHEMATIZED (`:auto` / `:json` / `:text` /
-                 binary / custom fn) OR carries an OPAQUE schema the walker
-                 cannot inspect (a keyword registry ref / a compiled
-                 `m/schema` object); whole-sensitive, omitted entirely.
+                 binary / custom fn) OR carries a schema whose marks the
+                 walker cannot see in full (a keyword registry ref, a compiled
+                 `m/schema` object, a `[:ref …]` or local `:registry` at any
+                 depth, or any schema when the walker is unbound);
+                 whole-sensitive, omitted entirely.
 
   An unschematized body OR an opaque-schema body fails CLOSED off-box
   (EP-0015 issue 5 — fail-closed when classification is UNKNOWN).
-  An opaque keyword registry ref returns NO per-slot marks from the shared
-  walker (Spec 010 forbids resolving the registry), so `:classify` would ride
-  its body unchanged — the fail-open leak. Off-box gates on
-  `introspectable-schema-decode?` (vector form only). Pure.
+  A reference returns NO per-slot marks for the shape it names (Spec 010
+  forbids resolving the registry), so `:classify` would ride that shape's
+  slots unchanged — the fail-open leak. Off-box gates on
+  `introspectable-schema-decode?`. Pure.
 
   This is the policy the HTTP trace-emit site stamps forward onto the
   `:rf.http/replied` / `:rf.http/accept-failure` trace event (under
@@ -287,9 +305,16 @@
   path); a root-level `:large?` mark elides the whole body. When `decode` is
   not a schema, the body is returned unchanged (the keyword/fn-decode and
   unschematized cases are governed by the per-call `:sensitive?` flag on the
-  dev trace and by `off-box-body-disposition` for off-box egress). Pure."
+  dev trace and by `off-box-body-disposition` for off-box egress).
+
+  The walker writes a mark inside a collection's element schema
+  (`[:items [:vector [:map [:token {:sensitive? true} :string]]]]`) without
+  an element index (`[:items :token]`), so the marks match INDEX-FREE: the
+  slot redacts in every element. A position-pinned `:tuple` mark
+  (`[:pair 1 :token]`) still matches its own element only. Pure."
   [decoded decode]
   (let [{:keys [sensitive large]} (decode-schema-marks decode)]
     (if (or (seq sensitive) (seq large))
-      (rf.classification/redact-with-paths decoded (keys sensitive) (keys large))
+      (rf.classification/redact-with-paths decoded (keys sensitive) (keys large)
+                                           {:index-free? true})
       decoded)))
