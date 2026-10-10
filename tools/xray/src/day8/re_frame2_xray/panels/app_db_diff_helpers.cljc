@@ -27,12 +27,12 @@
   share structure with their predecessors — every untouched sub-map
   is `identical?` to the predecessor's sub-map at the same path.
 
-  ## Reserved keys — `runtime-areas` / `reserved-summary`
+  ## Reserved keys — `runtime-areas`
 
   The runtime subsystems (machines / routing / elision) live in a
   SEPARATE runtime-db partition (`:rf.runtime/*`), not in app-db. The
   `[runtime]` group is built
-  from that partition via the `runtime-areas` table + `reserved-summary`,
+  from that partition via the `runtime-areas` table,
   and `user-domain-db` hides any framework-internal `:rf*`-namespaced slot
   a host stashes at the app-db root, via `reserved-namespace-key?`.
 
@@ -224,25 +224,6 @@
    :rf/route              [:rf.runtime/routing :current]
    :rf/pending-navigation [:rf.runtime/routing :pending-navigation]
    :rf/elision            [:rf.runtime/elision]})
-
-(defn reserved-summary
-  "Project the current runtime subsystem slots out of the RUNTIME-DB
-  partition value `runtime-db` into a sorted vector of `[area-id value]`
-  pairs for the panel's `[runtime]` group. Drops areas with no live value
-  so the group is sized by what's actually populated.
-
-  Logical area-ids (`:rf/machines`, `:rf/route`, …) are the operator-
-  facing labels per the `runtime-areas` table; the values are read from
-  the `[:rf.runtime/...]` sub-paths of the runtime-db partition, not
-  app-db.
-
-  Pure data → data."
-  [runtime-db]
-  (vec
-    (for [area-id (sort (keys runtime-areas))
-          :let    [v (get-in runtime-db (get runtime-areas area-id))]
-          :when   (some? v)]
-      [area-id v])))
 
 ;; ---- current-state sectioning ------------------------------------------
 ;;

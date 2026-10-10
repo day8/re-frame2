@@ -26,11 +26,6 @@
   chronological point in the flat list (spec/023 §7), with the row's left
   edge riding the severity colour so failures stand out.
 
-  NOTE: the band-projection helpers (`build-bands` etc.) below fill the
-  feed's `:envelope` / `:bands` / `:outcome` slots and are covered by
-  their unit tests, but the Trace panel does not render bands — see the
-  per-helper comments.
-
   ## Why a separate `.cljc` ns
 
   The panel view in `trace.cljs` paints the arc and dispatches into the
@@ -160,63 +155,6 @@
   [row-or-ev]
   (get area->badge (area row-or-ev) "EVENT"))
 
-;; ---- phase / band placement ---------------------------------------------
-;;
-;; Every op-family places into the epoch envelope or one of the four
-;; phase bands, in arc order:
-;;
-;;   envelope        :rf.epoch/* (open / close / restore / replay / …)
-;;   ① DISPATCH      :rf.event/dispatched
-;;   ② EVENT HANDLING :rf.cofx/* · run-start/run-end · flows · db-changed
-;;                    · machine-as-handler transitions
-;;   ③ EFFECTS / FX  :rf.fx/* · machine timers/spawn · routing nav
-;;   ④ REACTIVE RENDERING :rf.sub/* · :rf.view/*
-;;
-;; Errors / warnings are cross-cutting (NOT a phase, spec/023 §7) — the
-;; band function leaves them out of the canonical placement and the
-;; feed projection threads them inline at their chronological point.
-
-(def band-order
-  "The canonical arc order of the four phase bands. The epoch envelope
-  brackets these and is projected separately. Pure data."
-  [:dispatch :event-handling :effects :reactive])
-
-(def band->label
-  "Map a band keyword to its numbered uppercase header label."
-  {:dispatch       "① DISPATCH"
-   :event-handling "② EVENT HANDLING"
-   :effects        "③ EFFECTS / FX"
-   :reactive       "④ REACTIVE RENDERING"})
-
-(defn phase
-  "Classify a projected row (or raw event) into its arc phase:
-  `:envelope` · `:dispatch` · `:event-handling` ·
-  `:effects` · `:reactive`. Errors / warnings classify by the band they
-  occurred in is impossible without inline context, so they fall through
-  to `:event-handling` here — the feed projection threads them inline at
-  their chronological point regardless (spec/023 §7). Pure data →
-  keyword; JVM-testable."
-  [{:keys [operation] :as row-or-ev}]
-  (let [a (area row-or-ev)]
-    (case a
-      :epoch    :envelope
-      :coeffect :event-handling
-      :flow     :event-handling
-      :db       :event-handling
-      :sub      :reactive
-      :view     :reactive
-      :fx       :effects
-      :routing  :effects
-      :resource :effects
-      :machine  :event-handling
-      :event    (if (= operation :rf.event/dispatched)
-                  :dispatch
-                  :event-handling)
-      ;; errors / warnings are cross-cutting; default placement is the
-      ;; handling band — the inline threading (spec/023 §7) does the
-      ;; real positioning.
-      :event-handling)))
-
 ;; ---- outcome tier (spec/023 §8) -----------------------------------------
 ;;
 ;; Per spec/023 §8 the what-happened STATE must be legible at a glance
@@ -254,80 +192,6 @@
       (re-find #"(?i)(queued|scheduled|pending|later)" op-name)
       :pending
       :else :active)))
-
-;; ---- op-family classification -------------------------------------------
-;;
-;; The op-FAMILY is a coarser 5-bucket grouping than the area badge,
-;; carried on each row as `:op-family`, with `op-family-colour` resolving
-;; a colour per family. The flat view's left edge rides the STAGE colour
-;; instead (`stage-colour`). Five families plus the two severity tiers:
-;;
-;;     :dispatch  — the event side (dispatched / run-start / run-end)
-;;     :db        — :rf.event/db-changed
-;;     :fx        — the effect side (:rf.fx/* · :rf.route/* · :rf.resource/*)
-;;     :reactive  — subs + views (:rf.sub/* · :rf.view/*)
-;;     :machine   — :rf.machine/*
-;;
-;; with :error / :warning separate so a failure never hides under a
-;; family colour. Unknown ops fall back to :dispatch-adjacent neutral.
-
-(defn op-family
-  "Classify a projected row (or raw event) into one of the op families:
-  `:dispatch` · `:db` · `:fx` · `:reactive` · `:machine`, with the
-  `:error` / `:warning` severity tiers separate. `op-family-colour`
-  resolves its colour. Pure data → keyword; JVM-testable."
-  [{:keys [op-type] :as row-or-ev}]
-  (let [a (area row-or-ev)]
-    (case a
-      :error    :error
-      :warning  :warning
-      :db       :db
-      :event    :dispatch
-      :coeffect :dispatch
-      :epoch    :dispatch
-      :fx       :fx
-      :routing  :fx
-      :resource :fx
-      :flow     :db
-      :sub      :reactive
-      :view     :reactive
-      :machine  :machine
-      ;; defensive fallback for an op whose area didn't resolve above.
-      (cond
-        (= op-type :rf.fx)              :fx
-        (#{:rf.sub :rf.view} op-type)   :reactive
-        (= op-type :rf.machine)         :machine
-        :else                           :dispatch))))
-
-(def op-family->token
-  "Pure semantic map from op-family keyword to a `theme/tokens` token
-  keyword. The hex (CSS-var) resolution happens via `op-family-colour`.
-  Keeping the semantic mapping separate from the var lookup keeps the
-  map pure data + the palette consolidated.
-
-    :dispatch → :accent   (the single GitHub-blue accent)
-    :db       → :info     (the cool-blue changed/recompute partner)
-    :fx       → :warning  (the effect / warning tone)
-    :reactive → :dim      (dimmed / inert reactive aftermath)
-    :machine  → :green    (the machine-domain tone)
-    :error    → :red
-    :warning  → :yellow"
-  {:dispatch :accent
-   :db       :info
-   :fx       :warning
-   :reactive :dim
-   :machine  :green
-   :error    :red
-   :warning  :yellow})
-
-(defn op-family-colour
-  "Resolve the colour for a row's op family. Routes the
-  family through `op-family` then `op-family->token` then
-  `theme/tokens`. Falls back to `:text-secondary` for an unknown family.
-  Pure data → CSS-var string; JVM-testable."
-  [row-or-ev]
-  (get tokens/tokens
-       (get op-family->token (op-family row-or-ev) :text-secondary)))
 
 (def outcome-tier->token
   "Map an outcome tier to its what-happened text colour token
@@ -536,38 +400,6 @@
             (str/replace #"-" " ")))
       "—"))
 
-;; ---- short-description ---------------------------------------------------
-
-(defn short-description
-  "Build a one-line per-row description. Reads (in priority order):
-
-    1. `[:tags :rf.event/v]`        — dispatched event vector
-    2. `[:tags :reason]`            — most error categories carry this
-    3. `[:tags :exception-message]` — handler / fx exceptions
-    4. `[:tags :rf.sub/id]`         — sub-run / sub-create
-    5. `[:tags :rf.fx/id]`          — fx invocations
-    6. `[:tags :rf.view/render-key]` — view renders
-    7. `(str operation)` only       — fallback
-
-  Pure data → string; JVM-testable."
-  [{:keys [operation tags] :as _ev}]
-  (let [op-str (if operation (str operation) "(unknown)")
-        detail (or (when (vector? (:rf.event/v tags))
-                     (try (pr-str (:rf.event/v tags))
-                          (catch #?(:clj Throwable :cljs :default) _ nil)))
-                   (:reason tags)
-                   (:exception-message tags)
-                   (when (some? (:rf.sub/id tags))
-                     (str (:rf.sub/id tags)))
-                   (when (some? (:rf.fx/id tags))
-                     (str (:rf.fx/id tags)))
-                   (when (some? (:rf.view/render-key tags))
-                     (try (pr-str (:rf.view/render-key tags))
-                          (catch #?(:clj Throwable :cljs :default) _ nil))))]
-    (if (and detail (not (str/blank? (str detail))))
-      (str op-str " — " detail)
-      op-str)))
-
 ;; ---- target / detail (spec/023 §3 · §5) ---------------------------------
 ;;
 ;; Per spec/023 §3 the target/detail column carries the op's SUBJECT:
@@ -721,46 +553,6 @@
 
       nil)))
 
-;; ---- readable plain-language description --------------------------------
-;;
-;; The panel renders the 6-column row (Δt · stage · badge · verb ·
-;; target/detail · duration), not a single readable line. The readable
-;; line is the row's `:description` slot, built from the area verb +
-;; target/detail (or the terse fallback so no op is ever blank).
-
-(defn readable-description
-  "Build a one-line plain-language description for a trace event —
-  `<verb> <target/detail>` (e.g. `dispatched [:counter/inc]`,
-  `recalculated :app/counter`). Falls back to `short-description` for
-  ops outside the recognised vocabulary so the line is never blank.
-  Pure data → string; JVM-testable.
-
-  It fills the row's `:description` slot; the panel itself renders the
-  6-column row, not this single line."
-  [ev]
-  (let [verb   (what-happened ev)
-        detail (target-detail ev)
-        a      (area ev)]
-    (cond
-      ;; recognised area with a subject — `verb detail`
-      (and (some? detail) (not (str/blank? detail)))
-      (case a
-        :event (str "dispatched " detail)
-        :db    (str "db changed " detail)
-        :fx    (str "fx " detail)
-        :flow  (str "flow " detail)
-        :sub   (str "sub " verb " " detail)
-        :view  (str "view " verb " " detail)
-        :machine (str "machine " detail)
-        :coeffect (str "coeffect " detail)
-        :routing (str "routing " verb " " detail)
-        :epoch (str "epoch " verb " " detail)
-        (:error :warning) (str (name a) " " detail)
-        (str verb " " detail))
-      ;; no subject — terse fallback so the row is never blank
-      :else
-      (short-description ev))))
-
 ;; ---- source-coord projection --------------------------------------------
 
 (defn source-coord
@@ -887,12 +679,10 @@
        :area            <:event/:coeffect/:db/:fx/:flow/:sub/:view/
                           :machine/:routing/:epoch/:error/:warning>
        :area-badge      <string>            ;; the uppercase neutral badge
-       :phase           <:envelope/:dispatch/:event-handling/:effects/:reactive>
        :stage           <:DISPATCH/:COEFFECT/:HANDLER/:FLOW/:SIDE-EFFECTS/
                           :SUBSCRIPTIONS/:VIEWS>  ;; the Epoch pipeline step
        :stage-label     <string>            ;; the Epoch step label (DRY)
        :stage-colour    <string>            ;; the Epoch step colour (left edge)
-       :op-family       <:dispatch/:db/:fx/:reactive/:machine/:error/:warning>
        :outcome-tier    <:active/:inert/:gone/:pending/:error/:warning>
        :verb            <string>            ;; the what-happened verb
        :target          <string-or-nil>     ;; the target/detail subject
@@ -904,7 +694,6 @@
        :handler-id      <kw-or-nil>
        :dispatch-id     <int-or-nil>
        :parent-dispatch-id <int-or-nil>
-       :description     <string>            ;; readable plain-language line
        :source-coord    <string-or-nil>
        :duration-ms     <num-or-nil>        ;; per-op elapsed (when present)
        :tags            <map>               ;; full tags for the detail view
@@ -913,10 +702,8 @@
   The flat row reads `:rel-time` (stamped by
   `with-rel-times`) · `:stage-label` · `:area-badge` · `:verb` ·
   `:target` · `:duration-ms`, with `:stage-colour` painting the
-  colour-coded left edge. `:phase` feeds the band-projection helpers;
-  `:stage` drives the flat panel's stage column + edge (the Epoch
-  pipeline step, DRY); `:op-family` and `:description` are not rendered
-  by the flat panel; `:outcome-tier` drives the verb's colour tint
+  colour-coded left edge. `:stage` drives the flat panel's stage column
+  + edge (the Epoch pipeline step, DRY); `:outcome-tier` drives the verb's colour tint
   (spec/023 §8). Pure data → data; JVM-testable."
   [{:keys [id time op-type operation source tags] :as ev}]
   {:id              id
@@ -925,11 +712,9 @@
    :operation       operation
    :area            (area ev)
    :area-badge      (area-badge ev)
-   :phase           (phase ev)
    :stage           (stage ev)
    :stage-label     (stage-label ev)
    :stage-colour    (stage-colour ev)
-   :op-family       (op-family ev)
    :outcome-tier    (outcome-tier ev)
    :verb            (what-happened ev)
    :target          (target-detail ev)
@@ -945,7 +730,6 @@
    :handler-id      (get-in ev [:tags :handler-id])
    :dispatch-id     (get-in ev [:tags :rf.trace/dispatch-id])
    :parent-dispatch-id (get-in ev [:tags :rf.trace/parent-dispatch-id])
-   :description     (readable-description ev)
    :source-coord    (source-coord ev)
    :duration-ms     (duration-ms ev)
    :tags            tags
@@ -961,8 +745,7 @@
   sorts such events to the tail via `MAX_SAFE_INTEGER`). Such a row has
   no stable identity: `row-key` would key it `\"t:nil\"` — colliding
   with every other nil-`:id` row into one React key — and it cannot be
-  selected (`find-row` matches on `:id`) or expanded (the toggle
-  dispatches `:id`). Filtering it here, at projection time, keeps
+  selected or expanded (both dispatch its `:id`). Filtering it here, at projection time, keeps
   `row-key` keying on the stable `:id` alone — no positional fallback,
   honouring the anti-positional-key contract
   (`project-feed-from-epoch-rows-carry-no-row-index-slot`).
@@ -984,59 +767,6 @@
                  (if (#{:error :warning} (:area row)) preceding s)]))
             [[] nil]
             (filter (comp some? :id) events))))
-
-;; ---- band projection ----------------------------------------------------
-;;
-;; The feed's `:envelope` / `:bands` group the rows into the epoch
-;; envelope (the :rf.epoch/* ops) and the four phase bands, in arc order.
-;; Every band is present even when it has no rows (`:empty? true`). The
-;; flat panel renders none of this; it paints `:rows`.
-;; Errors / warnings are cross-cutting (spec/023 §7) — they stay inline
-;; in whatever band they chronologically occurred (the rows keep their
-;; fire-order position within a band).
-
-(defn epoch-outcome
-  "Extract the epoch's `:rf.epoch/outcome` from its envelope rows — the
-  `:ok` / `:blocked` / `:error` outcome (spec/023 §13). Reads the
-  `:rf.epoch/outcome` operation's
-  `[:tags :rf.epoch/outcome]` (or `:outcome`). Returns nil when no
-  outcome op is present (the epoch is still in-flight). Pure data →
-  keyword-or-nil; JVM-testable."
-  [rows]
-  (some (fn [{:keys [operation tags]}]
-          (when (= operation :rf.epoch/outcome)
-            (or (:rf.epoch/outcome tags) (:outcome tags))))
-        rows))
-
-(defn build-bands
-  "Project the epoch's oldest-first rows into the banded arc shape:
-
-      {:envelope [<:rf.epoch/* row> ...]   ;; the epoch-lifecycle ops
-       :outcome  <:ok/:blocked/:error-or-nil>
-       :bands    [{:id    :dispatch
-                   :label \"① DISPATCH\"
-                   :rows  [<row> ...]       ;; in fire order, oldest-first
-                   :count <int>
-                   :empty? <bool>}          ;; true when the band has no rows
-                  ... one per band-order ...]}
-
-  Every band in `band-order` is ALWAYS present, flagged `:empty?` when
-  it has no rows. Rows keep their fire-order
-  position WITHIN a band, so a cross-cutting error/warning row stays at
-  its chronological point in whatever band it landed (spec/023 §7).
-  Pure data → data; JVM-testable."
-  [rows]
-  (let [by-phase (group-by :phase rows)]
-    {:envelope (vec (get by-phase :envelope []))
-     :outcome  (epoch-outcome rows)
-     :bands    (mapv (fn [band-id]
-                       (let [band-rows (vec (get by-phase band-id []))]
-                         {:id     band-id
-                          :label  (get band->label band-id)
-                          :rows   band-rows
-                          :count  (count band-rows)
-                          :empty? (empty? band-rows)}))
-                     band-order)}))
 
 ;; ---- per-path db-changed diff -------------------------------------------
 ;;
@@ -1243,7 +973,6 @@
         raw-rows        (with-rel-times (project-rows (or trace-events [])))
         rows            (cond-> raw-rows
                           (some? db-diff) (attach-db-diff db-diff))
-        {:keys [envelope outcome bands]} (build-bands rows)
         n               (count rows)
         empty-kind      (cond
                           (= focus-status :no-focus)      :no-focus
@@ -1252,9 +981,6 @@
                           (zero? n)                       :no-events
                           :else                           nil)]
     {:rows         rows
-     :envelope     envelope
-     :outcome      outcome
-     :bands        bands
      :total        n
      :rendered     n
      :epoch-id     (:epoch-id epoch-record)
@@ -1288,18 +1014,13 @@
   Returns:
 
       {:rows        [<row> ...]   ;; the epoch's domino trail, OLDEST first
-       :envelope    [<row> ...]   ;; the :rf.epoch/* ops
-       :outcome     <:ok/:blocked/:error-or-nil>  ;; the epoch outcome
-       :bands       [{:id :label :rows :count :empty?} ...]  ;; the 4 phase
-                                  ;; bands in arc order
        :total       <int>         ;; the epoch's trace-event count
        :rendered    <int>         ;; same as :total (no filtering)
        :epoch-id    <int-or-nil>  ;; the focused epoch's id
        :empty-kind  <:no-events / :no-focus / :no-epoch / :epoch-evicted / nil>}
 
-  Rows are OLDEST-first (chronological) so the list reads top-down.
-  `:rows` is the flat list the view paints; `:bands` groups the same
-  rows by phase, and the view does not render it.
+  Rows are OLDEST-first (chronological) so the list reads top-down, as
+  the flat list the view paints.
 
   ## The two arities
 
@@ -1343,12 +1064,8 @@
   [event-bundle]
   (let [rows (with-rel-times
                (project-rows (sort-by :id (typed/event-bundle-trace-events event-bundle))))
-        {:keys [envelope outcome bands]} (build-bands rows)
         n    (count rows)]
     {:rows       rows
-     :envelope   envelope
-     :outcome    outcome
-     :bands      bands
      :total      n
      :rendered   n
      :epoch-id   nil
@@ -1369,14 +1086,6 @@
   Pure data → string; JVM-testable."
   [{:keys [id] :as _row}]
   (str "t:" (pr-str id)))
-
-;; ---- selection ----------------------------------------------------------
-
-(defn find-row
-  "Look up a projected row by `:id` in `rows`. Returns nil when not
-  found. Pure data → row-or-nil; JVM-testable."
-  [rows row-id]
-  (some (fn [v] (when (= row-id (:id v)) v)) rows))
 
 ;; ---- formatting ---------------------------------------------------------
 
