@@ -353,16 +353,22 @@
     (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
     (is (empty? @scheduled-timers) "nothing to collect, so no reschedule")))
 
-(deftest stale-fired-rechecks-durable-fact-no-write
-  ;; freshness derives from the durable :stale-at; the timer is advisory
+(deftest still-fresh-stale-fired-writes-nothing-and-re-arms-the-remaining-window
+  ;; freshness derives from the durable :stale-at; the timer only wakes it
   (rf/reg-resource :sf/article (article-spec {:stale-after-ms 60000}) article-spec-request)
   (let [scope {:user "u"}
         k     (rf.resources.state/scoped-resource-key scope :sf/article {:slug "w"})]
     (ensure! :sf/article scope "w" [:app :sf 1])
     (succeed! k {:title "W"})
+    (reset! scheduled-timers [])
     (let [before (entry k)]
       (rf/dispatch-sync [:rf.resource.internal/stale-fired {:resource/key k}])
-      (is (= before (entry k)) "stale-fired made no durable change"))))
+      (is (= before (entry k)) "a still-fresh stale-fired made no durable change")
+      (let [[arm & more] @scheduled-timers
+            delay-ms     (get-in arm [:timers :stale])]
+        (is (and (nil? more) (= [:stale] (keys (:timers arm)))
+                 (number? delay-ms) (< 0 delay-ms) (<= delay-ms 60000))
+            (str "one :stale-only re-arm within the window: " (pr-str @scheduled-timers)))))))
 
 (deftest frame-destroy-cancels-resource-timers
   (rf/reg-resource :fd/article (article-spec {:stale-after-ms 60000 :gc-after-ms 300000}) article-spec-request)

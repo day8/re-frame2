@@ -502,18 +502,21 @@
             ;; (Spec 016 §Polling — a `:poll` timer is armed after a settle while
             ;; the entry has at least one active owner). We also re-arm the
             ;; advisory stale / GC timers (cancel-then-arm) so a fresh-skip that
-            ;; revives an owner-free entry re-establishes the full timer set the
-            ;; success path would have armed, never double-arming (the fx is
-            ;; cancel-then-arm by construction). Gated on a previously-owner-free
-            ;; entry: a fresh-skip onto an already-owned entry adds another owner
-            ;; but its timers are already live, so it re-arms nothing here.
+            ;; revives an owner-free entry re-establishes the timer set, never
+            ;; double-arming (the fx is cancel-then-arm by construction). The
+            ;; stale timer arms for the window remaining until `:stale-at`, not
+            ;; the full `:stale-after-ms`, because the cancel-then-arm replaces
+            ;; the settle's timer and the wake must still land at the deadline.
+            ;; Gated on a previously-owner-free entry: a fresh-skip onto an
+            ;; already-owned entry adds another owner but its timers are already
+            ;; live, so it re-arms nothing here.
             was-owner-free? (empty? (:active-owners entry))
             arm-timers?    (and owner-newly-attached? was-owner-free?)
             spec           (rf.resources.registry/resource-meta (:resource/id entry))
             poll-delay-ms  (when (and arm-timers? (seq (:active-owners hit)))
                              (rf.resources.state/positive-or-nil (:poll-interval-ms spec)))
             stale-delay-ms (when arm-timers?
-                             (rf.resources.state/positive-or-nil (:stale-after-ms spec)))
+                             (rf.resources.state/stale-wake-delay-ms hit time-ms))
             gc-delay-ms    (when arm-timers?
                              (rf.resources.state/positive-or-nil (:gc-after-ms spec)))
             ;; EP-0016 D1 — a fresh-skip cache hit has NO
@@ -3453,56 +3456,77 @@
           (seq cont-fxs) (assoc :fx (vec cont-fxs)))))))
 
 (defn stale-fired-handler
-  "`:rf.resource.internal/stale-fired` — a stale timer fired. The timer is
-  ADVISORY: freshness is computed from the entry's DURABLE `:stale-at`
-  (the `:rf.resource/stale?` sub already derives it against the live clock),
-  so this handler does NOT need to flip a stored boolean — it RE-CHECKS the
-  live entry and records the freshness fact for tools, never writing a stale
-  decision. Per Spec 016 §Stale and GC scheduling (\"a stale timer may
-  enqueue a resource event, but the handler MUST re-check the current entry
-  before writing\").
+  "`:rf.resource.internal/stale-fired` — a stale timer fired: the freshness
+  wake. The `:stale?` subs compare the durable `:stale-at` against the live
+  clock, but a sub re-runs only on a frame commit, so this handler supplies
+  the commit at the deadline. Per Spec 016 §Freshness clock contract and
+  §Stale and GC scheduling (\"a stale timer may enqueue a resource event, but
+  the handler MUST re-check the current entry before writing\").
 
-  The re-check (against the LIVE durable facts, not the timer's wake-time
-  assumptions):
-    - the entry is gone (removed / GC'd / cleared) — no-op (a superseded
-      timer);
-    - the entry has been re-loaded to a NEWER generation since the timer
-      armed (its `:loaded-at` moved past the timer's basis) — no-op; a fresh
-      schedule-timers fx already re-armed it;
-    - otherwise the entry IS now stale-by-policy — the durable `:stale-at`
-      already makes the `:stale?` sub true (no write needed); emit a trace so
-      Xray's lifecycle timeline shows the staleness boundary crossed. Refetch
-      is NOT forced on a stale timer — staleness is orthogonal to refetch (a
-      stale entry refreshes on its next live cause: route re-entry, an
-      explicit event, or the focus/reconnect active-stale scan
-      `revalidate-handler`)."
+  The re-check reads the LIVE entry, never the timer's arm-time assumptions:
+    - no entry (removed / GC'd / cleared) — a superseded timer; nothing to do;
+    - the entry has crossed `:stale-at` — record the crossed deadline as
+      `:stale-wake-at`, so held and newly mounted freshness reads re-run and
+      flip. A second wake for the same deadline finds the marker and writes
+      nothing;
+    - the entry is still fresh (re-loaded since the timer armed, or its
+      deadline moved later without a re-arm, as an optimistic patch moves it)
+      — re-arm the stale timer alone for the window remaining until
+      `:stale-at`.
+  It never fetches and never changes `:status`: staleness is orthogonal to
+  refetch, and a stale entry refreshes on its next live cause (route
+  re-entry, an explicit event, or the focus/reconnect active-stale scan
+  `revalidate-handler`)."
   [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms}
    [_event-id {resource-key :resource/key}]]
   (let [runtime-db (or rt {})
-        entry      (get-in runtime-db (rf.resources.state/entry-path resource-key))
-        ;; re-derive staleness from the DURABLE :stale-at (the timer is
-        ;; advisory — never trust "the timer fired on time"). An entry
-        ;; re-loaded since the timer armed has a future :stale-at and is not
-        ;; yet stale, so the re-check naturally no-ops. Shared derivation
-        ;; (`rf.resources.state/entry-stale?`) so it never drifts from the subs / SSR view.
-        ;;
-        ;; EP-0010 §Resources / §The World-Input Rule + EP-0017
-        ;; declared-only delivery: a TIMER-FIRE event's freshness
-        ;; re-check uses the timer-fire envelope's own causal `:rf/time-ms`
-        ;; (DECLARED via `:rf.cofx/requires`, consumed FLAT), not an ambient
-        ;; `(now-ms)` host read. This handler writes nothing durable (the
-        ;; decision is trace-only — the durable `:stale-at` already drives the
-        ;; `:stale?` sub), but the recorded `:decision` must be replay-stable: a
-        ;; replayed `:stale-fired` under a later live clock must classify the
-        ;; entry the same way the recorded `:rf/time-ms` did.
-        stale?     (rf.resources.state/entry-stale? entry time-ms)]
+        path       (rf.resources.state/entry-path resource-key)
+        entry      (get-in runtime-db path)
+        stale-at   (:stale-at entry)
+        ;; The shared derivation the subs and the SSR projection read, so the
+        ;; three never drift. It reads the event's causal `:rf/time-ms`
+        ;; (declared via `:rf.cofx/requires`, consumed flat), never an ambient
+        ;; clock, so a replayed wake classifies the entry as the recorded one
+        ;; did (EP-0010 §The World-Input Rule).
+        stale?     (rf.resources.state/entry-stale? entry time-ms)
+        decision   (cond (nil? entry) :no-entry
+                         stale?       :now-stale
+                         :else        :still-fresh)]
     (rf.trace/emit! :rf.event :rf.resource/stale-fired
                  {:rf.frame/id frame-id :resource/key resource-key
-                  :decision (cond (nil? entry) :no-entry
-                                  stale?       :now-stale
-                                  :else        :still-fresh)})
-    ;; durable :stale-at is the freshness fact; no write needed.
-    {:rf.db/runtime runtime-db}))
+                  :decision decision})
+    (case decision
+      ;; Guarded on the time clause: an entry stale only by `:invalidated-at`
+      ;; already committed its invalidation, and a repeat wake for the same
+      ;; deadline finds its marker, so both return runtime-db unchanged and the
+      ;; commit installs nothing.
+      ;;
+      ;; The marker restates the unchanged `:stale-at`, so it is not an
+      ;; authoritative write and does not bump `:revision` — a bump would turn
+      ;; every optimistic mutation in flight across a deadline into a false
+      ;; conflict and a refetch. A rollback that restores a snapshot without
+      ;; the marker loses nothing, because its own commit re-derives `:stale?`.
+      :now-stale
+      (if (and (some? stale-at) (>= time-ms stale-at)
+               (not= stale-at (:stale-wake-at entry)))
+        {:rf.db/runtime (assoc-in runtime-db path (assoc entry :stale-wake-at stale-at))}
+        {:rf.db/runtime runtime-db})
+
+      ;; A partial re-arm naming `:stale` alone leaves the GC and poll timers
+      ;; as they are. A deadline-free entry arms nothing, because a `:stale nil`
+      ;; would cancel rather than skip.
+      :still-fresh
+      (if-let [delay-ms (rf.resources.state/stale-wake-delay-ms entry time-ms)]
+        {:rf.db/runtime runtime-db
+         :fx [[:rf.resource/schedule-timers
+               {:frame-id     frame-id
+                :resource/key resource-key
+                :timers       {:stale delay-ms}
+                :server?      (rf.resources.state/server-frame? frame-id)}]]}
+        {:rf.db/runtime runtime-db})
+
+      :no-entry
+      {:rf.db/runtime runtime-db})))
 
 (defn gc-fired-handler
   "`:rf.resource.internal/gc-fired` — an inactive-GC timer fired. Re-check
