@@ -360,6 +360,33 @@
     (rf.frame/destroy-frame! fa)
     (rf.frame/destroy-frame! fb)))
 
+;; A reply is addressed by frame KEYWORD, and a frame destroyed and re-made
+;; under the same id answers to the same keyword. The capturing transport is
+;; never aborted, so the predecessor's reply outlives its frame exactly as an
+;; unaborted transport's would.
+(deftest same-id-successor-suppresses-its-predecessors-late-reply
+  (rf/reg-resource :inc/article (article-spec) article-spec-request)
+  (let [f       :inc/frame
+        k       (gkey :inc/article {:slug "w"})
+        ensure! #(rf/dispatch-sync [:rf.resource/ensure
+                                    {:resource :inc/article :scope :rf.scope/global
+                                     :params {:slug "w"} :owner [:app :inc 1]}]
+                                   {:frame f})]
+    (rf/make-frame {:id f :doc "predecessor incarnation"})
+    (ensure!)
+    (let [late-reply (:on-success @last-managed-args)
+          pred-work  (:current-work (entry f k))]
+      (rf.frame/destroy-frame! f)
+      (rf/make-frame {:id f :doc "successor incarnation"})
+      (ensure!)
+      (is (not= pred-work (:current-work (entry f k)))
+          "the successor's attempt never reuses a predecessor work-id")
+      (rf/dispatch-sync (conj late-reply {:status :ok :value {:title "predecessor"}})
+                        {:frame f})
+      (is (= [:loading nil] ((juxt :status :data) (entry f k)))
+          "the predecessor's late reply is suppressed, not installed"))
+    (rf.frame/destroy-frame! f)))
+
 ;; ---- passive subs -----------------------------------------------------------
 
 (deftest passive-subs-project-the-entry

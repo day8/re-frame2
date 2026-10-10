@@ -1653,11 +1653,19 @@
 ;; ---- host-side transient generation allocator -----------------------------
 ;;
 ;; Per Spec 016 §Restore and replay part 1: the generation allocator is a
-;; per-frame, HOST-SIDE monotonic high-water mark — never rewound by epoch
+;; process-global, HOST-SIDE monotonic high-water mark — never rewound by epoch
 ;; restore, so a pre-restore in-flight reply's generation can never match a
 ;; post-restore live entry (stale-suppression is structurally safe). This
 ;; is deliberately the OPPOSITE discipline from machine spawn-ids (which
 ;; never escape the frame and so may be snapshot-local).
+;;
+;; Process-global rather than per-frame because a reply addresses its frame
+;; by KEYWORD, and a frame destroyed and re-made under the same id answers to
+;; the same keyword. A per-frame mark dropped on destroy would restart the
+;; successor at generation 1 and re-mint its predecessor's work-ids, so the
+;; predecessor's late reply would pass the successor's liveness check. One
+;; mark for the process never restarts, and its storage stays one scalar
+;; however many frames come and go.
 ;;
 ;; The PURE SEAM (handlers stay pure), mirroring routing's nav-allocation:
 ;; the next generation is minted by the
@@ -1666,26 +1674,27 @@
 ;; records the minted value on the token); the handler reads
 ;; the recorded `:generation` value flat and writes only it durably; WRITE
 ;; via the `:rf.resource/commit-generation` fx (advances the host high-water
-;; with `max`, monotone). A frame's entry is released on frame destroy.
+;; with `max`, monotone). Frame destroy leaves the mark alone.
 
 (defonce
-  ^{:doc "Per-frame host-side generation high-water marks
-   `{<frame-id> <int>}`. Host-side transient state (NOT runtime-db), so an
-   epoch restore cannot rewind it and recycle a generation — the
-   anti-recycling correctness boundary (Spec 016 §Restore and replay part
-   1). Read by the recordable `:rf.resource/generation-allocation` cofx
-   generator (which records the minted value on the token),
-   advanced via the `:rf.resource/commit-generation` fx (both monotone)."}
+  ^{:doc "The process-global host-side generation high-water mark (an int).
+   Host-side transient state (NOT runtime-db), so an epoch restore cannot
+   rewind it and recycle a generation — the anti-recycling correctness
+   boundary (Spec 016 §Restore and replay part 1) — and not keyed by frame,
+   so a same-id successor frame cannot restart it either. Read by the
+   recordable `:rf.resource/generation-allocation` cofx generator (which
+   records the minted value on the token), advanced via the
+   `:rf.resource/commit-generation` fx (both monotone)."}
   generation-cache
-  (atom {}))
+  (atom 0))
 
 (defn generation-snapshot
-  "Read `frame-id`'s current generation high-water mark from the host
-  `generation-cache` (0 when none). The value the recordable
+  "Read the current generation high-water mark from the host
+  `generation-cache` (0 before any allocation). The value the recordable
   `:rf.resource/generation-allocation` cofx generator reads to mint the next
   monotone allocation."
-  [frame-id]
-  (get @generation-cache frame-id 0))
+  []
+  @generation-cache)
 
 (defn next-generation
   "Pure: given a high-water `snapshot` int (or nil), return the next
@@ -1698,31 +1707,22 @@
   (inc (or snapshot 0)))
 
 (defn commit-generation!
-  "Record `n` as `frame-id`'s generation high-water mark in the host
+  "Record `n` as the generation high-water mark in the host
   `generation-cache`. MONOTONE — never lowers an existing value (a `max`
   install), so a reordered / replayed commit can never rewind the allocator
   and recycle a generation. Per Spec 016 §Restore and replay part 1.
   Returns nil."
-  [frame-id n]
-  (swap! generation-cache update frame-id (fn [cur] (max (or cur 0) n)))
-  nil)
-
-(defn release-frame!
-  "Drop the destroyed frame's host-side generation high-water mark.
-  Invoked by the resources frame-destroy teardown hook. Per Spec 016
-  §Stale and GC scheduling (frame destroy cancels all resource timers /
-  clears host handles for that frame) and §Restore and replay part 5."
-  [frame-id]
-  (swap! generation-cache dissoc frame-id)
+  [n]
+  (swap! generation-cache max n)
   nil)
 
 (defn reset-cache!
-  "Drop EVERY frame's host-side generation high-water mark (test
+  "Drop the host-side generation high-water mark back to 0 (test
   isolation). Published as a reset hook so the shared CLJS
   `make-reset-runtime-fixture` reset-hooks table clears it per test (it is
   host-side transient state, not cleared by the runtime/frames reset)."
   []
-  (reset! generation-cache {})
+  (reset! generation-cache 0)
   nil)
 
 ;; ---- the :rf.resource/generation-allocation cofx + commit-generation fx ---
@@ -1783,10 +1783,9 @@ Spec 016 §Restore and replay + 002 §Durable join keys are recordable."})
 
 (defn generation-allocation-cofx
   "Value-returning GENERATOR for the `:rf.resource/generation-allocation`
-  recordable cofx (EP-0017 §5). Reads the in-flight cascade's frame
-  (`rf.frame/*current-frame*`, bound by the router during processing) and the
-  frame's host-side generation high-water snapshot, and returns the next
-  monotone allocation `{:generation N :counter N}` (N = `(inc snapshot)`).
+  recordable cofx (EP-0017 §5). Reads the host-side generation high-water
+  snapshot and returns the next monotone allocation
+  `{:generation N :counter N}` (N = `(inc snapshot)`).
 
   The generator only READS the host cache — it does NOT mutate it (the write
   is the separate `:rf.resource/commit-generation` fx, emitted by the
@@ -1799,7 +1798,7 @@ Spec 016 §Restore and replay + 002 §Durable join keys are recordable."})
   (`:rf.cofx {:rf.resource/generation-allocation {:generation N :counter N}}`)
   or re-register the generator (the visible seam)."
   []
-  (let [n (next-generation (generation-snapshot rf.frame/*current-frame*))]
+  (let [n (next-generation (generation-snapshot))]
     {:generation n :counter n}))
 
 (def commit-generation-meta
@@ -1819,14 +1818,14 @@ replay."})
 (defn commit-generation-handler
   "`:rf.resource/commit-generation` fx handler. Registered by the façade so
   a `:reload` re-wires it on a fresh registrar. Advances the host high-water
-  with `max` under the cascade-envelope frame in the host `generation-cache`.
-  The carried-frame invariant (EP-0002): the fx context carries the cascade
-  frame as `:frame`; a nil stamp is an invariant failure
-  (`:rf.error/no-frame-context`), never a synthesised default."
+  in `generation-cache` with `max`. The carried-frame invariant (EP-0002):
+  the fx context carries the cascade frame as `:frame`; a nil stamp is an
+  invariant failure (`:rf.error/no-frame-context`), never a synthesised
+  default."
   [{:keys [frame]} {:keys [value]}]
-  (let [frame-id (rf.frame/require-frame-stamp!
-                   frame :rf.resource/commit-generation
-                   {:where 'rf.resource/commit-generation-handler})]
-    (when (number? value)
-      (commit-generation! frame-id value))
-    nil))
+  (rf.frame/require-frame-stamp!
+    frame :rf.resource/commit-generation
+    {:where 'rf.resource/commit-generation-handler})
+  (when (number? value)
+    (commit-generation! value))
+  nil)

@@ -618,11 +618,13 @@
 ;; Release the destroyed frame's host-side TRANSIENT
 ;; resource caches — the work-ledger host handles (AbortControllers,
 ;; `re-frame.resources.work-ledger/handle-table`), the stale / GC timer
-;; handles (`re-frame.resources.timers/timer-table`), AND the
-;; generation high-water mark (`re-frame.resources.state/generation-cache`).
-;; None is runtime-db state — all live in module-level atoms (host-derived,
-;; ephemeral, off the epoch / SSR egress wire; the generation host-side so an
-;; epoch restore cannot rewind + recycle a generation). `rf.frame/destroy-frame!`
+;; handles (`re-frame.resources.timers/timer-table`) and the focus/reconnect
+;; revalidation listeners. None is runtime-db state — all live in
+;; module-level atoms (host-derived, ephemeral, off the epoch / SSR egress
+;; wire). The generation high-water mark
+;; (`re-frame.resources.state/generation-cache`) is host-side too but
+;; process-global, so destroy leaves it alone and a same-id successor frame
+;; never re-mints a predecessor's generation. `rf.frame/destroy-frame!`
 ;; invokes this SINGLE hook by key (no static dep on resources — the artefact
 ;; is optional; ONE teardown path, not three). The durable serializable work
 ;; records + cache entries ride the frame value and are released atomically
@@ -632,15 +634,13 @@
 ;; late-bind key → one fn) mirroring routing's `:routing/on-frame-destroyed!`.
 (defn- release-resources-host-caches!
   "Release ALL of the destroyed frame's host-side transient resource caches
-  (work-ledger host handles + stale / GC timer handles + generation
-  high-water mark + focus/reconnect revalidation listeners).
-  The `:resources/on-frame-destroyed!` teardown body — one composed hook, no
-  second teardown path."
+  (work-ledger host handles + stale / GC timer handles + focus/reconnect
+  revalidation listeners). The `:resources/on-frame-destroyed!` teardown
+  body — one composed hook, no second teardown path."
   [frame-id]
   (rf.resources.work-ledger/on-frame-destroyed! frame-id)
   (rf.resources.timers/on-frame-destroyed! frame-id)
   (rf.resources.revalidate-listeners/on-frame-destroyed! frame-id)
-  (rf.resources.state/release-frame! frame-id)
   nil)
 
 (rf.late-bind/set-fn! :resources/on-frame-destroyed! release-resources-host-caches!)

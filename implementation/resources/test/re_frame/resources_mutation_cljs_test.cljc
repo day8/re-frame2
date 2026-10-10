@@ -536,8 +536,9 @@
       (is (= :success (:status (instance :xfm/frame-a :form/x)))))))
 
 (deftest cross-frame-mutation-request-id-does-not-collide
-  ;; The frame-local work-ids collide across frames, so the process-global
-  ;; transport request-id must be frame-qualified.
+  ;; Two frames' work-ids collide when both run on the same recorded
+  ;; allocation, so the process-global transport request-id must be
+  ;; frame-qualified.
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (let [all-args (atom [])
         fa :xm/frame-a
@@ -548,7 +549,8 @@
     (doseq [f [fa fb]]
       (rf/dispatch-sync [:rf.mutation/execute
                          {:mutation :m/save :params {:slug "w"} :instance :form/save-1}]
-                        {:frame f}))
+                        {:frame f
+                         :rf.cofx {:rf.resource/generation-allocation {:generation 1 :counter 1}}}))
     (let [wid-a (:current-work (instance fa :form/save-1))
           wid-b (:current-work (instance fb :form/save-1))]
       (is (= wid-a wid-b) "precondition: the bare work-ids collide")

@@ -26,13 +26,12 @@
     GC timer removes the entry ONLY if it is still owner-free and not in
     flight (the `gc-fired-handler` re-check);
   - **timers + host handles live in side tables, NOT in frame-state** — this
-    module-level `timer-table` mirrors the work-ledger `handle-table` and the
-    host-side generation allocator (`re-frame.resources.state/generation-cache`):
+    module-level `timer-table` mirrors the work-ledger `handle-table`:
     a transient host cache an epoch restore cannot rewind, never on the
     SSR / hydration / epoch wire, cleared per-frame on frame destroy;
   - **frame destroy cancels all resource timers for that frame** — wired
     into the SINGLE `:resources/on-frame-destroyed!` teardown hook the façade
-    publishes (composed with the work-ledger + generation host-cache release;
+    publishes (composed with the work-ledger host-handle release;
     one hook, no second teardown path);
   - **a hidden tab can delay timers without corrupting correctness** — the
     timer is advisory; the re-check against durable timestamps makes a late /
@@ -130,8 +129,8 @@
 ;;
 ;; Module-level transient host cache keyed by `[frame-id resource-key kind]`
 ;; → an opaque host timer handle. NOT runtime-db, NOT serialized, off the
-;; epoch / SSR egress wire. Mirrors the work-ledger `handle-table` and the
-;; host-side generation allocator. Cleared per-frame on frame destroy.
+;; epoch / SSR egress wire. Mirrors the work-ledger `handle-table`. Cleared
+;; per-frame on frame destroy.
 
 (defonce
   ^{:doc "Host-side side table of NON-serializable stale / GC / poll timers,
@@ -350,8 +349,8 @@
   from the side table (it iterates by frame-id, so every kind — incl. the
   EP-0020 `:poll` kind — is released). Invoked from the single
   `:resources/on-frame-destroyed!` teardown hook (composed in the façade with
-  the work-ledger host-handle + generation host-cache release — one hook, no
-  second teardown path). The durable entries ride the frame value and are
+  the work-ledger host-handle and revalidation-listener releases — one hook,
+  no second teardown path). The durable entries ride the frame value and are
   released atomically when the frame is dropped; this touches ONLY the host
   timer side table. Idempotent. Per Spec 016 §Stale and GC scheduling /
   §Polling (frame destroy cancels all resource timers) / [Runtime-Subsystems]
@@ -517,7 +516,7 @@ poll timer is armed). Per Spec 016 §Polling."})
   "The stale / GC timer half of the `:resources/on-frame-destroyed!`
   teardown body. `destroy-frame!` invokes the single composed hook by key
   with the destroyed `frame-id`; the façade composes THIS with the
-  work-ledger host-handle release + the generation host-cache release (one
+  work-ledger host-handle release + the revalidation-listener release (one
   hook, no second teardown path). Cancels every stale / GC / poll timer for
   the frame (`release-frame!`). Per Spec 016 §Stale and GC scheduling / [Runtime-
   Subsystems] clause 5. Returns nil."

@@ -19,9 +19,7 @@
   - **Host handles** (the actual abortable request handles — AbortControllers
     / timeout handles / transport promises) live in a module-level side
     table keyed by `[frame-id work-id]`, OUTSIDE durable frame-state, and
-    are NEVER serialized. This mirrors the host-side generation allocator
-    (`re-frame.resources.state/generation-cache`) and routing's
-    nav-counters / scroll caches: a transient
+    are NEVER serialized. This mirrors routing's scroll cache: a transient
     host cache an epoch restore cannot rewind, released on frame destroy.
 
   ## The correctness split (Spec 016 §Cancellation is opportunistic;
@@ -658,9 +656,8 @@
 ;;
 ;; The non-serializable cancellation / timer handles keyed by `[frame-id
 ;; work-id]`. A module-level transient host cache — NOT runtime-db, NOT
-;; serialized, off the epoch / SSR egress wire. Mirrors the host-side
-;; generation allocator (`rf.resources.state/generation-cache`) and routing's
-;; nav-counters / scroll caches. Cleared on frame
+;; serialized, off the epoch / SSR egress wire. Mirrors routing's scroll
+;; cache. Cleared on frame
 ;; destroy (Spec 016 [Runtime-Subsystems] clause 5: transient host handles
 ;; dropped).
 
@@ -929,9 +926,7 @@ attempt is superseded / settled so a stale handle does not leak. Per Spec 016
 ;; frame value and are released atomically when the frame value is dropped.
 ;; Wired off the single normative teardown boundary via the
 ;; `:resources/on-frame-destroyed!` late-bind hook the façade publishes (the
-;; same shape as routing's `:routing/on-frame-destroyed!`). Frame destroy
-;; ALSO drops the host-side generation high-water mark
-;; (`rf.resources.state/release-frame!`), composed into the same hook body in the façade.
+;; same shape as routing's `:routing/on-frame-destroyed!`).
 
 (defn release-frame!
   "Release a destroyed frame's TRANSIENT work-ledger host handles: drop
@@ -973,9 +968,9 @@ attempt is superseded / settled so a stale handle does not leak. Per Spec 016
   "The `:resources/on-frame-destroyed!` teardown body for the work-ledger
   host handles. `destroy-frame!` invokes it by key with the destroyed
   `frame-id`. Releases the frame's transient work-ledger host handles
-  (`release-frame!`). The façade composes this with
-  `rf.resources.state/release-frame!` (the generation high-water mark) so both
-  host-side transient caches drop on one hook. Per Spec 016
+  (`release-frame!`). The façade composes this with the timer and
+  revalidation-listener releases so every per-frame host-side cache drops on
+  one hook. Per Spec 016
   [Runtime-Subsystems] clause 5."
   [frame-id]
   (release-frame! frame-id)

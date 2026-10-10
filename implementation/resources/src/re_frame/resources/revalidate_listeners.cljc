@@ -39,10 +39,9 @@
 
   The installed host handles live in this module-level side table keyed by
   frame-id (NOT runtime-db, NOT serialized — transient host state, exactly
-  like the work-ledger handle table, the stale/GC timer table, and the
-  generation high-water cache). They are cancelled on frame destroy via the
-  single `:resources/on-frame-destroyed!` teardown hook the façade
-  publishes — composed with the work-ledger + timer + generation host-cache
+  like the work-ledger handle table and the stale/GC timer table). They are
+  cancelled on frame destroy via the single `:resources/on-frame-destroyed!`
+  teardown hook the façade publishes — composed with the work-ledger + timer
   release (ONE hook, no second teardown path).
 
   ## JVM safety (CLJC reader conditionals)
@@ -104,7 +103,7 @@
    and it never rides the SSR / hydration / epoch wire. Cleared per-frame on
    frame destroy (`release-frame!`) through the single
    `:resources/on-frame-destroyed!` teardown hook (composed with the
-   work-ledger + timer + generation host-cache release). Per Spec 016 §Stale
+   work-ledger + timer release). Per Spec 016 §Stale
    and GC scheduling / [Runtime-Subsystems] clause 5."}
   listener-table
   (atom {}))
@@ -248,8 +247,8 @@
   table — `reconcile-listeners!` against no triggers (removal is the empty
   reconcile, not a second code path). Invoked from the single
   `:resources/on-frame-destroyed!` teardown hook (composed in the façade with
-  the work-ledger host-handle release, the stale/GC timer release, and the
-  generation host-cache release — ONE hook, no second teardown path).
+  the work-ledger host-handle release and the stale/GC timer release — ONE
+  hook, no second teardown path).
   Idempotent. Per Spec 016 §Stale and GC scheduling (frame destroy cancels
   all the frame's resource host handles) / [Runtime-Subsystems] clause 5.
   Returns nil."
@@ -259,8 +258,8 @@
 (defn on-frame-destroyed!
   "The focus/reconnect-listener half of the `:resources/on-frame-destroyed!`
   teardown body. The façade composes THIS with the work-ledger host-handle
-  release + the stale/GC timer release + the generation host-cache release
-  (one composed hook, no second teardown path). Detaches + drops the
+  release + the stale/GC timer release (one composed hook, no second
+  teardown path). Detaches + drops the
   destroyed frame's window focus / online listeners (`release-frame!`). Per
   Spec 016 [Runtime-Subsystems] clause 5. Returns nil."
   [frame-id]

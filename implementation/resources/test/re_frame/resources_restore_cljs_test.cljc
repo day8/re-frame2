@@ -578,14 +578,14 @@
   ;; The host-side allocator is NOT frame-state, so restoring a snapshot from
   ;; generation 3 cannot rewind a live high-water mark of 7: a pre-restore reply
   ;; carrying generation 3 can never match a freshly minted live entry.
-  (rf.resources.state/commit-generation! :app/main 7)
+  (rf.resources.state/commit-generation! 7)
   (rf.resources.ssr/reconcile-on-restore
     (runtime-db-with {gkey (entry {:resource-id :article/by-slug :status :fetching
                                    :data {:x 1} :loaded-at 1 :stale-at 9.0e15
                                    :generation 3
                                    :current-work [:rf.work/resource gkey 3]})})
     :app/main)
-  (is (= 7 (rf.resources.state/generation-snapshot :app/main))))
+  (is (= 7 (rf.resources.state/generation-snapshot))))
 
 (deftest restore-noop-without-resources
   (testing "a runtime-db with no resource entries AND no work-ledger rows is
