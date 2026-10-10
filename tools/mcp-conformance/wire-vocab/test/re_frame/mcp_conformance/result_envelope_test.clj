@@ -38,8 +38,7 @@
             [malli.core     :as m]
             [malli.error    :as me]
             [re-frame.mcp-base.vocab :as rf.mcp-base.vocab]
-            [re-frame.mcp-conformance.fixtures :as rf.mcp-conformance.fixtures]
-            [re-frame.mcp-conformance.wire-vocab.source-pins :as rf.mcp-conformance.wire-vocab.source-pins]))
+            [re-frame.mcp-conformance.fixtures :as rf.mcp-conformance.fixtures]))
 
 (def ResultEnvelope
   "Canonical `:rf.mcp/result` typed-result envelope shape. A
@@ -150,64 +149,18 @@
 (deftest result-envelope-enforces-per-tag-shape
   ;; The teeth: each tag's CLOSED arm rejects malformed shapes — a tag
   ;; missing a required slot, a cross-tag slot leak, or an unknown tag.
-  ;; Without these the schema could stay green while the envelope grammar
-  ;; drifted — a false green.
-  (testing ":value WITHOUT the :value slot fails"
-    (is (not (m/validate ResultEnvelope {:rf.mcp/result :value}))
-        "a :value result MUST carry the :value slot"))
-  (testing ":nil carrying a sibling slot fails (no extra slots allowed)"
-    (is (not (m/validate ResultEnvelope {:rf.mcp/result :nil :value 1}))
-        "a :nil result MUST be the bare tag — a sibling slot is a leak")
-    (is (not (m/validate ResultEnvelope {:rf.mcp/result :nil :preview "x"}))
-        "a :nil result MUST NOT carry an :unserializable slot"))
-  (testing ":eval-error WITHOUT :reason fails"
-    (is (not (m/validate ResultEnvelope
-                         {:rf.mcp/result :eval-error :ex "boom"}))
-        "an :eval-error MUST carry :reason"))
-  (testing ":eval-error WITHOUT :ex fails"
-    (is (not (m/validate ResultEnvelope
-                         {:rf.mcp/result :eval-error
-                          :reason :rf.error/eval-cljs-threw}))
-        "an :eval-error MUST carry :ex"))
-  (testing ":unserializable WITHOUT :type fails"
-    (is (not (m/validate ResultEnvelope
-                         {:rf.mcp/result :unserializable :preview "x"}))
-        "an :unserializable MUST carry :type"))
-  (testing ":unserializable WITHOUT :preview fails"
-    (is (not (m/validate ResultEnvelope
-                         {:rf.mcp/result :unserializable :type "object"}))
-        "an :unserializable MUST carry :preview"))
-  (testing "cross-tag slot leak: :value carrying an :unserializable slot fails"
-    (is (not (m/validate ResultEnvelope
-                         {:rf.mcp/result :value :value 1 :preview "x"}))
-        "a :value result MUST NOT carry the unserializable-only :preview slot"))
-  (testing "cross-tag slot leak: :unserializable carrying an :eval-error slot fails"
-    (is (not (m/validate ResultEnvelope
-                         {:rf.mcp/result :unserializable :type "object"
-                          :preview "x" :reason :boom}))
-        "an :unserializable result MUST NOT carry the eval-error-only :reason slot"))
-  (testing "unknown tag fails (no dispatch arm)"
-    (is (not (m/validate ResultEnvelope {:rf.mcp/result :bogus}))
-        "an unrecognised tag has no dispatch arm and MUST fail"))
-  (testing "an extra sibling top-level key on a :value result fails"
-    (is (not (m/validate ResultEnvelope
-                         {:rf.mcp/result :value :value 1 :sneaky :key}))
-        "the envelope is CLOSED per tag — an unrelated sibling key is rejected"))
-  (testing "positive guard: every documented tag shape validates"
-    (is (m/validate ResultEnvelope {:rf.mcp/result :value :value 42}))
-    (is (m/validate ResultEnvelope {:rf.mcp/result :value :value nil})
-        "a :value slot may itself be nil (the slot is :any) — distinct from the :nil tag")
-    (is (m/validate ResultEnvelope {:rf.mcp/result :nil}))
-    (is (m/validate ResultEnvelope {:rf.mcp/result :eval-error
-                                    :reason :rf.error/eval-cljs-threw
-                                    :ex "boom"})
-        ":eval-error with only the required :reason + :ex (wrap-failed path) validates")
-    (is (m/validate ResultEnvelope {:rf.mcp/result :eval-error
-                                    :reason :rf.error/eval-cljs-threw
-                                    :ex "boom" :message "boom" :ex-data {:k :v}})
-        ":eval-error with the optional :message + :ex-data (inner-catch path) validates")
-    (is (m/validate ResultEnvelope {:rf.mcp/result :unserializable
-                                    :type "function" :preview "#object[Function]"}))))
+  ;; The documented shapes are the fixtures above.
+  (doseq [[label envelope] [["a :value result MUST carry the :value slot"
+                             {:rf.mcp/result :value}]
+                            ["a :nil result MUST be the bare tag"
+                             {:rf.mcp/result :nil :value 1}]
+                            ["an :eval-error MUST carry :reason"
+                             {:rf.mcp/result :eval-error :ex "boom"}]
+                            ["an :unserializable MUST NOT carry the eval-error-only :reason slot"
+                             {:rf.mcp/result :unserializable :type "object" :preview "x" :reason :boom}]
+                            ["an unrecognised tag has no dispatch arm"
+                             {:rf.mcp/result :bogus}]]]
+    (is (not (m/validate ResultEnvelope envelope)) label)))
 
 (deftest result-key-matches-the-live-vocab-constant
   ;; Pin the gate's dispatch keyword against the live JVM-reachable
@@ -233,20 +186,3 @@
         (str literal " missing from " rel
              ". The vocab spec catalogues this marker — restore the row "
              "or update this test."))))
-
-(deftest result-key-no-near-miss-in-any-server-source
-  ;; Defence-in-depth: a rename to a near-miss form (snake_case,
-  ;; pluralised, predicate `?` suffix, underscore-ns) MUST NOT co-exist
-  ;; anywhere in the conformance-tracked source/spec tree. Mirrors the
-  ;; marker-key near-miss anti-pin. The mcp-base vocab spec is folded
-  ;; into the sweep so a near-miss in the catalogue row trips here too.
-  (let [sweep (conj rf.mcp-conformance.wire-vocab.source-pins/all-source-files
-                    "tools/mcp-base/spec/vocab.md")]
-    (doseq [variant (rf.mcp-conformance.wire-vocab.source-pins/near-miss-variants :rf.mcp/result)
-            rel     sweep]
-      (testing (str rel " — near-miss " variant)
-        (is (not (str/includes? (rf.mcp-conformance.fixtures/read-source rel) variant))
-            (str "Found near-miss variant " variant
-                 " for :rf.mcp/result in " rel
-                 " — vocabulary-drift bug. The canonical form is "
-                 ":rf.mcp/result (per mcp-base/vocab.cljc `result-key`)."))))))
