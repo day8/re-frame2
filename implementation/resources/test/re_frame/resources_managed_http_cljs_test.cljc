@@ -259,11 +259,15 @@
         k  (article-key :xf/article)]
     (rf/make-frame {:id fa :doc "xframe A"})
     (rf/make-frame {:id fb :doc "xframe B"})
-    ;; both frames issue the same resource at the same generation: the
-    ;; collision a bare work-id correlation cannot tell apart
+    ;; both frames issue the same resource at the same generation (frame B
+    ;; replays the allocation frame A minted): the collision a bare work-id
+    ;; correlation cannot tell apart
     (ensure-article! :xf/article [:app :a 1] fa)
     (let [a-payload (nth (:on-success @last-managed-args) 1)]
-      (ensure-article! :xf/article [:app :b 1] fb)
+      (rf/dispatch-sync [:rf.resource/ensure {:resource :xf/article :scope :rf.scope/global
+                                              :params {:slug "w"} :owner [:app :b 1]}]
+                        {:frame fb
+                         :rf.cofx {:rf.resource/generation-allocation {:generation 1 :counter 1}}})
       (is (= [1 1] [(:generation (entry fa k)) (:generation (entry fb k))]) "FIXTURE — both on gen 1")
       (reply-into-frame! fb a-payload {:title "A-data"})
       (is (= [:loading nil] ((juxt :status :data) (entry fb k)))
@@ -329,22 +333,22 @@
         "exactly one abort fires by request id, leaving no live in-flight entry and no slot")))
 
 (deftest frame-destroy-aborts-managed-http-in-flight
-  ;; the abort happens before the generation high-water drops: a surviving
-  ;; request could otherwise satisfy a same-id successor frame's reply gate,
-  ;; whose work-ids collide with this incarnation's
+  ;; the generation high-water is process-global and survives the destroy, so
+  ;; a same-id successor frame never re-mints this incarnation's work-ids
   (rf/reg-resource :fdab/article (article-spec) article-spec-request)
   (let [fa :fdab/frame-a]
     (rf/make-frame {:id fa :doc "teardown-abort frame"})
     (let [k          (ensure-article! :fdab/article [:app :fdab 1] fa)
           wid        (:current-work (entry fa k))
           request-id (rf.resources.work-ledger/managed-request-id fa wid)
-          aborted    (seed-in-flight! request-id)]
+          aborted    (seed-in-flight! request-id)
+          high-water (rf.resources.state/generation-snapshot)]
       (is (= [true true true]
              [(some? (rf.http.registry/lookup-in-flight request-id)) (some? (rf.resources.work-ledger/get-handle fa wid))
-              (pos? (rf.resources.state/generation-snapshot fa))])
+              (pos? high-water)])
           "FIXTURE — in flight, with a handle and a generation high-water")
       (rf.frame/destroy-frame! fa)
-      (is (= [[[request-id :resource-superseded]] nil nil 0]
+      (is (= [[[request-id :resource-superseded]] nil nil high-water]
              [@aborted (rf.http.registry/lookup-in-flight request-id) (rf.resources.work-ledger/get-handle fa wid)
-              (rf.resources.state/generation-snapshot fa)])
-          "exactly one abort fires by request id; no in-flight entry, handle or high-water survives"))))
+              (rf.resources.state/generation-snapshot)])
+          "exactly one abort fires by request id; no in-flight entry or handle survives, and the high-water does"))))

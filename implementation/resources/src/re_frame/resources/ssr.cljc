@@ -1883,7 +1883,8 @@
       or orphan the live listeners).
 
   This is the restore-specific SUBSET of the frame-destroy teardown
-  (`release-resources-host-caches!`), which clears all four. Side-effecting
+  (`release-resources-host-caches!`), which also drops the revalidation
+  listeners. Side-effecting
   (mutates the module-level `timer-table` / `handle-table`); idempotent;
   returns nil. No-op for a frame with no armed transients."
   [frame-id]

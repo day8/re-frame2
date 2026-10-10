@@ -330,8 +330,9 @@
     (is (nil? (bucket k)))))
 
 (deftest cross-frame-request-id-does-not-collide
-  ;; The frame-local work-ids collide across frames, so the process-global
-  ;; transport request-id must be frame-qualified.
+  ;; Two frames' work-ids collide when both run on the same recorded
+  ;; allocation, so the process-global transport request-id must be
+  ;; frame-qualified.
   (rf/reg-resource :xf/article (article-spec) article-spec-request)
   (let [all-args (atom [])
         fa :xf/frame-a
@@ -343,7 +344,8 @@
     (doseq [[f owner] [[fa [:app :a 1]] [fb [:app :b 1]]]]
       (rf/dispatch-sync [:rf.resource/ensure {:resource :xf/article :scope :rf.scope/global
                                               :params {:slug "w"} :owner owner}]
-                        {:frame f}))
+                        {:frame f
+                         :rf.cofx {:rf.resource/generation-allocation {:generation 1 :counter 1}}}))
     (let [wid (:current-work (entry fa k))]
       (is (= [wid wid] [(:current-work (entry fa k)) (:current-work (entry fb k))])
           "precondition: the bare work-ids collide")

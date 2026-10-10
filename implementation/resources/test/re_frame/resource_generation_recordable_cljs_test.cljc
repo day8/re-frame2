@@ -91,7 +91,7 @@
       (with-fresh-runtime
         (fn []
           (register-resource!)
-          (rf.resources.state/commit-generation! :rf/default 10)
+          (rf.resources.state/commit-generation! 10)
           (ensure! allocation)
           (is (= 1 (:generation (live-entry))))
           (reply-success! (:on-success @last-managed-args))
@@ -100,7 +100,7 @@
       (with-fresh-runtime
         (fn []
           (register-resource!)
-          (rf.resources.state/commit-generation! :rf/default 10)
+          (rf.resources.state/commit-generation! 10)
           (ensure! nil)
           (is (= 11 (:generation (live-entry))))
           (reply-success! on-success)
