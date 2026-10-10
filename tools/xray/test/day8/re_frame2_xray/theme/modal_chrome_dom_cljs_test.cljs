@@ -1,18 +1,19 @@
 (ns day8.re-frame2-xray.theme.modal-chrome-dom-cljs-test
-  "Live-DOM witnesses that an open modal keeps the keyboard user's place.
+  "Live-DOM witnesses that a modal keeps its focus contract across
+  re-renders.
 
   `modal-chrome` runs on every render of the view that calls it, and its
   dialog carries the `a11y/dialog-ref` focus contract as a React `:ref`.
   React detaches a ref that changed between renders and attaches the new
-  one, and that contract's detach restores focus to the opener while its
-  attach moves focus to the dialog's first control. So the dialog's ref
-  has to be the same value on every render, or each re-render of an open
-  dialog drags focus back to its first control.
+  one, and ReactDOM puts focus back on whatever held it once the commit's
+  DOM work is done. So the old ref's restore to the opener is undone, and
+  the new ref attaches with focus already inside the dialog and captures
+  no opener: closing the dialog then drops focus to `<body>`. The
+  chrome's ref has to be the same value on every render.
 
-  These rows mount the chrome under a real React root, move focus to a
-  later control, re-render, and read `document.activeElement`. Only a
-  committed DOM can answer that: a node-lane tree walk sees the `:ref` as
-  a value and never runs it.
+  These rows mount the chrome under a real React root, re-render it, and
+  read `document.activeElement`. Only a committed DOM can answer that: a
+  node-lane tree walk sees the `:ref` as a value and never runs it.
 
   ## A re-render, not a remount
 
@@ -20,7 +21,7 @@
   Reagent's queue, which updates the mounted component in place. A
   second `rdc/render` would not do: each call hands React a new root
   component type, so React would unmount the dialog and mount a fresh
-  one, and a fresh dialog rightly takes focus to its first control.
+  one.
 
   ## Test target
 
@@ -98,10 +99,31 @@
   (.remove container)
   (.remove opener))
 
+(deftest closing-after-a-re-render-returns-focus-to-the-opener
+  (testing "a dialog that re-rendered while open still returns focus to
+            its opener when it closes — the ref attached at mount is the
+            one detached at close, so the opener it captured is the one
+            it restores"
+    (if-not (browser?)
+      (is true ":node — the :browser-test runner drives the real React mount")
+      (let [{:keys [opener container root pass*] :as handles} (open!)]
+        (try
+          (is (identical? (q container "modal-chrome-witness-first") (active))
+              "mount moved focus to the dialog's first control")
+          (re-render! pass*)
+          (is (= "second 1" (some-> (q container "modal-chrome-witness-second")
+                                    .-textContent))
+              "the re-render committed — the second control's label moved")
+          (close! root)
+          (is (identical? opener (active))
+              "closing restored focus to the opener, not to <body>")
+          (finally
+            (close! root)
+            (cleanup! handles)))))))
+
 (deftest an-open-dialog-keeps-focus-across-a-re-render
   (testing "re-rendering an open dialog leaves focus on the control that
-            had it — the ref the chrome hands React is the same value on
-            every render, so React never detaches and re-attaches it"
+            had it"
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (let [{:keys [container root pass*] :as handles} (open!)
@@ -115,24 +137,6 @@
               "the re-render committed — the second control's label moved")
           (is (and (some? (second-btn)) (identical? (second-btn) (active)))
               "focus is still on the second control after the re-render")
-          (finally
-            (close! root)
-            (cleanup! handles)))))))
-
-(deftest the-dialog-still-takes-and-returns-focus
-  (testing "the focus contract still runs at the two ends of the dialog's
-            life: mounting lands focus on the first control, and
-            unmounting returns it to the opener"
-    (if-not (browser?)
-      (is true ":node — the :browser-test runner drives the real React mount")
-      (let [{:keys [opener container root pass*] :as handles} (open!)]
-        (try
-          (is (identical? (q container "modal-chrome-witness-first") (active))
-              "mount moved focus to the dialog's first control")
-          (re-render! pass*)
-          (close! root)
-          (is (identical? opener (active))
-              "unmount restored focus to the opener")
           (finally
             (close! root)
             (cleanup! handles)))))))
