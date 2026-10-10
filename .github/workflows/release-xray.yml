@@ -27,14 +27,14 @@
 #
 # # :local/root → :mvn/version rewrite
 #
-# tools/xray/deps.edn declares TEN in-repo runtime coordinates via
+# tools/xray/deps.edn declares NINE in-repo runtime coordinates via
 # `:local/root` for in-tree development — core, epoch, routing,
-# flows, schemas, resources, machines, fresco, machines-viz and
-# reagent-slim — and `clein pom` SILENTLY SKIPS every `:local/root`
+# flows, schemas, resources, machines, fresco and machines-viz — and
+# `clein pom` SILENTLY SKIPS every `:local/root`
 # coordinate it is handed. Whatever this step does not rewrite is
 # simply ABSENT from the published pom, and Clojars has no yank.
 #
-# The rewrite step below covers ALL TEN. A roster that fell behind the
+# The rewrite step below covers ALL NINE. A roster that fell behind the
 # deps.edn would ship a pom with holes in it: run against a deps.edn whose
 # coordinates are not rewritten, `clein pom` prints one `Skipping
 # coordinate` line per coordinate and writes a pom carrying only the
@@ -47,11 +47,11 @@
 # asserts presence, not resolvability) would pass it straight through to
 # Clojars. Every coordinate Xray declares is publishable — release.yml
 # publishes `day8/re-frame2-fresco` from its own post-matrix
-# `deploy-fresco` stage — so all ten are rewritten.
+# `deploy-fresco` stage — so all nine are rewritten.
 #
 # THAT CARRIES AN ORDERING OBLIGATION. The rewritten pom names
 # `day8/re-frame2-fresco:<VERSION>` — and every one of the other
-# nine — so an `xray-v*` tag is only shippable once a
+# eight — so an `xray-v*` tag is only shippable once a
 # framework `v*` tag at the SAME lockstep VERSION has published them.
 # That is the ordinary tools-tier ordering docs/release-process.md
 # §The tools tier states. This workflow has NO `clojure -P` step of its
@@ -227,7 +227,7 @@ jobs:
       # abort the deploy. This deps.edn documents every coordinate in
       # prose, so that shape is a live hazard here, not a hypothetical one.
       #
-      # ALL TEN of Xray's in-repo coordinates, in deps.edn declaration
+      # ALL NINE of Xray's in-repo coordinates, in deps.edn declaration
       # order. The preflight step below
       # re-derives the required set from the COMMITTED deps.edn and
       # refuses the deploy on any coordinate this list misses, so the
@@ -248,14 +248,13 @@ jobs:
             "../../implementation/resources" \
             "../../implementation/machines" \
             "../../implementation/fresco" \
-            "../machines-viz" \
-            "../../implementation/adapters/reagent-slim"
+            "../machines-viz"
           do
             "$GITHUB_WORKSPACE/.github/scripts/rewrite-local-root-coord.sh" \
               "$local_root" "$VERSION" deps.edn
           done
           echo "--- Rewritten dep coords:"
-          grep -E "day8/(re-frame2|reagent-slim)" deps.edn
+          grep -E "day8/re-frame2" deps.edn
 
       # ─────────────────────────────────────────────────────────────
       # Package preflight. Read the GENERATED pom and

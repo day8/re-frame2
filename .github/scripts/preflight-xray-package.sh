@@ -4,10 +4,10 @@
 # # Why this exists
 #
 # `clein pom` SILENTLY SKIPS `:local/root` coordinates. tools/xray/deps.edn
-# declares TEN of them in its main `:deps` — core, epoch, routing, flows,
-# schemas, resources, machines, fresco, machines-viz and reagent-slim —
-# and release-xray.yml rewrites all ten. Run against the in-tree deps.edn
-# with no rewrite at all, `clein pom` prints ten `Skipping coordinate` lines
+# declares NINE of them in its main `:deps` — core, epoch, routing, flows,
+# schemas, resources, machines, fresco and machines-viz — and
+# release-xray.yml rewrites all nine. Run against the in-tree deps.edn
+# with no rewrite at all, `clein pom` prints nine `Skipping coordinate` lines
 # and writes a pom whose `<dependencies>` are four third-party artefacts and
 # nothing else.
 #
@@ -29,7 +29,7 @@
 # noticing, because nothing ties it back. So the required set here is READ
 # OUT OF deps.edn itself, from the PRISTINE committed copy (`git show
 # HEAD:tools/xray/deps.edn` — the workspace copy has already been rewritten
-# in place by the time this runs). Add an eleventh `:local/root` coordinate
+# in place by the time this runs). Add a tenth `:local/root` coordinate
 # to Xray and this gate demands its rewrite on the next release with no edit
 # here.
 #
@@ -58,8 +58,8 @@
 #
 # # An unpublishable coordinate is refused, never special-cased
 #
-# Every one of Xray's ten in-repo coordinates names an artefact that carries
-# a `:clein/build`, so all ten are rewritten and this gate is expected to
+# Every one of Xray's nine in-repo coordinates names an artefact that carries
+# a `:clein/build`, so all nine are rewritten and this gate is expected to
 # PASS on a correctly-ordered release — a framework `v*` tag at the same
 # lockstep VERSION first, then `xray-v*`.
 #

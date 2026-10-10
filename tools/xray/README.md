@@ -390,8 +390,8 @@ The tag's version segment must equal the repo-root
 [`VERSION`](../../VERSION) file (lockstep convention per
 [`spec/Conventions.md`](../../spec/Conventions.md) §Packaging
 conventions); a mismatched tag is refused before any deploy step
-runs. The dep on `day8/re-frame2` + `day8/reagent-slim` is pinned
-to the same lockstep version on the throwaway runner checkout
+runs. Every in-repo dep (`day8/re-frame2` and the feature artefacts) is
+pinned to the same lockstep version on the throwaway runner checkout
 immediately before `clein deploy`.
 
 To cut a release (Mike-only):

@@ -802,8 +802,8 @@ declare -A TOOLS_PATHS=(
 # coordinate declared there and missing here reds, and so does one listed
 # here and absent there.
 #
-# All TEN of Xray's in-repo coordinates are publishable and release-xray.yml
-# rewrites all ten, so Xray's publishability depends on the ordinary release
+# All NINE of Xray's in-repo coordinates are publishable and release-xray.yml
+# rewrites all nine, so Xray's publishability depends on the ordinary release
 # ORDER (a framework `v*` tag before an `xray-v*` tag), which
 # docs/release-process.md §The tools tier states.
 TOOLS_LOCAL_ROOTS=$(cat <<'EOF'
@@ -816,7 +816,6 @@ xray|day8/re-frame2-resources {:local/root "../../implementation/resources"}
 xray|day8/re-frame2-machines {:local/root "../../implementation/machines"}
 xray|day8/re-frame2-fresco {:local/root "../../implementation/fresco"}
 xray|day8/re-frame2-machines-viz {:local/root "../machines-viz"}
-xray|day8/reagent-slim {:local/root "../../implementation/adapters/reagent-slim"}
 story|day8/re-frame2 {:local/root "../../implementation/core"}
 story|day8/re-frame2-reagent {:local/root "../../implementation/adapters/reagent"}
 story|day8/re-frame2-machines {:local/root "../../implementation/machines"}
@@ -874,11 +873,10 @@ for tool in "${TOOLS[@]}"; do
   #
   # The file-text match drops the inventory entry's CLOSING BRACE and matches
   # the `<lib> {:local/root "<path>"` prefix instead. A coordinate map may
-  # legitimately carry keys BESIDE :local/root — Story's Xray edge carries
-  # `:exclusions [day8/reagent-slim]` to keep a second provider of
-  # `re-frame.adapter.reagent` out of the published Story graph — and with
-  # the brace included this check would demand that :local/root be the map's
-  # ONLY key, a constraint it does not mean to impose. The closing brace
+  # legitimately carry keys BESIDE :local/root — an `:exclusions` vector,
+  # say — and with the brace included this check would demand that
+  # :local/root be the map's ONLY key, a constraint it does not mean to
+  # impose. The closing brace
   # contributes nothing to the property the entry asserts: the lib↔path
   # PAIRING is pinned just as exactly by the prefix, which is also what the
   # release rewrite step itself keys off. The converse pass below is

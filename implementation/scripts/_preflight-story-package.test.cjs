@@ -35,24 +35,12 @@ function test(name, fn) {
 
 // ── Pom fixtures ────────────────────────────────────────────────────────
 
-// `exclusions` is a list of [groupId, artifactId] pairs, emitted verbatim as
-// `clein pom` writes a deps.edn `:exclusions` vector.
-function dep(groupId, artifactId, version, exclusions = []) {
+function dep(groupId, artifactId, version) {
   return [
     '    <dependency>',
     `      <groupId>${groupId}</groupId>`,
     `      <artifactId>${artifactId}</artifactId>`,
     `      <version>${version}</version>`,
-    ...(exclusions.length === 0 ? [] : [
-      '      <exclusions>',
-      ...exclusions.flatMap(([g, a]) => [
-        '        <exclusion>',
-        `          <groupId>${g}</groupId>`,
-        `          <artifactId>${a}</artifactId>`,
-        '        </exclusion>',
-      ]),
-      '      </exclusions>',
-    ]),
     '    </dependency>',
   ].join('\n');
 }
@@ -87,18 +75,8 @@ const IN_REPO_NAMES = [
   're-frame2-xray',
 ];
 
-// Story excludes reagent-slim from its Xray edge: without it a published Story
-// consumer resolves TWO providers of re-frame.adapter.reagent, so the CORRECT
-// fixture carries it.
-const XRAY_EXCLUSIONS = [['day8', 'reagent-slim']];
-
-// By default the Xray coordinate carries its exclusion and every other in-repo
-// coordinate carries none; `{ exclusions }` overrides.
-function inRepoDep(name, version = VERSION, { exclusions } = {}) {
-  const excl = exclusions !== undefined
-    ? exclusions
-    : (name === 're-frame2-xray' ? XRAY_EXCLUSIONS : []);
-  return dep('day8', name, version, excl);
+function inRepoDep(name, version = VERSION) {
+  return dep('day8', name, version);
 }
 
 // What a CORRECTLY rewritten deps.edn produces.
@@ -166,22 +144,6 @@ test('an in-repo dep at the WRONG version fails', () => {
     [...THIRD_PARTY, ...IN_REPO_NAMES.map((n) => inRepoDep(n, n === 're-frame2-http' ? '0.0.0.stale' : VERSION))],
     'stale in-repo version',
     /day8\/re-frame2-http is at version '0\.0\.0\.stale', expected the lockstep/,
-  );
-});
-
-// Deleting the exclusion looks like tidy-up, and the failure it prevents is
-// silent at build time: the consumer just gets the wrong adapter. Maven scopes
-// <exclusions> to the dependency carrying them, so one parked on another edge
-// excludes nothing that matters.
-test('the exclusion must sit on the XRAY edge, not merely somewhere in the pom', () => {
-  expectFail(
-    [...THIRD_PARTY, ...IN_REPO_NAMES.map((n) => {
-      if (n === 're-frame2-xray') return inRepoDep(n, VERSION, { exclusions: [] });
-      if (n === 're-frame2-machines') return inRepoDep(n, VERSION, { exclusions: XRAY_EXCLUSIONS });
-      return inRepoDep(n);
-    })],
-    'exclusion on the wrong edge',
-    /day8\/re-frame2-xray does not EXCLUDE day8\/reagent-slim/,
   );
 });
 
