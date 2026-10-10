@@ -13,6 +13,7 @@
   (:require [reagent2.core             :as r]
             [reagent2.ratom            :as ratom]
             [reagent2.dom.client       :as rdc]
+            [reagent2.impl.template    :as template]
             [re-frame.substrate.spine   :as rf.substrate.spine]
             [re-frame.views            :as rf.views]))
 
@@ -36,8 +37,7 @@
      :make-reaction (fn [thunk] (ratom/make-reaction thunk))
      :create-root   (fn [mount-point] (rdc/create-root mount-point))
      :render-root   (fn [root tree] (rdc/render root tree))
-     :hydrate-root  (fn [mount-point tree root-options]
-                      (rdc/hydrate-root mount-point tree root-options))
+     :hydrate-root  (fn [mount-point tree] (rdc/hydrate-root mount-point tree))
      :unmount-root  (fn [root] (rdc/unmount root))
      ;; Cleanup owns this exact substrate dispatch even after the process
      ;; lifecycle's terminal claim closes every public routed hook.
@@ -96,14 +96,7 @@
   Root with the new tree: no second `create-root`, no second hydration, so
   the one call is both the boot path and the `^:dev/after-load` hook.
   `mount-point` is read on the first call only. `rf/destroy-adapter!`
-  releases a Root this handle still holds, exactly once.
-
-  A hydrating first call also reads two more `opts` keys.
-  `:on-recoverable-error` is called with each error React recovers from;
-  in a development build a hydration mismatch React recovers from emits
-  `:rf.ssr/hydration-mismatch` before reaching it (or React's default
-  report). `:identifier-prefix` is passed to React as `identifierPrefix`,
-  and must be the prefix the server rendered under (Spec 004C §3)."
+  releases a Root this handle still holds, exactly once."
   (:render-client-root! spine-fns))
 
 (def unmount!
@@ -163,3 +156,13 @@
                                    (binding [ratom/*ratom-context* (js-obj)]
                                      @container)))
      :after-render      r/after-render}))
+
+;; ---- warn-once cache reset wiring -----------------------------------------
+;;
+;; The slim template interpreter has its own keyword-prop warning cache in
+;; addition to the spine cache. Enrol its public reset function here so test
+;; fixtures re-arm both caches. Keeping this wiring in the adapter avoids a
+;; `reagent2.*` to `re-frame.*` dependency; the private cache intentionally has
+;; no arm-state probe.
+(rf.substrate.spine/install-clear-warn-once-step! template/clear-warned-keyword-prop!
+                                     {:label :reagent-slim/warned-keyword-prop})

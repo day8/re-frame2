@@ -5,7 +5,6 @@
             [reagent.impl.template :as reagent.template]
             [reagent.ratom :as ratom]
             [reagent.dom.client :as rdc]
-            ["react-dom/client" :as react-dom-client]
             [re-frame.substrate.spine :as rf.substrate.spine]
             [re-frame.views :as rf.views]))
 
@@ -104,24 +103,6 @@
     (ratom/dispose! reaction))
   nil)
 
-;; ---- hydrating with root options ------------------------------------------
-;;
-;; A hydrating root needs the options the spine builds (the adoption reporter
-;; and the identifier prefix), and stock `reagent.dom.client/hydrate-root`
-;; calls `hydrateRoot` without them. So the adapter calls `hydrateRoot` itself,
-;; over the element `hydrate-root` builds: Reagent's root component over a
-;; thunk that converts the tree. `rdc/render` builds that same element, so it
-;; builds it here, against a root that only records what it is handed.
-
-(defn- hydrate-root
-  "Hydrate `mount-point` against the hiccup `tree`, creating the React Root
-  with `root-options` (a react-dom/client `hydrateRoot` options object, or
-  nil). Returns the Root."
-  [mount-point tree root-options]
-  (let [element (volatile! nil)]
-    (rdc/render #js {:render (fn [el] (vreset! element el))} tree)
-    (react-dom-client/hydrateRoot mount-point @element root-options)))
-
 ;; ---- shared ratom-spine wiring --------------------------------------------
 ;;
 ;; Reagent and reagent-slim share the ratom spine but inject different
@@ -145,8 +126,7 @@
      :make-reaction (fn [thunk] (make-guarded-reaction thunk))
      :create-root   (fn [mount-point] (rdc/create-root mount-point))
      :render-root   (fn [root tree] (rdc/render root tree))
-     :hydrate-root  (fn [mount-point tree root-options]
-                      (hydrate-root mount-point tree root-options))
+     :hydrate-root  (fn [mount-point tree] (rdc/hydrate-root mount-point tree))
      :unmount-root  (fn [root] (rdc/unmount root))
      ;; Cleanup owns this exact substrate dispatch even after the process
      ;; lifecycle's terminal claim closes every public routed hook.
@@ -214,13 +194,6 @@
   that same Root with the new tree: no second `create-root`, no second
   hydration. That is what makes the one call both the boot path and the
   `^:dev/after-load` hook. `mount-point` is read on the first call only.
-
-  A hydrating first call also reads two more `opts` keys.
-  `:on-recoverable-error` is called with each error React recovers from;
-  in a development build a hydration mismatch React recovers from emits
-  `:rf.ssr/hydration-mismatch` before reaching it (or React's default
-  report). `:identifier-prefix` is passed to React as `identifierPrefix`,
-  and must be the prefix the server rendered under (Spec 004C §3).
 
   Backed by the adapter's active-root ownership: `rf/destroy-adapter!`
   releases a Root this handle still holds, exactly once, and a `render!`
