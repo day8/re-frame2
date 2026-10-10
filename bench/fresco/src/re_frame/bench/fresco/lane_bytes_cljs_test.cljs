@@ -1,103 +1,17 @@
 (ns re-frame.bench.fresco.lane-bytes-cljs-test
-  "THE LANE'S BYTE COUNT, WITNESSED.
-
-  `ssr/bake_bytes.test.cjs` pins that `ssr/driver.cjs` publishes bytes, not
-  `String.prototype.length` — UTF-16 code units — under a bytes label. This
-  is that witness's counterpart for the CLJS half of the lane: eight
-  page-side instruments publish a byte figure, they share
-  [[re-frame.bench.fresco.lane/utf8-bytes]], and this file is what keeps
-  that ruler from going soft.
-
-  ## Why an ASCII-only test cannot see the bug
-
-  Because on ASCII the wrong expression prints the right number. That is the
-  whole shape of the defect and it is why it goes unnoticed: `count` and a UTF-8
-  byte count agree exactly until content grows a dash, and then they diverge
-  by an amount that keeps growing. So every non-ASCII fixture below states a
-  code-unit count and a byte count that DIFFER, and the table asserts both: a
-  fixture that lost its non-ASCII character would still answer its code units
-  and no longer its bytes, so it fails here rather than quietly stop testing
-  anything.
-
-  For the same reason the non-ASCII fixtures are `\\u` ESCAPES and not literal
-  characters. An editor or a tool that normalised this file's encoding could
-  otherwise ASCII-fy them and leave a green gate measuring nothing.
-
-  ## The three-different-numbers case
-
-  `U+1D11E` (MUSICAL SYMBOL G CLEF) is here because its code units (2), its
-  codepoints (1) and its bytes (4) are three different numbers, so a repair
-  that reached for `(count (seq s))` — codepoints — would be caught too. The
-  BMP fixtures cannot catch that one; each is 1 codepoint and 1 code unit.
-
-  ## Where the WIRING half lives, and why it is not here
-
-  In `bench_bytes.test.cjs`, a Node harness, because it reads the repaired
-  sources off disk and **a lane namespace may not require `fs`**. Every
-  namespace in this directory is also compiled by `compile_gate.cjs`
-  (`npm run check`), which rides `:fresco-bench` — a BROWSER build — so a
-  Node module here refuses the whole lane (`ssr/node.cljs` states the rule;
-  `ssr/spike_cljs_test/sha256-hex` is why that entry reaches for
-  `crypto.subtle` rather than `node:crypto`). This file therefore holds only
-  what a browser can run: the behaviour of the helper itself."
-  (:require [cljs.test :refer-macros [deftest is testing]]
-            [clojure.string :as str]
+  "[[re-frame.bench.fresco.lane/utf8-bytes]] answers UTF-8 BYTES, not the
+  UTF-16 code units `count` answers — the two agree on ASCII, so every row
+  past the first is non-ASCII. The fixtures are `\\u` escapes so an editor
+  that normalised this file's encoding cannot ASCII-fy them into a green
+  gate measuring nothing. The wiring half — which instruments call it —
+  is `bench_bytes.test.cjs`, because a lane namespace may not require `fs`."
+  (:require [cljs.test :refer-macros [deftest is]]
             [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]))
 
-;; ---------------------------------------------------------------------------
-;; The fixtures
-;; ---------------------------------------------------------------------------
-
-(def ^:private cases
-  "`{:what :s :units :codepoints :bytes}` — one ASCII control and four
-  characters whose UTF-8 width is 2, 3, 3 and 4 bytes."
-  [{:what "ASCII control"              :s "abc"          :units 3 :codepoints 3 :bytes 3}
-   {:what "U+00A7 SECTION SIGN"        :s "a\u00A7b"     :units 3 :codepoints 3 :bytes 4}
-   {:what "U+2014 EM DASH"             :s "a\u2014b"     :units 3 :codepoints 3 :bytes 5}
-   {:what "U+2026 HORIZONTAL ELLIPSIS" :s "a\u2026b"     :units 3 :codepoints 3 :bytes 5}
-   {:what "U+1D11E MUSICAL SYMBOL G CLEF (astral)"
-    :s "a\uD834\uDD1Eb" :units 4 :codepoints 3 :bytes 6}])
-
-(defn- codepoints
-  "How many CODEPOINTS `s` holds — the third ruler, which is neither of the
-  two this file is about and is here so a repair cannot land on it by
-  mistake."
-  [s]
-  (alength (.from js/Array s)))
-
-;; ---------------------------------------------------------------------------
-;; The helper
-;; ---------------------------------------------------------------------------
-
 (deftest utf8-bytes-answers-bytes-and-count-answers-code-units
-  (testing "The two rulers, stated side by side on every fixture. `count`
-           answers the UTF-16 code units the defect publishes; `utf8-bytes`
-           answers the bytes the label claims. The astral row is the one
-           where a third answer — codepoints — is also distinct, so a repair
-           that reached for codepoints instead of bytes is caught here too."
-    (doseq [{:keys [what s units bytes] cps :codepoints} cases]
-      (is (= units (count s)) (str what ": the fixture is not the string this row describes"))
-      (is (= cps (codepoints s)) (str what ": codepoints"))
-      (is (= bytes (rf.bench.fresco.lane/utf8-bytes s)) (str what ": bytes")))))
-
-(deftest the-error-grows-with-the-content
-  (testing "**why this is not a rounding difference.** The gap is not a
-           constant to be waved through: it is one byte per two-byte
-           character and two per three-byte one, so it scales with the page.
-           A thousand em dashes is two thousand bytes of understatement, and
-           an instrument understating by a growing margin reads plausible for
-           ever."
-    (let [dashes (str/join (repeat 1000 "\u2014"))]
-      (is (= 3 (rf.bench.fresco.lane/utf8-bytes "\u2014")))
-      (is (= 3000 (rf.bench.fresco.lane/utf8-bytes dashes)))
-      (is (= 2000 (- (rf.bench.fresco.lane/utf8-bytes dashes) (count dashes)))
-          "the understatement is 2 bytes per em dash and there are a thousand"))))
-
-(deftest utf8-bytes-is-total-over-the-degenerate-inputs
-  (testing "The empty string weighs nothing, and a lone surrogate — which a
-           `subs` through the middle of an astral character can produce —
-           still answers a number rather than throwing. `TextEncoder`
-           substitutes U+FFFD, three bytes, which is what a UTF-8 encoder
-           writing that string to a socket would also do."
-    (is (= 0 (rf.bench.fresco.lane/utf8-bytes "")))
-    (is (= 3 (rf.bench.fresco.lane/utf8-bytes "\uD834")) "an unpaired high surrogate encodes as U+FFFD")))
+  ;; Empty, ASCII, 2-, 3- and 4-byte (astral) characters, and a lone
+  ;; surrogate — which a `subs` through an astral character produces, and
+  ;; which `TextEncoder` writes as U+FFFD (3 bytes) rather than throwing.
+  (is (= [0 3 4 5 6 3]
+         (mapv rf.bench.fresco.lane/utf8-bytes
+               ["" "abc" "a§b" "a—b" "a𝄞b" "\uD834"]))))
