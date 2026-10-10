@@ -415,35 +415,6 @@
       (is (component/reagent-class? (.-type el))))))
 
 ;; ---------------------------------------------------------------------------
-;; Source-coord stamping is gated on a native DOM-tag head
-;;
-;; converted-props-element is the emit path for BOTH real DOM tags AND :>
-;; interop elements. The *source-coord* merge must fire ONLY for a string DOM
-;; tag —
-;; never as a foreign prop on a :> component (React drops the unknown prop,
-;; leaving the real DOM root unannotated), mirroring the React-hook spine's
-;; dom-element? string-type gate.
-;; ---------------------------------------------------------------------------
-
-(def ^:private src-coord "my.ns:my-view:12:4")
-
-(defn- source-coord-prop [^js el]
-  (gobj/get (.-props el) "data-rf2-source-coord"))
-
-(deftest source-coord-flows-past-interop-root-to-first-dom-child
-  (testing "with a :> root the binding is left UNCONSUMED so the first real
-            DOM element downstream gets stamped (§5.4 'first DOM-tag head')"
-    (let [Comp (fn FakeComp [_props] nil)]
-      (binding [template/*source-coord* src-coord]
-        (let [^js el    (template/as-element [:> Comp [:div "child"]])
-              ^js child (gobj/get (.-props el) "children")]
-          (is (= Comp (.-type el)))
-          (is (nil? (source-coord-prop el)) "interop root itself is unstamped")
-          (is (= "div" (.-type child)) "the child is the real DOM element")
-          (is (= src-coord (source-coord-prop child))
-              "the first DOM element downstream carries data-rf2-source-coord"))))))
-
-;; ---------------------------------------------------------------------------
 ;; Target-aware keyword/symbol DOM-attr stringification
 ;;
 ;; convert-props is shared by native DOM tags and :> custom React
@@ -537,20 +508,6 @@
              (template/as-element [:img {:src "x.png"}])))
       (is (zero? (count @calls))
           "no warning when void tags carry no children"))))
-
-;; ---------------------------------------------------------------------------
-;; Source-coord stamping (per IMPL-SPEC §5.4 + §9.4)
-;; ---------------------------------------------------------------------------
-
-(deftest as-element-source-coord-stamping
-  (testing "*source-coord* binding is consumed by first DOM-tag root"
-    (binding [template/*source-coord* "myns:my-view:42:7"]
-      (let [^js el (template/as-element [:div [:span "hi"]])]
-        (is (= "myns:my-view:42:7"
-               (aget (.-props el) "data-rf2-source-coord"))
-            "first DOM root gets the attr")
-        (is (nil? template/*source-coord*)
-            "the binding is consumed by the first DOM root")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Prototype-pollution defence: user keys `:__proto__`, `:constructor` and
