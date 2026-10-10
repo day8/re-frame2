@@ -87,9 +87,11 @@ from __future__ import annotations
 
 import argparse
 import bisect
+import os
 import re
 import subprocess
 import sys
+import tempfile
 import urllib.parse
 from pathlib import Path
 from typing import Callable, Iterable
@@ -1143,9 +1145,7 @@ def _anchor_precedes_passage(
     fence-stripped, and (from `_check_compat_anchor_placement`) HTML-comment- and
     inline-code-masked, so only a real fragment target matches. Returns False if the anchor is
     absent, the passage is absent, or the anchor appears at/after the passage —
-    each is a placement defect the caller reports. Kept a pure
-    function so the placement teeth can drive it with a correct and a mutated
-    (drifted) line list directly.
+    each is a placement defect the caller reports.
     """
     anchor_re = _anchor_id_re(anchor_id)
     anchor_idx: int | None = None
@@ -2707,10 +2707,16 @@ def main(argv: list[str]) -> int:
         )
         return 2
 
-    broken = check(
-        repo_root,
-        verbose=args.verbose,
-    )
+    try:
+        broken = check(
+            repo_root,
+            verbose=args.verbose,
+        )
+    except RuntimeError as exc:
+        # `git ls-files` failed: the roster cannot be read, which is a setup
+        # error rather than a finding.
+        sys.stderr.write(f"error: {exc}\n")
+        return 2
     return 0 if broken == 0 else 1
 
 
@@ -2882,6 +2888,32 @@ def _run_self_tests(verbose: bool = False) -> int:
         failures += 1
     elif verbose:
         sys.stderr.write("self-test PASS: source roster is tracked, unvendored files\n")
+
+    # A --repo-root outside any git work tree is a setup error: `main` exits 2
+    # with a one-line message, never a traceback.  The ceiling stops git from
+    # finding a repository above the temporary directory.
+    with tempfile.TemporaryDirectory() as non_git_dir:
+        non_git_root = Path(non_git_dir)
+        (non_git_root / "mkdocs.yml").write_text("site_name: non-git\n", encoding="utf-8")
+        saved_stderr = sys.stderr
+        saved_ceiling = os.environ.get("GIT_CEILING_DIRECTORIES")
+        sys.stderr = _DevNull()
+        os.environ["GIT_CEILING_DIRECTORIES"] = str(non_git_root.resolve().parent)
+        try:
+            non_git_exit = main(["--repo-root", str(non_git_root)])
+        finally:
+            sys.stderr = saved_stderr
+            if saved_ceiling is None:
+                os.environ.pop("GIT_CEILING_DIRECTORIES", None)
+            else:
+                os.environ["GIT_CEILING_DIRECTORIES"] = saved_ceiling
+    if non_git_exit != 2:
+        sys.stderr.write(
+            f"self-test FAIL: a non-git --repo-root exited {non_git_exit}, not 2\n"
+        )
+        failures += 1
+    elif verbose:
+        sys.stderr.write("self-test PASS: a non-git --repo-root is a setup error (exit 2)\n")
 
     # `_iter_inline_links` driven directly with fence-stripped (line_no, text)
     # pairs: the join must reach across a wrap and stop at every real block
@@ -3258,10 +3290,11 @@ def _run_self_tests(verbose: bool = False) -> int:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
         return 1
     if verbose:
-        # One PASS line per case (the 1 is the source-roster check), so this
-        # equals `--self-test --verbose | grep -c 'self-test PASS'`.
+        # One PASS line per case (the 2 are the source-roster and non-git
+        # root checks), so this equals
+        # `--self-test --verbose | grep -c 'self-test PASS'`.
         total = (
-            len(count_cases) + len(diagnostic_cases) + 1
+            len(count_cases) + len(diagnostic_cases) + 2
             + len(extraction_cases) + len(fence_cases)
         )
         sys.stderr.write(f"all {total} self-tests passed.\n")
