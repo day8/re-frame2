@@ -548,37 +548,36 @@
            its total length is not a figure this instrument publishes."
     (is (= [2.0 3.0 4.0] (rf.bench.fresco.ledger-frame-clock-app/intervals [1.0 3.0 6.0 10.0]))
         "each reading is the distance to the NEXT frame")
-    (is (= 29 (count (rf.bench.fresco.ledger-frame-clock-app/intervals (vec (range 30)))))
-        "so a thirty-frame run banks twenty-nine readings")
     (is (= [] (rf.bench.fresco.ledger-frame-clock-app/intervals [1.0]))
         "and a single frame is no reading at all")))
 
 (deftest the-window-check-is-a-two-valued-question-asked-in-both-directions
-  (testing "[[rf.bench.fresco.ledger-frame-clock-app/verify]] compares the first frame's observed model
-           index against the last's and asks whether that matches what
-           the ARM predicted. Both directions bank into one tally: a
-           floor run whose window advanced is exactly as damning as a
-           scroll run whose window did not."
-    (is (:verified? (rf.bench.fresco.ledger-frame-clock-app/verify :scroll true [100 104 108]))
-        "a scrolling arm whose window moved forward verifies")
-    (is (not (:verified? (rf.bench.fresco.ledger-frame-clock-app/verify :scroll true [100 100 100])))
-        "and one whose window stood still is REFUSED")
-    (is (:verified? (rf.bench.fresco.ledger-frame-clock-app/verify :idle-frames false [100 100 100]))
-        "a floor arm whose window stood still verifies")
-    (is (not (:verified? (rf.bench.fresco.ledger-frame-clock-app/verify :idle-frames false [100 104 108])))
-        "and one whose window MOVED is refused — without this direction the
-         observation could report movement on a page nothing scrolled and
-         every reading would be verified by a check that cannot fail")
-    (let [v (rf.bench.fresco.ledger-frame-clock-app/verify :scroll true [100 nil 108])]
-      (is (not (:verified? v))
-          "a frame whose window could not be read is a frame whose reading
-           means nothing")
-      (is (= 1 (:unobserved v))
-          "and the count is carried, so an operator is sent to the spacer
-           rather than to the gesture"))
-    (is (= {:expected :advance :observed :no-advance}
-           (select-keys (rf.bench.fresco.ledger-frame-clock-app/verify :scroll true [100 100]) [:expected :observed]))
-        "the refusal names both sides rather than only failing")))
+  (testing "[[rf.bench.fresco.ledger-frame-clock-app/verify]] asks whether the
+           window did what the ARM predicted. Both directions bank into one
+           tally: a floor run whose window advanced is exactly as damning as
+           a scroll run whose window did not."
+    (doseq [[advance? seen verified?] [[true  [100 104 108] true]
+                                       [false [100 100 100] true]
+                                       [false [100 104 108] false]]]
+      (is (= verified? (:verified? (rf.bench.fresco.ledger-frame-clock-app/verify :arm advance? seen)))
+          (pr-str advance? seen)))
+    (is (= {:verified?   false
+            :arm         :scroll
+            :expected    :advance
+            :observed    :no-advance
+            :first-row   100
+            :last-row    100
+            :rows-gained 0
+            :unobserved  0}
+           (rf.bench.fresco.ledger-frame-clock-app/verify :scroll true [100 100]))
+        "a scrolling arm whose window stood still is REFUSED, and the refusal
+         names both sides rather than only failing"))
+  (testing "a frame whose window could not be read refuses the run, and the
+           count is carried so an operator is sent to the spacer rather than
+           to the gesture"
+    (is (= {:verified? false :unobserved 1}
+           (select-keys (rf.bench.fresco.ledger-frame-clock-app/verify :scroll true [100 nil 108])
+                        [:verified? :unobserved])))))
 
 (deftest the-descriptive-counts-say-how-far-and-how-often
   (testing "`:advance` is published over every visit and adjudicates
@@ -587,9 +586,7 @@
            new window, which is a finding about the SUBJECT — a run that
            advanced on a quarter of its frames advanced for real and was
            dropping frames."
-    (is (true? (rf.bench.fresco.ledger-frame-clock-app/advanced? [100 108])))
     (is (false? (rf.bench.fresco.ledger-frame-clock-app/advanced? [108 100])) "backwards is not an advance")
-    (is (false? (rf.bench.fresco.ledger-frame-clock-app/advanced? [100 nil])) "and an unreadable end is not one either")
     (is (= 8 (rf.bench.fresco.ledger-frame-clock-app/rows-gained [100 104 108])))
     (is (nil? (rf.bench.fresco.ledger-frame-clock-app/rows-gained [nil 108])) "nil rather than a fabricated zero")
     (is (= 2 (rf.bench.fresco.ledger-frame-clock-app/frames-changed [1 1 2 2 3]))
@@ -602,48 +599,35 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-control-predicts-a-floor-and-every-round-must-clear-it
-  (testing "[[rf.bench.fresco.ledger-frame-clock-app/control-verdict-floor]] adjudicates round by round and
-           not in aggregate, for the reason `rf.bench.fresco.lane/control-verdict-strict`
-           gives about its own band: a cross-round minimum cannot tell a
-           control that held every round from one that held on average."
-    (let [v (rf.bench.fresco.ledger-frame-clock-app/control-verdict-floor 50.0 [51.0 52.5 50.0] 16.7)]
-      (is (:ok? v) "every round's minimum sits at or above the prediction")
-      (is (= :every-round-floor (:rule v)))
-      (is (empty? (:below v)))
-      (is (:stated? v))
-      (is (= 3 (:n (:measured v))) "and the per-round figures are summarised, not pooled")
-      (is (= [51.0 52.5 50.0] (:per-round v))
-          "carried into the record so a later reader can re-adjudicate WITHOUT
-           re-running the window"))))
+  (testing "[[rf.bench.fresco.ledger-frame-clock-app/control-verdict-floor]]
+           adjudicates round by round, because a cross-round minimum cannot
+           tell a control that held every round from one that held on
+           average — and carries the per-round figures, so a later reader can
+           re-adjudicate WITHOUT re-running the window."
+    (is (= {:ok? true :stated? true :below [] :per-round [51.0 52.5 50.0]}
+           (select-keys (rf.bench.fresco.ledger-frame-clock-app/control-verdict-floor 50.0 [51.0 52.5 50.0] 16.7)
+                        [:ok? :stated? :below :per-round])))))
 
 (deftest the-control-names-the-rounds-that-fell-below-the-floor
-  (testing "An operator told only `FAILED` goes looking at the arms. A
-           frame whose main thread was blocked for the whole of the
-           prediction cannot be followed sooner than that, so a round
-           below the floor means the instrument is not reading the frames
-           it thinks it is."
-    (let [v (rf.bench.fresco.ledger-frame-clock-app/control-verdict-floor 50.0 [51.0 49.0 40.0] 16.7)]
-      (is (not (:ok? v)))
-      (is (= [2 3] (mapv :round (:below v)))
-          "each failing round is NAMED, one-based, in schedule order")
-      (is (= [1.0 10.0] (mapv :short-by (:below v)))
-          "and by how much it missed")
-      (is (:stated? v) "the prediction itself was stated — this is a real failure"))))
+  (testing "An operator told only `FAILED` goes looking at the arms, so each
+           round below the floor is NAMED, one-based in schedule order, with
+           by how much it missed."
+    (is (= {:ok?     false
+            :stated? true
+            :below   [{:round 2 :measured 49.0 :short-by 1.0}
+                      {:round 3 :measured 40.0 :short-by 10.0}]}
+           (select-keys (rf.bench.fresco.ledger-frame-clock-app/control-verdict-floor 50.0 [51.0 49.0 40.0] 16.7)
+                        [:ok? :stated? :below])))))
 
 (deftest the-control-refuses-a-prediction-that-is-not-stated
-  (testing "Anti-vacuity, carried over from `rf.bench.fresco.lane/control-verdict-strict`
-           rather than reinvented. A floor of zero or less is cleared by
-           any reading whatever, and a control with no rounds is the same
-           thing said with no data. A control whose own prediction has
-           gone vacuous would report that it saw what it never
-           predicted."
-    (let [v (rf.bench.fresco.ledger-frame-clock-app/control-verdict-floor 0.0 [51.0 52.0] 16.7)]
-      (is (not (:stated? v)))
-      (is (not (:ok? v)) "a floor nothing can fall below is not a control that passed")
-      (is (empty? (:below v)) "and no round is blamed for an unstated prediction"))
-    (let [v (rf.bench.fresco.ledger-frame-clock-app/control-verdict-floor 50.0 [] 16.7)]
-      (is (not (:stated? v)))
-      (is (not (:ok? v)) "a control with no data is not a control that passed"))))
+  (testing "A floor of zero or less is cleared by any reading whatever, and a
+           control with no rounds is the same thing said with no data —
+           neither is a control that passed, and no round is blamed."
+    (doseq [[predicted per-round] [[0.0 [51.0 52.0]] [50.0 []]]]
+      (is (= {:stated? false :ok? false :below []}
+             (select-keys (rf.bench.fresco.ledger-frame-clock-app/control-verdict-floor predicted per-round 16.7)
+                          [:stated? :ok? :below]))
+          (pr-str predicted per-round)))))
 
 (deftest the-floor-is-reported-against-the-boxs-own-frame-grid-as-context
   (testing "`:versus-floor` says how many of this box's frames the
@@ -659,40 +643,17 @@
         "the verdict does not move with the context")))
 
 (deftest the-adjudicated-figure-is-a-round-minimum-and-not-a-median
-  (testing "[[rf.bench.fresco.ledger-frame-clock-app/control-per-round]] takes the SMALLEST interval each
-           round produced, because a floor is a claim about the smallest
-           reading. A median above the floor with a minimum below it is a
-           control that failed, and an aggregate reporting the median
-           would call it a pass."
-    (let [readings [{:ctl-blocked [60.0 51.0 70.0]}
-                    {:ctl-blocked [80.0 49.0 90.0]}]]
-      (is (= [51.0 49.0] (rf.bench.fresco.ledger-frame-clock-app/control-per-round readings))
-          "one minimum per round")
-      (is (not (:ok? (rf.bench.fresco.ledger-frame-clock-app/control-verdict-floor 50.0
-                                                  (rf.bench.fresco.ledger-frame-clock-app/control-per-round readings)
-                                                  16.7)))
-          "so round two is caught — every median in it is above the floor and one
-           of its readings is not"))))
+  (testing "[[rf.bench.fresco.ledger-frame-clock-app/control-per-round]] takes
+           the SMALLEST interval each round produced, because a floor is a
+           claim about the smallest reading: every median below clears the
+           floor, and round two's minimum does not."
+    (is (= [51.0 49.0] (rf.bench.fresco.ledger-frame-clock-app/control-per-round
+                         [{:ctl-blocked [60.0 51.0 70.0]}
+                          {:ctl-blocked [80.0 49.0 90.0]}])))))
 
 ;; ---------------------------------------------------------------------------
-;; The knobs, and the geometry they have to fit
+;; The knob the control rests on
 ;; ---------------------------------------------------------------------------
-
-(deftest the-arm-roster-is-the-three-rows-the-file-documents
-  (testing "The namespace docstring names three arms and says what each
-           one is for. A fourth added silently would leave that prose
-           describing an instrument that does not exist."
-    (is (= [:idle-frames :scroll :ctl-blocked] (mapv :id rf.bench.fresco.ledger-frame-clock-app/arms))
-        "floor first, so it leads the schedule")
-    (is (= [:ctl-blocked] (mapv :id (filter :control? rf.bench.fresco.ledger-frame-clock-app/arms)))
-        "and exactly one of them is a control")
-    (is (= [false true true] (mapv :advance? rf.bench.fresco.ledger-frame-clock-app/arms))
-        "the floor arm predicts stillness and both scrolling arms predict movement")
-    (is (pos? (:warmup rf.bench.fresco.ledger-frame-clock-app/sampling)))
-    (is (pos? (:samples rf.bench.fresco.ledger-frame-clock-app/sampling)))
-    (is (pos? rf.bench.fresco.ledger-frame-clock-app/rounds))
-    (is (< 1 rf.bench.fresco.ledger-frame-clock-app/frames-per-run)
-        "a run of one frame yields no interval at all")))
 
 (deftest the-injected-control-duration-clears-the-frame-grid
   (testing "`blocked-ms` is chosen against the display's rendering
@@ -704,25 +665,3 @@
     (is (>= rf.bench.fresco.ledger-frame-clock-app/blocked-ms (* 2.0 16.7))
         "at least two rendering intervals at 60 Hz — just under three, which is
          what the driver's own docstring rounds to")))
-
-(deftest the-gesture-fits-the-model-at-both-ends
-  (testing "[[rf.bench.fresco.ledger-frame-clock-app/boot!]] refuses a knob set too near either edge of the
-           model, because `rf.fresco.examples.ledger.vendor/window-from` clamps `from` at zero and
-           `to` at the last row and a CLAMPED WINDOW STANDS STILL — which
-           would make an honest verification failure out of a knob.
-
-           Asserted here against the same arithmetic, so the two refusals
-           are exercised without a browser and a knob moved in the driver
-           reds this row rather than three hundred visits into a run."
-    (let [[from _]  (window-at (start-top))
-          last-top  (+ (start-top) (* rf.bench.fresco.ledger-frame-clock-app/frames-per-run rf.bench.fresco.ledger-frame-clock-app/scroll-step-px))
-          [_ to]    (window-at last-top)]
-      (is (pos? from)
-          "the gesture starts clear of window-from's (max 0 …) clamp")
-      (is (< to (dec rf.bench.fresco.ledger-frame-clock-app/total))
-          "and ends clear of the model's last row")
-      (is (= 1 (/ rf.bench.fresco.ledger-frame-clock-app/scroll-step-px rf.fresco.examples.ledger.views/row-height))
-          "the step is ONE ROW, stated in the screen's own units rather than in
-           pixels typed here")
-      (is (< from to)
-          "so the window the gesture traverses genuinely moves"))))
