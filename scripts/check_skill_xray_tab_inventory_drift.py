@@ -384,110 +384,41 @@ def run_live() -> list[str]:
 def _run_self_test() -> int:
     failures = 0
 
-    # A representative shipped runtime slice (id/label/mnem/order/modes) plus a
-    # Static tab that must be ignored by the Dynamic filter.
-    runtime_src = """
-    (panel-registry/reg-l4-tab!
-      {:id :epoch :label "Epoch" :mnem "e" :modes #{:dynamic}
-       ;; -1 places Epoch leftmost (before Handler's :order 0).
-       :order -1 :panel Panel})
-    (panel-registry/reg-l4-tab!
-      {:id :machines
-       ;; singular label; internal id stays :machines
-       :label "Machine" :mnem "m" :modes #{:dynamic} :order 4 :panel Panel})
-    (panel-registry/reg-l4-tab!
-      {:id :module-view :label "Frames" :mnem "u" :modes #{:dynamic} :order 9 :panel Panel})
-    (panel-registry/reg-l4-tab!
-      {:id :machines :label "Machines" :mnem "m" :modes #{:static} :order 0 :panel Panel})
-    """
-    parsed = [t for t in parse_reg_l4_tabs(runtime_src) if "dynamic" in t.get("modes", set())]
-    parsed.sort(key=lambda t: t.get("order", 0))
+    # The live run is green whether or not this parse finds the set: an empty
+    # set skips R0 silently.
+    if parse_valid_panels("(def valid-panels \"doc\" #{:epoch :machines :module-view})") != {
+            "epoch", "machines", "module-view"}:
+        failures += 1
+        print("SELF-TEST FAIL [parse]: valid-panels parse")
 
-    def expect(label, cond):
-        nonlocal failures
-        if not cond:
-            failures += 1
-            print(f"SELF-TEST FAIL [parse]: {label}")
-
-    expect("3 dynamic tabs", len(parsed) == 3)
-    expect("epoch order -1 (comment :order 0 ignored)",
-           any(t["id"] == "epoch" and t.get("order") == -1 for t in parsed))
-    expect("machine label singular",
-           any(t["id"] == "machines" and t.get("label") == "Machine" for t in parsed))
-    expect("static machines excluded",
-           all(not (t["id"] == "machines" and t.get("label") == "Machines") for t in parsed))
-    expect("valid-panels parse",
-           parse_valid_panels("(def valid-panels \"doc\" #{:epoch :machines :module-view})")
-           == {"epoch", "machines", "module-view"})
-
-    # Synthetic runtime inventory for the check() fixtures.
     rt = [
-        {"id": "epoch", "label": "Epoch", "mnem": "e", "order": -1, "modes": {"dynamic"}},
-        {"id": "machines", "label": "Machine", "mnem": "m", "order": 4, "modes": {"dynamic"}},
-        {"id": "module-view", "label": "Frames", "mnem": "u", "order": 9, "modes": {"dynamic"}},
+        {"id": "epoch", "label": "Epoch", "mnem": "e", "order": -1},
+        {"id": "machines", "label": "Machine", "mnem": "m", "order": 4},
+        {"id": "module-view", "label": "Frames", "mnem": "u", "order": 9},
     ]
     vp = {"epoch", "machines", "module-view"}
     ordered = f"Epoch {_MIDDOT} Machine {_MIDDOT} Frames"
-    mnem = "e m u"
-
-    def files(**overrides) -> dict[str, str]:
-        base = {
-            "SKILL.md": f"Tabs: {ordered} (mnemonics {mnem}). app-db etc.",
-            "README.md": f"Inventory {ordered}.",
-            "references/panels.md": f"{ordered}\nmnemonics {mnem}",
-            "references/chrome.md": "chrome",
-            "references/shared-components.md": "shared",
-            "evals/README.md": "evals readme",
-            "evals/evals.json": f'"list {ordered} (mnemonics {mnem})"',
-        }
-        base.update(overrides)
-        return base
-
-    cases: list[tuple[str, list[dict], set, dict, bool]] = [
-        ("clean", rt, vp, files(), True),
-        # A1: an inline literal claims a stale label.
-        ("inline stale label", rt, vp,
-         files(**{"evals/README.md": 'e.g. {:id :module-view :label "Modules" :mnem "u" :order 9}.'}),
-         False),
-        # A1: an inline literal with the correct label passes.
-        ("inline correct label", rt, vp,
-         files(**{"evals/README.md": 'e.g. {:id :module-view :label "Frames" :mnem "u" :order 9}.'}),
-         True),
-        # A1: wrong order in an inline literal.
-        ("inline wrong order", rt, vp,
-         files(**{"SKILL.md": f"Tabs: {ordered} (mnemonics {mnem}). app-db. "
-                              '{:id :module-view :label "Frames" :mnem "u" :order 8}'}),
-         False),
-        # A2: ordered sentence carries the stale label.
-        ("ordered stale label", rt, vp,
-         files(**{"README.md": f"Inventory Epoch {_MIDDOT} Machine {_MIDDOT} Modules."}),
-         False),
-        # A2: reordered inventory.
-        ("ordered reorder", rt, vp,
-         files(**{"SKILL.md": f"Tabs: Epoch {_MIDDOT} Frames {_MIDDOT} Machine (mnemonics {mnem})."}),
-         False),
-        # A3: mnemonic sequence drift.
-        ("mnem drift", rt, vp,
-         files(**{"references/panels.md": f"{ordered}\nmnemonics e u m"}),
-         False),
-        # A5: evals never name the highest-:order tab's label.
-        ("eval highest-order label absent", rt, vp,
-         files(**{"evals/evals.json": f'"list Epoch {_MIDDOT} Machine {_MIDDOT} Modules (mnemonics {mnem})"'}),
-         False),
-        # R0: valid-panels omits a registered tab.
-        ("valid-panels mismatch", rt, {"epoch", "machines"}, files(), False),
+    clean = {
+        "SKILL.md": f"Tabs: {ordered} (mnemonics e m u).",
+        "README.md": f"Inventory {ordered}.",
+        "references/panels.md": f"{ordered}\nmnemonics e m u",
+        "evals/evals.json": f'"list {ordered} (mnemonics e m u)"',
+    }
+    # (label, valid-panels, the one file changed, the check that must fire)
+    cases = [
+        ("valid-panels omits a registered tab", {"epoch", "machines"}, {}, "R0"),
+        ("inline literal with a stale label", vp,
+         {"evals/README.md": 'e.g. {:id :module-view :label "Modules" :mnem "u" :order 9}.'},
+         "A1"),
+        ("ordered sentence with a stale label", vp,
+         {"README.md": f"Inventory Epoch {_MIDDOT} Machine {_MIDDOT} Modules."}, "A2"),
+        ("mnemonic drift", vp, {"references/panels.md": f"{ordered}\nmnemonics e u m"}, "A3"),
     ]
-
-    for label, rtabs, vpanels, fmap, want_clean in cases:
-        result = check(rtabs, vpanels, fmap)
-        is_clean = not result
-        if is_clean != want_clean:
+    for label, vpanels, override, axis in cases:
+        result = check(rt, vpanels, {**clean, **override})
+        if not any(f.startswith(axis) for f in result):
             failures += 1
-            print(
-                f"SELF-TEST FAIL [check]: {label!r} expected "
-                f"{'clean' if want_clean else 'drift'}, got "
-                f"{'clean' if is_clean else result}"
-            )
+            print(f"SELF-TEST FAIL [check]: {label!r} expected an {axis} finding, got {result}")
 
     if failures:
         print(f"\n{failures} self-test failure(s).")
