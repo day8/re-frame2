@@ -756,3 +756,90 @@
 
 (deftest use-sub-live-frame-value-target-balances
   (rf.adapter.react-shared-suite/assert-use-sub-live-frame-value-target-balances cfg))
+
+;; ---- a same-id reincarnation under a mounted use-sub ----------------------
+;;
+;; A frame destroyed and re-made under the same id is a NEW incarnation that
+;; answers to the same keyword. A mounted `use-sub` must identify its frame by
+;; incarnation, as `use-frame` does: the next render of the SAME instance reads
+;; and listens to the successor. The child holds the ambient (provider) form and
+;; the explicit `{:frame …}` form side by side; the parent's tick re-renders the
+;; mounted child without remounting it.
+
+(def ^:private reincarnation-frame    :rf.uix-reincarnation/frame)
+(def ^:private reincarnation-query    [:rf.uix-reincarnation/n])
+(def ^:private reincarnation-set-tick (atom nil))
+(def ^:private reincarnation-observed (atom []))
+
+(defui ProbeReincarnationChild []
+  (let [ambient  (rf.adapter.uix/use-sub reincarnation-query)
+        explicit (rf.adapter.uix/use-sub reincarnation-query {:frame reincarnation-frame})]
+    (swap! reincarnation-observed conj [ambient explicit])
+    ($ :div (str ambient "/" explicit))))
+
+(defui ProbeReincarnationParent []
+  (let [[tick set-tick] (uix/use-state 0)]
+    (uix/use-effect
+      (fn [] (reset! reincarnation-set-tick set-tick) js/undefined)
+      [])
+    ($ :div {:data-tick tick}
+       ($ ProbeReincarnationChild))))
+
+(defn- reincarnation-ref-count []
+  (or (get-in @(:sub-cache (rf.frame/frame reincarnation-frame))
+              [reincarnation-query :ref-count])
+      0))
+
+(deftest use-sub-follows-a-same-id-reincarnation
+  (testing "UIx — a mounted use-sub reads and listens to a same-id successor frame"
+    (if-not (browser?)
+      (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
+      (let [act-fn (get-act)]
+        (if (nil? act-fn)
+          (is true "act() not reachable from this runner; skipping")
+          (binding [rf.frame/*current-frame* nil]
+            (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
+            (reset! reincarnation-observed [])
+            (reset! reincarnation-set-tick nil)
+            (rf/reg-event ::reincarnation-set (fn [_ [_ n]] {:db {:n n}}))
+            (rf/reg-sub (first reincarnation-query) (fn [db _] (:n db)))
+            (rf/make-frame {:id reincarnation-frame :doc "use-sub reincarnation probe — A"})
+            (rf/dispatch-sync [::reincarnation-set 1] {:frame reincarnation-frame})
+            (let [mount-node (.createElement js/document "div")
+                  root       (react-dom-client/createRoot mount-node)
+                  re-render! #(act-fn (fn [] (@reincarnation-set-tick inc)))]
+              (try
+                (act-fn
+                  (fn []
+                    (.render root
+                      ($ rf.adapter.uix/frame-provider {:frame reincarnation-frame}
+                         ($ ProbeReincarnationParent)))))
+                (is (= [1 1] (peek @reincarnation-observed)) "mounted against A")
+
+                (testing "control: a re-render under the same incarnation keeps
+                          the two durable references and the value"
+                  (re-render!)
+                  (is (= [[1 1] 2] [(peek @reincarnation-observed) (reincarnation-ref-count)])))
+
+                (rf/destroy-frame! reincarnation-frame)
+                (rf/make-frame {:id reincarnation-frame :doc "use-sub reincarnation probe — B"})
+                (rf/dispatch-sync [::reincarnation-set 2] {:frame reincarnation-frame})
+
+                (testing "the next render of the SAME instance reads the successor,
+                          in the ambient and the explicit form alike"
+                  (re-render!)
+                  (is (= [2 2] (peek @reincarnation-observed))))
+
+                (testing "and listens to it: a later write to the successor
+                          re-renders the instance"
+                  (act-fn (fn [] (rf/dispatch-sync [::reincarnation-set 3]
+                                                   {:frame reincarnation-frame})))
+                  (is (= [3 3] (peek @reincarnation-observed))))
+
+                (testing "and the successor's sub-cache references balance: two
+                          while mounted, none after unmount"
+                  (is (= 2 (reincarnation-ref-count)))
+                  (act-fn (fn [] (.unmount root)))
+                  (is (zero? (reincarnation-ref-count))))
+                (finally
+                  (try (.unmount root) (catch :default _ nil)))))))))))
