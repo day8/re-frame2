@@ -1130,16 +1130,6 @@
                    (and (vector? entry) (keyword? (first entry))) (first entry)
                    :else nil))))))
 
-(defn- application-interceptor-ref?
-  "True when an interceptor-reference id is APPLICATION-owned (so the image must
-  supply it). Framework-standard refs live under the reserved `:rf.interceptor/*`
-  namespace and are provided by the framework standard set / EP-0022 substrate,
-  not selected by the image — they are out of scope for this missing-reference
-  check. Pure."
-  [ref-id]
-  (not (and (keyword? ref-id)
-            (= "rf.interceptor" (namespace ref-id)))))
-
 (defn- resource-scope-ref
   "The named scope-resolver id a `:resource`-kind descriptor's spec references by
   a `{:from-db <scope-resolver-id>}` derived-scope reference, or nil (Spec 016
@@ -1162,10 +1152,13 @@
   the missing-reference legs). `resolver` is the sealed `{[kind id] descriptor}`
   map. Two reference legs are checked:
 
-    * an event/frame descriptor's `:interceptors` chain naming an APPLICATION
-      interceptor id (\"event references missing interceptor\") — resolves iff
-      `[:interceptor ref-id]` is a key; framework-standard `:rf.interceptor/*`
-      refs are framework-provided and skipped;
+    * an event/frame descriptor's `:interceptors` chain naming an interceptor
+      id (\"event references missing interceptor\") — resolves iff
+      `[:interceptor ref-id]` is a key, whatever the id's namespace: the
+      resolver already carries the published framework standards, so a
+      `:rf.interceptor/*` ref resolves exactly as an app ref does and a
+      misspelt one is refused here rather than at its first dispatch. A
+      presence check only — no factory runs;
     * a `:resource` descriptor's `{:from-db <scope-resolver-id>}` derived-scope
       reference (\"resource references missing scope resolver\") — resolves iff
       `[:resource-scope <scope-resolver-id>]` is a key (Spec 016 §Resolver
@@ -1182,16 +1175,14 @@
   ;; and (c) the missing-key shape + its prose. Each leg is one data tuple here;
   ;; the shared driver below threads them through the one fail-loud point.
   ;;   :kind?   predicate selecting referencing descriptor kinds
-  ;;   :refs    descriptor -> seq of referenced ids (event/frame: APPLICATION
-  ;;            interceptor refs; resource: the {:from-db …} scope-resolver ref)
+  ;;   :refs    descriptor -> seq of referenced ids (event/frame: interceptor
+  ;;            refs; resource: the {:from-db …} scope-resolver ref)
   ;;   :missing ref-id -> the [kind id] coordinate that must be a resolver key
   ;;   :message kind + descriptor + ref-id -> the fail-loud prose
   (let [legs
         [;; ---- event/frame -> interceptor references --------------------------
          {:kind?   #{:event :frame}
-          :refs    (fn [descriptor]
-                     (filter application-interceptor-ref?
-                             (interceptor-refs descriptor)))
+          :refs    interceptor-refs
           :missing (fn [ref-id] [:interceptor ref-id])
           :message (fn [kind descriptor ref-id]
                      (str "rf/image assembly: " (name kind) " "
@@ -1442,7 +1433,7 @@
         ;; (7) The sealed resolver is the protected standard base + the layered
         ;;     app resolver (the app never overwrites a standard — guarded above).
         resolver      (merge standard-resolver app-resolver)]
-    ;; (8) Validate application interceptor references against the sealed set.
+    ;; (8) Validate interceptor + scope-resolver references against the sealed set.
     (check-references! (some :rf.image/id images) resolver)
     ;; (9) Seal.
     {:rf.gen/resolver resolver
@@ -1605,7 +1596,7 @@
        when an image shadows one (`framework-base-descriptor?`);
     5. protect framework standards: an app descriptor colliding with a standard
        FAILS LOUD (no public `:replace-standard` opt-in);
-    6. validate application interceptor references against the sealed resolver;
+    6. validate interceptor + scope-resolver references against the sealed resolver;
     7. seal into an immutable generation value.
 
   Composition is image order: there is no declared-`:replace`/`:replace-standard`

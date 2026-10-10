@@ -109,7 +109,8 @@
           (str event ": the declared guard ran once, then the handler")))))
 
 (deftest inline-event-lowered-chain-carries-the-authored-refs
-  ;; a framework :rf.interceptor/* ref is exempt from the image reference check
+  ;; the runtime fixture publishes the :rf.interceptor/path standard, which the
+  ;; image reference check resolves against the sealed generation
   (let [d (rf.image-assembly/resolve-descriptor
             (assemble-inline {:reg-event [[:parity/pathed
                                            {:interceptors [[:rf.interceptor/path [:x]]]}
@@ -129,6 +130,25 @@
                                                         {:interceptors [:parity/absent-guard]}
                                                         event-body]]}))
                       [:rf.error/id :id :missing-reference]))))
+
+(deftest inline-misspelt-standard-interceptor-fails-at-make-frame
+  ;; a reserved :rf.interceptor/* ref gets the same construction-time check as
+  ;; an app ref, so a misspelling is refused before the first dispatch
+  (let [frame-with (fn [frame-id ref]
+                     (rf/make-frame
+                       {:id     frame-id
+                        :images [(rf.image/image
+                                   {:id            :parity/pathed
+                                    :registrations {:reg-event [[:parity/pathed-ev
+                                                                 {:interceptors [[ref [:cart]]]}
+                                                                 event-body]]}})]}))]
+    (is (= {:rf.error/id       :rf.error/image-missing-reference
+            :id                :parity/pathed-ev
+            :missing-reference [:interceptor :rf.interceptor/ptha]}
+           (select-keys (error-data #(frame-with :parity/typo-frame :rf.interceptor/ptha))
+                        [:rf.error/id :id :missing-reference])))
+    (is (nil? (error-data #(frame-with :parity/path-frame :rf.interceptor/path)))
+        "the published standard seals")))
 
 (def ^:private validator-rows
   "[label inline-registrations reg-*-control-thunk expected-error-id]"
