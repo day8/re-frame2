@@ -190,7 +190,7 @@
             ;; A live read in the OTHER frame, so the negative half of the
             ;; targeting claim below is measured with an instrument that is
             ;; demonstrably able to see an entry in that frame's cache.
-            _probe (rf/subscribe [::n] {:frame app-frame})
+            probe (rf/subscribe [::n] {:frame app-frame})
             {:keys [container root]} (mount-panel! :rf/xray)]
         (try
           (is (some? (q container "[data-testid=\"rf-xray-routing\"]"))
@@ -220,5 +220,5 @@
             ;; Release the imperative probe explicitly: `unsubscribe`'s own
             ;; docstring says a Reagent view auto-disposes via the reaction
             ;; lifecycle and an imperative subscriber must not rely on that.
-            (rf/unsubscribe [::n] {:frame app-frame})
+            (rf/unsubscribe probe)
             (teardown! root container)))))))

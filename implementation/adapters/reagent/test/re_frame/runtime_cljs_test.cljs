@@ -135,7 +135,7 @@
       (rf/dispatch-sync [:inc])
       (rf/dispatch-sync [:inc])
       (is (= 3 @r))
-      (rf/unsubscribe [:n]))))
+      (rf/unsubscribe r))))
 
 
 ;; ---- flows ----------------------------------------------------------------
@@ -186,7 +186,7 @@
       (r/flush)
       @c-reaction                                   ;; force lazy recompute
       (remove-watch c-reaction ::observer)
-      (rf/unsubscribe [:diamond/c])
+      (rf/unsubscribe c-reaction)
       (let [seen     (distinct @history)
             valid    #{{:a 1 :b 2} {:a 2 :b 1}}
             invalid  (remove valid seen)]
@@ -212,7 +212,7 @@
       (r/flush)
       @c-reaction
       (remove-watch c-reaction ::observer)
-      (rf/unsubscribe [:chain/c])
+      (rf/unsubscribe c-reaction)
       (let [seen (distinct @history)]
         (is (some #{21}  seen) "saw the initial value 21")
         (is (some #{201} seen) "saw the post-update value 201")
@@ -267,7 +267,7 @@
           (is (= (inc squared-baseline) @squared-runs)
               "layer-2 body still suppressed on the second value-equal replacement"))
         (remove-watch r ::touch)
-        (rf/unsubscribe [:stable/squared])))))
+        (rf/unsubscribe r)))))
 
 ;; ---- two-partition projection-equality invalidation (EP-0001 decision #7) -
 ;;
@@ -318,7 +318,7 @@
           (is (= {:rf.runtime/machines {:m 1}} (:rf.db/runtime (rf/frame-state-value :rf/default)))
               "the runtime-only commit DID land in runtime-db (real short-circuit, not a dropped write)"))
         (remove-watch r ::touch)
-        (rf/unsubscribe [:inval/app-sub])))))
+        (rf/unsubscribe r)))))
 
 (deftest app-only-commit-does-not-rerun-runtime-subs-cljs
   (testing "[EP-0001 #7] an app-only commit leaves the runtime-db
@@ -344,7 +344,7 @@
           (is (true? (:touched? (rf/app-db-value :rf/default)))
               "the app-only commit DID land in app-db (real short-circuit, not a dropped write)"))
         (remove-watch r ::touch)
-        (rf/unsubscribe [:inval/rt-sub])))))
+        (rf/unsubscribe r)))))
 
 (deftest real-partition-change-propagates-to-its-subs-cljs
   (testing "[EP-0001 #7] the converse: a real change to a
@@ -389,8 +389,8 @@
               "the app sub body did NOT re-run on a real runtime-db change"))
         (remove-watch ra ::touch-a)
         (remove-watch rr ::touch-r)
-        (rf/unsubscribe [:inval/app-sub2])
-        (rf/unsubscribe [:inval/rt-sub2])))))
+        (rf/unsubscribe ra)
+        (rf/unsubscribe rr)))))
 
 ;; ---- sub-cache -------------------------------------------------
 
@@ -426,9 +426,9 @@
       ;; Default no-arg form uses the active frame.
       (is (= snapshot (rf.subs.tooling/sub-cache-snapshot (rf/current-frame-id)))
           "no-arg form returns the active frame's snapshot")
-      (rf/unsubscribe [:n])
-      (rf/unsubscribe [:n])
-      (rf/unsubscribe [:name*]))
+      (rf/unsubscribe r1)
+      (rf/unsubscribe r2)
+      (rf/unsubscribe r3))
     ;; Missing frame yields nil rather than throwing.
     (is (nil? (rf.subs.tooling/sub-cache-snapshot :no-such-frame))
         "missing frame returns nil")))
@@ -449,7 +449,7 @@
           "a declared-input sub is :input-kind :static")
       (is (= [[:items] [:filter]] (:realized-inputs entry))
           "static realized inputs are the literal `:inputs` query-vectors in order")
-      (rf/unsubscribe [:visible-items]))))
+      (rf/unsubscribe r))))
 
 (deftest sub-cache-surfaces-parametric-realized-inputs
   (testing "a :parametric input-fn sub surfaces :input-kind :parametric +
@@ -482,7 +482,7 @@
       ;; CLJS calls the tooling ns directly (rf/sub-topology is a JVM-only alias).
       (is (= :parametric (:inputs ((rf.subs.tooling/sub-topology) :article/page)))
           "static sub-topology reports the :parametric sentinel, not the realized edges")
-      (rf/unsubscribe [:article/page :a1]))))
+      (rf/unsubscribe r))))
 
 ;; ---- live sub-cache algebra view (EP-0014 slice-2) -------------
 ;;
@@ -527,14 +527,14 @@
         (is (= 7 (:value node-n))
             "the node carries the live deref of the cached reaction")
         (is (= 2 (:ref-count node-n))
-            "ref-count is the lifecycle evidence the cache-entry owner is kept alive")))
-    ;; No-arg-by-id parity with the active frame.
-    (is (= (rf.subs.tooling/sub-cache-algebra-view :rf/default)
-           (rf.subs.tooling/sub-cache-algebra-view (rf/current-frame-id)))
-        "the named-frame view equals the active-frame view")
-    (rf/unsubscribe [:n])
-    (rf/unsubscribe [:n])
-    (rf/unsubscribe [:name*])
+            "ref-count is the lifecycle evidence the cache-entry owner is kept alive"))
+      ;; No-arg-by-id parity with the active frame.
+      (is (= (rf.subs.tooling/sub-cache-algebra-view :rf/default)
+             (rf.subs.tooling/sub-cache-algebra-view (rf/current-frame-id)))
+          "the named-frame view equals the active-frame view")
+      (rf/unsubscribe r1)
+      (rf/unsubscribe r2)
+      (rf/unsubscribe r3))
     (is (nil? (rf.subs.tooling/sub-cache-algebra-view :no-such-frame))
         "missing frame returns nil")))
 
@@ -553,7 +553,7 @@
       (is (= :static (:input-kind node)))
       (is (= [[:sub [:items]] [:sub [:filter]]] (:inputs node))
           "the static entry's realized edges are its literal `:inputs` query-vectors, lowered to [:sub q]")
-      (rf/unsubscribe [:visible-items]))))
+      (rf/unsubscribe r))))
 
 (deftest sub-cache-algebra-view-lowers-parametric-realized-edges
   (testing "a parametric entry lowers its REALIZED (input-fn query-v) result to [:sub q] edges"
@@ -584,7 +584,7 @@
       ;; The static view reports the marker, never these realized edges.
       (is (= :parametric (:inputs (rf.subs.tooling/sub-algebra-view :article/page)))
           "the static algebra view reports the :parametric marker, not the realized edges")
-      (rf/unsubscribe [:article/page :a1]))))
+      (rf/unsubscribe r))))
 
 ;; ---- frame-provider -------------------------------------------
 ;;
@@ -727,11 +727,11 @@
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
-    (rf/subscribe [:n])
-    (is (contains? (cache-keys-of :rf/default) [:n]))
-    (rf/unsubscribe [:n])
-    (is (not (contains? (cache-keys-of :rf/default) [:n]))
-        "slot evicted in-tick on the 1 → 0 transition")))
+    (let [r (rf/subscribe [:n])]
+      (is (contains? (cache-keys-of :rf/default) [:n]))
+      (rf/unsubscribe r)
+      (is (not (contains? (cache-keys-of :rf/default) [:n]))
+          "slot evicted in-tick on the 1 → 0 transition"))))
 
 ;; ---- restore-epoch! reactive surfaces (Tool-Pair §Time-travel) ---
 ;;
@@ -775,5 +775,5 @@
       (is (true? (rf/restore-epoch! :restore/a (:epoch-id a-target))))
       (is (= 1   @a-r) "frame A's reaction sees the rewound value")
       (is (= 101 @b-r) "frame B's reaction is unaffected by the cross-frame restore")
-      (rf/unsubscribe :restore/a [:n])
-      (rf/unsubscribe :restore/b [:n]))))
+      (rf/unsubscribe a-r)
+      (rf/unsubscribe b-r))))

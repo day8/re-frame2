@@ -253,7 +253,8 @@
         (uix-hooks/use-memo
           (fn []
             (let [r (rf.subs/subscribe stable-query-v {:frame stable-frame-kw})]
-              (rf.subs/unsubscribe stable-frame-kw stable-query-v)
+              (when r
+                (rf.subs/unsubscribe-if-reaction stable-frame-kw stable-query-v r))
               r))
           #js [stable-key])
         get-snap
@@ -282,7 +283,9 @@
                   (let [stored (.-current committed-ref)]
                     (when (and stored (identical? (aget stored 1) committed))
                       (set! (.-current committed-ref) nil)))
-                  (rf.subs/unsubscribe stable-frame-kw stable-query-v)))))
+                  (when committed
+                    (rf.subs/unsubscribe-if-reaction
+                      stable-frame-kw stable-query-v committed))))))
           #js [stable-key])]
     (react/useSyncExternalStore subscribe-fn get-snap get-snap)))
 
@@ -331,7 +334,8 @@
             (let [committed (rf.subs/subscribe stable-query-v
                                             {:frame stable-frame-kw})]
               (set! (.-current committed-ref) #js [stable-key committed])
-              (rf.subs/unsubscribe stable-frame-kw stable-query-v)
+              (when reaction
+                (rf.subs/unsubscribe-if-reaction stable-frame-kw stable-query-v reaction))
               (let [k (keyword watch-ns (str (gensym "watch-")))]
                 (when committed
                   (add-watch committed k (fn [_ _ _ _] (on-change))))
@@ -340,7 +344,9 @@
                   (let [stored (.-current committed-ref)]
                     (when (and stored (identical? (aget stored 1) committed))
                       (set! (.-current committed-ref) nil)))
-                  (rf.subs/unsubscribe stable-frame-kw stable-query-v)))))
+                  (when committed
+                    (rf.subs/unsubscribe-if-reaction
+                      stable-frame-kw stable-query-v committed))))))
           #js [stable-key])]
     (react/useSyncExternalStore subscribe-fn get-snap get-snap)))
 
@@ -597,7 +603,8 @@
         (uix-hooks/use-memo
           (fn []
             (let [r (rf.subs/subscribe stable-query-v {:frame stable-frame-kw})]
-              (rf.subs/unsubscribe stable-frame-kw stable-query-v)
+              (when r
+                (rf.subs/unsubscribe-if-reaction stable-frame-kw stable-query-v r))
               r))
           #js [stable-key])
         get-snap
@@ -633,7 +640,9 @@
                   (let [stored (.-current committed-ref)]
                     (when (and stored (identical? (aget stored 1) committed))
                       (set! (.-current committed-ref) nil)))
-                  (rf.subs/unsubscribe stable-frame-kw stable-query-v)))))
+                  (when committed
+                    (rf.subs/unsubscribe-if-reaction
+                      stable-frame-kw stable-query-v committed))))))
           #js [stable-key reaction])]
     (react/useSyncExternalStore subscribe-fn get-snap get-snap)))
 
@@ -668,7 +677,8 @@
                 (aset witness-counters "rebuilt"
                       (inc (aget witness-counters "rebuilt"))))
               (set! (.-current committed-ref) #js [stable-key committed])
-              (rf.subs/unsubscribe stable-frame-kw stable-query-v)
+              (when reaction
+                (rf.subs/unsubscribe-if-reaction stable-frame-kw stable-query-v reaction))
               (let [k (keyword watch-ns (str (gensym "watch-")))]
                 (when committed
                   (add-watch committed k (fn [_ _ _ _] (on-change))))
@@ -677,7 +687,9 @@
                   (let [stored (.-current committed-ref)]
                     (when (and stored (identical? (aget stored 1) committed))
                       (set! (.-current committed-ref) nil)))
-                  (rf.subs/unsubscribe stable-frame-kw stable-query-v)))))
+                  (when committed
+                    (rf.subs/unsubscribe-if-reaction
+                      stable-frame-kw stable-query-v committed))))))
           #js [stable-key reaction])]
     (react/useSyncExternalStore subscribe-fn get-snap get-snap)))
 

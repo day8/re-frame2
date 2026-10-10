@@ -61,17 +61,20 @@
     (is (= {:inputs [] :ref-count 1} (dissoc (entry [:a]) :reaction)))))
 
 (deftest sub-cache-ref-counting
+  ;; `subscribe` shares one cached reaction among its holders and counts each
+  ;; acquisition; each release returns one share.
   (seed-n!)
-  (rf/unsubscribe [:n])
-  (is (= {} (ref-counts)) "an unsubscribe with no slot is a no-op")
-  (is (identical? (rf/subscribe [:n]) (rf/subscribe [:n])) "a cache hit shares one slot")
-  (is (= {[:n] 2} (ref-counts)))
-  (rf/unsubscribe [:n])
-  (is (= {[:n] 1} (ref-counts)))
-  (rf/unsubscribe [:n])
-  (is (= {} (ref-counts)) "the slot is evicted when the count reaches zero")
-  (rf/unsubscribe [:n])
-  (is (= {} (ref-counts)) "unsubscribe past zero is idempotent"))
+  (is (nil? (rf/unsubscribe nil)) "releasing nil is a no-op")
+  (let [r1 (rf/subscribe [:n])
+        r2 (rf/subscribe [:n])]
+    (is (identical? r1 r2) "a cache hit shares one slot")
+    (is (= {[:n] 2} (ref-counts)))
+    (rf/unsubscribe r1)
+    (is (= {[:n] 1} (ref-counts)) "one release returns one share")
+    (rf/unsubscribe r2)
+    (is (= {} (ref-counts)) "the slot is evicted when the count reaches zero")
+    (rf/unsubscribe r2)
+    (is (= {} (ref-counts)) "a release after the slot is gone is a no-op")))
 
 (deftest subscribe-once-opts-map-binds-the-named-frame
   ;; The opts-map call shape parallel to `subscribe` (EP-0024). With no ambient
@@ -123,6 +126,49 @@
       (rf.subs/unsubscribe-if-reaction :rf/default [:n] stale)
       (is (= [70 {[:n] 1}] [@successor (ref-counts)])))))
 
+(defn- frame-ref-counts
+  "query-v -> :ref-count for every slot in `frame-id`'s sub-cache."
+  [frame-id]
+  (into {} (map (fn [[k v]] [k (:ref-count v)])) @(:sub-cache (rf.frame/frame frame-id))))
+
+(deftest late-unsubscribe-after-an-eviction-leaves-the-successor-alone
+  ;; Holder A's slot is evicted under it and holder B rebuilds the same query.
+  ;; A's late release through the public door returns nothing — its share went
+  ;; with the eviction — so B's slot keeps its one reference and its reaction.
+  (let [f :xkog1/f]
+    (doseq [[eviction evict!]
+            [[:re-registration      #(rf/reg-sub :n (fn [db _] (* 10 (:n db))))]
+             [:clear-sub-cache      #(rf/clear-sub-cache! f)]
+             [:destroy-and-recreate #(do (rf/destroy-frame! f)
+                                         (rf/make-frame {:id f}))]]]
+      (rf/reg-event :seed (fn [_ _] {:db {:n 7}}))
+      (rf/reg-sub :n (fn [db _] (:n db)))
+      (rf/make-frame {:id f})
+      (rf/dispatch-sync [:seed] {:frame f})
+      (let [a (rf/subscribe [:n] {:frame f})]
+        (evict!)
+        (let [b (rf/subscribe [:n] {:frame f})]
+          (rf/unsubscribe a)
+          (is (= [{[:n] 1} true]
+                 [(frame-ref-counts f)
+                  (identical? b (get-in @(:sub-cache (rf.frame/frame f)) [[:n] :reaction]))])
+              (str eviction ": A's late release leaves B's slot at one reference, holding B's reaction"))
+          (rf/unsubscribe b)
+          (is (= {} (frame-ref-counts f))
+              (str eviction ": B's own release then empties the cache"))))
+      (rf/destroy-frame! f))))
+
+(deftest unsubscribe-refuses-a-query-vector
+  ;; A vector is the shape copied from `subscribe`; it names a slot, not the
+  ;; share the caller holds.
+  (seed-n!)
+  (let [r (rf/subscribe [:n])]
+    (is (= :rf.error/bad-unsubscribe-arg
+           (try (rf/unsubscribe [:n]) nil
+                (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e))))))
+    (is (= {[:n] 1} (ref-counts)) "a refused release leaves the slot alone")
+    (rf/unsubscribe r)))
+
 (deftest layer-2-disposal-respects-shared-inputs
   ;; Two parents share input :a, and :ab has two subscribers: inputs are
   ;; acquired only on the cache-miss build, and each eviction releases them.
@@ -133,16 +179,16 @@
   (rf/reg-sub :ab {:inputs [[:a] [:b]]} (fn [[a b] _] (+ a b)))
   (rf/reg-sub :ac {:inputs [[:a] [:c]]} (fn [[a c] _] (+ a c)))
   (rf/dispatch-sync [:init])
-  (rf/subscribe [:ab])
-  (rf/subscribe [:ab])
-  (rf/subscribe [:ac])
-  (is (= {[:ab] 2 [:ac] 1 [:a] 2 [:b] 1 [:c] 1} (ref-counts)))
-  (rf/unsubscribe [:ab])
-  (is (= {[:ab] 1 [:ac] 1 [:a] 2 [:b] 1 [:c] 1} (ref-counts)) "a live parent keeps its inputs")
-  (rf/unsubscribe [:ab])
-  (is (= {[:ac] 1 [:a] 1 [:c] 1} (ref-counts)) "the shared input dropped by exactly one")
-  (rf/unsubscribe [:ac])
-  (is (= {} (ref-counts))))
+  (let [ab1 (rf/subscribe [:ab])
+        ab2 (rf/subscribe [:ab])
+        ac  (rf/subscribe [:ac])]
+    (is (= {[:ab] 2 [:ac] 1 [:a] 2 [:b] 1 [:c] 1} (ref-counts)))
+    (rf/unsubscribe ab1)
+    (is (= {[:ab] 1 [:ac] 1 [:a] 2 [:b] 1 [:c] 1} (ref-counts)) "a live parent keeps its inputs")
+    (rf/unsubscribe ab2)
+    (is (= {[:ac] 1 [:a] 1 [:c] 1} (ref-counts)) "the shared input dropped by exactly one")
+    (rf/unsubscribe ac)
+    (is (= {} (ref-counts)))))
 
 (deftest layer-3-disposal-cascades-through-chain
   ;; Each evicted layer's own on-dispose must run, so the release reaches past
@@ -152,8 +198,9 @@
   (rf/reg-sub :a*2 {:inputs [[:a]]}   (fn [[a] _] (* 2 a)))
   (rf/reg-sub :a*4 {:inputs [[:a*2]]} (fn [[a2] _] (* 2 a2)))
   (rf/dispatch-sync [:init])
-  (is (= 8 @(rf/subscribe [:a*4])))
-  (rf/unsubscribe [:a*4])
+  (let [r (rf/subscribe [:a*4])]
+    (is (= 8 @r))
+    (rf/unsubscribe r))
   (is (= {} (ref-counts))))
 
 (deftest layer-2-input-refs-released-when-frame-destroyed-mid-build
@@ -217,15 +264,15 @@
   ;; read an invented `:rf/default`.
   (seed-n!)
   (binding [rf.frame/*current-frame* nil]
-    (is (= (repeat 4 :rf.error/no-frame-context)
+    (is (= (repeat 3 :rf.error/no-frame-context)
            (for [thunk [#(rf/subscribe [:n]) #(rf/subscribe-once [:n])
-                        #(rf/unsubscribe [:n]) #(rf/clear-sub-cache!)]]
+                        #(rf/clear-sub-cache!)]]
              (try (thunk) nil
                   (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))))))
 
 ;; A frame OBJECT normalizes to its runnable-id ADDRESS through
-;; `rf.frame/frame-target->id` on every operation, so release reaches the slot
-;; subscribe made; `(rf.frame/frame <object>)` would miss and leak it.
+;; `rf.frame/frame-target->id`, so `subscribe` caches under that address, and a
+;; release, which finds the slot by its reaction alone, reaches it there.
 
 (defn- object-cache-keys [frame-obj]
   (set (keys @(:sub-cache (rf.frame/frame (rf.frame/frame-target->id frame-obj))))))
@@ -243,9 +290,10 @@
            (dissoc opts :seed-db))))
 
 (deftest unsubscribe-object-target-tears-down-the-entry
-  (let [frame-obj (make-n-frame {:seed-db {:n 7}})]
-    (is (= 7 @(rf/subscribe [:n] {:frame frame-obj})))
-    (rf/unsubscribe frame-obj [:n])
+  (let [frame-obj (make-n-frame {:seed-db {:n 7}})
+        r         (rf/subscribe [:n] {:frame frame-obj})]
+    (is (= 7 @r))
+    (rf/unsubscribe r)
     (is (= #{} (object-cache-keys frame-obj)) "unsubscribe released the object-target slot")
     (is (= 7 (rf/subscribe-once [:n] {:frame frame-obj})))
     (is (= #{} (object-cache-keys frame-obj)) "subscribe-once released it in-tick")

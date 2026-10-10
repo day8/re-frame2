@@ -164,7 +164,11 @@
     (set! (.-disposed cell) true)
     (when-some [r (.-reaction cell)] (remove-watch r cell-watch-key))
     (swap! !cells dissoc (.-subKey cell))
-    (rf.subs/unsubscribe (.-frameKw cell) (.-queryV cell))
+    ;; Release the reaction the cell holds, identity-guarded: one evicted
+    ;; under the cell already lost its share with the eviction, so a release by
+    ;; address would decrement a successor's. A nil reaction acquired nothing.
+    (when-some [r (.-reaction cell)]
+      (rf.subs/unsubscribe-if-reaction (.-frameKw cell) (.-queryV cell) r))
     ;; A cell disposed while registrations STILL HOLD IT — the frame did not
     ;; come back, so `invalidate-cell!`'s deferred phase chose disposal over
     ;; a rewire — leaves every one of those memberships attached to a table

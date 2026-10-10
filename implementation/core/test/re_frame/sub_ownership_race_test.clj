@@ -146,7 +146,7 @@
               (is (= 1 (:ref-count (entry frame-id q)))
                   "B keeps exactly its owner's reference")
               (is (zero? @disposed) "B's on-dispose never ran")
-              (rf.subs/unsubscribe frame-id q)
+              (rf.subs/unsubscribe b)
               (is (nil? (entry frame-id q)) "B's owner still releases it normally")
               (is (= 1 @disposed) "and that release disposes B exactly once")))
           (finally

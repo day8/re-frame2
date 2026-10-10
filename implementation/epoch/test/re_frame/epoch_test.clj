@@ -375,7 +375,7 @@
       (is (= :route/article @route) "the held sub has cached the pre-restore route")
       (is (true? (rf/restore-epoch! :test/main home-epoch)))
       (is (= :route/home @route))
-      (rf/unsubscribe :test/main [:rf.route/id]))))
+      (rf/unsubscribe route))))
 
 (defn- app-db-after-install-and-reset-input
   "Run a flow over `{:w 3 :h 2}`, call `install!` (a whole-app-db install that

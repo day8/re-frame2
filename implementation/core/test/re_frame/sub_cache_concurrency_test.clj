@@ -44,14 +44,14 @@
     (dotimes [_ 200]
       (let [trial-counter (atom 0)]
         (with-redefs [rf.interop/dispose! (fn [r] (swap! trial-counter inc) (orig-dispose! r))]
-          (rf/subscribe [:n] {:frame :rf/default})
-          (let [latch   (CountDownLatch. 1)
+          (let [r       (rf/subscribe [:n] {:frame :rf/default})
+                latch   (CountDownLatch. 1)
                 threads (mapv (fn [_]
                                 (Thread.
                                   ^Runnable
                                   (fn []
                                     (.await latch 5 TimeUnit/SECONDS)
-                                    (rf/unsubscribe :rf/default [:n]))))
+                                    (rf/unsubscribe r))))
                               (range 6))]
             (doseq [t threads] (.start t))
             (.countDown latch)
@@ -77,6 +77,6 @@
     (is (identical? r1 r2) "the loser adopts the winner")
     (is (identical? r1 (get-in @cache [[:sum] :reaction])))
     (is (= {[:sum] 2 [:a] 1 [:b] 1} (ref-counts)))
-    (rf/unsubscribe :rf/default [:sum])
-    (rf/unsubscribe :rf/default [:sum])
+    (rf/unsubscribe r1)
+    (rf/unsubscribe r2)
     (is (= {} (ref-counts)))))

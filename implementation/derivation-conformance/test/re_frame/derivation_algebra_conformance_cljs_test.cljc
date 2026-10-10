@@ -455,7 +455,7 @@
                          [:nodes [:sub q]])]
        (is (= [3 :subscription-cache-entry 1] [@r (:lifecycle (node)) (:ref-count (node))])
            "one live reader keeps the cache-entry node alive")
-       (rf.subs/unsubscribe :rf/default q)
+       (rf.subs/unsubscribe r)
        (is (nil? (node)) "the node leaves the live graph at ref-count zero"))))
 
 ;; ===========================================================================

@@ -90,10 +90,10 @@
 
 (defn- recipe-unmount!
   "The REPAIRED `:component-will-unmount`: stop the owner FIRST, then release the
-  cache slot frame-first."
-  [{:keys [driver]}]
+  reaction the mount acquired."
+  [{:keys [driver reaction]}]
   (some-> driver r/dispose!)
-  (rf/unsubscribe fid gauge-query))
+  (rf/unsubscribe reaction))
 
 (defn- add-watch-mount!
   "The naive `:component-did-mount`: acquire, seed from a plain deref, observe
@@ -108,7 +108,7 @@
 
 (defn- add-watch-unmount! [{:keys [reaction watch-key]}]
   (remove-watch reaction watch-key)
-  (rf/unsubscribe fid gauge-query))
+  (rf/unsubscribe reaction))
 
 (defn- recorder []
   (let [log (atom [])]

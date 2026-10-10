@@ -1219,7 +1219,7 @@
               "the app-db layer-1 sub body did NOT re-run — the app-db projection stayed `=` on a runtime-only commit")
           (is (= {:rf.runtime/machines {:m 1}} (:rf.db/runtime (rf/frame-state-value fid)))
               "the runtime-only commit DID land in runtime-db (real short-circuit, not a dropped write)"))
-        (rf/unsubscribe fid [app-id])))))
+        (rf/unsubscribe r)))))
 
 (defn assert-app-only-commit-does-not-rerun-runtime-subs
   "(2) An app-only commit recomputes the runtime-db projection, finds it
@@ -1253,7 +1253,7 @@
               "the runtime-db sub body did NOT re-run — the runtime-db projection stayed `=` on an app-only commit")
           (is (true? (:touched? (rf/app-db-value fid)))
               "the app-only commit DID land in app-db (real short-circuit, not a dropped write)"))
-        (rf/unsubscribe fid [rt-sub])))))
+        (rf/unsubscribe r)))))
 
 (defn assert-real-partition-change-propagates-to-its-subs
   "(3) The converse: a real change to a partition DOES re-run that
@@ -1305,8 +1305,8 @@
               "the runtime-db sub body re-ran exactly once on a real runtime-db change")
           (is (= (inc app-baseline) @app-runs)
               "the app sub body did NOT re-run on a real runtime-db change"))
-        (rf/unsubscribe fid [app-sub])
-        (rf/unsubscribe fid [rt-sub])))))
+        (rf/unsubscribe ra)
+        (rf/unsubscribe rr)))))
 
 ;; ===========================================================================
 ;; schema-rejected candidate — zero sub notifications
@@ -1372,7 +1372,7 @@
           (is (= [[0 1]] @notifications)
               "exactly one notification for the following valid commit"))
         (remove-watch r ::reject-probe)
-        (rf/unsubscribe fid [sub-id])))))
+        (rf/unsubscribe r)))))
 
 ;; ===========================================================================
 ;; derived-value duplicate-source disposal regression
@@ -4121,32 +4121,29 @@
       (let [subscribe-calls   (atom 0)
             unsubscribe-calls (atom 0)
             real-subscribe    rf.subs/subscribe
-            real-unsubscribe  rf.subs/unsubscribe
             real-unsub-if     rf.subs/unsubscribe-if-reaction
             cache-key-v       [stable-deps-query]
             cache             (:sub-cache (rf.frame/frame stable-deps-frame))
             mount-node        (make-mount-node!)
             root              (react-dom-client/createRoot mount-node)]
-        ;; Spies preserve the multi-arity shape of rf.subs/subscribe
-        ;; (`[query-v]` and `[query-v opts]`) and
-        ;; rf.subs/unsubscribe (`[query-v]` and `[frame-id query-v]`) so
-        ;; spine call sites that bind the arity-2 invoke-slot resolve.
+        ;; The subscribe spy preserves the multi-arity shape of
+        ;; rf.subs/subscribe (`[query-v]` and `[query-v opts]`) so spine call
+        ;; sites that bind the arity-2 invoke-slot resolve.
         ;; A bare `[& args]` variadic spy compiles only the variadic
         ;; slot and trips `…cljs$core$IFn$_invoke$arity$2 is not a
         ;; function` at the spine's rf.subs/subscribe call.
         ;;
-        ;; `real-subscribe` / `real-unsubscribe` are captured direct fn
+        ;; `real-subscribe` / `real-unsub-if` are captured direct fn
         ;; VALUES (not Var-qualified calls), so each spy invokes the real
         ;; implementation without recursing back through the redefined Var —
         ;; each logical call trips the spy exactly once.
         ;;
-        ;; `unsubscribe-if-reaction` counts as a RELEASE. The spine has two
-        ;; release verbs: the ordinary `unsubscribe` and the identity-guarded
-        ;; release that returns an escrowed render-phase reference. The
-        ;; invariant these assertions pin — every acquire is balanced by a
-        ;; release, bar the one durable committed reference — needs a spy on
-        ;; both verbs to see it. Counting only `unsubscribe`
-        ;; would read the hand-off's adoption as an unbalanced acquire.
+        ;; `unsubscribe-if-reaction` is the spine's one release verb — the
+        ;; balanced same-tick read, the escrowed render-phase reference and
+        ;; the committed reference all return through it — so its spy is what
+        ;; counts a RELEASE. The invariant these assertions pin — every
+        ;; acquire is balanced by a release, bar the one durable committed
+        ;; reference — reads off that one count.
         (with-redefs [rf.subs/subscribe
                       (fn spy-subscribe
                         ([query-v]
@@ -4155,14 +4152,6 @@
                         ([query-v opts]
                          (swap! subscribe-calls inc)
                          (real-subscribe query-v opts)))
-                      rf.subs/unsubscribe
-                      (fn spy-unsubscribe
-                        ([query-v]
-                         (swap! unsubscribe-calls inc)
-                         (real-unsubscribe (rf.frame/resolve-current-frame) query-v))
-                        ([frame-id query-v]
-                         (swap! unsubscribe-calls inc)
-                         (real-unsubscribe frame-id query-v)))
                       rf.subs/unsubscribe-if-reaction
                       (fn spy-unsubscribe-if-reaction [frame-id query-v reaction]
                         (swap! unsubscribe-calls inc)
@@ -4265,17 +4254,16 @@
       (let [subscribe-calls   (atom 0)
             unsubscribe-calls (atom 0)
             real-subscribe    rf.subs/subscribe
-            real-unsubscribe  rf.subs/unsubscribe
             real-unsub-if     rf.subs/unsubscribe-if-reaction
             cache-key-v       [rc-query]
             cache             (:sub-cache (rf.frame/frame rc-frame))
             mount-node        (make-mount-node!)
             root              (react-dom-client/createRoot mount-node)]
-        ;; Spies mirror the stable-deps-key assertion's bypass: preserve the
-        ;; 1-/2-arity shape and dispatch straight to the canonical REAL fn
-        ;; VALUE (not Var-qualified) so a single logical call is not
-        ;; double-counted. `unsubscribe-if-reaction` is the spine's second
-        ;; release verb and counts as an unsubscribe — see the note in the
+        ;; Spies mirror the stable-deps-key assertion's bypass: preserve
+        ;; subscribe's 1-/2-arity shape and dispatch straight to the canonical
+        ;; REAL fn VALUE (not Var-qualified) so a single logical call is not
+        ;; double-counted. `unsubscribe-if-reaction` is the spine's release
+        ;; verb and counts as an unsubscribe — see the note in the
         ;; stable-deps-key assertion above.
         (with-redefs [rf.subs/subscribe
                       (fn spy-subscribe
@@ -4285,14 +4273,6 @@
                         ([query-v opts]
                          (swap! subscribe-calls inc)
                          (real-subscribe query-v opts)))
-                      rf.subs/unsubscribe
-                      (fn spy-unsubscribe
-                        ([query-v]
-                         (swap! unsubscribe-calls inc)
-                         (real-unsubscribe (rf.frame/resolve-current-frame) query-v))
-                        ([frame-id query-v]
-                         (swap! unsubscribe-calls inc)
-                         (real-unsubscribe frame-id query-v)))
                       rf.subs/unsubscribe-if-reaction
                       (fn spy-unsubscribe-if-reaction [frame-id query-v reaction]
                         (swap! unsubscribe-calls inc)
@@ -6348,8 +6328,8 @@
   release. It must release the reaction it holds, under the identity guard —
   `rf.subs/unsubscribe-if-reaction` with `[frame-id query-v reaction]` — with a
   non-nil frame-id pin, and the third argument must be a reaction rather than a
-  grace-period `opts` map. Any plain `rf.subs/unsubscribe` the spine still
-  drives must remain 2-arity.
+  grace-period `opts` map. The spine drives no public `rf.subs/unsubscribe`: it
+  holds the address, so it releases in O(1) through the internal guard.
 
   cfg keys: re-uses the same stable-deps-key probe surface — the cleanup fires
   on either parent here."
@@ -6362,7 +6342,7 @@
       (rf/reg-event ::gizlj-seed (fn [{:keys [db]} _] {:db {:p 0}}))
       (rf/dispatch-sync [::gizlj-seed] {:frame stable-deps-frame})
       (rf/reg-sub stable-deps-query (fn [db _] (:p db)))
-      (let [unsubscribe-arg-counts (atom [])
+      (let [public-unsubscribes    (atom 0)
             release-calls          (atom [])
             real-unsubscribe       rf.subs/unsubscribe
             real-unsub-if          rf.subs/unsubscribe-if-reaction
@@ -6372,13 +6352,9 @@
         ;; (mirroring the existing spy bypass — see the
         ;; stable-deps-key spy comment).
         (with-redefs [rf.subs/unsubscribe
-                      (fn spy-unsubscribe-arity
-                        ([query-v]
-                         (swap! unsubscribe-arg-counts conj 1)
-                         (real-unsubscribe (rf.frame/resolve-current-frame) query-v))
-                        ([frame-id query-v]
-                         (swap! unsubscribe-arg-counts conj 2)
-                         (real-unsubscribe frame-id query-v)))
+                      (fn spy-unsubscribe [reaction]
+                        (swap! public-unsubscribes inc)
+                        (real-unsubscribe reaction))
                       rf.subs/unsubscribe-if-reaction
                       (fn spy-unsubscribe-if-reaction [frame-id query-v reaction]
                         (swap! release-calls conj {:frame-id frame-id
@@ -6409,13 +6385,9 @@
                 "every release names the REACTION it actually holds — a nil third arg
                  means the identity guard has nothing to compare and the release
                  degrades to an address-only release")
-            ;; Any plain `unsubscribe` the spine still drives keeps its
-            ;; canonical 2-arity shape.
-            (is (or (empty? @unsubscribe-arg-counts)
-                    (= #{2} (set @unsubscribe-arg-counts)))
-                (str "any remaining spine-driven rf.subs/unsubscribe call is 2-arity "
-                     "(frame-id + query-v) — observed: "
-                     (pr-str @unsubscribe-arg-counts)))
+            (is (zero? @public-unsubscribes)
+                (str "the spine never releases through the public "
+                     "rf.subs/unsubscribe — observed: " @public-unsubscribes))
             (finally
               (try (.unmount root) (catch :default _ nil))))))))))
 

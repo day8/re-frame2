@@ -50,8 +50,8 @@
     (with-trace-recorder! [traces {:pred sub-dispose-pred}]
       (let [r (rf/subscribe [:rf2-e9g4g.view/sum])]
         (is (= [5 true] [@r (empty? @traces)])
-            "precondition: the sub computes, and nothing is evicted while it is held"))
-      (rf/unsubscribe [:rf2-e9g4g.view/sum])
+            "precondition: the sub computes, and nothing is evicted while it is held")
+        (rf/unsubscribe r))
       (let [a-evs (dispose-by-id @traces :rf2-e9g4g.view/a)
             b-evs (dispose-by-id @traces :rf2-e9g4g.view/b)]
         (is (= [[[:no-more-derefers :rf/default]] [[:no-more-derefers :rf/default]]]
@@ -75,11 +75,11 @@
       (let [r1 (rf/subscribe [:rf2-e9g4g.multi/doubled])
             r2 (rf/subscribe [:rf2-e9g4g.multi/doubled])]
         (is (= [84 true] [@r1 (identical? r1 r2)])
-            "precondition: two subscribes return the SAME reaction (cache reuse)"))
-      (rf/unsubscribe [:rf2-e9g4g.multi/doubled])
-      (is (empty? @traces)
-          "first derefer drop: the slot's ref-count is still 1, so NO :rf.sub/dispose")
-      (rf/unsubscribe [:rf2-e9g4g.multi/doubled])
+            "precondition: two subscribes return the SAME reaction (cache reuse)")
+        (rf/unsubscribe r1)
+        (is (empty? @traces)
+            "first derefer drop: the slot's ref-count is still 1, so NO :rf.sub/dispose")
+        (rf/unsubscribe r2))
       (is (= [[:no-more-derefers] [:no-more-derefers]]
              [(mapv reason (dispose-by-id @traces :rf2-e9g4g.multi/doubled))
               (mapv reason (dispose-by-id @traces :rf2-e9g4g.multi/v))])
@@ -140,7 +140,7 @@
         (try
           (is (= [5 7 true] [@n-rea @sum-rea (empty? @traces)])
               "precondition: both subs read the seeded app-db, and nothing is evicted while both are held")
-          (rf/unsubscribe [:rf2-b2bxk.cond-rea/sum])
+          (rf/unsubscribe sum-rea)
           (let [evicted [[:no-more-derefers :rf/default]]]
             (is (= [evicted evicted evicted []]
                    (mapv #(mapv reason+frame (dispose-by-id @traces %))
@@ -148,7 +148,7 @@
                           :rf2-b2bxk.cond-rea/b :rf2-b2bxk.cond-rea/n]))
                 ":sum and both its inputs evicted once each, and the still-held :n stays cached"))
           (finally
-            (rf/unsubscribe [:rf2-b2bxk.cond-rea/n])))))))
+            (rf/unsubscribe n-rea)))))))
 
 ;; ---- an explicit hold survives the render that stops reading it ------------
 ;;
@@ -208,7 +208,7 @@
                  [(empty? @traces) (:ref-count (slot [::sum]))
                   (identical? held (:reaction (slot [::sum]))) @held])
               "the flip evicted nothing and released only the render's reference; the kept slot serves and reads the held reaction")
-          (rf/unsubscribe [::sum])
+          (rf/unsubscribe held)
           (is (= all-evicted-once (eviction-outcome @traces))
               "the unsubscribe evicted the sub and both inputs, each exactly once, and no slot survives")
           (finally
@@ -226,7 +226,7 @@
         (remove-watch held ::w)
         (is (= [true 1] [(empty? @traces) (:ref-count (slot [::sum]))])
             "dropping the last watch evicted nothing, and the explicit hold remains")
-        (rf/unsubscribe [::sum])
+        (rf/unsubscribe held)
         (is (= all-evicted-once (eviction-outcome @traces))
             "the unsubscribe evicted the sub and both inputs, each exactly once, and no slot survives")))))
 
@@ -270,7 +270,7 @@
           (reset! read? false)
           (is (= [true true 1] [@re-entered? (empty? @traces) (:ref-count (slot [::sum]))])
               "the callback re-entered dispose, which evicted nothing and released the render's reference once, not twice")
-          (rf/unsubscribe [::sum])
+          (rf/unsubscribe held)
           (is (= {::sum 1 ::a 1 ::b 1} (dispose-counts @traces))
               "the unsubscribe evicted the sub and both inputs, each exactly once")
           (finally

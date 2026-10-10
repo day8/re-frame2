@@ -176,27 +176,23 @@
 
   The host-clock cancel and `remove-watch` release THIS entry's
   own captured handle / reaction (A's own host work), so they always run. The
-  `rf.subs/unsubscribe frame-id delay-key` is the ONE shared release: the
-  subscription cache is ref-counted by `(frame-id, query-v)`, so once the
-  cancellation trace has destroyed A and re-armed the SAME query in same-id
-  B (bumping the shared count), A's decrement would dispose B's fresh
-  reaction. The optional `owner-gone?` predicate (threaded from the destroy
-  tail's exact-incarnation gate) skips ONLY that shared decrement once A is
-  lost — B's reaction / dependency refs stay intact. `owner-gone?` is MONOTONIC.
-  The 3-arity is the unconditional release (fixture-reset,
-  frame-destroy — no event owner)."
-  ([frame-id entry delay-key] (release-entry-resources! frame-id entry delay-key (constantly false)))
-  ([frame-id entry delay-key owner-gone?]
-   ;; Shared best-effort host-clock cancel — swallows throws and no-ops a nil
-   ;; handle, tolerating the partial-state entries (literal- / fn-form delays
-   ;; whose watcher / reaction slots are nil).
-   (rf.managed-timer/cancel! (:handle entry))
-   (when (and (:reaction entry) (:sub-watcher-key entry))
-     (try (remove-watch (:reaction entry) (:sub-watcher-key entry))
-          (catch #?(:clj Throwable :cljs :default) _ nil))
-     (when (and (vector? delay-key) frame-id (not (owner-gone?)))
-       (try (rf.subs/unsubscribe frame-id delay-key)
-            (catch #?(:clj Throwable :cljs :default) _ nil))))))
+  subscription release returns the entry's own reaction, identity-guarded
+  (`rf.subs/unsubscribe-if-reaction`): it decrements only while
+  `(frame-id, query-v)` still holds that reaction. Once the cancellation trace
+  has destroyed A and re-armed the SAME query in same-id B, the slot holds B's
+  reaction, so A's release is a no-op and B's reaction / dependency refs stay
+  intact."
+  [frame-id entry delay-key]
+  ;; Shared best-effort host-clock cancel — swallows throws and no-ops a nil
+  ;; handle, tolerating the partial-state entries (literal- / fn-form delays
+  ;; whose watcher / reaction slots are nil).
+  (rf.managed-timer/cancel! (:handle entry))
+  (when (and (:reaction entry) (:sub-watcher-key entry))
+    (try (remove-watch (:reaction entry) (:sub-watcher-key entry))
+         (catch #?(:clj Throwable :cljs :default) _ nil))
+    (when (and (vector? delay-key) frame-id)
+      (try (rf.subs/unsubscribe-if-reaction frame-id delay-key (:reaction entry))
+           (catch #?(:clj Throwable :cljs :default) _ nil)))))
 
 (defonce ^:private after-attempt-counter
   ;; Monotonic per-arm attempt-token source (mirrors core's
@@ -324,8 +320,8 @@
   same-id reconstruction — a cancellation listener re-arming the SAME
   subscription-vector query in successor B — has replaced the captured
   incarnation. When the frame is absent at capture (nil token) the predicate is
-  `(constantly false)`, so an ordinary cancellation with no successor releases its
-  shared `(frame,query-v)` subscription ref fully.
+  `(constantly false)`, so an ordinary cancellation with no successor runs to
+  completion.
 
   PUBLIC because one batch spans two namespaces. Every other
   multi-step timer operation both captures and consumes its owner inside this
@@ -340,12 +336,12 @@
   Precise BY CONSTRUCTION: `frame-incarnation-token` mints a DISTINCT token per
   construction, so the predicate flips only on a genuine A→B incarnation swap,
   never on a mere frame-close — no ordinary state-exit / supersede / resolution /
-  frame-destroy / restore cancellation leaks its subscription. It reads no bound
+  frame-destroy / restore cancellation is cut short. It reads no bound
   event owner, so it fences the non-destroy reasons uniformly (INCLUDING the
   eventless frame-destroy / restore paths) without the wrongful-skip a
   closing-frame `owner-continuation` gate would inflict on a frame torn down under
-  an unrelated event owner. The explicit-`owner-gone?` 4-arity keeps the stronger
-  destroy-tail gate its callers already captured (the actor — not the frame — is
+  an unrelated event owner. The explicit `owner-gone?` that `cancel-actor-timers!`
+  takes keeps the stronger destroy-tail gate its callers already captured (the actor — not the frame — is
   destroyed there, so the frame incarnation is stable and the token check would be
   too weak)."
   [frame-id]
@@ -407,8 +403,8 @@
   token-guarded CAS, `claim-entry!`), a same-id successor B that re-armed key `k`
   under a FRESH globally-unique token is never claimed — the CAS fails and B's
   entry + host handle survive byte-identical.
-  `owner-gone?` fences the shared `(frame,query-v)` subscription decrement inside
-  `release-entry-resources!` so A's release cannot dispose a
+  The release is identity-guarded on the claimed entry's own reaction
+  (`release-entry-resources!`), so A's release cannot dispose a
   reaction same-id B re-armed for the SAME query.
 
   The one owed trace is not always emitted HERE. When the claimed
@@ -418,11 +414,11 @@
   `defer-to-announcer?` hands `reason` to the announcer in that case, and the
   announcer emits the `/cancelled` immediately after its `/scheduled`. The
   RELEASE is this claimant's either way: it won the sentinel."
-  [frame-id k reason token owner-gone?]
+  [frame-id k reason token]
   (when-let [claimed (claim-entry! frame-id k token)]
     (when-not (defer-to-announcer? claimed reason)
       (emit-cancelled! frame-id k claimed reason))
-    (release-entry-resources! frame-id claimed (:delay k) owner-gone?)))
+    (release-entry-resources! frame-id claimed (:delay k))))
 
 (defn- cancel-after-timer-entry!
   "Cancel the CURRENT occupant of a single :after timer-table slot `[frame-id k]`,
@@ -453,15 +449,12 @@
   so they use `cancel-snapshotted-entry!` instead, binding the claim to the
   incarnation's OWN attempt token captured at batch entry.
 
-  `emit-cancelled!` is CALLBACK-BEARING; `owner-gone?`
-  (defaulting to a same-id-successor predicate captured BEFORE the trace) is
-  threaded into `release-entry-resources!` so the shared `rf.subs/unsubscribe`
-  decrement is skipped once A is lost, while an ordinary cancellation with no
-  successor still releases fully."
-  ([frame-id k reason] (cancel-after-timer-entry! frame-id k reason (successor-published?-fn frame-id)))
-  ([frame-id k reason owner-gone?]
-   (when-let [entry (get-in @after-timers [frame-id k])]
-     (claim-cancel-and-release! frame-id k reason (:token entry) owner-gone?))))
+  `emit-cancelled!` is CALLBACK-BEARING; the release that follows it is
+  identity-guarded on the claimed entry's own reaction, so a listener that
+  replaced A with same-id B costs B's subscription nothing."
+  [frame-id k reason]
+  (when-let [entry (get-in @after-timers [frame-id k])]
+    (claim-cancel-and-release! frame-id k reason (:token entry))))
 
 (defn- cancel-snapshotted-entry!
   "Cancel a batch-SNAPSHOTTED `[k entry]` pair, binding the claim to the EXACT
@@ -476,10 +469,9 @@
   claim. Re-reading the current occupant to source the claim token (as
   `cancel-after-timer-entry!` does) would then claim/remove B. Sourcing the token
   from the SNAPSHOT `entry` instead makes the claim incarnation-exact: B's
-  fresh-token entry fails the atomic CAS and survives untouched. `owner-gone?` is
-  the batch's ONE captured incarnation predicate, threaded into the release."
-  [frame-id k entry reason owner-gone?]
-  (claim-cancel-and-release! frame-id k reason (:token entry) owner-gone?))
+  fresh-token entry fails the atomic CAS and survives untouched."
+  [frame-id k entry reason]
+  (claim-cancel-and-release! frame-id k reason (:token entry)))
 
 (defn- on-sub-changed!
   "Watch callback invoked when a subscription-vector delay's value
@@ -498,10 +490,11 @@
           ;; `:rf.machine.timer/cancelled` trace, whose listener can destroy A and
           ;; publish same-id B on this stack; the bare-ID runtime read + reschedule
           ;; below would otherwise resolve `still-here?` against B's snapshot and
-          ;; install A-derived timer work into B. This ONE predicate fences both the
-          ;; cancel's shared-subscription release and the reschedule continuation.
+          ;; install A-derived timer work into B. This ONE predicate fences the
+          ;; reschedule continuation; the cancel's subscription release is
+          ;; identity-guarded on its own.
           owner-gone? (successor-published?-fn frame-id)]
-      (cancel-after-timer-entry! frame-id k :on-resolution owner-gone?)
+      (cancel-after-timer-entry! frame-id k :on-resolution)
       ;; Machine snapshots are durable runtime-db state. The post-cancel read +
       ;; reschedule run ONLY while the captured incarnation still owns the frame;
       ;; once a cancellation listener has replaced A with B, nothing A-derived is
@@ -678,7 +671,7 @@
                                  (map? (:state snapshot))
                                  (seq invoke-id))
                        (first invoke-id))]
-    (cancel-after-timer-entry! frame-id k :on-supersede owner-gone?)
+    (cancel-after-timer-entry! frame-id k :on-supersede)
     ;; A superseding cancellation's listener may have replaced A with
     ;; same-id B on the stack above; gate every durable step (delay resolution,
     ;; subscription hold, slot reservation, host arm, publish) on the captured
@@ -700,9 +693,8 @@
           ;; same-id B, which may arm its own timer at this very key. Recheck
           ;; the SAME predicate captured above (a fresh capture would name B)
           ;; before touching the table. On loss, stop: no reservation over B's
-          ;; slot, and no bare-id `unsubscribe`, which would decrement a ref B
-          ;; holds — A's own sub-cache went with A (see the post-emit abort
-          ;; below for the same rule).
+          ;; slot, and nothing to release — A's subscription hold went with A's
+          ;; own sub-cache (see the post-emit abort below).
           (owner-gone?)
           nil
 
@@ -719,12 +711,12 @@
           ;; know whether the resolved value is usable. The bad-delay branch
           ;; short-circuits and stores nothing in `after-timers`, so no
           ;; future `cancel-after-timer-entry!` will ever run
-          ;; `release-entry-resources!` to drop the ref. Pair the subscribe
-          ;; with an `unsubscribe` here so every exit path balances the
-          ;; ref-count. Per Spec 006 §Reference counting and disposal.
+          ;; `release-entry-resources!` to drop the ref. Release that reaction
+          ;; here so every exit path balances the ref-count. Per Spec 006
+          ;; §Reference counting and disposal.
           (do
             (when (and reaction (vector? delay-key))
-              (try (rf.subs/unsubscribe frame-id delay-key)
+              (try (rf.subs/unsubscribe-if-reaction frame-id delay-key reaction)
                    (catch #?(:clj Throwable :cljs :default) _ nil)))
             (rf.trace/emit-error! :rf.error/machine-bad-after-delay
                                ;; the timer's owning actor is a LIVE INSTANCE;
@@ -820,21 +812,17 @@
             ;; the SAME predicate — the batch caller's when it supplied one —
             ;; rather than capturing a fresh owner, which would name B and pass.
             ;;
-            ;; The abort releases NOTHING BEYOND THE RESERVATION ITSELF, and
-            ;; that is `release-entry-resources!`'s shared-release rule rather
-            ;; than an omission. The one hold
-            ;; this step can have taken is a sub-vec delay's `(frame, query-v)`
-            ;; ref-count, bumped by `resolve-delay-ms` against A's OWN sub-cache
-            ;; — which `destroy-frame!` disposed wholesale
+            ;; The abort releases NOTHING BEYOND THE RESERVATION ITSELF. The
+            ;; one hold this step can have taken is a sub-vec delay's reference
+            ;; on A's reaction, taken by `resolve-delay-ms` against A's OWN
+            ;; sub-cache — which `destroy-frame!` disposed wholesale
             ;; (`:subs.cache/dispose-all-for-frame-destroy!`) on this very
-            ;; stack. `rf.subs/unsubscribe` addresses the frame by bare id, so a
-            ;; decrement here would land on B and could dispose a reaction B
-            ;; holds for the same query. Nothing of A's survives to release, and
-            ;; the release that would reach it is the one that must not run —
-            ;; which is exactly why the abort routes through
-            ;; `cancel-snapshotted-entry!` with this same `owner-gone?`: the
-            ;; shared decrement is skipped, while the sentinel's own `:handle`
-            ;; (nil) and never-attached watcher are released harmlessly.
+            ;; stack. The bare frame id now names B, which may hold its own
+            ;; reaction for the same query; the abort's release through
+            ;; `cancel-snapshotted-entry!` is identity-guarded on A's reaction,
+            ;; so it finds nothing of A's and no-ops rather than decrementing
+            ;; B's, while the sentinel's own `:handle` (nil) and never-attached
+            ;; watcher are released harmlessly.
             (let [deferred (finish-announcement! reservation)]
              (cond
               deferred
@@ -847,7 +835,7 @@
               ;; NOTHING: the attempt is already closed, so a host arm could
               ;; only be cancelled again by the publish CAS's failure.
               ;; `owner-gone?` is not consulted — the claimant already
-              ;; decided the shared release under its own predicate.
+              ;; released the entry's resources.
               (emit-cancelled! frame-id k reservation deferred)
 
               (owner-gone?)
@@ -863,7 +851,7 @@
               ;; on the listener's own stack, in which case this CAS fails,
               ;; nothing is emitted twice, and the pair is already closed.
               (cancel-snapshotted-entry! frame-id k reservation
-                                         :on-frame-destroy owner-gone?)
+                                         :on-frame-destroy)
 
               :else
               (let [handle
@@ -1138,8 +1126,7 @@
           (cancel-snapshotted-entry! frame-id k entry
                                      (if (contains? present-actors (:parent k))
                                        :on-exit
-                                       :on-destroy)
-                                     owner-gone?))
+                                       :on-destroy)))
         (recur (subvec pairs 1)))))
   nil)
 
@@ -1189,7 +1176,7 @@
     (loop [pairs timer-entry-snapshot]
       (when (and (seq pairs) (not (owner-gone?)))
         (let [[k entry] (first pairs)]
-          (cancel-snapshotted-entry! frame-id k entry :on-exit owner-gone?))
+          (cancel-snapshotted-entry! frame-id k entry :on-exit))
         (recur (rest pairs))))
     nil))
 
@@ -1218,8 +1205,8 @@
   spawn-order forget) resolves bare rf.frame/actor ids to the CURRENT
   incarnation B. The optional `owner-gone?` predicate (the finalize cascade's
   exact-incarnation gate) is rechecked BEFORE each cancellation, so once the first
-  cancellation loses A the loop short-circuits and never touches B's timer, and it
-  is threaded into the release so A's `rf.subs/unsubscribe` cannot decrement a
+  cancellation loses A the loop short-circuits and never touches B's timer; each
+  release is identity-guarded on A's own reaction, so it cannot decrement a
   reaction B re-armed for the same query. `owner-gone?` is MONOTONIC (once A→B it
   stays gone). The 2-arity (the imperative `destroy` tail, which carries no event
   owner) passes `(constantly false)`, which is safe because the snapshot-token
@@ -1233,7 +1220,7 @@
                         (vec (get @after-timers frame-id)))]
        (when (and (seq pairs) (not (owner-gone?)))
          (let [[k entry] (first pairs)]
-           (cancel-snapshotted-entry! frame-id k entry :on-destroy owner-gone?))
+           (cancel-snapshotted-entry! frame-id k entry :on-destroy))
          (recur (subvec pairs 1)))))))
 
 (defn cancel-all-timers!
@@ -1271,7 +1258,7 @@
      (loop [pairs (vec (get @after-timers frame-id))]
        (when (and (seq pairs) (not (owner-gone?)))
          (let [[k entry] (first pairs)]
-           (cancel-snapshotted-entry! frame-id k entry :on-frame-destroy owner-gone?))
+           (cancel-snapshotted-entry! frame-id k entry :on-frame-destroy))
          (recur (subvec pairs 1)))))))
 
 (defn cancel-frame-timers-on-restore!
@@ -1306,6 +1293,6 @@
     (loop [pairs (vec (get @after-timers frame-id))]
       (when (and (seq pairs) (not (owner-gone?)))
         (let [[k entry] (first pairs)]
-          (cancel-snapshotted-entry! frame-id k entry :on-restore owner-gone?))
+          (cancel-snapshotted-entry! frame-id k entry :on-restore))
         (recur (subvec pairs 1)))))
   nil)

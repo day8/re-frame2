@@ -1080,13 +1080,13 @@
   (rf/dispatch-sync [:seed])
   (is (= 7 (rf/subscribe-once [:answer]))
       "the v1 sub computes from app-db")
-  (let [_pin (rf/subscribe [:answer])]
+  (let [pin (rf/subscribe [:answer])]
     ;; Re-register: replacement-hook fires, cache slot is disposed, the
     ;; next subscribe builds against the new body.
     (rf/reg-sub :answer (fn [db _] (* 100 (:n db))))
     (is (= 700 (rf/subscribe-once [:answer]))
         "after re-registration the new sub body is in effect")
-    (rf/unsubscribe [:answer])))
+    (rf/unsubscribe pin)))
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 19 — Story decorators that override fx

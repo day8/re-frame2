@@ -217,7 +217,7 @@
             ;; A live read in the OTHER frame, so the negative half of the
             ;; targeting claim below is measured with an instrument that is
             ;; demonstrably able to see an entry in that frame's cache.
-            _probe (rf/subscribe [:rf.xray/trace-buffer] {:frame app-frame})
+            probe (rf/subscribe [:rf.xray/trace-buffer] {:frame app-frame})
             _ (set-history! fixture-history)
             _ (focus-epoch! 1)
             {:keys [container root]} (mount-panel! :rf/xray)]
@@ -246,5 +246,5 @@
                same instrument and does hold the probe's entry, so the zeros
                above are absences and not a broken reader")
           (finally
-            (rf/unsubscribe [:rf.xray/trace-buffer] {:frame app-frame})
+            (rf/unsubscribe probe)
             (teardown! root container)))))))

@@ -556,8 +556,8 @@
   truthiness test and one pointer compare — never a protocol lookup on a
   container that cannot answer.
 
-  nil is the answer for every source that is not an `rf=`-gated derived
-  container, and that is the mechanism (not a courtesy) by which
+  nil is the answer for every source that is not a movement-gated derived
+  container (one that notifies only when its value moves), and that is the mechanism (not a courtesy) by which
   `:frame-state` keeps its genuine flush-path memo hit: its source is the
   frame's ONE physical container — a `cljs.core/Atom` under the React-hook
   spine, an `r/atom` under Reagent — whose fan-out is not movement-gated

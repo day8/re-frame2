@@ -26,6 +26,7 @@
     :rf.error/no-such-handler
     :rf.error/no-frame-context
     :rf.error/bad-frame-provider-arg
+    :rf.error/bad-unsubscribe-arg
     :rf.error/ambient-frame-refused
     :rf.error/override-fallthrough
     :rf.error/reserved-fx-override

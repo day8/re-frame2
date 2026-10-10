@@ -53,7 +53,7 @@
             @r
             (is (= 1 (get-in @cache [[::a] :ref-count]))
                 "while the layer-2 entry is live it holds exactly one reference on its input")
-            (rf/unsubscribe fid [::ab])
+            (rf/unsubscribe r)
             (is (nil? (get @cache [::ab]))
                 "the layer-2 entry is evicted at its last reference")
             (is (nil? (get @cache [::a]))
@@ -69,8 +69,9 @@
     (let [cache (cache-of fid)]
       (try
         (is (empty? @cache) "the re-made frame starts with no cache entries")
-        @(rf/subscribe [::ab] {:frame fid})
-        (rf/unsubscribe fid [::ab])
+        (let [r (rf/subscribe [::ab] {:frame fid})]
+          @r
+          (rf/unsubscribe r))
         (is (empty? @cache)
             "a subscribe / unsubscribe cycle on the re-made frame leaves no cache entries")
         (finally (rf/destroy-frame! fid))))))

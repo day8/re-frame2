@@ -266,7 +266,7 @@
             ;; A live read in the OTHER frame, so the negative half of the
             ;; targeting claim below is measured with an instrument that is
             ;; demonstrably able to see an entry in that frame's cache.
-            _probe (rf/subscribe [::n] {:frame app-frame})
+            probe (rf/subscribe [::n] {:frame app-frame})
             {:keys [container root]} (mount-popover! :rf/xray)]
         (try
           (is (some? (q container "[data-testid=\"rf-xray-cancellation-cascade-popover-dialog\"]"))
@@ -290,7 +290,7 @@
                same instrument and does hold the probe's entry, so the zero
                above is an absence and not a broken reader")
           (finally
-            (rf/unsubscribe [::n] {:frame app-frame})
+            (rf/unsubscribe probe)
             (teardown! root container)))))))
 
 ;; ===========================================================================
@@ -537,9 +537,9 @@
           (is (= 5 before)
               (str "PRECONDITION: the body opens COLLAPSED, showing the "
                    "default five of twelve abort rows. Got: " before))
-          (is (false? @(rf/subscribe expanded?-q {:frame :rf/xray}))
+          (is (false? (rf/subscribe-once expanded?-q {:frame :rf/xray}))
               "PRECONDITION: and the expand flag is off in :rf/xray")
-          (is (false? @(rf/subscribe expanded?-q {:frame app-frame}))
+          (is (false? (rf/subscribe-once expanded?-q {:frame app-frame}))
               "PRECONDITION: and off in the application frame, so the
                cross-frame control below starts from a real zero")
 
@@ -556,10 +556,10 @@
                        read was invalidated and the boundary committed the
                        expanded list — the whole round trip through a Fresco
                        boundary, in a browser")
-                  (is (true? @(rf/subscribe expanded?-q {:frame :rf/xray}))
+                  (is (true? (rf/subscribe-once expanded?-q {:frame :rf/xray}))
                       "and the flag flipped in :rf/xray — the frame the
                        enclosing frame-provider named")
-                  (is (false? @(rf/subscribe expanded?-q {:frame app-frame}))
+                  (is (false? (rf/subscribe-once expanded?-q {:frame app-frame}))
                       "CROSS-FRAME CONTROL: and NOT in the application frame.
                        A handler that had lost its captured frame and fallen
                        back to an ambient or default one would write here")))
@@ -569,7 +569,5 @@
                                        (pr-str (aborts-shown container))))
                         nil))
               (.then (fn [_]
-                       (rf/unsubscribe expanded?-q {:frame :rf/xray})
-                       (rf/unsubscribe expanded?-q {:frame app-frame})
                        (teardown! root container)
                        (done)))))))))

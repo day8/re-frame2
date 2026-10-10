@@ -1566,5 +1566,5 @@
                      ;; a mounted root, and a live root leaks into the next
                      ;; namespace's baseline.
                      (unmount!)
-                     (rf/unsubscribe [::app-count] {:frame app-frame})
+                     (rf/unsubscribe host-ref)
                      (done))))))))

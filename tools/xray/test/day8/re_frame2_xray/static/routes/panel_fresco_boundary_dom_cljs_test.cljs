@@ -131,7 +131,7 @@
       (is true ":node — the :browser-test runner drives the real React mount")
       (let [_ (setup!)
             _ (set-routes! base-routes)
-            _probe (rf/subscribe [::n] {:frame app-frame})
+            probe (rf/subscribe [::n] {:frame app-frame})
             {:keys [container root]} (mount-panel! :rf/xray)]
         (try
           (is (some? (testid container "rf-xray-static-routes-sim"))
@@ -144,7 +144,7 @@
               "CONTROL: the same instrument does see the application frame's
                own entry, so the zero above is an absence")
           (finally
-            (rf/unsubscribe [::n] {:frame app-frame})
+            (rf/unsubscribe probe)
             (teardown! root container)))))))
 
 ;; ===========================================================================
@@ -173,17 +173,15 @@
                 {:label "the panel committed the inline expand surface"})
               (.then
                 (fn [_]
-                  (is (contains? @(rf/subscribe expanded-q {:frame :rf/xray})
+                  (is (contains? (rf/subscribe-once expanded-q {:frame :rf/xray})
                                  :route/cart)
                       "the toggle landed in :rf/xray")
-                  (is (empty? @(rf/subscribe expanded-q {:frame app-frame}))
+                  (is (empty? (rf/subscribe-once expanded-q {:frame app-frame}))
                       "CROSS-FRAME CONTROL: and not in the application frame")))
               (.catch (fn [e]
                         (is false (str "W5 never settled: " (.-message e)
                                        " — DOM: " (.-textContent container)))
                         nil))
               (.then (fn [_]
-                       (rf/unsubscribe expanded-q {:frame :rf/xray})
-                       (rf/unsubscribe expanded-q {:frame app-frame})
                        (teardown! root container)
                        (done)))))))))

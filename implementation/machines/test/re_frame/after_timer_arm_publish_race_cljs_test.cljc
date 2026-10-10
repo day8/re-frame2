@@ -106,8 +106,7 @@
         unsub-count (atom 0)
         cancelled   (atom [])]
     (with-redefs [rf.subs/subscribe   (fn ([_] reaction) ([_ _] reaction))
-                  rf.subs/unsubscribe (fn ([_] (swap! unsub-count inc) nil)
-                                     ([_ _] (swap! unsub-count inc) nil))
+                  rf.subs/unsubscribe-if-reaction (fn [_ _ _] (swap! unsub-count inc) nil)
                   rf.interop/cancel-scheduled! (fn [h] (swap! cancelled conj h) nil)
                   rf.interop/schedule-after!
                   (fn [_thunk _ms]
@@ -162,7 +161,7 @@
   (let [reaction (atom 5000)
         thunks   (atom [])]
     (with-redefs [rf.subs/subscribe   (fn ([_] reaction) ([_ _] reaction))
-                  rf.subs/unsubscribe (fn ([_] nil) ([_ _] nil))
+                  rf.subs/unsubscribe-if-reaction (fn [_ _ _] nil)
                   rf.interop/schedule-after! (fn [thunk _ms]
                                             (swap! thunks conj thunk)
                                             (fresh-handle))

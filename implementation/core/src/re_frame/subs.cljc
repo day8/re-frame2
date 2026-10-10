@@ -1271,9 +1271,10 @@
                         ;; The trailing `(first inputs)` is the reaction's
                         ;; LONE signal source, handed over so the wrapper can
                         ;; resolve its MOVEMENT WITNESS once at construction.
-                        ;; For `:db` / `:runtime-db` that is an
-                        ;; `rf=`-gated partition projection, which publishes
-                        ;; one; for `:frame-state` it is the raw physical
+                        ;; For `:db` / `:runtime-db` that is a
+                        ;; movement-gated partition projection — it notifies
+                        ;; only when its value moves — which publishes one;
+                        ;; for `:frame-state` it is the raw physical
                         ;; container, which cannot — so that kind keeps its
                         ;; genuine flush-path memo hit structurally. See
                         ;; `re-frame.subs.memo` §The movement-witness
@@ -2049,9 +2050,8 @@
    ;; runs with the same `extra` and emits + throws the same
    ;; `:rf.error/no-frame-context`. `subscribe`'s 1-arity is the framework's
    ;; per-read path — one call per reactive read per render — and it is the
-   ;; only 1-arity spelled this way; `subscribe-once` / `unsubscribe` run
-   ;; once per slot and keep the plain call. Do NOT collapse this into the
-   ;; plain call.
+   ;; only 1-arity spelled this way; `subscribe-once` runs once per slot
+   ;; and keeps the plain call. Do NOT collapse this into the plain call.
    (subscribe-in-frame (or (rf.frame/resolve-current-frame)
                            (rf.frame/require-current-frame!
                              :subscribe
@@ -2637,67 +2637,103 @@
         ;; The frame's cache is gone (destroyed before the build began).
         {:recovery :frame-destroyed}))))
 
+(defn- refuse-address-unsubscribe!
+  "Emit and throw `:rf.error/bad-unsubscribe-arg` for a query vector handed to
+  `unsubscribe`. A vector is the shape a caller copies from the `subscribe` row
+  — `(unsubscribe [:q])` — and it names a slot rather than the share the caller
+  holds, so it is refused rather than read as a release. Always-on: the error axis carries the payload's own `:reason` /
+  `:recovery`, because no exception rides the record."
+  [received]
+  (let [payload {:rf.error/id :rf.error/bad-unsubscribe-arg
+                 :received    received
+                 :where       're-frame.subs/unsubscribe
+                 :recovery    :supply-reaction
+                 :reason      "unsubscribe takes the reaction subscribe returned — (rf/unsubscribe r) — not a query vector; keep the value of (rf/subscribe q opts) and pass it back."}]
+    (when-let [emit-error-both!
+               (rf.late-bind/get-fn-cached :error-emit/emit-error-both)]
+      (emit-error-both!
+        :rf.error/bad-unsubscribe-arg
+        nil                   ;; no event — a release misuse, not a dispatch
+        nil                   ;; no event-id
+        nil                   ;; no frame — a release resolves none
+        nil                   ;; no exception — invalid arg, not a throw
+        0                     ;; elapsed-ms
+        (rf.interop/now-ms)   ;; time
+        payload
+        (select-keys payload [:reason :recovery])))
+    (throw (rf.error/ex-info-from-data payload))))
+
 (defn unsubscribe
-  "Decrement the ref-count on the cached subscription for query-v.
-  When ref-count reaches 0, dispose the entry **synchronously** —
-  evict the cache slot, run the reaction's on-dispose callback (which
-  releases input refs symmetrically), and emit `:rf.sub/dispose` with
-  reason `:no-more-derefers`. Per Spec 006 §Reference counting and
-  disposal.
+  "Return one counted share of `reaction` — the value `subscribe` returned — to
+  the sub-cache. Returns nil.
 
-  Reagent views auto-dispose via the reaction lifecycle and don't
-  need to call this explicitly. Tests, REPL sessions, and tools that
-  subscribe imperatively should call unsubscribe when they're done
-  to release the cache slot.
+  `subscribe` hands every holder of a query the SAME cached reaction and counts
+  each acquisition, so each call returns one share: N subscribes need N
+  releases. When the last share goes the entry is disposed **synchronously** —
+  the slot is evicted, the reaction's on-dispose callback releases its input
+  refs, and `:rf.sub/dispose` is emitted with reason `:no-more-derefers`
+  (Spec 006 §Reference counting and disposal). Shares are counted, not owned:
+  while `reaction` is live and shared, a second release from the same holder
+  returns another holder's share.
 
-  Ref-counting and synchronous dispose live in
-  `re-frame.subs.cache`; this facade fn holds the public API shape and
-  delegates to `rf.subs.cache/unsubscribe!` after resolving the cache + key.
+  The release is identity-guarded. It decrements only while a visible frame's
+  cache still holds `reaction` itself, so a reaction whose slot is gone —
+  disposed, evicted by re-registration, `clear-sub-cache!` or hot reload, or
+  its frame destroyed and a same-id frame made again — is a silent no-op that
+  never touches a successor entry another holder built under the same query.
+  `nil`, and a reaction that was never cached, are no-ops too. No frame is
+  resolved: the reaction is the whole address, so a release is safe from any
+  context.
 
-  EP-0002: the 1-arity ambient form resolves the frame through the
-  scope/hold chain via `rf.frame/require-current-frame!` — an unsubscribe
-  issued under no established scope raises `:rf.error/no-frame-context`,
-  never a `:rf/default` floor. Pass the 2-arity form to release a slot in
-  a named frame from outside any scope."
-  ([query-v]
-   (unsubscribe (rf.frame/require-current-frame!
-                  :unsubscribe
-                  {:where    're-frame.subs/unsubscribe
-                   :event-id (first query-v)})
-                query-v))
-  ([frame-id query-v]
-   ;; EP-0023 — frame-target SYMMETRY: the
-   ;; 2-arity target may be a frame-id KEYWORD or a live frame OBJECT
-   ;; (`rf/make-frame`'s return value), exactly as `subscribe` accepts. A
-   ;; subscribe with an object target normalizes through
-   ;; `rf.frame/frame-target->id` before keying the sub-cache, so the matching
-   ;; teardown MUST normalize through the SAME path or the cache lookup keys
-   ;; an unregistered object instead of the runnable-id ADDRESS, silently
-   ;; misses the live entry, and the ref-count is never released.
-   ;; Normalizing here makes subscribe-then-
-   ;; unsubscribe target the same frame for every supported spelling; a
-   ;; keyword passes through unchanged.
-   ;; Mirrors `subscribe` (this ns) and `re-frame.router/build-envelope`.
-   (let [frame-id (rf.frame/frame-target->id frame-id)]
-     (when-let [cache (:sub-cache (rf.frame/frame frame-id))]
-       ;; Thread `frame-id` through so the `:rf.sub/dispose`
-       ;; trace emit at the eviction site carries the canonical `:frame`
-       ;; tag.
-       (rf.subs.cache/unsubscribe! cache (cache-key query-v) frame-id)))))
+  A query vector is refused with `:rf.error/bad-unsubscribe-arg` — a release
+  names the share it returns, not a slot.
+
+  Reagent views auto-dispose via the reaction lifecycle and don't need to call
+  this. Tests, REPL sessions and tools that subscribe imperatively call it when
+  they are done, to release the cache slot.
+
+  Locating the slot scans the visible frames' caches — O(live entries) per
+  call, nothing per read. In-tree holders that already know their address
+  release in O(1) through `unsubscribe-if-reaction`."
+  [reaction]
+  (cond
+    (nil? reaction) nil
+    (vector? reaction) (refuse-address-unsubscribe! reaction)
+    :else
+    ;; The scan only LOCATES the slot; the atomic identity guard in
+    ;; `unsubscribe-if-reaction!` DECIDES, so a slot evicted between the scan
+    ;; and the decrement is still a no-op. `frame-ids` applies the same
+    ;; visibility predicate as `rf.frame/frame`, so the reachable frames are
+    ;; exactly the ones a `subscribe` could have cached into.
+    (some (fn [frame-id]
+            (when-let [cache (:sub-cache (rf.frame/frame frame-id))]
+              (when-let [k (some (fn [[k entry]]
+                                   (when (identical? reaction (:reaction entry)) k))
+                                 @cache)]
+                ;; `frame-id` rides to the eviction site so the
+                ;; `:rf.sub/dispose` emit carries the canonical `:frame` tag.
+                (rf.subs.cache/unsubscribe-if-reaction! cache k reaction frame-id)
+                true)))
+          (rf.frame/frame-ids)))
+  nil)
 
 (defn ^:no-doc unsubscribe-if-reaction
-  "INTERNAL — `unsubscribe` under an IDENTITY GUARD: release
-  one reference to `query-v` in `frame-id` **only while the frame's sub-cache
-  still holds `reaction`**, then take the ordinary 1 → 0 in-tick disposal.
+  "INTERNAL — the O(1) identity-guarded release for in-tree holders that also
+  know their address: release one reference to `query-v` in `frame-id` **only
+  while the frame's sub-cache still holds `reaction`**, then take the ordinary
+  1 → 0 in-tick disposal. `unsubscribe` applies the same guard but has to find
+  the slot first; a holder that already has the (frame, query) pair skips that
+  scan.
 
-  Not public API and not an alternative teardown: it exists for holders
-  whose reference can outlive its slot. Two of the four are the React-hook
-  spine's; `subscribe-once`'s release is another (an eviction can
-  land while it derefs); the fourth is this namespace's own layer-2+ input release
-  (`release-input-ref!`), which outlives its slot for the same
-  reason case 2 does — an eviction batch is removed from the cache before it
-  is disposed, so an eagerly reacquiring holder can repopulate a slot mid-walk
-  and a later member's address-only release would decrement the successor.
+  Not public API and not an alternative teardown. Its callers are the holders
+  whose reference can outlive its slot: the React-hook spine's acquisitions;
+  `subscribe-once`'s release (an eviction can land while it derefs); Fresco's
+  collector cells and the machines `:after` timer table; and this namespace's
+  own layer-2+ input release (`release-input-ref!`), which outlives its slot
+  for the same reason case 2 does — an eviction batch is removed from the cache
+  before it is disposed, so an eagerly reacquiring holder can repopulate a slot
+  mid-walk and a later member's address-only release would decrement the
+  successor.
 
     1. The RENDER-PHASE PROVISIONAL acquisition, released either by the
        commit that adopts it or by a host-macrotask reaper, across a window
@@ -2717,11 +2753,11 @@
   In both cases a release whose reaction is no longer the cache's no-ops
   rather than stealing a successor entry's reference; when the slot IS the
   caller's it takes the ordinary 1 → 0 in-tick disposal, exactly as
-  `unsubscribe` would. Every other consumer calls `unsubscribe`.
+  `unsubscribe` would. Everything else calls `(unsubscribe r)`.
 
-  Frame resolution and cache-keying are this facade's, exactly as
-  `unsubscribe`'s — a frame-id keyword or a live frame value, normalized
-  through `rf.frame/frame-target->id`; ref-counting and disposal are
+  Frame resolution and cache-keying are this facade's — a frame-id keyword or
+  a live frame value, normalized through `rf.frame/frame-target->id`, exactly
+  as `subscribe` normalizes it; ref-counting and disposal are
   `re-frame.subs.cache/unsubscribe-if-reaction!`'s. Returns nil; a destroyed
   or unknown frame is a no-op."
   [frame-id query-v reaction]

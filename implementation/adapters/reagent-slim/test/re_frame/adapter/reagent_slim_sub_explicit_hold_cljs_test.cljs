@@ -73,7 +73,7 @@
                  [(count @traces) (:ref-count (slot [::sum]))
                   (identical? held (:reaction (slot [::sum]))) @held])
               "[disposes ref-count same-reaction? value]: the flip evicted nothing, released only the render's reference, and the kept slot still serves the held reaction")
-          (rf/unsubscribe [::sum])
+          (rf/unsubscribe held)
           (is (= all-evicted (eviction @traces))
               "the unsubscribe evicted the sub and both inputs, each exactly once")
           (finally
@@ -91,7 +91,7 @@
         (remove-watch held ::w)
         (is (= [0 1] [(count @traces) (:ref-count (slot [::sum]))])
             "dropping the last watch evicted nothing; the explicit hold remains")
-        (rf/unsubscribe [::sum])
+        (rf/unsubscribe held)
         (is (= all-evicted (eviction @traces))
             "the unsubscribe evicted the sub and both inputs, each exactly once")))))
 
@@ -135,7 +135,7 @@
           (reset! read? false)
           (is (= [true 0 1] [@re-entered? (count @traces) (:ref-count (slot [::sum]))])
               "[re-entered? disposes ref-count]: the re-entered dispose evicted nothing and released the render's reference once, not twice")
-          (rf/unsubscribe [::sum])
+          (rf/unsubscribe held)
           (is (= {::sum 1 ::a 1 ::b 1} (dispose-counts @traces))
               "the unsubscribe evicted the sub and both inputs, each exactly once")
           (finally
