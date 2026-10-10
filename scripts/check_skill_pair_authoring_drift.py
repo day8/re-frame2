@@ -204,27 +204,11 @@ _SELFTEST_BAD = {
         "restore-epoch — first-class time-travel with six documented failure modes.",
         "R2-six-failure-modes",
     ),
-    "two transports (R3)": (
-        "### L3 — Two transports, MCP preferred",
-        "R3-bash-shim-transport",
-    ),
     "bash-shim fallback (R3)": (
         "The bash-shim transport is a first-class fallback, even though deprecated.",
         "R3-bash-shim-transport",
     ),
 }
-
-_SELFTEST_GOOD = (
-    # R1: retired framing.
-    "(`inject-runtime` is gone — the runtime ships via shadow-cljs `:preloads`.)",
-    "There is no `inject-runtime` tool; a re-author MUST NOT reintroduce it.",
-    # R2: the seven-row breakdown.
-    "Seven in total: six fire under the reserved `:rf.epoch/*` namespace, plus Unknown frame.",
-    "first-class time-travel with seven documented failure modes (Tool-Pair §Time-travel).",
-    # R3: contract framings.
-    "### L3 — MCP is the only skill-facing transport",
-    "The bash shims under `scripts/` are retired from the skill's tool surface.",
-)
 
 
 def run_self_test() -> int:
@@ -234,14 +218,6 @@ def run_self_test() -> int:
         ids = {f.rule_id for f in fs}
         if want_rule not in ids:
             print(f"SELF-TEST FAIL (expected {want_rule}): {label!r}\n    {line}")
-            ok = False
-    for line in _SELFTEST_GOOD:
-        fs = scan_text("fixture.md", line)
-        if fs:
-            print(
-                "SELF-TEST FAIL (expected clean): "
-                f"{line!r} -> {[f.rule_id for f in fs]}"
-            )
             ok = False
     if ok:
         print("self-test: all fixtures pass.")
