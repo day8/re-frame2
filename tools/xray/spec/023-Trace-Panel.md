@@ -354,7 +354,7 @@ This is **interaction wiring, not visual** — Figma need only render a generic 
               MACHINE transition :disconnected → [:active :connecting] · action-ran :bump-connections
               DB [:rf.runtime/machines :snapshots :ws/connection]            (microsteps → multiple transition rows)
 ▾ ③ EFFECTS   MACHINE timer-scheduled :after 250ms        ↗ future epoch when it fires
-▾ ④ REACTIVE  SUB :ws/state recalculated · VIEW connection-status re-rendered
+▾ ④ REACTIVE  SUB :ws/connecting? recalculated · VIEW connection-status re-rendered
 ```
 **SSR** (server):
 ```

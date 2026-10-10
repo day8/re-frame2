@@ -46,10 +46,10 @@
        context (`_frame-ctx`), and every `record-in-flight!` call must
        stamp `:frame`.
     2. Cleanup and actor-destroy must use the FRAME-EXACT forms, never the
-       any-frame seams (`clear-in-flight!` 1-arg, `abort-on-actor-destroy`
-       1-arg), and a deferred `rf/dispatch` from inside an `:abort-fn` must
-       carry `{:frame frame}` — by then there is no ambient frame, and in
-       re-frame2 frame identity is carried, not found.
+       any-frame seam (`abort-on-actor-destroy`'s 1-arity), and a deferred
+       `rf/dispatch` from inside an `:abort-fn` must carry `{:frame frame}`
+       — by then there is no ambient frame, and in re-frame2 frame identity
+       is carried, not found.
     3. Every recorded handle's `:abort-fn` must actually retire its OWN
        request-id from the issuing frame. `abort-on-actor-destroy` clears
        the ACTOR slot eagerly and then delegates the request-index half to
@@ -181,8 +181,9 @@
     (let [form (fx-form ":managed-http/seed-in-flight")]
       (is (str/includes? form "clear-in-flight-in-frame!"))
       (is (not (re-find #"clear-in-flight!\s+request-id" form))
-          "the one-arg `clear-in-flight!` is an ANY-FRAME sweep: it would
-           deregister a sibling frame's live slot under the same id")
+          "the 2-arg `clear-in-flight!` clears by handle identity, and this
+           closure holds no handle: with a nil one it is a no-op that leaves
+           the request-id registered")
       (testing "and its deferred dispatch carries the frame"
         ;; The abort-fn runs later, with no ambient frame around it; a bare
         ;; `rf/dispatch` in there raises :rf.error/no-frame-context.

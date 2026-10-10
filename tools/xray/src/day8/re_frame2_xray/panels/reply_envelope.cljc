@@ -572,7 +572,7 @@
                  ;; from the trace event `:time`; present on the spawn-all
                  ;; stale rows "when present" per the 009 catalogue.
                  :completed-at (:rf.reply/completed-at tags)
-                 :stale-reason (or (:stale/reason tags) (:rf.reply/stale-reason tags)
+                 :stale-reason (or (:rf.reply/stale-reason tags)
                                    (:reason tags) (:outcome tags)))
 
           (= phase :cancel-requested)
