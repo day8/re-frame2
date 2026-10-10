@@ -209,8 +209,8 @@
   A dynamically spawned actor carries no per-instance
   registrar entry — its liveness is derived from its (revertible)
   snapshot. Such a snapshot is a VALID restore target iff its TYPE still
-  resolves (registered TYPE keyword, or inline `:definition` carried on
-  the snapshot). The `:machines/actor-resolvable?` hook makes that
+  resolves (its `:rf/machine-type` keyword names a registered machine). The
+  `:machines/actor-resolvable?` hook makes that
   determination from the runtime-db partition (it reads
   `[:rf.runtime/machines :snapshots <id>]`); consult it before flagging a
   snapshot whose id is not directly registered. A SINGLETON whose
@@ -250,8 +250,8 @@
       the registrar resolves the live spec by key.
     - SPAWNED-ACTOR snapshots — the key is an instance-id with NO per-instance
       registration; the actor's TYPE rides the snapshot under `:rf/machine-type`
-      (a registered TYPE keyword OR an inline `:definition` spec map, per Spec
-      005 §Reserved snapshot-internal keys). The late-bound
+      (the registered TYPE keyword, per Spec 005 §Reserved snapshot-internal
+      keys). The late-bound
       `:machines/spec-from-snapshot` hook (published by `re-frame.machines`,
       body `resolver/spec-from-snapshot`) resolves the same spec the lazy
       actor-handler resolver materialises on dispatch.
@@ -261,7 +261,7 @@
   upstream by `missing-references`, not a version drift. The definition is
   resolved BEFORE its version is read, so a registered definition carrying no
   version is told apart from no definition at all. `:type` is
-  the spawned actor's `:rf/machine-type` (keyword or inline map) when the
+  the spawned actor's `:rf/machine-type` keyword when the
   snapshot carried one, nil for a singleton — surfaced so the drift trace can
   identify the actor's TYPE as well as its instance id."
   [machine-id snapshot]
@@ -286,8 +286,9 @@
   `runtime-db` is the `:rf.db/runtime` partition of the epoch-recorded
   frame-state. The current definition is resolved the same way dispatch
   resolves the live spec: a singleton by its snapshot key (the key is the registered
-  machine-id), a SPAWNED ACTOR by its snapshot's `:rf/machine-type` (registered
-  type keyword or inline `:definition` map — `current-definition`). A snapshot
+  machine-id), a SPAWNED ACTOR by its snapshot's `:rf/machine-type` (the
+  registered type keyword — `current-definition`), so a hot-reloaded type is
+  drift for every spawned actor of it. A snapshot
   whose definition does not resolve is skipped here; `missing-references`
   reports it.
 
@@ -499,7 +500,7 @@
                           (machine-version-mismatch recorded-runtime-db)]
                    ;; (6) Machine snapshot version drift?
                    ;; `:machine-type` identifies a spawned actor's
-                   ;; TYPE (keyword or inline-definition map) alongside its
+                   ;; TYPE keyword alongside its
                    ;; instance `:machine-id`; nil/omitted for a singleton whose
                    ;; key is its own type. Spawned-actor drift is caught:
                    ;; the current version resolves via `:rf/machine-type`, not

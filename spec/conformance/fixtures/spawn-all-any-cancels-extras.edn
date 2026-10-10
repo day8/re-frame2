@@ -67,16 +67,10 @@
                                  :c :worker#3
                                  :d :worker#4
                                  :e :worker#5}
+                     :fixed-children #{}
                      :done      #{}
                      :failed    #{}
                      :resolved? false
-                     :spec      {:children         [{:id :a :machine-id :worker}
-                                                    {:id :b :machine-id :worker}
-                                                    {:id :c :machine-id :worker}
-                                                    {:id :d :machine-id :worker}
-                                                    {:id :e :machine-id :worker}]
-                                 :join             :any
-                                 :on-some-complete [:phase/one-done]}
                      :invoke-id [:working]}
       ;; The prepared per-child spawn args, in declaration order — byte-for-byte
       ;; the args of the five :rf.machine/spawn fxs below. The init fx

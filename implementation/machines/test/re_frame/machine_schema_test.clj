@@ -96,6 +96,7 @@
                        :states  {:booting {:on {:tick {:target :running
                                                        :action :break}}}
                                  :running {}}}]
+      (rf/reg-machine :rf.machine-schema/spawn-macrostep-child child-spec)
       (rf/reg-machine :rf.machine-schema/spawn-macrostep-parent
         {:initial :start
          :data    {}
@@ -104,7 +105,7 @@
                               (fn [_]
                                 {:fx [[:rf.machine/spawn
                                        {:fixed-actor-id :rf.machine-schema/spawned-macrostep
-                                        :definition     child-spec}]]})}}})
+                                        :machine-id     :rf.machine-schema/spawn-macrostep-child}]]})}}})
       (rf/dispatch-sync [:rf.machine-schema/spawn-macrostep-parent [:noop]])
       (rf/dispatch-sync [:rf.machine-schema/spawn-macrostep-parent [:go]])
       (let [db-before (:rf.db/runtime (rf/frame-state-value :rf/default))
@@ -149,6 +150,7 @@
                       :data    {:n 0}
                       :schemas {:data [:map [:n pos-int?]]}
                       :states  {:idle {}}}]
+      (rf/reg-machine :rf.machine-schema/spawn-child child-spec)
       (rf/reg-machine :rf.machine-schema/spawn-parent
         {:initial :starting
          :data    {}
@@ -156,7 +158,7 @@
                    :spawning {:entry (fn [_]
                                        {:fx [[:rf.machine/spawn
                                               {:fixed-actor-id :rf.machine-schema/spawned
-                                               :definition     child-spec}]]})}}})
+                                               :machine-id     :rf.machine-schema/spawn-child}]]})}}})
       (rf/dispatch-sync [:rf.machine-schema/spawn-parent [:noop]])
       (let [traces (collect-traces!
                      #(rf/dispatch-sync [:rf.machine-schema/spawn-parent [:go]]))]

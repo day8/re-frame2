@@ -100,8 +100,8 @@
 (defn- spawned-snapshot?
   "True iff `snapshot` is a spawned actor's snapshot, not
   a singleton's. The durable runtime-db discriminator is the presence
-  of `:rf/machine-type` at the snapshot root: `install-spawn!` stamps it on
-  every spawned actor (keyword TYPE or inline `:definition`), and a
+  of `:rf/machine-type` at the snapshot root: `install-spawn!` stamps the
+  registered TYPE keyword on every spawned actor, and a
   singleton's `build-initial-snapshot` snapshot never carries it
   (`actor-liveness-cljs-test/singletons-still-register-and-dispatch-unchanged`).
   The discriminator survives

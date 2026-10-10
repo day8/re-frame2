@@ -1,6 +1,6 @@
 (ns re-frame.machine-spawn-unregistered-type-cljs-test
-  "A spawn whose `:machine-id` names no registered machine TYPE (and carries no
-  inline `:definition`) is rejected fail-closed: nothing installs, and exactly
+  "A spawn whose `:machine-id` names no registered machine TYPE is rejected
+  fail-closed: nothing installs, and exactly
   one always-on `:rf.error/machine-spawn-unregistered-type` per offending child
   fans out carrying structural context only — never the spawn args. A
   `:spawn-all` with such a child rejects the whole invoke rather than hanging

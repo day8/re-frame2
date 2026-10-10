@@ -2606,12 +2606,12 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
 ;; (005-StateMachines.md#declarative-spawn), `make-machine-handler`
 ;; rewrites this slot into entry/exit actions emitting :rf.machine/spawn / :rf.machine/destroy fx
 ;; at registration time; the runtime sees only the desugared form. Constraint:
-;; **exactly one of :machine-id or :definition** must be supplied — `make-machine-handler`
-;; rejects any other shape at registration time as a malformed transition table.
+;; the child is a registered machine TYPE named by :machine-id — `make-machine-handler`
+;; refuses a :spawn with no :machine-id, or with an inline :definition, at
+;; registration time with :rf.error/machine-spawn-bad-shape.
 (def InvokeSpec
   [:map
-   [:machine-id {:optional true} :keyword]                                  ;; registered machine id
-   [:definition {:optional true} [:ref ::state-node]]                       ;; inline transition table (root state-node)
+   [:machine-id :keyword]                                                   ;; registered machine TYPE — REQUIRED
    [:data       {:optional true} [:or :map fn?]]                            ;; literal initial data, OR (fn [{:keys [snapshot event]}] data) computed at entry time (unified context-map)
    [:id-prefix  {:optional true} :keyword]                                  ;; defaults to :machine-id; base for the gensym'd actor id
    [:on-done    {:optional true} [:or fn? Transition [:vector Transition]]] ;; CHILD-SUCCESS — fires on the parent's next macrostep when the spawned child enters a (non-error) `:final?` state. An `:on`-shaped transition spec (XState invoke `onDone`) moves the parent, resolved at the `:spawn`-bearing state's OWN level exactly like `:on-error`; the completion `{:result :error? :completed-at}` rides the transition's `:event` at `(nth ev 2)`. A fn `(fn [{:keys [data result]}] new-data)` is instead a `:data` fold returning the parent's new `:data` map. `result` is the child's `:data` slot named by the final state's `:output-key`, or nil when `:output-key` is absent. Any other value is rejected at registration with `:rf.error/machine-bad-on-done-clause`. Per [005 §Final states](005-StateMachines.md#final-states-final--on-done--output-key).
@@ -2649,8 +2649,7 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
 (def InvokeAllChildSpec
   [:map
    [:id          :keyword]                                                  ;; user-supplied id for join-state addressing — REQUIRED
-   [:machine-id  {:optional true} :keyword]                                 ;; registered machine id (xor :definition)
-   [:definition  {:optional true} [:ref ::state-node]]                      ;; inline transition table (xor :machine-id)
+   [:machine-id  :keyword]                                                  ;; registered machine TYPE — REQUIRED
    [:data        {:optional true} [:or :map fn?]]
    [:id-prefix   {:optional true} :keyword]
    [:on-done     {:optional true} fn?]                                      ;; (fn [{:keys [data result]}] new-data) — folds the PARENT's :data at this child's successful (non-`:error?`) finality, before the join fold. Enforced at registration: a non-fn value is :rf.error/machine-bad-on-done-clause
@@ -2735,7 +2734,7 @@ The recursive `::state-node` ref is registered under the spec id `:rf/state-node
 
 **Guard / action reference resolution.** A `GuardRef` / `ActionRef` keyword is **machine-local** — it resolves to `(get-in spec [:guards <id>])` / `(get-in spec [:actions <id>])`, where `spec` is the root `::state-node` of the transition table. Resolution is performed at registration time: `make-machine-handler` walks the table (in `:on`, `:always`, `:entry`, `:exit` slots) and verifies each keyword reference resolves to a fn in the spec's `:guards` / `:actions` map. Unresolved references fail registration with `:rf.error/machine-unresolved-guard` (with `:tags {:guard-id <id> :machine-id <id>}`) or `:rf.error/machine-unresolved-action` (with `:tags {:action-id <id> :machine-id <id>}`). There is **no global guard/action registry** — each machine has its own `:guards` / `:actions` namespace. Cross-machine reuse is via Clojure vars referenced from each machine's map.
 
-**`:spawn` constraint.** The `:spawn` slot's `InvokeSpec` declares both `:machine-id` and `:definition` as optional, but **exactly one** must be supplied for any actual `:spawn` slot — Malli alone cannot express the xor without a richer combinator, so `make-machine-handler` enforces it at registration time and rejects malformed slots as a transition-table error. `:spawn` is registration-time sugar — see [005 §Declarative `:spawn`](005-StateMachines.md#declarative-spawn) for the desugaring rules; the runtime never sees a `:spawn` key at transition time.
+**`:spawn` constraint.** The `:spawn` slot's `InvokeSpec` requires `:machine-id`, naming a registered machine TYPE; there is no inline-definition form. `make-machine-handler` refuses a slot with no `:machine-id`, or one carrying a `:definition` key, at registration time with `:rf.error/machine-spawn-bad-shape` (`:spawn-all` children: `:rf.error/machine-spawn-all-bad-shape`), whose reason names the fix — register the child with `reg-machine` and spawn it by `:machine-id`. `:spawn` is registration-time sugar — see [005 §Declarative `:spawn`](005-StateMachines.md#declarative-spawn) for the desugaring rules; the runtime never sees a `:spawn` key at transition time.
 
 **`:on-error` / `:error?` constraints (child-failure control flow).** The `:spawn` `InvokeSpec`'s `:on-error` slot is an `:on`-shaped `Transition` (or guarded candidate vector), validated at registration time exactly like `:on` / `:on-done`: its **shape** is checked by `make-machine-handler` (a malformed clause is rejected with `:rf.error/machine-bad-on-error-clause`), and its `:guard` / `:action` keyword references are resolved machine-locally in the same pass that checks every other transition slot. The cooperating `:error?` flag on a `:rf/state-node` is **leaf-only** — `:error?` on a non-`:final?` state is rejected with `:rf.error/machine-error-flag-without-final` (symmetric with `:output-key`). A spawned child finishing via an `:error?` `:final?` leaf (or throwing) routes the failure to the spawning parent's `:on-error` transition rather than to `:on-done`; `:on-done` and `:on-error` are mutually exclusive per finish and both may be declared on one `:spawn` map. A transition-shaped `:on-done` is validated the same way as `:on-error` (shape, targets, `:guard` / `:action` references, transition keys); a fn `:on-done` is a `:data` fold, and any other value is rejected with `:rf.error/machine-bad-on-done-clause`. Per [005 §`:on-error`](005-StateMachines.md#on-error--child-failure-control-flow).
 
@@ -2906,14 +2905,17 @@ A frame owns two durable partitions held as one physical frame-state container (
    [:spawn-order   {:optional true} [:vector :keyword]]])                        ;; live spawned actor-ids, OLDEST → NEWEST — the frame-global total creation order frame destroy reverses. Appended by the spawn install in the same swap that lands the snapshot; removed by the unified teardown projection in the same swap that dissocs it; pruned when it empties.
 
 (def InvokeAllJoinState
-  ;; Join bookkeeping for a :spawn-all invocation.
+  ;; Join bookkeeping for a :spawn-all invocation — EDN facts only. The join's
+  ;; callbacks and configuration (per-child :on-done, :join, the resolution
+  ;; events) are read from the parent's CURRENT definition at the invoke path,
+  ;; so they follow hot reload; membership and attempt identity do not.
   [:map
    [:children  [:map-of :keyword :keyword]]                                   ;; child-id → spawned-id
+   [:fixed-children [:set :keyword]]                                          ;; child-ids whose spec declared :fixed-actor-id — the work-identity provenance (fixed children key their work on :rf/attempt, generated ones on the address's #<n>), captured at seed so a later reload cannot change the identity of work already running
    [:done      [:set :keyword]]                                               ;; user-ids whose child reached a plain :final? state
    [:failed    [:set :keyword]]                                               ;; user-ids whose child reached an :error? :final? state
    [:cancelled [:set :keyword]]                                               ;; REQUIRED on every live child-bearing join. The exact-attempt-fenced explicit-teardown TOMBSTONE set: user-ids the runtime durably closed by CANCELLATION for THIS attempt. `spawn-all-init-fx` ALWAYS seeds it `#{}` at the same instant it mints `:rf/attempt` (so a live join can never be tombstone-less — not a valid live shape); `destroy.cljc`'s `prepare-join-child-teardown!` conj's a logical child id here inside the exact durable write when an authenticated IN-PROGRESS child is explicitly torn down, BEFORE exit callbacks / snapshot removal / the terminal destroyed trace. `join.cljc`'s fold gate consults it (`(contains? (:cancelled join-state) child-id)`) to SUPPRESS an already-queued/delayed exact-attempt completion as a duplicate terminal — so a late/rejoining carrier can never RESURRECT or mis-attribute a cancelled child. A new join attempt re-seeds a fresh `#{}`, so no tombstone crosses re-entry. The childless REJECT sentinel (`InvokeAllRejectedState`, below) carries NO `:cancelled` and NO `:children`, so it never validates as an InvokeAllJoinState; the tombstone set is required rather than optional. This map is intentionally OPEN (no `{:closed true}`) — the runtime may carry additional bookkeeping keys — but every key enumerated here is a REQUIRED runtime-owned slot.
    [:resolved? :boolean]                                                      ;; latch flips once the join condition resolves
-   [:spec      :map]                                                          ;; back-reference for the join intercept
    [:rf/attempt :int]])                                                       ;; REQUIRED on every live child-bearing join. Opaque monotonic per-attempt token minted at seed by spawn-all-init-fx; stamped into each child's :rf/join-child so the fold gate binds every completion carrier to the exact join attempt (005 §Exact-attempt fold fence). `spawn-all-init-fx` ALWAYS mints it before the per-child spawns run, and `join.cljc`'s fold gate requires a non-nil exact match, so a token-less join is permanently unable to accept a completion — not a valid live shape. The pre-per-child REJECT sentinel (an unregistered sibling TYPE) is a SEPARATE shape (`InvokeAllRejectedState`, below) carrying `:rf/spawn-all-rejected?` and NO `:children`, so it never validates as an InvokeAllJoinState; the token is required rather than optional. Treat as opaque — an int in the reference, per-session accident-gating.
 
 (def InvokeAllRejectedState
@@ -2922,7 +2924,7 @@ A frame owns two durable partitions held as one physical frame-state container (
   ;; invoke-level admission preflight fail-closes any child in the set. The
   ;; preflight is authoritative for EVERY fail-closed invoke-level
   ;; admission cause — two DISJOINT ones: (1) an UNREGISTERED child TYPE
-  ;; (no inline `:definition`) — a never-running spec-less child
+  ;; — a never-running spec-less child
   ;; would never reach a `:final?` state, hanging an `:all` join forever; and
   ;; (2) a spawn-time CHILD `[:schemas :data]` REJECTION — a child
   ;; whose materialised `:data` fails its own data-schema, which would otherwise
@@ -4109,9 +4111,7 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
 ;; args schema.
 (def SpawnFxArgs
   [:map
-   ;; one of :machine-id (registered) or :definition (inline transition table)
-   [:machine-id    {:optional true} :keyword]
-   [:definition    {:optional true} :any]                                   ;; an inline TransitionTable
+   [:machine-id    :keyword]                                                ;; registered machine TYPE — REQUIRED; a :definition key, or no :machine-id, throws :rf.error/machine-spawn-bad-shape
    [:id-prefix     {:optional true} :keyword]                               ;; defaults to :machine-id; base for the gensym'd actor id
    [:data          {:optional true} :map]                                   ;; initial data; overrides definition default
    [:start         {:optional true} [:vector :any]]                         ;; event vector dispatched to the new actor immediately after spawn

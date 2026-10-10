@@ -37,8 +37,9 @@
   Snapshots whose frame classifies no matching `:data` path ride VERBATIM — the
   projection is precise, not a blanket scrub. The sibling registry slots
   (`:spawned`, `:spawn-counter`, `:spawn-order`) are durable
-  bookkeeping (registry slots, counters, and the creation-order vector — no
-  user `:data`) and ride unchanged. `:spawn-order` riding the wire verbatim is
+  bookkeeping (registry slots naming actors by id, counters, and the
+  creation-order vector — no user `:data` and no definitions: a `:spawn-all`
+  join keeps attempt facts only) and ride unchanged. `:spawn-order` riding the wire verbatim is
   what lets a HYDRATED frame dispose its actors in true reverse-creation order:
   it is a vector of actor-id keywords, so it survives the
   hydration payload's EDN round trip like every other bookkeeping sibling.
@@ -82,8 +83,9 @@
   size elision. Snapshot egress does not consult per-slot `:sensitive?` / `:large?`
   schema marks; the frame classification registry is the egress source of truth.
 
-  The snapshot's NON-`:data` slots (`:state`, `:tags`, `:rf/machine-type`, the
-  reserved spawn-counter slot, …) are durable structural facts the client needs
+  The snapshot's NON-`:data` slots (`:state`, `:tags`, the `:rf/machine-type`
+  TYPE keyword, the reserved spawn-counter slot, …) are durable structural
+  facts the client needs
   to re-materialise the actor — they ride VERBATIM. Returns the snapshot with
   its `:data` projected (or unchanged when the snapshot carries no `:data`, or
   when the frame classifies no matching `:data` path)."

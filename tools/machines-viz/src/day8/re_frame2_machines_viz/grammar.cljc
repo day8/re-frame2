@@ -553,9 +553,8 @@
 ;;     (`machine-choice-without-type` / `-missing-choice` /
 ;;     `machine-bad-choice` / `machine-choice-extra-keys` / `-no-default` /
 ;;     `-self-loop`);
-;;   - a single `:spawn` is ONE map declaring `:machine-id` XOR `:definition`,
-;;     and an inline `:definition`'s address — `:id-prefix` or
-;;     `:fixed-actor-id` (`machine-spawn-bad-shape`);
+;;   - a single `:spawn` is ONE map naming a registered machine by
+;;     `:machine-id`, with no inline `:definition` (`machine-spawn-bad-shape`);
 ;;   - a single `:spawn`'s `:on-error` is a transition and its `:on-done` a
 ;;     transition or a fn (`machine-bad-on-error-clause` /
 ;;     `machine-bad-on-done-clause`);
@@ -642,11 +641,12 @@
 
 (def ^:private known-spawn-spec-keys
   "Closed BARE key vocabulary a single `:spawn` spec may declare — mirror of the
-  engine's `validation/known-spawn-spec-keys` (the unsupported `:timeout-ms`
-  slot is excluded from the unknown-key scan so its own
-  `:rf.error/spawn-timeout-ms-removed` refusal wins). A bare `:id` is not a
-  single-spawn key: it is a `:spawn-all` child's join address."
-  #{:machine-id :definition :data :id-prefix :on-done :on-error
+  engine's `validation/known-spawn-spec-keys` (`:timeout-ms` and `:definition`
+  are excluded from the unknown-key scan so their own refusals —
+  `:rf.error/spawn-timeout-ms-removed` and `:rf.error/machine-spawn-bad-shape`
+  — win). A bare `:id` is not a single-spawn key: it is a `:spawn-all`
+  child's join address."
+  #{:machine-id :data :id-prefix :on-done :on-error
     :start :fixed-actor-id :timeout :on-timeout
     :source-coords :source-code})
 
@@ -826,22 +826,16 @@
       ;; engine's `validation/validate-spawn!` refuses it. N children is
       ;; `:spawn-all`.
       {:category :rf.error/machine-spawn-bad-shape :path (vec path)}
-      (let [has-id?   (contains? spec :machine-id)
-            has-def?  (contains? spec :definition)
-            offending (vec (remove #{:timeout-ms}
+      (let [offending (vec (remove #{:timeout-ms :definition}
                                    (unknown-bare-keys spec known-spawn-spec-keys)))]
         (cond
-          (or (and has-id? has-def?) (and (not has-id?) (not has-def?)))
+          ;; Mirror of the engine's `validation/spawn-machine-id-error`: a
+          ;; spawned child is a registered machine type named by `:machine-id`,
+          ;; and an inline `:definition` is refused.
+          (or (contains? spec :definition) (not (contains? spec :machine-id)))
           {:category :rf.error/machine-spawn-bad-shape :path (vec path)}
           (seq offending)
-          {:category :rf.error/machine-unknown-spawn-key :path (vec path) :keys offending}
-          ;; An inline `:definition` needs an ADDRESS: `:id-prefix`
-          ;; or `:fixed-actor-id`. Mirror of the engine's
-          ;; `validation/inline-spawn-address-error`: only a
-          ;; `:machine-id` spawn defaults its prefix, so an unaddressed inline
-          ;; spawn is refused at registration, after the unknown-key scan.
-          (and has-def? (not (or (:id-prefix spec) (:fixed-actor-id spec))))
-          {:category :rf.error/machine-spawn-bad-shape :path (vec path)})))))
+          {:category :rf.error/machine-unknown-spawn-key :path (vec path) :keys offending})))))
 
 (defn- spawn-timeout-ms-defect
   "`:timeout-ms` is not a key of `:spawn` or `:spawn-all`: a spawn deadline is

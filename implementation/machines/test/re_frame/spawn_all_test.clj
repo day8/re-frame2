@@ -133,12 +133,16 @@
                          :join                :any
                          :cancel-on-decision? false
                          :on-some-complete    [:some]}}]
-           [":spawn-all child with BOTH :machine-id AND :definition (XOR)"
+           [":spawn-all child carrying an inline :definition beside its :machine-id"
             #"machine-spawn-all-bad-shape"
             {:spawn-all {:children        [{:id         :x
                                             :machine-id :foo
                                             :definition {:initial :i
                                                          :states  {:i {}}}}]
+                         :on-all-complete [:done]}}]
+           [":spawn-all child naming no :machine-id"
+            #"machine-spawn-all-bad-shape"
+            {:spawn-all {:children        [{:id :x :fixed-actor-id :x/kid}]
                          :on-all-complete [:done]}}]
            ;; the natural spelling of a runtime-sized fan-out; refused by the
            ;; grammar, never by a host exception
@@ -146,7 +150,7 @@
             #"machine-spawn-all-bad-shape"
             {:spawn-all {:children        (fn [_] [{:id :x :machine-id :foo}])
                          :on-all-complete [:done]}}]
-           [":spawn declaring NEITHER :machine-id nor :definition"
+           [":spawn naming no :machine-id"
             #"machine-spawn-bad-shape"
             {:spawn {:start [:begin]}}]]]
     (testing label

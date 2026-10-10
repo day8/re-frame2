@@ -120,15 +120,7 @@
               (is (some? (:definition rec))
                   "the spawned actor's record carries a definition")
               (is (= (get defs spawn-child-type) (:definition rec))
-                  "and it is the registered TYPE's spec")))))))
-  (testing "an inline-`:definition` spawn stamps the spec map itself as its
-            type, and that map is the definition"
-    (let [inline {:initial :idle
-                  :states  {:idle {:on {:go :busy}} :busy {}}}
-          ev     (assoc-in (t-event 1 :xray-spawned-def/inline#1 :idle :busy [:go])
-                           [:tags :after :rf/machine-type] inline)]
-      (is (= inline (-> (h/project-focused-event-transitions [ev] {})
-                        first :definition))))))
+                  "and it is the registered TYPE's spec"))))))))
 
 (deftest project-focused-event-attaches-guard-and-action-traces
   (testing "guard-evaluated / action-ran traces attach to the transition

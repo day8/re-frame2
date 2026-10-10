@@ -2671,7 +2671,11 @@
 
    1. Allocate one spawned-id per child up-front (thread the snapshot's
       counter through children in declaration order).
-   2. Build the join-state seed map.
+   2. Build the join-state seed map — EDN facts only: membership, the
+      counts' sets, and which children declared a `:fixed-actor-id` (the
+      work-identity provenance, captured here so a later reload cannot change
+      the identity of work already running). The join's callbacks and
+      configuration stay on the parent's definition, read at fold time.
    3. For each child, delegate to `spawn-one` to materialise `:data` and
       build its `:rf.machine/spawn` fx (short-circuits on the first
       child's `:data` failure).
@@ -2700,12 +2704,15 @@
           children)
         ;; (2) Seed the join state with the allocated ids.
         children-map (into {} (map (juxt :id :rf/spawned-id)) children-with-ids)
-        join-state   {:children  children-map
-                      :done      #{}
-                      :failed    #{}
-                      :resolved? false
-                      :spec      spawn-all-spec
-                      :invoke-id invoke-id}
+        join-state   {:children       children-map
+                      :fixed-children (into #{}
+                                            (comp (filter #(contains? % :fixed-actor-id))
+                                                  (map :id))
+                                            children)
+                      :done           #{}
+                      :failed         #{}
+                      :resolved?      false
+                      :invoke-id      invoke-id}
         ;; (3) Materialise + build spawn fxs per child via `spawn-one`.
         spawn-fxs-r
         (reduce
@@ -2741,11 +2748,10 @@
             ;; PREFLIGHT decide child admission — unregistered TYPE and
             ;; spawn-time `[:schemas :data]` validity alike — against the very
             ;; payloads the per-child fxs will run, BEFORE it publishes a live
-            ;; join or any child effect executes. The raw invoke
-            ;; specs riding `[:join-state :spec :children]` cannot serve: they
-            ;; carry neither the materialised `:data` nor the pre-allocated
-            ;; id, so the child's real schema verdict is not derivable from
-            ;; them. `:data` fns are materialised ONCE, here in the reducer —
+            ;; join or any child effect executes. The raw invoke specs cannot
+            ;; serve: they carry neither the materialised `:data` nor the
+            ;; pre-allocated id, so the child's real schema verdict is not
+            ;; derivable from them. `:data` fns are materialised ONCE, here in the reducer —
             ;; the preflight re-runs no application code.
             init-fx [:rf.machine/spawn-all-init
                      {:rf/parent-id parent-id

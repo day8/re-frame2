@@ -26,8 +26,11 @@
                                        :join            :all
                                        :on-all-complete on-complete}}}})
 
-(defn- join-for [on-complete]
-  (some (fn [[_invoke js]] (when (= on-complete (get-in js [:spec :on-all-complete])) js))
+(defn- join-for
+  "The join slot of `region`'s invoke — keyed by the region-qualified invoke
+  path `[<region> & <in-region-path>]`."
+  [region]
+  (some (fn [[invoke js]] (when (= region (first invoke)) js))
         (get-in (rf.machines.test-support/runtime-db) [:rf.runtime/machines :spawned parent-kw])))
 
 (deftest later-region-folds-only-itself-by-exact-attempt
@@ -39,10 +42,10 @@
                              :regions {:r1 (region :r1-racing [:r1/done])
                                        :r2 (region :r2-racing [:r2/done])}})
   (rf/dispatch-sync [parent-kw [:start]])
-  (rf/dispatch-sync [(get-in (join-for [:r2/done]) [:children :worker]) [:go]])
+  (rf/dispatch-sync [(get-in (join-for :r2) [:children :worker]) [:go]])
   (is (= [#{} #{:worker} [] []]
-         [(:done (join-for [:r1/done]))
-          (:done (join-for [:r2/done]))
+         [(:done (join-for :r1))
+          (:done (join-for :r2))
           (rf.machines.test-support/events-of :rf.machine.spawn-all/stale-completion)
           (rf.machines.test-support/events-of :rf.error/machine-spawn-all-bad-child-id)])
       ":r2 folds its own worker; :r1 is untouched and no stale or bad-child evidence fires"))

@@ -34,11 +34,6 @@
             ;; `re-frame.machines` aggregator requires it), so the edge is
             ;; acyclic.
             [re-frame.machines.lifecycle-fx.destroy :as rf.machines.lifecycle-fx.destroy]
-            ;; An inline `:definition` is materialised through
-            ;; the SAME `handler-meta-for` the lazy resolver uses, at spawn
-            ;; time. Only the `re-frame.machines` aggregator requires this ns,
-            ;; so the edge is acyclic.
-            [re-frame.machines.lifecycle-fx.registration :as rf.machines.lifecycle-fx.registration]
             [re-frame.machines.lifecycle-fx.resolver :as rf.machines.lifecycle-fx.resolver]
             [re-frame.machines.parallel :as rf.machines.parallel]
             [re-frame.machines.paths :as rf.machines.paths]
@@ -92,73 +87,45 @@
                   (str (name machine-id) "#" n))]))
 
 (defn- resolve-spawn-machine
-  "Resolve the machine spec for a spawn. `:machine-id` references a
+  "Resolve the machine spec for a spawn: `:machine-id` references a
   registered machine — read its spec back from the registrar via the
-  `:rf/machine` metadata. `:definition` carries an inline spec map.
-  Returns the spec map or nil if neither resolves. Per Spec 005
-  §Spawn-spec keys.
-
-  A nil return from a `:machine-id`-bearing spawn means the
-  named TYPE is UNREGISTERED — the fail-closed reject path (see
-  `unregistered-spawn-type?` / `reject-unregistered-spawn!`). An inline
-  `:definition` always resolves to itself."
+  `:rf/machine` metadata. Returns the spec map, or nil when the TYPE is
+  UNREGISTERED — the fail-closed reject path (see `unregistered-spawn-type?`
+  / `reject-unregistered-spawn!`). Per Spec 005 §Spawn-spec keys."
   [args]
-  (let [machine-id (:machine-id args)
-        defn       (:definition args)]
-    (cond
-      defn        defn
-      machine-id  (rf.machines.lifecycle-fx.resolver/spec-from-registry machine-id))))
+  (some-> (:machine-id args)
+          rf.machines.lifecycle-fx.resolver/spec-from-registry))
 
 (defn- unregistered-spawn-type?
   "A `:spawn` / `:spawn-all` per-child whose `:machine-id` names an
-  UNREGISTERED machine TYPE — and which carries no inline `:definition` — is
-  REJECTED fail-closed. True iff the args name a `:machine-id`, carry no
-  `:definition`, and no registered machine spec resolves for that id. There
-  is no implicit \"spec-less spawn\" lifecycle: a `:machine-id` that resolves
-  to no registered spec is rejected rather than materialising an actor. A
-  `:definition` spawn never trips this (the spec IS the args)."
+  UNREGISTERED machine TYPE is REJECTED fail-closed. True iff the args name a
+  `:machine-id` and no registered machine spec resolves for it. There is no
+  implicit \"spec-less spawn\" lifecycle: a `:machine-id` that resolves to no
+  registered spec is rejected rather than materialising an actor."
   [args]
   (boolean
     (and (:machine-id args)
-         (not (:definition args))
          (nil? (resolve-spawn-machine args)))))
 
-(defn- inline-definition-error
-  "The throw an inline `:definition` would raise when the lazy resolver first
-  materialises its handler, or nil for a valid definition / a `:machine-id`
-  spawn. Left to the resolver alone, the throw would surface per dispatch,
-  where the router's resolver catch-all swallows it: the actor would install
-  as a zombie (snapshot present, `:rf/bootstrap-pending?` forever) and every
-  event to it would read `:rf.error/no-such-handler`. Asking the SAME `handler-meta-for`
-  at spawn time lets the spawn reject fail-closed, before anything installs,
-  with the validator's own typed error."
+(defn- spawn-shape-error
+  "The throw a `:rf.machine/spawn` that does not name a registered TYPE earns,
+  or nil: args carrying an inline `:definition`, or no `:machine-id` keyword.
+  A spawned child is a registered machine type, so its `:rf/machine-type` is
+  a keyword and its snapshot stays EDN. Registration refuses the declarative
+  shapes (`validate-spawn!` / `validate-spawn-all!`, same id); this is the
+  same rule for a hand-emitted `[:rf.machine/spawn …]`, which no registration
+  sees. Without it such a spawn would resolve no spec, allocate no address,
+  and still announce a spawn. Returned rather than thrown, so the caller
+  throws it before anything installs."
   [args]
-  (when-let [definition (:definition args)]
-    (try
-      (rf.machines.lifecycle-fx.registration/handler-meta-for definition)
-      nil
-      (catch #?(:clj Throwable :cljs :default) e e))))
-
-(defn- inline-address-error
-  "The throw an inline `:definition` spawn carrying NO ADDRESS — neither
-  `:id-prefix` nor `:fixed-actor-id` — earns, or nil. Registration
-  refuses the declarative shapes (`validate-spawn!` /
-  `validate-spawn-all!`, same id); this is the same rule for a hand-emitted
-  `[:rf.machine/spawn …]`, which no registration sees. Without it such a spawn
-  would have no prefix to allocate from and would install an actor at address
-  `nil`.
-  Returned rather than thrown, so the caller throws it before anything
-  installs, exactly as it throws `inline-definition-error`."
-  [args]
-  (when (and (:definition args)
-             (not (or (:id-prefix args) (:fixed-actor-id args))))
+  (when (or (contains? args :definition)
+            (not (keyword? (:machine-id args))))
     (rf.error/thrown-ex-info
       :rf.error/machine-spawn-bad-shape
       're-frame.machines.lifecycle-fx.spawn
-      (str "A :rf.machine/spawn carrying an inline :definition must name an "
-           "address: :id-prefix (the base its <prefix>#<n> id is minted from) "
-           "or :fixed-actor-id (the address itself). Only a :machine-id spawn "
-           "defaults its prefix, to that registered type.")
+      (str "A :rf.machine/spawn must name a registered machine type by "
+           ":machine-id; an inline :definition is not accepted. Register the "
+           "child with reg-machine and spawn it by :machine-id.")
       {:recovery :no-recovery})))
 
 (defn- clear-rejected-mirror!
@@ -224,10 +191,8 @@
   (let [reason (rf.error/human-message
                  :rf.error/machine-spawn-unregistered-type
                  (str "Cannot spawn machine " machine-id
-                      ": no machine TYPE is registered under that :machine-id "
-                      "(and the spawn carries no inline :definition). Register the "
-                      "machine with rf/reg-machine before spawning it, or supply an "
-                      "inline :definition."))]
+                      ": no machine TYPE is registered under that :machine-id. "
+                      "Register the machine with rf/reg-machine before spawning it."))]
     ;; Always-on (surface #4): the non-event union record. Structural-only —
     ;; no spawn args. Late-bound: machines ships above core's require graph;
     ;; the hook is bound once `re-frame.error-emit` loads.
@@ -340,21 +305,6 @@
                        (rf.machines.paths/spawned-path (:rf/parent-id args) invoke-id))]
       (boolean (and (map? slot) (:rf/spawn-all-rejected? slot))))))
 
-(defn- machine-type-ref
-  "The revertible TYPE reference stamped onto a spawned actor's snapshot root
-  under `:rf/machine-type`, so the lazy resolver (`lifecycle-fx.resolver`)
-  can re-materialise the actor's handler purely from runtime-db. A `:machine-id`
-  spawn stores the registered TYPE keyword (the type outlives every
-  instance — registered like a singleton). An inline `:definition` spawn
-  stores the spec map verbatim (there is no registered type; the snapshot is
-  the only source of truth, and it is fully revertible). A spawn always names
-  exactly one of the two — an unregistered `:machine-id` is rejected
-  fail-closed BEFORE this is reached (see `reject-unregistered-spawn!`), so
-  this never returns nil on the accepted path."
-  [args]
-  (or (:machine-id args)
-      (:definition args)))
-
 (defn- stamp-framework-data
   "Stamp framework-reserved keys into the spawned actor's
   initial `:data` so the actor knows its own address (`:rf/self-id`)
@@ -442,12 +392,9 @@
   ALREADY-RESOLVED TYPE spec, yielding the exact spec a spawn of `args` would
   install. Returns nil for a nil `spec`.
 
-  Split out from `candidate-spawn-spec` so `prepare-spawn-all-child`
-  can resolve the child's TYPE spec ONCE and retain BOTH derivatives: the
-  stamped spec the install lands, and the RAW resolved definition the install
-  needs to keep the child handler-resolvable (see `prepared-type-ref`). Without
-  the split the preflight would have to resolve the registry a second time to
-  recover the raw definition."
+  Split out from `candidate-spawn-spec` so `prepare-spawn-all-child` can
+  stamp the definition it has already resolved for its verdict, without a
+  second registry read."
   [spec args spawned-id join-child]
   (let [spec' (if (and spec (contains? args :data))
                 (assoc spec :data (:data args))
@@ -460,11 +407,12 @@
 
 (defn- candidate-spawn-spec
   "The fully framework-stamped machine spec a spawn of `args` WOULD install:
-  the resolved TYPE spec (registry `:machine-id` xor inline `:definition`),
-  the args' materialised `:data` override applied, and the framework's
-  `:rf/self-id` / `:rf/parent-id` / `:rf/invoke-id` / `:rf/join-child` keys
-  stamped into `:data`. Returns nil when the type resolves to no spec (an
-  unregistered `:machine-id` — the `unregistered-spawn-type?` gate's child).
+  the registered `:machine-id`'s TYPE spec, the args' materialised `:data`
+  override applied, and the framework's `:rf/self-id` / `:rf/parent-id` /
+  `:rf/invoke-id` / `:rf/join-child` keys stamped into `:data`. Returns nil
+  when the type resolves to no spec (an unregistered `:machine-id` — the
+  `unregistered-spawn-type?` gate's child, or an admitted `:spawn-all` child
+  whose type was unregistered after its preflight).
 
   The SINGLE source of truth shared by `spawn-all-init-fx`'s invoke-level
   PREFLIGHT and `spawn-fx*`'s per-child install, so the two can
@@ -554,31 +502,16 @@
   here (`install-base-after-replacing-occupant!`); this fn simply installs
   whatever base it is given.
 
-  `type-ref-fn` is a THUNK, not a value. The revertible TYPE
-  reference a PREPARED `:spawn-all` child stamps is registrar-DERIVED —
-  `prepared-type-ref` compares the prepared definition against what the
-  registrar currently holds — so the moment it is chosen is a correctness
-  property, not a scheduling detail. Forcing it here, inside the `(continue?)`
-  fence and immediately before the physical write, is the LAST point ahead of
-  the swap, so every pre-install emission and every in-drain mutation it may
-  have provoked is already reflected in the reference this stamps.
-
-  The pre-install emission named above — the caller's
-  `:rf.machine.spawn/spawned` trace — reaches application listeners at the
-  POST-DRAIN boundary when the spawn fx runs inside a drain, its ordinary
-  path: trace listeners are OBSERVERS, so on that path no listener body can
-  unregister or replace the child's TYPE between the caller's bindings and
-  this write. When `spawn-fx` is called directly, outside any drain, the same
-  trace fans out synchronously on the emitting stack, and a listener there
-  runs ahead of the write. The late placement serves both paths: it is the
-  honest place to read a registrar-derived value, it decides against whatever
-  a direct-call listener did to the registrar, and it is load-bearing for
-  in-drain application code that runs ahead of the write — a prepared child's
-  own `[:schemas :data]` validator runs after its `:type-spec` is retained, so
-  the definition-lifetime rule must decide against the registrar as it stands
-  at COMMIT."
-  [frame-id rt-after-alloc spec spawned-id initial-snap
-   {:keys [parent-id invoke-id track? type-ref-fn continue? owner-token]}]
+  `machine-id` is the registered TYPE keyword stamped at `:rf/machine-type`,
+  the reference the lazy resolver reads back on every dispatch. The install
+  lands whenever there is an `initial-snap` to land — including an ADMITTED
+  `:spawn-all` child whose TYPE was unregistered between its preflight and
+  this write. An admitted child always installs; it then answers
+  `:rf.error/no-such-handler` like any live actor whose type was
+  unregistered, and a re-registered type is simply the definition it runs
+  (Spec 005 §Spawn-and-join via `:spawn-all` §Join state)."
+  [frame-id rt-after-alloc spawned-id initial-snap
+   {:keys [machine-id parent-id invoke-id track? continue? owner-token]}]
   ;; The caller's `:rf.machine.spawn/spawned` trace is
   ;; callback-bearing; recheck the exact-incarnation continuation before the
   ;; runtime-db swap so a listener that destroyed A / published same-id B
@@ -600,51 +533,14 @@
   ;; owner (conformance / pure-fn), fall back to the bare write (its non-nil
   ;; return marks `:committed`).
   (if (or (nil? continue?) (continue?))
-    (let [;; CHOOSE the revertible TYPE reference HERE, at the last
-          ;; point before the write, and stamp it onto the snapshot root so the
-          ;; lazy resolver can re-materialise the handler from runtime-db alone.
-          ;;
-          ;; THE WINDOW THIS CLOSES. A prepared `:spawn-all` child's reference
-          ;; follows the definition-lifetime rule — keep the `:machine-id`
-          ;; keyword while the registrar still holds the prepared definition,
-          ;; pin that definition once the registrar has diverged. Taken in
-          ;; `spawn-fx*`'s `let` bindings, the CHOICE would sit ahead of the
-          ;; emission that runs before this write, the caller's
-          ;; `:rf.machine.spawn/spawned` trace. A callback there that
-          ;; UNREGISTERED or REPLACED the admitted child's TYPE would diverge the
-          ;; registrar AFTER `prepared-type-ref` had observed it intact and
-          ;; returned the keyword — the install would stamp a STALE keyword and
-          ;; the child would come up INERT (nothing resolves; it never leaves
-          ;; `:initial`, and every event raises `:rf.error/no-such-handler`) or
-          ;; SPLIT (a prepared-v1 snapshot driven by an unrelated current-v2
-          ;; handler).
-          ;;
-          ;; Inside a drain that emit's listeners run at the post-drain
-          ;; boundary, so no listener body can act here; when `spawn-fx` is
-          ;; called directly, outside any drain, they run synchronously on the
-          ;; emitting stack, before this write. The late force is the correct
-          ;; reading point for a registrar-derived value on both paths, and
-          ;; in-drain application code — notably a prepared child's own
-          ;; `[:schemas :data]` validator, which `prepare-spawn-all-child` runs
-          ;; AFTER retaining `:type-spec` — can diverge the registrar ahead of
-          ;; this write too.
-          ;;
-          ;; Deferring the CHOICE — rather than re-checking anything — is the
-          ;; whole mechanism: `type-ref-fn` reads the registrar as it stands at
-          ;; commit, so whatever the last pre-install callback did to it is
-          ;; what the definition-lifetime rule decides against. It is NOT a
-          ;; re-verdict: an admitted child ALWAYS installs, and this can only
-          ;; select the FORM of its reference.
-          type-ref     (type-ref-fn)
-          ;; The spawn is known-accepted by the time `install-spawn!` runs (an
-          ;; unregistered `:machine-id` was rejected fail-closed upstream), so
-          ;; `spec` is always present; the `spec`/`type-ref` guards are
-          ;; belt-and-braces.
+    (let [;; Stamp the revertible TYPE reference onto the snapshot root so
+          ;; the lazy resolver can re-materialise the handler from runtime-db
+          ;; alone.
           initial-snap (cond-> initial-snap
-                         (and spec type-ref) (assoc :rf/machine-type type-ref))
+                         initial-snap (assoc :rf/machine-type machine-id))
           install-fn (fn [_rt]
                        (cond-> rt-after-alloc
-                         spec      (assoc-in (rf.machines.paths/snapshot-path spawned-id) initial-snap)
+                         initial-snap (assoc-in (rf.machines.paths/snapshot-path spawned-id) initial-snap)
                          ;; Append the actor to the DURABLE
                          ;; spawn-order vector in the SAME swap that lands its
                          ;; snapshot, so the frame's total creation order is
@@ -655,9 +551,10 @@
                          ;; other durable fact to read; the transient
                          ;; `rf.machines.spawn-order/record!` below is a cache that any
                          ;; restore / hydration / `replace-runtime-db!` wipes.
-                         ;; Gated on the same `spec` as the snapshot assoc: the
-                         ;; order tracks exactly the actors that have snapshots.
-                         spec      (rf.machines.spawn-order/record-in-runtime-db spawned-id)
+                         ;; Gated on the same `initial-snap` as the snapshot
+                         ;; assoc: the order tracks exactly the actors that have
+                         ;; snapshots.
+                         initial-snap (rf.machines.spawn-order/record-in-runtime-db spawned-id)
                          track?    (assoc-in (rf.machines.paths/spawned-path parent-id invoke-id) spawned-id)
                          ;; Write the parent's `:rf/spawned`
                          ;; mirror beside the registry slot it mirrors: the
@@ -691,26 +588,23 @@
 (def ^:private prepared-children-key
   "The reserved join-state slot under which `spawn-all-init-fx`'s admission
   preflight retains the AUTHORITATIVE prepared per-child result on the accept
-  path: a `{<spawned-id> {:spec <stamped-spec> :snap <initial-snap>
-  :type-spec <raw-resolved-definition>}}` map, one entry per admitted child.
-  Each child's own `:rf.machine/spawn` fx —
+  path: a `{<spawned-id> {:snap <initial-snap>}}` map, one entry per admitted
+  child. Each child's own `:rf.machine/spawn` fx —
   a SEPARATE entry later in the same entry vector — consumes its entry
-  (`spawn-all-prepared-child`) rather than re-resolving the type, rebuilding the
-  snapshot, or re-running its `[:schemas :data]` validator. Consuming rather than
+  (`spawn-all-prepared-child`) rather than rebuilding the snapshot or
+  re-running its `[:schemas :data]` validator. Consuming rather than
   recomputing is what makes the preflight's verdict authoritative: a type
   re-registration or a second validator pass between the preflight and the
   install cannot flip an admitted child into a rejected one (which would
-  strand an impossible half-live join), and each child is resolved / prepared /
+  strand an impossible half-live join), and each child is prepared and
   validated EXACTLY ONCE per attempt.
 
-  `:type-spec` — the RAW resolved definition, before the `:data` override and
-  the framework stamps — is what keeps the admitted child HANDLER-RESOLVABLE.
-  Consuming the verdict installs the child's snapshot, but the
-  actor's HANDLER is materialised lazily from the snapshot's `:rf/machine-type`
-  reference, so a mid-drain registry mutation could still leave an installed
-  child pointing at a definition that is gone (or at an unrelated successor).
-  Carrying the prepared definition alongside the prepared snapshot is what lets
-  `prepared-type-ref` keep the two in one authority.
+  The entry is EDN: the prepared snapshot, nothing executable. The install
+  re-derives the stamped spec it needs (classification lowering) from the
+  registrar's current definition for the child's `:machine-id`, so a
+  registrar change between preflight and install is ordinary hot reload — a
+  re-registered type is the definition the child runs, and an unregistered
+  one leaves the admitted child installed and inert.
 
   The slot is EPHEMERAL install-time scratch, not durable join state: each
   consuming child drops its own entry inside the SAME runtime-db swap that
@@ -725,8 +619,8 @@
 (defn- spawn-all-prepared-child
   "The framework-owned prepared result `spawn-all-init-fx` retained for THIS
   `:spawn-all` child, read from the join slot's `:rf/prepared`
-  scratch by the child's own spawned-id. Returns `{:spec <stamped-spec>
-  :snap <initial-snap>}` for an admitted `:spawn-all` child, or nil when there
+  scratch by the child's own spawned-id. Returns `{:snap <initial-snap>}` for
+  an admitted `:spawn-all` child, or nil when there
   is no invoke (`:rf/spawn-all-id` absent — a plain single `:spawn`) or no
   prepared entry (a hand-emitted `:spawn-all` child fx with no preceding init
   fx, which falls back to the resolve/build/validate path). `spawn-all-init-fx`
@@ -780,74 +674,6 @@
            args
            (pre-allocated-actor-id args))))
 
-(defn- prepared-type-ref
-  "The revertible TYPE reference an ADMITTED+prepared `:spawn-all` child's
-  install stamps at `:rf/machine-type` — the slot the lazy resolver
-  (`lifecycle-fx.resolver/spec-from-snapshot`) reads to re-materialise the
-  actor's handler on every dispatch.
-
-  THE WINDOW THIS CLOSES. Consuming the prepared verdict installs an
-  admitted child's snapshot unconditionally — but the snapshot alone is not a
-  LIVE actor. A `:machine-id` spawn stamps the registered TYPE KEYWORD, and the
-  resolver reads that keyword back through the registrar on every dispatch. So,
-  with a bare keyword, in-drain application code that mutates
-  the registrar between the preflight and this install would leave the child
-  installed-but-INERT: unregister the TYPE and the keyword resolves to nothing —
-  the child never runs its synthetic `[:rf.machine.spawn/spawned]` bootstrap,
-  sits at its `:initial` with `:rf/bootstrap-pending? true`, and every event it
-  is sent raises `:rf.error/no-such-handler`; re-register the TYPE to another
-  spec and the keyword resolves to a definition the child's PREPARED snapshot
-  was never built from — a prepared-v1 state driven by an unrelated current-v2
-  handler.
-
-  THE DEFINITION-LIFETIME RULE. A prepared child's definition authority is the
-  definition its invoke PREPARED (`:type-spec`, retained by
-  `prepare-spawn-all-child`). This returns:
-
-    - the `:machine-id` KEYWORD while the registrar still holds EXACTLY that
-      definition — the reference is equivalent to the definition, so nothing
-      changes: the child stays a normal registry-tracking actor and ordinary
-      HOT-RELOAD semantics are preserved (re-registering the TYPE later reaches
-      every live child, exactly as it does for a single `:spawn`);
-    - the prepared definition VERBATIM once the registrar has DIVERGED from it,
-      pinned onto the snapshot exactly as an inline `:definition` spawn carries
-      its own spec — fully revertible, resolvable with no registrar entry at
-      all, and coherent with the prepared snapshot installed beside it.
-
-  NOT a re-verdict. The registry read here decides only
-  the FORM of the reference; it can never reject, suppress, or alter the child's
-  admission. An admitted child ALWAYS installs, and a fail-closed recheck here
-  would reintroduce the impossible half-live join. The divergent case simply
-  stops depending on a registrar entry the preflight's verdict no longer speaks
-  for.
-
-  WHEN this runs is part of the contract. Because the rule is
-  decided by comparing the prepared definition against the registrar's CURRENT
-  contents, a divergence that happens after the comparison is a divergence the
-  installed snapshot does not reflect — and the callbacks between the child's
-  admission and its install (in-drain application code, or the
-  `:rf.machine.spawn/spawned` trace's listeners when `spawn-fx` runs outside a
-  drain) are exactly where one can arise. `spawn-fx*` therefore passes this as a THUNK and
-  `install-spawn!` forces it at the last point before the runtime-db swap, so
-  the comparison is made against the registrar as it stands at COMMIT."
-  [args prepared]
-  ;; A prepared child always carries its resolved definition: the preflight
-  ;; rejects an unregistered TYPE, so `:type-spec` is never nil here.
-  (let [type-spec  (:type-spec prepared)
-        machine-id (:machine-id args)]
-    (cond
-      ;; The registrar still holds the prepared definition — keep the revertible
-      ;; keyword so the child tracks its TYPE like every other spawned actor.
-      (and (some? machine-id)
-           (= type-spec (rf.machines.lifecycle-fx.resolver/spec-from-registry machine-id)))
-      machine-id
-
-      ;; Diverged (unregistered, or replaced by another spec) — or an inline
-      ;; `:definition` child, which has no TYPE keyword to track. Pin the
-      ;; prepared definition.
-      :else
-      type-spec)))
-
 ;; ---- :rf.machine/spawn -----------------------------------------------------
 
 (defn spawn-fx
@@ -858,25 +684,24 @@
   per-instance event-handler registration.
 
   Lifecycle wired here:
-   0. **Fail-closed gate.** If `:machine-id` names an
-      UNREGISTERED machine TYPE and the spawn carries no inline
-      `:definition`, REJECT the spawn: emit the always-on
-      `:rf.error/machine-spawn-unregistered-type` and return without
-      installing anything — no snapshot, no slot, no
+   0. **Fail-closed gates.** A spawn that does not name a registered TYPE
+      by `:machine-id` — an inline `:definition`, or no `:machine-id` —
+      throws `:rf.error/machine-spawn-bad-shape` before anything installs.
+      If `:machine-id` names an UNREGISTERED machine TYPE, REJECT the
+      spawn: emit the always-on `:rf.error/machine-spawn-unregistered-type`
+      and return without installing anything — no snapshot, no slot, no
       spawned-id allocation, no spawn-order record, no trace, no `:start`
       dispatch — and clear the parent's `[:data :rf/spawned <invoke-id>]`
       entry the reducer bound (`clear-rejected-mirror!`). There is no
       implicit \"spec-less spawn\" lifecycle.
-   1. Resolve the spawn's machine spec (`:machine-id` from the registrar
-      OR an inline `:definition`).
+   1. Resolve the spawn's machine spec from the registrar.
    2. Initialise the actor's snapshot at `[:rf.runtime/machines
       :snapshots <spawned-id>]` using the spec's `:initial` / `:data`
       (overridden by the spawn args' `:data`), stamping the revertible
-      TYPE reference at `:rf/machine-type` (the `:machine-id` keyword, or
-      the inline `:definition` map) so the lazy resolver
-      (`lifecycle-fx.resolver`) can re-materialise the actor's handler
-      from runtime-db alone. The runtime stamps `:rf/self-id`
-      (the spawned actor's own address) and, when applicable,
+      TYPE reference — the `:machine-id` keyword — at `:rf/machine-type`,
+      so the lazy resolver (`lifecycle-fx.resolver`) can re-materialise
+      the actor's handler from runtime-db alone. The runtime stamps
+      `:rf/self-id` (the spawned actor's own address) and, when applicable,
       `:rf/parent-id` + `:rf/invoke-id` into the actor's initial `:data`.
       Re-spawn at an address a LIVE actor still occupies REPLACES that
       actor, and replacement is a CLEAN destroy-then-install: the spawn
@@ -910,13 +735,22 @@
         frame-id   (rf.frame/require-frame-stamp!
                      frame-id :rf.machine/spawn
                      {:where 'rf.machine/spawn :event-id (:machine-id args)})]
-    ;; Step 0 — the two fail-closed gates, INVOKE-level before CHILD-local.
+    ;; Step 0 — the fail-closed gates: the args' SHAPE first, then
+    ;; INVOKE-level before CHILD-local.
     ;; Both reject BEFORE any id allocation, spec resolution,
     ;; snapshot/slot install, spawn-order record, trace, or
     ;; `:start` dispatch — the strongest atomicity (there is no spec-less
     ;; spawn path, so there is no half-installed bookkeeping the next op
     ;; could trip over).
     (cond
+      ;; A spawn that does not name a registered TYPE throws the typed
+      ;; `:rf.error/machine-spawn-bad-shape` for the fx runner to surface
+      ;; (`:rf.error/fx-handler-exception`, carrying the exception). Declarative
+      ;; spawns always carry a `:machine-id` (registration refuses anything
+      ;; else), so this only ever fires for a hand-emitted spawn.
+      (spawn-shape-error args)
+      (throw (spawn-shape-error args))
+
       ;; Step 0a — atomic `:spawn-all` reject. `spawn-all-init-fx` (the FIRST
       ;; fx in this entry vector) preflights the whole child set and, on any
       ;; fail-closed admission failure, seeds `spawn-all-reject-sentinel` at
@@ -937,7 +771,7 @@
       nil
 
       ;; Step 0b — child-local fail-closed gate for an unregistered
-      ;; `:machine-id` (no inline `:definition`). This is the SOLE emitter for
+      ;; `:machine-id`. This is the SOLE emitter for
       ;; a standalone single `:spawn`, which has no invoke sentinel to hide
       ;; behind — it must still reject exactly once and fail closed. It also
       ;; still covers a hand-emitted `:spawn-all` child fx that reaches the
@@ -950,7 +784,7 @@
       ;; TYPE between the preflight and this install cannot flip the
       ;; already-admitted child to rejected (stranding a half-live join whose
       ;; snapshot the recheck omitted). `spawn-fx*` then installs the exact
-      ;; prepared spec + snapshot. The gate still fires for a standalone
+      ;; prepared snapshot. The gate still fires for a standalone
       ;; `:spawn` and a no-preparation hand-emitted child (neither has a
       ;; prepared entry).
       (and (not (spawn-all-prepared? frame-id args))
@@ -959,18 +793,7 @@
           (reject-unregistered-spawn! frame-id (:machine-id args)))
 
       :else
-      ;; Step 0c — an invalid inline `:definition` rejects
-      ;; before anything installs, THROWING the validator's own typed error so
-      ;; the fx runner surfaces it (`:rf.error/fx-handler-exception`, carrying
-      ;; the exception). A prepared `:spawn-all` child was already validated by
-      ;; its invoke's preflight. An UNADDRESSED inline definition
-      ;; is refused the same way, ahead of validating the definition itself.
-      (let [definition-error (when-not (spawn-all-prepared? frame-id args)
-                               (or (inline-address-error args)
-                                   (inline-definition-error args)))]
-        (if definition-error
-          (throw definition-error)
-          (spawn-fx* frame-id envelope args))))))
+      (spawn-fx* frame-id envelope args))))
 
 ;; ---- generated-address collision -------------------------------------------
 
@@ -1170,8 +993,8 @@
   taken only when `pre-allocated-actor-id` returned nil, and a `:fixed-actor-id`
   spawn always has one.
 
-  Between this read and the swap sit only the `type-ref-fn` force, the
-  `(continue?)` rechecks and the `:rf.machine.spawn/spawned` trace — no
+  Between this read and the swap sit only the `(continue?)` rechecks and the
+  `:rf.machine.spawn/spawned` trace — no
   `runtime-db` writer —
   so the rebased base is as current at commit as the caller's own read is on the
   untouched path (Spec 002 §Single drainer per frame).
@@ -1261,10 +1084,10 @@
           (and old-rt machine-id-for-alloc)
                         (allocate-actor-id-in-runtime-db old-rt machine-id-for-alloc)
           :else         [old-rt nil])
-        ;; A `:spawn-all` child consumes the AUTHORITATIVE prepared result its
-        ;; invoke's `spawn-all-init-fx` preflight resolved, stamped, built, and
-        ;; validated ONCE — never re-resolving the type, rebuilding
-        ;; the snapshot, or re-running its `[:schemas :data]` validator here. So
+        ;; A `:spawn-all` child consumes the AUTHORITATIVE prepared snapshot its
+        ;; invoke's `spawn-all-init-fx` preflight built and validated ONCE —
+        ;; never rebuilding the snapshot or re-running its `[:schemas :data]`
+        ;; validator here. So
         ;; a type re-registration or a second validator pass BETWEEN the
         ;; preflight and this install cannot flip an admitted child into
         ;; a rejected one (which would strand an impossible half-live join naming a
@@ -1279,46 +1102,15 @@
         rt-after-alloc (if prepared
                          (drop-prepared-entry rt-after-alloc-raw args spawned-id)
                          rt-after-alloc-raw)
-        ;; The stamped spec this install lands. For a `:spawn-all` child it is
-        ;; the framework-owned spec the preflight already resolved + stamped
-        ;; (consumed, not recomputed); otherwise it is built through the SAME
-        ;; `candidate-spawn-spec` path the preflight uses, so the fallback
-        ;; per-child verdict is still decided over an identical value.
-        spec''     (if prepared
-                     (:spec prepared)
-                     (candidate-spawn-spec args spawned-id
-                                           (join-child-record old-rt args spawned-id)))
-        ;; The revertible TYPE reference the lazy resolver reads back off the
-        ;; installed snapshot to re-materialise the actor's handler. A prepared
-        ;; `:spawn-all` child selects it from its prepared entry so it can never
-        ;; install against a definition the registrar no longer holds, or against
-        ;; an unrelated successor definition its prepared snapshot was not built
-        ;; from (see `prepared-type-ref` for the definition-lifetime
-        ;; rule; the undisturbed case stamps the plain `:machine-id`
-        ;; keyword, so hot-reload reaches the child as it reaches any spawned
-        ;; actor).
-        ;;
-        ;; A THUNK, deliberately unforced here. `prepared-type-ref`
-        ;; is the one registrar-DERIVED input the install still needs, so it is
-        ;; read as late as possible: `install-spawn!` forces it at the last point
-        ;; before the swap, and the definition-lifetime rule therefore decides
-        ;; against the registrar as it stands at COMMIT rather than at this
-        ;; binding.
-        ;;
-        ;; Inside a drain the `:rf.machine.spawn/spawned` trace below is
-        ;; delivered at the post-drain boundary, so no TRACE LISTENER body runs
-        ;; between here and the write; a direct `spawn-fx` call outside any
-        ;; drain fans it out synchronously, so its listeners run before the
-        ;; write. The late read is correct on both paths, and it is
-        ;; load-bearing for ordinary in-drain application code — a prepared
-        ;; child's `[:schemas :data]`
-        ;; validator runs after `prepare-spawn-all-child` retained `:type-spec`,
-        ;; so a registrar it mutates must be the one the rule sees.
-        ;; `machine-type-ref` is pure over `args` and reads no registrar, so the
-        ;; non-prepared path is timing-independent either way.
-        type-ref-fn (if prepared
-                      #(prepared-type-ref args prepared)
-                      (constantly (machine-type-ref args)))
+        ;; The stamped spec over the registrar's CURRENT definition for the
+        ;; `:machine-id`, built through the SAME `candidate-spawn-spec` path
+        ;; the preflight uses. For a prepared `:spawn-all` child it feeds the
+        ;; per-instance classification lowering only — the snapshot is the
+        ;; prepared one — and it is nil when the child's TYPE was
+        ;; unregistered after its preflight: the admitted child still installs
+        ;; (inert), exactly as any live actor whose type is unregistered.
+        spec''     (candidate-spawn-spec args spawned-id
+                                         (join-child-record old-rt args spawned-id))
         ;; The initial snapshot the install lands. Consumed verbatim from the
         ;; preflight for a `:spawn-all` child (built ONCE there); built ONCE
         ;; here otherwise, so the schema-rejection decision can gate every side
@@ -1408,10 +1200,9 @@
                                    frame-id args spawned-id prepared rt-after-alloc continue?)))]
       (rf.trace/emit! :rf.machine :rf.machine.spawn/spawned
                    {:frame      frame-id
-                    ;; `:machine-id` is the spec-time registered TYPE (xor
-                    ;; an inline `:definition`); `:spawned-id` is the live
-                    ;; instance address; `:invoke-id` is the declarative
-                    ;; invocation path.
+                    ;; `:machine-id` is the spec-time registered TYPE;
+                    ;; `:spawned-id` is the live instance address;
+                    ;; `:invoke-id` is the declarative invocation path.
                     :machine-id (:machine-id args)
                     :spawned-id spawned-id
                     :id-prefix  (:id-prefix args)
@@ -1445,11 +1236,11 @@
       ;; that. `continue?` is threaded into `install-spawn!` so the write is
       ;; rechecked against the exact incarnation immediately before it lands.
       (when (continue?)
-        (let [installed (install-spawn! frame-id rt-install spec'' spawned-id initial-snap
-                                        {:parent-id   parent-id
+        (let [installed (install-spawn! frame-id rt-install spawned-id initial-snap
+                                        {:machine-id  (:machine-id args)
+                                         :parent-id   parent-id
                                          :invoke-id   invoke-id
                                          :track?      track?
-                                         :type-ref-fn type-ref-fn
                                          :continue?   continue?
                                          :owner-token owner-token})]
         ;; The emissions ahead of `install-spawn!`'s swap are
@@ -1579,24 +1370,15 @@
   an attempt. Resolves the child's TYPE, stamps its
   framework `:data`, builds its initial snapshot, and runs its `[:schemas :data]`
   validator EXACTLY ONCE — against the join-state about to be seeded — and
-  returns the prepared result the per-child install then consumes verbatim:
+  returns the prepared result:
 
     {:args <spawn-args> :spawned-id <id> :spec <stamped-spec> :snap <initial-snap>
-     :type-spec <raw-resolved-definition>
-     :unregistered? <bool> :definition-error <throwable-or-nil>
-     :schema-reject? <bool> :rejected? <bool>}
+     :unregistered? <bool> :schema-reject? <bool> :rejected? <bool>}
 
-  The child is resolved ONCE — `resolve-spawn-machine` below — and BOTH
-  derivatives are retained: `:spec`, the framework-stamped spec the install
-  lands, and `:type-spec`, the RAW definition that resolution returned. The raw
-  definition is what keeps an admitted child HANDLER-resolvable when the
-  registrar mutates between here and the install (the install's
-  `prepared-type-ref` pins it onto the snapshot once the registrar has diverged
-  from it, so the actor's lazily-materialised handler and its prepared snapshot
-  stay one authority).
+  Only `:snap` — EDN — is retained for the install (`prepared-children-key`);
+  `:spec` serves this verdict alone.
 
-  `resolve-spawn-machine` returns nil exactly when
-  the TYPE is unregistered (an inline `:definition` always resolves to itself),
+  `resolve-spawn-machine` returns nil exactly when the TYPE is unregistered,
   so `:unregistered?` is derived from that one resolution rather than a second
   registry read. `:schema-reject?` runs the application `[:schemas :data]`
   validator (via `spawn-rejected?`), emitting that child's
@@ -1617,39 +1399,29 @@
   belong to no invoke."
   [args join-state continue?]
   (let [spawned-id (pre-allocated-actor-id args)
-        ;; ONE resolution, feeding the verdict, the snapshot the install
-        ;; consumes, AND the definition reference the install stamps.
-        type-spec  (when spawned-id (resolve-spawn-machine args))
-        ;; The framework stamp runs through the SAME `stamp-spawn-spec` path the
-        ;; fallback per-child install's `candidate-spawn-spec` runs, so the two
-        ;; can never disagree about the value that gets validated.
+        ;; The framework stamp runs through the SAME `candidate-spawn-spec`
+        ;; path the per-child install runs, so the two can never disagree
+        ;; about the value that gets validated.
         spec       (when spawned-id
-                     (stamp-spawn-spec
-                       type-spec args spawned-id
+                     (candidate-spawn-spec
+                       args spawned-id
                        (join-child-record-from-state join-state args spawned-id)))
-        ;; Unregistered ⟺ a `:machine-id` (no inline `:definition`) that resolved
-        ;; to no spec — read off the SAME resolution above, not a second lookup.
+        ;; Unregistered ⟺ a `:machine-id` that resolved to no spec — read off
+        ;; the SAME resolution above, not a second lookup.
         unregistered? (boolean (and (some? spawned-id)
                                     (some? (:machine-id args))
-                                    (nil? (:definition args))
                                     (nil? spec)))
-        ;; An invalid inline `:definition` is the FOURTH
-        ;; admission condition. Decided before the snapshot is built, so a
-        ;; malformed definition reaches no builder and no application validator.
-        definition-error (when spawned-id (inline-definition-error args))
-        snap       (when (and spec (nil? definition-error))
+        snap       (when spec
                      (rf.machines.parallel/build-initial-snapshot spec {:bootstrap-pending? true}))
         schema-reject? (boolean (and snap (some? spawned-id)
                                      (spawn-rejected? spec spawned-id snap continue?)))]
-    {:args             args
-     :spawned-id       spawned-id
-     :spec             spec
-     :snap             snap
-     :type-spec        type-spec
-     :unregistered?    unregistered?
-     :definition-error definition-error
-     :schema-reject?   schema-reject?
-     :rejected?        (or unregistered? (some? definition-error) schema-reject?)}))
+    {:args           args
+     :spawned-id     spawned-id
+     :spec           spec
+     :snap           snap
+     :unregistered?  unregistered?
+     :schema-reject? schema-reject?
+     :rejected?      (or unregistered? schema-reject?)}))
 
 (defn- spawn-all-address-collisions
   "Detect `:spawn-all` children whose RESOLVED actor addresses ALIAS.
@@ -1778,21 +1550,21 @@
   fxs) to seed the join state at `[:rf.runtime/machines :spawned <parent> <invoke-id>]` in
   the frame's runtime-db. The seed map shape is:
 
-    {:children   {<child-id> <spawned-id>, ...}
-     :done       #{}
-     :failed     #{}
-     :cancelled  #{}   ;; authenticated explicit-teardown tombstones for THIS attempt
-     :resolved?  false
-     :spec       <invoke-all-spec>
-     :rf/attempt <opaque-attempt-token>   ;; minted HERE per live seed
-     :rf/prepared {<spawned-id> {:spec      <stamped-spec>
-                                 :snap      <initial-snap>
-                                 :type-spec <raw-resolved-definition>}, ...}}
+    {:children       {<child-id> <spawned-id>, ...}
+     :fixed-children #{<child-id> ...}   ;; children that declared :fixed-actor-id
+     :done           #{}
+     :failed         #{}
+     :cancelled      #{}   ;; authenticated explicit-teardown tombstones for THIS attempt
+     :resolved?      false
+     :invoke-id      <invoke-id>
+     :rf/attempt     <opaque-attempt-token>   ;; minted HERE per live seed
+     :rf/prepared    {<spawned-id> {:snap <initial-snap>}, ...}}
        ;; EPHEMERAL — the authoritative prepared children each per-child install
        ;; CONSUMES then drops; gone once every child has installed.
-       ;; `:type-spec` is the definition reference the install stamps at
-       ;; `:rf/machine-type`, keeping the admitted child handler-resolvable
-       ;; across a mid-drain registrar mutation.
+
+  Every value is EDN. The join's callbacks and configuration (`:on-done`,
+  `:join`, the resolution events) are not copied here: the fold reads them
+  from the parent's current definition at the invoke path.
 
   Each child's completion is its own `:final?` state: `lifecycle-fx.finalize`
   mints the reserved `:rf.machine.spawn/done` carrier from the child's
@@ -1821,7 +1593,7 @@
       straight off the args (`pre-allocated-actor-id`), so it needs no TYPE
       resolution, no snapshot, and no application validator — and an
       already-aliased batch must not pay for, nor be pre-empted by, any of them.
-   1. **Unregistered child TYPE** (no inline `:definition`). A
+   1. **Unregistered child TYPE**. A
       never-running spec-less child would never reach a `:final?` state,
       blocking an `:all` join FOREVER (`join.cljc`
       `(= n-done n-total)` can never hold).
@@ -1976,10 +1748,8 @@
           (seed-reject-sentinel! frame-id owner-token parent-id invoke-id continue?))
       (let [prepared       (mapv #(prepare-spawn-all-child % join-state continue?) child-args)
             unregistered   (mapv :args (filterv :unregistered? prepared))
-            schema-invalid (filterv :schema-reject? prepared)
-            ;; Invalid inline `:definition`s.
-            bad-defs       (keep :definition-error prepared)]
-        (if (or (seq unregistered) (seq schema-invalid) (seq bad-defs))
+            schema-invalid (filterv :schema-reject? prepared)]
+        (if (or (seq unregistered) (seq schema-invalid))
           ;; Fail-closed: reject the join so the never-running spec-less child
           ;; cannot hang the `:all` join forever. Emit EXACTLY one reject per
           ;; offending child (structural-only tags, per the privacy contract) —
@@ -2020,18 +1790,11 @@
           ;; token so a same-id B stays byte-identical (no A-derived sentinel lands
           ;; on B). Under a live owner with no destroyer this is simply one
           ;; reject per unregistered child and one sentinel seeded.
-          ;;
-          ;; An invalid inline `:definition` rejects the invoke
-          ;; the same way; once the sentinel is seeded (so every sibling
-          ;; suppresses), the first definition's typed error is THROWN, exactly
-          ;; as a single `:spawn` throws it, for the fx runner to surface.
           (do (loop [remaining unregistered]
                 (when (and (seq remaining) (continue?))
                   (reject-unregistered-spawn! frame-id (:machine-id (first remaining)))
                   (recur (rest remaining))))
-              (seed-reject-sentinel! frame-id owner-token parent-id invoke-id continue?)
-              (when-let [e (first bad-defs)]
-                (throw e)))
+              (seed-reject-sentinel! frame-id owner-token parent-id invoke-id continue?))
           ;; The all-valid fast path. `join-state` already carries the opaque
           ;; per-attempt token minted above: one LIVE seed = one join
           ;; ATTEMPT, and the token rides both the join state and each child's
@@ -2053,12 +1816,12 @@
           ;; trace).
           ;;
           ;; Retain the AUTHORITATIVE prepared children on the seeded
-          ;; join under `:rf/prepared` (`{<spawned-id> {:spec … :snap …}}`, one
+          ;; join under `:rf/prepared` (`{<spawned-id> {:snap …}}`, one EDN
           ;; entry per admitted child). Every child was admitted here, so each has a
-          ;; resolved spec + built snapshot; each per-child install then CONSUMES its
-          ;; entry (`spawn-all-prepared-child`) instead of re-resolving / rebuilding /
-          ;; re-validating, and drops it in the same swap that lands its snapshot —
-          ;; so the scratch never outlives the drain. Every `:spawned-id` here is
+          ;; built snapshot; each per-child install then CONSUMES its entry
+          ;; (`spawn-all-prepared-child`) instead of rebuilding / re-validating,
+          ;; and drops it in the same swap that lands its snapshot — so the
+          ;; scratch never outlives the drain. Every `:spawned-id` here is
           ;; DISTINCT — the upstream structural alias guard rejects the
           ;; invoke outright otherwise — so this map can never silently overwrite.
           (do (when (continue?)
@@ -2068,7 +1831,7 @@
                                       (into {}
                                             (comp (filter :spawned-id)
                                                   (map (juxt :spawned-id
-                                                             #(select-keys % [:spec :snap :type-spec]))))
+                                                             #(select-keys % [:snap]))))
                                             prepared))
                                children))
                   (rf.trace/emit! :rf.machine :rf.machine.spawn-all/started

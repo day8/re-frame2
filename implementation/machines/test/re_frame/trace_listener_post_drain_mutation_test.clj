@@ -1,9 +1,10 @@
 (ns re-frame.trace-listener-post-drain-mutation-test
   "A trace listener runs at the post-drain boundary, so a registrar mutation it
   makes on a drain-owned emit is equivalent to making it on the line after
-  `dispatch-sync` returns. The probe is `:spawn-all` child install: the form of
-  the type reference it stamps depends on whether the registrar had diverged
-  by the moment of install."
+  `dispatch-sync` returns. The probe is a `:spawn-all` child: its synthetic
+  bootstrap runs inside the drain, so a mutation made mid-drain would strand
+  the bootstrap, while one made at the post-drain boundary strands only the
+  later `:go`."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines]
@@ -24,13 +25,11 @@
              :working {}}})
 
 (defn- observe
-  "Send the child one later `:go`, then read: whether its installed type
-  reference is a pinned definition map, its state, and the
+  "Send the child one later `:go`, then read its state and the
   `:rf.error/no-such-handler` errors it raised."
   [child-id]
   (rf/dispatch-sync [child-id [:go]])
-  {:pinned?         (map? (:rf/machine-type (rf.machines.test-support/snapshot child-id)))
-   :state           (rf.machines.test-support/machine-state child-id)
+  {:state           (rf.machines.test-support/machine-state child-id)
    :no-such-handler (count (filterv #(= child-id (get-in % [:tags :rf.trace/event-id]))
                                     (rf.machines.test-support/events-of :rf.error/no-such-handler)))})
 
@@ -62,9 +61,9 @@
                    [:rf.runtime/machines :spawned parent-kw [:forking] :children :c])))
 
 (deftest mid-drain-listener-unregister-is-equivalent-to-unregistering-after-the-drain
-  ;; The install saw an intact registrar and kept the revertible keyword, so the
-  ;; post-drain unregister strands the later :go.
-  (let [stranded {:pinned? false :state :ready :no-such-handler 1}]
+  ;; The bootstrap ran against an intact registrar, so the post-drain
+  ;; unregister strands only the later :go.
+  (let [stranded {:state :ready :no-such-handler 1}]
     (is (= [stranded stranded]
            [(run-arm :pd/a1 :pd/sup-a1 {:during #(rf.registrar/unregister! :event :pd/a1)})
             (run-arm :pd/a2 :pd/sup-a2 {:after  #(rf.registrar/unregister! :event :pd/a2)})]))))
@@ -74,7 +73,7 @@
   (let [v2       (-> booting-child
                      (assoc-in [:states :ready :on :go] :hot-reloaded)
                      (assoc-in [:states :hot-reloaded] {}))
-        reloaded {:pinned? false :state :hot-reloaded :no-such-handler 0}]
+        reloaded {:state :hot-reloaded :no-such-handler 0}]
     (is (= [reloaded reloaded]
            [(run-arm :pd/b1 :pd/sup-b1 {:during #(rf/reg-machine :pd/b1 v2)})
             (run-arm :pd/b2 :pd/sup-b2 {:after  #(rf/reg-machine :pd/b2 v2)})]))))

@@ -250,9 +250,8 @@
   SSR wire carries, and an installed snapshot never boots or spawns, so the
   birth-time lowering never reaches it. Each actor's spec resolves the way
   dispatch resolves it — a singleton through the destination's registrar, a
-  spawned actor through its snapshot's `:rf/machine-type` (the registered
-  type it names, or the inline definition it was spawned with) — so the
-  claims come from the definition that runs the actor, never from its
+  spawned actor through the registered type its snapshot's
+  `:rf/machine-type` names — so the claims come from the definition that runs the actor, never from its
   `:data`.
 
   This is `rf.machines.classification/lower-at-spawn!` run once per actor, so

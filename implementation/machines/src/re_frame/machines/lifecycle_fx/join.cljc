@@ -42,7 +42,14 @@
    3. For a SUCCESS (a plain `:final?` leaf) runs the child's OPTIONAL
       per-child `:on-done` fold against the PARENT's `:data` (the same
       `(fn [{:keys [data result]}] new-data)` contract `:spawn :on-done`
-      uses); a FAILURE never reaches that fold. Then adds
+      uses); a FAILURE never reaches that fold. The callback, the `:join`
+      condition and the resolution events are read from the parent's
+      CURRENT definition at the invoke path, so they follow hot reload as a
+      single `:spawn`'s `:on-done` does; a reload that removed the node or
+      the child folds with the defaults (`:join :all`, no callbacks). The
+      join state itself holds only EDN facts — membership, counts,
+      tombstones, the attempt token and which children declared a
+      `:fixed-actor-id` — so attempt identity does NOT follow hot reload. Then adds
       `<child-id>` to `:done` or `:failed`. A NON-DECISIVE fold (the join
       does not resolve on it) publishes the child's canonical work terminal
       at fold time via
@@ -130,9 +137,9 @@
   completion carrier `finalize` minted from the child's `:rf/join-child`
   membership record: parent/invoke identity, logical child id, the child's own
   spawned instance address, and the opaque per-attempt token. Work generation
-  is carried as evidence for a SUPERSEDED attempt, whose old join spec no
+  is carried as evidence for a SUPERSEDED attempt, whose join state no
   longer exists. It is NEVER decisive for an exact-current carrier: those paths
-  derive the discriminator from durable join/spec state.
+  derive the discriminator from durable join state.
 
   nil for a carrier bearing no coordinate at all — a hand-authored
   `[:rf.machine.spawn/done …]` dispatch that never came from a child's
@@ -161,14 +168,14 @@
 
 (defn- join-work-generation
   "Derive one child's canonical work discriminator from DURABLE join state.
-  The child spec supplies explicit fixed-vs-generated provenance; fixed uses
-  the named attempt, while a known-generated child uses its allocator address
-  generation. An exact-current carried coordinate never supplies or overrides
-  this decision."
+  `:fixed-children` — captured when the join was seeded, never read from a
+  definition that may have been edited since — supplies explicit
+  fixed-vs-generated provenance; fixed uses the named attempt, while a
+  known-generated child uses its allocator address generation. An
+  exact-current carried coordinate never supplies or overrides this decision."
   [join-state child-id spawned-id attempt]
-  (when-let [child-spec (some #(when (= child-id (:id %)) %)
-                              (get-in join-state [:spec :children]))]
-    (if (contains? child-spec :fixed-actor-id)
+  (when (contains? (:children join-state) child-id)
+    (if (contains? (:fixed-children join-state) child-id)
       attempt
       (rf.machines.reply/actor-generation spawned-id))))
 
@@ -239,11 +246,14 @@
   predicate (`{:fn pred}`) joins are expressed by counting completions in
   the parent's `:data` (each child spec's `:on-done`) and deciding with a
   guard on the state's `:after` entry (Spec 005 §Composition with hierarchy
-  and `:after`); adding `{:n}` later is a compatible widening."
+  and `:after`); adding `{:n}` later is a compatible widening.
+
+  `spec` is the parent's current `:spawn-all` map (nil after a reload removed
+  it: the `:all` default). The child count is the join state's own
+  membership."
   [spec join-state]
   (let [join     (:join spec :all)
-        children (:children spec)
-        n-total  (count children)
+        n-total  (count (:children join-state))
         n-done   (count (:done   join-state))]
     ;; Registration refuses any other `:join`.
     (case join
@@ -270,8 +280,7 @@
   Returns false for a still-satisfiable (or already-resolved) join."
   [spec join-state]
   (let [join     (:join spec :all)
-        children (:children spec)
-        n-total  (count children)
+        n-total  (count (:children join-state))
         n-done   (count (:done   join-state))
         n-failed (count (:failed join-state))
         n-decided (+ n-done n-failed)
@@ -566,13 +575,12 @@
     (vec (concat (or destroy-fx []) (or dispatch-fx [])))))
 
 (defn- child-spec-at
-  "The join spec's declared child entry for `child-id`, or nil. The join spec
-  is the one the seeding `spawn-all-init-fx` froze into the join state, so this
-  reads the attempt's OWN spec even if the parent's registration has since been
-  replaced."
-  [join-state child-id]
+  "The child entry for `child-id` in `spawn-all-spec` — the parent's CURRENT
+  `:spawn-all` declaration at the invoke path — or nil (no such node or child,
+  e.g. after a reload removed it: no callback)."
+  [spawn-all-spec child-id]
   (some #(when (= child-id (:id %)) %)
-        (get-in join-state [:spec :children])))
+        (:children spawn-all-spec)))
 
 (defn- apply-child-on-done
   "Run a `:spawn-all` child's OPTIONAL per-child `:on-done` fold against the
@@ -659,7 +667,11 @@
           ;; `invoke-id`, so this is a direct lookup — no state-tree walk, and no
           ;; mis-routing when two parallel regions run structurally identical
           ;; joins over the same logical child ids.
-          join-state   (get-in runtime-db (rf.machines.paths/spawned-path parent-id invoke-id))]
+          join-state   (get-in runtime-db (rf.machines.paths/spawned-path parent-id invoke-id))
+          ;; The join's callbacks and configuration come from the parent's
+          ;; CURRENT definition at the invoke path (nil after a reload removed
+          ;; the node: the defaults), as a single `:spawn`'s `:on-done` does.
+          spawn-all-spec (rf.machines.lifecycle-fx.resolver/spawn-all-spec-at machine invoke-id)]
       (cond
         ;; No LIVE child-bearing join state at the slot — fall through to
         ;; no-op. Both no-`:children` cases land here: a pure-call snapshot
@@ -830,10 +842,10 @@
               runtime-db      (if (= kind :done)
                                 (apply-child-on-done
                                   runtime-db parent-id
-                                  (child-spec-at join-state child-id)
+                                  (child-spec-at spawn-all-spec child-id)
                                   result frame-id)
                                 runtime-db)]
-          (intercept-fold frame-id parent-id invoke-id (:spec join-state) join-state
+          (intercept-fold frame-id parent-id invoke-id spawn-all-spec join-state
                           child-id work-generation kind result
                           completed-at runtime-db))))))
 
@@ -872,7 +884,7 @@
                     :join      (:join spec :all)
                     :done      (:done   join-state')
                     :failed    (:failed join-state')
-                    :total     (count (:children spec))
+                    :total     (count (:children join-state'))
                     :frame     frame-id
                     :recovery  :join-hangs
                     :reason    (str "A :spawn-all join can no longer be "

@@ -16,15 +16,10 @@
   snapshot.
 
   The actor's TYPE rides the snapshot under the reserved root key
-  `:rf/machine-type` (per Spec 005 §Reserved snapshot-internal keys):
-
-    - a `:machine-id` spawn stores the registered TYPE keyword — the type
-      is registered like a singleton (`reg-machine`) and outlives every
-      instance, so the resolver reads the live spec back from the
-      registrar;
-    - an inline `:definition` spawn stores the spec map directly on the
-      snapshot — there is no registered type, so the snapshot is the only
-      source of truth (and it is fully revertible).
+  `:rf/machine-type` (per Spec 005 §Reserved snapshot-internal keys): the
+  registered TYPE keyword. The type is registered like a singleton
+  (`reg-machine`) and outlives every instance, so the resolver reads the live
+  spec back from the registrar, and the snapshot stays EDN.
 
   This namespace is a LEAF over the machine-core grammar — it requires
   `registrar` + `paths` plus the pure `grammar` (state-tree descent) and
@@ -66,29 +61,23 @@
 (defn spec-from-snapshot
   "Resolve the machine SPEC for a spawned actor from its `snapshot`'s
   `:rf/machine-type` reserved slot (per Spec 005 §Reserved
-  snapshot-internal keys), or nil.
+  snapshot-internal keys): the registered TYPE keyword, read back through the
+  registrar's `:rf/machine` metadata (the type is registered like a singleton
+  and outlives instances), or nil.
 
-    - keyword type → read the registered TYPE's spec back from the
-      registrar's `:rf/machine` metadata (the type is registered like a
-      singleton and outlives instances);
-    - map type     → an inline-`:definition` spawn carried its spec on
-      the snapshot; return it verbatim.
-
-  Returns nil when the snapshot carries no `:rf/machine-type` (a
-  singleton snapshot) or when a keyword type
-  no longer names a registered machine (the type was cleared — a genuine
-  missing reference)."
+  Returns nil when the snapshot carries no `:rf/machine-type` (a singleton
+  snapshot) or when the type no longer names a registered machine (the type
+  was cleared — a genuine missing reference)."
   [snapshot]
   (let [t (:rf/machine-type snapshot)]
-    (cond
-      (map? t)     t
-      (keyword? t) (spec-from-registry t))))
+    (when (keyword? t)
+      (spec-from-registry t))))
 
 ;; ---- the spawned-actor identity envelope ---------------------------------
 ;;
 ;; The canonical catalogue of the framework-owned slots that constitute a
 ;; spawned actor's IDENTITY, as distinct from its authored state/data. Spawn
-;; stamps them (`lifecycle-fx.spawn/machine-type-ref` +
+;; stamps them (the `:machine-id` keyword at `:rf/machine-type` +
 ;; `stamp-framework-data`); snapshot compatibility recovery
 ;; (`lifecycle-fx.registration/rebuild-incompatible-snapshot`) carries them
 ;; across. Both sides read this ONE catalogue so they cannot disagree about
@@ -170,8 +159,7 @@
   machine spec via its snapshot's `:rf/machine-type` — i.e. its liveness
   can be re-materialised purely from `db`. Used by the epoch restore
   precondition check (`:rf.epoch/restore-missing-handler`): a spawned
-  actor whose TYPE is still registered (or whose snapshot carries an
-  inline `:definition`) is a VALID restore target even though no
+  actor whose TYPE is still registered is a VALID restore target even though no
   per-instance handler is registered. Returns false when the actor has
   no snapshot, or its snapshot carries no resolvable `:rf/machine-type`."
   [db actor-id]
@@ -179,16 +167,31 @@
     (some-> (get-in db (rf.machines.paths/snapshot-path actor-id))
             (spec-from-snapshot))))
 
+(defn- invoke-node-at
+  "Walk `parent-spec`'s state tree to the node at `invoke-id` (the absolute
+  prefix-path stamped at spawn time), resolving flat AND region-prefixed
+  invoke paths through `rf.machines.grammar/node-at`. For a parallel-region
+  parent the first element of `invoke-id` is the region name; strip it and
+  descend into that region's body. The empty `invoke-id` names the machine
+  root. Returns nil if `parent-spec` is absent, `invoke-id` is not a vector,
+  or the path doesn't resolve."
+  [parent-spec invoke-id]
+  (cond
+    (not (and parent-spec (vector? invoke-id))) nil
+    (empty? invoke-id)                          parent-spec
+    :else
+    (let [[head & tail] invoke-id
+          [tree path]   (if (and (rf.machines.parallel/parallel? parent-spec)
+                                 (contains? (:regions parent-spec) head))
+                          [(get-in parent-spec [:regions head]) (vec tail)]
+                          [parent-spec invoke-id])]
+      (rf.machines.grammar/node-at (:states tree) path))))
+
 (defn spawn-spec-at
-  "Walk `parent-spec`'s state tree to the `:spawn`-bearing node at `invoke-id`
-  (the absolute prefix-path stamped at spawn time) and return that node's
-  `:spawn` map, resolving flat AND region-prefixed invoke paths through
-  `rf.machines.grammar/node-at`. For a parallel-region parent the first element of
-  `invoke-id` is the region name; strip it and descend into that region's
-  body. The empty `invoke-id` names the machine root, whose `:spawn` is its
-  machine-lifetime child. Returns nil if `parent-spec` is absent, `invoke-id`
-  is not a vector, the path doesn't resolve, or the node declares no
-  `:spawn`.
+  "The `:spawn` map of the node at `invoke-id` in `parent-spec` (see
+  `invoke-node-at` for flat and region-prefixed paths; the empty `invoke-id`
+  names the machine root, whose `:spawn` is its machine-lifetime child).
+  Returns nil if the path doesn't resolve or the node declares no `:spawn`.
 
   Shared owner for the spawn-spec-at-invoke-id lookup used by the parent
   boundary's `:on-done` routing (`lifecycle-fx.registration`). The `:on-error`
@@ -196,16 +199,17 @@
   parent declares, and the parent's engine resolves
   `:on-error` itself (`transition/pick-spawn-error-transition`)."
   [parent-spec invoke-id]
-  (cond
-    (not (and parent-spec (vector? invoke-id))) nil
-    (empty? invoke-id)                          (:spawn parent-spec)
-    :else
-    (let [[head & tail] invoke-id
-          [tree path]   (if (and (rf.machines.parallel/parallel? parent-spec)
-                                 (contains? (:regions parent-spec) head))
-                          [(get-in parent-spec [:regions head]) (vec tail)]
-                          [parent-spec invoke-id])]
-      (:spawn (rf.machines.grammar/node-at (:states tree) path)))))
+  (:spawn (invoke-node-at parent-spec invoke-id)))
+
+(defn spawn-all-spec-at
+  "The `:spawn-all` map of the node at `invoke-id` in `parent-spec` — the
+  join's `:children`, `:join` and resolution events as the parent's CURRENT
+  definition declares them — or nil when the path doesn't resolve or the node
+  declares no `:spawn-all`. The `:spawn-all` sibling of `spawn-spec-at`, read
+  by the join fold (`lifecycle-fx.join`), so join callbacks and configuration
+  follow hot reload exactly as a single `:spawn`'s `:on-done` does."
+  [parent-spec invoke-id]
+  (:spawn-all (invoke-node-at parent-spec invoke-id)))
 
 (defn apply-on-done
   "Run ONE `:on-done` completion fold against a parent's `:data`, returning the
