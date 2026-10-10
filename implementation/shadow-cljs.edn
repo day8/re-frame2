@@ -789,8 +789,8 @@
     ;; read finds nothing. This runner asserts the entry NAMES/BUCKETS,
     ;; so it flips retention ON to keep the buffer populated for the
     ;; synchronous read, so this runner cannot observe clear-after-emit.
-    ;; re-frame.performance-cljs-test carries those assertions, guarded
-    ;; by the flag, and no lane compiles it with the flag on.
+    ;; re-frame.performance-cljs-test grades it in the per-PR :node-test
+    ;; lane, rebinding both flags for one test.
     :closure-defines {re-frame.performance/enabled?        true
                       re-frame.performance/retain-entries? true}}}
 
