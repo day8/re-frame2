@@ -1,56 +1,14 @@
 (ns re-frame.bench.fresco.front.census-article-editor-cljs-test
   "THE `:&` MERGE, DEMONSTRATED ON A CENSUS-REAL SCREEN.
 
-  HD-023 carries a stated risk, and it is worth repeating rather than
-  softening: *a taste ruling dressed as a deletion, with no control arm
-  left to falsify it.* This file is its mitigation. The
-  claim 'one merge spelling is better' is not asserted here; a real
-  screen is ported and the two renderings are put side by side, with the
-  DOM they produce asserted identical so the comparison is about
-  authoring and nothing else.
-
-  ## The screen
-
-  `examples/real-apps/realworld_resources/article_editor.cljs`'s
-  `editor-form` fieldset — the RealWorld article editor's four form
-  fields, which the fitness
-  harness names in five separate rows (R-A5 validation-display gating,
-  R-A10 busy discipline, census row 3a event-value extraction, 3b
-  `preventDefault` handlers, 1b parameterised reads). Four fields, each
-  controlled, each disabled off the same in-flight write, each with its
-  own error slot. Verbatim, one field of four:
-
-      [:input.form-control
-       {:type \"text\" :name \"description\" :placeholder \"What's this article about?\"
-        :data-testid \"editor-description\"
-        :value (:description draft) :disabled busy?
-        :on-blur #(dispatch [:editor/blur-field :description])
-        :on-change #(dispatch [:editor/edit-field :description (.. % -target -value)])}]
-
-  Four of those, differing in **three tokens each** — the field key, the
-  placeholder, and the test id — and repeating the controlled contract,
-  the busy rule and both handlers at every site. That repetition is the
-  thing a wrapper deletes, and it is the reason the corpus has it: the
-  wrapper is not free to write.
-
-  ## Why a three-form merge makes the wrapper expensive
-
-  Under a merge with a separate door-preserving spread form, forwarding a
-  caller's remainder onto an internal controlled `input` needs that form,
-  and choosing the ordinary one instead is a **silent** loss of caret and
-  IME protection — a wall with no error attached. So the author would
-  have to know that a third form exists, know which of three applies
-  here, and get it right with nothing checking. A
-  wrapper whose correctness depends on the caller picking the right merge
-  syntax is a wrapper most authors correctly decline to write.
-
-  ## What is asserted
-
-  Both renderings are built and their elements compared attribute by
-  attribute, and both handlers are fired and their dispatched intents
-  compared. If the ported screen were not the same screen, the side by
-  side would be measuring two different things."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  HD-023's stated risk is a taste ruling with no control arm left to
+  falsify it; this file is its mitigation. It does not assert that one
+  merge spelling is better: it ports the RealWorld article editor's four
+  controlled fields (`examples/real-apps/realworld_resources/article_editor.cljs`)
+  into one helper that carries the call site's remainder through `:&`, and
+  asserts both renderings build the same elements and dispatch the same
+  intents, so the side by side is about authoring and nothing else."
+  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.bench.fresco.front.codec :as rf.bench.fresco.front.codec]
             [re-frame.bench.fresco.front.controlled :as rf.bench.fresco.front.controlled]
             [re-frame.bench.fresco.front.intent :as rf.bench.fresco.front.intent]))
@@ -178,27 +136,22 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-two-renderings-produce-the-same-four-controlled-inputs
+  ;; Every static attribute, including the class the tag shorthand composed
+  ;; and the busy rule, idle and busy.
   (doseq [busy? [false true]]
-    (testing (str "busy? = " busy?)
-      (let [seen   (atom [])
-            before (inputs (render (inline-fieldset busy?) seen))
-            after  (inputs (render (merged-fieldset busy?) seen))]
-        (is (= 4 (count before) (count after)))
-        (doseq [[b a] (map vector before after)]
-          (is (= (static-attrs b) (static-attrs a))
-              "every static attribute, including the class the tag shorthand
-               composed and the busy rule, is identical"))))))
+    (let [seen   (atom [])
+          before (inputs (render (inline-fieldset busy?) seen))
+          after  (inputs (render (merged-fieldset busy?) seen))]
+      (is (= [4 (mapv static-attrs before)] [(count after) (mapv static-attrs after)])
+          (str "busy? = " busy?)))))
 
 (deftest the-two-renderings-dispatch-the-same-intents
-  (let [seen-b (atom [])
-        seen-a (atom [])
-        before (inputs (render (inline-fieldset false) seen-b))
-        after  (inputs (render (merged-fieldset false) seen-a))]
-    (doseq [e before] ((aget (.-props e) "onInput") #js {:target #js {:value "typed"}}))
-    (doseq [e before] ((aget (.-props e) "onBlur") #js {:target #js {}}))
-    (doseq [e after] ((aget (.-props e) "onInput") #js {:target #js {:value "typed"}}))
-    (doseq [e after] ((aget (.-props e) "onBlur") #js {:target #js {}}))
-    (is (= @seen-b @seen-a))
+  (let [fire! (fn [fieldset]
+                (let [seen (atom [])
+                      els  (inputs (render fieldset seen))]
+                  (doseq [e els] ((aget (.-props e) "onInput") #js {:target #js {:value "typed"}}))
+                  (doseq [e els] ((aget (.-props e) "onBlur") #js {:target #js {}}))
+                  @seen))]
     (is (= [[:editor/edit-field :title "typed"]
             [:editor/edit-field :description "typed"]
             [:editor/edit-field :body "typed"]
@@ -207,40 +160,27 @@
             [:editor/blur-field :description]
             [:editor/blur-field :body]
             [:editor/blur-field :tagList]]
-           @seen-a))))
+           (fire! (inline-fieldset false))
+           (fire! (merged-fieldset false))))))
 
 (deftest the-error-slot-still-appears-for-exactly-the-field-that-has-one
-  (let [seen  (atom [])
-        after (children-of (render (merged-fieldset false) seen))
-        errs  (into [] (mapcat (fn [g] (filter #(and (some? %)
-                                                     (= "div" (.-type %)))
-                                               (children-of g))))
-                    after)]
-    (is (= 1 (count errs)) "R-A5: one field is in error, so one slot renders")
-    (is (= "can't be blank" (aget (.-props (first errs)) "children")))))
-
-;; ---------------------------------------------------------------------------
-;; The property a three-form merge's wrapper cannot have
-;; ---------------------------------------------------------------------------
+  ;; R-A5: one field is in error, so one slot renders.
+  (let [errs (into [] (mapcat (fn [g] (filter #(and (some? %) (= "div" (.-type %))) (children-of g))))
+                   (children-of (render (merged-fieldset false) (atom []))))]
+    (is (= ["can't be blank"] (mapv #(aget (.-props %) "children") errs)))))
 
 (deftest the-helper-does-not-have-to-defend-itself
-  (testing "the reason this wrapper is writable at all. A call site that
-            forwards a whole remainder — a props map it received, a theme's
-            part attrs, anything dynamic — cannot reach the controlled
-            contract, because the law is unconditional and the helper wrote
-            those keys as literals. There is no third form to pick, and no
-            silent forfeit for picking wrong."
-    (let [seen (atom [])
-          e    (first (inputs (render [:fieldset
-                                       (field {:id :title :busy? false
-                                               :value      "CLOBBER"
-                                               :disabled   true
-                                               :on-input   [:hostile/edit]
-                                               :data-testid "editor-title"})]
-                                      seen)))]
-      (is (= "A title" (aget (.-props e) "value")))
-      (is (false? (aget (.-props e) "disabled")))
-      (is (= "editor-title" (aget (.-props e) "data-testid"))
-          "and everything the caller was entitled to still arrives")
-      ((aget (.-props e) "onInput") #js {:target #js {:value "typed"}})
-      (is (= [[:editor/edit-field :title "typed"]] @seen)))))
+  ;; A call site forwarding a whole remainder cannot reach the controlled
+  ;; contract, because the helper wrote those keys as literals — and
+  ;; everything the caller was entitled to still arrives.
+  (let [seen (atom [])
+        e    (first (inputs (render [:fieldset
+                                     (field {:id :title :busy? false
+                                             :value      "CLOBBER"
+                                             :disabled   true
+                                             :on-input   [:hostile/edit]
+                                             :data-testid "editor-title"})]
+                                    seen)))]
+    ((aget (.-props e) "onInput") #js {:target #js {:value "typed"}})
+    (is (= ["A title" false "editor-title" [[:editor/edit-field :title "typed"]]]
+           [(aget (.-props e) "value") (aget (.-props e) "disabled") (aget (.-props e) "data-testid") @seen]))))
