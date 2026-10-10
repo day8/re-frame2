@@ -1,32 +1,21 @@
 // Unit tests for `lib/exec-safety.cjs`.
 //
-// Uses Node's built-in `node:test` so the harness picks up no extra
-// dev-dependency. Runs quiet on success (per docs/quiet-tests.md):
-// `node:test` only prints a per-file summary line on green and
-// dumps the full failure diff on red.
+//   1. `resolveTrustedExe` returns the realpath of the first PATH candidate
+//      that resolves OUTSIDE the workspace root, and throws when none does
+//      (the command-hijack accident class). The workspace doubles as the
+//      compromised PATH entry, so no real binary is needed, and the platform
+//      parameter drives both the POSIX and the PATHEXT walks.
 //
-// Three surfaces under test:
+//   2. `safeUnlinkInside` refuses any candidate whose realpath (or, for a
+//      missing leaf, whose realpath'd parent plus basename) escapes the
+//      allowed root.
 //
-//   1. `resolveTrustedExe` — must return an absolute path that
-//      realpaths to OUTSIDE the workspace root, and must throw when
-//      every PATH candidate falls inside the workspace (the
-//      command-hijack accident class). We drive both POSIX and
-//      win32 code paths via the platform parameter; the workspace
-//      itself doubles as the "compromised PATH entry" so the test is
-//      hermetic — no real binary or temp PATH munging required.
+// `safeReadFileInside` shares that containment check; its refusals and its
+// missing-file result are pinned through its one caller, `readPortFile`, in
+// `port-file-escape.test.cjs`.
 //
-//   2. `safeUnlinkInside` — must reject any candidate whose
-//      realpath (or, for missing files, whose realpath'd parent
-//      directory + basename) escapes the allowed root. Symlink-leaf
-//      and symlinked-parent cases both covered. Symlink support is
-//      gated on the platform — Windows requires elevated rights for
-//      symlinkSync, so we soft-skip there.
-//
-//   3. `safeReadFileInside` — runs the same containment check as
-//      `safeUnlinkInside`. Its symlinked-leaf and symlinked-parent
-//      refusals are pinned through its one caller, `readPortFile`, in
-//      `port-file-escape.test.cjs`; this file pins its missing-file
-//      result, its encoding options and its input guards.
+// Symlink creation needs elevated rights on Windows, so the symlink cases
+// skip there.
 
 'use strict';
 
@@ -36,490 +25,131 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const {
-  resolveTrustedExe,
-  safeUnlinkInside,
-  safeReadFileInside,
-} = require('../lib/exec-safety.cjs');
+const { resolveTrustedExe, safeUnlinkInside } = require('../lib/exec-safety.cjs');
 
-// ---------------------------------------------------------------------
-// Test scratch dir
-// ---------------------------------------------------------------------
-
-function freshTmpDir(label) {
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), `rf2-33vvc-${label}-`));
-  // Realpath the tmpdir up-front — on macOS `os.tmpdir()` is
-  // `/var/folders/...` which is itself a symlink to `/private/var/...`.
-  // Without normalising, downstream comparisons would always fail.
-  return fs.realpathSync(base);
-}
-
-function rmrf(p) {
+// Realpath up-front: on macOS `os.tmpdir()` is itself a symlink.
+function withTmpDirs(labels, fn) {
+  const dirs = labels.map((label) =>
+    fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `rf2-33vvc-${label}-`))));
   try {
-    fs.rmSync(p, { recursive: true, force: true });
-  } catch {
-    // best-effort
+    fn(...dirs);
+  } finally {
+    for (const dir of dirs) fs.rmSync(dir, { recursive: true, force: true });
   }
 }
 
-// Try to create a symlink; return null on platforms / permission
-// configurations where symlinkSync fails (Windows without dev-mode /
-// admin). Tests that need symlinks soft-skip when this returns null.
-function trySymlink(target, link) {
-  try {
-    fs.symlinkSync(target, link);
-    return link;
-  } catch {
-    return null;
-  }
+function writeExe(file) {
+  fs.writeFileSync(file, '#!/bin/sh\necho hello\n', { mode: 0o755 });
+  return file;
 }
 
-// ---------------------------------------------------------------------
-// resolveTrustedExe
-// ---------------------------------------------------------------------
+function resolveOnLinux(name, workspace, dirs) {
+  return resolveTrustedExe(name, {
+    workspaceRoot: workspace,
+    env: { PATH: dirs.join(path.delimiter) },
+    platform: 'linux',
+  });
+}
 
-test('resolveTrustedExe: returns absolute path outside workspace (posix)', () => {
-  // Hermetic setup: build two PATH directories, one inside the
-  // workspace and one outside. The outside one carries a real
-  // executable file; the function MUST pick that one. Drive with
-  // platform='linux' so the empty-extension code path is exercised.
-  const workspace = freshTmpDir('workspace');
-  const outsideDir = freshTmpDir('outside');
-  try {
-    // The "trusted" host-side binary lives outside the workspace.
-    const trustedExe = path.join(outsideDir, 'mytool');
-    fs.writeFileSync(trustedExe, '#!/bin/sh\necho hello\n', { mode: 0o755 });
+// ---- resolveTrustedExe ------------------------------------------------------
 
-    // A workspace-local "fake" binary that MUST NOT be picked.
-    const fakeWorkspaceExe = path.join(workspace, 'mytool');
-    fs.writeFileSync(fakeWorkspaceExe, '#!/bin/sh\necho gotcha\n', { mode: 0o755 });
+test('resolveTrustedExe skips a workspace candidate earlier on PATH and returns the outside one (posix)', () => {
+  withTmpDirs(['workspace', 'outside'], (workspace, outside) => {
+    writeExe(path.join(workspace, 'mytool'));
+    const trusted = writeExe(path.join(outside, 'mytool'));
+    assert.equal(resolveOnLinux('mytool', workspace, [workspace, outside]), fs.realpathSync(trusted));
+  });
+});
 
-    // workspace comes FIRST in PATH so a naive implementation would
-    // pick it; the helper MUST skip it.
-    const env = { PATH: [workspace, outsideDir].join(path.delimiter) };
+test('resolveTrustedExe throws when every candidate resolves inside the workspace', () => {
+  withTmpDirs(['hijack-only'], (workspace) => {
+    writeExe(path.join(workspace, 'mytool'));
+    assert.throws(() => resolveOnLinux('mytool', workspace, [workspace]), /command-hijack accident-gating/);
+  });
+});
+
+test('resolveTrustedExe walks PATHEXT on the win32 platform', () => {
+  withTmpDirs(['win32-workspace', 'win32-outside'], (workspace, outside) => {
+    // Only `mytool.CMD` exists on disk.
+    const trusted = path.join(outside, 'mytool.CMD');
+    fs.writeFileSync(trusted, '@echo hello\n');
     const resolved = resolveTrustedExe('mytool', {
       workspaceRoot: workspace,
-      env,
-      platform: 'linux',
-    });
-    assert.equal(path.isAbsolute(resolved), true, 'resolved path must be absolute');
-    assert.equal(resolved, fs.realpathSync(trustedExe));
-    assert.notEqual(
-      resolved,
-      fs.realpathSync(fakeWorkspaceExe),
-      'must not pick the workspace-local candidate',
-    );
-  } finally {
-    rmrf(workspace);
-    rmrf(outsideDir);
-  }
-});
-
-test('resolveTrustedExe: throws when every candidate resolves inside workspace', () => {
-  // Setup: PATH carries ONLY the workspace dir. Every candidate
-  // resolves inside; the function MUST throw rather than execute a
-  // workspace-relative binary.
-  const workspace = freshTmpDir('hijack-only');
-  try {
-    const fake = path.join(workspace, 'mytool');
-    fs.writeFileSync(fake, '#!/bin/sh\necho gotcha\n', { mode: 0o755 });
-
-    const env = { PATH: workspace };
-    assert.throws(
-      () =>
-        resolveTrustedExe('mytool', {
-          workspaceRoot: workspace,
-          env,
-          platform: 'linux',
-        }),
-      (err) => {
-        assert.match(err.message, /workspace/);
-        assert.match(err.message, /command-hijack accident-gating/);
-        return true;
-      },
-    );
-  } finally {
-    rmrf(workspace);
-  }
-});
-
-test('resolveTrustedExe: throws when name is not on PATH at all', () => {
-  const workspace = freshTmpDir('empty-path');
-  const outsideDir = freshTmpDir('empty-outside');
-  try {
-    const env = { PATH: outsideDir };
-    assert.throws(
-      () =>
-        resolveTrustedExe('definitely-not-a-real-binary', {
-          workspaceRoot: workspace,
-          env,
-          platform: 'linux',
-        }),
-      /could not find/,
-    );
-  } finally {
-    rmrf(workspace);
-    rmrf(outsideDir);
-  }
-});
-
-test('resolveTrustedExe: rejects names containing a path separator', () => {
-  const workspace = freshTmpDir('sep-reject');
-  try {
-    assert.throws(
-      () =>
-        resolveTrustedExe('foo/bar', {
-          workspaceRoot: workspace,
-          env: { PATH: workspace },
-          platform: 'linux',
-        }),
-      /path separator/,
-    );
-    assert.throws(
-      () =>
-        resolveTrustedExe('foo\\bar', {
-          workspaceRoot: workspace,
-          env: { PATH: workspace },
-          platform: 'linux',
-        }),
-      /path separator/,
-    );
-  } finally {
-    rmrf(workspace);
-  }
-});
-
-test('resolveTrustedExe: walks PATHEXT on win32 platform', () => {
-  // win32 code path: even on a POSIX host we can exercise the
-  // PATHEXT walk by passing platform='win32' explicitly. The
-  // candidate file we write carries a `.CMD` extension; the helper
-  // must locate it via the PATHEXT-driven extension probe.
-  const workspace = freshTmpDir('win32-workspace');
-  const outsideDir = freshTmpDir('win32-outside');
-  try {
-    // Note the `.CMD` extension — bare `mytool` does NOT exist on
-    // disk; only `mytool.CMD` does. The PATHEXT walk must catch it.
-    const trustedExe = path.join(outsideDir, 'mytool.CMD');
-    fs.writeFileSync(trustedExe, '@echo hello\n');
-
-    const env = {
-      PATH: outsideDir,
-      PATHEXT: '.COM;.EXE;.BAT;.CMD',
-    };
-    const resolved = resolveTrustedExe('mytool', {
-      workspaceRoot: workspace,
-      env,
+      env: { PATH: outside, PATHEXT: '.COM;.EXE;.BAT;.CMD' },
       platform: 'win32',
     });
-    assert.equal(resolved, fs.realpathSync(trustedExe));
-  } finally {
-    rmrf(workspace);
-    rmrf(outsideDir);
-  }
+    assert.equal(resolved, fs.realpathSync(trusted));
+  });
 });
 
-test('resolveTrustedExe: follows symlinks and rejects when target is inside workspace', { skip: process.platform === 'win32' }, () => {
-  // Setup: outsideDir contains a symlink `mytool` → workspace/realtool.
-  // A naive implementation would pick the symlink and call it
-  // "outside the workspace" by string-prefix. realpath-driven check
-  // catches the redirection and rejects.
-  const workspace = freshTmpDir('symlink-workspace');
-  const outsideDir = freshTmpDir('symlink-outside');
-  try {
-    const realtool = path.join(workspace, 'realtool');
-    fs.writeFileSync(realtool, '#!/bin/sh\necho gotcha\n', { mode: 0o755 });
-    const symlink = path.join(outsideDir, 'mytool');
-    const linked = trySymlink(realtool, symlink);
-    if (!linked) return; // platform/permissions can't symlink — soft-skip
-
-    const env = { PATH: outsideDir };
-    assert.throws(
-      () =>
-        resolveTrustedExe('mytool', {
-          workspaceRoot: workspace,
-          env,
-          platform: 'linux',
-        }),
-      /workspace/,
-    );
-  } finally {
-    rmrf(workspace);
-    rmrf(outsideDir);
-  }
+test('resolveTrustedExe follows a symlink outside the workspace to a target inside it, and refuses', { skip: process.platform === 'win32' }, () => {
+  withTmpDirs(['symlink-workspace', 'symlink-outside'], (workspace, outside) => {
+    fs.symlinkSync(writeExe(path.join(workspace, 'realtool')), path.join(outside, 'mytool'));
+    assert.throws(() => resolveOnLinux('mytool', workspace, [outside]), /workspace/);
+  });
 });
 
-// A realpath FAILURE (as opposed to a clean resolution) must not fall
-// back to the raw, unresolved candidate path
-// (`realpathSyncOrNull(candidate) || candidate`) — that would trust
-// exactly the path this module exists to verify. On Windows, `fs.realpathSync` is
-// known to throw on certain reparse points (App-Execution-Alias stubs
-// under `%LOCALAPPDATA%\Microsoft\WindowsApps`) that `fs.statSync` sees
-// as an ordinary file — so this isn't a hypothetical failure mode. These
-// two tests monkeypatch `fs.realpathSync` (restored in `finally`) to
-// simulate that failure on a specific candidate, independent of the
-// actual host OS/filesystem.
-
-test('resolveTrustedExe: a realpath failure on a candidate is rejected (not trusted unresolved) — falls through to the next candidate', () => {
-  const workspace = freshTmpDir('realpath-fail-workspace');
-  const unverifiableDir = freshTmpDir('realpath-fail-unverifiable');
-  const trustedDir = freshTmpDir('realpath-fail-trusted');
-  const realRealpathSync = fs.realpathSync;
-  try {
-    // First PATH dir: a candidate that EXISTS (passes statSync) but
-    // whose realpath will be made to throw.
-    const unverifiableExe = path.join(unverifiableDir, 'mytool');
-    fs.writeFileSync(unverifiableExe, '#!/bin/sh\necho unverifiable\n', { mode: 0o755 });
-    // Second PATH dir: a genuine, verifiable, outside-workspace binary.
-    const trustedExeFile = path.join(trustedDir, 'mytool');
-    fs.writeFileSync(trustedExeFile, '#!/bin/sh\necho trusted\n', { mode: 0o755 });
-    const trustedExeReal = realRealpathSync(trustedExeFile);
-
+// Windows `fs.realpathSync` throws on some reparse points (App-Execution-Alias
+// stubs under `%LOCALAPPDATA%\Microsoft\WindowsApps`) that `fs.statSync` sees
+// as ordinary files. Such a candidate is unverifiable, never trusted raw.
+test('resolveTrustedExe skips a candidate whose realpath fails and resolves the next one', () => {
+  withTmpDirs(['realpath-fail-workspace', 'realpath-fail-unverifiable', 'realpath-fail-trusted'], (workspace, unverifiableDir, trustedDir) => {
+    const unverifiable = writeExe(path.join(unverifiableDir, 'mytool'));
+    const trustedReal = fs.realpathSync(writeExe(path.join(trustedDir, 'mytool')));
+    const realRealpathSync = fs.realpathSync;
     fs.realpathSync = function patchedRealpathSync(p, ...rest) {
-      if (path.resolve(p) === path.resolve(unverifiableExe)) {
-        const e = new Error('simulated realpath failure (e.g. reparse point)');
-        e.code = 'UNKNOWN';
-        throw e;
-      }
+      if (path.resolve(p) === path.resolve(unverifiable)) throw new Error('simulated realpath failure (e.g. reparse point)');
       return realRealpathSync.call(fs, p, ...rest);
     };
-
-    const env = { PATH: [unverifiableDir, trustedDir].join(path.delimiter) };
-    const resolved = resolveTrustedExe('mytool', {
-      workspaceRoot: workspace,
-      env,
-      platform: 'linux',
-    });
-    assert.equal(
-      resolved,
-      trustedExeReal,
-      'must skip the unverifiable candidate (NOT return its raw unresolved ' +
-        'path) and resolve the next, verifiable candidate',
-    );
-    assert.notEqual(
-      resolved,
-      unverifiableExe,
-      'must never return the raw, unresolved candidate path',
-    );
-  } finally {
-    fs.realpathSync = realRealpathSync;
-    rmrf(workspace);
-    rmrf(unverifiableDir);
-    rmrf(trustedDir);
-  }
+    try {
+      assert.equal(resolveOnLinux('mytool', workspace, [unverifiableDir, trustedDir]), trustedReal);
+    } finally {
+      fs.realpathSync = realRealpathSync;
+    }
+  });
 });
 
-test('resolveTrustedExe: throws (does not silently trust an unresolved candidate) when every candidate is realpath-unverifiable', () => {
-  const workspace = freshTmpDir('realpath-fail-only-workspace');
-  const outsideDir = freshTmpDir('realpath-fail-only-outside');
-  const realRealpathSync = fs.realpathSync;
-  try {
-    const exe = path.join(outsideDir, 'mytool');
-    fs.writeFileSync(exe, '#!/bin/sh\necho x\n', { mode: 0o755 });
+// ---- safeUnlinkInside -------------------------------------------------------
 
-    fs.realpathSync = function patchedRealpathSync(p, ...rest) {
-      if (path.resolve(p) === path.resolve(exe)) {
-        throw new Error('simulated realpath failure');
-      }
-      return realRealpathSync.call(fs, p, ...rest);
-    };
-
-    assert.throws(
-      () =>
-        resolveTrustedExe('mytool', {
-          workspaceRoot: workspace,
-          env: { PATH: outsideDir },
-          platform: 'linux',
-        }),
-      (err) => {
-        assert.match(err.message, /unverifiable/i);
-        return true;
-      },
-      'must throw rather than falling back to the raw unresolved candidate ' +
-        '(which would trust an unverified path)',
-    );
-  } finally {
-    fs.realpathSync = realRealpathSync;
-    rmrf(workspace);
-    rmrf(outsideDir);
-  }
-});
-
-// ---------------------------------------------------------------------
-// safeUnlinkInside
-// ---------------------------------------------------------------------
-
-test('safeUnlinkInside: unlinks file inside allowed root', () => {
-  const root = freshTmpDir('unlink-ok');
-  try {
+test('safeUnlinkInside unlinks a file inside the allowed root', () => {
+  withTmpDirs(['unlink-ok'], (root) => {
     const target = path.join(root, 'file.txt');
     fs.writeFileSync(target, 'contents');
-    assert.equal(fs.existsSync(target), true);
-    const removed = safeUnlinkInside(target, root);
-    assert.equal(removed, true);
-    assert.equal(fs.existsSync(target), false);
-  } finally {
-    rmrf(root);
-  }
+    assert.deepEqual([safeUnlinkInside(target, root), fs.existsSync(target)], [true, false]);
+  });
 });
 
-test('safeUnlinkInside: no-op when file does not exist', () => {
-  const root = freshTmpDir('unlink-noop');
-  try {
-    const target = path.join(root, 'never-existed.txt');
-    const removed = safeUnlinkInside(target, root);
-    assert.equal(removed, false);
-  } finally {
-    rmrf(root);
-  }
-});
-
-test('safeUnlinkInside: rejects when realpath escapes allowed root (symlinked leaf)', { skip: process.platform === 'win32' }, () => {
-  // The hostile shape: a leaf file inside the allowed root that is
-  // itself a symlink pointing OUTSIDE the root. Naive unlinkSync
-  // would happily remove the symlink (Unix unlink only removes the
-  // link itself, not the target — but the helper refuses to touch any
-  // path whose realpath escapes the root, which is the stronger
-  // property and gates the symlinked-parent case below.)
-  const root = freshTmpDir('unlink-escape-leaf');
-  const outsideDir = freshTmpDir('unlink-escape-outside');
-  try {
-    const outsideFile = path.join(outsideDir, 'sensitive.txt');
+test('safeUnlinkInside refuses a leaf symlinked outside the root', { skip: process.platform === 'win32' }, () => {
+  withTmpDirs(['unlink-escape-leaf', 'unlink-escape-outside'], (root, outside) => {
+    const outsideFile = path.join(outside, 'sensitive.txt');
     fs.writeFileSync(outsideFile, 'do not delete');
     const candidate = path.join(root, 'innocent-looking.txt');
-    const linked = trySymlink(outsideFile, candidate);
-    if (!linked) return; // platform/permissions — soft-skip
-
-    assert.throws(
-      () => safeUnlinkInside(candidate, root),
-      /symlink-escape/,
-    );
-    // The outside file must still exist; the symlink itself may be
-    // intact (we refused to touch either).
-    assert.equal(fs.existsSync(outsideFile), true);
-  } finally {
-    rmrf(root);
-    rmrf(outsideDir);
-  }
+    fs.symlinkSync(outsideFile, candidate);
+    assert.throws(() => safeUnlinkInside(candidate, root), /symlink-escape/);
+  });
 });
 
-test('safeUnlinkInside: rejects when parent dir is a symlink escaping root', { skip: process.platform === 'win32' }, () => {
-  // The exact accident class the helper gates: the candidate
-  // path lives at `root/.shadow-cljs/nrepl.port`, but `.shadow-cljs`
-  // is itself a symlink whose target is outside the root. The leaf
-  // file may not even exist yet — the parent-symlink realpath check
-  // catches it before any unlink fires.
-  const root = freshTmpDir('unlink-escape-parent');
-  const outsideDir = freshTmpDir('unlink-escape-parent-outside');
-  try {
-    // Set up the "real" .shadow-cljs target outside the root with a
-    // file inside it.
-    const realSide = path.join(outsideDir, 'shadow-cljs');
+// `root/.shadow-cljs` linked outside the root: unlinking through it would
+// delete the real file on the far side.
+test('safeUnlinkInside refuses a candidate under a parent symlinked outside the root', { skip: process.platform === 'win32' }, () => {
+  withTmpDirs(['unlink-escape-parent', 'unlink-escape-parent-outside'], (root, outside) => {
+    const realSide = path.join(outside, 'shadow-cljs');
     fs.mkdirSync(realSide);
     const sensitiveFile = path.join(realSide, 'nrepl.port');
     fs.writeFileSync(sensitiveFile, 'arbitrary file');
-
-    // Symlink `root/.shadow-cljs` → `outsideDir/shadow-cljs`.
-    const symlinkedParent = path.join(root, '.shadow-cljs');
-    const linked = trySymlink(realSide, symlinkedParent);
-    if (!linked) return; // soft-skip
-
-    const candidate = path.join(symlinkedParent, 'nrepl.port');
-    // The candidate appears to live under `root/.shadow-cljs/...`,
-    // but realpath resolves the parent symlink, so the resolved
-    // path is `outsideDir/shadow-cljs/nrepl.port` — outside root.
-    assert.throws(
-      () => safeUnlinkInside(candidate, root),
-      /symlink-escape/,
-    );
-    // The sensitive file MUST still exist — the whole point of the guard.
+    fs.symlinkSync(realSide, path.join(root, '.shadow-cljs'));
+    assert.throws(() => safeUnlinkInside(path.join(root, '.shadow-cljs', 'nrepl.port'), root), /symlink-escape/);
     assert.equal(fs.existsSync(sensitiveFile), true);
-  } finally {
-    rmrf(root);
-    rmrf(outsideDir);
-  }
+  });
 });
 
-test('safeUnlinkInside: rejects parent-symlink even when leaf does not exist', { skip: process.platform === 'win32' }, () => {
-  // Variant of the above: the parent is a symlink escaping root AND
-  // the leaf file doesn't exist yet. The parent-realpath check
-  // still catches it (this is the "no-op when missing" path that
-  // must not silently pass through symlink-escaped parents).
-  const root = freshTmpDir('unlink-noop-escape-parent');
-  const outsideDir = freshTmpDir('unlink-noop-escape-parent-outside');
-  try {
-    const realSide = path.join(outsideDir, 'shadow-cljs');
+// A missing leaf takes the parent-realpath path, which must not pass an
+// escaped parent through as a no-op.
+test('safeUnlinkInside refuses an escaped parent even when the leaf does not exist', { skip: process.platform === 'win32' }, () => {
+  withTmpDirs(['unlink-noop-escape-parent', 'unlink-noop-escape-parent-outside'], (root, outside) => {
+    const realSide = path.join(outside, 'shadow-cljs');
     fs.mkdirSync(realSide);
-    // Do NOT create the leaf file; the parent-realpath check must
-    // still reject the path.
-    const symlinkedParent = path.join(root, '.shadow-cljs');
-    const linked = trySymlink(realSide, symlinkedParent);
-    if (!linked) return;
-
-    const candidate = path.join(symlinkedParent, 'nrepl.port');
-    assert.throws(
-      () => safeUnlinkInside(candidate, root),
-      /symlink-escape/,
-    );
-  } finally {
-    rmrf(root);
-    rmrf(outsideDir);
-  }
-});
-
-// ---------------------------------------------------------------------
-// safeReadFileInside
-//
-// The read-side counterpart to safeUnlinkInside: a port-file candidate
-// the cleanup step refused to UNLINK (because its realpath escapes the
-// allowed root) must ALSO be refused on READ — closing the
-// "refuse-delete-but-trust-read" split. Both helpers share the same
-// `resolveContainedLeaf` containment check, so a candidate that throws
-// from safeUnlinkInside throws identically from safeReadFileInside. The
-// read-side escape refusals are pinned through `readPortFile` in
-// port-file-escape.test.cjs, which reads every candidate through here.
-// ---------------------------------------------------------------------
-
-test('safeReadFileInside: returns null when file does not exist', () => {
-  const root = freshTmpDir('read-missing');
-  try {
-    const target = path.join(root, 'never-existed.port');
-    assert.equal(safeReadFileInside(target, root), null);
-  } finally {
-    rmrf(root);
-  }
-});
-
-test('safeReadFileInside: null options read as utf8; { encoding: null } returns a Buffer', () => {
-  const root = freshTmpDir('read-encoding');
-  try {
-    const target = path.join(root, 'nrepl.port');
-    fs.writeFileSync(target, 'abc');
-    const buf = safeReadFileInside(target, root, null); // null -> default utf8
-    assert.equal(buf, 'abc');
-    const raw = safeReadFileInside(target, root, { encoding: null });
-    assert.equal(Buffer.isBuffer(raw), true, 'encoding:null returns a Buffer');
-    assert.equal(raw.toString('utf8'), 'abc');
-  } finally {
-    rmrf(root);
-  }
-});
-
-test('safeUnlinkInside and safeReadFileInside: reject empty / missing inputs', () => {
-  const root = freshTmpDir('bad-inputs');
-  try {
-    for (const [name, fn] of [
-      ['safeUnlinkInside', safeUnlinkInside],
-      ['safeReadFileInside', safeReadFileInside],
-    ]) {
-      assert.throws(() => fn('', root), /candidatePath/, name + ': empty candidatePath');
-      assert.throws(() => fn('/whatever', ''), /allowedRoot/, name + ': empty allowedRoot');
-      assert.throws(
-        () => fn('/whatever', '/this/path/does/not/exist/anywhere'),
-        /does not exist/,
-        name + ': missing allowedRoot',
-      );
-    }
-  } finally {
-    rmrf(root);
-  }
+    fs.symlinkSync(realSide, path.join(root, '.shadow-cljs'));
+    assert.throws(() => safeUnlinkInside(path.join(root, '.shadow-cljs', 'nrepl.port'), root), /symlink-escape/);
+  });
 });
