@@ -133,6 +133,22 @@
       (record! "realm.core" :event :realm/boot ::impl)
       (is (identical? (rf.image-assembly/assemble [img]) (rf.image-assembly/assemble [img]))))))
 
+(deftest a-re-seal-drops-the-generation-it-supersedes
+  ;; the store and standard generations only move forward, so a composition's
+  ;; entry at an older one can never hit again
+  (let [img   (rf.image/image {:id :shop/main :select-ns {:include ["shop.cart"]}})
+        other (rf.image/image {:id :shop/other :select-ns {:include ["shop.cart"]}})
+        pool  [{:rf.provenance/ns "shop.cart" :kind :event :id :cart/add :handler-fn ::pooled}]]
+    (dotimes [_ 3]
+      (record! "shop.cart" :event :cart/add ::add)
+      (rf.image-assembly/assemble [img]))
+    (rf.image-assembly/register-standard! :fx :rf.nav/push-url {:handler-fn ::std-nav})
+    (rf.image-assembly/assemble [img])
+    (rf.image-assembly/assemble [other])
+    (rf.image-assembly/assemble [img] pool)
+    (is (= 3 (rf.image-assembly/cache-size))
+        "one live-store entry per composition, beside the explicit-pool entry")))
+
 (deftest explicit-pool-arity-hits-on-equal-pool
   ;; the supplied pool value is the key's pool leg
   (let [pool [{:rf.provenance/ns "a.core" :kind :event :id :a/e :handler-fn ::a}]
