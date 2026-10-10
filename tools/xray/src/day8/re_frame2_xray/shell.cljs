@@ -704,33 +704,26 @@
 
   Uses the LOCAL-time components (`getHours` / `getMinutes` /
   `getSeconds` / `getMilliseconds`) so the column reads in the operator's
-  timezone. Returns the empty string when `then-ms` is nil or `js/Date`
-  is unavailable so the caller can decide whether to render anything."
+  timezone. Its one caller, `relative-time-chip`, passes only a
+  dispatched-time stamp it has already found."
   [then-ms]
-  (if (or (nil? then-ms) (not (exists? js/Date)))
-    ""
-    (let [d (js/Date. then-ms)]
-      (str (pad2 (.getHours d)) ":"
-           (pad2 (.getMinutes d)) ":"
-           (pad2 (.getSeconds d)) "."
-           (pad3 (.getMilliseconds d))))))
+  (let [d (js/Date. then-ms)]
+    (str (pad2 (.getHours d)) ":"
+         (pad2 (.getMinutes d)) ":"
+         (pad2 (.getSeconds d)) "."
+         (pad3 (.getMilliseconds d)))))
 
 (defn format-absolute-time
   "CLJS-side helper. Given an epoch-ms (the event-bundle's dispatched
   `:time`), returns an absolute-time tooltip string for the chip's
   `:title` attribute. Used as the power-user reveal that complements
   the `HH:MM:SS.mmm` clock column — clicking the row still opens the
-  Epoch panel, but a hover shows the full ISO walltime + epoch-ms.
-
-  Returns the empty string when `then-ms` is nil so the caller can
-  decide whether to attach the tooltip."
+  Epoch panel, but a hover shows the full ISO walltime + epoch-ms."
   [then-ms]
-  (if (or (nil? then-ms) (not (exists? js/Date)))
-    ""
-    (let [d   (js/Date. then-ms)
-          iso (.toISOString d)
-          loc (.toLocaleTimeString d)]
-      (str loc " · " iso " (epoch-ms " then-ms ")"))))
+  (let [d   (js/Date. then-ms)
+        iso (.toISOString d)
+        loc (.toLocaleTimeString d)]
+    (str loc " · " iso " (epoch-ms " then-ms ")")))
 
 (defn event-bundle-dispatched-time-ms
   "Pluck the event-bundle's dispatched-time from `:dispatched :time` (every

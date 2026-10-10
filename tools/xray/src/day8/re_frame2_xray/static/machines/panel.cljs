@@ -18,7 +18,6 @@
   ## Registers (install! installs)
 
   Subs:
-    `:rf.xray.static.machines/rows`        — full projected rows
     `:rf.xray.static.machines/data`        — composite the view reads
     `:rf.xray.static.machines/search`      — current search-text
     `:rf.xray.static.machines/sort-key`    — current sort axis
@@ -27,7 +26,6 @@
     `:rf.xray.static.machines/sub-mode`    — effective sub-mode for a machine
     `:rf.xray.static.machines/sim-by-machine`         — sim slots map
     `:rf.xray.static.machines/sim-state`              — sim slot for selected machine
-    `:rf.xray.static.machines/sim-active?`            — sim on for selected machine?
     `:rf.xray.static.machines/sim-available-transitions` — picker source
     `:rf.xray.static.machines/sim-event-suggestions`  — datalist source
     `:rf.xray.static.machines/copy-mermaid-status`    — copy feedback for a machine
@@ -262,13 +260,6 @@
   ;; The `:rf.xray/machine-snapshots-override` test-seam composes on top
   ;; of the live snapshots in `install-test-overrides!` —
   ;; production registration carries no override branch.
-  (rf/reg-sub :rf.xray.static.machines/rows
-    {:inputs [[:rf.xray/registered-machines]
-              [:rf.xray/machine-definitions]
-              [:rf.xray/machine-snapshots]]}
-    (fn [[machines definitions live-snapshots] _query]
-      (h/project-rows machines definitions (or live-snapshots {}))))
-
   (rf/reg-sub :rf.xray.static.machines/data
     {:inputs [[:rf.xray/registered-machines]
               [:rf.xray/machine-definitions]
@@ -454,15 +445,6 @@
   Tests opt in via `test-support/install-test-overrides!` AFTER
   `register-xray-handlers!`. **Test-only — never call from production.**"
   []
-  (rf/reg-sub :rf.xray.static.machines/rows
-    {:inputs [[:rf.xray/registered-machines]
-              [:rf.xray/machine-definitions]
-              [:rf.xray/machine-snapshots]
-              [:rf.xray/machine-snapshots-override]]}
-    (fn [[machines definitions live-snapshots snapshots-override] _query]
-      (h/project-rows machines definitions
-                      (or snapshots-override live-snapshots {}))))
-
   (rf/reg-sub :rf.xray.static.machines/data
     {:inputs [[:rf.xray/registered-machines]
               [:rf.xray/machine-definitions]

@@ -62,15 +62,6 @@
                    (if (contains? sub-mode-ids kw) kw default-sub-mode))
     :else        default-sub-mode))
 
-(def sub-mode-mnemonics
-  "Per-sub-mode keyboard mnemonic letter. This map carries the pure-data
-  half so the click affordance can surface the letter in its `title`.
-  TODO: wire up the keybindings that act on these mnemonics."
-  {:topology  "t"
-   :sim       "s"
-   :instances "i"
-   :cascade   "c"})
-
 ;; ---- sort axes ----------------------------------------------------------
 
 (def sort-keys

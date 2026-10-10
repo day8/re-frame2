@@ -10,8 +10,8 @@
   CONSTRUCTION — so a green node lane says nothing about whether the
   chrome paints. Only a committed DOM can answer that, and this file is
   the Dynamic sibling of
-  `static/shell_fresco_boundary_dom_cljs_test`, which asks the same two
-  questions of the Static surface.
+  `static/shell_fresco_boundary_dom_cljs_test`, which asks the tab-key
+  identity question of the Static surface.
 
   ## The mount is the PRODUCTION mount: XRAY'S OWN ROOT
 

@@ -38,8 +38,7 @@
   The Sim sub-mode keeps per-machine state on Xray's frame app-db at
   `[:rf.xray.static.machines/sim-by-machine <machine-id>]`. Each slot is:
 
-      {:active?          <bool>  ;; sub-mode toggled on?
-       :definition       <map>   ;; the cloned machine definition
+      {:definition       <map>   ;; the cloned machine definition
        :initial-snapshot <map>   ;; the seed, for an exact Reset
        :snapshot         <map>   ;; current {:state :data ...}
        :audit-trail      <vec>   ;; [{:from :to :event :data :fx} ...]
@@ -63,7 +62,7 @@
     3. `event-id-suggestions`      — definition → distinct sorted
                                      event-ids (autocomplete source)
     4. `parse-event-vector`        — string \"[:foo {:x 1}]\" → vector
-                                     or nil on parse error
+                                     or `{:error …}` on parse failure
     5. `append-audit-row`          — push a step entry onto the trail
     6. `format-state-display`      — sim chart state-keyword resolver
     7. `step-sim`                  — fold one
@@ -474,8 +473,7 @@
 
 (defn make-sim-state
   "Build a fresh sim-state map for `machine-id` + `definition`. Called
-  when the user toggles Sim on for a machine. The `:active?` flag stays
-  true until `dispose-sim-state` zeros the slot.
+  when the user toggles Sim on for a machine.
 
   `seed-fn` is `initial-snapshot`'s engine seeder (see there). The seed
   is ALSO kept at `:initial-snapshot` so `reset-sim-state` rewinds to
@@ -486,7 +484,6 @@
   ([machine-id definition seed-fn]
    (let [seed (initial-snapshot definition seed-fn)]
      {:machine-id       machine-id
-      :active?          true
       :definition       definition
       :initial-snapshot seed
       :snapshot         seed
@@ -497,8 +494,8 @@
 
 (defn reset-sim-state
   "Return `sim-state` reset to its initial snapshot, audit trail
-  cleared, error cleared. Preserves `:definition` + `:active?` so the
-  user stays in sim mode after a reset. Pending input is preserved (the
+  cleared, error cleared. Preserves `:definition`, so the user stays in
+  sim mode after a reset. Pending input is preserved (the
   user likely wants to re-fire what they were sketching).
 
   Rewinds to the `:initial-snapshot` the slot was SEEDED with, falling
@@ -692,7 +689,7 @@
 
 (defn format-state-display
   "Pretty-print a sim-snapshot `:state` for inline display. Keywords
-  keep their `:`; vectors join with `.` for hierarchical clarity."
+  keep their `:`; a vector path prints space-separated in brackets."
   [state]
   (cond
     (nil? state)     "(none)"
