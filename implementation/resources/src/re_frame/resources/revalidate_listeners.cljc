@@ -90,9 +90,10 @@
 ;; Module-level transient host cache keyed by `frame-id` → the installed host
 ;; listener handles for that frame. NOT runtime-db, NOT serialized, off the
 ;; epoch / SSR egress wire — exactly like the work-ledger `handle-table`, the
-;; stale/GC `timer-table`, and the generation high-water cache. Cleared
-;; per-frame on frame destroy via the single `:resources/on-frame-destroyed!`
-;; hook (composed in the façade). Each value is a map of
+;; stale/GC `timer-table`, and the process-wide generation high-water cache.
+;; Unlike the generation cache, this table is cleared per-frame on frame
+;; destroy via the single `:resources/on-frame-destroyed!` hook (composed in
+;; the façade). Each value is a map of
 ;; `{:focus <handler> :visibility <handler> :online <handler>}` (CLJS), or
 ;; absent (JVM — no listeners installed).
 

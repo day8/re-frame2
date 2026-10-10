@@ -17,9 +17,9 @@
 ;;
 ;; The internal reply's verification triple is pure EDN and deterministic here:
 ;; `:resource/key` is the scoped-key vector `[scope resource-id params]`;
-;; `:work/id` is `[:rf.work/resource <scoped-key> <generation>]`; the per-frame
-;; monotone generation is 1 (this is the FIRST load in the frame — the runner
-;; resets the resource host-caches before each fixture).
+;; `:work/id` is `[:rf.work/resource <scoped-key> <generation>]`; the
+;; process-wide monotone generation is 1 (this is the FIRST load since the
+;; runner reset the resource host-caches before the fixture).
 ;;
 ;; The entry is read through the PUBLIC passive subscription
 ;; `[:rf/resource {:resource :scope :params}]` (Spec 016 §Subscriptions —

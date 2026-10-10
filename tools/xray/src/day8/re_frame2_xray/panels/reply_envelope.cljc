@@ -429,9 +429,9 @@
   "Restrict `trace-buffer` to the rows attributable to `frame`.
 
   Xray's trace buffer merges every host frame's ring, but a `:work/id` is
-  frame-LOCAL: a resource work-id is `[:rf.work/resource <scoped-key>
-  <generation>]` with a per-frame generation, so two frames loading the
-  same resource at the same generation mint the SAME work-id. Every join
+  frame-LOCAL: it carries no frame id, so two frames issuing the same HTTP
+  `:request-id` mint the SAME `[:rf.work/http …]` work-id for their first
+  attempt. Every join
   below keys on the work-id alone, so a caller answering for one frame
   hands them this buffer, or another frame's outcome labels its work.
 
@@ -577,7 +577,7 @@
 
           (= phase :cancel-requested)
           (assoc :cancelled?    true
-                 :cancel-reason (or (:cancel/reason tags) (:reason tags) (:cancel-cause tags)))
+                 :cancel-reason (or (:reason tags) (:cancel-cause tags)))
 
           (= phase :delivered)
           (assoc :delivered? (if (contains? tags :rf.reply/delivered?)
