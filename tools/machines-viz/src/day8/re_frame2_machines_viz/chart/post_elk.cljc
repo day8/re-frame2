@@ -248,12 +248,7 @@
   `:direction` prop and the parsed graph. ONLY `:auto` (the opt-in sentinel)
   defers to the adaptive `aspect-direction` heuristic; an explicit `:tb` /
   `:lr` (and any non-`:auto` value, including the default `:tb`) is passed
-  STRAIGHT THROUGH as the forced direction. Pure.
-
-  Because `chart.cljs` only reaches this on the opt-in branch (`adaptive?`),
-  `resolve-direction` is effectively the `:auto` → heuristic mapping; the
-  pass-through arms keep it total/defensive if a forced direction is ever
-  routed here."
+  STRAIGHT THROUGH as the forced direction. Pure."
   [host-direction parsed]
   (if (adaptive? host-direction)
     (aspect-direction parsed)

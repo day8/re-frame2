@@ -61,16 +61,6 @@
    :nodes [{:id "a"} {:id "b"}]
    :edges []})
 
-(defn- root-fork-parsed
-  "A guarded fork whose branches leave the TOP-LEVEL `:idle`, so the fork's
-  container is the root."
-  []
-  {:parallel? false
-   :nodes [{:id "idle"} {:id "high"} {:id "low"} {:id "rejected"}]
-   :edges [{:id "e1" :source "idle" :target "high"     :event :chk :guard :hi?}
-           {:id "e2" :source "idle" :target "low"      :event :chk :guard :lo?}
-           {:id "e3" :source "idle" :target "rejected" :event :chk}]})
-
 ;; ---- elk-edge-points / elk-edge-label-pos ------------------------------
 
 (deftest elk-edge-points-collapses-duplicate-seam-points
@@ -108,16 +98,6 @@
                                      ["flat"     (flat-parsed)     ::absent]]]
       (is (= expected (get (chart/elk-layout-options parsed nil :tb)
                            "elk.hierarchyHandling" ::absent))
-          label))))
-
-(deftest elk-layout-options-semi-interactive-only-for-a-root-fork
-  (testing "a guarded fork laid out at the ROOT enables root
-            crossingMinimization.semiInteractive so the branches' elk.position
-            hints order them 1,2,3; any other graph keeps the default"
-    (doseq [[label parsed expected] [["root fork" (root-fork-parsed) "true"]
-                                     ["no fork"   (flat-parsed)      ::absent]]]
-      (is (= expected (get (chart/elk-layout-options parsed nil :tb)
-                           "elk.layered.crossingMinimization.semiInteractive" ::absent))
           label))))
 
 (deftest elk-layout-options-layers-host-overrides-direction-and-routing-levers

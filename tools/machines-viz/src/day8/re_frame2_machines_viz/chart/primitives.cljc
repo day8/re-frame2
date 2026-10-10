@@ -35,16 +35,15 @@
                     portion of countdown REMAINING). nil renders the
                     ring as a faded full circle (degenerate cases:
                     no resolvable duration, sub-vec mid-resolution).
-    :color        — semantic tier `:green / :amber / :red / :gray`
-                    (defaults to `:gray`).
+    :color        — semantic tier `:green / :amber / :red / :gray`; an
+                    absent or unknown tier strokes as `:gray`.
     :cancelled?   — when true the ring renders gray + a diagonal
                     cross-line through it.
     :stroke-width — defaults to 2.5.
-    :testid       — overrides the root data-testid.
+    :testid       — the root data-testid.
     :tooltip      — wraps a native SVG `<title>`."
   [{:keys [cx cy r fraction color cancelled? stroke-width testid tooltip]
-    :or   {color        :gray
-           stroke-width 2.5}}]
+    :or   {stroke-width 2.5}}]
   (let [sw        stroke-width
         circ      (* 2 Math/PI r)
         f         (cond
@@ -62,10 +61,7 @@
         ;; embeds + the JVM hiccup tests.
         stroke    (tokens/css-var token-key)
         opacity   (if cancelled? 0.4 0.85)]
-    [:g {:data-testid    (or testid "rf-mv-chart-countdown-ring")
-         :data-color     (name color)
-         :data-cancelled (str (boolean cancelled?))
-         :data-fraction  (when fraction (str fraction))
+    [:g {:data-testid    testid
          :pointer-events "all"}
      [:circle {:cx cx :cy cy :r r
                :fill "none"

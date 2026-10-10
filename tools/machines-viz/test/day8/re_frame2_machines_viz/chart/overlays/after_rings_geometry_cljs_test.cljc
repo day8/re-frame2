@@ -17,5 +17,5 @@
         rects {"idle" {:left 100 :top 100 :width 140 :height 48}
                "flat" {:left 0   :top 0   :width 0   :height 48}}]
     (is (= [{:node-id "idle" :color :green :fraction 0.8 :cx 150.0 :cy 114.0 :r 76.0}]
-           (geo/overlay-rings specs rects {:left 20 :top 10 :width 900 :height 400} 1.0))
+           (geo/overlay-rings specs rects {:left 20 :top 10 :width 900 :height 400}))
         "the node centre minus the container origin, with the presentation payload kept")))

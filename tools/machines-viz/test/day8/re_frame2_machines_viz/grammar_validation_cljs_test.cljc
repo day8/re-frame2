@@ -220,6 +220,13 @@
   definition's content."
   #{:type :count :parallel :state-count :region-count :defect})
 
+(def ^:private summary-types
+  "The CLOSED `:type` vocabulary — the set `re-frame.error/diag-value-summary`
+  and `share/value-free-summary` share, so a tool reads ONE diagnostic
+  vocabulary from all three summarisers."
+  #{:map :vector :seq :set :keyword :symbol :string :number :boolean :nil
+    :fn :scalar})
+
 (def ^:private defect-keys
   "The CLOSED key set of an embedded `:defect` — no `:path` or `:keys`, which
   are the forger's own state ids and keys."
@@ -249,7 +256,7 @@
   [s]
   (and (map? s)
        (every? summary-keys (keys s))
-       (contains? g/summary-type-vocabulary (:type s))
+       (contains? summary-types (:type s))
        (non-neg-int-slots? s [:count :state-count :region-count])
        (or (not (contains? s :parallel)) (boolean? (:parallel s)))
        (or (not (contains? s :defect))   (content-free-defect? (:defect s)))))

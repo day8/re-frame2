@@ -92,9 +92,8 @@
   [^js root ring-specs]
   (when root
     (let [container-rect (anchor/rect->map (.getBoundingClientRect root))
-          ;; xyflow bakes zoom into the rendered rects, so the
-          ;; overlay reads them as-is (zoom 1.0 → no extra scaling of
-          ;; the gap; the node's measured size already carries zoom).
+          ;; xyflow bakes zoom into the rendered rects, so the overlay
+          ;; reads them as-is.
           rects (reduce
                   (fn [acc {:keys [node-id]}]
                     (if (contains? acc node-id)
@@ -104,7 +103,7 @@
                   (or ring-specs []))
           ;; Drop nils so overlay-rings' `get` only sees measured nodes.
           rects (into {} (remove (comp nil? val)) rects)]
-      (geo/overlay-rings ring-specs rects container-rect 1.0))))
+      (geo/overlay-rings ring-specs rects container-rect))))
 
 ;; ---- ring SVG paint -----------------------------------------------------
 
@@ -123,7 +122,7 @@
    (prim/countdown-ring
      {:cx cx :cy cy :r r
       :fraction   fraction
-      :color      (or color :gray)
+      :color      color
       :cancelled? cancelled?
       :tooltip    tooltip
       :testid     (or testid (str "rf-mv-chart-after-ring-" node-id))})])

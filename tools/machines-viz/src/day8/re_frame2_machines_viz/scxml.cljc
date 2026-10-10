@@ -311,21 +311,9 @@
   (cond
     (keyword? ref) (keyword->id-string ref)
     (fn? ref)      (or (some-> ref meta :name str) "fn")
-    (nil? ref)     nil
+    ;; the grammar gate does not constrain a ref's shape, so a string or
+    ;; symbol ref reaches here and renders as its `str`.
     :else          (str ref)))
-
-(defn- path->id-string
-  "Map a re-frame2 id (keyword or vector path) to a single SCXML id
-  string. A keyword uses `keyword->id-string`; a vector path joins its
-  per-segment id strings with `___` (`path-segment-sep`). The `-`
-  ns/name and `___` path markers never collide with each other or with
-  segment content, so the codec is fully injective."
-  [id]
-  (cond
-    (keyword? id) (keyword->id-string id)
-    (vector? id)  (str/join path-segment-sep (map keyword->id-string id))
-    (string? id)  id
-    :else         (str id)))
 
 (defn- id-string->keyword
   "Inverse of `keyword->id-string` for a SINGLE keyword segment (no `___`
@@ -375,7 +363,7 @@
 ;; document. Two states sharing a name under different compound parents
 ;; would collide on a bare local-state name (duplicate `<state id="idle">`)
 ;; — invalid SCXML a conformant external consumer rejects. We emit the
-;; FULLY-QUALIFIED path id (root → leaf, `___`-joined via `path->id-string`)
+;; FULLY-QUALIFIED path id (root → leaf, `___`-joined via `qualified-id`)
 ;; for every state, `initial`, and transition `target`, so every id is
 ;; unique. The decoder reverses the qualification: a state block's local
 ;; `:states` key is the LAST segment of its qualified id, and a target
@@ -437,9 +425,12 @@
     :else                  nil))
 
 (defn- qualified-id
-  "The unique xsd:ID for a state at absolute `path`."
+  "The unique xsd:ID for a state at absolute `path`: its per-segment
+  `keyword->id-string`s joined with `___` (`path-segment-sep`). The `-`
+  ns/name and `___` path markers never collide with each other or with
+  segment content, so the codec is fully injective."
   [path]
-  (path->id-string (vec path)))
+  (str/join path-segment-sep (map keyword->id-string path)))
 
 (defn- emit-transition
   "Emit a `<transition>` line for one candidate. `target->path` maps a target
@@ -1056,7 +1047,7 @@
 
 (defn- unescape-id-string
   "Convert a SCXML id string back to a re-frame2 keyword (or vector
-  path). Inverse of `path->id-string`.
+  path). Inverse of `qualified-id`.
 
   The encoder uses two reserved markers the segment escaper can provably
   never emit, so decoding is topology-aware and fully injective:
