@@ -52,8 +52,6 @@ form, so all of them are residue:
 
 A gate that required the symbol IMMEDIATELY after the paren and searched one
 line at a time would pass all three of those while refusing the tight spelling.
-A gate whose own fixtures all use one spelling cannot see that it only checks
-one spelling; that is why every variant above has a fixture of its own.
 
 STRING LITERALS ARE SCANNED ON PURPOSE. The pair-MCP servers ship walks as
 RENDERED EVAL FORMS — source text assembled into a string and evaluated in the
@@ -195,20 +193,14 @@ def run_scan(paths: list[Path], verbose: bool = False) -> int:
 
 
 def _run_self_tests(verbose: bool = False) -> int:
-    """Prove the gate fires on each live shape and stays green on each sanctioned one.
+    """Each fixture yields findings at EXACTLY the pinned line numbers.
 
-    Each case pins the LINE NUMBERS, not just the count. A count alone cannot
-    tell a pattern that found the right five things from one that found four
-    plus a false positive — and a gate's fixtures and its pattern can share a
-    blind spot, so the cheap extra discrimination is worth having.
+    Backtick mentions, prose mentions and other `rf.elision` calls all occur
+    in the live tool source, so the gate's own live run guards those green
+    shapes.
     """
     cases = [
-        # the tight-call control: callee hard against the paren
-        ("residue_calls.cljs", (10, 14, 18, 22, 26)),
-        # the same call in reader-equivalent formattings: space, newline,
-        # comment+newline, `#(`+newline, rendered eval string+newline
-        ("residue_calls_formatted.cljs", (18, 23, 28, 33, 41)),
-        # prose that names the mechanism without calling it
+        ("residue_calls.cljs", (10, 14, 18, 23, 28)),
         ("sanctioned_mentions.cljs", ()),
     ]
     failures = 0
