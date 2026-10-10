@@ -3559,8 +3559,13 @@
      ;; 11px margin puts the 1px line at x=11). The bracket
      ;; pair `▾ { … }` reads as a coherent vertical column at every
      ;; nesting depth.
+     ;;
+     ;; `data-rf-cell "close"` names the cell, as `"key"` / `"value"` /
+     ;; `"unrealised-tail"` name theirs; the edn-inspector tests find the
+     ;; close bracket by it.
      (when (and expanded? (not empty?) (not depth-capped?) (not inline-fit?))
-       [:div {:style {:padding-left "10px"
+       [:div {:data-rf-cell "close"
+              :style {:padding-left "10px"
                       :color (get tokens (:tone-key (delim kind)))}}
         (let [{:keys [close]} (delim kind)] close)])]))
 
