@@ -35,10 +35,11 @@
      to a bounded ring buffer. Captured stderr is replayed to the real
      stderr only when the run is red and dropped on green.
      The CLJS node runner uses the same policy for a narrower scope: a
-     `console.warn` stub, not `console.error` or direct
+     `console.warn` stub plus the `[re-frame2]` dev-fallback line on
+     `console.error`, not other `console.error` calls or direct
      `process.stderr` writes.  The asymmetry reflects what each runtime's
      noise actually is: CLJS first-run warnings come through
-     `console.warn`, while a deliberate `console.error` stays a real error
+     `console.warn`, while any other `console.error` stays a real error
      channel; the JVM has no comparable convention, so it buffers the
      current-thread `*err*` plus process-global `System.err`. Tests that
      assert on warning text still capture `*err*` locally.

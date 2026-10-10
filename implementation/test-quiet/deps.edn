@@ -26,7 +26,8 @@
 ;;     the JVM runner (`re-frame.test-quiet.runner`) buffers JVM stderr
 ;;     (`*err*` / `System.err`) while the CLJS node runner
 ;;     (`re-frame.test-quiet.shadow-node`) buffers `console.warn` warnings
-;;     ONLY (`console.error` / `process.stderr` pass straight through).
+;;     and the `[re-frame2]` dev-fallback `console.error` line ONLY (every
+;;     other `console.error` and `process.stderr` pass straight through).
 ;;     Both replay the buffer only when the run is RED, so warning-heavy
 ;;     suites stay quiet on green WITHOUT ad-hoc local `*err*` sinks. The
 ;;     narrower CLJS scope keeps real error channels visible even on green.
