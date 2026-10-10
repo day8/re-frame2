@@ -257,9 +257,9 @@
   still reaches stdout before exit.  The only text that can sit unflushed
   at exit is a banner candidate (the full buffered line so far — a strict
   banner prefix, possibly extended into an as-yet-unterminated banner
-  remainder) or a single pending blank. The explicit flush on returning
-  paths and the JVM shutdown hook on `System/exit` forward those candidates,
-  so a genuine trailing blank line and a bare
+  remainder) or a single pending blank. The JVM shutdown hook `-main`
+  registers flushes those candidates through at exit, so a genuine trailing
+  blank line and a bare
   `Running tests in #{...`-prefixed partial both survive exit. The real
   banner completes and is dropped before exit because cognitect prints it
   with `println` and runs the suite after.
@@ -315,10 +315,10 @@
         forward-partial! (fn []
                            ;; Forward any held blank + candidate (the
                            ;; candidate is only ever a strict banner
-                           ;; prefix). Called on flush/close for the
-                           ;; in-process help/return path and the JVM
-                           ;; shutdown hook, so a genuine trailing blank
-                           ;; line and a bare partial both survive exit.
+                           ;; prefix). Called on flush/close, which the
+                           ;; JVM shutdown hook triggers, so a genuine
+                           ;; trailing blank line and a bare partial both
+                           ;; survive exit.
                            (flush-pending-blank!)
                            (when (pos? (.length line-candidate))
                              (.write target (.toString line-candidate))
@@ -1112,17 +1112,6 @@
        " {:before f :after g} map is cljs.test-only --"
        " (use-fixtures :each (fn [t] (before) (t) (after))).\n"))
 
-(defn- install-summary-method!
-  "Install `f` as `clojure.test/report`'s `:summary` method, or — when `f`
-  is nil — remove any installed method so the multimethod falls back to its
-  default. Centralises the `MultiFn` mutation (and its type hint) that
-  `-main` uses to install this invocation's replay method and to restore the
-  prior one."
-  [f]
-  (if f
-    (.addMethod ^clojure.lang.MultiFn clojure.test/report :summary f)
-    (remove-method clojure.test/report :summary)))
-
 (defn- make-summary-replay-method
   "Build the `clojure.test/report :summary` method for ONE `-main`
   invocation. On a RED run it replays `stderr-ring` to `original-err`, then
@@ -1152,13 +1141,10 @@
   A run is red iff `(pos? (+ fail error))`, matching cognitect's
   `(zero? (+ fail error))` green test.
 
-  This method is INVOCATION-SCOPED, not a permanent global override: `-main`
-  installs it via `install-summary-method!` before the delegated run and
-  RESTORES `prior-summary-method` on every returning/throwing path (its `finally`). A
-  returning `-main` — notably `-H` help, or an embedded/REPL/in-process
-  call — therefore leaves no global closure over this run's ring/`original-err`
-  installed for a later, unrelated `clojure.test` run to trip over, and
-  repeated invocations never chain wrapper-over-wrapper.
+  `-main` installs it before the delegated run and never restores the prior
+  method, because nothing runs after it: under `clojure -m` the JVM ends
+  with the run, by cognitect's `System/exit` or, on the `-H` help path that
+  returns, straight after `-main` does.
 
   The replay is bounded to the test-run red path. cognitect only fires
   `:summary` once it has reached `run-tests`, so the buffered stderr is
@@ -1251,26 +1237,6 @@
                     "If this lane claims only that its classpath RESOLVES,"
                     " declare that with " probe-flag " instead.\n"))))))
 
-(def ^:dynamic *register-flush-hook!*
-  "Test seam over the JVM shutdown-hook registry for `-main`'s stdout
-  flush-on-exit hook.  Called with the hook `Thread`; it must register the
-  hook and RETURN a 0-arg deregister fn that `-main` invokes on every
-  returning/throwing path.  Deregistering matters because a returning `-main`
-  (help, or an embedded/in-process call) does NOT terminate the JVM: without
-  removal, each such invocation would leave its filtering-writer hook
-  registered until shutdown, accumulating one per call.
-
-  Defaults to the real `Runtime` registry.  Tests rebind it to observe the
-  add/remove lifecycle in-process without mutating the test JVM's own
-  shutdown-hook set."
-  (fn [^Thread hook]
-    (.addShutdownHook (Runtime/getRuntime) hook)
-    (fn deregister-flush-hook []
-      ;; `removeShutdownHook` throws only while the JVM is already shutting
-      ;; down; a returning `-main` never is, so this is safe. It returns
-      ;; false (harmless) if the hook already ran or was removed.
-      (.removeShutdownHook (Runtime/getRuntime) hook))))
-
 (defn -main [& args]
   ;; Bind `*out*` to a line-filtering writer over the real stdout that
   ;; drops ONLY cognitect's "\nRunning tests in #{...}" discovery banner.
@@ -1279,18 +1245,14 @@
   ;;
   ;; `cognitect.test-runner/-main` calls `System/exit` on the test-run
   ;; path (from the computed fail/error counts) and on the parse-error
-  ;; path, so control typically does not return past the `apply`. The
-  ;; `-H`/help path is the exception: it prints usage and RETURNS without
-  ;; exiting, so we flush the filtering writer in the `finally` to forward
-  ;; any trailing line; flushing is harmless on the paths that did exit.
-  ;;
-  ;; The `finally` cannot fire on the `System/exit` paths, so we also
-  ;; register a JVM shutdown hook that flushes the filtering writer (and,
-  ;; through it, the real stdout).  Without it, a bare `(print ...)`
-  ;; diagnostic with no trailing newline — buffered anywhere between this
-  ;; wrapper and the OS — could be lost exactly when a failing run needs
-  ;; it most.  The hook makes flush-on-exit deterministic rather than
-  ;; relying on the runtime or cognitect to flush before exiting.
+  ;; path, and the `-H`/help path returns into a `clojure -m` that exits
+  ;; straight after, so every path ends the JVM and nothing here is ever
+  ;; restored. A JVM shutdown hook flushes the filtering writer (and,
+  ;; through it, the real stdout) on the way out.  Without it, a bare
+  ;; `(print ...)` diagnostic with no trailing newline — buffered anywhere
+  ;; between this wrapper and the OS — could be lost exactly when a failing
+  ;; run needs it most.  The hook makes flush-on-exit deterministic rather
+  ;; than relying on the runtime or cognitect to flush before exiting.
   ;;
   ;; We also bind the test-driver thread's `*err*` and swap process-global
   ;; `System/err` to a bounded ring buffer. Expected warnings are captured
@@ -1304,9 +1266,8 @@
   ;; The replay is scoped to the TEST-RUN red path: `:summary` fires only
   ;; once cognitect reaches `run-tests`, so the non-test exit-1 path (a CLI
   ;; parse error) drops its buffer rather than replaying it — sound because
-  ;; cognitect's parse diagnostics go to `*out*` (the filter), not `*err*`,
-  ;; and that path `System/exit`s before `-main`'s `finally` can run (see
-  ;; `make-summary-replay-method`).
+  ;; cognitect's parse diagnostics go to `*out*` (the filter), not `*err*`
+  ;; (see `make-summary-replay-method`).
   (let [;; This lane's claim, resolved BEFORE anything is rebound so a
         ;; malformed floor is a plain stderr diagnostic + exit 2, not a
         ;; buffered one. `--probe` is ours and is stripped from
@@ -1321,31 +1282,21 @@
         _          (verify-discovery! forwarded-args)
         original-out        *out*
         original-err        *err*
-        original-system-err System/err
         filtered-stdout     (java.io.PrintWriter.
                               (banner-filtering-writer original-out))
         stderr-ring         (StringBuilder.)
         buffered-stderr-writer (buffering-stderr-writer stderr-ring)
         buffered-stderr     (java.io.PrintWriter. buffered-stderr-writer)
-        ;; The flush-on-`System/exit` hook for the stdout filtering writer,
-        ;; registered through the `*register-flush-hook!*` seam. Its
-        ;; `deregister-flush-hook!` is called on every returning/throwing path
-        ;; so repeated in-process/help invocations don't accumulate a
-        ;; filtering-writer hook apiece.
-        stdout-flush-hook (Thread. ^Runnable #(.flush filtered-stdout))
-        deregister-flush-hook! (*register-flush-hook!* stdout-flush-hook)
-        ;; Capture the `:summary` method installed before us, then install
-        ;; THIS invocation's replay method. The override is invocation-scoped:
-        ;; we DELEGATE to `prior-summary-method` during the run and restore it
-        ;; (see the `finally`), never leaving a global closure over this run's
-        ;; ring/`original-err` behind.
-        prior-summary-method (get-method clojure.test/report :summary)
+        ;; THIS invocation's replay method DELEGATES to the `:summary`
+        ;; method installed before it, so the canonical summary still prints.
         summary-method (make-summary-replay-method
                          stderr-ring
                          original-err
-                         prior-summary-method
+                         (get-method clojure.test/report :summary)
                          lane-claim)]
-    (install-summary-method! summary-method)
+    (.addShutdownHook (Runtime/getRuntime)
+                      (Thread. ^Runnable #(.flush filtered-stdout)))
+    (.addMethod ^clojure.lang.MultiFn clojure.test/report :summary summary-method)
     ;; Route raw `System/err` bytes into the same ring as `*err*` so a
     ;; library that writes `System.err` directly is buffered too. Each chunk
     ;; is decoded to a `String` and appended to the ring (this buffer is the
@@ -1387,21 +1338,4 @@
       (System/setErr (java.io.PrintStream. system-err-bridge true "UTF-8")))
     (binding [*out* filtered-stdout
               *err* buffered-stderr]
-      (try
-        (apply cognitect.test-runner/-main forwarded-args)
-        (finally
-          (.flush filtered-stdout)
-          ;; Returning paths (notably help) restore System/err + the prior
-          ;; `:summary` reporter and deregister the flush hook. `System/exit`
-          ;; paths terminate WITHOUT running this `finally`, which is correct:
-          ;; the summary replay already fired during the run, and the flush
-          ;; hook must survive to flush stdout at shutdown.
-          (System/setErr original-system-err)
-          ;; Restore the prior `:summary` method — but ONLY if ours is still
-          ;; the installed one. If an unrelated run replaced it during this
-          ;; invocation, that run now owns the method and must not be
-          ;; clobbered by a blind restore.
-          (when (identical? summary-method
-                            (get-method clojure.test/report :summary))
-            (install-summary-method! prior-summary-method))
-          (deregister-flush-hook!))))))
+      (apply cognitect.test-runner/-main forwarded-args))))

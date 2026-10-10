@@ -57,7 +57,7 @@
 ;; State is an unsigned 32-bit integer on both hosts.
 ;; ---------------------------------------------------------------------------
 
-(def ^:private mask32 0xFFFFFFFF)
+#?(:clj (def ^:private mask32 0xFFFFFFFF))
 
 (def ^:private lcg-mult 1103515245)
 (def ^:private lcg-inc 12345)
