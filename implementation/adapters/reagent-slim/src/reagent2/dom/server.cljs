@@ -31,23 +31,20 @@
     | head           | meaning                                     |
     |----------------|---------------------------------------------|
     | :<>            | React Fragment: emit children only          |
-    | :>             | React component interop                     |
-    | :r>            | raw React.createElement passthrough         |
-    | :f>            | function-component dispatch                 |
+    | :>             | React component interop: refused            |
+    | :r>            | raw React.createElement passthrough: refused|
+    | :f>            | function-component dispatch: refused        |
     | …context Provider under any of those three heads:             |
     |                | walk its children                           |
     | DOM tag        | parse-tag + DOM element                     |
     | reagent class  | Form-3: render :reagent-render via fn path  |
     | user fn        | invoke fn-with-args (Form-1/Form-2); recurse|
 
-  React-component heads (`:>`, `:r>`, `:f>`) emit a placeholder HTML
-  comment (`<!--reagent-react-component-->`) and don't walk into the
-  component. THIS IS NOT REACT-DOM PARITY: real
-  `react-dom/server.renderToStaticMarkup` RENDERS foreign components.
-  The placeholder is a deliberate limitation of a serializer that ships
-  no React — nothing here can know what a foreign component renders
-  without running it — so read it as a marker that content was SKIPPED,
-  not as a statement about what React would have produced.
+  React-component heads (`:>`, `:r>`, `:f>`) raise
+  `:rf.error/static-markup-opaque-component`. Real
+  `react-dom/server.renderToStaticMarkup` renders a foreign component by
+  running it; this serializer ships no React, so nothing here can know what
+  one renders, and it refuses rather than leave a hole in the markup.
   Plain-fn heads take the user-fn-call path, matching
   stock Reagent's `render-to-static-markup` behaviour and keeping
   Dash8/rf8 HTML-export compatibility.
@@ -55,17 +52,18 @@
   CONTEXT PROVIDERS ARE THE EXCEPTION. A Provider is the one
   React head whose output IS knowable without React: it renders nothing
   of its own and its output is exactly its children, so the walker walks
-  THROUGH it. Otherwise the canonical slim mount
-  `[rf/frame-provider {:frame f} [app]]` — which expands to an `:r>` head
-  carrying the shared frame Context Provider — would serialise to the
-  placeholder comment and NOTHING ELSE: an empty document, no error, on
-  the HTML-export path the guides teach. See `emit-react-interop` for the
-  detection and for why both React `$$typeof` shapes are accepted.
+  THROUGH it. The canonical slim mount `[rf/frame-provider {:frame f} [app]]`
+  expands to an `:r>` head carrying the shared frame Context Provider, and
+  renders its app. The walker applies no Provider's value, so the installed
+  static Provider check (`component/check-static-provider!`) runs first and
+  refuses a Provider whose value the subtree needs. See `emit-react-interop`
+  for the detection and for why both React `$$typeof` shapes are accepted.
 
   COMPONENT-SHAPE PARITY. The static path renders the same
   Form-1/Form-2/Form-3 view shapes the live renderer does, but with no
-  component instance, so a render that reads its instance throws
-  (IMPL-SPEC §8.1 lists what the walker cannot render). Calling the head once and recursing on the result is correct
+  component instance: a render that hands its instance to a `reagent2.core`
+  accessor raises `:rf.error/static-markup-no-instance` (IMPL-SPEC §8.1
+  lists what the walker cannot render). Calling the head once and recursing on the result is correct
   ONLY for Form-1 (the body IS hiccup): a Form-2 head
   `(fn [x] (fn [x] [:li x]))` returns its inner render closure, and
   recursing on that bare fn would hit `emit-element` and throw
@@ -76,8 +74,8 @@
   (`create-class`) heads are React classes carrying their user
   `:reagent-render` fn under `.-cljsReagentRender`; we render that fn
   through the same Form-1/Form-2 path. A generic React class (no
-  reagent render fn) stays opaque — emitting the placeholder comment,
-  matching `:>`.
+  reagent render fn) raises `:rf.error/static-markup-opaque-component`,
+  as `:>` does.
 
   HTML escaping (per §8.2): lifted by intent (not require — bundle
   isolation forbids `:require` between artefacts; the
@@ -1113,13 +1111,50 @@
 
 (declare emit-element)
 
-(defn- emit-react-component-placeholder
-  "Placeholder for foreign React-component subtrees. NOT react-dom parity
-  (see the ns docstring): `react-dom/server` renders foreign components,
-  and this serializer ships no React, so it marks the skipped content
-  rather than pretending to have rendered it."
-  [^StringBuffer sb]
-  (.append sb "<!--reagent-react-component-->"))
+;; The two refusals below replicate the canonical thrown-error shape inline,
+;; for the reason `emit-hiccup-vector` gives: reagent2 cannot `:require`
+;; re-frame's error builder. The third, a refused Provider, is raised by the
+;; installed static Provider check.
+
+(defn- opaque-component!
+  "Raise `:rf.error/static-markup-opaque-component` for a foreign React
+  component: the component of a `:>` / `:r>` / `:f>` `head`, or, with `head`
+  `:class`, a React class not made by `create-class` written as the head.
+  `react-dom/server` renders one by running it; this serializer ships no
+  React, so it refuses rather than leave a hole in the markup."
+  [head]
+  (let [what (if (= :class head)
+               "a React class not made by create-class"
+               (str "the React component of a " (pr-str head) " head"))]
+    (throw (ex-info (str "Static markup cannot render " what "; only React "
+                         "can run it. Render hiccup in its place for the "
+                         "export. [:rf.error/static-markup-opaque-component]")
+                    {:rf.error/id :rf.error/static-markup-opaque-component
+                     :where       'reagent2.dom.server/render-to-static-markup
+                     :reason      (str "Only React can run a foreign React "
+                                       "component, so static markup cannot "
+                                       "render it; render hiccup in its place "
+                                       "for the export.")
+                     :recovery    :render-hiccup-in-its-place
+                     :head        head}))))
+
+(defn- no-instance!
+  "Raise `:rf.error/static-markup-no-instance` for a render that handed its
+  component instance to the `reagent2.core` accessor named by `accessor`. A
+  static render has no instance: `(r/current-component)` is nil there.
+  `render-to-static-markup` binds `component/*no-instance*` to this."
+  [accessor]
+  (throw (ex-info (str "A render handed its component instance to " accessor
+                       ", but static markup renders with no component "
+                       "instance. Render from the component's args instead. "
+                       "[:rf.error/static-markup-no-instance]")
+                  {:rf.error/id :rf.error/static-markup-no-instance
+                   :where       'reagent2.dom.server/render-to-static-markup
+                   :reason      (str "Static markup renders with no component "
+                                     "instance, so a render cannot read one; "
+                                     "render from the component's args instead.")
+                   :recovery    :render-from-args
+                   :accessor    accessor})))
 
 (defn- emit-children
   [^StringBuffer sb children]
@@ -1169,33 +1204,44 @@
          (or (identical? t react-context-type)
              (identical? t react-provider-type)))))
 
+(defn- provider-value
+  "The value a Provider head supplies: `:r>` carries raw js-props at index 2,
+  and `:>` / `:f>` a hiccup props map there, if any."
+  [head argv]
+  (let [props (nth argv 2 nil)]
+    (if (= :r> head)
+      (when (some? props) (unchecked-get props "value"))
+      (when (map? props) (:value props)))))
+
 (defn- emit-react-interop
   "Emit a React-interop head (`:>`, `:r>`, `:f>`).
 
   A context Provider is walked through — it contributes no markup of its
   own, so its children are emitted as if the Provider were not there,
   which is exactly what `react-dom/server` produces for a Provider.
-  Every other component stays opaque: with no React there is no way to
-  know what it renders.
+  Every other component raises `:rf.error/static-markup-opaque-component`:
+  with no React there is no way to know what it renders.
 
   Child slots mirror the live renderer (`reagent2.impl.template`): `:r>`
   takes raw js-props at index 2 UNCONDITIONALLY, so its children start at
   3 (`raw-element` passes `3` to `make-element`); `:>` and `:f>` use the
   conventional `props-slot?` test at index 2.
 
-  Frame scoping is NOT reimplemented here. The Provider's `:value` is a
-  React-runtime concern; under the static walker a descendant resolves
-  its frame through the ambient `with-frame` / `*current-frame*` binding,
-  exactly as it would were the Provider not there."
+  The walker applies no Provider's value: a descendant resolves its frame
+  through the ambient `with-frame` / `*current-frame*` binding, exactly as
+  it would were the Provider not there. So the installed static Provider
+  check sees each Provider and its value first, and refuses one whose value
+  the subtree needs."
   [^StringBuffer sb argv]
   (let [head      (nth argv 0 nil)
         component (nth argv 1 nil)]
     (if-not (context-provider? component)
-      (emit-react-component-placeholder sb)
+      (opaque-component! head)
       (let [children-pos (if (= :r> head)
                            3
                            (if (template/props-slot? (nth argv 2 nil)) 3 2))
             n            (count argv)]
+        (component/check-static-provider! component (provider-value head argv))
         (when (< children-pos n)
           (emit-children sb (subvec argv children-pos)))))))
 
@@ -1355,9 +1401,8 @@
       ;; plain-fn path and render its `:reagent-render` fn.
       (component/reagent-class? head) (emit-reagent-class sb head argv)
       ;; A generic React class (not made by `create-class*`) has no
-      ;; CLJS render fn to walk — treat it as opaque foreign content,
-      ;; same as `:>`.
-      (component/react-class? head)   (emit-react-component-placeholder sb)
+      ;; CLJS render fn to walk — foreign content, refused as `:>` is.
+      (component/react-class? head)   (opaque-component! :class)
       ;; Plain user fn head — Form-1 or Form-2.
       (fn? head)                  (emit-user-fn sb head argv)
       :else
@@ -1420,8 +1465,13 @@
   The output is suitable for HTML email, static-export, or as the
   initial seed for the SSR seam (`day8/re-frame2-ssr`'s
   `re-frame.ssr/render-to-string` is the richer path that includes
-  hydration support per Spec 011)."
+  hydration support per Spec 011).
+
+  Throws a typed `:rf.error/static-markup-*` error for what it cannot
+  render: a render that reads its component instance, a foreign React
+  component, or a Provider the installed static Provider check refuses."
   [hiccup]
   (let [sb (StringBuffer.)]
-    (emit-element sb hiccup)
+    (binding [component/*no-instance* no-instance!]
+      (emit-element sb hiccup))
     (.toString sb)))

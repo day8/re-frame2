@@ -98,43 +98,49 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Form-3 accessors
+;;
+;; Each accessor passes its instance through `component/instance` first, so a
+;; render under the static serializer, which has no instance, raises a typed
+;; error naming the accessor rather than a TypeError on nil.
 ;; ---------------------------------------------------------------------------
 
 (defn argv
   "Form-3 accessor: full hiccup-style arg vector that mounted `this`."
   [this]
-  (component/get-argv this))
+  (component/get-argv (component/instance this 'reagent2.core/argv)))
 
 (defn props
   "Form-3 accessor: first arg of `this`'s argv if it is a map, else nil."
   [this]
-  (component/get-props this))
+  (component/get-props (component/instance this 'reagent2.core/props)))
 
 (defn children
   "Form-3 accessor: children seq from `this`'s argv (everything after props)."
   [this]
-  (component/get-children this))
+  (component/get-children (component/instance this 'reagent2.core/children)))
 
 (defn state-atom
   "Form-3 state cell. Per-component RAtom; created lazily."
   [this]
-  (component/state-atom this))
+  (component/state-atom (component/instance this 'reagent2.core/state-atom)))
 
 (defn state
   "Form-3 state accessor — derefs the per-component state-atom.
   Returns nil if no state has been set."
   [this]
-  @(state-atom this))
+  @(component/state-atom (component/instance this 'reagent2.core/state)))
 
 (defn set-state
   "Form-3 state mutator: merges `m` into the per-component state map."
   [this m]
-  (swap! (state-atom this) merge m))
+  (swap! (component/state-atom (component/instance this 'reagent2.core/set-state))
+         merge m))
 
 (defn replace-state
   "Form-3 state mutator: replaces the per-component state map with `m`."
   [this m]
-  (reset! (state-atom this) m))
+  (reset! (component/state-atom (component/instance this 'reagent2.core/replace-state))
+          m))
 
 (defn force-update
   "Force re-render of `this` component. Routes through React's
@@ -145,7 +151,7 @@
   relies on it. Callers passing a second arg see a CLJS arity
   error at the call site — fail-fast over silent semantic divergence."
   [^js this]
-  (when-some [fu (.-forceUpdate this)]
+  (when-some [fu (.-forceUpdate ^js (component/instance this 'reagent2.core/force-update))]
     (.call fu this)))
 
 ;; ---------------------------------------------------------------------------
