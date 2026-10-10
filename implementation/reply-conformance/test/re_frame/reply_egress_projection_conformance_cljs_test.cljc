@@ -80,9 +80,14 @@
 
 (deftest trace-summary-projects-wire-slots-through-the-shared-elider
   (mk-frame!)
-  (let [reply   (assoc (ok-reply) :correlation {:token raw-token} :meta {:blob big-string})
+  (let [reply   (assoc (ok-reply)
+                       :error       {:kind :rf.http/http-5xx :token raw-token}
+                       :correlation {:token raw-token}
+                       :meta        {:blob big-string})
         summary (rf.reply/trace-summary reply {:frame frame-id})]
     (is (redacted? (get-in summary [:value :token])))
+    (is (= {:kind :rf.http/http-5xx :token rf.privacy/redacted-sentinel} (:error summary))
+        "the failure payload is projected per leaf")
     (is (large-marker? (get-in summary [:value :blob])))
     (is (= {:count 3} (get-in summary [:value :public])) "an unmarked sibling rides through")
     (is (redacted? (get-in summary [:correlation :token])))
