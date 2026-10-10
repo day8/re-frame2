@@ -65,11 +65,10 @@
 ;; true}` (alongside `enabled? true`) so the entries PERSIST in the
 ;; retained buffer and these emission assertions can read them
 ;; synchronously. Retention is the robust way to assert the entry
-;; NAMES / BUCKETS here, because a synchronous PerformanceObserver read is
-;; unreliable on the node runner (the callback runs later, as a queued
-;; task). It also means this runner cannot observe clear-after-emit, and
-;; the assertions for it in `re-frame.performance-cljs-test` are guarded off
-;; in the flag-off lane that runs that namespace.
+;; NAMES / BUCKETS here, because an observer's callback runs later, as a
+;; queued task. It also means this runner cannot observe clear-after-emit;
+;; `re-frame.performance-cljs-test` grades that in the per-PR `:node-test`
+;; lane.
 (defn- clear-measures!
   []
   (when (exists? js/performance.clearMeasures)
