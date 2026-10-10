@@ -62,7 +62,7 @@
       (is (= 1 (count lines))
           (str "exactly one [re-frame2] line; got " (pr-str out)))
       (doseq [needle needles]
-        (is (str/includes? (first lines) needle)
+        (is (str/includes? (str (first lines)) needle)
             (str "the line names " needle "; got " (pr-str (first lines))))))
     (is (= "" out) (str "the production gate prints nothing; got " (pr-str out)))))
 
