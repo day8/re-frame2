@@ -249,6 +249,14 @@
           opened (template/record-panel noop-dispatch (open-all r) r)]
       (is (some #{{:status 500 :body "oops"}} (tree-nodes opened))))))
 
+(deftest an-all-zero-wire-falls-back-to-the-na-line
+  (testing "phases that are all zero-length leave the waterfall nothing to
+            draw, so WIRE shows its n/a line rather than an empty body"
+    (let [r (record {:surface :http :fx-id :rf.http/managed :status :ok
+                     :http-status 200 :wire {:phases [[:issued 0] [:elapsed 0]]}})]
+      (is (contains? (set (testids (template/record-panel noop-dispatch (open-all r) r)))
+                     "rf-xray-managed-fx-wire-na")))))
+
 (deftest disclosure-state-is-per-record
   (testing "Opening REQUEST on one record must not open it on its siblings —
             which is why the override key carries the record identity."
