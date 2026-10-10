@@ -84,7 +84,7 @@ If neither tier names a frame, the reader returns `nil` and a public frame-scope
 (rf/subscribe [:my-sub])                          ;; no opts → resolves the established scope (raises if none)
 ```
 
-(A frame-first `(subscribe frame-id query-v)` 2-arity still exists as **internal plumbing** — EP-0024 retired it from the taught app grammar; author with the `{:frame …}` opt. `unsubscribe` is the one exception that keeps a public `(unsubscribe frame-id query-v)` arity.)
+(A frame-first `(subscribe frame-id query-v)` 2-arity still exists as **internal plumbing** — EP-0024 retired it from the taught app grammar; author with the `{:frame …}` opt. `unsubscribe` takes no frame at all: `(unsubscribe r)` hands back the reaction `subscribe` returned.)
 
 ## Carrying the frame into async callbacks
 

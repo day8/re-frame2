@@ -30,7 +30,7 @@ The `reg-event` metadata-map is the one **superset** middle slot — reflection 
 | `rf/dispatch-sync` | `(event)` / `(event opts)` — drains to fixed point; same `:rf.cofx` opt |
 | `rf/subscribe` | `(query-v)` / `(query-v opts)` → reaction — `opts` may carry `:frame` (mirrors `dispatch`); there is no frame-first `(frame-id query-v)` public form |
 | `rf/subscribe-once` | `(query-v)` / `(query-v opts)` — one-shot: materialise + deref + unsubscribe; same `:frame` opt |
-| `rf/unsubscribe` | `(query-v)` / `(frame-id query-v)` |
+| `rf/unsubscribe` | `(r)` — hands back one share of the reaction `subscribe` returned; identity-guarded, so a reaction evicted since is a no-op; no frame, no query |
 | `rf/compute-sub` | `(query-v db)` — pure; bypass cache (preferred in tests) |
 | `rf/with-frame` | `(frame-id body)` — pin `body` to an existing frame (lexical scope) |
 | `rf/with-new-frame` | `([sym expr] body)` — create+own+destroy a frame for `body` |

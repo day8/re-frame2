@@ -463,9 +463,12 @@ Two functions step outside the deref-driven lifecycle:
   scope. Don't call it from an event handler, which would make the handler read
   state it did not declare: when a handler needs a derived value, materialise it
   with a [flow](glossary.md#flow) or declare it as a [coeffect](coeffects.md).
-- **`rf/unsubscribe`** decrements the ref-count by hand, for the rare case where you
-  took a reference programmatically. Views never call it; mount and unmount do it
-  for them.
+- **`rf/unsubscribe`** hands back, by hand, the reaction `subscribe` returned —
+  `(rf/unsubscribe r)` — for the rare case where you took a reference
+  programmatically. Each call returns one share of the ref-count, and a reaction
+  whose slot has since been evicted (a hot reload, `clear-sub-cache!`) is a
+  no-op, so a late release never disposes another holder's entry. Views never
+  call it; mount and unmount do it for them.
 
 ### The framework's own subs
 

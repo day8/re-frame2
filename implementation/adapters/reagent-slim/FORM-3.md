@@ -396,7 +396,8 @@ Three variations worth knowing:
   queue and commits inside a single `flushSync` boundary.
   Hold the owner per mount and tear down in that order at unmount —
   `reagent2.ratom/dispose!` the owner **first**, then balance the acquire with
-  frame-first `(rf/unsubscribe frame query-v)` — so the owner is gone before the
+  `(rf/unsubscribe reaction)`, releasing the reaction the mount acquired — so the
+  owner is gone before the
   cache slot is released and no feed can run against a destroyed widget. Equal
   `(frame, query-v)` subscriptions share **one** cached reaction, but each mount
   holds its own owner, so two instances are independent by construction: there is

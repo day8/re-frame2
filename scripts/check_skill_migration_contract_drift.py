@@ -53,9 +53,10 @@ Two contract facts, each pinned against the shipped spec:
   * **Form-3 lifecycle frame targeting — hooks have no ambient frame.** A stock
     Reagent Form-3 lifecycle callback runs after the registered render scope has
     unwound. A one-shot hook read therefore uses `(rf/subscribe-once query-v
-    {:frame frame})`, and teardown uses frame-first `(rf/unsubscribe frame
-    query-v)`. The stale affirmative recipe this gate kills is a lifecycle hook
-    that recommends the bare one-argument form for either operation.
+    {:frame frame})`; teardown hands back the reaction the hook acquired,
+    `(rf/unsubscribe reaction)`, which resolves no frame. The stale affirmative
+    recipe this gate kills is a lifecycle hook that recommends the bare
+    one-argument `subscribe-once`.
 
     Unlike the rules above this one is NOT a line rule — a bare call is legal
     wherever a real resolver scope exists, so the rule is only as good as the
@@ -71,17 +72,17 @@ Two contract facts, each pinned against the shipped spec:
     subscription.** The ONE Form-3 that holds a live reactive
     subscription outside render captures the frame once in the outer callable and
     MUST both destructure `subscribe` from that bundle
-    (`{:keys [frame subscribe]} (rf/capture-frame)`) AND acquire its reaction
+    (`{:keys [subscribe]} (rf/capture-frame)`) AND acquire its reaction
     through that captured local inside `:component-did-mount`
     (`(let [reaction (subscribe query-v)] …)`) — never the ambient `rf/subscribe`,
     whose ambient frame lookup a lifecycle hook (render scope already unwound)
     cannot satisfy, so it raises `:rf.error/no-frame-context`. Rule 5 above (bare
-    arity) covers `subscribe-once` / `unsubscribe` and does not require the acquire
+    arity) covers `subscribe-once` and does not require the acquire
     to route through the captured op, so swapping `(subscribe query-v)` for
     `(rf/subscribe query-v)` at the acquire site would pass it. This narrow
     Rule-5b check pins that acquire + its matching destructuring in the ONE
     canonical fenced example — identified by the once-capture, the mount hook, and
-    the frame-first teardown that marks the long-lived-reaction branch, so it never
+    the `unsubscribe` teardown that marks the long-lived-reaction branch, so it never
     fires on the dispatch-only route-2 examples, the `capture-frame` rename recipe,
     or explanatory prose. See `form3_captured_subscribe_problems`.
 
@@ -444,10 +445,12 @@ FORM3_LIFECYCLE_RE = re.compile(
     re.IGNORECASE,
 )
 # The bare form is an ARITY fact, not a spelling.
-# `subscribe-once` carries the frame as a `{:frame frame}` opts map and
-# `unsubscribe` is frame-first, so a ONE-argument call is exactly the bare form
-# lifecycle guidance must never recommend; two-or-more is frame-qualified and
-# legal. Reading that needs balanced-form scanning rather than a token match:
+# `subscribe-once` carries the frame as a `{:frame frame}` opts map, so a
+# ONE-argument call is exactly the bare form lifecycle guidance must never
+# recommend; two-or-more is frame-qualified and legal. `unsubscribe` is not read
+# here: it takes the reaction `subscribe` returned and resolves no frame, so its
+# one-argument form IS the correct lifecycle teardown. Reading the arity needs
+# balanced-form scanning rather than a token match:
 # real guidance writes vector queries (`[:todos/all :active]`) and splits calls
 # over lines, and a same-line whitespace-free-token pattern misses both, letting
 # realistic unsafe recipes through the gate.
@@ -458,7 +461,7 @@ FORM3_LIFECYCLE_RE = re.compile(
 # as it takes to keep the bracket count honest. An excerpt that does not close
 # inside the window is skipped, never guessed at.
 FORM3_CALL_HEAD_RE = re.compile(
-    r"\((?:rf/)?(?:subscribe-once|unsubscribe)(?![\w.$/-])",
+    r"\((?:rf/)?subscribe-once(?![\w.$/-])",
     re.IGNORECASE,
 )
 FORM3_CALL_SCAN_LIMIT = 600  # chars — a lifecycle call form never runs longer
@@ -626,7 +629,7 @@ def _read_form(
 
 
 def _form3_call_sites(text: str) -> list[tuple[int, int, int]]:
-    """`(start, end, arity)` for every balanced subscribe-once/unsubscribe form.
+    """`(start, end, arity)` for every balanced subscribe-once form.
 
     Call heads are discovered over the shared `_lex_scan` mask so a call-shaped
     token inside a string / char literal / comment is skipped, not read as a
@@ -690,9 +693,9 @@ FORM3_BARE_LIFECYCLE_PROBLEM = (
     "FORM3-BARE-LIFECYCLE: a Form-3 lifecycle callback has no ambient "
     "frame after render scope unwinds. Capture the frame once in the "
     "registered outer callable; use `(rf/subscribe-once query-v "
-    "{:frame frame})` for a hook one-shot read and frame-first "
-    "`(rf/unsubscribe frame query-v)` for teardown. Do not recommend "
-    "the bare one-argument forms in lifecycle guidance."
+    "{:frame frame})` for a hook one-shot read; teardown hands back the "
+    "acquired reaction with `(rf/unsubscribe reaction)`. Do not recommend "
+    "the bare one-argument `subscribe-once` in lifecycle guidance."
 )
 
 
@@ -1040,14 +1043,14 @@ def form3_context_problems(text: str) -> list[tuple[int, str, str]]:
 # live reactive subscription OUTSIDE render (a JS widget re-fed from a hook as a
 # sub's value changes). It captures the frame ONCE in the `reg-view*` outer
 # callable and MUST both (1) destructure `subscribe` from that bundle
-# (`{:keys [frame subscribe]} (rf/capture-frame)`) and (2) ACQUIRE its reaction
+# (`{:keys [subscribe]} (rf/capture-frame)`) and (2) ACQUIRE its reaction
 # through that captured local inside `:component-did-mount`
 # (`(let [reaction (subscribe query-v)] …)`). The ambient `rf/subscribe` is wrong
 # there: a lifecycle hook fires after the render/resolver scope has unwound, so an
 # ambient `subscribe` finds no frame and raises `:rf.error/no-frame-context`
 # (the same unwind that re-raises a fresh `(rf/capture-frame)` in a hook).
 #
-# Rule 5 (`form3_context_problems`) only reads `subscribe-once` / `unsubscribe`
+# Rule 5 (`form3_context_problems`) only reads `subscribe-once`
 # bare arity and does not require the acquire to route through the captured op,
 # so swapping `(subscribe query-v)` for `(rf/subscribe query-v)` at the acquire
 # site would leave BOTH the baseline and the mutated scan empty — a false green
@@ -1070,8 +1073,8 @@ FORM3_CAPTURE_SUBSCRIBE_DESTRUCTURE_RE = re.compile(
 )
 # The `capture-frame` call — the once-capture landmark of the outer callable.
 FORM3_CAPTURE_FRAME_CALL_RE = re.compile(r"\((?:rf/|re-frame\.core/)?capture-frame\b")
-# The frame-first `unsubscribe` CALL — the teardown that marks the long-lived
-# reaction branch. Used only as an identifier landmark; Rule 5 owns its arity.
+# The `unsubscribe` CALL — the teardown that marks the long-lived reaction
+# branch. Used only as an identifier landmark.
 FORM3_UNSUBSCRIBE_CALL_RE = re.compile(r"\((?:rf/|re-frame\.core/)unsubscribe\b")
 # An AMBIENT `subscribe` acquire — the regression: `(rf/subscribe …)` /
 # `(re-frame.core/subscribe …)`. The `(?![-\w])` excludes `subscribe-once`.
@@ -1103,9 +1106,9 @@ FORM3_MISSING_ACQUIRE_PROBLEM = (
 )
 FORM3_MISSING_DESTRUCTURE_PROBLEM = (
     "FORM3-CAPTURE-DESTRUCTURE-MISSING: the exceptional imperative-subscription "
-    "Form-3 (it captures the frame once and tears down with frame-first "
-    "`(rf/unsubscribe frame query-v)`) must destructure `subscribe` from the "
-    "once-captured frame ops — `{:keys [frame subscribe]} (rf/capture-frame)` — and "
+    "Form-3 (it captures the frame once and tears down with "
+    "`(rf/unsubscribe reaction)`) must destructure `subscribe` from the "
+    "once-captured frame ops — `{:keys [subscribe]} (rf/capture-frame)` — and "
     "acquire its reaction through that captured local in "
     "`:component-did-mount`."
 )
@@ -1169,7 +1172,7 @@ def form3_captured_subscribe_problems(text: str) -> list[tuple[int, str, str]]:
     `find_drift` formats it identically. The example is identified by three
     structural landmarks read over fenced Clojure code (strings / comments
     blanked): the outer-callable `(rf/capture-frame)`, the `:component-did-mount`
-    hook, and the frame-first `(rf/unsubscribe …)` teardown that marks the
+    hook, and the `(rf/unsubscribe …)` teardown that marks the
     long-lived-reaction branch. None of the three is the thing verified, so the
     check catches BOTH a dropped `subscribe` destructuring and an acquire swapped
     to the ambient `rf/subscribe`."""
@@ -1268,7 +1271,7 @@ FORM3_OWNER_DISPOSE_MISSING_PROBLEM = (
     "FORM3-OWNER-DISPOSE-MISSING: the exceptional imperative-subscription Form-3 "
     "creates a per-mount reactive owner but never disposes it. "
     "`:component-will-unmount` must `r/dispose!` the tracker BEFORE "
-    "`(rf/unsubscribe frame query-v)`, so the owner is gone before the cache slot "
+    "`(rf/unsubscribe reaction)`, so the owner is gone before the cache slot "
     "is released and no feed runs against a destroyed widget."
 )
 
@@ -1281,7 +1284,7 @@ def form3_reactive_owner_problems(text: str) -> list[tuple[int, str, str]]:
     Returns `(lineno, label, excerpt)`, matching the sibling Form-3 rules so
     `find_drift` formats it identically. Scoped by the same three structural
     landmarks Rule 5b uses — the outer-callable `(rf/capture-frame)`, the
-    `:component-did-mount` hook, and the frame-first `(rf/unsubscribe …)` teardown
+    `:component-did-mount` hook, and the `(rf/unsubscribe …)` teardown
     — so it cannot fire on the dispatch-only route-2 examples, the route-1
     outer/inner pattern, or explanatory prose."""
     found: list[tuple[int, str, str]] = []
@@ -2373,11 +2376,6 @@ LIVE_FORM3_MUTATIONS = (
         "(rf/subscribe-once query-v {:frame frame})",
         "(rf/subscribe-once query-v)",
     ),
-    (
-        "lifecycle teardown drops its frame-first argument",
-        "(rf/unsubscribe frame query-v)",
-        "(rf/unsubscribe query-v)",
-    ),
 )
 
 
@@ -2680,12 +2678,17 @@ def _self_test() -> int:
         label="E8 older negative example cannot bless a later positive recipe",
     )
     expect_text(
-        "**Form-3 lifecycle.** Acquire in `:component-did-mount`. Pair it "
-        "with `(rf/unsubscribe query-v)` in "
-        "`:component-will-unmount`. A teardown that omits the frame throws "
-        "`:rf.error/no-frame-context`.",
+        "**Form-3 lifecycle.** Seed the widget in `:component-did-mount`. Read it "
+        "with `(rf/subscribe-once query-v)` there. A read that omits the frame "
+        "throws `:rf.error/no-frame-context`.",
         dirty=True,
-        label="E9 later warning cannot bless earlier bare teardown",
+        label="E9 later warning cannot bless earlier bare read",
+    )
+    expect_text(
+        "**Form-3 lifecycle.** Release in `:component-will-unmount` with "
+        "`(rf/unsubscribe reaction)`, the reaction the mount acquired.",
+        dirty=False,
+        label="E10 handle teardown in a lifecycle hook is clean",
     )
 
     # --- Rule 5 realistic call shapes -----------------------------------------
@@ -2698,10 +2701,10 @@ def _self_test() -> int:
         dirty=True, label="F1 same-line vector query arg is bare",
     )
     expect_text(
-        "**Form-3 lifecycle.** Teardown must name the frame.\n\n"
-        "```clojure\n:component-will-unmount\n(fn [_]\n"
-        "  (rf/unsubscribe\n    [:todos/all :active]))\n```",
-        dirty=True, label="F4 split-line teardown with a vector query",
+        "**Form-3 lifecycle.** A hook read must name the frame.\n\n"
+        "```clojure\n:component-did-mount\n(fn [_]\n"
+        "  (rf/subscribe-once\n    [:todos/all :active]))\n```",
+        dirty=True, label="F4 split-line hook read with a vector query",
     )
     # A frame-qualified split-line call MUST pass — the opts map is what makes
     # the call legal, and arity is how the scanner sees it.
@@ -2933,33 +2936,36 @@ def _self_test() -> int:
     # --- Rule 5b fixtures — captured-subscribe acquisition ----------------------
     # A structurally faithful copy of the ONE canonical exceptional Form-3: the
     # frame captured once (destructuring `subscribe`), the mount-hook acquire
-    # through that captured local, and the frame-first teardown. Mutations derive
+    # through that captured local, and the handle teardown. Mutations derive
     # from it via `.replace`, mirroring the K-cases.
     CANON = (
         "**The exceptional imperative-subscription Form-3.**\n\n"
         "```clojure\n"
         "(re-frame.core/reg-view* ::live-gauge\n"
         "  (fn [gauge-id]\n"
-        "    (let [{:keys [frame subscribe]} (rf/capture-frame)  ; captured ONCE\n"
+        "    (let [{:keys [subscribe]} (rf/capture-frame)  ; captured ONCE\n"
         "          query-v [:gauge/reading gauge-id]\n"
+        "          !reaction (r/atom nil)\n"
         "          !driver (r/atom nil)]\n"
         "      (reagent.core/create-class\n"
         "        {:reagent-render (fn [_] [:div.gauge])\n"
         "         :component-did-mount\n"
         "         (fn [this]\n"
         "           (let [reaction (subscribe query-v)]           ; ACQUIRE\n"
+        "             (reset! !reaction reaction)\n"
         "             (reset! !driver                             ; OWN\n"
         "               (r/track! (fn [] (feed-gauge! @reaction))))))\n"
         "         :component-will-unmount\n"
         "         (fn [_]\n"
         "           (some-> @!driver r/dispose!)\n"
-        "           (rf/unsubscribe frame query-v))}))))\n"  # RELEASE — frame-first
+        "           (rf/unsubscribe @!reaction))}))))\n"  # RELEASE — the acquired reaction
         "```"
     )
     # The mount hook as CANON ships it — the anchor mutations replace.
     CANON_MOUNT = (
         "         (fn [this]\n"
         "           (let [reaction (subscribe query-v)]           ; ACQUIRE\n"
+        "             (reset! !reaction reaction)\n"
         "             (reset! !driver                             ; OWN\n"
         "               (r/track! (fn [] (feed-gauge! @reaction))))))\n"
     )
@@ -2971,7 +2977,7 @@ def _self_test() -> int:
     )
     # VC3 — matching destructuring dropped (subscribe not bound from capture).
     expect_captured(
-        CANON.replace("{:keys [frame subscribe]}", "{:keys [frame]}"),
+        CANON.replace("{:keys [subscribe]}", "{:keys [dispatch]}"),
         dirty=True, label="VC3 dropped subscribe destructuring is flagged",
     )
     # VC4 — destructures subscribe but never acquires through it in did-mount.
@@ -2988,7 +2994,7 @@ def _self_test() -> int:
     expect_captured(
         "When a hook must read a sub, acquire it in `:component-did-mount` through "
         "the captured `subscribe`, capture once via `(rf/capture-frame)`, pair with "
-        "`(rf/unsubscribe frame query-v)`, and never a bare `(rf/subscribe query-v)`.",
+        "`(rf/unsubscribe reaction)`, and never a bare `(rf/subscribe query-v)`.",
         dirty=False, label="VC8 explanatory prose (no fence) is not flagged",
     )
     # VC10 — lexical: an ambient acquire spelled inside a `;` comment must NOT flag
