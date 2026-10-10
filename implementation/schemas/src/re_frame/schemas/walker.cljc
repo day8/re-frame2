@@ -211,10 +211,8 @@
       reg-app-schema path IS where the marker fires.
 
   Returns the accumulator map."
-  ([flag-key schema base-path]
-   (walk-flagged-schema flag-key schema base-path {}))
-  ([flag-key schema base-path acc]
-   (walk-flags flag-key schema base-path acc false)))
+  [flag-key schema base-path acc]
+  (walk-flags flag-key schema base-path acc false))
 
 (defn- walk-flags
   "The recursion behind `walk-flagged-schema`. `spliced?` is true when

@@ -807,14 +807,14 @@
   skipped; `run-chain` turns a falsy return into `:rf/skip-handler?`, plus
   `:rf/boundary-rejected?` when the handler is boundary-guarded.
 
-  `frame` is threaded so the `:where :event` failure
-  trace carries a `:frame` tag and is captured into the in-flight
-  cascade's epoch `:trace-events` by `epoch.capture/capture-event!`
-  (which drops any trace whose tags lack `:frame`). Without it the
-  violation would fire on the global trace stream but never land in the
-  epoch record, so the Xray Issues / Schema-timeline lens would show
-  nothing for an event-args schema failure (the `:where :app-db`
-  path always tags `:frame`)."
+  `frame` is threaded to both arms so the `:where :event` failure trace
+  carries a `:frame` tag. The production arm needs it: production
+  allocates no dispatch-id, so the trace envelope stamps no ambient frame,
+  and the SSR error projection routes the record per frame. In dev the
+  envelope stamps the same frame from the run's scope, so
+  `epoch.capture/capture-event!` (which drops any trace whose tags lack
+  `:frame`) captures the failure into the in-flight cascade's epoch
+  either way."
   [event-id event handler-meta frame live?]
   (if (rf.spec/dev-mode?)
     ;; Sticky hook — `:schemas/validate-event!` is published
