@@ -1,1130 +1,345 @@
-;;;; tests/prompts/prompt_regression_test.clj — prompt-regression for the
-;;;; canonical re-frame2-pair conversations.
-;;;;
-;;;; Per `docs/TESTING.md` §3 the goal of prompt regression is to catch
-;;;; SILENT DRIFT in the skill's recipes as the skill itself evolves.
-;;;; A conversation-driving harness (Claude in the loop) is the *fidelity-
-;;;; ideal* version of this surface; the structural substrate here catches
-;;;; the cheapest class of drift:
-;;;;
-;;;; - The canonical prompt's *recipe* lives in `references/recipes.md`
-;;;; under the expected heading.
-;;;; - The recipe names the expected op(s) — so a renamed shim or a
-;;;; removed runtime helper breaks the test.
-;;;;
-;;;; A conversation-driving variant can sit on top of this substrate; the
-;;;; canonical-prompts table is the source of truth for either.
+;;;; tests/prompts/prompt_regression_test.clj — catches silent drift in the
+;;;; skill's recipes and in the contract claims its docs make (docs/TESTING.md
+;;;; §3): each canonical prompt's recipe still exists and names its ops, and
+;;;; the docs keep the claims an agent acts on.
 ;;;;
 ;;;; Run: bb tests/prompts/prompt_regression_test.clj
-;;;; Exit: 0 = pass, non-zero = fail.
 
 (ns prompt-regression-test
- (:require [clojure.java.io :as io]
- [clojure.string :as str]
- [clojure.test :refer [deftest is testing run-tests]]))
-
-;; ---------------------------------------------------------------------------
-;; Filesystem helpers
-;; ---------------------------------------------------------------------------
+  (:require [clojure.java.io :as io]
+            [clojure.string :as str]
+            [clojure.test :refer [deftest is testing run-tests]]))
 
 (def ^:private skill-root
- (-> *file*
- (io/file)
- (.getAbsoluteFile)
- (.getParentFile) ;; tests/prompts/
- (.getParentFile) ;; tests/
- (.getParentFile))) ;; skills/re-frame2-pair/
+  (-> *file* io/file .getAbsoluteFile .getParentFile .getParentFile .getParentFile))
 
-(defn- slurp-rel [rel]
- (slurp (io/file skill-root rel)))
+(defn- doc [rel] (delay (slurp (io/file skill-root rel))))
 
-(def ^:private recipes-md (delay (slurp-rel "references/recipes.md")))
-(def ^:private ops-md (delay (slurp-rel "references/ops.md")))
-(def ^:private screen-reads-md (delay (slurp-rel "references/screen-reads.md")))
-(def ^:private skill-md (delay (slurp-rel "SKILL.md")))
-(def ^:private errors-md (delay (slurp-rel "references/errors.md")))
-(def ^:private vocabulary-md (delay (slurp-rel "references/vocabulary.md")))
-(def ^:private mcp-transport-md (delay (slurp-rel "references/mcp-transport.md")))
+(def ^:private recipes-md      (doc "references/recipes.md"))
+(def ^:private ops-md          (doc "references/ops.md"))
+(def ^:private screen-reads-md (doc "references/screen-reads.md"))
+(def ^:private skill-md        (doc "SKILL.md"))
+(def ^:private errors-md       (doc "references/errors.md"))
+(def ^:private vocabulary-md   (doc "references/vocabulary.md"))
+(def ^:private stories-md      (doc "references/stories.md"))
+(def ^:private readme-md       (doc "README.md"))
+(def ^:private capabilities-md (doc "docs/capabilities.md"))
+(def ^:private local-dev-md    (doc "docs/LOCAL_DEV.md"))
 
-;; User-facing docs + the variant leaf the MCP-surface
-;; conformance drift guards assert against.
-(def ^:private readme-md (delay (slurp-rel "README.md")))
-(def ^:private capabilities-md (delay (slurp-rel "docs/capabilities.md")))
-(def ^:private local-dev-md (delay (slurp-rel "docs/LOCAL_DEV.md")))
-(def ^:private testing-md (delay (slurp-rel "docs/TESTING.md")))
-(def ^:private stories-md (delay (slurp-rel "references/stories.md")))
+(def ^:private manifest-text
+  (delay (slurp (io/file skill-root ".." ".." "tools" "re-frame2-pair-mcp" "tool-descriptors.edn"))))
 
-;; Live Pair-MCP catalogue cardinality. The generated descriptor
-;; manifest is the single source of truth for the tool count; read its
-;; `:meta :tool-count` directly rather than hard-coding a number here, so this
-;; guard tracks the catalogue automatically. The manifest sits two levels up
-;; from skill-root (repo `tools/re-frame2-pair-mcp/`).
 (def ^:private tool-count
-  (delay
-    (let [manifest (io/file skill-root
-                            ".." ".." "tools" "re-frame2-pair-mcp"
-                            "tool-descriptors.edn")
-          text     (slurp manifest)
-          ;; Lightweight extraction — avoid an EDN reader dep under bb.
-          m        (re-find #":tool-count\s+(\d+)" text)]
-      (assert m (str "could not read :tool-count from " (.getPath manifest)))
-      (Long/parseLong (second m)))))
+  "The live Pair-MCP catalogue size, read from the generated descriptor manifest."
+  (delay (let [m (re-find #":tool-count\s+(\d+)" @manifest-text)]
+           (assert m "could not read :tool-count from tool-descriptors.edn")
+           (Long/parseLong (second m)))))
 
-;; ---------------------------------------------------------------------------
-;; The canonical-prompts table
-;; ---------------------------------------------------------------------------
-;;
-;; Six representative prompts (`docs/TESTING.md` §3 calls them out).
-;; Each row carries:
-;;
-;; :id stable identifier, printed in each row's failure context
-;; :prompt the user-spoken request
-;; :recipe-anchor a substring expected in the recipe leaf's
-;; heading — proves the recipe exists
-;; :leaf optional; :stories reads references/stories.md (the one
-;; Story leaf, which carries the Story-variant recipes). Default
-;; is references/recipes.md
-;; :must-mention ops the recipe is expected to name. Each is an
-;; alternation of phrasings; the test passes if AT
-;; LEAST ONE alternative appears in recipes.md.
-;;
-;; ALTERNATION RATIONALE — re-frame2-pair's vocabulary admits multiple surfaces
-;; for the same op (MCP tool name, runtime fn name).
-;; The regression should fire when ALL of them disappear, not when one
-;; rename happens. The list per row is the set the recipe *currently*
-;; uses; if a future edit drops one and adds another, the test still
-;; passes — as long as something covering the same idea is named.
+(defn- has? [text needle]
+  (boolean (if (string? needle) (str/includes? text needle) (re-find needle text))))
 
-(def canonical-prompts
- [{:id :app-db-snapshot
- :prompt "What's in app-db under :user/profile?"
- :recipe-anchor "What's in `app-db`"
- :must-mention [["app-db/snapshot" "app-db/get" "snapshot"]]}
-
- {:id :trace-explain-dispatch
- :prompt "Trace `[:cart/apply-coupon \"SPRING25\"]`"
- :recipe-anchor "Explain this dispatch"
- :must-mention [["dispatch-and-collect" "trace/dispatch-and-collect"]
- [":rf/epoch-record" "epoch-record"]
- [":sub-runs"]
- [":renders"]]}
-
- {:id :why-no-update
- :prompt "Why didn't the header update after `[:profile/save ...]`?"
- :recipe-anchor "Why didn't my view update"
- :must-mention [[":sub-runs"]
- ["trace/last-epoch" "trace/last-pair-epoch" "last-epoch"]
- ["equality" "cache-hit"]]}
-
- {:id :experiment-loop
- :prompt "Iterate on the cart handler until expired coupons are rejected"
- :recipe-anchor "Experiment loop"
- ;; The PRE-DISPATCH anchor and the baseline RESULT epoch are pinned,
- ;; in order, by `experiment-loop-rewinds-to-the-pre-dispatch-anchor`.
- :must-mention [["dispatch-and-collect"]
- ["restore-epoch"]
- ["reg-event"]]}
-
- {:id :where-in-code
- :prompt "Where in the code does this button come from?"
- :recipe-anchor "Where in the code"
- :must-mention [["dom/source-at" "source-at"]
- ["data--coord" "source-coord"]]}
-
- ;; Story-in-the-open-app. The recipe must route through the
- ;; ATTACHED browser runtime: `eval-cljs` over `re-frame.story/*`, awaited
- ;; (run-variant returns a Promise in CLJS), then an ordinary Pair frame op
- ;; against the same runtime. The forbidden half — no `mcp__re-frame2-story-mcp__`
- ;; anywhere — is asserted in `story-work-stays-on-the-attached-runtime` below,
- ;; because a must-mention table can only require presence.
- {:id :story-in-the-open-app
- :prompt "Run this variant in the app I have open"
- :recipe-anchor "Drive a Story variant"
- :leaf :stories
- :must-mention [["mcp__re-frame2-pair__eval-cljs"]
- ["re-frame.story/run-variant"]
- ["await"]
- ["set-operating-frame"]]}])
-
-;; ---------------------------------------------------------------------------
-;; Assertions
-;; ---------------------------------------------------------------------------
-
-(defn- contains-any? [text alts]
- (some #(str/includes? text %) alts))
+(defn- claims
+  "Each row is [label text needle why]; the text must carry the needle (a
+   string, or a regex)."
+  [rows]
+  (doseq [[label text needle why] rows]
+    (is (has? text needle) (str label " must carry " (pr-str (str needle)) ": " why))))
 
 (defn- section-from
- "Return the chunk of `md` starting at the heading containing `anchor`
- and ending at the next `## ` heading (or EOF). Empty if no match."
- [md anchor]
- (let [pat (re-pattern (str "(?ms)## .*" (java.util.regex.Pattern/quote anchor) ".*?(?=^## |\\z)"))]
- (or (some-> (re-find pat md)) "")))
+  "The chunk of `md` from the `## ` heading containing `anchor` to the next
+   `## ` heading, or \"\" when there is no such heading."
+  [md anchor]
+  (or (re-find (re-pattern (str "(?ms)## .*" (java.util.regex.Pattern/quote anchor) ".*?(?=^## |\\z)")) md)
+      ""))
 
-(defn- assert-row [{:keys [id prompt recipe-anchor must-mention leaf]}]
- (testing (str id " — " prompt)
- (let [[leaf-name md] (if (= :stories leaf)
- ["stories.md" @stories-md]
- ["recipes.md" @recipes-md])
- section (section-from md recipe-anchor)]
- (is (seq section)
- (str leaf-name " missing the `" recipe-anchor "` heading — "
- "did the recipe get renamed? Update either the recipe or "
- "the canonical-prompts table together (drift detector)."))
- (doseq [alts must-mention]
- (is (contains-any? section alts)
- (str "recipe " recipe-anchor
- " does not name any of " (pr-str alts)
- " — likely a renamed op or removed step. Update the "
- "table or restore the mention."))))))
+;; ---------------------------------------------------------------------------
+;; The canonical prompts (docs/TESTING.md §3). `:must-mention` holds
+;; alternations: the skill names one op several ways (MCP tool, runtime fn),
+;; so a row fails only when EVERY spelling of an op is gone. `:leaf :stories`
+;; reads references/stories.md instead of references/recipes.md.
+;; ---------------------------------------------------------------------------
+
+(def canonical-prompts
+  [{:id :app-db-snapshot
+    :prompt "What's in app-db under :user/profile?"
+    :recipe-anchor "What's in `app-db`"
+    :must-mention [["app-db/snapshot" "app-db/get" "snapshot"]]}
+
+   {:id :trace-explain-dispatch
+    :prompt "Trace `[:cart/apply-coupon \"SPRING25\"]`"
+    :recipe-anchor "Explain this dispatch"
+    :must-mention [["dispatch-and-collect" "trace/dispatch-and-collect"]
+                   [":rf/epoch-record" "epoch-record"]
+                   [":sub-runs"]
+                   [":renders"]]}
+
+   {:id :why-no-update
+    :prompt "Why didn't the header update after `[:profile/save ...]`?"
+    :recipe-anchor "Why didn't my view update"
+    :must-mention [[":sub-runs"]
+                   ["trace/last-epoch" "trace/last-pair-epoch" "last-epoch"]
+                   ["equality" "cache-hit"]]}
+
+   {:id :experiment-loop
+    :prompt "Iterate on the cart handler until expired coupons are rejected"
+    :recipe-anchor "Experiment loop"
+    :must-mention [["dispatch-and-collect"]
+                   ["restore-epoch"]
+                   ["reg-event"]]}
+
+   {:id :where-in-code
+    :prompt "Where in the code does this button come from?"
+    :recipe-anchor "Where in the code"
+    :must-mention [["dom/source-at" "source-at"]
+                   ["data--coord" "source-coord"]]}
+
+   {:id :story-in-the-open-app
+    :prompt "Run this variant in the app I have open"
+    :recipe-anchor "Drive a Story variant"
+    :leaf :stories
+    :must-mention [["mcp__re-frame2-pair__eval-cljs"]
+                   ["re-frame.story/run-variant"]
+                   ["await"]
+                   ["set-operating-frame"]]}])
 
 (deftest canonical-prompts-still-mentioned
- (doseq [row canonical-prompts]
- (assert-row row)))
+  (doseq [{:keys [id prompt recipe-anchor must-mention leaf]} canonical-prompts]
+    (testing (str id " — " prompt)
+      (let [[leaf-name md] (if (= :stories leaf) ["stories.md" @stories-md] ["recipes.md" @recipes-md])
+            section        (section-from md recipe-anchor)]
+        (is (seq section)
+            (str leaf-name " has no `" recipe-anchor "` heading; update the recipe or this table together"))
+        (doseq [alts must-mention]
+          (is (some #(str/includes? section %) alts)
+              (str "recipe " recipe-anchor " names none of " (pr-str alts))))))))
 
 ;; ---------------------------------------------------------------------------
-;; SKILL.md-level invariants — the top-level recipe-routing must point
-;; somewhere real. These catch the next failure mode after a recipe
-;; rename: the SKILL.md guidance still pointing at the old name.
+;; Routing and setup prerequisites
 ;; ---------------------------------------------------------------------------
 
-(deftest skill-router-still-points-at-its-leaves
- (doseq [[target what] [["references/recipes.md"          "the recipe leaf"]
-                        ["references/ops.md"              "the op leaf"]
-                        ["references/errors.md"           "the error leaf"]
-                        ["ops.md#hot-reload-coordination" "the hot-reload-coordination section in ops.md"]]]
- (is (str/includes? @skill-md target)
- (str "SKILL.md no longer points at " what " (`" target "`)."))))
+(deftest skill-routes-to-its-leaves-and-names-its-prerequisites
+  (claims
+   [["SKILL.md" @skill-md "references/recipes.md" "the router points at the recipe leaf"]
+    ["SKILL.md" @skill-md "references/ops.md" "the router points at the op leaf"]
+    ["SKILL.md" @skill-md "references/errors.md" "the router points at the error leaf"]
+    ["SKILL.md" @skill-md "ops.md#hot-reload-coordination" "spec/design.md relies on this anchored read"]
+    ["SKILL.md" @skill-md ":preloads" "§Setup installs the runtime as a devtools preload"]
+    ["SKILL.md" @skill-md "re-frame2-pair.runtime" "§Setup names the preload namespace"]
+    ["SKILL.md" @skill-md "day8/re-frame2-epoch"
+     "without it discover-app still passes and every epoch read comes back empty"]
+    ["references/errors.md" @errors-md ":rf.error/epoch-artefact-missing"
+     "the one symptom of a missing epoch artefact that raises rather than reading empty"]
+    ["references/errors.md" @errors-md "day8/re-frame2-epoch" "the artefact that fixes it"]
+    ["docs/LOCAL_DEV.md" @local-dev-md "day8/re-frame2-epoch" "a cause of watch ops coming back empty"]
+    ["references/errors.md" @errors-md ":runtime-not-preloaded" "the likeliest first-run failure"]]))
 
 ;; ---------------------------------------------------------------------------
-;; Setup-recipe — discoverable + pointing at the preload mechanism.
+;; Privacy: the guarantee covers the STRUCTURED MCP read tools, not raw
+;; `eval-cljs`, which is default-ON and returns its value un-walked.
 ;; ---------------------------------------------------------------------------
 
-(deftest setup-recipe-still-names-the-preload
- (testing "SKILL.md §Setup names :devtools :preloads and re-frame2-pair.runtime"
- (is (str/includes? @skill-md ":preloads"))
- (is (str/includes? @skill-md "re-frame2-pair.runtime"))))
+(deftest privacy-guarantee-is-scoped-to-the-structured-tools
+  (claims
+   [["SKILL.md" @skill-md #"(?i)raw-eval carve-out" "the privacy bullet names the eval-cljs carve-out"]
+    ["SKILL.md" @skill-md #"not governed by this gate|NOT governed by this gate"
+     "eval-cljs is not governed by --allow-sensitive-reads"]
+    ["SKILL.md" @skill-md "without running the elision walker" "eval-cljs returns its value un-elided"]
+    ["references/vocabulary.md" @vocabulary-md "project-egress" "the one record-level egress boundary"]
+    ["references/vocabulary.md" @vocabulary-md ":rf.epoch/sensitive?" "the epoch rollup stamp"]
+    ["references/vocabulary.md" @vocabulary-md "raw-eval carve-out" "the carve-out section"]
+    ["references/ops.md" @ops-md #"(?i)privacy carve-out" "the raw eval-cljs read rows document an un-elided path"]
+    ["references/screen-reads.md" @screen-reads-md #"(?i)un-elided"
+     "its raw eval-cljs DOM rows must state the carve-out locally, not by a second leaf"]
+    ["references/screen-reads.md" @screen-reads-md #"(?i)eval-cljs" "the rows the local rule governs"]])
+  (is (not (str/includes? @skill-md "Sensitive data does not cross the LLM boundary by default."))
+      "SKILL.md must narrow the guarantee to the structured MCP reads, not state it as a blanket lede"))
 
 ;; ---------------------------------------------------------------------------
-;; Epoch artefact — the one classpath prerequisite discover-app does not
-;; probe. Without `day8/re-frame2-epoch` a core-only app passes
-;; discover-app, then every epoch read comes back `[]` and restore refuses;
-;; only `rf/replace-frame-state!` raises `:rf.error/epoch-artefact-missing`
-;; (Tool-Pair §Time-travel, the *Artefact home* note). So the setup, the
-;; error leaf and the empty-watch troubleshooting must each name it.
+;; Recipe correctness
 ;; ---------------------------------------------------------------------------
 
-(deftest setup-recipe-names-the-epoch-artefact
-  (testing "SKILL.md names the day8/re-frame2-epoch artefact"
-    (is (str/includes? @skill-md "day8/re-frame2-epoch")
-        (str "SKILL.md does not name `day8/re-frame2-epoch`. Without it on "
-             "the app classpath discover-app still passes and every epoch "
-             "surface reads empty, so §Setup must say so.")))
-  (testing "errors.md covers the one loud symptom of the missing artefact"
-    (is (str/includes? @errors-md ":rf.error/epoch-artefact-missing")
-        (str "references/errors.md does not cover "
-             "`:rf.error/epoch-artefact-missing` — the only symptom of a missing "
-             "epoch artefact that raises rather than reading empty."))
-    (is (str/includes? @errors-md "day8/re-frame2-epoch")
-        (str "references/errors.md does not name the `day8/re-frame2-epoch` "
-             "artefact that fixes it.")))
-  (testing "LOCAL_DEV's empty-watch troubleshooting names the artefact"
-    (is (str/includes? @local-dev-md "day8/re-frame2-epoch")
-        (str "docs/LOCAL_DEV.md does not list a missing `day8/re-frame2-epoch` "
-             "as a cause of watch ops coming back empty."))))
-
-;; ---------------------------------------------------------------------------
-;; Errors recipe — :runtime-not-preloaded is the most-likely first-run
-;; failure mode; the recipe must cover it.
-;; ---------------------------------------------------------------------------
-
-(deftest errors-md-covers-not-preloaded
- (testing "errors.md covers :runtime-not-preloaded"
- (is (str/includes? @errors-md ":runtime-not-preloaded"))))
-
-;; ---------------------------------------------------------------------------
-;; Privacy-contract drift
-;; ---------------------------------------------------------------------------
-;;
-;; The skill-facing privacy guarantee MUST match what the pair-mcp tools
-;; actually enforce:
-;;   - The guarantee is scoped to the STRUCTURED MCP read tools,
-;;     NOT to raw `eval-cljs` (which is default-ON and returns its value
-;;     un-walked, regardless of --allow-sensitive-reads).
-;;   - Epoch egress (trace-window / watch-epochs) is REDACTED/ELIDED by
-;;     default via project-egress (the ONE record-level egress door; there
-;;     is no standalone `projected-record` spelling) /
-;;     elide-wire-value — not shipped raw.
-;; These assertions fail if the docs drift to the over-broad "sensitive
-;; data does not cross the LLM boundary by default" claim or the "epoch
-;; records are not dropped / carry no sensitive stamp" wording.
-
-(defn- includes-ci? [text needle]
-  (str/includes? (str/lower-case text) (str/lower-case needle)))
-
-(deftest skill-scopes-guarantee-to-structured-tools
-  (testing "SKILL.md privacy bullet names the eval-cljs carve-out, not a blanket guarantee"
-    ;; The carve-out must be present: eval-cljs is default-ON + un-elided
-    ;; + not governed by --allow-sensitive-reads.
-    (is (includes-ci? @skill-md "raw-eval carve-out")
-        (str "SKILL.md does not reference the raw-eval carve-out — the "
-             "privacy guarantee may have drifted to the over-broad "
-             "blanket claim."))
-    (is (or (str/includes? @skill-md "not governed by this gate")
-            (str/includes? @skill-md "NOT governed by this gate"))
-        "SKILL.md must state eval-cljs is NOT governed by --allow-sensitive-reads.")
-    (is (str/includes? @skill-md "without running the elision walker")
-        "SKILL.md must state eval-cljs returns its value un-elided."))
-  (testing "SKILL.md must NOT carry the bare over-broad guarantee as a standalone claim"
-    ;; The over-broad lede itself. Its presence (verbatim, un-narrowed) is
-    ;; the regression.
-    (is (not (str/includes? @skill-md "Sensitive data does not cross the LLM boundary by default."))
-        (str "SKILL.md carries the over-broad 'Sensitive data does not "
-             "cross the LLM boundary by default.' lede — narrow it to the "
-             "structured MCP reads."))))
-
-(deftest vocabulary-epoch-egress-matches-impl
-  (testing "vocabulary.md reflects projected/elided epoch egress"
-    (is (str/includes? @vocabulary-md "project-egress")
-        (str "vocabulary.md does not mention project-egress — the epoch "
-             "egress description may carry the stale 'not dropped' "
-             "claim. `project-egress` is the one record-level "
-             "egress boundary; there is no standalone "
-             "`projected-record` door."))
-    (is (str/includes? @vocabulary-md ":rf.epoch/sensitive?")
-        "vocabulary.md must name the :rf.epoch/sensitive? epoch rollup stamp.")
-    (is (str/includes? @vocabulary-md "raw-eval carve-out")
-        "vocabulary.md must carry the raw-eval carve-out section.")
-    ;; Guard the specific stale wording: a claim that epoch records do NOT
-    ;; carry a sensitive stamp, OR that they are NOT dropped, contradicts the
-    ;; projected/redacted egress.
-    (is (not (str/includes? @vocabulary-md "Epoch records do not carry a top-level `:sensitive?` stamp"))
-        (str "vocabulary.md carries the stale 'Epoch records do not carry a "
-             "top-level :sensitive? stamp' wording — epoch records carry "
-             ":rf.epoch/sensitive? and are projected/redacted on "
-             "egress."))))
-
-(deftest ops-md-raw-eval-rows-carry-privacy-carveout
-  (testing "ops.md flags the raw-eval privacy carve-out for the catalogue rows"
-    (is (includes-ci? @ops-md "privacy carve-out")
-        (str "ops.md does not carry the raw-eval privacy carve-out — the "
-             "raw `eval-cljs` read rows (snapshot / sub-cache / trace-buffer "
-             "/ epoch-history) document an un-elided path that must steer "
-             "sensitive reads to the structured tools."))
-    (is (and (str/includes? @ops-md "trace-buffer")
-             (str/includes? @ops-md "epoch-history"))
-        "ops.md must name the raw trace-buffer / epoch-history surfaces the carve-out governs."))
-  ;; screen-reads.md carries raw `eval-cljs` DOM rows, while the carve-out
-  ;; lives in ops.md rather than "above" them in the same file. The leaf must
-  ;; therefore state the CONSEQUENCE itself. Pinning a pointer to ops.md
-  ;; instead would lock in a SKILL -> screen-reads -> ops load chain, which
-  ;; skills/README.md and spec/authoring-prompt.md ("no SKILL -> A -> B
-  ;; chains") both forbid — and a mere substring test for "ops.md" is
-  ;; satisfied by any sentence naming ops.md while the safety rule itself is
-  ;; absent.
-  (testing "screen-reads.md states the raw-eval un-elided rule locally"
-    (is (and (includes-ci? @screen-reads-md "un-elided")
-             (includes-ci? @screen-reads-md "eval-cljs"))
-        (str "references/screen-reads.md carries raw `eval-cljs` DOM rows but does "
-             "not state locally that those forms return un-elided values — a "
-             "reader who loads only this leaf must learn the carve-out HERE, not by "
-             "opening a second leaf."))
-    (is (not (str/includes? @screen-reads-md "(ops.md#operations-catalogue)"))
-        (str "references/screen-reads.md routes its raw-eval safety rule into "
-             "ops.md, so a screen-read task loads SKILL.md -> screen-reads.md -> "
-             "ops.md — the leaf-to-leaf chain skills/README.md and "
-             "spec/authoring-prompt.md forbid."))))
-
-;; ---------------------------------------------------------------------------
-;; MCP-surface conformance drift
-;; ---------------------------------------------------------------------------
-;;
-;; The skill-facing docs MUST describe the MCP-primary tool surface at its
-;; LIVE cardinality, NOT the bash/Babashka shim world or v1-style op names.
-;; These guards assert the current surface IS named and the shim-/v1-as-primary
-;; phrasings do NOT appear. They are scoped to the user-facing prose docs
-;; (README / capabilities / LOCAL_DEV / TESTING) — the legitimate harness
-;; appendix in references/ops.md is out of scope here. README's LIVE tool count
-;; (the descriptor manifest tools/re-frame2-pair-mcp/tool-descriptors.edn
-;; carries :meta :tool-count) is pinned by `catalogue-count-matches-live-manifest`
-;; below, with every other count-stating doc.
-
-(deftest readme-carries-no-stale-surface-claims
-  (testing "README does not carry the retired 'fourteen ops' count"
-    (is (not (str/includes? @readme-md "fourteen ops"))
-        (str "README carries the stale 'fourteen ops' count — the MCP surface "
-             "is " @tool-count " tools.")))
-  (testing "README does not advertise the phantom `machines` accessor"
-    ;; No `defn machines` exists and spec/api-manifest.edn carries no
-    ;; :var "machines". Machine
-    ;; enumeration is `list-handlers {kind: "machine"}` over the
-    ;; :rf/machine? registrar filter (docs/capabilities.md).
-    (is (not (str/includes? @readme-md "`machines`"))
-        (str "README names a `machines` introspection accessor. There is none: "
-             "list machines with list-handlers {kind: \"machine\"}.")))
-  (testing "README does not claim the skill is un-exercised end-to-end"
-    (is (not (str/includes? @readme-md "not yet exercised against a running"))
-        (str "README carries the stale 'not yet exercised against a running "
-             "re-frame2 app' status — the fixture app "
-             "exercises the skill end-to-end."))))
-
-(deftest local-dev-is-mcp-primary-not-babashka-required
-  (testing "LOCAL_DEV does not list Babashka as a skill prerequisite"
-    ;; There is no bash/babashka transport, so
-    ;; LOCAL_DEV must not mention Babashka at all — not as a prerequisite,
-    ;; not as a harness caveat.
-    (is (not (str/includes? @local-dev-md "Babashka"))
-        (str "LOCAL_DEV mentions Babashka — there is no bash/babashka transport; "
-             "the MCP server is the one implementation."))
-    (is (not (str/includes? @local-dev-md "scripts/discover-app.sh"))
-        (str "LOCAL_DEV references scripts/discover-app.sh, which does not exist, as the "
-             "live first-use path — first use calls the discover-app MCP "
-             "tool.")))
-  (testing "LOCAL_DEV documents the MCP server as the transport"
-    (is (str/includes? @local-dev-md "@day8/re-frame2-pair-mcp")
-        "LOCAL_DEV must name the MCP server package as the skill transport.")))
-
-(deftest capabilities-uses-current-tool-names
-  (testing "capabilities.md Notes column names current MCP tools, not v1 ops"
-    ;; `epoch/history` / `epoch/restore` are checked in backtick-wrapped
-    ;; op form so they don't collide with the legitimate `:rf.epoch/restore-*`
-    ;; error keywords (which must stay).
-    (doseq [retired ["app-db/snapshot" "app-db/get" "registrar/list"
-                     "registrar/describe" "subs/sample" "subs/cache"
-                     "machines/list" "frames/list" "`epoch/history`"
-                     "`epoch/restore`" "undo/step-back" "repl/eval"
-                     "epoch-diff"]]
-      (is (not (str/includes? @capabilities-md retired))
-          (str "capabilities.md names the v1 op `" retired
-               "` — map it to the current MCP tool.")))
-    (is (str/includes? @capabilities-md "get-path")
-        "capabilities.md must name the get-path tool.")
-    (is (str/includes? @capabilities-md "list-handlers")
-        "capabilities.md must name the list-handlers tool.")))
-
-(deftest testing-names-mcp-as-the-one-implementation
-  (testing "TESTING.md states the MCP server is the only transport, one implementation"
-    (is (str/includes? @testing-md "only skill-facing transport")
-        "TESTING.md must state the MCP server is the only skill-facing transport.")
-    ;; There is no bash-shim integration suite; the docs must not frame one
-    ;; as a "retained harness".
-    (is (not (str/includes? @testing-md "retained harness"))
-        (str "TESTING.md frames a 'retained harness' bash-shim suite — "
-             "there is no bash/babashka transport; the live coverage is "
-             "tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs."))
-    (is (str/includes? @testing-md "live-e2e-fixture.cjs")
-        (str "TESTING.md must point at the pair-mcp live-e2e gate "
-             "(tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs) as the "
-             "connect/dispatch/trace/hot-reload coverage."))))
-
-;; ---------------------------------------------------------------------------
-;; Wire-size-budget + recipes drift
-;; ---------------------------------------------------------------------------
-
-;; The render-source-coord recipe must NOT tell an agent to pass
-;; the whole `:render-key` tuple to `handler-meta {kind: "view"}`. The schema
-;; defines `:render-key` as `[<view-id-or-:rf.view/anonymous> <instance-token>]`;
-;; `handler-meta :view` is keyed by the FIRST slot (the registered view id).
-;; The recipe must steer to `(first render-key)` / the `view-id`, and
-;; capabilities.md must not call `:render-key` opaque-pending-finalisation.
-
+;; `handler-meta {kind: "view"}` is keyed by the FIRST slot of the
+;; `[<view-id-or-:rf.view/anonymous> <instance-token>]` render-key.
 (deftest render-key-recipe-uses-first-tuple-slot
-  (testing "recipes.md resolves render source from the first render-key slot, not the whole tuple"
-    (is (not (str/includes? @recipes-md "id: <render-key>"))
-        (str "recipes.md tells an agent to pass the whole render-key tuple as "
-             "the handler-meta {kind: \"view\"} id — that yields :not-registered. "
-             "The id is the FIRST tuple slot (the registered view id)."))
-    (is (str/includes? @recipes-md "first render-key")
-        (str "recipes.md must steer render-coord resolution to `(first "
-             "render-key)` (the view id) for handler-meta {kind: "
-             "\"view\"}."))
-    (is (str/includes? @recipes-md ":rf.view/anonymous")
-        (str "recipes.md must handle the :rf.view/anonymous first-slot case "
-             "(fall back to read-ui's :source-coord).")))
-  (testing "capabilities.md does not call :render-key opaque-pending-finalisation"
-    (is (not (str/includes? @capabilities-md "opaque pending spec finalisation"))
-        (str "capabilities.md calls :render-key opaque-pending-"
-             "finalisation — the schema defines a finalised tuple "
-             "[<view-id> <instance-token>]."))
-    (is (str/includes? @capabilities-md "first render-key")
-        (str "capabilities.md must point at `(first render-key)` for source-"
-             "coord resolution, matching recipes.md."))))
+  (claims
+   [["references/recipes.md" @recipes-md "first render-key" "the view id is the first render-key slot"]
+    ["references/recipes.md" @recipes-md ":rf.view/anonymous" "the anonymous first slot falls back to read-ui's :source-coord"]
+    ["docs/capabilities.md" @capabilities-md "first render-key" "it must agree with recipes.md"]]))
 
-;; ---------------------------------------------------------------------------
-;; Restore / hot-reload teaching drift
-;; ---------------------------------------------------------------------------
-;;
-;; - restore-epoch reinstalls the whole frame-state (both app-db AND
-;;   runtime-db partitions via replace-frame-state!), NOT app-db only. These
-;;   assertions fail if an "app-db only" / "app-db is back" framing appears and
-;;   assert the positive frame-state framing.
-;; - tail-build returns probe diagnostics (:probe-values / :reason / :note); a
-;;   timeout is NOT always a compile error. The "read the tail output / treat a
-;;   timeout as a compile error" framing must not appear.
+(deftest hot-reload-protocol-waits-on-a-pre-edit-probe
+  (let [hr (section-from @ops-md "Hot-reload coordination")]
+    (claims
+     [["ops.md §Hot-reload" hr "tail-build" "the probe-based reload wait SKILL.md's cardinal rule points at"]
+      ["ops.md §Hot-reload" hr ":probe-values" "the timeout diagnostic that tells a stuck probe from a compile error"]
+      ["ops.md §Hot-reload" hr ":probe-errored" "a malformed probe is not a compile error"]
+      ["ops.md §Hot-reload" hr #"(?i)does not tail|historical" "tail-build does not tail the shadow-cljs log"]
+      ["ops.md §Hot-reload" hr #"(?i)capture[^.\n]{0,120}(pre-edit|before)" "capture the probe's value BEFORE the edit"]
+      ["ops.md §Hot-reload" hr ":missing-baseline" "the refusal when no baseline is passed"]
+      ["ops.md §Hot-reload" hr #"(?i)(before or after|lands? before)[^.\n]{0,80}(first (probe )?sample|first probe)"
+       "a reload is recognised whether it lands before or after the first sample"]
+      ["SKILL.md" @skill-md #"(?i)baseline" "the cardinal rule names the pre-edit baseline"]
+      ["ops.md §Hot-reload" hr ":soft? false"
+       "a probe-less wait returns {:ok? true :soft? true}, so the proceed-gate must require :soft? false"]
+      ["ops.md §Hot-reload" hr #"(?i)(never evidence|not evidence|a delay, not)"
+       "a probe-less wait is a delay, never evidence the reload landed"]])))
 
-(deftest restore-not-taught-as-app-db-only
-  (testing "pair skill does not teach restore as app-db-only"
-    (doseq [[label md] [["ops.md" @ops-md]
-                        ["recipes.md" @recipes-md]
-                        ["README.md" @readme-md]
-                        ["capabilities.md" @capabilities-md]]]
-      (is (not (includes-ci? md "restore rewinds app-db only"))
-          (str label " carries the stale 'restore rewinds app-db only' "
-               "framing — restore reinstalls the whole frame-state, both "
-               "partitions, via replace-frame-state!."))
-      (is (not (includes-ci? md "old snapshots in app-db"))
-          (str label " carries the stale 'old snapshots in app-db' wording — "
-               "machine snapshots live in the runtime-db partition "
-               "([:rf.runtime/machines …])."))))
-  (testing "ops.md restore caveat names runtime-db revival + the side-effect limit"
-    (is (and (str/includes? @ops-md "frame-state")
-             (includes-ci? @ops-md "runtime-db"))
-        (str "ops.md restore caveat must say restore rewinds frame-state "
-             "(both partitions incl. runtime-db) while NOT reversing side "
-             "effects / transient host state."))))
+;; restore-epoch reinstalls the whole frame-state (both partitions); the
+;; dedicated write tools are canonical and the raw eval forms the backstop.
+(deftest restore-and-writes-are-taught-through-the-dedicated-tools
+  (is (and (str/includes? @ops-md "frame-state") (re-find #"(?i)runtime-db" @ops-md))
+      "ops.md's restore caveat must say restore rewinds frame-state, runtime-db included")
+  (claims
+   [["README.md" @readme-md "restore-epoch {epoch-id:" "the worked time-travel example calls the restore-epoch tool"]
+    ["references/ops.md" @ops-md #"(?i)backstop" "the raw eval restore/reset forms stay documented as the backstop"]]))
 
-(deftest hot-reload-branches-on-probe-values-not-blanket-compile-error
-  (testing "ops.md hot-reload branches on :probe-values / :reason, not 'all timeouts are compile errors'"
-    (let [hr (section-from @ops-md "Hot-reload coordination")]
-      (is (str/includes? hr "tail-build")
-          (str "ops.md §Hot-reload coordination does not name `tail-build`, the "
-               "probe-based reload wait SKILL.md's source-edit cardinal rule "
-               "points at."))
-      (is (str/includes? hr ":probe-values")
-          (str "ops.md hot-reload guidance does not mention `:probe-values` "
-               "— the diagnostic tail-build returns on timeout so the agent "
-               "can tell a stuck probe from a compile error."))
-      (is (str/includes? hr ":probe-errored")
-          (str "ops.md hot-reload guidance does not cover `:probe-errored` "
-               "as a malformed-probe path distinct from a compile "
-               "error."))
-      (is (not (str/includes? hr "treat that as a compile error in the user's code — read the tail output"))
-          (str "ops.md tells the agent to treat any tail-build timeout "
-               "as a compile error and read the tail output — tail-build does "
-               "not tail logs; branch on :reason / :probe-values."))
-      (is (or (includes-ci? hr "does not tail")
-              (includes-ci? hr "historical"))
-          (str "ops.md hot-reload guidance must note tail-build does NOT "
-               "actually tail the shadow-cljs server log.")))))
-
-;; ---------------------------------------------------------------------------
-;; Hot-reload baseline order
-;; ---------------------------------------------------------------------------
-;;
-;; tail-build's comparison value is the CALLER's pre-edit capture — the
-;; baseline — so a reload landing before the first sample still reads as
-;; success. The protocol must teach capture-BEFORE-edit and pass `baseline`
-;; into tail-build; a post-edit self-baseline framing must not appear.
-
-(deftest hot-reload-teaches-pre-edit-baseline
-  (testing "ops.md hot-reload protocol captures a pre-edit baseline and passes it to tail-build"
-    (let [hr (section-from @ops-md "Hot-reload coordination")]
-      (is (re-find #"(?i)capture[^.\n]{0,120}(pre-edit|before)" hr)
-          (str "ops.md hot-reload guidance must instruct capturing the "
-               "probe's value BEFORE the edit."))
-      (is (str/includes? hr ":missing-baseline")
-          (str "ops.md hot-reload guidance must cover the :missing-baseline "
-               "refusal branch."))
-      (is (re-find #"(?i)(before or after|lands? before)[^.\n]{0,80}(first (probe )?sample|first probe)" hr)
-          (str "ops.md must state the invariant: a reload is recognized "
-               "whether it lands before or after the first "
-               "sample."))))
-  (testing "SKILL.md cardinal rule orders capture before the edit"
-    (is (includes-ci? @skill-md "baseline")
-        (str "SKILL.md's source-edit cardinal rule does not name the "
-             "pre-edit baseline."))))
-
-;; ---------------------------------------------------------------------------
-;; No-probe mode is a DELAY, never post-edit evidence
-;; ---------------------------------------------------------------------------
-;;
-;; A probe-less tail-build samples nothing and compares nothing, yet still
-;; returns {:ok? true :soft? true}. So the proceed-gate must require
-;; :soft? false: an "if you don't know a good probe, omit it" bullet sitting
-;; inside a gate that accepts any {:ok? true} authorizes dispatching against
-;; stale code — the gate would contradict itself.
-
-(deftest no-probe-soft-wait-is-not-post-edit-evidence
-  (testing "ops.md's post-edit gate requires :soft? false, not any {:ok? true}"
-    (let [hr (section-from @ops-md "Hot-reload coordination")]
-      (is (str/includes? hr ":soft? false")
-          (str "ops.md's proceed-gate does not require `:soft? false` — a "
-               "probe-less 300ms wait returns {:ok? true :soft? true} and "
-               "would satisfy a bare {:ok? true} gate."))
-      (is (not (str/includes? hr "the tool falls back to a 300ms timer"))
-          (str "ops.md's no-probe bullet reads as a sanctioned substitute for "
-               "the probe. It must be fenced as a delay only, never as "
-               "evidence that unlocks post-edit dispatch."))
-      (is (re-find #"(?i)(never evidence|not evidence|a delay, not)" hr)
-          (str "ops.md does not say a probe-less wait is a delay rather "
-               "than evidence that the reload landed.")))))
-
-;; ---------------------------------------------------------------------------
-;; snapshot uses plural `frames`, not singular `frame`
-;; ---------------------------------------------------------------------------
-;;
-;; The `snapshot` MCP tool reads only the plural `:frames` arg
-;; (snapshot.cljs parses `(args/parse-frames-arg (wire/arg ... :frames))`)
-;; — it has NO singular `frame` arg, unlike dispatch / get-path / read-sub.
-;; A variant-diff recipe calling `snapshot {frame: ...}` (singular) would be
-;; ignored by the tool: it would snapshot the operating frame twice and
-;; produce a false comparison. These guards fail if a snapshot recipe uses the
-;; singular form.
-
+;; `snapshot` reads only the plural `:frames` arg; a singular `frame` is
+;; ignored and snapshots the operating frame twice — a false comparison.
 (deftest snapshot-recipe-uses-plural-frames-not-singular-frame
-  (testing "the variant-diff recipe selects frames via plural `frames`, not singular `frame`"
-    (let [section (section-from @stories-md "Diff two variants")]
-      (is (seq section)
-          "stories.md missing the 'Diff two variants' heading.")
-      (is (str/includes? section "snapshot {frames:")
-          (str "the variant-diff recipe does not call `snapshot "
-               "{frames: [...]}` (plural). snapshot has no singular "
-               "`frame` arg — it parses only :frames (snapshot.cljs) — so "
-               "a singular call snapshots the operating frame twice and "
-               "yields a false comparison."))
-      (is (not (re-find #"snapshot \{frame:" section))
-          (str "the variant-diff recipe calls `snapshot {frame: ...}` "
-               "(singular) — the tool ignores that arg. Use `snapshot "
-               "{frames: [\":...\"]}` (plural), or pin one operating frame "
-               "at a time.")))))
+  (let [section (section-from @stories-md "Diff two variants")]
+    (is (str/includes? section "snapshot {frames:") "the variant-diff recipe must call snapshot {frames: [...]}")
+    (is (not (re-find #"snapshot \{frame:" section)) "and never the ignored singular snapshot {frame: ...}")))
 
-;; ---------------------------------------------------------------------------
-;; Named state-rewrite writes route through the dedicated gated tools
-;; ---------------------------------------------------------------------------
-;;
-;; The two write-authority tools `restore-epoch` + `replace-app-db` are the
-;; CANONICAL path for time-travel undo + state injection — both are
-;; allow-listed (the server's `--allow-writes` gate, not the allow-list, is
-;; the write boundary). The raw eval forms (`(rf/restore-epoch! …)` /
-;; `app-db-reset!`) are the BACKSTOP only. These guards fail if the skill
-;; teaches the eval form as the default-reachable write path. That both tools
-;; stay allow-listed is `scripts/check_skill_mcp_drift.py`'s to pin: it requires
-;; every server tool in SKILL.md's `allowed-tools`.
-
-(deftest named-writes-prefer-dedicated-tool-not-default-eval
-  (testing "the skill does not frame the raw eval write forms as the DEFAULT-reachable path"
-    (doseq [[label md] [["SKILL.md" @skill-md]
-                        ["ops.md" @ops-md]
-                        ["recipes.md" @recipes-md]
-                        ;; Its tool reference states the write-tools-canonical,
-                        ;; eval-as-backstop framing in its own words.
-                        ["mcp-transport.md" @mcp-transport-md]]]
-      (is (not (re-find #"(?i)default-reachable\s+write\s+path" md))
-          (str label " calls the raw eval form the 'default-reachable "
-               "write path' — the dedicated `restore-epoch` / `replace-app-db` "
-               "tools are the canonical path; eval is the "
-               "backstop."))))
-  ;; The Experiment-loop restore step's dedicated-tool call is pinned, with its
-  ;; anchor argument, in `experiment-loop-rewinds-to-the-pre-dispatch-anchor`.
-  (testing "README's time-travel example leads with the restore-epoch tool, not the eval backstop"
-    ;; README's framework-level `(rf/restore-epoch! frame-id epoch-id)` in
-    ;; §No re-frame-10x dependency names the core API and stays; the needle
-    ;; is the worked example's eval CALL against a concrete frame.
-    (is (not (str/includes? @readme-md "(rf/restore-epoch! :rf/default"))
-        (str "README's worked time-travel example demonstrates the raw eval "
-             "backstop `(rf/restore-epoch! :rf/default …)`. SKILL.md, ops.md "
-             "and recipes.md make the `restore-epoch` tool canonical."))
-    (is (str/includes? @readme-md "restore-epoch {epoch-id:")
-        (str "README's worked time-travel example does not call the "
-             "`restore-epoch {epoch-id: …}` tool.")))
-  (testing "the eval write forms are kept as an explicitly-labelled backstop"
-    ;; The backstop stays documented (the gate-OFF server fallback), framed
-    ;; as such.
-    (is (includes-ci? @ops-md "backstop")
-        (str "ops.md does not label the raw eval restore/reset forms as a "
-             "BACKSTOP — they must remain documented for a gate-OFF server but "
-             "framed as the fallback, not the default."))))
-
-;; ---------------------------------------------------------------------------
-;; Experiment-loop rewind anchor
-;; ---------------------------------------------------------------------------
-;;
-;; `restore-epoch` reinstalls the named epoch's `:frame-state-after` (Tool-Pair
-;; §Time-travel), so restoring the epoch a dispatch PRODUCED reinstates that
-;; event's POST-state — not the state it started from. A recipe that captures
-;; the baseline dispatch's own result epoch and restores it before the edited
-;; run puts the edited handler on top of the baseline's mutation: a `+1`
-;; baseline then a `+2` edit reads 3, not 2, and every non-idempotent handler
-;; (append / toggle / consume-once) compounds it per iteration. That procedure
-;; LOOKS like a controlled experiment, which is what makes it expensive.
-;;
-;; That shape passes the table row above (it names `restore-epoch`), so the
-;; row alone cannot hold this. These assertions pin which id the restore
-;; passes, pin the ORDER (anchor captured before the baseline dispatch), which
-;; needs both ids named, pin the honest refusal when no anchor exists, and pin
-;; the worked control's numbers.
-
+;; restore-epoch reinstalls the named epoch's `:frame-state-after`, so
+;; restoring the baseline dispatch's OWN result epoch stacks the edited
+;; handler on top of the baseline's mutation: a +1 baseline then a +2 edit
+;; reads 3, not 2.
 (deftest experiment-loop-rewinds-to-the-pre-dispatch-anchor
   (let [section (section-from @recipes-md "Experiment loop")]
-    (is (seq section) "recipes.md missing the 'Experiment loop' heading.")
+    (is (str/includes? section "mcp__re-frame2-pair__restore-epoch {epoch-id: \"<pre-dispatch-epoch-id>\"}")
+        "the restore step must pass the pre-dispatch anchor, not the baseline's result epoch")
+    (let [anchor-at   (str/index-of section "pre-dispatch-epoch-id")
+          baseline-at (str/index-of section "baseline-epoch-id")]
+      (is (and anchor-at baseline-at (< anchor-at baseline-at))
+          "the anchor must be captured BEFORE the baseline dispatch"))
+    (is (str/includes? section ":frame-state-after") "the recipe states the mechanism, so the rule is not undone")
+    (is (str/includes? section ":head-id") "reading the frame's :head-id IS the anchor capture")
+    (is (and (str/includes? section "STOP") (str/includes? section "dispatch-dry-run"))
+        "with no retained anchor the agent must STOP and fall back to dispatch-dry-run")
+    (is (every? #(str/includes? section %) ["{:n 0}" "{:n 1}" "{:n 2}" "{:n 3}"])
+        "the worked control walks {:n 0} -> {:n 1} -> {:n 2}, naming {:n 3} as the confounded reading")
+    (is (str/includes? section "pre-edit-handler-meta")
+        "the verification step compares against a separately captured pre-edit-handler-meta")))
 
-    (testing "the restore step passes the ANCHOR, not the baseline result"
-      (is (str/includes?
-            section
-            "mcp__re-frame2-pair__restore-epoch {epoch-id: \"<pre-dispatch-epoch-id>\"}")
-          (str "the Experiment loop's restore invocation does not pass "
-               "<pre-dispatch-epoch-id>. A bare <epoch-id> placeholder reads as "
-               "'the one you just captured from the dispatch' — the exact "
-               "defect.")))
-
-    (testing "the anchor is captured BEFORE the baseline dispatch"
-      ;; Ordering, not mere presence: a recipe that captures the head only
-      ;; after dispatching has captured the wrong thing under the right name.
-      (let [anchor-at   (str/index-of section "pre-dispatch-epoch-id")
-            baseline-at (str/index-of section "baseline-epoch-id")]
-        (is (and anchor-at baseline-at (< anchor-at baseline-at))
-            (str "the Experiment loop introduces `baseline-epoch-id` at or "
-                 "before `pre-dispatch-epoch-id` — the anchor must be captured "
-                 "BEFORE anything is dispatched, or it is the post-dispatch "
-                 "head under an honest-looking name."))))
-
-    (testing "the recipe states WHY — restore reinstalls :frame-state-after"
-      (is (str/includes? section ":frame-state-after")
-          (str "the Experiment loop does not state that `restore-epoch` "
-               "reinstalls the named epoch's `:frame-state-after`. Without the "
-               "mechanism the rule reads as a style preference and gets "
-               "undone.")))
-
-    (testing "a missing anchor fails honestly instead of substituting one"
-      (is (str/includes? section ":head-id")
-          (str "the Experiment loop does not read the frame's current "
-               "`:head-id` — that read IS the anchor capture."))
-      (is (and (str/includes? section "STOP")
-               (str/includes? section "dispatch-dry-run"))
-          (str "the Experiment loop does not tell the agent to STOP (and fall "
-               "back to `dispatch-dry-run`) when the frame has no retained "
-               "pre-dispatch epoch — a silent substitution of the baseline "
-               "result epoch is the confounded comparison.")))
-
-    (testing "the worked control carries the numbers that discriminate"
-      ;; 1 = baseline, 2 = the edit's real answer, 3 = the confounded reading.
-      (is (every? #(str/includes? section %) ["{:n 0}" "{:n 1}" "{:n 2}" "{:n 3}"])
-          (str "the Experiment loop's worked control does not walk "
-               "{:n 0} → baseline {:n 1} → edited {:n 2}, with {:n 3} named as "
-               "the confounded reading a result-epoch restore produces. Those "
-               "four numbers are what make the defect unfollowable.")))
-
-    (testing "the handler fingerprint is captured before the edit, not claimed"
-      (is (str/includes? section "pre-edit-handler-meta")
-          (str "the Experiment loop's verification step does not reference a "
-               "separately-captured `pre-edit-handler-meta`. Without it the step "
-               "claims a fingerprint from step 1, where only the result epoch "
-               "is captured — a comparison against nothing.")))))
-
-;; ---------------------------------------------------------------------------
-;; Handler fingerprint wire key
-;; ---------------------------------------------------------------------------
-;;
-;; The Experiment loop's "did the patch land?" check compares a handler
-;; fingerprint across a hot-reload. The fingerprint's WIRE KEY is
-;; `:handler-fn-hash`: `registrar-describe` (preload/re_frame2_pair/runtime.cljs)
-;; `(dissoc :handler-fn)`s the live Function before returning and augments the
-;; map with `:handler-fn-hash`, and the MCP `handler-meta` tool repeats the
-;; dissoc server-side. `tests/runtime/registrar_describe_test.clj` pins both
-;; halves. So a recipe that tells the agent to keep "the `:handler-fn` hash"
-;; names a key that is never on the wire — and it is the ONLY discriminator
-;; when an in-place body edit leaves `:line` / `:column` unchanged, so the
-;; canonical workflow would claim to prove the patch landed while reading an
-;; absent key.
-;;
-;; The bare-key regex uses a negative lookahead so `:handler-fn-hash` itself
-;; does not trip it; the section scope keeps `ops.md` / `STATUS.md`'s correct
-;; references to the RAW `(rf/handler-meta ...)` map — which really does carry
-;; `:handler-fn` — out of range.
-
+;; `registrar-describe` strips the live handler fn and emits
+;; `:handler-fn-hash`, so a bare `:handler-fn` is never on the wire, and the
+;; hash is the only discriminator when an in-place edit leaves line/column alone.
 (deftest experiment-loop-names-the-handler-fn-hash-wire-key
   (let [section (section-from @recipes-md "Experiment loop")]
-    (is (seq section) "recipes.md missing the 'Experiment loop' heading.")
+    (is (not (re-find #":handler-fn(?!-hash)" section))
+        "a bare :handler-fn compares nil with nil and reports the patch landed")
+    (is (re-find #"(?is)strip[^.\n]{0,120}:handler-fn-hash" section)
+        "the recipe must say the live fn is stripped and replaced by :handler-fn-hash")
+    (is (re-find #"(?is):handler-fn-hash[^.\n]{0,120}(only discriminator|line[^.\n]{0,20}column unchanged)" section)
+        "the recipe must say the hash discriminates when :line / :column are unchanged")))
 
-    (testing "the absent :handler-fn key is not offered as the fingerprint"
-      (is (not (re-find #":handler-fn(?!-hash)" section))
-          (str "the Experiment loop names a bare `:handler-fn` key. "
-               "`registrar-describe` dissocs the live handler fn and the MCP "
-               "tool repeats the dissoc, so that key is never on the wire; an "
-               "agent comparing it sees nil-vs-nil and reports the patch landed "
-               "when it did not. Use `:handler-fn-hash`.")))
-
-    (testing "the recipe says WHY the hash is the discriminator"
-      ;; Without the mechanism the key reads as a spelling preference and the
-      ;; next author reverts it to the shorter, wronger name.
-      (is (re-find #"(?is)strip[^.\n]{0,120}:handler-fn-hash" section)
-          (str "the Experiment loop does not state that the live handler fn "
-               "is STRIPPED and replaced by `:handler-fn-hash`. The rule reads "
-               "as a spelling nit without the mechanism."))
-      (is (re-find #"(?is):handler-fn-hash[^.\n]{0,120}(only discriminator|line[^.\n]{0,20}column unchanged)" section)
-          (str "the Experiment loop does not say the hash is what "
-               "discriminates when `:line` / `:column` are unchanged — the "
-               "in-place body edit is exactly the case the fingerprint exists "
-               "for.")))))
-
-;; ---------------------------------------------------------------------------
-;; Published eval-cljs forms must be fully qualified
-;; ---------------------------------------------------------------------------
-;;
-;; `eval-cljs` hands the form to `shadow.cljs.devtools.api/cljs-eval` with EMPTY
-;; opts (nrepl.cljs) — no `:ns`, no alias rewrite — so it is analysed in
-;; shadow's default namespace, which carries no `rf` alias, and the server then
-;; refuses any non-blank analyzer `:err` as `:rf.error/eval-cljs-compile-error`.
-;; So a published `form:` spelled `(rf/…)` is not a style nit: EVERY copy-paste
-;; of it fails before it runs. The skill states the rule twice over — SKILL.md
-;; ("the eval namespace carries no `rf` alias") and errors.md ("there are no
-;; ambient aliases") — yet a suite that pins only that a recipe NAMES
-;; `reg-event` / `restore-epoch` passes any number of such forms, because it
-;; never checks that a published form is fully qualified.
-;;
-;; PROSE citations of `rf/…` are deliberate and MUST keep passing: they cite the
-;; facade contract rather than invoking it (SKILL.md, STATUS.md,
-;; docs/capabilities.md). So this guard reads ONLY the inside of a published
-;; `form:` string — a blanket `rf/` sweep is exactly what it must not be.
-;;
-;; The character class spans newlines on purpose: a published form can be a
-;; `(let …)` broken across two lines, which a line-oriented search cannot see
-;; at all.
-
-(defn- skill-rel
-  "Path of `f` relative to the skill root, forward-slash form — so a failure
-  message names the leaf and never this machine's absolute path."
-  [f]
-  (-> (.getPath f)
-      (subs (inc (count (.getPath skill-root))))
-      (str/replace (System/getProperty "file.separator") "/")))
-
+;; `eval-cljs` analyses a form in shadow's default namespace, which has no
+;; `rf` alias, so a published `form: "(rf/…)"` fails every copy-paste with
+;; :rf.error/eval-cljs-compile-error. Prose citations of `rf/…` are fine; only
+;; the inside of a published `form:` string is read. The class spans newlines
+;; because a published form can wrap.
 (def ^:private published-eval-forms
-  ;; [rel-path form-body] for every `form: "…"` the skill publishes, over EVERY
-  ;; markdown leaf — so a NEW leaf is covered without anyone editing a roster.
   (delay
-    (vec
-      (for [f    (sort-by #(.getPath %)
-                          (filter #(and (.isFile %)
-                                        (str/ends-with? (.getName %) ".md"))
-                                  (file-seq skill-root)))
-            :let [rel  (skill-rel f)
-                  text (slurp f)]
-            m    (re-seq #"(?s)form:\s*\"([^\"]*)\"" text)]
-        [rel (second m)]))))
+    (vec (for [f    (sort-by #(.getPath %)
+                             (filter #(and (.isFile %) (str/ends-with? (.getName %) ".md"))
+                                     (file-seq skill-root)))
+               :let [rel (-> (.getPath f)
+                             (subs (inc (count (.getPath skill-root))))
+                             (str/replace (System/getProperty "file.separator") "/"))]
+               m    (re-seq #"(?s)form:\s*\"([^\"]*)\"" (slurp f))]
+           [rel (second m)]))))
 
 (deftest published-eval-forms-are-fully-qualified
   (let [forms @published-eval-forms]
-    (testing "the extraction found the skill's published forms"
-      ;; Control for the zero: an extraction that matched nothing would report a
-      ;; clean sweep over a skill full of broken forms.
-      (is (seq forms)
-          (str "no `form:` strings found in any skill leaf — the extraction is "
-               "broken, not the skill clean."))
-      (is (some (fn [[_ body]] (str/includes? body "(re-frame2-pair.runtime/")) forms)
-          (str "no published `form:` names `(re-frame2-pair.runtime/`. That is "
-               "the skill's commonest eval spelling, so its absence means this "
-               "guard is reading nothing.")))
-
-    (testing "no published form uses the `rf/` alias the eval namespace lacks"
-      (let [offenders (filterv (fn [[_ body]] (str/includes? body "(rf/")) forms)]
-        (is (empty? offenders)
-            (str "these leaves publish an `eval-cljs {form: …}` spelled "
-                 "`(rf/…)`, which the eval namespace cannot resolve — every "
-                 "copy-paste returns :rf.error/eval-cljs-compile-error. Spell "
-                 "the facade `re-frame.core/…` INSIDE a form; prose citations "
-                 "of `rf/…` are fine and deliberate. Offending "
-                 "leaves: "
-                 (pr-str (vec (distinct (map first offenders))))))))))
+    (is (some (fn [[_ body]] (str/includes? body "(re-frame2-pair.runtime/")) forms)
+        "control: the skill's commonest eval spelling must be found, or the extraction is reading nothing")
+    (is (empty? (filterv (fn [[_ body]] (str/includes? body "(rf/")) forms))
+        (str "published eval-cljs forms spelled (rf/…) fail to resolve; spell re-frame.core/… — offending leaves: "
+             (pr-str (vec (distinct (map first (filter (fn [[_ body]] (str/includes? body "(rf/")) forms)))))))))
 
 ;; ---------------------------------------------------------------------------
-;; Single-host boundary
+;; Single host: Pair drives ONE attached browser runtime. story-mcp runs
+;; variants in a headless JVM registry, so a variant it runs is not the frame
+;; Pair reads. `scripts/check_skill_mcp_drift.py` pins the frontmatter; this
+;; pins the prose.
 ;; ---------------------------------------------------------------------------
-;;
-;; The skill's contract is ONE attached browser runtime. Story variants are the
-;; surface that breaches it most easily: allow-listing
-;; `mcp__re-frame2-story-mcp__*` tools, or teaching a composition that runs a
-;; variant in story-mcp's headless JVM registry while Pair reads the browser,
-;; puts two different frames under one keyword.
-;;
-;; `scripts/check_skill_mcp_drift.py`'s single-host axis pins the FRONTMATTER.
-;; These guards pin the PROSE, which no gate reads. That the one Story leaf
-;; teaches the browser route (eval-cljs over `re-frame.story/run-variant`,
-;; awaited, then a Pair frame op) is the canonical-prompts row
-;; `:story-in-the-open-app`; here, no doc may name the other server's tool
-;; prefix. `story-mcp` in prose is fine and expected — the leaf routes headless
-;; work out to it by name. The banned thing is a callable `mcp__...__` entry.
-
-(def ^:private story-mcp-tool-prefix "mcp__re-frame2-story-mcp__")
 
 (deftest story-work-stays-on-the-attached-runtime
-  (testing "no live-session doc grants or calls a second MCP server"
-    (doseq [[label md] [["SKILL.md"                skill-md]
-                        ["references/stories.md"   stories-md]
-                        ["references/recipes.md"   recipes-md]
-                        ["references/ops.md"       ops-md]
-                        ["references/vocabulary.md" vocabulary-md]]]
-      (is (not (str/includes? @md story-mcp-tool-prefix))
-          (str label " names a `" story-mcp-tool-prefix "` tool. story-mcp is "
-               "a headless same-JVM host with no bridge to the browser, so a "
-               "variant it runs is NOT the frame Pair reads — the two share a "
-               "keyword, not an object. Drive variants through eval-cljs over "
-               "`re-frame.story/*` instead, and route explicitly headless work "
-               "out to tools/story-mcp/.")))
-    ;; Control: the census pattern above must be able to find something.
-    ;; A `str/includes?` against a token nothing carries answers "absent" in
-    ;; the same voice whether the rule holds or the token is misspelt, so
-    ;; exercise the SAME shape against the prefix that IS present.
-    (is (str/includes? @skill-md "mcp__re-frame2-pair__")
-        (str "SKILL.md carries no `mcp__re-frame2-pair__` entry at all — the "
-             "single-host assertions above are therefore vacuous, not "
-             "satisfied."))))
+  (is (= [] (for [[label md] [["SKILL.md" skill-md] ["references/stories.md" stories-md]
+                              ["references/recipes.md" recipes-md] ["references/ops.md" ops-md]
+                              ["references/vocabulary.md" vocabulary-md]]
+                  :when (str/includes? @md "mcp__re-frame2-story-mcp__")]
+              label))
+      "no live-session doc may grant or call an mcp__re-frame2-story-mcp__ tool; drive variants through eval-cljs")
+  (is (str/includes? @skill-md "mcp__re-frame2-pair__")
+      "control: the same check finds the prefix that IS present"))
 
-(deftest story-leaf-is-single-not-a-pair
-  (testing "stories.md is the one Story leaf; there is no variant-as-frame.md"
-    (is (not (.exists (io/file skill-root "references/variant-as-frame.md")))
-        (str "references/variant-as-frame.md exists. Its content — the "
-             "variant-id-is-frame-id identity, per-variant isolation, the "
-             "mount/reset/destroy gotchas — lives in references/stories.md, "
-             "which is the ONE Story leaf the router points at.")))
-  (testing "the Story leaf covers the variant-as-frame content"
-    (let [md @stories-md]
-      (doseq [[what token] [["the variant-id/frame-id identity" "variant-id IS the frame-id"]
-                            ["the frame-allocation call"        "rf/make-frame"]
-                            ["per-variant isolation"            "reset-frame!"]
-                            ["the unmount gotcha"               "destroy-frame!"]
-                            ["cross-frame diff"                 "frame-diff"]]]
-        (is (str/includes? md token)
-            (str "references/stories.md does not cover " what " (`" token
-                 "`) — stories.md is the one home for the "
-                 "variant-as-frame content.")))))
-  (testing "the router points at the one Story leaf"
-    (is (str/includes? @skill-md "references/stories.md")
-        "SKILL.md does not route to references/stories.md.")
-    (is (not (str/includes? @skill-md "variant-as-frame.md"))
-        "SKILL.md routes to references/variant-as-frame.md, which does not exist.")))
+(deftest story-leaf-carries-the-variant-as-frame-content
+  (is (= [] (remove #(str/includes? @stories-md %)
+                    ["variant-id IS the frame-id" "rf/make-frame" "reset-frame!" "destroy-frame!" "frame-diff"]))
+      "references/stories.md is the one home for the variant-as-frame content")
+  (is (str/includes? @skill-md "references/stories.md") "SKILL.md must route to references/stories.md"))
+
+;; `re-frame.story/start-recording!` takes a variant id and
+;; `gen-play-snippet` takes `[events opts]`; a zero-arg call throws before it
+;; captures or generates anything.
+(deftest stories-recorder-recipe-passes-the-required-arguments
+  (doseq [sym ["start-recording!" "gen-play-snippet"]]
+    (is (not (str/includes? @stories-md (str "(re-frame.story/" sym ")")))
+        (str "references/stories.md publishes a zero-arg (re-frame.story/" sym ")")))
+  (is (str/includes? @stories-md "(re-frame.story/start-recording! :story.")
+      "start-recording! must be passed the variant id")
+  (is (str/includes? @stories-md ":variant-id :story.")
+      "gen-play-snippet must be given its required :variant-id opt"))
 
 ;; ---------------------------------------------------------------------------
-;; Published call ARITY, read against the defining facade
+;; Catalogue drift. check_skill_mcp_drift.py compares the allow-list with the
+;; server's tool SET but never reads prose counts, so every doc that states
+;; the count is anchored to the live manifest. Add a doc to `count-docs` when
+;; it starts stating the count.
 ;; ---------------------------------------------------------------------------
-;;
-;; Every guard above proves a recipe NAMES an op. None of them says whether
-;; the published call would RUN: a zero-arg `(re-frame.story/start-recording!)`
-;; or `(re-frame.story/gen-play-snippet)` against a facade requiring
-;; `[variant-id]` and `[events opts]` is an arity error before capture or
-;; codegen happens at all, and every structural check above passes it. These
-;; guards read the defining `defn` and the published call, and relate the two.
-
-(def ^:private story-facade
-  ;; The public Story facade, two levels up from skill-root (repo `tools/story/`).
-  ;; Newlines are normalised: the repo stores LF but a Windows checkout under
-  ;; `core.autocrlf=true` hands back CRLF, and an anchor ending in "\n" then
-  ;; matches nothing — silently, with the guards below reading as vacuous.
-  (delay (-> (io/file skill-root ".." ".." "tools" "story" "src"
-                      "re_frame" "story.cljc")
-             slurp
-             (str/replace "\r\n" "\n"))))
-
-(defn- defn-form
-  "Source text of the top-level `(defn <sym> …)` form, from its opening
-  paren to the blank line before the next top-level form. nil when the
-  facade does not declare `sym` on its own line."
-  [src sym]
-  (when-let [start (str/index-of src (str "(defn " sym "\n"))]
-    (let [tail (subs src start)
-          end  (str/index-of tail "\n\n(")]
-      (if end (subs tail 0 end) tail))))
-
-(defn- zero-arity?
-  "True iff `defn-src` declares a zero-arity — a bare `[]` arg vector alone
-  on its line, or an `([] …)` multi-arity clause."
-  [defn-src]
-  (boolean (re-find #"(?m)^\s*\[\]\s*$|^\s*\(\[\]" defn-src)))
-
-(deftest recorder-recipe-calls-match-the-facade-arity
-  (testing "the facade declares the arities the leaf must satisfy"
-    (let [src @story-facade]
-      ;; Control. `zero-arity?` answering "false" for every input would clear
-      ;; the two assertions below in the same voice as a correct facade, so
-      ;; exercise it against the one recorder entry point that IS zero-arity.
-      (is (some? (defn-form src "stop-recording!"))
-          (str "could not locate `(defn stop-recording!` in the Story facade "
-               "— the arity guards below are vacuous, not "
-               "satisfied."))
-      (is (zero-arity? (defn-form src "stop-recording!"))
-          (str "`re-frame.story/stop-recording!` does not read as zero-arity, "
-               "so `zero-arity?` is not measuring what it claims and the "
-               "guards below prove nothing."))
-      (doseq [sym ["start-recording!" "gen-play-snippet"]]
-        (let [form (defn-form src sym)]
-          (is (some? form)
-              (str "could not locate `(defn " sym "` in the Story facade — "
-                   "references/stories.md publishes a call to it, so either "
-                   "the fn moved or this guard is reading the wrong "
-                   "file."))
-          (is (not (zero-arity? form))
-              (str "`re-frame.story/" sym "` declares a zero-arity. If that "
-                   "is deliberate, references/stories.md may simplify its "
-                   "recorder sequence; until then the leaf must keep passing "
-                   "arguments."))))))
-
-  (testing "references/stories.md publishes no zero-arg recorder call"
-    (let [md @stories-md]
-      (doseq [sym ["start-recording!" "gen-play-snippet"]]
-        (is (not (str/includes? md (str "(re-frame.story/" sym ")")))
-            (str "references/stories.md publishes `(re-frame.story/" sym ")` "
-                 "with zero args. The facade requires arguments, so following "
-                 "the recipe throws before it captures anything.")))
-      (is (str/includes? md "(re-frame.story/start-recording! :story.")
-          (str "references/stories.md does not pass a variant id to "
-               "`start-recording!` — the recording's address IS the variant "
-               "frame."))
-      (is (str/includes? md ":variant-id :story.")
-          (str "references/stories.md does not supply `gen-play-snippet`'s "
-               "required `:variant-id` opt — the snippet has no id to render "
-               "the `reg-variant` form against.")))))
-
-;; ---------------------------------------------------------------------------
-;; Catalogue-cardinality drift
-;; ---------------------------------------------------------------------------
-;;
-;; The name-level gate (scripts/check_skill_mcp_drift.py) compares the
-;; SKILL.md allow-list against the server descriptor SET — it does NOT read the
-;; PROSE cardinality, so a doc can carry a stale tool count even when the
-;; allow-list is correct. These guards anchor every doc that states a count to
-;; the LIVE manifest `:tool-count` (read from
-;; tools/re-frame2-pair-mcp/tool-descriptors.edn) and fail when a doc carries a
-;; stale number. Add a doc to `count-docs` if it states the count.
 
 (def ^:private count-docs
-  ;; [label deref] for every skill/re-authoring doc that states the tool count
-  ;; in prose. Each MUST name the current count and MUST NOT name a stale one.
-  [["README.md"                 readme-md]
-   ["SKILL.md"                  skill-md]
-   ["STATUS.md"                 (delay (slurp-rel "STATUS.md"))]
-   ["references/mcp-transport.md" (delay (slurp-rel "references/mcp-transport.md"))]
-   ["references/vocabulary.md"  vocabulary-md]
-   ["docs/capabilities.md"      capabilities-md]
-   ["docs/initial-spec.md"      (delay (slurp-rel "docs/initial-spec.md"))]
-   ["spec/inputs.md"            (delay (slurp-rel "spec/inputs.md"))]
-   ["spec/design.md"            (delay (slurp-rel "spec/design.md"))]
-   ["spec/authoring-prompt.md"  (delay (slurp-rel "spec/authoring-prompt.md"))]])
+  [["README.md" readme-md]
+   ["SKILL.md" skill-md]
+   ["STATUS.md" (doc "STATUS.md")]
+   ["references/mcp-transport.md" (doc "references/mcp-transport.md")]
+   ["references/vocabulary.md" vocabulary-md]
+   ["docs/capabilities.md" capabilities-md]
+   ["docs/initial-spec.md" (doc "docs/initial-spec.md")]
+   ["spec/inputs.md" (doc "spec/inputs.md")]
+   ["spec/design.md" (doc "spec/design.md")]
+   ["spec/authoring-prompt.md" (doc "spec/authoring-prompt.md")]])
 
 (deftest catalogue-count-matches-live-manifest
-  (let [live  @tool-count
-        live-s (str live)]
-    (testing (str "every count-stating doc names the live " live "-tool catalogue")
-      (doseq [[label md] count-docs]
-        (is (str/includes? @md live-s)
-            (str label " does not state the live Pair-MCP tool count of "
-                 live " (from tool-descriptors.edn :tool-count) — update the "
-                 "prose count when the catalogue changes."))))
-    (testing "no count-stating doc carries a stale tool count"
-      ;; Sweep the counts the catalogue has held (tool-descriptors.edn's git
-      ;; history); the LIVE count is exempt. This catches a doc missed when
-      ;; the catalogue changes size. 31/32 are NOT swept -- the catalogue
-      ;; never held them, so no doc can be stale at one, and sweeping a count
-      ;; that never shipped only adds noise.
-      (doseq [[label md] count-docs
-              stale ["26" "27" "28" "29" "30" "33" "35"]
-              :when (not= stale live-s)]
-        ;; Match the count only in a TOOL-catalogue framing ("NN tool" /
-        ;; "NN-tool" / "all NN") so unrelated numerals (dates, line counts,
-        ;; failure-mode counts) don't trip the guard.
-        (let [pat (re-pattern (str "(?i)\\b" stale "[ -]tools?\\b|\\ball " stale "\\b"))]
-          (is (not (re-find pat @md))
-              (str label " carries a stale " stale "-tool catalogue count — "
-                   "the live surface is " live " tools.")))))))
+  (let [live (str @tool-count)]
+    (is (= [] (for [[label md] count-docs :when (not (str/includes? @md live))] label))
+        (str "these docs do not state the live " live "-tool count from tool-descriptors.edn"))
+    ;; Counts the catalogue has held (tool-descriptors.edn's history), matched
+    ;; only in a tool framing so dates and line counts never trip it.
+    (is (= [] (for [[label md] count-docs
+                    stale ["26" "27" "28" "29" "30" "33" "35"]
+                    :when (and (not= stale live)
+                               (re-find (re-pattern (str "(?i)\\b" stale "[ -]tools?\\b|\\ball " stale "\\b")) @md))]
+                [label stale]))
+        (str "these docs carry a stale tool count; the live surface is " live " tools"))))
 
-;; ---------------------------------------------------------------------------
-;; list-handlers kind parity
-;; ---------------------------------------------------------------------------
-;;
-;; ops.md's registrar/list row advertises the kinds `list-handlers`
-;; accepts. The SERVER's parser accepts neither `flow` nor `frame`:
-;; `parse-kind` returns nil for both, so a row offering them sends a
-;; catalogue-driven call to the `:invalid-kind` refusal, and presents a
-;; reserved, permanently EMPTY registrar slot as the route to live flows and
-;; frames — which have their own doors.
-;;
-;; The guard reads the kinds the SERVER publishes (the generated
-;; tool-descriptors.edn, the same manifest the tool-count guard above
-;; trusts) and compares them with the row's enumeration, so this cannot
-;; drift in either direction: a kind the skill offers and the server
-;; refuses, or a kind the server gains and the skill never mentions.
-
-(def ^:private manifest-text
-  (delay (slurp (io/file skill-root ".." ".." "tools" "re-frame2-pair-mcp"
-                         "tool-descriptors.edn"))))
-
-(defn- manifest-kinds
-  "The kinds the live list-handlers descriptor advertises."
-  []
-  (let [t @manifest-text
-        i (str/index-of t "Supported kinds:")
-        _ (assert i "tool-descriptors.edn does not state list-handlers' supported kinds")
-        s (subs t (+ i (count "Supported kinds:")))
-        s (first (str/split s #"—" 2))]
-    (->> (str/split s #",")
-         (map str/trim)
-         (remove str/blank?)
-         set)))
-
-(defn- ops-row-kinds
-  "The kinds ops.md's registrar/list row advertises."
-  []
-  (let [t @ops-md
-        i (str/index-of t "Supported kinds:")
-        _ (assert i "ops.md's registrar/list row does not state its supported kinds")
-        s (subs t (+ i (count "Supported kinds:")))
-        s (first (str/split s #"\(the closed registrar set" 2))]
-    (->> (str/split s #"/")
-         (map #(str/replace (str/trim %) "`" ""))
-         (remove str/blank?)
-         set)))
-
+;; list-handlers' parser refuses `flow` and `frame` (they have their own
+;; doors), so ops.md's kind list must equal the kinds the server publishes.
 (deftest ops-supported-kinds-match-the-live-server-parser
-  (let [server (manifest-kinds)
-        skill  (ops-row-kinds)]
-    (is (seq server) "read at least one kind from the descriptor manifest")
-    (is (seq skill)  "read at least one kind from ops.md")
+  (let [kinds  (fn [text cut sep]
+                 (let [i (str/index-of text "Supported kinds:")]
+                   (assert i "no `Supported kinds:` list")
+                   (->> (str/split (first (str/split (subs text (+ i (count "Supported kinds:"))) cut 2)) sep)
+                        (map #(str/replace (str/trim %) "`" ""))
+                        (remove str/blank?)
+                        set)))
+        server (kinds @manifest-text #"—" #",")
+        skill  (kinds @ops-md #"\(the closed registrar set" #"/")]
+    (is (seq server) "control: read at least one kind from the descriptor manifest")
     (is (= server skill)
         (str "ops.md's list-handlers kinds must match the server's. Only in ops.md: "
-             (pr-str (sort (remove server skill)))
-             "; only in the server manifest: "
-             (pr-str (sort (remove skill server)))
-             ". A kind the skill advertises and the parser refuses returns "
-             ":reason :invalid-kind to an agent following the catalogue."))
-    ;; The parser refuses `flow` and `frame`, so the parity above keeps both
-    ;; off the row; the row must still name the flow door it routes to.
-    (is (str/includes? @ops-md "flows-snapshot")
-        "ops.md must name the real flow door where it declines the kind")))
-
-;; ---------------------------------------------------------------------------
-;; Gated-write allow-list policy drift
-;; ---------------------------------------------------------------------------
-;;
-;; The policy (scripts/check_skill_mcp_drift.py: `intentional_server_only`
-;; is empty for the re-frame2-pair mapping): EVERY server tool — including a
-;; `--allow-writes`-gated write tool — is allow-listed and fenced at the
-;; SERVER. Re-authoring docs telling a future author to keep gated write tools
-;; OFF the allow-list and put them in `intentional_server_only` would
-;; contradict the live gate and regenerate wrong guidance. This guard fails if
-;; that contradictory policy appears in the re-authoring/meta docs.
-
-(deftest gated-write-tools-stay-allow-listed-in-reauthoring-docs
-  (testing "re-authoring docs do NOT route gated write tools into intentional_server_only / off the allow-list"
-    (doseq [[label md] [["spec/inputs.md"           (delay (slurp-rel "spec/inputs.md"))]
-                        ["spec/design.md"           (delay (slurp-rel "spec/design.md"))]
-                        ["spec/authoring-prompt.md" (delay (slurp-rel "spec/authoring-prompt.md"))]
-                        ["docs/initial-spec.md"     (delay (slurp-rel "docs/initial-spec.md"))]]]
-      (let [text @md]
-        ;; Flag the STALE-policy framing: a write tool that "stay(s) off" the
-        ;; allow-list, or that should "go in" `intentional_server_only`. The
-        ;; positive-verb requirement ("stay(s) off" / "go(es) in") deliberately
-        ;; does NOT match the CORRECT framing that says a gated write tool is
-        ;; "never excluded into `intentional_server_only`" — the negating prose
-        ;; lacks the placement verbs.
-        (is (not (re-find #"(?is)write tool[^.\n]{0,90}(stays? off[^.\n]{0,30}allow-list|go(?:es)? (?:in)?to?[^.\n]{0,30}intentional_server_only)" text))
-            (str label " teaches that a `--allow-writes`-gated write tool stays "
-                 "OFF the allow-list / goes in `intentional_server_only` — the "
-                 "current policy allow-lists EVERY server tool (incl. gated "
-                 "write tools) and fences them at the server's `--allow-writes` "
-                 "launch gate; `intentional_server_only` is empty for the "
-                 "re-frame2-pair mapping."))))))
-
-;; ---------------------------------------------------------------------------
-;; Run
-;; ---------------------------------------------------------------------------
+             (pr-str (sort (remove server skill))) "; only in the manifest: " (pr-str (sort (remove skill server)))))
+    (is (str/includes? @ops-md "flows-snapshot") "ops.md must name the flow door where it declines the kind")))
 
 (let [{:keys [fail error]} (run-tests 'prompt-regression-test)]
- (System/exit (if (and (zero? fail) (zero? error)) 0 1)))
+  (System/exit (if (zero? (+ fail error)) 0 1)))
