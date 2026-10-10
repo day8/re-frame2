@@ -29,6 +29,22 @@ The fragments above add Xray to an existing app; retain that app's target,
 modules and other dependencies. The `:deps` alias must include the alias
 containing the Xray dependency.
 
+### Add the npm packages
+
+Xray's machine chart imports two npm packages, `@xyflow/react` and `elkjs`,
+through `day8/re-frame2-machines-viz`. A `:local/root` dependency does not
+install JavaScript packages, so add both to your app's npm project beside
+`react` and `react-dom`:
+
+```bash
+npm install --save-dev @xyflow/react@<version> elkjs@<version>
+```
+
+Both versions are pinned in
+[`implementation/package.json`](../../implementation/package.json); take them
+from the re-frame2 checkout your `:local/root` points at, and keep an existing
+compatible pin.
+
 ## Reserve the host
 
 ```html
@@ -121,6 +137,7 @@ It returns a ClojureScript map. Expand its `:diagnostic` in the console.
 
 | Symptom or diagnostic | Cause | Fix |
 | --- | --- | --- |
+| The build fails with `The required JS dependency "@xyflow/react" is not available` (or `"elkjs/lib/elk.bundled.js"`) | The chart's npm packages are not installed | [Add the npm packages](#add-the-npm-packages); `status()` cannot help, because the preload never compiled |
 | The browser-global API is undefined | The Xray preload did not load | Check the dev alias and build's `:devtools :preloads`; restart after a classpath change |
 | `:missing-layout-host` | No element matches the configured selector | Add the host markup or correct the selector; the console also prints a host snippet |
 | `:no-substrate-adapter` | The preload waited about six seconds without an installed adapter | Check that the app calls `rf/init!` and that boot did not fail |
