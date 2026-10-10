@@ -569,9 +569,8 @@ bead: no new sentinel, no new evidence machinery, and no code under
 The pair-in-one-row shape of the third suite is the point: an advisor-only row
 would go green against a causal slice that had drifted back, and a causal-only
 row against an advisor that had. Its red demonstration is the pre-repair
-predicate planted in both places — 17 failures across six of its rows, naming
-`:cap` where the window held evidence and a five-element roster where two
-recomputes ran.
+predicate planted in both places, which fails it naming `:cap` where the
+window held evidence and a five-element roster where two recomputes ran.
 
 The matrix is the second control, and it exists because the first one **covered
 the adjacent case rather than the failing one**: an untagged RUN beside a tagged

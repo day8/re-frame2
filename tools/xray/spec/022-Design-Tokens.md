@@ -83,8 +83,7 @@ one edit per token.
 - **`info` vs `accent`:** both are blue, but `accent` is the **primary** chrome signal (active /
   selected / changed) and `info` is a **fixed categorical** cool blue used where a surface needs
   to read as a distinct peer of the primary accent (the in-flight head rides `accent`; the
-  paused head rides `info`; the dispatch op-family rides `accent`, the db / sub families ride
-  `info`). `info` shares `advisory`'s hue — both are GitHub Primer's syntax-number blue, the
+  paused head rides `info`). `info` shares `advisory`'s hue — both are GitHub Primer's syntax-number blue, the
   Figma block's number colour; Xray's own number colour is `syntax-number` (§Syntax highlighting).
 - **app-db diff:** added → `success`, removed → `error`, changed → `warning` (reuse the
   semantic tokens; no new colours).
@@ -112,8 +111,8 @@ one edit per token.
 
 ### Functional categorical hues (carve-out)
 
-These do REAL semantic work — perf tiers, machine state, route side-channel, redaction,
-op-family legends — and are **not** collapsed into the accent.
+These do REAL semantic work — perf tiers, machine state, route side-channel, redaction —
+and are **not** collapsed into the accent.
 
 | token | role | dark | light |
 |---|---|---|---|

@@ -316,8 +316,7 @@ does not flip `:images?` (there is no image content to show).
 - `:rf.xray/image-view` — the FRAMES/IMAGES composite; reads the image-loaded
   frames (`re-frame.live-frame/image-view-frames` — the EP-0024 one-registry
   read that projects each `frames` record carrying a `:generation` into an inert
-  frame view) + each frame's sealed generation
-  (`re-frame.image-assembly/resolve-descriptor`) at recompute time via the
+  frame view, each carrying its sealed generation) at recompute time via the
   fail-soft `image_view_reads` seam, and projects via the pure
   `image_view_helpers/project-image-view`. **Read-only** — enumerating
   image-loaded frames and reading sealed generations pins nothing and dispatches
@@ -333,26 +332,24 @@ does not flip `:images?` (there is no image content to show).
 
 - `panels/image_view_helpers.cljc` — the pure `data → data` projection
   (`descriptor-provenance` · `project-generation` · `project-frame-row` ·
-  `project-frames` · `resolve-in-frame` · `project-image-view` ·
+  `project-frames` · `project-image-view` ·
   `provenance-summary` · `image-row-summary` · `no-images-caption`);
   JVM-testable.
 - `panels/image_view_reads.cljs` — the READ-TIME fail-soft live read seam
   (`live-frames` — over `re-frame.live-frame/image-view-frames`, the EP-0024
-  one-registry read · `resolve-descriptor` · `image-view-data`) over the core
+  one-registry read · `image-view-data`) over the core
   surfaces (`re-frame.live-frame` / `re-frame.image` /
   `re-frame.image-assembly`), PLUS the Xray-as-its-own-image constructor +
   SEATING (`xray-image` · `xray-image-id` · `xray-source-glob` ·
-  `xray-exclude-globs` · `resolver-keyset` · `application-resolver-keyset` ·
+  `xray-exclude-globs` · `application-resolver-keyset` ·
   `xray-image-isolated-from?` · `xray-frame-seated?` · `seat-xray-frame!`).
   `xray-image` declares `:select-ns {:include [xray-source-glob] :exclude
   xray-exclude-globs}` (`:exclude` = `["day8.re-frame2-xray.**.*-cljs-test"
   "day8.re-frame2-xray.test-helpers.**"]`) so Xray's own test + test-support
   namespaces are subtracted from the production image (rf2-rjml45 — they
   co-register the production ids in a dev/test build).
-  `resolver-keyset` is the full `[kind id]`-keyset reader (every resolved
-  registration, framework standards included — what the FRAMES section
-  displays); `application-resolver-keyset` is the application-owned subset
-  (excluding the `:standard true` framework standards the assembly unions into
+  `application-resolver-keyset` is a generation's application-owned
+  `[kind id]` keyset (excluding the `:standard true` framework standards the assembly unions into
   every generation — rf2-32siq3.41) that the disjointness predicate compares;
   `xray-image-isolated-from?` assembles both images and compares those
   application-owned keysets (live-store + explicit-pool arities, fail-soft to a

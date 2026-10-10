@@ -606,7 +606,8 @@ timeline colours them `:hydration`.
 The optimistic-mutation surface rides on three `:rf.mutation/*` ops the
 framework emits from `re-frame.resources.mutation-events` (NOT members of
 the `:rf.resource/*` `trace-ops` family — they are mutation ops, recognised
-here by their literal op keys via `optimistic-mutation-op?` in
+here by their literal op keys — `optimistic-apply-op`,
+`optimistic-reconcile-op` and `optimistic-rollback-op` in
 `panels/resources_helpers.cljc`):
 
 | Operation | Emit site | Carries |

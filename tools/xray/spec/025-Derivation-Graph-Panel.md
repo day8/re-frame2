@@ -304,8 +304,8 @@ from the enclosing `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`.
 ## Test coverage
 
 - **`derivation_graph_helpers_cljs_test.cljc`** (JVM + node) — superkind
-  classification by `:kind` alone; family grouping; edge role grouping +
-  node degree; on-box `summarize` raw-permitting posture; `summarize-node`
+  classification by `:kind` alone; family grouping; edge role grouping;
+  on-box `summarize` raw-permitting posture; `summarize-node`
   structure preservation; `graph-summary` tallies.
 - **`derivation_graph_redaction_cljs_test.cljc`** (JVM + node, runtime
   fixture) — the **consumer/wiring** pin for the delegate (rf2-mm3y49). The

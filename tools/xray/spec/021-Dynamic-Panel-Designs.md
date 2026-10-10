@@ -856,8 +856,9 @@ already rendered whole by the Fresco tab.
 **Its retirement is split across two passes, and the split is deliberate.**
 rf2-l86mm took the two artefacts that would otherwise RED — the
 `freehand-views populated Views roster` scenario and its `STAGED_SURFACES`
-entry in `tools/xray/testbeds/feature_matrix/scenarios.cjs`, and the canonical
-covered-row count pin in `coverage_matrix_metadata_test.clj` — because the
+entry in `tools/xray/testbeds/feature_matrix/scenarios.cjs`, and the matrix
+row that scenario alone claimed, which `coverage_matrix_metadata_test.clj`
+requires every `coveredRows` name to resolve to — because the
 PR-smoke run is derived from those entries rather than from a fixed list, and
 because that scenario was the sole claimant of its matrix row. The deck's
 SOURCE (`tools/xray/testbeds/freehand_views/`) waited for the Freehand tree
@@ -1198,7 +1199,7 @@ Per-epoch raw trace ops ordered by emission time. The underlying stream
 that Event + Reactive summarise. NOT aggregate across epochs (per §1.2).
 
 **Density note** (per §0). Each op renders as a single mono row in **plain language**
-(`relative-timestamp · op-family colour-band · readable description · duration`) — so a
+(`Δt · stage · area badge · what-happened · target/detail · duration`) — so a
 30-op epoch reads as a 30-line scroll. The raw `:operation` + tag-map is **expandable detail**
 via click, reusing the shared edn-inspector renderer's `browse` (cljs-devtools) variant (§10),
 not the default line. Lines-per-screen target ~30-60.
@@ -1229,48 +1230,13 @@ epoch-per-event (§1.1), one epoch = one event, so the focused epoch's
   (rf2-o6yqq made Trace the FIRST L4 panel with no film-strip header;
   rf2-6r9j.16 made it the rule — no L4 panel mounts one. See §5.5.)
 
-> **Superseded — rf2-aqusw.** The row design from here to the mockup (plain-language lines,
-> op-family colour bands, the collapsible reactive-aftermath group, causal nesting) is the
-> v1 shape and is historical. The panel now renders the flat six-column list specified in
-> [`023-Trace-Panel.md` §2](023-Trace-Panel.md#2-layout-flat-list--rf2-aqusw) (Δt · stage ·
-> area badge · what-happened · target/detail · duration), its stage column and left edge
-> taken from the Epoch panel's badge taxonomy. No reactive-aftermath group ships — there is
-> no `:rf.xray/trace-expanded-group-ids` sub — and `:rf.xray/trace-feed` carries no `:nodes`
-> tree.
-
-**Readable rows (Figma design — rf2-ad7zx).** Reconciled to
-`tools/xray/design-reference/xray_devtools_reference.cljs` (the `trace-panel` component), the
-later iteration. Each op renders
-as a **plain-language line**, not its raw op-type:
-`dispatched [:counter-inc]` · `db changed [:counter] 1 → 2` · `fx :dispatch → [:title/flow …]`
-· `machine :title/flow idle → loading`. Each row carries:
-
-1. a **relative timestamp** (`t+0.0ms`) at the left,
-2. a **3px coloured left-border banded by op-family** (dispatch = mode accent · db = `changed`
-   · fx = `warning` · reactive = `dim` · machine = chart/machine tone), so the epoch's shape
-   scans at a glance,
-3. the readable description (mono), and
-4. a **per-op duration** at the right (event-emit / `do-fx` rows carry elapsed timing; reactive
-   point-in-time emits show a timestamp, not a bar).
-
-The reactive aftermath (the many `:rf.sub/run` / `:rf.view/render`) **collapses under one
-expandable group** — `▸ reactive aftermath (N subs, M renders)` — so the core dominoes stand
-out (collapsible groups, not filter chrome). **Causal nesting:** child dispatches indent under
-their parent (the cascade tree) so structure is visible even in the raw view. Clicking any row
-expands its raw `:operation` + tag-map inline (no nav).
-
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│ ▔▔▔▔▔▔▔▔▔▔▔▔▔  3px cascade-status bar (lifecycle colour)  ▔▔▔▔▔▔▔▔▔▔▔ │
-│ ▌ t+0.0ms  dispatched [:counter-inc]                          0.4 ms  │  ← accent band
-│ ▌ t+0.1ms  db changed [:counter] 1 → 2                                 │  ← changed band
-│ ▌ t+0.2ms  fx :dispatch → [:title/flow [:rf/init]]                     │  ← warning band
-│ ▌ t+0.3ms  ▸ reactive aftermath (2 subs, 1 render)                     │  ← dim · collapsible
-│ ▌ t+0.5ms  machine :title/flow idle → loading                         │  ← machine band
-│      ▌ t+0.6ms  └─ dispatched [:title/loaded]   (child cascade)        │  ← indented
-│  colour-banded by op-family · click a row → expand raw :operation + tags│
-└──────────────────────────────────────────────────────────────────────┘
-```
+**Rows.** The panel renders the flat six-column list specified in
+[`023-Trace-Panel.md` §2](023-Trace-Panel.md#2-layout-flat-list--rf2-aqusw) (Δt · stage ·
+area badge · what-happened · target/detail · duration), its stage column and left edge
+taken from the Epoch panel's badge taxonomy. The what-happened cell is a plain-language
+verb (`dispatched`, `recalculated`, `re-rendered`), not the raw op-type. No
+reactive-aftermath group ships, and `:rf.xray/trace-feed` carries no `:nodes` tree.
+Clicking any row expands its raw `:operation` + tag-map inline (no nav).
 
 A **3px cascade-status timeline bar** (rf2-b76v4) above the ribbon fills
 with the focused cascade's lifecycle-status colour (settled-success /
@@ -1290,11 +1256,8 @@ buffer.").
 
 | Sub | Reads |
 |---|---|
-| `:rf.xray/trace-feed` | The focused epoch record's `:trace-events`, resolved via `:rf.xray/focus` (`:epoch-id`, plus its `:dispatch-id` to tell `:no-epoch` apart) + `:rf.xray/epoch-history`, with `:rf.xray/observed-frame` as the redaction seam. No filtering. Returns `{:rows :envelope :outcome :bands :total :rendered :epoch-id :empty-kind}` (`:rendered` = `:total` since there is no filter). The view reads only `:rows` (the flat oldest-first list) and `:empty-kind`; `:envelope` / `:outcome` / `:bands` are retained for other consumers and tests, not rendered. There is no `:nodes` tree (rf2-aqusw). |
+| `:rf.xray/trace-feed` | The focused epoch record's `:trace-events`, resolved via `:rf.xray/focus` (`:epoch-id`, plus its `:dispatch-id` to tell `:no-epoch` apart) + `:rf.xray/epoch-history`, with `:rf.xray/observed-frame` as the redaction seam. No filtering. Returns `{:rows :total :rendered :epoch-id :empty-kind}` (`:rendered` = `:total` since there is no filter). The view reads `:rows` (the flat oldest-first list) and `:empty-kind`. There is no `:nodes` tree. |
 | `:rf.xray/trace-expanded-row-ids` | The set of trace `:id`s whose payload is expanded inline (per-row click). |
-
-(A `:rf.xray/trace-expanded-group-ids` row for the reactive-aftermath group was listed here; no
-such sub or group ships.)
 
 ### §5.4 Cross-panel navigation
 
@@ -1430,11 +1393,6 @@ An event that DOES target a machine without a from→to transition — a birth (
 initial state), or a guard-blocked / unhandled no-op — is not Case B either: it renders the
 Case C shape with the resting state highlighted (003 §Machine birth, §Guard-blocked /
 unhandled no-op).
-
-The design this case used to carry — a topology per registered machine with the last-known
-state annotated `current ●` (rf2-dbi87) — is not mounted: its renderer,
-`panels/machines/topology_view.cljs`'s `Topology`, has no `src` caller (rf2-y8doi.23 recorded
-0 callers and declined the deletion only because its test file was out of fence).
 
 **Case C — focused epoch triggered ≥1 transitions (Figma design — rf2-ad7zx).**
 
@@ -1697,13 +1655,11 @@ Silent-by-default — a clean epoch shows a calm positive state, not an error lo
 Each error carries the responsible handler's source coord (`:rf.trace/trigger-handler`) for
 jump-to-source, and rides the cascade's `:dispatch-id` so the row → Epoch pivot works.
 
-The **short description** lifts a terse per-category detail from the trace event's `:tags`
-(`issues-ribbon-helpers/short-description`, priority order): `:reason` → `:exception-message`
-→ `:rf.event/v` → `:unresolved-input` → `:failing-id` → `:path` → bare-op fallback. The
-`:unresolved-input` slot is the `:rf.error/no-such-sub` row's failing query-vector — re-synced
-(rf2-qn9ss) from the legacy `:rf.sub/query-v` to spec/009's
-`{:rf.sub/id :unresolved-input :resolved-inputs}` catalogue shape after agpv2.3 (#3107) re-shaped
-the `re-frame.subs` emit; the legacy slot is no longer read.
+The **short description** lifts a terse per-category detail from the trace event's `:tags`,
+in priority order: `:reason` → `:exception-message` → `:rf.event/v` → `:unresolved-input` →
+`:failing-id` → `:path` → bare-op fallback. The `:unresolved-input` slot is the
+`:rf.error/no-such-sub` row's failing query-vector, in spec/009's
+`{:rf.sub/id :unresolved-input :resolved-inputs}` catalogue shape.
 
 ### §8.4 Cross-panel navigation
 
@@ -1968,9 +1924,9 @@ order (the stable `:trace-index` tiebreak preserves substrate emit order). An
 ACTIONLESS regional `:always` round emits no `:rf.machine/action-ran`, so its
 round trace is its only first-class evidence — harvesting it is what keeps the
 round visible. `microstep-cascade-row` keys on the `:region` tag: a
-single-active machine's `:always` microstep carries no `:region` (it rides the
-transition row's `cascade-microsteps` structured section) and produces no
-row, so single-active behaviour is unchanged.
+single-active machine's `:always` microstep carries no `:region` (it is
+recorded only in the transition trace's structured `:cascade`) and produces
+no row, so single-active behaviour is unchanged.
 
 **The `[START]` row (rf2-it4vt).** The `:start` row surfaces the machine's
 BIRTH — the `:rf.machine/started` trace `maybe-boot` (machines · lifecycle_fx
@@ -2491,28 +2447,22 @@ action, the entry action, AND the data-delta all survive on the pipeline
 rows (the rf2-akvfe **no-info-loss guard**). The pipeline is the single
 canonical place the cascade is shown.
 
-**The structured `:cascade` data STAYS — as the projection's order
-oracle.** The `:cascade` tag the substrate emits on the
-`:rf.machine/transition` trace (rf2-n9f4z; Spec 005 §The structured
-transition cascade) — a vector of self-describing step maps
-`{:kind <:exit|:action|:entry|:microstep> :state <path> :region
-<name-or-nil> :action <id-or-nil> :data-delta <changed-keys>}` in
-EXECUTION order — is still threaded onto the transition row's `:cascade`
-slot, and `projection/cascade-regions` / `cascade-microsteps` /
-`parallel-cascade?` / `cascade-step-count` still group it. The
-`machine_epochs` harness reads those projection helpers as the
+**The structured `:cascade` data is the harness's order oracle.** The
+`:cascade` tag the substrate emits on the `:rf.machine/transition` trace
+(Spec 005 §The structured transition cascade) — a vector of
+self-describing step maps `{:kind <:exit|:action|:entry|:microstep>
+:state <path> :region <name-or-nil> :action <id-or-nil> :data-delta
+<changed-keys>}` in EXECUTION order — is not projected onto any pipeline
+row. The `machine_epochs` harness reads it straight off the trace as the
 **cascade-ORDER oracle** for its assertions (exit deepest-first →
 transition `:action` @ LCA → entry shallowest-first + initial-descent →
-one `:microstep` per `:always` iteration). Only the *rendered* up/down
-view block is gone; the data layer + the order contract are unchanged.
+one `:microstep` per `:always` iteration).
 
-> **Action-free boundaries.** The retired block could surface action-free
-> boundaries (e.g. exiting `:idle` / `:off`, or the HVAC LCA walk) that the
-> per-EMIT `:rf.machine/action-ran` stream cannot. Per rf2-akvfe (Mike,
-> door-deck authority 2026-06-04) that block is removed wholesale as a
-> duplicate of the pipeline; the structured `:cascade` remains queryable as
-> projection data + the cascade-order oracle, and the Machine Inspector
-> (003) carries the full configuration-walk view.
+> **Action-free boundaries.** The pipeline does not surface action-free
+> boundaries (e.g. exiting `:idle` / `:off`, or the HVAC LCA walk), which
+> the per-EMIT `:rf.machine/action-ran` stream cannot carry; the
+> structured `:cascade` on the trace still records them, and the Machine
+> Inspector (003) carries the full configuration-walk view.
 
 The cascade is the consumer of the rf2-n9f4z instrumentation contract per
 [003-Machine-Inspector §The EVENT HANDLER machine cascade](003-Machine-Inspector.md).
@@ -2537,9 +2487,8 @@ is backed by a CLJS-unit assertion in
 drives the step through the live substrate and pins BOTH the machine outcome
 AND the Xray cascade-render projection it lights up — so re-driving the deck
 is a real regression test of this render contract. Cascade ORDER is read off
-the structured `:cascade` steps (the `cascade-regions` projection), so the
-harness keys its order assertions directly off the Xray-surface projection —
-there is no app-level order-oracle to keep in sync.
+the structured `:cascade` steps on the transition trace, so there is no
+app-level order-oracle to keep in sync.
 
 Timer rows surface only the header + click-to-source chip (no inline
 body — cancellations are housekeeping; the chip routes to the
@@ -2628,16 +2577,13 @@ toggle.
 > §9.1.5.2 lineage note for the symmetric retirement on the App-DB
 > panel and SUBSCRIPTIONS value-cells surfaces.
 
-**Diff engine**: Editscript A* (`juji/editscript` 0.6.5). Replaces the
-home-grown leaf-walker classifier wholesale (10 fns retired at
-`tools/xray/src/.../views/edn_inspector.cljs:533-664`). Pure-data
+**Diff engine**: Editscript A* (`juji/editscript` 0.6.5). Pure-data
 edit-script output as EDN — `[[[path] :+ value] [[path] :- ]
 [[path] :r value]]` — feeds the projection layer at
 `day8.re-frame2-xray.diff.engine`, which emits `{:path-ops
-:container-ops :flat-rows :wholly-changed-roots :shift-suffix
-:vector-removals}`. The renderer chrome reads off this projection;
-the engine swap is invisible to the chrome, only the classifier
-flips.
+:container-ops :wholly-changed-roots :vector-removals}`. The renderer
+chrome reads the projection through the engine's accessors (`op-at`,
+`entry-at`, `change-count-at`, …).
 
 **Mode-3 grammar (R1-R8)** — implements the rules from
 `diff-mode-3-key-and-triangle-grammar` findings doc §5.1 (revised
@@ -2798,13 +2744,12 @@ e2e specs that pre-date the retirement.
 - Per-section auto-routing in App-DB (the `:before` sentinel
   branch). Replaced by FULL+DIFF as the single rendering.
 
-**Single canonical diff engine** (rf2-xuyac, 2026-05-27): every
-diff surface (App-DB panel · Epoch HANDLER `:db` · Epoch
-SUBSCRIPTIONS) routes through the canonical
-Editscript-A* engine at `day8.re-frame2-xray.diff.engine/project`
-and consumes the same `:flat-rows` channel. Same `(before, after)`
-→ same `:flat-rows` → same chrome → identical R-rule application
-across every surface.
+**Single canonical diff engine.** Every diff surface (App-DB panel ·
+Epoch HANDLER `:db` · Epoch SUBSCRIPTIONS) routes through the canonical
+Editscript-A* engine at `day8.re-frame2-xray.diff.engine/project` and
+reads the projection through the same accessors. Same `(before, after)`
+→ same projection → same chrome → identical R-rule application across
+every surface.
 
 #### §9.1.5.3 SUBSCRIPTIONS leaf-scalar value cell — three-way fork (rf2-fyd8u + rf2-o77z4)
 
@@ -2867,10 +2812,9 @@ Each step's row carries:
 5. Per-step body content: code blocks, tables, diff displays.
 
 A Fibonacci spacing system (3 · 5 · 8 · 13 · 21 · 34 · 55 · 89) drives
-the gap / pad values above. It is tabulated in `panels.epoch.badge/fib`
-(with a `fib-px` helper), which SHOULD be the one source of truth — but
-nothing reads it yet: `panels/epoch/view.cljs` hardcodes the literals
-(`-44px`, `21px`, `55px`, …).
+the gap / pad values above. `panels/epoch/view.cljs` writes them as
+literals (`-44px`, `21px`, `55px`, …); no shared table carries the
+scale.
 
 #### §9.1.6.1 HANDLER source affordance (rf2-ehd8v · rf2-80u5a · rf2-xjgdk · pair-debug 2026-05-26)
 
@@ -3251,7 +3195,7 @@ layer (`panels/epoch/view.cljs`) consumes the projection's output
 verbatim; no DOM concern bleeds into the data layer.
 
 The view-presentation string formatters (`format-duration-ms`,
-`event-display`, `ns-keyword`, `cascade-row-label`,
+`ns-keyword`, `cascade-row-label`,
 `cascade-outcome-label`, `cascade-row-source-key`,
 `handler-flavour-label`, …) live in the sibling
 `panels/epoch/format.cljc` (rf2-qkygs) — also `.cljc` and JVM-testable
@@ -3310,11 +3254,8 @@ string formatters out of the pure-data `projection` ns into the
 sibling `panels/epoch/format.cljc`), which formats `0.1ms` / `12ms` /
 `1.2s` per scale.
 
-Per-row predicate driving long-step chrome:
-
-| Helper | Returns | Used for |
-|--------|---------|----------|
-| `projection/long-step? step` | boolean (`:duration-ms > 16ms`) | per-step warning chrome |
+The view compares each step's `:duration-ms` against
+`projection/long-step-threshold-ms` to drive the long-step chrome.
 
 `projection/long-step-threshold-ms` is **16ms** — one display frame
 at 60Hz, the natural marker for "this single step will visibly
@@ -3899,9 +3840,7 @@ order carry the structure.
 
 **No badge status, no labels.** rf2-j630b painted ONE overall `✓` / `✗`
 glyph after the "EFFECT HANDLERS" badge; **rf2-9wq0v retired it** with the
-other per-stage glyphs (see Header chrome below). The AND-of-rows outcome
-stays queryable as `projection/side-effects-badge-status` (SKIPPED rows
-are NEUTRAL in it). **All post-commit / best-effort labels and the
+other per-stage glyphs (see Header chrome below). **All post-commit / best-effort labels and the
 threw-count chip are dropped** — the per-row glyphs are the whole signal.
 
 **Row order (execution order).** The flat `:rows` slot is
@@ -4030,9 +3969,7 @@ signal (the rf2-m8ac9 "count summary is noise" rationale carries through;
 rf2-j630b extended it to drop the post-commit labels too). rf2-j630b's
 single overall `✓ / ✗` badge glyph was **RETIRED in rf2-9wq0v** along
 with the other per-stage glyphs — it duplicated what the per-row ledger
-already shows. The `:rows`-level AND-of-rows outcome stays queryable via
-`projection/side-effects-badge-status` (tests + the cascade-outcome
-banner).
+already shows.
 
 **Per-action attribution** — when the cascade was driven by a machine
 handler, each `:fx` ledger row that maps to a fx-id emitted by an
@@ -4219,8 +4156,6 @@ reach for `[edn-inspector value opts]` directly.
 ```clj
 [edn-inspector value]                         ;; browse mode
 [edn-inspector value opts]                    ;; browse / diff per opts
-[edn-inspector-diff before after]             ;; diff convenience
-[edn-inspector-diff before after opts]
 ```
 
 `opts` keys (all optional):
@@ -4480,16 +4415,6 @@ via `edn-inspector/render-node`. `:dispatch-fn` is the mount's
 captured frame-bound dispatcher, so a toggle inside such a recursion
 lands on the frame the widget is mounted under.
 
-**Corrected 2026-09-21 under rf2-et4l0 — the dispatcher, and only
-that.** This read "It carries no `:dispatch-fn`, so toggles inside
-such a recursion dispatch through the global `rf/dispatch` fallback
-rather than the mount's captured frame", and that described a real
-gap rather than stale prose: `render-node` rebuilt this context
-without the key, so a consumer body recursing `render-node` handed
-its nested collection's toggle to the global dispatcher while the
-widget read its expansion state on its own frame. The renderer now
-threads the key.
-
 **Dispatch order** (in `render-node`):
 
 1. `(satisfies? IXrayEdnInspector v)` → consult the protocol.
@@ -4551,7 +4476,7 @@ overrides still apply to protocol nodes, and (g) a consumer body
 recursing `render-node` reaches the mount's captured dispatcher —
 on a non-default frame its nested collection's toggle updates that
 instance and leaves both the host frame and a second instance
-unchanged (rf2-et4l0).
+unchanged.
 #### §10.0.7 Popup overlay infra (rf2-oqa60 phase 6 · D6=a · D8=a)
 
 Phase 6 ships the **popup overlay** that floats over an Xray panel
@@ -4567,24 +4492,14 @@ Locked decisions:
   independent expansion state: the popup's `:panel-id` is namespaced by
   its `mount-id`, so the embedded widget's per-path expansion entries
   cannot collide with sibling popups or with the panel underneath.
-
-  **rf2-bcub amended WHO MINTS THE ID, and only that.** This read
-  "auto-generated UUID per popup mount — each `[edn-inspector-popup value
-  opts]` mount allocates a fresh `mount-id` (UUID, captured in form-2
-  closure) on first render". That inline component had ZERO mounts
-  anywhere in the tree and has been removed, so the form-2 closure it
-  named no longer exists. The id is now the OPENING CALLER's, minted and
-  passed with the `:open` dispatch below. The isolation property above is
-  unchanged — it was only ever a consequence of namespacing `:panel-id`
-  by `mount-id`, which still happens.
+  The id is the OPENING CALLER's, minted and passed with the `:open`
+  dispatch below.
 
 Public API at
 `tools/xray/src/day8/re_frame2_xray/views/edn_inspector_popup.cljs`:
 
 ```clj
-;; programmatic — opens via the stack slot. Since rf2-bcub this is the
-;; ONLY door; the inline `[edn-inspector-popup value opts]` component
-;; that sat beside it had no mount anywhere and is gone.
+;; opens via the stack slot — the popup's only door.
 (rf/dispatch [:rf.xray.edn-inspector-popup/open
               mount-id {:value v :opts opts}]
              {:frame :rf/xray})
@@ -4751,7 +4666,6 @@ expand/collapse, AND applies diff annotations — one source of truth.
 
 ```clj
 [edn-inspector value {:before before-value …}]
-[edn-inspector-diff before after opts]
 ```
 
 **Diff ops**:
@@ -5083,7 +4997,6 @@ and-return round-trip (App-DB tab switching, focused-event re-mount).
 |-------------------------------------------|--------------------------------------|-------------------------------------------------------------------------------------|
 | `:rf.xray.edn-inspector/zoom-to`          | `panel-id mount-id absolute-path`    | Set zoom path; empty path clears the entry.                                         |
 | `:rf.xray.edn-inspector/zoom-up`          | `panel-id mount-id`                  | Pop one segment off the zoom path; popping past root clears.                        |
-| `:rf.xray.edn-inspector/zoom-reset`       | `[panel-id mount-id]` (both optional) | With args: clear that mount's entry only. Without args: clear the whole slot.       |
 
 **Sub** — `[:rf.xray.edn-inspector/zoom]` reads the slot as a map.
 Pure helpers `resolve-zoom-path` + `resolve-zoom-into` project the
