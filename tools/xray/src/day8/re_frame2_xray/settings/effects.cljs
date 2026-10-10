@@ -726,7 +726,8 @@
   nil)
 
 (defn detach-auto-open-watcher!
-  "Tear down the auto-open watcher. Test-only."
+  "Tear down the auto-open watcher. The settings event calls it when
+  auto-open-on-error is switched off; test fixtures call it to reset."
   []
   (when-let [reaction @auto-open-watcher]
     (try (remove-watch reaction ::auto-open-on-error) (catch :default _ nil))
