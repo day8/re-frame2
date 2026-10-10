@@ -4,7 +4,8 @@
   past the first is non-ASCII. The fixtures are `\\u` escapes so an editor
   that normalised this file's encoding cannot ASCII-fy them into a green
   gate measuring nothing. The wiring half — which instruments call it —
-  is `bench_bytes.test.cjs`, because a lane namespace may not require `fs`."
+  is `bench_bytes.test.cjs` (no byte label beside a bare `count`), because
+  a lane namespace may not require `fs`."
   (:require [cljs.test :refer-macros [deftest is]]
             [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]))
 
@@ -14,4 +15,4 @@
   ;; which `TextEncoder` writes as U+FFFD (3 bytes) rather than throwing.
   (is (= [0 3 4 5 6 3]
          (mapv rf.bench.fresco.lane/utf8-bytes
-               ["" "abc" "a§b" "a—b" "a𝄞b" "\uD834"]))))
+               ["" "abc" "a\u00A7b" "a\u2014b" "a\uD834\uDD1Eb" "\uD834"]))))
