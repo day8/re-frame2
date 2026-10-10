@@ -34,7 +34,8 @@
   `configure-raw-state!` posture is flipped to the server's boot-gate
   state BEFORE `restore-cascade-summary` builds the projection. The
   runtime then redacts the sensitive `:event-vector` to `:rf/redacted`
-  (see `redact-sensitive-event-vector` in the preload runtime).
+  (see `redact-sensitive-event-vector` in the preload's pure core,
+  `re-frame2-pair.pure`).
   Fail-closed: gate OFF redacts, gate ON (operator opted in) ships raw.
 
   ## epoch-id is `:any`
