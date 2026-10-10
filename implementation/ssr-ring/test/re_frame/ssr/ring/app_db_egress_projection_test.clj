@@ -77,14 +77,6 @@
                                      :payload        payload
                                      :render-tree-fn #((rf/view :rf.hjz4r/root))})))))
 
-(deftest the-streaming-final-payload-honours-the-permit
-  (reg-session-app!)
-  (let [handler (rf.ssr.ring/stream-handler
-                  (assoc handler-opts :root-view [(rf/view :rf.hjz4r/root)]))
-        body    (with-open [in ^java.io.InputStream (:body (handler {:uri "/login" :request-method :get}))]
-                  (slurp in))]
-    (is (= permitted-session (:rf/app-db (payload-of body))))))
-
 (deftest a-malformed-permit-fails-at-handler-construction
   (let [data (try (rf.ssr.ring/ssr-handler
                     (assoc handler-opts

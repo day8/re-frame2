@@ -1,5 +1,5 @@
 (ns re-frame.ssr.ring.resource-payload-projection-test
-  "The non-streaming render path (`build-full-response*`) projects the
+  "The render path (`build-full-response*`) projects the
   resource-runtime slice inside the request frame, and the resource OWNER's
   coarse `:sensitive?` claim alone decides its row (EP-0025): a frame-sensitive
   `:db` input feeding a `{:from-db}` scope does not propagate to the resource."
@@ -58,13 +58,13 @@
            second
            edn/read-string))
 
-(deftest non-streaming-payload-no-inheritance-serializes-resource
+(deftest payload-no-inheritance-serializes-resource
   (is (= [{:resource/key scoped-key :status :loaded :data {:articles [:a :b]}}]
          (->> (get-in (render-feed-payload false) [:rf/runtime-db :rf.runtime/resources :entries])
               vals
               (map #(select-keys % [:resource/key :status :data]))))))
 
-(deftest non-streaming-payload-withholds-owner-declared-sensitive-resource
+(deftest payload-withholds-owner-declared-sensitive-resource
   ;; The coarse claim substitutes both key components, so no client could
   ;; address the row: it is withheld, not shipped metadata-only. Neither the
   ;; identity, the data, nor a redaction token standing for them may ride.

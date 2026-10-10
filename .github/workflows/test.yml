@@ -2488,8 +2488,7 @@ jobs:
             ${{ runner.os }}-clj-
 
       # implementation/ssr-ring/test/ carries JVM-only test namespaces
-      # (ring_test, ring_streaming_test, ring_e2e_validator_test,
-      # ring/concurrency_stress_test, ring/streaming_robustness_test), and
+      # (ring_test, ring_e2e_validator_test and the ring/ suite), and
       # jvm-ssr does not cover ssr-ring's distinct surface — without this
       # job none of them would run in CI.
       #

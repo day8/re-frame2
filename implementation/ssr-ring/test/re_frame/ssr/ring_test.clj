@@ -23,15 +23,6 @@
 
 (defn- serve [opts] ((rf.ssr.ring/ssr-handler opts) req))
 
-(defn- serve-both
-  "`[mode status body]` from ssr-handler and stream-handler, the stream drained."
-  [opts]
-  (for [[mode handler] [[:ssr rf.ssr.ring/ssr-handler] [:stream rf.ssr.ring/stream-handler]]
-        :let [{:keys [status body]} ((handler opts) req)]]
-    [mode status (if (instance? java.io.InputStream body)
-                   (with-open [^java.io.InputStream in body] (slurp in))
-                   body)]))
-
 (defn- thrown-data
   "The ex-data of the ExceptionInfo `f` throws, or nil when it returns."
   [f]
@@ -213,7 +204,7 @@
 
 (deftest handler-payload-number-refusal-is-a-projected-500
   ;; ssr-handler builds the payload before committing anything, so a refused
-  ;; payload is an ordinary projected 500 (streaming can only truncate).
+  ;; payload is an ordinary projected 500.
   (rf/reg-event :init/wide-id {:platforms #{:server}}
     (fn [_ _] {:db {:order {:id 9007199254740993}}}))
   (let [{:keys [status body]} (serve (assoc minimal :initial-events [[:init/wide-id]]
@@ -332,12 +323,10 @@
 (deftest handler-construction-fails-closed-on-a-missing-or-unknown-required-opt
   (is (= [:rf.error/ssr-missing-payload-policy
           :rf.error/ssr-unknown-payload-policy
-          :rf.error/ssr-ring-missing-initial-events
-          :rf.error/ssr-ring-missing-root-view]
+          :rf.error/ssr-ring-missing-initial-events]
          (for [[construct opts] [[rf.ssr.ring/ssr-handler (dissoc minimal :payload)]
                                  [rf.ssr.ring/ssr-handler (assoc minimal :payload :rf.ssr.payload/whole-db)]
-                                 [rf.ssr.ring/ssr-handler (dissoc minimal :initial-events)]
-                                 [rf.ssr.ring/stream-handler (dissoc minimal :root-view)]]]
+                                 [rf.ssr.ring/ssr-handler (dissoc minimal :initial-events)]]]
            (error-id #(construct opts))))))
 
 (deftest fail-closed-proof-unpermitted-slot-not-on-wire
@@ -351,11 +340,10 @@
 (deftest handler-construction-rejects-non-string-trusted-shell-opts
   ;; Strings or nil only; `:script-src false` (no bootstrap script) is the one
   ;; exception, and it is :script-src's alone.
-  (doseq [construct [rf.ssr.ring/ssr-handler rf.ssr.ring/stream-handler]
-          [k bad]   [[:head {:title "x"}] [:script-src :main.js] [:app-element-id false]]]
+  (doseq [[k bad] [[:head {:title "x"}] [:script-src :main.js] [:app-element-id false]]]
     (is (= {:rf.error/id :rf.error/ssr-trusted-shell-opt-invalid
             :opt-key k :got bad :recovery :supply-string-or-nil}
-           (select-keys (thrown-data #(construct (assoc minimal k bad)))
+           (select-keys (thrown-data #(rf.ssr.ring/ssr-handler (assoc minimal k bad)))
                         [:rf.error/id :opt-key :got :recovery])))))
 
 ;; ===========================================================================
@@ -367,17 +355,17 @@
 (deftest explicit-nil-shell-opts-render-the-defaults
   ;; `{:script-src (:script-src cfg)}` with the key absent from cfg is an
   ;; explicit nil, and must render exactly as the absent key does.
-  (doseq [[mode _ body] (serve-both (assoc minimal :head nil :body-end nil :script-src nil
-                                           :app-element-id nil :lang nil :html-shell nil))]
-    (is (= ["/main.js"] (script-srcs body)) mode)
-    (is (str/includes? body "<div id=\"app\"") mode)
-    (is (str/includes? body "<html lang=\"en\">") mode)))
+  (let [body (:body (serve (assoc minimal :head nil :body-end nil :script-src nil
+                                  :app-element-id nil :lang nil :html-shell nil)))]
+    (is (= ["/main.js"] (script-srcs body)))
+    (is (str/includes? body "<div id=\"app\""))
+    (is (str/includes? body "<html lang=\"en\">"))))
 
 (deftest script-src-false-emits-no-bootstrap-script
-  (doseq [[mode _ body] (serve-both (assoc minimal :script-src false
-                                           :body-end "<script type=\"module\" src=\"/module.js\"></script>"))]
-    (is (= ["/module.js"] (script-srcs body)) mode)
-    (is (some? (payload-edn body)) mode)))
+  (let [body (:body (serve (assoc minimal :script-src false
+                                  :body-end "<script type=\"module\" src=\"/module.js\"></script>")))]
+    (is (= ["/module.js"] (script-srcs body)))
+    (is (some? (payload-edn body)))))
 
 (deftest default-html-shell-composes-from-shared-envelope-renderers
   ;; Both response modes single-source the envelope, so escaping cannot drift.
@@ -405,8 +393,8 @@
            [{:initial-events (route-with-head! :route/titled (fn [_ _] {:title "My Page"}))}
             ["<title>My Page</title>"]]
            [{:initial-events [] :head "<title>X</title>"} ["<title>X</title>"]]]
-          [mode _ body] (serve-both (merge minimal opts))]
-    (is (= titles (vec (re-seq #"<title.*?</title>" body))) (str mode " " titles))))
+          :let [body (:body (serve (merge minimal opts)))]]
+    (is (= titles (vec (re-seq #"<title.*?</title>" body))) (pr-str titles))))
 
 (deftest default-shell-stamps-the-head-model-attr-bags
   ;; The bags go through the hiccup emitter's attr-string: values escaped, nil

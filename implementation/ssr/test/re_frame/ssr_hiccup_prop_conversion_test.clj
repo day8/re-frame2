@@ -1,8 +1,6 @@
 (ns re-frame.ssr-hiccup-prop-conversion-test
-  "The two hiccup BODY walkers
-  (`render-to-string` and the streaming `render-shell`) paint what the
-  hydrating Reagent-tier client paints, not the author's attribute map
-  verbatim.
+  "The hiccup BODY walker, `render-to-string`, paints what the hydrating
+  Reagent-tier client paints, not the author's attribute map verbatim.
 
   Every expected string below was taken from the supported adapters' prop
   conversion (stock Reagent 2.0.1 `dash-to-prop-name` / `class-names`, which
@@ -11,28 +9,14 @@
   differ from react-dom's bytes without differing in the DOM: this emitter
   writes a presence attribute bare (`readOnly`) where react-dom writes
   `readOnly=\"\"`, and it keeps the author's attribute order where react-dom
-  moves `checked` / `value` to the end of an `<input>`.
-
-  Each row runs through BOTH walkers, because they share one conversion
-  (`re-frame.ssr.emit/dom-element-props`) and a change landing on one of them
-  only is the drift this pins."
+  moves `checked` / `value` to the end of an `<input>`."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.ssr.emit :as rf.ssr.emit]
-            [re-frame.ssr.streaming :as rf.ssr.streaming]))
-
-(defn- both-walkers
-  "`[render-to-string-html render-shell-html]` for `hiccup`."
-  [hiccup]
-  [(rf.ssr.emit/render-to-string hiccup {})
-   (:shell-html (rf.ssr.streaming/render-shell hiccup))])
+            [re-frame.ssr.emit :as rf.ssr.emit]))
 
 (defn- check-rows [rows]
   (doseq [[hiccup expected] rows]
-    (let [[sync-html shell-html] (both-walkers hiccup)]
-      (is (= expected sync-html)
-          (str "render-to-string " (pr-str hiccup)))
-      (is (= expected shell-html)
-          (str "render-shell " (pr-str hiccup))))))
+    (is (= expected (rf.ssr.emit/render-to-string hiccup {}))
+        (str "render-to-string " (pr-str hiccup)))))
 
 (deftest names-and-values-convert-the-way-the-client-does
   (testing "each of these, painted verbatim, would be an attribute the
@@ -80,13 +64,12 @@
        [[:div {"hx-post" "/x"}]                   "<div hx-post=\"/x\"></div>"]]))
 
   (testing "the attribute-name grammar still refuses a hostile key"
-    (doseq [render [#(rf.ssr.emit/render-to-string % {})
-                    #(rf.ssr.streaming/render-shell %)]]
-      (let [thrown (try (render [:div {(keyword "onclick=alert(1) x") "y"}])
-                        nil
-                        (catch clojure.lang.ExceptionInfo e e))]
-        (is (= :rf.error/ssr-invalid-attribute-name
-               (:rf.error/id (ex-data thrown))))))))
+    (let [thrown (try (rf.ssr.emit/render-to-string
+                        [:div {(keyword "onclick=alert(1) x") "y"}] {})
+                      nil
+                      (catch clojure.lang.ExceptionInfo e e))]
+      (is (= :rf.error/ssr-invalid-attribute-name
+             (:rf.error/id (ex-data thrown)))))))
 
 (deftest a-custom-element-keeps-its-names
   (testing "a hyphenated tag keeps its author names verbatim (the two

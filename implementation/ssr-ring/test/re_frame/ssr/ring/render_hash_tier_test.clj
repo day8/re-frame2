@@ -75,13 +75,3 @@
              (rf.ssr/render-to-string
                (rf.ssr.ring.lifecycle/resolve-root-view [(rf/view :q1b96/root)])
                {}))))))
-
-(deftest streaming-unresolved-root-view-ships-no-render-hash
-  ;; The streaming prefix stamps from `:render-hash` alone: a separate call site.
-  (register-app!)
-  (let [body (with-open [in ^java.io.InputStream
-                            (:body ((rf.ssr.ring/stream-handler (unresolved-opts))
-                                    {:uri "/" :request-method :get}))]
-               (slurp in))]
-    (is (str/includes? body "<h1>Tier</h1>"))
-    (is (not (str/includes? body "render-hash")))))

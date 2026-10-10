@@ -1,9 +1,9 @@
 (ns re-frame.ssr-javascript-url-react-parity-test
-  "The SSR hiccup emitters block a `javascript:` URL exactly where
+  "The SSR hiccup emitter blocks a `javascript:` URL exactly where
   the hydrating react-dom client does, pinned against react-dom ITSELF.
 
-  WHY THIS FILE EXISTS. `render-to-string` and the streaming shell walk paint
-  markup that a Reagent-tier client hydrates, and that client paints through
+  WHY THIS FILE EXISTS. `render-to-string` paints markup that a Reagent-tier
+  client hydrates, and that client paints through
   react-dom. react-dom's `setProp` swaps a `javascript:` URL in `href`, `src`,
   `action`, `formAction` and `xlinkHref`, and in `data` on an `<object>`, for a
   URL that throws. React does not patch an attribute at hydration (Spec 011
@@ -27,7 +27,6 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.ssr.emit :as rf.ssr.emit]
-            [re-frame.ssr.streaming :as rf.ssr.streaming]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
 (use-fixtures :each rf.ssr.test-fixture/reset-runtime)
@@ -90,8 +89,7 @@
     (decode v)))
 
 (def ^:private emitters
-  {"render-to-string"      rf.ssr.emit/render-to-string
-   "the streaming shell walk" (fn [tree] (:shell-html (rf.ssr.streaming/render-shell tree)))})
+  {"render-to-string" rf.ssr.emit/render-to-string})
 
 ;; ---------------------------------------------------------------------------
 ;; Tests.

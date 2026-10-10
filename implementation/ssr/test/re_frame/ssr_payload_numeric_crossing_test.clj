@@ -1,19 +1,17 @@
 (ns re-frame.ssr-payload-numeric-crossing-test
-  "The hydration payload, and every streaming delta, obey the numeric crossing
-  rule the root manifest enforces. On a JVM host the payload is `pr-str`'d and
+  "The hydration payload obeys the numeric crossing rule the root manifest
+  enforces. On a JVM host the payload is `pr-str`'d and
   read back by the browser's EDN reader, which reads a Long past 2^53, a
   BigInt, a BigDecimal, a Ratio or a Float back as a DIFFERENT value — and the
   server reads its own value back perfectly, so nothing else catches it.
-  `build-payload` and `project-delta` refuse such a number with
+  `build-payload` refuses such a number with
   `:rf.error/ssr-hydration-payload-invalid`, always on.
 
   The per-class verdicts belong to `manifest/portable-number?` and are pinned
   in `re-frame.ssr.root-manifest-cljs-test`; NaN, infinities, `#inst` and
   `#uuid` read back as what they were and ride."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.core :as rf]
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
-            [re-frame.ssr.streaming :as rf.ssr.streaming]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
 (use-fixtures :each rf.ssr.test-fixture/reset-runtime)
@@ -36,7 +34,7 @@
             :class       "java.math.BigDecimal"
             :recovery    :narrow-the-value-or-drop-the-key}
            (select-keys data [:rf.error/id :partition :path :class :recovery])))
-    ;; On the streaming path only the message survives.
+    ;; The message names the partition, the path and the class too.
     (is (every? #(.contains ^String (::message data) %)
                 [":rf/app-db" "[:price]" "java.math.BigDecimal"])))
   (testing "a BigInteger, which the manifest's tests do not reach"
@@ -83,20 +81,3 @@
     ;; `identical?`, because NaN is not `=` to itself.
     (is (identical? db (:rf/app-db payload)))
     (is (= {:n 1} (:rf/runtime-db payload)))))
-
-(def ^:private sframe :rf.numeric-crossing/server)
-
-(defn- project-delta [delta payload]
-  (rf/reg-event :rf.numeric-crossing/seed (fn [_ _] {:db {}}))
-  (rf/make-frame {:id sframe :platform :server
-                  :initial-events [[:rf.numeric-crossing/seed]]})
-  (rf/with-frame sframe
-    (rf.ssr.streaming/project-delta delta sframe {:payload payload})))
-
-(deftest a-streaming-delta-obeys-the-same-rule
-  (is (= {:rf.error/id :rf.error/ssr-hydration-payload-invalid :partition :rf/app-db :path [:order :id]}
-         (select-keys (refusal #(project-delta {:order {:id 9007199254740993}} [:order]))
-                      [:rf.error/id :partition :path])))
-  (testing "the allowlist runs first, so an off-allowlist key cannot fail the delta"
-    (is (= {:public {:n 1}}
-           (project-delta {:public {:n 1} :internal {:big 9007199254740993N}} [:public])))))

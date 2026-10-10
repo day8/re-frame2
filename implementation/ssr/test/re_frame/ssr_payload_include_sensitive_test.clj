@@ -18,13 +18,11 @@
     d. permitting a collection releases its whole subtree;
     e. a dead frame's whole-slice `:rf/redacted` is untouched.
 
-  One shared rule, `project-app-db-egress`'s 3-arity: the streaming delta and
-  the streaming final payload reach it too, so they agree."
+  One shared rule: `project-app-db-egress`'s 3-arity."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.privacy :as rf.privacy]
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
-            [re-frame.ssr.streaming :as rf.ssr.streaming]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
 (use-fixtures :each rf.ssr.test-fixture/reset-runtime)
@@ -134,14 +132,3 @@
   (let [opts {:payload [:session] :payload-include-sensitive [[:session :csrf]]}]
     (is (= opts (rf.ssr.payload-policy/validate-policy-opts! opts))
         "a well-formed permit passes the construction arm unchanged")))
-
-(deftest the-streaming-delta-and-the-final-payload-apply-the-same-permit
-  (reg-server-frame! session-db session-sensitive)
-  (let [opts  {:payload [:session] :payload-include-sensitive [[:session :csrf]]}
-        delta (rf/with-frame sframe
-                (rf.ssr.streaming/project-delta {:session (:session session-db)} sframe opts))
-        final (rf/with-frame sframe
-                (rf.ssr.streaming/build-final-payload sframe "h1" (assoc opts :version 1)))]
-    (is (= {:csrf "csrf-abc-123" :upstream-key redacted :user "alice"}
-           (:session delta)
-           (get-in final [:rf/app-db :session])))))

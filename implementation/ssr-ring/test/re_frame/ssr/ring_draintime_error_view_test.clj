@@ -154,33 +154,3 @@
                   request)]
     (is (= [302 "/login" ""]
            [(:status response) (get-in response [:headers "Location"]) (:body response)]))))
-
-(deftest stream-draintime-500-non-streamed-error-arm
-  (reg-drain-boom-event!)
-  (let [{:keys [status body]} ((rf.ssr.ring/stream-handler
-                                 {:initial-events [[:init/boom]]
-                                  :root-view      [:p "root"]
-                                  :error-view     (fn [_] [:div "STREAM-BRANDED-ERROR"])
-                                  :payload        :rf.ssr.payload/whole-app-db})
-                               request)]
-    (is (= 500 status))
-    ;; A plain String, not the streaming InputStream: no writer thread.
-    (is (string? body))
-    (is (str/includes? body "STREAM-BRANDED-ERROR"))
-    (is (not (str/includes? body "__rf_payload")))))
-
-(deftest stream-post-shell-recovered-sub-500-non-streamed-error-arm
-  (rf/reg-event :init/ok {:platforms #{:server}} (fn [_ _] {}))
-  (rf/reg-sub :shell/throwing (fn [_ _] (throw (ex-info "shell-sub-boom" {}))))
-  (rf/reg-view* :pages/shell-uses-throwing-sub
-    (fn [] [:main "DEGRADED-SHELL-MARKER" (str @(rf/subscribe [:shell/throwing]))]))
-  (with-redefs [rf.interop/debug-enabled? false]
-    (let [{:keys [status body]} ((rf.ssr.ring/stream-handler
-                                   {:initial-events [[:init/ok]]
-                                    :root-view      [(rf/view :pages/shell-uses-throwing-sub)]
-                                    :payload        :rf.ssr.payload/whole-app-db})
-                                 request)]
-      (is (= 500 status))
-      (is (string? body))
-      (is (str/includes? body "Something went wrong"))
-      (is (not (re-find #"DEGRADED-SHELL-MARKER|__rf_payload" body))))))

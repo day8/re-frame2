@@ -17,7 +17,6 @@
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
             [re-frame.ssr :as rf.ssr]
-            [re-frame.ssr.streaming :as rf.ssr.streaming]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
             [re-frame.views.jvm-source-coord-annotation :as rf.views.jvm-source-coord-annotation]))
 
@@ -98,20 +97,6 @@
                     :data-rf-view          ":ssr-coord-test/interop"} "hi"]
              (annotate [:div "hi"]))
           "control: a DOM-tag root IS annotated by the same call"))))
-
-(deftest streaming-shell-annotates-through-the-wrapped-handler
-  (testing "The streaming walker resolves callable heads through the SAME
-            wrapped handler-fn, so a streamed shell matches the sync render
-            byte for byte in either posture"
-    (rf/reg-view ^{:rf/id :ssr-coord-test/shell} shell-view []
-      [:main "shell"])
-    (let [{:keys [shell-html]} (rf.ssr.streaming/render-shell [shell-view])]
-      (is (= (rf.ssr/render-to-string [shell-view] {}) shell-html))
-      (is (if rf.interop/debug-enabled?
-            (re-matches #"<main data-rf2-source-coord=\"[^\"]+\" data-rf-view=\":ssr-coord-test/shell\">shell</main>"
-                        shell-html)
-            (= "<main>shell</main>" shell-html))
-          (pr-str shell-html)))))
 
 ;; The gate is read at REGISTRATION time, as the client `make-wrap-view`
 ;; decides whether to wrap when the view is registered, so the production arm
