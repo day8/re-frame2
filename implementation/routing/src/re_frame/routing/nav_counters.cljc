@@ -1,18 +1,29 @@
 (ns re-frame.routing.nav-counters
-  "Host-side per-frame nav-token / pending-nav allocators for re-frame2
+  "Host-side process-global nav-token / pending-nav allocators for re-frame2
   routing, plus the routing-owned durable/transient CLASSIFICATION table.
 
   Per Spec 012 §Navigation tokens — stale-result suppression and
   §Navigation blocking — pending-nav protocol.
 
-  ## Storage: host-side per-frame transient high-water marks
+  ## Storage: host-side process-global transient high-water marks
 
   The two monotonic allocators — `:nav-token-counter` (mints
   `[:rf.runtime/routing :current :nav-token]` values) and
   `:pending-nav-counter` (mints `:pending-navigation` `:id`s) — are
   **host-side transient state**, NOT runtime-db state. They live in a
-  module-level `defonce` cache keyed by frame-id, like the scroll-position
-  cache and other host-side registries.
+  module-level `defonce` cache, one high-water mark per allocator for the
+  whole process.
+
+  ### Why process-global rather than per-frame
+
+  A continuation addresses its frame by KEYWORD, and a frame destroyed and
+  re-made under the same id answers to the same keyword. A per-frame counter
+  dropped on destroy would restart the successor at `nav-1` and re-issue
+  tokens the predecessor already handed out, so a predecessor continuation
+  would pass the successor's stale check. One counter per allocator never
+  restarts, so no frame — first incarnation or successor — ever receives a
+  token another has held, and storage stays one scalar per allocator however
+  many frames come and go.
 
   ### Why host-side is a CORRECTNESS requirement, not a churn judgment
 
@@ -67,9 +78,7 @@
       navigation).
 
   The host write is monotone (`max`) so a reordered / replayed commit can
-  never lower a counter. A frame's entry is released by `release-frame!`
-  on frame destroy (the `:routing/on-frame-destroyed!` teardown hook,
-  shared with the scroll cache).
+  never lower a counter. Frame destroy leaves the counters alone.
 
   ### Why generator-backed
 
@@ -91,31 +100,29 @@
   Internal namespace; the public facade is `re-frame.routing`."
   (:require [re-frame.frame :as rf.frame]))
 
-;; ---- host-side per-frame transient cache ----------------------------------
+;; ---- host-side process-global transient cache -----------------------------
 
 (defonce nav-counters-cache
-  ;; frame-id → {:nav-token-counter N :pending-nav-counter M}.
+  ;; {:nav-token-counter N :pending-nav-counter M}, one per process.
   ;;
   ;; Host-side TRANSIENT high-water marks for the two monotonic routing
   ;; allocators. NOT runtime-db state — held here so an epoch restore (which
   ;; replaces the runtime-db partition wholesale) cannot rewind them, which
-  ;; would recycle an authority token. Keyed by frame-id so
-  ;; multi-frame apps keep isolated per-frame counters; the entry is dropped
-  ;; on frame destroy via `release-frame!`. Like the scroll-position cache
-  ;; and `re-frame.http.registry`'s `in-flight` defonce
-  ;; atom — host-owned ephemeral state, not in the reactive db.
+  ;; would recycle an authority token. Not keyed by frame, so a same-id
+  ;; successor frame cannot restart them either. Like
+  ;; `re-frame.http.registry`'s `in-flight` defonce atom — host-owned
+  ;; ephemeral state, not in the reactive db.
   (atom {}))
 
 ;; ---- pure snapshot helpers -----------------------------------------------
 
 (defn counter-snapshot
-  "Read the per-frame counter snapshot `{:nav-token-counter N
-  :pending-nav-counter M}` for `frame-id` from the host
-  `nav-counters-cache`, or `{}` when none. The value the allocation-cofx
-  generators (`nav-allocation-cofx` / `pending-nav-allocation-cofx`) mint
-  the next id from."
-  [frame-id]
-  (get @nav-counters-cache frame-id {}))
+  "Read the counter snapshot `{:nav-token-counter N :pending-nav-counter M}`
+  from the host `nav-counters-cache`, `{}` before any allocation. The value
+  the allocation-cofx generators (`nav-allocation-cofx` /
+  `pending-nav-allocation-cofx`) mint the next id from."
+  []
+  @nav-counters-cache)
 
 (defn next-id
   "Pure: given a counter `snapshot` (or nil), a `counter-key`, and an id
@@ -138,25 +145,16 @@
   [snapshot]
   (next-id snapshot :pending-nav-counter "pn-"))
 
-;; ---- host-cache wrappers (frame-keyed) -----------------------------------
+;; ---- host-cache wrappers -------------------------------------------------
 
 (defn commit-counter!
-  "Record `n` as the high-water mark for `counter-key` under `frame-id` in
-  the host `nav-counters-cache`. Monotone — never lowers an existing value
-  (a `max` install), so a reordered / replayed commit cannot recycle a
-  counter. Returns nil."
-  [frame-id counter-key n]
-  (swap! nav-counters-cache update-in [frame-id counter-key]
+  "Record `n` as the high-water mark for `counter-key` in the host
+  `nav-counters-cache`. Monotone — never lowers an existing value (a `max`
+  install), so a reordered / replayed commit cannot recycle a counter.
+  Returns nil."
+  [counter-key n]
+  (swap! nav-counters-cache update counter-key
          (fn [cur] (max (or cur 0) n)))
-  nil)
-
-(defn release-frame!
-  "Drop `frame-id`'s entry from the host `nav-counters-cache`. Invoked on
-  frame destroy (the `:routing/on-frame-destroyed!` teardown hook, shared
-  with the scroll cache), analogous to the other per-frame transient
-  teardown. Idempotent — no-op on an absent frame. Returns nil."
-  [frame-id]
-  (swap! nav-counters-cache dissoc frame-id)
   nil)
 
 (defn reset-cache!
@@ -171,9 +169,8 @@
 ;;
 ;; TWO recordable, generator-backed allocation coeffects — one per allocator
 ;; (two distinct allocators ⇒ two distinct facts). Each generator
-;; reads the in-flight cascade's frame host snapshot
-;; (`rf.frame/*current-frame*`)
-;; and mints the next id, returning the allocation map carrying BOTH the
+;; reads the host snapshot and mints the next id, returning the allocation
+;; map carrying BOTH the
 ;; id AND the allocator high-water `:counter`. Being RECORDABLE
 ;; (`:recordable? true`, NOT `:provided?`), the cofx machinery writes the
 ;; produced allocation back into the in-flight `:rf.cofx` causal record (EP-0017
@@ -198,7 +195,7 @@
   {:recordable? true
    :schema [:map [:token :string] [:counter :int]]
    :doc "A fresh nav-token allocation `{:token \"nav-N\" :counter N}`,
-minted at processing-start from the active frame's host nav-token
+minted at processing-start from the host nav-token
 high-water mark and RECORDED onto the causal token (EP-0017 recordable
 coeffect). Delivered FLAT under the `:rf.route/nav-allocation` key in the
 coeffects map (EP-0017 §5) to a nav commit handler that declares
@@ -210,16 +207,15 @@ Recorded so record+replay re-presents the same nav-token verbatim
 
 (defn nav-allocation-cofx
   "Value-returning generator for the RECORDABLE `:rf.route/nav-allocation`
-  cofx (EP-0017 §5). Reads the in-flight cascade's frame
-  (`rf.frame/*current-frame*`, bound by the router during processing), mints
-  the next nav-token from the host high-water snapshot, and returns
+  cofx (EP-0017 §5). Mints the next nav-token from the host high-water
+  snapshot, and returns
   `{:token \"nav-N\" :counter N}`. Runs at processing-start under the
   router `:live` policy; the produced allocation is written back into the
   causal `:rf.cofx` record so replay re-presents it verbatim (no re-mint).
   Strict mode (replay) does not run it — an absent recorded allocation is
   `:rf.error/missing-required-cofx`."
   []
-  (let [[n token] (next-nav-token (counter-snapshot rf.frame/*current-frame*))]
+  (let [[n token] (next-nav-token (counter-snapshot))]
     {:token token :counter n}))
 
 (def pending-nav-allocation-cofx-meta
@@ -239,7 +235,7 @@ Recorded so record+replay re-presents the same nav-token verbatim
   {:recordable? true
    :schema [:map [:id :string] [:counter :int]]
    :doc "A fresh pending-navigation id allocation `{:id \"pn-N\" :counter N}`,
-minted at processing-start from the active frame's host pending-nav
+minted at processing-start from the host pending-nav
 high-water mark and RECORDED onto the causal token (EP-0017 recordable
 coeffect). Delivered FLAT under the `:rf.route/pending-nav-allocation` key
 in the coeffects map (EP-0017 §5) to a nav entry handler that declares
@@ -251,13 +247,12 @@ the `:rf.route/commit-nav-counter` fx. Recorded so a recorded
 
 (defn pending-nav-allocation-cofx
   "Value-returning generator for the RECORDABLE
-  `:rf.route/pending-nav-allocation` cofx (EP-0017 §5). Reads
-  the in-flight cascade's frame (`rf.frame/*current-frame*`), mints the next
+  `:rf.route/pending-nav-allocation` cofx (EP-0017 §5). Mints the next
   pending-nav id from the host high-water snapshot, and returns
   `{:id \"pn-N\" :counter N}`. Recorded + replay-stable like
   `nav-allocation-cofx`; a distinct allocator."
   []
-  (let [[n id] (next-pending-nav-id (counter-snapshot rf.frame/*current-frame*))]
+  (let [[n id] (next-pending-nav-id (counter-snapshot))]
     {:id id :counter n}))
 
 ;; ---- the :rf.route/commit-nav-counter fx ---------------------------------
@@ -281,18 +276,17 @@ from the recorded `:counter` and can never rewind the allocator. Per Spec
 (defn commit-nav-counter-handler
   "`:rf.route/commit-nav-counter` fx handler. Registered by the façade so
   a `:reload` re-wires it on a fresh registrar. Writes the new high-water
-  mark for `:counter-key` under the cascade-envelope frame into the host
-  `nav-counters-cache` (monotone)."
+  mark for `:counter-key` into the host `nav-counters-cache` (monotone)."
   [{:keys [frame]} {:keys [counter-key value]}]
-  (let [;; EP-0002 carried invariant — the fx context carries the cascade
-        ;; envelope frame as `:frame`; a nil stamp is an invariant failure
-        ;; (`:rf.error/no-frame-context`), never a synthesised `:rf/default`.
-        frame-id (rf.frame/require-frame-stamp!
-                   frame :rf.route/commit-nav-counter
-                   {:where 'rf.route/commit-nav-counter-handler})]
-    (when (and counter-key (number? value))
-      (commit-counter! frame-id counter-key value))
-    nil))
+  ;; EP-0002 carried invariant — the fx context carries the cascade envelope
+  ;; frame as `:frame`; a nil stamp is an invariant failure
+  ;; (`:rf.error/no-frame-context`), never a synthesised `:rf/default`.
+  (rf.frame/require-frame-stamp!
+    frame :rf.route/commit-nav-counter
+    {:where 'rf.route/commit-nav-counter-handler})
+  (when (and counter-key (number? value))
+    (commit-counter! counter-key value))
+  nil)
 
 ;; ---- routing durable/transient CLASSIFICATION -----------------------------
 ;;
@@ -350,8 +344,8 @@ slice)."}
    {:keys [:scroll-positions :nav-token-counter :pending-nav-counter]
     :doc  "Saved scroll positions (re-frame.routing.scroll) and
 the two monotonic allocator high-water marks (re-frame.routing.nav-counters).
-Held in module-level host caches keyed by frame-id — NOT
-runtime-db, so they neither rewind on epoch restore nor ride the
+Held in module-level host caches (scroll positions keyed by frame-id, the
+allocators process-global) — NOT runtime-db, so they neither rewind on epoch restore nor ride the
 SSR / epoch / trace egress wire."}})
 
 (def durable-runtime-db-routing-keys

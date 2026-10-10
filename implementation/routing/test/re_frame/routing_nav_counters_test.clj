@@ -16,10 +16,14 @@
       host counter;
     - the SSR durable-routing allowlist equals the routing classification's
       durable tier;
-    - frame destroy releases the frame's counter entry."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+    - a frame destroyed and re-made under the same id mints past every token
+      its predecessor issued;
+    - allocator storage stays constant however many frames come and go."
+  (:require [clojure.set :as set]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
             [re-frame.routing.nav-counters :as rf.routing.nav-counters]
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
             [re-frame.routing-test-support :as rf.routing-test-support]))
@@ -64,14 +68,55 @@
     (is (= (vec rf.ssr.payload-policy/durable-routing-keys)
            (vec rf.routing.nav-counters/durable-runtime-db-routing-keys)))))
 
-(deftest destroy-frame-releases-host-counter-entry
-  (testing "destroying a frame releases its host-side counter entry, so a
-            long-running per-request-frame process does not leak one per frame"
-    (rf/make-frame {:id :rf.test/scratch :url-bound? true})
+(defn- token-number [token] (Long/parseLong (subs token (count "nav-"))))
+
+(deftest same-id-successor-mints-past-its-predecessor-tokens
+  (testing "a frame destroyed and re-made under the same id mints tokens its
+            predecessor never issued, so the predecessor's keyword-addressed
+            continuation is suppressed as stale rather than delivered"
+    (rf/reg-route :r/a {} "/a")
+    (rf/reg-route :r/b {} "/b")
+    (rf/reg-event :app/loaded (fn [{:keys [db]} [_ reply]] {:db (assoc db :loaded reply)}))
+    (rf/reg-event :app/deliver
+                  (fn [_ [_ token]]
+                    {:fx [[:rf.route/with-nav-token {:nav-token   token
+                                                     :value       :predecessor-result
+                                                     :rf/reply-to [:app/loaded]}]]}))
+    (let [tour!       (fn []
+                        (rf/make-frame {:id :f})
+                        (mapv (fn [to]
+                                (rf/dispatch-sync [:rf.route/navigate {:to to}] {:frame :f})
+                                (get-in (:rf.db/runtime (rf/frame-state-value :f))
+                                        [:rf.runtime/routing :current :nav-token]))
+                              [:r/a :r/b]))
+          predecessor (tour!)
+          _           (rf.frame/destroy-frame! :f)
+          successor   (tour!)
+          traces      (atom [])]
+      (rf/register-listener! :trace ::successor-stale (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:app/deliver (peek predecessor)] {:frame :f})
+      (rf/unregister-listener! :trace ::successor-stale)
+      (is (= [#{} true nil]
+             [(set/intersection (set predecessor) (set successor))
+              (< (apply max (map token-number predecessor))
+                 (apply min (map token-number successor)))
+              (:loaded (rf/app-db-value :f))])
+          (str "predecessor " predecessor ", successor " successor))
+      (when rf.interop/debug-enabled?
+        (is (some #{:rf.route.nav-token/stale-suppressed} (map :operation @traces))
+            "the predecessor's continuation took the suppression path")))))
+
+(deftest destroying-frames-leaves-allocator-storage-constant
+  (testing "allocator storage does not grow with the frames a process creates and
+            destroys, so a per-request-frame server leaks nothing per frame"
     (rf/reg-route :route/s {} "/s")
-    (rf/with-frame :rf.test/scratch
-      (rf/dispatch-sync [:rf.route/handle-url-change "/s" {:rf.route/cause :link}]))
-    (let [before (rf.routing.nav-counters/counter-snapshot :rf.test/scratch)]
-      (rf.frame/destroy-frame! :rf.test/scratch)
-      (is (= [{:nav-token-counter 1} {}]
-             [before (rf.routing.nav-counters/counter-snapshot :rf.test/scratch)])))))
+    (let [cycle!     (fn [n]
+                       (let [id (keyword "rf.test" (str "scratch-" n))]
+                         (rf/make-frame {:id id})
+                         (rf/dispatch-sync [:rf.route/navigate {:to :route/s}] {:frame id})
+                         (rf.frame/destroy-frame! id)
+                         @rf.routing.nav-counters/nav-counters-cache))
+          after-one  (cycle! 0)
+          after-many (last (mapv cycle! (range 1 50)))]
+      (is (= [#{:nav-token-counter} #{:nav-token-counter}]
+             [(set (keys after-one)) (set (keys after-many))])))))
