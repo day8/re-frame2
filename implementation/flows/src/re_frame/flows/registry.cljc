@@ -31,8 +31,14 @@
 ;; The outer registry changes only when a frame's cache is created or removed.
 ;; Drains mutate the frame's stable inner atom and never contend with sibling
 ;; frames on cache updates.
+;;
+;; A dirty-check ROW is `{:inputs input-vec :output value}`: the inputs a flow
+;; last evaluated against and the output that evaluation produced. The output
+;; lives in the row beside the inputs so every snapshot and restore of the row
+;; map — a flow throw, the router's commit rejection, epoch's reset — moves the
+;; two together.
 (defonce
-  ^{:doc     "frame-id → (atom {flow-id last-seen-input-vec})."
+  ^{:doc     "frame-id → (atom {flow-id {:inputs input-vec :output value}})."
     :private true}
   frame-last-inputs
   (atom {}))
@@ -125,8 +131,8 @@
   (reduce-kv
     (fn [acc frame-id inner-atom]
       (reduce-kv
-        (fn [acc flow-id inputs]
-          (assoc-in acc [flow-id frame-id] inputs))
+        (fn [acc flow-id row]
+          (assoc-in acc [flow-id frame-id] (:inputs row)))
         acc
         @inner-atom))
     {}
@@ -135,7 +141,7 @@
 ;; ---- intra-artefact-only mutation helpers --------------------------------
 ;;
 (defn ^:no-doc frame-last-inputs-snapshot
-  "Return a frame's dirty-check rows as `{flow-id inputs}`."
+  "Return a frame's dirty-check rows as `{flow-id row}`."
   ([frame-id]
    (if-let [a (get @frame-last-inputs frame-id)]
      @a
@@ -148,12 +154,13 @@
   "Return the cached inputs for a flow in a frame, or nil."
   [frame-id flow-id]
   (when-let [a (get @frame-last-inputs frame-id)]
-    (get @a flow-id)))
+    (:inputs (get @a flow-id))))
 
 (defn ^:no-doc set-frame-flow-last-inputs!
-  "Store a flow's current inputs in its frame-local cache."
+  "Seed a flow's frame-local row with `inputs` and no remembered output, which
+  an equal-input visit then has nothing to re-assert from."
   [frame-id flow-id inputs]
-  (swap! (ensure-frame-last-inputs-atom! frame-id) assoc flow-id inputs))
+  (swap! (ensure-frame-last-inputs-atom! frame-id) assoc flow-id {:inputs inputs}))
 
 (defn ^:no-doc reset-frame-last-inputs-to!
   "Restore one frame's dirty-check cache from a prior snapshot."
@@ -236,7 +243,10 @@
 (defn ^:no-doc pass-last-inputs-snapshot [pass]
   @(get pass :last-inputs))
 
-(defn ^:no-doc pass-flow-last-inputs [pass flow-id]
+(defn ^:no-doc pass-flow-row
+  "The flow's dirty-check row, `{:inputs … :output …}`, or nil before its first
+  evaluation."
+  [pass flow-id]
   (get @(get pass :last-inputs) flow-id))
 
 (defn ^:no-doc pass-flow-evaluated?
@@ -247,8 +257,8 @@
   [pass flow-id]
   (contains? @(get pass :last-inputs) flow-id))
 
-(defn ^:no-doc pass-set-flow-last-inputs! [pass flow-id inputs]
-  (swap! (get pass :last-inputs) assoc flow-id inputs))
+(defn ^:no-doc pass-set-flow-row! [pass flow-id inputs output]
+  (swap! (get pass :last-inputs) assoc flow-id {:inputs inputs :output output}))
 
 (defn ^:no-doc pass-reset-last-inputs! [pass prior]
   (reset! (get pass :last-inputs) prior))

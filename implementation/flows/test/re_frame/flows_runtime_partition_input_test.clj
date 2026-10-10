@@ -18,14 +18,15 @@
 
 (deftest runtime-only-change-recomputes-while-app-db-value-identical
   ;; The same app-db value is handed to every pass, so only runtime-db can
-  ;; dirty the flow; a value-equal runtime-db must skip.
+  ;; dirty the flow. A value-equal runtime-db skips `:derive`, and the pass
+  ;; re-asserts the remembered output into the app-db it was handed.
   (let [calls  (atom [])
         app-db {:unrelated 1}
         rt     (fn [route-id] {:rf.runtime/routing {:current {:route-id route-id}}})]
     (rf/reg-flow :route-slug
       {:inputs [[:rf.db/runtime :rf.runtime/routing :current :route-id]] :output-path [:slug]}
       (fn [route-id] (swap! calls conj route-id) route-id))
-    (is (= [{:unrelated 1 :slug :home} {:unrelated 1 :slug :about} app-db]
+    (is (= [{:unrelated 1 :slug :home} {:unrelated 1 :slug :about} {:unrelated 1 :slug :about}]
            (mapv #(rf.flows/run-flows-on-db :rf/default app-db (rt %)) [:home :about :about])))
     (is (= [:home :about] @calls))))
 
