@@ -452,7 +452,7 @@ jobs:
   # Every step here reads the SOURCE tree (docs/, spec/, skills/, testbeds/,
   # tools/*/spec, the root support files, implementation/ Clojure source) and
   # none reads the built site, so none needs the `build` job's JVM, Node,
-  # Cairo or MkDocs setup: all six checkers are stdlib-only Python.
+  # Cairo or MkDocs setup: every checker is stdlib-only Python.
   #
   # Inside `build`, behind `docs_surface`, they would run on a PR only when
   # the `detect` case list matched, and that list is deliberately narrower
@@ -640,6 +640,16 @@ jobs:
 
       - name: Validate no unqualified warm-allocation claim on the publication surface
         run: python scripts/check_allocation_non_claim.py
+
+      # The Fresco architecture census, re-run against the tree. Its page,
+      # docs/design/fresco/product/architecture-census.md, claims no rejected
+      # mechanism is present, every retained tool names a daily consumer, and
+      # globals.md's mutable-global roster closes; this reds when the tree and
+      # either page disagree. It reads implementation/fresco/ and
+      # implementation/package.json beside the two pages, so it runs here, where
+      # no path filter can skip it.
+      - name: Validate the Fresco architecture census against the tree
+        run: python scripts/check_architecture_census.py
 
   # ---------------------------------------------------------------------------
   # Provenance pins.

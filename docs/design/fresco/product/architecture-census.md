@@ -7,7 +7,7 @@ The [decision brief](decision-brief.md#part-iii--the-plan) states four kill rule
 | Census | The claim | Result |
 |---|---|---|
 | [1. Mechanism](#1-the-mechanism-census) | No ViewCell-class dependency graph, no second emitter, no compiled-hiccup mode, no per-boundary callback-cell table | **Held.** Four recognisers, zero hits |
-| [2. Retained tooling](#2-the-retained-tooling-census) | Every retained tool or diagnostic surface names its real daily consumer | **Held, with one obligation filed — and since discharged.** 36 rows — 26 mechanically derived, 10 by hand; every row names a consumer. The condition that had fired is now answered (`rf2-wehh0`, PR #8272), and the one checker no lane ran is now a required CI job (`rf2-st1x5`, PR #8279); both cells carry amendments below |
+| [2. Retained tooling](#2-the-retained-tooling-census) | Every retained tool or diagnostic surface names its real daily consumer | **Held, with one obligation filed — and since discharged.** Every row names a consumer. The condition that had fired is now answered (`rf2-wehh0`, PR #8272), and the one checker no lane ran is now a required CI job (`rf2-st1x5`, PR #8279); both cells carry amendments below |
 | [3. Mutable globals](#3-the-post-kernel-mutable-global-re-sweep) | Later work introduced no unjustified global | **Held, and the page that records it is short.** 14 commits and 1,200 inserted lines of runtime since the roster was taken added **zero** owners; the roster's own derivation is missing an arm and its second table is missing a row |
 
 Two corrections are filed against [`globals.md`](globals.md) and one against [`prototype-suite-triage.md`](prototype-suite-triage.md); they are in [the ledger](correction-ledger.md#the-ledger) and listed [below](#what-was-filed).
@@ -105,7 +105,7 @@ Three facts finish it, each checkable at source.
 
 > Tools without daily consumers build no retained machinery. — [`decision-brief.md`](decision-brief.md#part-iii--the-plan)
 
-**The population is mechanical for 26 rows and a judgement for 10.** The mechanical part is what the gate enforces: every checker under `implementation/fresco/scripts/`, every npm script whose name contains `fresco`, and every tool or diagnostic namespace in `implementation/fresco/src`. The ten hand-added rows are the surfaces no naming rule reaches — the spikes, the testbeds, the kit, the lint export — and the judgement is which of them counts as retained machinery at all.
+**The population is part mechanical and part judgement.** The mechanical part is what the gate enforces: every checker under `implementation/fresco/scripts/`, every `implementation/package.json` script whose name contains `fresco`, and every tool or diagnostic namespace in `implementation/fresco/src`. The hand-added rows are the surfaces no naming rule reaches — the spikes, the testbeds, the kit, the lint export, and the bench's own `ssr:bake` and `ssr:serve` scripts — and the judgement is which of them counts as retained machinery at all.
 
 **"Real daily consumer" is read strictly.** A CI job that runs on every PR is one. A shipped tool panel is one. A suite in a standing lane is one. An operator command that a human runs when a decision needs re-reading is **named as what it is** rather than dressed up, and two rows below say so.
 
@@ -224,7 +224,7 @@ This matters more than one row, and `globals.md`'s own opening says why: *"a ros
 
 Each arm is shown to bite by `--self-test`, which plants the smallest edit that would land the mechanism the arm refuses and asserts the arm reports it.
 
-**Its own consumer, by the standard this page holds everything else to, is [`rf2-hic-064`](correction-ledger.md)** — the final audit, which re-derives rather than trusts. It is deliberately not wired into a workflow, and the precedent is its sibling: [`release-scans.md`](release-scans.md)'s `scripts/check_allocation_non_claim.py` is a census gate on the same footing and is scheduled nowhere either. A census re-run belongs to the audit that needs it rather than to every PR, and `.github/**` was fenced from this bead in any case. It is named here so the row is not missing.
+**Its own consumer, by the standard this page holds everything else to, is every PR.** `docs.yml`'s unconditional `source-scans` job runs it beside its sibling census gate, [`release-scans.md`](release-scans.md)'s `scripts/check_allocation_non_claim.py`, so a change that makes this page false reds the PR that makes it. A census nobody re-runs is a sentence that was once true.
 
 **The mutable-globals arm enforces one direction only**, and the reason is on the page rather than in the script's silence: the reverse check — every rostered row is found by some arm — is what produced this census's own correction, and it cannot be automated honestly, because six identities-roster rows are plain `def`s of React classes and components that no textual arm distinguishes from any other `def`. Enforcing it would mean either a sixth of the roster permanently red or an allowlist that fails open. The direction that *is* enforced is the one the kill rules need: a new owner arrives with no row, and reds.
 
