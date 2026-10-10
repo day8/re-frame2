@@ -407,186 +407,55 @@ def _emit(defects: list[str], repo_root: Path) -> None:
 
 
 # --------------------------------------------------------------------------
-# Self-tests — fixture-driven, generated into a temp dir so the self-test
-# leaves zero scratch files in the repo (mirrors check_ep_status_sync.py).
-#
-# Each fixture is a minimal two-file pair (spec/Conventions.md +
-# spec/Runtime-Subsystems.md) under a mkdocs.yml root, exercising the
-# pass case and each drift class the guard must catch.
+# Self-tests — one hermetic spec/ pair per drift class.
 # --------------------------------------------------------------------------
-
-_CLAUSE_ROWS_OK = (
-    "| **1 Subtree** | ✅ named subtree |\n"
-    "| **2 Write authority** | ✅ event-handler path |\n"
-    "| **3 Read API** | ✅ public subs |\n"
-    "| **4 Projection / elision** | ✅ allowlist |\n"
-    "| **5 Teardown** | ✅ named hook |\n"
-)
-
-
-def _conventions_fixture(*keys: str) -> str:
-    head = (
-        "# Conventions\n\n"
-        "## Reserved partition keys\n\n"
-        "| Reserved app-db key | Owner | Used for | Spec |\n"
-        "|---|---|---|---|\n"
-        "| `:rf.runtime/*` | Runtime-db children | wildcard summary | 002 |\n\n"
-        "## Reserved runtime-db keys\n\n"
-        "| Reserved runtime-db key | Owner | Used for | Spec |\n"
-        "|---|---|---|---|\n"
-    )
-    rows = "".join(f"| `{k}` | owner | use | 005 |\n" for k in keys)
-    # A trailing H2 so the section-bounding logic has a clean close.
-    return head + rows + "\n## Next section\n\nx\n"
-
-
-def _grading_fixture(rows_by_key: dict[str, str]) -> str:
-    head = (
-        "# Runtime Subsystems\n\n"
-        "## The five-clause contract\n\n"
-        "### 1. Subtree\n\nprose\n\n"
-        "### 5. Teardown\n\nprose\n\n"
-        "## Grading table\n\n"
-    )
-    body = ""
-    for key, clause_rows in rows_by_key.items():
-        body += (
-            f"### `{key}` — fixture ([Spec 005](005-StateMachines.md))\n\n"
-            "| Clause | Grade |\n|---|---|\n"
-            f"{clause_rows}\n"
-        )
-    return head + body + "## Cross-references\n\nx\n"
-
-
-def _write_pair(root: Path, conventions: str, grading: str) -> None:
-    spec = root / "spec"
-    spec.mkdir(parents=True, exist_ok=True)
-    (root / "mkdocs.yml").write_text("site_name: fixture\n", encoding="utf-8")
-    (spec / "Conventions.md").write_text(conventions, encoding="utf-8")
-    (spec / "Runtime-Subsystems.md").write_text(grading, encoding="utf-8")
-
-
-def _build_self_test_fixtures(base: Path) -> None:
-    a, b = ":rf.runtime/machines", ":rf.runtime/routing"
-
-    # in_sync: two keys, both graded clean.
-    _write_pair(
-        base / "in_sync",
-        _conventions_fixture(a, b),
-        _grading_fixture({a: _CLAUSE_ROWS_OK, b: _CLAUSE_ROWS_OK}),
-    )
-
-    # missing_row: reserved key with no grading subsection.
-    _write_pair(
-        base / "missing_row",
-        _conventions_fixture(a, b),
-        _grading_fixture({a: _CLAUSE_ROWS_OK}),
-    )
-
-    # extra_row: grading subsection for a non-reserved key.
-    _write_pair(
-        base / "extra_row",
-        _conventions_fixture(a),
-        _grading_fixture({a: _CLAUSE_ROWS_OK, b: _CLAUSE_ROWS_OK}),
-    )
-
-    # missing_clause: a grading table omits clause 4.
-    rows_no_4 = (
-        "| **1 Subtree** | ✅ x |\n"
-        "| **2 Write authority** | ✅ x |\n"
-        "| **3 Read API** | ✅ x |\n"
-        "| **5 Teardown** | ✅ x |\n"
-    )
-    _write_pair(
-        base / "missing_clause",
-        _conventions_fixture(a),
-        _grading_fixture({a: rows_no_4}),
-    )
-
-    # ungraded_clause: clause 3 present but no ✅.
-    rows_ungraded = (
-        "| **1 Subtree** | ✅ x |\n"
-        "| **2 Write authority** | ✅ x |\n"
-        "| **3 Read API** | TODO |\n"
-        "| **4 Projection / elision** | ✅ x |\n"
-        "| **5 Teardown** | ✅ x |\n"
-    )
-    _write_pair(
-        base / "ungraded_clause",
-        _conventions_fixture(a),
-        _grading_fixture({a: rows_ungraded}),
-    )
-
-    # clause_order: clauses out of 1..5 order (2 before 1).
-    rows_misordered = (
-        "| **2 Write authority** | ✅ x |\n"
-        "| **1 Subtree** | ✅ x |\n"
-        "| **3 Read API** | ✅ x |\n"
-        "| **4 Projection / elision** | ✅ x |\n"
-        "| **5 Teardown** | ✅ x |\n"
-    )
-    _write_pair(
-        base / "clause_order",
-        _conventions_fixture(a),
-        _grading_fixture({a: rows_misordered}),
-    )
-
-    # warning_annotated_ok: a ⚠️ forward-flag ANNOTATES a ✅ clause — still
-    # satisfied (work-ledger clause 2 shape).  Must PASS.
-    rows_warned = (
-        "| **1 Subtree** | ✅ x |\n"
-        "| **2 Write authority** | ✅ for both writers ⚠️ OPEN multi-writer Q |\n"
-        "| **3 Read API** | ✅ x |\n"
-        "| **4 Projection / elision** | ✅ x |\n"
-        "| **5 Teardown** | ✅ x |\n"
-    )
-    _write_pair(
-        base / "warning_annotated_ok",
-        _conventions_fixture(a),
-        _grading_fixture({a: rows_warned}),
-    )
-
-    # fenced_table_ignored: a clause-shaped row inside a code fence in the
-    # grading section must NOT be parsed as a real row (so the real, complete
-    # table still passes).  Must PASS.
-    grading_with_fence = (
-        "# Runtime Subsystems\n\n## Grading table\n\n"
-        f"### `{a}` — fixture ([Spec 005](005-StateMachines.md))\n\n"
-        "```\n| **9 Bogus** | not-a-real-row |\n```\n\n"
-        "| Clause | Grade |\n|---|---|\n"
-        f"{_CLAUSE_ROWS_OK}\n"
-        "## Cross-references\n\nx\n"
-    )
-    _write_pair(
-        base / "fenced_table_ignored",
-        _conventions_fixture(a),
-        grading_with_fence,
-    )
 
 
 def _run_self_tests(verbose: bool = False) -> int:
-    cases: list[tuple[str, int]] = [
-        ("in_sync", 0),
-        ("missing_row", 1),
-        ("extra_row", 1),
-        ("missing_clause", 1),
-        ("ungraded_clause", 1),
-        ("clause_order", 1),
-        ("warning_annotated_ok", 0),
-        ("fenced_table_ignored", 0),
-    ]
+    import contextlib
+    import io
+
+    a, b = ":rf.runtime/machines", ":rf.runtime/routing"
+    ok = ("| **1 Subtree** | ✅ x |\n"
+          "| **2 Write authority** | ✅ x |\n"
+          "| **3 Read API** | ✅ x |\n"
+          "| **4 Projection / elision** | ✅ x |\n"
+          "| **5 Teardown** | ✅ x |\n")
+
+    def conventions(*keys: str) -> str:
+        return ("## Reserved runtime-db keys\n\n"
+                "| Reserved runtime-db key | Owner | Used for | Spec |\n"
+                "|---|---|---|---|\n"
+                + "".join(f"| `{k}` | owner | use | 005 |\n" for k in keys))
+
+    def grading(rows_by_key: dict[str, str], prelude: str = "") -> str:
+        return "## Grading table\n\n" + "".join(
+            f"### `{key}` — fixture\n\n{prelude}| Clause | Grade |\n|---|---|\n{rows}\n"
+            for key, rows in rows_by_key.items())
+
+    cases = (
+        ("missing_row", conventions(a, b), grading({a: ok}), 1),
+        ("extra_row", conventions(a), grading({a: ok, b: ok}), 1),
+        ("missing_clause", conventions(a),
+         grading({a: ok.replace("| **4 Projection / elision** | ✅ x |\n", "")}), 1),
+        ("ungraded_clause", conventions(a),
+         grading({a: ok.replace("| **3 Read API** | ✅ x |", "| **3 Read API** | TODO |")}), 1),
+        ("clause_order", conventions(a), grading({a: (
+            "| **2 Write authority** | ✅ x |\n"
+            "| **1 Subtree** | ✅ x |\n") + ok.split("\n", 2)[2]}), 1),
+        # A clause-shaped row inside a code fence is not a real row.
+        ("fenced_table_ignored", conventions(a), grading(
+            {a: ok}, prelude="```\n| **9 Bogus** | not-a-real-row |\n```\n\n"), 0),
+    )
     failures = 0
     with tempfile.TemporaryDirectory(prefix="runtime_grading_selftest_") as tmp:
-        base = Path(tmp)
-        _build_self_test_fixtures(base)
-        for fixture, expected in cases:
-            root = base / fixture
-            saved = sys.stderr
-            sys.stderr = _DevNull()
-            try:
-                got = check(root, verbose=False)
-            finally:
-                sys.stderr = saved
+        for fixture, conv, grad, expected in cases:
+            spec = Path(tmp) / fixture / "spec"
+            spec.mkdir(parents=True)
+            (spec / "Conventions.md").write_text(conv, encoding="utf-8")
+            (spec / "Runtime-Subsystems.md").write_text(grad, encoding="utf-8")
+            with contextlib.redirect_stderr(io.StringIO()):
+                got = check(spec.parent, verbose=False)
             if got == expected:
                 if verbose:
                     sys.stderr.write(
@@ -604,14 +473,6 @@ def _run_self_tests(verbose: bool = False) -> int:
     if verbose:
         sys.stderr.write(f"all {len(cases)} self-tests passed.\n")
     return 0
-
-
-class _DevNull:
-    def write(self, *_args, **_kwargs) -> int:
-        return 0
-
-    def flush(self) -> None:  # pragma: no cover
-        return None
 
 
 def main(argv: list[str]) -> int:
