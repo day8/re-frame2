@@ -279,10 +279,17 @@
   "True when two descriptors for the same `(kind, id)` are the SAME registration
   — identical source coordinate AND identical impl — so they DEDUPE rather than
   collide (EP-0023 §Image Validation: \"same kind + id selected twice with same
-  source/impl -> dedupe or ok\"). A registered descriptor selected by two
-  overlapping `:include-ns` globs is the canonical dedupe case. Pure."
+  source/impl -> dedupe or ok\"). The case is a REGISTERED descriptor reaching
+  one image twice through its candidate pool.
+
+  An INLINE descriptor never dedupes. The selector yields each inline entry
+  exactly once, so two inline descriptors sharing a coordinate are two
+  `:registrations` entries for one `[kind id]` in one image — malformed whatever
+  their impls, and a dedupe would keep one entry's metadata (its `:sensitive`
+  among it) and silently drop the other's. Pure."
   [a b]
-  (and (= (descriptor-coordinate a) (descriptor-coordinate b))
+  (and (not (:rf.provenance/inline a))
+       (= (descriptor-coordinate a) (descriptor-coordinate b))
        (= (descriptor-impl a) (descriptor-impl b))))
 
 ;; ===========================================================================
@@ -930,8 +937,9 @@
 
 (defn distinct-by-id
   "Group `descriptors` by `[kind id]` and dedupe same-registration descriptors
-  within each group (same coordinate + impl — an identical registration selected
-  by two overlapping globs is ONE registration, EP-0023 §Image Validation). The
+  within each group (same coordinate + impl — one registered descriptor reaching
+  the image twice is ONE registration, EP-0023 §Image Validation; two inline
+  entries never dedupe, see `same-registration?`). The
   result `{[kind id] [distinct-descriptor …]}` is the post-dedupe view both the
   resolver projection and the replacement-key collision check read: a group with
   ≥2 entries is a GENUINE `(kind, id)` collision; a group with exactly 1 entry is
