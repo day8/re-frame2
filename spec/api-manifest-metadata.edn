@@ -1142,9 +1142,9 @@
   ["re-frame.core" "generation-diff"]      {:tier :tooling :owner "002" :status "EP-0023"
                                            :action :keep
                                            :justification "The pure two-generation comparator that answers what a reload changed; a caller reads frame-generation before and after a reload and diffs the two, so it belongs beside frame-generation on the same door."}
-  ;; The machine QUERY / handler-build / pure-engine helpers
-  ;; (`machines`, `machine-meta`, `machine-transition`,
-  ;; `make-machine-handler`) are not façade exports — reach them through
+  ;; The machine QUERY / pure-engine helpers
+  ;; (`machines`, `machine-meta`, `machine-transition`) are not façade
+  ;; exports — reach them through
   ;; `re-frame.machines` (classified below). There are no `machine-has-tag?` /
   ;; `sub-machine` subscription-sugar fns: a machine read is the
   ;; `[:rf.machine/has-tag? id tag]` /
@@ -1531,7 +1531,6 @@
   ;; `:system-id` family. The address IS the id, so
   ;; there is no reverse index to look a name up in and no row to carry.
   ["re-frame.machines" "machine-transition"]    {:tier :advanced :owner "005" :status "v1"}
-  ["re-frame.machines" "make-machine-handler"]  {:tier :advanced :owner "005" :status "v1"}
   ["re-frame.machines" "reg-machine*"]          {:tier :advanced :owner "005" :status "v1"}
   ["re-frame.machines" "spawn-fx"]              {:tier :implementation :owner "005" :status "v1"}
   ["re-frame.machines" "spawn-all-init-fx"]     {:tier :implementation :owner "005" :status "v1"}

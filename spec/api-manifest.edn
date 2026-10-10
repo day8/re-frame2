@@ -223,7 +223,6 @@
   {:namespace "re-frame.machines", :var "machine-selector-targets", :tier :tooling, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.machines", :var "machine-selector?", :tier :tooling, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.machines", :var "machine-transition", :tier :advanced, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.machines", :var "make-machine-handler", :tier :advanced, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.machines", :var "owning-actor-id", :tier :implementation, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.machines", :var "reg-machine*", :tier :advanced, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.machines", :var "reset-timers!", :tier :implementation, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
