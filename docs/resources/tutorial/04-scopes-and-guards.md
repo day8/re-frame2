@@ -31,7 +31,7 @@ The fix is a named **[scope resolver](../glossary.md#scope-resolver)** that answ
       :else              nil)))
 ```
 
-A signed-in reader gets a scope of their own; readers with no token share one anonymous copy. Between boot and the `GET /user` reply there's a token but no user yet — a request sent then isn't anonymous, but it doesn't belong to anyone the app can name. The resolver returns `nil`, and `nil` **fails closed**: a subscription raises `:rf.error/resource-sub-unresolved-scope` and a route plan refuses, rather than guessing.
+A signed-in reader gets a scope of their own; readers with no token share one anonymous copy. Between boot and the `GET /user` reply there's a token but no user yet — a request sent then isn't anonymous, but it doesn't belong to anyone the app can name. The resolver returns `nil`, and `nil` **fails closed**: a route plan refuses, and a subscription reads no entry and reports `:status :unresolved`, rather than guessing.
 
 Now point Part 2's reads at it. In `src/conduit/resources.cljc`, add `[conduit.scope]` to the requires and change both `:scope` lines to:
 
@@ -41,7 +41,7 @@ Now point Part 2's reads at it. In `src/conduit/resources.cljc`, add `[conduit.s
 
 Nothing else in Part 2 changes: routes and `:rf/resource` subscriptions inherit the registration's scope. Three places now have to respect the new identity.
 
-**The shell waits out a restore.** While the resolver says `nil`, subscribing to either read is an error, so the root view shows a holding line instead. Add a sub to `auth.cljc` that knows when the viewer is unknown:
+**The shell waits out a restore.** While the resolver says `nil`, every read reports `:unresolved`. Rather than give each page an `:unresolved` arm, the shell shows one holding line while the viewer is unknown. Add a sub to `auth.cljc` that knows when the viewer is unknown:
 
 ```clojure
 (rf/reg-sub :auth/restoring?

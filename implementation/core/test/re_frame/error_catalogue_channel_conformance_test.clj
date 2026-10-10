@@ -477,7 +477,7 @@
   its row with no finding to show for it; this count is what moves. Change it
   only in the commit that adds or removes a pairing. Re-derive with
   `(paired-count (parse-catalogue-tag-rows) (parse-tags-schemas))`."
-  90)
+  89)
 
 (deftest tags-column-pairing-is-live
   (let [rows    (parse-catalogue-tag-rows)

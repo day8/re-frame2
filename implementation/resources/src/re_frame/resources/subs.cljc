@@ -8,10 +8,11 @@
   a narrower projection like `[:rf.resource/data …]`); route entry,
   events, and machines CAUSE the fetch. A resource sub resolves its scope
   per Spec 016 §Subscription-side scope resolution (payload `:scope`, or a
-  sub-resolvable spec policy) and raises
-  `:rf.error/resource-sub-unresolved-scope` rather than reading global or
-  returning a silent `:idle` — the read-side counterpart of the write-side
-  fail-closed gate.
+  sub-resolvable spec policy). A `{:from-db …}` reference that resolves nil
+  leaves the read without an identity: it reads NO entry — never global,
+  never another principal's — and projects `:status :unresolved`, a value
+  distinct from `:idle` (an identified key nobody has ensured). The loud
+  fail-closed gate for a nil scope is on the causal side.
 
   The framework resource subs read the frame's RUNTIME-DB projection
   (`reg-runtime-sub`) — the durable cache lives at
@@ -26,8 +27,8 @@
   The sub registrations are real and the projections read the live entry:
   `resolve-scoped-key` canonicalizes the scope + params and applies the
   sub-side scope-resolution precedence (payload `:scope`, or a sub-
-  resolvable spec policy), raising `:rf.error/resource-sub-unresolved-scope`
-  fail-closed (NEVER a silent global read or `:idle`).
+  resolvable spec policy), returning nil — no key — for an unresolved
+  `{:from-db …}` reference.
 
   ## Frame-state signal + `{:from-db …}` reactive re-keying (EP-0016 D3
   ## slice 3)
@@ -89,19 +90,17 @@
   PURE: a sub never sees the route tier (no routing match, no route-entry
   planning). Resolves scope from the
   payload `:scope` override or the spec policy (`:rf.scope/global` or a
-  `{:from-db <id>}` named-resolver reference — both sub-resolvable) and raises
-  `:rf.error/resource-sub-unresolved-scope` when the reference yields nil. Throws
-  `:rf.error/resource-not-registered` when no resource is registered under
-  `:resource`.
+  `{:from-db <id>}` named-resolver reference — both sub-resolvable), and
+  returns nil when the reference yields nil: the read has no identity, so it
+  reads no entry rather than a global or wrong one. Params are validated
+  either way. Throws `:rf.error/resource-not-registered` when no resource is
+  registered under `:resource`.
 
   `db` is the frame APP-DB value the sub layer reads from the frame-state
   signal (EP-0016 D3 slice 3): a `{:from-db <id>}` payload-scope or spec
   policy resolves against it at use time, so the sub re-keys reactively
-  when the resolver's declared app-db inputs change mid-session.
-  A reference that resolves nil raises
-  `:rf.error/resource-sub-unresolved-scope` (the \"scope unresolved\"
-  diagnostic) — never a silent global / wrong-entry read. Every caller
-  supplies the frame `db` explicitly: a caller that resolves no
+  when the resolver's declared app-db inputs change mid-session. Every
+  caller supplies the frame `db` explicitly: a caller that resolves no
   `{:from-db …}` scope passes `{}`."
   [{:keys [resource] :as payload} db]
   (let [spec    (rf.resources.registry/require-resource-spec! resource 'rf.resource/subscribe)
@@ -116,18 +115,28 @@
     ;; scope + cparams are ALREADY canonical (resolve-scope-for-sub
     ;; → canonicalize-scope; validate+canonicalize-params), so use the trusted
     ;; constructor — a resource sub re-runs this on every frame-state change.
-    (rf.resources.state/scoped-resource-key* scope resource cparams)))
+    (when (some? scope)
+      (rf.resources.state/scoped-resource-key* scope resource cparams))))
 
-(defn- entry-for
-  "Look up the durable cache entry for a sub payload (resolving + validating
-  its scoped key), or nil when no entry exists for that key.
+(defn- key+entry
+  "Resolve a sub payload's scoped key (validating it) and read its durable
+  entry: `[scoped-key entry]`. The key is nil when the payload's `{:from-db …}`
+  scope resolves nil, and then no entry is read. The entry is nil when none
+  exists for the key.
 
   `runtime-db` is the cache partition the entry is read from; `app-db` is
   the app-db partition a `{:from-db <id>}` sub scope resolves against
   (EP-0016 D3 slice 3) — both come from the one coherent frame-state
   snapshot the `:frame-state` sub body receives."
   [runtime-db app-db payload]
-  (get-in runtime-db (rf.resources.state/entry-path (resolve-scoped-key payload app-db))))
+  (let [k (resolve-scoped-key payload app-db)]
+    [k (when k (get-in runtime-db (rf.resources.state/entry-path k)))]))
+
+(defn- entry-for
+  "The durable cache entry for a sub payload, or nil when its scope is
+  unresolved or no entry exists for its key (`key+entry`)."
+  [runtime-db app-db payload]
+  (second (key+entry runtime-db app-db payload)))
 
 ;; ---- derived freshness (Spec 016 §Status semantics) -----------------------
 ;;
@@ -178,14 +187,15 @@
   `:fetching?` / `:stale?` / `:has-data?`) computed here, never stored,
   plus the `:keep-previous?` previous-data projection (Spec 016 §Paginated
   and previous data). Per Spec 016 §Status semantics. Empty-state shape
-  when no entry."
+  when no entry: `:status :idle` for a resolved key, `:status :unresolved`
+  when the scope resolved nil and there is no key to read."
   [frame-state [_id payload]]
-  (let [rt  (runtime-of frame-state)
-        app (app-of frame-state)
-        e   (entry-for rt app payload)]
+  (let [rt    (runtime-of frame-state)
+        app   (app-of frame-state)
+        [k e] (key+entry rt app payload)]
     (if (nil? e)
-      ;; No entry yet — the documented idle empty-state projection.
-      {:status :idle :data nil :error nil :refresh-error nil
+      ;; No entry — the documented empty-state projection.
+      {:status (if k :idle :unresolved) :data nil :error nil :refresh-error nil
        :loading? false :fetching? false :stale? false :has-data? false
        :previous? false}
       (merge
@@ -218,10 +228,12 @@
   (:data (entry-for (runtime-of frame-state) (app-of frame-state) payload)))
 
 (defn status-sub-fn
-  "Project `:rf.resource/status` — the entry's `:status` keyword (or
-  `:idle` when no entry). Per Spec 016 §Subscriptions."
+  "Project `:rf.resource/status` — the entry's `:status` keyword, `:idle`
+  when its key has no entry, or `:unresolved` when its scope resolved nil.
+  Per Spec 016 §Subscriptions."
   [frame-state [_id payload]]
-  (or (:status (entry-for (runtime-of frame-state) (app-of frame-state) payload)) :idle))
+  (let [[k e] (key+entry (runtime-of frame-state) (app-of frame-state) payload)]
+    (if k (or (:status e) :idle) :unresolved)))
 
 (defn loading?-sub-fn
   "Project `:rf.resource/loading?` — first load with no usable data. Per
@@ -296,6 +308,14 @@
 ;; joins the entry's `:current-work` to its work-ledger row and reads the
 ;; recorded page index (the "page-fetch work evidence" R1 names).
 
+(defn- feed-key+entry
+  "`[scoped-key feed-entry]` (`key+entry`), with the entry nil unless it is an
+  infinite feed. The combined view-model reads the key to tell an unresolved
+  scope (nil key) from a key with no feed entry."
+  [runtime-db app-db payload]
+  (let [[k e] (key+entry runtime-db app-db payload)]
+    [k (when (rf.resources.state/infinite-entry? e) e)]))
+
 (defn- feed-entry-for
   "Read the infinite-feed entry for a sub `payload` (resolving + validating its
   scoped key against `runtime-db` / `app-db`), or nil when no entry / a
@@ -305,8 +325,7 @@
   rather than crashing (the loud failure is reserved for a genuine
   missing-accessor merge, below)."
   [runtime-db app-db payload]
-  (let [e (entry-for runtime-db app-db payload)]
-    (when (rf.resources.state/infinite-entry? e) e)))
+  (second (feed-key+entry runtime-db app-db payload)))
 
 (defn merged-items
   "The framework-owned merged item list for an infinite-feed `entry` (R3) —
@@ -422,14 +441,15 @@
   and the three error channels (`:error` first-load / `:refresh-error`
   whole-feed / `:page-error` load-more). Framework-owned merge (R3), recomputed
   per run — the sub itself is output-`=` memoised like every sub, so the nested
-  `:items` is `=`, not `identical?`, across unrelated commits. Empty-feed shape when no infinite entry. Per Spec 016 §Subscription
-  contract."
+  `:items` is `=`, not `identical?`, across unrelated commits. Empty-feed
+  shape when no infinite entry, with `:status :unresolved` when the scope
+  resolved nil. Per Spec 016 §Subscription contract."
   [frame-state [_id payload]]
-  (let [rt (runtime-of frame-state)
-        e  (feed-entry-for rt (app-of frame-state) payload)]
+  (let [rt    (runtime-of frame-state)
+        [k e] (feed-key+entry rt (app-of frame-state) payload)]
     (if (nil? e)
-      ;; documented empty-feed projection (idle, nothing accumulated)
-      {:status :idle :items [] :pages [] :page-count 0
+      ;; documented empty-feed projection (nothing accumulated)
+      {:status (if k :idle :unresolved) :items [] :pages [] :page-count 0
        :has-next-page? false :has-prev-page? false
        :loading? false :fetching? false :fetching-next? false
        :stale? false :has-data? false
@@ -474,13 +494,13 @@
   neither the resolved scoped key nor the read entry changed."
   []
   (rf.subs/reg-frame-state-sub :rf/resource
-    {:doc "Passive read of a resource instance's full view-model `{:status :data :error :refresh-error :loading? :fetching? :stale? :has-data?}`. Resolves scope per Spec 016 §Subscription-side scope resolution (incl. `{:from-db <id>}` named-resolver references against app-db); raises :rf.error/resource-sub-unresolved-scope rather than reading global / returning a silent :idle. Per Spec 016 §Subscriptions."}
+    {:doc "Passive read of a resource instance's full view-model `{:status :data :error :refresh-error :loading? :fetching? :stale? :has-data?}`. Resolves scope per Spec 016 §Subscription-side scope resolution (incl. `{:from-db <id>}` named-resolver references against app-db); a reference that resolves nil reads no entry and projects :status :unresolved with the empty shape, never global and never :idle. Per Spec 016 §Subscriptions."}
     state-sub-fn)
   (rf.subs/reg-frame-state-sub :rf.resource/data
     {:doc "Passive read of a resource instance's last-known-good :data (or nil). Per Spec 016 §Subscriptions."}
     data-sub-fn)
   (rf.subs/reg-frame-state-sub :rf.resource/status
-    {:doc "Passive read of a resource instance's :status keyword (:idle / :loading / :fetching / :loaded / :error). Per Spec 016 §Subscriptions."}
+    {:doc "Passive read of a resource instance's :status keyword (:idle / :loading / :fetching / :loaded / :error, or :unresolved when its {:from-db} scope resolved nil). Per Spec 016 §Subscriptions."}
     status-sub-fn)
   (rf.subs/reg-frame-state-sub :rf.resource/loading?
     {:doc "Passive read: true iff a resource instance is on its first load with no usable data. Per Spec 016 §Status semantics."}
@@ -529,6 +549,6 @@
     {:doc "Passive read of an infinite feed's last LOAD-MORE failure envelope (the third error channel; distinct from :error first-load and :refresh-error whole-feed), or nil. Per Spec 016 §Subscription contract / §Causal event — load-more."}
     page-error-sub-fn)
   (rf.subs/reg-frame-state-sub :rf.resource/infinite-state
-    {:doc "Passive read of an infinite feed's combined view-model `{:status :items :pages :page-count :has-next-page? :has-prev-page? :loading? :fetching? :fetching-next? :stale? :has-data? :error :refresh-error :page-error}` — the feed analogue of :rf/resource, with the framework-owned-memoised merged :items (R3). Empty-feed shape when no infinite entry. Per Spec 016 §Subscription contract (R3)."}
+    {:doc "Passive read of an infinite feed's combined view-model `{:status :items :pages :page-count :has-next-page? :has-prev-page? :loading? :fetching? :fetching-next? :stale? :has-data? :error :refresh-error :page-error}` — the feed analogue of :rf/resource, with the framework-owned-memoised merged :items (R3). Empty-feed shape when no infinite entry, with :status :unresolved when its {:from-db} scope resolved nil. Per Spec 016 §Subscription contract (R3)."}
     infinite-state-sub-fn)
   nil)

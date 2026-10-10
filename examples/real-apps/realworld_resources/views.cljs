@@ -468,11 +468,11 @@
         ;; The personalised feed. The resource declares `:scope {:from-db
         ;; :realworld/session}`, so the subscription resolves the session scope
         ;; itself from app-db — no view threads a `:scope` payload. Logged out, the
-        ;; resolver yields nil (fail-closed), so we only subscribe when authed; the
-        ;; `:page` matches the route-ensured key.
-        feed-state   (when authed?
-                       @(subscribe [:rf/resource {:resource :realworld/feed
-                                                        :params  {:page page}}]))]
+        ;; resolver yields nil, so the read has no identity and reports
+        ;; `:status :unresolved`; the feed tab only shows for a signed-in reader.
+        ;; The `:page` matches the route-ensured key.
+        feed-state   @(subscribe [:rf/resource {:resource :realworld/feed
+                                                :params  {:page page}}])]
     [:div.home-page
      [:div.banner [:div.container [:h1.logo-font "conduit"] [:p "A place to share your knowledge."]]]
      [:div.container.page

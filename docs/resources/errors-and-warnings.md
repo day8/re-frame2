@@ -35,7 +35,6 @@ nothing. [Troubleshooting](concepts.md#troubleshooting) in the model covers thos
 | `:rf.error/http-artefact-missing` | A load or write without `re-frame.http.managed` | `(:require [re-frame.http.managed])` at boot |
 | `:rf.error/reply-invalid-target` | An ensure's or execute's `:reply-to` is not a non-empty vector with a keyword head | Pass an event vector, such as `[:todo/loaded]` |
 | `:rf.error/reply-non-data-target` | A `:reply-to` carries a fn or another host object | Pass data only; the reply is appended to the vector |
-| `:rf.error/resource-sub-unresolved-scope` | A subscription's scope resolver returned `nil` | Resolve only when logged in, or don't subscribe |
 | `:rf.error/resource-scope-unresolved-reference` | An ensure's, execute's or `invalidate-tags`' `{:from-db …}` scope resolved to `nil` | Dispatch it once the resolver's inputs are in app-db |
 | `:rf.error/resource-scope-not-registered` | A `{:from-db id}` names a resolver nothing registered | Register it with `reg-resource-scope` |
 | `:rf.error/resource-invalid-scope` | A misspelled `:rf.scope/*` keyword, `[:rf.scope/global]` in a vector, or a `{:from-db …}` where a concrete scope is required (`clear-scope`) | Use the bare keyword; resolve with `rf/resolve-resource-scope` first |
