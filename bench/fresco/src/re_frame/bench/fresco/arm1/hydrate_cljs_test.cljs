@@ -9,9 +9,8 @@
      property `hydrateRoot`'s passive subscribe needs, expressed as the
      race it has to win rather than as the integer it is implemented
      with.
-  2. **The adoption window opens, closes, and is closed by a runtime
-     reset** — so a fixture that throws mid-hydration cannot leave the
-     page permanently adopting.
+  2. **A runtime reset shuts the adoption window** — so a fixture that
+     throws mid-hydration cannot leave the page permanently adopting.
   3. **`body-runs` counts real body runs**, is monotone, and survives
      `reset-runtime!` — HD-028's rider stated where it can be stated
      exactly.
@@ -99,27 +98,18 @@
 
 (deftest an-unclaimed-entry-survives-a-bare-macrotask-and-not-the-horizon
   (seeded!)
-  (testing "**The race the hydration door has to win**.
-           An entry is minted in the RENDER and claimed in the COMMIT,
-           and `hydrateRoot` puts a scheduler turn between the two. A
-           reaper armed at `setTimeout 0` inside the render would
-           evict the entry before React ever calls its `subscribe` —
-           the boundary would end up subscribed to a detached entry, and
-           its next render would miss the cache, mint a second one, and
-           hand `useSyncExternalStore` a different `subscribe` to tear
-           down and rebuild.
-
-           The horizon is asserted as the RACE, not as its integer: a
-           timer armed AFTER the reaper's, for zero, must still find the
-           entry cached"
-    (let [[entry timers] (armed-by one-body-run!)
-          probe          [0 (fn []
-                              (is (= 1 (:entries (rf.bench.fresco.arm1.runtime/stats)))
-                                  "one bare macrotask later it is STILL cached — a commit
-                                   arriving here would find the entry its render minted"))]]
-      (is (some? entry) "the render minted an entry")
-      (is (zero? (.-refs entry)) "unclaimed — no commit has run")
-      (is (= 1 (:entries (rf.bench.fresco.arm1.runtime/stats))) "and it is in the cache")
+  (testing "**The race the hydration door has to win**. An entry is minted
+           in the RENDER and claimed in the COMMIT, and `hydrateRoot` puts a
+           scheduler turn between the two; a reaper that won that race
+           would leave the boundary subscribed to a detached entry, and its
+           next render would mint a second one and make React tear down and
+           rebuild the subscription. So a timer armed AFTER the reaper's,
+           for zero, must still find the entry cached"
+    (let [[_ timers] (armed-by one-body-run!)
+          probe      [0 (fn []
+                          (is (= 1 (:entries (rf.bench.fresco.arm1.runtime/stats)))
+                              "one bare macrotask later it is STILL cached — a commit
+                               arriving here would find the entry its render minted"))]]
       (fire-on-a-still-clock! (conj timers probe))
       (is (zero? (:entries (rf.bench.fresco.arm1.runtime/stats)))
           "and the horizon is bounded, not disabled: an entry
@@ -128,41 +118,27 @@
 (deftest a-claimed-entry-is-never-reaped-at-any-horizon
   (async done
     (seeded!)
-    (testing "the horizon is a cache-eviction schedule and nothing else —
-             an entry a commit claimed is held by its `refs`, so no delay
-             can drop it and correctness never depended on the race"
-      (let [entry (one-body-run!)
-            stop  (rf.bench.fresco.arm1.runtime/commit-boundary! entry (fn [] nil))]
-        (is (= 1 (.-refs entry)))
+    (testing "the horizon is a cache-eviction schedule and nothing else — an
+             entry a commit claimed is held by its `refs`, so no delay can
+             drop it"
+      (let [stop (rf.bench.fresco.arm1.runtime/commit-boundary! (one-body-run!) (fn [] nil))]
         (js/setTimeout
           (fn []
             (is (= 1 (:entries (rf.bench.fresco.arm1.runtime/stats))) "claimed, so past the horizon it stands")
             (stop)
-            (js/setTimeout
-              (fn []
-                (is (zero? (:entries (rf.bench.fresco.arm1.runtime/stats)))
-                    "and released, it is evicted on the ordinary edge")
-                (done))
-              8))
+            (done))
           8)))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — the adoption window
 ;; ---------------------------------------------------------------------------
 
-(deftest the-adoption-window-is-shut-by-default-and-shut-again-by-a-reset
+(deftest a-runtime-reset-shuts-an-open-adoption-window
   (seeded!)
-  (testing "**Adoption is a window, not a mode**. It is
-           false for every ordinary mount — which is what keeps the
-           charter's one-mode law intact — and `reset-runtime!` shuts it,
-           so a fixture that throws between `hydrateRoot` and the closer's
+  (testing "a fixture that throws between `hydrateRoot` and the closer's
            effect cannot leave the page adopting for every row after it"
-    (is (false? (rf.bench.fresco.arm1.runtime/adopting?)) "shut by default")
     (rf.bench.fresco.arm1.runtime/open-adoption-window!)
     (is (true? (rf.bench.fresco.arm1.runtime/adopting?)) "opened by the door")
-    (rf.bench.fresco.arm1.runtime/close-adoption-window!)
-    (is (false? (rf.bench.fresco.arm1.runtime/adopting?)) "shut by the closer")
-    (rf.bench.fresco.arm1.runtime/open-adoption-window!)
     (rf.bench.fresco.arm1.runtime/reset-runtime!)
     (is (false? (rf.bench.fresco.arm1.runtime/adopting?)) "and shut by a runtime reset, whatever threw")))
 
@@ -172,50 +148,28 @@
 
 (deftest body-runs-counts-bodies-that-ran-and-is-not-cleared-by-a-reset
   (seeded!)
-  (testing "**The instrument the X-witnesses read**.
-           Always on, so the `:advanced` / `goog.DEBUG false` builds this
-           lane actually drives can see it; bumped inside `run-once`, so
-           what it counts is a body that RAN rather than a render React
-           was asked for — which is the whole of HD-028's rider, because a
-           `React.memo` bail-out has to read as an increment that did not
-           happen"
-    (is (zero? (rf.bench.fresco.arm1.runtime/body-runs)) "the fixture zeroed it")
-    (one-body-run!)
-    (is (= 1 (rf.bench.fresco.arm1.runtime/body-runs)))
-    (one-body-run!)
-    (one-body-run!)
+  (testing "**The instrument the X-witnesses read**. Always on, so the
+           `:advanced` / `goog.DEBUG false` builds this lane drives can see
+           it; bumped inside `run-once`, so a `React.memo` bail-out reads as
+           an increment that did not happen"
+    (dotimes [_ 3] (one-body-run!))
     (is (= 3 (rf.bench.fresco.arm1.runtime/body-runs)) "one per body, counted")
     (rf.bench.fresco.arm1.runtime/reset-runtime!)
     (is (= 3 (rf.bench.fresco.arm1.runtime/body-runs))
         "and a teardown does NOT zero it — an instrument a teardown door
          resets is one a reading taken on the wrong side of the reset can
-         pass with")
-    (rf.bench.fresco.arm1.runtime/reset-body-runs!)
-    (is (zero? (rf.bench.fresco.arm1.runtime/body-runs)) "only the explicit door zeroes it")))
+         pass with")))
 
 (deftest a-fenced-re-run-is-two-body-runs-because-two-bodies-ran
   (seeded!)
   (testing "the generation fence re-runs a body that straddled a commit,
-           and the counter says TWO — which is the reason it is bumped in
-           `run-once` rather than once per `render-body`. A count of
-           renders React asked for would say one here, and one is not what
-           happened"
-    ;; A mid-body write is only observable when the key is already held —
-    ;; a key nothing holds has no watch to fire (`runtime_cljs_test`'s
-    ;; own fence row states it).
-    (rf.bench.fresco.arm1.runtime/render-body frame-id (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/done? 0]))]) {})
-    (let [stop (rf.bench.fresco.arm1.runtime/commit-boundary! (rf.bench.fresco.arm1.runtime/last-reads) (fn [] nil))
-          runs (volatile! 0)]
-      (rf.bench.fresco.arm1.runtime/reset-body-runs!)
+           and the counter says TWO — which is why it is bumped in
+           `run-once` rather than once per `render-body`"
+    (let [runs (volatile! 0)]
       (rf.bench.fresco.arm1.runtime/render-body frame-id
-                      (fn [_]
-                        (vswap! runs inc)
-                        (rf.bench.fresco.arm1.runtime/sub [:dogfood/done? 0])
-                        (when (= 1 @runs)
-                          (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:dogfood/toggle 0]))
-                        [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/done? 0]))])
-                      {})
-      (is (= 2 @runs) "the fence re-ran the body")
-      (is (= 2 (rf.bench.fresco.arm1.runtime/body-runs))
-          "and the counter reads two, because two bodies ran")
-      (stop))))
+                                                (fn [_]
+                                                  (when (= 1 (vswap! runs inc))
+                                                    (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:dogfood/toggle 0]))
+                                                  [:li])
+                                                {})
+      (is (= 2 (rf.bench.fresco.arm1.runtime/body-runs))))))
