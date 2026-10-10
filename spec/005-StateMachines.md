@@ -1044,7 +1044,7 @@ The fn `make-machine-handler` returns is the event handler. Crucially, the facto
 - **Closes over no global state.** No `(get-machine-by-id ...)` lookups bound at construction.
 - **Does not know its own event id.** The handler's id is bound by the surrounding `reg-event` (or by the `[:rf.machine/spawn ...]` fx for dynamic instances).
 
-This is a real constraint on the implementation, not just a testing affordance — it's what makes the singleton vs spawned symmetry clean (the registration happens *outside* the factory in both cases) and what makes Level-2 testing (per [§Testing](#testing)) possible without a test frame.
+This is a real constraint on the implementation, not just a testing affordance — it's what makes the singleton vs spawned symmetry clean (the registration happens *outside* the factory in both cases) and what makes Level-2 testing (per [§Testing](#testing)) possible without registering the handler or creating a frame — the db-arg carries a frame id only to stamp traces.
 
 ### `reg-machine` vs `reg-machine*`
 
@@ -4346,13 +4346,16 @@ No `:db`, no `[:rf.runtime/machines :snapshots]` plumbing, no fx interpretation 
 
 ;; The runtime stores snapshots at [:rf.runtime/machines :snapshots <id>], where <id> is the
 ;; surrounding registration's id (in the runtime-db partition). A Level-2 test calls the
-;; handler against the canonical db-arg shape directly:
-(handler {:rf.db/runtime {:rf.runtime/machines {:snapshots {:drawer/editor {:state :idle :data {}}}}}}
+;; handler against the canonical db-arg shape directly. The db-arg carries the :rf.frame/id
+;; stamp every pipeline run carries (without one the handler throws :rf.error/no-frame-context);
+;; here the id only stamps the handler's traces, so no frame by that id need exist:
+(handler {:rf.frame/id   :test/frame
+          :rf.db/runtime {:rf.runtime/machines {:snapshots {:drawer/editor {:state :idle :data {}}}}}}
          [:drawer/editor [:right-click-circle some-id 30]])
 ;; → {:rf.db/runtime ... :fx ...}   ;; snapshots are runtime-db, so the cofx + effect are :rf.db/runtime
 ```
 
-Tests handler-level integration (snapshot read/write at `[:rf.runtime/machines :snapshots <id>]`, `:data`-to-`:db` lowering, fx composition) without going near the dispatch pipeline. **Possible only because `make-machine-handler` is a pure factory** — no registration, no test frame.
+Tests handler-level integration (snapshot read/write at `[:rf.runtime/machines :snapshots <id>]`, `:data`-to-`:db` lowering, fx composition) without going near the dispatch pipeline. **Possible only because `make-machine-handler` is a pure factory** — no registration, and no frame: the db-arg names a frame id only to stamp traces.
 
 The handler resolves its id from the inbound event vector's first element (`:drawer/editor`), reads `(get-in db [:rf.runtime/machines :snapshots :drawer/editor])` for the current snapshot, and writes the next snapshot back at the same location.
 
