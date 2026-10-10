@@ -79,8 +79,8 @@
         (is (= :no-throw (thrown-id drain))
             "the refusal does not escape trace emission or the drain"))
       (run-ticks! ticks))
-    (is (= [:fetch :next :sibling] @log)
-        "the router processed the queued event and the refused effect's sibling")
+    (is (= [:fetch :sibling :next] @log)
+        "the router processed the refused effect's sibling, then the queued event")
     (is (empty? (rf.http.managed/in-flight-snapshot))
         "the request was refused, never issued")
     (let [fx-errors (filterv #(and (= :rf.error/fx-handler-exception (:operation %))
@@ -98,4 +98,4 @@
         "the header the malformed block named appears nowhere in the trace")
     (testing "a later dispatch-sync on the same frame is not poisoned"
       (rf/dispatch-sync [:carriers-refusal/next] {:frame fid})
-      (is (= [:fetch :next :sibling :next] @log)))))
+      (is (= [:fetch :sibling :next :next] @log)))))
