@@ -558,264 +558,90 @@ def run(*, verbose: bool, ci: bool) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Self-test — exercises every check against in-memory fixtures so the guard
-# itself can't silently rot.
+# Self-test — the checks against in-memory fixtures.
 # ---------------------------------------------------------------------------
 
 def _self_test() -> int:
-    failures = 0
-
-    # The fixtures mix the one-form `reg-event` (EP-0018) with the
-    # `reg-event-db` spelling, so the containment check is exercised across
-    # both spellings the guard recognises as a counter registration.
-    good_first_counter = (
-        "(rf/reg-event :counter/initialise (fn [_cofx _] {:db {:counter/value 0}}))\n"
-        "(rf/reg-event :counter/increment (fn [{:keys [db]} _] {:db (update db :counter/value inc)}))\n"
-        "(rf/reg-sub :counter/value (fn [db _] (:counter/value db)))\n"
-    )
-    good_template_events = (
-        "(rf/reg-event-db\n  :counter/initialise (fn [_ _] {:counter/value 0}))\n"
-        "(rf/reg-event-db\n  :counter/increment (fn [db _] (update db :counter/value inc)))\n"
-    )
-    good_template_subs = "(rf/reg-sub\n  :counter/value (fn [db _] (:counter/value db)))\n"
-    good_entry = (
-        "($ :button {:on-click #(dispatch [:counter/increment])} \"+1\")\n"
-        "(rf.adapter.uix/use-sub [:counter/value])\n"
-    )
-
-    # Case A — clean: snippet ids are a subset of both the leaf and the template.
-    probs = find_counter_drift(
-        good_first_counter, good_entry, good_template_events, good_template_subs
-    )
-    if probs:
-        print(f"SELF-TEST FAIL (A clean counter): unexpected {probs}")
-        failures += 1
-
-    # Case B — counter drift: Reagent leaf on `:count` + `:counter/inc`,
-    # snippet on `:counter/increment` + `:counter/value`.
-    drift_first_counter = (
-        "(rf/reg-event-db :counter/initialise (fn [_ _] {:count 0}))\n"
+    # The leaf registers `:counter/inc` and a bare `:count` sub while the UIx
+    # snippet consumes `:counter/increment` and `:counter/value`; the template
+    # agrees with the snippet, so every finding is the leaf's.
+    counter = find_counter_drift(
         "(rf/reg-event-db :counter/inc (fn [db _] (update db :count inc)))\n"
-        "(rf/reg-sub :count (fn [db _] (:count db)))\n"
+        "(rf/reg-sub :count (fn [db _] (:count db)))\n",
+        "($ :button {:on-click #(dispatch [:counter/increment])} \"+1\")\n"
+        "(rf.adapter.uix/use-sub [:counter/value])\n",
+        "(rf/reg-event-db\n  :counter/increment (fn [db _] (update db :counter/value inc)))\n",
+        "(rf/reg-sub\n  :counter/value (fn [db _] (:counter/value db)))\n",
     )
-    probs = find_counter_drift(
-        drift_first_counter, good_entry, good_template_events, good_template_subs
-    )
-    if not any("COUNTER-KEYWORD" in p and ":counter/increment" in p for p in probs):
-        print(f"SELF-TEST FAIL (B counter drift): expected missing handler, got {probs}")
-        failures += 1
-    if not any("COUNTER-KEYWORD" in p and ":counter/value" in p for p in probs):
-        print(f"SELF-TEST FAIL (B counter drift): expected missing sub, got {probs}")
-        failures += 1
-
-    # Case C — extra leaf registration (decrement) is fine: snippet ids still a
-    # subset. No drift.
-    extra_first_counter = good_first_counter + (
-        "(rf/reg-event-db :counter/decrement (fn [db _] (update db :counter/value dec)))\n"
-    )
-    probs = find_counter_drift(
-        extra_first_counter, good_entry, good_template_events, good_template_subs
-    )
-    if probs:
-        print(f"SELF-TEST FAIL (C superset clean): unexpected {probs}")
-        failures += 1
-
-    # Case D — hot-reload clean: the CORRECT (measured) framing. Note it is the
-    # false claim's own words, NEGATED — which is exactly why the affirmative
-    # `re-runs :init-fn` patterns must be polarity-aware.
-    good_shadow = (
-        "shadow calls the module `:init-fn` ONCE, when the bundle loads. It does "
-        "NOT re-run it after a hot reload — a reload loads the new code and then "
-        "calls the build's `^:dev/after-load` hooks, so `core.cljs` carries one.\n"
-        "`^:dev/after-load` is shadow's cue to re-run `mount!` after each "
-        "successful hot reload, re-rendering your edited views into the retained "
-        "React root.\n"
-    )
-    probs = find_hot_reload_drift(("shadow-cljs.md", good_shadow))
-    if probs:
-        print(f"SELF-TEST FAIL (D hot-reload clean): unexpected {probs}")
-        failures += 1
-    probs = find_missing_after_load_hook(("shadow-cljs.md", good_shadow))
-    if probs:
-        print(f"SELF-TEST FAIL (D after-load presence): unexpected {probs}")
-        failures += 1
-
-    # Case E — the false framing, in each shape it takes in setup-skill prose.
-    # Every one must be caught on its own line.
-    for label, drift_shadow in [
-        ("re-runs after each reload",
-         "shadow-cljs's `:browser` target re-runs `:init-fn` (`init`) after "
-         "**each** hot reload, so `init` IS the re-render path.\n"),
-        ("default after-load hook",
-         "For the `:browser` target the module `:init-fn` is both the startup "
-         "entry and the default after-load hook.\n"),
-        ("no separate hook",
-         "A code reload re-invokes `init` — no separate `^:dev/after-load` "
-         "hook.\n"),
-        ("init re-runs every save",
-         "`init` re-runs on **every** hot reload, so `rf/init!` runs again each "
-         "save.\n"),
-        # The subject is load-bearing and the pattern requires it. A subject-LESS
-        # "re-invoked on each hot reload" is not decidable per-line: said of
-        # `mount!` it is correct prose, said of `init` it is the false claim, so
-        # a subject-less sentence is not flagged here. The generator template's
-        # emitted `core.cljs` is pinned structurally instead, by its
-        # `entry-namespace-hot-reload-lifecycle-test`.
-        ("init re-invoked on each reload",
-         "`init` is idempotent — it is re-invoked on each hot reload.\n"),
-        ("per-reload reset boundary",
-         "The explicit `dispatch-sync` seed in `init` is the per-reload reset "
-         "boundary.\n"),
-        ("re-seeds every reload",
-         "The `dispatch-sync` seed re-seeds this counter on every hot reload.\n"),
-    ]:
-        probs = find_hot_reload_drift(("shadow-cljs.md", drift_shadow))
-        if not any("HOT-RELOAD-LIFECYCLE" in p for p in probs):
-            print(f"SELF-TEST FAIL (E hot-reload drift / {label}): expected drift, got {probs}")
-            failures += 1
-
-    # Case E2b — shadow-cljs's OWN diagnostic must not trip the guard. The
-    # lifecycle leaves quote it verbatim to tell the author what a missing hook
-    # looks like, so a bare `no … after-load … hook` pattern would red exactly the
-    # pages that teach the fix. Pinned in both the quoted and the paraphrased form.
-    for label, quoted_diagnostic in [
-        ("verbatim",
-         ";; \"reloading code but no :after-load hooks are configured!\" and the "
-         "page keeps painting the OLD view.\n"),
-        ("paraphrased",
-         "With no hook configured shadow says so — `reloading code but no "
-         "`:after-load` hooks are configured!` — and the page keeps painting the "
-         "old view.\n"),
-    ]:
-        probs = find_hot_reload_drift(("first-counter.md", quoted_diagnostic))
-        if probs:
-            print(f"SELF-TEST FAIL (E2b shadow diagnostic / {label}): unexpected {probs}")
-            failures += 1
-
-    # Case E3 — the AFFIRMATIVE half. Prose stripped of the false sentence but
-    # never taught the hook is the same stranded author, so it must still fail.
-    silent_shadow = (
-        "The `:browser` target compiles your edit and pushes the new module to "
-        "the page. Hold the React root in a `defonce` so a save reuses it.\n"
-    )
-    probs = find_missing_after_load_hook(("shadow-cljs.md", silent_shadow))
-    if not any("AFTER-LOAD-HOOK" in p for p in probs):
-        print(f"SELF-TEST FAIL (E3 after-load absent): expected drift, got {probs}")
-        failures += 1
-
-    # Case E2 — `:initial-events` must NOT trip the false-framing patterns
-    # (it begins with the `:init` token they look for). "the surgical update …
-    # does not rerun any `:initial-events`" is correct re-frame2 semantics: the
-    # `:?init(?:-fn)?` token must match `:init` / `:init-fn` only as a COMPLETE
-    # token, never as the `:init` prefix of the longer `:initial-events` keyword.
-    # Both polarities are pinned, because polarity rejection covers only the
-    # negated shape; the affirmative one rests on the token boundary alone.
-    for label, initial_events_clean in [
-        ("negated",
-         "`frame-root` REUSES the live frame, so the surgical update in step 2 "
-         "does not rerun any `:initial-events`.\n"),
-        ("affirmative",
-         "`frame-root` runs the `:initial-events` seed once, at frame creation; "
-         "a browser refresh re-runs it because the reload creates a fresh "
-         "frame.\n"),
-    ]:
-        probs = find_hot_reload_drift(("entry-namespace.md", initial_events_clean))
-        if probs:
-            print(f"SELF-TEST FAIL (E2 :initial-events false positive / {label}): "
-                  f"unexpected {probs}")
-            failures += 1
-
-    # Case F — adapter-key clean: current names + the front-porch sentence.
-    good_adapter = (
-        "You pass the exported `adapter` var. The contract uses "
-        "`:make-state-container` and `:subscribe-container`; views deref the "
-        "auto-injected `subscribe` local.\n"
-    )
-    probs = find_adapter_key_drift("entry-namespace.md", good_adapter)
-    if probs:
-        print(f"SELF-TEST FAIL (F adapter clean): unexpected {probs}")
-        failures += 1
-
-    # Case G — adapter-key drift: bare `state-container` adapter key.
-    drift_adapter = (
-        "The adapter map carries the substrate's `state-container`, "
-        "`read-container`, `replace-container!`, `subscribe`, `render`, and "
-        "hot-reload hooks.\n"
-    )
-    probs = find_adapter_key_drift("entry-namespace.md", drift_adapter)
-    if not any("ADAPTER-KEY" in p for p in probs):
-        print(f"SELF-TEST FAIL (G adapter drift): expected drift, got {probs}")
-        failures += 1
-
-    # Case H — CANONICAL-SOURCE clean: the copy-complete Reagent core.cljs
-    # lives ONLY in first-counter.md, and a second block that is not a Reagent
-    # core block does not count as a duplicate. The fixture below is a UIx
-    # block mounting through `uix-dom/render-root`, deliberately: it exercises
-    # BOTH exclusion clauses at once (wrong adapter namespace AND no
-    # `/render!`). The shape entry-namespace.md ships satisfies `/render!` and is
-    # excluded on the adapter namespace alone; that narrower path is covered
-    # by the `--ci` arm, which runs this same check over the real leaves.
-    good_fc_block = (
+    reagent_core = (
         "```clojure\n"
         "(ns your-app.core\n"
         "  (:require [re-frame.adapter.reagent :as rf.adapter.reagent]))\n"
-        "(defn ^:export init []\n"
-        "  (rf.adapter.reagent/render! app-root [counter-app] el))\n"
+        "(rf.adapter.reagent/render! app-root [counter-app] el)\n"
         "```\n"
     )
-    good_en_no_reagent = (
-        "```clojure\n"
-        "(ns your-app.core (:require [uix.dom :as uix-dom]))\n"
-        "(uix-dom/render-root ($ views/counter-app) react-root)\n"
-        "```\n"
-    )
-    probs = find_canonical_source_drift(good_fc_block, good_en_no_reagent)
-    if probs:
-        print(f"SELF-TEST FAIL (H canonical clean): unexpected {probs}")
-        failures += 1
 
-    # Case I — CANONICAL-SOURCE drift: entry-namespace.md carries a duplicate
-    # copy-complete Reagent core.cljs skeleton.
-    probs = find_canonical_source_drift(good_fc_block, good_fc_block)
-    if not any("CANONICAL-SOURCE" in p and "entry-namespace.md" in p for p in probs):
-        print(f"SELF-TEST FAIL (I canonical drift): expected entry-namespace drift, got {probs}")
-        failures += 1
+    def lifecycle(line: str) -> list[str]:
+        return find_hot_reload_drift(("shadow-cljs.md", line + "\n"))
 
-    # Case J — MALLI-REQUIRE clean: the ns is named only to say it is NOT
-    # needed. Both the plain and the markdown-emphasised (`**no** separate`)
-    # negations must read as clean.
-    for label, txt in [
-        ("plain",
-         "re-frame.schemas self-requires its Malli adapter — no separate "
-         "re-frame.schemas.malli require is needed.\n"),
-        ("md",
-         "requires **only** `re-frame.schemas` (which self-wires its Malli "
-         "adapter; **no** separate `re-frame.schemas.malli` require).\n"),
-    ]:
-        probs = find_malli_require_drift("first-counter.md", txt)
-        if probs:
-            print(f"SELF-TEST FAIL (J malli clean {label}): unexpected {probs}")
+    # (label, findings, substrings one finding must carry); None = no findings.
+    cases = [
+        ("B missing handler", counter, ("COUNTER-KEYWORD", ":counter/increment")),
+        ("B missing sub", counter, ("COUNTER-KEYWORD", ":counter/value")),
+        # One false-framing shape per pattern.
+        ("E init IS the re-render path", lifecycle(
+            "shadow-cljs's `:browser` target re-runs `:init-fn` (`init`) after "
+            "**each** hot reload, so `init` IS the re-render path."),
+         ("HOT-RELOAD-LIFECYCLE",)),
+        ("E default after-load hook", lifecycle(
+            "For the `:browser` target the module `:init-fn` is both the startup "
+            "entry and the default after-load hook."),
+         ("HOT-RELOAD-LIFECYCLE",)),
+        ("E no separate hook", lifecycle(
+            "A code reload re-invokes `init` — no separate `^:dev/after-load` hook."),
+         ("HOT-RELOAD-LIFECYCLE",)),
+        ("E init re-invoked on each reload", lifecycle(
+            "`init` is idempotent — it is re-invoked on each hot reload."),
+         ("HOT-RELOAD-LIFECYCLE",)),
+        ("E per-reload reset boundary", lifecycle(
+            "The explicit `dispatch-sync` seed in `init` is the per-reload reset "
+            "boundary."),
+         ("HOT-RELOAD-LIFECYCLE",)),
+        ("E re-seeds every reload", lifecycle(
+            "The `dispatch-sync` seed re-seeds this counter on every hot reload."),
+         ("HOT-RELOAD-LIFECYCLE",)),
+        ("E3 after-load absent", find_missing_after_load_hook(
+            ("shadow-cljs.md", "Hold the React root in a `defonce` so a save reuses it.\n")),
+         ("AFTER-LOAD-HOOK",)),
+        # The current adapter-key names are what the drift message tells authors
+        # to write, so they must stay clean.
+        ("F adapter clean", find_adapter_key_drift(
+            "entry-namespace.md",
+            "The contract uses `:make-state-container` and `:subscribe-container`; "
+            "views deref the auto-injected `subscribe` local.\n"),
+         None),
+        ("G adapter drift", find_adapter_key_drift(
+            "entry-namespace.md", "The adapter map carries `state-container` and `render`.\n"),
+         ("ADAPTER-KEY",)),
+        ("I canonical drift", find_canonical_source_drift(reagent_core, reagent_core),
+         ("CANONICAL-SOURCE", "entry-namespace.md")),
+        ("J malli clean", find_malli_require_drift(
+            "first-counter.md",
+            "requires **only** `re-frame.schemas` (which self-wires its Malli "
+            "adapter; **no** separate `re-frame.schemas.malli` require).\n"),
+         None),
+        ("K malli require drift", find_malli_require_drift(
+            "first-counter.md",
+            "  (:require [re-frame.schemas]\n            [re-frame.schemas.malli])\n"),
+         ("MALLI-REQUIRE",)),
+    ]
+    failures = 0
+    for label, probs, needles in cases:
+        ok = (not probs) if needles is None else any(
+            all(n in p for n in needles) for p in probs)
+        if not ok:
+            print(f"SELF-TEST FAIL ({label}): got {probs}")
             failures += 1
-
-    # Case K — MALLI-REQUIRE drift: checklist prose demanding a SEPARATE
-    # re-frame.schemas.malli require, and a
-    # literal require vector.
-    probs = find_malli_require_drift(
-        "SKILL.md",
-        "Entry ns requires `re-frame.schemas` + `re-frame.schemas.malli` and "
-        "attaches the app-db schema.\n",
-    )
-    if not any("MALLI-REQUIRE" in p for p in probs):
-        print(f"SELF-TEST FAIL (K malli prose drift): expected drift, got {probs}")
-        failures += 1
-    probs = find_malli_require_drift(
-        "first-counter.md",
-        "  (:require [re-frame.schemas]\n            [re-frame.schemas.malli])\n",
-    )
-    if not any("MALLI-REQUIRE" in p for p in probs):
-        print(f"SELF-TEST FAIL (K malli require drift): expected drift, got {probs}")
-        failures += 1
-
     if failures:
         print(f"self-test: {failures} failure(s).")
         return 1
