@@ -59,6 +59,8 @@ A candidate that clears the quality bar (Part 2) gets folded back into the skill
 - **Skill-ergonomics** — the structure, phasing, explanation, and routing of `SKILL.md` and its reference leaves. "The skill sent me the wrong way", "the phasing buried the floor gate", "a footgun needed a louder warning here". These are edits to the *skill's* presentation of the migration, not to the rule corpus.
 - **Corpus-correctness** — the rules themselves, which live in the migration corpus (the M-rules in MIGRATION.md), not in the skill. "There's no rule for this v1 surface", "this rule's type is wrong", "the rewrite shape is incorrect". The skill is downstream of the corpus ([`design.md` §L1](design.md#l1--migrationfrom-re-frame-v1readmemd-is-the-source-of-truth)); a corpus-correctness finding is fixed in the corpus, and the skill's index / sequencing is then re-aligned per [`inputs.md` §6 Update procedure](inputs.md#6-update-procedure).
 
+Before folding either kind, take the copy census the family requires — [`skills/README.md` §Authoring rules](../../README.md#authoring-rules), rule 2.
+
 Judge each candidate against the quality bar before folding. A candidate that is really a framework bug (Part 2 step 2) is folded into neither the skill nor the corpus — it is routed upstream.
 
 ---

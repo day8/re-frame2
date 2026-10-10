@@ -230,7 +230,8 @@ so they hold as the inventory grows):
   positive for at least one eval per behavioural dimension. If baseline
   matches with-skill, the skill is not earning its tokens for that dimension.
 - no eval shows pathological behaviour (ignoring the skill, recursion-limit,
-  or reading `>3` leaves for a single prompt)
+  or loading leaves the prompt's concerns do not need — the family's
+  reference-loading rule, [`skills/README.md` §Authoring rules](../../README.md#authoring-rules))
 
 If a behavioural eval consistently fails, the fix usually lives in the leaf
 (or the SKILL.md correction-contract / untrusted-evidence wording), not the eval — that
