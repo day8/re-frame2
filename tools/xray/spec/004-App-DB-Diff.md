@@ -68,8 +68,9 @@ derives a changed-paths set via the canonical Editscript-A* engine
   `:+` / `:-` / `:r` ops across the two values
   (`juji/editscript` 0.6.5).
 - **Per-path projection** classifies each leaf as `:added` /
-  `:modified` / `:removed` / `:same-shifted` and exposes the result
-  as a `:flat-rows` channel of maps `{:path :op :before :after}`.
+  `:modified` / `:removed` / `:same-shifted` and records it in
+  `:path-ops`, keyed by path, with its `:before` / `:after`; `op-at`
+  and its sibling accessors read it.
 - **The shared edn-inspector consumes the projection directly** — it
   takes `value` + `before` and resolves each node's op out of the
   projection, so there is no per-consumer row tuple. The former
@@ -225,12 +226,11 @@ with its counterpart through the replay slots (§Vectors and lists).
 > set-valued app-db key, a sub result — reading as "the key vanished"
 > rather than "one member swapped." Surfaced live on the machine-epochs
 > deck (`[:rf/runtime :machines :snapshots :door/main :tags]`, rf2-l0us2,
-> related rf2-iwy0c). The deck's canonical HARD machine (`:hvac/controller`,
-> rf2-k08ay) drives the richer case: a `:hvac/mode-toggle` swaps
-> `:climate/heating` for `:climate/cooling` in the `:tags` set, and the
-> rendering-fidelity test (`panels.epoch.hard-machine-fidelity-cljs-test`)
-> pins that exactly one member joined + one left at member level (no
-> wholly-replaced blob). This is the FULL+DIFF family's set-keyed counterpart
+> related rf2-iwy0c). The machine-epochs harness pins it on the deck's
+> parallel `:traffic/light` (`traffic-tag-set-delta-renders-member-swap`,
+> rung #10): a `:traffic/tick` reads as one member-level `:added` and one
+> `:removed`, while the constant `:traffic/shared` member does not churn.
+> This is the FULL+DIFF family's set-keyed counterpart
 > to the rf2-bufw2 empty-collection and rf2-9d4j8 root-container honesty
 > fixes: all three close gaps where the wholly-changed uniformity walk
 > disagreed with the per-leaf op classification.
@@ -437,14 +437,10 @@ wash. No key is tagged with a literal `(added)` / `(removed)` word.
 paints the reserved `:diff-gutter` cyan-teal for every active op; the
 colour above lives in the stripe and the wash.
 
-**There is no diff flash.** A 400ms yellow → transparent tween on
-newly-touched slices was specified here and its `rf-xray-diff-flash`
-keyframes shipped in `theme/global_styles.cljs`, but no element ever
-carried the animation. The keyframes and the `:flash-duration-ms`
-motion token were deleted under rf2-y8doi.29 (2026-09-17);
-`theme/global_styles_cljs_test` and `theme/tokens_cljs_test` pin their
-absence, with the applied `rf-xray-fade-in` tab cross-fade as the
-control.
+**There is no diff flash.** Touched slices signal statically — the
+gutter glyph, the stripe and the wash — with no flash keyframes and no
+`:flash-duration-ms` motion token. `theme/tokens_cljs_test` pins the
+token's absence, with the 180ms tab cross-fade as the control.
 
 ## Path interaction: zoom into a node (rf2-h71e0 · rf2-zl4rs)
 

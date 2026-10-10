@@ -1165,7 +1165,7 @@ Figma export carries a **single accent identity** (App's active tab + every pane
 colour. Surfaces stay neutral so the blue accent pops.
 
 Domain colour still does load-bearing work **inside** each panel where it is semantic — `error`
-red on the inline Epoch exception block + the L2 issue-row wash, machine `green`, route `yellow`, the op-family colour-bands in Trace (§021 §5.2) —
+red on the inline Epoch exception block + the L2 issue-row wash, machine `green`, route `yellow`, the stage-coloured row edges in Trace (§023 §2) —
 but the **header stripe** is the single accent. (The per-panel header icons that once appeared in
 this list are retired: §021 §14.1 deleted the `<h1>` elements they lived in, and rf2-qm2rt deleted
 the unread `theme/tokens/panel-icon` map behind them.)
@@ -1252,17 +1252,12 @@ Specific motions:
   selected}` on the L4 case-switch wrapper so a tab swap unmounts +
   remounts → keyframes auto-play from frame 0. Animation lives in
   `theme/global-styles/motion-css`.
-- **Diff flash: never shipped.** The 400ms ease-out yellow wash on
-  each touched App-db slice this entry used to specify (rf2-5kfxe.2)
-  had its `@keyframes rf-xray-diff-flash` declared in
-  `theme/global-styles/motion-css`, but **no element ever carried the
-  animation** — the effect was never visible to a user at any point.
-  The keyframes and the `:flash-duration-ms` motion token were deleted
-  under rf2-y8doi.29 (2026-09-17); `theme/global_styles_cljs_test` and
-  `theme/tokens_cljs_test` pin their absence, with the applied
-  `rf-xray-fade-in` tab cross-fade as the control. App-db diff signals
-  its touched slices **statically** — the gutter glyph, the stripe and
-  the wash. `004-App-DB-Diff.md` "There is no diff flash" owns that.
+- **Diff flash: none.** App-db diff signals its touched slices
+  **statically** — the gutter glyph, the stripe and the wash — with no
+  flash animation and no `:flash-duration-ms` motion token;
+  `theme/tokens_cljs_test` pins the token's absence, with the 180ms tab
+  cross-fade as the control. `004-App-DB-Diff.md` "There is no diff
+  flash" owns that.
 - **Error pulse: none ships.** The single 600ms expand-fade red ring
   this entry used to specify was never built (rf2-025zs). Xray declares
   exactly two `@keyframes` — `rf-xray-fade-in` above and the vendored

@@ -519,23 +519,13 @@ private callback vocabulary. The consumer-side mirror lives in
 and gives one vocabulary across HTTP / resources / mutations / routing /
 machines / timers:
 
-- **The closed vocabularies** — `reply-statuses`
-  (`:ok` / `:partial` / `:error` / `:cancelled` / `:stale`),
-  `work-statuses`, and `work-kinds` — are **mirrored** from
-  `re-frame.reply` as literal data (Xray never `:require`s the
-  substrate; the no-tool-imports-core bundle direction holds, and Xray
-  consumes the *wire facts*). The closed-vocabulary wiring test pins the
-  mirror so a substrate change that drifts the set fails loud.
-- **`reply-row`** projects a uniform reply map (the appended last-arg of
-  a `:rf/reply-to` event, or a `:rf.http/replied` / `:rf.reply/*` trace
-  summary) into ONE render-safe row keyed on `:work/id`, reading
-  issuance/completion **status**, **stale-suppression** (carried+current
-  correlation), **cancellation**, and **delivery-or-non-delivery**
-  (`:delivered?` is `false` for a suppressed `:stale` reply unless the
-  trace row carries an explicit `:rf.reply/delivered?` wire fact). The
-  wire-bearing slots (`:value` / `:error` / `:correlation` / `:meta`)
-  are summarized — the runtime already elided sensitive/large slots on
-  the wire (Managed-Effects §Tracing).
+- **The closed vocabulary** — `reply-statuses`
+  (`:ok` / `:partial` / `:error` / `:cancelled` / `:stale`) — is
+  **mirrored** from `re-frame.reply` as literal data (Xray never
+  `:require`s the substrate; the no-tool-imports-core bundle direction
+  holds, and Xray consumes the *wire facts*). The `closed-vocabularies`
+  test pins the literal set; it does not read the substrate, so a change
+  to `re-frame.reply/statuses` is carried here by hand.
 - **`phase-of`** lowers every family's emitted trace op onto ONE
   reply-envelope **phase** — `:issued` / `:retry` / `:cancel-requested`
   / `:completed` / `:stale-suppressed` / `:delivered` — so a panel
@@ -575,7 +565,7 @@ machines / timers:
   one instead — the `:spawn-all` join stamps `{:parent-id … :invoke-id …
   :child-id … :spawned-id …}`, the machine `:after` timer stamps
   `{:carried … :current …}`. `work-event-row` surfaces it as `:correlation`
-  (summarized for PRIVACY, the same contract `reply-row` uses) plus the
+  (summarized for PRIVACY) plus the
   causal `:completed-at` from `:rf.reply/completed-at`, so the
   exact-attempt evidence an operator diagnoses a superseded / unverified /
   duplicate / post-resolution join completion FROM is not silently dropped.
@@ -610,12 +600,6 @@ machines / timers:
   (bare `:frame-id` in `:tags` — rf2-shaa1 dropped it, no emit site
   produces it; a top-level `:frame` on the raw event — raw events carry
   frame ONLY under `:tags`) are dead and not consulted.
-
-  The **reply MAP** layer is different: the dispatched reply map is
-  UNIFORM on `:rf.frame/id` across every family ("there is no second
-  frame spelling" — HTTP's reply BUILDER maps its internal `:frame` ctx
-  onto `:rf.frame/id` on the map), so `reply-row` reads `:rf.frame/id`
-  alone.
 - **`status->class`** gives the one cross-surface colour class so a
   `:stale` HTTP reply and a `:stale` resource reply render the **same
   badge** (Cross-Cutting [F.11](019-Cross-Cutting-Insight.md) — the
@@ -643,8 +627,6 @@ status + trace cause, uniformly across families** — never per-family:
   keyed on the opaque CEDN-1 byte `work-id-id` STRING, so reading the record
   field (not the map key) is what lets a live row join to the vector-keyed
   trace rows and infer `:work-kind` from the kind-preserving head.
-  `live-work-tally-by-kind` counts live work per family — the active
-  managed-effects dashboard headline (Cross-Cutting F-C4).
 - **The stale-races view keys on `:work/id`** (Managed-Effects
   §Work-id correlation — `:work/id` is the *single* attempt identity,
   the key the ledger, stale suppression, and this view all share).
