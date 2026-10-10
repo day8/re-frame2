@@ -18,8 +18,8 @@
       the dialog body don't bubble out and close it;
     * the WAI-ARIA modal contract on the dialog — `a11y/dialog-attrs`
       (role + aria-modal + accessible name) merged with the
-      `focus-trap-ref` callback, which runs the `a11y/dialog-ref` focus
-      contract (focus-on-open, Tab-trap, restore-on-close).
+      `a11y/dialog-ref` focus-trap callback (focus-on-open, Tab-trap,
+      restore-on-close).
 
   ## Design — slots, not flags
 
@@ -76,26 +76,6 @@
   root."
   (:require [day8.re-frame2-xray.theme.a11y :as a11y]))
 
-(defn- focus-trap-ref
-  "The dialog's default `:ref`, and ONE fn for every render of every
-  modal. React detaches a ref that changed between renders and attaches
-  the new one, and ReactDOM puts focus back where it was once the
-  commit's DOM work is done — so a ref made fresh on each render would
-  attach with focus already inside the dialog, capture no opener, and
-  drop focus to `<body>` when the dialog closed. A ref that never
-  changes is attached once, when the dialog mounts, and detached once,
-  when it unmounts.
-
-  Each mount builds its own `a11y/dialog-ref` closure, so stacked
-  dialogs keep separate state, and returns that closure's unmount call
-  as the ref's cleanup, which React 19 runs when the dialog leaves the
-  DOM."
-  [node]
-  (when node
-    (let [ref (a11y/dialog-ref)]
-      (ref node)
-      (fn [] (ref nil)))))
-
 (defn modal-chrome
   "Render the shared backdrop + dialog scaffold around `children`.
 
@@ -123,8 +103,8 @@
                         — keydown handlers (nil = no handler attached).
       :backdrop-tab-index / :dialog-tab-index
                         — tab-index values (nil = attribute omitted).
-      :dialog-ref       — the dialog `:ref`. Defaults to
-                          `focus-trap-ref`; a caller (or a test) may
+      :dialog-ref       — the dialog `:ref`. Defaults to a fresh
+                          `(a11y/dialog-ref)`; a caller (or a test) may
                           pass its own, or `false` to omit the ref.
       :backdrop-extra / :dialog-extra
                         — extra prop maps merged LAST onto the backdrop
@@ -141,14 +121,14 @@
            backdrop-extra dialog-extra]
     :as   opts}
    & children]
-  ;; `:dialog-ref` defaults to `focus-trap-ref`. A caller may
+  ;; `:dialog-ref` defaults to a fresh `(a11y/dialog-ref)`. A caller may
   ;; pass its own callback, or `nil`/`false` to omit the ref entirely
   ;; (the key-present-but-falsey case — distinct from the key-absent
   ;; default). Hence `contains?` rather than reading the destructured
   ;; binding, which can't tell "absent" from "nil".
   (let [the-ref        (if (contains? opts :dialog-ref)
                          (:dialog-ref opts)
-                         focus-trap-ref)
+                         (a11y/dialog-ref))
         backdrop-props (cond-> {:data-rf-xray-modal-positioning
                                 (name (or positioning :fixed))
                                 ;; Click on the backdrop (outside the
