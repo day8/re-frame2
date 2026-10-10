@@ -78,9 +78,6 @@
    :rf.xray.edn-inspector/zoom
    :rf.xray.edn-inspector-popup/stack
    :rf.xray.edn-inspector-popup/entries
-   :rf.xray.edn-inspector-popup/open?
-   :rf.xray.edn-inspector-popup/top
-   :rf.xray.edn-inspector-popup/entry
    :rf.xray/cancellation-cascade-expanded?
    :rf.xray/cancellation-cascade-for-focused-event
    :rf.xray/cancellation-cascade-for-focused-machine
@@ -237,11 +234,9 @@
    :rf.xray.edn-inspector/clear-width
    :rf.xray.edn-inspector/zoom-to
    :rf.xray.edn-inspector/zoom-up
-   :rf.xray.edn-inspector/zoom-reset
    :rf.xray.edn-inspector-popup/open
    :rf.xray.edn-inspector-popup/close
    :rf.xray.edn-inspector-popup/close-top
-   :rf.xray.edn-inspector-popup/close-all
    :rf.xray/delete-edit-popup
    :rf.xray/edit-popup-set-mode
    :rf.xray/edit-popup-set-pattern

@@ -254,7 +254,7 @@
   "Per-token colour resolution for the in-bundle Clojure syntax
   highlighter (source-text rendering only; CLJS-value rendering goes
   through the edn-inspector widget). Pure data → token-keyword for the
-  token-type classification. Public for unit tests.
+  token-type classification.
 
   ## Palette
 
@@ -282,7 +282,7 @@
 
 (def clojure-builtins
   "Recognised Clojure builtins for the in-bundle source-text
-  highlighter. Public so tests can assert membership."
+  highlighter."
   #{"def" "defn" "defn-" "defmacro" "let" "if" "when" "when-not"
     "cond" "case" "do" "loop" "recur" "fn" "fn*" "reify"
     "deftype" "defrecord" "ns" "require" "reg-event"

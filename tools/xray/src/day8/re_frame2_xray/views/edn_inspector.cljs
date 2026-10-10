@@ -25,16 +25,14 @@
   ## Public API
 
       [edn-inspector value]                ;; browse (no diff)
-      [edn-inspector value opts]           ;; browse / diff
-      [edn-inspector-diff before after]    ;; diff convenience
-      [edn-inspector-diff before after opts]
+      [edn-inspector value opts]           ;; browse / diff (`:before` in opts)
 
       [mini value]              ;; one-line inline (no expansion)
       [mini value max-len]      ;; with width cap
 
   ## TWO HEADS, ONE RENDERER
 
-  The four heads above are the REAGENT surface. Beside them sits a
+  The heads above are the REAGENT surface. Beside them sits a
   Fresco boundary over the same renderer:
 
       [edn-inspector-view {:mount-id \"app-db-top\" :value v :opts {…}}]
@@ -52,12 +50,12 @@
   head (`views/edn_widget.cljs`) — `edn/inspect` emits `edn-inspector`,
   `edn/inspect-view` emits `edn-inspector-view` — and panels head the
   boundary directly as well (Epoch, Trace, App-DB diff). The Reagent head
-  has its own callers: `edn-inspector-diff` here, `reagent-inspector` in
+  has its own callers: `reagent-inspector` in
   `views/edn_inspector_popup.cljs`, and `edn/inspect` from the Static
   Routes row-expand. It serves those call sites whatever the shell's
   root is — see THE TWO HEADS, below.
 
-  **`mini`, `edn-inspector-diff` and every helper in here are PLAIN
+  **`mini` and every helper in here are PLAIN
   FUNCTIONS.** Under Reagent a plain fn is a legal hiccup head, so
   `[mini v 40]` works; under Fresco it is a loud error by design. A
   Fresco panel CALLS them — `(mini v 40)` — which is correct on both
@@ -406,7 +404,7 @@
 ;;
 ;; An entry with `nil` or `[]` value renders the full tree (no zoom). The
 ;; sub `:rf.xray.edn-inspector/zoom-path` reads the slot; events
-;; `:zoom-to`, `:zoom-up`, `:zoom-reset` mutate it.
+;; `:zoom-to` and `:zoom-up` mutate it.
 
 (def zoom-slot
   "App-db slot holding the per-mount zoom path overrides. Public so the
@@ -452,18 +450,7 @@
         (cond
           (nil? current)   db
           (empty? popped)  (update db zoom-slot dissoc k)
-          :else            (assoc-in db [zoom-slot k] popped)))}))
-
-  (rf/reg-event :rf.xray.edn-inspector/zoom-reset
-    ;; Clear the zoom for a specific mount. With no args (mount-unspecified)
-    ;; clear the entire slot — used by the panel-level reset affordance.
-    (fn [{:keys [db]} [_ panel-id mount-id]]
-      {:db (cond
-        (and panel-id mount-id)
-        (update db zoom-slot dissoc (zoom-key panel-id mount-id))
-
-        :else
-        (dissoc db zoom-slot))})))
+          :else            (assoc-in db [zoom-slot k] popped)))})))
 
 ;; ---- install! -------------------------------------------------------------
 
@@ -3572,13 +3559,8 @@
      ;; 11px margin puts the 1px line at x=11). The bracket
      ;; pair `▾ { … }` reads as a coherent vertical column at every
      ;; nesting depth.
-     ;;
-     ;; `data-rf-cell "close"` exposes the close-bracket cell for
-     ;; testbed assertions (column-alignment regression tests probe
-     ;; this attr).
      (when (and expanded? (not empty?) (not depth-capped?) (not inline-fit?))
-       [:div {:data-rf-cell "close"
-              :style {:padding-left "10px"
+       [:div {:style {:padding-left "10px"
                       :color (get tokens (:tone-key (delim kind)))}}
         (let [{:keys [close]} (delim kind)] close)])]))
 
@@ -5180,8 +5162,7 @@
 
     - Browse mode (default): no `:before` opt; the widget renders
       `value` with expand/collapse + sticky operator overrides.
-    - Diff mode: pass `:before` in `opts` (or use the
-      `edn-inspector-diff` 3-arg convenience). The widget renders
+    - Diff mode: pass `:before` in `opts`. The widget renders
       `value` as the AFTER side with gutter glyphs +
       `← was <prior>` annotations, force-expands the
       ancestor chain over any changed descendant, and dims `:same`
@@ -5370,16 +5351,6 @@
   UIx, or plain JavaScript — that holds the value on its own side and can
   hand it over without a Reagent conversion in between."
   (rf.fresco/as-component edn-inspector-view))
-
-(defn edn-inspector-diff
-  "Diff convenience — `[edn-inspector-diff before after]` or
-  `[edn-inspector-diff before after opts]`. Equivalent to
-  `[edn-inspector after (assoc opts :before before)]`. Use when the
-  call site reads more naturally with both halves of the diff at the
-  callsite head."
-  ([before after] (edn-inspector-diff before after nil))
-  ([before after opts]
-   [edn-inspector after (assoc (or opts {}) :before before)]))
 
 ;; =========================================================================
 ;; mini — one-line inline rendering (D2=a: 2-arg overload, sentinel-aware)

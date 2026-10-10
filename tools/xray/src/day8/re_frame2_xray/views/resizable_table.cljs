@@ -129,10 +129,9 @@
 
 (defn ->edn
   "Serialise `widths` (`{table-id {col-id px}}`) into a stable EDN
-  string. The empty map round-trips as `\"{}\"` so the load path can
-  distinguish 'empty slot' from 'no entry'."
+  string."
   [widths]
-  (pr-str (or widths {})))
+  (pr-str widths))
 
 (defn <-edn
   "Parse a stored EDN string. Returns the parsed `{table-id {col-id
@@ -807,7 +806,7 @@
     test namespaces depend on exactly that:
 
       - `views/resizable_table_key_cljs_test`     renders through it to
-        grade React keys at both substrate doors.
+        grade React keys at the codec door.
       - `views/resizable_table_fresco_head_cljs_test`  grades it `:invalid`
         to the codec, and drives it for `both-heads-resolve-the-same-widths`.
       - `panels/epoch/view_cljs_test`             substitutes it for the
