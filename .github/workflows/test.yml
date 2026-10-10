@@ -3379,29 +3379,20 @@ jobs:
       - name: Fresco invariants gate
         run: npm run test:fresco-invariants
 
-      # THE WRAPPER, NOT A BARE `npx shadow-cljs compile`. The difference is
-      # not cosmetic: `implementation/scripts/compile-node-test.cjs` is the ONLY
-      # thing that reads shadow's own `Build completed. (… N warnings …)` tally
-      # and reds on it, so a bare compile would never run this lane's
-      # warnings-fatal gate. The defect it exists to catch would otherwise
-      # merge green: a bare `"` inside a deftest docstring closes the string
-      # early, the words after it become bare symbols, and in JavaScript those
-      # compile to `undefined` and evaluate harmlessly — so the namespace stays
-      # in the build, the suite prints IDENTICAL test and assertion counts, and
-      # the run exits 0. The only number that moves is the warning tally.
+      # THE WRAPPER, NOT A BARE `npx shadow-cljs compile`. A warning fails
+      # either one: implementation/shadow-cljs.edn's `:target-defaults` makes
+      # every `:node-test` build warnings-fatal. They differ on an ABORTED
+      # compile. `implementation/scripts/compile-node-test.cjs` unlinks
+      # out/node-test.js before compiling, so an aborted compile leaves NO
+      # bundle rather than the previous one for the two isolation steps below —
+      # which deliberately do not recompile — to re-run as though it were fresh.
       #
       # The local spine (scripts/test-fast-pr.sh) runs `npm run
-      # test:cljs`, so a bare compile here would make the two lanes disagree
-      # about the same tree: the spine would refuse what this job merged. That
+      # test:cljs` too, so both lanes run one command over the same tree. That
       # is also why `scripts/check_fast_pr_gap.py`'s
       # `cljs-node-test` lane is anchored on THIS command — it claims the spine
       # runs what CI runs, and the claim is only true while both spell it the
       # same way.
-      #
-      # It also unlinks out/node-test.js before compiling, so an
-      # aborted compile leaves NO bundle rather than the previous one for the
-      # two isolation steps below — which deliberately do not recompile — to
-      # re-run as though it were fresh.
       - name: Compile and run node-test build (core + every adapter + every feature artefact + the tools CLJS test trees)
         run: npm run test:cljs
 

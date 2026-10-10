@@ -231,18 +231,17 @@ function buildsMissingWarningsAsErrors(edn) {
 // ---------------------------------------------------------------------------
 
 const COMPLETED_RE = /\[(:[\w.-]+\/[\w.-]+)\]\s+Build completed\./g;
-const FAILED_RE = /\[(:[\w.-]+\/[\w.-]+)\]\s+Build failed/g;
 
 /**
  * Parse shadow-cljs compile output into the build ids it reports as
- * completed and as failed, in output order.
+ * completed, in output order. A failed `compile` prints no per-build line —
+ * its error report names the file — so there is nothing to read for one.
  *
  * @param {string} output  combined stdout+stderr of `shadow-cljs compile`.
- * @returns {{completed: string[], failed: string[]}}
+ * @returns {{completed: string[]}}
  */
 function parseBuildSummaries(output) {
-  const ids = (re) => [...output.matchAll(re)].map((m) => m[1]);
-  return { completed: ids(COMPLETED_RE), failed: ids(FAILED_RE) };
+  return { completed: [...output.matchAll(COMPLETED_RE)].map((m) => m[1]) };
 }
 
 /**
@@ -440,10 +439,6 @@ if (require.main === module) {
           `:require / unbalanced form / :undeclared-var ...); its message is ` +
           `printed above, and the builds after it were not compiled.`,
       );
-      const { failed } = parseBuildSummaries(captured);
-      if (failed.length > 0) {
-        console.error(`  Failed build(s): ${failed.join(', ')}`);
-      }
       process.exit(code == null ? 1 : code);
     }
 

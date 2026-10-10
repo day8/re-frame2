@@ -8,9 +8,10 @@
 //       cwd: IMPL, stdio: ['ignore', 'inherit', 'inherit'] });
 //     if (r.status !== 0) { ...; process.exit(1); }
 //
-// **shadow-cljs exits 0 when a build emits warnings.** So the only thing
-// such a driver checks is the one condition that does not happen.
-// MEASURED by renaming `M-NO-PROPS`'s def in `walk_profile_app.cljs` and
+// **shadow-cljs exits 0 when a build emits warnings**, unless the build sets
+// `:warnings-as-errors`. So the only thing such a driver checks is the one
+// condition that does not happen. MEASURED on `:fresco-bench` without that
+// flag, by renaming `M-NO-PROPS`'s def in `walk_profile_app.cljs` and
 // leaving its two use sites alone:
 //
 //     [:fresco-bench] Build completed. (186 files, 131 compiled, 2 warnings, 37.55s)
@@ -24,6 +25,10 @@
 // `:advanced` an undeclared var is `undefined` at the call site, so an arm can
 // silently become a DIFFERENT ARM and still publish a plausible figure — and a
 // mutation proof run through such a build is worth nothing.
+//
+// `:fresco-bench` sets the flag in `shadow-cljs.edn`, so a warning there fails
+// the compile itself, however it is spawned. The lane's other three ids do not
+// set it, and for them refusal (2) below is the only warnings gate.
 //
 // This module is the lane's only spawn of shadow-cljs. It captures the child's
 // output instead of inheriting the stream, echoes every byte of it, and then
@@ -73,15 +78,13 @@ const RUNNER = path.join(IMPL, 'node_modules', 'shadow-cljs', 'cli', 'runner.js'
 // slash-bearing `[:examples/login-uix]` ids `check-examples-compile.cjs`
 // parses — hence a looser bracket match rather than a reuse of that regex.
 //
-// THIS IS THE THIRD OF THREE PARSERS OF THAT LINE, the other two being
-// `scripts/check-examples-compile.cjs` and `scripts/compile-node-test.cjs`. All
-// three refuse an unreadable summary; they are deliberately NOT unified, and
-// `compile-node-test.cjs`'s header holds the roster, the measured reasons and
-// the test for whether a fourth lane should mint its own. Note that
-// the bracket is REQUIRED here and optional there: this parser reads zero
-// summaries from a line that carries no `[:id]`, which is fine for a lane that
-// always prints one and is why no single pattern serves all three as they
-// stand.
+// The same line has two other parsers, deliberately NOT unified with this one:
+// `implementation/fresco/scripts/check_modules_compile.cjs` makes this
+// module's judgement for `:fresco-modules-compile`, carried there because this
+// lane is off the package's classpath on purpose, and
+// `implementation/scripts/check-examples-compile.cjs` reads no count at all,
+// only that every requested build completed. All three refuse an unreadable
+// summary.
 const ANSI_RE = /\x1B\[[0-9;]*m/g;
 const COMPLETED_RE = /\[(:[^\]\s]+)\]\s+Build completed\.[^\n]*?(\d+)\s+warnings?/g;
 const FAILED_RE = /\[(:[^\]\s]+)\]\s+Build failed/g;

@@ -289,9 +289,11 @@ SPINE_LANES = (
     # ANCHORED ON THE WRAPPER, and the working directory is half the
     # signature.  `npx shadow-cljs compile node-test ; node out/node-test.js`
     # is not the same check as `npm run test:cljs`: both compile `:node-test`
-    # and run the same bundle, but only `npm run test:cljs` goes through
-    # `implementation/scripts/compile-node-test.cjs`, which reds on shadow's
-    # warning tally.  A lane signature is a claim that the spine runs what CI
+    # and run the same bundle, and a warning fails both, but only `npm run
+    # test:cljs` goes through `implementation/scripts/compile-node-test.cjs`,
+    # which deletes the bundle before compiling -- after an aborted compile the
+    # `;` form runs the previous bundle and reports its green.  A lane
+    # signature is a claim that the spine runs what CI
     # runs, so it must name the command whose VERDICT the spine reproduces, not
     # merely one that compiles the same build.
     #
