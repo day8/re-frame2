@@ -537,7 +537,7 @@ The following obligations apply to any port that ships **tooling** (test fixture
 
 - **Why it matters.** Pair-tool source-map surfaces produce clickable links in dev tooling — IDE protocol URIs that open a file at a line. If the port ships source-map clickthrough (or accepts custom editor templates), an attacker-controllable scheme — `javascript:`, `data:`, `vbscript:` — that landed in the editor template would be clicked, opening an attack surface in the dev's browser.
 - **What to ship.** The editor-template surface MUST reject URIs whose scheme is `javascript:`, `data:`, or `vbscript:` (case-insensitive). Everything else passes — `vim:`, `idea:`, `subl:`, `org:`, `vscode:`, `cursor:`, and future editor schemes — with no dev burden.
-- **Where the check fires.** At editor-template registration time **and** at click-resolution time, so a template that interpolates user input into the scheme position is also caught at the click. Per [Tool-Pair §Editor URI scheme allowlist](Tool-Pair.md#editor-uri-scheme-allowlist) (the canonical contract) + [Security.md §Editor URI scheme allowlist](Security.md#editor-uri-scheme-allowlist).
+- **Where the check fires.** On the resolved URI: each time a URI is built from the template, and again at the tool's hand-off seam, so a template that interpolates input into the scheme position is caught too. A rejected URI yields no link and never falls through to a default editor. Per [Tool-Pair §Editor URI scheme allowlist](Tool-Pair.md#editor-uri-scheme-allowlist) (the canonical contract) + [Security.md §Editor URI scheme allowlist](Security.md#editor-uri-scheme-allowlist).
 
 ---
 
