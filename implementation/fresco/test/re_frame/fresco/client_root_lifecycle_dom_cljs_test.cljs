@@ -255,6 +255,57 @@
           (rf.fresco.impl.collector/reset-runtime!))))))
 
 ;; ---------------------------------------------------------------------------
+;; W4 — a hydrating first render REFUSES `h/frame-root` in its own tree
+;; ---------------------------------------------------------------------------
+;;
+;; `frame-root`'s first render is empty: the frame is ensured at commit and the
+;; children arrive on a second pass. A hydrating root built over it hands React
+;; nothing to claim the server's nodes with, and React does not report an
+;; unclaimed node directly under a root, so the server copy would stay and the
+;; client tree would mount beside it: the page twice, and no mismatch. The door
+;; refuses while it lowers the tree, before `hydrateRoot` runs. The reading that
+;; matters is the container once any adoption could have finished, which is
+;; when a second copy would land: one copy, still the server's own nodes.
+
+(deftest a-hydrating-first-render-refuses-frame-root
+  (if-not (rf.fresco.impl.mount/browser?)
+    (skip! ":node-test has no DOM")
+    (async done
+      (let [_         (fresh!)
+            html      (rf.fresco.roots-frames-support/server-html! frame-a [rf.fresco/frame-provider {:frame frame-a}
+                                                 [panel {:tag "server"}]])
+            container (rf.fresco.roots-frames-support/stamp-server-nodes! (rf.fresco.roots-frames-support/server-dom! html))
+            a         (rf.fresco/client-root)
+            refusal   (try (rf.fresco/render! a
+                                              [rf.fresco/frame-root {:id frame-a}
+                                               [panel {:tag "server"}]]
+                                              container
+                                              {:hydrate? true})
+                           nil
+                           (catch :default e (ex-data e)))]
+        (testing "the door refuses with the error that names the supported recipe"
+          (is (= :rf.error/fresco-frame-root-adopting (:rf.error/id refusal)))
+          (is (= frame-a (:frame refusal))))
+        ;; A refused door made no root, so there is only the clock to wait on;
+        ;; an accepted one is waited out to its own adoption.
+        (-> (if (some? @a)
+              (rf.fresco.roots-frames-support/adopted! a)
+              (js/Promise. (fn [resolve] (js/setTimeout #(resolve true) 50))))
+            (.then (fn [_]
+                     (testing "the container keeps exactly one copy of the page,
+                               and it is the server's own nodes"
+                       (is (= 1 (.-length (.querySelectorAll container ".panel"))))
+                       (is (rf.fresco.roots-frames-support/every-server-node? container ".panel")))
+                     (testing "and the handle holds no root"
+                       (is (nil? @a)))))
+            (rf.fresco.roots-frames-support/settle-row! {:row      "the frame-root refusal row"
+                              :done     done
+                              :release! (fn []
+                                          (rf.fresco/unmount! a)
+                                          (detach! container)
+                                          (rf.fresco.impl.collector/reset-runtime!))}))))))
+
+;; ---------------------------------------------------------------------------
 ;; W5 — HYDRATE ONCE, then UPDATE; a later `{:hydrate? true}` is IGNORED
 ;; ---------------------------------------------------------------------------
 ;;

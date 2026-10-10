@@ -67,11 +67,27 @@
   not return until that layout work has run. So a root door returns
   with the seeded markup on the page — a property held by React's own
   layout phase. Witnessed in
-  `re-frame.fresco.frame-boundary-heads-dom-cljs-test`."
+  `re-frame.fresco.frame-boundary-heads-dom-cljs-test`.
+
+  ## Why `frame-root` refuses a hydrating root's tree
+
+  The same empty first render cannot be adopted. A hydrating root hands
+  React an empty tree where the server's markup is, and React does not
+  report an unclaimed server node directly under a root: it keeps the
+  server's nodes and the second pass mounts the client tree beside them,
+  so the page appears twice with no mismatch reported. So `frame-root`
+  refuses with `:rf.error/fresco-frame-root-adopting` when
+  `impl.mount/hydrate-root!` lowers it (`roots/*adopting-walk?*`), before
+  `hydrateRoot` runs. An adopting root's frame already exists — made, then
+  seeded by `re-frame.ssr/hydrate!` — so its tree SCOPES it with
+  `frame-provider`. Witnessed in
+  `re-frame.fresco.client-root-lifecycle-dom-cljs-test`."
   (:require [re-frame.frame :as rf.frame]
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.error :refer [fail!]]
             [re-frame.fresco.impl.intent :as rf.fresco.impl.intent]
+            [re-frame.fresco.impl.roots :as rf.fresco.impl.roots]
             [re-frame.substrate.spine :as rf.substrate.spine]
             [re-frame.views.frame-boundary :as rf.views.frame-boundary]
             ["react" :as react]))
@@ -92,6 +108,24 @@
   (rf.fresco.impl.intent/with-frame frame-kw
     (rf.fresco.impl.collector/frame-dispatch frame-kw)
     (fn [] (lower frame-kw))))
+
+(defn- refuse-adopting-frame-root!
+  "Refuse `frame-root` in a hydrating root's tree, naming the boot that
+  adopts instead: make the frame, install the payload, scope it."
+  [frame-kw]
+  (fail! :rf.error/fresco-frame-root-adopting
+         root-where
+         (str "h/frame-root cannot be adopted: its first render is empty — it "
+              "makes the frame at commit and its children arrive on a second "
+              "pass — so React would keep the server's markup and mount the "
+              "client tree beside it, showing the page twice. A hydrating root "
+              "scopes a frame that already exists. Make it, install the "
+              "payload, then adopt under h/frame-provider:\n\n"
+              "  (rf/make-frame {:id " (pr-str frame-kw) "})\n"
+              "  (ssr/hydrate! {:frame " (pr-str frame-kw) "})\n"
+              "  (h/render! app-root [h/frame-provider {:frame " (pr-str frame-kw)
+              "} [root-view]] node {:hydrate? true})")
+         {:frame frame-kw}))
 
 (def ^:private frame-root-children
   "`frame-root`'s one internal child: lowers the author's children in
@@ -122,6 +156,8 @@
       (when (contains? props :frame)
         (rf.views.frame-boundary/reject-frame-root-frame! (:frame props) root-where))
       (let [frame-kw (rf.views.frame-boundary/require-frame-root-id! (:id props) root-where)]
+        (when rf.fresco.impl.roots/*adopting-walk?*
+          (refuse-adopting-frame-root! frame-kw))
         ;; The children are NOT lowered here: the frame may not exist yet,
         ;; and a callback lowered now would keep an unpinned dispatch.
         ;; `frame-root-children` lowers them in the ready pass instead,

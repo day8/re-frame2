@@ -366,7 +366,10 @@
   own window, and every other door takes a hydrated handle
   unchanged. Does not ensure the frame — an adopting root's state arrives
   through `re-frame.ssr/hydrate!` first, and a seed here would overwrite
-  it.
+  it. For the same reason the tree may not ENSURE one either: it is
+  lowered with `roots/*adopting-walk?*` bound, so an `h/frame-root` in it
+  refuses before `hydrateRoot` runs and the container keeps the server's
+  markup.
 
   Returns BEFORE the tree is adopted: `hydrateRoot` is called plain,
   because a `flushSync` would manufacture a schedule no shipped caller
@@ -394,7 +397,8 @@
   ([container frame-kw hiccup opts]
    (let [window  (rf.fresco.impl.roots/open-adoption-window!)
          handle  {:frame frame-kw :container container :adoption window}
-         element (tree handle hiccup)
+         element (binding [rf.fresco.impl.roots/*adopting-walk?* true]
+                   (tree handle hiccup))
          ropts   (hydrate-root-options window opts)]
      (assoc handle :root (if ropts
                            (react-dom-client/hydrateRoot container element ropts)
