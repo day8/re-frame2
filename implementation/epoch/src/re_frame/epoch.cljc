@@ -299,14 +299,7 @@
                   published? (and (continue?)
                                   (rf.epoch.state/commit-frame-owner-record!
                                     frame-id owner-token record))]
-              ;; The optional cascade aggregator is callback-bearing. Its
-              ;; result and every later trailer are inert after owner loss.
-              (when (and published? (continue?))
-                (when-let [capture-for-epoch! (rf.late-bind/get-fn-cached
-                                                :trace.cascade/capture-for-epoch!)]
-                  (try
-                    (capture-for-epoch! frame-id (:epoch-id record) (:event-id record) events)
-                    (catch #?(:clj Throwable :cljs :default) _ nil))))
+              ;; Each trailer is inert after owner loss.
               (when (and published? (continue?))
                 (rf.epoch.assembly/emit-snapshotted+outcome!
                   frame-id (:epoch-id record) (:event-id record) outcome continue?))

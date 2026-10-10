@@ -1,23 +1,20 @@
-(ns re-frame.trace-cascade-captured-test
-  "The substrate's reactive trace ops: `:rf.sub/skip` on a memo hit, the
-  `:rf.sub/run` value-change / cascade / first-run / cause-event-id attribution
-  tags, and the `:rf.cascade/captured` aggregator (fires only under a focus
-  predicate; bounded at 50 subs / 100 views per Spec 009).
+(ns re-frame.sub-trace-ops-test
+  "The substrate's reactive sub trace ops: `:rf.sub/skip` on a memo hit, and
+  the `:rf.sub/run` value-change / cascade / first-run / cause-event-id
+  attribution tags.
 
   Posture split: every trace read sits inside `(when rf.interop/debug-enabled? …)`,
   and each deftest also asserts, always-on, the production fact the trace
   reports (a body-run count, a recomputed value), so the production-gate lane
-  runs real assertions. Negatives (an absent tag, an empty capture list) stay
-  inside the guard because an elided trace passes them for free."
+  runs real assertions. A negative (an absent tag) stays inside the guard
+  because an elided trace passes it for free."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
-            ;; Publishes the `:epoch/run-cause` hook and the settle seam that
-            ;; calls the cascade aggregator.
+            ;; Publishes the `:epoch/run-cause` hook.
             [re-frame.epoch]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace.cascade :as rf.trace.cascade]
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (use-fixtures :each
@@ -113,72 +110,3 @@
                                  :rf.sub/cause-event-id :inc-b}]]]
           (is (= want (tagged ev want))))
         (is (= :rf.sub (:op-type (run-of :b))))))))
-
-;; ---- :rf.cascade/captured --------------------------------------------------
-
-(deftest cascade-captured-fires-only-under-focus
-  (rf/reg-event :inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-  (let [captures  #(filterv (comp #{:rf.cascade/captured} :operation)
-                            (second (run-traced (fn [] (rf/dispatch-sync [:inc])))))
-        unfocused (captures)
-        focused   (try (rf.trace.cascade/set-focus-predicate! (fn [_ _ _] true))
-                       (captures)
-                       (finally (rf.trace.cascade/clear-focus-predicate!)))
-        cap       (first focused)]
-    ;; ALWAYS-ON: both cascades ran; installing a predicate does not perturb them.
-    (is (= 2 (:n (rf/app-db-value :rf/default))))
-    (when rf.interop/debug-enabled?
-      (is (empty? unfocused) "the default focus predicate suppresses the aggregator")
-      (is (= :rf.cascade (:op-type cap)))
-      (is (contains? (:tags cap) :rf.epoch/id))
-      (let [want {:frame :rf/default :subs-recomputed [] :subs-skipped []
-                  :flows-computed [] :flows-skipped [] :views-rendered []
-                  :sub-cap-truncated? false :view-cap-truncated? false}]
-        (is (= want (tagged cap want)))))))
-
-(deftest aggregate-cascade-honours-bounds
-  ;; Spec 009 caps a capture at 50 subs and 100 views; only an entry past the
-  ;; cap sets the truncation flag. `:subs-recomputed` and `:subs-skipped` are
-  ;; each capped at 50 on their own.
-  (doseq [[op n k kept sub-truncated? view-truncated?]
-          [[:rf.sub/run     50  :subs-recomputed 50  false false]
-           [:rf.sub/run     51  :subs-recomputed 50  true  false]
-           [:rf.sub/skip    50  :subs-skipped    50  false false]
-           [:rf.sub/skip    51  :subs-skipped    50  true  false]
-           [:rf.view/render 100 :views-rendered  100 false false]
-           [:rf.view/render 101 :views-rendered  100 false true]]]
-    (let [dag (rf.trace.cascade/aggregate-cascade (repeat n {:operation op}))]
-      (is (= [kept sub-truncated? view-truncated?]
-             [(count (get dag k)) (:sub-cap-truncated? dag) (:view-cap-truncated? dag)])
-          (str n " x " op))))
-  (let [dag (rf.trace.cascade/aggregate-cascade
-              (concat (repeat 50 {:operation :rf.sub/run})
-                      (repeat 50 {:operation :rf.sub/skip})))]
-    (is (= [50 50 false]
-           [(count (:subs-recomputed dag)) (count (:subs-skipped dag))
-            (:sub-cap-truncated? dag)])
-        "50 recomputed + 50 skipped fit: the two vectors do not share the cap")))
-
-(deftest aggregate-cascade-shape-pin
-  ;; `:subs-recomputed` records also carry nil-padded attribution slots; only
-  ;; the identity keys are pinned so an additive slot is not a break.
-  (is (= {:subs-recomputed     [{:sub-id :a :query-v [:a]}]
-          :subs-skipped        [{:sub-id :b :query-v [:b]
-                                 :reason :input-value-equal
-                                 :input-paths-unchanged [[:a]]}]
-          :flows-computed      [{:flow-id :f :path [:p]}]
-          :flows-skipped       [{:flow-id :g :input-paths-unchanged [[:x]]}]
-          :views-rendered      [{:render-key [:v :k] :triggered-by :db-change}]
-          :sub-cap-truncated?  false
-          :view-cap-truncated? false}
-         (-> (rf.trace.cascade/aggregate-cascade
-               [{:operation :rf.sub/run :tags {:rf.sub/id :a :rf.sub/query-v [:a]}}
-                {:operation :rf.sub/skip
-                 :tags {:rf.sub/id :b :rf.sub/query-v [:b]
-                        :rf.sub/reason :input-value-equal
-                        :rf.sub/input-paths-unchanged [[:a]]}}
-                {:operation :rf.flow/computed :tags {:flow-id :f :path [:p]}}
-                {:operation :rf.flow/skip :tags {:flow-id :g :input-paths-unchanged [[:x]]}}
-                {:operation :rf.view/render
-                 :tags {:rf.view/render-key [:v :k] :triggered-by :db-change}}])
-             (update :subs-recomputed (partial mapv #(select-keys % [:sub-id :query-v])))))))

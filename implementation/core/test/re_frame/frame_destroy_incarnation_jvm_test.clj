@@ -1186,15 +1186,13 @@
 (deftest epoch-digest-owner-loss-cannot-publish-into-successor
   ;; Mutation teeth: the normal settle digest callback destroys A, pauses after
   ;; A's private teardown completes, then throws after B is installed. No
-  ;; normal record, last-settled anchor, cascade aggregation, or B-era listener
-  ;; notification may follow.
+  ;; normal record, last-settled anchor, or B-era listener notification may
+  ;; follow.
   (let [id               :destroy/epoch-digest
         digest-lost-a    (CountDownLatch. 1)
         release-digest   (CountDownLatch. 1)
         b-listener-runs  (atom 0)
-        cascade-captures (atom 0)
-        original-digest  (rf.late-bind/get-fn :schemas/app-schemas-digest)
-        original-capture (rf.late-bind/get-fn :trace.cascade/capture-for-epoch!)]
+        original-digest  (rf.late-bind/get-fn :schemas/app-schemas-digest)]
     (rf/make-frame {:id id})
     (rf/reg-event :destroy/epoch-digest-event
       (fn [_ _] {:db {:owner :a-committed}}))
@@ -1210,11 +1208,6 @@
               (.await release-digest 10 TimeUnit/SECONDS)
               (throw (ex-info "digest lost A" {})))
             (when original-digest (original-digest opts)))))
-      (rf.late-bind/set-fn!
-        :trace.cascade/capture-for-epoch!
-        (fn [& args]
-          (swap! cascade-captures inc)
-          (when original-capture (apply original-capture args))))
       ;; dev-only end to end: the digest hook is reached only from
       ;; epoch/settle!, which the gate's empty capture buffer never calls
       (when rf.interop/debug-enabled?
@@ -1228,20 +1221,18 @@
             (fn [_] (swap! b-listener-runs inc)))
           (let [token-b (rf.frame/frame-incarnation-token id)]
             (.countDown release-digest)
-            (is (= [true true {} [] nil 0 0]
+            (is (= [true true {} [] nil 0]
                    [(not= ::timeout (deref dispatch-a 5000 ::timeout))
                     (identical? token-b (rf.frame/frame-incarnation-token id))
                     (rf.frame/frame-app-db-value id)
                     (vec (rf/epoch-history id))
                     (rf.epoch.state/last-settled-epoch-id id)
-                    @cascade-captures
                     @b-listener-runs])
-                "the digest throw is inert: no A record, anchor, cascade or listener reaches B"))))
+                "the digest throw is inert: no A record, anchor or listener reaches B"))))
       (finally
         (.countDown release-digest)
         (rf/unregister-listener! :epoch ::epoch-digest-b)
-        (rf.late-bind/set-fn! :schemas/app-schemas-digest original-digest)
-        (rf.late-bind/set-fn! :trace.cascade/capture-for-epoch! original-capture)))))
+        (rf.late-bind/set-fn! :schemas/app-schemas-digest original-digest)))))
 
 (deftest stale-teardown-report-is-corpus-only-after-successor-install
   ;; Mutation tooth: the bounded report flushes after A's registry dissoc. Its

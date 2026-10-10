@@ -902,7 +902,7 @@ sub→sub edge is a Level-2+ sub's declared `:inputs` entry, and a sub→view ed
 `:rf.sub/reader-render-key` — `:rf.sub/cause-sub` is the Epoch panel's SUBSCRIPTIONS read
 (§9.1.10.1). The `:sub-runs` rows' `:value-changed?` drives the changed/unchanged node state.
 The counts come from `:sub-runs`, `:renders` and the `:rf.flow/computed` / `:rf.flow/skip`
-tallies; nothing reads a `:rf.cascade/captured` aggregate. The **UNMOUNTED VIEWS** +
+tallies. The **UNMOUNTED VIEWS** +
 **DESTROYED SUBSCRIPTIONS** sections read the view-unmount / sub-dispose ops from the same
 epoch slice.
 
@@ -5444,8 +5444,8 @@ What the panel design needs from the substrate (per §1.4 captured-not-replayed)
 
 | Requirement | Scope |
 |---|---|
-| Cascade attribution capture | **Focused-event-only** (cheaper). All epochs in buffer carry the bones (which subs ran, which views re-rendered); only the focused epoch needs the full chain attribution payload. Substrate hot-path: emit lightweight rows on every epoch; emit fattened cause-chain rows only when `:rf.xray/focused-dispatch-id` matches. |
-| Bounded per-epoch capture | Cap at **50 subs + 100 views per epoch**. The substrate enforces at capture time; the panel shows `+N more` overflow indicator (existing component, `panels/overflow_indicator.cljc`). |
+| Cascade attribution capture | **Every epoch.** The epoch record carries every sub-run and render for each epoch (`:sub-runs`, `:renders`), including the post-settle back-fill, and the flow and memo-skip ops ride its `:trace-events`; the panel reads the focused epoch's record. |
+| Display bound | A panel presentation policy, not a capture bound: the Reactive panel truncates a long list with the `+N more` overflow indicator (existing component, `panels/overflow_indicator.cljc`). |
 | Buffer retention | Substrate-owned. Xray documents the operator surface as **Settings → General → Epoch history** (default 50; range 5–200). |
 | Evicted-epoch UX | Per §10.7 — placeholder string in every panel. |
 | Sub skip op | **Landed** — the substrate emits `:rf.sub/skip` on a memo hit (`re-frame.subs.memo/emit-sub-skip!`); it rides `:trace-events` and feeds the §3.4 "unchanged subs" disclosure via `:subs-skipped` (rf2-ty5r5o). No new op needed. |
@@ -5500,7 +5500,6 @@ prerequisites.
 | **View re-render attribution** | `:rf.view/rendered` | `{:rf.view/id :ns/Component :file ".../X.cljs" :line N :rf.view/cause-event-id <id> :caused-by-paths [...] :rf.trace/dispatch-id <id>}` | Reactive panel · Trace panel · §3.5 |
 | **Sub skip attribution** (rf2-ty5r5o) | `:rf.sub/skip` | `{:rf.sub/id :s/foo :rf.sub/query-v [...] :rf.sub/reason :input-value-equal :rf.sub/input-paths-unchanged [...]}` — **Landed** (`re-frame.subs.memo/emit-sub-skip!`); rides `:trace-events`, projected to `:subs-skipped`. | Reactive panel "unchanged subs" disclosure · §3.4 |
 | **Sub value-change + cascade attribution** (rf2-l1jz8) | `:rf.sub/run` | `{:rf.sub/id :s/foo :query-v [...] :value-changed? <bool> :prev-value <v> :value <v> :cascade? <bool> :cause-sub [query-id args]-or-nil}` — value slots redacted at the marks chokepoint; threaded onto the epoch record's `:sub-runs` projection. **Landed** in the framework substrate (Spec 009 §`:rf.sub/run`, Spec-Schemas §`:rf/epoch-record` `:sub-runs`). | Reactive panel "SUBS WHOSE VALUE CHANGED" (§3.1.1.2) + "SUBS THAT CASCADED" (§3.1.1.3) |
-| **Cascade aggregate** | `:rf.cascade/captured` | `{:rf.trace/dispatch-id <id> :subs-ran N :subs-skipped N :views-rendered N :flows-recomputed N}` | Optional — emitted at end-of-epoch for fast L2 badge / Reactive summary line |
 | **Dispatch-origin tag** | (on existing `:rf.event/dispatched`) | `:tags :rf.event/origin <origin-kw>` per §1.5 taxonomy (landed) | Epoch panel DISPATCH step · L2 row prefix · filter pills |
 | **Handler-source string** | (on existing handler registry) | Stamp `:source-string` metadata via macro (DEBUG-gated) | Epoch panel HANDLER step inline source · §9.1 |
 | **Flow recompute** | `:rf.flow/computed` | `{:flow-id :inputs-changed [...] :rf.trace/dispatch-id <id>}` | Epoch panel FLOW step |
@@ -5516,15 +5515,6 @@ prerequisites.
 
 Each adapter's emit is gated on `goog.DEBUG` (cost is non-trivial — only
 ship in dev / Xray-bundle builds).
-
-**Focused-event-only attribution (per §11.3).** The substrate enforces:
-on every epoch, emit lightweight `:rf.cascade/captured` aggregate
-(counts only). Emit fattened per-sub / per-view rows only when the
-current epoch's `:rf.trace/dispatch-id` matches Xray's reported focused id (a
-read-only flag the runtime extension reads from a per-frame atom Xray
-publishes via `register-frame-meta!` or similar). When unfocused, the
-runtime drops fattened payloads at emit time, not at consumer time — the
-cost is borne only for the epoch the operator is staring at.
 
 ---
 
@@ -5553,18 +5543,9 @@ real beads after approving this doc.
   adapter's render-commit boundary; DEBUG-gated. Gates: Reactive panel
   step 8 (§3.5).
 
-- **rf2-?????** — *Substrate: add `:rf.cascade/captured` aggregate.* End-
-  of-epoch summary op with subs/views/flows counts. Cheap; emitted every
-  epoch. Gates: L2 badge "cascade size", Reactive header summary line.
-
 - **rf2-?????** — *Substrate: add `:rf.flow/skipped` trace op.* Mirror the
   landed `:rf.sub/skip` (rf2-ty5r5o) for flows. Gates: Epoch panel FLOW
   step dim-row rendering.
-
-- **rf2-?????** — *Substrate: focused-event-only attribution gate.*
-  Runtime extension reads a per-frame `:rf.xray/focused-dispatch-id`
-  atom; gates fattened cascade-attribution payloads at emit time.
-  Gates: B.8 perf budget.
 
 - **rf2-?????** — *Substrate: DEBUG-gated handler source capture
   (B.7 (d) stretch).* Extend `reg-event-{db,fx,ctx}` macros to stamp

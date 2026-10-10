@@ -73,7 +73,7 @@
        single SSR ns-load auto-wires every adapter's slot.
 
     4. HOT-RELOAD / DEV-TOOLING — `:trace/*`, `:trace.tooling/*`,
-       `:trace.cascade/*`, `:privacy/*`. Dev-only surfaces gated on
+       `:privacy/*`. Dev-only surfaces gated on
        `interop/debug-enabled?` whose producer namespaces DCE under
        `:advanced` + `goog.DEBUG=false`; the late-bind indirection lets
        production CLJS bundles short-circuit cleanly (lookup returns
@@ -953,29 +953,6 @@
    {:key         :frame/current-frame-id
     :producer-ns 're-frame.frame
     :description "Read the currently-bound frame id from `re-frame.frame/*current-frame*`. Consulted by `re-frame.trace`'s `ambient-frame-id`: `stamp-frame` uses it to tag an emit inside a run that carries no `:frame` of its own (e.g. sub recompute / view render emits inside an in-flight cascade), and the frame-policy gate `tagged-frame-trace-disabled?` uses it for every un-tagged emit. `re-frame.trace.tooling/push-to-ring!` routes by the event's `:frame` tag alone, with no fallback to this hook."}
-
-   ;; ---- re-frame.trace.cascade (focused-event-only cascade-DAG aggregator) ----
-   ;;
-   ;; The three hooks let `re-frame.epoch/settle!` reach the aggregator
-   ;; (`:trace.cascade/capture-for-epoch!`) without requiring the
-   ;; cascade ns; the focus-predicate pair (`set-focus-predicate!` /
-   ;; `clear-focus-predicate!`) publishes the install / withdraw surface
-   ;; through the same registry the rest of the substrate uses. (No Xray
-   ;; consumer ships against the focus-predicate hooks today — the only
-   ;; in-tree caller is the core `trace_cascade_captured_test`, which
-   ;; drives the aggregator directly via `re-frame.trace.cascade/<name>`.)
-   ;; The cascade ns is JVM-autoloaded from `re-frame.core` only; CLJS
-   ;; production builds DCE the ns so the hooks are simply unbound on
-   ;; the prod side.
-   {:key         :trace.cascade/capture-for-epoch!
-    :producer-ns 're-frame.trace.cascade
-    :description "Focused-event-only per-epoch cascade-DAG aggregator. `epoch/settle!` invokes it once per dequeued event after the cascade buffer has been harvested; no-op when the installed focus predicate returns false."}
-   {:key         :trace.cascade/set-focus-predicate!
-    :producer-ns 're-frame.trace.cascade
-    :description "Install the predicate the aggregator consults at end-of-epoch (`(fn [frame-id epoch-id event-id] truthy?)`). Hook published for a focus-publishing consumer to drive at mount; no Xray consumer ships against it today — the only in-tree caller is the core `trace_cascade_captured_test`, which calls `re-frame.trace.cascade/set-focus-predicate!` directly."}
-   {:key         :trace.cascade/clear-focus-predicate!
-    :producer-ns 're-frame.trace.cascade
-    :description "Restore the no-op default focus predicate (no epoch focused). Withdraw counterpart of `:trace.cascade/set-focus-predicate!`; same no-Xray-consumer status — only the core `trace_cascade_captured_test` calls `re-frame.trace.cascade/clear-focus-predicate!` directly."}
 
    ;; ---- re-frame.fresco (native-tier substrate; day8/re-frame2-fresco) ---
    {:key         :fresco/on-frame-destroyed!

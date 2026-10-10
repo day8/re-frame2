@@ -1214,8 +1214,6 @@
                         :depends-on #{:subs-tooling}}
     :derivation-egress {:init-fn re-frame.bundle-isolation-positive-control.derivation-egress/run
                         :depends-on #{:trace-tooling}}
-    :trace-cascade     {:init-fn re-frame.bundle-isolation-positive-control.trace-cascade/run
-                        :depends-on #{:trace-tooling}}
     :story             {:init-fn re-frame.bundle-isolation-positive-control.story/run
                         :depends-on #{:trace-tooling}}
     :xyflow            {:init-fn re-frame.bundle-isolation-positive-control.xyflow/run
