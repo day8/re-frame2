@@ -394,8 +394,7 @@ builds its CRLF sources in memory so they run on every platform.
 
 Two suites sit beside it. `amendment_a_test.clj` executes W4's output —
 plain `let`/`fn`/`apply`, with no Reagent left in it — and asserts the capture
-semantics directly, running the design's stated shape alongside to show the
-amendment is load-bearing. `shared_rule_test.clj` asserts that the slot rule
+semantics directly. `shared_rule_test.clj` asserts that the slot rule
 this tool asks is the shared one and not a copy.
 
 `census_test.clj` gates the census on the ways a census fails — answering
