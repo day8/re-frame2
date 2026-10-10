@@ -121,11 +121,6 @@
 
 ;; ---- vocabulary ---------------------------------------------------------
 
-(def statuses
-  "Render-order vector of the five lifecycle statuses. Useful for
-  enumerating chips / legends / tests."
-  [:in-flight :settled-success :settled-error :paused-by-tool :stale])
-
 (def status->token
   "Pure semantic map from lifecycle status keyword to token keyword.
   The hex resolution happens via `event-status-colour`, which looks

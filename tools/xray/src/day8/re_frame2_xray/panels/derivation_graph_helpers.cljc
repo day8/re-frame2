@@ -93,8 +93,6 @@
     :process    :process
     :unknown))
 
-(defn process?    [node] (= :process    (superkind node)))
-(defn derivation? [node] (= :derivation (superkind node)))
 
 ;; ---------------------------------------------------------------------------
 ;; Family grouping (the EDITORIAL axis — colour, not contract).
@@ -159,19 +157,6 @@
   from the graph are absent from the result."
   [{:keys [edges]}]
   (group-by :role edges))
-
-(defn node-degree
-  "Count `{:in n :out n}` undirected degree per node id across the edge
-  set, for the summary header (\"42 nodes · 17 edges\" + the most-connected
-  node). A node id absent from any edge has zero degree."
-  [{:keys [nodes edges]}]
-  (reduce
-   (fn [acc {:keys [from to]}]
-     (-> acc
-         (update-in [from :out] (fnil inc 0))
-         (update-in [to :in] (fnil inc 0))))
-   (zipmap (keys nodes) (repeat {:in 0 :out 0}))
-   edges))
 
 ;; ---------------------------------------------------------------------------
 ;; ON-BOX value summarization (size/shape projection — NOT an egress boundary).
@@ -511,21 +496,6 @@
   live projections)."
   [{:keys [nodes]}]
   (empty? nodes))
-
-(defn redacted?
-  "True when `v` is the `:rf/redacted` sensitive-egress sentinel
-  (`re-frame.privacy/redacted-sentinel`) — the shape a sensitive-declared
-  value (or a frameless fail-closed walk) produced at egress."
-  [v]
-  (= :rf/redacted v))
-
-(defn large-elided?
-  "True when `v` is the `:rf.size/large-elided` size-elision marker
-  (`re-frame.elision/marker?`) — the shape a large-declared value produced
-  at egress: structure-preserving (path / bytes / type / handle), value
-  withheld."
-  [v]
-  (and (map? v) (contains? v :rf.size/large-elided)))
 
 ;; ---------------------------------------------------------------------------
 ;; Display labels.

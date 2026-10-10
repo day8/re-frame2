@@ -82,16 +82,6 @@
       (if (map? reg) reg {}))
     (catch :default _ {})))
 
-(defn resolve-descriptor
-  "Resolve `(kind, id)` against a sealed `generation` via
-  `re-frame.image-assembly/resolve-descriptor` (the runtime registration-
-  resolution read — EP-0023 §Specification). Fail-soft: a nil generation or
-  any throw yields nil (unresolved). Pure-read."
-  [generation kind id]
-  (try
-    (rf.image-assembly/resolve-descriptor generation kind id)
-    (catch :default _ nil)))
-
 (defn image-view-data
   "Project the live EP-0023 image/frame model into the view-facing data:
   the live-frame registry → frame-rows, each carrying its
@@ -186,14 +176,6 @@
   (rf.image/image {:id        xray-image-id
                 :select-ns {:include [xray-source-glob]
                             :exclude xray-exclude-globs}}))
-
-(defn resolver-keyset
-  "The set of `[kind id]` resolver keys a sealed image `generation` carries
-  (`(keys (:rf.gen/resolver generation))` as a set) — the registration set a
-  frame running that generation actually resolves (EP-0023 §Specification
-  Summary). A nil generation has the empty keyset. Pure `data -> #{[kind id]}`."
-  [generation]
-  (set (keys (:rf.gen/resolver generation))))
 
 (defn application-resolver-keyset
   "The set of `[kind id]` resolver keys a sealed `generation` carries that are

@@ -112,14 +112,6 @@
   (into (conj (vec entries-rel-path) key-id)
         (resource-payload-path-suffix slot-key)))
 
-(def tag-index-rel-path
-  "Runtime-db-relative path to the reverse tag index."
-  [resources-key :tag-index])
-
-(def owner-index-rel-path
-  "Runtime-db-relative path to the reverse owner index."
-  [resources-key :owner-index])
-
 (def routing-key
   "Reserved runtime-db key for the routing slice subtree
   (`:rf.runtime/routing`). The route/resource graph reads the live
@@ -1016,35 +1008,24 @@
   `{<key-id> <scoped-key>}` maps naming the resources whose blocking ensure
   has not yet settled; this returns their scoped-key VALUES.
 
-  TWO arities:
-
-  - `[routing-slice nav-token]` — the SCOPED read: returns ONLY the scoped
-    keys still unsettled for `nav-token`. This is the form the route graph
-    must use for the CURRENT route's `:blocking-live`, per Spec 024
-    §Route/resource graph (\"the declared blocking resources whose scoped
-    keys are still in the PER-nav-token unsettled-blocking set\"). A nil
-    `nav-token` (no active route) ⇒ `[]` — a route with no live navigation
-    has no live wait point.
-
-  - `[routing-slice]` — the ALL-TOKEN flatten: every unsettled key across
-    every coexisting nav-token bucket. For an all-routes / global
-    wait-point diagnostic; it must NOT be used to flag a single route's
-    `:blocking-live`, because an OLD token's bucket can still hold a key
-    that shares a resource-id with the current route, which would falsely
-    report the active route as blocked by a wait point belonging to a
-    superseded navigation (a cross-token bleed).
+  The read is SCOPED: it returns ONLY the scoped keys still unsettled for
+  `nav-token`, the form the route graph uses for the CURRENT route's
+  `:blocking-live`, per Spec 024 §Route/resource graph (\"the declared
+  blocking resources whose scoped keys are still in the PER-nav-token
+  unsettled-blocking set\"). Flattening every coexisting bucket would be
+  wrong: an OLD token's bucket can still hold a key that shares a
+  resource-id with the current route, falsely reporting the active route as
+  blocked by a superseded navigation's wait point. A nil `nav-token` (no
+  active route) ⇒ `[]` — a route with no live navigation has no live wait
+  point.
 
   Pure; nil/missing ⇒ `[]`."
-  ([routing-slice]
-   (let [by-token (when (map? routing-slice)
-                    (get routing-slice routing-blocking-key))]
-     (into [] (mapcat vals) (vals (or by-token {})))))
-  ([routing-slice nav-token]
-   (let [by-token (when (map? routing-slice)
-                    (get routing-slice routing-blocking-key))]
-     (if (some? nav-token)
-       (into [] (vals (get by-token nav-token)))
-       []))))
+  [routing-slice nav-token]
+  (let [by-token (when (map? routing-slice)
+                   (get routing-slice routing-blocking-key))]
+    (if (some? nav-token)
+      (into [] (vals (get by-token nav-token)))
+      [])))
 
 (defn- resource-liveness
   "Aggregate the LIVE state of one declared resource-id across the projected
@@ -1691,18 +1672,6 @@
   (the deliberate single-writer last-write-wins escape — loud so an unexpected
   clobber is visible). Per Spec 016 §Optimistic settle / §On-conflict."
   :rf.warning/optimistic-force-clobber)
-
-(def ^:private optimistic-ops
-  "The closed `:rf.mutation/optimistic-*` lifecycle op set (apply + the two
-  terminal settle dispositions). The force-clobber WARNING is surfaced
-  separately (it rides a rollback) — it is not a lifecycle op."
-  #{optimistic-apply-op optimistic-reconcile-op optimistic-rollback-op})
-
-(defn optimistic-mutation-op?
-  "True iff `operation` is a member of the EP-0019 optimistic-mutation
-  lifecycle op set (`:applied` / `:reconciled` / `:rolled-back`)."
-  [operation]
-  (contains? optimistic-ops operation))
 
 (def mutation-stale-suppressed-op
   "The op the runtime emits when a mutation reply arrives for a SUPERSEDED

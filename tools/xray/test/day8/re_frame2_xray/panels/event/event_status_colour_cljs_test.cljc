@@ -34,7 +34,7 @@
             missing key in `theme/tokens`. Drives off `dark-palette`
             directly (the hex source of truth) — `tokens` exposes
             CSS-variable strings."
-    (doseq [status event-status/statuses]
+    (doseq [status (keys event-status/status->token)]
       (let [token-kw (event-status/status->token status)
             hex      (get tokens/dark-palette token-kw)]
         (is (re-find #"^#[0-9A-Fa-f]+$" hex)
