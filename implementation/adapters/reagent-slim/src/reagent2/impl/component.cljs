@@ -18,10 +18,6 @@
     get-props            ;; Form-3 accessor: first arg if it's a map
     get-children         ;; Form-3 accessor: rest after props
     state-atom           ;; Form-3 state cell
-    *no-instance*        ;; dynamic, bound by the static serializer
-    instance             ;; nil-instance gate every reagent2.core accessor calls
-    set-static-provider-check!  ;; install the static serializer's Provider check
-    check-static-provider!      ;; run it (called by the static serializer)
 
   Shape detection happens at render time, in `wrap-render`, and only
   there: every render fn takes the same path, whoever registered it.
@@ -107,60 +103,6 @@
   the render path."
   []
   *current-component*)
-
-;; ---------------------------------------------------------------------------
-;; Static rendering
-;;
-;; The static serializer (`reagent2.dom.server`) calls render fns with no
-;; component instance, so `current-component` answers nil there. Two hooks
-;; let it refuse what it cannot render, rather than fail with a TypeError or
-;; render against the wrong context:
-;;
-;;   - `*no-instance*` is bound by the serializer, for the length of a static
-;;     render, to a fn that raises its typed error. `instance`, which every
-;;     instance accessor in `reagent2.core` calls first, hands that fn a nil
-;;     instance. Outside a static render it is nil, and a nil instance reaches
-;;     the accessor unchanged.
-;;   - The static Provider check is installed by a host whose views read a
-;;     context Provider's value; re-frame's adapter installs one for its frame
-;;     context. The serializer walks through a Provider without applying its
-;;     value, so the check refuses a Provider whose value the subtree needs.
-;;
-;; Both live here rather than in the serializer, so `reagent2.core` and the
-;; adapter reach them without pulling the serializer into every bundle.
-;; ---------------------------------------------------------------------------
-
-(def ^:dynamic *no-instance* nil)
-
-(defn instance
-  "Return `c`, the component instance handed to the accessor named by the
-  symbol `accessor`. During a static render a nil `c` is the serializer's
-  to report: `*no-instance*` is called with `accessor`, and raises."
-  [c accessor]
-  (when (and (nil? c) (some? *no-instance*))
-    (*no-instance* accessor))
-  c)
-
-(defonce ^:private static-provider-check (volatile! nil))
-
-(defn set-static-provider-check!
-  "Install `f` as the static Provider check; nil uninstalls it. Last call
-  wins. Returns nil.
-
-  The static serializer calls `(f provider value)` for each context Provider
-  it walks through, before the Provider's children; `f` throws to refuse a
-  Provider whose value the subtree would need."
-  [f]
-  (vreset! static-provider-check f)
-  nil)
-
-(defn check-static-provider!
-  "Run the installed static Provider check, if any, on `provider` and the
-  `value` it supplies. Returns nil."
-  [provider value]
-  (when-some [f @static-provider-check]
-    (f provider value))
-  nil)
 
 ;; ---------------------------------------------------------------------------
 ;; The 7-key cap (per IMPL-SPEC §6.1)
