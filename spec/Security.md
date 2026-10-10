@@ -94,7 +94,7 @@ Sensitive values — credentials, session tokens, PII, partner secrets — flow 
 
 #### Direct-read privacy posture for sub-cache and get-path
 
-Direct-read tools — `get-app-db`, `get-app-db-diff`, `get-machine-state`, `get-path`, `sub-cache` — bypass the trace surface where classification stamping operates. **The framework's MUST is that direct-read wire egress routes the returned value through `project-egress` / the wire-elision walker at the off-box boundary, with sensitivity opt-in defaulting to OFF (`:rf.egress/off-box-tool` redacts; `:rf.egress/local-raw` is the explicit trusted-local opt-in).** The trace-surface scrub (the internal redaction interceptor + `:sensitive?` stamping) shapes trace `:db-before` / `:db-after` slots; it does not protect a live-value read. Per [Tool-Pair §Direct-read privacy](Tool-Pair.md#direct-read-privacy-posture-for-sub-cache-and-get-path).
+Direct-read tools — `get-app-db`, `get-app-db-diff`, `get-machine-state`, `get-path`, `sub-cache` — bypass the trace surface where classification stamping operates. **The framework's MUST is that direct-read wire egress routes the returned value through `project-egress` / the wire-elision walker at the off-box boundary, with sensitivity opt-in defaulting to OFF (`:rf.egress/off-box-tool` redacts; `:rf.egress/local-raw` is the explicit trusted-local opt-in).** Trace-surface projection (the elision walker against the frame's classification, plus `:sensitive?` stamping) shapes trace `:db-before` / `:db-after` slots; it does not protect a live-value read. Per [Tool-Pair §Direct-read privacy](Tool-Pair.md#direct-read-privacy-posture-for-sub-cache-and-get-path).
 
 #### Epoch privacy posture — raw in-process records vs projected egress
 
