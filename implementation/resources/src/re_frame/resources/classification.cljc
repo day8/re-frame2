@@ -61,6 +61,7 @@
             [re-frame.classification :as rf.classification]
             [re-frame.elision :as rf.elision]
             [re-frame.path :as rf.path]
+            [re-frame.privacy :as rf.privacy]
             [re-frame.projection :as rf.projection]
             [re-frame.resources.mutation-runtime :as rf.resources.mutation-runtime]
             [re-frame.resources.state :as rf.resources.state]))
@@ -564,9 +565,12 @@
 ;;
 ;;   :params  — the SCHEMA-PROP per-slot redaction (the validator's own failure
 ;;              product): each `:params-schema` `:sensitive?` slot redacts to
-;;              `:rf/redacted`, each `:large?` slot elides to the
-;;              `:rf.size/large-elided` marker, plain slots ride verbatim
-;;              (so the non-sensitive failing field stays diagnostic).
+;;              `:rf/redacted` in every collection element, each `:large?` slot
+;;              elides to the `:rf.size/large-elided` marker, plain slots ride
+;;              verbatim (so the non-sensitive failing field stays diagnostic).
+;;              A schema whose marks the walker cannot see in full (an opaque
+;;              descendant: `[:ref …]`, a local `:registry`, an embedded
+;;              compiled schema) fails closed — the whole slot redacts.
 ;;   :error   — the registered explainer's output (Malli's explanation carries
 ;;              the failing VALUE verbatim at its root `:value` and per-error
 ;;              `:value` slots), routed through THE shared schema-aware
@@ -608,6 +612,15 @@
     {:sensitive (extract :schemas/extract-sensitive-paths-from-schema)
      :large     (extract :schemas/extract-large-paths-from-schema)}))
 
+(defn- walker-sees-every-mark?
+  "True iff the schemas artefact's walker reports `schema` free of any opaque
+  descendant, so the marks the extract hooks return are all the marks there
+  are. False when the walker's hook is unbound: nothing can then show it."
+  [schema]
+  (if-let [opaque-child? (rf.late-bind/get-fn-cached :schemas/schema-has-opaque-child?)]
+    (not (opaque-child? schema))
+    false))
+
 (defn redact-invalid-params-error
   "Project the `:params` + `:error` (explainer output) slots of an invalid-params
   failure error payload against the resource / mutation `spec`'s `:params-schema`
@@ -618,7 +631,12 @@
       `:large?` props directly (`validation-failure-params-marks`): each
       `:sensitive?` slot redacts to `:rf/redacted`, each `:large?` slot elides
       to the `:rf.size/large-elided` marker, plain slots ride verbatim (so the
-      non-sensitive failing field stays diagnostic);
+      non-sensitive failing field stays diagnostic). The walker writes a mark
+      inside a collection's element schema without an element index, so the
+      marks match INDEX-FREE and the slot redacts in every element. When the
+      walker cannot see every mark (an opaque descendant, or no walker bound)
+      the whole `:params` slot redacts to `:rf/redacted`, the same fail-closed
+      answer the shared seam gives `:error`;
     - `:error` (the explainer output, which carries the failing params VERBATIM
       under Malli's `:value` slots) is routed through THE shared schema-aware
       redaction seam `:schemas/redact-validation-tags`: the whole `:error` blob
@@ -637,9 +655,15 @@
         ;; The failing params slot is the validator's own failure product — redact
         ;; the schema's `:sensitive?` / `:large?` slots per-slot (the
         ;; schema-prop route), keeping the non-sensitive failing field diagnostic.
-        params'    (if (or (seq sensitive) (seq large))
-                     (rf.classification/redact-with-paths params (keys sensitive) (keys large))
-                     params)
+        params'    (cond
+                     (and (some? schema) (not (walker-sees-every-mark? schema)))
+                     rf.privacy/redacted-sentinel
+
+                     (or (seq sensitive) (seq large))
+                     (rf.classification/redact-with-paths params (keys sensitive) (keys large)
+                                                          {:index-free? true})
+
+                     :else params)
         ;; The explainer output carries the failing params verbatim; treat it as
         ;; the `:explain` value-bearing slot the shared seam scrubs whole-payload.
         redacted-e (if (and redact-fn (some? schema) (some? error))

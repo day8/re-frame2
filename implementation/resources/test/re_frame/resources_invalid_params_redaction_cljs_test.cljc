@@ -70,6 +70,47 @@
            [(:rf.error/id data) (:params data) (some? (:error data))])
         "with no classified slot the params and the explainer output ride as they are")))
 
+;; A marked slot inside a collection's element schema redacts in every element:
+;; the walker writes its mark without an element index.
+(deftest invalid-params-redact-a-marked-slot-in-every-element
+  (let [data (resource-failure :feed/by-items
+                               [:map
+                                [:items [:vector [:map [:id :int] [:token {:sensitive? true} :string]]]]
+                                [:age :int]]
+                               {:items [{:id 1 :token "SECRET-1"} {:id 2 :token "SECRET-2"}]
+                                :age   "bad"})]
+    (is (= [{:items [{:id 1 :token rf.privacy/redacted-sentinel}
+                     {:id 2 :token rf.privacy/redacted-sentinel}]
+             :age   "bad"}
+            false]
+           [(:params data) (str/includes? (pr-str data) "SECRET-")]))))
+
+;; A schema whose marks the walker cannot see in full (a local `:registry`, a
+;; `[:ref …]`) fails closed: the whole `:params` slot redacts, as the explainer
+;; `:error` already does for such a schema.
+(def ^:private creds-schema [:map [:token {:sensitive? true} :string]])
+
+(def ^:private opaque-params-schemas
+  {:local-registry [:schema {:registry {:app/creds creds-schema}}
+                    [:map [:creds :app/creds] [:age :int]]]
+   :ref            [:schema {:registry {:app/creds creds-schema}}
+                    [:map [:creds [:ref :app/creds]] [:age :int]]]})
+
+(def ^:private opaque-bad-params {:creds {:token "SECRET-TOKEN-42"} :age "not-an-int"})
+
+(deftest invalid-params-behind-an-opaque-child-fail-closed
+  (doseq [[shape schema] opaque-params-schemas]
+    (let [rdata (resource-failure :report/by-account schema opaque-bad-params)
+          mdata (ex->data
+                  #(rf.resources.mutation-registry/validate+canonicalize-params
+                     :acct/update {:params-schema schema} opaque-bad-params 'rf.mutation/execute))]
+      (is (= [:rf.error/resource-invalid-params rf.privacy/redacted-sentinel false]
+             [(:rf.error/id rdata) (:params rdata) (str/includes? (pr-str rdata) "SECRET-TOKEN-42")])
+          (str shape ": the resource arm"))
+      (is (= [:rf.error/mutation-invalid-params rf.privacy/redacted-sentinel false]
+             [(:rf.error/id mdata) (:params mdata) (str/includes? (pr-str mdata) "SECRET-TOKEN-42")])
+          (str shape ": the mutation arm")))))
+
 (deftest mutation-invalid-params-redacts-sensitive-sibling
   (let [data (ex->data
                #(rf.resources.mutation-registry/validate+canonicalize-params
