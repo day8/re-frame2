@@ -190,8 +190,8 @@
   coerced to strings in the fold (`headers/merge-pair-into-header-map`).
 
   Content-Length is stripped from every response: the body is
-  always adapter-assembled AFTER the drain (a String/empty body here, or the
-  streaming InputStream that swaps in downstream), so an app-set
+  always adapter-assembled AFTER the drain (a String or empty body), so an
+  app-set
   `Content-Length` can never match it. The Ring server owns transfer framing."
   ([resp body] (ssr-response->ring-response resp body nil))
   ([{:keys [status headers cookies redirect]} body default-content-type]
@@ -516,8 +516,8 @@
   the app renders its OWN not-found / bad-request UI and hydrates into a
   working SPA) AND for a nil `public-error` (no error was projected — e.g. an
   app that manually `:rf.server/set-status`-es a 500 stays on the app arm;
-  status alone is not proof of a projection). Both handlers branch on this
-  after the initial-event drain and again after the render/shell work; a
+  status alone is not proof of a projection). The handler branches on this
+  after the initial-event drain and again after the render work; a
   redirect is checked FIRST, so a pending projection never overrides it."
   [public-error]
   (boolean (when-let [status (:status public-error)]
@@ -695,9 +695,8 @@
 (defn project-render-throw->ring-response
   "Route a render-time `Throwable` through the SSR error projector and
   materialise the projected (fail-closed, non-200) Ring error response.
-  Shared by the non-streaming `build-full-response` catch arm and the
-  streaming `stream-handler` shell phase so both render-side
-  failure surfaces emit one uniform projected-error body contract.
+  Called from `build-full-response`'s catch arm, so a render-side failure
+  emits the same projected-error body contract as a drain-time one.
 
   Steps (Spec 011 §Server error projection §View-time exceptions):
 
@@ -793,9 +792,7 @@
     (catch Throwable t
       ;; The projector stamps :status onto the response accumulator and
       ;; the projected (fail-closed, non-200) error body is materialised
-      ;; through the same path the streaming shell phase reuses. Render-time
-      ;; AND drain-time exceptions thus share one wire-body contract,
-      ;; and the streaming + non-streaming shell-failure surfaces project
-      ;; identically (Spec 011 §Server error projection §View-time
-      ;; exceptions).
+      ;; through `project-render-throw->ring-response`. Render-time AND
+      ;; drain-time exceptions thus share one wire-body contract (Spec 011
+      ;; §Server error projection §View-time exceptions).
       (project-render-throw->ring-response frame-id t opts))))

@@ -61,13 +61,9 @@
 
   ---- Where this is consumed ----
 
-  Two payload builders share this contract:
-
-    `re-frame.ssr.ring.payload/build-payload`     — non-streaming SSR
-    `re-frame.ssr.streaming/build-final-payload`  — streaming SSR
-
-  The Ring host adapter (`re-frame.ssr.ring/ssr-handler` and
-  `stream-handler`) validates the policy at handler-construction time
+  `re-frame.ssr.ring.payload/build-payload` consumes this contract, and
+  the Ring host adapter (`re-frame.ssr.ring/ssr-handler`) validates the
+  policy at handler-construction time
   via `validate-policy-opts!` so misconfigured deployments fail at
   boot rather than at first request — the canonical fail-closed
   pattern.
@@ -76,19 +72,13 @@
 
   This namespace is also the single home for the hydration-payload's
   `:rf/version` resolution (`resolve-version`) and the canonical
-  four-key payload assembly (`build-payload`). Both streaming and
-  non-streaming SSR construct the identical `:rf/hydration-payload`
-  shape and pin `:rf/version` from the identical source-of-truth: the
+  four-key payload assembly (`build-payload`). Every SSR payload is the
+  identical `:rf/hydration-payload` shape and pins `:rf/version` from the
+  identical source-of-truth: the
   caller's explicit `:version` opt, falling back to the SSR artefact's
   compiled-in `pattern-protocol-version` constant — the SAME value the
   client-side `:rf.ssr/check-version` fx reads, so both wire ends agree
-  with no host wiring. The two call sites differ only in how they source
-  `app-db` (the non-streaming path is handed it; the streaming path
-  reads it from the live frame after every continuation drains), so
-  each owns a thin wrapper over `build-payload`:
-
-    `re-frame.ssr.ring.payload/build-payload`     - non-streaming SSR
-    `re-frame.ssr.streaming/build-final-payload`  - streaming SSR"
+  with no host wiring."
   (:refer-clojure :exclude [resolve])
   (:require [re-frame.error :as rf.error]
             [re-frame.frame :as rf.frame]
@@ -403,7 +393,7 @@
   permitting a collection releases its whole subtree. A dead frame's
   whole-slice `:rf/redacted` has nothing to descend, so every permit is inert
   there. nil / `[]` permits give the 2-arity result. This is the ONE rule every
-  hydration site shares — both payload builders, the streaming delta, Fresco's
+  hydration site shares — the payload builder, Fresco's
   server render and the node render state — so the restored values still pass
   each caller's numeric / wire-domain checks. A malformed `permits` throws
   `:rf.error/ssr-malformed-payload-allowlist` (the runtime arm of
@@ -511,7 +501,7 @@
 ;; a coherent frame-state — machine snapshots / spawn registry, the active
 ;; route slice, and SSR hydration metadata. Transient
 ;; runtime state MUST NOT ride the wire: server-only request/response
-;; accumulators, head snapshots, streaming continuation registries,
+;; accumulators, head snapshots,
 ;; pending-error buffers, in-flight HTTP handles, host handles, and the
 ;; client-local scroll-position cache (per [002 §Durable vs transient]).
 ;;
@@ -612,7 +602,7 @@
   The two-arity `[runtime-db frame-id]` is the canonical form: it projects
   every runtime-db slice under the EXPLICIT `frame-id` the caller carries — the
   same target the payload is stamped `:rf/frame-id`, and the same target
-  `build-final-payload` / the non-streaming builder thread to the app-db
+  the payload builder threads to the app-db
   projection. A hydration payload therefore projects BOTH partitions under ONE
   frame, regardless of ambient scope.
 
@@ -717,7 +707,7 @@
 ;; ---- version resolution + payload assembly -------------------------------
 ;;
 ;; Single home for the hydration-payload `:rf/version` resolution and the
-;; Canonical payload assembly shared by streaming and non-streaming SSR.
+;; canonical payload assembly every SSR payload goes through.
 
 (def pattern-protocol-version
   "The hydration pattern-protocol version — the SSR artefact's compiled-in
@@ -961,13 +951,11 @@
   would read back as a DIFFERENT value throws
   `:rf.error/ssr-hydration-payload-invalid` rather than shipping.
 
-  Shared verbatim by both SSR paths: the non-streaming
-  `re-frame.ssr.ring.payload/build-payload` and the streaming
-  `re-frame.ssr.streaming/build-final-payload`, which differ only in how
-  they source `app-db` + runtime-db before projecting them."
+  Shared verbatim by `re-frame.ssr.ring.payload/build-payload` and
+  Fresco's server render."
   [wire-frame-id db-slice render-hash {:keys [version schema-digest runtime-db head-hash]}]
   ;; On a JVM host both partitions obey the numeric crossing
-  ;; rule before they are assembled. One site covers both SSR paths.
+  ;; rule before they are assembled. One site covers every SSR payload.
   #?(:clj (do (check-portable-numbers! :rf/app-db db-slice)
               (check-portable-numbers! :rf/runtime-db runtime-db)))
   (cond-> {:rf/version (resolve-version version)

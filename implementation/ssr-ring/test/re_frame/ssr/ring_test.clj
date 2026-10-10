@@ -12,7 +12,6 @@
             [re-frame.ssr.ring.headers :as rf.ssr.ring.headers]
             [re-frame.ssr.ring.lifecycle :as rf.ssr.ring.lifecycle]
             [re-frame.ssr.ring.pipeline :as rf.ssr.ring.pipeline]
-            [re-frame.ssr.ring.shell :as rf.ssr.ring.shell]
             [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]))
 
 (use-fixtures :each rf.ssr.ring.test-support/reset-runtime)
@@ -367,8 +366,7 @@
     (is (= ["/module.js"] (script-srcs body)))
     (is (some? (payload-edn body)))))
 
-(deftest default-html-shell-composes-from-shared-envelope-renderers
-  ;; Both response modes single-source the envelope, so escaping cannot drift.
+(deftest default-html-shell-escapes-its-attribute-hooks
   (let [opts  {:head           "<title>T</title>"
                :html-attrs     {:lang "fr"}
                :body-attrs     {:class "page"}
@@ -377,11 +375,6 @@
                :script-src     "/boot.js?a=1&b=2"
                :body-end       "<script>ga();</script>"}
         shell (rf.ssr.ring/default-html-shell "<main>Hi</main>" "{:x 1}" opts)]
-    (is (= (str (rf.ssr.ring/default-streaming-prefix (:head opts) opts)
-                "<main>Hi</main>" "</div>"
-                (rf.ssr.ring.shell/payload-script-tag "{:x 1}")
-                (rf.ssr.ring/default-streaming-suffix opts))
-           shell))
     (is (str/includes? shell "<div id=\"ro&quot;ot\">"))
     (is (str/includes? shell "src=\"/boot.js?a=1&amp;b=2\""))))
 

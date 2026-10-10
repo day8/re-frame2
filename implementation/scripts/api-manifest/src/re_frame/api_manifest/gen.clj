@@ -331,11 +331,6 @@
      re-frame.ssr.hydrate
      re-frame.ssr.payload-policy
      re-frame.ssr.server-fx-schemas
-     re-frame.ssr.suspense
-     ;; Streaming internals (the client half is the browser-side reader).
-     re-frame.ssr.streaming
-     re-frame.ssr.streaming.client
-     re-frame.ssr.streaming.constants
      ;; --- implementation/ssr-ring/src --------------------------------------
      ;; Ring host-adapter plumbing beneath `re-frame.ssr.ring`'s own door.
      re-frame.ssr.ring.cookie
@@ -344,7 +339,6 @@
      re-frame.ssr.ring.payload
      re-frame.ssr.ring.pipeline
      re-frame.ssr.ring.shell
-     re-frame.ssr.ring.streaming
      re-frame.ssr.ring.trust
      ;; --- implementation/fresco/src ---------------------------------------
      ;; Everything under `re-frame.fresco.impl.*` and nothing else: the door

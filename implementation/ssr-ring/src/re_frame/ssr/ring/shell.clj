@@ -10,7 +10,7 @@
   The hydration EDN is escaped with the EDN-aware script-body encoder:
   string content cannot close the script element, token content still
   round-trips through the EDN reader, and unsafe token-position breakout
-  sequences fail loudly. The streaming path uses the same encoder."
+  sequences fail loudly."
   (:require [re-frame.ssr.constants :as rf.ssr.constants]
             [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]))
 
@@ -22,9 +22,7 @@
   "Resolve the `<html>` attribute bag from the `:html-attrs` opt with a
   `:lang` fallback. `:html-attrs` wins; when absent OR omitting `:lang`,
   the `lang` argument is the fallback (an explicit `:lang` inside
-  `:html-attrs` takes precedence — the bag is used verbatim). Shared by
-  `default-html-shell` and the streaming prefix so the two envelopes
-  can't silently diverge on the lang-fallback rule."
+  `:html-attrs` takes precedence — the bag is used verbatim)."
   [html-attrs lang]
   (if (seq html-attrs)
     (cond-> html-attrs
@@ -33,8 +31,8 @@
 
 ;; ---- shared hydration-payload <script> envelope ---------------------------
 ;;
-;; Non-streaming and streaming responses use this helper so the pinned id and
-;; security-sensitive script-body escaping cannot diverge.
+;; One helper holds the pinned id and the security-sensitive script-body
+;; escaping.
 
 (defn payload-script-tag
   "Build the id-pinned `<script type=\"application/edn\">` carrying the
@@ -50,69 +48,6 @@
   (str "<script id=\"" rf.ssr.constants/payload-script-id "\" type=\"application/edn\">"
        (rf.ssr.html-helpers/escape-edn-script-body payload-edn)
        "</script>"))
-
-;; ---- single-source document envelope (prefix + suffix) --------------------
-;;
-;; These renderers single-source the document envelope for both response
-;; modes, including attribute escaping and hash-marker placement.
-
-(defn document-prefix
-  "Render the shared document prefix through the open app-root element.
-
-  `render-hash` is explicit because the streaming prefix can stamp the
-  body-only hash on its app root while `default-html-shell` passes nil.
-
-  `head-html` is the resolved `<head>` fragment (a content position,
-  injected raw). `opts` carries the `:html-attrs` / `:body-attrs` bags
-  (stamped via the shared `attr-string` serialiser), the `:lang`
-  fallback (resolved through `html-attr-bag`), the escaped `:app-element-id`,
-  and the optional `:head-hash` (the SEPARATE client-reconstructible
-  head-model hash stamped as `data-rf-head-hash` on `<head>`, omitted
-  when nil)."
-  [head-html render-hash
-   {:keys [html-attrs body-attrs lang app-element-id head-hash]}]
-  ;; `or`, not `:or`: `:or` fires only for an ABSENT key, and an explicit nil
-  ;; means "use the default" too (Spec 011 §Trusted shell hook contract).
-  (let [attr-bag       (html-attr-bag html-attrs (or lang "en"))
-        app-element-id (or app-element-id "app")]
-    (str "<!DOCTYPE html>"
-         "<html" (rf.ssr.html-helpers/attr-string attr-bag) ">"
-         "<head"
-         ;; The head-model hash is separate from the body's render hash.
-         (when head-hash (str " data-rf-head-hash=\"" head-hash "\""))
-         ">"
-         "<meta charset=\"utf-8\">"
-         (or head-html "")
-         "</head>"
-         "<body" (rf.ssr.html-helpers/attr-string body-attrs) ">"
-         ;; Attribute values are escaped; raw trust applies only to the
-         ;; `:head` and `:body-end` content hooks.
-         "<div id=\"" (rf.ssr.html-helpers/escape-attr app-element-id) "\""
-         ;; Only streaming supplies this body-only structural hash marker.
-         (when render-hash
-           (str " data-rf-render-hash=\"" render-hash "\""))
-         ">")))
-
-(defn document-suffix
-  "Render the shared document suffix: the bootstrap `<script src=…>` (unless
-  `:script-src` is `false`; nil or absent means the default `/main.js`), the
-  raw `:body-end` content hook, and the `</body></html>` document close.
-
-  The app-root `</div>` and the hydration-payload `<script>` are NOT
-  emitted here — they sit BEFORE the suffix (the non-streaming shell
-  writes `</div>` + `payload-script-tag` between the prefix and this
-  suffix; the streaming writer closes `</div>` at the end of the shell
-  chunk and streams the payload after the continuations. `:script-src` is
-  escaped as an attribute value; `:body-end` stays raw content."
-  [{:keys [body-end script-src]}]
-  (str (when-not (false? script-src)
-         ;; `:script-src` is an attribute value; `:body-end` is raw content.
-         (str "<script src=\""
-              (rf.ssr.html-helpers/escape-attr (or script-src "/main.js"))
-              "\"></script>"))
-       (or body-end "")
-       "</body>"
-       "</html>"))
 
 (defn default-html-shell
   "The default HTML envelope. Returns a string wrapping the rendered
@@ -165,11 +100,33 @@
   must never be populated from untrusted input. Construction validates shape,
   not content trust; prefer structured views and head registrations for
   untrusted content."
-  [body-html payload-edn {:keys [head] :as opts}]
-  ;; The non-streaming app root has no render-hash marker. Body content and
-  ;; the shared payload tag sit between the common prefix and suffix.
-  (str (document-prefix head nil opts)
-       body-html
-       "</div>"
-       (payload-script-tag payload-edn)
-       (document-suffix opts)))
+  [body-html payload-edn
+   {:keys [head html-attrs body-attrs lang app-element-id head-hash body-end script-src]}]
+  ;; `or`, not `:or`: `:or` fires only for an ABSENT key, and an explicit nil
+  ;; means "use the default" too (Spec 011 §Trusted shell hook contract).
+  (let [attr-bag       (html-attr-bag html-attrs (or lang "en"))
+        app-element-id (or app-element-id "app")]
+    (str "<!DOCTYPE html>"
+         "<html" (rf.ssr.html-helpers/attr-string attr-bag) ">"
+         "<head"
+         ;; The head-model hash is separate from the body's render hash.
+         (when head-hash (str " data-rf-head-hash=\"" head-hash "\""))
+         ">"
+         "<meta charset=\"utf-8\">"
+         (or head "")
+         "</head>"
+         "<body" (rf.ssr.html-helpers/attr-string body-attrs) ">"
+         ;; Attribute values are escaped; raw trust applies only to the
+         ;; `:head` and `:body-end` content hooks.
+         "<div id=\"" (rf.ssr.html-helpers/escape-attr app-element-id) "\">"
+         body-html
+         "</div>"
+         (payload-script-tag payload-edn)
+         (when-not (false? script-src)
+           ;; `:script-src` is an attribute value; `:body-end` is raw content.
+           (str "<script src=\""
+                (rf.ssr.html-helpers/escape-attr (or script-src "/main.js"))
+                "\"></script>"))
+         (or body-end "")
+         "</body>"
+         "</html>")))

@@ -301,7 +301,6 @@
   {:namespace "re-frame.schemas", :var "validate-with-registered-fn", :tier :implementation, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr", :var "adapter", :tier :implementation, :kind :var, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr", :var "apply-error-projection!", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.ssr", :var "boundary", :tier :advanced, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr", :var "clear-pending-error-traces!", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr", :var "clear-request!", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr", :var "default-error-projector-fn", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
@@ -328,14 +327,6 @@
   {:namespace "re-frame.ssr", :var "render-to-string", :tier :advanced, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr", :var "render-tree-hash", :tier :advanced, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr", :var "set-request!", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.ssr", :var "streaming-build-final-payload", :tier :advanced, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.ssr", :var "streaming-failed-template", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.ssr", :var "streaming-fallback-template", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.ssr", :var "streaming-hydrate-delta-script", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.ssr", :var "streaming-install!", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.ssr", :var "streaming-render-continuation", :tier :advanced, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.ssr", :var "streaming-render-shell", :tier :advanced, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.ssr", :var "streaming-resolved-template", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr", :var "verify-hydration!", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr.head", :var "default-head", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr.head", :var "head-model", :tier :advanced, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
@@ -349,12 +340,9 @@
   {:namespace "re-frame.ssr.ring", :var "cookie->set-cookie-header", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr.ring", :var "default-html-shell", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr.ring", :var "default-on-error", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.ssr.ring", :var "default-streaming-prefix", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.ssr.ring", :var "default-streaming-suffix", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr.ring", :var "handler-defaults", :tier :implementation, :kind :var, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr.ring", :var "ssr-handler", :tier :advanced, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr.ring", :var "ssr-middleware", :tier :advanced, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.ssr.ring", :var "stream-handler", :tier :advanced, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr.ring.node", :var "default-admission-ms", :tier :implementation, :kind :var, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr.ring.node", :var "default-endpoint", :tier :implementation, :kind :var, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr.ring.node", :var "default-timeout-ms", :tier :implementation, :kind :var, :owner "011", :status "v1", :facade? false, :runtime-verified? true}

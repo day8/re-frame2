@@ -264,7 +264,7 @@ npx shadow-cljs release examples/login-fresco-server   --config-merge '{:closure
 Then boot the JVM and serve `host.clj`'s `app`. Start it from
 `implementation/ssr-ring/`, not from `implementation/`: the host needs
 `fresco.login.host`, the shared `login.model` and a Ring adapter on one
-classpath, and `ssr-ring`'s `:test`, `:slow-test` and `:crossing-test`
+classpath, and `ssr-ring`'s `:test` and `:crossing-test`
 aliases are the only place all three meet — each puts both `examples/` roots
 beside `ring/ring-jetty-adapter`. `implementation/deps.edn` carries no Jetty
 at all, so the `require` below will not resolve from there.

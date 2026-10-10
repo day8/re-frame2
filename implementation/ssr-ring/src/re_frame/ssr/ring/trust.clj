@@ -40,10 +40,9 @@
   position-appropriate escaping (Security.md §XSS at output
   boundaries) at every leaf.
 
-  Why a sibling namespace: both `re-frame.ssr.ring/ssr-handler` and
-  `re-frame.ssr.ring.streaming/stream-handler` validate the same four
-  opts at construction time — colocating the contract here avoids the
-  circular require between the streaming sub-namespace and the Ring façade."
+  Why a sibling namespace: `re-frame.ssr.ring.lifecycle` validates the
+  four opts at construction time, and the façade requires lifecycle —
+  colocating the contract here keeps that require one-way."
   (:require [clojure.string :as str]
             [re-frame.error :as rf.error]))
 
@@ -90,7 +89,7 @@
           (rf.error/throw-error!
             :rf.error/ssr-trusted-shell-opt-invalid
             'rf.ssr/trusted-shell
-            (str "ssr-handler / stream-handler " (pr-str option-key)
+            (str "ssr-handler " (pr-str option-key)
                  " must be a string (or nil, meaning use the default; "
                  ":script-src also accepts false, emit no bootstrap "
                  "script) — the four "

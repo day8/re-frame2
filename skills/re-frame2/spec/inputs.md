@@ -34,7 +34,6 @@ The worked example for each pattern. Used both as a source of truth for canonica
 - `examples/core/managed_http_counter/` — ManagedHTTP pattern.
 - `examples/patterns/long_running_work/` — LongRunningWork pattern.
 - `examples/patterns/websocket/` — WebSocket pattern.
-- `examples/capabilities/ssr/ssr_streaming/` — streaming SSR (Spec 011 §Streaming).
 - `examples/core/notebook/` — design-led multi-pane layout.
 
 When an example doesn't yet exist, the relevant pattern leaf inlines a mini-declaration and flags "example app pending".

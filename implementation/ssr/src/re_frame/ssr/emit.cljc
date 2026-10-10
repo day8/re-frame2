@@ -81,8 +81,8 @@
 ;; An ordinary inline `<script>`/`<style>`
 ;; with STRING content is AUTHOR CONTENT — trust the programmer. It is
 ;; emitted VERBATIM with only React's context-safe closing-sequence rewrite
-;; (`html/escape-raw-text`), the ONE shared implementation this emitter, the
-;; streaming walker, and the S5 serialiser (`re-frame.ssr.ui-tree`) all call,
+;; (`html/escape-raw-text`), the ONE shared implementation this emitter and
+;; the S5 serialiser (`re-frame.ssr.ui-tree`) both call,
 ;; so the same author content is byte-identical on every SSR path. This is
 ;; NOT sanitisation — the rewrite is the same breakout guard React applies,
 ;; aimed at attacker-supplied `</script>` DATA that must not terminate the
@@ -239,7 +239,7 @@
 
 ;; ---- the hydrating adapter's prop conversion ------------------------------
 ;;
-;; The markup these two hiccup body walkers paint is hydrated by a Reagent-tier
+;; The markup the hiccup body walker paints is hydrated by a Reagent-tier
 ;; adapter (stock Reagent or reagent-slim), and what that client paints is
 ;; NOT the author's attribute map verbatim: the adapter converts each prop
 ;; first — a keyword name through Reagent's kebab → camel rule, a keyword
@@ -253,8 +253,8 @@
 ;; hydration, and the render-tree hash is taken over the tree, not the HTML,
 ;; so nothing would catch any of it (Spec 011 §The render-tree → HTML emitter).
 ;;
-;; So both walkers convert the way the client does, through ONE function
-;; (`dom-element-props`) so they cannot drift:
+;; So the walker converts the way the client does, through ONE function
+;; (`dom-element-props`):
 ;;
 ;;   1. CLASS, on the author's attrs: a `:className` folds into `:class`, and
 ;;      the class value is joined the Reagent way (`class-names`).
@@ -381,7 +381,7 @@
 ;; in `data` on an `<object>`. The hydrating client paints through react-dom,
 ;; and React does not patch an attribute at hydration. So a walker writing
 ;; the value unchanged would leave a URL live on the hydrated page that the
-;; client's own render blocks. The walkers paint what the client paints.
+;; client's own render blocks. The walker paints what the client paints.
 ;; The regex, the substituted URL, the prop set and the custom-element test are
 ;; react-dom 19.3.0's, copied by intent;
 ;; `re-frame.ssr-javascript-url-react-parity-test` pins them against the
@@ -588,10 +588,10 @@
         :else          (str html)))))
 
 (defn dom-element-props
-  "Everything both hiccup body walkers need to open a DOM element, computed
-  once here so the two cannot drift. Joins the
+  "Everything the hiccup body walker needs to open a DOM element, computed
+  in one place. Joins the
   class (the author's, normalised, after the tag shorthand's), merges
-  `root-attrs` (nil on the streaming walker), converts names and values the
+  `root-attrs`, converts names and values the
   way the hydrating client does, then applies the form-control special forms
   on an ordinary element. -> `{:attrs <string-keyed map for attr-string>
   :text <a textarea's text body, or nil> :select <a select's value for its
@@ -620,15 +620,14 @@
 
 (defn reserved-rf-head?
   "True when `head` is a keyword in the framework-reserved `:rf/*` scheme
-  — the bare `rf` namespace (`:rf/suspense-boundary`) or a dotted
+  — the bare `rf` namespace (`:rf/x`) or a dotted
   subsystem segment under it (`:rf.ssr/…`). Per Conventions §Reserved
   namespaces the whole scheme is framework-owned, so no author DOM element
   can legitimately live there.
 
-  The discriminator for the reserved-head guard below. Callers
-  consume the RECOGNISED reserved heads (`:>`, `:rf/suspense-boundary`)
-  before consulting this, so a `true` here means \"reserved namespace, not
-  a marker this emitter implements\"."
+  The discriminator for the reserved-head guard below: no `:rf/*` head
+  has a meaning to this emitter, so every head it answers `true` for fails
+  loud."
   [head]
   (when-let [ns* (and (keyword? head) (namespace head))]
     (or (= "rf" ns*)
@@ -665,9 +664,8 @@
       (str "hiccup vector head " (pr-str head)
            " (in element " (pr-str safe-element) ") is in the framework-reserved"
            " :rf/* namespace but is not a hiccup head this emitter"
-           " recognises. The recognised reserved heads are :<> (fragment),"
-           " :> (Reagent-native interop) and :rf/suspense-boundary"
-           " (streaming, shell walker only). The :rf/* scheme is framework-"
+           " recognises. The recognised reserved heads are :<> (fragment)"
+           " and :> (Reagent-native interop). The :rf/* scheme is framework-"
            "owned (Conventions §Reserved namespaces), so this cannot be an"
            " author DOM element — emitting it would paint a phantom <"
            (name head) "> element silently. Check the spelling, or use an"
@@ -678,7 +676,7 @@
 
 (defn reject-invalid-hiccup-head!
   "Throw `:rf.error/invalid-hiccup-head` for a hiccup vector whose head is
-  neither a keyword (DOM tag / `:<>` / `:>` / `:rf/suspense-boundary`) nor
+  neither a keyword (DOM tag / `:<>` / `:>`) nor
   a callable component (a fn or Var). A head that is a string / nil /
   number / boolean / collection has no HTML interpretation.
 
@@ -688,10 +686,8 @@
   `[\"x\" \"<img … onerror=…>\"]`) would ship live `<script>` /
   `<img onerror>` markup — an XSS-class bypass of the escape-at-every-leaf-
   or-fail-loud invariant (Spec 011 §XSS at output boundaries). Fail loud instead,
-  mirroring `validate-tag-name!` and the `:>` / `:rf/suspense-boundary`
-  throws — never stringify an unescaped hiccup form to the wire. Shared by
-  the sync emitter and the streaming shell walker so both paths reject the
-  same malformed shape identically.
+  mirroring `validate-tag-name!` and the `:>` throw — never stringify an
+  unescaped hiccup form to the wire.
 
   THIS ARM IS WHERE A FOREIGN HEAD LANDS: a React context provider is
   neither `keyword?` nor `ifn?`, so `[ctx.Provider {…}]` falls here, and
@@ -707,8 +703,8 @@
       're-frame.ssr.emit
       (str "hiccup vector head " (pr-str (first safe-element))
            " (in element " (pr-str safe-element) ") is not a valid hiccup head — a head"
-           " must be a keyword (DOM tag / :<> / :> /"
-           " :rf/suspense-boundary) or a callable component (fn / Var). A"
+           " must be a keyword (DOM tag / :<> / :>) or a callable"
+           " component (fn / Var). A"
            " string / nil / number / boolean / collection head has no HTML"
            " interpretation; emitting its EDN form raw would bypass output"
            " escaping (XSS). Produce a valid hiccup head.")
@@ -722,8 +718,7 @@
   both hosts because a collection looks up its argument, so `ifn?` alone
   would call `[[:div] …]` with the element's children and emit whatever the
   lookup returned. A collection head is malformed, and reaches
-  `reject-invalid-hiccup-head!` instead. Shared by the sync emitter and the
-  streaming shell walker."
+  `reject-invalid-hiccup-head!` instead."
   [head]
   (and (ifn? head) (not (coll? head))))
 
@@ -1026,7 +1021,7 @@
          ;; (`invoke-form-2-render-fn` §THE SUPPORTED CONTRACT), and there
          ;; it buys a caught mistake. Here it would buy nothing: the arm
          ;; emits exactly what the client paints. The loud arms in
-         ;; this emitter (`:>`, `:rf/suspense-boundary`, reserved `:rf/*`,
+         ;; this emitter (`:>`, reserved `:rf/*`,
          ;; a malformed head) all guard shapes with NO safe wire meaning,
          ;; where the alternative is a phantom element or unescaped EDN.
          ;; A fragment attribute's safe wire meaning is nothing, and
@@ -1074,45 +1069,9 @@
              {:recovery :wrap-in-reg-view-or-render-client-only
               :extra    {:element el}}))
 
-         ;; Reserved streaming marker `:rf/suspense-boundary` — recognised
-         ;; ONLY by the streaming shell walker (`re-frame.ssr.streaming`).
-         ;; The standard emitter must NOT treat it as a DOM tag: its
-         ;; name passes the `[A-Za-z][A-Za-z0-9-]*` tag grammar, so
-         ;; without this guard `parse-tag-name` would emit a phantom
-         ;; `<suspense-boundary>` element with the `{:id … :fallback …}`
-         ;; attrs map serialised as bogus attributes. Fail
-         ;; loud — parallel to the `:>` throw above — so a marker that
-         ;; reaches a non-streaming render (e.g. `render-to-string` on a
-         ;; streaming tree) surfaces a structured error rather than
-         ;; silently producing malformed markup. Per Conventions §`:rf/*`
-         ;; reserved hiccup heads + Spec 011 §Streaming SSR.
-         ;; `el` crosses `error/safe-form` first: a
-         ;; boundary's `:fallback` is ordinary hiccup and can carry a
-         ;; foreign JS value anywhere inside it.
-         (= :rf/suspense-boundary head)
-         (let [el (rf.error/safe-form el)]
-           (rf.error/throw-error!
-             :rf.error/ssr-suspense-boundary-outside-stream
-             're-frame.ssr.emit
-             (str ":rf/suspense-boundary (element "
-                  (pr-str el) ") is a streaming-only "
-                  "marker recognised by the streaming "
-                  "shell walker (re-frame.ssr.ring/"
-                  "stream-handler), not the standard "
-                  "emitter. It reached render-to-string "
-                  "outside a stream — that path cannot "
-                  "resolve the boundary's continuation, "
-                  "so it would emit a phantom "
-                  "<suspense-boundary> DOM element. Use "
-                  "stream-handler to render trees "
-                  "containing :rf/suspense-boundary.")
-             {:recovery :render-via-stream-handler
-              :extra    {:element el}}))
-
          ;; An unrecognised head in the framework-reserved `:rf/*` scheme.
-         ;; The recognised reserved heads are consumed above (`:<>`, `:>`,
-         ;; `:rf/suspense-boundary`); anything else under the reserved root
-         ;; is a typo or a marker this emitter does not implement, and its
+         ;; The recognised reserved heads (`:<>`, `:>`) are consumed above;
+         ;; no head under the reserved root has a meaning here, and its
          ;; name passes the `[A-Za-z][A-Za-z0-9-]*` tag grammar — so
          ;; falling through to the element branch would paint a phantom
          ;; `<suspense-boundry>` / `<hydrate>` and say nothing. Per
@@ -1157,7 +1116,7 @@
                normalised-tag-name (clojure.string/lower-case tag-name)
                ;; Class join, root attrs, the
                ;; client's name/value conversion and the form-control special
-               ;; forms, shared with the streaming walker.
+               ;; forms.
                {attrs :attrs text :text select-value :select inner-html :inner-html}
                (dom-element-props tag-name normalised-tag-name tag-attrs
                                   user-attrs root-attrs children)
@@ -1172,7 +1131,7 @@
              ;; An ordinary inline <script>/<style> with STRING
              ;; content is author content: emit it VERBATIM with only the
              ;; shared closing-sequence rewrite (`html/escape-raw-text`),
-             ;; byte-identical to the S5 serialiser and the streaming walker.
+             ;; byte-identical to the S5 serialiser.
              ;; The `every? string?` gate mirrors the compiled path — an
              ;; all-string body is the real inline-script/style shape; any
              ;; structural child takes the ordinary per-child walk
@@ -1199,8 +1158,7 @@
              ;; would reach the DOM as "code" — one authored character lost, and a
              ;; text hydration mismatch against the client's rendering of the
              ;; same `.cljc` view. The roster and the rule are shared with the
-             ;; streaming walker and the S5 serialiser
-             ;; (`html/leading-newline-compensation`); `""` for every other
+             ;; S5 serialiser (`html/leading-newline-compensation`); `""` for every other
              ;; tag and body shape, so this is inert on the common path.
              :else
              (str "<" tag-name (attr-string attrs) ">"
@@ -1215,8 +1173,8 @@
          ;; (`[#'component & args]`). On the JVM a Var is `ifn?` but NOT
          ;; `fn?`, so a bare `(fn? head)` test would send a Var-headed
          ;; component to the malformed-head `:else` arm instead of
-         ;; resolving it. `ifn?` covers both — keywords/`:<>`/`:>`/
-         ;; `:rf/suspense-boundary` are all consumed by the branches above,
+         ;; resolving it. `ifn?` covers both — keywords, `:<>` and `:>`
+         ;; are all consumed by the branches above,
          ;; so the only callables reaching here are fns and Var references.
          ;; Pass root-attrs through this indirection too — structurally the
          ;; same kind of wrapping as a registered-view ref, so the root

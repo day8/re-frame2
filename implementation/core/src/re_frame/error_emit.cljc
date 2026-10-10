@@ -1158,8 +1158,7 @@
 
 ;; The general non-event always-on record helper. The EP-0008
 ;; SSR error-emit promotions (`:rf.error/ssr-render-failed`,
-;; `:rf.error/ssr-streaming-writer-failed`, `:rf.error/malformed-hydration-
-;; payload` — incl. the pre-frame FRAMELESS parse path, `:rf.error/ssr-head-
+;; `:rf.error/malformed-hydration-payload` — incl. the pre-frame FRAMELESS parse path, `:rf.error/ssr-head-
 ;; resolution-failed`, `:rf.error/sanitised-on-projection`,
 ;; `:rf.error/ssr-ring-error-view-failed`) reach the always-on axis through
 ;; this hook from the SSR / ssr-ring host layers (which ship above core's

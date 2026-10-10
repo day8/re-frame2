@@ -524,13 +524,12 @@
   {:namespace "re-frame.fresco.tool"      :var "read-mounted-boundaries" :kind :fn :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
   {:namespace "re-frame.fresco.tool"      :var "read-read-attribution"  :kind :fn  :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
   ;; --- re-frame.ssr CLJS-only client lifecycle ---
-  ;; `read-server-payload` and `streaming-install!` are defined under
-  ;; `#?(:cljs …)`, so the JVM generator's view of re-frame.ssr cannot see
-  ;; them. spec/API.md's implementation-tier SSR note names both beside the
-  ;; JVM-visible `verify-hydration!`; the supported client path is `hydrate!`.
+  ;; `read-server-payload` is defined under `#?(:cljs …)`, so the JVM
+  ;; generator's view of re-frame.ssr cannot see it. spec/API.md's
+  ;; implementation-tier SSR note names it beside the JVM-visible
+  ;; `verify-hydration!`; the supported client path is `hydrate!`.
   ;; Not covered by the CLJS probe, which does not load re-frame.ssr.
-  {:namespace "re-frame.ssr" :var "read-server-payload" :kind :fn :facade? false :tier :implementation :owner "011" :status "v1" :runtime-verified? false}
-  {:namespace "re-frame.ssr" :var "streaming-install!"  :kind :fn :facade? false :tier :implementation :owner "011" :status "v1" :runtime-verified? false}]
+  {:namespace "re-frame.ssr" :var "read-server-payload" :kind :fn :facade? false :tier :implementation :owner "011" :status "v1" :runtime-verified? false}]
 
  ;; --------------------------------------------------------------------------
  ;; :jvm-only-classification — the MIRROR of :cljs-only above, and the
@@ -1787,15 +1786,6 @@
   ;; home on `re-frame.ssr.head` below; the pairs are the same functions.
   ["re-frame.ssr" "head-model"]                    {:tier :advanced :owner "011" :status "v1"}
   ["re-frame.ssr" "head-model->html"]              {:tier :advanced :owner "011" :status "v1"}
-  ;; The cross-host suspense boundary COMPONENT — the streaming AUTHORING
-  ;; surface. Advanced rather than front-porch: streaming SSR is
-  ;; an opt-in capability in a separate artefact, not day-one app building.
-  ;; It is nonetheless the one form an author writes for a streamed region —
-  ;; `:rf/suspense-boundary` is internal wire syntax, never authored.
-  ["re-frame.ssr" "boundary"]                      {:tier :advanced :owner "011" :status "v1"}
-  ["re-frame.ssr" "streaming-render-shell"]        {:tier :advanced :owner "011" :status "v1"}
-  ["re-frame.ssr" "streaming-render-continuation"] {:tier :advanced :owner "011" :status "v1"}
-  ["re-frame.ssr" "streaming-build-final-payload"] {:tier :advanced :owner "011" :status "v1"}
   ["re-frame.ssr" "reg-error-projector"]           {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr" "adapter"]                       {:tier :implementation :owner "011" :status "v1"}
   ;; The supported client boot, rowed in spec/API.md SSR. A host that must
@@ -1822,10 +1812,6 @@
   ["re-frame.ssr" "fallback-public-error"]         {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr" "on-frame-destroyed!"]           {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr" "drain-blocking-resources!"]     {:tier :implementation :owner "011" :status "v1"}
-  ["re-frame.ssr" "streaming-fallback-template"]   {:tier :implementation :owner "011" :status "v1"}
-  ["re-frame.ssr" "streaming-resolved-template"]   {:tier :implementation :owner "011" :status "v1"}
-  ["re-frame.ssr" "streaming-failed-template"]     {:tier :implementation :owner "011" :status "v1"}
-  ["re-frame.ssr" "streaming-hydrate-delta-script"] {:tier :implementation :owner "011" :status "v1"}
 
   ;; =========================================================================
   ;; re-frame.ssr.head — the head/meta contract's public door
@@ -1865,7 +1851,7 @@
 
   ;; =========================================================================
   ;; re-frame.ssr.ring — Ring host-adapter (day8/re-frame2-ssr-ring), §011.
-  ;; The three handler constructors are the artefact's entry points — what an
+  ;; The two handler constructors are the artefact's entry points — what an
   ;; SSR host calls — so they are `:advanced`, rowed in spec/API.md §SSR and
   ;; documented on docs/api/re-frame.ssr.ring.md. The `default-*` values,
   ;; `handler-defaults` and `cookie->set-cookie-header` are the defaults and
@@ -1873,10 +1859,7 @@
   ;; =========================================================================
   ["re-frame.ssr.ring" "ssr-handler"]               {:tier :advanced :owner "011" :status "v1"}
   ["re-frame.ssr.ring" "ssr-middleware"]            {:tier :advanced :owner "011" :status "v1"}
-  ["re-frame.ssr.ring" "stream-handler"]            {:tier :advanced :owner "011" :status "v1"}
   ["re-frame.ssr.ring" "default-html-shell"]        {:tier :implementation :owner "011" :status "v1"}
-  ["re-frame.ssr.ring" "default-streaming-prefix"]  {:tier :implementation :owner "011" :status "v1"}
-  ["re-frame.ssr.ring" "default-streaming-suffix"]  {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr.ring" "default-on-error"]          {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr.ring" "cookie->set-cookie-header"] {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr.ring" "handler-defaults"]          {:tier :implementation :owner "011" :status "v1"}

@@ -43,8 +43,8 @@
 
 (def default-on-error
   "Minimal 500 response used when a handler caller doesn't supply
-  `:on-error`. Shared by `ssr-handler` AND `stream-handler` so the
-  topology-leak contract below lives in exactly one place.
+  `:on-error`, so the topology-leak contract below lives in exactly one
+  place.
 
   The projector handles drain and render errors. This hook covers setup,
   materialisation, and transport exceptions outside it. The fixed body never
@@ -79,7 +79,7 @@
   frame-id keyword (address-directed — it destroys whichever incarnation
   currently holds the id). The per-request handlers always pass the VALUE so
   teardown is exact. The bare-id form is for callers that genuinely own the id's
-  current incarnation (SSR test teardown, streaming edge paths). It is NOT for
+  current incarnation (SSR test teardown). It is NOT for
   the setup-FAILURE path: core construction is the exact-token owner of a failed
   incarnation's rollback, so an address-directed reap there could destroy a
   same-id successor. The optional
@@ -107,8 +107,7 @@
   "Resolve the caller's `:root-view` opt to a hiccup vector. Accepts
   either a hiccup vector directly OR a 0-arity fn that returns hiccup.
   Resolve once per request so a non-idempotent function cannot make rendered
-  HTML and payload hashes describe different trees. Streaming re-resolves only
-  after at least one continuation, when post-drain state needs a fresh hash.
+  HTML and payload hashes describe different trees.
 
   The hiccup vector's HEAD must be a callable — the Var `reg-view` defs,
   or `(rf/view :id)`. A keyword head is an HTML element on every host,
@@ -351,8 +350,8 @@
   only the default JVM-local renderer reads it, so with a custom renderer
   it is optional and ignored.
 
-  Both handlers fail at construction rather than on the first request or,
-  worse, inside an already-committed writer. Returns `opts` unchanged."
+  The handler fails at construction rather than on the first request.
+  Returns `opts` unchanged."
   [{:keys [initial-events root-view renderer] :as opts}]
   (when-not initial-events
     (rf.error/throw-error!
@@ -371,9 +370,8 @@
   opts)
 
 (defn validate-construction-opts!
-  "Run the full fail-closed-at-boot validation triple shared by
-  `re-frame.ssr.ring/ssr-handler` and
-  `re-frame.ssr.ring.streaming/stream-handler`. A misconfigured handler
+  "Run the full fail-closed-at-boot validation triple for
+  `re-frame.ssr.ring/ssr-handler`. A misconfigured handler
   refuses to construct rather than failing per request. The checks are:
 
     1. required-opt presence (`:initial-events` / `:root-view`) via
@@ -388,7 +386,7 @@
     3. trusted-shell-hook shape (`:head` / `:body-end` / `:script-src` /
        `:app-element-id` are strings or nil; `:script-src` may also be
        `false`) via
-       `trust/validate-trusted-shell-opts!` — both shells route these
+       `trust/validate-trusted-shell-opts!` — the shell routes these
        into the HTML envelope (`:head` / `:body-end` as raw content
        hooks, `:script-src` / `:app-element-id` as escaped attribute
        hooks), so a structural mistake (map / vector / symbol / number)
@@ -403,84 +401,9 @@
   (rf.ssr.payload-policy/validate-policy-opts! opts)
   (rf.ssr.ring.trust/validate-trusted-shell-opts! opts))
 
-(defn validate-streaming-opts!
-  "Reject opts the streaming handler CANNOT honour, at handler-
-  construction time (boot) rather than silently ignoring them per-request.
-  Run by `re-frame.ssr.ring.streaming/stream-handler` AFTER the shared
-  `validate-construction-opts!` triple.
-
-  `:html-shell`: the non-streaming `ssr-handler` builds its
-  response by calling a ONE-PIECE `:html-shell` fn `(body-html payload-edn
-  opts) → string` — it has the full body + payload in hand before the
-  envelope is composed, so a custom shell can wrap them arbitrarily. The
-  streaming handler CANNOT use that contract: it flushes the envelope as
-  TWO chunks straddling N continuation chunks — the prefix
-  (`default-streaming-prefix`) on first byte, the suffix
-  (`default-streaming-suffix`) after the continuations + final payload
-  have drained (Spec 011 §Streaming SSR — the wire shape pins
-  prefix → shell → continuations → payload → suffix). A one-piece
-  `:html-shell` callback can never run after streaming has started, so the
-  streaming path ALWAYS writes the split default envelope and a passed
-  `:html-shell` is silently dropped.
-
-  Silently accepting it would discard security and document configuration.
-  `stream-handler` therefore refuses to construct when `:html-shell` is
-  present (any non-nil value), pointing the caller at the streaming
-  envelope surface (the split `default-streaming-prefix` /
-  `default-streaming-suffix` plus the `:head` / `:body-end` /
-  `:script-src` / `:app-element-id` trusted-shell hooks, which the
-  streaming envelope DOES honour). A nil `:html-shell` passes (no
-  override requested).
-
-  `:renderer`: the render-body seam hands a non-local
-  renderer the settled frame ONCE and takes back one body. The streaming
-  handler renders its shell and then re-enters the tree per continuation
-  chunk from the same JVM-resolved `:root-view`, so a body that arrives
-  whole from elsewhere has no continuation to straddle — streaming over a
-  non-local renderer is a programme non-goal, and silently rendering the
-  JVM `:root-view` instead would be the same fail-open gap `:html-shell`
-  closes. `stream-handler` therefore refuses a non-nil `:renderer` the
-  same way, pointing the caller at the non-streaming `ssr-handler`. A
-  nil `:renderer` passes (the default JVM-local render).
-
-  Returns `opts` unchanged on success."
-  [opts]
-  (when (some? (:renderer opts))
-    (rf.error/throw-error!
-      :rf.error/ssr-streaming-unsupported-opt
-      'rf.ssr/stream-handler
-      (str "stream-handler does not support :renderer — the streaming "
-           "path renders its shell and each continuation chunk from the "
-           "JVM-resolved :root-view (Spec 011 §Streaming SSR), so a body "
-           "rendered whole elsewhere has no continuation to straddle. "
-           "Use the non-streaming ssr-handler with :renderer, or drop "
-           ":renderer to stream the JVM-local render.")
-      {:recovery :drop-renderer-or-use-non-streaming-handler
-       :extra    {:opt-key :renderer
-                  :got     (:renderer opts)}}))
-  (when (some? (:html-shell opts))
-    (rf.error/throw-error!
-      :rf.error/ssr-streaming-unsupported-opt
-      'rf.ssr/stream-handler
-      (str "stream-handler does not support :html-shell — the "
-           "streaming envelope is flushed as a SPLIT prefix/suffix "
-           "straddling the continuation chunks (Spec 011 §Streaming "
-           "SSR), so a one-piece (body-html payload-edn opts) → string "
-           ":html-shell fn cannot be applied after streaming starts. "
-           "Use the streaming envelope surface instead: the :head, "
-           ":body-end, :script-src, and :app-element-id trusted-shell "
-           "hooks (honoured by default-streaming-prefix / "
-           "default-streaming-suffix), or build a non-streaming "
-           "ssr-handler when a custom one-piece shell is required.")
-      {:recovery :drop-html-shell-or-use-non-streaming-handler
-       :extra    {:opt-key :html-shell
-                  :got     (:html-shell opts)}}))
-  opts)
-
 (defn resolve-on-error
-  "Resolve the effective `:on-error` Ring-fn from `raw-opts`. Shared by
-  `ssr-handler` AND `stream-handler` so the precedence lives in one
-  place. Precedence:
+  "Resolve the effective `:on-error` Ring-fn from `raw-opts`, the one
+  place the precedence lives. Precedence:
 
     1. caller-supplied `:on-error` — full Ring-fn override; used verbatim.
     2. absent                      — host-locked `default-on-error`

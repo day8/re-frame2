@@ -38,7 +38,6 @@
     :rf.error/frame-teardown-failed
     :rf.error/on-destroy-handler-exception
     :rf.error/ssr-render-failed
-    :rf.error/ssr-streaming-writer-failed
     :rf.error/malformed-hydration-payload
     :rf.error/ssr-head-resolution-failed
     :rf.error/sanitised-on-projection
@@ -64,8 +63,7 @@
     :rf.error/classification-effect-shape
     :rf.error/legacy-runtime-root
     :rf.error/effect-map-shape
-    :rf.ssr/hydration-mismatch
-    :rf.ssr/suspense-boundary-failed})
+    :rf.ssr/hydration-mismatch})
 
 ;; The frame-teardown row rides the bounded one-record-per-destroy report.
 (def ^:private report-categories
@@ -76,7 +74,6 @@
 ;; every other category rides the per-event `dispatch-on-error!`.
 (def ^:private record-categories
   #{:rf.error/ssr-render-failed
-    :rf.error/ssr-streaming-writer-failed
     :rf.error/malformed-hydration-payload
     :rf.error/ssr-head-resolution-failed
     :rf.error/sanitised-on-projection
@@ -90,8 +87,7 @@
     :rf.error/safe-redirect-scheme-rejected
     :rf.error/safe-redirect-host-disallowed
     :rf.error/schema-validation-failure
-    :rf.ssr/hydration-mismatch
-    :rf.ssr/suspense-boundary-failed})
+    :rf.ssr/hydration-mismatch})
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture

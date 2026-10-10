@@ -525,7 +525,7 @@
 ;; Raw-text elements — <script>/<style> content is HTML RAW TEXT.
 ;; The serialisation rule (`html/raw-text-tags` + `html/escape-raw-text`) is
 ;; the ONE shared implementation in `re-frame.ssr.html-helpers`, called
-;; identically by this serialiser and both hiccup emitters so every SSR path
+;; identically by this serialiser and the hiccup emitter so every SSR path
 ;; emits byte-identical raw text for the same author content.
 
 ;; ---------------------------------------------------------------------------
@@ -537,7 +537,7 @@
   start tag — `<pre>`, `<listing>`, `<textarea>`.
 
   The roster itself lives ONCE, in `re-frame.ssr.html-helpers`, alongside the
-  rule that reads it: both hiccup emitters need the same set, and a second
+  rule that reads it: the hiccup emitter needs the same set, and a second
   copy here would drift from it the way any duplicated rule does. This is the
   alias, not a copy."
   rf.ssr.html-helpers/newline-eating-tags)
@@ -584,8 +584,8 @@
   lever (it recognises a lone text child, a textarea `:value`, AND — under
   `<pre>`/`<listing>` — a sole trusted-markup `{:html s}` child, React's
   `dangerouslySetInnerHTML.__html`), and the decision itself is
-  `re-frame.ssr.html-helpers/leading-newline-compensation`, shared with both
-  hiccup emitters. The hiccup paths carry their own, simpler lever
+  `re-frame.ssr.html-helpers/leading-newline-compensation`, shared with the
+  hiccup emitter. The hiccup path carries its own, simpler lever
   (`html/sole-string-child`) because hiccup has no `{:html s}` child and no
   textarea `:value` node — the tree-space distinction lives here."
   [tag-lc content]

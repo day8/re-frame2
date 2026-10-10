@@ -276,10 +276,6 @@
     :ssr/response-contract
     :ssr/head-contract
     :ssr/error-projection
-    ;; Streaming SSR primitive
-    ;; (:rf/suspense-boundary) + chunked-HTTP wire shape.
-    :ssr/suspense-boundary
-    :ssr/chunked-response
     :routing/match-url})
 
 (def claimed-spec-versions
@@ -696,90 +692,6 @@
                        "    input:    " (pr-str (:input call)) "\n"
                        "    expected: " (pr-str want) "\n"
                        "    actual:   " (pr-str out)))})
-
-    ;; :rf/suspense-boundary streaming SSR.
-    ;; Three call kinds; one per Spec 011 §Streaming SSR step.
-
-    :ssr.streaming/render-shell
-    (let [{:keys [shell-html continuations]}
-          (try (rf.ssr/streaming-render-shell (:input call))
-               (catch Throwable e {:shell-html (str "<error: " (.getMessage e) ">")
-                                   :continuations []}))
-          want (:expect call)
-          shell-fails  (->> (:shell-html-includes want)
-                            (remove #(.contains ^String shell-html ^String %)))
-          conts-want   (:continuations want)
-          conts-actual (mapv #(select-keys % [:id]) continuations)
-          conts-mismatch? (and conts-want (not= conts-want conts-actual))]
-      {:passed? (and (empty? shell-fails) (not conts-mismatch?))
-       :detail  (when (or (seq shell-fails) conts-mismatch?)
-                  (str "ssr/streaming/render-shell\n"
-                       (when (seq shell-fails)
-                         (str "    shell-html missing substrings: " (pr-str shell-fails) "\n"
-                              "    shell-html actual:\n      " shell-html "\n"))
-                       (when conts-mismatch?
-                         (str "    continuations expected: " (pr-str conts-want) "\n"
-                              "    continuations actual:   " (pr-str conts-actual) "\n"))))})
-
-    :ssr.streaming/render-continuation
-    (let [out  (try (rf.ssr/streaming-render-continuation
-                      :rf/default (:input call))
-                    (catch Throwable e {:html (str "<error: " (.getMessage e) ">")
-                                        :failed? true}))
-          want (:expect call)
-          missing-substrs (when (:html-includes want)
-                            (remove #(.contains ^String (:html out) ^String %)
-                                    (:html-includes want)))
-          html-mismatch?   (and (:html-equals want)
-                                (not= (:html-equals want) (:html out)))
-          failed-mismatch? (and (contains? want :failed?)
-                                (not= (:failed? want) (:failed? out)))]
-      {:passed? (and (empty? missing-substrs) (not html-mismatch?) (not failed-mismatch?))
-       :detail  (when (or (seq missing-substrs) html-mismatch? failed-mismatch?)
-                  (str "ssr/streaming/render-continuation\n"
-                       (when (seq missing-substrs)
-                         (str "    html missing substrings: " (pr-str missing-substrs) "\n"
-                              "    html actual: " (pr-str (:html out)) "\n"))
-                       (when html-mismatch?
-                         (str "    html expected: " (pr-str (:html-equals want)) "\n"
-                              "    html actual:   " (pr-str (:html out)) "\n"))
-                       (when failed-mismatch?
-                         (str "    failed? expected: " (:failed? want) "\n"
-                              "    failed? actual:   " (:failed? out) "\n"))))})
-
-    :ssr.streaming/build-final-payload
-    (let [payload (try (rf.ssr/streaming-build-final-payload
-                         :rf/default
-                         (:render-hash (:input call))
-                         ;; The WIRE :rf/frame-id is decoupled from
-                         ;; the projection frame. This fixture's synthetic server
-                         ;; frame is the STABLE `:rf/default`, so name it as the
-                         ;; `:client-frame-id` wire id — the payload then carries
-                         ;; `:rf/frame-id`, matching the fixture's pinned canonical
-                         ;; keys. (A production per-request gensym frame is
-                         ;; anonymous and OMITS `:rf/frame-id`; covered by the
-                         ;; ssr_streaming_test omit case + the ssr-ring shipped-
-                         ;; handler regression.)
-                         (assoc (dissoc (:input call) :render-hash)
-                                :client-frame-id :rf/default))
-                       (catch Throwable e {:error (.getMessage e)}))
-          want    (:expect call)
-          keys-want   (:payload-keys want)
-          keys-actual (set (keys payload))
-          version-want (:rf/version want)
-          version-actual (:rf/version payload)
-          missing (when keys-want
-                    (clojure.set/difference keys-want keys-actual))
-          version-mismatch? (and version-want
-                                 (not= version-want version-actual))]
-      {:passed? (and (empty? missing) (not version-mismatch?))
-       :detail  (when (or (seq missing) version-mismatch?)
-                  (str "ssr/streaming/build-final-payload\n"
-                       (when (seq missing)
-                         (str "    missing payload keys: " (pr-str missing) "\n"))
-                       (when version-mismatch?
-                         (str "    :rf/version expected: " version-want
-                              " actual: " version-actual "\n"))))})
 
     {:passed? false
      :detail  (str "unknown :call form for ssr runner: " (:call call))})))

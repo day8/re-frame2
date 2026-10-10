@@ -97,7 +97,7 @@
                  ;; tree is test-free: every example's headless test
                  ;; fixtures live in the framework test tree
                  ;; (re-frame.examples-test for the JVM-driven ssr /
-                 ;; ssr_streaming / state_machine_walkthrough; the reagent
+                 ;; state_machine_walkthrough; the reagent
                  ;; adapter-test bridges for the CLJS ones).
                  "../examples/core"
                  "../examples/capabilities/machines"
