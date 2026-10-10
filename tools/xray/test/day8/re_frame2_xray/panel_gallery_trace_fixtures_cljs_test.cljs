@@ -80,7 +80,7 @@
       (fx/source-coord-history)     6)))
 
 (deftest long-trace-feed-projects-every-row-uncapped
-  (testing "the 1000-row trail projects 1000 rows; cap handled by the view's overflow/capped-list"
+  (testing "the 1000-row trail projects 1000 rows; cap handled by the view's overflow indicator"
     (let [{:keys [rows total empty-kind]} (feed-from-history (fx/long-trace-history))]
       (is (nil? empty-kind))
       (is (= 1000 (count rows)))

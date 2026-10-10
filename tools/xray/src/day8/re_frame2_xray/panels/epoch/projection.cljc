@@ -788,8 +788,8 @@
     ;; INVISIBLE (an ACTIONLESS regional `:always` emits no `:action-ran`, so
     ;; the round trace is its only first-class evidence). `microstep-cascade-
     ;; row` keys on the REGION tag: single-active `:always` microsteps carry
-    ;; no `:region` (they ride the transition row's `cascade-microsteps`) and
-    ;; produce no row.
+    ;; no `:region` (they are recorded only in the transition trace's
+    ;; structured `:cascade`) and produce no row.
     :rf.machine.microstep/transition
     ;; The benign unhandled-event no-op. A machine received an
     ;; event with no matching transition; the snapshot is unchanged. Op-type
@@ -1805,8 +1805,7 @@
 ;; effect, down the page, in EXECUTION order; NO group headers. Each row
 ;; carries a leading status glyph + the effect-id + the effect ARGS in an
 ;; edn-inspector. The "EFFECT HANDLERS" badge carries NO overall glyph —
-;; the per-row glyphs are the whole signal (`side-effects-badge-status`
-;; names the AND-of-rows outcome; SKIPPED rows are NEUTRAL). No
+;; the per-row glyphs are the whole signal. No
 ;; post-commit / best-effort labels. Each row reuses the shared per-step
 ;; `:status` (`:ok` / `:error`) primitive for its per-effect tick:
 ;;
@@ -2186,8 +2185,7 @@
   There are NO `:db` / `:fx` group headers — the leading status glyph +
   effect-id + args edn-inspector on each row + the execution
   order carry the structure. The \"EFFECT HANDLERS\" badge carries no
-  overall glyph; `side-effects-badge-status` names the AND-of-rows
-  outcome (SKIPPED rows are NEUTRAL). No post-commit / best-effort labels.
+  overall glyph. No post-commit / best-effort labels.
 
   nil (step OMITTED) when NO side effect occurred — no `:db` commit, no
   runtime-db commit, no `:fx`, no other effect. ALWAYS appears when a

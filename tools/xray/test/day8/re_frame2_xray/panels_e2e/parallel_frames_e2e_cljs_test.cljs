@@ -231,9 +231,8 @@
           b-id (-> host-cascades second :dispatch-id)
           ;; Pull :exception-message from each row's :raw tags — the
           ;; runtime stamps the ex-info message under :exception-
-          ;; message but `short-description` prefers `:reason` (which
-          ;; is the generic "Event handler threw."). We descend into
-          ;; :raw to distinguish A from B.
+          ;; message, while `:reason` is the generic "Event handler
+          ;; threw.". We descend into :raw to distinguish A from B.
           row-msg-set (fn [feed]
                         (into #{}
                               (map #(get-in % [:raw :tags :exception-message]))
