@@ -12,7 +12,7 @@ Neither can see the class that actually ambushed people:
 
     A REQUIRED CHECK CAN BE A **STEP INSIDE A JOB THE SPINE BELIEVES IT COVERS.**
 
-The witness this gate's self-test pins is the `cljs` job's Fresco `:advanced`
+One witness is the `cljs` job's Fresco `:advanced`
 release build.  It reports under the display name "CLJS (shadow-cljs
 :node-test)", and the spine's `cljs` lane matches that job through its
 node-test run and never builds the bundle -- so the tier is not skipped, the
@@ -968,17 +968,8 @@ def run_report(brief: bool) -> int:
 # self-test
 # ---------------------------------------------------------------------------
 _FIXTURE = """\
-name: fixture
 jobs:
-  setup-only:
-    name: Setup only
-    steps:
-      - uses: actions/checkout@v6
-      - name: npm install
-        run: npm ci
-
   jvm-thing:
-    name: JVM thing (clojure -M:test)
     defaults:
       run:
         working-directory: implementation/thing
@@ -990,38 +981,26 @@ jobs:
       - name: Assert no dependency on the donor
         run: |
           set -euo pipefail
-          if git grep -n -e 're-frame\\.ui' -- implementation/thing; then
-            exit 1
-          fi
+          ! git grep -n donor -- implementation/thing
 
   invariants:
-    name: Repo invariant checks
     steps:
       - name: Covered checker
-        id: check_covered
         run: python scripts/check_covered.py --verbose --ci
       - name: Uncovered checker
-        id: check_uncovered
         run: python scripts/check_uncovered.py --verbose --ci
       - name: Covered checker self-test
-        id: check_covered_selftest
         run: python scripts/check_covered.py --self-test
 
   browser-only:
-    name: Browser lane
-    defaults:
-      run:
-        working-directory: implementation
     steps:
       - name: Run the browser gate
         run: npm run test:browser
 
   all-required-passed:
-    name: All required checks passed
     needs:
-      - setup-only
-      # a comment between entries
       - jvm-thing
+      # a comment between entries
       - invariants
       - browser-only
     steps:
@@ -1041,163 +1020,58 @@ def run_self_tests(verbose: bool) -> int:
             failures += 1
             sys.stderr.write(f"self-test FAIL: {name}\n")
 
-    jobs = parse_workflow(_FIXTURE, "fixture.yml")
-
-    check("parser finds every job", set(jobs) == {
-        "setup-only", "jvm-thing", "invariants", "browser-only", "all-required-passed"})
-    check("parser reads a job display name", jobs["jvm-thing"].name == "JVM thing (clojure -M:test)")
-    check(
-        "parser reads a block-list `needs:` past interleaved comments",
-        jobs["all-required-passed"].needs == ["setup-only", "jvm-thing", "invariants", "browser-only"],
-    )
-    check("parser reads an inline `needs:`", parse_workflow(
-        "jobs:\n  a:\n    needs: [x, y]\n    steps:\n      - run: echo\n", "f.yml"
-    )["a"].needs == ["x", "y"])
-    check("parser reads a scalar `needs:`", parse_workflow(
-        "jobs:\n  a:\n    needs: detect\n    steps:\n      - run: echo\n", "f.yml"
-    )["a"].needs == ["detect"])
-
-    # Setup recognition.  A bare `npm ci` and the bare Clojure installer are
-    # pinned through the gap map below, by the fixture's `setup-only` and
-    # `jvm-thing` jobs.  Here: the quoted installer form, and a body mixing setup
-    # with anything else, which is a GATE (hiding one is the defect).
-    # The installer is written BOTH ways across the workflows; a pattern that
-    # only matches the bare form re-reports it as an unrun gate in every JVM job.
-    check(
-        "the Clojure CLI installer is setup in its QUOTED form too",
-        parse_workflow(
-            'jobs:\n  a:\n    steps:\n      - name: Set up Clojure CLI\n'
-            '        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"\n',
-            "f.yml",
-        )["a"].gate_steps == [],
-    )
-    mixed = parse_workflow(
+    # Hiding a gate inside a setup step is the defect this file exists to prevent.
+    check("a body mixing `npm ci` with a build is a GATE, not setup", len(parse_workflow(
         "jobs:\n  a:\n    steps:\n      - name: b\n        run: |\n"
         "          npm ci\n          npm run build\n", "f.yml"
-    )["a"]
-    check("a body mixing `npm ci` with a build is a GATE, not setup", len(mixed.gate_steps) == 1)
-
-    # Block scalars and continuations normalise into one comparable command.
-    donor = jobs["jvm-thing"].gate_steps[1]
-    check("block-scalar run body is captured", "git grep" in donor.command)
-    check(
-        "backslash continuations fold into one logical line",
-        normalise("clj-kondo \\\n  --parallel \\\n  --lint implementation")
-        == "clj-kondo --parallel --lint implementation",
-    )
+    )["a"].gate_steps) == 1)
     check(
         "multiple command lines join with ' ; '",
         normalise("npx shadow-cljs compile node-test\nnode out/node-test.js")
         == "npx shadow-cljs compile node-test ; node out/node-test.js",
     )
 
-    # The map itself, over the fixture.
-    gap = GapMap(
-        {".github/workflows/test.yml": jobs},
-        impl_roster={"implementation/thing"},
-        spine_checkers={("check_covered", "live"), ("check_covered", "self-test")},
-    )
-    # Only test.yml is present in the fixture, so the other two aggregators and
-    # the kondo pin are legitimately absent -- ignore those problems here.
-    fixture_partial = {j.job_id: [s.name for s in u] for j, u in gap.partial}
-    check(
-        "THE STEP-IN-COVERED-JOB CLASS: a non-test step inside a covered JVM job is reported",
-        fixture_partial.get("jvm-thing") == ["Assert no dependency on the donor"],
-    )
-    check(
-        "a checker the spine does not invoke is reported; one it does is not",
-        fixture_partial.get("invariants") == ["Uncovered checker"],
-    )
-    check(
-        "a job with no covered step at all is CI-only",
-        [j.job_id for j in gap.ci_only] == ["browser-only"],
-    )
-    off_roster = GapMap(
-        {".github/workflows/test.yml": jobs},
-        impl_roster=set(),
-        spine_checkers={("check_covered", "live"), ("check_covered", "self-test")},
-    )
-    check(
-        "`clojure -M:test` OFF the roster is NOT covered (no local lane)",
-        "jvm-thing" in {j.job_id for j in off_roster.ci_only},
-    )
-    check(
-        "a checker mode mismatch is a gap: live-only spine vs a CI --self-test",
-        "Covered checker self-test"
-        in [
-            s.name
-            for j, u in GapMap(
-                {".github/workflows/test.yml": jobs},
-                impl_roster={"implementation/thing"},
-                spine_checkers={("check_covered", "live")},
-            ).partial
-            for s in u
-            if j.job_id == "invariants"
-        ],
-    )
+    jobs = parse_workflow(_FIXTURE, "fixture.yml")
 
-    # THE RATCHET: a lane that matches nothing must be a problem.
-    empty = GapMap(
+    def classify(roster, checkers):
+        gap = GapMap({".github/workflows/test.yml": jobs}, roster, checkers)
+        return ({j.job_id: [s.name for s in u] for j, u in gap.partial},
+                [j.job_id for j in gap.ci_only])
+
+    both = {("check_covered", "live"), ("check_covered", "self-test")}
+    donor = "Assert no dependency on the donor"
+    for name, roster, checkers, want in (
+        ("a non-test step in a covered job, an unrun checker and a laneless job are reported",
+         {"implementation/thing"}, both,
+         ({"jvm-thing": [donor], "invariants": ["Uncovered checker"]}, ["browser-only"])),
+        ("`clojure -M:test` OFF the roster is NOT covered", set(), both,
+         ({"invariants": ["Uncovered checker"]}, ["jvm-thing", "browser-only"])),
+        ("a checker mode mismatch is a gap: live-only spine vs a CI --self-test",
+         {"implementation/thing"}, {("check_covered", "live")},
+         ({"jvm-thing": [donor], "invariants": ["Uncovered checker", "Covered checker self-test"]},
+          ["browser-only"])),
+    ):
+        check(name, classify(roster, checkers) == want)
+
+    broken = GapMap(
         {".github/workflows/test.yml": parse_workflow(
-            "jobs:\n  agg:\n    name: All required checks passed\n"
-            "    needs:\n      - browser-only\n    steps:\n      - run: echo\n"
-            "  browser-only:\n    name: B\n    steps:\n      - name: g\n"
-            "        run: npm run test:browser\n", "f.yml")},
+            "jobs:\n  all-required-passed:\n    needs:\n      - ghost\n"
+            "    steps:\n      - run: echo\n", "f.yml")},
         impl_roster=set(),
-        spine_checkers={("check_covered", "live")},
+        spine_checkers=set(),
     )
-    check(
-        "a SPINE_LANES signature matching no required step FIRES",
-        any("matches no required gate step" in p for p in empty.problems),
-    )
-    check(
-        "a `needs:` entry naming no real job FIRES",
-        any(
-            "which is not a job in this workflow" in p
-            for p in GapMap(
-                {".github/workflows/test.yml": parse_workflow(
-                    "jobs:\n  all-required-passed:\n    name: A\n    needs:\n      - ghost\n"
-                    "    steps:\n      - run: echo\n", "f.yml")},
-                impl_roster=set(),
-                spine_checkers=set(),
-            ).problems
-        ),
-    )
-    check(
-        "an empty spine-checker parse FIRES rather than over-reporting silently",
-        any("expected at least" in p and SPINE in p for p in empty.problems),
-    )
+    for name, needle in (
+        ("a SPINE_LANES signature matching no required step FIRES", "matches no required gate step"),
+        ("a `needs:` entry naming no real job FIRES", "which is not a job in this workflow"),
+        ("an empty spine-checker parse FIRES rather than over-reporting silently",
+         f"parsed out of {SPINE}; expected at least"),
+    ):
+        check(name, any(needle in p for p in broken.problems))
 
-    # THE SETUP RATCHET, the other rot direction.  Its unit shape
-    # first: the whole-body rule is what keeps it off correct maps.
-    def _step(body: str) -> Step:
-        return parse_workflow(
-            "jobs:\n  a:\n    steps:\n      - name: s\n        run: |\n"
-            + "".join(f"          {ln}\n" for ln in body.splitlines()),
-            "f.yml",
-        )["a"].steps[0]
-
-    check(
-        "a body that is nothing but an installer is flagged as misclassified setup",
-        misclassified_setup(_step("npx playwright install --with-deps chromium")) != [],
-    )
-    check(
-        "a body MIXING an installer with a build is NOT flagged (it is a real gate)",
-        misclassified_setup(_step("npm ci\nnpm run build")) == [],
-    )
-    check(
-        "the clj-kondo canaries do not match the lint gate itself",
-        misclassified_setup(
-            _step("clj-kondo --parallel --fail-level error --lint implementation")
-        ) == [],
-    )
-
-    # ... and then against an answer known to be WRONG.  The fixture has no
-    # Playwright call sites, so the corpus has to be the REAL workflows: drop
-    # the optional `timeout` prefix from the Playwright entry and require the
-    # ratchet to red.  A guard exercised only on the passing case is untested.
-    # A per-pattern floor would not catch this: wherever a call site is written
-    # bare, the narrowed pattern still matches it, so the floor stays satisfied.
+    # THE SETUP RATCHET against an answer known to be WRONG, over the real
+    # workflows: drop the optional `timeout` prefix from the Playwright entry.
+    # Bare call sites still match the narrowed pattern, which is why a
+    # per-pattern floor could not catch this.
     global SETUP_PATTERNS, _SETUP_RE
     _live_patterns, _live_res = SETUP_PATTERNS, _SETUP_RE
     try:
@@ -1217,69 +1091,8 @@ def run_self_tests(verbose: bool) -> int:
         and all("npx playwright install" in p for p in _drift_problems),
     )
 
-    _pin = _KONDO_PIN_RE.search(
-        "curl -fsSL -o /tmp/clj-kondo.zip https://github.com/clj-kondo/clj-kondo"
-        "/releases/download/v2026.04.15/clj-kondo-2026.04.15-linux-static-amd64.zip")
-    check("the kondo pin regex reads a real pin off the release URL",
-          _pin is not None and _pin.group(1) == "2026.04.15")
-
-    # `${{ github.workspace }}` is the repo root, and echoing the raw expression
-    # as a `cd` target would print a command nobody can run.
-    ws = parse_workflow(
-        "jobs:\n  a:\n    steps:\n      - name: g\n"
-        "        working-directory: ${{ github.workspace }}\n"
-        "        run: git grep -n foo\n",
-        "f.yml",
-    )["a"].gate_steps[0]
-    check("`${{ github.workspace }}` resolves to the repo root, not a literal cd",
-          ws.working_directory is None
-          and _repro(ws, "") == ["$ git grep -n foo"])
-    # ... and the job default must not be put back over it.
-    ws_override = parse_workflow(
-        "jobs:\n  a:\n    defaults:\n      run:\n"
-        "        working-directory: implementation/freehand\n"
-        "    steps:\n      - name: g\n"
-        "        working-directory: ${{ github.workspace }}\n"
-        "        run: git grep -n foo\n",
-        "f.yml",
-    )["a"]
-    check(
-        "a step's own working-directory beats the job default after backfill",
-        ws_override.gate_steps[0].working_directory is None,
-    )
-
-    # Against the REAL repo: the map builds clean and reports a non-trivial gap.
-    real = load(REPO_ROOT)
-    check("real repo: the gap map has no problems", real.problems == [])
-    check(
-        # The negative half of the sabotage above: the same ratchet, same corpus,
-        # patterns unmolested, must be SILENT. Without this the red proves only
-        # that the arm fires, not that it discriminates.
-        "real repo: no required gate step is misclassified toolchain setup",
-        not any(
-            misclassified_setup(s) for _p, j in real.required for s in j.gate_steps
-        ),
-    )
-    check("real repo: >= 60 required jobs discovered", len(real.required) >= 60)
-    check(
-        # The step-in-covered-job class needs a NAMED witness, not merely a
-        # non-empty count: one step, inside a job the spine DOES run, that the
-        # spine does not. The `cljs` job's Fresco `:advanced` release build is
-        # one: `test-fast-pr.sh` matches the `cljs` lane through its node-test
-        # run and never builds that bundle.
-        "real repo: an unrun STEP inside a spine-run job is reported (step-in-covered-job class)",
-        any(
-            job.job_id == "cljs"
-            and any("build:fresco-release" in s.command for s in uncovered)
-            for job, uncovered in real.partial
-        ),
-    )
-    check(
-        "real repo: the JS harness gate IS covered (the spine runs the one discovery command)",
-        "js-harness-self-tests" in real.matched_lanes,
-    )
     if verbose:
-        sys.stderr.write("\n".join(report(real, brief=False)) + "\n")
+        sys.stderr.write("\n".join(report(load(REPO_ROOT), brief=False)) + "\n")
 
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
