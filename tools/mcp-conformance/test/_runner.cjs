@@ -517,8 +517,8 @@ function assertIsErrorMatchesOk(label, resp) {
       label + ' carries :ok? false but isError is not true (' +
         JSON.stringify(resp.isError) + ') — violates the universal ' +
         'spec/003 §381 contract (every :ok? false is isError:true). ' +
-        'A failure that is not flagged isError is cache-eligible and ' +
-        'can mask a later success.',
+        'A failure that is not flagged isError is cache-eligible, so a ' +
+        'repeat can come back as a success-shaped cache-hit marker.',
     );
   }
   if (ok === true && resp.isError === true) {
