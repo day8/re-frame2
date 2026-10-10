@@ -4406,10 +4406,10 @@
                                               abandoned-output-path
                                               (vacation) state.
          :routing/on-frame-destroyed!       — release the frame's
-                                              host-side transient routing
-                                              caches — scroll positions +
-                                              nav-token / pending-nav
-                                              counters.
+                                              host-side scroll-position
+                                              cache and URL claim; the
+                                              process-wide nav-token /
+                                              pending-nav counters stay.
          :resources/on-frame-destroyed!     — release the frame's
                                               host-side transient resource
                                               caches — work-ledger host
@@ -4683,16 +4683,14 @@
         ;; `teardown-on-frame-destroy!` docstring).
         ;; No-op when re-frame.flows is absent (the artefact is optional).
         (safe-call-hook! :flows/teardown-on-frame-destroy! id)
-        ;; Release the destroyed frame's host-side
-        ;; transient routing caches — scroll positions
-        ;; (re-frame.routing.scroll) AND the nav-token / pending-nav counter
-        ;; high-water marks (re-frame.routing.nav-counters). Neither is
-        ;; runtime-db state — they live in module-level atoms (host-derived,
-        ;; ephemeral, off the epoch/SSR egress wire; the counters host-side
-        ;; so an epoch restore cannot rewind + recycle a token). Without this
-        ;; hook a long-running multi-frame / per-request-frame process leaks
-        ;; one entry per destroyed frame in each cache. No-op when
-        ;; re-frame.routing is absent (the artefact is optional).
+        ;; Release the destroyed frame's host-side transient scroll
+        ;; positions (re-frame.routing.scroll) and URL claim. The scroll
+        ;; cache is not runtime-db state — it lives in a module-level atom
+        ;; (host-derived, ephemeral, off the epoch/SSR egress wire). Without
+        ;; this hook a long-running multi-frame / per-request-frame process
+        ;; leaks one entry per destroyed frame. The nav-token / pending-nav
+        ;; counters are process-wide, so a destroy leaves them alone. No-op
+        ;; when re-frame.routing is absent (the artefact is optional).
         (safe-call-hook! :routing/on-frame-destroyed! id)
         ;; Release the destroyed frame's host-side transient
         ;; RESOURCE caches — the work-ledger host handles

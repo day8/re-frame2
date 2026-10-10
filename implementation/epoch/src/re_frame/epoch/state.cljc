@@ -1895,7 +1895,11 @@
   @listeners)
 
 (defn observations-snapshot
-  "Return the current `{cb-id → {frame-id → generation-token}}` map."
+  "Return the current `{cb-id → {frame-id → generation-token}}` map.
+
+  Nothing in the runtime calls it. It exists because no public surface exposes
+  which listener generation has observed which frame, and the destroy-race
+  tests in epoch and core assert exactly that."
   []
   @observed-frames-by-cb)
 
