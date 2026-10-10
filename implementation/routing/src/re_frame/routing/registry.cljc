@@ -1119,10 +1119,12 @@
   allocates nothing.
 
   This is the ONE fill definition. Both prism legs and every navigation door
-  reach it: `match-url` for the URL-bearing doors, and
+  reach it: `match-url` for the URL-bearing doors,
   `re-frame.routing.resolve/resolved-target` — the single `ResolvedTarget`
-  fact-shaping seam — for the named-address doors (`{:to …}`, `route-url`'s href
-  projection, `[:rf.route/prefetch …]`). That is what makes Spec 012's governing
+  fact-shaping seam — for the named-address doors (`{:to …}`,
+  `[:rf.route/prefetch …]`), and `route-url` itself, which fills before it
+  validates, so `route-link`'s href and `link-model` accept the same address
+  `{:to …}` does. That is what makes Spec 012's governing
   law hold (§The one planning pipeline: \"Doors differ in cause and history /
   scroll policy, not in target, entry, resource, or readiness semantics\") and
   what makes `:params` / `:query` / `:query-defaults` the \"contract surface that
@@ -1158,9 +1160,9 @@
 
   Membership only, and only for keys the route itself declares a default for; an
   equal-looking value under an undeclared key is untouched. Applied AFTER
-  `:query`-schema validation, so a schema that REQUIRES a defaulted key still
-  validates against the caller's full query — the omission is an emission rule,
-  not a validation hole."
+  `:query`-schema validation of the default-FILLED query, so a schema that
+  REQUIRES a defaulted key validates whether or not the caller spelled it — the
+  omission is an emission rule, not a validation hole."
   [route-meta query]
   (let [defaults (:query-defaults route-meta)]
     (if (empty? defaults)
@@ -2047,14 +2049,26 @@
          ;; `apply array-map`, NOT `(into (array-map) …)`: `into` promotes to a
          ;; hash map at the 9th entry, and the sorted order above would be lost
          ;; past 8 query keys.
-         emitted-query (if (empty? query-params)
-                         query-params
-                         (apply array-map
-                                (mapcat identity
-                                        (sort-by (comp rf.identity/canonical-bytes key)
-                                                 rf.identity/compare-canonical-bytes
-                                                 (remove (fn [[_ v]] (nil? v))
-                                                         query-params)))))
+         ;;
+         ;; Between the elision and the sort, the route's `:query-defaults` are
+         ;; filled into absent keys (`query-with-defaults`, the ONE fill rule),
+         ;; so validation sees the query the destination MEANS: a schema that
+         ;; requires a defaulted key accepts an address that omits it, exactly
+         ;; as `{:to …}` navigation and `match-url` do. The fill is idempotent,
+         ;; so an already-filled target lowers through unchanged, and the
+         ;; emission step below drops every key still at its default.
+         emitted-query (let [filled (query-with-defaults
+                                      route-meta
+                                      (reduce-kv (fn [m k v] (if (nil? v) (dissoc m k) m))
+                                                 query-params
+                                                 query-params))]
+                         (if (empty? filled)
+                           filled
+                           (apply array-map
+                                  (mapcat identity
+                                          (sort-by (comp rf.identity/canonical-bytes key)
+                                                   rf.identity/compare-canonical-bytes
+                                                   filled)))))
          pattern      (:path route-meta)
          ;; The same precompiled coercion tables `match-url` uses let the
          ;; emission side invert enum-keyword decode: a declared keyword-enum
@@ -2111,11 +2125,11 @@
                    :slot     :params
                    :value    path-params
                    :error    p-error}))))
-     ;; Validate the nil-elided query map (`emitted-query`), not
-     ;; the raw `query-params` — a nil-valued optional key is omitted per
+     ;; Validate the nil-elided, default-filled query map (`emitted-query`),
+     ;; not the raw `query-params` — a nil-valued optional key is omitted per
      ;; Spec 012 and must not be presented to the schema (where it would
-     ;; fail an optional non-nil branch). `:value` reports the elided map
-     ;; actually validated.
+     ;; fail an optional non-nil branch). `:value` reports the map actually
+     ;; validated.
      (let [[q-failed? q-error] (validate-route-shape route-meta :query emitted-query)]
        (when q-failed?
          (throw (route-error
@@ -2395,8 +2409,7 @@
            ;;      (whose address omits the key) and the resolved target (which
            ;;      carries it) derive the SAME href instead of two history
            ;;      entries for one place. Deliberately AFTER the `:query`-schema
-           ;;      validation above, so a schema that REQUIRES a defaulted key
-           ;;      still validates against the caller's full query.
+           ;;      validation above, which saw the default-filled query.
            url-query (query-without-defaults route-meta emitted-query)
            ;; Query keys are already CEDN-guarded by the
            ;; canonical-order sort that built `emitted-query` (it runs each

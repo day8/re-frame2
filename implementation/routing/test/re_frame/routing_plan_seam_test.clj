@@ -48,6 +48,7 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.routing :as rf.routing]
             [re-frame.routing.events :as rf.routing.events]
+            [re-frame.routing.link :as rf.routing.link]
             [re-frame.routing.registry :as rf.routing.registry]
             [re-frame.routing.resolve :as rf.routing.resolve]
             [re-frame.routing.url-change :as rf.routing.url-change]
@@ -131,6 +132,45 @@
                                                                   :query    query})))
       {}              {:tab :overview}
       {:tab :comments} {:tab :comments})))
+
+;; A schema may REQUIRE a key the route also defaults. `route-url` is the
+;; emission boundary every named-address door shares, so it validates the
+;; FILLED query — otherwise `route-link`, `link-model` and prefetch would reject
+;; the very address `{:to …}` navigates to.
+
+(deftest a-required-defaulted-query-key-resolves-the-same-through-every-door
+  (rf.routing/reg-route :r/list {:query [:map [:page :int]] :query-defaults {:page 1}} "/list")
+  (rf.routing/reg-route :r/elsewhere {} "/elsewhere")
+  (let [pushed (atom [])
+        warmed (atom [])]
+    (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ url] (swap! pushed conj url)))
+    (rf.late-bind/set-fn! :routing/on-route-prefetch
+                          (fn [plan] (swap! warmed conj (:query plan)) {:warmed 1 :fx []}))
+    (try
+      (testing "every door accepts the address that omits the key, and agrees on
+                \"/list\" and {:page 1}"
+        (is (= "/list" (rf.routing/route-url {:to :r/list})))
+        (is (= "/list" (:href (rf.routing.link/link-model {:to :r/list} :rf/default))))
+        (is (= [:a {:href "/list"} "List"] (rf.routing/route-link-render-ssr {:to :r/list} "List")))
+        (rf/dispatch-sync [:rf.route/prefetch {:to :r/list}])
+        (is (= [{:page 1}] @warmed) "prefetch reached the warm plan with the filled query")
+        (rf/dispatch-sync [:rf.route/navigate {:to :r/elsewhere}])
+        (rf/dispatch-sync [:rf.route/navigate {:to :r/list}])
+        (is (= [:r/list {:page 1} "/list"]
+               [(get-in (rf/frame-state-value :rf/default) [:rf.db/runtime :rf.runtime/routing :current :route-id])
+                (get-in (rf/frame-state-value :rf/default) [:rf.db/runtime :rf.runtime/routing :current :query])
+                (peek @pushed)]))
+        (is (= {:route-id :r/list :query {:page 1} :validation-failed? false}
+               (select-keys (rf.routing/match-url "/list") [:route-id :query :validation-failed?]))))
+      (testing "an override is spelled, a value at its default is not, and an
+                invalid value still throws"
+        (is (= "/list?page=3" (rf.routing/route-url {:to :r/list :query {:page 3}})))
+        (is (= "/list" (rf.routing/route-url {:to :r/list :query {:page 1}})))
+        (is (= [:rf.error/route-url-validation :query]
+               (try (rf.routing/route-url {:to :r/list :query {:page "x"}})
+                    nil
+                    (catch Exception e ((juxt :rf.error/id :slot) (ex-data e)))))))
+      (finally (rf.late-bind/set-fn! :routing/on-route-prefetch nil)))))
 
 ;; ---- the route plan every door builds -------------------------------------
 
