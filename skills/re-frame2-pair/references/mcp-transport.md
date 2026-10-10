@@ -104,7 +104,7 @@ The table is **complete by gate for tool names and argument names**: `scripts/ch
 | `explain-render` | `{build?, max-tokens?}` — which of a boundary's reads moved, plus retained runs as leads | [`screen-reads.md` §Fresco evidence](screen-reads.md#fresco-evidence--mounted-boundaries-read-attribution-render-cause) |
 | `dispatch` | `{event, sync?, frame?, trace?, await-render?, settle?, queued?, timeout-ms?, fx-overrides?, interceptor-overrides?, cofx?, replay?, include-sensitive?}` — `interceptor-overrides` is a per-call envelope key, replay-relevant like `cofx` (Tool-Pair §Time-travel) | [`ops.md` §Write](ops.md#write) |
 | `dispatch-dry-run` | `{event, frame?, cofx?, include-fx-args?, elision?, include-sensitive?}` — simulate WITHOUT committing; a caller `fx-overrides` is refused (`:reason :fx-overrides-unsupported`); not `--allow-writes`-gated | [`ops.md` §Write](ops.md#write) |
-| `restore-epoch` | `{epoch-id, frame?}` — canonical time-travel undo; `--allow-writes`-gated | [`ops.md` §Time-travel](ops.md#time-travel-epoch-restore) |
+| `restore-epoch` | `{epoch-id, frame?, to?}` — canonical time-travel undo (`to: "before"` installs the record's before-state); `--allow-writes`-gated | [`ops.md` §Time-travel](ops.md#time-travel-epoch-restore) |
 | `replay-epoch` | `{epoch-id, frame?}` — one-call strict replay of a retained epoch; `dispatch`'s authority, NOT `--allow-writes`-gated | [`ops.md` §Time-travel](ops.md#time-travel-epoch-restore) |
 | `replace-app-db` | `{db, frame?}` — canonical state injection; `--allow-writes`-gated | [`ops.md` §Write](ops.md#write) |
 | `trace-window` | `{ms?, frame?, limit?, cursor?}` — epoch records added in the last N ms | [`ops.md` §Trace](ops.md#trace) |

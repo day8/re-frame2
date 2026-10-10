@@ -623,19 +623,23 @@
 (def restore-epoch
   {:name "restore-epoch"
    :description (str "Time-travel undo: rewind a frame's whole frame-state — BOTH the app-db and "
-                     "runtime-db partitions — to a recorded prior epoch's `:frame-state-after` value, reinstalled "
+                     "runtime-db partitions — to a recorded prior epoch's `:frame-state-after` value, or with "
+                     "`to` \"before\" to its `:frame-state-before`, reinstalled "
                      "atomically via `replace-frame-state!`. Machine snapshots, the route slice, elision "
                      "declarations, and SSR metadata are revived alongside app-db, not just the app-db projection. "
                      "The canonical pair-tool undo gesture per spec/Tool-Pair.md §Time-travel — wraps the "
                      "`restore-epoch` Tool-Pair write primitive. Walk the ring with `trace-window` / `snapshot` "
                      "(`:epochs` slice) to find a target epoch-id, then rewind to it. "
+                     "`to` \"before\" undoes that epoch itself; on a `replace-app-db` injection's "
+                     "`:rf.epoch/db-replaced` record it undoes the injection, even when that record is the only one retained. "
                      "The `epoch-id` is parsed as EDN — epoch-ids are `:any` (the reference runtime emits "
                      "INTEGERS), so pass an integer id as \"7\" and it reads as the number 7. "
                      "Returns false (`:reason :restore-rejected`) when the id is not in the ring or a drain is "
                      "in flight (the documented `:rf.epoch/*` failure modes); the frame-state is unchanged on failure. "
                      "Cascade summary: a successful restore surfaces `:cascade-summary` projecting "
                      "the TARGET epoch (`:event-id`, `:event-vector`, `:db-diff` from the pre-restore live db "
-                     "to the target's `:db-after`, `:fx-fired` from the original cascade, `:restore? true`). "
+                     "to the target's `:db-after` — its `:db-before` under `to` \"before\" — `:fx-fired` from the "
+                     "original cascade, `:restore? true`). "
                      "Additionally `:unreplayable-effects` enumerates fx the original cascade fired that the "
                      "restore CANNOT undo (http requests, navigation, persisted writes). See the §Cascade "
                      "Summary subsection in spec/003-Tool-Catalogue.md. "
@@ -644,7 +648,8 @@
                      "Examples: "
                      "1. Rewind to epoch 7: {:epoch-id \"7\"} -> {:ok? true :restored? true :epoch-id 7 :cascade-summary {:event-id :cart/add :db-diff {...} :fx-fired [:http] :restore? true} :unreplayable-effects [{:fx-id :http}]}. "
                      "2. Named frame: {:epoch-id \"12\" :frame \":stories\"} -> {:ok? true :restored? true :epoch-id 12 :frame :stories :cascade-summary {...}}. "
-                     "3. Aged-out id: {:epoch-id \"999\"} -> {:ok? false :restored? false :reason :restore-rejected}.")
+                     "3. Aged-out id: {:epoch-id \"999\"} -> {:ok? false :restored? false :reason :restore-rejected}. "
+                     "4. Undo an injection: {:epoch-id \"42\" :to \"before\"} -> {:ok? true :restored? true :epoch-id 42 :cascade-summary {:event-id :rf.epoch/db-replaced ...}}.")
    :typicalTokens 150
    :annotations destructive-annotations
    :outputSchema envelope-or-marker
@@ -653,6 +658,9 @@
                                          :description "Target epoch-id as EDN, e.g. \"7\" (integer id) or \":my/epoch\". Required."}
                               :frame    {:type "string"
                                          :description "Operating frame (e.g. \":stories\"). Defaults to the operating frame."}
+                              :to       {:type "string"
+                                         :description "Which of the record's snapshots to install: \"after\" (default — its :frame-state-after) or \"before\" (its :frame-state-before)."
+                                         :enum ["after" "before"]}
                               :build    {:type "string"}}
                  :required ["epoch-id"]
                  :additionalProperties false}})
@@ -716,7 +724,8 @@
                      "writes. Wraps the `replace-frame-state!` Tool-Pair write primitive as an app-only partial map "
                      "(`{:rf.db/app v}`): bypasses the dispatch loop, "
                      "replaces the container directly, and records a synthetic `:rf/epoch-record` "
-                     "(`:event-id :rf.epoch/db-replaced`) so a later `restore-epoch` can rewind past the injection. "
+                     "(`:event-id :rf.epoch/db-replaced`) so `restore-epoch` of that record with `to` \"before\" "
+                     "undoes the injection. "
                      "The `db` arg is parsed as EDN DATA (not host source — same injection-closing posture as "
                      "`dispatch`). Fails (`:reason :reset-rejected`) on no-such-frame, drain-in-flight, "
                      "or app-schema mismatch; the app-db is unchanged on failure. "

@@ -456,14 +456,15 @@
 (defn restore-cascade-projection
   "Project a successful `restore-epoch` against its TARGET epoch record. The
    `:db-diff` is computed from `pre-db` (the db immediately before the
-   restore) to the target's `:db-after` — 'what is now different from where I
+   restore) to the state installed — the target's `:db-after`, or its
+   `:db-before` when `to` is `:before` — 'what is now different from where I
    was?'. `:unreplayable-effects` lists every fx the ORIGINAL cascade fired
    (all already escaped the framework; the restore rewinds db only). The
    `:event-vector` fails closed through the same gate cascade-summary uses.
-   Pure — the caller supplies `target` (the looked-up epoch record) and the
-   live `allow-raw-state?` gate."
-  [pre-db target frame-id target-epoch-id allow-raw-state?]
-  (let [diff        (db-diff-summary pre-db (:db-after target))
+   Pure — the caller supplies `target` (the looked-up epoch record), the
+   live `allow-raw-state?` gate and the restore's `to`."
+  [pre-db target frame-id target-epoch-id allow-raw-state? to]
+  (let [diff        (db-diff-summary pre-db (if (= :before to) (:db-before target) (:db-after target)))
         fx-fired    (->> (:effects target) (map :fx-id) distinct vec)
         transitions (machine-transitions-summary (:trace-events target))
         sensitive?  (:rf.epoch/sensitive? target)

@@ -327,7 +327,7 @@
                 :db-after {:auth {:user "ada"}}
                 :effects [{:fx-id :http :coord "app:1:1"} {:fx-id :db}]}
         {:keys [cascade-summary unreplayable-effects]}
-        (pure/restore-cascade-projection {} target :rf/default 5 false)]
+        (pure/restore-cascade-projection {} target :rf/default 5 false nil)]
     (is (true? (:restore? cascade-summary)))
     (is (= [:auth/login :rf/redacted] (:event-vector cascade-summary))
         "the restored trigger-event fails closed under the OFF gate")

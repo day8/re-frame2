@@ -9,8 +9,8 @@
   `app-db-reset!` (`(rf/replace-app-db! frame-id new-db)`), which
   bypasses the dispatch loop, replaces the container directly, and
   records a synthetic `:rf/epoch-record`
-  (`:event-id :rf.epoch/db-replaced`) so a subsequent `restore-epoch`
-  can rewind past the injection.
+  (`:event-id :rf.epoch/db-replaced`) so `restore-epoch` of that record
+  with `to` `\"before\"` undoes the injection.
 
   ## Gate
 
