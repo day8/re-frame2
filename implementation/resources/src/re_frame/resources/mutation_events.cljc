@@ -36,7 +36,9 @@
     tags (`:after-failure` / `:after-settle` timing, when useful).
   - **`:rf.mutation/clear`** clears one instance, or every instance of a
     mutation id, and best-effort aborts in-flight work. It does not remove the
-    mutation registration; `clear-mutation` owns that separate lifecycle.
+    mutation registration; `clear-mutation` owns that separate lifecycle. A
+    GENERATED-id instance is cleared this way by the runtime itself, once its
+    reply is accepted and any continuation has run.
 
   Every handler carries framework-write authority
   (`rf.resources.state/framework-authority-meta`) so a returned `:rf.db/runtime` effect
@@ -121,6 +123,24 @@
   [mutation-id supplied-instance generation]
   (or supplied-instance
       [:rf.mutation/instance mutation-id generation]))
+
+(defn- generated-instance-id?
+  "True iff `instance-id` is one `mint-instance-id` generated. The
+  `:rf.mutation/*` head is reserved, so a caller-supplied id never has it."
+  [instance-id]
+  (and (vector? instance-id) (= :rf.mutation/instance (first instance-id))))
+
+(defn- retire-fx
+  "The fx retiring a GENERATED-id instance once its reply is accepted: a
+  `:rf.mutation/clear` of that one instance, which drops its row and its ledger
+  rows. The caller never held the id, so nothing it writes could clear the row,
+  and it would otherwise ride every snapshot for the frame's life. The settle
+  handlers place it after the continuation, so a `:reply-to` handler still
+  observes the settled row (Spec 016 §Phase order). A caller-supplied id is
+  never retired: its settled row is the app's form state until it clears or
+  re-executes it."
+  [instance-id]
+  [:dispatch [:rf.mutation/clear {:instance instance-id}]])
 
 ;; ---- exact-target scope resolution (EP-0016 Rider 2) -----------------------
 ;;
@@ -2227,7 +2247,8 @@
                (seq remove-abort-fx) (into remove-abort-fx)
                remove-timer-fx       (into remove-timer-fx)
                inv-fxs               (into inv-fxs)
-               cont-fx               (conj cont-fx))}))))
+               cont-fx               (conj cont-fx)
+               (generated-instance-id? instance-id) (conj (retire-fx instance-id)))}))))
 
 (defn failed-handler
   "`:rf.mutation.internal/failed` — a mutation write failed. Verifies frame
@@ -2476,4 +2497,5 @@
          :fx (cond-> []
                (seq (:recovery-fx rolled)) (into (:recovery-fx rolled))
                inv-fxs (into inv-fxs)
-               cont-fx (conj cont-fx))}))))
+               cont-fx (conj cont-fx)
+               (generated-instance-id? instance-id) (conj (retire-fx instance-id)))}))))
