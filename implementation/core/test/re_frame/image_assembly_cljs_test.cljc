@@ -106,13 +106,22 @@
     (is (= :rf.error/image-standard-replacement-forbidden
            (:rf.error/id (assembly-error-data #(rf.image-assembly/assemble [base ovr] pool)))))))
 
-(deftest framework-standard-interceptor-reference-skipped
-  ;; a reserved :rf.interceptor/* ref is framework-provided, not image-supplied
-  (let [pool [(assoc (reg-desc "app.core" :event :cart/add ::add)
-                     :interceptors [[:rf.interceptor/path [:cart]]])]
-        img  (rf.image/image {:id :i :select-ns {:include ["app.core"]}})]
-    (is (contains? (:rf.gen/resolver (rf.image-assembly/assemble [img] pool))
-                   [:event :cart/add]))))
+(deftest framework-standard-interceptor-reference-is-checked-like-any-other
+  ;; the sealed generation carries the published standards, so a reserved
+  ;; :rf.interceptor/* ref resolves against it exactly as an app ref does
+  (rf.image-assembly/register-standard! :interceptor :rf.interceptor/path {:handler-fn ::path})
+  (let [pool-ref (fn [ref] [(assoc (reg-desc "app.core" :event :cart/add ::add)
+                                   :interceptors [[ref [:cart]]])])
+        img      (rf.image/image {:id :i :select-ns {:include ["app.core"]}})]
+    (is (contains? (:rf.gen/resolver (rf.image-assembly/assemble [img] (pool-ref :rf.interceptor/path)))
+                   [:event :cart/add])
+        "the published standard seals")
+    (is (= {:rf.error/id       :rf.error/image-missing-reference
+            :missing-reference [:interceptor :rf.interceptor/ptha]}
+           (select-keys (assembly-error-data
+                          #(rf.image-assembly/assemble [img] (pool-ref :rf.interceptor/ptha)))
+                        [:rf.error/id :missing-reference]))
+        "a misspelt standard is refused at assembly")))
 
 (deftest descriptor-coordinate-by-source
   (is (= [{:ns "shop.cart"} {:image :i :inline [:reg-fx :x]} {:standard true}]

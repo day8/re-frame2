@@ -120,6 +120,11 @@
             ;; …]]` could not resolve `:rf/set-db` through its sealed generation.
             ;; (`events` is already in the dep graph via `router`; no new cycle.)
             [re-frame.events :as rf.events]
+            ;; The `:rf.interceptor/path` standard, re-seeded for the same
+            ;; reason: image assembly checks every interceptor ref against the
+            ;; sealed generation, so a `[:rf.interceptor/path …]` ref needs the
+            ;; published standard there.
+            [re-frame.std-interceptors :as rf.std-interceptors]
             ;; EP-0026 §Default Image: `make-frame {}` projects the DEFAULT
             ;; image over the active SOURCE STORE. Every `reg-*` writes a
             ;; provenance-tagged descriptor into `source-store` (in lockstep with
@@ -540,7 +545,7 @@
   `frames` registry (clearing every record + its `:generation`), run the
   pre/post-dispose late-bind hook phases, dispose then (re)install the adapter
   and ensure the conventional `:rf/default` app frame, re-seed the framework
-  standards (`:rf/set-db`, `:rf/install-frame-state`; the machine runtime when
+  standards (`:rf.interceptor/path`, `:rf/set-db`, `:rf/install-frame-state`; the machine runtime when
   loaded), apply `:clear-kinds`, and LAST reinstate the `:app-ns` rows the
   fixture removed at build time. Establishes everything EXCEPT the
   ambient frame scope — each shape owns how it makes that scope survive (see
@@ -561,6 +566,7 @@
   (when adapter
     (rf.substrate.adapter/install-adapter! adapter)
     (rf.frame/ensure-default-frame!))
+  (rf.std-interceptors/register-standard-interceptors!)
   (rf.events/register-set-db-standard!)
   (rf.events/register-install-frame-state-standard!)
   (when-let [install (rf.late-bind/get-fn :machines/install-runtime!)]
