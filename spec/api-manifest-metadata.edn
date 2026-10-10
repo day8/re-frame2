@@ -1061,12 +1061,9 @@
   ["re-frame.core" "with-fx-overrides"]   {:tier :testing :owner "002" :status "v1"
                                           :action :keep
                                           :justification "The fx-stubbing scope every event test wraps around a dispatch-sync. Defined on re-frame.core beside the dispatch verbs whose behaviour it changes; there is no other door."}
-  ;; There is no public `redact-interceptor` (EP-0015 §7):
-  ;; registration-owned `:sensitive` payload
-  ;; classification + centralized `project-egress` do that job, not a positional
-  ;; trace-scrub interceptor. The `re-frame.privacy/redact-interceptor` fn
-  ;; is internal router plumbing (not facade-published), so it carries
-  ;; no manifest row.
+  ;; There is no `redact-interceptor` (EP-0015 §7): registration-owned
+  ;; `:sensitive` payload classification + centralized `project-egress` do
+  ;; that job, not a positional trace-scrub interceptor.
   ;; Lifecycle / adapter bootstrap.
   ["re-frame.core" "init!"]                {:tier :front-porch :owner "002" :status "v1"
                                            :action :keep

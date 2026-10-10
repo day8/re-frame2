@@ -19,18 +19,20 @@
   WHAT COUNTS AS A VAR-ROW. API.md mixes var-rows (one public fn / macro /
   Var) with keyword-addressed-registration rows (events / subs / fx /
   cofx), configure-key rows and schema rows. Only the first kind carries a
-  `:tier` for a *var*. In a table with a `Tier` column the first cell alone
-  decides: a row is a var-row iff that cell is a single back-tick-quoted
-  symbol (`reg-event`, `rf.adapter.uix/adapter`). Keyword
-  (`:rf.http/managed`), list (`(rf/configure! …)`) and vector
-  (`[:rf.interceptor/path …]`) first cells, and prose cells, name something
-  else and are skipped.
+  `:tier` for a *var*. In a table with a `Tier` column a row is a var-row
+  when its first cell is a single back-tick-quoted symbol (`reg-event`,
+  `rf.adapter.uix/adapter`) OR its `M/Fn` cell begins with a `Fn`, `M` or
+  `Var` marker. Keyword (`:rf.http/managed`), list (`(rf/configure! …)`)
+  and vector (`[:rf.interceptor/path …]`) first cells, and prose cells,
+  name something else and are skipped when no marker claims the row.
 
-  A var-row must then be classifiable: its `M/Fn` cell begins with `Fn`,
-  `M` or `Var`, and its Tier cell carries a closed-vocabulary tier word. A
-  var-row that fails either is an `:unclassifiable-row` problem naming its
-  line, because a dropped row would be checked against nothing while the
-  check reported OK.
+  A var-row must then be classifiable: its first cell names one var, its
+  `M/Fn` cell begins with `Fn`, `M` or `Var`, and its Tier cell carries a
+  closed-vocabulary tier word. A var-row that fails any of these is an
+  `:unclassifiable-row` problem naming its line, because a dropped row
+  would be checked against nothing while the check reported OK. The
+  marker is what catches a first cell that lost its backticks or groups
+  several vars: one var per row keeps every var graded.
 
   QUALIFIER RESOLUTION. API.md writes some var names
   namespace-qualified (`rf.adapter.uix/adapter`,
@@ -201,8 +203,9 @@
 
    — each var-row carries exactly the fields `reconcile` reads. A row whose
    first cell names one var (`var-ident-re`) but whose `M/Fn` marker or Tier
-   word cannot be read is a problem rather than a skip (see the ns
-   docstring's WHAT COUNTS AS A VAR-ROW)."
+   word cannot be read is a problem rather than a skip, and so is a row
+   whose marker names a var but whose first cell does not name exactly one
+   (see the ns docstring's WHAT COUNTS AS A VAR-ROW)."
   [indexed-lines]
   (loop [remaining-lines   indexed-lines
          tier-column-index nil
@@ -221,15 +224,32 @@
           (separator-row? row-cells)
           (recur remaining tier-column-index var-rows problems)
 
+          (nil? tier-column-index)
+          (recur remaining tier-column-index var-rows problems)
+
           :else
-          (let [[_ ident] (when tier-column-index
-                            (re-matches var-ident-re (first row-cells)))]
-            (if-not ident
+          (let [first-cell (first row-cells)
+                [_ ident]  (re-matches var-ident-re first-cell)
+                kind-cell  (get row-cells 1)
+                tier-cell  (get row-cells tier-column-index)
+                marker     (some-> kind-cell var-kind-token)]
+            (cond
+              ;; The marker claims the row for a var, but the first cell
+              ;; names no single var to grade it against.
+              (and (not ident) marker)
+              (recur remaining tier-column-index var-rows
+                     (conj! problems {:kind      :unclassifiable-row
+                                      :line      line-number
+                                      :raw       first-cell
+                                      :kind-cell kind-cell
+                                      :tier-cell tier-cell}))
+
+              (not ident)
               (recur remaining tier-column-index var-rows problems)
-              (let [kind-cell (get row-cells 1)
-                    tier-cell (get row-cells tier-column-index)
-                    kind      (some-> kind-cell var-kind-token kind-markers)
-                    tier      (some-> tier-cell first-tier-token)]
+
+              :else
+              (let [kind (some-> marker kind-markers)
+                    tier (some-> tier-cell first-tier-token)]
                 (if (and kind tier)
                   (let [[qualifier bare] (parse-first-cell-ident ident)]
                     (recur remaining tier-column-index
@@ -262,9 +282,10 @@
    We track the CURRENT table's `Tier` column index (from its header row)
    and read the tier from EXACTLY that cell — not by scanning every cell,
    which would pick up tier words that appear in prose Notes cells. A
-   var-row is a row whose first cell is one back-ticked symbol; a table with
-   no `Tier` column contributes no rows (its surface is keyword-registrations
-   / schemas).
+   var-row is a row whose first cell is one back-ticked symbol or whose
+   `M/Fn` cell carries a `Fn` / `M` / `Var` marker; a table with no `Tier`
+   column contributes no rows (its surface is keyword-registrations /
+   schemas).
 
    The pure loop is `parse-var-rows`, so the parser is unit-testable against
    synthetic lines; `floor-violation` turns a collapsed extraction (a
