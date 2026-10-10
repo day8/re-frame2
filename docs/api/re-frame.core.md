@@ -444,17 +444,17 @@ The value is a map `{interceptor-ref replacement}`:
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (unsubscribe query-v) → nil
-  (unsubscribe frame-id query-v) → nil
+  (unsubscribe r) → nil
   ```
-- **Description**: Decrements a query's cache reference count. When the count reaches zero, the entry is disposed synchronously (see [Subscriptions](../core/subscriptions.md)). The Reagent and UIx adapters call it on unmount, so most code never does.
-    - `(unsubscribe frame-id query-v)` targets another frame. There is no `{:frame …}` opts form: this is a teardown call, not one views make.
+- **Description**: Hands back one share of `r`, the reaction `subscribe` returned. When the last share goes, the cache entry is disposed synchronously (see [Subscriptions](../core/subscriptions.md)). The Reagent and UIx adapters release their own reads on unmount, so most code never calls it.
+    - The release is identity-guarded: a reaction whose cache slot has since been evicted (a hot reload, `clear-sub-cache!`, its frame destroyed) is a no-op, so a late release never disposes another holder's entry. `nil` is a no-op too.
+    - It takes no frame and no query. A query vector throws `:rf.error/bad-unsubscribe-arg`.
 - **Example**:
   ```clojure
   ;; In a test or at the REPL: balance an explicit subscribe.
   (let [r (rf/subscribe [:counter/value] {:frame :app/main})]
     @r
-    (rf/unsubscribe :app/main [:counter/value]))
+    (rf/unsubscribe r))
   ```
 
 ### `clear-sub-cache!`

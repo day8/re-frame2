@@ -981,14 +981,14 @@
   ;; `subscribe-once` takes the public `{:frame}` opts-map
   ;; call-shape `(subscribe-once query-v {:frame f})`, parallel to `subscribe`
   ;; (EP-0024), so an author who carries the
-  ;; opts form over from `subscribe` is not misbound. `unsubscribe` deliberately stays
-  ;; frame-first (pure teardown, never a hot in-view call; no opts-map form).
+  ;; opts form over from `subscribe` is not misbound. `unsubscribe` takes neither
+  ;; form: it hands back the reaction `subscribe` returned, `(unsubscribe r)`.
   ["re-frame.core" "subscribe-once"]      {:tier :advanced    :owner "006" :status "v1 (preserved + extended)"
                                           :action :keep
                                           :justification "The one-shot read beside front-porch subscribe, sharing its {:frame f} opts form, so an author carrying it over from subscribe is not misbound. Moving it off the facade would split that shared shape across two doors."}
   ["re-frame.core" "unsubscribe"]         {:tier :advanced    :owner "006" :status "v1"
                                           :action :keep
-                                          :justification "The ref-count release paired with subscribe's hold, and the named carve-out of the Conventions Lifecycle-verb law (Carve-out: unsubscribe). A teardown verb whose partner is front-porch belongs on the same door."}
+                                          :justification "The ref-count release paired with subscribe's hold -- it hands back the reaction subscribe returned -- and the named carve-out of the Conventions Lifecycle-verb law (Carve-out: unsubscribe). A teardown verb whose partner is front-porch belongs on the same door."}
   ;; View ergonomics (spec/API.md §View ergonomics).
   ["re-frame.core" "with-frame"]          {:tier :front-porch :owner "002" :status "v1"
                                           :action :keep

@@ -708,7 +708,8 @@ Lookup [query-v] in frame F:
     ;; derefer drops, release input refs and dissoc the slot. The cache
     ;; holds NO entry-level dispose-fn vector; it relies on the container's
     ;; own on-dispose hook (CLJS: interop/add-on-dispose! on the Reaction).
-    on-dispose(derived, () → { for q in input-qs: unsubscribe(F, q)
+    on-dispose(derived, () → { for (q, r) in zip(input-qs, inputs):
+                                 unsubscribe-if-reaction(F, q, r)   ;; identity-guarded
                                F.sub-cache.dissoc(k) })
     trace! :sub/registered {:query-v query-v :frame F.id}
     return derived
@@ -962,7 +963,7 @@ The **one-shot, non-reactive read** of a subscription's current value. `subscrib
 (subscribe-once query-v {:frame f})                   ;; → value (explicit-frame opts form)
 ```
 
-**Call-shape parallel with `subscribe`.** The 2-arity is `[query-v opts]` ONLY, exactly as [`subscribe`](API.md#dispatch-and-subscribe) — no `vector?` shape-discrimination, no frame-first positional form: `opts` may carry `{:frame f}` (a frame-id keyword or a live frame value); ambient when absent. Because `subscribe-once` shares `subscribe`'s exact call shape, an author who learned `(subscribe [:x] {:frame f})` writes the same `(subscribe-once [:x] {:frame f})` and the runtime binds the frame correctly — the opts form closes the same misbinding footgun it closes for `subscribe` (a frame-first `[:x]` would bind as frame-id and `{:frame f}` as query-v). `unsubscribe` (below) deliberately has **no** opts-map form — it is pure teardown, never a hot in-view call, so the frame-first form is its sole explicit-frame shape.
+**Call-shape parallel with `subscribe`.** The 2-arity is `[query-v opts]` ONLY, exactly as [`subscribe`](API.md#dispatch-and-subscribe) — no `vector?` shape-discrimination, no frame-first positional form: `opts` may carry `{:frame f}` (a frame-id keyword or a live frame value); ambient when absent. Because `subscribe-once` shares `subscribe`'s exact call shape, an author who learned `(subscribe [:x] {:frame f})` writes the same `(subscribe-once [:x] {:frame f})` and the runtime binds the frame correctly — the opts form closes the same misbinding footgun it closes for `subscribe` (a frame-first `[:x]` would bind as frame-id and `{:frame f}` as query-v).
 
 Semantically, `subscribe-once` is `subscribe` + deref + immediate `unsubscribe`:
 
@@ -986,24 +987,27 @@ subscribe-once(frame-id, query-v):
 
 **Where it differs from `compute-sub`.** `compute-sub` (per [008 §`compute-sub` algorithm](008-Testing.md#compute-sub-algorithm)) is a *pure* function over an explicit `app-db` value — it bypasses the cache entirely and runs the sub's body fresh. `subscribe-once` is *cache-aware*: it materialises the cache entry (cache hit reuses; cache miss populates briefly), then immediately drops its reference (sync dispose on the 1 → 0 transition). Use `compute-sub` when you want to test a sub's body against a snapshot in isolation; use `subscribe-once` when you want what the running frame would see right now.
 
-### `(unsubscribe query-v) → nil` / `(unsubscribe frame-id query-v) → nil`
+### `(unsubscribe r) → nil`
 
-The **explicit teardown** of a `subscribe` call. `unsubscribe` decrements the cache entry's ref-count by 1; on the 1 → 0 transition, the cache slot is disposed **synchronously** (per [§Reference counting and disposal](#reference-counting-and-disposal)). Reagent views auto-dispose via the reaction lifecycle and do not need to call `unsubscribe` explicitly; tests, REPL sessions, and tools that subscribed imperatively are the call sites that need it. (Machine callbacks do NOT subscribe imperatively — a `:guard` / `:action` / `:entry` / `:exit` MUST NOT call `subscribe-once`; they take host facts as recorded coeffects, so there is no imperative subscription for them to release. See the callback note under [`subscribe-once`](#subscribe-once-query-v--value--subscribe-once-query-v-frame-f--value).)
+The **explicit teardown** of a `subscribe` call: `r` is the reaction `subscribe` returned. `unsubscribe` returns one counted share of `r` to the cache; on the 1 → 0 transition, the cache slot is disposed **synchronously** (per [§Reference counting and disposal](#reference-counting-and-disposal)). Reagent views auto-dispose via the reaction lifecycle and do not need to call `unsubscribe` explicitly; tests, REPL sessions, and tools that subscribed imperatively are the call sites that need it. (Machine callbacks do NOT subscribe imperatively — a `:guard` / `:action` / `:entry` / `:exit` MUST NOT call `subscribe-once`; they take host facts as recorded coeffects, so there is no imperative subscription for them to release. See the callback note under [`subscribe-once`](#subscribe-once-query-v--value--subscribe-once-query-v-frame-f--value).)
 
 ```clojure
-(unsubscribe query-v)                                  ;; → nil (uses the resolved current frame)
-(unsubscribe frame-id query-v)                         ;; → nil (explicit-frame, frame-first form)
+(let [r (subscribe [:items] {:frame :app/main})]
+  …
+  (unsubscribe r))                                     ;; → nil
 ```
 
-**No opts-map form (deliberate).** Unlike `subscribe` and `subscribe-once`, `unsubscribe` does **not** accept the `(unsubscribe query-v {:frame f})` opts-map call-shape — the explicit-frame form is frame-first only. The misbinding footgun the opts form closes for the read helpers does not apply here: `unsubscribe` is pure teardown (a paired release of a `subscribe` the caller already made with a known frame), never a hot in-view call an author reaches for by muscle-memory from the `subscribe` opts form. Keeping it frame-first avoids widening the teardown surface for no ergonomic gain.
+**Release by handle.** The reaction is the whole address: `unsubscribe` resolves no frame and takes no query, so a release is safe from any context — a lifecycle hook, a `finally` block, a Fresco body — and there is no frame or argument order to get wrong.
 
 **Contract MUSTs.**
 
-- **Decrement, then destroy on the 1 → 0 edge.** `unsubscribe` decrements the slot's ref-count by 1. The slot itself disposes **synchronously** when ref-count reaches 0 (per [§Reference counting and disposal](#reference-counting-and-disposal)). A caller that holds N concurrent subscriptions to the same `query-v` must call `unsubscribe` N times to fully release; each call decrements one share, and the Nth (the one that drives 1 → 0) disposes.
-- **Pair with `subscribe`.** Every `subscribe` (including the `subscribe` half of `subscribe-once`) increments the slot's ref-count by 1; every `unsubscribe` decrements by 1. Imperative subscribers are responsible for the pairing; views and tools that hold reactions through the reaction lifecycle get the decrement automatically when the reaction disposes.
-- **Idempotent past zero.** Calling `unsubscribe` after the slot has already been disposed is a no-op — the entry-lookup misses, and the call returns `nil` without trace emission. A second `unsubscribe` from the same path (cleanup hook + `finally` block both running) is safe.
-- **Missing frame is not an error.** `unsubscribe` against a destroyed or never-created frame returns `nil` and emits **no** trace — the frame-lookup misses and the call short-circuits before reaching the cache, exactly like the idempotent-past-zero no-op above; it does NOT throw. (Unlike `subscribe`/`subscribe-once`, a bare `unsubscribe` does not emit `:rf.error/frame-destroyed` — it is a release, not a read, so a teardown-ordering race that releases a slot in an already-destroyed frame is silently safe.)
-- **Frame-resolution.** The 1-arg form resolves the current frame via the resolution chain (dynamic-var tier, React-context tier when an adapter has registered the `:adapter/current-frame` late-bind hook per [§Frame-provider via React context](#frame-provider-via-react-context)). There is **no `:rf/default` fallback**: with no scope established the resolution raises `:rf.error/no-frame-context`. The 2-arg form is explicit.
+- **Counted shares.** `subscribe` returns the shared cached reaction, so every holder of a query holds the same `r`, and the cache counts each acquisition. Each `unsubscribe` returns ONE share; the slot disposes **synchronously** when the count reaches 0 (per [§Reference counting and disposal](#reference-counting-and-disposal)). N acquisitions need N releases, and the Nth (the one that drives 1 → 0) disposes. Shares are counted, not owned: while `r` is live and shared, a second release by the same holder returns another holder's share.
+- **Pair with `subscribe`.** Every `subscribe` (including the `subscribe` half of `subscribe-once`) adds one share; every `unsubscribe` returns one. Imperative subscribers are responsible for the pairing; views and tools that hold reactions through the reaction lifecycle get the release automatically when the reaction disposes.
+- **Identity-guarded.** The release decrements only while a frame's sub-cache still holds `r` itself. A release after the slot was disposed, after it was evicted (re-registration, `clear-sub-cache!`, hot reload), or after its frame was destroyed — including when a frame of the same id was made again — returns `nil` without trace emission and never touches a successor entry another holder built under the same query. It does NOT throw, and unlike `subscribe`/`subscribe-once` it emits no `:rf.error/frame-destroyed`: it is a release, not a read, so a teardown-ordering race that releases into a destroyed frame is silently safe.
+- **`nil` is a no-op.** `(unsubscribe nil)` returns `nil` — the nil `subscribe` recovers to for a missing frame acquired nothing — and so does a reaction that was never cached.
+- **A query vector is refused.** `(unsubscribe [:q])` emits and throws the always-on `:rf.error/bad-unsubscribe-arg`, naming the handle form: a vector names a slot, not the share the caller holds.
+
+*CLJS reference: `re-frame.subs/unsubscribe` locates the slot by scanning the visible frames' caches for `r` — O(live entries) per release, nothing per read — and releases through the cache's atomic identity guard. In-tree holders that already know their (frame, query) pair release in O(1) through `re-frame.subs/unsubscribe-if-reaction`.*
 
 **Composability with `subscribe-once`.** `subscribe-once` internally invokes `subscribe` then `unsubscribe` — the teardown is synchronous on the 1 → 0 transition (per the unified disposal contract above). The user does NOT call `unsubscribe` for a `subscribe-once` call — the pairing is internal. Users only call `unsubscribe` for the `subscribe` calls they made themselves.
 
@@ -1595,7 +1599,10 @@ The per-frame **sub-cache** ([§Subscription cache invalidation](#subscription-c
     ;; symmetrically (layer-2+ cascade) then GC the cache slot.
     (interop/add-on-dispose! r
       (fn []
-        (doseq [input-q input-qs] (unsubscribe frame input-q))
+        ;; Identity-guarded: an input whose slot was evicted and rebuilt is
+        ;; a no-op, never a decrement of the successor's reference.
+        (doseq [[input-q input-r] (map vector input-qs inputs)]
+          (unsubscribe-if-reaction frame input-q input-r))
         (swap! (:sub-cache frame)
                (fn [cm] (if (identical? r (get-in cm [k :reaction])) (dissoc cm k) cm)))))
     r))
@@ -1670,7 +1677,7 @@ The `read-frame-from-context` lookup chain (`*current-frame*` dynamic var → Re
 
 The spec **does not** prescribe JS implementation details (`_currentValue` reads, class-component `:contextType` shapes, prop-stringification quirks) — those are port discretion. What the spec requires is the contract: the provider's *value* is a frame-id keyword (or the host's identity-primitive equivalent), and the views inside the provider's subtree resolve subscriptions / dispatches against that frame.
 
-**Adapter responsibility — `:adapter/current-frame` late-bind hook.** Each React-shaped substrate adapter (Reagent, reagent-slim, UIx) MUST register its React-context-aware `current-frame-id` impl through the `:adapter/current-frame` late-bind hook at namespace-load time. `re-frame.subs/subscribe`, `re-frame.subs/subscribe-once`, `re-frame.subs/unsubscribe`, and the dispatch envelope's `:frame` default consult the hook on CLJS so the React-context tier of the resolution chain is **live** rather than dead code. Without the registration the call sites fall back to `re-frame.frame/current-frame` (dynamic-var tier only); the React-context tier silently no-ops to nil. The impl MUST return **nil** (not `:rf/default`) when no scope names a frame, so a public frame-scoped op raises `:rf.error/no-frame-context` rather than synthesising a default. Hook signature: `(fn frame-id-keyword-or-nil)`.
+**Adapter responsibility — `:adapter/current-frame` late-bind hook.** Each React-shaped substrate adapter (Reagent, reagent-slim, UIx) MUST register its React-context-aware `current-frame-id` impl through the `:adapter/current-frame` late-bind hook at namespace-load time. `re-frame.subs/subscribe`, `re-frame.subs/subscribe-once`, and the dispatch envelope's `:frame` default consult the hook on CLJS so the React-context tier of the resolution chain is **live** rather than dead code. Without the registration the call sites fall back to `re-frame.frame/current-frame` (dynamic-var tier only); the React-context tier silently no-ops to nil. The impl MUST return **nil** (not `:rf/default`) when no scope names a frame, so a public frame-scoped op raises `:rf.error/no-frame-context` rather than synthesising a default. Hook signature: `(fn frame-id-keyword-or-nil)`.
 
 **Hook routing is by stable token, not object identity.** A test bundle (or a port that ships more than one adapter) may load several adapter namespaces, each publishing the same `:adapter/*` hook key. Each adapter wraps its impl in a routing closure that fires **only when that adapter is the installed one**, chaining to the previously-registered handler otherwise (the CLJS reference helper is `re-frame.substrate.adapter/route-hook!`). The closure decides "is this my adapter?" by **stable token — the canonical `:kind` discriminator — NOT object identity**. This matters because the adapter spec map is a **value**: a consumer may copy, `assoc`, or `merge` a canonical adapter map (for instrumentation, local overrides, or the adapter-swap pattern) and install the copy. A copy is value-equal but a distinct object, so an object-identity guard would silently serve **stale, inert hooks** for it — `rf/init!` returns green and `current-adapter` looks right, but every routed hook falls through to its chain bottom: `:adapter/current-frame` resolution dies (the chain bottom is nil → a frame-scoped op raises `:rf.error/no-frame-context`; there is no `:rf/default` floor), source/view annotation and after-render no-op, and the ratom family's `:adapter/derived-container?` guard stops firing. Routing by the `:kind` token instead makes a copied canonical map dispatch to its adapter's **live** hooks, which is the contract the bullet above requires. A genuinely custom adapter that did not pick a canonical `:rf.adapter/*` `:kind` (its `:kind` is absent) carries no distinguishing token and so falls back to object identity — two distinct kind-less adapters are never conflated. The same stable-token rule governs any adapter-side driver guard that asks "is MY adapter installed?" (e.g. the Test-React `mount!` driver accepts a copied Test-React map).
 
