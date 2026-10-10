@@ -63,12 +63,12 @@ About Spec 003. The numbering 000–016 has one gap: there is no `003-*.md`. Slo
 
 ### Capability layer (per-area normative Specs)
 
-There is no 004 view contract, and this corpus asserts none. `004B` and `004C` own the structural tree ABI and root identity with its descriptor/manifest contract, both of which have producers in the tree.
+There is no 004 view contract, and this corpus asserts none. `004B` and `004C` own the structural tree ABI and root identity and mount, both of which have producers in the tree.
 
 | # | Title | One-liner |
 |---|---|---|
 | 004B | [UI Tree and Conversion](004B-UI-Tree-and-Conversion.md) | The structural render-tree ABI v1 — five closed node variants, canonical form, semantic normalization `N` — plus the one DOM conversion table its emitters share and the version-gated `emit-ui-tree` SSR consumption boundary. |
-| 004C | [Roots and Mount](004C-Roots-and-Mount.md) | Root identity and the descriptor/manifest contract: root-id and slug derivation, the Root Descriptor / Root Manifest schema family (`:rf.root/*`; the render-time extension keys co-owned with [011](011-SSR.md)), element locators and manifest discovery, render-time props, idempotent payload install, content-digest conflict detection, and the hydrating-root boot sequence. Owns no mount verb — the client root is [006](006-ReactiveSubstrate.md#the-client-root-adapter-owned-reusable)'s. |
+| 004C | [Root identity and mount](004C-Roots-and-Mount.md) | Root identity: the host-passed root-id and the identifier-prefix rule a hydrating root keeps, idempotent payload install, content-digest conflict detection, and the hydrating-root boot sequence. Owns no mount verb — the client root is [006](006-ReactiveSubstrate.md#the-client-root-adapter-owned-reusable)'s. |
 | 005 | [State Machines](005-StateMachines.md) | Transition-table grammar layered on 002's machines-as-event-handlers hooks. |
 | 006 | [Reactive Substrate](006-ReactiveSubstrate.md) | Substrate-agnostic core + adapter contract. Reagent default; plain-atom for JVM/SSR/headless. |
 | 007 | [Stories, Variants, and Workspaces](007-Stories.md) | Storybook/Histoire/devcards-class tooling. Story / Variant / Workspace split. Builds on 008. |

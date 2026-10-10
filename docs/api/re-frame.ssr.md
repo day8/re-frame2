@@ -207,16 +207,13 @@ The Node renderer's state is not this payload: [`re-frame.ssr.ring.node/renderer
     - `:payload` — the payload map. Required on the JVM; on CLJS, omit it to read the payload from the DOM.
     - `:element-id` (CLJS) — the payload `<script>` id to read when `:payload` is omitted; default `"__rf_payload"`.
     - `:render-tree-fn` — a 0-arity fn returning the client's render tree, for the verify step; `hydrate!` calls it once, under `:frame`, so the view's subscriptions resolve. Pass `(fn [] ((rf/view :app/root)))`, calling the view to match what the server hashed. Pass it only when your views return hiccup (Reagent, Reagent-slim). Omit it for native UIx and Fresco roots, whose views return React elements: they report mismatches through the adapter's hydrating render instead.
-    - `:container` (CLJS) — this root's container element, for a page with several roots. `hydrate!` reads the root manifest from the element immediately after it, a `<script type="application/edn" data-rf-root>` describing the root, and validates it; a missing or invalid manifest throws `:rf.error/root-manifest-invalid`. The bundled Ring handler writes no root manifest, so pass `:container` only when your host emits one.
-    - `:manifest` — an explicit root manifest, validated in place of discovery.
-    - `:root-id` — this root's id, recorded as the payload's installer and named in a conflict. Defaults to the manifest's `:root-id` when a manifest was resolved.
+    - `:root-id` — this root's id, recorded as the payload's installer and named in a conflict.
 - **Errors**:
     - `:rf.error/no-frame-context` — no `:frame`. Emitted, then thrown.
     - `:rf.error/hydration-frame-id-mismatch` — the payload's `:rf/frame-id` names a different frame than `:frame`. Emitted, then thrown.
     - `:rf.error/malformed-hydration-payload` — the payload, or its `:rf/app-db` or `:rf/runtime-db` slice, is not a map. Emitted, not thrown: the frame's state is left unchanged and `hydrate!` returns `nil`.
     - `:rf.error/frame-destroyed` — there is a payload, and `:frame` names no live frame. Emitted, not thrown: nothing is installed, and `hydrate!` returns `nil`.
     - `:rf.error/frame-payload-conflict` — a different payload is already installed in the same frame. Thrown before anything is installed.
-    - `:rf.error/root-manifest-invalid` — `:container` has no root manifest beside it, or the manifest (discovered or passed as `:manifest`) is invalid. Thrown before anything is installed.
 - **Example**:
   ```clojure
   ;; Client (CLJS), using the same :app/root registration as the server.
@@ -247,7 +244,7 @@ The Node renderer's state is not this payload: [`re-frame.ssr.ring.node/renderer
                            | {:root-id … :status :failed :error throwable} …]
   ```
 - **Description**: Boots a page with several roots, isolating each root's failure from the others ([Several roots on one page](../ssr/concepts.md#several-roots-on-one-page)). `roots` is a collection of per-root opts maps: each is the map `hydrate!` takes, plus an optional 0-arity `:mount-fn` that runs right after that root's hydrate, inside the same failure boundary. Pass the mount as `:mount-fn` rather than mounting after the call: a mount that throws outside the boundary is not isolated.
-    - A root whose hydrate or mount throws is reported with an always-on `:rf.error/root-boot-failed` record carrying `:root-id` and `:phase`: `:hydrate` when `hydrate!` threw (a frame-id mismatch, payload conflict or manifest refusal before anything was installed, or a `:hard-error` hash mismatch after the frame was seeded), `:mount` when `hydrate!` returned and `:mount-fn` threw. The remaining roots keep booting.
+    - A root whose hydrate or mount throws is reported with an always-on `:rf.error/root-boot-failed` record carrying `:root-id` and `:phase`: `:hydrate` when `hydrate!` threw (a frame-id mismatch or payload conflict before anything was installed, or a `:hard-error` hash mismatch after the frame was seeded), `:mount` when `hydrate!` returned and `:mount-fn` threw. The remaining roots keep booting.
     - Outcomes come back in input order. `:status :hydrated` means neither step threw; its `:payload` can be `nil` when `hydrate!` applied nothing. The mount callback still runs in that case.
     - `:mount-fn` receives no payload argument and establishes its own frame context, usually with `rf/frame-provider`. For a page that may have no payload, choose client-only mounting in your boot code; the callback is not automatically switched to it.
     - A failed root is not retried.

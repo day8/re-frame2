@@ -441,7 +441,7 @@ and to the render fingerprint. Pinned, in order:
 The semantic node is `{:ns … :tag … :attrs {final-name → serialised-value} :children
 […]}` with attribute maps order-insensitive and child vectors order-significant.
 **Fingerprint input = the canonical-EDN serialisation of `N(tree)`.** The hash
-*algorithm*, digest encoding, and the root manifest's `render-fingerprint` field are
+*algorithm* and digest encoding are
 owned by Spec 011/008 (FNV-1a is the checked-in choice) —
 this contract owns only the input. CLJS-side parity uses the same space: rendered HTML
 parsed into semantic nodes.
@@ -629,7 +629,7 @@ shapes.
   → digest` would hash the canonical-EDN serialisation of `N(tree)` (§Normalization),
   algorithm/encoding owned by 011. It is a **non-binding candidate**: no such function
   exists and none is owed. It would be warranted only if Spec 011 adds the structural
-  render-hash / manifest `render-fingerprint` channel — which
+  fingerprint channel for the adoption tier — which
   [011 §Hydration-mismatch detection](011-SSR.md#hydration-mismatch-detection)
   designs the adoption tier *without*, calling it "a
   deliberately-deferred future leaf, not a defect" — **and** a named concrete consumer
@@ -664,15 +664,14 @@ meets it. That contract is final.
 
 The **fingerprint half is a deferred, non-binding candidate — not an owed function**.
 `re-frame.ssr/ui-tree-fingerprint` has no function, and none is owed. Spec 011 owns
-whether the structural render-hash / manifest `render-fingerprint` channel exists,
+whether a structural fingerprint channel for the adoption tier exists,
 and it would exist only if 011 adds that channel **and** a named concrete
 consumer needs it. The channel is deliberately absent: [011 §Hydration-mismatch
 detection](011-SSR.md#hydration-mismatch-detection) states that the adoption tier
 "deliberately carries no such hash" (a React-element root has no hashable client
 render-tree), and records that reviving it is "a deliberately-deferred future leaf, not
 a defect." The hash algorithm and digest encoding this candidate would apply
-are Spec 011's (§Normalization, and
-[011 §Root Manifest v1](011-SSR.md#root-manifest-v1)) — kept
+are Spec 011's (see §Normalization) — kept
 below as design-of-record. A reader who greps *that* name and finds no function has found
 a deferred candidate, not a gap or an outstanding obligation.
 
@@ -725,20 +724,15 @@ The seam emits the markup for **one root's tree**. Everything else a real page c
 belongs to the SSR artefact's other surfaces, and drawing the line here is what keeps
 the code half from re-implementing them:
 
-- **No manifest, no payload, no ledger.** The per-root manifest script, the page-wide
-  hydration payload, and the install ledger are
-  [011 §Root Manifest v1](011-SSR.md#root-manifest-v1) and the sections following it.
+- **No payload, no ledger.** The page-wide hydration payload and the install ledger
+  are [011 §The `:rf/hydrate` event](011-SSR.md#the-rfhydrate-event) and
+  [011 §Hydration preflight and idempotent payload install](011-SSR.md#hydration-preflight-and-idempotent-payload-install).
   `emit-ui-tree` neither writes them nor reads them.
-- **No container, no identity.** Root-ids, identifier prefixes and element locators are
-  root identity
-  ([004C §7](004C-Roots-and-Mount.md#7-duplicate-and-conflict-detection--fail-loud-three-layers)),
-  settled before the seam is called and stamped by whatever assembles the page around
-  its output. The `data-rf-root` marker is **not** identity, and it does not belong on
-  the emitted tree either: it is a bare discriminator on the manifest script that the
-  page assembler writes immediately after the container, saying only that a manifest is
-  here and never which root
-  ([011 §The wire form](011-SSR.md#the-wire-form)). *Which* root is the manifest's
-  `:root-id`, spelled once, in the content.
+- **No container, no identity.** Root-ids and identifier prefixes are root identity
+  ([004C §1](004C-Roots-and-Mount.md#1-root-identity--required-host-authored-derivable),
+  [§3](004C-Roots-and-Mount.md#3-the-mount-grammar-and-the-host-signature-set)),
+  settled before the seam is called and passed by whatever assembles the page around
+  its output and boots it.
 - **No response.** Status, headers, cookies and redirects live in the per-request
   response accumulator
   ([011 §HTTP response contract](011-SSR.md#http-response-contract)). A string is the
@@ -764,9 +758,8 @@ stripped dev annotation agree structurally, and are meant to. The fingerprint an
 and hashing the emitted HTML instead would answer the second question while appearing to
 answer the first.
 
-This contract owns the fingerprint's **input** only; the hash algorithm, the digest
-encoding, and the manifest field that carries it are Spec 011's (§Normalization, and
-[011 §Root Manifest v1](011-SSR.md#root-manifest-v1)).
+This contract owns the fingerprint's **input** only; the hash algorithm and the
+digest encoding are Spec 011's (see §Normalization).
 
 ## [S1-CONFIRM] roster (collected)
 
