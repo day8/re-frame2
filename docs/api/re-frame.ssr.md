@@ -803,7 +803,7 @@ The server half of streaming, in the order a host calls it: `streaming-render-sh
 
 ### The response accumulator
 
-Each per-request frame collects its HTTP response (status, headers, cookies, redirect) in a framework-private store keyed by frame id. It lives outside `app-db`, so it never reaches the client in the hydration payload. The [server-only fx](#server-only-fx) write it; hosts read the resolved response with `get-response`, which first drains pending error projections. `peek-response` reads without draining.
+Each per-request frame collects its HTTP response (status, headers, cookies, redirect) in a framework-private store keyed by frame id. It lives outside `app-db`, so it never reaches the client in the hydration payload. The [server-only fx](#server-only-fx) write it; hosts settle it with `flush-response-result!`, which drains pending error projections, and read it with `get-response` or `peek-response`, which never drain.
 
 #### `default-response`
 
@@ -829,10 +829,10 @@ Each per-request frame collects its HTTP response (status, headers, cookies, red
   ```clojure
   (get-response frame-id) → response-map
   ```
-- **Description**: Drains any pending error projection for `frame-id`, so `:status` reflects the active projector's output, then returns the response without internal bookkeeping keys. This is the read host adapters use. Every call clears the projector buffer: only the first call after an error trace projects it, and when several traces are pending the last one wins.
+- **Description**: Returns `frame-id`'s response without internal bookkeeping keys. A pure read, the same as `peek-response`: it projects no pending error, so reading never changes what the settle ([`flush-response-result!`](#flush-response-result)) later sees. Settle first for a `:status` that carries the projector's output.
 - **Example**:
   ```clojure
-  ;; Host adapter: after the drain settles, read the response to build the wire reply.
+  ;; Host adapter: after the settle, read the response to build the wire reply.
   (ssr/get-response :app/request-frame)
   ;; => {:status 200 :headers [["content-type" "text/html; charset=utf-8"]] :cookies [] :redirect nil}
   ```
@@ -844,7 +844,7 @@ Each per-request frame collects its HTTP response (status, headers, cookies, red
   ```clojure
   (peek-response frame-id) → response-map
   ```
-- **Description**: Returns the resolved response without draining pending error projections. Use it for debugging or mid-request inspection, where `get-response`'s drain would consume a trace the host has not yet handled.
+- **Description**: Returns the resolved response without draining pending error projections, so it is safe for debugging or mid-request inspection.
 
 #### `flush-response!`
 
@@ -853,7 +853,7 @@ Each per-request frame collects its HTTP response (status, headers, cookies, red
   ```clojure
   (flush-response! frame-id) → response-map
   ```
-- **Description**: The same function as [`get-response`](#get-response).
+- **Description**: The same pure read as [`get-response`](#get-response).
 
 #### `flush-response-result!`
 
@@ -862,7 +862,7 @@ Each per-request frame collects its HTTP response (status, headers, cookies, red
   ```clojure
   (flush-response-result! frame-id) → {:response response-map :public-error public-error-or-nil}
   ```
-- **Description**: The same drain as `flush-response!`, returning the projected `:rf/public-error` beside the response (`nil` when no projection fired). `flush-response!` and `get-response` return this map's `:response`.
+- **Description**: The settle. Drains `frame-id`'s pending error projections and returns the response beside the projected `:rf/public-error` (`nil` when no projection fired). When several errors are pending, every one is projected and the highest status wins, the later one among equals, so a server fault is not hidden by a 4xx that followed it.
     - Host adapters branch on `:public-error` to classify the outcome: a projected 4xx keeps the app body, a projected 5xx switches to the error page. They cannot infer this from `:status`, because an app can set a `500` itself with nothing projected.
     - A second call returns `:public-error nil`, since the projection has been consumed.
 
@@ -875,7 +875,7 @@ Each per-request frame collects its HTTP response (status, headers, cookies, red
   (apply-error-projection! frame-id trace-event) → :rf/public-error | nil
   ```
 - **Description**: Projects an error trace event through `frame-id`'s projector, writes the public error's `:status` to the response, and returns the public-error map. Returns `nil` when there is nothing to do: the frame is missing, is not a server frame, or has no pending trace.
-    - 1-arity: drains the frame's error-trace buffer and projects the last trace.
+    - 1-arity: drains the frame's error-trace buffer, projects every trace, and keeps the highest status (the later one among equals).
     - 2-arity: projects the given trace, for hosts that catch errors outside the trace stream.
     - When the response already holds a `:redirect`, its status is kept. The public-error map is still returned, but `:status` is not overwritten.
 

@@ -41,7 +41,7 @@
     (rf.error-emit/unregister-error-listener! id)
     {:frame    f
      :records  @seen
-     :response (rf.ssr/flush-response! f)}))
+     :response (:response (rf.ssr/flush-response-result! f))}))
 
 (defn- safe-redirect-records [records]
   (filter #(str/starts-with? (name (:error %)) "safe-redirect-") records))

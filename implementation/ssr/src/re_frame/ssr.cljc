@@ -92,12 +92,11 @@
 ;; drain-time errors so both paths materialise an equivalent wire response.
 (def project-render-exception!       rf.ssr.error-listener/project-render-exception!)
 (def get-response                    rf.ssr.error-listener/get-response)
-;; `peek-response` is a pure read (no projector drain);
-;; `flush-response!` drains pending error projections then reads.
-;; `get-response` is the drain-then-read host-adapter alias.
-;; `flush-response-result!` is the drain-then-read variant that ALSO returns
-;; the projected `:public-error` so host adapters classify drain-time
-;; outcomes (4xx app arm vs 5xx error arm) without re-inferring from status.
+;; `peek-response`, `get-response` and `flush-response!` are pure reads.
+;; `flush-response-result!` is the settle: it drains pending error
+;; projections, then returns the response AND the projected `:public-error`
+;; so host adapters classify drain-time outcomes (4xx app arm vs 5xx error
+;; arm) without re-inferring from status.
 (def peek-response                   rf.ssr.error-listener/peek-response)
 (def flush-response!                 rf.ssr.error-listener/flush-response!)
 (def flush-response-result!          rf.ssr.error-listener/flush-response-result!)
@@ -415,8 +414,8 @@ explicitly."
 ;; `:rf.error/drain-depth-exceeded` — buffer twice in dev; the always-on
 ;; axis is their production status source of truth. Both listeners share id
 ;; `::error-projection` to keep the contract surface addressable as one
-;; logical projector — `apply-error-projection!` 1-arity is
-;; last-write-wins, so the duplicate buffer entry under dev is benign.
+;; logical projector — `apply-error-projection!` 1-arity keeps the highest
+;; projected status, so the duplicate buffer entry under dev is benign.
 (rf.trace.tooling/register-listener! ::error-projection
                                   rf.ssr.error-listener/error-projection-listener)
 

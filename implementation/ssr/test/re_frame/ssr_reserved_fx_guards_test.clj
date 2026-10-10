@@ -39,8 +39,8 @@
 (defn- drive!
   "Dispatch `fx-vec` then `sibling-fx` on a fresh server frame. Returns the
   pure accumulator read (`:raw`), the same read with the `_status-writes`
-  bookkeeping kept (`:bookkept`), the public draining read (`:response`,
-  taken last because it drains) and every always-on error record seen."
+  bookkeeping kept (`:bookkept`), the settled response (`:response`,
+  taken last because the settle drains) and every always-on error record seen."
   [fx-vec]
   (let [f    (server-frame)
         id   (keyword "rf.test" (str "cap-" (name (gensym "g"))))
@@ -53,7 +53,7 @@
             bookkept (rf.ssr.response/response-of f)]
         {:raw      raw
          :bookkept bookkept
-         :response (rf.ssr/get-response f)
+         :response (:response (rf.ssr/flush-response-result! f))
          :records  @seen})
       (finally
         (rf.error-emit/unregister-error-listener! id)))))

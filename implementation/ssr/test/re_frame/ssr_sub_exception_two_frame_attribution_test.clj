@@ -3,7 +3,7 @@
   on its OWN frame's response, through the always-on error axis, with a
   sibling server frame live and untouched.
 
-  This drives the sub before reading `get-response`, the inverse of the Ring
+  This drives the sub before settling the response, the inverse of the Ring
   handler's order, so it proves the attribution layer and not the wire; the
   wire contract is `re-frame.ssr.ring-rendertime-sub-failclosed-test`."
   (:require [clojure.test :refer [deftest is use-fixtures]]
@@ -27,5 +27,5 @@
     (with-redefs [rf.interop/debug-enabled? false]
       (rf/subscribe-once [:throwing-sub] {:frame fa})
       (rf/subscribe-once [:clean-sub] {:frame fb})
-      (is (= [500 200] [(:status (rf.ssr/get-response fa))
-                        (:status (rf.ssr/get-response fb))])))))
+      (is (= [500 200] [(:status (:response (rf.ssr/flush-response-result! fa)))
+                        (:status (:response (rf.ssr/flush-response-result! fb)))])))))

@@ -73,7 +73,7 @@
     (let [f (server-frame-using-the-documented-projector)]
       (rf/dispatch-sync [:never/registered] {:frame f})
       (is (= [500 500 500]
-             [(:status (rf.ssr/flush-response! f))
+             [(:status (:response (rf.ssr/flush-response-result! f)))
               (:status (@documented-projector-fn {:operation :rf.error/no-such-handler
                                                   :tags      {:kind :frame}}))
               (:status (@documented-projector-fn {:operation :rf.error/no-such-handler

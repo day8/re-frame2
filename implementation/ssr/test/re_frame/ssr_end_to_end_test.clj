@@ -73,7 +73,11 @@
         (apply head (rest render-tree))
         render-tree))))
 
-(defn- get-response [frame-id] (rf.ssr/get-response frame-id))
+(defn- settled-response
+  "The response as a host reads it: after the settle that projects buffered
+  errors."
+  [frame-id]
+  (:response (rf.ssr/flush-response-result! frame-id)))
 
 (defn- capture-fx-traces!
   "Every `:rf.error/fx-handler-exception` emitted during `body-fn`, read from
@@ -241,7 +245,7 @@
       (rf/register-listener! :trace ::redir (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:auth/double-redirect] {:frame f})
       (rf/unregister-listener! :trace ::redir)
-      (is (= {:status 301 :location "/canonical"} (:redirect (get-response f))))
+      (is (= {:status 301 :location "/canonical"} (:redirect (settled-response f))))
       ;; DEV ARM — programmer advice, as for multiple-status-set.
       (when rf.interop/debug-enabled?
         (is (some (fn [ev]
@@ -267,7 +271,7 @@
         (fn [_ _] {:fx (mapv (fn [c] [:rf.server/set-cookie c]) cookies)}))
       (let [f (rf.frame/make-anon-frame-record! {:platform :server})]
         (rf/dispatch-sync [:auth/establish] {:frame f})
-        (is (= cookies (:cookies (get-response f))))))))
+        (is (= cookies (:cookies (settled-response f))))))))
 
 (deftest ssr-delete-cookie
   (testing ":rf.server/delete-cookie writes a :max-age 0, empty-:value marker
@@ -277,7 +281,7 @@
     (let [f (rf.frame/make-anon-frame-record! {:platform :server})]
       (rf/dispatch-sync [:auth/logout] {:frame f})
       (is (= [{:name "session" :value "" :max-age 0 :path "/"}]
-             (:cookies (get-response f)))))))
+             (:cookies (settled-response f)))))))
 
 (deftest ssr-set-and-append-header
   (testing "set-header replaces case-insensitively; append-header keeps
@@ -293,7 +297,7 @@
     (let [f (rf.frame/make-anon-frame-record! {:platform :server})]
       (rf/dispatch-sync [:hdr/set-then-replace] {:frame f})
       (rf/dispatch-sync [:hdr/append-twice] {:frame f})
-      (let [hdrs     (:headers (get-response f))
+      (let [hdrs     (:headers (settled-response f))
             values-of (fn [n] (keep (fn [[k v]] (when (= n (str/lower-case k)) v)) hdrs))]
         (is (= ["second"] (values-of "x-foo")))
         (is (= ["a=1" "b=2"] (values-of "set-cookie")))))))
@@ -352,7 +356,7 @@
         {:fx [[:rf.server/set-header {:name "Cache-Control" :value "no-cache, must-revalidate, max-age=0"}]
               [:rf.server/set-header {:name "X-Whitespace" :value "tab\there space"}]]}))
     (let [f (rf.frame/make-anon-frame-record! {:platform :server :initial-events [[:hdr/clean]]})]
-      (is (every? (set (:headers (get-response f)))
+      (is (every? (set (:headers (settled-response f)))
                   [["Cache-Control" "no-cache, must-revalidate, max-age=0"]
                    ["X-Whitespace" "tab\there space"]])))))
 
@@ -370,7 +374,7 @@
       (rf/reg-event :redirect/trusted
         (fn [_ _] {:fx [[:rf.server/redirect {:location loc}]]}))
       (let [f (rf.frame/make-anon-frame-record! {:platform :server :initial-events [[:redirect/trusted]]})]
-        (is (= loc (-> (get-response f) :redirect :location)))))))
+        (is (= loc (-> (settled-response f) :redirect :location)))))))
 
 (deftest ssr-redirect-populates-redirect-and-status
   (testing "redirect fills :redirect and flows its :status onto the response.
@@ -378,7 +382,7 @@
             decision (ssr-ring's handler-redirect-short-circuits)"
     (rf/reg-event :auth/check-session
       (fn [_ _] {:fx [[:rf.server/redirect {:status 301 :location "/login"}]]}))
-    (let [resp (get-response (rf.frame/make-anon-frame-record!
+    (let [resp (settled-response (rf.frame/make-anon-frame-record!
                                {:platform :server :initial-events [[:auth/check-session]]}))]
       (is (= {:status 301 :location "/login"} (:redirect resp)))
       (is (= 301 (:status resp)))))
@@ -387,7 +391,7 @@
     (rf/reg-event :auth/check-no-status
       (fn [_ _] {:fx [[:rf.server/redirect {:location "/login"}]]}))
     (let [f (rf.frame/make-anon-frame-record! {:platform :server :initial-events [[:auth/check-no-status]]})]
-      (is (= 302 (-> (get-response f) :redirect :status))))))
+      (is (= 302 (-> (settled-response f) :redirect :status))))))
 
 (deftest ssr-redirect-retired-spelling-diagnostic-names-location
   (testing ":url / :to are rejected, not normalised: the diagnostic names the
@@ -399,7 +403,7 @@
                 :retired-keys [k]}
                (select-keys (fx-error-extra traces :rf.error/redirect-retired-target-key)
                             [:rf.error/id :canonical-key :retired-keys])))
-        (is (nil? (:redirect (get-response f))))))))
+        (is (nil? (:redirect (settled-response f))))))))
 
 ;; ===========================================================================
 ;; Error projection (Spec 011 §Server error projection)
@@ -446,7 +450,7 @@
           events (:events (with-error-capture! #(rf/dispatch-sync [:load/article] {:frame f})))
           err    (some #(when (= :rf.error/handler-exception (:operation %)) %) events)]
       (is (some? err))
-      (is (= 500 (:status (get-response f))))
+      (is (= 500 (:status (settled-response f))))
       (is (= locked-500 (rf.ssr/project-error f err))))))
 
 (deftest ssr-error-projector-dev-mode-includes-details
@@ -523,15 +527,16 @@
         (is (= expected (rf.ssr/default-error-projector-fn trace-event))
             (pr-str trace-event))))))
 
-(deftest peek-response-does-not-drain-flush-does
-  (testing "peek-response is a pure read that leaves a buffered error
-            unprojected; flush-response! drains it onto :status"
+(deftest pure-reads-do-not-drain-the-settle-does
+  (testing "peek-response and get-response are pure reads that leave a
+            buffered error unprojected; flush-response-result! drains it
+            onto :status"
     (rf/reg-route :route/home {} "/")
     (let [f (projecting-frame {:public-error-id   :rf.ssr/default-error-projector
                                :dev-error-detail? false})]
       (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"] {:frame f})
-      (is (= 200 (:status (rf.ssr/peek-response f))))
-      (is (= 404 (:status (rf.ssr/flush-response! f)))))))
+      (is (= [200 200] [(:status (rf.ssr/peek-response f)) (:status (rf.ssr/get-response f))]))
+      (is (= 404 (:status (:response (rf.ssr/flush-response-result! f))))))))
 
 ;; ===========================================================================
 ;; Hydration verification's host-supplied attribution
@@ -664,7 +669,7 @@
       (fn [_ _]
         {:fx [[:rf.server/safe-redirect {:location "/account/settings" :relative-only? true}]]}))
     (let [f (rf.frame/make-anon-frame-record! {:platform :server :initial-events [[:sr/relative-control]]})]
-      (is (= {:status 302 :location "/account/settings"} (:redirect (get-response f)))))))
+      (is (= {:status 302 :location "/account/settings"} (:redirect (settled-response f)))))))
 
 ;; ===========================================================================
 ;; Tag-name injection (emit). A tag name is written into the markup
@@ -744,7 +749,7 @@
     (rf/reg-event :ck/semicolon-value
       (fn [_ _] {:fx [[:rf.server/set-cookie {:name "sid" :value "a;b" :path "/"}]]}))
     (let [f (rf.frame/make-anon-frame-record! {:platform :server :initial-events [[:ck/semicolon-value]]})]
-      (is (= ["a;b"] (mapv :value (:cookies (get-response f)))))))
+      (is (= ["a;b"] (mapv :value (:cookies (settled-response f)))))))
 
   (testing "delete-cookie, sugar over set-cookie, gates :path and :domain too"
     (doseq [attr [:path :domain]]
@@ -772,7 +777,7 @@
                   :expires   "Wed, 09 Jun 2027 10:18:14 GMT"}]
       (rf/reg-event :ck/clean-attrs (fn [_ _] {:fx [[:rf.server/set-cookie cookie]]}))
       (let [f (rf.frame/make-anon-frame-record! {:platform :server :initial-events [[:ck/clean-attrs]]})]
-        (is (= [cookie] (:cookies (get-response f))))))))
+        (is (= [cookie] (:cookies (settled-response f))))))))
 
 ;; ===========================================================================
 ;; ssr-server-fx-args-schema-boundary — a TWO-POSTURE CONTRACT.
@@ -809,7 +814,7 @@
 
 (defn- drive-server-fx!
   "Dispatch `fx-vec` on a fresh server frame; return the public response
-  (`get-response`, after the projection drains), the dev schema-failure
+  (after the settle drains the projection), the dev schema-failure
   traces, and every always-on error record."
   [fx-vec]
   (let [f       (rf.frame/make-anon-frame-record! {:platform :server})
@@ -824,7 +829,7 @@
     (rf.error-emit/register-error-listener! tag (fn [r] (swap! records conj r)))
     (try
       (rf/dispatch-sync [ev-id] {:frame f})
-      {:response   (get-response f)
+      {:response   (settled-response f)
        :dev-traces @dev
        :records    @records}
       (finally

@@ -49,6 +49,31 @@
              (for [r [a b]] [(-> r :public-error :status) (-> r :response :status)]))
           "each frame's [public-error status, response status]"))))
 
+(deftest a-buffered-server-fault-outranks-a-client-fault-in-either-order
+  (testing "a handler 500 and a route 404 in one request settle at 500,
+            whichever buffered first"
+    (let [fault-first (make-server-frame :ssr/frr-500-then-404)
+          miss-first  (make-server-frame :ssr/frr-404-then-500)]
+      (buffer-error! fault-first :rf.error/handler-exception)
+      (buffer-error! fault-first :rf.error/no-such-handler {:kind :route})
+      (buffer-error! miss-first :rf.error/no-such-handler {:kind :route})
+      (buffer-error! miss-first :rf.error/handler-exception)
+      (is (= [[500 500] [500 500]]
+             (for [f [fault-first miss-first]
+                   :let [r (rf.ssr/flush-response-result! f)]]
+               [(-> r :public-error :status) (-> r :response :status)]))
+          "each frame's [public-error status, response status]"))))
+
+(deftest reading-the-response-before-the-settle-leaves-it-intact
+  (let [f (make-server-frame :ssr/frr-midpoint-read)]
+    (buffer-error! f :rf.error/handler-exception)
+    (rf.ssr/peek-response f)
+    (rf.ssr/get-response f)
+    (rf.ssr/flush-response! f)
+    (let [{:keys [response public-error]} (rf.ssr/flush-response-result! f)]
+      (is (= [500 500] [(:status public-error) (:status response)])
+          "the settle still sees the buffered fault"))))
+
 (deftest redirect-precedence-suppresses-status-stamp-still-returns-error
   (testing "a redirect keeps its 302 over the projected 500, and the
             projected map is still returned"

@@ -61,11 +61,11 @@
   (let [f      (server-frame)
         record (first (miss! f "/bad%ZZ-encoding"))]
     (is (= [:rf.error/no-such-handler :malformed-url 404]
-           [(:error record) (:reason record) (:status (rf.ssr/flush-response! f))]))))
+           [(:error record) (:reason record) (:status (:response (rf.ssr/flush-response-result! f)))]))))
 
 (deftest a-client-frame-route-miss-stamps-no-status
   (testing "the record still fans, but a client frame has no response to stamp"
     (let [client (rf.frame/make-anon-frame-record! {:platform :client})]
       (is (= [[:rf.error/no-such-handler] 200]
              [(mapv :error (miss! client "/no-such-page"))
-              (:status (rf.ssr/get-response client))])))))
+              (:status (:response (rf.ssr/flush-response-result! client)))])))))

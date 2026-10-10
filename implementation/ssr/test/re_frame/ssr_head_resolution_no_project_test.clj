@@ -2,7 +2,7 @@
   "`:rf.error/ssr-head-resolution-failed` is a recoverable degradation: a
   throwing `:head` fn degrades to an empty `<head>` and the request still
   answers 200 (Spec 011 §1070). Both buffering listeners skip the category,
-  so the 200 holds whenever the host reads `get-response`. The dev-bus tests
+  so the 200 holds whenever the host settles the response. The dev-bus tests
   sit in `debug-enabled?` arms because `trace/emit-error!` emits nothing
   under `-Dre-frame.debug=false`; the always-on test runs in both postures."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -27,7 +27,7 @@
     (let [f (server-frame)]
       (rf.trace/emit-error! :rf.error/ssr-head-resolution-failed
                             {:frame f :exception (ex-info "head boom" {}) :recovery :no-recovery})
-      (is (= 200 (:status (rf.ssr/get-response f)))))))
+      (is (= 200 (:status (:response (rf.ssr/flush-response-result! f))))))))
 
 (deftest dev-path-control-non-head-error-still-projects
   (testing "the skip is targeted, not a listener that drops everything"
@@ -35,11 +35,11 @@
       (let [f (server-frame)]
         (rf.trace/emit-error! :rf.error/schema-validation-failure
                               {:frame f :exception (ex-info "schema boom" {}) :recovery :no-recovery})
-        (is (not= 200 (:status (rf.ssr/get-response f))))))))
+        (is (not= 200 (:status (:response (rf.ssr/flush-response-result! f)))))))))
 
 (deftest always-on-path-head-failure-record-is-not-buffered-or-projected
   (let [f (server-frame)]
     (rf.ssr.error-listener/error-emit-projection-listener
       {:error :rf.error/ssr-head-resolution-failed :frame f :time 0
        :exception (ex-info "head boom" {})})
-    (is (= 200 (:status (rf.ssr/get-response f))))))
+    (is (= 200 (:status (:response (rf.ssr/flush-response-result! f)))))))
