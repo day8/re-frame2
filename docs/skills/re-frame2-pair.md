@@ -8,7 +8,7 @@ With the [one-time setup](#one-time-setup) done, `shadow-cljs watch` running and
 
 > *What's in `app-db` under `:cart`?*
 
-The skill's first call is always `discover-app`. It finds the shadow-cljs nREPL port, connects, switches to `:cljs` mode for the running build, checks that re-frame2 is loaded with `interop/debug-enabled?` true, and confirms the preloaded runtime namespace is there. Next it calls `orient`, a one-call summary of the app's frames, top-level `app-db` keys, registration counts and up to 20 example ids each of events, subs, fx and machines; a list it cut short is named under `:truncated` with its total and the `list-handlers` call that returns every id. Only then does it read the sub, path or slice you asked about.
+The skill's first call is always `discover-app`. It finds the shadow-cljs nREPL port, connects, switches to `:cljs` mode for the running build, checks that re-frame2 is loaded with `interop/debug-enabled?` true, and confirms the preloaded runtime namespace is there. Next it calls `orient`, a one-call summary of the app's frames, top-level `app-db` keys, registration counts and a sample of registered ids, with a pointer to the full list wherever it trims one. Only then does it read the sub, path or slice you asked about.
 
 With one build running there is nothing to pass. With several, name the build or give the app tab's URL: the skill can pass its integer `port` to `discover-app`. This is the browser port, not the nREPL port. The selected build stays selected until a switch or nREPL reconnect.
 
@@ -111,7 +111,7 @@ Two other flags steer discovery: `--port-file <absolute-path>` names the shadow 
 
 These are separate controls: leaving `--allow-writes` off still permits real dispatch, replay and eval. `eval-cljs` can mutate the page and returns values without the redaction the structured reads apply, so the skill uses a typed tool whenever one fits and keeps `eval-cljs` for what no typed tool covers: epoch forensics, arbitrary-selector DOM reads, cross-referencing and recovery.
 
-The [MCP tool reference](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/mcp-transport.md#mcp-tool-reference-args) lists every tool and its argument signature, including the size and privacy options supported per tool.
+The [MCP tool reference](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/mcp-transport.md#mcp-tool-reference-args) lists every tool and its argument signature, including the size and privacy options supported per tool. What each tool returns is in the server's [tool catalogue](https://github.com/day8/re-frame2/blob/main/tools/re-frame2-pair-mcp/spec/003-Tool-Catalogue.md).
 
 ## Troubleshooting
 
@@ -128,7 +128,7 @@ Runtime refusals carry `{:ok? false :reason …}`; the skill reports the reason 
 | `:ambiguous-frame` | Two or more app frames and no frame chosen. | Name one — the skill pins it with `set-operating-frame`. |
 | `:rf.error/writes-disabled` | The server was launched without `--allow-writes`. | If you want time-travel and state injection, add `--allow-writes` to the server's `args` and start a fresh session. |
 
-A successful discovery is ready for reads when `:freshness :liveness` is `:fresh`. With `:stale-build` (old code in the tab) or `:no-runtime` (no live runtime), the hint names the URL to reload. The skill reloads it only when it has browser controls and the page is one it opened for the task; otherwise it asks you to. With `:unknown`, freshness could not be verified, so reads may work but are unverified. `:unknown-reason` says what was missing: `:jvm-unreadable` (the build state could not be read), `:no-build-worker` (the shadow-cljs process behind the nREPL port runs no worker for the build) or `:heartbeat-unavailable` (no runtime of the build has a usable heartbeat). The hint names one bounded next step: re-run discovery, check the build id and which shadow-cljs process owns the nREPL port, or report a compatibility gap. Don't answer `:unknown` with `npx shadow-cljs stop`: it stops every shadow-cljs server on the machine, other projects' watches included.
+A successful discovery is ready for reads when `:freshness :liveness` is `:fresh`. With `:stale-build` (old code in the tab) or `:no-runtime` (no live runtime), the hint names the URL to reload. The skill reloads it only when it has browser controls and the page is one it opened for the task; otherwise it asks you to. With `:unknown`, freshness could not be verified, so reads may work but are unverified; the reply says what could not be read and names one next step. Don't answer `:unknown` with `npx shadow-cljs stop`: it stops every shadow-cljs server on the machine, other projects' watches included.
 
 If epoch reads stay `[]` after the app has dispatched, check that `day8/re-frame2-epoch` was added and required in step 2 — `discover-app` does not check for it. Without it `dispatch-dry-run`, `restore-epoch` and `replay-epoch` refuse too, and `replace-app-db` fails with `:rf.error/epoch-artefact-missing`. The full reason list and recoveries are in [`references/errors.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/errors.md).
 

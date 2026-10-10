@@ -3403,24 +3403,6 @@
     (swap! recordings dissoc recording-id)
     {:ok? true :recording-id recording-id :existed? (some? rec)}))
 
-(defn recording-info
-  "List active / stopped recordings — the recorder-registry
-   diagnostic. Returns `{:ok? true :recordings [{:id :status
-   :signals :count :frames-sampled :frame :started-at :stopped-reason}]}`.
-   Does not drain or stop."
-  []
-  {:ok? true
-   :recordings (mapv (fn [[rid rec]]
-                       {:id             rid
-                        :status         (:status rec)
-                        :signals        (:signals rec)
-                        :count          (count (:entries rec))
-                        :frames-sampled (:frame-count rec)
-                        :frame          (:frame-id rec)
-                        :started-at     (:started-at rec)
-                        :stopped-reason (:stopped-reason rec)})
-                     @recordings)})
-
 ;; ---------------------------------------------------------------------------
 ;; Watch predicate matching
 ;; ---------------------------------------------------------------------------
