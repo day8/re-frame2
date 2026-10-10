@@ -233,26 +233,25 @@
   through a declared alias, or a bare `:refer`-ed symbol the body uses —
   and assert each is defined in its framework ns's source file."
   [substrate ^java.io.File file root]
-  (when (.isFile file)
-    (let [forms      (read-cljs-forms file)
-          requires   (parse-ns-requires (first forms))
-          body-forms (rest forms)
-          re-frame?  #(string/starts-with? (name %) "re-frame.")
-          qual-refs  (->> (collect-symbols #(some? (namespace %)) body-forms)
-                          (keep (fn [qsym]
-                                  (let [target-ns (get requires (symbol (namespace qsym)))]
-                                    (when (and target-ns (re-frame? target-ns))
-                                      [target-ns (symbol (name qsym))]))))
-                          set)
-          bare-used  (collect-symbols #(nil? (namespace %)) body-forms)
-          bare-refs  (->> (::referred requires)
-                          (keep (fn [[sym target-ns]]
-                                  (when (and (contains? bare-used sym) (re-frame? target-ns))
-                                    [target-ns sym]))))]
-      (doseq [[target-ns sym] qual-refs]
-        (audit-framework-symbol! substrate file root target-ns sym "references"))
-      (doseq [[target-ns sym] bare-refs]
-        (audit-framework-symbol! substrate file root target-ns sym "refers (bare)")))))
+  (let [forms      (read-cljs-forms file)
+        requires   (parse-ns-requires (first forms))
+        body-forms (rest forms)
+        re-frame?  #(string/starts-with? (name %) "re-frame.")
+        qual-refs  (->> (collect-symbols #(some? (namespace %)) body-forms)
+                        (keep (fn [qsym]
+                                (let [target-ns (get requires (symbol (namespace qsym)))]
+                                  (when (and target-ns (re-frame? target-ns))
+                                    [target-ns (symbol (name qsym))]))))
+                        set)
+        bare-used  (collect-symbols #(nil? (namespace %)) body-forms)
+        bare-refs  (->> (::referred requires)
+                        (keep (fn [[sym target-ns]]
+                                (when (and (contains? bare-used sym) (re-frame? target-ns))
+                                  [target-ns sym]))))]
+    (doseq [[target-ns sym] qual-refs]
+      (audit-framework-symbol! substrate file root target-ns sym "references"))
+    (doseq [[target-ns sym] bare-refs]
+      (audit-framework-symbol! substrate file root target-ns sym "refers (bare)"))))
 
 (def ^:private emitted-cljs-files
   ["src/acme/my_app/core.cljs"
@@ -270,7 +269,6 @@
       (let [proj (run-template! tmp "acme/my-app" substrate)]
         (assert-events-test-shape! substrate proj)
         (doseq [rel emitted-cljs-files]
-          (is (.isFile (io/file proj rel)) (str rel " emitted for " substrate))
           (audit-framework-surface! substrate (io/file proj rel) root)))
       (finally
         (delete-recursively tmp)))))
