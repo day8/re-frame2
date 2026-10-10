@@ -142,17 +142,3 @@
   (fn [{:keys [username]} _ctx]
     (when username
       [:rf.scope/session {:username username}])))
-
-;; ============================================================================
-;; CONVENIENCE — the concrete value for the few non-resource sites that want it
-;; ============================================================================
-
-(defn session-scope
-  "The concrete session cache scope for a given user map, or nil when logged out
-   — just a plain data value, `[:rf.scope/session {:username …}]`. The resource
-   sites all use the named `{:from-db :realworld/session}` reference and let the
-   runtime resolve it; this helper is here for the rare spot that needs the
-   concrete value in hand, like building a non-resource diagnostic."
-  [user]
-  (when-let [username (:username user)]
-    [:rf.scope/session {:username username}]))

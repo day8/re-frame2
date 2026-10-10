@@ -22,13 +22,12 @@
 
    Logout stays where it belongs, on the auth machine (`:auth/flow`).
 
-   One honest simplification: this form submits eagerly. Hitting 'Update
-   Settings' goes straight to a server round-trip, with no client-side validate
-   step first. The `:submit-invalid` → `:incorrect` transition is wired up
-   anyway, so the lifecycle is complete and you can see where validation WOULD
-   slot in — a real app would run a Malli validate against the draft inside
-   `:settings/submit` and dispatch `:submit-invalid` when it found problems."
-  (:require [re-frame.core :as rf]
+   `:settings/submit` checks the draft before anything goes on the wire. A
+   blank username or email broadcasts `:submit-invalid`, which lands the form
+   in `:incorrect` with per-field messages — the same state a server rejection
+   reaches through `:submit-failed`."
+  (:require [clojure.string :as str]
+            [re-frame.core :as rf]
             ;; State machines live in their own artefact; we require it to load
             ;; it, which registers the hooks that make `rf/reg-machine` (below)
             ;; and the `:rf/machine` / `:rf.machine/has-tag?` subs resolve. See
@@ -51,6 +50,15 @@
    :bio      (or (:bio user) "")
    :email    (or (:email user) "")
    :password ""})
+
+(defn validate-draft
+  "Per-field problems with a settings draft, as `{field [message]}` — empty when
+   the draft can be sent. Conduit names a profile by its username and signs in
+   by email, so neither may be blank."
+  [{:keys [username email]}]
+  (cond-> {}
+    (str/blank? username) (assoc :username ["Username is required."])
+    (str/blank? email)    (assoc :email ["Email is required."])))
 
 (def initial-data
   {:draft         (draft-from-user nil)
@@ -483,8 +491,9 @@
                       [:edit-password {:password value}]]]]}))
 
 (rf/reg-event :settings/submit
-  {:doc "Save the settings draft. No retry — one submission per click.
-         Broadcasts :submit-valid into the machine (which moves it to
+  {:doc "Save the settings draft. No retry — one submission per click. A draft
+         `validate-draft` rejects broadcasts :submit-invalid and sends nothing.
+         Otherwise broadcasts :submit-valid into the machine (which moves it to
          :submitting and clears any prior errors); when the reply lands,
          :settings/submit-success / :settings/submit-error broadcast
          :submit-succeeded / :submit-failed in turn."}
@@ -492,6 +501,7 @@
   ;; app-db, so this handler reads both partitions.
   (fn handler-settings-submit [{:keys [db] rt :rf.db/runtime} _]
     (let [draft   (:draft (machine-data rt))
+          errors  (validate-draft draft)
           ;; The issuance: who is sending it, and which account it names. Both
           ;; are computed HERE, at the moment the request goes out, and both
           ;; ride onward — into the machine as the awaited save, and (for the
@@ -500,26 +510,30 @@
           ;; of those routes.
           pending {:owner    (auth/session-owner db)
                    :username (:username draft)}]
-      ;; The same moment also adds this save to the on-the-wire ledger, under
-      ;; the name it will report back. The machine's `:pending` records the save
-      ;; the FORM awaits and a later submit overwrites it; the ledger records
-      ;; every save still unanswered and nothing overwrites it. The success
-      ;; handler needs both.
-      {:db (record-save db (:username pending))
-       :fx [[:dispatch [:settings/form
-                        [:submit-valid {:submitted draft
-                                        :pending   pending}]]]
-            [:rf.http/managed
-             (rh/request {:method     :put
-                          :path       "/user"
-                          :body       {:user (cond-> (select-keys draft [:image :username :bio :email])
-                                               (seq (:password draft))
-                                               (assoc :password (:password draft)))}
-                          :sensitive? true
-                          :decode     schema/UserResponse
-                          :on-success [:settings/submit-success]
-                          :on-failure [:settings/submit-error
-                                       (:owner pending) (:username pending)]})]]})))
+      (if (seq errors)
+        ;; A draft that fails validation sends nothing, so nothing joins the
+        ;; ledger below.
+        {:fx [[:dispatch [:settings/form [:submit-invalid {:errors errors}]]]]}
+        ;; The same moment also adds this save to the on-the-wire ledger, under
+        ;; the name it will report back. The machine's `:pending` records the
+        ;; save the FORM awaits and a later submit overwrites it; the ledger
+        ;; records every save still unanswered and nothing overwrites it. The
+        ;; success handler needs both.
+        {:db (record-save db (:username pending))
+         :fx [[:dispatch [:settings/form
+                          [:submit-valid {:submitted draft
+                                          :pending   pending}]]]
+              [:rf.http/managed
+               (rh/request {:method     :put
+                            :path       "/user"
+                            :body       {:user (cond-> (select-keys draft [:image :username :bio :email])
+                                                 (seq (:password draft))
+                                                 (assoc :password (:password draft)))}
+                            :sensitive? true
+                            :decode     schema/UserResponse
+                            :on-success [:settings/submit-success]
+                            :on-failure [:settings/submit-error
+                                         (:owner pending) (:username pending)]})]]}))))
 
 ;; ----------------------------------------------------------------------------
 ;; SESSION OWNERSHIP — the two reply handlers below ask TWO questions, in order
@@ -764,7 +778,7 @@
 ;; ============================================================================
 ;;
 ;; The view sees plain, ordinary names (`:settings/draft`,
-;; `:settings/submit-error`), all sourced from the machine's `:data`. And
+;; `:settings/submit-error`, `:settings/field-error`), all sourced from the machine's `:data`. And
 ;; `:settings/submitting?` is a `[:rf.machine/has-tag? …]` query underneath, handed
 ;; to the view as a plain boolean — the machine-ness stays behind the curtain.
 
@@ -779,6 +793,16 @@
    :inputs [[:rf/machine :settings/form]]}
   (fn sub-settings-submit-error [[snap] _]
     (get-in snap [:data :submit-error])))
+
+(rf/reg-sub :settings/field-error
+  {:doc "The validation message for one settings field, or nil. Same courtesy as
+         the app's other forms: nothing shows until the field is touched, and
+         `:set-errors` marks every errored field touched."
+   :inputs [[:rf/machine :settings/form]]}
+  (fn sub-settings-field-error [[snap] [_ field]]
+    (let [{:keys [errors touched]} (:data snap)]
+      (when (contains? touched field)
+        (first (get errors field))))))
 
 (rf/reg-sub :settings/submitting?
   {:doc "Is a save in flight? A tag-shaped read of the form's in-flight intent —
@@ -795,7 +819,9 @@
 (reg-view settings-page []
   (let [draft        @(subscribe [:settings/draft])
         submitting?  @(subscribe [:settings/submitting?])
-        submit-error @(subscribe [:settings/submit-error])]
+        submit-error @(subscribe [:settings/submit-error])
+        username-err @(subscribe [:settings/field-error :username])
+        email-err    @(subscribe [:settings/field-error :email])]
     [:div.settings-page
      [:div.container.page
       [:div.row
@@ -823,7 +849,9 @@
              :placeholder "Username"
              :value (:username draft)
              :disabled submitting?
-             :on-change #(dispatch [:settings/edit-field :username (.. % -target -value)])}]]
+             :on-change #(dispatch [:settings/edit-field :username (.. % -target -value)])}]
+           (when username-err
+             [:div.error-messages username-err])]
           [:fieldset.form-group
            [:textarea.form-control.form-control-lg
             {:rows 8
@@ -839,7 +867,9 @@
              :placeholder "Email"
              :value (:email draft)
              :disabled submitting?
-             :on-change #(dispatch [:settings/edit-field :email (.. % -target -value)])}]]
+             :on-change #(dispatch [:settings/edit-field :email (.. % -target -value)])}]
+           (when email-err
+             [:div.error-messages email-err])]
           [:fieldset.form-group
            [:input.form-control.form-control-lg
             {:type "password"
