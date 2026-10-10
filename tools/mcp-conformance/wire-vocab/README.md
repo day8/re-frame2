@@ -30,13 +30,7 @@ including:
 
 - `:rf.mcp/cursor-stale` result reasons
 - `:rf.mcp/result` tagged results
-- `:rf.mcp/source-uri` editor-jump decorations — the pre-built
-  jump-to-definition URI re-frame2-pair-mcp splices beside a
-  `:source-coord`; a decoration, not a single-key wrapper (no
-  `canonical-markers` schema/fixture), asserted as the legitimate
-  additive slot the operating-frame open-map schema must accept
 - `:rf/redacted`
-- event bundles
 - reply-envelope trace rows
 - suppression indicator fields and shared input slots
 - operating-frame addresses and egress profiles
@@ -60,8 +54,9 @@ suite composes several independent checks:
    contracted emit sites.
 4. Documentation pins. Where a public server contract owns a literal,
    its source must describe the canonical spelling.
-5. Near-miss rejection. Snake-case, pluralised, or otherwise
-   confusing spellings are rejected in the relevant source inventory.
+5. Near-miss rejection. For input slot names, where a drifted spelling
+   has shipped before, snake-case, pluralised and predicate spellings
+   are rejected across the tool sources.
 6. Cross-encoding pins. When a Node live test re-encodes a body, the
    JVM suite checks that its assertion names every required field.
 
@@ -73,8 +68,7 @@ real emitter can be invoked hermetically.
 
 - `wire_vocab/schemas.clj`: shared wrapper schemas and
   `canonical-markers`.
-- `wire_vocab/source_pins.clj`: contracted emit/doc source inventories
-  and near-miss helpers.
+- `wire_vocab/source_pins.clj`: contracted emit/doc source inventories.
 - `fixtures.clj`: repository path resolution, filesystem inventories,
   and comment/string stripping for source scans.
 - `wire_vocab_test.clj`: generic wrapper-marker checks and story-mcp's
@@ -119,8 +113,8 @@ For a generic wrapper marker:
    cover its owners
 4. add a live-builder assertion when the canonical builder is available
 
-The generic fixture, source, server-coverage, and near-miss sweeps then
-apply automatically.
+The generic fixture, source, and server-coverage sweeps then apply
+automatically.
 
 For a non-wrapper family:
 

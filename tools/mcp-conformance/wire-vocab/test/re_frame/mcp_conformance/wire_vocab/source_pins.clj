@@ -1,11 +1,10 @@
 (ns re-frame.mcp-conformance.wire-vocab.source-pins
-  "Shared emit/doc source inventories and near-miss generators.
+  "Shared emit/doc source inventories.
 
   Emit pins scan comment/string-stripped source so documentation cannot
   satisfy a data-emission assertion. Doc pins scan raw contract text.
   Focused vocabulary tests reuse these inventories instead of defining
-  partial source sets."
-  (:require [clojure.string :as str]))
+  partial source sets.")
 
 (def emit-source-files
   "Per-server source files where the marker literal MUST appear as
@@ -37,14 +36,6 @@
                "tools/re-frame2-pair-mcp/spec/003-Tool-Catalogue.md"]
    :story-mcp []})
 
-(def all-source-files
-  "Every distinct emit-source and doc-source file, across servers. Used
-  by the near-miss anti-pins: we want to forbid near-miss spellings
-  anywhere in any conformance-tracked file, not just emit-sites. A
-  near-miss is a fact about a file, not a server, so the set is flat:
-  both servers list `mcp-base/vocab.cljc`, and it is swept once."
-  (into (sorted-set) cat (concat (vals emit-source-files) (vals doc-source-files))))
-
 (defn marker-key->literal
   "Render a marker key as the literal string that MUST appear in the
   source. The renderer prints with the `:` prefix and the full
@@ -52,27 +43,3 @@
   the source files use verbatim."
   [marker-key]
   (pr-str marker-key))
-
-(defn near-miss-variants
-  "Generate near-miss spellings of a marker keyword. A rename to any
-  of these forms MUST NOT slip through. We check:
-  - snake_case form  (`:rf.mcp/dedup_table`)
-  - pluralised tail  (`:rf.mcp/overflows`)
-  - all-lowercase ns (`:rf.mcp/Overflow` -> none; we already are
-                      lowercase, so this variant is irrelevant for
-                      these markers; included for future-proofing)
-  - underscore-in-ns (`:rf_mcp/overflow`)
-  The list is conservative — false positives here would block
-  legitimate text in surrounding docs."
-  [marker-key]
-  (let [serialized-key (pr-str marker-key)
-        key-namespace  (namespace marker-key)
-        key-name       (name marker-key)]
-    (cond-> []
-      (str/includes? key-name "-")
-      (conj (str ":" key-namespace "/" (str/replace key-name #"-" "_"))) ;; snake_case
-      (str/includes? key-namespace ".")
-      (conj (str ":" (str/replace key-namespace #"\." "_") "/" key-name)) ;; ns dots -> underscores
-      true
-      (into [(str serialized-key "s")                       ;; pluralised
-             (str serialized-key "?")]))))                  ;; predicate form
