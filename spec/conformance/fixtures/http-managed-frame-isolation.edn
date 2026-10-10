@@ -1,22 +1,25 @@
 ;; Conformance fixture: rf.http.managed/frame-isolation
 ;;
-;; Per Spec 014 §Frame awareness. The reply dispatch lands in the same
-;; frame the request was issued from. Two frames issuing concurrent
-;; managed requests against the same registered handler keep their
-;; replies isolated — frame A's reply writes to frame A's app-db,
-;; frame B's reply writes to frame B's app-db. The handler registry
-;; is shared (registered once); per-frame state is partitioned.
+;; An `:fx-overrides` routing example shaped like Spec 014 §Frame awareness:
+;; the reply lands in the frame the request was issued from. Two frames
+;; issue requests from the same registered handler and keep their replies
+;; isolated — frame A's reply writes to frame A's app-db, frame B's to frame
+;; B's. The handler registry is shared (registered once); per-frame state is
+;; partitioned.
 ;;
-;; The fixture exercises the contract via :rf.http/managed-canned-success
-;; configured to dispatch frame-targeted replies. The DSL's :dispatch
-;; step inside an fx body inherits the originating frame (per Spec 002
-;; §Routing), so each canned-success dispatch lands on the correct frame.
+;; The fixture supplies its own bodies for `:rf.http/managed` and
+;; `:rf.http/managed-canned-success`, so no managed-HTTP code runs. Each
+;; frame carries its own `:fx-overrides`, and the canned-success body's
+;; `:dispatch` inherits the originating frame (Spec 002 §Routing), so what
+;; it grades is per-frame override redirection and the frame inheritance of
+;; a dispatch made from an fx body. The ;; managed-HTTP lifecycle is not corpus-graded — see the conformance README
+;; §Managed-HTTP lifecycle (not yet corpus-graded).
 
 {:fixture/id           :rf.http.managed/frame-isolation
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/fx :core/frame
                          :rf.http/managed}
- :fixture/doc          "Two frames issue managed requests against the same registered :article/load handler; the canned-success replies land in the same frame each request was issued from. The handler registry is shared; the app-db slices are per-frame. Per Spec 014 §Frame awareness + Spec 002 §Routing."
+ :fixture/doc          "Two frames issue :rf.http/managed from the same registered :article/load handler, each redirected by its own :fx-overrides to the fixture's canned-success body; each reply that body dispatches lands in the frame the request was issued from. Grades per-frame override routing and the frame inheritance of an fx body's dispatch (Spec 002 §Routing), shaped like Spec 014 §Frame awareness."
 
  :fixture/registry
  {:event {:article/load   {:doc "Issue the GET (originator)."}

@@ -1,20 +1,23 @@
 ;; Conformance fixture: rf.http.managed/get-success
 ;;
-;; Per Spec 014 §The shape and §`:accept`. A simple GET, decoded as JSON,
-;; reaches the success path; the default `:accept` returns `{:ok decoded}`
-;; for 2xx; the runtime synthesises the canonical
-;; `{:status :ok :value <decoded>}` envelope and appends it to the
-;; `:on-success` target event.
+;; An `:fx-overrides` routing example shaped like Spec 014 §The shape and
+;; §`:accept`: a GET decoded as JSON whose success reply reaches the
+;; `:on-success` target as the canonical `{:status :ok :value <decoded>}`
+;; envelope.
 ;;
-;; The fixture exercises the contract via :rf.http/managed-canned-success,
-;; which Spec 014 §Testing guarantees produces the same dispatch shape the
-;; real fx would.
+;; The fixture supplies its own bodies for `:rf.http/managed` and
+;; `:rf.http/managed-canned-success`, so no managed-HTTP code runs: nothing
+;; is decoded and no envelope is synthesised. What it grades is the
+;; redirection of `:rf.http/managed` to the canned-success body, the args
+;; that body receives (`:effects-routed`) and the dispatch of the reply the
+;; body writes. The ;; managed-HTTP lifecycle is not corpus-graded — see the conformance README
+;; §Managed-HTTP lifecycle (not yet corpus-graded).
 
 {:fixture/id           :rf.http.managed/get-success
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/sub :core/fx
                          :rf.http/managed}
- :fixture/doc          "GET /articles/hello with :decode :json. The canned-success stub synthesises {:status :ok :value {:title \"hello\"}}; the explicit :on-success target receives the reply and writes it to [:article]."
+ :fixture/doc          "GET /articles/hello with :decode :json, redirected by :fx-overrides to the fixture's canned-success body, which dispatches {:status :ok :value {:title \"hello\" :id 42}} to the :on-success target :article/loaded; the target writes it to [:article]. Grades override routing, args forwarding and reply dispatch, not managed HTTP."
 
  :fixture/registry
  {:event {:article/load   {:doc "Issue the GET."}

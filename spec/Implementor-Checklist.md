@@ -101,7 +101,7 @@ Self-grading against the AI-first principles per [AI-Audit.md](AI-Audit.md). The
 
 The `:rf.http/managed` fx from [014](014-HTTPRequests.md) — decoding, success/failure normalisation, retry-with-backoff, abort, schema-driven decode, and reply-to-origin dispatch, as one uniform effect rather than per-app reinvention. [014](014-HTTPRequests.md) is a **v1-optional capability**: an implementation MAY ship HTTP infrastructure, but when it does, it ships this contract. The CLJS reference ships it.
 
-**Declaring yes runs the `:rf.http/managed` fixtures.**
+**Declaring yes runs the `:rf.http/managed` fixtures — which do not grade this contract.** The `http-managed-*` fixtures each supply their own body for the fx under test and for the canned stub they redirect it to, so they grade only core `:fx-overrides` redirection, args forwarding and reply dispatch, and a port passes them without any managed-HTTP code. The [014](014-HTTPRequests.md) lifecycle — status classification, decode, `:accept`, retry and backoff, abort — is not yet corpus-graded ([conformance §Managed-HTTP lifecycle](conformance/README.md#managed-http-lifecycle-not-yet-corpus-graded)); a port claiming Q8 verifies it with its own tests.
 
 **Gate:** does the application talk to an HTTP backend? A port targeting local-only or embedded use skips it; note that [Q9](#q9-resources) depends on it, because managed HTTP is resources' single built-in read transport.
 
@@ -497,7 +497,7 @@ For each capability included in Part 1, the implementor makes the per-capability
 - **Why it matters.** `:rf.http/managed` per [014](014-HTTPRequests.md) owns the whole request lifecycle — issue, decode, normalise success/failure, abort — so the transport and its cancellation handle are the one genuinely host-varying choice underneath it. Abort is not optional: the in-flight registry, stale-reply suppression and frame teardown all need a request to be cancellable.
 - **Options by host.** Fetch + `AbortController` on every in-scope JS-cross-compile host (it is the platform primitive all eight compile down to); a host HTTP client where one is idiomatic and exposes cancellation. *Non-normative background:* `java.net.http.HttpClient` on the JVM side of the CLJS reference's dual-host build.
 - **Reference-impl picks.** CLJS uses Fetch + `AbortController`; the JVM side uses `java.net.http.HttpClient`.
-- **Trade-offs.** A transport without a cancellation handle forces the runtime to fake abort by dropping the reply, which leaves the request itself running and defeats the stale-suppression contract the `:rf.http/managed` fixtures assert. Pick a cancellable transport or don't claim Q8.
+- **Trade-offs.** A transport without a cancellation handle forces the runtime to fake abort by dropping the reply, which leaves the request itself running and defeats [014's stale-suppression contract](014-HTTPRequests.md#stale-suppression--the-four-triggers). Pick a cancellable transport or don't claim Q8.
 
 #### H2. Retry / backoff scheduling
 

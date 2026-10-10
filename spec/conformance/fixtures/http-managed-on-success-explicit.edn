@@ -1,23 +1,26 @@
 ;; Conformance fixture: rf.http.managed/on-success-explicit
 ;;
-;; Per Spec 014 §Reply addressing §Split target — separate handlers.
-;; When `:on-success [:event-id ...args]` is supplied, the runtime
-;; appends the canonical `{:status :ok :value v}` reply envelope as the
-;; last argument of the dispatched event vector. The dispatched event
-;; routes to the named handler (NOT back to the originator).
+;; An `:fx-overrides` routing example shaped like Spec 014 §Reply addressing
+;; §Split target — separate handlers: with `:on-success [:event-id ...args]`
+;; the runtime appends the canonical `{:status :ok :value v}` reply envelope
+;; as the last argument of that event, which routes to the named handler
+;; and not back to the originator.
 ;;
-;; The fixture verifies:
-;;   - the explicit `:on-success` event is dispatched (not the originator)
-;;   - the reply payload arrives as the last positional arg
-;;   - the originator is NOT re-dispatched
-;;
-;; The fixture exercises the contract via :rf.http/managed-canned-success.
+;; The fixture supplies its own bodies for `:rf.http/managed` and
+;; `:rf.http/managed-canned-success`, so no managed-HTTP code runs: the
+;; canned-success body names the target and appends the reply itself, so no
+;; reply target is selected. What it grades is the redirection of
+;; `:rf.http/managed` to that body, the args the body receives
+;; (`:effects-routed`, the `:on-success` vector with its prefix arg) and the
+;; dispatch of the reply it writes, with the prefix arg reaching the handler
+;; ahead of the reply. The ;; managed-HTTP lifecycle is not corpus-graded — see the conformance README
+;; §Managed-HTTP lifecycle (not yet corpus-graded).
 
 {:fixture/id           :rf.http.managed/on-success-explicit
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/sub :core/fx
                          :rf.http/managed}
- :fixture/doc          "Explicit :on-success [:article/loaded] routes the success reply to :article/loaded with {:status :ok :value v} appended as the last arg. The originating :article/load handler is NOT re-dispatched: a reply goes only to the target that addresses it."
+ :fixture/doc          "Shaped like Spec 014's split-target reply addressing: :on-success [:article/loaded :hello], redirected by :fx-overrides to the fixture's canned-success body, which dispatches [:article/loaded :hello {:status :ok :value v}] itself; the handler stores the prefix arg and the reply. Grades override routing, args forwarding and reply dispatch, not reply-target selection."
 
  :fixture/registry
  {:event {:article/load   {:doc "Issue the GET (originator)."}
@@ -71,8 +74,8 @@
   [{:operation :rf.event/run-start :tags {:rf.trace/event-id :article/load}}
    {:operation :rf.fx/override-applied :tags {:rf.fx/from :rf.http/managed
                                               :rf.fx/to   :rf.http/managed-canned-success}}
-   ;; Exactly :article/loaded fires — the originator :article/load is
-   ;; NOT re-dispatched: the reply goes only to its addressed target.
+   ;; The canned-success body dispatches :article/loaded, the addressed
+   ;; target.
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :article/loaded}}]
 
   :effects-routed
