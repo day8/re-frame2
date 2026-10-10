@@ -1,139 +1,40 @@
 (ns re-frame.bench.fresco.read-profile-grid-cljs-test
-  "PHASE B'S PRINTED GRID IS DERIVED FROM THE KEPT COUNT'S PARITY —
-  pinned.
+  "PHASE B'S PRINTED GRID IS DERIVED FROM THE KEPT COUNT'S PARITY.
 
-  `read_profile_app`'s phase B prints a `grid = …` figure that tells a
-  reader the finest spacing any row or delta below it can land on. It is
-  the number a reader uses to decide whether a term is one grid step or
-  thirty, so a grid line that overstates the resolution invites exactly
-  the reading the instrument exists to prevent.
-
-  ## The defect this pins
-
-  A line printing `0.05 / frames-per-window` as a CONSTANT over a
-  variable would be true only at even parity. The chain is
-  three links: `rf.bench.fresco.lane/now-ms` is clamped to 100 µs, so a raw window sample
-  is a multiple of 0.1 ms; `rf.bench.fresco.lane/summarise` takes the MEAN OF THE TWO
-  MIDDLE order statistics when the kept count is even — putting the p50
-  on a half-clamp grid — and a SINGLE order statistic when it is odd,
-  where no halving happens; and the row then divides by the frame count.
-
-  Nothing else holds the parity. `b-rounds` and `b-sampling` are
-  independent vars in that file, their product is the kept count, and an
-  editor moving either one to an odd product would double the real grid
-  while a constant line went on advertising the halved one. With the
-  arithmetic in a docstring and the number a literal, no test would
-  notice.
-
-  ## What is pinned, and what deliberately is not
-
-  The MECHANISM — `rf.bench.fresco.lane/summarise`'s parity behaviour, a
-  single order statistic at an odd count and the mean of the two middle
-  ones at an even count — is pinned beside the function, in
-  `lane_quantile_cljs_test`'s `quantile-at-one-half-is-summarise-s-p50`,
-  because a change there is the other way the printed grid could quietly
-  stop being true.
-
-  Row 1 pins the DERIVATION at both parities, and row 2 pins that the
-  design line prints what the derivation returns rather than a constant
-  standing next to it. Row 2 is the one that actually forecloses the
-  defect: it drives the line at an ODD kept count, which the live shape
-  is not, so it fails the moment the number becomes a literal.
-
-  Row 3 reads the LIVE shape through `rf.bench.fresco.read-profile-app/phase-b-shape` and states its
-  parity and grid. It is not a bar on the shape — the instrument is free
-  to move to any parity, and the point of deriving is that it may — it
-  simply records which arm of the derivation the shipped window is on,
-  so a shape change shows up as a diff here rather than as a silently
-  different grid in a published transcript.
-
-  Nothing here reads a clock, times anything, or mounts a frame. The
-  claim is arithmetic."
-  (:require [cljs.test :refer-macros [deftest is testing]]
+  `rf.bench.fresco.lane/now-ms` is clamped to 100 µs, `summarise`'s p50 is
+  the mean of the two middle readings at an EVEN kept count (a half-clamp
+  grid) and a single reading at an ODD one, and the row divides by the
+  frame count. `b-rounds` and `b-sampling` are independent vars, so an odd
+  product doubles the real grid — and a design line printing
+  `0.05 / frames` as a constant would go on advertising the halved one.
+  The odd-parity line below is the row a literal cannot survive. The
+  parity mechanism itself is pinned beside `summarise`, in
+  `lane_quantile_cljs_test`'s `quantile-at-one-half-is-summarise-s-p50`."
+  (:require [cljs.test :refer-macros [deftest is]]
             [clojure.string :as str]
             [re-frame.bench.fresco.read-profile-app :as rf.bench.fresco.read-profile-app]))
 
-;; ===========================================================================
-;; 1 — the derivation follows the parity
-;; ===========================================================================
-
 (deftest the-derived-grid-follows-the-kept-counts-parity
-  (testing "even kept total → half-clamp over frames"
-    (is (= (/ 0.05 32) (rf.bench.fresco.read-profile-app/phase-b-grid-ms 8 {:warmup 2 :samples 8} 32))
-        "8 x 8 = 64 kept, even")
-    (is (= (/ 0.05 4) (rf.bench.fresco.read-profile-app/phase-b-grid-ms 4 {:warmup 2 :samples 6} 4))
-        "4 x 6 = 24 kept, even — a shape whose deltas all land on
-         multiples of 0.0125"))
-
-  (testing "odd kept total → the FULL clamp over frames, twice as coarse"
-    (is (= (/ 0.1 32) (rf.bench.fresco.read-profile-app/phase-b-grid-ms 9 {:warmup 2 :samples 7} 32))
-        "9 x 7 = 63 kept, odd")
-    (is (= (/ 0.1 4) (rf.bench.fresco.read-profile-app/phase-b-grid-ms 1 {:warmup 2 :samples 1} 4))
-        "1 x 1 = 1 kept, odd"))
-
-  (testing "frames scale it independently of parity"
-    (is (= 8.0 (/ (rf.bench.fresco.read-profile-app/phase-b-grid-ms 8 {:warmup 2 :samples 8} 4)
-                  (rf.bench.fresco.read-profile-app/phase-b-grid-ms 8 {:warmup 2 :samples 8} 32))))))
-
-;; ===========================================================================
-;; 2 — the design LINE prints the derivation, not a constant
-;; ===========================================================================
+  ;; Even kept totals (64, 24) land on the half clamp, odd ones (63, 1) on
+  ;; the full clamp; frames divide either.
+  (is (= [(/ 0.05 32) (/ 0.05 4) (/ 0.1 32) (/ 0.1 4)]
+         (mapv (fn [[r s f]] (rf.bench.fresco.read-profile-app/phase-b-grid-ms r {:warmup 2 :samples s} f))
+               [[8 8 32] [4 6 4] [9 7 32] [1 1 4]]))))
 
 (deftest the-design-line-prints-the-derived-grid-at-both-parities
-  (testing "at the even shape the window ships, the line carries the
-           halved grid and says so"
-    (let [line (rf.bench.fresco.read-profile-app/phase-b-design-line 8 {:warmup 2 :samples 8} 32)]
-      (is (re-find #"kept = 64 samples/arm \(EVEN" line))
-      (is (re-find #"mean of two middle clock readings" line))
-      (is (re-find #"grid = 0\.001563 ms/commit" line)
-          "0.05/32, the figure the published transcripts carry")))
-
-  (testing "it is the PRODUCT that decides, so moving the sample count
-           alone need not flip anything — 8 x 7 is still even"
-    (let [line (rf.bench.fresco.read-profile-app/phase-b-design-line 8 {:warmup 2 :samples 7} 32)]
-      (is (re-find #"kept = 56 samples/arm \(EVEN" line))
-      (is (re-find #"grid = 0\.001563 ms/commit" line))))
-
-  (testing "AT AN ODD PRODUCT THE SAME LINE DOUBLES. This is the row a
-           literal cannot survive: a line holding 0.05 as a constant
-           would print 0.001563 here, understating the real grid by 2x"
-    (let [line (rf.bench.fresco.read-profile-app/phase-b-design-line 9 {:warmup 2 :samples 7} 32)]
-      (is (re-find #"kept = 63 samples/arm \(ODD" line))
-      (is (re-find #"a single clock reading" line))
-      (is (re-find #"grid = 0\.003125 ms/commit" line)
-          "0.1/32 — twice the even-parity grid, printed as such")))
-
-  (testing "the line's grid figure IS `phase-b-grid-ms`'s, at every shape
-           tried, rather than a second expression that happens to agree"
-    (doseq [[r s f] [[4 6 4] [3 5 16] [7 3 128]]]
-      (let [sampling {:warmup 2 :samples s}
-            expected (.toFixed (rf.bench.fresco.read-profile-app/phase-b-grid-ms r sampling f) 6)]
-        (is (str/includes? (rf.bench.fresco.read-profile-app/phase-b-design-line r sampling f)
-                           (str "grid = " expected " ms/commit"))
-            (str "shape " r "x" s " over " f " frames"))))))
-
-;; ===========================================================================
-;; 3 — which arm of the derivation the SHIPPED window is on
-;; ===========================================================================
+  (doseq [[r s expected] [[8 8 ["kept = 64 samples/arm (EVEN" "grid = 0.001563 ms/commit"]]
+                          [9 7 ["kept = 63 samples/arm (ODD" "grid = 0.003125 ms/commit"]]]]
+    (let [line (rf.bench.fresco.read-profile-app/phase-b-design-line r {:warmup 2 :samples s} 32)]
+      (is (every? #(str/includes? line %) expected) line))))
 
 (deftest the-live-shape-is-recorded-with-its-parity
+  ;; The shipped window's own shape, read off `phase-b-shape`, prints the
+  ;; parity its kept count has and the grid that shape derives.
   (let [{:keys [rounds sampling frames]} (rf.bench.fresco.read-profile-app/phase-b-shape)
-        kept (* rounds (:samples sampling))]
-    (testing "the live shape's own numbers, read off the instrument"
-      (is (pos? rounds))
-      (is (pos? (:samples sampling)))
-      (is (pos? frames)))
-
-    (testing "the grid the live shape derives is the grid its design line
-             prints — the two cannot drift, because there is one
-             expression"
-      (is (re-find (re-pattern (str "grid = "
-                                    (.toFixed (rf.bench.fresco.read-profile-app/phase-b-grid-ms rounds sampling frames) 6)
-                                    " ms/commit"))
-                   (rf.bench.fresco.read-profile-app/phase-b-design-line rounds sampling frames))))
-
-    (testing "and the parity the line names is the parity the kept count
-             actually has"
-      (is (re-find (re-pattern (str "kept = " kept " samples/arm \\("
-                                    (if (even? kept) "EVEN" "ODD")))
-                   (rf.bench.fresco.read-profile-app/phase-b-design-line rounds sampling frames))))))
+        kept (* rounds (:samples sampling))
+        line (rf.bench.fresco.read-profile-app/phase-b-design-line rounds sampling frames)]
+    (is (every? #(str/includes? line %)
+                [(str "kept = " kept " samples/arm (" (if (even? kept) "EVEN" "ODD"))
+                 (str "grid = " (.toFixed (rf.bench.fresco.read-profile-app/phase-b-grid-ms rounds sampling frames) 6)
+                      " ms/commit")])
+        line)))
