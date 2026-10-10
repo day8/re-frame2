@@ -1798,6 +1798,12 @@
   structural impossibility. Already-terminal (`:success` / `:error`) instances
   ride through unchanged (a settled write's durable outcome is real).
 
+  A dangled GENERATED-id instance is then retired in the same pass — its row and
+  its `[:rf.mutation <instance-id>]` ledger rows are dropped, as
+  `:rf.mutation/clear` drops them — because no reply will ever arrive to retire
+  it and the caller never held the id. A caller-supplied instance keeps its
+  dangled `:error` row as form state.
+
   EP-0019 Open Issue 3 — a dangled OPTIMISTIC write also ROLLS BACK its recorded
   apply (the entry shows the optimistic value with no in-flight write to confirm
   it — an accepted-error-shaped terminal). The rollback runs INSIDE this same
@@ -1841,13 +1847,22 @@
                       ;; in-flight write to confirm it.
                       spec (rf.resources.mutation-registry/mutation-meta (:mutation/id inst))
                       [rdb2 keys2] (rf.resources.mutation-runtime/dangle-rollback-optimistic
-                                     rdb inst spec settled-at)]
-                  [(update-in rdb2 inst-path
-                              rf.resources.mutation-runtime/instance-dangled settled-at)
+                                     rdb inst spec settled-at)
+                      iid  (:instance/id inst)
+                      rdb3 (update-in rdb2 inst-path
+                                      rf.resources.mutation-runtime/instance-dangled settled-at)]
+                  ;; No reply will ever arrive for a dangled attempt, so this is a
+                  ;; generated-id instance's LAST settle: retire it the way
+                  ;; `:rf.mutation/clear` does, dropping its row and its ledger rows.
+                  [(if (rf.resources.mutation-runtime/generated-instance-id? iid)
+                     (-> rdb3
+                         (update-in (rf.resources.mutation-runtime/instances-path) dissoc key-id)
+                         (rf.resources.work-ledger/drop-rows-for-key [:rf.mutation iid]))
+                     rdb3)
                    (into rk keys2)
                    ;; surface the kind-preserving `:instance/id` in the returned
                    ;; dangled-id list (the byte key-id is opaque storage detail).
-                   (conj dids (:instance/id inst))]))
+                   (conj dids iid)]))
               [runtime-db [] []]
               pending)]
         [rdb' dangled-ids rolled-keys]))))
@@ -1994,7 +2009,8 @@
        mutation reply cannot patch / populate / invalidate post-restore state
        (the mutation reply gate checks the INSTANCE's `:current-work` +
        `:generation`, not the resource entry's, so the resource-side dangle
-       alone does NOT suppress it);
+       alone does NOT suppress it); a generated-id instance is then retired
+       outright, its row and ledger rows dropped;
     3c. RECONCILE the restored route readiness through the one projector
        (`rf.resources.route/reconcile-readiness`, run LAST so it projects over the settled
        entries + dangled work). A snapshot captured mid-load restores a route

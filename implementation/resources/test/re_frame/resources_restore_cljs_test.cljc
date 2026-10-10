@@ -258,7 +258,7 @@
         loaded      (entry {:resource-id :article/by-slug :status :loaded
                             :data {:title "post-restore"} :loaded-at 1 :stale-at 9.0e15
                             :generation 9})
-        instance-id [:rf.mutation/instance :article/edit 3]
+        instance-id :article/edit-form
         work-id     (rf.resources.work-ledger/resource-work-id [:rf.mutation instance-id] 3)
         pending     (mutation-instance {:mutation-id :article/edit
                                         :instance-id instance-id

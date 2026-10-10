@@ -11,6 +11,7 @@
    [re-frame.core :as rf]
    [re-frame.error-emit :as rf.error-emit]
    [re-frame.fx :as rf.fx]
+   [re-frame.frame :as rf.frame]
    [re-frame.elision :as rf.elision]
    [re-frame.privacy :as rf.privacy]
    [re-frame.resources.classification :as rf.resources.classification]
@@ -19,6 +20,7 @@
    [re-frame.resources.mutation-runtime :as rf.resources.mutation-runtime]
    [re-frame.resources.mutation-events :as rf.resources.mutation-events]
    [re-frame.resources.mutation-registry :as rf.resources.mutation-registry]
+   [re-frame.resources.ssr :as rf.resources.ssr]
    [re-frame.resources.work-ledger :as rf.resources.work-ledger]
    [re-frame.resources.test-support]
    [re-frame.http.managed]
@@ -680,6 +682,33 @@
     (is (= [{:first true}] (mapv (comp :value second) @replied)))
     (is (= 0 (count (instances))))
     (is (= 0 (count (mutation-ledger-rows))))))
+
+(defn- restore-runtime-db!
+  "Install the frame's own runtime-db back through the epoch-restore reconcile
+  (the `:resources/reconcile-on-restore` hook body), as restoring an epoch
+  captured mid-write does."
+  []
+  (rf.frame/replace-runtime-db!
+    :rf/default
+    (rf.resources.ssr/reconcile-on-restore (runtime-db) :rf/default
+                                           {:restore-time-ms 1781078400777})))
+
+(deftest generated-instance-pending-across-a-restore-retires
+  ;; The restore settles an in-flight attempt as dangling, and no reply will
+  ;; ever arrive for it, so that settle is the generated instance's last one.
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
+  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "g"}}])
+  (is (= [1 1] [(count (instances)) (count (mutation-ledger-rows))]) "FIXTURE — one pending write")
+  (restore-runtime-db!)
+  (is (= 0 (count (instances))))
+  (is (= 0 (count (mutation-ledger-rows))))
+  (testing "a supplied instance keeps its dangled :error row and ledger row"
+    (rf/dispatch-sync [:rf.mutation/execute
+                       {:mutation :m/save :params {:slug "s"} :instance :form/save}])
+    (restore-runtime-db!)
+    (is (= [:error :dangling-on-restore]
+           ((juxt :status (comp :reason :error)) (instance :form/save))))
+    (is (= [[:rf.mutation :form/save]] (mapv :resource/key (mutation-ledger-rows))))))
 
 ;; ---- subs and introspection -------------------------------------------------
 
