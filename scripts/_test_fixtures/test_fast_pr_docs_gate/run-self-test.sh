@@ -1,54 +1,32 @@
 #!/usr/bin/env bash
 # Self-test for the changed-surface tiering in scripts/test-fast-pr.sh.
 #
-# It drives the REAL spine in `--plan` mode against disposable git repos —
-# NOT a replicated copy of the detection logic, which could silently drift
-# from the spine.
-# `--plan` classifies the change set and prints one machine-readable line —
-#   PLAN docs=<bool> jvm=<bool> node=<bool>
-# — then exits without running any gate, so the assertions are fast and
-# deterministic.  `--repo-root DIR` points the change-set gathering at a
-# disposable fixture repo while the real gate scripts stay put.
+# It drives the REAL spine in `--plan` mode against disposable git repos, so no
+# copy of the detection logic can drift from it.  `--plan` classifies the change
+# set, prints machine-readable `PLAN…` lines and exits without running any gate;
+# `--repo-root DIR` points the change-set gathering at a fixture repo while the
+# real gate scripts stay put.
 #
 # Cases:
-#   committed docs / staged code / unstaged docs / untracked docs  — the four
-#     git states the change-set gathering must handle deterministically;
-#   unknown surface                — conservative fallback runs the full runtime
-#     (AB, whose script the classifier does not recognise);
-#   no changes                     — static checks only;
-#   no origin/main base            — conservative fallback (indeterminate);
-#   --all / RF2_FAST_PR_ALL / --with-docs / --no-docs — the overrides;
-#   gate-has-teeth (M/N)           — the doc validators exit non-zero on the
-#     bundled broken fixtures;
-#   slug shapes (O/P)              — a pymdownx `_1` suffix linked as `-1`,
-#     and an anchor missing a heading's suffix, trip check_doc_slugs.py;
-#   coverage-honesty note (Q/R)    — `--plan` must state what the JVM tier
-#     actually contains and point at the full JVM sweep;
-#   per-artefact JVM selection (U/V) — a diff under an artefact's tree adds
-#     exactly that artefact's suite beside implementation/core, matching its
-#     roster entry on a path boundary, and a skipped tier selects nothing;
-#   mkdocs resolution (X/Y)        — an installed mkdocs, console script or
-#     module, is FOUND rather than soft-skipped, and a code-only diff never
-#     probes for it;
-#   the spine's own tree (Z-AB)    — a diff touching `scripts/test-fast-pr.sh`
-#     or this fixture tree arms the documentation tier and this self-test, and
-#     an ordinary `scripts/` change does not;
-#   hermetic mkdocs (AC-AE)        — a constructed module-only PATH selects
-#     `python -m mkdocs` exactly, a console script wins over a working
-#     module launcher, and a host where nothing resolves reports `unresolved`
-#     rather than anything that reads as a pass.
+#   A-D          — the git states the change-set gathering reads: committed,
+#                  staged, unstaged, untracked (C1: a spec page arms the JVM tier
+#                  without the node tier);
+#   F, G, H      — no changes, no origin/main base, a mixed docs+code diff;
+#   I-L          — the --all / RF2_FAST_PR_ALL / --with-docs / --no-docs overrides;
+#   M, N         — the doc validators' main() exits 1 on a bundled broken fixture;
+#   U            — the JVM tier adds a touched artefact, matched on a path boundary;
+#   Z, AB        — the spine's own file arms every tier; an ordinary script takes
+#                  the unknown-surface fallback without the docs tier;
+#   AC2, AD, AE  — hermetic mkdocs resolution: the module fallback through the
+#                  last launcher, a console script preferred, `unresolved`;
+#   AF1-AF5      — the pinned clj-kondo lane's arming.
 #
-# CI wiring: test.yml's always-on `verify-readme-links` job runs this file, so
-# breaking the module fallback reddens a REQUIRED check rather than only a local
-# run somebody may not have made.
+# CI: test.yml's always-on `verify-readme-links` job runs this file.
 #
 # Run from any cwd:
 #   bash scripts/_test_fixtures/test_fast_pr_docs_gate/run-self-test.sh
 #
-# Exit code:
-#   0  all assertions hold
-#   1  at least one assertion failed
-#   2  setup error
+# Exit code: 0 all assertions hold; 1 at least one failed; 2 setup error.
 
 set -u
 
@@ -80,10 +58,11 @@ assert() {
 tmp_root="$(mktemp -d 2>/dev/null || mktemp -d -t 'test-fast-pr-detect')"
 trap 'rm -rf "$tmp_root"' EXIT
 
-# The spine's PLAN line for a disposable repo (extra args pass through to it).
+# One `KEY …` line of the spine's --plan output: plan KEY ROOT [spine args...].
 plan() {
-  local root="$1"; shift
-  bash "$spine" --plan --repo-root "$root" "$@" 2>/dev/null | grep '^PLAN ' || printf 'PLAN <none>\n'
+  local key="$1" root="$2"; shift 2
+  bash "$spine" --plan --repo-root "$root" "$@" 2>/dev/null | grep "^$key " \
+    || printf '%s <none>\n' "$key"
 }
 
 # Disposable repo with origin/main pinned at an initial commit, so the
@@ -105,361 +84,118 @@ mkrepo() {
   git -C "$r" update-ref refs/remotes/origin/main HEAD
 }
 
-# ---- Case A: committed docs-only diff vs origin/main → docs only ----
-r="$tmp_root/committed-docs"; mkrepo "$r"
-mkdir -p "$r/docs/core"; printf '# h\n' > "$r/docs/core/x.md"
-git -C "$r" add docs/core/x.md; git -C "$r" commit -q -m docs
-assert "A committed docs-only → docs only" "PLAN docs=true jvm=false node=false" "$(plan "$r")"
+# ---- A: committed docs-only diff (reused below as THE docs-only diff) ----
+docs_repo="$tmp_root/committed-docs"; mkrepo "$docs_repo"
+mkdir -p "$docs_repo/docs/core"; printf '# h\n' > "$docs_repo/docs/core/x.md"
+git -C "$docs_repo" add docs/core/x.md; git -C "$docs_repo" commit -q -m docs
+assert "A committed docs-only → docs only" "PLAN docs=true jvm=false node=false" "$(plan PLAN "$docs_repo")"
 
-# ---- Case B: staged code diff → runtime suites ----
-r="$tmp_root/staged-code"; mkrepo "$r"
-mkdir -p "$r/implementation/core/src/re_frame"
-printf 'x\n' > "$r/implementation/core/src/re_frame/core.cljc"
-git -C "$r" add implementation/core/src/re_frame/core.cljc   # staged, not committed
-assert "B staged core code → runtime" "PLAN docs=false jvm=true node=true" "$(plan "$r")"
+# ---- B: staged code diff (reused below as THE code-only diff) ----
+code_repo="$tmp_root/staged-code"; mkrepo "$code_repo"
+mkdir -p "$code_repo/implementation/core/src/re_frame"
+printf 'x\n' > "$code_repo/implementation/core/src/re_frame/core.cljc"
+git -C "$code_repo" add implementation/core/src/re_frame/core.cljc   # staged, not committed
+assert "B staged core code → runtime" "PLAN docs=false jvm=true node=true" "$(plan PLAN "$code_repo")"
 
-# ---- Case C: unstaged docs change (tracked, modified, not staged) → docs ----
-#
-# The subject here is the GIT STATE — that a tracked file modified but not
-# staged is gathered into the change set at all — and the path is only a
-# vehicle for it.  A `spec/*` path would not do: the classifier arms
-# `implementation_jvm` for `spec/*`, because spec documents are slurped and
-# asserted on by artefact suites, so `jvm=false` would stop being a statement
-# about the git state.  A markdown page under `docs/guide/` carries the same
-# docs surface (`is_doc_surface_path` matches any `*.md`) and no runtime arm,
-# which is what this case needs.  An exemplar for a git-state case must be
-# prose NO suite reads — see the roster in
-# `.github/scripts/report-changed-surfaces.sh` before choosing another.
+# ---- C: unstaged edit to a tracked file ----
+# The page must be prose no suite reads, so that `jvm=false` speaks to the git
+# state: a `spec/*` page arms the JVM tier (C1).
 r="$tmp_root/unstaged-docs"; mkrepo "$r"
 mkdir -p "$r/docs/guide"; printf '# a\n' > "$r/docs/guide/unstaged.md"
 git -C "$r" add docs/guide/unstaged.md; git -C "$r" commit -q -m addmd
 git -C "$r" update-ref refs/remotes/origin/main HEAD
 printf '# a\nmore\n' > "$r/docs/guide/unstaged.md"            # unstaged modify
-assert "C unstaged docs → docs only" "PLAN docs=true jvm=false node=false" "$(plan "$r")"
+assert "C unstaged docs → docs only" "PLAN docs=true jvm=false node=false" "$(plan PLAN "$r")"
 
-# ---- Case C1: unstaged PINNED prose → docs AND the JVM tier ----
-#
-# The other half of the case above.  Case C proves an unstaged edit reaches
-# the change set; this one proves the spine's tiering agrees with CI's once
-# it gets there — a spec page arms the JVM tier locally exactly as
-# `implementation_jvm` arms it in test.yml.  It is the only local evidence
-# that spec-page arming reaches the spine at all.
+# ---- C1: a spec page arms the JVM tier as CI's `implementation_jvm` does —
+# the one case where the JVM and node tiers disagree. ----
 r="$tmp_root/unstaged-pinned-prose"; mkrepo "$r"
 mkdir -p "$r/spec"; printf '# a\n' > "$r/spec/006-ReactiveSubstrate.md"
 git -C "$r" add spec/006-ReactiveSubstrate.md; git -C "$r" commit -q -m addmd
 git -C "$r" update-ref refs/remotes/origin/main HEAD
 printf '# a\nmore\n' > "$r/spec/006-ReactiveSubstrate.md"     # unstaged modify
 assert "C1 unstaged pinned spec prose → docs + JVM tier" \
-  "PLAN docs=true jvm=true node=false" "$(plan "$r")"
+  "PLAN docs=true jvm=true node=false" "$(plan PLAN "$r")"
 
-# ---- Case D: untracked docs file → docs ----
+# ---- D: untracked docs file ----
 r="$tmp_root/untracked-docs"; mkrepo "$r"
 printf '# u\n' > "$r/NOTES.md"                                # untracked, never added
-assert "D untracked docs → docs only" "PLAN docs=true jvm=false node=false" "$(plan "$r")"
+assert "D untracked docs → docs only" "PLAN docs=true jvm=false node=false" "$(plan PLAN "$r")"
 
-# ---- Case F: no changes vs origin/main, clean tree → static only ----
+# ---- F: no changes vs origin/main, clean tree ----
 r="$tmp_root/clean"; mkrepo "$r"
-assert "F no changes → static only" "PLAN docs=false jvm=false node=false" "$(plan "$r")"
+assert "F no changes → static only" "PLAN docs=false jvm=false node=false" "$(plan PLAN "$r")"
 
-# ---- Case G: no origin/main base → conservative fallback ----
-r="$tmp_root/nobase"; mkdir -p "$r"
-git -C "$r" init -q -b main 2>/dev/null
-git -C "$r" config user.email "self-test@local"; git -C "$r" config user.name "self-test"
-git -C "$r" config core.autocrlf false; git -C "$r" config core.safecrlf false
-printf 'x\n' > "$r/f.txt"; git -C "$r" add -A; git -C "$r" commit -q -m init
-assert "G no origin/main → conservative runtime" "PLAN docs=false jvm=true node=true" "$(plan "$r")"
+# ---- G: no origin/main base (reused by AF5) ----
+nobase_repo="$tmp_root/nobase"; mkdir -p "$nobase_repo"
+git -C "$nobase_repo" init -q -b main 2>/dev/null
+git -C "$nobase_repo" config user.email "self-test@local"; git -C "$nobase_repo" config user.name "self-test"
+git -C "$nobase_repo" config core.autocrlf false; git -C "$nobase_repo" config core.safecrlf false
+printf 'x\n' > "$nobase_repo/f.txt"; git -C "$nobase_repo" add -A; git -C "$nobase_repo" commit -q -m init
+assert "G no origin/main → conservative runtime" "PLAN docs=false jvm=true node=true" "$(plan PLAN "$nobase_repo")"
 
-# ---- Case H: mixed docs + code → both tiers ----
+# ---- H: mixed docs + code — the one multi-file change set ----
 r="$tmp_root/mixed"; mkrepo "$r"
 mkdir -p "$r/docs" "$r/implementation/core/src/re_frame"
 printf '# h\n' > "$r/docs/x.md"
 printf 'x\n' > "$r/implementation/core/src/re_frame/core.cljc"
 git -C "$r" add -A; git -C "$r" commit -q -m mix
-assert "H mixed docs+code → both tiers" "PLAN docs=true jvm=true node=true" "$(plan "$r")"
+assert "H mixed docs+code → both tiers" "PLAN docs=true jvm=true node=true" "$(plan PLAN "$r")"
 
-# ---- Case I: --all override runs the complete spine on a docs-only diff ----
-r="$tmp_root/override-all"; mkrepo "$r"
-mkdir -p "$r/docs"; printf '# h\n' > "$r/docs/x.md"; git -C "$r" add -A; git -C "$r" commit -q -m d
-assert "I --all override → everything" "PLAN docs=true jvm=true node=true" "$(plan "$r" --all)"
-
-# ---- Case J: RF2_FAST_PR_ALL=1 override runs the complete spine ----
+# ---- I-L: the overrides ----
+assert "I --all override → everything" "PLAN docs=true jvm=true node=true" "$(plan PLAN "$docs_repo" --all)"
 assert "J RF2_FAST_PR_ALL=1 override → everything" "PLAN docs=true jvm=true node=true" \
-  "$(RF2_FAST_PR_ALL=1 bash "$spine" --plan --repo-root "$r" 2>/dev/null | grep '^PLAN ')"
+  "$(RF2_FAST_PR_ALL=1 plan PLAN "$docs_repo")"
+assert "K --with-docs on code diff → docs forced on" "PLAN docs=true jvm=true node=true" \
+  "$(plan PLAN "$code_repo" --with-docs)"
+assert "L --no-docs on docs diff → docs forced off" "PLAN docs=false jvm=false node=false" \
+  "$(plan PLAN "$docs_repo" --no-docs)"
 
-# ---- Case K: --with-docs forces docs on for a code-only diff ----
-r="$tmp_root/with-docs"; mkrepo "$r"
-mkdir -p "$r/implementation/core/src/re_frame"
-printf 'x\n' > "$r/implementation/core/src/re_frame/core.cljc"; git -C "$r" add -A; git -C "$r" commit -q -m c
-assert "K --with-docs on code diff → docs forced on" "PLAN docs=true jvm=true node=true" "$(plan "$r" --with-docs)"
+# ---- M, N: the doc validators' main() exits 1 on a bundled broken fixture ----
+python "$repo_root/scripts/check_doc_slugs.py" \
+  --repo-root "$repo_root/scripts/_test_fixtures/check_doc_slugs/broken_anchor" >/dev/null 2>&1
+assert "M check_doc_slugs catches broken anchor" "1" "$?"
 
-# ---- Case L: --no-docs forces docs off for a docs diff ----
-r="$tmp_root/no-docs"; mkrepo "$r"
-mkdir -p "$r/docs"; printf '# h\n' > "$r/docs/x.md"; git -C "$r" add -A; git -C "$r" commit -q -m d
-assert "L --no-docs on docs diff → docs forced off" "PLAN docs=false jvm=false node=false" "$(plan "$r" --no-docs)"
+python "$repo_root/scripts/check_readme_links.py" --ci \
+  --repo-root "$repo_root/scripts/_test_fixtures/check_readme_links/broken_internal_link" >/dev/null 2>&1
+assert "N check_readme_links catches broken target" "1" "$?"
 
-# ---------------------------------------------------------------------------
-# Gate-has-teeth tests.  When the tiering decides "run the doc gates", the
-# validators must actually catch the motivating regressions.
-# ---------------------------------------------------------------------------
-slugs_script="$repo_root/scripts/check_doc_slugs.py"
-readme_script="$repo_root/scripts/check_readme_links.py"
-
-broken_anchor_fixture="$repo_root/scripts/_test_fixtures/check_doc_slugs/broken_anchor"
-if [ -d "$broken_anchor_fixture" ]; then
-  python "$slugs_script" --repo-root "$broken_anchor_fixture" >/dev/null 2>&1
-  assert "M check_doc_slugs catches broken anchor" "1" "$?"
-else
-  printf '  SKIP M: fixture %s not found\n' "$broken_anchor_fixture"
-fi
-
-broken_readme_fixture="$repo_root/scripts/_test_fixtures/check_readme_links/broken_internal_link"
-if [ -d "$broken_readme_fixture" ]; then
-  python "$readme_script" --repo-root "$broken_readme_fixture" --ci >/dev/null 2>&1
-  assert "N check_readme_links catches broken target" "1" "$?"
-else
-  printf '  SKIP N: fixture %s not found\n' "$broken_readme_fixture"
-fi
-
-# ---------------------------------------------------------------------------
-# Slug-shape verification.  A pymdownx `_1` disambiguation linked as GitHub's
-# `-1`, and an anchor missing a heading's `-rf2-XXX` suffix, must both trip
-# check_doc_slugs.py.
-# ---------------------------------------------------------------------------
-case_2232="$tmp_root/case-2232"; mkdir -p "$case_2232/docs"
-cat > "$case_2232/mkdocs.yml" <<'EOF'
-site_name: test
-EOF
-cat > "$case_2232/docs/index.md" <<'EOF'
-# Index
-
-See [trace events](target.md#trace-events-1) for the second occurrence.
-EOF
-cat > "$case_2232/docs/target.md" <<'EOF'
-# Target
-
-## Trace events
-
-First occurrence — slug is `trace-events`.
-
-## Trace events
-
-Second occurrence — pymdownx slug is `trace-events_1` (underscore N).
-EOF
-python "$slugs_script" --repo-root "$case_2232" >/dev/null 2>&1
-assert "O #2232 (trace-events-1 vs trace-events_1)" "1" "$?"
-
-case_2233="$tmp_root/case-2233"; mkdir -p "$case_2233/docs"
-cat > "$case_2233/mkdocs.yml" <<'EOF'
-site_name: test
-EOF
-cat > "$case_2233/docs/index.md" <<'EOF'
-# Index
-
-See [section](target.md#cljs-reference-helix-as-alternative-substrate) for details.
-EOF
-cat > "$case_2233/docs/target.md" <<'EOF'
-# Target
-
-## CLJS reference: Helix as alternative substrate (rf2-2qit)
-
-Body — heading slug is `cljs-reference-helix-as-alternative-substrate-rf2-2qit`,
-NOT `cljs-reference-helix-as-alternative-substrate`.
-EOF
-python "$slugs_script" --repo-root "$case_2233" >/dev/null 2>&1
-assert "P #2233 (anchor missing -rf2-XXX suffix)" "1" "$?"
-
-# ---------------------------------------------------------------------------
-# Coverage-honesty note.  The spine's JVM tier is a
-# SUBSET of the per-artefact suites `implementation_jvm` arms in CI, so `--plan`
-# must SAY which artefacts it selected — a tier line reading `JVM tier: run` is
-# otherwise read as a coverage claim.  Pinned because prose that nobody checks
-# drifts into overstating what the spine ran.
-# ---------------------------------------------------------------------------
-r="$tmp_root/coverage-note"; mkrepo "$r"
-mkdir -p "$r/implementation/core/src/re_frame"
-printf 'x\n' > "$r/implementation/core/src/re_frame/core.cljc"
-git -C "$r" add -A; git -C "$r" commit -q -m c
-plan_out="$(bash "$spine" --plan --repo-root "$r" 2>/dev/null)"
-case "$plan_out" in
-  *"implementation/core PLUS the artefacts the diff touched"*) note_scope=yes ;;
-  *)                                                           note_scope=no ;;
-esac
-assert "Q --plan names the JVM tier as core plus what changed" "yes" "$note_scope"
-case "$plan_out" in
-  *"test-jvm-implementation.sh"*) note_points_at_full=yes ;;
-  *)                              note_points_at_full=no ;;
-esac
-assert "R --plan points at the full JVM sweep" "yes" "$note_points_at_full"
-
-# ---------------------------------------------------------------------------
-# Per-artefact JVM selection.  `PLAN-JVM` is the machine-readable
-# list of artefact suites the run will execute.  U's exact list pins both directions:
-# a diff under an artefact's tree must ADD that suite, and a diff elsewhere
-# must NOT pay for it.  `implementation/core` is on every list while the tier
-# runs — it is the substrate the others sit on.
-# ---------------------------------------------------------------------------
-plan_jvm() {
-  bash "$spine" --plan --repo-root "$1" 2>/dev/null | grep '^PLAN-JVM' || printf 'PLAN-JVM <none>\n'
-}
-
-# A roster entry must match on a path BOUNDARY: `implementation/adapters/reagent`
-# is a prefix of `implementation/adapters/reagent-slim` as a string, and arming
-# the wrong artefact from a sibling's diff would be silent over-testing.
+# ---- U: `PLAN-JVM` is core plus each touched artefact.  The roster entry
+# `implementation/adapters/reagent` is a string prefix of `…/reagent-slim`, so
+# the match must be on a path boundary. ----
 r="$tmp_root/jvm-slim"; mkrepo "$r"
 mkdir -p "$r/implementation/adapters/reagent-slim/src"
 printf 'x\n' > "$r/implementation/adapters/reagent-slim/src/a.cljs"
 git -C "$r" add -A; git -C "$r" commit -q -m slim
 assert "U reagent-slim does not arm reagent (path boundary)" \
-  "PLAN-JVM implementation/core implementation/adapters/reagent-slim" "$(plan_jvm "$r")"
+  "PLAN-JVM implementation/core implementation/adapters/reagent-slim" "$(plan PLAN-JVM "$r")"
 
-r="$tmp_root/jvm-none"; mkrepo "$r"
-mkdir -p "$r/docs"; printf '# h\n' > "$r/docs/x.md"
-git -C "$r" add -A; git -C "$r" commit -q -m d
-assert "V tier skipped → no artefact suite at all" "PLAN-JVM" "$(plan_jvm "$r")"
-
-# ---------------------------------------------------------------------------
-# mkdocs RESOLUTION.  A spine that probed only for a bare `mkdocs` console
-# script would, on a checkout where mkdocs is installed as a module —
-# `pip install --user`, console script off PATH — soft-skip the strict site
-# build on EVERY run and still print PASS.  `PLAN-MKDOCS` makes the
-# resolution observable without paying for a site build, and
-# these cases pin it: an installed mkdocs is found, and a code-only diff never
-# pays to look.  That the console script wins when present is pinned
-# hermetically by AD below.
-# ---------------------------------------------------------------------------
-plan_mkdocs() {
-  bash "$spine" --plan --repo-root "$1" 2>/dev/null | grep '^PLAN-MKDOCS' \
-    || printf 'PLAN-MKDOCS <none>\n'
-}
-
-r="$tmp_root/mkdocs-docs"; mkrepo "$r"
-mkdir -p "$r/docs"; printf '# h\n' > "$r/docs/x.md"
-git -C "$r" add -A; git -C "$r" commit -q -m d
-
-# X — THE HOST SMOKE.  Wherever mkdocs is genuinely installed, the spine must
-# resolve it; `unresolved` there is the fail-open this case exists to catch.  On
-# CI (console script on PATH) it resolves to `mkdocs`; on a module-only
-# checkout, to `python -m mkdocs`.  Either is a pass; `unresolved` is not.
-#
-# This case CONSULTS THE HOST by design — it is the one assertion made against
-# the real tool — so it can only ever prove what this host happens to have.  The
-# hermetic cases below (AC-AE) are what pin the module fallback itself; do not
-# read a green X as covering it.  The precondition tries all three launchers the
-# spine tries, so a host with only `python3` or `py` runs the case instead of
-# skipping it.
-mkdocs_on_host=false
-if command -v mkdocs >/dev/null 2>&1; then
-  mkdocs_on_host=true
-else
-  for _launcher in python python3 py; do
-    if command -v "$_launcher" >/dev/null 2>&1 &&
-       "$_launcher" -m mkdocs --version >/dev/null 2>&1; then
-      mkdocs_on_host=true
-      break
-    fi
-  done
-fi
-if [ "$mkdocs_on_host" = true ]; then
-  case "$(plan_mkdocs "$r")" in
-    "PLAN-MKDOCS unresolved"|"PLAN-MKDOCS <none>") mkdocs_found=no ;;
-    *)                                             mkdocs_found=yes ;;
-  esac
-  assert "X mkdocs installed → the spine resolves it (not soft-skipped)" "yes" "$mkdocs_found"
-else
-  printf '  SKIP X: mkdocs is installed neither as a script nor as a module here\n'
-fi
-
-# Y — the common case pays nothing: a code-only diff never probes for mkdocs.
-assert "Y code-only diff → mkdocs never probed" "PLAN-MKDOCS (docs tier skipped)" \
-  "$(plan_mkdocs "$tmp_root/coverage-note")"
-
-# ---------------------------------------------------------------------------
-# THE SPINE'S OWN TREE.  A diff touching only `scripts/test-fast-pr.sh`
-# matches no runtime surface and no documentation-content surface, so without
-# an explicit arm it would fall into the `unknown surface` fallback: JVM and
-# node run, and `run_docs` stays FALSE.  The gate that decides which gates run
-# could then not gate a change to its own documentation gate, and someone
-# BREAKING the docs tier would get a green spine.
-#
-# Z/AA pin the arming for both paths (the runner, and the fixture tree this
-# file lives in).  AB is the counterweight: the arming is path-by-path, so an
-# ordinary `scripts/` change does not pay for the documentation tier.
-# ---------------------------------------------------------------------------
-plan_selftest() {
-  bash "$spine" --plan --repo-root "$1" 2>/dev/null | grep '^PLAN-SELFTEST' \
-    || printf 'PLAN-SELFTEST <none>\n'
-}
-
+# ---- Z: the spine's own file matches no runtime and no documentation-content
+# surface, so without its own arm an edit that broke the docs tier would never
+# run it. ----
 r="$tmp_root/spine-self"; mkrepo "$r"
 mkdir -p "$r/scripts"
 printf '#!/usr/bin/env bash\n' > "$r/scripts/test-fast-pr.sh"
 git -C "$r" add -A; git -C "$r" commit -q -m spine
-assert "Z spine-only diff → docs tier armed (was docs=false)" \
-  "PLAN docs=true jvm=true node=true" "$(plan "$r")"
-assert "Z1 spine-only diff → the spine's own self-test is armed" \
-  "PLAN-SELFTEST run" "$(plan_selftest "$r")"
+assert "Z spine-only diff → every tier armed" "PLAN docs=true jvm=true node=true" "$(plan PLAN "$r")"
 
-r="$tmp_root/spine-fixture"; mkrepo "$r"
-mkdir -p "$r/scripts/_test_fixtures/test_fast_pr_docs_gate"
-printf 'x\n' > "$r/scripts/_test_fixtures/test_fast_pr_docs_gate/run-self-test.sh"
-git -C "$r" add -A; git -C "$r" commit -q -m fixture
-assert "AA doc-gate fixture tree → docs tier armed" \
-  "PLAN docs=true jvm=true node=true" "$(plan "$r")"
-assert "AA1 doc-gate fixture tree → the spine's own self-test is armed" \
-  "PLAN-SELFTEST run" "$(plan_selftest "$r")"
-
-# AB — the NOT-widened pin.  `scripts/check_skill_mcp_drift.py` is an ordinary
-# always-on gate script: no doc gate reads it, so arming the documentation tier
-# for it would buy nothing and cost an mkdocs build on every such diff.  Its
-# plan is also the unknown-surface fallback: the classifier recognises no
-# runtime surface in this script, so the JVM and node tiers run conservatively.
+# ---- AB: an ordinary gate script.  The spine's arm is path-by-path, never
+# `scripts/*`, so no docs tier; the classifier knows no surface in it, so the
+# unknown-surface fallback runs the runtime tiers. ----
 r="$tmp_root/ordinary-script"; mkrepo "$r"
 mkdir -p "$r/scripts"; printf 'x\n' > "$r/scripts/check_skill_mcp_drift.py"
 git -C "$r" add -A; git -C "$r" commit -q -m ordinary
 assert "AB an ordinary scripts/ change does NOT arm the docs tier" \
-  "PLAN docs=false jvm=true node=true" "$(plan "$r")"
-assert "AB1 an ordinary scripts/ change does NOT arm the spine self-test" \
-  "PLAN-SELFTEST skip" "$(plan_selftest "$r")"
-
-# AB2 — The provenance-pin gate runs in the documentation tier and
-# reads `docs/design/fresco/**`, so a change to the CHECKER has to arm that
-# tier — otherwise the one diff most likely to break the gate is the one diff
-# that never runs it.  It is named path by path rather than swept in by a
-# `scripts/*` widening, which case AB pins against.
-#
-# `docs=true jvm=false node=false` is the RECOGNISED-doc-script plan, and it is
-# what `scripts/check_doc_slugs.py` produces here too.  AB's `jvm=true
-# node=true` above is what an UNrecognised script gets: the fallback arms
-# everything, so matching AB's numbers would mean the classifier does not
-# know this path at all.
-r="$tmp_root/provenance-pins"; mkrepo "$r"
-mkdir -p "$r/scripts"; printf 'x\n' > "$r/scripts/check_provenance_pins.py"
-git -C "$r" add -A; git -C "$r" commit -q -m provenance
-assert "AB2 the provenance-pin checker arms the docs tier only" \
-  "PLAN docs=true jvm=false node=false" "$(plan "$r")"
+  "PLAN docs=false jvm=true node=true" "$(plan PLAN "$r")"
 
 # ---------------------------------------------------------------------------
-# HERMETIC mkdocs RESOLUTION.  Case X above consults the HOST, and
-# on the host that matters most — GitHub CI, which installs requirements.txt —
-# a bare `mkdocs` console script is always on PATH.  X therefore takes the
-# console-script branch there and NO module fallback is ever executed: deleting
-# `python -m mkdocs` from resolve_mkdocs would stay green on every remote run
-# and reopen the fail-open the module fallback closes, on exactly the checkouts
-# that need it (`pip install --user`, console script off PATH).
-#
-# These cases ask the host nothing.  They CONSTRUCT the module-only state — a
-# PATH with every directory that provides a bare `mkdocs` removed, plus a stub
-# directory that shadows all three launchers and lets exactly one of them answer
-# `-m mkdocs --version` — and assert the EXACT command the real spine selected.
-# One case per supported launcher (AC/AC1/AC2), because `resolve_mkdocs` tries
-# `python python3 py` in order and a witness for `python` alone cannot tell a
-# working three-entry loop from a one-entry one.  resolve_mkdocs is not copied
-# here: `--plan` runs the real one.
+# HERMETIC mkdocs RESOLUTION.  CI has a bare `mkdocs` console script on PATH, so
+# a host-consulting case would never execute the `python -m mkdocs` fallback
+# there.  These cases ask the host nothing: they CONSTRUCT a PATH with every
+# bare `mkdocs` removed plus a stub directory that shadows all three launchers
+# `resolve_mkdocs` tries and lets at most one answer `-m mkdocs --version`, then
+# assert the EXACT command the real spine selected.
 # ---------------------------------------------------------------------------
-
-# The docs-armed disposable repo built for X above: the mkdocs resolution is
-# only reached when the documentation tier would run.
-r_docs_for_mkdocs="$tmp_root/mkdocs-docs"
 
 # $PATH with every entry that provides a bare `mkdocs` removed.  Globbing is
 # disabled across the split so a PATH entry containing a glob character cannot
@@ -485,17 +221,10 @@ mkdocs_free_path() {
 
 mkdocs_free="$(mkdocs_free_path)"
 
-# A stub launcher directory.  It SHADOWS all three launchers `resolve_mkdocs`
-# tries and lets exactly one of them — `$2`, or none at all for `none` — answer
-# `-m mkdocs --version`; every other invocation of every stub fails.  So a green
-# case proves the spine took the module branch, via that launcher and no other.
-#
-# Shadowing the other two is what makes the per-launcher cases hermetic.
-# The sanitised PATH only has bare `mkdocs` removed; the host's
-# REAL interpreters are still on it, and `resolve_mkdocs` tries `python` first.
-# A `python3`-only witness with no `python` stub in front of it would therefore
-# be satisfied on this runner by the host's own `python`, and would stay green
-# through exactly the regression it exists to catch.
+# A stub directory shadowing all three launchers; only `$2` (or none, for
+# `none`) answers `-m mkdocs --version`.  The shadowing is what makes a case
+# hermetic: the host's real interpreters are still on the sanitised PATH, and
+# `resolve_mkdocs` tries `python` first.
 make_launcher_bin() {
   local dir="$1" working="$2" l
   mkdir -p "$dir"
@@ -516,137 +245,72 @@ STUB
   done
 }
 
-# One sandbox per supported launcher.  `resolve_mkdocs` iterates
-# `python python3 py`; narrowing that list to `python` alone would leave every
-# other required check green and break precisely the python3-only and py-only
-# checkouts.  Three witnesses, one per iteration.
-module_bin="$tmp_root/module-only-bin";       make_launcher_bin "$module_bin" python
-module_bin_py3="$tmp_root/module-only-py3";   make_launcher_bin "$module_bin_py3" python3
-module_bin_py="$tmp_root/module-only-py";     make_launcher_bin "$module_bin_py" py
-
-# Every launcher present and none of them able to run mkdocs — the honest-skip
-# path, which must report `unresolved` rather than anything that reads as a pass.
-none_bin="$tmp_root/no-mkdocs-bin";           make_launcher_bin "$none_bin" none
-
-# A console-script stub for the preference case, alongside a working module
-# launcher — so "console script wins" is asserted against a live alternative.
-both_bin="$tmp_root/console-wins-bin"; mkdir -p "$both_bin"
-cp "$module_bin/python" "$both_bin/python"
+# `py` is the LAST launcher tried, so its witness also proves the loop walks
+# past the two that fail.
+module_bin_py="$tmp_root/module-only-py"; make_launcher_bin "$module_bin_py" py
+none_bin="$tmp_root/no-mkdocs-bin";       make_launcher_bin "$none_bin" none
+# A console script beside a WORKING module launcher, so "console script wins"
+# is asserted against a live alternative.
+both_bin="$tmp_root/console-wins-bin";    make_launcher_bin "$both_bin" python
 printf '#!/bin/sh\nexit 0\n' > "$both_bin/mkdocs"
 chmod +x "$both_bin/mkdocs"
 
-# The sandbox must still carry the tools the spine itself shells out to.  If
-# stripping the mkdocs directories took one of them, the assertions below would
-# fail for the wrong reason — so say so loudly instead of skipping quietly: a
-# witness that goes quiet on an unexpected host is the fail-open family these
-# cases exist to close.
+# The sandbox must still carry the tools the spine shells out to, and must hide
+# every bare mkdocs; otherwise the cases below would fail for the wrong reason,
+# so say so loudly instead of skipping.
 hermetic_ready=yes
 missing_tool=""
 for _tool in bash git awk sed sort grep; do
-  if ! ( PATH="$module_bin:$mkdocs_free"; export PATH; command -v "$_tool" >/dev/null 2>&1 ); then
+  if ! ( PATH="$none_bin:$mkdocs_free"; export PATH; command -v "$_tool" >/dev/null 2>&1 ); then
     hermetic_ready=no
     missing_tool="$_tool"
     break
   fi
 done
-if ( PATH="$module_bin:$mkdocs_free"; export PATH; command -v mkdocs >/dev/null 2>&1 ); then
+if ( PATH="$none_bin:$mkdocs_free"; export PATH; command -v mkdocs >/dev/null 2>&1 ); then
   hermetic_ready=no
   missing_tool="(a bare mkdocs is STILL discoverable after sanitising PATH)"
 fi
 
 if [ "$hermetic_ready" = yes ]; then
-  assert "AC hermetic module-only host → 'python -m mkdocs' selected" \
-    "PLAN-MKDOCS python -m mkdocs" \
-    "$(PATH="$module_bin:$mkdocs_free" plan_mkdocs "$r_docs_for_mkdocs")"
-
-  assert "AC1 only python3 can run mkdocs → 'python3 -m mkdocs' selected" \
-    "PLAN-MKDOCS python3 -m mkdocs" \
-    "$(PATH="$module_bin_py3:$mkdocs_free" plan_mkdocs "$r_docs_for_mkdocs")"
-
   assert "AC2 only py can run mkdocs → 'py -m mkdocs' selected" \
     "PLAN-MKDOCS py -m mkdocs" \
-    "$(PATH="$module_bin_py:$mkdocs_free" plan_mkdocs "$r_docs_for_mkdocs")"
+    "$(PATH="$module_bin_py:$mkdocs_free" plan PLAN-MKDOCS "$docs_repo")"
 
   assert "AD console script wins over a WORKING module launcher" \
     "PLAN-MKDOCS mkdocs" \
-    "$(PATH="$both_bin:$mkdocs_free" plan_mkdocs "$r_docs_for_mkdocs")"
+    "$(PATH="$both_bin:$mkdocs_free" plan PLAN-MKDOCS "$docs_repo")"
 
   assert "AE nothing resolves → 'unresolved' (never a silent pass)" \
     "PLAN-MKDOCS unresolved" \
-    "$(PATH="$none_bin:$mkdocs_free" plan_mkdocs "$r_docs_for_mkdocs")"
+    "$(PATH="$none_bin:$mkdocs_free" plan PLAN-MKDOCS "$docs_repo")"
 else
-  printf '  FAIL AC-AE: cannot construct a module-only PATH on this host — %s\n' "$missing_tool"
-  printf '        The module-only fallback in resolve_mkdocs was NOT exercised.\n'
-  fail_count=$((fail_count + 5))
+  printf '  FAIL AC2-AE: cannot construct a module-only PATH on this host — %s\n' "$missing_tool"
+  fail_count=$((fail_count + 3))
 fi
 
 # ---------------------------------------------------------------------------
-# THE PINNED clj-kondo LANE.  `PLAN-KONDO` is its machine-readable
-# arming, and it is a FOURTH surface rather than a view of the three above: the
-# lane's roots come from lint.yml's own `--lint` list, plus the config and the
-# workflow the lane reads (`.clj-kondo/`, `lint.yml`), which no runtime tier
-# owns, and it misses trees the runtime tiers do own.  Both directions are
-# pinned: a gate that cannot fire
-# on the edit it polices is a defect, and a lane armed by everything would be
-# the same defect wearing the opposite coat.
-#
-# `PLAN` deliberately keeps three fields; a fourth would rewrite every `PLAN`
-# assertion above to say nothing it does not already say.
+# THE PINNED clj-kondo LANE arms on its own surface — lint.yml's `--lint` roots
+# plus the config and workflow the lane reads — not on the tiers above.
 # ---------------------------------------------------------------------------
-plan_kondo() {
-  bash "$spine" --plan --repo-root "$1" 2>/dev/null | grep '^PLAN-KONDO' \
-    || printf 'PLAN-KONDO <none>\n'
-}
 
-# AF — source under a `--lint` root that no runtime lane reads.
-r="$tmp_root/kondo-src"; mkrepo "$r"
-mkdir -p "$r/implementation/fresco/src/re_frame/fresco/impl"
-printf 'x\n' > "$r/implementation/fresco/src/re_frame/fresco/impl/overlay.cljs"
-git -C "$r" add -A; git -C "$r" commit -q -m src
-assert "AF fresco source → the pinned kondo lane is armed" \
-  "PLAN-KONDO run" "$(plan_kondo "$r")"
-
-# AF1 — a root after the first.  `examples/` is the second `--lint` root in
-# lint.yml, so this proves the lane reads the whole list rather than only
-# `implementation`.
+# AF1 — `examples/` is a LATER `--lint` root, so the whole list is read.
 r="$tmp_root/kondo-examples"; mkrepo "$r"
 mkdir -p "$r/examples/capabilities/resources/linearlite"
 printf 'x\n' > "$r/examples/capabilities/resources/linearlite/core.cljs"
 git -C "$r" add -A; git -C "$r" commit -q -m example
-assert "AF1 examples/, a later --lint root → armed" \
-  "PLAN-KONDO run" "$(plan_kondo "$r")"
+assert "AF1 examples/, a later --lint root → armed" "PLAN-KONDO run" "$(plan PLAN-KONDO "$r")"
 
-# AF2 — the shared config decides every finding's level without being linted.
-r="$tmp_root/kondo-config"; mkrepo "$r"
-mkdir -p "$r/.clj-kondo"; printf '{}\n' > "$r/.clj-kondo/config.edn"
-git -C "$r" add -A; git -C "$r" commit -q -m kondocfg
-assert "AF2 .clj-kondo/ config → armed" \
-  "PLAN-KONDO run" "$(plan_kondo "$r")"
-
-# AF3 — the workflow carries the pin AND the target list, so editing it changes
-# the verdict without touching one line of Clojure.
+# AF3 — the workflow carries the pin and the target list: an exact path, not a tree.
 r="$tmp_root/kondo-workflow"; mkrepo "$r"
 mkdir -p "$r/.github/workflows"; printf 'name: lint\n' > "$r/.github/workflows/lint.yml"
 git -C "$r" add -A; git -C "$r" commit -q -m workflow
-assert "AF3 lint.yml itself → armed" \
-  "PLAN-KONDO run" "$(plan_kondo "$r")"
+assert "AF3 lint.yml itself → armed" "PLAN-KONDO run" "$(plan PLAN-KONDO "$r")"
 
-# AF4 — the counterweight.  A docs-only diff must not pay ~70s of linting; a
-# lane that runs on everything is as useless as one that runs on nothing.
-r="$tmp_root/kondo-docs"; mkrepo "$r"
-mkdir -p "$r/docs/design/fresco/product"
-printf '# b\n' > "$r/docs/design/fresco/product/budgets.md"
-git -C "$r" add -A; git -C "$r" commit -q -m docs
-assert "AF4 a docs-only diff does NOT arm the kondo lane" \
-  "PLAN-KONDO skip" "$(plan_kondo "$r")"
+assert "AF4 a docs-only diff does NOT arm the kondo lane" "PLAN-KONDO skip" "$(plan PLAN-KONDO "$docs_repo")"
 
 # AF5 — an unresolvable base is an indeterminate change set, not an empty one.
-r="$tmp_root/kondo-nobase"; mkdir -p "$r"
-git -C "$r" init -q -b main 2>/dev/null
-git -C "$r" config user.email "self-test@local"; git -C "$r" config user.name "self-test"
-printf 'x\n' > "$r/thing.cljs"
-assert "AF5 no origin/main base → armed conservatively" \
-  "PLAN-KONDO run" "$(plan_kondo "$r")"
+assert "AF5 no origin/main base → armed conservatively" "PLAN-KONDO run" "$(plan PLAN-KONDO "$nobase_repo")"
 
 # ---- Summary ----
 total=$((pass_count + fail_count))
