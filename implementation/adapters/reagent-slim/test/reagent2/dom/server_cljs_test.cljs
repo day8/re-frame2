@@ -40,24 +40,45 @@
              [[greet "Mike" "!"] "<span>Mike!</span>" "a user fn receives every arg"]]]
       (is (= expected (server/render-to-static-markup hiccup)) (or why (pr-str hiccup))))))
 
+(defn- thrown-data
+  "The ex-data a static render of `hiccup` throws, or nil when it renders."
+  [hiccup]
+  (try (server/render-to-static-markup hiccup)
+       nil
+       (catch :default e (ex-data e))))
+
 ;; ---------------------------------------------------------------------------
-;; React-component heads (opaque under static markup)
+;; React-component heads (refused under static markup)
+;;
+;; Only React can run a foreign component, so the walker raises a typed error
+;; naming the head rather than leave a hole in the markup.
 ;; ---------------------------------------------------------------------------
 
-(deftest react-component-head-comment-placeholder
-  (testing ":>, :r>, :f> emit a placeholder comment (opaque under static markup)"
+(deftest react-component-head-is-refused
+  (testing ":>, :r>, :f> raise the opaque-component error, naming the head"
     (let [Foo (fn [_] [:div "x"])]
-      (is (= "<!--reagent-react-component-->"
-             (server/render-to-static-markup [:> Foo {}])))
-      (is (= "<!--reagent-react-component-->"
-             (server/render-to-static-markup [:f> Foo])))
-      (is (= "<!--reagent-react-component-->"
-             (server/render-to-static-markup [:r> Foo #js {}]))))))
+      (doseq [[hiccup head] [[[:> Foo {}] :>]
+                             [[:f> Foo] :f>]
+                             [[:r> Foo #js {}] :r>]]]
+        (let [data (thrown-data hiccup)]
+          (is (= :rf.error/static-markup-opaque-component (:rf.error/id data))
+              (pr-str head))
+          (is (= head (:head data)))
+          (is (= :render-hiccup-in-its-place (:recovery data))))))))
+
+(deftest generic-react-class-head-is-refused
+  (testing "a React class not made by create-class, written as the head, has
+            no CLJS render fn to walk, so it is refused as `:>` is"
+    (let [Klass (fn [])]
+      (set! (.. Klass -prototype -render) (fn [] nil))
+      (let [data (thrown-data [Klass "x"])]
+        (is (= :rf.error/static-markup-opaque-component (:rf.error/id data)))
+        (is (= :class (:head data)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; React context Providers render their children: the canonical slim mount
 ;; `[rf/frame-provider {:frame f} [app]]` expands to an `:r>` Provider head, so
-;; treating it as opaque would render an empty document. The contexts come from
+;; refusing it as foreign would refuse every export. The contexts come from
 ;; the real `react/createContext`, because Provider detection depends on the
 ;; React version's symbols.
 ;; ---------------------------------------------------------------------------
@@ -102,21 +123,22 @@
                 [:r> inner #js {:value :frame/b}
                  [:div "a & b"]]]]))))))
 
-(deftest context-consumer-head-stays-opaque
+(deftest context-consumer-head-is-refused
   (testing "negative control: a context CONSUMER takes a RENDER FN
-            as its child, not elements, so it must NOT be walked — it stays
-            opaque like any other foreign component"
+            as its child, not elements, so it must NOT be walked — it is
+            refused like any other foreign component"
     (let [ctx (react/createContext :rf/none)]
-      (is (= "<!--reagent-react-component-->"
-             (server/render-to-static-markup
-              [:r> (.-Consumer ctx) #js {} (fn [_v] [:div "nope"])]))))))
+      (is (= :rf.error/static-markup-opaque-component
+             (:rf.error/id
+              (thrown-data
+               [:r> (.-Consumer ctx) #js {} (fn [_v] [:div "nope"])])))))))
 
-(deftest non-provider-react-component-still-opaque
+(deftest non-provider-react-component-is-refused-with-its-children
   (testing "the Provider branch does not widen the walker: a genuine foreign
-            React component head stays opaque even when it carries children"
+            React component head is refused even when it carries children"
     (let [Foo (fn [_] [:div "x"])]
-      (is (= "<!--reagent-react-component-->"
-             (server/render-to-static-markup [:> Foo {} [:div "dropped"]]))))))
+      (is (= :rf.error/static-markup-opaque-component
+             (:rf.error/id (thrown-data [:> Foo {} [:div "dropped"]])))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Form-2 user-fn heads
@@ -158,6 +180,37 @@
                  :reagent-render (fn [_x] (fn [x] [:section x]))})]
       (is (= "<section>x</section>"
              (server/render-to-static-markup [box "x"]))))))
+
+;; ---------------------------------------------------------------------------
+;; A render that reads its component instance
+;;
+;; A static render has no instance, so `(r/current-component)` is nil there,
+;; and each `reagent2.core` accessor handed it raises the no-instance error
+;; naming itself, rather than a TypeError on nil.
+;; ---------------------------------------------------------------------------
+
+(deftest render-reading-its-instance-is-refused
+  (doseq [[accessor read-instance]
+          [['reagent2.core/state-atom    #(r/state-atom %)]
+           ['reagent2.core/state         #(r/state %)]
+           ['reagent2.core/set-state     #(r/set-state % {:a 1})]
+           ['reagent2.core/replace-state #(r/replace-state % {:a 1})]
+           ['reagent2.core/argv          #(r/argv %)]
+           ['reagent2.core/props         #(r/props %)]
+           ['reagent2.core/children      #(r/children %)]
+           ['reagent2.core/force-update  #(r/force-update %)]]]
+    (let [klass (r/create-class
+                  {:display-name   "reads-its-instance"
+                   :reagent-render (fn [] (read-instance (r/current-component)) [:div])})
+          data  (thrown-data [klass])]
+      (is (= :rf.error/static-markup-no-instance (:rf.error/id data)) (str accessor))
+      (is (= accessor (:accessor data)))
+      (is (= :render-from-args (:recovery data))))))
+
+(deftest no-instance-gate-arms-only-inside-a-static-render
+  (server/render-to-static-markup [:div])
+  (is (thrown? js/TypeError (r/state-atom nil))
+      "outside a static render a nil instance reaches the accessor unchanged"))
 
 ;; ---------------------------------------------------------------------------
 ;; Malformed hiccup

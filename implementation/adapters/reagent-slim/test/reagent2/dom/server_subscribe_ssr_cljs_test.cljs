@@ -67,6 +67,36 @@
       (is (re-find #">5<" bare) "precondition: the bare render has content")
       (is (= bare provided)))))
 
+;; The walker applies no Provider's value, so a view under a frame-provider
+;; resolves its frame through the ambient `with-frame`. A frame-provider naming
+;; another frame is refused rather than rendered against the ambient one.
+
+;; Other namespaces in the test build register `:counter/*` ids too, so the
+;; second frame's image selects this namespace's registrations alone.
+(def ^:private counter-image
+  (rf/image {:id        :static/counter
+             :select-ns {:include ["reagent2.dom.server-subscribe-ssr-cljs-test"]}}))
+
+(deftest frame-provider-naming-another-frame-is-refused
+  (register-counter!)
+  (rf/make-frame {:id :static/other :images [counter-image]})
+  (rf/dispatch-sync [:counter/initialise])
+  (let [data (try (server/render-to-static-markup
+                   [rf/frame-provider {:frame :static/other} [counter-app]])
+                  nil
+                  (catch :default e (ex-data e)))]
+    (is (= :rf.error/static-markup-provider-frame (:rf.error/id data)))
+    (is (= :static/other (:frame data)))
+    (is (= :rf/default (:ambient-frame data)))
+    (is (= :export-under-the-provided-frame (:recovery data))))
+  (testing "under the provided frame, the export renders that frame's state"
+    (rf/with-frame :static/other
+      (rf/dispatch-sync [:counter/initialise])
+      (rf/dispatch-sync [:counter/inc])
+      (is (re-find #">6<" (server/render-to-static-markup
+                           [rf/frame-provider {:frame :static/other}
+                            [counter-app]]))))))
+
 (deftest frame-provider-mount-renders-multiple-children
   (testing "every one of a frame-provider's variadic children reaches the
             markup, in order"
