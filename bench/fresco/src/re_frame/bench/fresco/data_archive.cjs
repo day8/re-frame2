@@ -71,7 +71,8 @@ const ARCHIVE_ENTRIES = 237;
 /**
  * The one command that restores the corpus. This string is the single spelling
  * of it: the header above, `bench/fresco/README.md` and the `skipped()` line
- * below all quote it, and `data_archive.test.cjs` holds them to that.
+ * below all quote it, and `data_archive.test.cjs` holds the README and the
+ * `skipped()` line to it.
  */
 const RESTORE = 'node bench/fresco/src/re_frame/bench/fresco/data_archive.cjs --restore';
 

@@ -141,9 +141,8 @@
   The exclusion is pinned by `the-interpreted-root-ships-no-render-hash`
   in `ssr/entry_cljs_test`, and the measurement above is kept live (over
   `ssr-hash/render-tree-hash` directly, where it is a fact about the hash
-  fn rather than about this entry) by the witness rows in
-  `ssr/spike_cljs_test` and `ssr/instance_key_payload_dom_cljs_test` that
-  chose byte digests over it.
+  fn rather than about this entry) by the witness row in
+  `ssr/spike_cljs_test` that chose byte digests over it.
 
   ## Determinism
 

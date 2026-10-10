@@ -247,7 +247,8 @@
   [[re-frame.bench.fresco.front.controlled]] wraps the handler this
   namespace produced, after it has produced it, and nothing about the
   lowering changes because of it."
-  (:require [re-frame.frame :as rf.frame]
+  (:require [re-frame.core :as rf]
+            [re-frame.frame :as rf.frame]
             [re-frame.late-bind :as rf.late-bind]))
 
 ;; ---------------------------------------------------------------------------
@@ -1013,13 +1014,19 @@
   `href`: native navigation, never a throw at a detached click.
   ([[re-frame.bench.fresco.front.route-link/route-link]] already proved
   routing present at RENDER, so absence here is transient by
-  construction.)"
+  construction.)
+
+  The frame is pinned HERE too: the closure carries the `capture-frame`
+  bundle of the incarnation live at lowering, so a click fired after that
+  incarnation is destroyed refuses rather than navigating a successor
+  seated under the same id."
   [k v]
   (let [{:keys [frame payload native? veto]} (unwrap-navigate k v)
-        veto-fn (lower-veto k veto)]
+        frame-api (rf/capture-frame frame)
+        veto-fn   (lower-veto k veto)]
     (fn fresco-navigate [e]
       (if-some [activate (rf.late-bind/get-fn :routing/activate-link!)]
-        (activate e veto-fn frame payload native?)
+        (activate e veto-fn frame-api payload native?)
         (when veto-fn (veto-fn e)))
       nil)))
 

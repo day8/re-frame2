@@ -78,7 +78,7 @@ path is spelled — a rename on main cannot rename a path inside an older commit
 `data_archive.cjs` reads the archived path, writes the current one, and touches only the
 working tree. The fenced command above is the ONE spelling of the operation: the module
 header and the printed skip line quote the same constant, and `data_archive.test.cjs`
-holds all three together.
+holds the README and the skip line to it.
 
 `data/` is git-ignored, so a restored corpus (or a run record a driver has just written
 there) never lands in a commit by accident. With the corpus absent, `npm run check` still

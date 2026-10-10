@@ -308,4 +308,4 @@ if (require.main === module) {
   else serve(api, port);
 }
 
-module.exports = { sha256, utf8Bytes, renderQuietly, BAKE_DIR, BUILD_ID, OUTPUT_TO };
+module.exports = { utf8Bytes };

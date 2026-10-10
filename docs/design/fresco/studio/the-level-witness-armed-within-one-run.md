@@ -431,12 +431,11 @@ node fresco/test/re_frame/bench/fresco/alloc_level_witness.cjs \
 - **It does not gate a run at the moment it is taken.** The refusal is over a written
   record, so a window still has to invoke it. That is the deliberate cost of leaving the
   rig alone, and the invocation is one line.
-- ~~**It is not registered in the fast-PR spine.**~~ **Registered** (`rf2-zu82n`).
-  `alloc_level_witness.test.cjs` now sits beside `clock_witness.test.cjs` in
-  `test:script-helpers`, so it runs on every PR through `test.yml` and in
-  `scripts/test-fast-pr.sh`. It was registered **after** the fail-open above was closed,
-  and deliberately in that order: arming a gate that could not fire on the defect it
-  exists to catch is the failure this repository keeps finding.
+- **It is not in the fast-PR spine.** `alloc_level_witness.test.cjs` sits beside
+  `clock_witness.test.cjs` in the bench `npm run check`, which the nightly
+  `fresco-bench-compile` job runs; no per-PR lane runs it. It was armed **after** the
+  fail-open above was closed, because arming a gate that could not fire on the defect
+  it exists to catch is the failure this repository keeps finding.
 - **The ramp fallback is a real hole, bounded rather than closed.** A segment whose
   rounds 1–3 all fail to certify is scored from a ramp round and its step is understated.
   No elevated run in the corpus is scored that way, and two of forty would slip if one

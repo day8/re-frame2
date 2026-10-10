@@ -269,7 +269,4 @@ module.exports = {
   shadowBuildVerdict,
   reportRefusal,
   judgeBuild,
-  parseBuildSummaries,
-  warningHeadlines,
-  stripAnsi,
 };

@@ -30,7 +30,7 @@ node fresco/test/re_frame/bench/fresco/alloc_null_floor.cjs --tables
 
 from `implementation/`, and **every table on this page is that second command's
 output pasted unedited** — the tables are generated, not transcribed. The reader
-is registered in `test:script-helpers`, where its `--self-test` pins each
+is run by the bench `npm run check`, where its `--self-test` pins each
 published figure it reproduces.
 
 ## The question

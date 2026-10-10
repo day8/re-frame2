@@ -363,12 +363,12 @@ number rather than the word `ok`.
 
 **The echo's negative control is affirmed by the run's progress past it rather
 than by a printed verdict, and that is worth saying plainly.** It throws or it
-does not, so its all-clear is an absence. What positively witnesses the
-mechanism is a row in the driver's own DOM self-test —
+does not, so its all-clear is an absence. The row that would witness the
+mechanism positively is in the driver's own DOM self-test —
 `the-echo-refuses-the-setup-mutation-alone` in
-`slice_echo_window_dom_cljs_test.cljs`, whose namespace the PR-blocking
-`:browser-test` selector matches, so it runs on every pull request that arms
-this surface.
+`slice_echo_window_dom_cljs_test.cljs` — and it needs a real browser: the
+nightly bench lane runs that suite under Node, where the row degrades to a
+stated skip.
 
 ### 7.3 The readings, `:ms` — one interaction through to the paint that follows it
 

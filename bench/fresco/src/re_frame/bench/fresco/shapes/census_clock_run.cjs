@@ -376,9 +376,9 @@ const robustScale = (xs) => (quantile(xs, 0.75) - quantile(xs, 0.25)) / 1.349;
  * Dropping a rule that is not the binding constraint would loosen a control
  * on the two rows where it is doing real work.
  *
- * Every figure above recomputes from the committed datasets and is pinned by
- * `../clock_exit_path.test.cjs`, which drives `controlBlocks` and this
- * function rather than a copy of their arithmetic.
+ * Every figure above recomputes from the committed datasets through
+ * `controlBlocks` and this function, and `../clock_exit_path.test.cjs` holds
+ * that live arithmetic to every stored verdict.
  */
 function controlVerdict(predicted, per, slack) {
   const lo = predicted * (1 - slack);

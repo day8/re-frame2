@@ -555,11 +555,10 @@ grid. It is also the sibling instrument's figure, `~34.3 ms`, taken on the same
 
 **The parity gate and the echo controls are affirmed by the run's progress past
 them rather than by a printed verdict, and that is worth saying plainly.** Each
-throws or it does not, so its all-clear is an absence. What positively witnesses
-them is `slice_broad_window_dom_cljs_test.cljs`, the suite item (b) landed,
-whose namespace the PR-blocking `:browser-test` selector matches — so those
-mechanisms are exercised on every pull request that arms this surface, not only
-here.
+throws or it does not, so its all-clear is an absence. The rows that would
+witness them positively are in `slice_broad_window_dom_cljs_test.cljs`, and they
+need a real browser: the nightly bench lane runs that suite under Node, where
+each of those rows degrades to a stated skip.
 
 ### 7.3 The readings, `:ms` — one broad operation through to the paint that follows it
 
