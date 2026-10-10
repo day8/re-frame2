@@ -79,6 +79,16 @@
          #js {:value frame-kw}
          children))
 
+(defonce adoption-context
+  ;; A hydrating root's adoption-window flag, the root-local
+  ;; `#js {:adopting true}` that `re-frame.substrate.spine/adoption-window-closer`
+  ;; provides over the tree it wraps and clears on the hydration commit.
+  ;; `re-frame.views.frame-boundary/frame-root-fc` reads it to refuse while its
+  ;; root is still adopting. The default, nil, means no hydrating root above.
+  ;; It lives here because the spine and the frame-boundary cores both
+  ;; require this namespace and neither requires the other.
+  (.createContext React nil))
+
 (defn normalize-children
   "Collapse a substrate element-macro's trailing-`$`-children value into a
   flat positional arg list. The native trailing-children idiom

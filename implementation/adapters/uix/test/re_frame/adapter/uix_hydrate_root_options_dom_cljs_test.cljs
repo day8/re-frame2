@@ -4,15 +4,18 @@
   React's `identifierPrefix`, and the composed `onRecoverableError` reporter
   bounded to the adoption window. The spine's after-render sentinel and window
   closer each render the tree as their only child, so a client `useId` equals
-  the one the server rendered for the bare element.
+  the one the server rendered for the bare element. A hydrating root topped by
+  `frame-root` refuses rather than mounting the page beside the server's copy.
 
   Real DOM, with act OFF, so React hydrates on its own schedule. The Reagent
-  twin is `re-frame.adapter-hydrate-root-options-dom-cljs-test`."
+  twins are `re-frame.adapter-hydrate-root-options-dom-cljs-test` and
+  `re-frame.adapter-hydrate-frame-root-dom-cljs-test`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             ["react" :as react]
             ["react-dom" :as react-dom]
             ["react-dom/server" :as react-dom-server]
             [uix.core :as uix :refer-macros [defui $]]
+            [re-frame.core :as rf]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.test-support :as rf.test-support]
             [re-frame.trace.tooling :as rf.trace.tooling]))
@@ -155,6 +158,60 @@
                   (is false (str "assertions threw: " (pr-str e))))
                 (finally
                   (rf.trace.tooling/unregister-listener! lk)
+                  (try (react-dom/flushSync #(rf.adapter.uix/unmount! h))
+                       (catch :default _ nil))
+                  (drop-host! el)
+                  (restore-act)
+                  (done))))))))))
+
+;; ---- a hydrating root topped by frame-root refuses ------------------------
+
+(defui page []
+  ($ :main ($ :h1 "title") ($ :p "same")))
+
+(def ^:private page-html "<main><h1>title</h1><p>same</p></main>")
+
+(deftest hydrating-root-topped-by-frame-root-refuses
+  (testing "frame-root's first render is empty, so a hydrating root topped by
+            it would keep the server's markup and mount the page beside it;
+            the boundary refuses instead, before any frame is made"
+    (if-not (browser?)
+      (is true ":node-test: no DOM — the :browser-test build runs the assertions")
+      (async done
+        (let [restore-act (act-off!)
+              frame-id    ::adopting-root-frame
+              refusals    (atom [])
+              ;; React reports a render error no boundary catches at the
+              ;; window. The row asserts on it, so it marks the event handled.
+              on-error    (fn [^js e]
+                            (swap! refusals conj (.-error e))
+                            (.preventDefault e))
+              _           (.addEventListener js/window "error" on-error)
+              el          (host! page-html)
+              copies      #(.-length (.querySelectorAll el "main"))
+              h           (rf.adapter.uix/client-root)]
+          (try
+            (rf.adapter.uix/render! h ($ rf.adapter.uix/frame-root {:id frame-id} ($ page))
+                                    el {:hydrate? true})
+            (catch :default e
+              (swap! refusals conj e)))
+          (poll-until
+            #(or (seq @refusals) (<= 2 (copies)))
+            (fn []
+              (try
+                (is (< (copies) 2)
+                    (str "the page is not mounted beside the server's copy. DOM: " (.-innerHTML el)))
+                (is (= [:rf.error/fresco-frame-root-adopting]
+                       (mapv #(:rf.error/id (ex-data %)) @refusals))
+                    (str "one refusal, naming the adopting frame-root. Saw: " (pr-str @refusals)))
+                (is (= frame-id (:frame (ex-data (first @refusals))))
+                    "the refusal names the frame-root's :id")
+                (is (not (contains? (set (rf/frame-ids)) frame-id))
+                    "the refusal came before the commit that would have made the frame")
+                (catch :default e
+                  (is false (str "assertions threw: " (pr-str e))))
+                (finally
+                  (.removeEventListener js/window "error" on-error)
                   (try (react-dom/flushSync #(rf.adapter.uix/unmount! h))
                        (catch :default _ nil))
                   (drop-host! el)

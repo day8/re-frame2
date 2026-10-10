@@ -1232,21 +1232,29 @@
   `#js {:adopting true}` flag off its `rfAdoption` prop and clears it from a
   passive `useEffect` with empty deps — so it runs exactly once, strictly AFTER
   the hydration commit React reports mismatches against (mirroring the compiled
-  tier's `PhaseFlipper` clearing `adoption-ref` on the `:server` commit). Renders
-  its children and no DOM of its own, so it adds nothing to hydrate and cannot
-  itself mismatch. Both spines wrap the tree in it, because a sibling ahead of
-  the tree would move every `useId` position in it away from the server's.
+  tier's `PhaseFlipper` clearing `adoption-ref` on the `:server` commit).
+
+  It provides the same flag to its children through
+  `re-frame.adapter.context/adoption-context`, so a `frame-root` rendered
+  while the window is open refuses rather than mounting the page twice (see
+  `re-frame.views.frame-boundary/frame-root-fc`). It renders no DOM of its
+  own, so it adds nothing to hydrate and cannot itself mismatch. Both spines
+  mount it on every hydrating root, wrapping the tree, because a sibling
+  ahead of the tree would move every `useId` position in it away from the
+  server's.
 
   Public so the mounted-DOM window-bounding proof can mount the REAL closer to
   shut the window it drives the reporter across."
   [^js props]
-  (React/useEffect
-    (fn close-window []
-      (when-some [adoption (.-rfAdoption props)]
-        (set! (.-adopting adoption) false))
-      js/undefined)
-    #js [])
-  (.-children props))
+  (let [adoption (.-rfAdoption props)]
+    (React/useEffect
+      (fn close-window []
+        (when (some? adoption)
+          (set! (.-adopting ^js adoption) false))
+        js/undefined)
+      #js [])
+    (React/createElement (.-Provider rf.adapter.context/adoption-context)
+                         #js {:value adoption :children (.-children props)})))
 
 (when ^boolean js/goog.DEBUG
   (set! (.-displayName adoption-window-closer) "rf.substrate/adoption-window-closer"))
@@ -1327,18 +1335,19 @@
   renders it, draining the per-adapter after-render queue. See
   `make-after-render-sentinel` for the sentinel.
 
-  On the HYDRATE path (`:hydrate? true`) the React root is created with
+  On the HYDRATE path (`:hydrate? true`) the `adoption-window-closer` wraps
+  the tree inside the sentinel, and the React root is created with
   `:identifier-prefix` as React's `identifierPrefix` — which `useId` needs to
   match the server's — and, when warranted, with a framework
   `onRecoverableError` that surfaces a hydration MISMATCH as the
   `:rf.ssr/hydration-mismatch` diagnostic, composed OVER any host-supplied
   `:on-recoverable-error` opt (see `hydrate-root-options`). The framework emit
-  is bounded to the hydration ADOPTION WINDOW by a root-local flag the
-  `adoption-window-closer`, wrapping the tree inside the sentinel, clears on
-  the hydration commit, so a LATER recoverable error is not mislabelled a
-  mismatch. Each wrapper has the tree as its only child, so the tree keeps
-  the `useId` positions the server gave it: a sibling ahead of it would move
-  them. A plain (non-hydrating) mount installs neither reporter nor closer.
+  is bounded to the hydration ADOPTION WINDOW by a root-local flag the closer
+  clears on the hydration commit, so a LATER recoverable error is not
+  mislabelled a mismatch. Each wrapper has the tree as its only child, so the
+  tree keeps the `useId` positions the server gave it: a sibling ahead of it
+  would move them. A plain (non-hydrating) mount installs neither reporter nor
+  closer.
 
   This render path IS the canonical native UIx hydration entry — the ONLY
   native mount route that installs the framework reporter. Hydrate through
@@ -1362,12 +1371,11 @@
           root-options (if (some? prefix)
                          (js/Object.assign #js {:identifierPrefix prefix} reporter)
                          reporter)
-          ;; The closer rides ONLY when a reporter is installed: it clears
-          ;; `adoption-ref` on the hydration commit, closing the window so a
-          ;; later recoverable error is not mislabelled a mismatch. Its effect
-          ;; deps are `#js []`, so re-rendering it on an update is inert: the
-          ;; window stays closed.
-          closer-props (when reporter #js {:rfAdoption adoption-ref})
+          ;; The closer clears `adoption-ref` on the hydration commit and
+          ;; provides it to the tree for `frame-root`'s refusal. Its effect deps
+          ;; are `#js []`, so re-rendering it on an update is inert: the window
+          ;; stays closed.
+          closer-props (when hydrate? #js {:rfAdoption adoption-ref})
           ;; The wrap is a CLOSURE rather than a one-off value, so every later
           ;; `render!` through a client-root handle reconciles against the
           ;; IDENTICAL wrapper chain. A dropped closer would change the element
@@ -4149,11 +4157,12 @@
         ;; A hydrating root is created with the React-hook spine's root
         ;; options — the composed reporter bounded to its adoption window
         ;; (see `hydrate-root-options`) — plus `:identifier-prefix` as React's
-        ;; `identifierPrefix`, which `useId` needs to match the server's. When
-        ;; the reporter is installed, the window closer WRAPS the tree: a
-        ;; sibling would move the tree's `useId` positions. `wrap` is returned
-        ;; so every later update renders through the same wrapper and React
-        ;; keeps the hydrated tree rather than remounting it.
+        ;; `identifierPrefix`, which `useId` needs to match the server's. The
+        ;; window closer WRAPS the tree, because a sibling would move the
+        ;; tree's `useId` positions, and provides the adoption flag that
+        ;; `frame-root` refuses under. `wrap` is returned so every later update
+        ;; renders through the same wrapper and React keeps the hydrated tree
+        ;; rather than remounting it.
         mount-root!
         (fn mount-root! [render-tree mount-point opts]
           (let [hydrate?     (:hydrate? opts)
@@ -4163,7 +4172,7 @@
                 root-options (if (some? prefix)
                                (js/Object.assign #js {:identifierPrefix prefix} reporter)
                                reporter)
-                wrap         (if reporter
+                wrap         (if hydrate?
                                (let [props #js {:rfAdoption adoption-ref}]
                                  (fn wrap [tree] [:r> adoption-window-closer props tree]))
                                identity)

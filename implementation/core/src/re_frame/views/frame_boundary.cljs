@@ -273,6 +273,34 @@
       {:recovery :ensure-or-create-the-frame
        :extra    {:frame frame-kw}})))
 
+;; ---- an adopting root cannot adopt a frame-root ---------------------------
+;;
+;; The first pass renders nothing, and React keeps an unclaimed server node
+;; directly under a root without reporting it, so a hydrating root topped by a
+;; frame-root keeps the server's markup and the second pass mounts the client
+;; tree beside it: the page twice, with no mismatch reported. The spine's
+;; `adoption-window-closer` provides the root's adoption flag through
+;; `rf.adapter.context/adoption-context`, so the boundary refuses in its first
+;; render, before React commits, while that flag is up.
+
+(defn- refuse-adopting-frame-root!
+  "Refuse a `frame-root` rendered while its root is still adopting the
+  server's markup, naming the boot that adopts instead: make the frame,
+  install the payload, scope it with `frame-provider`."
+  [frame-kw]
+  (rf.error/throw-error!
+    :rf.error/fresco-frame-root-adopting
+    're-frame.views.frame-boundary/frame-root-fc
+    (str "frame-root cannot be adopted by a hydrating root: its first render "
+         "is empty — it makes the frame at commit and its children arrive on "
+         "a second pass — so React would keep the server's markup and mount "
+         "the client tree beside it, showing the page twice. A hydrating root "
+         "scopes a frame that already exists. Make it with (rf/make-frame "
+         "{:id " (pr-str frame-kw) "}), install the payload with (ssr/hydrate! "
+         "{:frame " (pr-str frame-kw) "}), then hydrate a tree topped by "
+         "frame-provider {:frame " (pr-str frame-kw) "}.")
+    {:extra {:frame frame-kw}}))
+
 ;; ---- the shared React lifecycle component (frame-root, TWO-PASS) ----------
 ;;
 ;; ONE React function component backs `rf/frame-root` on every React-shaped
@@ -328,6 +356,11 @@
   (`require-unchanged-root-opts!`) — the committed baseline in the ref is
   compared against this render's opts.
 
+  A render while the root's adoption flag is up (`rf.adapter.context/
+  adoption-context`, provided by a hydrating root) refuses with
+  `:rf.error/fresco-frame-root-adopting`: an empty first pass cannot adopt
+  the server's markup.
+
   No unmount effect: the frame-root does NOT destroy the frame on unmount
   (EP-0024: the frame-root does not own the frame's teardown). A genuine
   unmount leaves the frame live; a keyed remount re-ensures it (idempotent, no
@@ -336,10 +369,15 @@
   [^js props]
   (let [opts       (.-rfOpts props)
         children   (.-children props)
+        adoption   (React/useContext rf.adapter.context/adoption-context)
         ready+set  (React/useState false)
         ready?     (aget ready+set 0)
         set-ready  (aget ready+set 1)
         committed  (React/useRef nil)]
+    ;; Under a root still adopting the server's markup the empty first pass
+    ;; would leave that markup in place and mount the tree beside it: refuse.
+    (when (and (some? adoption) (.-adopting ^js adoption))
+      (refuse-adopting-frame-root! (:id opts)))
     ;; Render-phase fail-loud guard: once the boundary
     ;; has committed under an opts baseline, a differing opts on a later render
     ;; is a reconfiguration attempt — fail loud rather than silently ignore it.
