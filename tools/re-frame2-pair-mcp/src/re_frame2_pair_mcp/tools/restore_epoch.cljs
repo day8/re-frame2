@@ -4,14 +4,17 @@
   The canonical pair-tool undo gesture per spec/Tool-Pair.md
   §Time-travel: rewind a frame's whole `frame-state` — BOTH the app-db
   and runtime-db partitions — to a recorded prior epoch's
-  `:frame-state-after` value, reinstalled atomically via
+  `:frame-state-after` value, or with `to` `\"before\"` to its
+  `:frame-state-before`, reinstalled atomically via
   `replace-frame-state!` (machine snapshots, the route slice, elision
   declarations, and SSR metadata revive alongside app-db, not just the
   app-db projection; see EP-0001). Wraps the preload
   runtime's `restore-epoch` primitive (`(rf/restore-epoch! frame-id
-  epoch-id)`), which is itself the Tool-Pair `restore-epoch` write
+  epoch-id opts)`), which is itself the Tool-Pair `restore-epoch` write
   primitive the server is the canonical consumer of (000-Vision /
-  003-Tool-Catalogue).
+  003-Tool-Catalogue). `to` is read against the closed set
+  `#{:after :before}`; any other value is refused as `:invalid-to`
+  before the runtime is contacted.
 
   ## Gate
 
@@ -48,7 +51,8 @@
   failure modes). The runtime primitive returns `false` on any failure
   (the frame's app-db is unchanged); we surface that as
   `{:ok? false :reason :restore-rejected}`."
-  (:require [re-frame2-pair-mcp.tools.args :as args]
+  (:require [re-frame.mcp-base.args :as rf.mcp-base.args]
+            [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.probe :as probe]
@@ -62,28 +66,36 @@
   (if-not (writes/writes-allowed?)
     (js/Promise.resolve (writes/disabled-result "restore-epoch"))
     (let [epoch-id-str (wire/arg raw-args :epoch-id)
+          to-str       (wire/arg raw-args :to)
+          to           (some-> to-str (rf.mcp-base.args/safe-keyword #{:after :before}))
           build-id     (wire/arg-build conn raw-args)
           frame        (some-> (wire/arg raw-args :frame) args/->frame-keyword)
-          [tag payload] (args/read-edn-arg epoch-id-str :missing-epoch-id :invalid-epoch-id)]
+          [tag payload] (if (and to-str (nil? to))
+                          [:err :invalid-to]
+                          (args/read-edn-arg epoch-id-str :missing-epoch-id :invalid-epoch-id))]
       (case tag
         :err
         (js/Promise.resolve
           (wire/err-text
-            {:ok?      false
-             :reason   payload
-             :epoch-id epoch-id-str
-             :hint     "usage: restore-epoch {epoch-id '<id>' [frame :foo]}. The id is parsed as EDN — an integer id like 7 may be passed as \"7\"."}))
+            (cond-> {:ok?      false
+                     :reason   payload
+                     :epoch-id epoch-id-str
+                     :hint     "usage: restore-epoch {epoch-id '<id>' [frame :foo] [to \"before\"]}. The id is parsed as EDN — an integer id like 7 may be passed as \"7\". to is \"after\" (the default) or \"before\"."}
+              to-str (assoc :to to-str))))
 
         :ok
         (let [epoch-id payload
               ;; restore-epoch's runtime arglist is ([epoch-id]
-              ;; [epoch-id frame-id]) — the frame is the SECOND arg.
-              ;; The epoch-id is EXTERNAL EDN, so it rides as
-              ;; quoted literal data rather than printed source.
+              ;; [epoch-id frame-id] [epoch-id frame-id opts]) — the frame
+              ;; is the SECOND arg, and a nil frame beside opts resolves the
+              ;; operating frame. The epoch-id is EXTERNAL EDN, so it rides
+              ;; as quoted literal data rather than printed source; `to` is
+              ;; one of two keywords.
               id-form (ef/rt-quote epoch-id)
-              call (if frame
-                     (ef/rt-call 'restore-epoch id-form frame)
-                     (ef/rt-call 'restore-epoch id-form))
+              call (cond
+                     to    (ef/rt-call 'restore-epoch id-form frame {:to to})
+                     frame (ef/rt-call 'restore-epoch id-form frame)
+                     :else (ef/rt-call 'restore-epoch id-form))
               form (ef/emit call)
               on-value
               (fn [v]

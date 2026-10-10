@@ -1574,16 +1574,20 @@ hints unchanged, failure loud.
 
 Time-travel undo — rewind a frame's whole **frame-state** (BOTH the
 app-db and runtime-db partitions) to a recorded prior epoch's
-`:frame-state-after` value, reinstalled atomically via
+`:frame-state-after` value, or with `to` `"before"` to its
+`:frame-state-before`, reinstalled atomically via
 `replace-frame-state!`. Machine snapshots, the route slice, elision
 declarations, and SSR metadata are revived alongside app-db, not just
 the app-db projection (EP-0001, Mike ruling #2). The canonical
 pair-tool undo gesture per
 [`Tool-Pair.md` §Time-travel](../../../spec/Tool-Pair.md#time-travel);
 wraps the `restore-epoch` Tool-Pair write primitive
-(`(rf/restore-epoch! frame-id epoch-id)`). Walk the ring with
+(`(rf/restore-epoch! frame-id epoch-id opts)`). Walk the ring with
 `trace-window` / `snapshot` (`:epochs` slice) to pick a target
-`:epoch-id`, then rewind to it.
+`:epoch-id`, then rewind to it. `to` `"before"` undoes that epoch
+itself; on the `:rf.epoch/db-replaced` record a `replace-app-db`
+injection leaves, it undoes the injection even when that record is
+the only one retained.
 
 **Launch-flag gate (rf2-ee38b.18)**: `--allow-writes`. Default OFF;
 calls return `{:ok? false :reason :rf.error/writes-disabled}` without
@@ -1598,12 +1602,17 @@ string `"7"` and reads back as the number 7. The same `:any` contract
 drives the cursor-pagination fix.
 
 **Args**: `epoch-id` (string, required — EDN id), `frame` (string,
-e.g. `":foo"`; defaults to the operating frame), `build` (string).
+e.g. `":foo"`; defaults to the operating frame), `to` (string,
+`"after"` — the default — or `"before"`; any other value is refused
+with `:reason :invalid-to` before the runtime is contacted), `build`
+(string).
 
 **Returns**: `{:ok? true :restored? true :epoch-id <id> :frame <id>
 :cascade-summary {... :restore? true} :unreplayable-effects [...]}`
 on success — per rf2-6yqdl the cascade-summary projects the TARGET
-epoch with `:db-diff` computed from the pre-restore live db; the
+epoch with `:db-diff` computed from the pre-restore live db to the
+state installed (the target's `:db-after`, or its `:db-before` under
+`to` `"before"`); the
 `:unreplayable-effects` vector enumerates fx the original cascade
 fired that the restore cannot undo. See §Universal: cascade summary
 on state-mutating tools for the shape. Returns
@@ -1695,8 +1704,8 @@ Wraps the `replace-frame-state!` Tool-Pair write primitive as an
 app-only partial map (`(rf/replace-frame-state! frame-id {:rf.db/app
 new-db})`): bypasses the dispatch loop, replaces the container
 directly, and records a synthetic `:rf/epoch-record` (`:event-id
-:rf.epoch/db-replaced`) so a later `restore-epoch` can rewind past
-the injection.
+:rf.epoch/db-replaced`) so `restore-epoch` of that record with `to`
+`"before"` undoes the injection.
 
 **Launch-flag gate (rf2-ee38b.18)**: `--allow-writes` (the same gate as
 `restore-epoch`). Default OFF.
