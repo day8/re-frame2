@@ -645,13 +645,11 @@
       (let [generation (:generation gen-allocation)
             work-id    (rf.resources.work-ledger/resource-work-id scoped-key generation)
             ;; The transport correlation token is the
-            ;; frame-QUALIFIED request-id, NOT the bare work-id. The
-            ;; managed-HTTP in-flight registry keys by request-id
-            ;; PROCESS-GLOBALLY and supersedes by equal request-id (Spec 014);
-            ;; the work-id is frame-local, so two frames issuing the same
-            ;; resource at the same generation would collide on a bare work-id
-            ;; and supersede/abort each other's in-flight request. Qualifying
-            ;; with the frame id isolates them.
+            ;; frame-QUALIFIED request-id, NOT the bare work-id: two frames
+            ;; can hold the same work-id, and the out-of-cascade teardown
+            ;; aborts through HTTP's any-frame `:http/abort-in-flight!` hook,
+            ;; so the frame in the token keeps that abort on this frame's
+            ;; request. See `managed-request-id`.
             request-id (rf.resources.work-ledger/managed-request-id frame-id work-id)
             ;; EP-0010 §Resources, Mutations, And Work-Ledger Timestamps: the
             ;; durable work-ledger `:started-at` is the TRIGGERING TOKEN'S

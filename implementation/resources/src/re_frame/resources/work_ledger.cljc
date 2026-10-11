@@ -104,20 +104,16 @@
 (defn resource-work-id
   "Build the resource work-id `[:rf.work/resource <scoped-key>
   <generation>]` — the ledger record key, the entry's `:current-work`
-  pointer, and the FRAME-LOCAL identity stale suppression keys on. Embeds
-  the generation so stale suppression keys on it. Per Spec 016 §Frame work
+  pointer, and the identity stale suppression keys on. Embeds the
+  generation so stale suppression keys on it. Per Spec 016 §Frame work
   ledger / §Ledger row retention and identity.
 
-  Note: the work-id is frame-LOCAL — its `<scoped-key>` + `<generation>`
-  carry no frame identity, so two frames issuing the same resource at the
-  same generation mint the SAME work-id. The work-id is therefore NOT a
-  safe process-global transport correlation token: the managed-HTTP
-  in-flight registry keys by `:request-id` PROCESS-GLOBALLY and supersedes
-  by equal request-id (Spec 014), so a bare-work-id request-id would let
-  frame B supersede / abort frame A's in-flight transport request. The
-  transport correlation token is the frame-QUALIFIED `managed-request-id`
-  below — a deliberate second identity (Spec 016 §Ledger row retention and
-  identity)."
+  The work-id carries no frame. Its generation comes from one
+  process-global high-water mark, but it is a RECORDED allocation value, so
+  a replayed or token-supplied allocation can hand two frames the same
+  generation and therefore the same work-id. The transport correlation
+  token is the frame-QUALIFIED `managed-request-id` below — a deliberate
+  second identity (Spec 016 §Ledger row retention and identity)."
   [scoped-key generation]
   [:rf.work/resource scoped-key generation])
 
@@ -146,20 +142,21 @@
   "Build the frame-QUALIFIED managed-HTTP transport correlation token
   `[:rf.req <frame-id> <work-id>]` — the `:request-id` the resource /
   mutation runtime hands the managed-HTTP transport (Spec 014). It is a
-  DELIBERATE SECOND IDENTITY, distinct from the frame-local `:work/id`
-  (Spec 016 §Ledger row retention and identity — \"if a future transport
-  genuinely needs a transport-facing suppression token distinct from the
-  internal work-id, it must be justified as a deliberate second identity\").
+  DELIBERATE SECOND IDENTITY, distinct from the `:work/id` (Spec 016
+  §Ledger row retention and identity — \"if a future transport genuinely
+  needs a transport-facing suppression token distinct from the internal
+  work-id, it must be justified as a deliberate second identity\").
 
-  WHY a second identity: the managed-HTTP in-flight registry keys by
-  `:request-id` PROCESS-GLOBALLY and supersedes / aborts by EQUAL
-  request-id (Spec 014 §`:request-id`). The work-id is frame-LOCAL (two
-  frames at the same generation collide), so using the bare work-id as the
-  request-id lets two frames issuing the same resource / mutation supersede,
-  abort, or suppress each other's in-flight transport request. Qualifying
-  with the frame id makes the transport correlation token process-globally
-  UNIQUE per frame, so frames settle independently. Stale suppression
-  inside a frame still keys on the work-id + generation (the durable
+  WHY the frame is in it: the out-of-cascade teardown (`clear-resource`,
+  frame destroy) runs no cascade, so it aborts through the
+  `:http/abort-in-flight!` hook, and that hook matches the raw request-id
+  in ANY frame. The work-id alone does not name one frame — two frames can
+  hold the same one (see `resource-work-id`) — so the frame in the token is
+  what confines that abort to the issuing frame's request. Every other
+  managed-HTTP path is frame-scoped already: the in-flight registry keys by
+  `[frame-id request-id]`, and supersession and `:rf.http/managed-abort`
+  resolve within the issuing frame (Spec 014 §`:request-id`). Stale
+  suppression still keys on the work-id + generation (the durable
   identity); this token governs only transport-level in-flight correlation.
   Per Spec 016 §Transport / §Frame work ledger."
   [frame-id work-id]
@@ -768,7 +765,7 @@
 ;; The resource runtime does NOT itself hold the AbortController — the
 ;; managed-HTTP transport owns it, keyed (host-side) by the request-id
 ;; (the frame-QUALIFIED `managed-request-id`, NOT the bare work-id — see the
-;; collision note on `managed-request-id`). The transport-neutral
+;; WHY note on `managed-request-id`). The transport-neutral
 ;; opportunistic-abort path is therefore an fx the runtime emits, late-bound
 ;; so resources never statically depends on the HTTP transport. The
 ;; side-table `:abort-fn` above is the slot a FUTURE transport that hands the
@@ -782,8 +779,8 @@
   `managed-request-id` (`[:rf.req <frame-id> <work-id>]`), so a best-effort
   abort of a superseded attempt emits
   `[:rf.http/managed-abort [:rf.req <frame-id> <work-id>]]` — the SAME token
-  the lower registered, so it actually resolves the right frame's in-flight
-  request (a bare work-id would miss it, or hit a colliding sibling frame).
+  the lower registered, so it actually resolves the in-flight request (a
+  bare work-id would miss it).
   Opportunistic — a no-op when the transport is no longer holding the
   request (the reply already landed, or the artefact is absent). Per Spec
   016 §Cancellation is opportunistic."
@@ -805,10 +802,9 @@
   capability — stale suppression alone protects correctness).
 
   The request-id MUST be frame-qualified to match the registered token:
-  the managed-HTTP in-flight registry keys by request-id process-globally
-  (Spec 014), so a bare work-id would either miss the abort entirely (the
-  registered token is qualified) or, across frames, resolve a sibling
-  frame's colliding request. `frame-id` is the issuing frame (the
+  the managed-HTTP registry resolves the abort by EQUAL request-id within
+  the issuing frame (Spec 014), so a bare work-id would miss the abort
+  entirely. `frame-id` is the issuing frame (the
   `:work/frame` stamp on the ledger record). Per Spec 016 §Cancellation is
   opportunistic; stale suppression is mandatory / §Transport."
   [transport frame-id work-id]

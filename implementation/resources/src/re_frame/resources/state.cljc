@@ -1679,7 +1679,7 @@
 ;; The PURE SEAM (handlers stay pure), mirroring routing's nav-allocation:
 ;; the next generation is minted by the
 ;; RECORDABLE `:rf.resource/generation-allocation` cofx GENERATOR (which
-;; reads the active frame's high-water snapshot at processing-start and
+;; reads the process-global high-water snapshot at processing-start and
 ;; records the minted value on the token); the handler reads
 ;; the recorded `:generation` value flat and writes only it durably; WRITE
 ;; via the `:rf.resource/commit-generation` fx (advances the host high-water
@@ -1746,7 +1746,7 @@
 ;; The shape is a GENERATOR-BACKED recordable cofx (EP-0017 §5, the last rung
 ;; of the minting ladder — a genuinely fold-internal identity no recorded
 ;; state or event payload can supply):
-;;   - the generator reads the active frame's host high-water snapshot and
+;;   - the generator reads the process-global host high-water snapshot and
 ;;     produces the next monotone allocation `{:generation N :counter N}` at
 ;;     PROCESSING-START — the produced value is written back into the
 ;;     in-flight `:rf.cofx` record so the epoch captures it and replay
