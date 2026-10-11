@@ -250,7 +250,9 @@
                         (str "must be EDN the sidecar's safe reader reads back "
                              "EQUAL — no fn, host object, record, ratio, "
                              "bigdec, bigint, float, integer past 2^53, #inst "
-                             "or #uuid")))
+                             "or #uuid, and no map or set holding two numbers "
+                             "the reader takes as one (1 beside 1.0, 0 beside "
+                             "-0.0)")))
   (require-integer! :timeout-ms timeout-ms 1)
   (require-integer! :admission-ms admission-ms 0)
   (rf.ssr.render-state/validate-policy-opts! opts)
