@@ -14,8 +14,8 @@
        set-panel-width-px event with the start + delta.
     4. Clamp at write-time — the registry's set-panel-width-px event
        clamps to [320, viewport×0.9] before persisting.
-    5. Double-click handler dispatches `:rf.xray/reset-panel-width`
-       which dispatches set-panel-width-px with the default value.
+    5. Double-click handler dispatches `:rf.xray/reset-panel-width`,
+       which forgets the stored width and returns to the inherited one.
     6. Every `:rf.xray/set-panel-width-px` dispatch here runs
        `apply-panel-width!` with no `<html>` root, which is its no-host
        path. Its write of the CSS custom property on the `<html>` root —
@@ -190,6 +190,20 @@
   (is (= config/default-panel-width-px
          (config/get-setting :general :panel-width-px))
       "reset event restored the default"))
+
+(deftest reset-event-returns-to-the-host-configured-width
+  (setup!)
+  (try
+    (config/configure! {:rf.xray/settings {:general {:panel-width-px 640}}})
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/set-panel-width-px 720])
+      (rf/dispatch-sync [:rf.xray/reset-panel-width]))
+    (is (= [640 false]
+           [(config/get-setting :general :panel-width-px)
+            (config/persisted-override? [:general :panel-width-px])])
+        "reset lands where a boot without the drag would, and stores no width")
+    (finally
+      (config/reset-settings!))))
 
 (deftest double-click-handler-dispatches-reset
   (setup!)

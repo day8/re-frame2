@@ -412,7 +412,8 @@
     resolves at every descendant — including the host — on the very
     next paint.
   - When `px` IS the default (or `nil`), REMOVE any existing inline
-    declaration rather than re-asserting it. This is the critical
+    declaration rather than re-asserting it, at any viewport — even
+    where the clamp would bring the default below 560. This is the critical
     move: keeping the property unset on `<html>` lets the consumer's
     own override (e.g. `:root { --rf-xray-inline-width: 720px; }`
     in the host stylesheet) resolve at the host via the documented
@@ -467,21 +468,28 @@
   ([px]
    (apply-panel-width! px (viewport-width-px)))
   ([px viewport-width-px]
-   (let [clamped (config/clamp-panel-width-px px viewport-width-px)
-         default (long config/default-panel-width-px)]
+   (let [clamped  (config/clamp-panel-width-px px viewport-width-px)
+         default? (or (not (number? px))
+                      (= (long px) (long config/default-panel-width-px)))]
      ;; Converge the persisted payload. Guarded on a real numeric input
      ;; that actually moved, so a nil (no persisted value) writes
      ;; nothing and an already-in-range value costs no storage write.
      ;; Only an EXPLICIT persisted width is repaired in storage; an
      ;; inherited one (the default, a host `configure!` width) is fitted
      ;; in the live map alone, so the clamp never manufactures an
-     ;; override that would block a later host width.
+     ;; override that would block a later host width. A stored default
+     ;; is not repaired either: it reads as the stylesheet baseline, and
+     ;; a stored 540 would not.
      (when (and (number? px) (not= (long px) clamped))
-       (if (config/persisted-override? [:general :panel-width-px])
+       (if (and (not default?)
+                (config/persisted-override? [:general :panel-width-px]))
          (config/update-setting! :general :panel-width-px clamped)
          (config/update-live-setting! :general :panel-width-px clamped)))
      (when-let [html (html-root-element)]
-       (if (= clamped default)
+       ;; Decided on the INPUT, not the clamp: the default clamps below
+       ;; 560 in a narrow viewport, and writing that number would mask
+       ;; the host stylesheet's baseline.
+       (if default?
          ;; Default value — clear any prior inline write so the
          ;; consumer's cascade override (or the host CSS's `var(...)`
          ;; fallback) wins.
