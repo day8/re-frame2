@@ -36,10 +36,11 @@ owner closes. No row reopens a ruling.
 - **Open — the §13 re-audit.** Owner: `rf2-1d85t`. It re-runs the `rf2-hic-064`
   definition-of-done audit once the pilots ship, including the correction
   ledger's one unresolved row, and is blocked by `rf2-kmqx3`.
-- **Open — K2, the `1.5×` bulk architecture kill.** Unowned. K2 is not waived
-  and measures under its own protocol, recorded in
-  `docs/design/fresco/validation.md` §"The kill table at graduation"; no live
-  bead carries the measurement, and a later red result bites as registered.
+- **Open — K2, the `1.5×` bulk architecture kill.** Owner: `rf2-od9u0`, which
+  takes the next bulk ensemble once a quiet-box window is granted. K2 is not
+  waived and measures under its own protocol, recorded in
+  `docs/design/fresco/validation.md` §"The kill table at graduation" and carried
+  inline on the owner; a later red result bites as registered.
 
 ## Abstract
 
