@@ -355,17 +355,17 @@ A re-com page that took 12 ms to render in stock Reagent will take ~11.7-11.8 ms
 
 ### Runtime — dev mode
 
-No separate dev-mode win: the registered-view wrapper and its source-coord walk are re-frame's own, and both adapters run them.
+No measured dev-mode win, hot-reload included: the registered-view wrapper and its source-coord walk are re-frame's own, and both adapters run them.
 
 ### Runtime — test
 
-`flush-views!` deterministic flush. Not a speedup — a reliability story. Tests that today retry on flush-flake recover their retry budget. CI flake counts drop.
+No determinism win over the bridge: both adapters publish the same `act`-wrapped `flush-views!` (§9), so a test that calls it after `dispatch-sync` is deterministic on either. That is a reliability story against bare `r/flush` in stock Reagent, not a reason to choose slim. What slim adds is the promise-returning `reagent2.dom.client/flush-views!`, which drains microtasks on both sides of `act` for tests that need deterministic Suspense ordering. Neither is a speedup.
 
 ### Honest framing
 
-The "fast" claim was dropped from the artefact name on 2026-05-11 because the production-runtime story is marginal. The slim claim is defensible; the dev-DX claim is defensible; the test-determinism claim is defensible. Production speed is not the headline.
+The "fast" claim was dropped from the artefact name on 2026-05-11 because the production-runtime story is marginal. The slim claim is defensible. There is no measured dev-mode win, and tests are as deterministic on the bridge as on slim, apart from Suspense ordering. Production speed is not the headline.
 
-This honesty matters because the doc you are reading is for adopters making a real decision, not a marketing pitch. If you are evaluating reagent-slim for "will my app feel faster in production," the answer is "marginally, at best." If you are evaluating it for "will my bundle be smaller, my hot-reload feedback tighter, my tests more deterministic," the answer is "yes, measurably."
+This honesty matters because the doc you are reading is for adopters making a real decision, not a marketing pitch. If you are evaluating reagent-slim for "will my app feel faster in production," the answer is "marginally, at best." If you are evaluating it for "will my bundle be smaller," the answer is "yes, by the estimates above." For "will my hot-reload feedback be tighter," nothing is measured, and both adapters run the same dev-mode wrapper. For "will my tests be more deterministic than on the bridge," the answer is "only where they depend on Suspense ordering."
 
 ---
 
