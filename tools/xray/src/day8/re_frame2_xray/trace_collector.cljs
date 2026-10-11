@@ -311,13 +311,19 @@
   drawn from every registered frame's ring + the frameless secondary
   ring. Caps the event-bundle depth at 1 regardless of trace volume; the
   router's drain-depth headroom cannot gate the mirror under
-  saturation."
+  saturation.
+
+  The queued tick refreshes only while the sentinel is still set, so
+  `reset-for-test!` clearing it cancels a tick already queued: without
+  that, a sync queued by one test lands at the next test's first task
+  boundary and overwrites that test's `:trace-buffer` with the rings
+  its reset just emptied."
   []
   (when (compare-and-set! mirror-sync-scheduled? false true)
     (rf.interop/next-tick
       (fn []
-        (reset! mirror-sync-scheduled? false)
-        (refresh-trace-rings!)))))
+        (when (compare-and-set! mirror-sync-scheduled? true false)
+          (refresh-trace-rings!))))))
 
 ;; ---- collector ----------------------------------------------------------
 
@@ -507,7 +513,8 @@
 
 (defn reset-for-test!
   "Reset every piece of mutable state this ns owns — the frameless ring,
-  the mirror-sync sentinel — AND every per-frame ring the framework
+  the mirror-sync sentinel (which also cancels a sync already queued) —
+  AND every per-frame ring the framework
   owns (via `rf.trace.tooling/clear-trace-rings!`). Test fixtures call
   this between assertions so cross-test bleed (process-global atoms)
   doesn't pollute the surface."
