@@ -18,6 +18,7 @@
             [re-frame.image :as rf.image]
             [re-frame.interop :as rf.interop]
             [re-frame.source-coords :as rf.source-coords]
+            [re-frame.subs :as rf.subs]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
@@ -74,6 +75,59 @@
   (rf/make-frame {:id :coord/frozen})
   (reg-from! 'coord.move-b 40 :coord/moved)
   (is (= (coord 'coord.move-a 30) (handler-exception-coord :coord/frozen :coord/moved))))
+
+(defn- handler-exception-record
+  "Dispatch `event-id` into `frame-id`; return the always-on
+  `:rf.error/handler-exception` record it fanned as `[message source-coord]`."
+  [frame-id event-id]
+  (let [seen (atom [])]
+    (rf.error-emit/register-error-listener! ::recorder #(swap! seen conj %))
+    (try
+      (try (rf/dispatch-sync [event-id] {:frame frame-id})
+           (catch #?(:clj Throwable :cljs :default) _ nil))
+      (finally (rf.error-emit/unregister-error-listener! ::recorder)))
+    (let [recs (filterv #(= :rf.error/handler-exception (:error %)) @seen)]
+      (is (= 1 (count recs)) (str frame-id " fanned one handler-exception record"))
+      [(ex-message (:exception (first recs)))
+       (get (first recs) :source-coord ::absent)])))
+
+(deftest a-replacement-registered-mid-handler-does-not-take-the-throw
+  ;; the running implementation registers its replacement, then throws: the
+  ;; record names the implementation that threw, and the next dispatch runs
+  ;; (and names) the replacement
+  (binding [rf.source-coords/*pending-coords* (coord 'coord.replaced 10)]
+    (rf.events/reg-event :coord/replaced
+      (fn [_ _]
+        (reg-from! 'coord.replaced 20 :coord/replaced)
+        (throw (ex-info "thrown by the original handler" {})))))
+  (rf/make-frame {:id :coord/replaced-frame})
+  (is (= ["thrown by the original handler" (coord 'coord.replaced 10)]
+         (handler-exception-record :coord/replaced-frame :coord/replaced)))
+  (is (= ["thrown by coord.replaced's handler" (coord 'coord.replaced 20)]
+         (handler-exception-record :coord/replaced-frame :coord/replaced))))
+
+(deftest an-error-for-another-frame-names-that-frames-implementation
+  ;; frame A's handler reads a sub in frame B while A's generation is in scope;
+  ;; each image selects its own implementation of the sub, and the throw is B's
+  (doseq [[ns-sym line] [['coord.cross-a 60] ['coord.cross-b 70]]]
+    (binding [rf.source-coords/*pending-coords* (coord ns-sym line)]
+      (rf.subs/reg-sub :coord/cross-sub
+        (fn [_ _] (throw (ex-info (str "thrown by " ns-sym "'s sub") {}))))))
+  (binding [rf.source-coords/*pending-coords* (coord 'coord.cross-a 80)]
+    (rf.events/reg-event :coord/cross-read
+      (fn [_ _] @(rf/subscribe [:coord/cross-sub] {:frame :coord/cross-b}) {})))
+  (rf/make-frame {:id :coord/cross-a :images [(image-of :coord/img-cross-a "coord.cross-a")]})
+  (rf/make-frame {:id :coord/cross-b :images [(image-of :coord/img-cross-b "coord.cross-b")]})
+  (let [seen (atom [])]
+    (rf.error-emit/register-error-listener! ::recorder #(swap! seen conj %))
+    (try
+      (try (rf/dispatch-sync [:coord/cross-read] {:frame :coord/cross-a})
+           (catch #?(:clj Throwable :cljs :default) _ nil))
+      (finally (rf.error-emit/unregister-error-listener! ::recorder)))
+    (is (= [[:coord/cross-b (coord 'coord.cross-b 70)]]
+           (->> @seen
+                (filter #(= :rf.error/sub-exception (:error %)))
+                (mapv (juxt :frame :source-coord)))))))
 
 (deftest a-programmatic-re-registration-reports-no-stale-coordinate
   ;; the re-registration stamps the same :ns, so it replaces the macro

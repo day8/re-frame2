@@ -62,6 +62,7 @@
   per-path elision wire-walker against the frame's durable classification
   (`re-frame.projection/project-event-slot`)."
   (:require [re-frame.emit-substrate :as rf.emit-substrate]
+            [re-frame.frame          :as rf.frame]
             [re-frame.interop        :as rf.interop]
             [re-frame.late-bind      :as rf.late-bind]
             [re-frame.projection     :as rf.projection]
@@ -459,17 +460,27 @@
            (= :subscribe op))))
 
 (defn- executed-coord
-  "The registration coordinate of the `[kind id]` descriptor `frame-id`
-  resolves — the implementation the failing frame runs — or nil. Read inside
-  the frame's resolution scope (`:live-frame/call-with-frame-resolution`), so
+  "The registration coordinate of the `[kind id]` descriptor that supplied
+  `frame-id`'s failing operation — the implementation that ran — or nil.
+
+  Inside `frame-id`'s own cascade the generation in scope is the one the
+  operation resolved through, so the lookup reads it as it stands: a
+  replacement registered while the old implementation was still running
+  belongs to the frame's NEXT generation, and must not take the old one's
+  throw. Any other frame is read through its record's current generation, so
   two frames running different images' implementations of one id each report
-  their own; with no frame, the lookup reads whatever resolution is in scope.
-  Both hooks are late-bound; an unbound one reads the ambient resolution."
+  their own. Neither path flushes a pending reprojection — that would resolve
+  a generation no operation has run yet. A frame carrying no generation, and
+  no frame at all, read whatever resolution is in scope."
   [kind id frame-id]
-  (let [read #(rf.source-coords/registration-coords (rf.registrar/lookup kind id))]
-    (if-let [with-owner (when (some? frame-id)
-                          (rf.late-bind/get-fn-cached :live-frame/call-with-frame-resolution))]
-      (with-owner frame-id read)
+  (let [read     #(rf.source-coords/registration-coords (rf.registrar/lookup kind id))
+        frame-id (rf.frame/frame-value->id frame-id)]
+    (if-let [gen (when (and (some? frame-id)
+                            (not (and (some? rf.registrar/*generation*)
+                                      (= frame-id (rf.frame/frame-value->id rf.frame/*current-frame*)))))
+                   (rf.frame/frame-generation frame-id))]
+      (binding [rf.registrar/*generation* gen]
+        (read))
       (read))))
 
 (defn- error-source-coord
