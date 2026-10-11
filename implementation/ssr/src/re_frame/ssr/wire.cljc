@@ -6,10 +6,12 @@
   JVM values do not: a fn or host object prints a literal the safe reader has
   no constructor for, and a JVM-only number (a ratio, a bigdec, a bigint, a
   float, an integer past `2^53 - 1`) reads back as a DIFFERENT number without
-  any error. `edn-carryable?` answers the whole question for one value, and
-  `portable-number?` answers its numeric type / range half, which the
-  hydration payload's crossing check reuses so the two cannot drift apart on
-  which JVM numbers cross (Spec 011 §The numeric crossing rule).")
+  any error. And a map or set can hold two JVM numbers the browser reads as
+  ONE (`1` and `1.0`), so its reader rejects the duplicate. `edn-carryable?`
+  answers the whole question for one value; `portable-number?` answers its
+  numeric type / range half and `numeric-collision` its collection half, and
+  the hydration payload's crossing check reuses both so the two wires cannot
+  drift apart on what crosses (Spec 011 §The numeric crossing rule).")
 
 (def ^:const max-safe-integer
   "`2^53 - 1` — the largest integer a browser number (an IEEE-754 double)
@@ -94,16 +96,70 @@
        (not #?(:clj  (and (double? v) (Double/isNaN v))
                :cljs (js/Number.isNaN v)))))
 
-(defn edn-carryable?
-  "Can `v` ride an EDN wire to the browser? Scalars (nil / boolean / number
-  / string / keyword / symbol) and collections of carryable values.
-  A fn, a host object, or any other opaque value cannot, and a caller
-  refuses it rather than silently dropping it.
+(defn- browser-number
+  "The one double the browser holds for the number `v`. The browser also has
+  a single zero (`-0.0` is `=` to `0`), so every zero folds to `0.0`."
+  [v]
+  (let [d (double v)]
+    (if (zero? d) 0.0 d)))
 
-  The question this answers is exactly `(= v (read (pr-str v)))` under
-  the BUNDLED safe reader ON EITHER HOST — not \"is `v` map-shaped\", and
-  not \"is `v` a number\". Those two distinctions are what the `record?`
-  and `wire-number?` arms below exist for."
+(defn- browser-value
+  "`v` as the browser reads it: every number its `browser-number`, to any
+  depth, with every map, set and sequential keeping its shape. Two values the
+  JVM holds apart are `=` after this exactly when the browser reads them as
+  one. Used only to compare siblings; never emitted."
+  [v]
+  (cond
+    (number? v)     (browser-number v)
+    (record? v)     v
+    (map? v)        (into {} (map (fn [[k x]] [(browser-value k) (browser-value x)])) v)
+    (set? v)        (into #{} (map browser-value) v)
+    (sequential? v) (mapv browser-value v)
+    :else           v))
+
+(defn numeric-collision
+  "-> data naming the first map whose distinct KEYS, or set whose distinct
+  MEMBERS, the browser reads as ONE value, at any depth in `v`; else nil.
+
+  Every number can cross on its own while the collection holding it cannot:
+  the JVM keeps `1` and `1.0`, and `0` and `-0.0`, as distinct keys, but the
+  browser holds one double per number and one zero, so its EDN reader meets
+  a duplicate and refuses the whole read. A composite key collapses the same
+  way (`[1]` beside `[1.0]`), so siblings are compared whole, by
+  `browser-value`.
+
+  The data: `:path` from `v`'s root to the colliding map or set — a map value
+  adds its key and a sequential element its index, while a map key or set
+  member adds nothing, so a collision inside one names the collection holding
+  it; `:collision` (`:map-keys` / `:set-members`); `:collapses`, the distinct
+  values; and `:browser-value`, the one value they become. A record is not
+  walked: it prints as a tagged literal the reader refuses on its own. On
+  CLJS every number is already a double, so this always answers nil there."
+  ([v] (numeric-collision v []))
+  ([v path]
+   (letfn [(collapse [kind xs]
+             (some (fn [[shared members]]
+                     (when (next members)
+                       {:path          path
+                        :collision     kind
+                        :collapses     (vec members)
+                        :browser-value shared}))
+                   (group-by browser-value xs)))]
+     (cond
+       (record? v)     nil
+       (map? v)        (or (collapse :map-keys (keys v))
+                           (some (fn [[k x]]
+                                   (or (numeric-collision k path)
+                                       (numeric-collision x (conj path k))))
+                                 v))
+       (set? v)        (or (collapse :set-members v)
+                           (some #(numeric-collision % path) v))
+       (sequential? v) (first (keep-indexed (fn [i x] (numeric-collision x (conj path i))) v))
+       :else           nil))))
+
+(defn- carryable-alone?
+  "`edn-carryable?` for each value on its own: scalars and collections of
+  carryable values, with no question asked of a collection as a whole."
   [v]
   (cond
     (nil? v)     true
@@ -130,6 +186,24 @@
     ;; down; the author converts explicitly (`(into {} r)`) so both hosts
     ;; agree about what they are holding.
     (record? v)  false
-    (map? v)     (every? (fn [[k v']] (and (edn-carryable? k) (edn-carryable? v'))) v)
-    (coll? v)    (every? edn-carryable? v)
+    (map? v)     (every? (fn [[k v']] (and (carryable-alone? k) (carryable-alone? v'))) v)
+    (coll? v)    (every? carryable-alone? v)
     :else        false))
+
+(defn edn-carryable?
+  "Can `v` ride an EDN wire to the browser? Scalars (nil / boolean / number
+  / string / keyword / symbol) and collections of carryable values, where no
+  map or set holds two numbers the browser reads as one. A fn, a host object,
+  or any other opaque value cannot, and a caller refuses it rather than
+  silently dropping it.
+
+  The question this answers is exactly `(= v (read (pr-str v)))` under
+  the BUNDLED safe reader ON EITHER HOST — not \"is `v` map-shaped\", not
+  \"is `v` a number\", and not \"is each value carryable\". Those three
+  distinctions are what the `record?` and `wire-number?` arms of
+  `carryable-alone?` and the `numeric-collision` clause exist for."
+  [v]
+  (and (carryable-alone? v)
+       ;; Only a JVM collection can hold two numbers the browser reads as one.
+       #?(:clj  (nil? (numeric-collision v))
+          :cljs true)))

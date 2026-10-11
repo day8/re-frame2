@@ -78,7 +78,8 @@
   the predicate Spec 011 §The numeric crossing rule states for every
   server-to-browser EDN wire. Nothing here invents a second domain: a fn, a host object, a
   record, a JVM-only number (ratio, bigdec, bigint, float, an integer past
-  2^53) fails AT PROJECTION with `:rf.error/ssr-render-state-invalid`
+  2^53), or a map or set holding two numbers the other host reads as one
+  (`1` beside `1.0`) fails AT PROJECTION with `:rf.error/ssr-render-state-invalid`
   naming the partition and key — never a silent `nil`, never `#object[…]`
   text discovered at the far end. `#inst` / `#uuid` are outside the domain
   for the same reason they are outside every EDN wire's; narrow a date to a
@@ -291,9 +292,10 @@
                ". A renderer on the other side of the wire reads the projection "
                "back with the safe EDN reader, so a value rides only if it "
                "reads back EQUAL: no fn, host object, record, ratio, bigdec, "
-               "bigint, float, integer past 2^53, #inst or #uuid. Narrow the "
-               "value where you know what it means, or leave the key off the "
-               "allowlist.")
+               "bigint, float, integer past 2^53, #inst or #uuid, and no map "
+               "or set holding two numbers the reader takes as one (1 beside "
+               "1.0, 0 beside -0.0). Narrow the value where you know what it "
+               "means, or leave the key off the allowlist.")
           {:recovery :narrow-the-value-or-drop-the-key
            :extra    {:invalid   :unserialisable
                       :partition partition
