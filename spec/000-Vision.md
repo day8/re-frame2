@@ -446,7 +446,7 @@ The above sections (Abstract, Constraints and goals, Pattern, Hard constraints, 
 | Spec | Title | Notes |
 |---|---|---|
 | 001 | Registration | Registration calls accept a metadata map. Foundation for everything below. |
-| 002 | Frames | Isolated runtime boundaries; one global handler registrar; explicit-frame addressing at the pattern level. CLJS reference uses React context as an optimisation. |
+| 002 | Frames | Isolated runtime boundaries; one process-global source store, with each frame resolving through its own sealed image generation; explicit-frame addressing at the pattern level. CLJS reference uses React context as an optimisation. |
 | — | Views | Pure `(state, props) → render-tree`; render-tree is serialisable data. CLJS reference: `reg-view` + hiccup + Reagent. **No Spec document carries this contract** — see the note below. |
 | 006 | Reactive Substrate | Substrate-agnostic core + adapter contract; Reagent default; plain-atom for JVM/SSR/headless. v1-required for the CLJS reference; pattern-level for any host. |
 | 008 | Testing | Test fixtures, sync triggers, per-test stubbing, headless sub/machine evaluation, framework adapters. |
@@ -488,7 +488,7 @@ The foundation hooks ship in 002; the two ergonomic libraries below both ship in
 
 ### Out of Scope for v1
 
-- **Multiple different apps on one page** (different handler sets sharing a single page). Out of scope, full stop — iframes serve this case. Multi-frame in re-frame2 is "multiple instances of the *same* app's handlers" (devcards, widgets, story variants, test fixtures).
+- **Separately built apps on one page** (micro-frontends, embedded white-label widgets). Out of scope, full stop — iframes serve this case. Different handler sets on one page are in scope: each frame built with explicit `:images` resolves its own composition from the one source store (per [002 §Image resolution and composition](002-Frames.md#image-resolution-and-composition)).
 - **Persistence / offline** — see Goal #10 dispositions above.
 - **Authentication / sessions library** — see Goal #10 dispositions above.
 - **CRDTs / multiplayer / conflict resolution** — see the Local-first / sync disposition above. The runtime carries only the causal/value discipline + restoration shape a later solution could build on, not a sync solution itself.
