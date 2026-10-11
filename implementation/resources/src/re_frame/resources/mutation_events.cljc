@@ -113,8 +113,8 @@
 (defn- mint-instance-id
   "Resolve the mutation INSTANCE id: the caller-supplied `:instance` when
   present (so an app can address its own instance — e.g. a form keyed by a
-  row id), else a generated id derived from the mutation id + the frame's
-  monotone generation, kept PURE (no host call — the recorded
+  row id), else a generated id derived from the mutation id + the
+  process-global monotone generation, kept PURE (no host call — the recorded
   `:rf.resource/generation-allocation` cofx already supplied the value, so
   the derived instance-id reproduces on replay). Two concurrent
   submissions of the same mutation id get DIFFERENT generated ids (the
@@ -1398,12 +1398,12 @@
         ;; instance id (no cache identity — a write is not cached by params).
         work-id    (rf.resources.work-ledger/resource-work-id [:rf.mutation instance-id] generation)
         ;; The transport correlation token is the frame-QUALIFIED
-        ;; request-id, NOT the bare work-id. The managed-HTTP in-flight registry
-        ;; keys by request-id PROCESS-GLOBALLY and supersedes by equal
-        ;; request-id (Spec 014); a mutation instance id is frame-local, so two
-        ;; frames executing the same mutation instance at the same generation
-        ;; would collide on a bare work-id and abort/supersede each other's
-        ;; in-flight write. Qualifying with the frame id isolates them.
+        ;; request-id, NOT the bare work-id: two frames can hold the same
+        ;; work-id (a caller-supplied instance id is frame-local, and the
+        ;; generation is a recorded allocation value), and the out-of-cascade
+        ;; teardown aborts through HTTP's any-frame `:http/abort-in-flight!`
+        ;; hook, so the frame in the token keeps that abort on this frame's
+        ;; write. See `managed-request-id`.
         request-id (rf.resources.work-ledger/managed-request-id frame-id work-id)
         ;; EP-0010 §Resources, Mutations, And Work-Ledger Timestamps + EP-0017
         ;; declared-only delivery: `:rf.mutation/execute` writes the
