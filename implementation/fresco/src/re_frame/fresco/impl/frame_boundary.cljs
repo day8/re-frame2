@@ -81,7 +81,17 @@
   `hydrateRoot` runs. An adopting root's frame already exists — made, then
   seeded by `re-frame.ssr/hydrate!` — so its tree SCOPES it with
   `frame-provider`. Witnessed in
-  `re-frame.fresco.client-root-lifecycle-dom-cljs-test`."
+  `re-frame.fresco.client-root-lifecycle-dom-cljs-test`.
+
+  A `frame-root` a view returns is lowered later, during React's render,
+  outside that walk, so the head's outer component refuses it in the
+  hydration pass itself: its root's window is a client hydration window
+  (`roots/hydrating-here?`) and React is still reading the server snapshot
+  (`codec/adopted?`). React answers a throw in a root's hydration pass by
+  rendering the root again on the client and clearing the container. That
+  pass reads the client snapshot and renders through, so the page appears
+  once, freshly rendered, and the refusal reaches `onRecoverableError` as
+  the cause of React's recovery error. Witnessed in the same suite."
   (:require [re-frame.frame :as rf.frame]
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
@@ -139,6 +149,20 @@
             (apply react/createElement (.-Fragment react) nil children)))
     (unchecked-set "displayName" "fresco/frame-root-children")))
 
+(def ^:private frame-root-adoption-guard
+  "`frame-root`'s outer component: refuses a frame-root rendered in a
+  hydrating client root's hydration pass, which the root door's walk
+  cannot reach because a view's body runs during React's render. Both
+  hooks run on every render, so their order never changes; the child is
+  core's `frame-root-fc` element, returned untouched."
+  (doto (fn frame-root-adoption-guard [^js props]
+          (let [hydrating? (rf.fresco.impl.roots/hydrating-here?)
+                adopted?   (rf.fresco.impl.codec/adopted?)]
+            (when (and hydrating? (not adopted?))
+              (refuse-adopting-frame-root! (unchecked-get props "rfFrame")))
+            (unchecked-get props "children")))
+    (unchecked-set "displayName" "fresco/frame-root")))
+
 (def frame-root
   "`h/frame-root` — the ENSURE boundary. See the facade var for the
   authoring contract; the mechanism is core's `frame-root-fc` two-pass,
@@ -164,12 +188,17 @@
         ;; always — one path, whether or not the frame is already live.
         ;; `frame-root-react-element` re-runs the two validators above;
         ;; they are cheap, and delegating the element build is what keeps
-        ;; the two-pass unforked.
-        (rf.views.frame-boundary/frame-root-react-element
-          props
-          (react/createElement frame-root-children
-                               #js {"rfFrame" frame-kw "rfLower" lower})
-          root-where)))))
+        ;; the two-pass unforked. The walk check above sees only the root
+        ;; door's own lowering; `frame-root-adoption-guard` refuses a
+        ;; frame-root a view lowered during the hydration pass.
+        (react/createElement
+          frame-root-adoption-guard
+          #js {"rfFrame" frame-kw}
+          (rf.views.frame-boundary/frame-root-react-element
+            props
+            (react/createElement frame-root-children
+                                 #js {"rfFrame" frame-kw "rfLower" lower})
+            root-where))))))
 
 (def frame-provider
   "`h/frame-provider` — the SCOPE-only boundary. See the facade var for

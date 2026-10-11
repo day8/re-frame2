@@ -54,7 +54,8 @@
   React sees the tree, which leaves the server's markup untouched:
   `h/frame-root`, whose first render is empty
   (`re-frame.fresco.impl.frame-boundary`). A head lowered later, inside a
-  body's render, is outside the walk and reads false."
+  body's render, is outside the walk and reads false; `h/frame-root`
+  asks `hydrating-here?` in its own render for that case."
   false)
 
 (defn open-adoption-window!
@@ -64,7 +65,8 @@
   `impl.mount/tree`, which scopes it over the subtree with
   `with-adoption` when the handle carries an `:adoption`:
 
-  - `impl.mount/hydrate-root!`, once per hydrating client root; and
+  - `impl.mount/hydrate-root!`, once per hydrating client root, through
+    `open-hydration-window!`; and
   - `re-frame.fresco.server/render`, once per REQUEST, closed in that
     door's `finally`. Because both call `tree`, the fork is decided once
     for both sides of the wire.
@@ -91,6 +93,15 @@
   reporter."
   []
   #js {"open" true})
+
+(defn open-hydration-window!
+  "`open-adoption-window!` for a CLIENT root about to hydrate server DOM,
+  marked as such. Presence reads both doors' windows alike, because the
+  server render and the client's adopting render must agree. Only the
+  client's has server nodes already on the page, which React keeps when
+  nothing claims them; `hydrating-here?` reads the mark."
+  []
+  (doto (open-adoption-window!) (unchecked-set "hydrating" true)))
 
 (defn adopting?
   "Is `window` open — is THIS root adopting server-rendered DOM?
@@ -142,3 +153,14 @@
   only by the optional presence component that reads it."
   []
   (adopting? (react/useContext adoption-context)))
+
+(defn hydrating-here?
+  "A hook — is the subtree THIS component renders in a CLIENT root that is
+  still adopting server DOM? `adopting-here?` narrowed to
+  `open-hydration-window!`'s windows: the server door's window is open
+  while the bytes are produced, and there is no page under it to
+  duplicate. `h/frame-root` reads it
+  (`re-frame.fresco.impl.frame-boundary`)."
+  []
+  (let [^js window (react/useContext adoption-context)]
+    (and (adopting? window) (true? (unchecked-get window "hydrating")))))

@@ -369,7 +369,9 @@
   it. For the same reason the tree may not ENSURE one either: it is
   lowered with `roots/*adopting-walk?*` bound, so an `h/frame-root` in it
   refuses before `hydrateRoot` runs and the container keeps the server's
-  markup.
+  markup. One a view returns is lowered during the hydration pass instead,
+  and refuses there: the window is minted by
+  `roots/open-hydration-window!`, which marks it a client root's.
 
   Returns BEFORE the tree is adopted: `hydrateRoot` is called plain,
   because a `flushSync` would manufacture a schedule no shipped caller
@@ -395,7 +397,7 @@
   witnesses: docs/design/fresco/architecture.md, section The root."
   ([container frame-kw hiccup] (hydrate-root! container frame-kw hiccup nil))
   ([container frame-kw hiccup opts]
-   (let [window  (rf.fresco.impl.roots/open-adoption-window!)
+   (let [window  (rf.fresco.impl.roots/open-hydration-window!)
          handle  {:frame frame-kw :container container :adoption window}
          element (binding [rf.fresco.impl.roots/*adopting-walk?* true]
                    (tree handle hiccup))
