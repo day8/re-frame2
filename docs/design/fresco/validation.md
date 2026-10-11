@@ -774,8 +774,10 @@ rather than summarised:
   of a price is not a pass — the registered `1.10×` gate is untouched and no
   evidence row may cite the ruling to colour K1 green.
 - **K2** — unresolved and instrument-limited, as the row says. **The `1.5×`
-  architecture kill is not waived by this ruling**, measurement continues under
-  `rf2-8a746`'s protocol, and a later red result bites exactly as registered.
+  architecture kill is not waived by this ruling**. `rf2-od9u0` owns the
+  measurement, which continues under the bulk protocol `rf2-8a746` ruled and
+  `clock_readjudicate.cjs` implements, and a later red result bites exactly as
+  registered.
 - **K3** — the row's *disposition owed explicitly* is discharged by
   [`product/k3-disposition.md`](product/k3-disposition.md), the three-scoreboard
   record that is operative by default and operator-overturnable; no denominator
