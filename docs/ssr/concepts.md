@@ -246,9 +246,9 @@ Leave `:payload` out and the handler throws `:rf.error/ssr-missing-payload-polic
 
 #### Numbers that change on the way
 
-The payload is printed as EDN on the JVM and read back by the browser, where every number is a double. Some JVM numbers would read back as a different value — an order id landing on its neighbour, money becoming a float — so the handler refuses them. A Long or BigInt past 2^53, a BigDecimal, a Ratio or a Float anywhere in the payload, map keys included, fails the request with `:rf.error/ssr-hydration-payload-invalid`, naming the path. The check runs in every build, because the failure depends on the data.
+The payload is printed as EDN on the JVM and read back by the browser, where every number is a double. Some JVM numbers would read back as a different value — an order id landing on its neighbour, money becoming a float — so the handler refuses them. A Long or BigInt past 2^53, a BigDecimal, a Ratio or a Float anywhere in the payload, map keys included, fails the request with `:rf.error/ssr-hydration-payload-invalid`, naming the path. Numbers that cross on their own can still collide: `1` and `1.0`, or `0` and `-0.0`, are two map keys or set members on the JVM but one in the browser, whose reader then rejects the duplicate, so a map or set holding such a pair fails the same way, naming the colliding values. The check runs in every build, because the failure depends on the data.
 
-Convert those values before they reach an allowlisted key: send ids as strings and money as integer cents. Or leave the key off `:payload` if the client doesn't need it.
+Convert those values before they reach an allowlisted key: send ids as strings and money as integer cents, and give colliding numbers one type or make them strings. Or leave the key off `:payload` if the client doesn't need it.
 
 Values you have [classified](../core/how-to/keep-secrets-out-of-traces.md) as sensitive are redacted inside allowlisted keys; [Classified values inside the allowlist](#classified-values-inside-the-allowlist) covers the exceptions.
 
@@ -608,7 +608,7 @@ A few things change between your REPL and a production server:
 | First `rf/reg-head` / `rf/reg-error-projector` throws at boot | `:rf.error/ssr-artefact-missing` | Require `re-frame.ssr` (`day8/re-frame2-ssr`) |
 | `ssr-handler` construction throws | `:rf.error/ssr-missing-payload-policy` (also empty `[]`) | Set a `:payload` allowlist, or `:rf.ssr.payload/whole-app-db` |
 | Unknown / string allowlist entries | `:rf.error/ssr-unknown-payload-policy` or `:rf.error/ssr-malformed-payload-allowlist` | Keywords only; a sequential, not a set |
-| Request fails naming a payload path | `:rf.error/ssr-hydration-payload-invalid` — a number the browser can't read back | Send ids as strings, money as integer cents, or drop the key from `:payload` |
+| Request fails naming a payload path | `:rf.error/ssr-hydration-payload-invalid` — a number the browser can't read back, or a map or set whose numbers it reads as one (`1` beside `1.0`) | Send ids as strings, money as integer cents, give colliding numbers one type, or drop the key from `:payload` |
 | Server HTML is missing data fetched at boot | Only blocking route resources are waited for | Declare the read as a route resource with `:blocking? true` |
 | `:form-params` / `:session` is `nil` on the server | The Ring middleware didn't run before the SSR handler | Wrap with `wrap-params` / `wrap-session` outside it |
 | A mismatch is never reported | `:root-view` is a vector, or the root view returns only another view, so no render hash ships | Use `(fn [] ((rf/view :app/root)))` and have the root return an element such as `[:main …]` ([What the hash covers](#what-the-hash-covers)) |
@@ -912,7 +912,8 @@ send, not a promise that something fills it.
 
 Both policies are fail-closed allowlists of top-level keys. The render-state
 wire refuses the same JVM-only numbers the hydration payload refuses (a Long
-past 2^53, a BigInt, a BigDecimal, a Ratio, a Float), and it is stricter than
+past 2^53, a BigInt, a BigDecimal, a Ratio, a Float) and the same maps and sets
+whose numbers the browser reads as one (`1` beside `1.0`). It is stricter than
 the payload in one respect: it also refuses `##NaN`, `#inst` and `#uuid`,
 which the payload carries, so convert a date to a string or epoch millis before
 it is sent. Where the allowlist cannot express a projection, `:render-state`
