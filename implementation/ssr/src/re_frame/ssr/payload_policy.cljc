@@ -816,6 +816,11 @@
 ;; `##NaN`, `#inst` and `#uuid` all read back as what they were, and a record
 ;; already fails LOUD at the far end. Map KEYS are walked as well as values —
 ;; an app-db keyed by a wide entity id narrows just as silently.
+;;
+;; COLLECTIONS AS A WHOLE, too (`wire/numeric-collision`): the JVM keeps `1`
+;; and `1.0`, and `0` and `-0.0`, as distinct map keys and set members, each
+;; one passing the per-number rule, but the browser reads both as one double,
+;; so its reader rejects the duplicate and hydration fails.
 
 #?(:clj
    (defn- refuse-non-portable-number!
@@ -843,6 +848,33 @@
                              :path      path
                              :class     class-name}
                       (= :key position) (assoc :half :key))}))))
+
+#?(:clj
+   (defn- refuse-numeric-collision!
+     "`collision` is a `wire/numeric-collision` result; its `:path` names the
+     map or set holding the colliding keys or members."
+     [partition {:keys [path collision collapses browser-value]}]
+     (let [map-keys? (= :map-keys collision)]
+       (rf.error/throw-error!
+         :rf.error/ssr-hydration-payload-invalid
+         're-frame.ssr.payload-policy
+         (str "hydration payload " partition " carries "
+              (if map-keys? "the map KEYS " "the set members ")
+              (apply str (interpose " and " (map pr-str collapses)))
+              (if map-keys? " in the map at " " in the set at ")
+              (pr-str path)
+              ": distinct on the JVM, but the browser reads each as "
+              (pr-str browser-value)
+              ", so its EDN reader rejects the duplicate and hydration fails."
+              " Keep one, give the numbers one type (all integers or all"
+              " doubles) or make them strings, or leave the key off the"
+              " :payload allowlist.")
+         {:recovery :narrow-the-value-or-drop-the-key
+          :extra    (cond-> {:partition     partition
+                             :path          path
+                             :collapses     collapses
+                             :browser-value browser-value}
+                      map-keys? (assoc :half :key))}))))
 
 #?(:clj
    (defn- check-portable-numbers-at!
@@ -877,16 +909,23 @@
 #?(:clj
    (defn check-portable-numbers!
      "Refuse a hydration-payload slice carrying a number the browser's EDN
-     reader would read back as a DIFFERENT value — see the section comment
-     above. Walks every number in `slice`, map keys and set
-     members included, and throws `:rf.error/ssr-hydration-payload-invalid` on
-     the first outside `wire/portable-number?`, naming `partition`
-     (`:rf/app-db` / `:rf/runtime-db`), the path from the partition root (for
-     a map key or a set member, the path of the collection holding it; a map
-     key also carries `:half :key`) and the class. Returns `slice`. JVM only:
-     on CLJS every number crosses, so the check does not exist there."
+     reader would read back as a DIFFERENT value, or a map or set whose
+     distinct numbers it would read as ONE — see the section comment above.
+     Walks every number in `slice`, map keys and set members included, and
+     throws `:rf.error/ssr-hydration-payload-invalid` on the first outside
+     `wire/portable-number?`, naming `partition` (`:rf/app-db` /
+     `:rf/runtime-db`), the path from the partition root (for a map key or a
+     set member, the path of the collection holding it; a map key also
+     carries `:half :key`) and the class. Then checks every map and set as a
+     whole, and throws the same id on the first `wire/numeric-collision`,
+     naming the partition, the path of the colliding map or set (a map also
+     carries `:half :key`), the colliding values (`:collapses`) and the one
+     value the browser reads them as (`:browser-value`). Returns `slice`. JVM
+     only: on CLJS every number crosses, so the check does not exist there."
      [partition slice]
      (check-portable-numbers-at! partition [] slice :value)
+     (when-let [collision (rf.ssr.wire/numeric-collision slice)]
+       (refuse-numeric-collision! partition collision))
      slice))
 
 (defn build-payload
@@ -948,7 +987,8 @@
 
   Both slices obey the numeric crossing rule first
   (`check-portable-numbers!`): on a JVM host a number the browser's EDN reader
-  would read back as a DIFFERENT value throws
+  would read back as a DIFFERENT value, or a map or set whose distinct
+  numbers it would read as one, throws
   `:rf.error/ssr-hydration-payload-invalid` rather than shipping.
 
   Shared verbatim by `re-frame.ssr.ring.payload/build-payload` and
