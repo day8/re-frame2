@@ -250,7 +250,19 @@
            ((juxt :rf.error/id :half :key)
             (thrown-data
               #(rf.ssr.render-state/project (fresh-frame! :server)
-                                            {:render-state (fn [_] {:rf/app-db {"todos" []}})})))))))
+                                            {:render-state (fn [_] {:rf/app-db {"todos" []}})}))))))
+  ;; JVM only: a CLJS map cannot hold two keys that are one number.
+  #?(:clj
+     (testing "a map whose keys 1 and 1.0 the other host reads as one number"
+       (let [sfid (fresh-frame! :server)]
+         (rf.frame/replace-frame-state! sfid {rf.frame/app-partition-key {:ok     {1 :i 2 :d}
+                                                                          :lookup {1 :i 1.0 :d}}})
+         (is (= [:rf.error/ssr-render-state-invalid :unserialisable :rf/app-db :lookup :value]
+                ((juxt :rf.error/id :invalid :partition :key :half)
+                 (thrown-data #(rf.ssr.render-state/project sfid {:render-state {:app-db [:ok :lookup]}})))))
+         (is (= {:ok {1 :i 2 :d}}
+                (:rf/app-db (round-trip (rf.ssr.render-state/project sfid {:render-state {:app-db [:ok]}}))))
+             "control: keys that stay distinct project and round-trip")))))
 
 ;; ---------------------------------------------------------------------------
 ;; The omitted-key fixture: the honest wrong page
