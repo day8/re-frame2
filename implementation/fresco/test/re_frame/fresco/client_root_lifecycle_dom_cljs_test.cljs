@@ -93,6 +93,13 @@
    [:span.label (rf.fresco/sub label-q)]
    [:input.draft {:type "text"}]])
 
+(rf.fresco/defview ensuring-shell
+  "A view whose body returns the ENSURE boundary. A root door lowers
+  `[ensuring-shell]` to an element and React runs this body later, during
+  the render, so the `frame-root` it returns is outside the door's walk."
+  [{:keys [tag]}]
+  [rf.fresco/frame-root {:id frame-a} [panel {:tag tag}]])
+
 ;; A `useId` probe, rendered as TEXT for `identifier_prefix_ssr_dom_cljs_test`'s
 ;; reason: an id parked in an attribute diverges in silence, where text is what
 ;; React's own hydration contract covers.
@@ -301,6 +308,80 @@
             (rf.fresco.roots-frames-support/settle-row! {:row      "the frame-root refusal row"
                               :done     done
                               :release! (fn []
+                                          (rf.fresco/unmount! a)
+                                          (detach! container)
+                                          (rf.fresco.impl.collector/reset-runtime!))}))))))
+
+;; ---------------------------------------------------------------------------
+;; W4b — a `frame-root` a VIEW returns is refused in the hydration pass
+;; ---------------------------------------------------------------------------
+;;
+;; W4's refusal runs while the door lowers its own tree, and a frame-root a
+;; view returns is not in that tree: the walk lowers `[ensuring-shell]` to an
+;; element, and React runs the body during the hydration pass. So the head
+;; refuses there. React answers a throw in a root's hydration pass by
+;; rendering the root again on the client over a cleared container, so the
+;; reading differs from W4's in one respect: the server's nodes are REPLACED.
+;; There is still exactly one copy of the page, and it is live. The refusal
+;; reaches the page as the cause of React's recovery error. W5 is the
+;; control: the same server bytes adopted under `frame-provider` keep the
+;; server's own nodes.
+
+(defn- refusal-of
+  "The refusal's data, from a reported error or from its cause — React
+  reports a hydration-pass throw as the cause of its own recovery error."
+  [e]
+  (when (some? e)
+    (or (ex-data e) (ex-data (.-cause ^js e)))))
+
+(deftest a-hydrating-first-render-refuses-a-frame-root-a-view-returns
+  (if-not (rf.fresco.impl.mount/browser?)
+    (skip! ":node-test has no DOM")
+    (async done
+      (let [_         (fresh!)
+            html      (rf.fresco.roots-frames-support/server-html! frame-a [rf.fresco/frame-provider {:frame frame-a}
+                                                 [panel {:tag "server"}]])
+            container (rf.fresco.roots-frames-support/stamp-server-nodes! (rf.fresco.roots-frames-support/server-dom! html))
+            reported  (atom [])
+            ;; The root's recoverable-error reporting reaches the window. The
+            ;; row asserts on what arrives there, so it marks the event handled.
+            on-error  (fn [^js e]
+                        (swap! reported conj (.-error e))
+                        (.preventDefault e))
+            _         (.addEventListener js/window "error" on-error)
+            a         (rf.fresco/client-root)]
+        ;; No refusal can arrive here: the door returns before the tree is
+        ;; adopted, and the walk it runs never reaches the view's body.
+        (rf.fresco/render! a
+                            [rf.fresco/frame-provider {:frame frame-a}
+                             [ensuring-shell {:tag "server"}]]
+                            container
+                            {:hydrate? true})
+        (-> (rf.fresco.roots-frames-support/adopted! a)
+            (.then (fn [shut?]
+                     (testing "premise: the root finished adopting"
+                       (is (true? shut?)))
+                     (testing "the refusal is reported, with the error that names
+                               the supported recipe"
+                       (let [refusals (keep refusal-of @reported)]
+                         (is (= [:rf.error/fresco-frame-root-adopting]
+                                (mapv :rf.error/id refusals))
+                             (str "reported: " (pr-str (mapv str @reported))))
+                         (is (= frame-a (:frame (first refusals))))))
+                     (testing "the container holds exactly one copy of the page,
+                               rendered by the client in place of the server's"
+                       (is (= 1 (.-length (.querySelectorAll container ".panel")))
+                           (str "DOM: " (.-innerHTML container)))
+                       (is (not (rf.fresco.roots-frames-support/server-node?
+                                  (node-at container ".panel")))))
+                     (testing "and that copy is live — a dispatch reaches its paint"
+                       (is (= "alpha" (text-at container ".label")))
+                       (rf.fresco.impl.mount/dispatch! frame-a [::relabel "beta"])
+                       (is (= "beta" (text-at container ".label"))))))
+            (rf.fresco.roots-frames-support/settle-row! {:row      "the view-returned frame-root refusal row"
+                              :done     done
+                              :release! (fn []
+                                          (.removeEventListener js/window "error" on-error)
                                           (rf.fresco/unmount! a)
                                           (detach! container)
                                           (rf.fresco.impl.collector/reset-runtime!))}))))))
