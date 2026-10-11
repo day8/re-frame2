@@ -467,7 +467,10 @@
   operation resolved through, so the lookup reads it as it stands, with no
   flush: a replacement registered while the old implementation was still
   running belongs to the frame's next generation, and must not take the old
-  one's throw. Any other frame is read inside its own resolution scope
+  one's throw. The cascade is the router's event owner, which binds the
+  generation, not `*current-frame*`: a `with-frame` inside another frame's
+  handler rebinds the frame alone, leaving that handler's generation in scope.
+  Any other frame is read inside its own resolution scope
   (`:live-frame/call-with-frame-resolution`), so two frames running different
   images' implementations of one id each report their own. With no frame, or
   the hook unbound, the lookup reads whatever resolution is in scope."
@@ -475,7 +478,8 @@
   (let [read       #(rf.source-coords/registration-coords (rf.registrar/lookup kind id))
         own-scope? (and (some? rf.registrar/*generation*)
                         (= (rf.frame/frame-value->id frame-id)
-                           (rf.frame/frame-value->id rf.frame/*current-frame*)))]
+                           (rf.frame/frame-value->id
+                             (rf.frame/current-event-owner-frame-id))))]
     (if-let [with-owner (when (and (some? frame-id) (not own-scope?))
                           (rf.late-bind/get-fn-cached :live-frame/call-with-frame-resolution))]
       (with-owner frame-id read)
