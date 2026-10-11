@@ -106,16 +106,18 @@
   (is (= ["thrown by coord.replaced's handler" (coord 'coord.replaced 20)]
          (handler-exception-record :coord/replaced-frame :coord/replaced))))
 
-(deftest an-error-for-another-frame-names-that-frames-implementation
-  ;; frame A's handler reads a sub in frame B while A's generation is in scope;
-  ;; each image selects its own implementation of the sub, and the throw is B's
+(defn- cross-frame-sub-errors
+  "Frames A and B select different images, and each image registers its own
+  throwing implementation of `:coord/cross-sub`. Dispatch an event into A whose
+  handler runs `read-b` while A's generation is in scope, and return the
+  `:rf.error/sub-exception` records it fanned as `[frame message source-coord]`."
+  [read-b]
   (doseq [[ns-sym line] [['coord.cross-a 60] ['coord.cross-b 70]]]
     (binding [rf.source-coords/*pending-coords* (coord ns-sym line)]
       (rf.subs/reg-sub :coord/cross-sub
         (fn [_ _] (throw (ex-info (str "thrown by " ns-sym "'s sub") {}))))))
   (binding [rf.source-coords/*pending-coords* (coord 'coord.cross-a 80)]
-    (rf.events/reg-event :coord/cross-read
-      (fn [_ _] @(rf/subscribe [:coord/cross-sub] {:frame :coord/cross-b}) {})))
+    (rf.events/reg-event :coord/cross-read (fn [_ _] (read-b) {})))
   (rf/make-frame {:id :coord/cross-a :images [(image-of :coord/img-cross-a "coord.cross-a")]})
   (rf/make-frame {:id :coord/cross-b :images [(image-of :coord/img-cross-b "coord.cross-b")]})
   (let [seen (atom [])]
@@ -124,10 +126,25 @@
       (try (rf/dispatch-sync [:coord/cross-read] {:frame :coord/cross-a})
            (catch #?(:clj Throwable :cljs :default) _ nil))
       (finally (rf.error-emit/unregister-error-listener! ::recorder)))
-    (is (= [[:coord/cross-b (coord 'coord.cross-b 70)]]
-           (->> @seen
-                (filter #(= :rf.error/sub-exception (:error %)))
-                (mapv (juxt :frame :source-coord)))))))
+    (->> @seen
+         (filter #(= :rf.error/sub-exception (:error %)))
+         (mapv (juxt :frame (comp ex-message :exception) :source-coord)))))
+
+(def ^:private b-threw
+  [[:coord/cross-b "thrown by coord.cross-b's sub" (coord 'coord.cross-b 70)]])
+
+(deftest an-error-for-another-frame-names-that-frames-implementation
+  ;; the subscribe opts name frame B
+  (is (= b-threw
+         (cross-frame-sub-errors
+           #(deref (rf/subscribe [:coord/cross-sub] {:frame :coord/cross-b}))))))
+
+(deftest an-error-inside-a-with-frame-scope-names-that-frames-implementation
+  ;; `with-frame` names frame B but leaves A's generation bound, so the frame
+  ;; in scope says nothing about whose generation that is
+  (is (= b-threw
+         (cross-frame-sub-errors
+           #(rf/with-frame :coord/cross-b @(rf/subscribe [:coord/cross-sub]))))))
 
 (deftest a-programmatic-re-registration-reports-no-stale-coordinate
   ;; the re-registration stamps the same :ns, so it replaces the macro
