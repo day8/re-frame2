@@ -34,11 +34,14 @@
   keyboard rows and the subscription. `resize_handle_boundary_dom_cljs_test`
   owns the Fresco BOUNDARY — real React mounts through the `Handle` bridge.
   This file sits between them: the yield PREDICATE read off a real computed
-  style, and `apply-panel-width!`'s writes to a real `<html>`. Neither can
+  style, and `apply-panel-width!`'s writes to a real `<html>`, called
+  directly and through the reset handler. Neither can
   be stubbed, because `getComputedStyle` resolving an inline `resize:`
   declaration IS the behaviour under test."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [re-frame.core :as rf]
             [day8.re-frame2-xray.config :as config]
+            [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.resize-handle :as resize-handle]
             [day8.re-frame2-xray.settings.effects :as settings-effects]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
@@ -162,4 +165,54 @@
         (.setProperty (.-style html) "--rf-xray-inline-width" "888px")
         (settings-effects/apply-panel-width! nil)
         (is (= "" (some-> html .-style (.getPropertyValue "--rf-xray-inline-width")))
-            "nil arg defaults to the published width and clears the inline")))))
+            "nil arg defaults to the published width and clears the inline")
+        ;; A 600px viewport clamps 560 to 540; the default still clears.
+        (.setProperty (.-style html) "--rf-xray-inline-width" "777px")
+        (settings-effects/apply-panel-width! config/default-panel-width-px 600)
+        (is (= "" (some-> html .-style (.getPropertyValue "--rf-xray-inline-width")))
+            "the default clears even where the viewport clamps it")))))
+
+;; ---- reset, through the real handler ---------------------------------
+
+(defn- with-viewport-width
+  "Run `f` with `window.innerWidth` reading `px`, then put the real
+  property back. The width handler and `apply-panel-width!` both read the
+  live viewport, and the headless browser's is wide, so this is the one
+  lever that narrows it for both."
+  [px f]
+  (let [own (js/Object.getOwnPropertyDescriptor js/window "innerWidth")]
+    (js/Object.defineProperty js/window "innerWidth"
+                              #js {:value px :configurable true :writable true})
+    (try
+      (f)
+      (finally
+        (if own
+          (js/Object.defineProperty js/window "innerWidth" own)
+          (js-delete js/window "innerWidth"))))))
+
+(deftest reset-restores-the-stylesheet-baseline-at-any-viewport
+  (testing "a reset after a drag removes the `<html>` override and stores no
+            width, so the host stylesheet's baseline shows and nothing
+            outlives the viewport. At 600px the default 560 is above the
+            90vw clamp; at 1600px it fits."
+    (if-not (browser?)
+      (is true "skipped: no DOM (node lane — see ns docstring)")
+      (let [html     (html-root)
+            css-var  #(.getPropertyValue (.-style html) "--rf-xray-inline-width")
+            drag-then-reset
+            (fn []
+              (rf/dispatch-sync [:rf.xray/set-panel-width-px 480] {:frame :rf/xray})
+              (let [dragged (css-var)]
+                (rf/dispatch-sync [:rf.xray/reset-panel-width] {:frame :rf/xray})
+                [dragged
+                 (css-var)
+                 (config/persisted-override? [:general :panel-width-px])]))]
+        (registry/register-xray-handlers!)
+        (rf/make-frame {:id :rf/xray})
+        (try
+          (doseq [viewport [600 1600]]
+            (is (= ["480px" "" false] (with-viewport-width viewport drag-then-reset))
+                (str "at " viewport "px the drag writes `<html>`, and the reset "
+                     "clears it and leaves no stored width")))
+          (finally
+            (.removeProperty (.-style html) "--rf-xray-inline-width")))))))
