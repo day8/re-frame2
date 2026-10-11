@@ -914,10 +914,10 @@
     {}))
 
 (defn make-machine-handler
-  "Returns the event-handler fn for `machine`. Internal: its two callers are
-  `register-machine-event!` (the body of `reg-machine*`) and
-  `handler-meta-for` (spawned actors), and each stamps the
-  `:rf/machine?` / `:rf/machine` registration metadata around it.
+  "Returns the event-handler fn for `machine`. Internal: its caller is
+  `register-machine-event!` (the body of `reg-machine*`), which stamps the
+  `:rf/machine?` / `:rf/machine` registration metadata around it. Spawned
+  actors run that same registered handler (`actor-handler-meta`).
 
   Per Spec 005 §Registration — the machine IS the event handler. The
   machine spec MUST NOT carry `:id`; the machine's id is the surrounding
@@ -1301,8 +1301,9 @@
   `[:schemas :data]` schema through the `:rf/machine` registrar projection (without the stamp the
   schema validates nothing).
 
-  `reg-machine*` (both arities) routes through here; spawned actors take
-  the same stamp through `handler-meta-for`.
+  `reg-machine*` (both arities) routes through here; spawned actors run
+  the handler it installs, under the same stamp, through
+  `actor-handler-meta`.
 
   `opts` is an optional registration-metadata map. Its `:schema`
   key (when present) is the `:where :event` boundary validator for the
@@ -1364,7 +1365,8 @@
      (maybe-warn-source-unstamped! machine-id machine))
    ;; Install a per-machine region-machine cache before
    ;; the machine value is threaded through the handler closure and
-   ;; published to the registrar. Re-registration replaces the machine
+   ;; published to the registrar. The type's spawned actors run this same
+   ;; handler, so they share the cache. Re-registration replaces the machine
    ;; map and its attached cache atom, so no separate invalidation step
    ;; is needed.
    (let [machine    (rf.machines.parallel/install-region-cache machine)
@@ -1439,70 +1441,75 @@
   ([machine-id opts machine]
    (register-machine-event! machine-id machine opts)))
 
-(defn handler-meta-for
-  "Build the registrar-shaped handler-meta map for a machine `spec`
-  WITHOUT registering it — the surface the lazy-actor-handler resolver
-  drives a spawned actor's cascade through. Equivalent in
-  shape to what `reg-machine*` installs under the machine-id, but
-  materialised on demand from the actor's (revertible) runtime-db snapshot
-  rather than held in a per-instance registrar entry.
+(defn actor-handler-meta
+  "Build the handler-meta a spawned actor runs under from `registration`, its
+  TYPE's registrar entry — the map `reg-machine*` installed under the type id.
 
-  The region-machine cache is installed (mirroring `reg-machine*`) so
-  parallel-region transitions resolve, then `make-machine-handler` builds
-  the handler-fn and `rf.events/event-handler-meta` wraps it into the same
-  `{:rf/machine? true :rf/machine <spec> :handler-fn …
-  :interceptors […]}` shape the registrar holds for a registered
-  machine. `process-event*` runs the returned meta unchanged — the
-  handler reads the actor's own snapshot keyed on the dispatched event's
-  first element, so a single materialised handler serves every instance
-  of the type."
-  [spec]
-  (let [machine    (rf.machines.parallel/install-region-cache spec)
-        handler-fn (make-machine-handler machine)]
-    (rf.events/event-handler-meta {:rf/machine? true :rf/machine machine}
-                               []
-                               handler-fn)))
+  The actor runs the registration's own `:handler-fn` over its `:rf/machine`
+  spec. `make-machine-handler` closes over no instance and reads the snapshot
+  keyed on the dispatched event's first element, so the one handler built at
+  registration — validated, ensure-indexed and carrying its region cache —
+  serves the type's singleton and every spawned instance alike.
+
+  The rest of the registration describes the TYPE and stays behind. Its opts
+  `:schema` validates an outer event vector headed by the type id, which an
+  actor's messages never carry, and its `:interceptors`, `:doc` and source
+  coordinates belong to that registration. So the actor's meta is the
+  `{:rf/machine? true :rf/machine <spec>}` stamp and the handler behind an
+  empty interceptor prefix, in the shape `rf.events/event-handler-meta`
+  builds and `process-event*` runs unchanged."
+  [registration]
+  (rf.events/event-handler-meta {:rf/machine? true :rf/machine (:rf/machine registration)}
+                                []
+                                (:handler-fn registration)))
 
 (defn resolve-actor-handler-meta
   "Lazy-resolver hook body (late-bound at
-  `:machines/resolve-actor-handler-meta`, consulted by core's
-  `re-frame.router.diagnostics/handle-no-handler!` BEFORE it surfaces
+  `:machines/resolve-actor-handler-meta`, consulted by `re-frame.router`
+  when the registrar has no entry for the event id, BEFORE
+  `re-frame.router.diagnostics/handle-no-handler!` surfaces
   `:rf.error/no-such-handler`). Given an `event` whose first element is
   an unresolved actor-id and the target `frame-id`, return a handler-meta
   map the router can drive the cascade with — or nil to let core surface
   the genuine `:rf.error/no-such-handler`.
 
-  Resolution is purely runtime-db-derived: read the actor's live
-  snapshot from the frame's runtime-db, resolve its TYPE spec via
-  `rf.machines.lifecycle-fx.resolver/spec-from-snapshot`, and materialise the handler-meta from
-  the spec. No live snapshot (or no resolvable type) → nil: the actor
-  isn't alive in this frame value, which is the correct
-  `:no-such-handler` — and exactly the property `restore-epoch!` reverts.
+  Resolution starts from runtime-db: read the actor's live snapshot from
+  the frame's runtime-db, look up its TYPE's registrar entry via
+  `rf.machines.lifecycle-fx.resolver/registration-from-snapshot`, and wrap
+  that registration's handler with `actor-handler-meta`. No live snapshot
+  (or no registered type) → nil: the actor isn't alive in this frame value,
+  which is the correct `:no-such-handler` — and exactly the property
+  `restore-epoch!` reverts.
 
-  The materialised handler-meta is shape-identical to a registered
-  machine's, so the rest of `process-event*` is unchanged — it runs the
-  handler against the actor's own snapshot (the machine handler reads
+  A spawned actor never has a registrar entry of its own, so this runs on
+  EVERY message to one, and it builds nothing per message: the handler, its
+  validation and its region cache are the type's, made once by
+  `reg-machine*`. A message pays a runtime-db read, a registrar lookup and
+  the handler-meta wrapper. Because the lookup reads the registrar as it
+  stands, a re-registered type serves its live actors from their next
+  message on.
+
+  The handler-meta is shape-identical to a registered machine's, so the
+  rest of `process-event*` is unchanged — it runs the handler against the
+  actor's own snapshot (the machine handler reads
   `[:rf.runtime/machines :snapshots <actor-id>]` from runtime-db, keyed on
-  the dispatched event's first element). The handler-fn is built fresh per
-  unresolved dispatch; this is the COLD path (a spawned actor whose
-  per-instance handler is — by design — never registered), so the allocation
-  is bounded by actual spawned-actor traffic, not by every dispatch.
+  the dispatched event's first element).
 
   Machine snapshots are durable runtime-db state, so
   the live snapshot is read off the frame's runtime-db partition.
 
   Schema-egress classification is frame-declared, not per-instance, so this
-  seam has no per-instance schema marks to rehydrate; it materialises the
-  handler-meta from the restored snapshot's spec only."
+  seam has no per-instance schema marks to rehydrate; it builds the
+  handler-meta from the type's registration only."
   [event frame-id]
-  (let [actor-id   (first event)
+  (let [actor-id     (first event)
         ;; `frame-id` is the cascade-threaded envelope frame the
-        ;; router's no-handler diagnostics pass in; read its runtime-db
+        ;; router passes in; read its runtime-db
         ;; directly, no `:rf/default` repair. (A nil frame-id yields nil
         ;; runtime-db → the genuine `:no-such-handler`, never a read against
         ;; a synthesised default.)
-        runtime-db (rf.frame/frame-runtime-db-value frame-id)
-        snapshot   (when runtime-db (get-in runtime-db (rf.machines.paths/snapshot-path actor-id)))
-        spec       (when snapshot (rf.machines.lifecycle-fx.resolver/spec-from-snapshot snapshot))]
-    (when spec
-      (handler-meta-for spec))))
+        runtime-db   (rf.frame/frame-runtime-db-value frame-id)
+        snapshot     (when runtime-db (get-in runtime-db (rf.machines.paths/snapshot-path actor-id)))
+        registration (when snapshot (rf.machines.lifecycle-fx.resolver/registration-from-snapshot snapshot))]
+    (when registration
+      (actor-handler-meta registration))))

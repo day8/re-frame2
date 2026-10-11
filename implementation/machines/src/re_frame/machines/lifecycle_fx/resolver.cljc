@@ -28,8 +28,8 @@
   `parallel` requires only engine-core `choice` / `result` / `timeout` /
   `transition` / `trace`), so the destroy-path consumers (`exit-cascade`,
   `finalize`, `spawn-error`) may require it without a load cycle through
-  `registration`. The handler-MATERIALISING side of the resolver (which needs
-  `make-machine-handler`) lives in
+  `registration`. The handler-meta side of the resolver, which wraps the
+  type registration's handler for a spawned actor, lives in
   `lifecycle-fx.registration/resolve-actor-handler-meta`, the late-bound
   `:machines/resolve-actor-handler-meta` hook body."
   (:require [re-frame.interop :as rf.interop]
@@ -41,6 +41,16 @@
             [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
+
+(defn registration-from-registry
+  "The `:event` registrar entry of the registered machine `machine-id` — the
+  map `reg-machine*` installed, its `:handler-fn` beside the `:rf/machine?` /
+  `:rf/machine` stamp — or nil when `machine-id` does not name a registered
+  machine (a plain event handler, or no entry at all)."
+  [machine-id]
+  (let [m (rf.registrar/lookup :event machine-id)]
+    (when (:rf/machine? m)
+      m)))
 
 (defn spec-from-registry
   "Resolve a registered machine's SPEC from `machine-id` via the `:event`
@@ -54,9 +64,17 @@
   registered-TYPE leg of spawned-actor / parent / singleton spec
   resolution."
   [machine-id]
-  (let [m (rf.registrar/lookup :event machine-id)]
-    (when (:rf/machine? m)
-      (:rf/machine m))))
+  (:rf/machine (registration-from-registry machine-id)))
+
+(defn registration-from-snapshot
+  "The registrar entry of a spawned actor's TYPE, named by its `snapshot`'s
+  `:rf/machine-type` reserved slot — the registration whose handler every
+  message to the actor runs (`lifecycle-fx.registration/resolve-actor-handler-meta`).
+  Nil exactly when `spec-from-snapshot` is nil."
+  [snapshot]
+  (let [t (:rf/machine-type snapshot)]
+    (when (keyword? t)
+      (registration-from-registry t))))
 
 (defn spec-from-snapshot
   "Resolve the machine SPEC for a spawned actor from its `snapshot`'s
@@ -69,9 +87,7 @@
   snapshot) or when the type no longer names a registered machine (the type
   was cleared — a genuine missing reference)."
   [snapshot]
-  (let [t (:rf/machine-type snapshot)]
-    (when (keyword? t)
-      (spec-from-registry t))))
+  (:rf/machine (registration-from-snapshot snapshot)))
 
 ;; ---- the spawned-actor identity envelope ---------------------------------
 ;;
@@ -88,7 +104,7 @@
 ;; reserved slot rides the snapshot. `:rf/machine-type` in particular is what
 ;; makes a spawned actor's liveness a pure function of runtime-db
 ;; (§Liveness is derived from runtime-db): it is the ONLY key
-;; `spec-from-snapshot` can re-materialise an actor's handler from, since a
+;; `registration-from-snapshot` can resolve an actor's handler from, since a
 ;; spawned actor has no per-instance registrar entry. An actor stops being
 ;; addressable by being DESTROYED — never by having its definition change
 ;; underneath it.
