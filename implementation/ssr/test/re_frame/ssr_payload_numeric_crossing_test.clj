@@ -5,12 +5,17 @@
   BigInt, a BigDecimal, a Ratio or a Float back as a DIFFERENT value — and the
   server reads its own value back perfectly, so nothing else catches it.
   `build-payload` refuses such a number with
-  `:rf.error/ssr-hydration-payload-invalid`, always on.
+  `:rf.error/ssr-hydration-payload-invalid`, always on. It refuses a map or
+  set the same way when two of its keys or members are distinct numbers on
+  the JVM but one value in the browser (`1` beside `1.0`, `0` beside `-0.0`),
+  whose reader then rejects the duplicate.
 
   The per-class verdicts belong to `wire/portable-number?` and are pinned
-  in `re-frame.ssr.wire-cljs-test`; NaN, infinities, `#inst` and
-  `#uuid` read back as what they were and ride."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  in `re-frame.ssr.wire-cljs-test`, beside the bytes that show the browser
+  rejecting a collapsed map; NaN, infinities, `#inst` and `#uuid` read back
+  as what they were and ride."
+  (:require [clojure.edn :as edn]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
@@ -81,3 +86,42 @@
     ;; `identical?`, because NaN is not `=` to itself.
     (is (identical? db (:rf/app-db payload)))
     (is (= {:n 1} (:rf/runtime-db payload)))))
+
+(deftest keys-the-browser-reads-as-one-number-are-refused
+  (testing "map KEYS 1 and 1.0: two keys on the JVM, one double in the browser"
+    (let [data (app-db-refusal {:ok 1 :lookup {1 :i 1.0 :d}})]
+      (is (= {:rf.error/id   :rf.error/ssr-hydration-payload-invalid
+              :partition     :rf/app-db
+              :path          [:lookup]
+              :half          :key
+              :browser-value 1.0
+              :recovery      :narrow-the-value-or-drop-the-key}
+             (select-keys data [:rf.error/id :partition :path :half :browser-value :recovery])))
+      (is (= #{1 1.0} (set (:collapses data))) "it names both colliding keys")
+      (is (every? #(.contains ^String (::message data) %)
+                  [":rf/app-db" "[:lookup]" "1.0"]))))
+  (testing "set MEMBERS 0 and -0.0: the browser holds one zero"
+    (let [data (app-db-refusal {:tags #{0 -0.0}})]
+      (is (= {:path [:tags] :browser-value 0.0}
+             (select-keys data [:path :half :browser-value])))
+      (is (= #{0 -0.0} (set (:collapses data))))))
+  (testing "a composite key collapses when its numbers do"
+    (is (= {:path [:grid] :half :key :browser-value [1.0]}
+           (select-keys (app-db-refusal {:grid {[1] :a [1.0] :b}})
+                        [:path :half :browser-value]))))
+  (testing "at any depth, in the runtime-db partition too"
+    (is (= {:partition :rf/runtime-db :path [:rf.runtime/machines :m :data :rows 0]}
+           (select-keys (refusal #(rf.ssr.payload-policy/build-payload
+                                    nil {} nil
+                                    {:runtime-db {:rf.runtime/machines
+                                                  {:m {:data {:rows [{0 :a -0.0 :b}]}}}}}))
+                        [:partition :path])))))
+
+(deftest keys-that-stay-distinct-in-the-browser-ride
+  (let [db      {:lookup {1 :i 2 :d}
+                 :tags   #{0 1.5}
+                 :grid   {[1] :a [2.0] :b}}
+        payload (rf.ssr.payload-policy/build-payload nil db nil {})]
+    (is (identical? db (:rf/app-db payload)))
+    (is (= payload (edn/read-string (pr-str payload)))
+        "the emitted bytes read back equal")))
