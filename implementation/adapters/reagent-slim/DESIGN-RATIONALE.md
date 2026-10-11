@@ -27,11 +27,11 @@ Three drivers shape every decision in this document:
 
 2. **React-19-native** — modern React semantics throughout. No legacy mount paths. No `findDOMNode`. No string refs. No legacy context. The rewrite emits React-19-clean elements by default, schedules through microtasks, integrates with `react/act` for tests.
 
-3. **Re-frame2-fit** — the surface is bounded by re-com plus re-frame2's own internals. Native trace-bus integration replaces 10x v1's monkey-patches. Frame-context wiring uses the modern React context API. Defensive workarounds in re-frame2's own code retire because the bug classes they defend against are structurally removed.
+3. **Re-frame2-fit** — the surface is bounded by re-com plus re-frame2's own internals. Where stock Reagent's behaviour works against re-frame2 — a keyword prop value stringified on its way into a context Provider (§5) — the rewrite narrows it, so that bug class cannot arise on the slim path.
 
 Every section below frames its decision against these three drivers and ends with a migration note for adopters.
 
-The third driver matters most. reagent-slim is not "stock Reagent minus what we feel like dropping." It is a Reagent rewrite that actually knows about re-frame2. Stock Reagent does not — it cannot — because re-frame2 did not exist when most of stock Reagent's surface was designed.
+The third driver matters most. reagent-slim is not "stock Reagent minus what we feel like dropping." Its surface is what re-frame2 and its ecosystem actually call, established by audit (§2). The re-frame2 integration itself — view tracing, frame-context, the test flush — lives in re-frame2's core and ships with every adapter, so it is not what distinguishes slim (§9).
 
 ---
 
@@ -302,35 +302,33 @@ Class B surfaces are absent too (rf2-jif0qp): a call site fails at compile time 
 
 ---
 
-## §9 Native re-frame2 integration
+## §9 re-frame2 integration
 
-This section frames the third driver — re-frame2-fit — for adopters. It is the part of the rewrite stock Reagent cannot match because it requires knowledge of re-frame2's primitives.
+This section frames the third driver — re-frame2-fit — for adopters. Most of re-frame2's integration with the renderer lives in re-frame2's core and ships with every adapter, the bridge included; what slim adds on top is named in each subsection.
 
 ### Trace-bus integration replaces 10x v1's monkey-patches
 
 re-frame-10x v1 monkey-patches `reagent.impl.batching/{next-tick, render-queue, mark-rendered, queue-render}` and `reagent.impl.component/{wrap-funs, custom-wrapper}` to capture per-render-frame trace data and stamp component IDs. The patches are documented in 10x v1's preload comments. They are also fragile: any change to Reagent's batching internals risks breaking 10x.
 
-reagent-slim emits the trace surface natively. The renderer publishes `:view/render` events to re-frame2's trace bus directly, with the `:render-key` and component identity Xray needs. No monkey-patches. Xray's preload reads the trace bus; it does not patch the renderer.
+re-frame2 needs none of that, under any adapter. The registered-view wrapper in re-frame2's core (`re-frame.views`) emits `:rf.view/render` at the start of every registered-view render and `:rf.view/rendered` after it, tagged with the `:rf.view/render-key` and frame Xray needs (Spec 009). The wrapper composes around every adapter's render-fn, so the bridge, slim and UIx publish the same trace, and Xray reads it from the trace bus without patching any renderer.
 
-This is one of the surfaces stock Reagent cannot deliver because it requires the renderer to know about re-frame2's trace bus. The bridge artefact does its best with a wrapper layer; the rewrite does it natively.
+What does differ: slim ships no `reagent.impl.*` namespaces, so 10x v1's patch targets do not exist and 10x v1 does not load against slim. Xray works with both adapters.
 
 ### Frame-context primitive integrates with the component lifecycle
 
-re-frame2's frame-context — the per-component frame the view renders against — is wired through the modern `React.createContext` API. The rewrite's renderer threads frame-context through the React tree without monkey-patching `getChildContext` or any of the legacy-context machinery React 19 removed. The narrowed `convert-prop-value` (per §5) removes the keyword-stringification footgun for the slim path; the canonical user-facing surface (`rf/frame-provider`) routes the Provider mount through Reagent's `:r>` interop head so namespaced frame-ids survive on every adapter. `re-frame.adapter.context/coerce-context-value` survives as defensive cover for raw-hiccup `[:> Provider {:value :foo}]` mounts under the classic adapter.
+re-frame2's frame-context — the per-component frame the view renders against — is a single `React.createContext` object in re-frame2's core (`re-frame.adapter.context`), shared by every adapter, so no adapter touches `getChildContext` or any of the legacy-context machinery React 19 removed. The canonical user-facing surface (`rf/frame-provider`) routes the Provider mount through Reagent's `:r>` interop head so namespaced frame-ids survive on every adapter. What slim adds is the narrowed `convert-prop-value` (per §5): a keyword `:value` on a raw-hiccup `[:> Provider {:value :foo}]` mount survives on the slim path, where under the classic adapter `re-frame.adapter.context/coerce-context-value` is the defensive cover.
 
 ### `flush-views!` replaces the brittle `r/flush`
 
-Stage 2 §3.5: Reagent's `r/flush` does not compose cleanly with React 18+ concurrent rendering. The flush drains Reagent's `next-tick` queue but does not necessarily flush React's pending work. Tests that combine `(rf/dispatch-sync ...)` with `r/flush` race against React's commit phase.
+Stage 2 §3.5: Reagent's `r/flush` does not compose cleanly with React 18+ concurrent rendering. The flush drains Reagent's `next-tick` queue but does not necessarily flush React's pending work. Tests that combine `(rf/dispatch-sync ...)` with bare `r/flush` race against React's commit phase.
 
-reagent-slim ships `reagent2.dom.client/flush-views!`. It owns its own scheduler — microtask + dirty-set — and integrates with `react/act` natively. A test that calls `flush-views!` after `dispatch-sync` is deterministic: all pending Reactions have recomputed, React has committed, the DOM reflects state.
+Every adapter publishes `flush-views!` from re-frame2's shared spine. It runs the adapter's synchronous render drain inside React's `act`, so a test that calls it after `dispatch-sync` is deterministic on the bridge (`r/flush` inside `act`) and on slim alike: pending Reactions have recomputed, React has committed, the DOM reflects state. Slim's renderer schedules through microtasks rather than Reagent's `requestAnimationFrame` queue, and adds a promise-returning `reagent2.dom.client/flush-views!` that drains microtasks on both sides of `act`, for tests that need deterministic Suspense ordering.
 
-The win is test reliability. Production-runtime impact is zero — `flush-views!` is a test-only API. But the test-determinism story matters for CI flake budgets, for hot-reload feedback, and for any harness that wants reproducible state assertions.
+Production-runtime impact is zero — `flush-views!` is a test-only API.
 
 ### What this adds up to for adopters
 
-Stock Reagent cannot offer these integrations because stock Reagent does not know about re-frame2's trace bus, frame-context primitive, or test-flush primitive. re-frame2-reagent carries the same blindness — it is stock Reagent under a thin bridge.
-
-reagent-slim is the Reagent that actually knows about re-frame2. Adopters get the integration without the monkey-patches, without the wrapper-layer overhead, without the tests-race-each-other surprise.
+View tracing, frame-context and the `act`-wrapped `flush-views!` belong to re-frame2, and every adapter gets them; choosing slim over the bridge does not buy them. Slim's additions here are the narrowed prop conversion that keeps a raw Provider's keyword value intact and the Suspense-ordered flush. The reasons to choose slim are the rest of this document: the audited surface (§2), the React-17-era calls that fail at compile time rather than at runtime (§3, §8), and the bundle it saves (§10).
 
 ---
 
@@ -367,7 +365,7 @@ No separate dev-mode win: the registered-view wrapper and its source-coord walk 
 
 The "fast" claim was dropped from the artefact name on 2026-05-11 because the production-runtime story is marginal. The slim claim is defensible; the dev-DX claim is defensible; the test-determinism claim is defensible. Production speed is not the headline.
 
-This honesty matters because the doc you are reading is for adopters making a real decision, not a marketing pitch. If you are evaluating reagent-slim for "will my app feel faster in production," the answer is "marginally, at best." If you are evaluating it for "will my bundle be smaller, my hot-reload feedback tighter, my tests more deterministic, my re-frame2 integration cleaner," the answer is "yes, measurably."
+This honesty matters because the doc you are reading is for adopters making a real decision, not a marketing pitch. If you are evaluating reagent-slim for "will my app feel faster in production," the answer is "marginally, at best." If you are evaluating it for "will my bundle be smaller, my hot-reload feedback tighter, my tests more deterministic," the answer is "yes, measurably."
 
 ---
 
@@ -383,8 +381,7 @@ This honesty matters because the doc you are reading is for adopters making a re
 | `convert-prop-value` | stringifies all keywords | HTML-attribute names only |
 | `reagent.dom/dom-node` / `findDOMNode` | absent (Reagent 2.0.1 deleted the Var; compile error) | absent (React 19 — API gone; compile error) |
 | `reagent.dom/render`, `unmount-component-at-node`, `force-update-all` | Vars still defined, but they call `react-dom` functions React 19 removed — warn, then fail at runtime. Use `reagent.dom.client` | absent (compile error) |
-| Trace integration | requires 10x v1 monkey-patches | native to renderer |
-| `r/flush` | brittle under React 18+ concurrent | `flush-views!` deterministic |
+| Test flush | `flush-views!` (`act` around `r/flush`) | `flush-views!` (`act` around slim's drain), plus a promise-returning `reagent2.dom.client/flush-views!` for Suspense ordering |
 | `render-to-string` | shipped (pulls `react-dom/server`) | not shipped (use `day8/re-frame2-ssr`) |
 | `render-to-static-markup` | shipped (pulls `react-dom/server`) | shipped (pure-CLJS, no `react-dom/server`) |
 | `with-let`, `cursor`, `track`, `wrap`, ... | shipped | not shipped (compile-time error) |
@@ -394,7 +391,7 @@ Adoption shape:
 
 - **Stock Reagent codebase, full surface usage:** stay on `re-frame2-reagent`. No reason to migrate. Note this is not a React-17/18 escape hatch — the bridge is pinned to Reagent 2.0.1 on React 19 as well; what it buys you is the full Reagent surface, not an older React.
 - **Stock Reagent codebase, re-com surface only:** migrate to `reagent-slim`. The migration is a require-rewrite plus mount-API swap; everything else is unchanged.
-- **re-frame2-native codebase, on React 19:** migrate to `reagent-slim`. You get the full integration (trace bus, frame-context, deterministic flush) plus the bundle savings.
+- **re-frame2-native codebase, on React 19:** migrate to `reagent-slim` for the bundle savings and the audited surface. The trace bus, frame-context and `flush-views!` come from re-frame2's core and are the same on either adapter.
 - **Codebase using a banned surface (`with-let`, `cursor`, banned Form-3 key, etc.):** either rewrite into the supported surface, or stay on `re-frame2-reagent`. Both are first-class.
 
 ---
