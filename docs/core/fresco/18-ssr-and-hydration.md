@@ -379,6 +379,7 @@ way, the fix is to put values both sides need in the snapshot or payload.
 | --- | --- | --- |
 | A `:rf.ssr/hydration-mismatch` warning appears in development | Server and first client render differed, often because a body read a clock, random value, or browser global | Keep bodies deterministic; move platform work to client effects or host edges |
 | An adopting `h/render!` throws `:rf.error/fresco-frame-root-adopting` | The adopting tree uses `h/frame-root`, whose first render is empty | Make the frame with `rf/make-frame`, then adopt under `[h/frame-provider {:frame …}]` |
+| A hydrating root renders afresh on the client, and `onRecoverableError` receives an error caused by `:rf.error/fresco-frame-root-adopting` | A view in the adopting tree returns `h/frame-root`, which refuses in the hydration pass | Make the frame with `rf/make-frame`, and have the view scope it with `[h/frame-provider {:frame …}]` instead |
 | Every `useId` id in one root reports a mismatch | The root's `:identifier-prefix` differs from the server prefix | Use the same unique prefix in `server/render` and that root's adopting `h/render!` |
 | An adopting `h/render!` throws `:rf.error/frame-provider-frame-absent` | `rf/make-frame` was skipped, so `h/frame-provider` names a frame that does not exist | Create the frame, then install the payload, then adopt the DOM |
 | Client-only widget shows a skeleton, then swaps to the live widget | The Client-only policy is working | Use a same-size fallback, or select Render only when the component is truly server-safe |
