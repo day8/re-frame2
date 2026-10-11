@@ -620,16 +620,27 @@
           (settings-effects/apply-panel-width! clamped)
           (assoc-in db [:settings :general :panel-width-px] clamped))}))
 
-    ;; Reset to default — bound to the resize handle's double-click.
-    ;; Routes through the same write surface so persistence + DOM
-    ;; event-bundle stay consistent. Separate event id so the palette /
-    ;; key-binding affordance can wire to it without re-implementing
-    ;; the clamp + persist logic.
+    ;; Reset — bound to the resize handle's double-click and Enter.
+    ;; It FORGETS the user's width rather than writing the default as a
+    ;; new one: a nil override reads as absent in storage and in the
+    ;; merge, so the width returns to what a boot without a drag
+    ;; resolves (a host `configure!` width, else the default), and
+    ;; `apply-panel-width!` fits that to the viewport without persisting
+    ;; it — clearing `<html>` for the default, so the stylesheet's
+    ;; baseline shows at any viewport. It does not route through
+    ;; `:rf.xray/set-panel-width-px`, whose write-time clamp would turn
+    ;; the default into a stored 540 in a 600px viewport.
     (rf/reg-event :rf.xray/reset-panel-width
       {:rf.trace/no-emit? true}
-      (fn [_ _event]
-        {:fx [[:dispatch [:rf.xray/set-panel-width-px
-                          config/default-panel-width-px]]]}))
+      (fn [{:keys [db]} _event]
+        (let [inherited (or (get-in @config/configured-settings-seed
+                                    [:general :panel-width-px])
+                            config/default-panel-width-px)]
+          (config/update-setting! :general :panel-width-px nil)
+          (config/update-live-setting! :general :panel-width-px inherited)
+          (settings-effects/apply-panel-width! inherited)
+          {:db (assoc-in db [:settings :general :panel-width-px]
+                         (config/get-setting :general :panel-width-px))})))
 
     ;; ---- L2 event-list height (seam resize handle) -----
     ;;

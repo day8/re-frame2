@@ -450,9 +450,8 @@
 ;;
 ;; AND BOTH HALVES OF THE KEY SURFACE ARE EXERCISED — an arrow that RESIZES
 ;; and an Enter that RESETS — because they are different events
-;; (`:rf.xray/set-panel-width-px` directly, versus `:rf.xray/reset-panel-width`
-;; whose `:fx` re-dispatches). One of them landing proves little about the
-;; other.
+;; (`:rf.xray/set-panel-width-px`, versus `:rf.xray/reset-panel-width` with its
+;; own handler). One of them landing proves little about the other.
 
 (deftest w2-a-real-key-press-routes-through-the-captured-dispatcher
   (testing "pressing a real `ArrowLeft` on the committed handle
@@ -531,7 +530,7 @@
                          (announced-width container))
                       (str "`Enter` reset the panel to the default through the "
                            "same captured dispatcher — `:rf.xray/reset-panel-"
-                           "width` and the `:fx` re-dispatch it fans out to. "
+                           "width`. "
                            "Got: " (pr-str (announced-width container))))
                   (is (= deaf-width-px (width-in other-frame))
                       (str "and the reset did not reach the second frame "
