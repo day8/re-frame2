@@ -501,7 +501,7 @@ You gave `h/reg-state` a concern that is not namespace-qualified, or options
 outside `{:default …}`; or you used an instance key outside the accepted set
 (`nil` included) at a read or a write. The reason names which. Use a qualified
 keyword concern, options holding only `:default`, and an instance key that is a
-keyword, string, number or vector of those.
+keyword, string, number, UUID or vector of those.
 
 ### The test kit
 

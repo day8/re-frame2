@@ -41,7 +41,8 @@
   `:rf.error/fresco-intent-outside-boundary`, because an element that
   invites a dismissal nothing can route is exactly the second owner
   (HD-020's frameless ruling)."
-  (:require [re-frame.adapter.context :as rf.adapter.context]
+  (:require [clojure.string :as str]
+            [re-frame.adapter.context :as rf.adapter.context]
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
             [re-frame.fresco.impl.error :refer [fail!]]
@@ -95,6 +96,8 @@
 ;; page-wide id namespace.
 (defonce ^:private !anchor-seq (atom 0))
 
+(def ^:private anchor-ident-prefix "--rf-overlay-")
+
 (defn- next-anchor-ident
   "A fresh CSS dashed-ident for one overlay INSTANCE, not one anchor id:
   two overlays may share a trigger, and a shared ident would make each
@@ -102,29 +105,44 @@
   content — it reaches the DOM only inside the ref callback, so it is in
   no server render's bytes (see `anchor-panel!`)."
   []
-  (str "--rf-overlay-" (swap! !anchor-seq inc)))
+  (str anchor-ident-prefix (swap! !anchor-seq inc)))
+
+(defn- anchor-names
+  "The names in an inline `anchor-name` value, in order. `none` and the
+  empty string are both no names, and `none` cannot share a list, so a
+  claim on a trigger whose author wrote it stands alone."
+  [value]
+  (into [] (remove #(or (= "" %) (= "none" %)))
+        (map str/trim (str/split (or value "") #","))))
+
+(defn- overlay-ident? [n] (str/starts-with? n anchor-ident-prefix))
 
 (defn- claim-anchor!
-  "Give the element with DOM id `anchor-id` the CSS anchor name `ident`
-  and answer `#js [element previous-name]`; nil when `anchor-id` is nil;
-  REFUSES with `:rf.error/fresco-overlay-anchor-missing` when the id
-  names no element. No anchor and a missing anchor are different
-  absences — the first asks for the UA's default position, the second
-  asks to be positioned against a trigger and would get that default in
-  silence, so a typo in an id would read like a design choice.
+  "Add the CSS anchor name `ident` to the `anchor-name` list of the
+  element with DOM id `anchor-id`, and answer `#js [element
+  previous-value]`; nil when `anchor-id` is nil; REFUSES with
+  `:rf.error/fresco-overlay-anchor-missing` when the id names no element.
+  No anchor and a missing anchor are different absences — the first asks
+  for the UA's default position, the second asks to be positioned
+  against a trigger and would get that default in silence, so a typo in
+  an id would read like a design choice.
 
-  The previous name goes to the CALLER rather than onto the element: two
-  overlays sharing one trigger would otherwise share one parking slot,
-  and the first release would restore the second's overwrite. It refuses
-  from the ref callback because that is the only place the id resolves
-  against the document React has already mutated for this commit; React
-  routes a commit-phase throw to an enclosing error boundary, and to
-  `reportError` when there is none."
+  ADDED to the list rather than written over the property, because
+  `anchor-name` takes a list and two overlays may share one trigger — a
+  tooltip and a menu on one button. Each panel positions against its own
+  ident, so a claim that replaced the list would leave the other open
+  panel anchored to a name nothing carries. The value the claim found
+  goes to the CALLER, for `release-anchor!`. It refuses from the ref
+  callback because that is the only place the id resolves against the
+  document React has already mutated for this commit; React routes a
+  commit-phase throw to an enclosing error boundary, and to `reportError`
+  when there is none."
   [anchor-id ident]
   (when anchor-id
     (if-some [^js el (.getElementById js/document anchor-id)]
       (let [previous (.. el -style -anchorName)]
-        (set! (.. el -style -anchorName) ident)
+        (set! (.. el -style -anchorName)
+              (str/join ", " (conj (anchor-names previous) ident)))
         #js [el previous])
       (fail! :rf.error/fresco-overlay-anchor-missing
              're-frame.fresco.impl.overlay/claim-anchor!
@@ -153,16 +171,27 @@
   nil)
 
 (defn- release-anchor!
-  "Put `previous` back on the element `claim-anchor!` answered — but only
-  while `ident` is still the name on it. An unconditional restore, when
-  the overlay leaving is not the one that claimed last, would write the
-  trigger back to a name the other, still-open panel is not anchored to.
-  The residual — an out-of-order teardown leaving the last claimant's
-  ident on the trigger — is a dashed-ident nothing references, and inert."
+  "Take `ident` out of the `anchor-name` list on the element
+  `claim-anchor!` answered, leaving every other name on it — the
+  author's own, and any other overlay's claim — so a panel still open on
+  that trigger stays anchored whichever overlay closes first.
+
+  The last overlay claim out hands the author's own value back: verbatim,
+  from what this claim found when it found no other claim there, and
+  otherwise as the author's names still on the list. A trigger whose list
+  no longer carries `ident` has been rewritten since the claim, and is
+  left alone."
   [claimed ident]
   (when-some [^js el (aget claimed 0)]
-    (when (= ident (.. el -style -anchorName))
-      (set! (.. el -style -anchorName) (or (aget claimed 1) ""))))
+    (let [names (anchor-names (.. el -style -anchorName))]
+      (when (some #(= ident %) names)
+        (let [others   (filterv #(not= ident %) names)
+              previous (aget claimed 1)]
+          (set! (.. el -style -anchorName)
+                (if (or (some overlay-ident? others)
+                        (some overlay-ident? (anchor-names previous)))
+                  (str/join ", " others)
+                  (or previous "")))))))
   nil)
 
 ;; ---------------------------------------------------------------------------
@@ -389,9 +418,9 @@
 
   Release before claim, and both through the shared doors above, because
   a trigger may carry an author's own `anchor-name` and two overlays may
-  share one trigger: `release-anchor!` restores only while this overlay's
-  ident is still the name on the element, so an out-of-order reconcile
-  leaves the other panel's claim standing rather than unanchoring it.
+  share one trigger: `release-anchor!` removes only this overlay's own
+  ident, so a reconcile leaves the other panel's claim standing rather
+  than unanchoring it.
 
   Idempotent by `claimedFor`, which is the anchor id the standing claim
   was taken for. That is what makes it safe to run on the render that
