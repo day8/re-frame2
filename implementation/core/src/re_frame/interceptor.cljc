@@ -157,8 +157,8 @@
   ;; Short-circuit: once any :before has failed, skip downstream :before
   ;; stages. This mirrors the :rf/skip-handler? pattern (events.cljc /
   ;; cofx.cljc) — partial context shouldn't be propagated to handlers or
-  ;; subsequent validation. The :after pass still runs in execute-chain
-  ;; so interceptors can perform teardown.
+  ;; subsequent validation. execute-chain still unwinds the entered stages
+  ;; through their :after so they can perform teardown.
   (if (:rf/interceptor-error context)
     context
     (if-let [f (:before interceptor)]
@@ -330,19 +330,26 @@
   reads). A later failure leaves it unchanged.
 
   Once a :before fails, subsequent :before stages are short-circuited
-  (the partial context would be invalid input). The :after pass still
-  runs in full so interceptors can do their cleanup. The drain loop
-  reads :rf/interceptor-error after the chain ends and emits
-  :rf.error/handler-exception (or similar)."
+  (the partial context would be invalid input), and the chain unwinds
+  only the interceptors that ENTERED — every stage whose :before was
+  called, the failing one included — running their :afters in reverse so
+  each can release what its :before acquired. An interceptor that never
+  entered gets no :after. A throwing :before contributes nothing to the
+  context, so the failing stage's :after sees the context as it was
+  before that :before ran. An :after throw does not stop the remaining
+  :afters. The drain loop reads :rf/interceptor-error after the chain
+  ends, emits :rf.error/handler-exception (or similar) and commits
+  nothing."
   ([interceptors initial-context]
    (execute-chain interceptors initial-context nil))
   ([interceptors initial-context {:keys [continue-before?]}]
-   ;; The ordinary path runs the full-chain unwind after a
-   ;; captured exception.  The exact-incarnation path additionally stops
-   ;; BEFORE entering another authored callback once ownership is lost, then
-   ;; unwinds only the interceptors already entered (including the callback
-   ;; which caused loss).  Their `:after` cleanup still runs in reverse order;
-   ;; its returned context is inert to the router's out-of-band owner token.
+   ;; Every unwind runs the `:after` of each interceptor already entered, in
+   ;; reverse, and of none that was not.  On a captured exception `i` is one
+   ;; past the stage whose `:before` threw, so that stage unwinds too.  The
+   ;; exact-incarnation path additionally stops BEFORE entering another
+   ;; authored callback once ownership is lost, then unwinds the same way
+   ;; (including the callback which caused loss); that cleanup's returned
+   ;; context is inert to the router's out-of-band owner token.
    (loop [i   0
           ctx initial-context]
      (cond
@@ -351,7 +358,7 @@
                        (assoc ctx :rf/stale-incarnation? true))
 
        (:rf/interceptor-error ctx)
-       (unwind-afters interceptors (dec (count interceptors)) ctx)
+       (unwind-afters interceptors (dec i) ctx)
 
        (= i (count interceptors))
        (unwind-afters interceptors (dec i) ctx)

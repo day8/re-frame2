@@ -186,50 +186,44 @@
             (assoc-in [:coeffects :db] focused))))
     :after
     (fn [ctx]
-      ;; Guard: only unwind when our `:before` pushed (an EARLIER interceptor's
-      ;; `:before` throw short-circuits downstream `:before` yet still runs every
-      ;; `:after` in reverse — Spec 002 rule 2). No stack → no-op teardown.
-      (let [stack (:rf.interceptor.path/stack ctx)]
-        (if (empty? stack)
-          ctx
-          (let [[original-db original-slice] (peek stack)
-                new-stack (pop stack)
-                emitted?  (contains? (:effects ctx) :db)]
-            (cond-> (-> ctx
-                        (assoc :rf.interceptor.path/stack new-stack)
-                        ;; Rule 6: unwind the focus. The `:db` coeffect is
-                        ;; HANDLER-scoped — restore the ORIGINAL full app-db
-                        ;; object so every stage that runs after this `:after`
-                        ;; sees the unfocused root. Nested paths restore in
-                        ;; LIFO order (inner → outer slice → root).
-                        ;; The framework's outermost flow stage falls
-                        ;; back to `[:coeffects :db]` as the pending app-db when
-                        ;; the handler emitted NO `:db` effect (router.cljc,
-                        ;; `pending-db`). Leaving the coeffect focused would make
-                        ;; an ordinary effect-only focused event hand the flow
-                        ;; pass its own sub-slice as the ROOT — the flow pass
-                        ;; would then stage that slice as a root `:db` effect and
-                        ;; erase every sibling key. Restoring the original OBJECT
-                        ;; (not a rebuilt map) also keeps rule 4's `identical?`
-                        ;; commit no-op intact.
-                        (assoc-in [:coeffects :db] original-db))
-              ;; Rule 3 is the absence of this branch — no `:db` effect means
-              ;; no synthetic `:db` effect is written.
-              emitted?
-              (assoc-in [:effects :db]
-                        (let [emitted-slice (get-in ctx [:effects :db])]
-                          (if (identical? emitted-slice original-slice)
-                            ;; Rule 4: unchanged focused slice → re-emit the
-                            ;; ORIGINAL full app-db object (identity preserved,
-                            ;; commit no-op intact). No allocation.
-                            original-db
-                            ;; Rule 5: widen the changed slice back into the
-                            ;; original app-db at path-vector. The root path
-                            ;; `[]` replaces the whole db (assoc-in with [] is
-                            ;; ill-defined, so special-case it).
-                            (if (seq path-vector)
-                              (assoc-in original-db path-vector emitted-slice)
-                              emitted-slice)))))))))))
+      (let [stack                        (:rf.interceptor.path/stack ctx)
+            [original-db original-slice] (peek stack)
+            emitted?                     (contains? (:effects ctx) :db)]
+        (cond-> (-> ctx
+                    (assoc :rf.interceptor.path/stack (pop stack))
+                    ;; Rule 6: unwind the focus. The `:db` coeffect is
+                    ;; HANDLER-scoped — restore the ORIGINAL full app-db
+                    ;; object so every stage that runs after this `:after`
+                    ;; sees the unfocused root. Nested paths restore in
+                    ;; LIFO order (inner → outer slice → root).
+                    ;; The framework's outermost flow stage falls
+                    ;; back to `[:coeffects :db]` as the pending app-db when
+                    ;; the handler emitted NO `:db` effect (router.cljc,
+                    ;; `pending-db`). Leaving the coeffect focused would make
+                    ;; an ordinary effect-only focused event hand the flow
+                    ;; pass its own sub-slice as the ROOT — the flow pass
+                    ;; would then stage that slice as a root `:db` effect and
+                    ;; erase every sibling key. Restoring the original OBJECT
+                    ;; (not a rebuilt map) also keeps rule 4's `identical?`
+                    ;; commit no-op intact.
+                    (assoc-in [:coeffects :db] original-db))
+          ;; Rule 3 is the absence of this branch — no `:db` effect means
+          ;; no synthetic `:db` effect is written.
+          emitted?
+          (assoc-in [:effects :db]
+                    (let [emitted-slice (get-in ctx [:effects :db])]
+                      (if (identical? emitted-slice original-slice)
+                        ;; Rule 4: unchanged focused slice → re-emit the
+                        ;; ORIGINAL full app-db object (identity preserved,
+                        ;; commit no-op intact). No allocation.
+                        original-db
+                        ;; Rule 5: widen the changed slice back into the
+                        ;; original app-db at path-vector. The root path
+                        ;; `[]` replaces the whole db (assoc-in with [] is
+                        ;; ill-defined, so special-case it).
+                        (if (seq path-vector)
+                          (assoc-in original-db path-vector emitted-slice)
+                          emitted-slice)))))))))
 
 ;; ---- standard interceptor registration ------------------------------------
 
