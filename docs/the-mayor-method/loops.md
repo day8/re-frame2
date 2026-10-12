@@ -268,6 +268,9 @@ safeguard** — no registry, no tracking field, no script.
   one file.
 - **That the holder's change is still OPEN is a precondition** — test it before testing reachability.
   Where it has merged there is nothing for the fix to land in, and a reachable agent is not a route.
+- **OPEN includes ready, and routing onto a ready change is a fix dispatch onto it** — convert it back
+  to draft and confirm the state took before the message goes, as [the merge loop](#1-merge) requires,
+  or that loop can take a head the routed work has not reached.
 - **Routing does not create an owner.** The message lives in one transcript, so if that agent dies or
   reasonably declines — declining is often correct — the finding evaporates and the audit that found it
   has already run.
