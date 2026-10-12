@@ -13,7 +13,7 @@
             [re-frame.flows :as rf.flows]
             [re-frame.interceptor :as rf.interceptor]
             [re-frame.registrar :as rf.registrar]
-            [re-frame.std-interceptors :as rf.std]
+            [re-frame.std-interceptors :as rf.std-interceptors]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (defn reset-runtime [test-fn]
@@ -193,10 +193,10 @@
                          ctx))
         root  {:a {:b 1} :x 2}
         final (rf.interceptor/execute-chain
-                [(rf.std/standard-path-interceptor [:a])
+                [(rf.std-interceptors/standard-path-interceptor [:a])
                  probe
                  (rf.interceptor/->interceptor* :id :boom :before boom)
-                 (rf.std/standard-path-interceptor [:b])]
+                 (rf.std-interceptors/standard-path-interceptor [:b])]
                 {:coeffects {:db root} :effects {}})]
     (is (= [1 {:b 1}] @seen)
         "between the paths, the outer entry and its focused slice are intact")
