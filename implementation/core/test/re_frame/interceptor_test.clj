@@ -13,6 +13,7 @@
             [re-frame.flows :as rf.flows]
             [re-frame.interceptor :as rf.interceptor]
             [re-frame.registrar :as rf.registrar]
+            [re-frame.std-interceptors :as rf.std]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (defn reset-runtime [test-fn]
@@ -131,14 +132,77 @@
       (is (= [:before :before-bad]
              ((juxt :phase :id) (:rf/interceptor-error final))))))
 
-  (testing "a throwing :before skips the remaining befores; every :after still runs"
+  (testing "a throwing :before skips the remaining befores and unwinds only the
+            entered stages, its own included; :c never entered, so its :after
+            never runs"
     (let [trail (atom [])
           final (run-chain [(stage trail :a identity identity)
                             (stage trail :boom boom identity)
                             (stage trail :c identity identity)])]
-      (is (= [[:before :a] [:before :boom] [:after :c] [:after :boom] [:after :a]]
+      (is (= [[:before :a] [:before :boom] [:after :boom] [:after :a]]
              @trail))
-      (is (= :boom (:id (:rf/interceptor-error final)))))))
+      (is (= :boom (:id (:rf/interceptor-error final))))))
+
+  (testing "an :after throw while unwinding a failed chain does not stop the
+            remaining entered :after stages, and the first error is the one
+            reported"
+    (let [trail (atom [])
+          final (run-chain [(stage trail :a identity identity)
+                            (stage trail :after-bad identity boom)
+                            (stage trail :before-bad boom identity)
+                            (stage trail :d identity identity)])]
+      (is (= [[:before :a] [:before :after-bad] [:before :before-bad]
+              [:after :before-bad] [:after :after-bad] [:after :a]]
+             @trail))
+      (is (= [:before :before-bad]
+             ((juxt :phase :id) (:rf/interceptor-error final)))))))
+
+(deftest chain-error-commits-nothing
+  ;; The entered outer interceptor's :after runs during the unwind and stages
+  ;; a :db write and an :fx entry; a failed chain commits neither.
+  (let [after-ran (atom false)
+        fx-ran    (atom false)]
+    (rf/reg-fx :unwind/fx (fn [_ _] (reset! fx-ran true)))
+    (rf/reg-interceptor :unwind/stage-effects
+                        {:after (fn [ctx]
+                                  (reset! after-ran true)
+                                  (-> ctx
+                                      (rf.interceptor/assoc-effect :db {:written true})
+                                      (rf.interceptor/assoc-effect :fx [[:unwind/fx nil]])))})
+    (rf/reg-interceptor :unwind/throw-before {:before boom})
+    (rf/reg-event :unwind/init (fn [_ _] {:db {:n 1}}))
+    (rf/reg-event :unwind/fails
+                  {:interceptors [:unwind/stage-effects :unwind/throw-before]}
+                  (fn [_ _] {:db {:n 2}}))
+    (rf/dispatch-sync [:unwind/init])
+    (rf/dispatch-sync [:unwind/fails])
+    (is @after-ran "the entered outer :after ran during the unwind")
+    (is (= {:n 1} (rf/app-db-value :rf/default)))
+    (is (false? @fx-ran))))
+
+(deftest nested-path-unwind-after-chain-error
+  ;; The inner path interceptor sits behind the failing stage, so it never
+  ;; entered: it pushed nothing and pops nothing, and the outer path's stack
+  ;; entry is intact when the stages between them unwind.
+  (let [seen  (atom nil)
+        probe (rf.interceptor/->interceptor*
+                :id    :probe
+                :after (fn [ctx]
+                         (reset! seen [(count (:rf.interceptor.path/stack ctx))
+                                       (get-in ctx [:coeffects :db])])
+                         ctx))
+        root  {:a {:b 1} :x 2}
+        final (rf.interceptor/execute-chain
+                [(rf.std/standard-path-interceptor [:a])
+                 probe
+                 (rf.interceptor/->interceptor* :id :boom :before boom)
+                 (rf.std/standard-path-interceptor [:b])]
+                {:coeffects {:db root} :effects {}})]
+    (is (= [1 {:b 1}] @seen)
+        "between the paths, the outer entry and its focused slice are intact")
+    (is (= [[] root]
+           [(:rf.interceptor.path/stack final) (get-in final [:coeffects :db])])
+        "the outer path pops its own entry and restores the root")))
 
 ;; ---- pipeline-exception attribution (dev trace) ---------------------------
 
