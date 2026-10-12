@@ -43,10 +43,12 @@ rule and the recipes the module leaves to the application.
       `:value` again and dispatches `:on-cancel` if given. Unmount neither commits
       nor cancels, so a virtualized row keeps its draft.
     - The `:on-commit` handler accepts by writing the text as the new value. To
-      normalise or reject it, write another value or none, and advance the revision
-      as well: the field shows the draft while the revision matches, and `:value`
-      once it moves. A committed or cancelled draft is removed, so Enter followed
-      by blur commits once and a blur after Escape commits nothing. After a
+      normalise or reject it, write another value or none; the revision stays as
+      it is, because the commit removes the draft before the handler runs and the
+      field shows `:value` whenever it has no draft. A committed or cancelled draft
+      is removed, so Enter followed by blur commits once and a blur after Escape
+      commits nothing. The revision replaces a draft from outside: the field shows
+      the draft while the revision matches, and `:value` once it moves. After a
       revision change, the next render's callbacks cannot commit the old draft.
       A saved protocol event with the old revision can still match that draft:
       the fence is the rendered revision, not a lookup of the domain value.
@@ -69,9 +71,10 @@ rule and the recipes the module leaves to the application.
       Make it identify the form instance and the field; two fields with one address
       share one draft.
     - `:value`: the committed value.
-    - `::h/revision`: a counter you keep beside the value and advance to throw a
-      draft away. A field that is never rejected, rewritten or reset may pass a
-      constant such as `0`.
+    - `::h/revision`: a counter you keep beside the value and advance to replace a
+      draft still being edited with `:value`. A field whose drafts are never
+      replaced from outside may pass a constant such as `0`, whatever its
+      `:on-commit` handler accepts, rejects or rewrites.
     - `:on-commit`: an event vector, dispatched with the draft text appended on
       Enter and on blur.
     - `:on-cancel` (optional): an event vector, dispatched on Escape.
@@ -96,12 +99,12 @@ rule and the recipes the module leaves to the application.
     :aria-label  "Todo title"
     :placeholder "What needs doing?"}]
 
-  ;; Accept a non-empty title and reject an empty one; advance the revision
-  ;; either way, so a rejected draft is replaced by the committed title.
+  ;; Accept a non-empty title and reject an empty one. The commit has already
+  ;; removed the draft, so after a rejection the field shows the committed title.
   (rf/reg-event :todo/title-committed
     (fn [{:keys [db]} [_ id text]]
-      {:db (cond-> (update-in db [:todo id :title-revision] (fnil inc 0))
-             (seq text) (assoc-in [:todo id :title] text))}))
+      (when (seq text)
+        {:db (assoc-in db [:todo id :title] text)})))
   ```
 
 ## The draft's home

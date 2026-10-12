@@ -86,10 +86,10 @@
                   :cancelled []}}))
 
 (rf/reg-event ::title-committed
-  {:doc "The caller's `:on-commit`, in the chapter's own shape — accept a
-         trimmed candidate, refuse a blank one, and advance the revision
-         either way. It also RECORDS what it was handed, so a row can
-         assert on the candidate rather than only on its effect."}
+  {:doc "The caller's `:on-commit` — accept a trimmed candidate, refuse a
+         blank one, and advance the revision either way. It also RECORDS
+         what it was handed, so a row can assert on the candidate rather
+         than only on its effect."}
   (fn [{:keys [db]} [_ id candidate]]
     (let [title (str/trim candidate)
           db    (update db :committed conj [id candidate])]

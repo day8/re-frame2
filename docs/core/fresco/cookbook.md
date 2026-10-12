@@ -276,12 +276,9 @@ of the committed value.
 (rf/reg-event :todo/rename
   (fn [{:keys [db]} [_ id title]]
     (let [title (str/trim title)]
-      (if (str/blank? title)
-        ;; Reject: keep the old title and move the revision so the field shows it.
-        {:db (update-in db [:revisions id] (fnil inc 0))}
-        {:db (-> db
-                 (assoc-in [:todos id :title] title)
-                 (update-in [:revisions id] (fnil inc 0)))}))))
+      ;; Reject a blank title by writing nothing: the field shows the old one.
+      (when-not (str/blank? title)
+        {:db (assoc-in db [:todos id :title] title)}))))
 
 (h/defview title-field [{:keys [id]}]
   [forms/buffered-field
@@ -305,9 +302,11 @@ The field's behaviour is fixed:
   and come back with its draft intact.
 
 Your `:on-commit` handler decides the outcome. Accept by writing the value.
-Normalise by writing something else. Reject by leaving the value alone. When
-you normalise or reject, also advance the revision: the committed value may not
-change, and the field only re-baselines when something it reads does.
+Normalise by writing something else. Reject by leaving the value alone. None of
+them touches the revision: the draft ends before your handler runs, so the field
+shows `:value` whatever you decided. Advance `[:revisions id]` from an event
+that should replace a draft still being edited, such as a server push of a new
+title.
 
 A draft the user never commits survives re-render, remount and navigation,
 because it lives in app-db. When it should end, for example on route entry,
