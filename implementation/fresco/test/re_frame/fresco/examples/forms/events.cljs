@@ -104,10 +104,9 @@
     (if-some [typed (get-in db (rf.fresco.examples.forms.db/draft-path ikey))]
       (let [candidate (str/trim typed)]
         (if (str/blank? candidate)
-          ;; REFUSE. The subject does not move, so nothing the field reads
-          ;; would change — `end-session`'s revision is the entire reason
-          ;; the refusal becomes visible instead of leaving the blank text
-          ;; sitting there looking accepted.
+          ;; REFUSE. The subject does not move, but ending the session
+          ;; moves `subject-shown` from the blank draft back to the
+          ;; committed subject, so the refusal shows without the bump.
           {:db (end-session db ikey)}
           {:db (-> db
                    (assoc-in [:ticket :subject] candidate)
