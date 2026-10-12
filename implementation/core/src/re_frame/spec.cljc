@@ -31,8 +31,10 @@
   transformed event.
 
   - In **dev builds** every handler's `:schema` is checked anyway (Spec 010
-    §Validation order step 1), so `validate-at-boundary!` is never reached and
-    `:boundary?` changes nothing.
+    §Validation order step 1), so `:boundary?` changes nothing — except with
+    the schemas artefact absent, when the dev arm defers to
+    `validate-at-boundary!` and a `:boundary? true` handler is refused there
+    exactly as in production.
   - In **production builds** `re-frame.interop/debug-enabled?` is `false` and
     step-1 validation is elided — except for `:boundary? true` handlers, which
     take this arm.
@@ -116,7 +118,8 @@
 (defn validate-at-boundary!
   "Production-side step-1 validation for a handler that declared
   `:boundary? true`. Called from `re-frame.router`'s step-1 site when
-  `dev-mode?` is false, on the ORIGINAL dispatched event vector, BEFORE the
+  `dev-mode?` is false, and from its dev arm when the schemas artefact is
+  absent, on the ORIGINAL dispatched event vector, BEFORE the
   interceptor chain runs and against the ALREADY-RESOLVED handler's own
   `:schema` — never a re-derived id, never a chain-transformed event.
 
