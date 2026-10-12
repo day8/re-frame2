@@ -286,7 +286,7 @@
       (let [m      (rf.fresco.test.mounted/mount! [form-screen {}] {:initial-events [[::seed]]})
             n      (field m)
             !enter (atom nil)
-            note   (fn [e] (when (= "Enter" (.-key e)) (reset! !enter e)))]
+            note   (fn [^js e] (when (= "Enter" (.-key e)) (reset! !enter e)))]
         (.addEventListener n "keydown" note)
         (.focus n)
         (type-into! m n "Buy oat milk")
@@ -296,9 +296,10 @@
             (rf.fresco.test.mounted/settle! m)
             (.removeEventListener n "keydown" note)
             (is (some? @!enter) "premise: the real Enter reached the field")
-            (is (true? (some-> @!enter .-defaultPrevented))
-                "Enter's default is prevented — inside a form, that default is
-                 implicit submission")
+            (let [^js enter @!enter]
+              (is (true? (some-> enter .-defaultPrevented))
+                  "Enter's default is prevented — inside a form, that default is
+                   implicit submission"))
             (is (= 0 (submits-of m)) "and the form did not submit")
             (is (= "Buy oat milk" (title-of m)) "the field committed")
             (is (= 1 (revision-of m))

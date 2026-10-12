@@ -1124,7 +1124,7 @@
 
 (defn- anchor-list
   "The names in `el`'s inline `anchor-name`, in order."
-  [el]
+  [^js el]
   (into [] (comp (map str/trim) (remove str/blank?))
         (str/split (or (.. el -style -anchorName) "") #",")))
 
@@ -1132,9 +1132,9 @@
   "Assert `panel` sits against `trigger`: on `side` of it (`:below` or
   `:above`), and left-aligned with it. A panel whose anchor name nothing
   carries lands at the UA's default position instead, which fails both."
-  [trigger panel side what]
-  (let [t (.getBoundingClientRect trigger)
-        p (.getBoundingClientRect panel)]
+  [^js trigger ^js panel side what]
+  (let [^js t (.getBoundingClientRect trigger)
+        ^js p (.getBoundingClientRect panel)]
     (is (case side
           :below (>= (.-top p) (- (.-bottom t) 1))
           :above (<= (.-bottom p) (+ (.-top t) 1)))
