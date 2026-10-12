@@ -45,7 +45,7 @@ frame isolation, Xray visibility, and direct test setup.
 
 The concern must be a namespace-qualified keyword, because it is a sub id, an
 event id and an app-db key at once. The instance key is a keyword, string,
-number or vector of those. Registering the concern again replaces the
+number, UUID or vector of those. Registering the concern again replaces the
 registration, so a namespace reload is harmless.
 
 The cell below runs `todo-item` for two todos and prints what app-db holds at
@@ -324,7 +324,7 @@ belongs in an island that dispatches the completed drop
 | A view-local atom resets or never repaints the view | The body can re-run or be abandoned, and Fresco does not subscribe to the atom | Move the fact to app-db; move genuine widget mechanics into an island |
 | You are looking for `:on-mount`, `componentDidMount`, or a mount effect | Fresco has no generic lifecycle hook | Identify the job and use the owner in the table above |
 | Every panel opens at once | All instances share one address | Include a stable instance key in the address |
-| `:rf.error/fresco-state-bad-argument`, thrown by the registration or as the cause of a `:rf.error/sub-exception` or `:rf.error/handler-exception` | A `reg-state` read or write got a `nil` or non-data instance key, or the registration has an unqualified concern or an unknown option; a failed read returns `nil`, not the default | Pass a stable id such as the entity id; the error's reason names which argument is wrong |
+| `:rf.error/fresco-state-bad-argument`, thrown by the registration or as the cause of a `:rf.error/sub-exception` or `:rf.error/handler-exception` | A `reg-state` read or write got a `nil` or non-data instance key, or the registration has an unqualified concern or an unknown option; a failed read returns `nil`, not the default | Pass a stable id such as the entity id: a keyword, string, number, UUID or vector of those. The error's reason names which argument is wrong |
 | Typing or dragging lags and Xray shows an event per pointer move | High-rate mechanics were routed through app-db | Keep pointer mechanics inside the host and dispatch only the semantic result |
 | A dismissed item vanishes before its CSS exit finishes | Exit retention was treated as app-db state, or Presence was not used | See [Motion and presence](12-motion-and-presence.md) |
 | app-db accumulates many `:ui` entries | Application-visible UI state is correctly stored there | Namespace the slice and exclude it from persistence when appropriate |

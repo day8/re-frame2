@@ -112,19 +112,23 @@
 ;; ---------------------------------------------------------------------------
 
 (defn instance-key?
-  "A keyword, a string, a number, or a vector of those (recursively).
+  "A keyword, a string, a number, a UUID, or a vector of those
+  (recursively).
 
   The list is short on purpose. It is every shape that reads as an
   identity, prints legibly in a tool, survives EDN, and — the reason the
   vector case is in it — can be COMPOSED by `child-key` without
-  becoming a new kind of thing. `nil` is not on it, and that exclusion is
-  the whole point: `nil` is what a missing prop, a mistyped destructure
-  and a forgotten argument all evaluate to, and `nil` as a key is
-  precisely the every-instance-shares-one-value pitfall."
+  becoming a new kind of thing. A UUID is on it because it is the
+  canonical entity id, so the domain id the first taught rule asks for is
+  often one, bare or as `[:order/id uuid]`. `nil` is not on it, and that
+  exclusion is the whole point: `nil` is what a missing prop, a mistyped
+  destructure and a forgotten argument all evaluate to, and `nil` as a
+  key is precisely the every-instance-shares-one-value pitfall."
   [k]
   (boolean (or (keyword? k)
                (string? k)
                (number? k)
+               (uuid? k)
                (and (vector? k) (every? instance-key? k)))))
 
 (defn- check-key!
@@ -137,7 +141,7 @@
            're-frame.fresco.impl.state/check-key!
            (str "The instance key for " (pr-str concern) " was "
                 (pr-str ikey) ", which is not a keyword, string, number, "
-                "or vector of those. Without a per-instance key every "
+                "UUID, or vector of those. Without a per-instance key every "
                 "instance of this widget shares one value, which is a "
                 "wrong screen that never complains — so it is refused "
                 "here instead.")

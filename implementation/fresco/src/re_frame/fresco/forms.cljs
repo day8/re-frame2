@@ -186,8 +186,9 @@
         :placeholder \"What needs doing?\"}]
 
   Protocol (fixed): focus creates nothing and the first edit starts the
-  session; Enter and blur both dispatch `(conj on-commit candidate)`;
-  Escape clears the draft, shows `:value` again and dispatches
+  session; Enter and blur both dispatch `(conj on-commit candidate)`, and
+  Enter's default is prevented, so a field inside a `<form>` commits
+  without submitting it; Escape clears the draft, shows `:value` again and dispatches
   `:on-cancel` if given; unmount neither commits nor cancels, so a
   virtualized row keeps its draft. The field shows the draft while its
   revision matches `::h/revision` and `:value` the moment it does not.
@@ -232,6 +233,10 @@
              :on-blur     [::commit control revision on-commit]
              ;; The key MAP rather than a callback reading `.key`: the
              ;; substrate's composition gate answers a key event there, so
-             ;; Enter cannot commit a partial IME composition.
-             :on-key-down {"Enter"  [::commit control revision on-commit]
+             ;; Enter cannot commit a partial IME composition, and a
+             ;; composing Enter keeps its default, which is the IME's.
+             ;; Enter's leaf is `::h/prevent` because inside a `<form>` its
+             ;; default is implicit submission, and the commit is the
+             ;; field's whole answer to Enter.
+             :on-key-down {"Enter"  [::rf.fresco/prevent [::commit control revision on-commit]]
                            "Escape" [::cancel control revision on-cancel]}})]))

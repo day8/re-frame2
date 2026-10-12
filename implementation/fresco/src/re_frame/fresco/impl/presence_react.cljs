@@ -71,6 +71,18 @@
   earliest deadline. Deadlines are absolute instants, so a timer re-armed
   because some *other* key changed cannot extend a child's retention.
 
+  The timer firing is itself the evidence that its deadline has passed,
+  so the callback expires at `(max deadline (now))`. `setTimeout` counts
+  its delay on the platform's monotonic clock, while `Date.now` is the
+  wall clock and can step backwards after the timer is armed — an NTP
+  correction, a user changing the time. Read alone, a stepped-back `now`
+  finds nothing due, changes no state and arms no new timer, and the node
+  would stay until something else changed the tray. `Date.now` stays the
+  clock because the test kit's virtual clock
+  (`re-frame.fresco.test.mounted/advance-clock!`) moves it in lockstep
+  with the timers, and deliberately leaves `performance.now` alone
+  because React's scheduler reads it.
+
   ## Born present under adoption
 
   A hydrating tree's children are already on the screen, so they start
@@ -159,7 +171,9 @@
       (fn []
         (let [expiry (when-some [d (rf.fresco.impl.presence/next-deadline next)]
                        (js/setTimeout
-                         (fn [] (set-state (fn [s] (rf.fresco.impl.presence/expire s (now)))))
+                         ;; `max`: the firing proves `d` has passed, whatever
+                         ;; the wall clock now reads (see the ns docstring).
+                         (fn [] (set-state (fn [s] (rf.fresco.impl.presence/expire s (max d (now))))))
                          (max 0 (- d (now)))))
               ;; The enter flip lands on a macrotask rather than a layout
               ;; effect: a class flip that beats the browser's first paint

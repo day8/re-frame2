@@ -509,9 +509,13 @@ Entry animation can be pure CSS because the panel mounts when it opens:
 ### Exit animation
 
 The overlay module has no exit clock. When `:open?` becomes false the panel is
-removed in that commit, so a CSS exit transition on the panel never runs.
-Retaining a node after its data has gone is the job of
-[`motion/presence`](12-motion-and-presence.md).
+removed in that commit, so a CSS exit transition on the panel never runs, and
+an overlay closes without an exit animation.
+
+[`motion/presence`](12-motion-and-presence.md) retains a keyed node after its
+data has gone, but presence around an overlay is not a tested composition:
+neither module is tested against the other, so this chapter has no exit recipe
+to offer.
 
 ### Re-anchor an open panel
 
