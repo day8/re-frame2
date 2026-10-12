@@ -766,8 +766,11 @@
   handler (recovery :no-recovery; downstream queue continues).
 
   Returns truthy when the handler should run, falsy when it should be
-  skipped. Defaults to true when the schemas namespace hasn't been
-  loaded.
+  skipped. When the schemas namespace hasn't been loaded the dev arm defers
+  to `rf.spec/validate-at-boundary!`, which passes a handler that did not
+  declare `:boundary? true` and refuses one that did with
+  `:rf.error/schemas-artefact-missing` — the production arm's answer, so a
+  dev build meets that refusal first.
 
   TWO ARMS, one site. The DEV arm is gated on
   `rf.spec/dev-mode?` — a single read of `rf.interop/debug-enabled?` behind an
@@ -807,7 +810,9 @@
       (try (validate! event-id event handler-meta frame live?)
            (catch #?(:clj Throwable :cljs :default) _
              (if (live?) true :rf/stale-incarnation)))
-      true)
+      ;; No schemas artefact. Outside the catch-and-pass above, so its
+      ;; refusal of a boundary-guarded handler stays a refusal.
+      (rf.spec/validate-at-boundary! event-id event handler-meta frame))
     (rf.spec/validate-at-boundary! event-id event handler-meta frame)))
 
 (defn- assemble-initial-ctx
