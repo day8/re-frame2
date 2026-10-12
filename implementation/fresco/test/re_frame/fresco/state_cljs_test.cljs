@@ -243,9 +243,37 @@
 ;; Instance keys as values
 ;; ---------------------------------------------------------------------------
 
+(def ^:private order-a (uuid "00000000-0000-4000-8000-00000000000a"))
+(def ^:private order-b (uuid "00000000-0000-4000-8000-00000000000b"))
+
+(deftest uuid-keys-are-independent-instances-and-clear-to-the-default
+  (testing "a UUID is the canonical entity id, so it keys a widget's state
+           bare and entity-qualified alike — the domain id the first taught
+           rule asks for, with no stringifying"
+    (rf.fresco.impl.state/reg-state ::open? {:default false})
+    (let [f  (frame! ::uuid-keys)
+          ks [order-a order-b [:order/id order-a]]]
+      (doseq [k ks]
+        (is (= false (read* f [::open? k])) (str "unwritten " (pr-str k) " reads the default")))
+      (send! f [::open? order-a true])
+      (send! f [::open? [:order/id order-a] :pinned])
+      (is (= true    (read* f [::open? order-a])))
+      (is (= false   (read* f [::open? order-b]))
+          "a second UUID is a second instance")
+      (is (= :pinned (read* f [::open? [:order/id order-a]]))
+          "and the entity-qualified key is a third, distinct from the bare one")
+      (is (= {:ui {::open? {order-a true [:order/id order-a] :pinned}}} (db-of f))
+          "at the documented app-space path, concern first")
+      (send! f [rf.fresco.impl.state/clear-event-id ::open? order-a])
+      (send! f [rf.fresco.impl.state/clear-event-id ::open? [:order/id order-a]])
+      (doseq [k ks]
+        (is (= false (read* f [::open? k])) (str (pr-str k) " is back to the default")))
+      (is (= {:ui {}} (db-of f))
+          "the clear REMOVED both entries and pruned the emptied concern"))))
+
 (deftest instance-key-admits-exactly-the-composable-shapes
   (testing "admitted"
-    (doseq [k [:kw "s" 0 [:a 1 "b"] [[:order/id 42] :row] []]]
+    (doseq [k [:kw "s" 0 order-a [:order/id order-a] [:a 1 "b"] [[:order/id 42] :row] []]]
       (is (rf.fresco.impl.state/instance-key? k) (str (pr-str k) " is an instance key"))))
   (testing "refused"
     (doseq [k [nil false {} #{:a} '(:a) [:a nil]]]

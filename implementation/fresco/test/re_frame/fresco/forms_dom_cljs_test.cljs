@@ -43,7 +43,7 @@
   Every row needs a real document and a real React DOM. `:node-test`
   compiles this namespace too (`cljs-test$` matches `-dom-cljs-test`), and
   each row degrades there to a STATED skip rather than a false green."
-  (:require [cljs.test :refer-macros [deftest is use-fixtures async]]
+  (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [clojure.string :as str]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
@@ -51,6 +51,7 @@
             [re-frame.fresco :as rf.fresco]
             [re-frame.fresco.forms :as rf.fresco.forms]
             [re-frame.fresco.test.mounted :as rf.fresco.test.mounted]
+            [re-frame.fresco.trusted-input-support :as rf.fresco.trusted-input-support]
             [re-frame.test-support :as rf.test-support]))
 
 ;; ---------------------------------------------------------------------------
@@ -150,6 +151,20 @@
      [title-field {:id todo}])
    [constant-field {:id todo}]])
 
+(rf/reg-event ::submitted
+  {:doc "The enclosing form's `:on-submit`, counted. The intent's own
+         prevented default keeps a submission from navigating the page, so
+         a submission is a number the row can read."}
+  (fn [{:keys [db]} _] {:db (update db :submits (fnil inc 0))}))
+
+(rf.fresco/defview form-screen
+  "The field inside a `<form>` with a submit button — the arrangement in
+  which Enter's default is implicit submission."
+  [_]
+  [:form.edit {:on-submit [::submitted]}
+   [title-field {:id todo}]
+   [:button {:type "submit"} "Save"]])
+
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.uix/adapter
@@ -208,6 +223,8 @@
 
 (defn- send! [m event-v] (rf/dispatch-sync event-v {:frame (:frame m)}))
 (defn- title-of [m] (get-in (rf/app-db-value (:frame m)) [:todo todo :title]))
+(defn- revision-of [m] (get-in (rf/app-db-value (:frame m)) [:todo todo :title-revision]))
+(defn- submits-of [m] (get (rf/app-db-value (:frame m)) :submits 0))
 (defn- record-of [m]
   (rf/subscribe-once [rf.fresco.forms/drafts [:todo todo :title]] {:frame (:frame m)}))
 
@@ -248,6 +265,57 @@
         (is (identical? n js/document.activeElement)
             "and focus is still in the box")
         (finish m done)))))
+
+(deftest enter-inside-a-form-commits-once-and-submits-nothing
+  ;; A REAL Enter, because the default action is the half of a key event a
+  ;; page cannot forge: a synthetic keydown reaches every listener and the
+  ;; engine then submits nothing, so a synthetic row reads green whether or
+  ;; not the field prevents Enter's default. The press comes through the
+  ;; browser gate's trusted-input bridge, and the row reads both what the
+  ;; event carried and what the form did with it.
+  (async done
+    (cond
+      (not (browser?))
+      (do (skip! "a real Enter inside a real form") (done))
+
+      (not (rf.fresco.trusted-input-support/bridge?))
+      (do (rf.fresco.trusted-input-support/unwitnessed! "Enter's default inside a form")
+          (done))
+
+      :else
+      (let [m      (rf.fresco.test.mounted/mount! [form-screen {}] {:initial-events [[::seed]]})
+            n      (field m)
+            !enter (atom nil)
+            note   (fn [e] (when (= "Enter" (.-key e)) (reset! !enter e)))]
+        (.addEventListener n "keydown" note)
+        (.focus n)
+        (type-into! m n "Buy oat milk")
+        (rf.fresco.trusted-input-support/press-once!
+          "Enter"
+          (fn []
+            (rf.fresco.test.mounted/settle! m)
+            (.removeEventListener n "keydown" note)
+            (is (some? @!enter) "premise: the real Enter reached the field")
+            (is (true? (some-> @!enter .-defaultPrevented))
+                "Enter's default is prevented — inside a form, that default is
+                 implicit submission")
+            (is (= 0 (submits-of m)) "and the form did not submit")
+            (is (= "Buy oat milk" (title-of m)) "the field committed")
+            (is (= 1 (revision-of m))
+                "exactly once: the caller's handler advances the revision on
+                 every call, and it moved by one")
+            (testing "a COMPOSING Enter belongs to the IME: the composition
+                      gate runs before the leaf, so nothing commits and the
+                      default the IME needs is left alone"
+              (type-into! m n "Tokyo")
+              (let [ev (js/KeyboardEvent. "keydown" #js {:key "Enter" :isComposing true
+                                                         :bubbles true :cancelable true})]
+                (.dispatchEvent n ev)
+                (rf.fresco.test.mounted/settle! m)
+                (is (false? (.-defaultPrevented ev)))
+                (is (= {:revision 1 :draft "Tokyo"} (record-of m))
+                    "the session is still open, holding the composed text")))
+            (finish m done)))))))
 
 (deftest an-untitled-todo-is-an-empty-box-on-one-node
   ;; The chapter's example for a todo with no `:title`:

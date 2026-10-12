@@ -531,12 +531,13 @@
          under — POSITIONAL, because a marker inside a payload map is
          substituted nowhere and would arrive as the keyword itself")
     (is (= [rf.fresco.test.forms/commit-id control 4 [::title-committed 7]] (:on-blur attrs)))
-    (is (= {"Enter"  [rf.fresco.test.forms/commit-id control 4 [::title-committed 7]]
+    (is (= {"Enter"  [::rf.fresco/prevent [rf.fresco.test.forms/commit-id control 4 [::title-committed 7]]]
             "Escape" [rf.fresco.test.forms/cancel-id control 4 nil]}
            (:on-key-down attrs))
         "the key MAP, not a callback reading `.key` — which is what keeps
          the substrate's own composition gate, and why this file finds no
-         function anywhere")))
+         function anywhere. Enter alone is prevented: inside a `<form>` its
+         default is implicit submission, and the commit is the answer")))
 
 (deftest the-field-shows-the-draft-only-while-its-revision-matches
   (is (= "half typed" (shown {:revision 4 :draft "half typed"} 4))
