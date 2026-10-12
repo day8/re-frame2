@@ -105,9 +105,9 @@
   (fn [{:keys [db]} [_ id]] {:db (update db :cancelled conj id)}))
 
 (rf/reg-event ::settle
-  {:doc "An external reset: a later settle writes the accepted value AND
-         advances the revision together, which is the async fence the
-         chapter names."}
+  {:doc "An external reset: a settle that writes the accepted value AND
+         advances the revision, the chapter's shape for a settle that
+         should discard text typed while its request was pending."}
   (fn [{:keys [db]} [_ id title]]
     {:db (-> db
              (assoc-in [:todo id :title] title)
@@ -287,8 +287,9 @@
       (commit! frame 0)
       (is (= committed (title-of frame)) "the caller refused the blank draft")
       (is (= 1 (revision-of frame))
-          "and advanced the revision, which is the only way a same-value
-           refusal becomes observable at all")
+          "and advanced the revision, as this caller does on every commit.
+           The refusal does not depend on it: the session ends below, and a
+           field with no session shows `:value`")
       (is (nil? (record-of frame))
           "the session ended on the module's side whatever the caller
            decided — two different facts, and this one is the module's")
@@ -486,22 +487,27 @@
              the field the author wrote")))))
 
 (deftest trap-same-value-blindness-the-model-half
-  ;; TRAP 2. The user drafts something the caller refuses; the caller
-  ;; keeps the value it had. Equality cannot carry that decision, so the
-  ;; revision does — and here is the model saying so.
+  ;; TRAP 2. The user commits a draft equal to the committed title, so the
+  ;; value does not move and equality cannot see the decision. The field
+  ;; does not need it to: the commit ends the session, and a field with no
+  ;; session shows `:value` ([[a-refused-commit-still-ends-the-session]]).
   (with-app
     (fn [frame]
       (type! frame 0 committed)
       (commit! frame 0)
       (is (= committed (title-of frame)) "the value did not move")
       (is (= 1 (revision-of frame))
-          "and the revision did, which is the only thing that can tell a
-           field its baseline is a NEW decision rather than the old one"))))
+          "and the revision did, because this caller advances it on every
+           commit. The revision is what replaces a live session from
+           outside, even with an equal value; a commit has already ended its
+           own"))))
 
 (deftest trap-commit-flicker-a-superseded-settle-changes-nothing
-  ;; TRAP 3. Two writes, the older settling last. The chapter's fence is
-  ;; *settle value and revision together*, and what it buys is that the
-  ;; late one cannot reopen a session the newer one closed.
+  ;; TRAP 3. A settle lands while the user is editing again. Advancing the
+  ;; revision in it supersedes that session on purpose — the chapter does
+  ;; so only when the settled value should replace the draft — and what
+  ;; the fence buys is that the superseded session's late blur cannot
+  ;; commit over the settled value.
   (with-app
     (fn [frame]
       (type! frame 0 "first")
@@ -514,7 +520,8 @@
            blur carries 2 and meets a record written at 1 — superseded,
            and it never reaches the caller")
       (is (= "first (server)" (title-of frame))
-          "and the newer value stands rather than flickering back"))))
+          "and the settled value stands rather than flickering back to the
+           superseded draft"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 4. L2 — the body as a semantic tree
