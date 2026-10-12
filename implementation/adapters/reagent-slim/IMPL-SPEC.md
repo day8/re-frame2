@@ -373,8 +373,10 @@ Vars:
 
 Three properties of the shipped queue are contract, not incidental: a Reaction
 that fires DURING a flush is held for the NEXT turn rather than flattened into
-the current drain; the after-render pass swallows a per-callback throw so
-one misbehaving callback cannot strand the rest of the queue (rf2-p27yih); and
+the current drain; the after-render pass isolates each callback so one
+misbehaving callback cannot strand the rest of the queue (rf2-p27yih), then
+rethrows the first throw asynchronously, on a fresh host task, once the walk
+completes; and
 an after-render callback observes the COMMITTED DOM, not merely a DOM whose
 `forceUpdate` has been REQUESTED (rf2-cdoo — see §4.1).
 
