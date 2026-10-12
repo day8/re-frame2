@@ -51,9 +51,10 @@
   This namespace stays decoupled from `re-frame.schemas` (an optional
   artefact) by reaching into it through the
   `:schemas/validate-with-registered-fn` and
-  `:schemas/explain-with-registered-fn` late-bind hooks. When the schemas
-  artefact is not on the classpath the hooks return nil and the check falls
-  through as a no-op."
+  `:schemas/explain-with-registered-fn` late-bind hooks. A loaded artefact
+  always publishes them, so an unbound validate hook means the artefact is
+  absent, and the check then REFUSES with `:rf.error/schemas-artefact-missing`
+  rather than run the handler on a payload nothing checked."
   (:require [re-frame.error :as rf.error]
             [re-frame.events :as rf.events]
             [re-frame.interop :as rf.interop]
@@ -121,10 +122,22 @@
 
   Returns truthy when the handler should run, `false` when it should be
   skipped. Falls through as a no-op (returns `true`) for a handler that did
-  not declare `:boundary? true`, when no validator is registered
-  (`set-schema-fns!` installed a `nil` `:validate`, or the schemas artefact is
-  absent), and — defensively — when the registry metadata carries no `:schema`
-  KEY at all.
+  not declare `:boundary? true`, when `set-schema-fns!` installed a `nil`
+  `:validate` (the seam passes every value), and — defensively — when the
+  registry metadata carries no `:schema` KEY at all.
+
+  THROWS `:rf.error/schemas-artefact-missing` when the schemas artefact is
+  absent — the `:schemas/validate-with-registered-fn` hook is unbound — and
+  the handler does not run. The handler declared a production check that
+  nothing can perform, and a pass would run it on exactly the unchecked
+  payload the flag exists to gate. A loaded artefact always publishes the
+  seam, so an unbound hook is never the deliberate `nil`-validator opt-out.
+
+  A rejection builds its diagnosis — the explainer call, the redaction and
+  the tags — only when `rf.interop/debug-enabled?`, because the dev trace is
+  its only consumer and `rf.trace/emit-error!` is gated on the same flag. A
+  release rejection calls the validator once and nothing else; the always-on
+  record is the router's, built from identifiers alone.
 
   Declaration is KEY-presence, not value truthiness. Registration
   rejects `:boundary? true` whose metadata lacks the `:schema` KEY, but
@@ -149,55 +162,74 @@
   (if-not (rf.events/boundary-guarded-handler? handler-meta)
     true
     (let [validate-fn (rf.late-bind/get-fn-cached :schemas/validate-with-registered-fn)]
-      (if (or (nil? validate-fn)
-              ;; An ABSENT `:schema` key can only mean the registry metadata was
-              ;; mutated post-registration; no declaration, no check.
-              (not (contains? handler-meta :schema)))
+      (cond
+        ;; An ABSENT `:schema` key can only mean the registry metadata was
+        ;; mutated post-registration; no declaration, no check.
+        (not (contains? handler-meta :schema))
         true
+
+        ;; No schemas artefact: the declared check cannot run, so the handler
+        ;; does not either. The ex-data carries identifiers only — never the
+        ;; payload, which is untrusted by definition.
+        (nil? validate-fn)
+        (rf.error/throw-error!
+          :rf.error/schemas-artefact-missing 'rf/reg-event
+          (str "Event " event-id " declares `:boundary? true`, but the schemas "
+               "artefact is not loaded, so its `:schema` cannot be checked and "
+               "the handler does not run; add day8/re-frame2-schemas to deps and "
+               "require re-frame.schemas at app boot.")
+          {:extra (cond-> {:failing-id event-id}
+                    frame (assoc :frame frame))})
+
+        :else
         (let [schema (:schema handler-meta)
               ok?    (try (validate-fn schema event)
                           (catch #?(:clj Throwable :cljs :default) _ false))]
           (if ok?
             true
-            (let [explain-fn  (rf.late-bind/get-fn-cached :schemas/explain-with-registered-fn)
-                  explanation (when explain-fn
-                                (try (explain-fn schema event)
-                                     (catch #?(:clj Throwable :cljs :default) _ nil)))
-                  ;; Route the failure tags through
-                  ;; the SHARED schema-aware redaction seam so a sensitive
-                  ;; payload (a `:cat` payload map carrying `{:sensitive? true}`)
-                  ;; is scrubbed here exactly as the dev-time step-1 path scrubs
-                  ;; it. When the schemas artefact is absent the hook is nil and
-                  ;; the tags ride verbatim (no schema = nothing to redact
-                  ;; against).
-                  redact-fn   (rf.late-bind/get-fn-cached :schemas/redact-validation-tags)
-                  base-tags   (cond-> {:where      :event
-                                       :event-id   event-id
-                                       :failing-id event-id
-                                       :schema-id  event-id
-                                       :received   event
-                                       :value      event
-                                       :explain    explanation
-                                       :source     :boundary
-                                       :reason     (str "Event " event-id
-                                                        " payload failed boundary "
-                                                        "schema " schema ", got "
-                                                        (rf.error/type-of-value event) ".")
-                                       :recovery   :no-recovery}
-                                frame (assoc :frame frame))]
+            (do
               ;; Axis 2 — the RICH dev trace, the same shape dev-mode step-1
-              ;; emits (Spec 010 L149). Per Spec 009 §Production builds
-              ;; `emit-error!` itself elides under `:advanced` +
-              ;; `goog.DEBUG=false`, so this body only fires under JVM /
-              ;; dev-CLJS with `dev-mode?` flipped off — exactly the surface the
-              ;; boundary-validation tests exercise. The payload-bearing slots
-              ;; (`:received` / `:value` / `:explain` / the interpolated
-              ;; `:reason`) ride HERE and ONLY here — see the always-on record's
-              ;; structural-only contract in
+              ;; emits (Spec 010 L149). Its only consumer is `emit-error!`,
+              ;; which is gated on `debug-enabled?` too, so the explainer, the
+              ;; redaction and the tags are built under the SAME gate here:
+              ;; arguments evaluate before the callee's gate, and a release
+              ;; rejection must not pay for a diagnosis nobody receives. Under
+              ;; `:advanced` + `goog.DEBUG=false` the whole block DCEs. It fires
+              ;; under JVM / dev-CLJS with `dev-mode?` flipped off — exactly
+              ;; the surface the boundary-validation tests exercise. The
+              ;; payload-bearing slots (`:received` / `:value` / `:explain` /
+              ;; the interpolated `:reason`) ride HERE and ONLY here — see the
+              ;; always-on record's structural-only contract in
               ;; `router/emit-boundary-rejection-record!`.
-              (rf.trace/emit-error! :rf.error/schema-validation-failure
-                                    (cond-> base-tags
-                                      redact-fn (->> (redact-fn schema))))
+              (when rf.interop/debug-enabled?
+                (let [explain-fn  (rf.late-bind/get-fn-cached :schemas/explain-with-registered-fn)
+                      explanation (when explain-fn
+                                    (try (explain-fn schema event)
+                                         (catch #?(:clj Throwable :cljs :default) _ nil)))
+                      ;; Route the failure tags through the SHARED schema-aware
+                      ;; redaction seam so a sensitive payload (a `:cat` payload
+                      ;; map carrying `{:sensitive? true}`) is scrubbed here
+                      ;; exactly as the dev-time step-1 path scrubs it. The
+                      ;; artefact publishes this hook beside the validate hook;
+                      ;; the guard below keeps an unbound one from throwing.
+                      redact-fn   (rf.late-bind/get-fn-cached :schemas/redact-validation-tags)
+                      base-tags   (cond-> {:where      :event
+                                           :event-id   event-id
+                                           :failing-id event-id
+                                           :schema-id  event-id
+                                           :received   event
+                                           :value      event
+                                           :explain    explanation
+                                           :source     :boundary
+                                           :reason     (str "Event " event-id
+                                                            " payload failed boundary "
+                                                            "schema " schema ", got "
+                                                            (rf.error/type-of-value event) ".")
+                                           :recovery   :no-recovery}
+                                    frame (assoc :frame frame))]
+                  (rf.trace/emit-error! :rf.error/schema-validation-failure
+                                        (cond-> base-tags
+                                          redact-fn (->> (redact-fn schema))))))
               ;; Per Spec 010 §Per-step recovery step 1 the handler is not
               ;; invoked and the downstream queue continues. `run-chain` turns
               ;; this `false` into `:rf/skip-handler?` + `:rf/boundary-rejected?`

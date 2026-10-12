@@ -593,9 +593,10 @@
 ;; check routes through the SAME registered validator the dev-time hot path
 ;; uses (the `set-schema-fns!` seam, reached via the late-bind
 ;; `:schemas/validate-with-registered-fn` hook) so a substituted (non-Malli)
-;; validator covers this surface too; when the schemas artefact is absent or
-;; the validator was set to nil the hook is nil and validation is a no-op
-;; (nil = "every value passes", per Spec 010 §Non-Malli validators).
+;; validator covers this surface too. A validator set to nil passes every
+;; value (Spec 010 §Locked rules). With the schemas artefact absent the hook
+;; is unbound and the declared check cannot run, so it throws
+;; `:rf.error/schemas-artefact-missing` rather than fold an unchecked value.
 
 (defn- emit-cofx-value-invalid!
   "Emit `:rf.error/cofx-value-invalid` (a supplied / replayed / generated
@@ -673,10 +674,14 @@
   `:schema` (from `meta`). A no-op when the registration declares no
   `:schema` — declaration is KEY-presence, not value truthiness:
   a present nil / false `:schema` is delegated verbatim to
-  the registered validator — when no validator is registered (schemas
-  artefact absent / set to nil), or when the value conforms; otherwise
-  emits `:rf.error/cofx-value-invalid` and THROWS (a production hard
-  error).
+  the registered validator — when `set-schema-fns!` installed a nil
+  `:validate`, or when the value conforms; otherwise emits
+  `:rf.error/cofx-value-invalid` and THROWS (a production hard error).
+
+  THROWS `:rf.error/schemas-artefact-missing` when a `:schema` is declared
+  but the schemas artefact is absent (the seam hook is unbound): the check
+  cannot run, and passing would fold an unchecked value into the durable
+  record. The injection fails and the handler does not run.
 
   Routes through the shared `:schemas/validate-with-registered-fn` /
   `:schemas/explain-with-registered-fn` late-bind seam (the same one
@@ -697,10 +702,19 @@
       (let [schema      (:schema meta)
             validate-fn (rf.late-bind/get-fn-cached :schemas/validate-with-registered-fn)]
         (if (nil? validate-fn)
-          ;; No validator registered (schemas artefact absent, or
-          ;; `set-schema-fns!` installed a nil `:validate`) → nil = "every value
-          ;; passes"; the check is a no-op (Spec 010 §Non-Malli validators).
-          value
+          ;; No schemas artefact. A loaded artefact always publishes the seam
+          ;; (a nil `:validate` passes THROUGH it), so this is never the
+          ;; deliberate opt-out.
+          (rf.error/throw-error!
+            :rf.error/schemas-artefact-missing 'rf/reg-cofx
+            (str "Recordable coeffect `" cofx-id "` declares a `:schema`, but "
+                 "the schemas artefact is not loaded, so its value cannot be "
+                 "checked before it folds into the causal record; add "
+                 "day8/re-frame2-schemas to deps and require re-frame.schemas at "
+                 "app boot.")
+            {:extra (cond-> {:rf.cofx/id cofx-id
+                             :failing-id failing-id}
+                      frame-id (assoc :frame frame-id))})
           (let [ok? (try (validate-fn schema value)
                          (catch #?(:clj Throwable :cljs :default) e
                            (if (continue?) false nil)))]
