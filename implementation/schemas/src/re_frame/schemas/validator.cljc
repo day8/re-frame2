@@ -1,7 +1,7 @@
 (ns re-frame.schemas.validator
   "Pluggable validator, explainer, and schema-printer functions.
 
-  Per Spec 010 §Non-Malli validators — the validator-fn extension point.
+  Per Spec 010 §Default validator and the validator-fn extension point.
   The framework never inspects the value stored in `:schema` directly;
   every validation site routes through the registered validator fn.
   This is the seam Malli plugs into by default. Applications may install a
@@ -273,7 +273,7 @@
                       :print    print-fn})
 
   Each key is optional; a key that is absent leaves the existing
-  registration in place. Per Spec 010 §Non-Malli validators this is
+  registration in place. Per Spec 010 §How the surface works this is
   the one-call substitute-Malli boot pattern — a Zod / clojure.spec
   port installs its validator, explainer, and digest-printer together
   so the three never drift out of sync mid-boot.
@@ -288,7 +288,7 @@
                never nil after any write and the digest is never
                undefined for a present schema set.
 
-  Per Spec 010 §Non-Malli validators an installed validator must be pure
+  Per Spec 010 §Locked rules an installed validator must be pure
   (same `(schema, value)` returns the same result) and must be
   production-elidable alongside `re-frame.interop/debug-enabled?` —
   every call site is already gated on `debug-enabled?`, so the
