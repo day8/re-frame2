@@ -154,10 +154,12 @@
       (is (= "Login page hangs on submit" (get-in (app-db-of frame) [:ticket :subject]))
           "blank is refused — the committed subject does NOT move")
       (is (= 1 (read-sub frame [::rf.fresco.examples.forms.subs/subject-revision ticket]))
-          "and the revision moves ANYWAY. Delete the revision bump from the
-           refusing branch of `events/end-session` and this line reds; it is
-           the only signal a refusal has, because value equality is blind to
-           it by construction")
+          "and the revision moves ANYWAY, because `events/end-session`
+           moves it on every session end. Delete that bump and this line
+           reds. The refusal does not depend on it: ending the session moves
+           `subject-shown` from the draft back to the committed subject. The
+           bump repairs text the model never took, which
+           `forms.flow-dom-cljs-test` drives")
       (is (false? (read-sub frame [::rf.fresco.examples.forms.subs/editing? ticket]))
           "a refusal ends the session too — the user is shown the committed
            value back, not left holding text nothing will accept"))))
