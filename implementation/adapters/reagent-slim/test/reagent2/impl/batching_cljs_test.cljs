@@ -141,20 +141,46 @@
 ;; ---------------------------------------------------------------------------
 ;; A throwing after-render callback must not strand the ones queued behind
 ;; it: the queue is reset before the drain, so they would be lost for good.
+;; Its throw then reaches the host's uncaught-error path once, on a fresh
+;; task, rather than vanishing.
 ;; ---------------------------------------------------------------------------
+
+(defn- record-deferred-tasks!
+  "Replace the host `setTimeout` with a recorder. Returns `[tasks restore!]`:
+  `tasks` is an atom of the task fns scheduled since, in order, and `restore!`
+  reinstates the real `setTimeout`. A recorded task never runs on its own, so
+  a deferred throw is observed by the test instead of reaching the runner as
+  an uncaught error."
+  []
+  (let [tasks (atom [])
+        orig  (.-setTimeout js/globalThis)]
+    (set! (.-setTimeout js/globalThis) (fn [task _ms] (swap! tasks conj task) 0))
+    [tasks (fn [] (set! (.-setTimeout js/globalThis) orig))]))
+
+(defn- thrown-by
+  "What calling `task` throws, or `::returned` when it returns normally."
+  [task]
+  (try (task) ::returned
+       (catch :default e e)))
 
 (deftest after-render-throw-does-not-strand-later-callbacks
   (testing "an after-render callback that throws does not prevent
-            later-registered callbacks from running"
+            later-registered callbacks from running, and its throw is
+            rethrown once on a fresh host task"
     (async done
-      (let [order (atom [])]
+      (let [order            (atom [])
+            boom             (js/Error. "boom")
+            [tasks restore!] (record-deferred-tasks!)]
         (batching/do-after-render (fn [] (swap! order conj :a)))
-        (batching/do-after-render (fn [] (throw (js/Error. "boom"))))
+        (batching/do-after-render (fn [] (throw boom)))
         (batching/do-after-render (fn [] (swap! order conj :c)))
         (-> (next-microtask)
             (.then (fn [_]
+                     (restore!)
                      (is (= [:a :c] @order)
                          "callback :c still ran after the middle callback threw")
+                     (is (= [boom] (mapv thrown-by @tasks))
+                         "exactly one deferred task was scheduled, and it rethrows the middle callback's error unchanged")
                      (done))))))))
 
 ;; ---------------------------------------------------------------------------

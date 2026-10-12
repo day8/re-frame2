@@ -2147,6 +2147,52 @@
             (when-let [u @unmount]
               (try (u) (catch :default _ nil))))))))))
 
+(defn- with-deferred-tasks-recorded
+  "Call `f` with the host `setTimeout` replaced by a recorder, restore it, and
+  return the task fns `f` scheduled, in order. A recorded task never runs on
+  its own, so a deferred throw is observed here instead of reaching the
+  runner as an uncaught error."
+  [f]
+  (let [tasks (atom [])
+        orig  (.-setTimeout js/globalThis)]
+    (set! (.-setTimeout js/globalThis) (fn [task _ms] (swap! tasks conj task) 0))
+    (try (f)
+         (finally (set! (.-setTimeout js/globalThis) orig)))
+    @tasks))
+
+(defn- thrown-by
+  "What calling `task` throws, or `::returned` when it returns normally."
+  [task]
+  (try (task) ::returned
+       (catch :default e e)))
+
+(defn assert-after-render-throw-is-isolated-and-surfaced
+  "A throwing after-render callback strands none of the callbacks queued
+  behind it, and its throw reaches the host's uncaught-error path exactly
+  once: the spine's drain runs each callback under its own catch, then
+  rethrows the FIRST thrown value unchanged on a fresh host task.
+
+  The drain is called directly over a fresh queue cell, with `setTimeout`
+  recorded, so the deferred task is read here rather than left to fire as an
+  uncaught error. Node-safe (no DOM): runs under :node-test too."
+  [{:keys [name]}]
+  (testing (str name " — a throwing after-render callback strands nothing and surfaces once")
+    (let [order  (atom [])
+          boom   (js/Error. "after-render boom")
+          queue  (rf.substrate.spine/make-after-render-queue-cell)
+          drain! @#'rf.substrate.spine/drain-after-render-queue!
+          tasks  (with-deferred-tasks-recorded
+                   (fn []
+                     (swap! queue conj
+                            #(swap! order conj :a)
+                            #(throw boom)
+                            #(swap! order conj :c))
+                     (drain! queue)))]
+      (is (= [:a :c] @order)
+          "the callbacks either side of the throwing one both ran, in order")
+      (is (= [boom] (mapv thrown-by tasks))
+          "exactly one deferred task was scheduled, and it rethrows the middle callback's error unchanged"))))
+
 ;; ---- flush-views! cross-substrate parity ----------------------------------
 
 (defn assert-flush-views-canonical-shape

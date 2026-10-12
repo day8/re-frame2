@@ -50,8 +50,8 @@
                           [:div "n=" @(rf/subscribe [::n])]))
           (let [mount-node (make-mount-node!)
                 root       (rdc/create-root mount-node)
-                ;; Recorded from inside the callback: an `is` there would be
-                ;; swallowed by the queue's per-callback throw isolation.
+                ;; Recorded from inside the callback and asserted below, on
+                ;; the test's own turn.
                 seen       (atom [])]
             (react-dom/flushSync
               (fn []

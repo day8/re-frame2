@@ -9,8 +9,9 @@
   (Approach A: components passed in as elements).
 
   Coverage forwarded: the ns-load smoke (node-safe — runs under
-  :node-test) that `interop/after-render` is wired and returns nil, plus
-  the act-driven mount/schedule/drain behaviour (browser-only).
+  :node-test) that `interop/after-render` is wired and returns nil, the
+  drain's throw isolation and surfacing (node-safe), plus the act-driven
+  mount/schedule/drain behaviour (browser-only).
 
   ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test`
   (ns-regexp `-dom-cljs-test$`) discovers it for the real DOM assertions;
@@ -47,6 +48,11 @@
 
 (deftest after-render-runs-callback-after-next-commit-uix
   (rf.adapter.react-shared-suite/assert-after-render-runs-after-commit cfg))
+
+;; A throwing callback strands nothing behind it, and its throw reaches the
+;; host once, on a fresh task. Node-safe.
+(deftest after-render-throw-is-isolated-and-surfaced-uix
+  (rf.adapter.react-shared-suite/assert-after-render-throw-is-isolated-and-surfaced cfg))
 
 ;; After-render parity on the NATIVE-mount path (raw createRoot +
 ;; .render, the documented boot idiom that bypasses the spine's
