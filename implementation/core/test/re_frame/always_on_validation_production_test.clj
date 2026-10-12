@@ -11,12 +11,20 @@
        structural-only always-on record (`:source :boundary`) and
        `:outcome :rejected`, never a silent skip that reads `:ok` off-box.
 
-  Every deftest but the `^:prod-gate` one is posture-independent, so this
+  Without the schemas artefact neither check has a validator to call, and
+  each REFUSES with `:rf.error/schemas-artefact-missing` rather than passing
+  a value it could not check (010 §Production builds). An installed `nil`
+  `:validate` is the deliberate opt-out, and both checks pass under it.
+
+  Every deftest but the `^:prod-gate` ones is posture-independent, so this
   namespace runs in `clojure -M:test` AND joins `scripts/test-core-prod-gate.sh`.
-  The `^:prod-gate` deftest is the discriminator: in the gate JVM an
+  The first `^:prod-gate` deftest is the discriminator: in the gate JVM an
   unguarded handler with the same `:schema` ACCEPTS a bad event, so \"the
-  handler did not run\" cannot be step-1 doing the work. `with-redefs` on
-  `debug-enabled?` is deliberately not used: the flag is read at load time."
+  handler did not run\" cannot be step-1 doing the work. The second pins what
+  a release rejection costs: one validator call and no explainer call.
+  `with-redefs` on `debug-enabled?` is deliberately not used: the flag is read
+  at load time. Rebinding `re-frame.spec/dev-mode?` selects the router's
+  production arm in either lane, for the tests about that arm alone."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
@@ -24,8 +32,10 @@
             [re-frame.event-emit :as rf.event-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
             [re-frame.registrar :as rf.registrar]
             [re-frame.schemas :as rf.schemas]
+            [re-frame.spec :as rf.spec]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
@@ -207,6 +217,69 @@
     (is (empty? (boundary-records captured)))
     (is (not= :rejected (outcome-of captured :prod/unguarded-obs)))))
 
+;; ---- surface 3: no schemas artefact, no pass ------------------------------
+
+(defn- with-schemas-seam-unbound
+  "Run `body-fn` with the schemas artefact's validation seam unbound — the
+  state of an app that never loaded `re-frame.schemas` — then republish it."
+  [body-fn]
+  (let [hooks [:schemas/validate-with-registered-fn
+               :schemas/explain-with-registered-fn
+               :schemas/redact-validation-tags]
+        saved (mapv rf.late-bind/get-fn hooks)]
+    (try
+      (doseq [hook hooks] (rf.late-bind/set-fn! hook nil))
+      (body-fn)
+      (finally
+        (doseq [[hook f] (map vector hooks saved)] (rf.late-bind/set-fn! hook f))))))
+
+(defn- reg-positive-cofx-event! [ran]
+  (rf/reg-cofx :prod/positive {:recordable? true :schema [:int {:min 1}]} (fn [] 1))
+  (rf/reg-event :prod/uses-positive
+    {:rf.cofx/requires [:prod/positive]}
+    (fn [{:keys [db prod/positive]} _] (reset! ran true) {:db (assoc db :folded positive)})))
+
+(deftest boundary-check-without-the-schemas-artefact-refuses-the-handler
+  ;; the payload CONFORMS: nothing can say so, and a pass would run the handler
+  ;; on exactly the unchecked input the flag exists to gate
+  (let [calls (atom 0)
+        _     (reg-boundary-handler! calls)
+        c     (with-schemas-seam-unbound
+                #(with-redefs [rf.spec/dev-mode? (constantly false)]
+                   (dispatch-capturing [:prod/boundary 42] {})))
+        data  (ex-data (:ex c))]
+    (is (= [:rf.error/schemas-artefact-missing 'rf/reg-event :prod/boundary :rf/default]
+           [(:rf.error/id data) (:where data) (:failing-id data) (:frame data)]))
+    (is (= [0 nil] [@calls (:n (db-of))]) "the handler did not run and nothing committed")))
+
+(deftest recordable-schema-check-without-the-schemas-artefact-fails-injection-in-every-posture
+  ;; a conforming value too: the check cannot run, so the value cannot fold
+  (let [ran  (atom false)
+        _    (reg-positive-cofx-event! ran)
+        c    (with-schemas-seam-unbound
+               #(dispatch-capturing [:prod/uses-positive] {:rf.cofx {:prod/positive 7}}))
+        data (ex-data (:ex c))]
+    (is (= [:rf.error/schemas-artefact-missing 'rf/reg-cofx :prod/positive :prod/uses-positive]
+           [(:rf.error/id data) (:where data) (:rf.cofx/id data) (:failing-id data)]))
+    (is (= [false nil] [@ran (:folded (db-of))]) "the handler did not run and nothing folded")))
+
+(deftest an-installed-nil-validator-passes-both-checks-in-every-posture
+  ;; the opt-out is a loaded artefact with `{:validate nil}`: its seam stays
+  ;; published and passes every value, so neither check refuses
+  (let [installed (rf.schemas/schema-fns)
+        calls     (atom 0)
+        ran       (atom false)]
+    (reg-boundary-handler! calls)
+    (reg-positive-cofx-event! ran)
+    (try
+      (rf.schemas/set-schema-fns! {:validate nil})
+      (with-redefs [rf.spec/dev-mode? (constantly false)]
+        (rf/dispatch-sync [:prod/boundary "not-an-int"]))
+      (rf/dispatch-sync [:prod/uses-positive] {:rf.cofx {:prod/positive -5}})
+      (finally
+        (rf.schemas/set-schema-fns! installed)))
+    (is (= [1 "not-an-int" true -5] [@calls (:n (db-of)) @ran (:folded (db-of))]))))
+
 ;; ---- the discriminator — gate lane ONLY ----------------------------------
 
 (deftest ^:prod-gate ordinary-event-schema-validation-really-is-elided-here
@@ -220,3 +293,23 @@
     (rf/dispatch-sync [:prod/unguarded "not-an-int"])
     (is (= [1 "not-an-int"] [@calls (:n (db-of))])
         "red means step-1 validation still runs here and the boundary tests prove nothing")))
+
+(deftest ^:prod-gate a-release-boundary-rejection-calls-the-validator-once-and-the-explainer-never
+  ;; the explanation, its redaction and the tags feed only the dev trace, which
+  ;; a release build does not emit, so a rejection must not compute them
+  (is (false? rf.interop/debug-enabled?) "precondition: the real production gate")
+  (let [installed (rf.schemas/schema-fns)
+        validates (atom 0)
+        explains  (atom 0)
+        calls     (atom 0)]
+    (reg-boundary-handler! calls)
+    (try
+      (rf.schemas/set-schema-fns! {:validate (fn [_ _] (swap! validates inc) false)
+                                   :explain  (fn [_ _] (swap! explains inc) {:stub true})})
+      (let [captured (record-both-axes #(rf/dispatch-sync [:prod/boundary 42]))]
+        (is (= [1 0 0 1 :rejected]
+               [@validates @explains @calls (count (boundary-records captured))
+                (outcome-of captured :prod/boundary)])
+            "one validator call, no explainer call, no handler, and the always-on record"))
+      (finally
+        (rf.schemas/set-schema-fns! installed)))))
