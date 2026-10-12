@@ -75,7 +75,7 @@
   ;; mismatch against the route's :query schema and surfaces
   ;; :validation-failed? true with a :validation-error explanation.
   ;; Apps that want a soft fallback unregister the validator (Spec 010
-  ;; §Non-Malli validators) or register a coerce-and-fix schema.
+  ;; §Locked rules) or register a coerce-and-fix schema.
   {:call :match-url :url "/articles?q=z&page=not-a-number"
    :expect {:route-id :route/articles
             :params   {}
