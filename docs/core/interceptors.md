@@ -520,10 +520,11 @@ Every `:before` and `:after` runs inside a guard.
 !!! warning "Gotcha — your `:after` must survive error paths"
 
     A throw in a `:before` or in the handler skips the remaining `:before` functions
-    and the handler. But the `:after` pass always runs in full, in reverse order,
-    for every interceptor in the chain, even those whose `:before` never ran. So
-    cleanup belongs in `:after`, and an `:after` that assumes the handler set
-    `[:effects :db]` will itself throw.
+    and the handler. But every interceptor whose `:before` was called still gets its
+    `:after`, in reverse order, including the one whose `:before` threw; that one
+    sees the context as it was before its `:before` ran. An interceptor after the
+    failure never entered, so it gets no `:after`. So cleanup belongs in `:after`,
+    and an `:after` that assumes the handler set `[:effects :db]` will itself throw.
 
 The first error is recorded on the context under `:rf/interceptor-error`. A throw anywhere
 means the event installs nothing: app-db is unchanged and no `:fx` runs. The reported

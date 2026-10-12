@@ -1723,11 +1723,12 @@
     :rf/default? true
     :after
     (fn [ctx]
-      ;; Chain-error short-circuit: `execute-chain` runs the
-      ;; FULL `:after` pass for teardown even after a `:before` / handler /
-      ;; cofx / user-`:after` throw was captured into `:rf/interceptor-error`
-      ;; (interceptor.cljc). This framework-OUTERMOST flows `:after` is the
-      ;; LAST to fire, so without this guard it would run the flow transform
+      ;; Chain-error short-circuit: `execute-chain` unwinds the `:after` of
+      ;; every entered interceptor for teardown even after a `:before` /
+      ;; handler / cofx / user-`:after` throw was captured into
+      ;; `:rf/interceptor-error` (interceptor.cljc). This framework-OUTERMOST
+      ;; flows interceptor heads the chain, so it has always entered and its
+      ;; `:after` is the LAST to fire; without this guard it would run the flow transform
       ;; against a DOOMED pending db — eagerly advancing each recomputed
       ;; flow's dirty-check (`last-inputs`) row (flows.cljc) and read-and-
       ;; clearing the queued in-drain output-path vacations (registry.cljc) —
@@ -2518,8 +2519,8 @@
   mechanism the cofx-failure path (Spec 010 step 2) uses — rather than
   skipping the chain wholesale. Per Spec 010 §Per-step recovery step 1
   the handler does not run and the downstream queue continues; per Spec
-  002 §Interceptor chain execution rule 2 the chain STILL executes so
-  the `:after` pass always runs in full and cleanup-on-`:after`
+  002 §Interceptor chain execution rule 2 the chain STILL executes, so
+  every interceptor enters, its `:after` runs, and cleanup-on-`:after`
   interceptors (debug pp/snapshot, Story snapshot capturer) fire even
   on a pre-handler validation failure. Symmetric with the cofx path:
   both failures keep teardown intact.

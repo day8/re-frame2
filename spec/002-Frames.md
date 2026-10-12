@@ -2133,8 +2133,9 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
     ;;
     ;;    Throws inside :before / :after / handler are recorded into the
     ;;    chain context under `:rf/interceptor-error` (the FIRST throw).
-    ;;    The :after pass always runs in full so
-    ;;    cleanup-on-:after interceptors fire even after a :before failure.
+    ;;    The :after pass runs for every entered interceptor (the failing
+    ;;    one included) so cleanup-on-:after interceptors fire even after a
+    ;;    :before failure; an interceptor the short-circuit skipped gets no :after.
     ;;    Trace stream emits one error event per chain execution, keyed off
     ;;    the singleton and attributed to the true failing component:
     ;;    `:rf.error/handler-exception` (the handler) or
