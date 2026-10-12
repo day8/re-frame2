@@ -773,11 +773,26 @@ rather than summarised:
   [`product/k1-price-acceptance.md`](product/k1-price-acceptance.md). Acceptance
   of a price is not a pass — the registered `1.10×` gate is untouched and no
   evidence row may cite the ruling to colour K1 green.
-- **K2** — unresolved and instrument-limited, as the row says. **The `1.5×`
-  architecture kill is not waived by this ruling**. `rf2-od9u0` owns the
-  measurement, which continues under the bulk protocol `rf2-8a746` ruled and
-  `clock_readjudicate.cjs` implements, and a later red result bites exactly as
-  registered.
+- **K2** — **the `1.5×` architecture kill has not fired, and the bulk bar now
+  publishes.** The scoreboard row above records graduation, when every gated
+  interval straddled 1.0. The next ensemble, `rf2-od9u0`, was taken under the
+  bulk protocol `rf2-8a746` ruled and adjudicated by `clock_readjudicate.cjs` on
+  the gated pair Fresco / Reagent-on-subs: eight canonical `clock_run.cjs` runs
+  on trunk commit `aa9f2a6413`, Chromium 147.0.7727.15, every run in control
+  under the check standard and none refused. It reads **bulk300 0.8667×, 95% CI
+  [0.8338 – 0.9022]** and **bulk100 0.9387×, 95% CI [0.9042 – 0.9734]**. Both
+  intervals lie wholly below the 1.0 bar, so both rows publish a magnitude, and
+  neither comes near 1.5×. Pooled with the fourteen graduation-era runs the
+  readjudicator gives bulk300 0.9472× [0.9093 – 0.9870], which publishes, and
+  bulk100 0.9920× [0.9614 – 1.0242], which stays instrument-limited; the two
+  sittings are two months of trunk apart, so the ensemble on its own is the
+  verdict. Two qualifiers travel with the figures. The Fresco arm measured is
+  the frozen bench donor (`re-frame.bench.fresco.arm1.*`), as the protocol
+  registers, not the shipped package. And the move from about 1.0× is on the
+  Reagent-on-subs side: Fresco against UIx-on-subs reads 1.1410× on bulk300,
+  where graduation read 1.1405×, while UIx-on-subs against Reagent-on-subs fell
+  from 0.8813× to 0.7596×. **The `1.5×` architecture kill is not waived by this
+  ruling**, and a later red result bites exactly as registered.
 - **K3** — the row's *disposition owed explicitly* is discharged by
   [`product/k3-disposition.md`](product/k3-disposition.md), the three-scoreboard
   record that is operative by default and operator-overturnable; no denominator
