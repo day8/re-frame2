@@ -23,8 +23,8 @@
   handler did not run\" cannot be step-1 doing the work. The second pins what
   a release rejection costs: one validator call and no explainer call.
   `with-redefs` on `debug-enabled?` is deliberately not used: the flag is read
-  at load time. Rebinding `re-frame.spec/dev-mode?` selects the router's
-  production arm in either lane, for the tests about that arm alone."
+  at load time. Rebinding `re-frame.spec/dev-mode?` selects one of the
+  router's two step-1 arms in either lane, for the tests about one arm."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
@@ -223,7 +223,8 @@
   "Run `body-fn` with the schemas artefact's validation seam unbound — the
   state of an app that never loaded `re-frame.schemas` — then republish it."
   [body-fn]
-  (let [hooks [:schemas/validate-with-registered-fn
+  (let [hooks [:schemas/validate-event!
+               :schemas/validate-with-registered-fn
                :schemas/explain-with-registered-fn
                :schemas/redact-validation-tags]
         saved (mapv rf.late-bind/get-fn hooks)]
@@ -239,18 +240,29 @@
     {:rf.cofx/requires [:prod/positive]}
     (fn [{:keys [db prod/positive]} _] (reset! ran true) {:db (assoc db :folded positive)})))
 
-(deftest boundary-check-without-the-schemas-artefact-refuses-the-handler
-  ;; the payload CONFORMS: nothing can say so, and a pass would run the handler
-  ;; on exactly the unchecked input the flag exists to gate
+(defn- boundary-dispatch-without-the-artefact
+  "Dispatch a CONFORMING payload to a `:boundary? true` handler on the step-1
+  arm `dev?` selects, with the schemas artefact absent. Returns the thrown
+  error's identity, the handler's call count and what committed."
+  [dev?]
   (let [calls (atom 0)
         _     (reg-boundary-handler! calls)
         c     (with-schemas-seam-unbound
-                #(with-redefs [rf.spec/dev-mode? (constantly false)]
+                #(with-redefs [rf.spec/dev-mode? (constantly dev?)]
                    (dispatch-capturing [:prod/boundary 42] {})))
         data  (ex-data (:ex c))]
-    (is (= [:rf.error/schemas-artefact-missing 'rf/reg-event :prod/boundary :rf/default]
-           [(:rf.error/id data) (:where data) (:failing-id data) (:frame data)]))
-    (is (= [0 nil] [@calls (:n (db-of))]) "the handler did not run and nothing committed")))
+    [(:rf.error/id data) (:where data) (:failing-id data) (:frame data) @calls (:n (db-of))]))
+
+(deftest boundary-check-without-the-schemas-artefact-refuses-on-the-release-arm
+  ;; the payload CONFORMS: nothing can say so, and a pass would run the handler
+  ;; on exactly the unchecked input the flag exists to gate
+  (is (= [:rf.error/schemas-artefact-missing 'rf/reg-event :prod/boundary :rf/default 0 nil]
+         (boundary-dispatch-without-the-artefact false))))
+
+(deftest boundary-check-without-the-schemas-artefact-refuses-on-the-dev-arm
+  ;; the same refusal in development, so it is not first met in production
+  (is (= [:rf.error/schemas-artefact-missing 'rf/reg-event :prod/boundary :rf/default 0 nil]
+         (boundary-dispatch-without-the-artefact true))))
 
 (deftest recordable-schema-check-without-the-schemas-artefact-fails-injection-in-every-posture
   ;; a conforming value too: the check cannot run, so the value cannot fold
