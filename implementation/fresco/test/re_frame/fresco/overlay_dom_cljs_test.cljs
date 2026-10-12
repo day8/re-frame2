@@ -1398,8 +1398,9 @@
                 (is (.matches panel ":popover-open") "premise: the panel is open")
                 (let [claimed (.. a -style -anchorName)]
                   (is (not= "--mine-a" claimed) "A is claimed")
-                  (is (= claimed (.. panel -style -positionAnchor))
-                      "and the panel's `position-anchor` names that very claim"))
+                  (is (= ["--mine-a" (.. panel -style -positionAnchor)] (anchor-list a))
+                      "and the panel's `position-anchor` names that very claim,
+                       added beside the author's own name"))
                 (is (= "--mine-b" (.. b -style -anchorName))
                     "B is untouched — one overlay, one claim")
                 (let [ra (.getBoundingClientRect a)
@@ -1421,7 +1422,7 @@
                     "A got back exactly what its author wrote")
                 (let [claimed (.. b -style -anchorName)]
                   (is (not= "--mine-b" claimed) "B is claimed now")
-                  (is (= claimed (.. panel -style -positionAnchor))
+                  (is (= ["--mine-b" (.. panel -style -positionAnchor)] (anchor-list b))
                       "and it is the name the panel's `position-anchor` uses,
                        which is the whole of what anchoring is"))
                 (let [rb (.getBoundingClientRect b)
@@ -1458,7 +1459,7 @@
                 (go! [::anchored "move-a"])
                 (let [claimed (.. a -style -anchorName)]
                   (is (not= "--mine-a" claimed) "A is claimed again")
-                  (is (= claimed (.. panel -style -positionAnchor))))))
+                  (is (= ["--mine-a" (.. panel -style -positionAnchor)] (anchor-list a))))))
 
             (testing "TEARDOWN: closing hands back whatever the last claim
                       found, and both triggers end the row as their author
