@@ -1499,12 +1499,29 @@
 
 (defn- drain-after-render-queue!
   "Atomically swap the pending-callbacks vector with empty and invoke
-  each in order. Per-fn throws are swallowed so one misbehaving callback
-  cannot strand the rest of the drain."
+  each in order. Each callback runs under its own catch, so one that throws
+  cannot strand the rest of the drain.
+
+  Once the walk completes, the FIRST thrown value (kept by presence against
+  `capture-none`, so a `nil`/`false` throw still counts) is rethrown unchanged
+  on a fresh host task, where it reaches the host's uncaught-error path
+  (`window.onerror`, the console, Node's `uncaughtException`). Later throws in
+  the same walk are not re-raised. The rethrow is deferred because the drain
+  usually runs inside React's commit, in the sentinel's layout effect, where a
+  synchronous throw becomes a component error: the nearest error boundary
+  takes it, or React unmounts the root."
   [queue-cell]
-  (let [[pending] (reset-vals! queue-cell [])]
+  (let [[pending] (reset-vals! queue-cell [])
+        failure   (volatile! capture-none)]
     (doseq [f pending]
-      (try (f) (catch :default _ nil)))))
+      (try (f)
+           (catch :default e
+             (when (identical? capture-none @failure)
+               (vreset! failure e)))))
+    (let [e @failure]
+      (when-not (identical? capture-none e)
+        (js/setTimeout (fn [] (throw e)) 0)))
+    nil))
 
 (defn make-after-render-sentinel
   "Build the sentinel React function component for an adapter. The

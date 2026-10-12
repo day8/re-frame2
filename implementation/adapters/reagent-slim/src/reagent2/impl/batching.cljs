@@ -116,6 +116,12 @@
 ;; the current drain. This matches React 19's transition semantics.
 ;; ---------------------------------------------------------------------------
 
+(def ^:private capture-none
+  "Presence sentinel for the after-render drain's first-thrown capture. A
+  distinct object identity, so a callback that throws `nil`/`false` (both
+  legal CLJS throws) is still surfaced."
+  (js-obj))
+
 (deftype RenderQueue [^:mutable ^boolean scheduled?
                       ^:mutable component-queue
                       ^:mutable after-render-queue]
@@ -154,15 +160,25 @@
   (flush-after-render [_this]
     (when-some [fs after-render-queue]
       (set! after-render-queue nil)
-      (dotimes [i (alength fs)]
-        ;; Per-callback throw isolation: swallow so one
-        ;; misbehaving :after-render callback cannot strand the rest of
-        ;; the queue or abort the flush. Mirrors
-        ;; `re-frame.substrate.spine/drain-after-render-queue!`, the
-        ;; shared React-adapter-spine flush path's identical guard.
-        (try
-          ((aget fs i))
-          (catch :default _ nil)))))
+      ;; Per-callback throw isolation: each callback runs under its own
+      ;; catch, so one misbehaving :after-render callback cannot strand the
+      ;; rest of the queue or abort the flush. Once the walk completes, the
+      ;; FIRST thrown value (kept by presence, so a `nil`/`false` throw still
+      ;; counts) is rethrown unchanged on a fresh host task, where it reaches
+      ;; the host's uncaught-error path instead of vanishing. Mirrors
+      ;; `re-frame.substrate.spine/drain-after-render-queue!`, the shared
+      ;; React-adapter-spine drain, which does the same.
+      (let [failure (volatile! capture-none)]
+        (dotimes [i (alength fs)]
+          (try
+            ((aget fs i))
+            (catch :default e
+              (when (identical? capture-none @failure)
+                (vreset! failure e)))))
+        (let [e @failure]
+          (when-not (identical? capture-none e)
+            (js/setTimeout (fn [] (throw e)) 0)))
+        nil)))
 
   (flush-queues [this]
     ;; Drain the reactive queue first — Reaction recomputes may enqueue
