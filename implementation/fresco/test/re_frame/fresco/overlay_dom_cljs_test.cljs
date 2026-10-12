@@ -33,7 +33,7 @@
   | zero idle listeners, and nothing per frame | [[an-open-overlay-adds-nothing-to-window-document-or-body]] |
   | zero cost when closed | [[a-closed-overlay-has-no-element-no-listener-and-no-rendered-body]] |
   | an intent inside an overlay lowers in the overlay's frame | [[an-intent-on-an-overlay-child-dispatches-in-the-frame-above-it]] |
-  | the anchor is claimed while open and put back after | [[the-anchor-is-claimed-while-open-and-handed-back-on-teardown]] |
+  | the anchor is claimed while open and put back after, and two panels on one trigger both stay anchored | [[the-anchor-is-claimed-while-open-and-handed-back-on-teardown]] |
   | a modal takes no `:anchor`: it claims no trigger and refuses no dangling id | [[a-modal-given-an-anchor-renders-as-a-modal-and-claims-nothing]] |
   | an OPEN panel's anchor follows the prop that names it | [[an-open-popovers-anchor-follows-the-prop-that-names-it]] |
   | three hooks here, and still two in the shell | [[an-overlay-costs-three-hooks-and-the-shell-still-costs-two]] |
@@ -112,6 +112,7 @@
   `cancel`/`toggle` before asserting it saw nothing global, and the hook
   roster asserts the probe installed before it reads a count."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
+            [clojure.string :as str]
             [re-frame.adapter.context :as rf.adapter.context]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
@@ -1121,6 +1122,28 @@
    ;; without a spacer the trigger lands at the very end of the document.
    [:div {:style {:height "1200px"}}]])
 
+(defn- anchor-list
+  "The names in `el`'s inline `anchor-name`, in order."
+  [el]
+  (into [] (comp (map str/trim) (remove str/blank?))
+        (str/split (or (.. el -style -anchorName) "") #",")))
+
+(defn- placed!
+  "Assert `panel` sits against `trigger`: on `side` of it (`:below` or
+  `:above`), and left-aligned with it. A panel whose anchor name nothing
+  carries lands at the UA's default position instead, which fails both."
+  [trigger panel side what]
+  (let [t (.getBoundingClientRect trigger)
+        p (.getBoundingClientRect panel)]
+    (is (case side
+          :below (>= (.-top p) (- (.-bottom t) 1))
+          :above (<= (.-bottom p) (+ (.-top t) 1)))
+        (str what " sits " (name side) " the trigger. trigger=[" (.-top t) ","
+             (.-bottom t) "] panel=[" (.-top p) "," (.-bottom p) "]"))
+    (is (< (js/Math.abs (- (.-left p) (.-left t))) 2)
+        (str what " is left-aligned with the trigger. trigger.left=" (.-left t)
+             " panel.left=" (.-left p)))))
+
 (deftest the-anchor-is-claimed-while-open-and-handed-back-on-teardown
   (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test resolves no anchors, because it computes no style")
@@ -1168,8 +1191,9 @@
               (is (= "--mine" (.. trigger -style -anchorName))))
 
             (testing "TWO PANELS, ONE TRIGGER, LIFO: a menu and a tooltip may
-                      share a button. Each claim saves what it found, so the
-                      claims nest and the author's own name comes back when the
+                      share a button. Each claim adds its own name to the
+                      trigger's `anchor-name` list, so both panels stay
+                      anchored, and the author's own name comes back when the
                       last one leaves"
               (go! [::opened :pt])
               (let [tip (.. trigger -style -anchorName)]
@@ -1177,33 +1201,39 @@
                 (go! [::opened :pa])
                 (is (not= tip (.. trigger -style -anchorName))
                     "premise: the menu claimed it after")
+                (testing "BOTH OPEN, BOTH ANCHORED: the menu's claim left the
+                          tooltip's name standing"
+                  (placed! trigger ($ "#pop-t") :above "the tooltip")
+                  (placed! trigger ($ "#pop-a") :below "the menu"))
                 (go! [::closed :pa])
                 (is (= tip (.. trigger -style -anchorName))
-                    "the menu's teardown gave the tooltip's claim back"))
+                    "the menu's teardown took out its own name and no other"))
               (go! [::closed :pt])
               (is (= "--mine" (.. trigger -style -anchorName))
                   "and the last one out returns the author's own name"))
 
             (testing "OUT OF ORDER: the panel that leaves is NOT the one that
-                      claimed last. An unconditional restore is right on every
-                      single-overlay page and here writes the trigger back to a
-                      name the OTHER, still-open panel is not anchored to —
+                      claimed last. Restoring what a claim found is right on
+                      every single-overlay page and here writes the trigger
+                      back to a list the OTHER, still-open panel is not on —
                       silently unanchoring a live overlay"
               (go! [::opened :pt])
               (go! [::opened :pa])
-              (let [menu (.. trigger -style -anchorName)]
+              (placed! trigger ($ "#pop-t") :above "the tooltip")
+              (placed! trigger ($ "#pop-a") :below "the menu")
+              (let [tip-name  (.. ($ "#pop-t") -style -positionAnchor)
+                    menu-name (.. ($ "#pop-a") -style -positionAnchor)]
+                (is (not= tip-name menu-name) "premise: two claims, two names")
                 (go! [::closed :pt])
-                (is (= menu (.. trigger -style -anchorName))
-                    "the still-open menu keeps the trigger")
+                (is (= ["--mine" menu-name] (anchor-list trigger))
+                    "the tooltip's name is gone; the author's and the menu's stand")
                 (is (.matches ($ "#pop-a") ":popover-open")
                     "premise: it really is still open")
-                (let [t (.getBoundingClientRect trigger)
-                      p (.getBoundingClientRect ($ "#pop-a"))]
-                  (is (< (js/Math.abs (- (.-left p) (.-left t))) 2)
-                      (str "and still positioned against it rather than at the "
-                           "UA default. trigger.left=" (.-left t)
-                           " panel.left=" (.-left p)))))
-              (go! [::closed :pa])))
+                (placed! trigger ($ "#pop-a") :below "the still-open menu"))
+              (go! [::closed :pa])
+              (is (= "--mine" (.. trigger -style -anchorName))
+                  "and the last one out returns the author's own name, in this
+                   close order as in the other")))
 
           (testing "an `:anchor` naming no element REFUSES, rather than
                     opening the panel in the top layer, visibly unanchored,

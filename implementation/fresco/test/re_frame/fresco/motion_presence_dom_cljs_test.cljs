@@ -16,6 +16,7 @@
   | a rapid toggle arms one deadline per exit and never extends a live one | [[a-rapid-toggle-arms-one-deadline-per-exit-and-never-extends-a-live-one]] |
   | the per-frame work of a transition is zero — the frame budget | [[re-deriving-mid-flight-is-a-no-op-on-every-frame-of-the-window]] and the DOM row's rAF/interval census |
   | an unmount mid-transition leaves no timer behind | [[an-unmount-mid-transition-clears-the-timer-it-armed]] |
+  | a wall clock stepped back mid-retention cannot strand the node | [[a-wall-clock-stepped-back-before-the-deadline-cannot-strand-the-node]] |
 
   ## Why the frame budget is a COUNT and not a stopwatch
 
@@ -72,7 +73,10 @@
   - a relative rather than absolute deadline reds the frame-budget row on
     every frame of the window;
   - dropping `(js/clearTimeout expiry)` from the React half's cleanup reds
-    the teardown row with the retention timer named."
+    the teardown row with the retention timer named;
+  - expiring at the callback's own `now` rather than at
+    `(max deadline now)` reds the rollback row with the dismissed toast
+    still painted."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.set :as set]
             [re-frame.adapter.uix :as rf.adapter.uix]
@@ -82,6 +86,7 @@
             [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
             [re-frame.fresco.impl.presence :as rf.fresco.impl.presence]
             [re-frame.fresco.motion :as rf.fresco.motion]
+            [re-frame.fresco.test.mounted :as rf.fresco.test.mounted]
             [re-frame.test-support :as rf.test-support]))
 
 (def ^:private frame-kw ::frame)
@@ -314,3 +319,32 @@
                     "and the retained node went with the root rather than outliving it")))
             (finally (rf.fresco.impl.mount/release! handle))))
         (finally (restore!))))))
+
+(deftest a-wall-clock-stepped-back-before-the-deadline-cannot-strand-the-node
+  ;; The retention timer counts its delay on the platform's monotonic
+  ;; clock; `Date.now` is the wall clock, and an NTP correction or a user
+  ;; changing the time can step it backwards after the timer is armed. The
+  ;; row drives the timer on the test kit's virtual clock and steps the
+  ;; wall clock back by a minute in between, so the callback fires on time
+  ;; and then reads an instant a minute short of the deadline. Expiring at
+  ;; that instant alone finds nothing due, changes no state and arms no
+  ;; new timer, and the node stays until something else changes the tray.
+  (if-not (rf.fresco.impl.mount/browser?)
+    (skip! ":node-test has no DOM, so no effect runs and no timer is armed")
+    (do
+      (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
+      (let [m       (rf.fresco.test.mounted/mount! [tray] {:clock true :initial-events [[::seed [:a :b]]]})
+            virtual (.-now js/Date)]
+        (try
+          (rf.fresco.test.mounted/dispatch-and-settle! m [::set [:a]])
+          (is (= 2 (.-length (toast-nodes (:container m))))
+              "premise: the dismissed toast is retained, mid-exit")
+          (set! (.-now js/Date) (fn [] (- (virtual) 60000)))
+          (is (< (js/Date.now) (virtual))
+              "premise: the wall clock now reads behind the instant the timer runs on")
+          (rf.fresco.test.mounted/advance-clock! m dom-retention-ms)
+          (is (= 1 (.-length (toast-nodes (:container m))))
+              "the timer armed for the deadline fired, and the node left with it")
+          (finally
+            (set! (.-now js/Date) virtual)
+            (rf.fresco.test.mounted/unmount! m)))))))
