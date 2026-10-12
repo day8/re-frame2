@@ -30,9 +30,11 @@
   (`implementation/fresco/scripts/check_optional_module_reachability.py`,
   `implementation/fresco/scripts/check_bundle_isolation.cjs`).
 
-  The chapter `docs/core/fresco/05-forms.md` governs the surface and the
-  buffered/draft/revision law is D016
-  (`docs/design/freehand/decisions/D016-buffered-and-revision-controls.md`).
+  The chapter `docs/core/fresco/05-forms.md` governs the surface. The
+  buffered/draft/revision protocol is D016's
+  (`docs/design/freehand/decisions/D016-buffered-and-revision-controls.md`),
+  except that a rejection needs no revision here: the commit ends the
+  session before the caller's handler runs.
   The scope is naming-ledger row 16
   (`docs/design/fresco/product/naming-ledger.md`); the recipes the module
   is written on, and the validation and submit orchestration it
@@ -85,9 +87,10 @@
 
 (defn- live?
   "Is `record` this field's own live session — present, and written under
-  `revision`? Revision equality and nothing else: a caller rejects an edit
-  by reasserting the value it already had, and two equal values cannot
-  carry that decision (D016's eligibility rule)."
+  `revision`? Revision equality and nothing else: a `:value` change under
+  an unchanged revision leaves the session open, and a caller replaces
+  a session by advancing the revision, even to reassert a value equal to
+  the one the edit began from (D016's eligibility rule)."
   [record revision]
   (and (some? record) (= revision (:revision record))))
 
@@ -193,15 +196,21 @@
   virtualized row keeps its draft. The field shows the draft while its
   revision matches `::h/revision` and `:value` the moment it does not.
 
-  `::h/revision` is the caller's and is what a rejection is made of: the
-  `:on-commit` handler accepts by writing the candidate, normalises by
-  writing another value, or rejects by leaving the value alone — and in
-  the last two cases advances the revision, because a reset that only
-  works when the value happens to move is not a reset. Async acceptance
-  rides the same fence: a later settle writes the value and advances the
-  revision together, and a commit still carrying the old revision is a
-  no-op. A field never reset, rejected or rewritten may pass a constant
-  such as `0`.
+  The `:on-commit` handler accepts by writing the candidate, normalises
+  by writing another value, or rejects by leaving the value alone, and
+  none of the three needs the revision: the commit ends the session
+  before the handler runs, and a field with no session shows `:value`.
+  While an async acceptance is pending the field shows the committed
+  `:value` it already had, unless application data supplies an
+  optimistic or pending value through it.
+
+  `::h/revision` is the caller's, and it replaces a session from outside:
+  advancing it makes a live draft ineligible, so the field shows `:value`
+  even when that value is equal to the one the edit began from, and a
+  commit still carrying the old revision is a no-op. A settle that should
+  discard an edit begun while its request was in flight writes the value
+  and advances the revision together. A field whose drafts are never
+  replaced from outside may pass a constant such as `0`.
 
   Addressing: the address identifies the form instance and field; two
   fields sharing one address share one draft, which is usually a bug and

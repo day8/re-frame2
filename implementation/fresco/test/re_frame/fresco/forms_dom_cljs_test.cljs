@@ -79,9 +79,8 @@
 (rf/reg-sub ::showing? (fn [db _] (:showing? db)))
 
 (rf/reg-event ::title-committed
-  {:doc "The caller's `:on-commit`, in the chapter's shape: accept a
-         trimmed candidate, refuse a blank one, advance the revision
-         either way."}
+  {:doc "The caller's `:on-commit`: accept a trimmed candidate, refuse a
+         blank one, advance the revision either way."}
   (fn [{:keys [db]} [_ id candidate]]
     (let [title (str/trim candidate)]
       (if (str/blank? title)

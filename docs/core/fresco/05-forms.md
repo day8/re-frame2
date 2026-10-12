@@ -86,36 +86,30 @@ The `:on-commit` handler decides the result:
 - normalize by writing another value
 - reject by leaving the committed value unchanged
 
-When the handler rejects or rewrites, advance the revision as well:
-
 ```clojure
 (rf/reg-event :todo/title-committed
   (fn [{:keys [db]} [_ id candidate]]
     (let [title (str/trim candidate)]
-      (if (str/blank? title)
-        {:db (update-in db
-                        [:todos id :title-revision]
-                        (fnil inc 0))}
-        {:db (-> db
-                 (assoc-in [:todos id :title] title)
-                 (update-in [:todos id :title-revision]
-                            (fnil inc 0)))}))))
+      (when-not (str/blank? title)
+        {:db (assoc-in db [:todos id :title] title)}))))
 ```
 
-The revision makes same-value rejection observable. If the committed value is
-`"Buy milk"` and the user submits a blank draft, retaining `"Buy milk"` does
-not change the value. Advancing the revision replaces the displayed draft
-with the committed value on the next render.
+None of the three touches the revision. The commit ends the editing session
+before the handler runs, and a field with no session shows `:value`. If the
+committed value is `"Buy milk"` and the user commits a blank draft, the handler
+writes nothing and the field shows `"Buy milk"` again on the next render. A
+trimmed title appears the same way.
 
-For async acceptance, the settle event writes the accepted value and advances
-the revision. On the next render the field shows that value, and its new
-Enter/blur callbacks carry the new revision. They cannot commit the old draft.
+For async acceptance, the commit handler starts the request and the settle
+event writes the accepted value. While the request is pending the field has no
+draft, so it shows its existing committed `:value`, unless application data
+supplies an optimistic or pending value for `:value` to read.
 
-The cell below runs `title-field` with that handler. Edit the title and the
-committed value underneath does not move until you press Enter or leave the
-field. Escape throws the draft away. Clear the field and press Enter: the
-handler rejects the blank title, and the advanced revision puts the committed
-title back.
+The cell below runs a `title-field` with that handler and a constant revision
+of `0`. Edit the title and the committed value underneath does not move until
+you press Enter or leave the field. Escape throws the draft away. Clear the
+field and press Enter: the handler rejects the blank title and the field shows
+the committed title again.
 
 ```cljs-rf2
 (require '[clojure.string :as str]
@@ -131,27 +125,17 @@ title back.
   (fn [db [_ id]]
     (get-in db [:todos id :title])))
 
-(rf/reg-sub :todo/title-revision
-  (fn [db [_ id]]
-    (get-in db [:todos id :title-revision] 0)))
-
 (rf/reg-event :todo/title-committed
   (fn [{:keys [db]} [_ id candidate]]
     (let [title (str/trim candidate)]
-      (if (str/blank? title)
-        {:db (update-in db
-                        [:todos id :title-revision]
-                        (fnil inc 0))}
-        {:db (-> db
-                 (assoc-in [:todos id :title] title)
-                 (update-in [:todos id :title-revision]
-                            (fnil inc 0)))}))))
+      (when-not (str/blank? title)
+        {:db (assoc-in db [:todos id :title] title)}))))
 
 (h/defview title-field [{:keys [id]}]
   [forms/buffered-field
    {:control     [:todo id :title]
     :value       (h/sub [:todo/title id])
-    ::h/revision (h/sub [:todo/title-revision id])
+    ::h/revision 0
     :on-commit   [:todo/title-committed id]
     :aria-label  "Todo title"
     :placeholder "What needs doing?"}])
@@ -165,9 +149,28 @@ title back.
  [title-editor {:id 1}]]
 ```
 
-A field that will never be externally reset, rejected, or rewritten may use a
-constant revision such as `0`. That choice means an active draft is never
-replaced merely because `:value` changed.
+The revision is for replacing an editing session from outside it. An event
+that writes a new value while the user is mid-edit, such as a server push or a
+settle that should discard text typed since its request began, advances the
+revision when that value should replace the draft, even when it equals the
+value the field showed before the edit began:
+
+```clojure
+(rf/reg-event :todo/title-replaced
+  (fn [{:keys [db]} [_ id title]]
+    {:db (-> db
+             (assoc-in [:todos id :title] title)
+             (update-in [:todos id :title-revision] (fnil inc 0)))}))
+```
+
+On the next render the field shows the new value in place of the draft, and
+that draft's Enter and blur intents carry the old revision, so they commit
+nothing. A new value under an unchanged revision leaves the draft in place.
+
+A field whose drafts are never replaced from outside may use a constant
+revision such as `0`, whatever its commit handler accepts, rejects, or
+rewrites. That choice means an active draft is never replaced merely because
+`:value` changed.
 
 The module also settles two common races:
 
@@ -457,7 +460,7 @@ underneath: `reg-state` for a bad `:control`, and
 | Escape clears the field and the old draft returns on blur | A second draft copy exists outside the module | Keep one addressed draft. The module's trailing blur already no-ops after cancel |
 | Two fields overwrite one another's drafts | Their `:control` addresses collide | Include form instance and field identity, for example `[:todo id :title]` |
 | A buffered field reports `:rf.error/sub-exception` at its first render, with cause `:rf.error/fresco-state-bad-argument` | `:control` is missing or `nil` | Pass a stable address such as `[:todo id :title]` |
-| A rejected or normalized draft remains visible | The committed value stayed equal and the revision did not advance | Move `::h/revision` whenever a commit rejects or rewrites |
+| A buffered field shows text the application never wrote, such as autofill | A write from outside the application changed the input, and nothing the field reads moved | Advance `::h/revision` to reassert `:value` |
 | An external value update does not replace the active edit | Value changed under an equal revision | Advance the revision only when the application intends to replace the draft |
 | A late async acceptance overwrites newer work | The settle event wrote without a revision/supersession fence | Settle value and revision together; apply the mutation's supersession policy |
 | An old draft reappears after later navigation | Draft state is durable and no causal owner cleared it | Clear it on route entry, successful save, explicit cancel, or another domain end event |
@@ -518,7 +521,7 @@ Each row is a hand-written pattern and the model this page uses in its place:
 | Hand-written pattern | Failure it creates | Model on this page |
 | --- | --- | --- |
 | External value plus local atom for each field | Two sources must be synchronized, usually during rendering | One addressed draft in app-db |
-| Detect reset by comparing values | Reasserting an equal committed value cannot make a rejected draft disappear | Reset is signalled separately with `::h/revision` |
+| Detect reset by comparing values | Reasserting an equal committed value cannot make a rejected draft disappear | Commit ends the draft, so a rejection shows `:value`; an external reset is signalled separately with `::h/revision` |
 | Force a reset after every commit | Accepted async commits can flicker between stale and new values | Commit is decided against current state; stale commits become no-ops |
 | Inspect a callback's arity for a done function | Completion becomes an undocumented callback protocol | Mutation status is per-instance data |
 | Create draft state in a render closure | Re-render or remount destroys the edit | Draft and status live at stable addresses |
