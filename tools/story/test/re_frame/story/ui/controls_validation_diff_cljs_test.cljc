@@ -10,11 +10,9 @@
     header that collapses nested controls by default and lazily renders
     children only when expanded.
 
-  The inline-error test branches on whether a live validator is
-  registered (`validator-fns` is either nil or callable): with a validator
-  present it asserts the banner + inline error; without, it asserts the
-  documented soft-pass. The pure walk that PRODUCES violations is covered
-  in `schema-validation-cljs-test`.
+  The inline-error test relies on the live validator that
+  `schema-validation-cljs-test` asserts is registered in this build; that
+  namespace also covers the pure walk that PRODUCES violations.
 
   The file is a `.cljc` for symmetry with sibling controls tests; every
   body is CLJS-only (`#?(:cljs ...)`). The ns suffix `-cljs-test` puts
@@ -23,7 +21,6 @@
             #?(:cljs [re-frame.core :as rf])
             #?(:cljs [re-frame.story :as rf.story])
             #?(:cljs [re-frame.story.ui.controls :as rf.story.ui.controls])
-            #?(:cljs [re-frame.story.ui.schema-validation :as rf.story.ui.schema-validation])
             [re-frame.story.ui.state :as rf.story.ui.state]))
 
 ;; ---- fixtures ------------------------------------------------------------
@@ -152,8 +149,7 @@
 #?(:cljs
    (deftest inline-error-and-banner-track-the-live-validator
      (testing "a committed value that violates the component view's props
-               schema surfaces an inline error + a panel banner when a live
-               validator is present, and soft-passes otherwise"
+               schema surfaces an inline error + a panel banner"
        (rf/reg-view* :view.ba86n/bad
          {:rf/props [:map [:age :int]]}
          (fn [_] [:div]))
@@ -166,18 +162,11 @@
              banner  (node-with-attr tree :data-controls-validation "invalid")
              err-row (node-with-attr tree :data-controls-error)
              age-row (node-with-attr tree :data-controls-arg ":age")]
-         (if (:validate (rf.story.ui.schema-validation/validator-fns))
-           ;; Live validator present: banner + inline error + row marked invalid.
-           (do
-             (is (some? banner) "the panel banner renders")
-             (is (pos? (js/parseInt
-                         (:data-controls-violation-count (attrs banner)))))
-             (is (some? err-row) "inline error renders for the violating arg")
-             (is (= "true" (:data-controls-invalid (attrs age-row)))))
-           ;; Soft-pass — no validator on the classpath (per Spec 010).
-           (do
-             (is (nil? err-row))
-             (is (= "false" (:data-controls-invalid (attrs age-row))))))))))
+         (is (pos? (js/parseInt
+                     (:data-controls-violation-count (attrs banner))))
+             "the panel banner renders with its violation count")
+         (is (some? err-row) "inline error renders for the violating arg")
+         (is (= "true" (:data-controls-invalid (attrs age-row))))))))
 
 ;; ---- CLJS render: diff-from-saved dot + per-arg reset -------------------
 
