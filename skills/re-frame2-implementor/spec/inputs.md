@@ -20,6 +20,7 @@ The most load-bearing files:
 - **`spec/Ownership.md`** — the "which spec owns this surface" map; the loop's other standing anchor.
 - **`spec/Conventions.md`** — the reserved `:rf/*` scheme, the three unqualified fx-ids, the `:rf/path` algebra and CEDN-1 canonical identity (cardinal rules 10–11).
 - **`spec/Managed-Effects.md`, `spec/004C-Roots-and-Mount.md`, `spec/Spec-Schemas.md`** — cross-cutting obligations linked from the EP index (reply envelope, root identity and frame preflight, `:rf/effect-map`).
+- **`spec/Runtime-Architecture.md`, `spec/Cross-Spec-Interactions.md`** — the two non-normative companions the EP loop's intro routes a non-CLJS implementor to (the runtime as one machine; the decided behaviour where two Specs meet).
 
 The skill cites spec files by the published docs URL (`https://day8.github.io/re-frame2/spec/<file>/`), with anchor links for sections.
 
@@ -43,6 +44,8 @@ A re-authoring pass MUST keep these green (they run on every PR):
 - **`scripts/check_skill_implementor_partition_drift.py`** — stale-API denylist (listener verbs, managed-HTTP naming, adapter lifecycle, machine classification keys, reply-contract spellings) plus the no-bead-id scan over the user-facing leaves.
 - **`scripts/check_skill_mcp_drift.py`** — keys on the paths `references/cardinal-rules.md` (spec-pin `rev-parse` command; the local gh-issue body/title/search safety clauses) and `references/phase-1-decisions.md` (spec-pin `remote get-url` command). Keep those filenames and the literal commands/clauses.
 - **`scripts/check_adapter_disposition.py`** — rosters `references/phase-2-impl-order.md` as a scanned authority; keep that filename.
+- **`scripts/check_doc_slugs.py`** — resolves every `day8.github.io/re-frame2/spec/…` and `github.com/day8/re-frame2/(blob|tree)/main/…` citation offline against the working tree and grades its `#anchor` against the target page's headings, so a renamed page or heading fails the gate.
+- **The api-manifest skills check** (`clojure -M -m re-frame.api-manifest.skills-check`, from `implementation/scripts/api-manifest`) — fails on any call-position `(rf/<var>` reference in the skill that `spec/api-manifest.edn` does not carry. The leaves name API in prose rather than call position, so it grades a code example only once one is added.
 
 ## 5. What the skill does NOT consume
 
