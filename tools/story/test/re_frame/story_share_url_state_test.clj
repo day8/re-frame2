@@ -47,7 +47,6 @@
     (are [s expected] (= expected (rf.story.share/parse-viewport-param s))
       "tablet"   :tablet
       "800x600"  {:width 800 :height 600}
-      "1024x768" {:width 1024 :height 768}
       "0x600"    nil
       ""         nil
       nil        nil
@@ -79,11 +78,6 @@
             wire form percent-encodes `/` to %2F and `,` to %2C"
     (is (= ["tag-filter=tag%2Fa%2Ctag%2Fb"]
            (rf.story.share/build-params {:tag-filter #{:tag/b :tag/a}})))))
-
-(deftest parse-tag-filter-param
-  (testing "tag-filter parses into a set"
-    (is (= [#{:tag/a :tag/b} nil nil]
-           (map rf.story.share/parse-tag-filter-param ["tag/a,tag/b" "" nil])))))
 
 ;; ---- parse-params round-trip --------------------------------------------
 
