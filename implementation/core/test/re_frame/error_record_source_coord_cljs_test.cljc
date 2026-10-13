@@ -37,9 +37,10 @@
   (binding [rf.source-coords/*pending-coords* (coord ns-sym line)]
     (rf.events/reg-event event-id (throwing-handler ns-sym))))
 
-(defn- handler-exception-coord
-  "Dispatch `event-id` into `frame-id`; return the `:source-coord` slot of the
-  always-on `:rf.error/handler-exception` record it fanned, or `::absent`."
+(defn- handler-exception-record
+  "Dispatch `event-id` into `frame-id`; return the always-on
+  `:rf.error/handler-exception` record it fanned as `[message source-coord]`,
+  the coord `::absent` when the record carries none."
   [frame-id event-id]
   (let [seen (atom [])]
     (rf.error-emit/register-error-listener! ::recorder #(swap! seen conj %))
@@ -49,7 +50,11 @@
       (finally (rf.error-emit/unregister-error-listener! ::recorder)))
     (let [recs (filterv #(= :rf.error/handler-exception (:error %)) @seen)]
       (is (= 1 (count recs)) (str frame-id " fanned one handler-exception record"))
-      (get (first recs) :source-coord ::absent))))
+      [(ex-message (:exception (first recs)))
+       (get (first recs) :source-coord ::absent)])))
+
+(defn- handler-exception-coord [frame-id event-id]
+  (second (handler-exception-record frame-id event-id)))
 
 (defn- image-of [image-id ns-str]
   (rf.image/image {:id image-id :select-ns {:include [ns-str]}}))
@@ -75,21 +80,6 @@
   (rf/make-frame {:id :coord/frozen})
   (reg-from! 'coord.move-b 40 :coord/moved)
   (is (= (coord 'coord.move-a 30) (handler-exception-coord :coord/frozen :coord/moved))))
-
-(defn- handler-exception-record
-  "Dispatch `event-id` into `frame-id`; return the always-on
-  `:rf.error/handler-exception` record it fanned as `[message source-coord]`."
-  [frame-id event-id]
-  (let [seen (atom [])]
-    (rf.error-emit/register-error-listener! ::recorder #(swap! seen conj %))
-    (try
-      (try (rf/dispatch-sync [event-id] {:frame frame-id})
-           (catch #?(:clj Throwable :cljs :default) _ nil))
-      (finally (rf.error-emit/unregister-error-listener! ::recorder)))
-    (let [recs (filterv #(= :rf.error/handler-exception (:error %)) @seen)]
-      (is (= 1 (count recs)) (str frame-id " fanned one handler-exception record"))
-      [(ex-message (:exception (first recs)))
-       (get (first recs) :source-coord ::absent)])))
 
 (deftest a-replacement-registered-mid-handler-does-not-take-the-throw
   ;; the running implementation registers its replacement, then throws: the
