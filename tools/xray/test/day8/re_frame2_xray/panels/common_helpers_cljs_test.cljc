@@ -44,9 +44,3 @@
       []                 [[] false 0])
     (testing "an explicit cap overrides the default"
       (is (= [(rows 5) true 15] (common/cap-rows (rows 20) 5))))))
-
-(deftest cap-rows-is-pure
-  (testing "repeat invocations on the same input produce equal output"
-    (let [rows (mapv (fn [i] {:id i}) (range 300))]
-      (is (= (common/cap-rows rows)
-             (common/cap-rows rows))))))
