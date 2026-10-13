@@ -6,7 +6,6 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as string]
             [re-frame.core :as rf]
-            [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.panels :as panels]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
@@ -30,10 +29,7 @@
 
 ;; ---- section disclosure state --------------------------------------------
 
-(def ^:private rec-key
-  "The record key `managed-fx-helpers/record-key` composes for an HTTP record,
-  written out so a drift in the composer shows up here."
-  ":http-99-:rf.http/managed")
+(def ^:private rec-key ":http-99-:rf.http/managed")
 
 (defn- expanded-map []
   @(rf/subscribe [:rf.xray/managed-fx-expanded-sections]))
