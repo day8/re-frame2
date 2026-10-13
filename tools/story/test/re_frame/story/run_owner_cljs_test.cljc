@@ -128,28 +128,65 @@
 #?(:clj
    (deftest superseded-resume-never-greens-and-never-reads-successor
      (testing "run A parks at [:wait] on its own thread; run B (fresh run-key)
-               supersedes it. A settles as an explicit superseded result and
-               never dispatches its remaining event; B completes on its own state"
-       (let [vid :story.owner/overlap]
+               supersedes it, and A wakes only once B is parked at the same
+               step. A settles as an explicit superseded result and never
+               dispatches its remaining event; B completes on its own state"
+       (let [vid      :story.owner/overlap
+             read-run rf.story.play.runner-events/current-state-for-play
+             a-token  (promise)
+             a-parked (promise)
+             a-wake   (promise)
+             a-done   (promise)]
          (rf.story/reg-variant vid
            {:setup  [[:counter/initialise 0]]
-            :script [[:wait 250]
+            :script [[:wait 1]
                      [:dispatch-sync [:probe/inc-and-effect]]
                      [:dispatch-sync [:rf.assert/path-equals [:count] 1]]]})
-         (prepare! vid :a)
-         (let [gen-a (rf.story.runtime/current-generation vid)
-               fut   (future (rf.story.runtime/resume-run! vid))]
-           (Thread/sleep 60)
-           (prepare! vid :b)
-           (let [b-prom   (rf.story.runtime/resume-run! vid)
-                 a-result (rf.story.async/deref-blocking @fut 5000)
-                 b-result (rf.story.async/deref-blocking b-prom 5000)]
-             (is (= [:cannot-run true gen-a]
-                    ((juxt :status :superseded? :generation) a-result))
-                 "A settles superseded, never :pass, under its own generation")
-             (is (= [:pass 1] [(:status b-result) (:count (:app-db b-result))]))
-             (is (= 1 @ext-effect-count)
-                 "only B's effect fired: A's stale continuation dispatched nothing")))))))
+         ;; A run's loop reads its own slot as its [:wait] ends. Holding that
+         ;; read orders the two runs explicitly rather than by racing two
+         ;; sleeps: A stays parked until B has superseded it and parked at the
+         ;; same step, then A wakes while B waits for A to settle.
+         (with-redefs [rf.story.play.runner-events/current-state-for-play
+                       (fn [frame-id play-key]
+                         (let [{:keys [run-token step-idx]} (read-run frame-id play-key)]
+                           (when (= 1 step-idx)
+                             (if (deliver a-token run-token)
+                               (do (deliver a-parked true)
+                                   (deref a-wake 5000 nil))
+                               (when (and (not= run-token @a-token)
+                                          (deliver a-wake true))
+                                 (deref a-done 5000 nil)))))
+                         (read-run frame-id play-key))]
+           (prepare! vid :a)
+           (let [gen-a (rf.story.runtime/current-generation vid)
+                 fut   (future (try (rf.story.runtime/resume-run! vid)
+                                    (finally (deliver a-done true))))]
+             (is (deref a-parked 5000 false) "A parked at the end of its [:wait]")
+             (prepare! vid :b)
+             (let [b-prom   (rf.story.runtime/resume-run! vid)
+                   a-result (rf.story.async/deref-blocking @fut 5000)
+                   b-result (rf.story.async/deref-blocking b-prom 5000)]
+               (is (= [:cannot-run true gen-a]
+                      ((juxt :status :superseded? :generation) a-result))
+                   "A settles superseded, never :pass, under its own generation")
+               (is (= [:pass 1] [(:status b-result) (:count (:app-db b-result))]))
+               (is (= 1 @ext-effect-count)
+                   "only B's effect fired: A's stale continuation dispatched nothing"))))))))
+
+(deftest a-prepare-claims-its-generation-before-it-resets-the-frame
+  (testing "supersession is visible from the moment a fresh prepare touches
+            the frame, so a resume of the generation it replaces can never
+            settle over the successor's state"
+    (let [vid  :story.owner/claim-first
+          seen (atom [])]
+      (rf/reg-event :probe/note-generation
+        (fn [_ _]
+          (swap! seen conj (rf.story.runtime/current-generation vid))
+          {}))
+      (rf.story/reg-variant vid {:setup [[:probe/note-generation]]})
+      (prepare! vid :a)
+      (prepare! vid :b)
+      (is (= [1 2] @seen) "each prepare's setup already reads its own generation as current"))))
 
 ;; ---- every author-triggered run is fresh ---------------------------------
 ;;
