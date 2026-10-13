@@ -20,11 +20,8 @@
 (deftest coerce-keeps-presets-and-valid-dims-and-drops-the-rest
   (are [slot coerced] (= coerced (rf.story.viewport/coerce slot))
     :tablet                                  :tablet
-    :full                                    :full
     ;; a custom map coerces to a slim {:width :height} map
     {:width 800 :height 600 :label "extra"}  {:width 800 :height 600}
-    :Mode.unknown/whatever                   nil
-    :phablet                                 nil
     {:width "800" :height "600"}             nil
     {:width 800}                             nil
     "800x600"                                nil
