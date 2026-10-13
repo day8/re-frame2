@@ -32,11 +32,11 @@ command palette, `Cmd/Ctrl+K` → "Open Trace panel"; from code, with
 
 | Tab | Tooltip | Scope | One-line purpose | Depth |
 |---|---|---|---|---|
-| **Epoch** *(default landing)* | `e` | focused epoch | The focused dispatch's full cascade as a numbered vertical timeline, per-step ✓/✗/⊘, exceptions inline under their step. | [panels-epoch.md](panels-epoch.md) |
+| **Epoch** *(default landing)* | `e` | focused epoch | The focused dispatch's full cascade as a numbered vertical timeline, exceptions inline under their step, SKIPPED bodies for steps that never ran. | [panels-epoch.md](panels-epoch.md) |
 | **app-db** | `a` | focused epoch | State sectioned by reserved area, collapsible lazy-trees, inline `← was X` diffs. | [panels-state.md](panels-state.md) |
-| **Views** | `v` | focused epoch | The reactive cascade (subs + views) as a DAG with render-cause chips (`← :sub-id` vs `← props`). | [panels-state.md](panels-state.md) |
+| **Views** | `v` | focused epoch | The reactive cascade as a left → right flow graph (app-db → subs → views) with render-cause labels (`← :sub-id` vs `← props`). | [panels-state.md](panels-state.md) |
 | **Trace** | `t` | focused epoch | Raw trace events for the focused epoch — flat oldest-first rows, click to expand. | [panels-epoch.md](panels-epoch.md) |
-| **Machine** | `m` | focused epoch | What this event did to machines — topology + transition + guards/actions; blank on a no-machine epoch. | [panels-domains.md](panels-domains.md) |
+| **Machine** | `m` | focused epoch | What this event did to the one machine instance it targeted — the machine cascade (guards / actions) over its topology chart; a single placeholder line on a no-machine epoch. | [panels-domains.md](panels-domains.md) |
 | **Routes** | `r` | focused epoch | Current route + this epoch's navigation + the registered-route table. **No URL simulator here** — arbitrary-URL matching is Static → Routes. | [panels-domains.md](panels-domains.md) |
 | **Resources** | `s` | mixed | The declarative server-state lens — registry, live instances, work ledger, mutation/invalidation evidence. | [panels-resources.md](panels-resources.md) |
 | **Graph** | `g` | observed frame / process-global | The EP-0014 derivation/process graph across all five families; its own Declared ↔ Realized projection toggle. | [panels-structure.md](panels-structure.md) |
@@ -100,8 +100,8 @@ Per §021 §15 + §007 §Static mode — these are not tabs, and their content
 has a home:
 
 - **Issues** → no tab, no session-wide triage list. Three inline
- channels: the Epoch cascade's per-step ✓/✗ + inline exception cards
- ("anything broken in this epoch?"), the L2 event-row pink-wash ("which
+ channels: the Epoch cascade's inline exception cards and SKIPPED
+ bodies ("anything broken in this epoch?"), the L2 event-row pink-wash ("which
  epochs are broken?"), and the always-on issues-ribbon signal driving
  auto-open-on-error. Detail: [panels-epoch.md §Issues](panels-epoch.md#issues--inline-not-a-tab).
 - **Event** → the Epoch tab is the "what happened" surface.
@@ -109,8 +109,8 @@ has a home:
  popover; no peer Subs tab.
 - **Effects** → the Epoch EFFECT HANDLERS step + Trace raw ops.
 - **Flows** → the Epoch FLOW step; the registry → Static → Flows.
-- **Performance** → L2 row stripes + per-step durations in Epoch +
- per-row `:time` in Trace.
+- **Performance** → the L2 row's `duration` column + per-step
+ durations in Epoch + per-row `:time` in Trace.
 - **Schemas** (violations) → Epoch inline + the L2 pink-wash; the
  registry catalogue → Static → Schemas.
 - **Hydration** → Epoch inline + the issues-ribbon signal; no standalone

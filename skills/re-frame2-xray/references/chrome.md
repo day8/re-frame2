@@ -41,11 +41,9 @@ current-route slice; see [`panels.md` §Static mode](panels.md)).
 - **Tool frames are hidden unconditionally.** `:rf/xray` and
   `:rf/re-frame2-pair` are filtered out of the picker — invariant **I1**:
   Xray observes ANOTHER frame, never itself. There is no setting and no
-  override — no `:show-tool-frames?` config slot exists. The exclusion set is
-  `frame-switcher/internal-frames` and it applies unconditionally. (The
-  "Show tool frames in picker" power-user toggle still described in
-  `018-Event-Spine.md` / `007-UX-IA.md` is normative-future and is NOT
-  shipped.)
+  override — no "Show tool frames" toggle and no `:show-tool-frames?`
+  config slot. The exclusion set is `frame-switcher/internal-frames` and it
+  applies unconditionally.
 - **The picker is not a census of all live frames.** Its choices come
   from retained event bundles; the selected frame also remains visible
   when its events disappear. An unselected application frame with no

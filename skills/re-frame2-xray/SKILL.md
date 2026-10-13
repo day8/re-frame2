@@ -63,7 +63,7 @@ unless the user asked for the inventory.
 | What changed in state — is the value I expect actually there | **Dynamic → app-db** | pick the event; changed paths carry inline `← was X` diffs | **Views** for what re-rendered off the change |
 | Why did this render — sub change or props, what recomputed | **Dynamic → Views** | pick the event; read the render-cause chips (`← :sub-id` vs `← props`) | **app-db** at the sub's input path |
 | Exact raw ordering / payloads the friendly views summarise | **Dynamic → Trace** | pick the event; click a row to expand it | — |
-| What this event did to a state machine — transition, guards, actions | **Dynamic → Machine** (event-driven; blank when the event touched no machine) | pick the event | **Static → Machines** to browse a full topology cold |
+| What this event did to a state machine — transition, guards, actions | **Dynamic → Machine** (event-driven: the one instance the event targeted; a placeholder line when it targeted none) | pick the event | **Static → Machines** to browse a full topology cold |
 | What route am I on / what did this event do to routing | **Dynamic → Routes** | pick the event | **Static → Routes** to rank a URL against the registry |
 | Server state — what owns it, is it stale, what's in flight, did my mutation's `:reply-to` fire | **Dynamic → Resources** | pick the frame — live instances follow the L1 frame picker, not the epoch | — |
 | Where does this value come from — the dependency graph across subs / flows / resources / routes / machines | **Dynamic → Graph** (does not follow the epoch) | flip its own Declared ↔ Realized projection toggle for registered-vs-observed | — |
@@ -72,7 +72,7 @@ unless the user asked for the inventory.
 | What's registered — machines / routes / schemas / flows / interceptors as catalogues | **Static mode** | flip the L1 mode pill or press `Cmd/Ctrl+Shift+M` | — |
 | Schema violations — what fired and when each started | **Dynamic → Epoch** (violations attach inline to the owning step) + the L2 pink-wash | pick the frame; scan the spine for washed rows | registered-schema *catalogue* → **Static → Schemas** |
 | SSR hydration mismatches | **Dynamic → Epoch** inline + the auto-open-on-error issues-ribbon signal — there is **no** Hydration tab | pick the washed event | — |
-| Anything broken in this epoch? / which epochs are broken? | **Dynamic → Epoch** (per-step ✓/✗ + inline exception cards) / the **L2 pink-wash** — there is **no** Issues tab | pick the frame; scan the spine | — |
+| Anything broken in this epoch? / which epochs are broken? | **Dynamic → Epoch** (inline exception cards under the failing step) / the **L2 pink-wash** — there is **no** Issues tab | pick the frame; scan the spine | — |
 | A "panel" remembered from elsewhere — Subscriptions, Effects, Flows, Performance | not a tab — its content lives in the lenses above | see [`references/panels.md` §What's deliberately NOT here](references/panels.md#whats-deliberately-not-here) | — |
 
 The daily path in one line: **choose the frame → choose an event (only

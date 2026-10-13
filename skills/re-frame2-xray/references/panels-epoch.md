@@ -37,8 +37,8 @@ is conveyed by omission, not an empty-state row). The step order:
  handler returned** (there is one public `reg-event`, no `:db`-vs-`:fx`
  registrar flavour): only `:db` → a `:db` diff · `:db` + `:fx` → diff +
  per-fx · a `reg-machine` event → the time-ordered machine cascade.
- Rendered **SKIPPED** (⊘) when the handler never ran (NOT "ran,
- returned no :db"), and the body names why. An upstream `:before`-chain
+ Rendered **SKIPPED** when the handler never ran (NOT "ran, returned
+ no :db"): a muted italic body names why. An upstream `:before`-chain
  throw aborted the cascade: "The handler did not run — an upstream step
  threw before this step could execute." The router refused the event
  against its handler's `:schema`, and the violation sits on DISPATCH:
@@ -52,12 +52,13 @@ is conveyed by omission, not an empty-state row). The step order:
 9. **SUBSCRIPTIONS** — only when subs recomputed.
 10. **VIEWS** — only when views re-rendered.
 
-**Per-step status + inline exceptions.** Every step header carries `✓`
-(ok) / `✗` (error) / `⊘` (skipped). A handler / interceptor / coeffect /
-fx / flow exception renders UNDER the step where it occurred via the
-shared **"Exception Thrown"** card; the epoch's outcome reads error
-whenever any step settled error. Schema violations attach inline the same
-way.
+**Failures show inline, not as header glyphs.** Step headers carry no
+✓ / ✗ status glyph — a clean run would tick every step and say nothing.
+A handler / interceptor / coeffect / fx / flow exception renders UNDER
+the step where it occurred via the shared **"Exception Thrown"** card,
+and a step that never ran shows its SKIPPED body. Schema violations
+attach inline the same way. The one per-row glyph column is the EFFECT
+HANDLERS ledger below.
 
 **Open when:** "what did this event do?", "where did the cascade fail?",
 "what fx fired?", "did the flow recompute?"
@@ -70,13 +71,14 @@ One row per effect, in execution order, no group headers:
 
 - Each row leads with a status glyph: `✓` ran ok · `✗` threw /
  no-such-fx / `:db` schema-fail rollback · `↺` fx override applied · `–`
- skipped-on-platform or dropped (neutral — never trips the badge).
-- A single AND-of-rows badge after the step label: TICK when every
- present row succeeded, CROSS when any failed; skipped rows are neutral.
+ skipped-on-platform or dropped (neutral). The per-row glyphs are the
+ whole signal — the EFFECT HANDLERS label carries no overall badge.
 - **The `:db` row** leads the ledger when a `:db` commit was attempted;
  its args slot is the clickable **"→ app-db"** destination marker (the
  diff itself lives in the app-db panel). Absent when the handler
- returned only `:fx` / nothing / threw — no phantom `:db`.
+ returned only `:fx` / nothing / threw — no phantom `:db`. A
+ `:rf.db/runtime` row follows it when the event committed runtime-db
+ state, then the `:fx` entries in order.
 - fx exceptions attach to the owning row; a `:db` schema-fail rollback
  paints the `:db` row ✗ with the reason box, and a rollback means `:fx`
  never walked (Spec 002 atomicity) — the ledger then carries only the
@@ -110,19 +112,21 @@ The L2 event spine above the panels carries the cross-epoch signal.
 
 **The row is glyph-free** — no gutter glyphs, no dispatch-origin prefix
 glyphs, no activity-badge cluster. Don't send a user hunting for row
-decorations. What the row actually
-carries:
+decorations. What the row actually carries:
 
-- **A text `source` column** — the bare source name for substrate
+- **Four text columns** — `event id` (the bare event-id keyword; the
+ args live in the tooltip and the Epoch tab) · `source` · `timestamp`
+ · `duration` (the handler's wall-time, e.g. `1.2 ms`).
+- **The `source` column** — the bare source name for substrate
  origins (`router`, `http`, `ssr-hydration`, `fx-dispatch`,
  `after-timer`, `tool`, …) and `ui` for app code (`:ui`, and the
  un-stamped `:unknown` / `:other` / `:repl` / `:frame-init` sources).
  Every row is tagged; the cell is never blank.
 - **The `>` selection caret** + a background tint on the active row.
 - **Issue pink-wash** per row — a cascade carrying an issue washes its
- whole L2 row pink. Together with the Epoch cascade's per-step ✓/✗ this
- is the primary "which epochs are broken?" signal, and it is the only
- row decoration that ships.
+ whole L2 row pink. Together with the Epoch cascade's inline exception
+ cards this is the primary "which epochs are broken?" signal, and it is
+ the only row decoration that ships.
 
 Error / HTTP / machine context
 lives in the cascade record and surfaces inline in the Epoch and Trace
@@ -135,8 +139,8 @@ RETIRED](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/018-Event-S
 There is **no dedicated Issues tab** and no session-wide triage list.
 "What's wrong?" is answered through three always-on channels:
 
-1. **Inline in the Epoch cascade** — per-step ✓/✗, the "Exception
- Thrown" card under the throwing step, the `:db` rollback row. Errors,
+1. **Inline in the Epoch cascade** — the "Exception Thrown" card under
+ the throwing step, SKIPPED bodies, the `✗` `:db` rollback row. Errors,
  warnings, schema violations, and hydration mismatches each surface
  against the step where they occurred.
 2. **The L2 pink-wash** — "which epochs are broken?" at a glance.

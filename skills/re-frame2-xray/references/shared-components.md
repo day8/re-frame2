@@ -28,14 +28,11 @@ body re-roots to any ancestor in one tap. There is **no
 cross-panel propagation**, no blame popover, no copy-path, no copy-value
 and no "show epoch that last changed this" (§021 §10.5).
 
-Lazy-expansion heuristic (§021 §10.4): depth ≤ 2 expanded · depth 3
-expanded if ≤ 10 children · depth ≥ 4 collapsed · changed children
-force ancestor chain open · per-panel `:default-depth` override (app-db
-defaults depth-3-collapsed; Epoch / Trace payloads default
-depth-2-expanded).
-
-Operator expansion state persists in app-db
-(`:rf.xray.edn-inspector/expansion {<path>}`) per epoch + path.
+Lazy expansion (§021 §10.4): a container that fits inline renders as one
+line; wider ones auto-expand only down to a depth ceiling, beyond which
+they show a collapsed summary. The ancestors of a changed node are always
+forced open. An operator's own expand / collapse is sticky — it wins over
+the heuristic.
 
 ### Spine navigation — no shared per-panel header
 
