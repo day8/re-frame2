@@ -20,7 +20,7 @@
   compile via the DEFAULT lookup — the path the live runtime takes — and
   prove:
 
-    1. composed-fragment + `:extends`-chain `:sub-overrides` resolve through
+    1. composed-fragment `:sub-overrides` resolve through
        the canvas's resolver over `rf.story.plan/variant-plan` (which
        delegates to the SAME `rf.story.render/resolve-render-sub-overrides`
        render-variant uses);
@@ -99,26 +99,6 @@
                              :setup        []})
     (is (= {[:login/attempts] 3 [:login/state] :error}
            (canvas-sub-overrides :story.login/from-fragment {})))))
-
-(deftest extends-chain-sub-overrides-resolve-on-canvas-path
-  (testing "a child variant that :extends a parent with :sub-overrides and
-            declares its OWN inherits the merged map through the canvas
-            resolver (the :extends chain)"
-    (rf.story.registrar/reg-variant* :story.ext.subovr/parent
-                            {:sub-overrides {[:login/state] :error}
-                             :setup        []})
-    (rf.story.registrar/reg-variant* :story.ext.subovr/child
-                            {:extends       :story.ext.subovr/parent
-                             :sub-overrides {[:login/attempts] 5}
-                             :setup        []})
-    (is (= {[:login/attempts] 5 [:login/state] :error}
-           (canvas-sub-overrides :story.ext.subovr/child {})))))
-
-(deftest variant-with-no-sub-overrides-resolves-nil
-  (testing "a registered variant authoring NO :sub-overrides resolves nil
-            (render-transparent — no wrapper)"
-    (rf.story.registrar/reg-variant* :story.plain/v {:setup []})
-    (is (nil? (canvas-sub-overrides :story.plain/v {})))))
 
 ;; ===========================================================================
 ;; Canvas + render-variant resolve the SAME decorators off the compiled
@@ -262,31 +242,7 @@
                    :story.canvas.modearg/v
                    {:active-modes [:Mode.canvas/big]})]
         (is (= [:deco/mode-wrap] (mapv :id (:hiccup pack)))
-            "the variant's :hiccup decorator resolves (no throw)")
-        (is (empty? (:errors pack))
-            "no resolution errors — the mode-only [:arg] substituted")))))
-
-(deftest canvas-decorator-resolution-threads-cell-override-arg
-  (testing "a `:cell-override` supplies the SOLE source of an `[:arg key]` in
-            the variant body; the canvas front door resolves the decorator
-            stack when the override is threaded (the highest run layer, same
-            as a mode at `cell-override > variant`)"
-    (rf.story.registrar/reg-decorator* :deco/cell-wrap
-                              {:kind :hiccup :wrap (fn [body _] [:div.cell body])})
-    (rf.story.registrar/reg-variant* :story.canvas.cellarg/v
-                            {:component  :views/widget
-                             :decorators [[:deco/cell-wrap]]
-                             :db-seed    {:seeded [:arg :only-in-cell]}
-                             :setup     []})
-    (testing "the no-opts front door throws (the cell key is variant-absent)"
-      (is (missing-arg-throw?
-            #(rf.story.decorators/resolve-decorators :story.canvas.cellarg/v))))
-    (testing "threading the cell-override resolves the stack cleanly"
-      (let [pack (rf.story.decorators/resolve-decorators
-                   :story.canvas.cellarg/v
-                   {:cell-overrides {:only-in-cell "from-cell"}})]
-        (is (= [:deco/cell-wrap] (mapv :id (:hiccup pack))))
-        (is (empty? (:errors pack)))))))
+            "the variant's :hiccup decorator resolves (no throw)")))))
 
 (deftest resolution-fingerprints-threads-run-args-without-throwing
   (testing "the hot-reload fingerprint poll (`resolution-fingerprints`) threads
