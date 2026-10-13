@@ -192,12 +192,8 @@
                           (is (= [:rf.work/http [:rf.http/anonymous :t/search] 1] (prefix i1)))
                           (is (= [:rf.work/http [:rf.http/anonymous :t/search] 2] (prefix i2))))
                         (testing "each record reads its OWN outcome"
-                          (is (= :error (:status r1)))
-                          (is (= 404 (:http-status r1)))
-                          (is (= :ok (:status r2)))
-                          (is (= 200 (:http-status r2)))
-                          (is (= :joined (:completion r1)))
-                          (is (= :joined (:completion r2))))
+                          (is (= [[:error 404 :joined] [:ok 200 :joined]]
+                                 (mapv (juxt :status :http-status :completion) [r1 r2]))))
                         (testing "and its OWN elapsed — the reverse completion order is visible"
                           (is (= (elapsed i1 (replied-for buffer i1)) (:duration-ms r1)))
                           (is (= (elapsed i2 (replied-for buffer i2)) (:duration-ms r2)))
@@ -248,10 +244,8 @@
                         (testing "PRECONDITION — the completion is the SECOND attempt, so full work-id equality cannot join it"
                           (is (= [:rf.work/http :checkout 1 1] (get-in i [:tags :rf.reply/work-id])))
                           (is (= [:rf.work/http :checkout 1 2] (get-in replied [:tags :rf.reply/work-id]))))
-                        (is (= :error (:status r)))
-                        (is (= 500 (:http-status r)))
-                        (is (= 2 (:attempts r)))
-                        (is (= :rf.http/http-5xx (get-in r [:failure :kind])))
+                        (is (= [:error 500 2 :rf.http/http-5xx]
+                               ((juxt :status :http-status :attempts (comp :kind :failure)) r)))
                         (is (= (elapsed i replied) (:duration-ms r)))
                         (is (< (elapsed i retry) (:duration-ms r))
                             "elapsed spans both attempts — it runs past the first attempt's retry row")
@@ -312,11 +306,10 @@
                   (.then
                     (fn [_]
                       (let [r (actor-record @traces)]
-                        (is (= :stale (:status r)))
-                        (is (= :rf.http/stale-suppressed (:terminal-op r))
-                            "the canonical stale row wins over the :rf.http/aborted that precedes it")
-                        (is (= :rf.http/actor-destroyed-target-obsolete (:cancel-cause r)))
-                        (is (nil? (:reply-link r)) "nothing was delivered, so nothing links")))))))))
+                        (is (= [:stale :rf.http/stale-suppressed
+                                :rf.http/actor-destroyed-target-obsolete nil]
+                               ((juxt :status :terminal-op :cancel-cause :reply-link) r))
+                            "the canonical stale row wins over the :rf.http/aborted that precedes it, and nothing was delivered, so nothing links")))))))))
       done)))
 
 (deftest c2-actor-destroy-with-a-live-target-is-cancelled-with-a-link
@@ -337,9 +330,9 @@
                   (.then
                     (fn [_]
                       (let [r (actor-record @traces)]
-                        (is (= :cancelled (:status r)))
-                        (is (= :actor-destroyed (:cancel-cause r)))
-                        (is (nil? (:failure r)) "a cancellation is not a failure")
+                        (is (= [:cancelled :actor-destroyed nil]
+                               ((juxt :status :cancel-cause :failure) r))
+                            "a cancellation is not a failure")
                         (is (some? (:reply-link r)) "the live target received the :cancelled reply")))))))))
       done)))
 
@@ -376,13 +369,11 @@
                         (testing "PRECONDITION — the stale row carries BOTH ids, and lands in the superseder's bundle"
                           (is (= [:rf.work/http :x 1 1] (get-in stale [:tags :rf.reply/carried :work/id])))
                           (is (= [:rf.work/http :x 2 1] (get-in stale [:tags :rf.reply/current :work/id]))))
-                        (is (= :stale (:status r1)))
-                        (is (= :rf.http/stale-suppressed (:terminal-op r1)))
-                        (is (nil? (:reply-link r1)))
-                        (is (= :ok (:status r2)))
-                        (is (= :rf.http/replied (:terminal-op r2))
+                        (is (= [:stale :rf.http/stale-suppressed nil]
+                               ((juxt :status :terminal-op :reply-link) r1)))
+                        (is (= [:ok :rf.http/replied 200]
+                               ((juxt :status :terminal-op :http-status) r2))
                             "the superseder never matches through :rf.reply/current")
-                        (is (= 200 (:http-status r2)))
                         (is (some? (:reply-link r2)))))))))))
       done)))
 
@@ -434,14 +425,11 @@
                               "both completions carry the identical work id"))
                         (testing "in-bundle attribution by position: the abort precedes the re-issue's issued row, so it is not the new record's"
                           (let [bundle-only (first (managed-records (h/event-bundle->managed-fx-records b2)))]
-                            (is (= :issued (:status bundle-only)))
-                            (is (nil? (:cancel-cause bundle-only)))))
-                        (is (= :cancelled (:status old)))
-                        (is (= :user (:cancel-cause old)))
-                        (is (some? (:reply-link old)) "the :cancelled reply was delivered")
-                        (is (= :ok (:status new)))
-                        (is (nil? (:cancel-cause new)))
-                        (is (some? (:reply-link new)))
+                            (is (= [:issued nil] ((juxt :status :cancel-cause) bundle-only)))))
+                        (is (= [[:cancelled :user] [:ok nil]]
+                               (mapv (juxt :status :cancel-cause) [old new])))
+                        (is (every? some? (map :reply-link [old new]))
+                            "the :cancelled reply and the re-issue's reply were both delivered")
                         (is (not= (:reply-link old) (:reply-link new))
                             "one work id, two deliveries — each record links to the reply AFTER its own completion")))))))))
       done)))
@@ -469,10 +457,8 @@
                             r      (only-managed buffer [:t/f])]
                         (is (seq (issued-in buffer [:t/f])) "PRECONDITION: the issued row is in the capture")
                         (is (empty? (ops buffer :rf.http/replied)) "PRECONDITION: nothing completed")
-                        (is (= :issued (:status r)))
-                        (is (= :none (:completion r)))
-                        (is (nil? (:duration-ms r)))
-                        (is (nil? (:reply-link r)))))))))))
+                        (is (= [:issued :none nil nil]
+                               ((juxt :status :completion :duration-ms :reply-link) r)))))))))))
       done)))
 
 ;; ===========================================================================
@@ -506,9 +492,7 @@
                         (testing "(g) issued row aged out"
                           (let [r (only-managed-in-run aged (:dispatch-id (bundle-for full [:t/gh])))]
                             (is (seq (ops aged :rf.http/replied)) "PRECONDITION: the terminal row survived")
-                            (is (= :issued (:status r)))
-                            (is (nil? (:completion r)))
-                            (is (nil? (:reply-link r)))))))))))))
+                            (is (= [:issued nil nil] ((juxt :status :completion :reply-link) r)))))))))))))
       done)))
 
 ;; ===========================================================================
@@ -538,10 +522,8 @@
                     (fn [_]
                       (let [buffer @traces
                             recs   (managed-records (joined-records buffer [:t/pair]))]
-                        (is (= 2 (count recs)))
-                        (is (= [:ok :error] (mapv :status recs))
-                            "record order is effect order; each took its own request's outcome")
-                        (is (= [200 500] (mapv :http-status recs)))))))))))
+                        (is (= [[:ok 200] [:error 500]] (mapv (juxt :status :http-status) recs))
+                            "record order is effect order; each took its own request's outcome")))))))))
       done)))
 
 ;; ===========================================================================
@@ -578,9 +560,8 @@
                         (testing "(k) PRECONDITION — the producer reused the work id after eviction"
                           (is (= (prefix i1) (prefix i2) [:rf.work/http :k 1])))
                         (testing "(k) each record takes the first terminal row AFTER its own issued row"
-                          (is (= :ok (:status (only-managed buffer [:t/k 1]))))
-                          (is (= :error (:status (only-managed buffer [:t/k 2]))))
-                          (is (= 503 (:http-status (only-managed buffer [:t/k 2])))))
+                          (let [[r1 r2] (mapv #(only-managed buffer %) [[:t/k 1] [:t/k 2]])]
+                            (is (= [:ok :error 503] [(:status r1) (:status r2) (:http-status r2)]))))
                         (testing "(j) control — the real completion row is indexed"
                           (is (some #{real} (get (h/http-terminal-index buffer)
                                                  [:rf/default (prefix i1)]))))
@@ -667,9 +648,7 @@
                 (the-full-work-id-was-reused buffer)
                 (testing "PRECONDITION — only the second request's reply was delivered"
                   (is (= #{:second} (set (keys delivered)))))
-                (is (= :error (:status r1)))
-                (is (= 500 (:http-status r1)))
-                (is (nil? (:reply-link r1))
+                (is (= [:error 500 nil] ((juxt :status :http-status :reply-link) r1))
                     "the silenced 500 delivered nothing, so it links to nothing")
                 (is (= :ok (:status r2)))
                 (is (= (:second delivered) (:reply-link r2))
