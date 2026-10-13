@@ -119,6 +119,19 @@
       (is (vector? items))
       (is (= ["x"] items)))))
 
+(deftest set-cell-override-sets-a-tuple-position-past-the-end
+  (testing "the tuple widget renders every position of a nil-valued arg, so
+            editing position 1 pads the vivified vector with nil up to it"
+    (is (= [nil :b]
+           (get-in (rf.story.ui.state/set-cell-override rf.story.ui.state/default-shell-state
+                                                        :story.a/x [:pair 1] :b nil)
+                   [:cell-overrides :story.a/x :pair]))))
+  (testing "a base shorter than the edited position is padded the same way"
+    (is (= [:a nil :c]
+           (get-in (rf.story.ui.state/set-cell-override rf.story.ui.state/default-shell-state
+                                                        :story.a/x [:triple 2] :c [:a])
+                   [:cell-overrides :story.a/x :triple])))))
+
 ;; Editing one entry of a not-yet-overridden `:vector`/`:set` arg: args
 ;; resolution replaces vectors/sets whole but deep-merges maps, so a
 ;; collection level is seeded from `base` (its siblings survive) while a
