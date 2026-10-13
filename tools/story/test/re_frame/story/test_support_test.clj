@@ -77,14 +77,12 @@
 ;; keyed by frame-id and evicted by per-frame teardown, so a reset that
 ;; bypasses frame teardown must wipe them or a stale stepper session leaks.
 
-(deftest clear-all-evicts-play-atoms
+(deftest clear-all-and-the-helper-reset-evict-play-atoms
   (testing "rf.story/clear-all! wipes pending-exceptions + stepper-state"
     (reset! rf.story.play/pending-exceptions {:story.leak/frame [{:op-type :error}]})
     (reset! rf.story.play/stepper-state      {:story.leak/frame {:remaining [] :ran [] :results []}})
     (rf.story/clear-all!)
-    (is (= [{} {}] [@rf.story.play/pending-exceptions @rf.story.play/stepper-state]))))
-
-(deftest story-reset-evicts-play-atoms
+    (is (= [{} {}] [@rf.story.play/pending-exceptions @rf.story.play/stepper-state])))
   (testing "the helper's reset wipes both play atoms inside the bracket"
     (reset! rf.story.play/pending-exceptions {:story.leak/frame [{:op-type :error}]})
     (reset! rf.story.play/stepper-state      {:story.leak/frame {:remaining [] :ran [] :results []}})
