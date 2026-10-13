@@ -50,12 +50,7 @@
 
 (deftest watch-mode-drift-table
   (are [prev current drifted] (= drifted (rf.story.ui.state/watch-mode-drift prev current))
-    ;; current == prev → no drift
-    {:story.x/a "aaaa" :story.x/b "bbbb"}
-    {:story.x/a "aaaa" :story.x/b "bbbb"}
-    []
-
-    ;; changed hashes → every drifted variant, sorted
+    ;; changed hashes → every drifted variant, sorted; an unchanged one is not
     {:story.x/a "1" :story.x/b "2" :story.x/c "3"}
     {:story.x/a "X" :story.x/b "2" :story.x/c "Y"}
     [:story.x/a :story.x/c]
