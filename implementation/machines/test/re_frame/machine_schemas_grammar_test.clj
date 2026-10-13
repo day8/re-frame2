@@ -50,9 +50,7 @@
                                   :states  {:idle {}}}))
                       [:rf.error/id :schemas-key]))))
 
-;; ---- (3) :input is rejected (state input not adopted) ---------------------
-
-;; ---- (4) non-map :schemas fails loud --------------------------------------
+;; ---- (3) non-map :schemas fails loud --------------------------------------
 
 (deftest non-map-schemas-fails-loud
   (is (= :rf.error/machine-bad-schemas
@@ -60,5 +58,3 @@
                                   {:initial :idle
                                    :schemas [:not :a :map]
                                    :states  {:idle {}}}))))))
-
-;; ---- (5) absent :schemas registers cleanly --------------------------------
