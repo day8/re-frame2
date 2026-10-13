@@ -84,6 +84,8 @@ Sibling subs project single facts: `:rf.resource/data`, `:rf.resource/status`, `
 
 `ensure` is the workhorse: fresh entry ⇒ cache-hit, no fetch (fresh-skip); absent/stale ⇒ fetch. A manual refresh button is usually a **cause**, not an owner (it does not intend to keep the entry alive).
 
+**Refetch on focus / reconnect is a frame property, not a call.** Declare `:revalidate-on #{:focus :reconnect}` on the frame config (`make-frame` / `frame-root`); the frame lifecycle installs, reconciles and removes the window listeners, and a signal refetches the frame's *active, stale* reads. `:focus` covers tab return too; an absent key or `#{}` installs nothing; there is no install/remove fn.
+
 ### Scope is mandatory (fail-closed)
 
 `:scope` is REQUIRED at `reg-resource`. It is the cache's tenant / user / permission / locale / impersonation / SSR leak boundary, so it **fails closed** — there is no silent shared default:

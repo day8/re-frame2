@@ -33,11 +33,11 @@ A `reg-event` handler returns a **closed-shape** map — the next state and what
       ...]}
 ```
 
-Each `:fx` entry is a 2-vector: `[fx-id args]`. The runtime walks them in source order, synchronously, after the state partitions commit (`fx.cljc:4-9`). Any top-level key **outside** the closed set — `:dispatch`, `:dispatch-later`, `:http`, etc — emits `:rf.error/effect-map-shape` and **refuses the event pre-commit**, so nothing commits and no `:fx` walks (`effect-map-defect` + `closed-effect-map-keys` in `events.cljc`). There are no auto-routed top-level effect keys; every effect rides `:fx` (or the closed set).
+Each `:fx` entry is a 2-vector: `[fx-id args]`. The runtime walks them in source order, synchronously, after the state partitions commit (the `re-frame.fx` ns docstring). Any top-level key **outside** the closed set — `:dispatch`, `:dispatch-later`, `:http`, etc — emits `:rf.error/effect-map-shape` and **refuses the event pre-commit**, so nothing commits and no `:fx` walks (`effect-map-defect` + `closed-effect-map-keys` in `events.cljc`). There are no auto-routed top-level effect keys; every effect rides `:fx` (or the closed set).
 
 **`:rf.db/runtime` is the one new state-bearing key (EP-0001).** Ordinary app handlers write app data via `:db` and almost never touch it — it targets the runtime-db partition (machine snapshots, route slice, SSR metadata) and is reserved **by convention** for framework-authority writers (SSR hydrate, machines, routing, flows). It is **not** a shape error: a non-framework handler that emits it gets the `:rf.warning/app-handler-runtime-effect` dev diagnostic (it is not dropped). Don't flag a framework/SSR/machine handler's legitimate `:rf.db/runtime` write as illegal.
 
-The reserved fx-ids the core runtime handles directly (`fx.cljc:10-16`):
+The reserved fx-ids the core runtime handles directly (listed in the same docstring):
 
 | fx-id | args | Effect |
 |---|---|---|
@@ -75,7 +75,7 @@ Based on `examples/core/todomvc/events.cljs`; the caller supplies the new item's
 
 ## Ordering and atomicity
 
-Per `fx.cljc:4-9`:
+Per the `re-frame.fx` ns docstring (Spec 002 §`:fx` ordering and atomicity guarantees):
 
 1. `:db` commits first, atomically.
 2. `:fx` entries process in source order.

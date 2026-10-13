@@ -12,7 +12,7 @@ The prompt mentions: an SSR app handling a form POST, progressive enhancement, "
 
 1. **The HTML form** renders `method="POST" action="/<route>"` + a hidden CSRF token. The standard Pattern-Forms slice (server-rendered from `app-db`) drives field values.
 2. **The host adapter receives the POST**, parses the body (form-urlencoded or multipart), binds it under `:form-params`, and creates a per-request frame. What it binds is what the wire carried: HTML form encoding has no types and no keywords, so the parsed body is **strings keyed by strings**, and neither the host nor the framework is obliged to fix that.
-3. **`:rf/server-init` normalises, then routes**, declaring `:rf.cofx/requires [:rf.server/request]` — on GET there is nothing to dispatch: the route's `:resources` plan ensures the page's blocking reads ([`resources.md` §Route-driven loading](resources.md#route-driven-loading-route-resources); machines are synchronous-only under SSR); on POST decode that wire shape into domain values and dispatch the domain event with the result. This dispatch is the pattern's single normalisation seam.
+3. **`:rf/server-init` normalises, then routes**, declaring `:rf.cofx/requires [:rf.server/request]` — on GET it resolves the request URL (`[:rf.route/handle-url-change uri]`), and the matched route's `:resources` plan ensures the page's blocking reads ([`resources.md` §Route-driven loading](resources.md#route-driven-loading-route-resources); machines are synchronous-only under SSR); on POST decode that wire shape into domain values and dispatch the domain event with the result. This dispatch is the pattern's single normalisation seam.
 4. **The domain handler validates** `form-params` **in its own body** — not via `:schema`, which is a dev tripwire and elides from the production build. On failure → write the submitted fields back into the form slice's `:draft` and structured errors into its `:errors`, emit `[:rf.server/set-status 400]`, let the drain settle, re-render the page populated and with inline errors. On success → run the side effect, then `:rf.server/redirect` (303) or a success re-render.
 5. **The drain settles**, the SSR emitter runs (or is short-circuited by the redirect), the host materialises the response accumulator (read via `get-response`).
 6. **Once JS hydrates**, the form's `:on-submit` calls `(.preventDefault e)` and dispatches the *same* event. Only the dispatch site differs.
@@ -100,15 +100,16 @@ The browser callbacks use `#?(:cljs ... :clj nil)` in a `.cljc` view, leaving th
   (m/decode schema (update-keys form-params keyword) mt/string-transformer))
 
 (rf/reg-event :rf/server-init
-  {:doc "Per-request boot. GET → page loader; POST → normalise, then form action."
+  {:doc "Per-request boot. GET → route the URL; POST → normalise, then form action."
    :platforms #{:server}
    :rf.cofx/requires [:rf.server/request]}
   (fn [{:keys [rf.server/request]} _]
-    (let [{:keys [request-method form-params]} request
-          route (match-route (:uri request))]            ;; app-supplied route matcher
+    (let [{:keys [request-method form-params uri]} request]
       (case request-method
-        :get  {:fx [[:dispatch [:page/load route]]]}
-        :post (let [{:keys [event schema]} (route->action route)]
+        ;; GET: route the URL; the route's blocking `:resources` are the render barrier.
+        :get  {:fx [[:dispatch [:rf.route/handle-url-change uri]]]}
+        :post (let [route (match-route uri)                 ;; app-supplied route matcher
+                    {:keys [event schema]} (route->action route)]
                 {:fx [[:dispatch [event (decode-form-params schema form-params)]]]})))))
 ```
 
@@ -184,7 +185,7 @@ The action handler validates **in its own body** and emits per-platform effects:
                [[:dispatch [:rf.route/navigate {:to :route/cart}]]])}))))   ;; client: shipped routing event
 ```
 
-`m` / `me` are `malli.core` / `malli.error`; `write-form-errors` and `explain->errors` are app-level helpers (`spec/Pattern-FormAction.md` gives both in full). The point is that the call sits in the **handler body**, where it survives into the release build. `:boundary? true` does not substitute for it: the check it keeps alive *is* ungated and a rejection does answer `400` via the SSR error projector, but it skips the handler, so the user gets a generic public-error body rather than their own form back with the values they typed.
+`m` is `malli.core`; `write-form-errors` and `explain->errors` are app-level helpers (`spec/Pattern-FormAction.md` gives both in full). The point is that the call sits in the **handler body**, where it survives into the release build. `:boundary? true` does not substitute for it: the check it keeps alive *is* ungated and a rejection does answer `400` via the SSR error projector, but it skips the handler, so the user gets a generic public-error body rather than their own form back with the values they typed.
 
 The event's structural `:schema` is a dev tripwire; `AddToCartSubmission` drives wire decoding; `AddToCartFields` validates inside the handler. Putting the strict field schema at dispatch skips that handler on `quantity=0` or `quantity=abc`, losing the custom errors and repopulated draft in dev. The handler's own check runs in every build.
 

@@ -149,7 +149,7 @@ No parallel `:loading?` flag — the machine's state IS the UI signal.
 
 **Re-boot.** Dispatch a wildcard parent event: `:auth.session/expired {:target :authenticating}`. Most apps reload the page on session expiry.
 
-**Final-state handoff (`:final?` / `:on-done`).** When boot is `:spawn`'d by an outer coordinator (SSR shell, embedding host, test harness), mark `:ready` as `:final?` — parent receives `:on-done` synchronously, optional `:output-key` carrying e.g. the loaded `:user`. The standalone-singleton form (canonical above) must NOT use `:final?` — auto-destroy takes the snapshot and the `[:app.boot/*]` subs with it; keep `:ready` as ordinary terminal (`:meta {:terminal? true}`) when the app subscribes post-handoff. See `../references/state-machines/spawn.md` §Final states.
+**Final-state handoff (`:final?` / `:on-done`).** When boot is `:spawn`'d by an outer coordinator (SSR shell, embedding host, test harness), mark `:ready` as `:final?` — the parent's `:on-done` applies on its next macrostep (via the completion carrier), with an optional `:output-key` carrying e.g. the loaded `:user`. The standalone-singleton form (canonical above) must NOT use `:final?` — auto-destroy takes the snapshot and the `[:app.boot/*]` subs with it; keep `:ready` as ordinary terminal (`:meta {:terminal? true}`) when the app subscribes post-handoff. See `../references/state-machines/spawn.md` §Final states.
 
 **Parameters — the canonical seam.** The boot machine is the ONLY place that reads host globals (`/config` endpoint, build-time env vars, restored session). Once captured into `:data :config`, downstream phases thread values forward via Pattern-AsyncEffect (event payload or spawn-spec `:data` fn). Downstream machines never reach into a global.
 

@@ -2,7 +2,7 @@
 
 re-frame2 has **one path algebra** and **one canonical-identity rule**, stated once, with laws every consumer inherits. Flow inputs/outputs, route params, resource cache keys, schema paths, redaction-mark paths, and work ids all sit on the same foundation — they do not each define their own path or identity semantics.
 
-You rarely call this surface directly as an application author. You meet it through the consumers (you write a flow `:path`, a resource scope, a route `:params`), and you need to know the shared rules those declarations obey so a path or an identity behaves the way you expect.
+You rarely call this surface directly as an application author. You meet it through the consumers (you write a flow `:output-path`, a resource scope, a route `:params`), and you need to know the shared rules those declarations obey so a path or an identity behaves the way you expect.
 
 > **Mental-model anchor.** A `:rf/path` is what you already use everywhere in re-frame2 — a plain vector like `[:cart :items 42 :qty]` passed to `get-in` / `assoc-in`. This leaf names the algebra *behind* those vectors and pins the few places it deviates from raw `get-in`/`assoc-in` (the root path `[]`, and missing-vs-present-`nil`). It does **not** introduce a new optics API you must adopt; plain vector paths stay valid and idiomatic.
 
@@ -10,7 +10,7 @@ You rarely call this surface directly as an application author. You meet it thro
 
 Load alongside the primary leaf when the task touches:
 
-- A **flow** whose `:path` / `:inputs` overlap another flow's — "why is this a registration error?" (`references/fundamentals/flows.md`).
+- A **flow** whose `:output-path` / `:inputs` overlap another flow's — "why is this a registration error?" (`references/fundamentals/flows.md`).
 - A **resource** cache key / scope — "why does key order not matter?", "what is a valid param value?" (`patterns/resources.md`).
 - A **route** param round-trip — "why is my query order changing?", "why did this param fail to match?" (`references/tooling/routing.md`).
 - Any "what counts as a valid path segment / identity value?" question, or a host value (a `Date`, a function, an object) showing up where an identity is expected.
@@ -30,7 +30,7 @@ A **concrete `:rf/path`** is a vector of EDN segments focusing a value inside or
 - **Valid segments are portable EDN identity values**: keywords, strings, symbols, integers (in the safe-integer range below), booleans, UUIDs, instants, and `nil`. Functions, atoms, promises, DOM nodes, AbortControllers, and other host handles are **not** valid segments and are rejected at the boundary that accepts the path.
 - A subsystem **may narrow** the segment domain for its surface — but only as a *stated policy* over the shared definition, never a private re-definition. Flows narrow **inputs and outputs differently**:
   - A flow's **`:inputs`** path inherits the *full* shared domain (keyword / string / symbol / boolean / integer / UUID / instant / **`nil`**); the only added policy is **non-empty** (a `[]` input would read the whole partition).
-  - A flow's **output `:path`** narrows further — non-empty **and** nil-free: it **excludes `nil` segments** (a nil-keyed output is almost certainly a bug) and cannot be the `[]` root (a root output overlaps every path, clobbering the partition / making the flow a prerequisite of every other).
+  - A flow's **`:output-path`** narrows further — non-empty (it cannot be the `[]` root: a root output overlaps every path, clobbering the partition / making the flow a prerequisite of every other) and never rooted at `:rf.db/runtime` (an output is always an app-db write), both refused at registration with `:rf.error/flow-bad-path` / `:rf.error/flow-reserved-output-path`. Keep it **nil-free** too: Conventions states that policy (a nil-keyed output is almost certainly a bug), though registration accepts a `nil` segment, so nothing stops one for you.
 
   SSR allowlists are another narrowing (single-segment). Every narrowing is *additive policy* applied after the shared `segment?` check, not a re-enumeration of which values are segments.
 
@@ -131,7 +131,7 @@ See `references/tooling/routing.md` for the route authoring surface.
 
 ## Cross-references
 
-- `references/fundamentals/flows.md` — flow `:path` / `:inputs` overlap rules (the registration-error contract).
+- `references/fundamentals/flows.md` — flow `:output-path` / `:inputs` overlap rules (the registration-error contract).
 - `patterns/resources.md` — scoped resource keys, the fail-closed param/scope domain.
 - `references/tooling/routing.md` — canonical route emission and fail-closed params.
 - `SKILL-REDIRECT.md` → *Conventions* — the normative `:rf/path` algebra, canonical-identity rule, `CEDN-1` domain and byte encoding, path laws, and overlap relation.

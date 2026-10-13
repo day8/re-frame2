@@ -101,10 +101,11 @@ Cancellation is a state transition; the substrate does the rest. All three exits
 ;; (a bare rf/dispatch in the callback raises :rf.error/no-frame-context):
 [:button {:on-click #(dispatch [:work/flow [:cancel]])} "Cancel"]
 
-;; React unmount — the finally-clause runs outside any frame scope, so
-;; capture the frame api at render time and dispatch through it:
-(let [{:keys [dispatch]} (rf/capture-frame)]
-  (r/with-let [_ nil] [work-bench-ui]
+;; React unmount — the finally-clause runs outside any frame scope; reg-view's
+;; injected `dispatch` is frame-bound at render time, so it still lands:
+(rf/reg-view work-bench []
+  (r/with-let [_ nil]
+    [work-bench-ui]
     (finally (dispatch [:work/flow [:cancel]]))))
 ```
 
