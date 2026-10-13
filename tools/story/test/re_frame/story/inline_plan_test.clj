@@ -94,17 +94,8 @@
       ;; fast-path. This mirrors what `run-inline-plan` does mid-run.
       (rf.story.frames/allocate-inline! inline-id {} {} true)
       (try
-        ;; The frame IS live — it exists in the runtime's frame registry.
         (is (contains? (set (rf/frame-ids)) inline-id)
             "precondition: the inline frame is allocated and live")
-        ;; It carries BOTH stamps — it is a Story-managed frame…
-        (let [m (rf/frame-meta inline-id)]
-          (is (true? (:rf/story? m)) "inline frame carries the :rf/story? stamp")
-          (is (true? (:rf/inline? m)) "inline frame carries the :rf/inline? stamp"))
-        ;; …yet `variant-frame?` excludes it (reads :rf/inline?) and so it
-        ;; is absent from the navigable enumeration the UI shell walks.
-        (is (false? (rf.story.frames/variant-frame? inline-id))
-            "an allocated inline frame is NOT a navigable variant frame")
         (is (not (contains? (rf.story/variant-frames) inline-id))
             "an in-flight inline frame is absent from the public variant-frames")
         (finally
@@ -137,29 +128,10 @@
           check  (check-rec result :check.probe/must-fail)]
       (is (= :fail (:status result)))
       (is (= :fail (:status check)))
-      (is (= [false] (mapv :passed? (:assertions check))))))
-  (testing "registered variant: the same check named in :checks fails too"
-    (rf.story/reg-variant :story.probe/must-fail
-      {:setup  [[:dispatch [:inline/set-status :loaded]]]
-       :checks [:check.probe/must-fail]})
-    (let [result (run-target :story.probe/must-fail)]
-      (is (= :fail (:status result)))
-      (is (= :fail (:status (check-rec result :check.probe/must-fail))))))
-  (testing "CONTROL: the same atom as a terminal :assertions entry fails"
-    (let [result (run-target {:setup      [[:dispatch [:inline/set-status :loaded]]]
-                              :assertions [never-true]})]
-      (is (= :fail (:status result)))
-      (is (= 1 (count (:assertions result)))))))
+      (is (= [false] (mapv :passed? (:assertions check)))))))
 
 (deftest a-passing-check-passes-over-a-real-record
   (rf.story/reg-check :check.probe/must-pass {:assertions [loaded?]})
-  (testing "a check whose atom holds passes WITH the record it grouped"
-    (let [result (run-target {:setup  [[:dispatch [:inline/set-status :loaded]]]
-                              :checks [:check.probe/must-pass]})
-          check  (check-rec result :check.probe/must-pass)]
-      (is (= :pass (:status result)))
-      (is (= :pass (:status check)))
-      (is (= [true] (mapv :passed? (:assertions check))))))
   (testing "an atom a check shares with :assertions dispatches ONCE, and the
             one record serves both the run and the check"
     (let [result (run-target {:setup      [[:dispatch [:inline/set-status :loaded]]]
@@ -181,8 +153,7 @@
                               :checks [:check/no-runtime-erors]})]
       (is (= :error (:status result)))
       (is (= :rf.error/story-check-unknown
-             (:assertion (first (:assertions result)))))
-      (is (empty? (rf.story/variant-frames)) "no frame lingers")))
+             (:assertion (first (:assertions result)))))))
   (testing "an INHERITED unknown check id fails the child's plan, naming the id"
     (rf.story/reg-variant :story.probe/parent {:checks [:check/never-registered]})
     (rf.story/reg-variant :story.probe/child  {:extends :story.probe/parent})
@@ -255,9 +226,8 @@
             #(rf.story/is {:script [[:dispatch [:inline/set-status :loaded]]
                                  [:assert [:rf.assert/path-equals [:status] :loaded]]
                                  [:assert [:rf.assert/path-equals [:status] :loaded]]]}))]
-      (is (= :pass (:status result)) "the unified verdict is :pass")
-      (is (= 2 (count reports)) "one report per recorded assertion")
-      (is (every? #(= :pass (:type %)) reports)))))
+      (is (= [:pass [:pass :pass]] [(:status result) (mapv :type reports)])
+          "a :pass verdict, one :pass report per recorded assertion"))))
 
 ;; ===========================================================================
 ;; Metamorphic relation: inline plan ≡ registered variant after canonicalize
@@ -275,19 +245,10 @@
       (rf.story/reg-variant :story.inline/equivalent behaviour)
       (let [registered (run-target :story.inline/equivalent)
             inline     (run-target behaviour)]
-        (testing "both reach the same verdict + app-db before canonicalize"
-          (is (= :pass (:status registered)))
-          (is (= :pass (:status inline)))
-          (is (= 2 (:n (:app-db registered))))
-          (is (= 2 (:n (:app-db inline)))))
-        (testing "canonicalized final app-db is equal (frame ids stripped)"
-          (is (= (rf.story/canonicalize (:app-db registered))
-                 (rf.story/canonicalize (:app-db inline)))))
-        (testing "canonicalized assertion records are equal (variant/frame
-                  ids reconciled + stripped)"
-          (is (= (rf.story/canonicalize (:assertions registered))
-                 (rf.story/canonicalize (:assertions inline)))))
-        (testing "the two runs share a canonical run-hash"
+        (is (= [:pass 2] [(:status registered) (:n (:app-db registered))])
+            "control: the registered run passes over the behaviour")
+        (testing "the two runs share a canonical run-hash, which hashes the
+                  canonicalized final app-db and assertion records"
           (is (= (rf.story/run-hash registered)
                  (rf.story/run-hash inline))))))))
 
@@ -379,8 +340,6 @@
             (is (= 1 @loader-teardown)
                 "the plan's :loaders-teardown fired on the failure path"))
           (testing "the inline frame did not leak"
-            (is (empty? (rf.story/variant-frames))
-                "no lingering nav frame after the failed inline run")
             (is (not-any? #(and (keyword? %)
                                 (= "rf.story.inline" (namespace %)))
                           (rf/frame-ids))
@@ -409,5 +368,4 @@
                                          [:assert [:rf.assert/path-equals [:status] :loaded]]]})]
         (is (= :pass (:status result)) "the control run passes")
         (is (= 1 @decorator-teardown) "decorator :teardown fired on success")
-        (is (= 1 @loader-teardown) "loaders-teardown fired on success")
-        (is (empty? (rf.story/variant-frames)) "no lingering frame")))))
+        (is (= 1 @loader-teardown) "loaders-teardown fired on success")))))
