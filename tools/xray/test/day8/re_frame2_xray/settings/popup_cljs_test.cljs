@@ -96,26 +96,18 @@
 
 ;; ---- modal positioning --------------------------------------------------
 
-(deftest backdrop-defaults-to-fixed-positioning
+(deftest backdrop-follows-modal-positioning
+  ;; Story testbeds set :absolute to confine the backdrop to the shell cell.
   (setup!)
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/settings-open])
-    (let [[_ attrs] (find-by-testid (modal-trees/settings-popup-tree)
-                                    "rf-xray-settings-backdrop")]
-      (is (= ["fixed" 2147483646 "fixed"]
-             [(:position (:style attrs))
-              (:z-index (:style attrs))
-              (:data-rf-xray-modal-positioning attrs)])))))
-
-(deftest backdrop-honours-absolute-positioning
-  ;; Story testbeds confine the backdrop to the shell cell.
-  (setup!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/settings-open])
-    (rf/dispatch-sync [:rf.xray/set-modal-positioning :absolute])
-    (let [[_ attrs] (find-by-testid (modal-trees/settings-popup-tree)
-                                    "rf-xray-settings-backdrop")]
-      (is (= ["absolute" "absolute"]
-             [(:position (:style attrs))
-              (:data-rf-xray-modal-positioning attrs)]))
-      (is (< (:z-index (:style attrs)) 1000)))))
+    (let [backdrop #(second (find-by-testid (modal-trees/settings-popup-tree)
+                                            "rf-xray-settings-backdrop"))]
+      (let [{:keys [style] :as attrs} (backdrop)]
+        (is (= ["fixed" 2147483646 "fixed"]
+               [(:position style) (:z-index style) (:data-rf-xray-modal-positioning attrs)])))
+      (rf/dispatch-sync [:rf.xray/set-modal-positioning :absolute])
+      (let [{:keys [style] :as attrs} (backdrop)]
+        (is (= ["absolute" "absolute"]
+               [(:position style) (:data-rf-xray-modal-positioning attrs)]))
+        (is (< (:z-index style) 1000))))))
