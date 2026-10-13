@@ -24,7 +24,7 @@ The agent SHOULD recommend **conversion** when the codebase is otherwise adoptin
 
 The agent looks for:
 
-- Maven coord `day8/re-frame-async-flow-fx` in `deps.edn` / `project.clj` / `shadow-cljs.edn` / `bb.edn` (any version).
+- Maven coord `day8.re-frame/async-flow-fx` in `deps.edn` / `project.clj` / `shadow-cljs.edn` / `bb.edn` (any version).
 - `(:require [day8.re-frame.async-flow-fx :as ...])` in any namespace (the require has no public symbols beyond the fx-registration side-effect; the require alone is enough to indicate adoption).
 - `:async-flow` keys inside effect maps returned by `reg-event-fx` handlers — the unmistakable fingerprint. The key may appear at the top level (v1 effect-map shape, pre-M-8) or inside `:fx` (post-M-8 shape `:fx [[:async-flow {...}]]`).
 
