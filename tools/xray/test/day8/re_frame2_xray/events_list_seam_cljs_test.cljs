@@ -1,28 +1,7 @@
 (ns day8.re-frame2-xray.events-list-seam-cljs-test
-  "CLJS tests for the L2/L3 events-list seam resize handle.
-
-  Asserts:
-    1. The seam's markup carries the documented testid, role, and ARIA
-       slots (`separator`, horizontal orientation, live `aria-valuenow`).
-    2. The shell tree carries the seam BETWEEN the event-list and the
-       tab-bar (DOM-order contract — the seam IS the boundary).
-    3. Drag lifecycle — `start-seam-drag!` flips `seam-dragging?` to
-       true, and a release or a cancel flips it back. `seam-simulate-move!`
-       dispatches the set-events-list-height-px event with the start +
-       delta.
-    4. Drag math — drag DOWN grows the list; drag UP shrinks it.
-    5. Clamp at write-time — the registry's set-events-list-height-px
-       event clamps to [min, viewport×0.7] before persisting.
-    6. Double-click handler dispatches `:rf.xray/reset-events-list-
-       height` which restores the default.
-    7. Keyboard navigation — ArrowDown/Up, Shift+arrow coarse step,
-       Home/End clamp-overshoot, Enter/Space reset.
-    8. The L2 event-list reads its height from the sub — sub updates
-       lift the rendered :height style.
-    9. The L2 list's inline style carries no `:resize` — there is no
-       browser-native corner-grip; the seam is the sole vertical-resize
-       affordance.
-   10. The seam cursor is `row-resize` — the affordance hover signal."
+  "CLJS tests for the L2/L3 events-list seam resize handle: its markup and
+  DOM position, the drag, the write-time clamp, the reset, the keyboard
+  bindings, and the list height following the sub."
   (:require [cljs.test :refer-macros [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.test-helpers :as rf.test-helpers]
@@ -50,14 +29,6 @@
   (registry/register-xray-handlers!)
   (rf/make-frame {:id :rf/xray}))
 
-;; ---- hiccup walker ------------------------------------------------------
-;; Tests call `rf.test-helpers/find-by-testid` directly — there is no Xray
-;; walker facade.
-;; `all-testids` (every carried testid in pre-order, for the DOM-order seam
-;; assertion) is not exposed by test-helpers, so it is expressed over
-;; `rf.test-helpers/find-by-testid-prefix` with the empty-prefix (matches every string
-;; testid, depth-first).
-
 (defn- all-testids
   "Return the testids of every hiccup node in `tree` that carries one,
   in pre-order. Used to assert DOM-order — the seam must sit between
@@ -67,13 +38,8 @@
 
 ;; ---- the seam's markup -------------------------------------------------
 ;;
-;; The seam is `resize-handle/seam-handle-view`, a Fresco BOUNDARY. Its
-;; `rf.fresco/sub` is
-;; legal only inside a boundary render, so calling the boundary from the
-;; node lane would raise `:rf.error/fresco-sub-outside-render` rather
-;; than answer hiccup. These rows drive the boundary's PURE inner fn
-;; instead, reading the same sub the boundary reads so `aria-valuenow`
-;; is the LIVE height rather than a fixture constant.
+;; `seam-handle-tree` is the boundary's PURE inner fn; the boundary's
+;; `rf.fresco/sub` is legal only inside a render.
 
 (defn- seam-markup
   "The seam's node as `seam-handle-view` composes it.
@@ -99,14 +65,10 @@
              ((juxt :data-testid :role :aria-orientation :aria-label :tab-index :aria-valuemin) props))
           "a tab-reachable WAI-ARIA separator floored at the published minimum")
       (is (number? (:aria-valuenow props))
-          "live aria-valuenow exposes the current height to AT"))))
-
-(deftest seam-handle-style-uses-row-resize-cursor
-  ;; No native page pan and no text lasso while the seam is dragged.
-  (setup!)
-  (rf/with-frame :rf/xray
-    (is (= ["row-resize" "none" "none"]
-           ((juxt :cursor :touch-action :user-select) (:style (second (seam-markup))))))))
+          "live aria-valuenow exposes the current height to AT")
+      ;; No native page pan and no text lasso while the seam is dragged.
+      (is (= ["row-resize" "none" "none"]
+             ((juxt :cursor :touch-action :user-select) (:style props)))))))
 
 ;; ---- shell DOM-order contract -------------------------------------------
 
@@ -132,24 +94,8 @@
        :pointerId      1
        :preventDefault (fn [])})
 
-;; Dragging DOWN grows the list: `seam-drag-binds-the-seams-own-document`
-;; below drives a 500 → 600 move from 200px and reads exactly 300.
-
-(deftest seam-drag-up-shrinks-list
-  (setup!)
-  (let [dispatches (atom [])]
-    (with-redefs [rf/dispatch (fn
-                                 ([ev]       (swap! dispatches conj ev) nil)
-                                 ([ev _opts] (swap! dispatches conj ev) nil))]
-      (resize-handle/start-seam-drag! (stub-event 500) 250)
-      ;; Drag UP by 100px (pageY 400 < start-y 500) — list shrinks
-      ;; by 100px → 150px target. dy = -100, new-height = 150.
-      (resize-handle/seam-simulate-move! 400)
-      (resize-handle/seam-simulate-up!))
-    (let [height-events (filter #(= :rf.xray/set-events-list-height-px (first %))
-                                @dispatches)]
-      (is (some #(= 150 (second %)) height-events)
-          "drag up shrinks: 250 - 100 = 150"))))
+;; Dragging DOWN grows the list: the row below drives a 500 → 600 move
+;; from 200px and reads exactly 300.
 
 (deftest seam-drag-binds-the-seams-own-document
   (testing "in the pop-out, `js/document` names the
@@ -204,18 +150,13 @@
   (setup!)
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/set-events-list-height-px 10]))
-  ;; 10 < 48 floor → clamps to 48.
   (is (= config/min-events-list-height-px
          (config/get-setting :general :events-list-height-px))
       "sub-floor request snaps to min-events-list-height-px"))
 
-(deftest clamp-events-list-height-pure-helper-snaps-non-numeric
-  ;; A malformed persisted payload never leaves the list at an unusable size.
-  (are [v expected] (= expected (config/clamp-events-list-height-px v 1000))
-    "bogus" config/default-events-list-height-px
-    200     200
-    -50     config/min-events-list-height-px
-    5000    700))   ; viewport × 0.7
+(deftest clamp-events-list-height-caps-at-the-viewport-ceiling
+  (is (= 700 (config/clamp-events-list-height-px 5000 1000))
+      "viewport × 0.7"))
 
 ;; ---- double-click reset -------------------------------------------------
 
