@@ -43,17 +43,17 @@ The **Worked example** column names the CLJS reference's artefact directory for 
 
 **Acceptance gate 1 — the required-foundation gate.** Run every fixture applicable to the four v1-required families — `:core/*` + `:identity/*` + `:flow/*` + `:data-classification/*` (tags expanded at the pin per [`conformance.md` §Capability tagging](conformance.md#capability-tagging)). Never `:core/*` alone — that silently skips the separately-tagged path/identity, flow and classification fixtures the foundation just called mandatory. Nor can the claim be narrowed to make the gate pass: allowlisting a v1-required capability is refused at the harness's required-family floor. A green gate 1 is a **fixture** result: foundation-complete also requires the [live sub-cache witness](#the-ep-006-live-sub-cache-witness-port-owned) below.
 
-### The EP-006 live sub-cache witness (port-owned)
+### The EP 006 live sub-cache witness (port-owned)
 
 The two `:identity/cedn1` cache-key fixtures (`sub-cache-dedupes-equal-query-v.edn`, `sub-cache-key-map-arg-order.edn`) prove the cache-**key** prerequisite, never the live cache: the corpus subscribes each query once, so a reference-keyed sub-cache passes every required fixture while equal queries create separate derived containers forever and disposal never fires. The owning Spec states the gap ([`spec/006-ReactiveSubstrate.md` §Value-keyed cache-key contract](https://day8.github.io/re-frame2/spec/006-ReactiveSubstrate/#value-keyed-cache-key-contract), conformance-observability note).
 
-So EP-006 carries one **port-owned live test**, required whenever the cache mechanism does not intrinsically key by `rf=`. It runs through the **public/runtime subscription path** — never the canonical-identity primitive — and observes:
+So EP 006 carries one **port-owned live test**, required whenever the cache mechanism does not intrinsically key by `rf=`. It runs through the **public/runtime subscription path** — never the canonical-identity primitive — and observes:
 
 1. **One slot from two allocations.** Build `q1` and `q2` as two distinct host allocations of the same query value, prove `rf=(q1, q2)`, subscribe both in one frame: exactly **one** cache-slot creation, one derived container, one shared ref-count.
 2. **One lifecycle.** Release one reader — the slot stays live; release the last — the slot is removed and disposal fires **exactly once**.
 3. **Negative control.** A third query *not* `rf=` to `q1` creates a **second** cache-slot and a second first-run computation, so a port that interns every query cannot pass degenerately.
 
-Mechanism-agnostic: an `rf=`-keyed persistent map and an interned canonical key both pass — what is required is the observable result, never a library. It reports at the EP-006 checkpoint and at `SKILL.md` §Done, **beside** the score, never inside it. A reference-keyed host is not EP-006-, foundation-, or v1-complete while the witness is red or unrun.
+Mechanism-agnostic: an `rf=`-keyed persistent map and an interned canonical key both pass — what is required is the observable result, never a library. It reports at the EP 006 checkpoint and at `SKILL.md` §Done, **beside** the score, never inside it. A reference-keyed host is not complete — at EP 006, at the foundation, or at v1 — while the witness is red or unrun.
 
 Foundation traps the spec names, owners linked:
 
