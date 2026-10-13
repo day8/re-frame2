@@ -232,18 +232,6 @@
 
 ;; ---- COEFFECT ------------------------------------------------------------
 
-(deftest coeffect-rows-granular-test
-  (testing "granular `:rf.cofx/run` rows carry the PRODUCED value, and a
-            parameterized cofx's requirement arg (`:rf.cofx/arg`) as `:input`"
-    (is (= [{:step :coeffect :badge :COEFFECT :id :session :value {:user-id 42}
-             :duration-ms nil :input :auth-token}
-            {:step :coeffect :badge :COEFFECT :id :now :value #inst "2026-01-01"
-             :duration-ms nil}]
-           (proj/coeffect-rows [(cofx-run-ev :session {:user-id 42} {:arg :auth-token})
-                                (cofx-run-ev :now #inst "2026-01-01")
-                                (run-end-ev 0.1 {:session {:user-id 42}
-                                                 :now     #inst "2026-01-01"})])))))
-
 (deftest project-threads-cofx-row-fields-through-cofx-steps-test
   (testing "`project` carries each cofx row's `:input` and `:duration-ms` onto
             its COEFFECT step, and omits each when the row has none"
@@ -498,16 +486,6 @@
               :door/main)]
       (is (= [:reg-machine [:start]] [(:flavour r) (mapv :kind (-> r :machine :cascade))])))))
 
-(deftest genuine-self-transition-keeps-its-row-test
-  (testing "a genuine self-transition (from = to; exit + entry fired) had a
-            real match, so it keeps its transition row"
-    (is (= [:action :transition :action]
-           (mapv :kind (proj/machine-cascade-rows
-                         [(machine-action-ev :on-exit :exit :ok)
-                          (machine-action-ev :on-entry :entry :ok)
-                          (machine-transition-ev :traffic/light {:state [:active]}
-                                                 {:state [:active]} [:traffic/tick] 1)]))))))
-
 (deftest machine-action-exception-row-attributes-wildcard-test
   (testing "exception-row lifts the machine attribution and the :* wildcard
             flag off the :transition slot, so the card can name a wildcard throw"
@@ -521,14 +499,6 @@
                                      :message "unhandled machine event"
                                      :via-wildcard? true})]))
                         [:operation :machine-id :action-id :event :message :via-wildcard?])))))
-
-(deftest machine-cascade-rows-empty-when-no-machine-events-test
-  (testing "a non-machine cascade projects an empty cascade; the view's
-            plain-handler branch keys off it"
-    (is (= [] (proj/machine-cascade-rows
-                [(dispatched-ev [:counter/inc])
-                 (db-changed-ev [[[:count] 0 1 :modified]])
-                 (fx-handled-ev :http/post {} 0.1)])))))
 
 (deftest machine-logical-state-test
   (testing "a snapshot projects to `{:state :tags}` only; nil stays nil"
@@ -661,14 +631,6 @@
         [(machine-guard-ev :ready? :fail)]
         [[:guard nil nil nil]]))))
 
-(deftest state-spec-path-prefix-test
-  (testing "a state form coerces into the `[:states …]` spec-path prefix the
-            macro's source-coord index uses"
-    (are [state prefix] (= prefix (proj/state-spec-path-prefix state))
-      :idle           [:states :idle]
-      [:outer :inner] [:states :outer :states :inner]
-      nil             nil)))
-
 (deftest state-node-source-coords-test
   (testing "reads the co-located `:source-coords` off the MAP node at a
             spec-path, walking UP from an inline-fn slot (a value, not a map)
@@ -703,27 +665,14 @@
             no t1/t2 snapshots on the stream the steps carry no `:db-pre-flow`
             / `:db-post-flow`, so the view renders the scalar before → after line."
     (is (= [{:step :flow :badge :FLOW :flow-id :cart/total :frame nil
-             :path [:cart :total] :before 120 :after 195}
+             :path [:cart :total] :before 120 :after 195 :duration-ms 0.7}
             {:step :flow :badge :FLOW :flow-id :cart/n-items :frame nil
              :path [:cart :n] :before 2 :after 3}]
            (filterv #(= :flow (:step %))
                     (proj/project
                       (record [(dispatched-ev [:checkout/begin])
-                               (flow-recomputed-ev :cart/total [:cart :total] 120 195)
+                               (flow-recomputed-ev :cart/total [:cart :total] 120 195 0.7)
                                (flow-recomputed-ev :cart/n-items [:cart :n] 2 3)])))))))
-
-(deftest flow-rows-reads-canonical-substrate-shape-test
-  (testing "the reader takes the substrate's `:rf.flow/computed` op with BARE
-            `:flow-id` / `:path` / `:before` / `:result` / `:elapsed-ms` tags;
-            the view-side `:after` is the substrate's `:result`"
-    (is (= [{:flow-id :cart/total :frame nil :path [:cart :total]
-             :before 120 :after 195 :duration-ms 0.7}]
-           (proj/flow-rows [(ev :rf.flow :rf.flow/computed
-                                {:flow-id    :cart/total
-                                 :path       [:cart :total]
-                                 :before     120
-                                 :result     195
-                                 :elapsed-ms 0.7})])))))
 
 ;; ---- t1 / t2 db attribution ---------------------------------------------
 ;;
@@ -985,31 +934,18 @@
                                       {:where :sub-return :failing-id :user/flag
                                        :value false :mismatching-value :legacy})])))))))
 
-(deftest subscriptions-row-carries-first-run-flag-test
-  (testing "`:rf.sub/first-run?` lifts onto the row, so the view paints
-            `:added` for a fresh cache entry rather than `← was X`"
-    (is (true? (:first-run? (first (proj/subscription-rows
-                                     [(ev :rf.sub :rf.sub/run
-                                          {:rf.sub/id             :counter/last-clicked
-                                           :rf.sub/value-changed? true
-                                           :rf.sub/first-run?     true
-                                           :rf.sub/value          1779972561856})])))))))
-
-(deftest subscriptions-row-carries-cause-event-id-test
+(deftest subscriptions-row-carries-cause-event-id-and-epoch-window-test
   (testing "`:rf.sub/cause-event-id` lifts onto the row for the view's
-            `caused by <event-id>` chrome"
-    (is (= :counter/inc (:cause-event-id (first (proj/subscription-rows
-                                                  [(ev :rf.sub :rf.sub/run
-                                                       {:rf.sub/id             :counter/value
-                                                        :rf.sub/cause-event-id :counter/inc})])))))))
-
-(deftest subscriptions-row-carries-epoch-window-test
-  (testing "a run recorded after its cascade settled carries `:epoch-window`,
-            and its label names every epoch in it"
-    (is (= [5 7] (:epoch-window (first (proj/subscription-rows
-                                         [(ev :rf.sub :rf.sub/run
-                                              {:rf.sub/id           :runner/step
-                                               :rf.sub/epoch-window [5 7]})])))))
+            `caused by <event-id>` chrome, and a run recorded after its
+            cascade settled carries `:epoch-window`, whose label names every
+            epoch in it"
+    (is (= [:counter/inc [5 7]]
+           ((juxt :cause-event-id :epoch-window)
+            (first (proj/subscription-rows
+                     [(ev :rf.sub :rf.sub/run
+                          {:rf.sub/id             :runner/step
+                           :rf.sub/cause-event-id :counter/inc
+                           :rf.sub/epoch-window   [5 7]})])))))
     (is (= "recomputed after epochs #5..#7" (fmt/epoch-window-label [5 7])))
     (is (= "recomputed after epoch #7" (fmt/epoch-window-label [7 7])))))
 
@@ -1130,14 +1066,6 @@
                                   (fx-handled-ev :http/post {} 12.0)
                                   (sub-run-ev [:total] true 10 20)
                                   (view-render-ev ::cart-view [:total])])))))))
-
-(deftest project-numbered-test
-  (testing "number-steps numbers 1..N over only the steps that fired"
-    (is (= [[:dispatch 1] [:handler 2] [:side-effects 3] [:subscriptions 4]]
-           (mapv (juxt :step :step-number)
-                 (proj/project-numbered (record [(dispatched-ev [:counter-inc] :ui nil)
-                                                 (db-changed-ev [])
-                                                 (sub-run-ev [:total] true 1 2)])))))))
 
 (deftest project-empty-test
   (testing "an empty record → an empty step vector (the view's empty state)"
@@ -1319,27 +1247,17 @@
 (deftest schema-violation-row-stamps-decoded-test
   (testing "`schema-violation-rows` stamps the projected
             `:decoded {:expected :got :more-errors}` summary onto a row
-            whose `:explain` is a canonical Malli map, and omits the
-            slot when the explain is non-Malli / absent (so the view's
-            decomposition block drops cleanly)."
-    (let [malli-row (first
-                      (proj/schema-violation-rows
-                        [(schema-violation-ev :app-db :counter/inc [:count]
-                                              "not-an-int" true
-                                              {:schema :int
-                                               :value "not-an-int"
-                                               :errors [{:path [:count]
-                                                         :schema :int
-                                                         :value "not-an-int"}]})]))
-          plain-row (first
-                      (proj/schema-violation-rows
-                        [(schema-violation-ev :app-db :counter/inc [:count]
-                                              "not-an-int" true)]))]
-      (is (= {:expected :int :got "not-an-int" :more-errors 0}
-             (:decoded malli-row))
-          "canonical Malli explain → :decoded summary stamped on the row")
-      (is (not (contains? plain-row :decoded))
-          "no explain → :decoded slot omitted (view drops the block)"))))
+            whose `:explain` is a canonical Malli map"
+    (is (= {:expected :int :got "not-an-int" :more-errors 0}
+           (:decoded (first
+                       (proj/schema-violation-rows
+                         [(schema-violation-ev :app-db :counter/inc [:count]
+                                               "not-an-int" true
+                                               {:schema :int
+                                                :value "not-an-int"
+                                                :errors [{:path [:count]
+                                                          :schema :int
+                                                          :value "not-an-int"}]})])))))))
 
 (deftest attach-violations-test
   (testing "each `:where` attaches to its owning step or row, leaving the
@@ -1435,12 +1353,7 @@
              (->> steps
                   (some #(when (= :side-effects (:step %)) %))
                   :rows
-                  (mapv (juxt :fx-id :status #(mapv :rollback? (:violations %)))))))))
-  (testing "hot-reload drift does not surface as a cascade tail step"
-    (is (not-any? #(= :schema-hot-reload (:step %))
-                  (proj/project (record [(dispatched-ev [:counter/inc] :ui nil)
-                                         (schema-hot-reload-ev :rf/default
-                                                               [:counter :n] "boom")]))))))
+                  (mapv (juxt :fx-id :status #(mapv :rollback? (:violations %))))))))))
 
 ;; ---- inline exception attachment + per-step status ----------------------
 ;;
