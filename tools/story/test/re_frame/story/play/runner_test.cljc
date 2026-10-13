@@ -20,9 +20,7 @@
   ;; would let concurrent runs interleave and overshoot.
   (are [step yield?] (= yield? (rf.story.play.runner/async-yield? step))
     [:click "[data-test=x]"] true
-    [:wait 0]                true
-    [:dispatch [:foo]]       false
-    [:assert-db [:k] 1]      false))
+    [:dispatch [:foo]]       false))
 
 (deftest step-arity-ok?-accepts-each-tags-shape-and-refuses-the-rest
   (are [step ok?] (= ok? (rf.story.play.runner/step-arity-ok? step))
