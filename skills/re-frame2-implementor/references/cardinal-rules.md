@@ -110,7 +110,7 @@ Framework ids live under the single root `:rf/*`; user code MUST NOT register th
 
 ## 11. One path algebra, one canonical identity
 
-re-frame2 has **one** `:rf/path` algebra and **one** canonical-identity rule (CEDN-1), stated once in [`spec/Conventions.md`](https://day8.github.io/re-frame2/spec/Conventions/) and inherited by every consumer — app-db/runtime-db focus, schema paths, classification paths, flow inputs/outputs, route params, resource keys, work ids. It is **not** a feature each subsystem reinvents: no private `overlap?`, no bespoke "stringify the params" cache key, no per-route canonicalizer. The semantics are normative immediately (the `:identity/*` fixtures pin them); the reference helpers are internal at this slice. Read the Conventions sections before EP 002 — the frame-focus surface stands on them.
+re-frame2 has **one** `:rf/path` algebra and **one** canonical-identity rule (CEDN-1), stated once in [`spec/Conventions.md`](https://day8.github.io/re-frame2/spec/Conventions/) and inherited by every consumer — app-db/runtime-db focus, schema paths, classification paths, flow inputs/outputs, route params, resource keys, work ids. It is **not** a feature each subsystem reinvents: no private `overlap?`, no bespoke "stringify the params" cache key, no per-route canonicalizer. The semantics are normative — the `:identity/*` fixtures pin them — while the reference's helpers stay internal, with no public facade export to mirror. Read the Conventions sections before EP 002 — the frame-focus surface stands on them.
 
 ---
 
