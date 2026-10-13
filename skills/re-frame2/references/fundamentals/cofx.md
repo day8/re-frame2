@@ -145,7 +145,7 @@ Pick by what the fact is and whether the write that consumes it is durable.
 
 ## Reading a sub from a handler — `subscribe-once`, wrapped as an ambient cofx
 
-A handler that needs a sub's current value **must not** open a **reactive** subscription (`@(rf/subscribe ...)`) from its body — that leaks a reaction. The shipped one-shot read is **`rf/subscribe-once`** (Spec 006): subscribe, deref, unsubscribe in one call, no reaction left behind. A bare `(rf/subscribe-once [:some/sub])` in a handler body is correct and supported.
+A handler that needs a sub's current value **must not** open a **reactive** subscription (`@(rf/subscribe ...)`) from its body — that leaks a reaction. The shipped one-shot read is **`rf/subscribe-once`** (Spec 006): subscribe, deref, unsubscribe in one call, no reaction left behind. A bare `(rf/subscribe-once [:some/sub])` in a handler body is correct and supported. **Not in a machine guard / action**, though: an in-callback read is unrecorded and breaks replay — a machine declares the machines-only recordable source `{:rf/sub query-v :as fact-id}` on a named entry instead ([`../state-machines/reg-machine.md` §Guard / action contract](../state-machines/reg-machine.md#guard--action-contract)); on a `reg-event` that form is `:rf.error/cofx-request-invalid`.
 
 The **preferred** shape, when the read should be reusable / parameterised / stubbable / named, is to wrap the `subscribe-once` read as an ambient cofx:
 
