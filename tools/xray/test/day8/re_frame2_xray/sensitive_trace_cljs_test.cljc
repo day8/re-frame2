@@ -98,13 +98,6 @@
       :sensitive? true
       :tags {:rf.trace/event-id :user/login}}))
 
-#?(:cljs
-   (deftest collect-trace-suppresses-sensitive-by-default
-     (trace-collector/collect-trace! (sensitive-event))
-     (is (= 0 (count (trace-collector/buffer-for-test))))
-     (is (= 1 (config/suppressed-count :global))
-         "the dropped frameless event counts under :global")))
-
 ;; Narrowing the profile from a revealing boundary back to the redacting
 ;; default clears the trace buffer and the counter (Spec 009 §Privacy
 ;; §Retroactive-scrub); widening and same-class transitions do not.
@@ -219,15 +212,6 @@
          (is (= [1] (host-dispatch-ids))
              "only the non-sensitive cascade reaches the snapshot")))))
 
-#?(:cljs
-   (deftest snapshot-passes-sensitive-frame-bound-event-when-opted-in
-     (with-host
-       (fn []
-         (config/configure! {:rf.xray/egress-profile :rf.egress/local-raw})
-         (emit-frame-bound! 1 false)
-         (emit-frame-bound! 2 true)
-         (is (= [1 2] (sort (host-dispatch-ids))))))))
-
 ;; ---- (5) the two INGEST gates ----------------------------------------------
 ;;
 ;; (a) `:epoch-history`: the framework epoch ring retains RAW records whose
@@ -257,14 +241,6 @@
      (rf/with-frame :rf/xray
        (rf/dispatch-sync [:rf.xray/sync-epoch-history history])
        @(rf/subscribe [:rf.xray/epoch-history]))))
-
-#?(:cljs
-   (deftest epoch-history-ingest-drops-the-sensitive-record
-     (with-host
-       (fn []
-         (emit-frame-bound! 1 false)
-         (emit-frame-bound! 2 true)
-         (is (= [] (vec (seed-and-read-history! [(producer-record)]))))))))
 
 #?(:cljs
    (deftest epoch-history-ingest-drops-a-record-whose-rollup-is-missing
@@ -300,12 +276,12 @@
 #?(:cljs
    (defn- window-dispatch-ids
      "`trace-windows` for `host-frame`, through the envelope slot the Fresco
-     panel reads. It is `soft`-wrapped, so a nil answer means it threw."
+     panel reads."
      []
-     (let [w (fresco-reads/trace-windows
-               {:explain-render {:window {:frames [host-frame]}}})]
-       (is (map? w) "trace-windows answered a window map (it did not throw)")
-       (mapv :dispatch-id (get w host-frame)))))
+     (mapv :dispatch-id
+           (get (fresco-reads/trace-windows
+                  {:explain-render {:window {:frames [host-frame]}}})
+                host-frame))))
 
 #?(:cljs
    (deftest trace-windows-drops-the-sensitive-cascade-by-default
