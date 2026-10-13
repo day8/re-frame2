@@ -133,7 +133,8 @@
 ;; ---- (3) sections render ------------------------------------------------
 
 (deftest panel-renders-sections-when-data-present
-  (testing "the sections no other row reads render: cache growth and the audit"
+  (testing "the sections no other row reads render: cache growth, the audit and
+            the instance row's status"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (seed-overrides!)
@@ -141,7 +142,11 @@
         (is (some? (find-by-testid tree "rf-xray-resources-cache-growth")) "cache-growth section")
         (is (re-find #":article/by-slug"
                      (node-text (find-by-testid tree "rf-xray-resources-audit-global")))
-            "global-scope audit lists the explicit-global resource")))))
+            "global-scope audit lists the explicit-global resource")
+        (is (re-find #"loaded"
+                     (node-text (find-by-testid
+                                  tree "rf-xray-resources-instance-row-article/by-slug-g4-status")))
+            "the instance row renders its status")))))
 
 ;; ---- (3b) EP-0016 surfaces ----------------------------------------------
 
@@ -398,15 +403,6 @@
         ;; the :force clobber warning renders loud
         (is (some? (find-by-testid tree "rf-xray-resources-optimistic-clobber-row-64"))
             "the :force-clobber warning row rendered")))))
-
-(deftest instance-row-renders-its-status
-  (testing "the instance row renders the instance's status"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (seed-overrides!)
-      (let [tree   (panel-tree)
-            status (find-by-testid tree "rf-xray-resources-instance-row-article/by-slug-g4-status")]
-        (is (re-find #"loaded" (node-text status)) "status reads loaded")))))
 
 (defn- seed-live-route!
   "Register the route declaring `:resources` so the graph has a node, and seed
