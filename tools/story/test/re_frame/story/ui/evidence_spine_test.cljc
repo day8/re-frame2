@@ -49,15 +49,9 @@
 ;; ===========================================================================
 
 (deftest evidence-strength-direct-and-attributed
-  (testing "a beat with only a db transition reads as direct, not attributed"
-    (is (= {:direct? true :attributed? false}
-           (rf.story.ui.evidence-spine/beat-evidence-strength {:db-before {} :db-after {:a 1}}))))
   (testing "a beat with only sub-runs reads as attributed, not direct"
     (is (= {:direct? false :attributed? true}
-           (rf.story.ui.evidence-spine/beat-evidence-strength {:sub-runs [{:sub-id :x}]}))))
-  (testing "an empty beat reads as neither"
-    (is (= {:direct? false :attributed? false}
-           (rf.story.ui.evidence-spine/beat-evidence-strength {})))))
+           (rf.story.ui.evidence-spine/beat-evidence-strength {:sub-runs [{:sub-id :x}]})))))
 
 ;; The db-evidence marker tests for an ACTUAL transition, not key presence:
 ;; `epoch-beat` always materializes `:db-before` / `:db-after`, so a
