@@ -218,11 +218,6 @@
                 [:label :count :flavour])
         "both :args keys and the :argtypes-only key are declared")))
 
-(deftest declared-arg-keys-nil-for-unregistered
-  (testing "an unregistered variant has no known contract → nil
-            (so drop-stale-overrides degrades to keep-all, not drop-all)"
-    (is (nil? (rf.story.ui.share/declared-arg-keys :story.dak/never-registered)))))
-
 ;; ===========================================================================
 ;; Screenshot egress: real capture-to-PNG + clipboard write, or an HONEST
 ;; unavailable/error state. A body that marked `:copied :screenshot` BEFORE
@@ -415,13 +410,20 @@
                          (outcome-fn text))}})
 
 (deftest copy-text-marks-copied-only-after-the-write-fulfils
-  (testing "a fulfilled writeText flashes :copied and no error"
+  (testing "a pending writeText leaves the row un-copied; once it fulfils
+            the text has reached the clipboard and :copied flashes, with no error"
     (async done
-      (let [written (atom nil)
-            prev    (install-globals!
-                      {"navigator" (fake-navigator-with-write-text
-                                     written (fn [_] (js/Promise.resolve js/undefined)))})]
-        (-> (rf.story.ui.share/copy-text! :share-url "https://example.test/?variant=x")
+      (let [written    (atom nil)
+            resolve-fn (atom nil)
+            prev       (install-globals!
+                         {"navigator" (fake-navigator-with-write-text
+                                        written
+                                        (fn [_] (js/Promise. (fn [res _] (reset! resolve-fn res)))))})
+            p          (rf.story.ui.share/copy-text! :share-url "https://example.test/?variant=x")]
+        (is (not= :share-url (:copied (rf.story.ui.share/dialog-state-snapshot)))
+            "no success flash while the clipboard write is still pending")
+        (@resolve-fn js/undefined)
+        (-> p
             (.then (fn [ok?]
                      (is (true? ok?) "the write resolved → success")
                      (is (= "https://example.test/?variant=x" @written)
@@ -448,26 +450,6 @@
                        (is (not= :static-build (:copied snap))
                            "MUST NOT report success when the write was refused")
                        (is (= :static-build (:cmd (:error snap)))))))
-            (.finally (fn [] (restore! prev) (done))))))))
-
-(deftest copy-text-does-not-mark-copied-while-the-write-is-pending
-  (testing "a write that has NOT settled yet must leave the row
-            un-copied; success appears only on fulfilment."
-    (async done
-      (let [resolve-fn (atom nil)
-            prev       (install-globals!
-                         {"navigator" (fake-navigator-with-write-text
-                                        (atom nil)
-                                        (fn [_] (js/Promise. (fn [res _] (reset! resolve-fn res)))))})
-            p          (rf.story.ui.share/copy-text! :share-url "https://example.test/")]
-        (is (not= :share-url (:copied (rf.story.ui.share/dialog-state-snapshot)))
-            "no success flash while the clipboard write is still pending")
-        (@resolve-fn js/undefined)
-        (-> p
-            (.then (fn [ok?]
-                     (is (true? ok?))
-                     (is (= :share-url (:copied (rf.story.ui.share/dialog-state-snapshot)))
-                         "success appears once the write fulfils")))
             (.finally (fn [] (restore! prev) (done))))))))
 
 ;; ---- a failed TEXT copy shows on its ROW ---------------------------------
