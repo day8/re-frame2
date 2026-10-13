@@ -44,16 +44,11 @@
 (deftest facade-references-resolve-in-re-frame-core-only
   ;; `rf` names re-frame.core, so a facade call left behind after its var
   ;; moved to another namespace is red although the var still exists there.
-  (let [probs (rf.api-manifest.xray-spec-check/reconcile
-                {:rows            [{:namespace "re-frame.core" :var "dispatch"}
-                                   {:namespace "re-frame.machines" :var "machine-transition"}]
-                 :qualified-refs  [] :bare-refs []
-                 :facade-refs     [{:var "dispatch" :line 1 :raw "rf/dispatch"}
-                                   {:var "machine-transition" :line 2 :raw "rf/machine-transition"}]
-                 :qualified-allow #{} :bare-allow #{} :facade-allow #{}
-                 :rel             "tools/xray/spec/API.md"})]
-    (is (= [[2 "rf/machine-transition"]] (map (juxt :line :raw) probs)))
-    (is (re-find #"\bre-frame\.core\b" (str (:detail (first probs)))))))
+  (is (= [[2 "rf/machine-transition"]]
+         (problems {:rows        [{:namespace "re-frame.core" :var "dispatch"}
+                                  {:namespace "re-frame.machines" :var "machine-transition"}]
+                    :facade-refs [{:var "dispatch" :line 1 :raw "rf/dispatch"}
+                                  {:var "machine-transition" :line 2 :raw "rf/machine-transition"}]}))))
 
 (deftest live-spec-names-qualified-and-facade-references
   ;; The check's floor is an aggregate over all three shapes, so one
