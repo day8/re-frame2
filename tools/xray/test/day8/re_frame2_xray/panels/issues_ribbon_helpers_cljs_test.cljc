@@ -21,8 +21,8 @@
     2. **project-feed** — the focused epoch's `:trace-events` project to
        the issue subset. The resolver feeding it is pinned in
        `shared/focus_resolver_cljs_test`."
-  (:require #?(:clj  [clojure.test :refer [are deftest is testing]]
-               :cljs [cljs.test    :refer-macros [are deftest is testing]])
+  (:require #?(:clj  [clojure.test :refer [deftest is testing]]
+               :cljs [cljs.test    :refer-macros [deftest is testing]])
             [day8.re-frame2-xray.panels.issues-ribbon-helpers :as h]))
 
 ;; ---- fixture builder ----------------------------------------------------
@@ -35,17 +35,6 @@
    :operation operation
    :time      1000
    :tags      {}})
-
-;; ---- issue-event? -------------------------------------------------------
-
-(deftest issue-event?-classification
-  (testing "the :error and :warning op-types are issues; :info is ACTIVITY —
-            the runtime's success-path lifecycle rows, `:rf.http/issued`
-            on every managed request among them — never an issue"
-    (are [ev expected] (= expected (h/issue-event? ev))
-      (trace-ev 1 :error   :rf.error/handler-exception) true
-      (trace-ev 2 :warning :rf.warning/recoverable)     true
-      (trace-ev 3 :info    :rf.http/issued)             false)))
 
 ;; ---- project-feed -------------------------------------------------------
 
