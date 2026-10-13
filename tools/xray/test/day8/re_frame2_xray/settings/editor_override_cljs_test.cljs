@@ -34,10 +34,9 @@
 
 ;; ---- localStorage round-trip ------------------------------------------
 ;;
-;; The write-through and reload are the generic `update-setting!` → storage →
-;; `load-settings-from-storage!` path `persistence-cljs-test`'s
-;; `text-size-round-trips` pins, and `reset-clears-everything` pins the
-;; reset. The row here owns the map-valued `{:custom <tpl>}` shape.
+;; The generic `update-setting!` → storage → `load-settings-from-storage!`
+;; round-trip, driven with the map-valued `{:custom <tpl>}` shape;
+;; `persistence-cljs-test`'s `reset-clears-everything` pins the reset.
 
 (deftest custom-override-round-trips
   (config/update-setting! :general :editor-override
