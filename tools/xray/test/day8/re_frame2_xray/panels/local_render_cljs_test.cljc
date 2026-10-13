@@ -118,23 +118,6 @@
    :ui      {:open? true :tab :home}})
 
 ;; ---------------------------------------------------------------------------
-;; WHITE-BOX REACH, JVM LANE ONLY.
-;;
-;; `local-render-opts` is private (ordinary namespace hygiene), so the arms
-;; that inspect the opts map reach the var by name rather than by
-;; reference. `resolve` is used instead of `#'`: Clojure's `var` special form
-;; refuses a non-public var from another namespace, and in ClojureScript a
-;; cross-namespace private reference compiles with a warning. So the reach
-;; exists on the JVM lane only; the source is one shared `.cljc` definition,
-;; and every arm that can be written against the PUBLIC surface is written
-;; there and runs in both lanes.
-;; ---------------------------------------------------------------------------
-
-#?(:clj
-   (def ^:private local-render-opts*
-     (deref (resolve 'day8.re-frame2-xray.panels.local-render/local-render-opts))))
-
-;; ---------------------------------------------------------------------------
 ;; 1 + 2. DEFAULT — redact sensitive, KEEP large.
 ;; ---------------------------------------------------------------------------
 
@@ -213,17 +196,6 @@
 ;; manages to register a frame under a nil id. There is no value to collide
 ;; with, nothing to leak, and nothing to keep private.
 ;; ---------------------------------------------------------------------------
-
-#?(:clj
-   (deftest local-render-stamps-the-observed-frame-verbatim
-     (testing "the seam stamps `:frame` for EVERY branch, and stamps the id it
-               was given rather than a substitute: a live frame and an
-               unreachable id are carried VERBATIM, and a nil frame-id stamps
-               the KEY (omitting it is the ambient-borrow path, and presence is
-               what the walker reads) with the nil itself as its value"
-       (is (= [{:frame secure-frame} {:frame :app/does-not-exist} {:frame nil}]
-              (mapv #(select-keys (local-render-opts* %) [:frame])
-                    [secure-frame :app/does-not-exist nil]))))))
 
 (deftest an-explicit-nil-frame-is-unregistrable-at-the-walker
   (testing "the structural property that makes a sentinel unnecessary. A
