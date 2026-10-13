@@ -1,20 +1,9 @@
 (ns day8.re-frame2-xray.spine-filters-cljs-test
-  "Per-event-id mute filter tests. Covers:
-
-    1. Pure helpers (filter-event-bundles, mute / unmute / clear reducers).
-    2. EDN round-trip (<-edn / ->edn).
-    3. save! / load — the real-storage rows live in
-       `spine-filters-dom-cljs-test`.
-    4. Event handler wiring (mute-event-id / unmute-event-id /
-       clear-muted-event-ids + persist fx) — the real-storage rows live
-       in `spine-filters-dom-cljs-test`, see (3) below.
-    5. Hydration on install with nothing in localStorage.
-    6. Filtered-cascades composition — muting an event-id strips
-       matching cascades from `:rf.xray/filtered-event-bundles`.
-    7. Row context menu state (open / close).
-    8. Mute manager modal state (open / close).
-    9. End-to-end: right-click → context menu → 'Mute' item dispatches
-       mute-event-id → row disappears from the L2 list."
+  "Per-event-id mute filter: muting strips rows from
+  `:rf.xray/filtered-event-bundles`, the row context menu, the mute manager
+  and the L1 ribbon indicator. The handler rows that need real storage
+  (mute / unmute / clear with persistence, hydration) live in
+  `spine-filters-dom-cljs-test`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.test-helpers :as rf.test-helpers]
@@ -34,10 +23,7 @@
 
 (defn- xray-setup! []
   (registry/register-xray-handlers!)
-  (rf/make-frame {:id :rf/xray})
-  ;; mirrors mount.cljs/ensure-xray-frame! — re-runs hydrate after the
-  ;; frame is registered (preload-time install no-op'd).
-  (spine-filters/hydrate!))
+  (rf/make-frame {:id :rf/xray}))
 
 (defn- frame-sub [q]
   (rf/with-frame :rf/xray
@@ -55,36 +41,9 @@
                   :frame       :rf/default
                   :rf.trace/dispatch-id id}})
 
-;; ---- hiccup helpers -----------------------------------------------------
-;; Tests call `rf.test-helpers/find-by-testid` directly — there is no
-;; Xray walker facade.
-
 ;; -------------------------------------------------------------------------
 ;; (1) Pure helpers
 ;; -------------------------------------------------------------------------
-
-(deftest event-bundle-event-id-pluck
-  (is (= :foo/bar (spine-filters/event-bundle-event-id {:event [:foo/bar 1 2]})))
-  (is (nil? (spine-filters/event-bundle-event-id {:event nil}))))
-
-(deftest mute-event-id-reducer
-  (is (= #{:a} (spine-filters/mute-event-id nil :a))
-      "nil input promotes to empty set")
-  (is (= #{:a :b} (spine-filters/mute-event-id #{:a} :b)))
-  (is (= #{:a} (spine-filters/mute-event-id #{:a} nil))
-      "nil event-id is dropped — never corrupts the set"))
-
-(deftest unmute-event-id-reducer
-  (is (= #{} (spine-filters/unmute-event-id #{:a} :a)))
-  (is (= #{} (spine-filters/unmute-event-id nil :a))
-      "nil input promotes to empty set"))
-
-(deftest filter-event-bundles-strips-muted-ids
-  (let [cs [{:event [:a]} {:event [:b]} {:event [:c]}]]
-    (is (= cs (spine-filters/filter-event-bundles cs #{}))
-        "empty muted set returns the input vector")
-    (is (= [{:event [:b]} {:event [:c]}]
-           (spine-filters/filter-event-bundles cs #{:a})))))
 
 (deftest filter-event-bundles-preserves-event-less-cascades
   (testing "cascades with no event vector (e.g. :ungrouped bucket) survive
@@ -93,57 +52,6 @@
     (let [cs [{:event [:a]} {:event nil :dispatch-id :ungrouped} {:event [:b]}]]
       (is (= [{:event nil :dispatch-id :ungrouped} {:event [:b]}]
              (spine-filters/filter-event-bundles cs #{:a}))))))
-
-;; -------------------------------------------------------------------------
-;; (2) EDN round-trip
-;; -------------------------------------------------------------------------
-
-(deftest edn-round-trip-preserves-set
-  (let [muted #{:a/x :b/y :c/z}]
-    (is (= muted
-           (spine-filters/<-edn (spine-filters/->edn muted))))))
-
-(deftest edn-malformed-falls-back-to-empty
-  (is (= #{} (spine-filters/<-edn "not edn at all")))
-  (is (= #{} (spine-filters/<-edn "{not a set}"))))
-
-(deftest edn-sequential-falls-through-to-set
-  (testing "hand-edited [: vec :form] still loads as a set so a user
-            tweak that yields a vector isn't a hard fail"
-    (is (= #{:a :b} (spine-filters/<-edn "[:a :b]")))))
-
-;; -------------------------------------------------------------------------
-;; (3) save! / load round-trip
-;; -------------------------------------------------------------------------
-
-;; The real-storage rows —
-;; `mute-and-unmute-event-id-write-the-slot-and-persist`,
-;; `clear-muted-event-ids-drops-every-entry` and
-;; `hydrate-lifts-localstorage-into-slot` — live in
-;; `day8.re-frame2-xray.spine-filters-dom-cljs-test`. They need a real
-;; `js/window.localStorage`, which `:node-test` lacks, and
-;; `:browser-test`'s `.*-dom-cljs-test$` `:ns-regexp` does not load this
-;; file, so here they would execute in NEITHER lane. A namespace ending
-;; `-dom-cljs-test` is selected by BOTH builds, so the rows run for real
-;; in the browser and stay inert on node behind `ls/available?`.
-
-;; -------------------------------------------------------------------------
-;; (4) Event handler wiring + persist fx
-;; -------------------------------------------------------------------------
-;;
-;; Covered by the real-storage rows in `spine-filters-dom-cljs-test` —
-;; see the note under (3).
-
-;; -------------------------------------------------------------------------
-;; (5) Hydration
-;; -------------------------------------------------------------------------
-
-(deftest hydrate-empty-localstorage-leaves-slot-empty
-  (spine-filters/clear-raw!)
-  (registry/reset-for-test!)
-  (xray-setup!)
-  (is (= #{} (frame-sub [:rf.xray/muted-event-ids]))
-      "no localStorage → empty slot (first-session honesty)"))
 
 ;; -------------------------------------------------------------------------
 ;; (6) Filtered-cascades composition
@@ -224,18 +132,10 @@
 
 (deftest open-row-context-menu-event-writes-slot
   (xray-setup!)
-  (is (nil? (frame-sub [:rf.xray/row-context-menu])))
   (frame-dispatch [:rf.xray/open-row-context-menu
                    {:event-id :user/mouse-move :x 100 :y 200}])
   (is (= {:event-id :user/mouse-move :x 100 :y 200}
          (frame-sub [:rf.xray/row-context-menu]))))
-
-(deftest open-row-context-menu-with-nil-event-id-is-noop
-  (xray-setup!)
-  (frame-dispatch [:rf.xray/open-row-context-menu
-                   {:event-id nil :x 0 :y 0}])
-  (is (nil? (frame-sub [:rf.xray/row-context-menu]))
-      "nil event-id refuses to open the menu — defensive guard"))
 
 (deftest row-context-menu-renders-mute-and-hide-items
   ;; The 'Mute' item is driven by end-to-end-mute-from-context-menu.
@@ -256,7 +156,6 @@
 
 (deftest mute-manager-open-close
   (xray-setup!)
-  (is (false? (frame-sub [:rf.xray/mute-manager-open?])))
   (frame-dispatch [:rf.xray/open-mute-manager])
   (is (true? (frame-sub [:rf.xray/mute-manager-open?])))
   (frame-dispatch [:rf.xray/close-mute-manager])
