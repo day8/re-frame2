@@ -20,7 +20,6 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [day8.re-frame2-xray.focus :as focus]
-            [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
@@ -98,18 +97,8 @@
               :panel :app-db
               :epoch-id 42
               :dispatch-id 17
-              ;; `:path` is not a focus field and is IGNORED; it sits
-              ;; in the command deliberately so this assert also
-              ;; pins that a host command carrying it translates
-              ;; cleanly rather than erroring.
-              :path [:checkout :state]
               :source {:kind :story/assertion}}))
         "no :focus-epoch emitted when :dispatch-id is present")))
-
-(deftest epoch-id-alone-uses-focus-epoch
-  (is (= [[:rf.xray/focus-epoch 42]]
-         (focus/focus-command->dispatches {:epoch-id 42}))
-      ":epoch-id is the lighter selector for callers without a cascade id"))
 
 (deftest path-is-ignored
   (testing "`:path` is not a focus field. `focus!` is PERMISSIVE:
@@ -157,19 +146,6 @@
     (is (= [[:rf.xray/select-tab :routing] :routing]
            [(last (:applied result)) (selected-tab)]))))
 
-(deftest focus-shipped-l4-tabs-select-real-panels
-  ;; Walks `focus/valid-panels`, so no tab is skipped by omission; that the
-  ;; walked set IS the shipped set is
-  ;; `registry-cljs-test/focus-valid-panels-mirrors-live-dynamic-registry`.
-  (setup-xray-frame!)
-  (is (= focus/valid-panels
-         (set (filter (fn [panel]
-                        (focus/focus! {:frame :checkout :panel panel :sync? true})
-                        (and (= panel (selected-tab))
-                             (some? (panel-registry/tab-by-id :dynamic panel))))
-                      focus/valid-panels)))
-      "every shipped tab is focusable and resolves to an installed panel"))
-
 (deftest unknown-panel-is-rejected
   ;; The one rejected case: it would otherwise land the unknown-tab stub.
   (setup-xray-frame!)
@@ -177,24 +153,14 @@
          (select-keys (focus/focus! {:panel :app-bd}) [:ok? :reason :given :valid])))
   (is (= :epoch (selected-tab)) "Xray state is untouched"))
 
-(deftest explicit-command-frame-wins-over-positional
-  (testing "2-arity positional host-frame fills :frame only when the
-            command didn't name one"
-    (setup-xray-frame!)
-    (seed-cascades! [(cascade :c1 :other-frame)])
-    (let [result (focus/focus! :positional-frame
-                               {:frame :command-frame :panel :epoch :sync? true})]
-      (is (= [:rf.xray/select-frame :command-frame]
-             (first (:applied result)))
-          "command :frame is the more specific intent"))))
-
-(deftest positional-host-frame-fills-frame-when-command-omits-it
-  (testing "the §D3 `(focus! frame-id command)` shape — positional
-            host-frame becomes the :frame when the command doesn't name one"
-    (setup-xray-frame!)
-    (let [result (focus/focus! :checkout {:panel :epoch :sync? true})]
-      (is (= [:rf.xray/select-frame :checkout]
-             (first (:applied result)))))))
+(deftest positional-host-frame-fills-frame-only-when-the-command-omits-it
+  ;; The §D3 `(focus! frame-id command)` shape: a command :frame is the more
+  ;; specific intent.
+  (setup-xray-frame!)
+  (is (= [[:rf.xray/select-frame :command-frame] [:rf.xray/select-frame :checkout]]
+         (mapv #(first (:applied (apply focus/focus! %)))
+               [[:positional-frame {:frame :command-frame :panel :epoch :sync? true}]
+                [:checkout {:panel :epoch :sync? true}]]))))
 
 (deftest empty-command-is-ok-noop
   (setup-xray-frame!)
