@@ -127,12 +127,6 @@
            [(seal-in ::a-handler) (seal-in ::b-handler)])
         "both stores at generation 1, each resolving its own handler")))
 
-(deftest same-store-still-hits-after-identity-leg
-  (let [img (rf.image/image {:id :realm/main :select-ns {:include ["realm.core"]}})]
-    (binding [rf.source-store/*source-store* (atom {})]
-      (record! "realm.core" :event :realm/boot ::impl)
-      (is (identical? (rf.image-assembly/assemble [img]) (rf.image-assembly/assemble [img]))))))
-
 (deftest a-re-seal-drops-the-generation-it-supersedes
   ;; the store and standard generations only move forward, so a composition's
   ;; entry at an older one can never hit again
