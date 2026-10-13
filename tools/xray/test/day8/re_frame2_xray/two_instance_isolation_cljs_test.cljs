@@ -1,37 +1,8 @@
 (ns day8.re-frame2-xray.two-instance-isolation-cljs-test
-  "TWO Xray shell instances on one page hold INDEPENDENT state.
-
-  ## What this pins
-
-  A shell locked to a singleton `:rf/xray` frame — `shell-view`
-  hardcoding `[frame-provider {:frame :rf/xray}]`, or an out-of-render
-  affordance dispatching a bare `{:frame :rf/xray}` literal — would make
-  two shells on one page (two panel-gallery chrome-shell cells, a Story
-  workspace) COLLIDE: both would read and write the one `:rf/xray`
-  app-db, so driving one would drive the other.
-
-  The shell frame is parameterized, and
-  every out-of-render dispatch resolves to the SURROUNDING instance
-  frame via a captured frame-aware dispatcher. Handlers register
-  GLOBALLY once under `:rf.xray/*` (the registrar is process-global —
-  NOT per-frame); only the per-instance app-db lives in a distinct
-  frame.
-
-  ## How it's tested at the data layer
-
-  This is a data-layer test (per the Xray-as-CLJS-unit-test
-  posture): frame isolation is an app-db property, so we register two
-  shell frames, drive each via `(rf/with-frame <frame-id> …)` — exactly
-  the binding the parameterized `shell-view` establishes through its
-  `[frame-provider {:frame frame-id}]` and the captured dispatchers
-  thread — and assert the per-frame subs read INDEPENDENT values. The
-  two `with-frame` bindings stand in for two shell instances' React-
-  context providers; the assertions prove that the SAME globally-
-  registered `:rf.xray/*` handlers + subs, read under two frames, yield
-  two isolated app-dbs.
-
-  Driving one frame's tab / mode / focused-epoch does NOT move the
-  other's."
+  "TWO Xray shell instances on one page hold INDEPENDENT state: the
+  globally registered `:rf.xray/*` handlers and subs, driven and read under
+  two shell frames through `rf/with-frame` (standing in for the two shells'
+  frame-providers), yield two isolated app-dbs."
   (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [day8.re-frame2-xray.registry :as registry]
@@ -39,8 +10,6 @@
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture`: plain-atom adapter + the default `:all`
-  ;; reset tier, which includes the trace-collector ring reset.
   (xray-test-support/make-xray-runtime-fixture))
 
 ;; The two shell-instance frame-ids. `cell-a` uses the production
@@ -71,26 +40,17 @@
   (rf/with-frame frame-id
     (rf/dispatch-sync event-v)))
 
-(deftest selected-tab-is-per-instance
+(deftest tab-mode-and-focus-are-per-instance
   (setup-two-shells!)
   (dispatch! cell-b [:rf.xray/select-tab :machines])
   (dispatch! cell-a [:rf.xray/select-tab :trace])
-  (is (= [:trace :machines]
-         [(read-sub cell-a :rf.xray/selected-tab) (read-sub cell-b :rf.xray/selected-tab)])
-      "driving cell A's tab leaves cell B's where it was"))
-
-(deftest mode-is-per-instance
-  (setup-two-shells!)
   (dispatch! cell-a [:rf.xray/set-mode :static])
-  (is (= [:static :dynamic]
-         [(read-sub cell-a :rf.xray/mode) (read-sub cell-b :rf.xray/mode)])
-      "cell B keeps the default mode when cell A flips"))
-
-(deftest focused-epoch-is-per-instance
-  (setup-two-shells!)
   (dispatch! cell-b [:rf.xray/focus-event :cascade-b :rf/default])
   (dispatch! cell-a [:rf.xray/focus-event :cascade-a :rf/default])
-  (is (= [:cascade-a :cascade-b]
-         [(:dispatch-id (read-sub cell-a :rf.xray/focus))
-          (:dispatch-id (read-sub cell-b :rf.xray/focus))])
-      "an L2 click in cell A focuses only cell A"))
+  (is (= [[:trace :static :cascade-a] [:machines :dynamic :cascade-b]]
+         (mapv (fn [cell]
+                 [(read-sub cell :rf.xray/selected-tab)
+                  (read-sub cell :rf.xray/mode)
+                  (:dispatch-id (read-sub cell :rf.xray/focus))])
+               [cell-a cell-b]))
+      "driving cell A's tab, mode and focus leaves cell B's where they were"))
