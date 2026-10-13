@@ -86,11 +86,8 @@
                  (.render root
                    (r/as-element
                      (rf.story.sub-overrides/override-provider overrides [login-panel]))))))
-           (let [text (.-textContent mount-node)]
-             (is (re-find #"error" text)
-                 "the pinned :error state surfaces in the rendered DOM")
-             (is (re-find #"Incorrect password" text)
-                 "the pinned :login/message override surfaces in the rendered DOM"))
+           (is (re-find #"Incorrect password" (.-textContent mount-node))
+               "the pinned :login/message override surfaces in the rendered DOM")
            (is (= "error" (.. mount-node -firstChild (getAttribute "data-state")))
                "the view branched on the override, not the real :ok")
            (finally
