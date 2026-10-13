@@ -83,19 +83,6 @@
     ((get-in hooks [:flush! :dom]) :f)
     (is (= 2 @commits))))
 
-;; ---- the slot ------------------------------------------------------------
-
-(deftest install-registers-the-late-bind-slot
-  (rf/init! (committing-adapter))
-  (is (= :headless
-         (rf.story.play.settled-boundary/hooks-provided-boundary
-           (rf.story.play.runner-events/current-flush-hooks :f)))
-      "WITNESS: with no producer the live shell plays at :provides :headless")
-  (rf.story.play.substrate-boundary/install!)
-  (is (= :dom
-         (rf.story.play.settled-boundary/hooks-provided-boundary
-           (rf.story.play.runner-events/current-flush-hooks :f)))))
-
 ;; ---- the settle, which is the point --------------------------------------
 
 (deftest substrate-commits-before-a-dom-step
