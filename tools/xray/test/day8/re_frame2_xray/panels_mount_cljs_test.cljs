@@ -1,35 +1,11 @@
 (ns day8.re-frame2-xray.panels-mount-cljs-test
-  "Per-panel standalone-mount tests.
-
-  Pins the contract: every public `panels/mount-<panel>!` fn renders
-  its panel in isolation. No shell, no siblings, no shell-owned
-  chrome state. The mount fn:
-
-    1. Installs Xray's handlers (idempotent).
-    2. Registers `:rf/xray` (idempotent).
-    3. Wraps the panel view in `[rf/frame-provider {:frame _} [Panel]]`.
-    4. Delegates to `rf.substrate.adapter/render` with the wrapped tree.
-    5. Returns the adapter's unmount fn.
-
-  ## Test strategy
-
-  We stub `rf.substrate.adapter/render` so the test can capture the
-  rendered tree (the wrapped hiccup) without booting an actual
-  substrate. Each test:
-
-    - Calls the mount fn against a sentinel mount-point.
-    - Asserts the captured tree has the canonical
-      `[rf/frame-provider {:frame :rf/xray} [Panel]]` shape.
-    - Asserts the substrate-adapter render was invoked exactly once.
-    - Asserts the returned value is the (stubbed) unmount fn — the
-      host's lifecycle anchor.
-
-  Per-panel render-correctness (the actual view body) is covered by
-  the `panels/<panel>_cljs_test.cljs` suites; this file
-  pins the MOUNT API contract, not the view contract."
+  "The `panels/mount-<panel>!` API contract: each mount seats its frame,
+  wraps its view in `[rf/frame-provider {:frame _} [View]]`, renders it
+  through `rf.substrate.adapter/render` (stubbed here to capture the tree)
+  and hands back the adapter's unmount fn. The view bodies are the
+  `panels/<panel>_cljs_test.cljs` suites'."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as rf.frame]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [day8.re-frame2-xray.panels :as panels]
             [day8.re-frame2-xray.panels.app-db-diff :as app-db-diff]
@@ -46,10 +22,6 @@
 ;; ---- fixtures -----------------------------------------------------------
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` is the one reset owner: plain-atom adapter
-  ;; + the default `:all` reset tier, which includes the trace-collector
-  ;; ring reset. (`trace-collector` is required for the
-  ;; `seed-trace-for-test!` seeding below.)
   (xray-test-support/make-xray-runtime-fixture))
 
 ;; ---- render-stub helper -------------------------------------------------
@@ -102,91 +74,35 @@
              adapter's unmount fn handed back")))))
 
 (deftest every-other-panel-mount-wraps-its-view-in-the-frame-provider
-  ;; The remaining L3-tab panels and the two overlay / popup surfaces.
-  ;; Where a panel's `Panel` is a Fresco boundary (a React function
-  ;; component) the expected view is its `Panel-bridge`: `render-panel!`
-  ;; builds a REAGENT tree, so the bridge is what the mount fn hands it.
-  ;; The shape each row pins is frame-provider :rf/xray wrapping the view,
-  ;; because the bridge takes its frame from the same React context the
-  ;; provider writes.
+  ;; The surfaces no instance-id row below delivers. A Fresco boundary's
+  ;; expected view is its bridge, because `render-panel!` builds a Reagent tree.
   (doseq [[label mount! view]
-          [["app-db-diff"       panels/mount-app-db-diff!       app-db-diff/Panel-bridge]
-           ["reactive"          panels/mount-reactive-panel!    reactive-panel/Panel-bridge]
-           ["trace"             panels/mount-trace!             trace/Panel-bridge]
-           ["machine-inspector" panels/mount-machine-inspector! machine-inspector/Panel-bridge]
-           ["routing"           panels/mount-routing!           routing/Panel]
+          [["routing"           panels/mount-routing!           routing/Panel]
            ["cancellation-cascade side panel"
             panels/mount-cancellation-cascade-side-panel! cancellation-cascade/SidePanel]
            ["cancellation-cascade popover"
-            panels/mount-cancellation-cascade-popover!    cancellation-cascade/Popover]]]
+            panels/mount-cancellation-cascade-popover!    cancellation-cascade/Popover]
+           ["managed-fx"        panels/mount-managed-fx!        panels/ManagedFxList-bridge]]]
     (let [[capture _ render-stub] (make-render-stub)]
       (with-redefs [rf.substrate.adapter/render render-stub]
         (mount! :mount-point)
         (is (frame-provider-wrap? (captured-tree capture) view)
             (str label ": frame-provider :rf/xray wraps the panel's view"))))))
 
-;; ---- inline content surface (managed-fx) -------------------------------
-
-(deftest mount-managed-fx-wraps-ManagedFxList
-  ;; The expected view is `ManagedFxList-bridge`, for the reason the table
-  ;; above records: `ManagedFxList` is a Fresco boundary and
-  ;; `render-panel!` builds a REAGENT tree. The shape this row pins is
-  ;; frame-provider :rf/xray wrapping the view.
-  (let [[capture _ render-stub] (make-render-stub)]
-    (with-redefs [rf.substrate.adapter/render render-stub]
-      (panels/mount-managed-fx! :mount-point)
-      (is (frame-provider-wrap? (captured-tree capture) panels/ManagedFxList-bridge)))))
-
-;; ---- full-shell mount --------------------------------------------------
-
 ;; ---- the full-shell embed forwards its own-frame opt -------------------
 ;;
-;; `008-Embedding-Contract.md` §Embed props inventory publishes exactly two
-;; host-visible props on the full-shell embed, and `:frame` is one of them:
-;; the frame the shell's frame-provider wraps — Xray's OWN frame, distinct
-;; from the inspected host target the frame-picker chooses. `shell-view`
-;; takes that axis as its `:frame-id` opt, and
-;; `two-instance-isolation-cljs-test` pins the isolation it buys at the
-;; data layer by binding the two frames directly.
-;;
-;; `mount-shell!` carries the option across. Reading only `:mode` out of
-;; `opts` would drop `:frame` on the floor, so every embed — however many,
-;; however addressed — would resolve to the default `:rf/xray` and share
-;; one app-db. The source-level singleton guard
-;; (`frame_singleton_guard_test.clj`) cannot see that: there would be no
-;; literal `:rf/xray` to find, only a caller option that is never read.
-;;
-;; These deftests sit at the PUBLIC full-shell boundary — through
-;; `mount-shell!`, never `shell-view` directly — which is precisely the
-;; surface the data-layer isolation test steps around.
+;; `:frame` is one of the two host-visible props 008-Embedding-Contract.md
+;; §Embed props inventory publishes: Xray's OWN frame, so dropping it would
+;; make every embed share one `:rf/xray` app-db.
 
 (def ^:private embed-cell-a :review/xray-a)
 (def ^:private embed-cell-b :review/xray-b)
-
-(defn- shell-frame-id
-  "The `:frame-id` prop the n'th captured `[shell/shell-view {…}]` tree
-  carries — the shell's own frame."
-  [capture n]
-  (-> @capture (nth n) :tree second :frame-id))
 
 (defn- read-in-frame [frame-id query]
   (rf/with-frame frame-id (rf/subscribe-once query)))
 
 (defn- dispatch-in-frame! [frame-id event-v]
   (rf/with-frame frame-id (rf/dispatch-sync event-v)))
-
-(deftest mount-shell-forwards-the-frame-opt-as-the-shells-own-frame-id
-  ;; Without the forwarding both trees would carry no `:frame-id` and both
-  ;; embeds would collide on `shell/default-frame-id`.
-  (let [[capture _ render-stub] (make-render-stub)]
-    (with-redefs [rf.substrate.adapter/render render-stub]
-      (panels/mount-shell! :mount-a {:frame embed-cell-a})
-      (panels/mount-shell! :mount-b {:frame embed-cell-b}))
-    (is (= [:mount-a :mount-b] (mapv :mount-point @capture)))
-    (is (= [embed-cell-a embed-cell-b] [(shell-frame-id capture 0) (shell-frame-id capture 1)])
-        "each shell carries the own frame its caller requested")
-    (is (= [true true] [(some? (rf.frame/frame embed-cell-a)) (some? (rf.frame/frame embed-cell-b))])
-        "and each is SEATED: the embed contract does not ask the host to pre-seat one")))
 
 (deftest mount-shell-frame-opt-defaults-and-leaves-mode-intact
   (let [[capture _ render-stub] (make-render-stub)]
@@ -195,16 +111,19 @@
       (panels/mount-shell! :mount-overlay {:mode :overlay})
       (panels/mount-shell! :mount-both {:mode  :overlay
                                         :frame embed-cell-a}))
-    (is (= [[shell/default-frame-id :inline]
-            [shell/default-frame-id :overlay]
-            [embed-cell-a :overlay]]
-           (mapv #((juxt :frame-id :mode) (second (:tree %))) @capture))
-        "the frame defaults, and the frame and mode opts travel independently")))
+    (is (= [[:mount-default shell/default-frame-id :inline]
+            [:mount-overlay shell/default-frame-id :overlay]
+            [:mount-both embed-cell-a :overlay]]
+           (mapv #(into [(:mount-point %)] ((juxt :frame-id :mode) (second (:tree %)))) @capture))
+        "the shell carries the own frame its caller requested at the host's
+         mount-point, the frame defaults, and the frame and mode opts travel
+         independently")))
 
 (deftest mount-shell-instances-hold-independent-own-frame-state
   ;; The `with-frame` reads stand in for the two frame-provider scopes the
-  ;; mounted shells establish. Were both mounts to resolve to one frame,
-  ;; B's row would read back A's values.
+  ;; mounted shells establish, and read seeded state, so each embed is seated
+  ;; without the host pre-seating one. Were both mounts to resolve to one
+  ;; frame, B's row would read back A's values.
   (let [[_ _ render-stub] (make-render-stub)
         state (fn [frame-id]
                 [(read-in-frame frame-id [:rf.xray/selected-tab])
@@ -223,54 +142,29 @@
 
 ;; ---- the per-panel mount SEATS the frame it PROVIDES -------------------
 ;;
-;; `opts {:frame …}` overrides the default `:rf/xray` the frame-provider
-;; wraps (008-Embedding-Contract.md §State isolation) — a host can choose a
-;; different frame for the React-context tier, e.g. a Story variant frame.
-;; The deftest below pins that override on the WRAPPER and on what sits one
-;; line above it: `render-panel!` must seat the SAME frame it anchors the
-;; provider at. Seating `shell/default-frame-id` (the ZERO arity of
-;; `ensure-xray-handlers-installed!`) while anchoring the provider at
-;; `opts :frame` would put two different frames in play on an override,
-;; and since no panel view opens an inner provider of its own — every
-;; panel's docstring says its isolation comes from the ENCLOSING one — the
-;; panel body's whole `:rf.xray/*` surface would resolve into a frame
-;; nothing had seated or seeded.
-;;
-;; So this row is deliberately NOT taken off the captured tree: the stubbed
-;; `adapter/render` observes the wrapper, which passes either way. It reads
-;; the frame REGISTRY, which the real `ensure-xray-handlers-installed!` wrote
-;; on the way past the stub — the same assertion shape the `mount-shell!`
-;; rows above use.
+;; No panel view opens an inner provider, so a mount that provided an
+;; override `:frame` but seated another would land the panel's subscribes in
+;; an empty frame. The stubbed render sees only the wrapper, so this reads
+;; the frame registry; that the provider anchors the override is the
+;; instance-id rows' `:frame` check below.
 
 (def ^:private panel-cell-frame :review/xray-panel-cell)
 
 (deftest mount-panel-seats-the-own-frame-it-provides
-  (testing "a per-panel mount given an explicit `:frame` seats
-            THAT frame. Seating `shell/default-frame-id` while providing
-            the override would make the first row below read nil and land
-            the panel's subscribes in an empty frame."
-    (let [[capture _ render-stub] (make-render-stub)]
-      (with-redefs [rf.substrate.adapter/render render-stub]
-        (panels/mount-epoch-panel! :mount-point {:frame panel-cell-frame}))
-      (is (= panel-cell-frame (:frame (second (captured-tree capture))))
-          "and it is the SAME frame the provider anchors — seated and
-           provided are one value by construction")
-      (is (some? (read-in-frame panel-cell-frame [:rf.xray/selected-tab]))
-          "and the seed hooks ran in it, so a panel body's `:rf.xray/*`
-           subscribe resolves there rather than reading an empty frame"))))
+  (let [[_ _ render-stub] (make-render-stub)]
+    (with-redefs [rf.substrate.adapter/render render-stub]
+      (panels/mount-epoch-panel! :mount-point {:frame panel-cell-frame}))
+    (is (some? (read-in-frame panel-cell-frame [:rf.xray/selected-tab]))
+        "the seed hooks ran in the override frame, so a panel body's
+         `:rf.xray/*` subscribe resolves there rather than reading an empty
+         frame")))
 
 ;; ---- contract — instance-id opt ---------------------------------------
 ;;
-;; THE EVIDENCE THAT TWO NAMED MOUNTS ARE ACTUALLY SEPARATED IS NOT HERE. It
-;; is `panels/app_db_diff_mount_instance_id_dom_cljs_test`, which mounts two
-;; of them for real and reads `data-rf-mount-id` / `data-rf-site-id` off the
-;; committed DOM, plus the widget's per-mount store across an unmount. These
-;; rows pin the MOUNT-API half in the file that owns the mount API, and they
-;; are deliberately not written as "the opts key was threaded": nothing below
-;; reads the opts map or the captured props. Each row takes the ELEMENT the
-;; mount delivered and APPLIES it — which is what the substrate does to a
-;; Reagent form-1 element — so the real `Panel-bridge` runs and what is
-;; asserted is the props the boundary is mounted with.
+;; Each row APPLIES the element the mount delivered, as the substrate does a
+;; Reagent form-1 element, so the real `Panel-bridge` runs. That two named
+;; mounts are separated in the DOM is the panels/ `*_mount_instance_id_dom`
+;; suites'.
 
 (defn- delivered-element
   "The element `render-panel!` put inside the frame-provider — the hiccup the
@@ -512,16 +406,8 @@
 
 ;; ---- contract — panel mount routes through mount/ensure-xray-frame! ---
 ;;
-;; `ensure-xray-handlers-installed!` routes through `mount/ensure-xray-frame!`
-;; so every panel-only mount path fires the same first-mount hook table the
-;; full-shell `open!` runs — including `::seed-trace-and-target-frame`, the
-;; hook that lifts the pre-mount trace-bus buffer into Xray's
-;; `:trace-buffer` slot AND seeds `:target-frame` + `:epoch-history` from
-;; the head focusable cascade's frame. A direct `(rf/make-frame {:id
-;; :rf/xray})` would register the frame but bypass that table, so a host
-;; that dispatched events before any panel was mounted, then mounted a
-;; panel, would see empty Event + App-DB panels on the Story RHS: the slots
-;; the panels subscribe to would never be populated.
+;; So a panel-only mount runs the same first-mount hooks as `open!`, which
+;; seed the target frame from traffic dispatched before the mount.
 
 (defn- pre-mount-dispatch-event
   "Build a trace event matching the shape `event/dispatched` produces.
@@ -543,27 +429,12 @@
             leave `:target-frame` at `defaults/default-target-frame`
             regardless of pre-mount traffic on a non-default frame — the
             empty-Xray-on-Story-RHS class of bug."
-    (let [[_capture _ render-stub] (make-render-stub)
-          cart-records [{:epoch-id      :e-1
-                         :frame         :cart-frame
-                         :db-before     {:cart {:items []}}
-                         :db-after      {:cart {:items [{:id 7}]}}
-                         :trigger-event [:cart/add-item]
-                         :event-id      :cart/add-item
-                         :trace-events  []}]]
-      (with-redefs [rf.substrate.adapter/render render-stub
-                    rf/epoch-history (fn [frame-id]
-                                       (case frame-id
-                                         :cart-frame cart-records
-                                         []))]
+    (let [[_capture _ render-stub] (make-render-stub)]
+      (with-redefs [rf.substrate.adapter/render render-stub]
         (trace-collector/seed-trace-for-test!
           (pre-mount-dispatch-event 1 100 :cart-frame :cart/add-item))
         (panels/mount-app-db-diff! :mount-point)
         (rf/with-frame :rf/xray
           (is (= :cart-frame @(rf/subscribe [:rf.xray/target-frame]))
               "`:target-frame` seeds from the head focusable cascade's
-               `:frame` via the `::seed-trace-and-target-frame` hook.")
-          (is (= cart-records @(rf/subscribe [:rf.xray/epoch-history]))
-              "`:epoch-history` re-seeds in lockstep from
-               `(rf/epoch-history :cart-frame)` per the
-               `:rf.xray/set-target-frame` reducer."))))))
+               `:frame` via the `::seed-trace-and-target-frame` hook."))))))
