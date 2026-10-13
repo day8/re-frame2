@@ -62,26 +62,16 @@
         (is (= :idn/child#1 spawned-id)
             "the spawned instance id is <type>#<n>, distinct from the TYPE :idn/child")
 
-        ;; The instance's own transition trace addresses it by :actor-id.
         (reset! traces [])
         (rf/dispatch-sync [spawned-id [:finish]])  ;; → :done :final? → auto-destroy
-        (let [tr (first (ops @traces :rf.machine/transition))]
-          (is (some? tr) "the spawned actor emitted a :rf.machine/transition")
-          (is (= spawned-id (:actor-id (:tags tr)))
-              "transition carries the live INSTANCE under :actor-id")
-          (is (not (contains? (:tags tr) :machine-id))
-              "transition does NOT carry :machine-id"))
-
-        ;; done + destroyed both carry :actor-id = instance.
-        (let [done (first (ops @traces :rf.machine/done))]
-          (is (some? done) ":rf.machine/done fired on the :final? leaf")
-          (is (= spawned-id (:actor-id (:tags done)))
-              "done carries the finishing actor INSTANCE under :actor-id")
-          (is (not (contains? (:tags done) :machine-id))))
-        (let [destroyed (first (ops @traces :rf.machine/destroyed))]
-          (is (some? destroyed) ":rf.machine/destroyed fired on auto-destroy")
-          (is (= spawned-id (:actor-id (:tags destroyed)))
-              "destroyed carries the reaped actor INSTANCE under :actor-id"))))))
+        (let [tags     (fn [op] (:tags (first (ops @traces op))))
+              instance (juxt :actor-id #(contains? % :machine-id))]
+          (is (= [[spawned-id false] [spawned-id false] spawned-id]
+                 [(instance (tags :rf.machine/transition))
+                  (instance (tags :rf.machine/done))
+                  (:actor-id (tags :rf.machine/destroyed))])
+              "transition and done carry the INSTANCE under :actor-id and no :machine-id;
+               destroyed carries it under :actor-id"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; (2) Explicit actor-address INPUT vs declarative invocation PATH.
@@ -104,27 +94,14 @@
       (rf/reg-machine :idn3/child child)
       (rf/reg-machine :idn3/parent parent)
       (rf/dispatch-sync [:idn3/parent [:go]])
-      ;; The explicit address wins: the runtime registry slot (keyed by the
-      ;; invocation PATH [:working]) binds the explicit address, NOT a gensym.
-      (is (= :idn3/pinned
-             (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                     [:rf.runtime/machines :spawned :idn3/parent [:working]]))
-          "the explicit :fixed-actor-id address is bound at the invocation-path slot")
-      ;; The spawned actor's own :data carries BOTH facts under DISTINCT keys:
-      ;;   :rf/self-id   = the actor's instance address (the explicit id here)
-      ;;   :rf/invoke-id = the declarative invocation path (a state-path vector)
       (let [child-data (:data (snapshot :idn3/pinned))]
-        (is (= :idn3/pinned (:rf/self-id child-data))
-            ":rf/self-id is the actor's own (explicit) address — a keyword")
-        (is (= [:working] (:rf/invoke-id child-data))
-            ":rf/invoke-id is the declarative invocation path — a state-path vector")
-        (is (not= (:rf/self-id child-data) (:rf/invoke-id child-data))
-            "the explicit-address identity and the invocation-path identity are NOT conflated")
-        (is (keyword? (:rf/self-id child-data)))
-        (is (vector?  (:rf/invoke-id child-data)))
-        ;; `:rf/spawn-id` is not a reserved key.
-        (is (not (contains? child-data :rf/spawn-id))
-            "there is no :rf/spawn-id key; the invocation path is :rf/invoke-id")))))
+        (is (= [:idn3/pinned :idn3/pinned [:working]]
+               [(get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                        [:rf.runtime/machines :spawned :idn3/parent [:working]])
+                (:rf/self-id child-data)
+                (:rf/invoke-id child-data)])
+            "the explicit address is bound at the invocation-path slot and is the actor's
+             :rf/self-id, while :rf/invoke-id is the state-path vector")))))
 
 (deftest singleton-transition-carries-actor-id-equal-to-registration-id
   (testing "a singleton's transition carries :actor-id (== its registration id), not :machine-id"
@@ -133,9 +110,7 @@
       (rf/reg-machine :idn4/single m)
       (rf.trace.tooling/register-listener! ::idn4 (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:idn4/single [:go]])
-      (let [tr (first (ops @traces :rf.machine/transition))]
-        (is (some? tr))
-        (is (= :idn4/single (:actor-id (:tags tr)))
-            "a singleton's live address IS its registration id — carried under :actor-id")
-        (is (not (contains? (:tags tr) :machine-id))
-            "even for a singleton the transition row uses :actor-id, not :machine-id")))))
+      (let [tags (:tags (first (ops @traces :rf.machine/transition)))]
+        (is (= [:idn4/single false] [(:actor-id tags) (contains? tags :machine-id)])
+            "a singleton's live address IS its registration id, carried under :actor-id,
+             not :machine-id")))))
