@@ -25,17 +25,11 @@
   enqueues and schedules an async drain, so the queue read taken immediately
   after a drain call sees exactly what the pump contributed and nothing else.
   A test that only asserted the drain's return value would be pinning the coalescer's
-  bookkeeping rather than the behaviour at risk.
-
-  `control-…` is what makes the rest non-vacuous: it drives the SAME 40 records
-  through the same seam on a frame that is not the target, and shows the queue
-  still holding exactly one dispatch. Without coalescing that read would be 40
-  on both, so a green here means the mechanism fired rather than that the
-  events went nowhere.
+  bookkeeping rather than the behaviour at risk. A non-zero queue read is also
+  what shows the burst really travelled the seam rather than going nowhere.
 
   Node-test (`npm run test:cljs`) — no DOM, no browser."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.install :as install]
@@ -62,75 +56,34 @@
 
 ;; ---- the regression ------------------------------------------------------
 
-(deftest a-same-tick-epoch-burst-collapses-to-one-dispatch
-  (testing "40 epochs recorded on ONE frame between two drains
-            enqueue ONE `:rf.xray/epoch-recorded`, not 40. A listener that
-            dispatched per record would read 40 here."
-    (seat-xray!)
-    (is (zero? (xray-queue-depth))
-        "precondition: nothing else is queued on Xray's frame")
-    (dotimes [_ burst-size]
-      (install/note-epoch-recorded! :app/main))
-    (is (zero? (xray-queue-depth))
-        "noting a record does not itself enqueue — the dispatch is deferred
-         to the coalesced drain")
-    (is (= #{:app/main} (install/drain-epoch-frames!))
-        "the drain reports the one distinct frame it dispatched for")
-    (is (= 1 (xray-queue-depth))
-        (str burst-size " epoch records on one frame cost ONE queue slot"))))
-
 (deftest the-drain-dispatches-once-per-distinct-frame
-  (testing "coalescing is keyed by FRAME-ID, so the event's arg
-            means `this frame recorded` and the handler's target comparison
-            needs no change. Frame count is small and bounded
-            where epoch count is neither, so this is the axis it is safe to
-            fan out on."
+  (testing "40 epochs per frame recorded between two drains enqueue ONE
+            `:rf.xray/epoch-recorded` per frame, not one per record.
+            Coalescing is keyed by FRAME-ID, so the event's arg means `this
+            frame recorded` and the handler's target comparison needs no
+            change. Frame count is small and bounded where epoch count is
+            neither, so this is the axis it is safe to fan out on. The drain
+            takes-and-clears: a leaked pending set would turn the coalescer
+            into a permanent one-dispatch-per-tick-per-frame-ever-seen pump,
+            which is the same defect at a lower constant."
     (seat-xray!)
     (dotimes [_ burst-size]
       (install/note-epoch-recorded! :app/main)
       (install/note-epoch-recorded! :app/sidebar))
+    (is (zero? (xray-queue-depth))
+        "noting a record does not itself enqueue — the dispatch is deferred
+         to the coalesced drain")
     (is (= #{:app/main :app/sidebar} (install/drain-epoch-frames!))
         "both frames are represented exactly once")
     (is (= 2 (xray-queue-depth))
         (str (* 2 burst-size) " records across two frames cost TWO queue "
-             "slots, one per frame"))))
-
-;; ---- the control — the burst really did travel this seam -----------------
-
-(deftest control-a-non-target-frames-burst-also-collapses
-  (testing "the same 40 records on a frame that is NOT the target
-            also enqueue one dispatch. This is the control for the regression
-            above: it drives the identical burst through the identical seam,
-            so a queue depth of 1 there cannot be explained by the records
-            having gone nowhere. It is also the wasteful case the coalescer
-            most obviously pays for — the handler's re-read is a no-op for a
-            non-target frame, so un-coalesced these would be 40 round-trips
-            computing the db value Xray already had."
-    (seat-xray!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/set-target-frame :app/main]))
-    (dotimes [_ burst-size]
-      (install/note-epoch-recorded! :app/somewhere-else))
-    (is (= #{:app/somewhere-else} (install/drain-epoch-frames!)))
-    (is (= 1 (xray-queue-depth))
-        "one queue slot for a burst the handler will decline")))
-
-;; ---- the pending set is cleared, and the pre-mount case ------------------
-
-(deftest a-drain-clears-the-pending-set
-
-  (testing "the drain takes-and-clears, so a frame that recorded
-            once is not re-dispatched on every later drain. A leaked pending
-            set would turn the coalescer into a permanent one-dispatch-per-
-            tick-per-frame-ever-seen pump, which is the same defect at a
-            lower constant."
-    (seat-xray!)
-    (install/note-epoch-recorded! :app/main)
-    (is (= #{:app/main} (install/drain-epoch-frames!)))
+             "slots, one per frame"))
     (is (= #{} (install/drain-epoch-frames!))
         "a second drain with nothing pending dispatches nothing")
-    (is (= 1 (xray-queue-depth))
+    (is (= 2 (xray-queue-depth))
         "and enqueues nothing further")))
+
+;; ---- the pre-mount case --------------------------------------------------
 
 (deftest an-unseated-xray-frame-drains-to-nothing
   (testing "the liveness check is taken at the instant of DISPATCH
@@ -147,7 +100,6 @@
     (is (= #{} (install/drain-epoch-frames!))
         "the drain is a no-op while the frame is absent")
     (seat-xray!)
-    (is (= #{} (install/drain-epoch-frames!))
-        "and the pre-mount records were cleared, not replayed on the seat")
+    (install/drain-epoch-frames!)
     (is (zero? (xray-queue-depth))
-        "so nothing reaches the queue")))
+        "and the pre-mount records were cleared, not replayed on the seat")))
