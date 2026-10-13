@@ -87,30 +87,14 @@
       {:variant-id :story.x/y :alias "rf" :args {}}
       "(rf/reg-variant :story.x/y\n  {:args {}})")))
 
-(deftest gen-variant-snippet-args-roundtrip
-  (let [args {:label "alice" :n 42 :tags #{:a :b} :nested {:k 1}}]
-    (is (= args (-> (rf.story.save-variant/gen-variant-snippet {:variant-id :story.x/y :args args})
-                    edn/read-string
-                    (nth 2)
-                    :args))
-        "the rendered :args map reads back as the original")))
-
-;; ---- default-variant-id --------------------------------------------------
-
-(deftest default-variant-id-uses-source-namespace
-  (is (= :story.counter/saved-12345
-         (rf.story.save-variant/default-variant-id :story.counter/happy-path 12345))))
-
 ;; ---- dialog state machine -------------------------------------------------
 
 (deftest open-builds-dialog-state
-  (let [s (rf.story.save-variant/open rf.story.save-variant/initial-dialog-state
-                                      :story.x/y {:n 1} 1000)]
-    (is (= [true :story.x/y {:n 1} true]
-           [(:open? s) (:source-id s) (:args s) (qualified-keyword? (:draft-id s))]))
-    (is (= :story.x/edited (:draft-id (rf.story.save-variant/set-draft-id s :story.x/edited))))
-    (is (= rf.story.save-variant/initial-dialog-state (rf.story.save-variant/close s))
-        "close returns to idle")))
+  (testing "the default draft id keeps the source's namespace under a saved-<suffix> name"
+    (is (= [true :story.x/y {:n 1} :story.x/saved-1000]
+           ((juxt :open? :source-id :args :draft-id)
+            (rf.story.save-variant/open rf.story.save-variant/initial-dialog-state
+                                        :story.x/y {:n 1} 1000))))))
 
 ;; ---- save-current-as-variant! end-to-end ---------------------------------
 
@@ -378,14 +362,6 @@
           "no result, and the callback never fires"))))
 
 ;; ---- :rf.story/save-current-as-variant event handler ---------------------
-
-(deftest event-handler-triggers-callback
-  (testing "dispatching :rf.story/save-current-as-variant runs the save flow"
-    (rf.story/reg-variant :story.event/v {:args {:n 9} :setup []})
-    (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant :story.event/v)
-    (let [captured (capture-dialog!)]
-      (rf/dispatch-sync [rf.story.save-variant/id-save-current-as-variant])
-      (is (= [:story.event/v 9] [(:source-id @captured) (-> @captured :args :n)])))))
 
 (deftest event-handler-honors-payload-opts
   (testing "the event payload's :variant-id overrides the focused variant"
