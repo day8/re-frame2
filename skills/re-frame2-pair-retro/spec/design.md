@@ -110,7 +110,7 @@ The `description` triggers on two canonical paths: (a) **explicit pull** — ret
 
 ## 7. Anti-patterns the skill explicitly resists
 
-- **Stopping at a candidate list** — asking which friction to analyse before analysing is the round-trip this design removed; asking is only for the L3 ambiguity cases.
+- **Stopping at a candidate list** — asking which friction to analyse before analysing costs the user the round-trip the one-turn contract exists to avoid; asking is only for the L3 ambiguity cases.
 - **Padding** — empty conditional sections, filler "bolder ideas", fixed idea counts.
 - **Routing fixes through re-frame-10x** — L1 cardinal rule.
 - **Mutating anything** — filing, editing, probing, labelling — L2 cardinal rule.
