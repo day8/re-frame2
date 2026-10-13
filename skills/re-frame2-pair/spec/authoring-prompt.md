@@ -29,6 +29,8 @@ A self-contained prompt that re-authors the `re-frame2-pair` skill from this `sp
 > ├── STATUS.md                           (development status)
 > ├── package.json                        (npm metadata)
 > ├── .claude-plugin/plugin.json          (Claude Code plugin metadata)
+> ├── agents/openai.yaml                  (agent-host interface metadata)
+> ├── preload/re_frame2_pair/             (runtime.cljs — the `re-frame2-pair.runtime` preload; pure.cljc — its pure decision core)
 > ├── references/
 > │   ├── ops.md                          (op catalogue — read/write/trace/watch/hot-reload/time-travel + v1 surface-map; hot-reload protocol and the v1 map live here as sections and MUST NOT be split out)
 > │   ├── screen-reads.md                 (what is on screen and why it rendered — DOM source bridge, read-dom vs read-ui, Fresco evidence)

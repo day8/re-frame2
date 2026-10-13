@@ -145,7 +145,7 @@ Use the per-op reads when:
 - **`:path-sliced` (with `path`)** — the slot is `(get-in db path)`. Out-of-range paths surface per-frame in a top-level `:path-not-found` map with `:deepest-valid-prefix` so the agent can re-aim without a binary search.
 - **Root path `path: "[]"`** — explicit request for the full `:app-db`. A **last resort** (large on any real app frame; refused against a reserved `:rf/*` tool frame). Orient first, then slice. The wire cap is the backstop.
 
-The other slices (`:sub-cache`, `:machines`, `:epochs`) pass through unchanged. The `:traces` slice now ships **event bundles by default** (`{:dispatch-id :frame :event :dispatched :handler :fx :effects :subs :renders :other :trace-events :parent-dispatch-id}` per run — the framework's `(re-frame.trace.tooling/trace-buffer frame-id)` shape).
+The summary/path modes apply to `:app-db` only; the other slices still pass the wire-boundary egress. `:sub-cache` and `:epochs` route through `project-egress` like `:app-db`. `:machines` is runtime-db state, so it reads `:rf/redacted` unless the server runs with `--allow-sensitive-reads` **and** the call passes `include-sensitive: true` — to see one machine's snapshot, use `read-sub {sub: "[:rf/machine <id>]"}` ([recipes.md §Inspect this machine](recipes.md#inspect-this-machine)). The `:traces` slice ships **event bundles by default** (`{:dispatch-id :frame :event :dispatched :handler :fx :effects :subs :renders :other :trace-events :parent-dispatch-id}` per run — the framework's `(re-frame.trace.tooling/trace-buffer frame-id)` shape).
 
 Use `get-path` (next section) when you already know the addressed subtree — it's a single-slice round-trip rather than the multi-slice composition `snapshot` does.
 

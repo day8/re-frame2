@@ -102,6 +102,7 @@ Before any time-travel experiment, the AI walks the cascade's effects and tells 
 - **v1→v2 migration** — `skills/re-frame-migration/`.
 - **Porting re-frame2 to a different host** — `skills/re-frame2-implementor/`.
 - **Retrospecting on the pair tool itself** — `skills/re-frame2-pair-retro/`.
+- **Touring the Xray panel** — `skills/re-frame2-xray/`.
 - **Apps not using re-frame2's Tool-Pair contract** (e.g. v1 apps, custom adapters that don't install trace-cb / epoch-cb hooks) — out of scope; `discover-app` refuses on a rung of its preload-failure ladder — such an app lands on `:runtime-loaded-but-preload-missing`, the rung that also covers "no re-frame2 dependency at all". The full ladder is catalogued in `references/errors.md`.
 
 ## 5. File structure (locked)
@@ -115,6 +116,10 @@ skills/re-frame2-pair/
 ├── STATUS.md                           (development status)
 ├── package.json                        (npm metadata)
 ├── .claude-plugin/plugin.json          (Claude Code plugin metadata)
+├── agents/openai.yaml                  (agent-host interface metadata)
+├── preload/re_frame2_pair/
+│   ├── runtime.cljs                    (the `re-frame2-pair.runtime` preload the app loads)
+│   └── pure.cljc                       (`re-frame2-pair.pure` — the pure decision core runtime.cljs delegates to)
 ├── references/
 │   ├── ops.md                          (op catalogue — read/write/trace/watch/hot-reload/time-travel + v1 surface-map appendix)
 │   ├── screen-reads.md                 (what is on screen and why it rendered — DOM source bridge, read-dom vs read-ui, Fresco evidence)
