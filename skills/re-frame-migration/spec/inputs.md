@@ -31,7 +31,7 @@ These shape the skill's discipline but aren't quoted directly.
 - **`skills/re-frame2/SKILL.md`** + **`skills/re-frame2/references/**`** — the canonical example of the authoring pattern. Voice, structure, density, "load-bearing-rules" style all mirror this skill.
 - **`skills/re-frame2-setup/SKILL.md`** + **`skills/re-frame2-setup/references/**`** — the closest structural analogue. Per-build-tool detail, the `LICENSE`/`package.json`/`.claude-plugin/plugin.json` triad, the README shape.
 - **`docs/the-mayor-method/`** — the methodology context for how Mike works with AI. Influences the "teach what's likely to break, then prove it with the project's own gates" framing (L3).
-- **`SKILL-REDIRECT.md`** (repo root) — the canonical pointer table for AI skills. The migration skill references it as the place for full-API URLs and EP design rationale (rather than duplicating URLs in the leaves).
+- **`SKILL-REDIRECT.md`** (repo root) — the canonical pointer table for AI skills, holding the full-API URLs and EP design rationale. The leaves link the corpus and spec directly rather than through it.
 
 ## 4. Anthropic skill conventions
 

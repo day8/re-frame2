@@ -59,7 +59,7 @@ This is the **single, canonical allowlist** of `re-frame.*` namespaces the M-1 s
 
 Everything else under `re-frame.*` is off-contract. `re-frame.alpha` is **not** a public surface in v2 — it does not exist as a v2 namespace; a v1 `re-frame.alpha` require is removed by **M-23**, not M-1. The internals that an `:enumerate-the-list` sweep tends to miss include `re-frame.db`, `re-frame.router`, `re-frame.subs`, `re-frame.events`, `re-frame.registrar`, **`re-frame.utils`**, `re-frame.loggers`, `re-frame.interceptor`, `re-frame.fx`, `re-frame.cofx` (reach these through `re-frame.core` instead). `re-frame.utils` in particular is a classic surprise: a v1 app that used `re-frame.utils/map-vals` sails through an enumerated sweep and only fails later with `The required namespace "re-frame.utils" is not available` — *after* the obvious db/router/subs/events/registrar requires are cleared, so it reads as a regression rather than a known M-1 site.
 
-**Grep all off-contract requires up front** so the migrator fixes them in one pass, not one compile error at a time (the "march the wall" effect — each fix reveals the next missing-namespace error). Emit **one complete namespace match per line** before filtering: filtering whole source lines hides a private import beside a public one. Match the **end of the namespace**, not a word boundary that also exempts private descendants such as `re-frame.schemas.walker`. This is a candidate inventory; inspect the surrounding `ns` form, including prefix-list libspecs and reader conditionals, before rewriting.
+**Grep all off-contract requires up front** so the migrator fixes them in one pass, not one compile error at a time (the "march the wall" effect — each fix reveals the next missing-namespace error). Emit **one complete namespace match per line** before filtering: filtering whole source lines hides a private import beside a public one. Match the **end of the namespace**, not a word boundary that also exempts private descendants such as `re-frame.schemas.walker`. This is a candidate inventory; inspect the surrounding `ns` form, including prefix-list libspecs and reader conditionals, before rewriting. A bare-symbol libspec, `(:require re-frame.utils)`, has no `[` for the scan to anchor on, so search for those separately.
 
 ```bash
 # Extract each complete libspec namespace, preserving file + line provenance.
@@ -88,13 +88,13 @@ rg -n '\[\s*(re-frame\.[A-Za-z0-9_.-]+)' . --only-matching --multiline --replace
 @re-frame.db/app-db  → (rf/app-db-value :rf/default)
 (reset! re-frame.db/app-db v) → flag (Type B — see M-15) — propose
                                  (rf/dispatch-sync [::reset-app-db v])
-(subs/clear-sub-cache!) → (rf/clear-sub-cache! :rf/default)
+(subs/clear-subscription-cache!) → (rf/clear-sub-cache! :rf/default)
 (re-frame.core/clear-subscription-cache!) → (rf/clear-sub-cache! :rf/default) ; public v1 no-arg name
 (reg/get-handler kind id) → (rf/handler-meta {:source :store :kind kind :id id}) ; INTROSPECTING call sites only; returns the registration metadata map (no raw handler fn is exposed publicly in v2) — a site that CALLS the result is Type B, see the caveat below
 (re-frame.utils/map-vals f m) → (into {} (map (fn [[k v]] [k (f v)])) m) ; v1's own body, so behaviour is unchanged; update-vals only per the note below
 ```
 
-**Note (M-1 `get-handler` rewrite)**: the rewrite above targets `rf/handler-meta`, which is the actual public registrar-query surface in `re-frame.core`. The MIGRATION.md M-1 row was corrected to match — there is no `rf/get-handler` in v2.
+**Note (M-1 `get-handler` rewrite)**: the rewrite above targets `rf/handler-meta`, which is the actual public registrar-query surface in `re-frame.core`. There is no `rf/get-handler` in v2.
 
 **Note (M-1 `map-vals` rewrite)**: the default replacement is v1's own body, so values, metadata and accepted inputs stay as they were. The shorter `(update-vals m f)` (Clojure 1.11+, map first) differs twice. It keeps `m`'s metadata, where `map-vals` dropped it, and values still compare equal, so `=` cannot see the change. It also expects a map, where `map-vals` took any sequence of `[k v]` pairs: an entry sequence such as `[[:a 1]]` throws or comes back reshaped. Use `update-vals` only where the source shows that `m` is always a map and that nothing reads the result's metadata.
 
@@ -137,10 +137,12 @@ Same for the `uix` variant.
 (reg :sub :id ...)                   → (reg-sub :id ...)
 (reg :fx :id ...)                    → (reg-fx :id ...)
 (reg :cofx :id ...)                  → (reg-cofx :id ...)
-(reg :flow :id ...)                  → (reg-flow :id {…} derive-fn)   ; 3 slots — the :derive fn moves OUT of the map
+(reg :flow :id ...)                  → (reg-flow :id {…} derive-fn)   ; 3 slots, reshaped — see the :flow note below
 (sub <vector>)                       → (subscribe <vector>)   ; EXCEPT inside a reg-sub signal/input fn, per M-71 (below)
 (sub {:re-frame/q ::id :param 1})    → (subscribe [::id 1])   ; vectorize the query-map
 ```
+
+**The `:flow` row is a reshape, not a rename** ([`MIGRATION.md` §M-23](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-23-re-framealpha-is-removed)): `:id` becomes the first slot, `:inputs` goes from a keyword→path map to a vector of paths in the derive fn's parameter order, `:path` becomes `:output-path`, and the `:output` fn becomes the third-slot derive fn, which takes its inputs positionally — a body left destructuring the old resolved-inputs map computes from `nil`s with no error. `:live?`, `:cleanup` and per-flow `:fx` are dropped (Type B, M-30). A flow is also frame-owned, so give it `:frame` or register it inside a `with-frame` once the frame exists ([`guided-interceptors-subs.md` §`on-changes`](guided-interceptors-subs.md#on-changes)).
 
 **Signal-fn carve-out → M-71** (mirrors the M-73 cross-refs on the `:event-*` rows above): the `(sub <vector>) → (subscribe <vector>)` row holds at ordinary call sites, but **not inside a `reg-sub` signal/input fn** — the two-trailing-fns form with no `:<-` between them, `(reg-sub :id (fn [q] …) (fn [inputs q] …))`. That first fn becomes a v2 **`:inputs` producer**, moved into the registration metadata map (`{:inputs (fn [q] …)}`) and required to **return a vector of query vectors** (`[[:x id] [:y]]`) rather than call `subscribe`; there the alpha `(sub [:x id])` becomes the bare query **vector** `[:x id]` (inside the returned vector), not a `(subscribe [:x id])` call. A `subscribe`-bearing input-fn registers clean and then throws `:rf.error/sub-input-fn-bad-return` at first materialization. Reshape per **M-71** — see [`guided-interceptors-subs.md` §M-71](guided-interceptors-subs.md#m-71--the-v1-signal-function-reg-sub-form-3-arity--v2-input-fns). (A v1 `reg-sub` that used alpha-`sub` in its signal fn lands here: the alpha namespace removal is M-23, but the signal-fn body is M-71's reshape, not a uniform `subscribe` swap.)
 
@@ -158,7 +160,7 @@ Same for the `uix` variant.
 ```
 
 `assert-state` maps to `assert-path-equals` per **M-62** (the fn-side mirrors the `:rf.assert/path-equals` Story event); a full-db assertion has no dedicated fn — compare directly with `(is (= expected-db (rf/app-db-value f)))`. A chained event-sequence is a `doseq` over `dispatch-sync`. `run-test-sync` is dropped in v2 — see **M-52** below to rewrite call sites.
-Also: drop `day8/re-frame-test` from the Maven coords.
+Also: drop `day8.re-frame/test` from the Maven coords.
 Before accepting the migrated suite, audit its test doubles as [M-52](#m-52--run-test-sync-removed) says: a v1 `with-redefs` on `rf/dispatch` or `rf/subscribe` still compiles in v2 and intercepts nothing.
 
 ### M-52 — `run-test-sync` removed
@@ -217,7 +219,8 @@ M-52 above covers the **synchronous** test surface (`run-test-sync` → `dispatc
 ;; REWRITE (v2)
 (:require [cljs.test :refer-macros [deftest is use-fixtures async]]
           [re-frame.core :as rf]
-          [re-frame.test-support :as ts])
+          [re-frame.test-support :as ts]
+          [re-frame.substrate.plain-atom :as plain-atom])
 
 ;; Async suites MUST use MAP-FORM fixtures. cljs.test HARD-ERRORS on a fn-form
 ;; fixture for an (async …) test ("Async tests require fixtures to be specified
@@ -240,7 +243,7 @@ M-52 above covers the **synchronous** test surface (`run-test-sync` → `dispatc
              (rf/dispatch-sync [::restore-app-db @app-db-snap]))})
 
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture {:adapter adapter :async? true})  ; M-64 + :async?
+  (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter :async? true})  ; M-64 + :async?
   restore-app-db-fixture)
 
 ;; wait-for-event → a one-shot trace listener matching :rf.event/run-end.
@@ -266,7 +269,7 @@ M-52 above covers the **synchronous** test surface (`run-test-sync` → `dispatc
 **Notes.**
 - The listener is **dev/test-only** (the `:trace` stream rides the `re-frame.trace` surface, DCE'd under `:advanced` + `goog.DEBUG=false`) — that is correct for a test runner; do **not** reach for the production observability sink (`register-observability-sink!` against an `:observability :handled-events` policy) here (its record is not trace-shaped and is for production observability, not test waits).
 - For a pure **state-observable** wait (the awaited effect lands in `app-db` rather than via a discrete event — e.g. a debounce that just updates a slice), prefer `re-frame.test-support/poll-until`, which returns a `js/Promise` that composes directly with `cljs.test/async` (`(-> (ts/poll-until pred) (.then ...) (.catch ...))`). Use the `:rf.event/run-end` listener when the contract is "*this event* fired", `poll-until` when it is "*this state* settled".
-- After the `re-frame.test` → `re-frame.test-support` require swap, also drop the `day8/re-frame-test` Maven coord (see M-25 above) — `run-test-async` / `wait-for-event` shipped from it and have no v2 successor symbol; they become the inline shapes above.
+- After the `re-frame.test` → `re-frame.test-support` require swap, also drop the `day8.re-frame/test` Maven coord (see M-25 above) — `run-test-async` / `wait-for-event` shipped from it and have no v2 successor symbol; they become the inline shapes above.
 - **Async suites need the `:async? true` map-form reset fixture**, and a hand-rolled one can silence the no-frame-context throw while a bare `dispatch-sync` silently fails to drain. Why the map-form is required, what to verify, and the fn/map mixing hazard are the `re-frame2` skill's [`testing.md` §Async suites](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/cross-cutting/testing.md#async-cljstest-suites--async-true).
 
 ### Test-layer v1 API to v2 mapping
@@ -275,7 +278,7 @@ The test / fixture layer carries its own v1 *test-API* subset — distinct from 
 
 | v1 test-layer surface | v2 replacement | Rule |
 |---|---|---|
-| `(:require [re-frame.test …])` / `[day8.re-frame.test …]` | `(:require [re-frame.test-support …])` — ships in core; drop the `day8/re-frame-test` Maven coord | **M-25** |
+| `(:require [re-frame.test …])` / `[day8.re-frame.test …]` | `(:require [re-frame.test-support …])` — ships in core; drop the `day8.re-frame/test` Maven coord | **M-25** |
 | `(use-fixtures :each (rf-test/make-restore-fn))` — the per-test snapshot/restore fixture | `(ts/make-reset-runtime-fixture {:adapter adapter})` is the v2 per-test `:each` fixture that fills the same role — registrar / runtime isolation, the fixture every v2 suite installs (the builder rename is M-64). The **app-db snapshot/restore** half `make-restore-fn` performed stacks on top: epoch-free inline (snapshot `(rf/app-db-value :rf/default)`, restore via a one-shot `reg-event` dispatched synchronously) or, when the suite pulls `day8/re-frame2-epoch`, `(rf/replace-frame-state! frame-id {:rf.db/app snap})`. | **M-26** (the `make-restore-fn` drop) + the `make-reset-runtime-fixture` builder (M-64) |
 | `(rf/reg-event-db …)` inside a fixture / `:before` body | `(rf/reg-event …)` — destructure `:db` from the coeffects map, wrap the body `{:db …}`. A fixture is **not** exempt: the retired `reg-event-db` throwing stub throws `:rf.error/reg-event-db-removed` the instant the fixture registers it. | **M-73** |
 | `add-post-event-callback` / `remove-post-event-callback` driving an **async** test wait | a **one-shot `:trace`-stream listener matching `:rf.event/run-end`** — `(rf/register-listener! :trace k f)` that fires once the awaited event's handler has run to completion, then `(rf/unregister-listener! :trace k)`. | **M-26** |
@@ -417,13 +420,14 @@ The single highest-impact mechanical rewrite. The rewrite itself — which top-l
 
 The other half of the effect-side sweep: M-8 moves effects *into* `:fx`, M-51 fixes the **handlers** that receive them — every app that registered its own `reg-fx` (custom `:datadog/log`, toasts, analytics, and the `http-fx` / `async-flow-fx` shims) has sites here. The rewrite (`(fn [args] …)` → `(fn [_ args] …)`), the frame capture an async-dispatching handler needs, and why a miss is silent on CLJS are [`MIGRATION.md` §M-51](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-51-reg-fx-handlers-are-binary--rewrite-unary-handlers-to-take-an-unused-first-arg). A miss compiles and runs with no error, so sweep every site up front — never march the wall; its sequencing position is [`sequencing.md`](sequencing.md) row 14a.
 
-Sweep shape (`rg -U`, because the `fn` often sits on the line *after* `reg-fx` — a line-oriented grep misses those; the optional newline keeps same-line handlers, and the parameter class admits a destructured `(fn [{:keys [url]}]` — the canonical http-fx v1 shape — while excluding `_`, so an already-rewritten `(fn [_ request]` drops out):
+Sweep shape (`rg -U`, because the handler often sits on a later line than `reg-fx` — a line-oriented grep misses those; `\s+` spans the newlines, `(\S+\s+)?` admits a named `(fn h [x]`, `#(` catches an anonymous-literal handler, and the parameter class admits a destructured `(fn [{:keys [url]}]` — the canonical http-fx v1 shape — while excluding `_`, so an already-rewritten `(fn [_ request]` drops out). The second search lists handlers passed as a var; read each one's arity:
 
 ```bash
-rg -U 'reg-fx[^\n]*\n?[^\n]*\(fn \[[^]\s_][^]]*\]'
+rg -U -n 'reg-fx\s+\S+\s+(\(fn\s+(\S+\s+)?\[[^]\s_]|#\()' .
+rg -U -n 'reg-fx\s+\S+\s+[a-zA-Z][^\s()]*\s*\)' .
 ```
 
-Then cross-check the hit count against `(rf/registrations {:source :store :kind :fx})` at the REPL — every id whose `:ns` is one of the app's namespaces must be a sweep hit or a handler you have confirmed binary — so a zero is a proven zero, not a shape the pattern missed (a `(fn` alone on its own line, say). The sweep also matches a converted handler whose first parameter is named rather than `_` (`(fn [m request]`); skip those.
+Then cross-check the hit count against `(rf/registrations {:source :store :kind :fx})` at the REPL — every id whose `:ns` is one of the app's namespaces must be a sweep hit or a handler you have confirmed binary — so a zero is a proven zero, not a shape the pattern missed (a handler built by a macro or a higher-order fn, say). The sweep also matches a converted handler whose first parameter is named rather than `_` (`(fn [m request]`), and a `#(…)` that reads `%2`; skip those.
 
 **Before each rewrite, check two things the blanket `_`-prepend gets wrong:**
 
@@ -558,7 +562,7 @@ The mechanical (Type A) cases:
   (fn [{:keys [db]} [_ text]] {:db (assoc-in db [:todos text] true)}))
 ```
 
-**Simple `reg-event-db` → `reg-event` — destructure `db`, wrap the body.** The first handler param (`db`) becomes a `{:keys [db]}` destructure of the coeffects map (a first param with another name, say a path-scoped `c`, is rebound as `{c :db}` so the body's references still resolve), and the body — which always evaluates to the new app-db — is wrapped as the `{:db BODY}` effect. Any path-interceptor metadata in the middle slot is rewritten to the by-reference form: under EP-0022 a public `:interceptors` chain carries **references**, never inline interceptor values, so the inline `(rf/path :counter)` value becomes the standard `[:rf.interceptor/path [:counter]]` factory ref. (There is no public `rf/path` value constructor; an inline value in the chain now throws `:rf.error/inline-interceptor-removed` at registration.)
+**Simple `reg-event-db` → `reg-event` — destructure `db`, wrap the body.** The first handler param (`db`) becomes a `{:keys [db]}` destructure of the coeffects map (a first param with another name, say a path-scoped `c`, is rebound as `{c :db}` so the body's references still resolve), and the body — which always evaluates to the new app-db — is wrapped as the `{:db BODY}` effect. Any path-interceptor metadata in the middle slot is rewritten to the by-reference form: under EP-0022 a public `:interceptors` chain carries **references**, never inline interceptor values, so the inline `(rf/path :counter)` value becomes the standard `[:rf.interceptor/path [:counter]]` factory ref. (There is no public `rf/path` value constructor; a leftover `(rf/path …)` call throws `:rf.error/path-removed`, and any other inline value in the chain throws `:rf.error/inline-interceptor-removed` at registration.)
 
 ```clojure
 ;; before

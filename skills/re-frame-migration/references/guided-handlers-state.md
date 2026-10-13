@@ -9,14 +9,14 @@ The **M-11** view-under-frame sweep (subscribing plain `(defn …)` Reagent view
 - M-3 — run-to-completion drain
 - M-5 — Var-aliased `reg-*`
 - M-10 — reserved-namespace collision
-- M-11 — plain Reagent fns under any frame (including the default/single frame) — incl. the async listener / timer / error-handler class — **moved to its own leaf: [`guided-views-m11.md`](guided-views-m11.md)**
+- M-11 — plain Reagent fns under any frame (including the default/single frame) — incl. the async listener / timer / error-handler class — **lives in its own leaf: [`guided-views-m11.md`](guided-views-m11.md)**
 - M-12 — render-count test re-baseline
 - M-13 — `reg-event-error-handler`
 - M-14 — `:rf.route/not-found` requirement (only if adopting Spec 012)
 - M-15 — top-level `app-db` seeding
 - M-15b — wholesale `app-db` replace + the retired `:rf/runtime` root
 - M-34 — spawn-id tracking moved to runtime-owned slot
-- M-42 — React-19-removed Reagent surfaces (`dom-node` / `force-update-all` half)
+- M-42 — React-19-removed Reagent surfaces (bridge and slim: the mount rewrite, `dom-node`, raw HTML)
 
 ---
 
@@ -53,7 +53,7 @@ So the rule is: **classify by host and by position before you touch a hit.**
 | CLJS | call (ordinary `(rf/reg-sub :id …)`) | Macro path; unaffected by this rule. |
 | JVM (`.clj` / the `#?(:clj …)` branch of a `.cljc`) | value | **Type B** — real break; rewrite via the decision shape below. |
 
-**The one thing the CLJS value path loses is call-site source-coordinate capture.** The macro stamps `:rf.trace/trigger-handler` from `&form`; the fn value cannot. Tooling (Xray, 10x) then shows the registration without a click-to-jump source link. That is the whole tradeoff — state it once to the author and move on; it is not a reason to rewrite working code.
+**The CLJS value path loses what the macro captures from `&form`.** The macro stamps `:rf.trace/trigger-handler` and the `:rf.provenance/ns` provenance; the fn value cannot. Tooling (Xray) then shows the registration without a click-to-jump source link, and an explicit image's `:select-ns` never selects the registration unless its metadata stamps `:ns` ([Conventions §Convention A](https://github.com/day8/re-frame2/blob/main/spec/Conventions.md#convention-a--same-name-cljs-value-alias-no--twin)). That is the whole tradeoff — state it once to the author, stamp `:ns` where the app composes explicit images, and move on; it is not a reason to rewrite working code.
 
 **Apply M-73 first.** `reg-event-db` / `reg-event-fx` are removed and `reg-event-ctx` is demoted (EP-0018); they survive only as façade stubs that raise `:rf.error/reg-event-db-removed` (and `-fx-removed` / `-ctx-removed`) at registration, aborting the rest of the namespace load. So run the **M-73** collapse to `reg-event` first. M-73 is a genuine migration target on **both** hosts; this rule then applies to the surviving `reg-event` / `reg-sub` / `reg-fx` / `reg-cofx` names.
 
@@ -83,7 +83,7 @@ So the rule is: **classify by host and by position before you touch a hit.**
 
 1. **Rename to a feature prefix**. Pick the project's own top-level namespace (e.g. `:cart/...`, `:auth/...`). This is the default move.
 2. **Intentional override** of a documented framework extension point. Confirm with the author that this is deliberate; leave the registration in place; note it in the report.
-3. **Decline**. The author accepts the runtime warning. Rare; document the reasoning in the report.
+3. **Decline**. The author keeps the reserved id knowingly. The collision is silent — only the reserved standard events (`:rf/set-db`, `:rf/install-frame-state`, `:rf/settle-flows`) refuse registration, with `:rf.error/reserved-event-id`. Rare; document the reasoning in the report.
 
 ---
 
@@ -108,13 +108,13 @@ No mechanical rewrite — the author updates the expected numbers.
 - If it was **recovery-steering** ("when an event handler throws in this frame, swallow / substitute / route to this recovery"), it has **no v2 equivalent** — drop it. Rely on the framework's typed per-category default; move any genuine recovery for *expected* failures to the source (managed-HTTP `:retry`, optional-read fallback). To re-run a failed event, dispatch a fresh one.
 - If it was a **process-wide observer** (audit logging, metrics, Sentry forwarding), it moves to an observation seat. For **always-on production** error egress (Sentry / Honeybadger / Datadog) the surface is the frame `:observability` sink (declared on the frame, projected before your fn sees it), or the same entry grammar declared once with `(rf/configure! {:observability …})` for a cross-frame seat. Either way it is **not** `(register-listener! :trace …)`, which is dev-only and production-elided — see [`error-events.md` §Production elision](error-events.md#production-elision--what-elides-and-what-stays-always-on).
 
-A v1 codebase that stacked multiple handlers (e.g. one for recovery, one for logging) drops the recovery half and moves the logging half to a listener.
+A v1 codebase that stacked multiple handlers (e.g. one for recovery, one for logging) drops the recovery half and moves the logging half to an `:observability` sink (or, for a dev loop only, a `:trace` listener).
 
 **Decision shape**:
 
 1. Read the handler body. If it modifies state, swallows, or substitutes a result, that's recovery-steering — drop it; there is no v2 policy slot. Move any genuine recovery to the source.
 2. If it logs / reports / metrics and must run in production, that's an observation seat — the frame `:observability` sink, or `(rf/configure! {:observability …})` when a cross-frame seat is what's wanted; `(register-listener! :trace …)` if dev-only.
-3. If it does both, split the body — drop the recovery-steering, move observation to the appropriate listener surface.
+3. If it does both, split the body — drop the recovery-steering, move observation to the `:observability` sink (production) or a `:trace` listener (dev only).
 
 Present the categorisation; confirm with the author; apply.
 
@@ -124,7 +124,7 @@ Present the categorisation; confirm with the author; apply.
 
 ## M-14 — `:rf.route/not-found` requirement
 
-**Trigger**: only fires if the author is adopting Spec 012's routing surface (i.e. they're applying O-8 or had `reg-route` calls in v1). If they're keeping a third-party router (reitit, secretary, bidi-only), M-14 doesn't apply.
+**Trigger**: only fires if the author is adopting Spec 012's routing surface (i.e. they're applying O-8, or the codebase already calls `reg-route`). If they're keeping a third-party router (reitit, secretary, bidi-only), M-14 doesn't apply.
 
 **Identify**: codebase calls `reg-route` but does not register `:rf.route/not-found`.
 
@@ -156,11 +156,11 @@ Present the seed value and the proposed rewrite; confirm with the author; apply 
 
 ## M-15b — Wholesale `app-db` replace + the retired `:rf/runtime` root
 
-**Identify**: any event handler that returns a *wholesale* `app-db` value — `(reg-event-db :initialize-db (fn [_ _] fresh-db))`, `{:db fresh-db}` from `:bootstrap` / `:app/reset` / a logout-to-clean-state event — where `fresh-db` is built from scratch rather than threaded from the incoming `db`. Two sub-shapes carry the migration risk: (a) a v1-shaped `fresh-db` that **carries a `:rf/runtime` key** (a hand-rolled runtime stash, or one threaded forward by an older v2-preview rewrite), and (b) any handler that **explicitly writes `:rf/runtime`** into its `:db` return (the old "preserve the runtime" stopgap). The tell for both: the returned `:db` map contains a top-level `:rf/runtime`.
+**Identify**: any event handler that returns a *wholesale* `app-db` value — `(reg-event-db :initialize-db (fn [_ _] fresh-db))`, `{:db fresh-db}` from `:bootstrap` / `:app/reset` / a logout-to-clean-state event — where `fresh-db` is built from scratch rather than threaded from the incoming `db`. Two sub-shapes carry the migration risk: (a) a v1-shaped `fresh-db` that **carries a `:rf/runtime` key** (a hand-rolled runtime stash, or one a pre-release v2 build threaded forward), and (b) any handler that **explicitly writes `:rf/runtime`** into its `:db` return to preserve runtime state. The tell for both: the returned `:db` map contains a top-level `:rf/runtime`.
 
-**Risk**: framework runtime no longer lives in `app-db` at all — it sits in a **separate partition, the runtime-db** (`:rf.db/runtime`, subsystem children under `:rf.runtime/*`). A handler's `:db` return replaces **only** the app-db partition and cannot reach it, so the v1-era "wholesale `{:db fresh-map}` boot silently wipes the runtime" footgun is **structurally gone**: nothing to preserve, nothing to clobber, and a boot machine's snapshot survives any app-db replace. (The two-partition contract and the reserved runtime-db key list live in the corpus section linked below — don't re-derive them here.)
+**Risk**: framework runtime no longer lives in `app-db` at all — it sits in a **separate partition, the runtime-db** (`:rf.db/runtime`, subsystem children under `:rf.runtime/*`). A handler's `:db` return replaces **only** the app-db partition and cannot reach it, so a wholesale `{:db fresh-map}` replace cannot wipe it: nothing to preserve, nothing to clobber, and a boot machine's snapshot survives any app-db replace. (The two-partition contract and the reserved runtime-db key list live in the corpus section linked below — don't re-derive them here.)
 
-The retired app-db root `:rf/runtime` is now a **hard error**. A `:db` value carrying a top-level `:rf/runtime` key throws `:rf.error/legacy-runtime-root` (the always-on post-commit guard `re-frame.events/reject-legacy-runtime-root!`, per [Conventions §The legacy `:rf/runtime` root](https://github.com/day8/re-frame2/blob/main/spec/Conventions.md#the-legacy-rfruntime-root-hard-error-in-final-form)). The error is loud and immediate (not a silent runtime hang, not the dev-only advisory). So the migration concern flips: the rewrite is not "preserve the runtime across the replace" — it is "**strip the `:rf/runtime` key**; the runtime is no longer your responsibility to thread."
+The retired app-db root `:rf/runtime` is a **hard error**. A `:db` value carrying a top-level `:rf/runtime` key throws `:rf.error/legacy-runtime-root` — surfaced wrapped in `:rf.error/handler-exception` when the handler returned it (the always-on in-chain guard `re-frame.events/reject-legacy-runtime-root!`, per [Conventions §The legacy `:rf/runtime` root](https://github.com/day8/re-frame2/blob/main/spec/Conventions.md#the-legacy-rfruntime-root-hard-error-in-final-form)). The error is loud and immediate (not a silent runtime hang, not the dev-only advisory). So the migration concern flips: the rewrite is not "preserve the runtime across the replace" — it is "**strip the `:rf/runtime` key**; the runtime is no longer your responsibility to thread."
 
 **Decision shape** (per wholesale-replace handler):
 
@@ -171,9 +171,9 @@ The retired app-db root `:rf/runtime` is now a **hard error**. A `:db` value car
       (fn [_ _] {:db fresh-db}))   ; fresh-db carries NO :rf/runtime — the runtime-db partition is left alone
     ```
 
-2. **Genuinely need to write runtime state? Use the `:rf.db/runtime` effect, never an app-db key.** Framework/extension code that must seed or replace runtime-db emits the reserved `:rf.db/runtime` effect, keeping application data under `:db`. Outside a handler, the one facade mutator is `re-frame.epoch`'s `replace-frame-state!` — `(replace-frame-state! frame-id {:rf.db/runtime v})` is the runtime-only injection. (`re-frame.frame/replace-runtime-db!` is **not** on the facade; the earlier four-mutator family collapsed to this one fn, so a call site that requires it is an M-1 off-contract-namespace hit.) App code rarely needs this — boot machines install their own snapshots when they start.
+2. **Genuinely need to write runtime state? Use the `:rf.db/runtime` effect, never an app-db key.** Framework/extension code that must seed or replace runtime-db emits the reserved `:rf.db/runtime` effect, keeping application data under `:db`. Outside a handler, the one facade mutator is the dev / tooling `rf/replace-frame-state!` — `(rf/replace-frame-state! frame-id {:rf.db/runtime v})` is the runtime-only injection; it needs the `day8/re-frame2-epoch` artefact and is elided from production builds. (`re-frame.frame/replace-runtime-db!` is **not** on the facade, so a call site that requires it is an M-1 off-contract-namespace hit.) App code rarely needs this — boot machines install their own snapshots when they start.
 
-The old `:rf.warning/runtime-state-dropped` containment warning is **retired** — there is no clobber to warn about. Its replacement is the structural `:rf.error/legacy-runtime-root` hard error above, which fires in every build (dev and production) the moment a handler returns a `:rf/runtime`-bearing `:db`.
+There is no `:rf.warning/runtime-state-dropped` containment warning (a pre-release v2 spelling) — there is no clobber to warn about. The guard is the structural `:rf.error/legacy-runtime-root` hard error above, which fires in every build (dev and production) the moment a handler returns a `:rf/runtime`-bearing `:db`.
 
 Present the categorisation and the proposed rewrite; confirm with the author; apply. Full rationale and the canonical before→after: [`MIGRATION.md` §M-15b](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-15b-a-full-app-db-replace-boot--initialise-event-is-safe--but-strip-any-retired-rfruntime-key-now-a-hard-error). The end-to-end boot recipe: [`spec/Pattern-Boot.md` §Worked example — the singleton boot machine](https://github.com/day8/re-frame2/blob/main/spec/Pattern-Boot.md#worked-example--the-singleton-boot-machine).
 

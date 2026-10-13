@@ -30,7 +30,7 @@ A self-contained prompt that re-authors the `re-frame-migration` skill from this
 > *4. Announce, then sweep. Before a multi-file Type-A sweep, post the rule, the count of files matched, and a one-line example diff shape, then proceed — a progress update the author can scope-limit, not a second acknowledgement to wait on. Unresolved Type-B decisions are presented in ONE batch at the end.*
 > *5. The skill runs the gates it discovers (this is lock L3 below — the two are the same rule, stated once). It finds the project's own noninteractive install / compile / test commands and runs them, recording command and result; it never prints a command for the author to paste back. The Phase-4 boot smoke-test is the done-bar.*
 >
-> *Two rules that used to sit in this list are deliberately **not** cardinal rules any more, and a reauthor must not restore them as such: the single-import contract (`(:require [re-frame.core :as rf])`) is demoted to SKILL.md's "Recipes" line as part of M-1, and the upstream-issue filing procedure lives in `references/issue-filing.md`, cited from that same line.*
+> *Two rules are deliberately **not** cardinal rules, and a reauthor must not make them so: the single-import contract (`(:require [re-frame.core :as rf])`) belongs to M-1 in `auto-call-site-rewrites.md`, and the upstream-issue filing procedure lives in `references/issue-filing.md`, which cardinal rule 1 and the reference map cite.*
 >
 > *Locks to preserve verbatim:*
 >
