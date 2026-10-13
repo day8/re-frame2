@@ -103,19 +103,15 @@ MIG-20) is a reject *as written* — there is no Fresco equivalent, by design. I
 appears under D because there is a real restructure decision (into app-db);
 until that restructure happens, the views on the store **stay on Reagent**.
 
-## MIG-25 — effectful subscription bodies
-
-```clojure
-(reg-sub :q (fn [db] (dispatch [:log]) (:x db)))    ; a side effect in a sub body
-```
-
-Subs are pure. This is a *dataflow-side* finding you surface for the author —
-never a view rewrite, and **not** a reason to hold the view: its own deref
-converts fine (MIG-02) once the sub body is made pure.
-
 ## Not holds — they convert
 
 These look like holds and are not; route them to the tier named:
+
+- **Effectful subscription bodies** (MIG-25) —
+  `(reg-sub :q (fn [db] (dispatch [:log]) (:x db)))`. Subs are pure, so this is
+  a *dataflow-side* finding you surface for the author, never a view rewrite:
+  the view's own deref converts (MIG-02) once the sub body is made pure.
+  → the author's dataflow layer (cardinal rule 5).
 
 - **Foreign React components and their fn-valued props** (MIG-09/10). `[:> …]`
   is legal, `h/defhost` declares a repeated crossing once (its callbacks
