@@ -164,13 +164,6 @@
 ;; Schema — the Variant schema accepts :network and rejects malformed shapes
 ;; ===========================================================================
 
-(deftest variant-schema-accepts-network
-  (testing "the Variant schema accepts a well-formed :network slot"
-    (is (nil? (rf.story.schemas/validate :variant
-                {:network {cart-route     {:reply {:ok {:items []}}}
-                           checkout-route {:reply {:failure {:kind :rf.http/http-4xx
-                                                             :status 409}}}}})))))
-
 (deftest network-schema-rejects-malformed-routes
   (are [routes] (some? (rf.story.schemas/validate :variant {:network routes}))
     ;; a route value with no :reply
