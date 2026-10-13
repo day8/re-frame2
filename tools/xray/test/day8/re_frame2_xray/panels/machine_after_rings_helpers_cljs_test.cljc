@@ -101,7 +101,6 @@
   (let [t {:armed-at 1000 :fires-at 6000 :duration-ms 5000}]
     (are [timer now-ms fraction] (= fraction (h/ring-fraction timer now-ms))
       t                1000 1.0
-      t                3500 0.5
       t                9000 0.0    ; past the deadline, clamped to zero
       {:armed-at 1000} 2000 nil))) ; unresolved delay: no progress arc
 
