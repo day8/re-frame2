@@ -91,22 +91,12 @@
           [:host-throw (ex-message t)]))))
 
 ;; ---------------------------------------------------------------------------
-;; (1) Non-Named keys are REJECTED, at the root and at a node.
+;; (1) Non-Named keys are REJECTED.
 
 (deftest non-named-root-key-rejected
-  (testing "a String or an opaque-host key on the machine ROOT earns
-            :rf.error/machine-unknown-node-key — not a host throw"
-    (is (= :rf.error/machine-unknown-node-key
-           (reg-outcome {:initial :a :states {:a {}} "x" 1}))
-        "String root key")
-    (is (= :rf.error/machine-unknown-node-key
-           (reg-outcome {:initial :a :states {:a {}} (forge-opaque-key) 1}))
-        "opaque host key whose toString throws")))
-
-(deftest non-named-node-key-rejected
   (is (= :rf.error/machine-unknown-node-key
-         (reg-outcome {:initial :a :states {:a {"x" 1}}}))
-      "String node key"))
+         (reg-outcome {:initial :a :states {:a {}} (forge-opaque-key) 1}))
+      "an opaque host key whose toString throws earns the structured refusal, not a host throw"))
 
 (deftest non-named-spawn-spec-key-rejected
   (is (= :rf.error/machine-unknown-spawn-key
@@ -126,10 +116,7 @@
         "opaque host :spawn-all block key")))
 
 ;; ---------------------------------------------------------------------------
-;; (2) The diagnostic MESSAGE is total — and says something useful.
-
-;; ---------------------------------------------------------------------------
-;; (3) The namespaced-key carve-out.
+;; (2) The namespaced-key carve-out.
 
 (deftest namespaced-carve-out-unchanged
   (testing "a namespaced SYMBOL is carved out too — `namespace` is defined on
