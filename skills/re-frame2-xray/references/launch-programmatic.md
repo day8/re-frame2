@@ -229,7 +229,7 @@ command palette.
 | `status` | The mount/diagnostic map ([`launch-modes.md` §Launch diagnostics](launch-modes.md#launch-diagnostics)). |
 | `target-frame` / `set-target-frame!` | Read / set the observed host frame. It starts unselected — never defaulted to `:rf/default` — and `nil` resets it to unselected. |
 | `load-theme!` | Swap the palette with a CSS string re-declaring the `--rf-xray-*` custom properties; `nil` restores the built-in palette. |
-| `configure!` | Boot-time config — the `:rf.xray/*` keys (editor, project root, layout-host selector, auto-open, keybindings, egress profile, Settings defaults, filter seed). |
+| `configure!` | Boot-time config — the `:rf.xray/*` keys (editor, project root, layout-host selector, auto-open, keybindings, egress profile, Settings defaults, filter seed, and whether filters may hide errored events). |
 | `set-auto-open!` / `set-editor!` | Single-key setters for `:rf.xray/auto-open?` and the click-to-source editor (`:vscode` `:cursor` `:windsurf` `:zed` `:idea` or `{:custom <uri-template>}`). |
 | `set-egress-profile!` | `:rf.egress/local-redacted` (default: the trace collector drops `:sensitive? true` events) or `:rf.egress/local-raw` (trusted-local reveal). It does not affect the always-redacted Snapshot app-db verb. |
 

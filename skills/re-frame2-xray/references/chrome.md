@@ -125,6 +125,15 @@ pill is a typed predicate (`:event-id-pattern` /
 source `src/filters/`. *(These are L1-ribbon filters — distinct from the
 Trace panel, which has no filtering.)*
 
+**`● REDACTED N`** is the third suppression signal on the ribbon, and
+neither the pills nor the mute manager control it: it counts sensitive
+(`:sensitive? true`) trace events the trace collector dropped under the
+default `:rf.egress/local-redacted` egress profile, and renders only when
+N > 0. Its tooltip names the reveal — `(xray-config/configure!
+{:rf.xray/egress-profile :rf.egress/local-raw})`, for a trusted-local
+machine only — and the palette's **Reset redacted-events counter** zeroes
+it. Source `shell.cljs` (`ribbon-redacted-indicator`).
+
 ## Command palette (`Cmd/Ctrl+K`)
 
 A fuzzy-ranked surface over six source kinds — **panel jumps · recent
@@ -142,8 +151,10 @@ real scrub. Source
 
 ## Settings popup (`,` / `s`)
 
-A 4-tab modal — **General · Keybindings · Buffer · Diff**. The current
-popup controls are:
+A 4-tab modal — **General · Keybindings · Buffer · Diff**. While it is
+open, the bare letters `g` / `k` / `b` / `d` switch its tabs (modal-local,
+like its `Esc`; they do nothing outside the popup). The current popup
+controls are:
 
 - **General** — panel position (right-rail inline / fullscreen overlay),
   auto-open-on-error, epoch-history depth (slider), the per-operator
