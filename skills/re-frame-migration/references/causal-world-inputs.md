@@ -4,7 +4,7 @@
 
 > **Scope — host facts, not db-derived reads.** This reference owns the durable-read judgment for **host facts** (clock, URL, window, storage, random). An in-handler read whose value is **derived from app-db** — an `@(rf/subscribe …)` deref, or any recompute of derived state inside the handler body — is *not* a host read and does *not* route through the host-fact buckets below; it is answered by the [source triage](#triage-in-handler-reads-by-source): read it from the `:db` coeffect the handler already holds. **db is a coeffect.**
 
-> **EP-0017 changed the authoring surface, not the rule.** The recorded map was renamed `:rf.world/inputs` → **`:rf.cofx`** (flat, one fact per owner-qualified key); `reg-cofx` is now **value-returning**; coeffect delivery is the **`:rf.cofx/requires`** registration declaration; and **`inject-cofx` is removed**. A migrating app touches all four — see [M-72](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-72-inject-cofx-removed--rfworldinputs--rfcofx-rename) for the mechanical reshape; this reference owns the **durable-read judgment** (which bucket each host read falls into).
+> **The authoring surface is what a migrating app changes; the rule stays.** The recorded map is **`:rf.cofx`** (flat, one fact per owner-qualified key; a pre-release v2 build spelled it `:rf.world/inputs`); `reg-cofx` is now **value-returning**; coeffect delivery is the **`:rf.cofx/requires`** registration declaration; and **`inject-cofx` is removed**. A migrating app touches all four — see [M-72](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-72-inject-cofx-removed--rfworldinputs--rfcofx-rename) for the mechanical reshape; this reference owns the **durable-read judgment** (which bucket each host read falls into).
 
 Normative home: [`spec/002-Frames.md` §Recordable coeffects](https://github.com/day8/re-frame2/blob/main/spec/002-Frames.md#recordable-coeffects) (the `:rf.cofx` envelope field + the satisfaction algorithm), [`spec/001-Registration.md` §Coeffects](https://github.com/day8/re-frame2/blob/main/spec/001-Registration.md) (the `reg-cofx` grades + `:rf.cofx/requires`), and [`spec/Spec-Schemas.md`](https://github.com/day8/re-frame2/blob/main/spec/Spec-Schemas.md) (`:rf.cofx`). The recording rationale is in [`docs/EP/EP-0010-causal-world-inputs.md`](https://github.com/day8/re-frame2/blob/main/docs/EP/EP-0010-causal-world-inputs.md); the authoring surface in [`docs/EP/EP-0017-recordable-coeffects.md`](https://github.com/day8/re-frame2/blob/main/docs/EP/EP-0017-recordable-coeffects.md).
 
@@ -27,7 +27,7 @@ Every host read the migration touches falls into exactly one bucket. The rewrite
 
 - **Durable** — the read's value is written into `:db`, `:rf.db/runtime`, a resource entry, a work-ledger row, a machine snapshot, durable routing state, an epoch snapshot, or a hydration payload — **or it decides such a write without being stored anywhere**: a guard that picks which `:db` the handler returns, which effect it emits or suppresses, or which child event it dispatches. **MUST move to a causal token / recordable coeffect.** This is the only bucket that changes.
 - **Diagnostic** — the read feeds a trace row, a performance span, a log line, a local devtool view, or an always-on error record that does **not** change frame-state. **May stay ambient.** (`now-ms` for a dev-only elapsed-time log is fine.)
-- **Host-transient** — the read manages a timer handle, an `AbortController`, a socket, a promise, a DOM/listener handle, a cache cell, or a monotonic high-water allocator that lives *outside* frame-state. **May stay ambient**, but if its later result will affect durable state it must dispatch a causal token first (e.g. a stale-sweep timer re-reads the durable entry and writes using the *timer-fire event's* `:time-ms`, not its own ambient clock).
+- **Host-transient** — the read manages a timer handle, an `AbortController`, a socket, a promise, a DOM/listener handle, a cache cell, or a monotonic high-water allocator that lives *outside* frame-state. **May stay ambient**, but if its later result will affect durable state it must dispatch a causal token first (e.g. a stale-sweep timer re-reads the durable entry and writes using the *timer-fire event's* `:rf/time-ms`, not its own ambient clock).
 
 The test for "durable": *does this value ride restore/replay/SSR, or would replaying the same token against different host state return a different result?* If yes, it is durable, and an ambient read of it is the violation.
 
@@ -37,11 +37,11 @@ A v1 / early-v2 app expresses these durable host reads as direct calls inside ha
 
 ```bash
 # Time (incl. raw js/Date constructor + .getTime, common in v1 JS-interop code)
-rg -n -t clojure 'js/Date\.now|\(\.now js/Date\)|interop/now-ms|\(now-ms\)|\(js/Date\.\)|\(\.getTime\b' .
+rg -n -t clojure 'js/Date\.now|\(\.now js/Date\)|interop/now|\(now-ms\)|\(js/Date\.\)|\(new js/Date\b|\(\.getTime\b|/now\)' .
 # Randomness + generated identity (incl. js/Math.random and crypto.randomUUID forms)
 rg -n -t clojure 'random-uuid|\brand\b|rand-int|rand-nth|crypto\.getRandomValues|\(\.getRandomValues js/crypto\)|js/Math\.random|\(\.random js/Math\)|crypto\.randomUUID|\(\.randomUUID js/crypto\)' .
 # Browser + storage facts
-rg -n -t clojure 'js/location|js/navigator|localStorage|sessionStorage|matchMedia' .
+rg -n -t clojure 'js/location|js/window|js/document|\.-location|\.-href|js/navigator|localStorage|sessionStorage|matchMedia|innerWidth|innerHeight|cookie' .
 # v1 ambient time coeffect + the removed inject-cofx delivery idiom + the
 # renamed envelope field / ctx→ctx reg-cofx shape (all EP-0017 targets, M-72)
 rg -n -t clojure 'inject-cofx|:rf.world/inputs|:rf.world/keys|:now\b' .

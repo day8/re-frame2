@@ -53,7 +53,7 @@ A medium-shape migration: a Reagent app with 30 events, 12 subs, no machines, no
   - M-16a (1 site, inside an effect map — Type A): `^:flush-dom` metadata → `:fx [[:dispatch-later {:ms 0 :event …}]]`. (No M-16b top-level `(rf/dispatch ^:flush-dom …)` sites in this codebase; had there been any, they'd appear under "Items flagged for human review.")
   - M-17 (1 site, Type A — single-frame app): `reg-global-interceptor` → default-frame `:interceptors`.
   - M-20 (4 sites): `:re-frame/default` → `:rf/default`.
-  - M-25 (1 site): `re-frame.test` → `re-frame.test-support`; `day8/re-frame-test` coord dropped.
+  - M-25 (1 site): `re-frame.test` → `re-frame.test-support`; `day8.re-frame/test` coord dropped.
 - Type B rules applied (with explicit author approval):
   - M-40 (1 site): `(rf/init!)` → `(rf/init! reagent-adapter/adapter)`. Surfaced the call site; author confirmed Reagent as the boot adapter.
 - Opt-in changes applied: none, not requested.
@@ -86,7 +86,7 @@ Same shape but the codebase also had two `reg-sub-raw` calls, a multi-frame stru
 - Type B rules applied (with explicit author approval):
   - M-3 (2 sites): `:dispatch` effects with intermediate-render dependency were both real animation pacing — converted to `:dispatch-later`.
   - M-40 (1 site): `(rf/init!)` → `(rf/init! reagent-adapter/adapter)`. Surfaced the call site; author confirmed Reagent as the boot adapter.
-  - M-17 (1 site, multi-frame): `reg-global-interceptor` was an audit logger — converted to `register-listener!`.
+  - M-17 (1 site, multi-frame): `reg-global-interceptor` was an audit logger — converted to an `:observability :handled-events` sink (`register-observability-sink!`).
 - Opt-in changes applied: none, not requested.
 - Verification:
   - Compile: clean.
@@ -101,7 +101,7 @@ Same shape but the codebase also had two `reg-sub-raw` calls, a multi-frame stru
 
 ## Anything unexpected
 
-- `day8/re-frame-test` was pinned at `0.1.5` (a pre-release). Replaced cleanly by `re-frame.test-support`; no compatibility issues observed.
+- `day8.re-frame/test` was pinned at `0.1.5` (a pre-release). Replaced cleanly by `re-frame.test-support`; no compatibility issues observed.
 ```
 
 ## When the output exceeds 300 words

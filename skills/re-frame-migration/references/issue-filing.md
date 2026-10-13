@@ -33,7 +33,7 @@ from the migration itself.
    day8/re-frame2 --title "migration: <one-line>" --body-file
    '/tmp/re-frame2-issue-7f3a9c.md'`. `--body-file` reads the body
    verbatim from disk, so no shell expansion touches it, and the single
-   bare `gh issue create` runs under the skill's `Bash(gh issue *)`
+   bare `gh issue create` runs under the skill's `Bash(gh issue create *)`
    permission. Single-quote the path so a Windows path's backslashes stay
    literal.
 4. **Title safety.** `gh issue create` has no `--title-file`, so the

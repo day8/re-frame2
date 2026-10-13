@@ -53,7 +53,7 @@ The **boot smoke-test** ([`references/runtime-smoke-test.md`](../references/runt
 
 ### L4 — "Done" rests on evidence the skill observed; the boot smoke-test is part of that bar
 
-The "Done checklist" in SKILL.md lists the conditions for completion — including the **passed boot smoke-test** (Phase 4 step 3). The skill asserts completion only on evidence it observed: the gates it ran, and a smoke it drove through a connected runtime — or the programmer's confirmation of the checklist; until then the report says pending. This is consistent with L3.
+The "Done checklist" in SKILL.md lists the conditions for completion — including the **passed boot smoke-test**, one of the Phase-4 gates. The skill asserts completion only on evidence it observed: the gates it ran, and a smoke it drove through a connected runtime — or the programmer's confirmation of the checklist; until then the report says pending. This is consistent with L3.
 
 ### L5 — Migration prompt = `migration/from-re-frame-v1/README.md` Part 2
 
@@ -125,11 +125,11 @@ skills/re-frame-migration/
 │   ├── guided-views-m11.md         (~260 lines; Type B — the M-11 sweep: subscribing plain fns → reg-view, Form-1/2/3 + the capture-once contract, the async listener / timer / error-handler class)
 │   ├── guided-interceptors-subs.md (~355 lines; Type B — interceptor / sub / payload / observer)
 │   ├── runtime-smoke-test.md       (~78 lines; Phase 4 — "compiles" is not the done-bar; the live-app-db boot smoke-test loop + the done-bar gates past the dev build)
-│   ├── silent-runtime-failures.md  (~40 lines; Phase 4 — the nine silent-runtime-failure modes as a checklist, and why a compile cannot catch them)
+│   ├── silent-runtime-failures.md  (~40 lines; Phase 4 — the silent-runtime-failure modes as a checklist, and why a compile cannot catch them)
 │   ├── error-events.md             (~110 lines; pointer to Spec 009's error-event catalogue)
 │   ├── causal-world-inputs.md      (~125 lines; EP-0010 recording rule + EP-0017 reshape (M-72) — ambient durable host reads → declared recordable coeffects)
 │   ├── output-format.md            (~125 lines)
-│   └── issue-filing.md             (~50 lines; the shell-injection-safe upstream-issue recipe — Write the body to a file, `gh issue create --body-file`, never `--body` / stdin / here-doc; title + body redaction pass. SKILL.md's Recipes line routes here)
+│   └── issue-filing.md             (~50 lines; the shell-injection-safe upstream-issue recipe — Write the body to a file, `gh issue create --body-file`, never `--body` / stdin / here-doc; title + body redaction pass. SKILL.md's cardinal rule 1 and reference map route here)
 └── spec/
     ├── design.md                  (this file)
     ├── inputs.md                  (the canonical inputs the skill leans on)
@@ -186,7 +186,7 @@ These remain open at authoring time:
 
 ### OQ1 — Should the skill ship a runnable `migrate.bb` for mechanical transforms?
 
-**Status**: deferred. The skill ships as pure guidance for v0.1. If post-launch experience shows the Type A leaves (`auto-call-site-rewrites.md` / `auto-cross-cutting.md`) are being applied identically across many migrations, a `migrate.bb` script would be a logical next bead — driven by real call-site data.
+**Status**: deferred. One mechanical transform ships as a script: the M-73 `reg-event` codemod (`migration/from-re-frame-v1/codemod/`), which the skill runs as a `clojure -Sdeps` git dependency. The other Type A rewrites (`auto-call-site-rewrites.md` / `auto-cross-cutting.md`) stay guidance with copy-paste `rg` sweeps; a general `migrate.bb` waits on real call-site data showing them applied identically across many migrations.
 
 ### OQ2 — Should there be a "before you start" diagnostic that profiles the codebase?
 

@@ -136,11 +136,12 @@ The per-event-id mechanics and the four cases the agent **flags rather than gues
 ```clojure
 (rf/reg-flow <picked-id>
   {:inputs      <in-paths>
-   :output-path <out-path>}
+   :output-path <out-path>
+   :frame       <app-frame-id>}
   f)
 ```
 
-`reg-flow` is the **3-slot** form `(reg-flow flow-id metadata derive-fn)`: the id is **positional** (not an `:id` key), `metadata` carries `:inputs` / `:output-path` (both required), and the derive fn `f` is the third value slot — a `:derive` left inside the metadata map is rejected loudly (`:rf.error/invalid-flow-metadata`), per [`spec/API.md` §Registration](https://github.com/day8/re-frame2/blob/main/spec/API.md#registration). The author picks the flow id; the agent asks, defaulting to a namespaced keyword derived from the call site — `:<user-ns>/<event-id>-flow` per [`MIGRATION.md` §M-21](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-21-drop-debug-trim-v-on-changes-enrich-after-interceptors). Use the **project's own** prefix (M-10), never a `:legacy/` one. Also: add `day8/re-frame2-flows` dep + `(:require [re-frame.flows])`.
+`reg-flow` is the **3-slot** form `(reg-flow flow-id metadata derive-fn)`: the id is **positional** (not an `:id` key), `metadata` carries `:inputs` / `:output-path` (both required), and the derive fn `f` is the third value slot — a `:derive` left inside the metadata map is rejected loudly (`:rf.error/invalid-flow-metadata`), per [`spec/API.md` §Registration](https://github.com/day8/re-frame2/blob/main/spec/API.md#registration). The author picks the flow id; the agent asks, defaulting to a namespaced keyword derived from the call site — `:<user-ns>/<event-id>-flow` per [`MIGRATION.md` §M-21](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-21-drop-debug-trim-v-on-changes-enrich-after-interceptors). Use the **project's own** prefix (M-10), never a `:legacy/` one. Also: add `day8/re-frame2-flows` dep + `(:require [re-frame.flows])`. A flow is frame-owned: `:frame` names the frame it registers against (or register inside a `with-frame`), and that frame must already exist — register after boot makes it, or emit `:rf.fx/reg-flow` from an init event. A namespace-level `reg-flow` with no frame raises `:rf.error/no-frame-context` at load.
 
 ### `enrich`
 

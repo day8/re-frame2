@@ -79,7 +79,7 @@ skills/re-frame-migration/
 │   ├── error-events.md            # Pointer to Spec 009's error-event catalogue (single source)
 │   ├── causal-world-inputs.md     # EP-0010 recording rule + EP-0017 reshape (M-72): ambient durable host reads → declared coeffects
 │   ├── runtime-smoke-test.md      # Phase 4: "compiles" isn't done — the live-app-db boot smoke-test loop + done-bar gates
-│   ├── silent-runtime-failures.md # Phase 4: the nine silent-runtime-failure modes as a checklist
+│   ├── silent-runtime-failures.md # Phase 4: the silent-runtime-failure modes as a checklist
 │   ├── issue-filing.md            # Filing an upstream issue against day8/re-frame2
 │   └── output-format.md           # The migration-summary shape
 ├── evals/
@@ -97,7 +97,7 @@ skills/re-frame-migration/
 
 ## Source of truth
 
-`migration/from-re-frame-v1/README.md` at the repo root. Every rule the skill applies cites an `M-N` or `O-N` rule id from that doc. If the skill and the migration corpus disagree, **the corpus wins on rule *scope* and *type*** — which sites a rule covers, and whether it is Type A or Type B. **On runtime *behaviour*, trunk wins**: the corpus carries rows that describe a runtime the implementation has since moved past, and a leaf that contradicts one has usually been re-verified against the code. A live instance is M-6 — the corpus names the drain-depth abort `{:reason :drain-depth-exceeded …}`, while the runtime emits `:rf.error/drain-depth-exceeded` (`implementation/core/src/re_frame/router.cljc`), which is what [`references/breaking-changes.md`](references/breaking-changes.md#required-m-rules-by-trigger-surface) teaches. Where a leaf and the corpus disagree about what the *runtime does*, check the implementation and say which you followed.
+`migration/from-re-frame-v1/README.md` at the repo root. Every rule the skill applies cites an `M-N` or `O-N` rule id from that doc. If the skill and the migration corpus disagree, **the corpus wins on rule *scope* and *type*** — which sites a rule covers, and whether it is Type A or Type B. **On runtime *behaviour*, trunk wins**: a corpus row can lag the runtime it describes, and a leaf that contradicts one has usually been re-verified against the code. Where a leaf and the corpus disagree about what the *runtime does*, check the implementation and say which you followed.
 
 ## Licence
 
