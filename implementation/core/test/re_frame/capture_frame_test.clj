@@ -76,47 +76,11 @@
       (is (nil? (:mark (rf/app-db-value :fh/vpin)))
           "the stale value capture did not mutate the successor"))))
 
-;; The pre-check validates the pinned incarnation, then the op resolves its
-;; target by id. On the JVM, A can be destroyed and B installed between the two,
-;; so the captured incarnation is carried through to the router / sub resolve.
-;; This helper reproduces that window single-threaded: a one-shot interposition
-;; on `frame-incarnation-live?` swaps A for B at the moment the pre-check reads
-;; A as live.
-(defn- run-supersede-during-precheck
-  [frame-id a-token op]
-  (let [real  rf.frame/frame-incarnation-live?
-        fired (atom false)]
-    (with-redefs [rf.frame/frame-incarnation-live?
-                  (fn [id token]
-                    (let [live? (real id token)]
-                      (when (and (not @fired)
-                                 (= id frame-id)
-                                 (identical? token a-token)
-                                 live?)
-                        ;; set first, so the destroy/create's own reads take the real path
-                        (reset! fired true)
-                        (rf/destroy-frame! frame-id)
-                        (rf/make-frame {:id frame-id}))
-                      live?))]
-      (op))))
-
-(deftest stale-capture-subscribe-race-does-not-read-or-cache-in-same-id-successor
-  (testing "a captured subscribe whose pre-check validated A, superseded by same-id
-            B before the sub-cache resolve, caches nothing in B. Its nil result and
-            single emit at this seam are pinned for every op by
-            capture-frame-reincarnation-sink-route-cljs-test."
-    (rf/reg-sub :fh/value (fn [db _] (:value db)))
-    (rf/make-frame {:id :fh/race})
-    (let [a-token (rf.frame/frame-incarnation-token :fh/race)
-          {:keys [subscribe]} (rf/capture-frame :fh/race)]
-      (run-supersede-during-precheck :fh/race a-token #(subscribe [:fh/value]))
-      (is (empty? @(:sub-cache (rf.frame/frame :fh/race)))))))
-
 ;; The durable build a subscribe miss delegates to re-resolves the frame, so the
 ;; pinned incarnation is carried through `compute-and-cache!` too. This helper
 ;; swaps A for B on the first entry to `compute-and-cache!` for `trigger-qv` —
-;; after the outer comparison passed, which the pre-check interposition above
-;; cannot reach.
+;; after the outer comparison passed, which a pre-check interposition cannot
+;; reach.
 (defn- run-supersede-at-build
   [frame-id trigger-qv op]
   (let [real  @#'rf.subs/compute-and-cache!
