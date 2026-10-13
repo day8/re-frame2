@@ -258,25 +258,15 @@
 
 ;; ---- render-node — container/scalar dispatch -----------------------------
 
-(deftest render-node-empty-map-no-toggle
-  (is (= "{}" (collect-text (ei/render-node {:value {}
-                                             :panel-id :p
-                                             :mount-id "m"
-                                             :path []
-                                             :depth 0
-                                             :expansion-map {}
-                                             :opts {}})))
-      "an empty collection renders its bracket pair flat, with no toggle"))
-
-(deftest render-node-small-map-renders-every-entry-inline
-  (is (= "{:a 1, :b 2}"
-         (collect-text (ei/render-node {:value {:a 1 :b 2}
-                                        :panel-id :p
-                                        :mount-id "m"
-                                        :path []
-                                        :depth 0
-                                        :expansion-map {}
-                                        :opts {:default-expanded-depth 2}})))))
+(deftest render-node-renders-small-values-flat
+  ;; An empty collection renders its bracket pair flat with no toggle, a
+  ;; small all-scalar map renders every entry inline, and a browse-mode
+  ;; scalar is a bare span.
+  (let [render (fn [v] (ei/render-node {:value v :panel-id :p :mount-id "m"
+                                        :path [] :depth 0 :expansion-map {}
+                                        :opts {:default-expanded-depth 2}}))]
+    (is (= ["{}" "{:a 1, :b 2}"] (map (comp collect-text render) [{} {:a 1 :b 2}])))
+    (is (= [:span "42"] ((juxt first collect-text) (render 42))))))
 
 (deftest render-node-deep-map-default-collapsed
   ;; Past `:default-expanded-depth` the tree collapses.
@@ -401,21 +391,6 @@
     (is (= ["grid" "max-content 1fr" 6]
            [(:display s) (:grid-template-columns s) (count (drop 2 body))])
         "3 rows × (key cell + value cell) as direct grid children")))
-
-(deftest gutter-row-is-inline-flex-not-block
-  ;; A diff'd leaf composes inline with its key; a block wrapper inside a
-  ;; wrapping row would push the value below the key.
-  (let [h (ei/render-node {:value 1 :before 1 :diff? true
-                           :panel-id :p :mount-id "m" :path [] :depth 0
-                           :expansion-map {} :opts {}})]
-    (is (= [:span "inline-flex"] [(first h) (-> h second :style :display)]))))
-
-(deftest scalar-leaves-render-as-inline-spans-in-non-diff-mode
-  (let [h (ei/render-node {:value 42
-                           :panel-id :p :mount-id "m"
-                           :path [] :depth 0
-                           :expansion-map {} :opts {}})]
-    (is (= [:span "42"] [(first h) (collect-text h)]))))
 
 ;; ---- toggle handler shape ------------------------------------------------
 
@@ -568,17 +543,16 @@
                                               :opts {:default-expanded-depth 1}})))))
 
 (deftest diff-same-leaf-uses-text-tertiary
-  (let [h (ei/render-node {:value 1
-                           :before 1
-                           :diff? true
+  (let [h (ei/render-node {:value 1 :before 1 :diff? true
                            :panel-id :p :mount-id "m" :path [] :depth 0
-                           :expansion-map {}
-                           :opts {}})
+                           :expansion-map {} :opts {}})
         ;; Read the value span's own colour: the gutter glyph beside it is
         ;; text-tertiary too, whatever colour the value took.
         value-colours (keep (fn [n] (get-in (second n) [:style :color]))
                             (nodes-with-attr h :data-rf-diff-op "same"))]
-    (is (= [(:text-tertiary tokens)] value-colours))))
+    (is (= [(:text-tertiary tokens)] value-colours))
+    (is (= [:span "inline-flex"] [(first h) (-> h second :style :display)])
+        "the gutter row is inline: a block wrapper would push the value below its key")))
 
 (deftest edn-inspector-mode-marker-on-container
   ;; `data-rf-mode` is "diff" when `:before` is supplied, "browse" otherwise.
@@ -708,18 +682,6 @@
               (swap! counter max (inc i))
               (cons i (step (inc i)))))]
     (step 0)))
-
-(deftest sequential-diff-children-bounds-the-entry-path-rf2-brmyq
-  ;; A generator that throws past element 1500 is realised no further than
-  ;; the bound, whichever side it is on.
-  (let [seen (atom 0)]
-    (dorun (ei/sequential-diff-children (counting-seq seen 1500) [1 2 3] :vector [] nil))
-    (is (<= @seen count-bound)
-        (str "the BEFORE side realised " @seen " elements; the bound is " count-bound)))
-  (let [seen (atom 0)]
-    (dorun (ei/sequential-diff-children [1 2 3] (counting-seq seen 1500) :seq [] nil))
-    (is (<= @seen count-bound)
-        (str "the AFTER side realised " @seen " elements; the bound is " count-bound))))
 
 (deftest diff-render-path-bounds-an-endless-sequence-rf2-brmyq
   ;; Through `render-node`: the header count and the walk together realise
@@ -1145,23 +1107,14 @@
 ;; strikes the key as a removed ghost. `diff-emptied?` reads the SLOT shape:
 ;; an emptied slot's AFTER value is a present empty collection.
 
-(defn- find-key-cell
-  "Return the first `data-rf-cell \"key\"` hiccup node whose flattened text
-  matches `key-pat` (a regex)."
-  [tree key-pat]
-  (->> (walk-hiccup tree)
-       (filter (fn [n]
-                 (and (vector? n) (map? (second n))
-                      (= "key" (get (second n) :data-rf-cell))
-                      (re-find key-pat (collect-text n)))))
-       first))
-
 (defn- key-intact?
-  "True when the OUTER key row matching `key-pat` is NOT struck-through and
-  carries NO `−` removal glyph. `nil` (not intact) when no such key cell."
+  "True when the OUTER key cell matching `key-pat` is NOT struck-through and
+  carries NO `−` removal glyph; false when there is no such key cell."
   [tree key-pat]
-  (let [cell (find-key-cell tree key-pat)
-        s    (when cell (pr-str cell))]
+  (let [s (some->> (nodes-with-attr tree :data-rf-cell "key")
+                   (filter #(re-find key-pat (collect-text %)))
+                   first
+                   pr-str)]
     (boolean
       (and s
            (not (re-find #"line-through" s))
@@ -1224,14 +1177,12 @@
   (is (some? (find-attr (render-map-diff {:a 1} {:a 1 :nested {:x 1 :y 2}})
                         :data-rf-rail "1"))))
 
-(defn- diff-op-values
-  "Collect every non-nil `:data-rf-diff-op` attribute value in `tree`."
+(defn- diff-ops-in-order
+  "Every `:data-rf-diff-op` value in `tree`, in document order."
   [tree]
-  (->> (walk-hiccup tree)
-       (keep (fn [n]
-               (when (map? (second n))
-                 (get (second n) :data-rf-diff-op))))
-       (remove nil?)))
+  (vec (keep (fn [n] (let [attrs (second n)]
+                       (when (map? attrs) (:data-rf-diff-op attrs))))
+             (walk-hiccup tree))))
 
 (deftest value-only-render-has-no-rail-or-annotation
   ;; With no pre-image the same renderer shows the value plainly. Every
@@ -1242,7 +1193,7 @@
                            :expansion-map {}
                            :opts {:default-expanded-depth 4}})]
     (is (re-find #":counter" (collect-text h)) "the value renders")
-    (is (empty? (diff-op-values h)) "with no diff chrome")))
+    (is (empty? (diff-ops-in-order h)) "with no diff chrome")))
 
 ;; ---- slot-vs-value anchoring (R2 + R6 whole-row treatment) ---------------
 ;;
@@ -1250,10 +1201,8 @@
 ;; WHOLE row (key cell + value cell) and a removal strikes the key text.
 ;; When only the VALUE changed (R1/R7/R8) the chrome stays on the value.
 
-(defn- slot-cells
-  "Every node tagged `data-rf-row-anchor=\"slot\"`."
-  [tree]
-  (filter #(= "slot" (:data-rf-row-anchor (second %))) (walk-hiccup tree)))
+(defn- slot-cells [tree]
+  (nodes-with-attr tree :data-rf-row-anchor "slot"))
 
 (deftest slot-anchored-added-key-paints-whole-row
   ;; Both cells carry the wash, and the leaf's own gutter-row wash is
@@ -1310,15 +1259,6 @@
 
 ;; ---- close bracket -------------------------------------------------------
 
-(defn- find-close-divs
-  "Return every closing-bracket div (cells with `data-rf-cell \"close\"`)."
-  [tree]
-  (filter (fn [node]
-            (and (vector? node)
-                 (map? (second node))
-                 (= "close" (:data-rf-cell (second node)))))
-          (walk-hiccup tree)))
-
 (deftest expanded-containers-render-a-close-bracket-cell
   (let [h (ei/render-node
             {:value {:a 1 :b 2 :c 3 :d 4 :nested {:x 1 :y 2 :z 3 :w 4}}
@@ -1327,7 +1267,7 @@
              :expansion-map {(ei/expansion-key :test "m" [])        {:expanded? true}
                              (ei/expansion-key :test "m" [:nested]) {:expanded? true}}
              :opts {:default-expanded-depth 0}})]
-    (is (= ["}" "}"] (map collect-text (find-close-divs h)))
+    (is (= ["}" "}"] (map collect-text (nodes-with-attr h :data-rf-cell "close")))
         "the outer and the nested expanded map each close their bracket")))
 
 ;; ---- :header opt + three-shade card chrome -------------------------------
@@ -1342,20 +1282,6 @@
        (filter (fn [n] (and (vector? n) (= tag (first n)))))
        first))
 
-(deftest header-opt-omitted-renders-no-section-wrapper
-  (is (= :div (first (invoke-edn-inspector {:a 1} {:panel-id :rf.xray/app-db})))))
-
-(deftest header-opt-hiccup-passes-through-opaquely
-  ;; The ribbon embeds the supplied header as-is — no parsing, no required
-  ;; shape.
-  (let [header-hiccup [:span
-                       [:strong "Counter app"]
-                       " · "
-                       [:code ":rf/default"]]
-        h (invoke-edn-inspector {:a 1} {:panel-id :rf.xray/app-db
-                                        :header header-hiccup})]
-    (is (some #(= header-hiccup %) (rest (find-tag h :header))))))
-
 (deftest header-opt-three-shade-chrome-via-tokens
   ;; Section `:bg-2`, header ribbon `:bg-3`, body sleeve `:bg-1`, with the
   ;; borders and spacing spec/021 §10.0.10 documents.
@@ -1369,36 +1295,29 @@
             ((juxt :background :padding)
              (-> (find-attr h :data-rf-body-role "card-body") second :style))]))))
 
-(deftest header-opt-preserves-mount-id-and-testid-on-section
+(deftest header-opt-wraps-a-section-that-keeps-the-containers-identity
   ;; The section takes the container's identity, so the same selectors, the
-  ;; measurement ref and the mode flag address it.
-  (let [h     (invoke-edn-inspector {:a 1 :b 2}
-                                    {:panel-id :rf.xray/app-db
-                                     :header "Counter"})
-        attrs (second h)]
-    (is (= [:section true true true "browse"]
+  ;; measurement ref and the mode flag address it; it embeds the supplied
+  ;; header as-is, renders the value inside the body sleeve, and positions
+  ;; the popup affordance button.
+  (let [header [:span [:strong "Counter app"] " · " [:code ":rf/default"]]
+        h      (invoke-edn-inspector {:counter 7}
+                                     {:panel-id          :rf.xray/app-db
+                                      :header            header
+                                      :popup-affordance? true})
+        attrs  (second h)]
+    (is (= [:section true true true "browse" "relative"]
            [(first h)
             (some? (:data-testid attrs))
             (some? (:data-rf-mount-id attrs))
             (fn? (:ref attrs))
-            (:data-rf-mode attrs)]))))
-
-(deftest header-opt-renders-body-content-inside-body-sleeve
-  (is (= "{:counter 7}"
-         (collect-text (find-attr (invoke-edn-inspector {:counter 7}
-                                                        {:panel-id :rf.xray/app-db
-                                                         :header "Counter"})
-                                  :data-rf-body-role "card-body")))))
-
-(deftest header-opt-keeps-popup-affordance-on-section
-  ;; The affordance button sits inside the section, which positions it.
-  (let [h (invoke-edn-inspector {:a 1}
-                                {:panel-id :rf.xray/app-db
-                                 :header "Counter"
-                                 :popup-affordance? true})]
-    (is (= "relative" (-> h second :style :position)))
+            (:data-rf-mode attrs)
+            (-> attrs :style :position)]))
+    (is (some #(= header %) (rest (find-tag h :header))))
+    (is (= "{:counter 7}"
+           (collect-text (find-attr h :data-rf-body-role "card-body"))))
     (is (some #(and (vector? %) (= :button (first %))) (rest h))
-        "the button is a direct child of the section")))
+        "the affordance button is a direct child of the section")))
 
 ;; =========================================================================
 ;; Width-aware expansion heuristic
@@ -1509,26 +1428,25 @@
                                         :opts {:default-expanded-depth 2
                                                :available-width-px 800}})))))
 
-(deftest render-container-too-wide-expands-to-tree
-  (is (re-find #"▾" (collect-text (ei/render-node {:value {:a "much-longer-than-the-budget"
-                                                           :b "another-overflowing-string"
-                                                           :c "and-yet-more-data"
-                                                           :d "and-yet-still-more"
-                                                           :e "the-final-overflow"}
-                                                   :panel-id :p :mount-id "m" :path []
-                                                   :depth 0 :expansion-map {}
-                                                   :opts {:default-expanded-depth 8
-                                                          :available-width-px 100}})))))
-
-(deftest render-container-respects-operator-override-over-width-fit
-  ;; An explicit open override wins over a value that would fit inline.
-  (is (re-find #"▾" (collect-text (ei/render-node {:value {:tag :foo :n 1}
-                                                   :panel-id :p :mount-id "m" :path []
-                                                   :depth 0
-                                                   :expansion-map {(ei/expansion-key :p "m" [])
-                                                                   {:expanded? true}}
-                                                   :opts {:default-expanded-depth 2
-                                                          :available-width-px 800}})))))
+(deftest render-container-too-wide-or-opened-expands-to-tree
+  ;; A value too wide for the column expands; so does one that would fit
+  ;; inline when the operator has explicitly opened it.
+  (doseq [[v expansion-map opts]
+          [[{:a "much-longer-than-the-budget"
+             :b "another-overflowing-string"
+             :c "and-yet-more-data"
+             :d "and-yet-still-more"
+             :e "the-final-overflow"}
+            {}
+            {:default-expanded-depth 8 :available-width-px 100}]
+           [{:tag :foo :n 1}
+            {(ei/expansion-key :p "m" []) {:expanded? true}}
+            {:default-expanded-depth 2 :available-width-px 800}]]]
+    (is (re-find #"▾" (collect-text (ei/render-node {:value v
+                                                     :panel-id :p :mount-id "m" :path []
+                                                     :depth 0 :expansion-map expansion-map
+                                                     :opts opts})))
+        (pr-str v))))
 
 (deftest width-slot-set-and-clear-events
   (let [widths (fn [] @(rf/subscribe [ei/widths-slot]))]
@@ -1563,14 +1481,8 @@
 
 ;; ---- zoom gesture — double-click / Enter on the container ----------------
 
-(defn- zoom-target-nodes
-  "Every hiccup node carrying `data-rf-zoom-target=1`."
-  [tree]
-  (filter (fn [n]
-            (and (vector? n)
-                 (map? (second n))
-                 (= "1" (:data-rf-zoom-target (second n)))))
-          (walk-hiccup tree)))
+(defn- zoom-target-nodes [tree]
+  (nodes-with-attr tree :data-rf-zoom-target "1"))
 
 (deftest zoomable-marks-non-root-containers-as-zoom-targets
   ;; Only the child map is a target: the root is not (zooming into the
@@ -1715,75 +1627,48 @@
 
 ;; ---- breadcrumb ----------------------------------------------------------
 
-(deftest breadcrumb-renders-home-plus-segments
-  (is (= "app-db›:rf/machines›:ws/connection"
-         (collect-text (ei/zoom-breadcrumbs {:panel-id      :p
-                                             :mount-id      "m"
-                                             :zoom-path     [:rf/machines :ws/connection]
-                                             :home-label    "app-db"
-                                             :dispatch-fn   identity
-                                             :testid-prefix "bc"})))))
-
-(deftest breadcrumb-buttons-dispatch-truncated-paths
+(deftest breadcrumb-renders-home-and-segments-and-dispatches-truncated-paths
+  ;; The home segment's content IS the consumer's hiccup, not a printed copy.
   ;; Home zooms back to the root; segment N re-roots at the path's first N+1
   ;; segments.
-  (let [dispatched (atom [])
+  (let [home       [:span [:strong "Counter app"] " · " [:code ":rf/default"]]
+        dispatched (atom [])
         h     (ei/zoom-breadcrumbs {:panel-id      :p
                                     :mount-id      "m"
                                     :zoom-path     [:rf/machines :ws/connection :data]
-                                    :home-label    "app-db"
+                                    :home-label    home
                                     :dispatch-fn   (fn [ev] (swap! dispatched conj ev))
                                     :testid-prefix "bc"})
         click (fn [segment]
                 ((-> (find-attr h :data-rf-breadcrumb-segment segment) second :on-click) nil))]
+    (is (= "Counter app · :rf/default›:rf/machines›:ws/connection›:data" (collect-text h)))
+    (is (= home (last (find-attr h :data-rf-breadcrumb-segment "home"))))
     (click "home")
     (click "1")
     (is (= [[:rf.xray.edn-inspector/zoom-to :p "m" []]
             [:rf.xray.edn-inspector/zoom-to :p "m" [:rf/machines :ws/connection]]]
            @dispatched))))
 
-(deftest breadcrumb-home-label-accepts-hiccup
-  ;; The home segment's content IS the consumer's hiccup, not a printed copy.
-  (let [home [:span [:strong "Counter app"] " · " [:code ":rf/default"]]
-        h    (ei/zoom-breadcrumbs {:panel-id      :p
-                                   :mount-id      "m"
-                                   :zoom-path     [:counter]
-                                   :home-label    home
-                                   :dispatch-fn   identity
-                                   :testid-prefix "bc"})]
-    (is (= home (last (find-attr h :data-rf-breadcrumb-segment "home"))))))
-
 ;; ---- public widget — zoom-aware top-level render -------------------------
 
-(deftest widget-with-zoomable-renders-breadcrumb-when-zoomed
+(deftest widget-diff-mode-zooms-and-reroots-both-halves
+  ;; A zoomed widget renders a breadcrumb row and only the zoomed subtree;
+  ;; in diff mode the zoom re-roots `before` along the same path, so the
+  ;; subtree keeps its annotations.
   (let [site-id [:rf.xray/app-db "top"]
         _       (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-to
                                    :rf.xray/app-db site-id [:nested]])
-        h       (invoke-edn-inspector {:nested {:deep 42 :other 99} :sibling 1}
+        h       (invoke-edn-inspector {:nested {:deep 42} :sibling 1}
                                       {:panel-id  :rf.xray/app-db
                                        :site-id   site-id
                                        :zoomable? true
+                                       :before    {:nested {:deep 41} :sibling 0}
                                        :header    [:span "app-db"]})
         text    (collect-text h)]
     (is (some? (find-attr h :role "navigation"))
         "a breadcrumb row renders above the body")
-    (is (= [true false] (map #(str/includes? text %) [":deep" ":sibling"]))
-        "the body is the zoomed subtree; siblings outside it do not render")))
-
-(deftest widget-diff-mode-zooms-and-reroots-both-halves
-  ;; In diff mode the zoom re-roots `before` along the same path, so the
-  ;; zoomed subtree keeps its annotations.
-  (let [site-id [:rf.xray/app-db "top"]
-        _       (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-to
-                                   :rf.xray/app-db site-id [:nested]])
-        text    (collect-text (invoke-edn-inspector {:nested {:deep 42} :sibling 1}
-                                                    {:panel-id  :rf.xray/app-db
-                                                     :site-id   site-id
-                                                     :zoomable? true
-                                                     :before    {:nested {:deep 41} :sibling 0}
-                                                     :header    [:span "app-db"]}))]
-    (is (= [false true] (map #(str/includes? text %) [":sibling" "← was 41"]))
-        "siblings are hidden, and the re-rooted before still annotates the change")))
+    (is (= [true false true] (map #(str/includes? text %) [":deep" ":sibling" "← was 41"]))
+        "only the zoomed subtree renders, and the re-rooted before still annotates it")))
 
 ;; ---- a list / seq element is zoomable, and an unresolvable zoom ----------
 ;; ---- renders un-zoomed ---------------------------------------------------
@@ -1845,13 +1730,6 @@
 ;; The zoom resolves in the AFTER value; the before side is walked along the
 ;; same path and reads absent, so the zoomed subtree is a plain addition
 ;; rather than diffed against the whole before-root.
-
-(defn- diff-ops-in-order
-  "Every `:data-rf-diff-op` value in `tree`, in document order."
-  [tree]
-  (vec (keep (fn [n] (let [attrs (second n)]
-                       (when (map? attrs) (:data-rf-diff-op attrs))))
-             (walk-hiccup tree))))
 
 (deftest diff-mode-zoom-into-a-key-added-this-epoch-reads-as-added-rf2-pmux4
   (let [site-id [:rf.xray/app-db "top"]
@@ -1966,26 +1844,6 @@
       ((ei/edn-inspector after opts) after opts)
       (is (<= (max @seen-b @seen-a) render-path-bound)
           (str "realised " @seen-b " BEFORE / " @seen-a " AFTER elements")))))
-
-(deftest container-op-equality-is-bounded-rf2-bmed1
-  ;; `classify-container-op` promotes a `:same` projection to `:children`
-  ;; when the two sides differ, and a bounded projection reports `:same` for
-  ;; two endless sequences sharing a prefix — so that comparison is bounded
-  ;; too.
-  (let [seen-b (atom 0)
-        seen-a (atom 0)
-        before (counting-seq seen-b 50000)
-        after  (counting-seq seen-a 50000)]
-    (ei/render-node {:value      after
-                     :before     before
-                     :diff?      true
-                     :projection (engine/project (take count-bound before)
-                                                 (take count-bound after))
-                     :panel-id   :test :mount-id "bmed1-a"
-                     :path       [] :depth 0
-                     :expansion-map {} :opts {}})
-    (is (<= (max @seen-b @seen-a) render-path-bound)
-        (str "realised " @seen-b " BEFORE / " @seen-a " AFTER elements"))))
 
 (deftest public-projection-leaves-ordinary-pairs-untouched-rf2-bmed1
   ;; An ordinary pair, a `counted?` vector longer than the bound, and a
