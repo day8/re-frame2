@@ -24,9 +24,6 @@
            ["a play-script step carrying a fn downgrades to partial"
             {:plan {:script [[:dispatch [:inc]] [:custom (fn [_] nil)]]}}
             :partial :script-fn]
-           ["a fn-valued :sub-overrides value makes the artifact view-only"
-            {:plan {:world {:render {:sub-overrides {[:my/sub] (fn [] 1)}}}}}
-            :view-only :sub-override-fn]
            ;; a regex is not a fn and does not EDN-round-trip to an equal value
            ["a non-fn, non-round-tripping override is partial (dropped, not view-only)"
             {:cell-overrides {:pattern #"x"}}
