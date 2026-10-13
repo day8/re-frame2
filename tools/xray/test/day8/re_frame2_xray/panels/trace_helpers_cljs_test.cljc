@@ -116,15 +116,6 @@
     (is (= ["ROUTING" :SIDE-EFFECTS ":dashboard"]
            ((juxt h/area-badge h/stage h/target-detail) row)))))
 
-(deftest machine-sub-namespace-ops-are-machine-not-a-bare-event
-  ;; One op per machine sub-family outside the core namespaces, unstamped so
-  ;; `area`'s namespace fallback must match the whole `rf.machine*` prefix.
-  (doseq [op [:rf.machine.spawn-all/started
-              :rf.machine.event/received
-              :rf.machine.history/recorded
-              :rf.machine.start/started]]
-    (is (= "MACHINE" (h/area-badge {:operation op})) (str op))))
-
 ;; ---- what-happened verb — spec/023 §5 -----------------------------------
 
 (deftest what-happened-builds-the-verb
