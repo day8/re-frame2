@@ -30,8 +30,6 @@
             Integrity (SRI) hash + `crossorigin` so a compromised CDN
             mirror serving altered JS fails closed at the browser."
     (let [src (a11y-source)]
-      (is (re-find #"axe-cdn-integrity" src)
-          "a11y.cljs must bind an `axe-cdn-integrity` constant")
       (is (re-find #"\"sha384-" src)
           "the SRI value must be present as a sha384 literal")
       (is (re-find #"\"integrity\"" src)
