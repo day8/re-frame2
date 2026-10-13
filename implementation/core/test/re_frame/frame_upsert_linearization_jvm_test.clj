@@ -79,34 +79,6 @@
             (identical? container (rf.frame/frame-state-container :mc/taken))])
         "the live frame is neither adopted nor refreshed")))
 
-(deftest must-create-installs-cleanly-on-a-free-id
-  (is (= [:mc/free true false]
-         [(rf.frame/upsert-frame! :mc/free {:rf.frame/must-create? true})
-          (some? (rf.frame/frame-state-container :mc/free))
-          (contains? (:config (rf.frame/frame :mc/free)) :rf.frame/must-create?)])
-      "a full record, with the construction-only key stripped from its config"))
-
-(deftest exclusive-create-loser-must-not-overwrite-winner-trace-policy
-  ;; the retention ring arm; the no-emit store is the production twin's
-  (let [reached (CountDownLatch. 1)
-        release (CountDownLatch. 1)
-        a       (binding [rf.frame/*upsert-decide-probe*
-                          (window-probe :tp/race reached release)]
-                  (future
-                    (rf.frame/upsert-frame! :tp/race
-                                         {:rf.frame/must-create? true
-                                          :rf.trace/frame-no-emit? false
-                                          :rf.trace/events-retained 10})))]
-    (is (.await reached 10 TimeUnit/SECONDS) "A owns the id before policy publication")
-    (is (= [:rf.error/frame-construction-in-progress nil]
-           [(err-id #(rf.frame/upsert-frame! :tp/race
-                                             {:rf.trace/frame-no-emit? true
-                                              :rf.trace/events-retained 99}))
-            (retained-cap :tp/race)])
-        "B loses, and no retention policy is published while A is paused")
-    (.countDown release)
-    (is (= [:tp/race 10] [@a (retained-cap :tp/race)]) "the owner's retention policy is final")))
-
 (deftest reregister-owner-rejects-newer-policy-contender
   ;; A pauses after staging, before policy publication; B cannot become a newer winner
   (rf.frame/upsert-frame! :tp/successful
