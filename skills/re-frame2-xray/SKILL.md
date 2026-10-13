@@ -104,26 +104,17 @@ full-inventory request, not for routine routing.
 ### Scope model — what actually follows the event
 
 "Dynamic" names the 4-layer shell (L1 ribbon · L2 event list · L3 tab bar
-· L4 detail), not a uniform data scope:
-
-- **Six focused-epoch lenses** — Epoch · app-db · Views · Trace ·
- Machine · Routes — rebind when you pick an event in the L2 list.
-- **Resources is mixed** — a process-global resource registry plus the
- observed frame's live cache/ledger (follows the L1 frame picker), with
- lifecycle and mutation history from the retained trace buffer across
- frames. Picking an epoch does not filter that history.
-- **Graph, Frames and Fresco do not follow the event.** Graph reads the
- process-global registrar (Declared) or the observed frame (Realized) —
- its Declared ↔ Realized projection toggle is a Graph-local control, not
- the L1 Dynamic/Static mode pill — easy to confuse, because the shipped
- toggle is labelled static/live, but Graph is always a Dynamic tab. Frames enumerates the
- process-global live-frame registry (the `image → frame` model). Fresco
- re-takes its live evidence on each trace tick. "Select an epoch and
- they update" is false — only the six lenses above rebind.
-- **Static's definition catalogues are process-global** — the registrar
- is shared across every frame (Spec 001); the L1 frame picker moves only
- each Static tab's per-frame *live* projections (machine snapshots, the
- flows registry, the app-db-schema side-table, the current-route slice).
+· L4 detail), not a uniform data scope. Only the **six focused-epoch
+lenses** — Epoch · app-db · Views · Trace · Machine · Routes — rebind when
+you pick an event in the L2 list. **Resources** is mixed: its live
+sections follow the L1 frame picker, and its history spans the retained
+trace buffer across frames. **Graph, Frames and Fresco** never follow the
+event, so "select an epoch and they update" is false. Graph's Declared ↔
+Realized toggle (shipped labelled static/live) is Graph's own control,
+not the L1 Dynamic/Static mode pill — Graph is always a Dynamic tab.
+**Static's** definition catalogues are process-global; the frame picker
+moves only their per-frame live projections. The per-tab matrix is
+[`references/panels.md` §Scope matrix](references/panels.md#scope-matrix--three-authority-axes).
 
 ## Launching Xray — pick a mode
 
