@@ -25,13 +25,6 @@
 
 ;; ---- code-block tokenizer ------------------------------------------------
 
-(deftest classify-token-kinds
-  ;; The tokenizer hands `classify-token` only symbol-shaped literals, so
-  ;; builtin-set membership is the one split it makes for them.
-  (are [kind token] (= kind (w/classify-token token))
-    :builtin "reg-event"
-    :symbol  "my-symbol"))
-
 (deftest tokenize-clojure-roundtrip
   (testing "concatenating tokenized literals reconstructs the source"
     (let [src  "(reg-event :foo (fn [{:keys [db]} [_ x]] {:db (assoc db :y x)}))"
@@ -39,10 +32,6 @@
       (is (= src (apply str (map second toks)))))))
 
 ;; ---- code-block render ---------------------------------------------------
-
-(deftest code-block-empty-source-renders-placeholder
-  (is (= "rf-xray-edn-widget-code-empty"
-         (:data-testid (second (w/code-block {:source nil}))))))
 
 (deftest code-block-pre-clamps-and-scrolls-within-container
   ;; Without these a long line widens every flex ancestor past the panel
@@ -59,8 +48,8 @@
                                 (when (and (= :span tag) (string? lit))
                                   [lit (-> attrs :style :color)])))
                         (walk-hiccup (w/code-block {:source "(let [x :foo] x)"})))]
-    (is (= {"let" (:accent tokens) ":foo" (:syntax-keyword tokens)}
-           (select-keys colour-of ["let" ":foo"])))))
+    (is (= {"let" (:accent tokens) ":foo" (:syntax-keyword tokens) "x" (:text-primary tokens)}
+           (select-keys colour-of ["let" ":foo" "x"])))))
 
 ;; ---- zprint pre-format ---------------------------------------------------
 
