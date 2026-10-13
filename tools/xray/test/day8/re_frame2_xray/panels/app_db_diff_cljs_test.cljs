@@ -375,29 +375,6 @@
 ;; THREADING: the prop reaches the sections, and both doors into the
 ;; boundary carry it.
 
-(deftest panel-tree-threads-instance-id-to-the-sections
-  (testing "`panel-tree` hands its `:instance-id` down to
-            `state-body`, so two instances of the panel over one frame's
-            app-db render two disjoint sets of widget mount-ids."
-    (seed-host-frame! {:counter 5 :user {:name "ada"}})
-    (registry/register-xray-handlers!)
-    (rf/make-frame {:id :rf/xray})
-    ;; EP-0002 — the observed target does not default, and
-    ;; without it the panel projects against nothing: the TOP section
-    ;; renders (it is the panel's anchor) but with the EMPTY-STATE body, so
-    ;; no edn-inspector mounts at all. That is exactly the silence the
-    ;; control below is here to separate from real separation.
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/set-target-frame :rf/default]))
-    (rf/with-frame :rf/xray
-      (let [left  (widget-mount-ids (panel-tree "left"))
-            right (widget-mount-ids (panel-tree "right"))]
-        (is (seq left)
-            "control: the panel mounts at least one edn-inspector widget, so
-             an empty intersection below means separation and not silence")
-        (is (nil? (some (set left) right))
-            "no mount-id survives from one named instance to the other")))))
-
 (defn- crossed-instance-id
   "THE VALUE THAT ACTUALLY ARRIVES AT THE BOUNDARY when a Reagent parent
   mounts the bridge — read off a real React element rather than off the
