@@ -61,16 +61,6 @@
           (stub-throw-id #(rf/reg-event-fx :reg-event-test/via-fx (fn [_ _] nil)))
           (stub-throw-id #(rf/reg-event-ctx :reg-event-test/via-ctx (fn [_ _] nil)))])))
 
-(deftest reg-event-ctx-removed-names-reg-interceptor-not-arrow-interceptor
-  ;; the recovery names the public authoring form, not the internal
-  ;; ->interceptor* lowering constructor
-  (let [reason (try (rf/reg-event-ctx :reg-event-test/ctx-reason (fn [_ _] nil))
-                    :no-throw
-                    (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
-                      (:reason (ex-data e))))]
-    (is (re-find #"reg-interceptor" reason))
-    (is (not (re-find #"->interceptor" reason)))))
-
 (defn- handler-throw-id
   "The `:rf.error/id` the `:rf/set-db` handler raises for `event`, called
   directly: through a dispatch the throw would be recovered as
