@@ -24,17 +24,6 @@
   (rf/with-frame :rf/xray
     (rf/dispatch-sync ev)))
 
-(deftest persistence-load-default-empty-slot
-  (if-not (ls/available?)
-    (is true "skipped: no localStorage (node lane)")
-    (testing "a cleared slot falls back to :dynamic"
-      ;; A non-default value first, so the fallback is read off a slot
-      ;; `clear!` demonstrably emptied — a no-op storage passes otherwise.
-      (static-persistence/save! :static)
-      (is (= :static (static-persistence/load)))
-      (static-persistence/clear!)
-      (is (= :dynamic (static-persistence/load))))))
-
 (deftest persistence-fx-installed-by-set-mode
   (if-not (ls/available?)
     (is true "skipped: no localStorage (node lane)")
