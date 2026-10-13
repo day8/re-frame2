@@ -88,30 +88,21 @@
 
 (deftest resources-local-render-redacts-the-sensitive-leaf-and-keeps-metadata
   (let [row (h/instance-row [key-id raw-entry] nil (local-egress-fn secure-frame))]
-    (testing "the frame-declared sensitive data leaf redacts in place under the on-box default"
-      (is (leaf-redacted? (:data row))))
-    (testing "the metadata projects from the RAW entry, never through egress"
-      (is (= [:loaded 4 :article/by-slug true 1]
-             ((juxt :status :generation :resource-id :has-data? :owner-count) row))
-          "redacting the payload must not flip the derived :has-data? fact"))))
-
-(deftest resources-local-render-redacts-sensitive-scope-and-params
-  (let [row (h/instance-row [key-id raw-entry] nil (local-egress-fn secure-frame))]
-    (testing "scope and params carry PII and redact the same way as data"
-      (is (leaf-redacted? (:scope row)))
-      (is (leaf-redacted? (:params row))))
-    (testing "the RAW scoped-key stays the identity key, so two entries whose scope
+    (testing "each frame-declared sensitive leaf redacts in place under the on-box
+              default: data, and the scope and params, which carry PII"
+      (is (= [true true true] (mapv (comp leaf-redacted? row) [:data :scope :params]))))
+    (testing "the metadata projects from the RAW entry, never through egress, and
+              the RAW scoped-key stays the identity key, so two entries whose scope
               redacts to the same sentinel never collapse"
-      (is (= scoped-key (:scoped-key row))))))
+      (is (= [:loaded 4 :article/by-slug true 1 scoped-key]
+             ((juxt :status :generation :resource-id :has-data? :owner-count :scoped-key) row))
+          "redacting the payload must not flip the derived :has-data? fact"))))
 
 (deftest resources-local-render-fails-closed-on-unreachable-frame
   (testing "under an unknown or nil observed frame every value-bearing summary is
             the whole-value [redacted], never a raw preview"
     (doseq [unreachable [:app/does-not-exist nil]]
       (let [row (h/instance-row [key-id raw-entry] nil (local-egress-fn unreachable))]
-        (is (= "[redacted]" (:preview (:data row)))
-            (str "data fails closed under " (pr-str unreachable)))
-        (is (= "[redacted]" (:preview (:scope row)))
-            (str "scope fails closed under " (pr-str unreachable)))
-        (is (= "[redacted]" (:preview (:params row)))
-            (str "params fails closed under " (pr-str unreachable)))))))
+        (is (= ["[redacted]" "[redacted]" "[redacted]"]
+               (mapv #(:preview (% row)) [:data :scope :params]))
+            (str "data, scope and params fail closed under " (pr-str unreachable)))))))
