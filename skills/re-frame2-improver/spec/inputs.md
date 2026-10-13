@@ -23,7 +23,7 @@ The normative source each leaf footers to. Verified-current ownership the leaves
 
 | Surface | Spec owner |
 |---------|-----------|
-| Managed HTTP — explicit reply addressing (`:reply-to` / `:on-success` / `:on-failure`) + the canonical reply envelope appended as the target event's last arg (`:status` ∈ `:ok` / `:error` / `:cancelled`; `:stale` suppressed) + the closed failure-category set (`:rf.http/transport` `:rf.http/timeout` `:rf.http/http-4xx` `:rf.http/http-5xx` `:rf.http/decode-failure` `:rf.http/accept-failure` `:rf.http/aborted`) + the retryable subset. The old co-located reply-to-origin default is retired; a targetless request throws `:rf.error/http-no-reply-target`. | [014-HTTPRequests](../../../spec/014-HTTPRequests.md) |
+| Managed HTTP — explicit reply addressing (`:reply-to` / `:on-success` / `:on-failure`) + the canonical reply envelope appended as the target event's last arg (`:status` ∈ `:ok` / `:error` / `:cancelled`; `:stale` suppressed) + the closed failure-category set (`:rf.http/transport` `:rf.http/timeout` `:rf.http/http-4xx` `:rf.http/http-5xx` `:rf.http/decode-failure` `:rf.http/accept-failure` `:rf.http/aborted`) + the retryable subset. There is no implicit reply target: a targetless request throws `:rf.error/http-no-reply-target`. | [014-HTTPRequests](../../../spec/014-HTTPRequests.md) |
 | State machines + tags query layer (`reg-machine`, `:tags`, and the `[:rf.machine/has-tag? <machine-id> <tag>]` subscription — a tag read is a subscription vector, not a fn) | [005-StateMachines](../../../spec/005-StateMachines.md) |
 | Schemas at boundaries (`:schema`, `reg-app-schema`, and the `:boundary? true` registration flag that keeps a handler's `:schema` running in production) | [010-Schemas](../../../spec/010-Schemas.md) |
 | Views as pure projections | [000-Vision §Pointers to per-area Specs](../../../spec/000-Vision.md#pointers-to-per-area-specs) |
@@ -38,7 +38,7 @@ API claims in the leaves MUST be verified against the current spec + `implementa
 
 These shape voice and structure but aren't quoted directly.
 
-- **Mike's standing memory rules** — "Findings is local-only", "No AI attribution in commits or PRs", "Pre-alpha masterpiece posture" (no back-compat shims; optimise for elegance/correctness/completeness), "Frames are isolated contexts" (informs the deferred foreign-frame-write candidate).
+- **The repository's standing conventions (`CLAUDE.md`)** — the `ai/` tree is local-only, no AI attribution in commits or PRs, and the pre-alpha posture (no back-compat shims; optimise for elegance, correctness and completeness). Frames as isolated contexts informs deferred candidate #1 (design.md §4).
 - **`skills/README.md` §Skill routing — single source** — the monorepo's trigger matrix. SKILL.md §Trigger semantics filter 3 states the improver's own sibling boundary in full locally (a packaged install routes without the monorepo); this matrix is the alignment reference the local boundary is kept consistent with, not a runtime dependency.
 - **`skills/README.md` §Leaf size discipline** — the per-leaf size ceiling; leaves stay one level deep.
 - Anthropic skills guidance — `name` ≤ 64 chars; `description` pushy-but-conversational; SKILL.md under 500 lines; references one level deep; `evals.json` carries should-trigger and should-not-trigger fixtures **plus** behavioural critique fixtures (`expected_output` + objectively-checkable `expectations`, per the sibling `skills/re-frame2/evals` convention) that grade critique quality and the correction contract — graded alongside `evals/README.md`.

@@ -100,8 +100,8 @@ that list, discriminated by a `kind` field:
   - `files` — optional input files (empty here; every prompt is
     self-contained in its pasted snippet)
 
-`schema_version` is `"2"` — bumped from the trigger-only `"1"` when the
-behavioural kind and the shared-list discriminator were added.
+`schema_version` `"2"` names this shape: one list holding both kinds,
+told apart by the `kind` discriminator.
 
 ## Coverage
 

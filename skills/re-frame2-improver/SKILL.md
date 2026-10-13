@@ -96,6 +96,19 @@ Emit only sections with content — an empty heading is padding, not rigor:
 - `Fixes applied` — only when the user asked for fixes: each `Edit` performed, with a 1-line rationale, what was checked afterward and any unverified compile/test/runtime outcome.
 - `Open questions` — only when a genuine ambiguity needs the author.
 
+One finding in that shape, from a review-only request over a pasted events namespace:
+
+```text
+Scope — items/events.cljs (pasted snippet).
+
+Findings
+1. Manual loading flag — correctness. items/events.cljs:9: :items/load-failure
+   writes (assoc db :items/error err) and never clears :items/loading?, so a
+   failed load leaves the spinner up for ever.
+   Smallest safe correction: (-> db (dissoc :items/loading?) (assoc :items/error err))
+   Idiom: skills/re-frame2/patterns/remote-data.md (a :status keyword on the slice).
+```
+
 Keep evidence concrete: no vague "consider better patterns" — name the idiom and link the leaf. If the in-scope code is too thin for findings, say so plainly and ask for a wider directory or a longer snippet.
 
 ## Framework-shaped friction
