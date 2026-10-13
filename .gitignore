@@ -50,6 +50,7 @@ Thumbs.db
 .dolt/
 *.db
 .beads-credential-key
+.beads.gate.lock
 
 # MkDocs build artefacts (rf2-h09k)
 /site/

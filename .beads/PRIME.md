@@ -1,11 +1,11 @@
 # Beads primer — re-frame2
 
-**Provenance: this file is advice from a tool.** `bd prime` prints it at SessionStart and
-PreCompact; it is not the repo's instruction sheet. **`CLAUDE.md` is the committed instruction
-and wins wherever the two differ.** Never cite this file as "CLAUDE.md says" — grep `CLAUDE.md`
-before attributing anything to it. That confusion has already happened here: a claim sourced
-from this hook's output reached a bead as `CLAUDE.md`'s instruction and was refuted at source.
-(`bd recall provenance-trap-at-session-start-the-bd-prime`)
+**Provenance: this file is advice from a tool.** `bd prime --no-memories` prints it at
+SessionStart and PreCompact; it is not the repo's instruction sheet. **`CLAUDE.md` is the
+committed instruction and wins wherever the two differ.** Never cite this file as "CLAUDE.md
+says" — grep `CLAUDE.md` before attributing anything to it. The two arrive in one context block
+and read alike, so a claim sourced from this output is easily carried into a bead as
+`CLAUDE.md`'s instruction. (`bd recall provenance-trap-at-session-start-the-bd-prime`)
 
 ## Session close
 
@@ -47,13 +47,14 @@ bd memories <topic>     bd recall <key>             bd history <id>
 audit reopenings accrete below it. Order by `bd history <id>`, which is newest-first; neither
 the bottom of the output nor a date in the prose is a currency signal.
 
-## ~950 memories exist, and none of them is injected
+## Over a thousand memories exist, and none of them is injected
 
-`bd remember` has accumulated roughly 950 memories. **They are deliberately NOT loaded into
-your context** — that is precisely what this file replaces. They remain searchable and you are
-expected to search them: run `bd memories <topic>` before any non-trivial census, sweep, merge
-or worktree operation. Most are measured accounts of an instrument handing back a confident
-wrong answer.
+`bd remember` has accumulated over a thousand memories. **They are deliberately NOT loaded into
+your context**: `bd prime` appends every one of them after this file — megabytes — unless it is
+given `--no-memories`, which is why the hooks pass it. Pass it yourself whenever you run
+`bd prime` by hand, `--export` included. The memories remain searchable and you are expected to
+search them: run `bd memories <topic>` before any non-trivial census, sweep, merge or worktree
+operation. Most are measured accounts of an instrument handing back a confident wrong answer.
 
 ## Four hazards `CLAUDE.md` does not carry
 
@@ -65,12 +66,13 @@ wrong answer.
   are normative records here, and reclaims no space anyway. The ONLY sanctioned invocation:
 
   ```
-  bd gc --skip-decay --force      # NEVER pass --older-than; routine decay is OFF (rf2-nj0c)
+  bd gc --skip-decay --force      # NEVER pass --older-than; routine decay is OFF
   ```
 
   `bd recall bd-gc-decay-silently-deletes-closed-beads`
 - **A 502 from `gh pr merge` can mean the merge SUCCEEDED and only its response was lost** —
   wait a tick, don't retry. `bd recall 502-on-merge-means-it-may-have-happened`
 
-This file overrides `bd prime` entirely, so upstream improvements to the default do not arrive
-on their own — re-sync by hand against `bd prime --export` after a `bd` upgrade.
+This file replaces `bd prime`'s default text, so upstream improvements to the default do not
+arrive on their own — re-sync by hand against `bd prime --export --no-memories` after a `bd`
+upgrade.
