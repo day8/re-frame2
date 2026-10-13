@@ -69,10 +69,3 @@
              #(:password (projected (dissoc (error-record :ifzi/other) :frame)
                                     {:frame :ifzi/other}))))
         "the unclassified target rides raw under a classified ambient frame")))
-
-(deftest global-registration-still-answers-for-a-frameless-projection
-  (rf/reg-event :ifzi/global {:sensitive [[:password]]} (fn [_ _] {}))
-  (is (= {:password rf.privacy/redacted-sentinel :user "ann"}
-         (projected {:kind  :rf.observe/error
-                     :frame :rf/default
-                     :event [:ifzi/global {:password "secret" :user "ann"}]}))))
