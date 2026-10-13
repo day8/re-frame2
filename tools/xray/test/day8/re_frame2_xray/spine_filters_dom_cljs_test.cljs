@@ -33,10 +33,9 @@
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
 (use-fixtures :each
-  ;; Mirrors the sibling's fixture. The raw-mute slate matters more here
-  ;; than on node: the browser lane runs every namespace on ONE page, so
-  ;; a leftover mute set would be in storage when the next namespace
-  ;; hydrates.
+  ;; `:post-reset` runs before each body, so every row starts from an empty
+  ;; persisted mute set. The browser lane runs every namespace on ONE page,
+  ;; which is why the last row also clears after itself.
   (xray-test-support/make-xray-runtime-fixture
     {:post-reset (fn [] (spine-filters/clear-raw!))}))
 
@@ -63,7 +62,6 @@
   (if-not (ls/available?)
     (is true "skipped: no localStorage (node lane — see ns docstring)")
     (do
-      (spine-filters/clear-raw!)
       (xray-setup!)
       (frame-dispatch [:rf.xray/mute-event-id :user/mouse-move])
       (frame-dispatch [:rf.xray/mute-event-id :user/scroll])
@@ -81,7 +79,6 @@
   (if-not (ls/available?)
     (is true "skipped: no localStorage (node lane — see ns docstring)")
     (do
-      (spine-filters/clear-raw!)
       (xray-setup!)
       (frame-dispatch [:rf.xray/mute-event-id :a])
       (frame-dispatch [:rf.xray/mute-event-id :b])
