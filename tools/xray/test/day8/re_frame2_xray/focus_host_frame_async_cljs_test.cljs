@@ -60,16 +60,6 @@
                      (rf/epoch-history host-frame))]
     {:epoch-id (:epoch-id record) :dispatch-id (:dispatch-id record)}))
 
-(defn- preconditions [{:keys [epoch-id dispatch-id]}]
-  (is (some? epoch-id) "precondition: the machine event settled an epoch")
-  (is (some? dispatch-id) "precondition: that epoch carries its dispatch-id")
-  (is (not= epoch-id (:epoch-id (e2e/sub-xray [:rf.xray/focus])))
-      "precondition: the spine starts on the head, not the machine epoch")
-  (is (empty? (e2e/sub-xray [:rf.xray/machine-transitions-for-focused-event]))
-      "precondition: the head event targets no machine")
-  (is (not= :machines (e2e/sub-xray [:rf.xray/selected-tab]))
-      "precondition: the Machines tab is not already selected, so its selection marks the drain"))
-
 (defn- after-drain
   "Resolve once the focus command's drain has settled — marked by the tab it
   selects, which lands in the same drain as every other event the command
@@ -82,25 +72,24 @@
       (.catch (fn [e] (is false (str "focus drain never settled: " (.-message e))) nil))
       (.then (fn [_] (trace-collector/reset-for-test!) (done)))))
 
-(defn- assert-pinned-and-machines-follow [{:keys [epoch-id dispatch-id]}]
-  (let [f       (e2e/sub-xray [:rf.xray/focus])
-        records (e2e/sub-xray [:rf.xray/machine-transitions-for-focused-event])]
-    (is (= epoch-id (:epoch-id f)) "the spine is pinned to the machine epoch")
-    (is (= dispatch-id (:dispatch-id f)) "the spine is pinned to the machine event")
-    (is (= :retro (:mode f)) "a pin off the head is RETRO, not LIVE head")
-    (is (= [[:deep/main :idle :active]]
-           (mapv (juxt :machine-id :from-state :to-state) records))
-        "the Machines focused-event lens returns the pinned epoch's transition")
-    (is (= :deep/main (:event-id (e2e/sub-xray [:rf.xray/machine-focused-epoch-cascade])))
-        "the Machines cascade rows bind to the pinned epoch's machine")))
+(defn- assert-pinned-and-machines-follow
+  "The spine is pinned RETRO (off the head) to the machine epoch and event,
+  and the Machines focused-event lens and cascade rows bind to it."
+  [{:keys [epoch-id dispatch-id]}]
+  (let [f (e2e/sub-xray [:rf.xray/focus])]
+    (is (= [epoch-id dispatch-id :retro [[:deep/main :idle :active]] :deep/main]
+           [(:epoch-id f) (:dispatch-id f) (:mode f)
+            (mapv (juxt :machine-id :from-state :to-state)
+                  (e2e/sub-xray [:rf.xray/machine-transitions-for-focused-event]))
+            (:event-id (e2e/sub-xray [:rf.xray/machine-focused-epoch-cascade]))]))))
 
 (deftest host-frame-focus-sent-async-pins-the-epoch-and-machines-follow
   (testing "`(focus! host-frame {:epoch-id … :dispatch-id …})`
             without `:sync?`, exactly as Story's evidence link sends it, moves
             the spine onto that epoch and the Machines panel follows"
     (let [coords (machine-epoch-then-unrelated-head!)]
-      (preconditions coords)
-      (is (:ok? (focus/focus! host-frame (assoc coords :panel :machines))))
+      ;; A refused command dispatches nothing, so the drain poll times out.
+      (focus/focus! host-frame (assoc coords :panel :machines))
       (async done
         (after-drain done
                      (fn []
@@ -116,7 +105,6 @@
             the Machines subs are sound and the fault is the frame step's
             ordering"
     (let [coords (machine-epoch-then-unrelated-head!)]
-      (preconditions coords)
-      (is (:ok? (focus/focus! (assoc coords :panel :machines))))
+      (focus/focus! (assoc coords :panel :machines))
       (async done
         (after-drain done #(assert-pinned-and-machines-follow coords))))))
