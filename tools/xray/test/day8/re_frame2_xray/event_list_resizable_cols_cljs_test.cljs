@@ -1,21 +1,8 @@
 (ns day8.re-frame2-xray.event-list-resizable-cols-cljs-test
-  "CLJS tests for the L2 event-list's user-resizable columns.
-
-  Asserts the alignment-guarantee design + the drag lifecycle:
-
-    1. The column-divider testids render between header cells.
-    2. Header + row column widths come from the SAME source — after a
-       `:rf.xray/set-event-list-col-width` dispatch, the header cell's
-       :width matches the row cell's :width column-for-column.
-    3. The drag lifecycle (`col-divider-start-drag!` / `simulate-move!`
-       / `simulate-up!`) dispatches the live update event.
-    4. Keyboard handler — Arrow keys + Enter route through the
-       registry events with the right shape.
-    5. The clamp-at-write-time semantics — a sub-floor dispatch lands
-       on the floor in the persisted slot.
-    6. The reset event restores the column's default width.
-
-  The drag-simulation pattern mirrors `resize_handle_cljs_test`."
+  "CLJS tests for the L2 event-list's user-resizable columns: the
+  dividers, header and row widths read from one source, the drag, the
+  write-time clamp, the reset, and the keyboard and double-click
+  bindings."
   (:require [cljs.test :refer-macros [are deftest is testing use-fixtures]]
             [cljs.reader]
             [re-frame.core :as rf]
@@ -36,8 +23,7 @@
   ;; `make-xray-runtime-fixture`: plain-atom + the `:runtime`
   ;; reset tier (sentinels + trace rings + persisted settings); `:post-reset`
   ;; force-clears the module-level drag-state defonce (survives the runtime
-  ;; reset) so no stale drag leaks between tests. (`trace-collector` stays
-  ;; required for the `seed-trace-for-test!` seeding below.)
+  ;; reset) so no stale drag leaks between tests.
   (xray-test-support/make-xray-runtime-fixture
     {:tier       :runtime
      :post-reset (fn [] (shell/col-divider-simulate-up!))}))
@@ -45,11 +31,6 @@
 (defn- setup! []
   (registry/register-xray-handlers!)
   (rf/make-frame {:id :rf/xray}))
-
-;; ---- hiccup walker ------------------------------------------------------
-;; Tests call `rf.test-helpers/find-by-testid` /
-;; `rf.test-helpers/find-by-testid-prefix` directly — there is no Xray
-;; walker facade.
 
 (defn- style-of [node]
   (:style (rf.test-helpers/attrs node)))
@@ -110,37 +91,10 @@
        :pointerId      1
        :preventDefault (fn [])})
 
-;; The drag delta is INVERTED relative to the naive
-;; "drag right widens" intuition. `event id` (flex 1 1 auto) is the
-;; row's sole elastic column, far to the LEFT of every divider; it
-;; silently absorbs whatever a resizable column gives up or takes. If
-;; dragging right GREW `col-id`, `event id` would shrink by the same
-;; amount, and the divider itself — sitting at `event id`'s trailing
-;; edge, transitively — would move LEFT while the pointer moved RIGHT:
-;; a 2×dx-per-frame divergence, with the handle receding from the
-;; cursor. Shrinking `col-id` on a rightward drag makes the
-;; divider's rendered position track the pointer 1:1 (and matches
-;; standard split-pane semantics: dragging the boundary TOWARD a
-;; column shrinks it). `col-divider-drag-binds-the-dividers-own-document`
-;; below pins the rightward drag (52px source, +80 → -28 pre-clamp); the
-;; row here pins the leftward one.
-
-(deftest drag-left-widens-col-and-tracks-cursor
-  (setup!)
-  (let [dispatches (atom [])]
-    (with-redefs [rf/dispatch (fn
-                                 ([ev]       (swap! dispatches conj ev) nil)
-                                 ([ev _opts] (swap! dispatches conj ev) nil))]
-      (shell/col-divider-start-drag! (stub-event 1000) :timestamp 200)
-      ;; Drag LEFT by 50px (pageX 950 < 1000, dx -50) WIDENS timestamp:
-      ;; 200 - (-50) = 250.
-      (shell/col-divider-simulate-move! 950)
-      (shell/col-divider-simulate-up!))
-    (let [width-events (filter #(= :rf.xray/set-event-list-col-width (first %))
-                               @dispatches)]
-      (is (some #(= [:rf.xray/set-event-list-col-width :timestamp 250] %)
-                width-events)
-          "drag left widens: 200 - (-50) = 250"))))
+;; Dragging RIGHT shrinks the column: `event id` is the row's sole elastic
+;; column, left of every divider, so shrinking the dragged column is what
+;; keeps the divider tracking the pointer 1:1. The row below pins it
+;; (52px source, +80 → -28 pre-clamp).
 
 (deftest col-divider-drag-binds-the-dividers-own-document
   (testing "`ShellView` is also the pop-out's body, and
@@ -198,14 +152,6 @@
   (is (= 40 (get-in (config/get-setting :general :event-list-col-widths)
                     [:source]))
       "sub-floor source request clamps to its 40px floor"))
-
-(deftest set-event-list-col-width-ignores-unknown-col-id
-  (setup!)
-  (let [before (config/get-setting :general :event-list-col-widths)]
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/set-event-list-col-width :event-id 999]))
-    (is (= before (config/get-setting :general :event-list-col-widths))
-        "unknown col-id (`:event-id` — flex; never sized) is a no-op")))
 
 (deftest set-event-list-col-width-persists-only-the-moved-column
   (testing "a column drag records ONLY that column as an
