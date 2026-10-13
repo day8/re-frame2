@@ -21,13 +21,13 @@ A registry kind (`:head`); same discipline as `reg-sub`. The fn is pure, takes `
        :meta   [{:name     "description" :content summary}
                 {:property "og:title"    :content title}
                 {:property "og:image"    :content image}]
-       :link   [{:rel "canonical" :href (route-url {:to :route/article :params params})}]
+       :link   [{:rel "canonical" :href (routing/route-url {:to :route/article :params params})}]   ;; [re-frame.routing :as routing]
        :json-ld [{"@context" "https://schema.org"
                   "@type"    "Article"
                   "headline" title}]})))
 ```
 
-Wire the route to it via `:head` route metadata — **one `:head` per route in v1**, no parent/child composition:
+Wire the route to it via `:head` route metadata — **one `:head` per route**, no parent/child composition:
 
 ```clojure
 (rf/reg-route :route/article
@@ -148,11 +148,11 @@ The server renders the whole page in one response; it does not stream regions. D
 ## Common gotchas
 
 - **`reg-head` fns subscribe like sub fns.** Inside the fn, `(subscribe ...)` derefs against the static `app-db` value (same path as views via `compute-sub`). No reactive deref.
-- **One `:head` per route.** No composition in v1. Routes that want to share head logic reference the same id, or call a shared helper from each head fn.
+- **One `:head` per route.** No composition. Routes that want to share head logic reference the same id, or call a shared helper from each head fn.
 - **The default `:rf/hydrate` already dispatches the checks.** It ships in `re-frame.ssr`; most apps never write their own. Re-registering replaces a reserved framework event — do it only as documented framework-extension code to change the merge policy, and preserve the malformed-payload fail-closed guard, the runtime-metadata merge, and the handler-level platform gate.
 - **`:platforms #{:client}` gates both fxs.** Server-side dispatches no-op silently; don't sprinkle `:platforms` guards inside your own code.
 - **The fxs never throw.** An absent `:schemas/app-schemas-digest` hook → the schema-digest check emits `:rf.ssr/compatibility-check-skipped` (warning), not a crash; the version check reads the SSR-owned constant and never skips. Read the trace surface to confirm wiring.
-- **The head has its own hash channel, and the bundled client never checks it — so head drift is silent.** The server hashes the canonical head *model* (the EDN map `head-model` returns, **not** the emitted `<head>` HTML) and ships it as `:rf/head-hash` in the payload plus `data-rf-head-hash` on `<head>`. That is a **separate** channel from the body's `:rf/render-hash`, which is body-only. The bundled v1 client does not read, recompute or compare `:rf/head-hash`, so a head-only divergence emits **no** `:rf.ssr/hydration-mismatch` — the body channel never sees it. A host that wants the check recomputes the model with `head-model` against the just-hydrated state (`:rf/app-db` plus the `:rf/runtime-db` route slice), hashes it identically, compares against `:rf/head-hash`, re-renders the head on disagreement, and attributes it as `:rf.ssr/head-mismatch` through the generic `:failing-id` seam — host-suppliable today, runtime-emitted only post-v1. The channel is **omitted** for an explicit-`:head`-string request or a degraded head resolution: no reconstructible model, so shipping a hash would guarantee a false positive.
+- **The head has its own hash channel, and the bundled client never checks it — so head drift is silent.** The server hashes the canonical head *model* (the EDN map `head-model` returns, **not** the emitted `<head>` HTML) and ships it as `:rf/head-hash` in the payload plus `data-rf-head-hash` on `<head>`. That is a **separate** channel from the body's `:rf/render-hash`, which is body-only. The bundled client does not read, recompute or compare `:rf/head-hash`, so a head-only divergence emits **no** `:rf.ssr/hydration-mismatch` — the body channel never sees it. A host that wants the check recomputes the model with `head-model` against the just-hydrated state (`:rf/app-db` plus the `:rf/runtime-db` route slice), hashes it identically, compares against `:rf/head-hash`, re-renders the head on disagreement, and attributes it as `:rf.ssr/head-mismatch` through the generic `:failing-id` seam — the host supplies that id; the runtime never emits it. The channel is **omitted** for an explicit-`:head`-string request or a degraded head resolution: no reconstructible model, so shipping a hash would guarantee a false positive.
 
 ## Cross-references
 

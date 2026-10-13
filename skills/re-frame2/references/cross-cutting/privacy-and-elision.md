@@ -71,7 +71,7 @@ Wire the init event with `:initial-events [[:app/init]]` so the classification i
 - **Sensitive wins over large.** A path that's both redacts as sensitive and emits *no* size marker (the marker's `:path` / `:bytes` would themselves leak structure).
 - Malformed effect payloads (a non-vector value, a non-path entry, an unknown axis) **fail loud pre-commit** with `:rf.error/classification-effect-shape` — the transition aborts, no `:db` commits.
 
-There is **no frame `:sensitive {:app-db …}` annotation** and **no schema-prop route** to classify a durable app-db path — the event is app-db's definition site, full stop. App-specific HTTP carrier names ride the `:rf.http/managed` `reg-fx` registration's `:carriers` block (transient-payload case; the earlier frame `:sensitive {:http …}` block is removed); observability sink policy *does* still live on the frame ([§Choosing where observations go](#choosing-where-observations-go-frame-observability)). A frame config carrying `:sensitive` or `:large` now fails loud.
+There is **no frame `:sensitive {:app-db …}` annotation** and **no schema-prop route** to classify a durable app-db path — the event is app-db's definition site, full stop. App-specific HTTP carrier names ride the `:rf.http/managed` `reg-fx` registration's `:carriers` block (transient-payload case; there is no frame `:sensitive {:http …}` block); observability sink policy *does* live on the frame ([§Choosing where observations go](#choosing-where-observations-go-frame-observability)). A frame config carrying `:sensitive` or `:large` fails loud (`:rf.error/bad-frame-classification`).
 
 ## 2 — Subsystem-owned: machine and resource instance data
 

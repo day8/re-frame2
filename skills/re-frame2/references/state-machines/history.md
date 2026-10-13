@@ -73,4 +73,4 @@ For the full recording / restoring semantics, the `:rf/history` slot schema, the
 
 ---
 
-*Derived from the `re-frame.machines.transition` history functions (`resolve-history-target`, `record-history-config`, `record-exit-history`) and `re-frame.machines.lifecycle-fx.validation` (registration-time history-grammar checks). Citations are symbol-level (machines.cljc was split into sub-namespaces); re-verify symbol homes after machine-history changes.*
+*Derived from the `re-frame.machines.transition` history functions (`resolve-history-target`, `record-history-config`, `record-exit-history`) and `re-frame.machines.lifecycle-fx.validation` (registration-time history-grammar checks). Citations are symbol-level; re-verify symbol homes after machine-history changes.*

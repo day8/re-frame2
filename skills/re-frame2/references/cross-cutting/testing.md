@@ -277,7 +277,7 @@ For HTTP stubs, the fn form lets the test return a canned response shape without
                   (fn [m args]
                     ;; Deliver the CANONICAL reply envelope ({:status :ok :value …}),
                     ;; appended to the request's reply target — NOT a raw
-                    ;; {:status 200 :body …} (that dialect was retired).
+                    ;; {:status 200 :body …}, which no reply target reads.
                     (when-let [target (or (:reply-to args) (:on-success args))]
                       (rf/dispatch (conj target {:status :ok :value {:user "u1"}})
                                    {:frame (:frame m)})))}})

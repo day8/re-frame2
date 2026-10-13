@@ -84,7 +84,7 @@ If neither tier names a frame, the reader returns `nil` and a public frame-scope
 (rf/subscribe [:my-sub])                          ;; no opts → resolves the established scope (raises if none)
 ```
 
-(A frame-first `(subscribe frame-id query-v)` 2-arity still exists as **internal plumbing** — EP-0024 retired it from the taught app grammar; author with the `{:frame …}` opt. `unsubscribe` takes no frame at all: `(unsubscribe r)` hands back the reaction `subscribe` returned.)
+(A frame-first `(subscribe frame-id query-v)` 2-arity exists as **internal plumbing**, outside the app grammar (EP-0024); author with the `{:frame …}` opt. `unsubscribe` takes no frame at all: `(unsubscribe r)` hands back the reaction `subscribe` returned.)
 
 ## Carrying the frame into async callbacks
 
@@ -175,7 +175,7 @@ Two per-adapter React-context components, one verb each — **roots ensure; prov
   [rf/frame-root {:id :todo/left :images [todo-image] :initial-events [[:rf/set-db {...}]]} [todo-pane]]
   ```
 
-(`with-frame` remains for lexical / non-React ambient scoping — it binds a dynamic var, which cannot cross React's render boundary, which is why scope-into-React needs a context component rather than `with-frame`. True lifetime *ownership* — destroy-on-unmount — is now explicit: `make-frame` + `destroy-frame!` inside a `create-class`, where the component declares it owns the frame's life.)
+(`with-frame` is for lexical / non-React ambient scoping — it binds a dynamic var, which cannot cross React's render boundary, which is why scope-into-React needs a context component rather than `with-frame`. True lifetime *ownership* — destroy-on-unmount — is explicit: `make-frame` + `destroy-frame!` inside a `create-class`, where the component declares it owns the frame's life.)
 
 **Reaching a frame from a plain fn — the per-adapter recipe.** `reg-view`-wrapped components participate in the provider automatically (the wrapper carries `:contextType`). A plain Reagent fn carries no `:contextType`, so it **cannot read the provider's frame** from React context; its ambient `rf/subscribe` / `rf/dispatch` resolve to nil and raise `:rf.error/no-frame-context` (EP-0002) rather than silently routing to a default (per `spec/000-Vision.md` §Plain Reagent fns under non-default frames). On Reagent, fix it with `reg-view`, or register the fn via `reg-view*` — which gives the class its own `:contextType` — or carry the frame explicitly (`(rf/capture-frame frame-id)`, a `{:frame …}` opt, or a frame api threaded down). A **bare** no-arg `(rf/capture-frame)` inside the plain fn re-raises: no-arg capture works only from a live scope — a registered view, or a synchronous `with-frame` around the operation. The **hooks adapter (UIx)** differs: an ordinary `defui` reads the provider's frame through the `use-sub` / `use-frame` hooks (React context is read in hook position), so it needs no `reg-view` and no `:contextType`, and `reg-view*` only when the component must be addressable by id — but a bare no-arg `(rf/capture-frame)` still cannot read React context (it is not a hook), so carry the frame with the `use-frame` hook.
 

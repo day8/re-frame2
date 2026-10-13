@@ -36,7 +36,7 @@ A **concrete `:rf/path`** is a vector of EDN segments focusing a value inside or
 
 ### Path operations are internal-first
 
-The reference helpers — conceptually `get` / `lookup` / `put` / `over` / `compose` / `prefix?` / `overlap?` / `instantiate` — are **internal** today. There is no `re-frame.core` facade export. The *semantics* are normative now; the public names appear only once two or more consumers need them through the internal namespace. As an application author you use paths through the consumers (flows, resources, routes), not a public optics API. The takeaway: **path semantics are uniform**, because every subsystem uses the same shared relation rather than a private ad-hoc one.
+The reference helpers — conceptually `get` / `lookup` / `put` / `over` / `compose` / `prefix?` / `overlap?` / `instantiate` — are **internal**. There is no `re-frame.core` facade export: the *semantics* are normative, the names are not public. As an application author you use paths through the consumers (flows, resources, routes), not a public optics API. The takeaway: **path semantics are uniform**, because every subsystem uses the same shared relation rather than a private ad-hoc one.
 
 ### Missing versus present `nil`
 
