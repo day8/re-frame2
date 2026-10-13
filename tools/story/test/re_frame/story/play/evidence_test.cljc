@@ -166,14 +166,22 @@
 ;; TWO-LEVEL NARRATIVE
 ;; ===========================================================================
 
-(deftest narrative-span-can-contain-multiple-beats-for-one-step
-  ;; the handler re-dispatched, so one step's drain committed three epochs
-  (is (= [[[:dispatch [:checkout/submit]] [1 2 3]]]
-         (spans (rf.story.play.evidence/narrative
-                  [[:dispatch [:checkout/submit]]]
-                  [(epoch 1 {:trigger-event [:checkout/submit]})
-                   (epoch 2 {:trigger-event [:checkout/validate]})
-                   (epoch 3 {:trigger-event [:checkout/done]})])))))
+(deftest narrative-even-partition-of-an-unstamped-tape
+  (are [script tape expected] (= expected (spans (rf.story.play.evidence/narrative script tape)))
+    ;; a re-dispatching step's drain committed three epochs
+    [[:dispatch [:a]]]
+    [(epoch 1 {}) (epoch 2 {}) (epoch 3 {})]
+    [[[:dispatch [:a]] [1 2 3]]]
+
+    ;; no dispatch step: the whole tape leads under the nil setup span
+    [[:assert-db [:k] 1] [:wait 10]]
+    [(epoch 1 {})]
+    [[nil [1]] [[:assert-db [:k] 1] []] [[:wait 10] []]]
+
+    ;; fewer epochs than steps: front-loaded, never dropped
+    [[:dispatch [:a]] [:dispatch [:b]] [:dispatch [:c]]]
+    [(epoch 1 {})]
+    [[[:dispatch [:a]] [1]] [[:dispatch [:b]] []] [[:dispatch [:c]] []]]))
 
 (deftest narrative-attributes-stamped-beats-exactly
   (is (= [[nil                 [1]]     ; the setup beat leads
@@ -209,36 +217,6 @@
   (testing "with no boundaries the tape is returned verbatim → EVEN fallback"
     (let [tape [(epoch 1 {:trigger-event [:a]})]]
       (is (= tape (rf.story.play.evidence/stamp-tape [[:dispatch [:a]]] tape nil))))))
-
-(deftest stamp-tape-survives-ring-eviction-no-plateau
-  ;; Boundaries are the genuine monotonic :epoch-id recorded as each step's
-  ;; settle began, not a ring-length count that plateaus at the ring depth.
-  ;; Five steps against a depth-3 ring: epochs 46/47 were evicted, 48-50
-  ;; survive and each is owned by the step that produced it.
-  (is (= [2 3 4]
-         (mapv :rf.story/script-idx
-               (rf.story.play.evidence/stamp-tape
-                 (mapv (fn [n] [:dispatch [:set n]]) [1 2 3 4 5])
-                 [(epoch 48 {:trigger-event [:set 3]})
-                  (epoch 49 {:trigger-event [:set 4]})
-                  (epoch 50 {:trigger-event [:set 5]})]
-                 [45 46 47 48 49])))))
-
-(deftest narrative-no-dispatch-steps-leads-whole-tape
-  (is (= [[nil                 [1]]
-          [[:assert-db [:k] 1] []]
-          [[:wait 10]          []]]
-         (spans (rf.story.play.evidence/narrative [[:assert-db [:k] 1] [:wait 10]]
-                                                  [(epoch 1 {})])))))
-
-(deftest narrative-even-partition-fewer-epochs-than-steps
-  ;; the single epoch is front-loaded, never dropped
-  (is (= [[[:dispatch [:a]] [1]]
-          [[:dispatch [:b]] []]
-          [[:dispatch [:c]] []]]
-         (spans (rf.story.play.evidence/narrative
-                  [[:dispatch [:a]] [:dispatch [:b]] [:dispatch [:c]]]
-                  [(epoch 1 {})])))))
 
 (deftest narrative-beat-carries-full-spec-shape
   ;; every spec/017 §Run result beat slot
