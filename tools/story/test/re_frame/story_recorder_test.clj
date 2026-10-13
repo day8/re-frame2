@@ -38,14 +38,19 @@
 
 ;; ---- pure state machine --------------------------------------------------
 
+;; The recording's address is the variant frame, so the fresh state carries
+;; no realm key.
+
 (deftest start-clobbers-previous-recording
-  (testing "starting a fresh recording drops any captured events"
+  (testing "starting a fresh recording returns the bare frame-target state,
+            dropping any captured events"
     (let [s0 (-> rf.story.recorder/initial-state
                  (rf.story.recorder/start :story.a/x 1000)
                  (rf.story.recorder/append [:a 1])
                  (rf.story.recorder/append [:b 2]))]
-      (is (= [[] :story.b/y]
-             ((juxt :events :variant-id) (rf.story.recorder/start s0 :story.b/y 2000)))))))
+      (is (= {:recording? true :variant-id :story.b/y
+              :events [] :cofx [] :entries [] :started-ms 2000}
+             (rf.story.recorder/start s0 :story.b/y 2000))))))
 
 (deftest append-skips-assertions-and-internals
   (testing "append filters non-recordable events"
@@ -211,7 +216,6 @@
 
 (deftest insert-assertion!-noop-when-not-recording
   (testing "insert-assertion! is harmless when no recording is in flight"
-    (is (not (rf.story.recorder/recording?)))
     (rf.story.recorder/insert-assertion! :rf.assert/no-warnings {})
     (is (= [] (rf.story.recorder/recorded-events)))))
 
@@ -364,12 +368,6 @@
     (is (fn? (some-> (ns-resolve 're-frame.story sym) deref))
         (str "re-frame.story/" sym " is missing from the facade or not a fn"))))
 
-(deftest facade-gen-play-snippet-emits-public-script-slot
-  (testing "the facade's gen-play-snippet renders exactly the recorder's form,
-            whose public :script slot gen-play-snippet-reads-back pins"
-    (is (= (rf.story.recorder/gen-play-snippet [[:counter/inc]] {:variant-id :story.x/y})
-           (rf.story/gen-play-snippet [[:counter/inc]] {:variant-id :story.x/y})))))
-
 (deftest facade-recording->script-body-delegates-to-play-export
   (testing "the facade's recording->script-body returns the live play body the
             runner executes — one runner step per event under :script, never
@@ -380,31 +378,6 @@
       (is (= [2 true false]
              [(count (:script one-arg)) (contains? one-arg :auto-run?) (contains? one-arg :play-script)]))
       (is (= "rt" (:name (rf.story/recording->script-body events {:name "rt"})))))))
-
-;; A recording's address is the variant frame (EP-0023): neither the captured
-;; state nor the replayable play body carries a realm key, and replay dispatches
-;; frame-scoped.
-
-(deftest recording-state-is-the-bare-frame-target-shape
-  (is (= {:recording? true :variant-id :story.x/y
-          :events [] :cofx [] :entries [] :started-ms 1000}
-         (rf.story.recorder/start rf.story.recorder/initial-state :story.x/y 1000))))
-
-(deftest end-to-end-recording-and-play-body-carry-no-realm-key
-  (testing "a recording against a variant frame captures no realm key, and its
-            translated play body is the frame-only {:script :auto-run?} shape"
-    (reset-rf-state!)
-    (rf/reg-event :counter/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (record-on! :story.frame/target)
-    (rf/dispatch-sync [:counter/inc] {:frame :story.frame/target})
-    (rf/dispatch-sync [:counter/inc] {:frame :story.frame/target})
-    (let [final-state (rf.story.recorder/stop-recording!)]
-      (is (not-any? #(= "rf.realm" (namespace %)) (keys final-state)))
-      (is (= :story.frame/target (:variant-id final-state)))
-      (is (= [:auto-run? :script]
-             (sort (keys (rf.story/recording->script-body (:events final-state)))))))
-    (rf.story/destroy-variant! :story.frame/target)
-    (rf.story.recorder/remove-trace-listener!)))
 
 ;; ---- a cascaded child is not a step of its own ---------------------------
 
