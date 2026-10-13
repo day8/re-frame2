@@ -234,14 +234,15 @@
    {:rung :sub-overrides :label "sub overrides" :strength :low}])
 
 (defn fidelity-badges
-  "Project a plan's `:fidelity` SET into ordered badge rows (highest-fidelity
-  rung first). Pure data → data. Each row is `{:rung … :label … :strength …
-  :present? <bool>}` — the renderer tints a present rung by strength and
-  greys an absent one, so the ladder reads as a whole (a variant resting only
-  on `:sub-overrides` visibly lacks the higher rungs). An empty `:fidelity`
-  set (the render-the-view-as-mounted variant) marks every rung absent."
+  "Project a plan's `[:world :fidelity]` SET into ordered badge rows
+  (highest-fidelity rung first). Pure data → data. Each row is `{:rung …
+  :label … :strength … :present? <bool>}` — the renderer tints a present rung
+  by strength and greys an absent one, so the ladder reads as a whole (a
+  variant resting only on `:sub-overrides` visibly lacks the higher rungs). An
+  absent fidelity slot (the render-the-view-as-mounted variant) marks every
+  rung absent."
   [plan]
-  (let [present (or (:fidelity plan) #{})]
+  (let [present (or (get-in plan [:world :fidelity]) #{})]
     (mapv (fn [rung] (assoc rung :present? (contains? present (:rung rung))))
           fidelity-rungs)))
 
@@ -256,7 +257,7 @@
   not shown)."
   [plan]
   (let [world (:world plan)
-        chips [{:key :setup         :label "setup events" :present? (boolean (seq (:setup plan)))}
+        chips [{:key :setup         :label "setup events" :present? (boolean (seq (:setup world)))}
                {:key :script        :label "script"       :present? (boolean (seq (:script plan)))}
                {:key :db-seed       :label "db seed"      :present? (some? (:db-seed world))}
                {:key :sub-overrides :label "sub overrides"
