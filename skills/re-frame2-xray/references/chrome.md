@@ -123,8 +123,8 @@ pill is a typed predicate (`:event-id-pattern` /
 source `src/filters/`. *(These are L1-ribbon filters — distinct from the
 Trace panel, which has no filtering.)*
 
-**`● REDACTED N`** is the third suppression signal on the ribbon, and
-neither the pills nor the mute manager control it: it counts sensitive
+**`● REDACTED N`**, on the L1 ribbon, is a third suppression signal that
+neither the pills nor the mute manager control: it counts sensitive
 (`:sensitive? true`) trace events the trace collector dropped under the
 default `:rf.egress/local-redacted` egress profile, and renders only when
 N > 0. Its tooltip names the reveal — `(xray-config/configure!

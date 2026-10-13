@@ -57,7 +57,7 @@ is conveyed by omission, not an empty-state row). The step order:
 A handler / interceptor / coeffect / fx / flow exception renders UNDER
 the step where it occurred via the shared **"Exception Thrown"** card,
 and a step that never ran shows its SKIPPED body. Schema violations
-attach inline the same way. The one per-row glyph column is the EFFECT
+attach inline the same way. Per-effect status glyphs live in the EFFECT
 HANDLERS ledger below.
 
 **Open when:** "what did this event do?", "where did the cascade fail?",
