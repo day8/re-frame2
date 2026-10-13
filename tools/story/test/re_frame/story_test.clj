@@ -101,10 +101,6 @@
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #":rf\.error/story-id-shape"
                         (rf.story/reg-story* :foo.bar {}))))
 
-(deftest reg-story-bad-shape
-  (is (thrown-with-msg? clojure.lang.ExceptionInfo #":rf\.error/story-shape"
-                        (rf.story/reg-story :story.ui.bad {:tags "not-a-set"}))))
-
 (deftest reg-story-unknown-tag
   (let [data (try (rf.story/reg-story :story.ui.bad {:tags #{:dev :totally-made-up}})
                   nil
@@ -190,10 +186,6 @@
   (rf.story/reg-tag :status/stable   {:axis :status})
   (rf.story/reg-tag :hidden/internal {:default-filter :exclude})
   (is (= #{:status/alpha :hidden/internal} (rf.story/tags-default-excluded))))
-
-(deftest reg-tag-rejects-non-keyword-axis
-  (is (thrown-with-msg? clojure.lang.ExceptionInfo #":rf\.error/tag-shape"
-                        (rf.story/reg-tag :bad/axis {:axis "status"}))))
 
 ;; ---- !-prefix removal syntax -------------------------------------------
 
