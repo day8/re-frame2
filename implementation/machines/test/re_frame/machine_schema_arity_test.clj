@@ -1,33 +1,14 @@
 (ns re-frame.machine-schema-arity-test
   "The single registration home and the public `reg-machine` event-vector
-  `:schema` arity.
+  `:schema` arity. The `:where :machine-data` walker resolves `[:schemas :data]`
+  through the `:rf/machine` registration stamp, so the opts arity must stamp it
+  too:
 
-  Background. A machine carrying a `[:schemas :data]` schema must flow through the
-  single registration home so the `:rf/machine?` / `:rf/machine`
-  registration-metadata stamp runs — the `:where :machine-data` post-commit
-  walker resolves the `[:schemas :data]` schema THROUGH the `:rf/machine` registrar projection, so
-  without the stamp the schema validates nothing.
-
-  The single home (`reg-machine*` and its event-`:schema` arity) stamps the
-  meta.
-
-  A `[:schemas :data]` schema is validation-only; it does not run a second
-  egress-classification side-effect. Durable machine `:data` egress
-  classification rides the projection-relative subsystem declaration / the
-  commit-plane `:sensitive` / `:large` effects (EP-0025), and that redaction
-  surface is pinned by `machine-data-schema-redaction-test`.
-
-  Contract under test:
-
-   1. **Auto-stamp / live validation via the event-:schema arity.** A machine
-      registered via `(reg-machine* id {:schema EventSchema} machine)` — the
-      opts metadata map is the canonical MIDDLE slot — validates its
-      `[:schemas :data]` schema.
-
-   2. **Event-vector :schema arity.** The `:schema` on the opts map validates
-      the dispatched OUTER event vector at the `:where :event` boundary
-      (rejecting a malformed vector BEFORE the handler runs), while the
-      `[:schemas :data]` schema validates the machine's `:data`. Both live together."
+   1. A machine registered via `(reg-machine* id {:schema EventSchema} machine)`
+      validates its `[:schemas :data]`.
+   2. The opts `:schema` validates the dispatched OUTER event vector at the
+      `:where :event` boundary, rejecting a malformed vector before the handler
+      runs."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             ;; Loading the machines artefact publishes its late-bind hooks
