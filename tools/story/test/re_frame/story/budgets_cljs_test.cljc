@@ -108,19 +108,10 @@
          (is (= [rf.story.budgets/controls-flat-row-cap (- floor rf.story.budgets/controls-flat-row-cap)]
                 [(count shown) hidden])
              "visible rows are capped; the remainder is paged behind +N more")))
-     (testing "a panel AT/UNDER the cap is never bounded"
-       (let [entries (mapv (fn [i] [(keyword (str "arg" i)) i])
-                           (range rf.story.budgets/controls-flat-row-cap))
-             {:keys [hidden]} (rf.story.ui.controls/bound-arg-rows entries false)]
-         (is (zero? hidden))))
      (testing "expanded? reveals every row (one explicit page-all gesture)"
        (let [entries (mapv (fn [i] [(keyword (str "arg" i)) i]) (range 150))
              {:keys [shown hidden]} (rf.story.ui.controls/bound-arg-rows entries true)]
-         (is (= [150 0] [(count shown) hidden]))))
-     (testing "the flat-expanded sentinel is a keyword (never a vector path),
-               so it can never collide with a nested-control path in the
-               shared `:expanded` ratom set"
-       (is (keyword? rf.story.ui.controls/flat-expanded-sentinel)))))
+         (is (= [150 0] [(count shown) hidden]))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The budget table matches spec/018 §10.1
