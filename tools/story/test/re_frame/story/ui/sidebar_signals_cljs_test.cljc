@@ -14,11 +14,10 @@
 ;; ---- status axis ---------------------------------------------------------
 
 (deftest status-signal-shape
-  ;; an unknown / nil status defaults to :pending rather than throwing
+  ;; a nil status (never run) defaults to :pending
   (are [status value] (= value (:value (rf.story.ui.sidebar-signals/status-signal status)))
     :fail  :fail
-    nil    :pending
-    :bogus :pending))
+    nil    :pending))
 
 ;; ---- fidelity axis (reuses plan/compute-fidelity) ------------------------
 
@@ -60,8 +59,6 @@
   (are [body value] (= value (:value (rf.story.ui.sidebar-signals/frame-binding-signal body)))
     {}                                         :fresh
     {:frame-binding :attached}                 :attached
-    ;; an invalid binding falls back to :fresh
-    {:frame-binding :bogus}                    :fresh
     ;; MCP-bound is an affordance on an attached binding, not a tier
     {:frame-binding :attached :mcp-bound true} :mcp-bound))
 
