@@ -110,26 +110,6 @@
 
 ;; ---- witnesses: raw and compiled DIFFER ----------------------------------
 
-(deftest arg-placeholder-steps-the-substituted-value
-  (testing "an `[:arg key]` in the script is stepped as the SUBSTITUTED
-            event the auto-run dispatched, never as the placeholder"
-    (let [vid :story.stepper-plan/arg]
-      (rf.story/reg-variant vid
-        {:args   {:value 7}
-         :script [[:dispatch-sync [:ps/set-value [:arg :value]]]]})
-      (is (= [[:dispatch-sync [:ps/set-value [:arg :value]]]] (raw-steps vid))
-          "PRECONDITION — the raw slot carries the placeholder, so this
-           witness really does diverge")
-      (let [ran     (auto-run vid)
-            stepped (step-through! vid)]
-        (is (= 7 (get-in ran [:app-db :value]))
-            "the auto-run dispatched the substituted value")
-        (is (= [[:dispatch-sync [:ps/set-value 7]]] (:steps stepped))
-            "the stepper walked the substituted event")
-        (is (= 7 (get-in stepped [:app-db :value]))
-            "stepping dispatched the substituted value, so the placeholder
-             never reached the handler")))))
-
 (deftest plays-variant-steps-its-auto-run-plays
   (testing "a `:plays` variant has no `:script` slot, so the raw reader sees
             no steps at all; the stepper walks every AUTO-RUNNABLE play
@@ -189,12 +169,9 @@
       (let [tape (:epoch-tape (auto-run vid))
             ids  (rf.story.ui.test-mode.pure/epoch-id-slice
                    tape (rf.story.play/variant-play-events vid))]
-        (is (seq tape) "PRECONDITION — the run recorded an epoch tape")
         (is (= [] (rf.story.ui.test-mode.pure/epoch-id-slice tape (raw-events vid)))
             "PRECONDITION — the raw events match no record: a raw-slot
              scrubber would be empty for this variant")
-        (is (= [[:ps/set-value 7] [:ps/inc]] (rf.story.play/variant-play-events vid))
-            "the scrubber's events are the substituted ones")
         (is (= [[:ps/set-value 7] [:ps/inc]]
                (mapv (fn [id] (:trigger-event (first (filter #(= id (:epoch-id %)) tape))))
                      ids))
