@@ -201,7 +201,7 @@
                               "` replies via a function — the recipient "
                               "loses the dynamic reply but keeps the route")}))
             (or net {}))
-      (when (contains-fn? (:setup plan))
+      (when (contains-fn? (:setup world))
         [{:status :partial
           :code   :setup-fn
           :detail (str "a setup step carries a function — the recipient "
@@ -237,8 +237,8 @@
   `inputs`:
 
     :plan           — the variant's compiled plan (`plan/variant-plan`), or
-                      nil. Supplies `:world` (`:sub-overrides`, `:network`),
-                      `:setup`, `:script`. A nil plan contributes no plan-
+                      nil. Supplies `:world` (`:sub-overrides`, `:network`,
+                      `:setup`) and `:script`. A nil plan contributes no plan-
                       derived reasons (a variant whose plan does not compile
                       still shares — its overrides are classified on their
                       own).
