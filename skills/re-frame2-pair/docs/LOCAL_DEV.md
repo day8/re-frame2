@@ -2,8 +2,8 @@
 
 npm publishing is for distribution to other people. While developing the skill itself — or dogfooding it against a real re-frame2 app before the first release — you run it straight from a clone. Three install paths, most to least convenient.
 
-> **Note (consolidation):** This skill now lives under
-> `re-frame2/skills/re-frame2-pair/`. The example paths below assume you have
+> **Paths.** This skill lives under `re-frame2/skills/re-frame2-pair/`.
+> The example paths below assume you have
 > a re-frame2 clone at `~/code/re-frame2` (or `%USERPROFILE%\code\re-frame2`)
 > and are linking the `skills/re-frame2-pair/` subdirectory. Adjust the source
 > path if your clone is elsewhere.

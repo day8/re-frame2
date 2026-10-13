@@ -1,12 +1,10 @@
 # Releasing re-frame2-pair
 
-> **Skill-internal meta-doc (historical).** This skill lives at
-> `re-frame2/skills/re-frame2-pair/`; the standalone `day8/re-frame2-pair`
-> repo is no longer the source of truth. The former skill-local
-> `release.yml` GitHub Actions workflow has been **removed** — releases
-> now ride re-frame2's own release pipeline, not a skill-local workflow.
+> **Skill-internal meta-doc.** This skill's source of truth is
+> `re-frame2/skills/re-frame2-pair/`. Releases ride re-frame2's own release
+> pipeline; this directory carries no release workflow of its own.
 
-## What still holds
+## Release rules
 
 - **Version lockstep.** `package.json` `version` is the single source of
   truth; `.claude-plugin/plugin.json` `"version"` MUST match it. Bump both

@@ -8,17 +8,16 @@ A living record of what's actually implemented, what's scaffolded, and what's bl
 
 | Area | State |
 |---|---|
-| Design spec | Complete (see `docs/initial-spec.md`) — superseded as the *transport* description by the MCP server |
+| Design record | `docs/initial-spec.md` — the original design record; the live contract is `SKILL.md` + `references/` |
 | Transport | **MCP server (`tools/re-frame2-pair-mcp/`) is the ONLY skill-facing transport.** `allowed-tools:` carries no shell tool. |
 | Tool catalogue | **30 MCP tools** (catalogued in `tools/re-frame2-pair-mcp/tool-descriptors.edn`). All 30 reachable from `allowed-tools:`; the two write tools `restore-epoch` + `replace-app-db` are the canonical named-write path and refuse with `:rf.error/writes-disabled` unless the server is launched with the default-OFF `--allow-writes` flag (the server's gate, not the allow-list, is the write boundary). |
 | `SKILL.md` + `references/*.md` | Written — the full vocabulary Claude learns; the routed leaves carry the live surface. |
 | `preload/re_frame2_pair/runtime.cljs` | Written — helpers over re-frame2's public Tool-Pair surfaces. Loaded into the app via shadow-cljs `:devtools :preloads`. |
-| Bash / babashka transport (`scripts/*.sh` + `ops.clj`) | **Removed.** The MCP server is the one implementation of every operation; the retired parallel stack was deleted. The live connect/dispatch/trace/hot-reload coverage moved to `tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs` (drives the built server over stdio). |
 | Push-mode streaming | **None** — there is no push channel; turn-shaped observation (dispatch consequence, `watch-epochs` / `trace-window`, `watch-until`, `record` + `read-recording`, `tail-build`) is the one supported live-observation workflow. |
-| Fixture app | **Landed** — `tests/fixture/`. Minimal Reagent counter + `re-frame2-pair.runtime` preload. |
+| Fixture app | **Present** — `tests/fixture/`. Minimal Reagent counter + `re-frame2-pair.runtime` preload. |
 | `.claude-plugin/plugin.json`, `package.json` | Written. Release rides re-frame2's own release pipeline — this skill ships no skill-local CI/release workflow (see `RELEASING.md`). |
 
-**Validation envelope is in place.** The changed-surface test surfaces run in PR CI when `skills/re-frame2-pair/**` changes; the live e2e fixture provides ground truth on demand. Boot gates: `eval-cljs` ships ENABLED (`--no-eval` to opt out); `--allow-sensitive-reads` (default OFF) and `--allow-writes` (default OFF) are the privacy + write gates. The structured-read egress posture is now expressed as the EP-0015 §10 named profile `:rf.egress/off-box-tool` (the off-box default; sensitive → `:rf/redacted`, large → `:rf.size/large-elided`); the `--allow-sensitive-reads` + per-call `:include-sensitive` two-key opt-in selects `:rf.egress/local-raw` (raw). The profile resolves to its `:rf.egress/*` floor through the framework table (mirrored byte-identically for the bundle in `re-frame.mcp-base.egress`, pinned by the mcp-conformance wire-vocab gate) — the server never re-derives the redaction posture from an ad-hoc toggle. Still pre-alpha — see *Known unknowns* below.
+**Validation envelope is in place.** The changed-surface test surfaces run in PR CI when `skills/re-frame2-pair/**` changes; the live e2e fixture provides ground truth on demand. Boot gates: `eval-cljs` ships ENABLED (`--no-eval` to opt out); `--allow-sensitive-reads` (default OFF) and `--allow-writes` (default OFF) are the privacy + write gates. The structured-read egress posture is expressed as the EP-0015 §10 named profile `:rf.egress/off-box-tool` (the off-box default; sensitive → `:rf/redacted`, large → `:rf.size/large-elided`); the `--allow-sensitive-reads` + per-call `:include-sensitive` two-key opt-in selects `:rf.egress/local-raw` (raw). The profile resolves to its `:rf.egress/*` floor through the framework table (mirrored byte-identically for the bundle in `re-frame.mcp-base.egress`, pinned by the mcp-conformance wire-vocab gate) — the server never re-derives the redaction posture from an ad-hoc toggle. Still pre-alpha — see *Known unknowns* below.
 
 ---
 

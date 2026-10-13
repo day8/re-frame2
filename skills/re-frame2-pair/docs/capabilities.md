@@ -6,7 +6,6 @@ A scorecard against the real-world surface of re-frame2 + SPA development, mappe
 
 - *done* — implemented and exercisable (caveats noted inline)
 - *partial* — designed but limited
-- *spike* — code path in place; depends on §8a spike items landing
 - *not yet*
 - *guardrail* — a *safety property*, encoded in design or protocol rather than a concrete op
 
@@ -96,7 +95,7 @@ What re-frame2-pair can see inside a live re-frame2 app.
 
 Full procedures in [`references/recipes.md`](../references/recipes.md).
 
-**Live observation is turn-shaped** — every observation arrives as a completed tool result, and there are five routes: a `dispatch` consequence, the `watch-epochs` / `trace-window` poll, a blocking `watch-until`, `record` + `read-recording`, and `tail-build`. Push-mode streaming was retired; these five are the one supported live-observation workflow (see [`STATUS.md`](../STATUS.md)).
+**Live observation is turn-shaped** — every observation arrives as a completed tool result, and there are five routes: a `dispatch` consequence, the `watch-epochs` / `trace-window` poll, a blocking `watch-until`, `record` + `read-recording`, and `tail-build`. There is no push-mode streaming; these five are the one supported live-observation workflow (see [`STATUS.md`](../STATUS.md)).
 
 | Recipe | Status |
 |---|---|
