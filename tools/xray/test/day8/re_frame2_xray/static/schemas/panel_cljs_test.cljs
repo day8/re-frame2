@@ -104,12 +104,6 @@
            :source-coord {:file "src/user.cljs" :line 12 :ns 'user}}]
          (panel/project-app-schema-rows (:schemas-by-frame sample-registry)))))
 
-(deftest filter-rows-substring
-  (let [rows (panel/project-rows (:schemas-by-frame sample-registry)
-                                 (:events sample-registry)
-                                 (:subs   sample-registry))]
-    (is (= [:user/login] (mapv :id (panel/filter-rows rows "login"))))))
-
 (deftest project-data-shape
   ;; nil frame-id = list every frame's app-db schemas (see
   ;; scope-app-schemas-to-frame). `:no-schema/event` carries no `:schema`.
@@ -126,63 +120,39 @@
 ;; (2) registry wiring
 ;; -------------------------------------------------------------------------
 
-(deftest set-query-writes-the-slot
+(deftest set-query-filters-the-catalogue
+  ;; The query slot reaches tab-data, whose haystack matches the event id.
   (setup-xray!)
   (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray.static.schemas/set-query "user"])
-    (is (= "user" @(rf/subscribe [:rf.xray.static.schemas/query])))))
+    (rf/dispatch-sync
+      [:rf.xray.static.schemas/set-registry-override-for-test sample-registry])
+    (rf/dispatch-sync [:rf.xray.static.schemas/set-query "login"])
+    (is (= [:user/login]
+           (mapv :id (:schemas @(rf/subscribe [:rf.xray.static.schemas/tab-data])))))))
 
 ;; -------------------------------------------------------------------------
-;; (2b) THE PRODUCTION PATH — rows that reach the panel through REAL
-;;      registrations, with no override seam anywhere
+;; (2b) THE PRODUCTION PATH — real registrations, no override seam
 ;; -------------------------------------------------------------------------
 ;;
-;; A synthetic metadata map fed through the override seam can carry any key
-;; at all, so a panel reading the wrong metadata key — `:spec` rather than
-;; `:schema` — would show zero event rows and zero sub rows against every
-;; real host app while every override-based row stayed green. A live
-;; `rf/reg-event` CANNOT carry `:spec`: the registrar hard-errors on it
-;; (`:rf.error/retired-registration-key`, pinned by
-;; `re-frame.reg-meta-noswallow-cljs-test/retired-spec-key-hard-errors-per-registrar`).
-;;
-;; So this row registers through the PUBLIC registrars and reads through the
-;; PRODUCTION `:rf.xray.static.schemas/registry` sub, which has no override
-;; branch to fall into.
-
-(def ^:private live-event-id ::live-event)
-(def ^:private live-sub-id   ::live-sub)
-(def ^:private live-bare-id  ::live-event-without-schema)
-
-(defn- setup-xray-production!
-  "`setup-xray!` WITHOUT `install-test-overrides!`, so
-  `:rf.xray.static.schemas/registry` stays the PRODUCTION sub. Nothing in
-  this section can inject a registry value; the only way to move the panel
-  is to register something."
-  []
-  (registry/register-xray-handlers!)
-  (rf/make-frame {:id :rf/xray}))
-
-(defn- register-live-schemas!
-  "Three REAL registrations through the public registrars: an event and a
-  sub carrying the canonical `:schema` metadata key, plus one event
-  carrying none (the non-vacuity control — the panel must drop it)."
-  []
-  (rf/reg-event live-event-id
-    {:doc "a really-registered event" :schema [:tuple :keyword :string]}
-    (fn [{:keys [db]} _] {:db db}))
-  (rf/reg-sub live-sub-id
-    {:doc "a really-registered sub" :schema :string}
-    (fn [db _] (str db)))
-  (rf/reg-event live-bare-id
-    {:doc "carries no :schema — must not surface"}
-    (fn [{:keys [db]} _] {:db db})))
+;; Override metadata can carry any key, so a panel reading `:spec` rather
+;; than `:schema` would stay green on every override-based row; a live
+;; `rf/reg-event` cannot carry `:spec`, because the registrar hard-errors on it.
 
 (deftest live-registrations-surface-through-the-production-read
   (testing "an event and a sub registered through the PUBLIC
             registrars surface as rows in the panel's own composite, read
             through the PRODUCTION registry sub with no override installed"
-    (setup-xray-production!)
-    (register-live-schemas!)
+    (registry/register-xray-handlers!)
+    (rf/make-frame {:id :rf/xray})
+    (rf/reg-event ::live-event
+      {:doc "a really-registered event" :schema [:tuple :keyword :string]}
+      (fn [{:keys [db]} _] {:db db}))
+    (rf/reg-sub ::live-sub
+      {:doc "a really-registered sub" :schema :string}
+      (fn [db _] (str db)))
+    (rf/reg-event ::live-event-without-schema
+      {:doc "carries no :schema — must not surface"}
+      (fn [{:keys [db]} _] {:db db}))
     (rf/with-frame :rf/xray
       (let [by-id (into {} (map (juxt :id identity))
                         (:schemas @(rf/subscribe [:rf.xray.static.schemas/tab-data])))]
@@ -190,14 +160,14 @@
                 :frame  nil
                 :schema [:tuple :keyword :string]
                 :doc    "a really-registered event"}
-               (select-keys (get by-id live-event-id) [:kind :frame :schema :doc]))
+               (select-keys (get by-id ::live-event) [:kind :frame :schema :doc]))
             (str "the really-registered EVENT is a cross-frame row — the "
                  "registrar is process-global (Spec 001). Ids seen: "
                  (pr-str (keys by-id))))
         (is (= {:kind :sub :schema :string}
-               (select-keys (get by-id live-sub-id) [:kind :schema]))
+               (select-keys (get by-id ::live-sub) [:kind :schema]))
             "the really-registered SUB is on the catalogue too")
-        (is (not (contains? by-id live-bare-id))
+        (is (not (contains? by-id ::live-event-without-schema))
             "NON-VACUITY: a real registration carrying NO `:schema` is
              dropped, so the two rows above are the key being read and not
              every registration being listed")))))
