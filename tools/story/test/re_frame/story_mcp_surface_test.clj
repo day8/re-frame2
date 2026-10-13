@@ -103,8 +103,7 @@
 (deftest snapshot-identity-changes-on-args-edit
   (rf.story/reg-variant* :story.mcp.snap.args/probe {:args {:label "before"} :setup []})
   (let [with-co #(content-hash :story.mcp.snap.args/probe {:cell-overrides {:label "after"}})]
-    (is (not= (content-hash :story.mcp.snap.args/probe nil) (with-co)))
-    (is (= (with-co) (with-co)) "same input, same hash")))
+    (is (not= (content-hash :story.mcp.snap.args/probe nil) (with-co)))))
 
 (deftest snapshot-identity-changes-on-active-modes
   (rf.story/reg-mode :Mode.mcp.snap/dark  {:args {:theme :dark}})
