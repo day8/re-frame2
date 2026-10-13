@@ -8,18 +8,12 @@
 ;; ---- domino-bucket --------------------------------------------------------
 
 (deftest domino-bucket-classifies-each-trace-event
-  (testing "one row per classification arm; the classification is total, so
-            anything outside the vocabulary — or no shape at all — is :other"
+  (testing "the arms group-by-event cannot show: run-start shares the :handler
+            slot with run-end, and the classification is total, so an unbucketed
+            :rf.event operation — or no shape at all — is :other"
     (are [ev bucket] (= bucket (rf.trace.projection/domino-bucket ev))
-      {:op-type :rf.event :operation :rf.event/dispatched}   :event
       {:op-type :rf.event :operation :rf.event/run-start}    :handler
-      {:op-type :rf.event :operation :rf.event/run-end}      :handler
       {:op-type :rf.event :operation :rf.event/db-changed}   :other
-      {:op-type :rf.fx :operation :rf.fx/do-fx}              :fx
-      {:op-type :rf.fx :operation :rf.fx/handled}            :effect
-      {:op-type :rf.sub :operation :rf.sub/run}              :sub
-      {:op-type :rf.view :operation :rf.view/render}         :render
-      {:op-type :error :operation :rf.error/no-such-handler} :other
       {}                                                     :other)))
 
 ;; ---- group-by-event -------------------------------------------------------
@@ -92,14 +86,13 @@
   (is (= [] (rf.trace.projection/group-by-event nil))))
 
 (deftest group-by-event-surfaces-parent-dispatch-id
-  (testing ":parent-dispatch-id is read off the dispatched event's tag; a root has none
-            (Spec 009 §Dispatch correlation)"
-    (are [tags parent] (= parent (:parent-dispatch-id
-                                   (first (rf.trace.projection/group-by-event
-                                            [{:id 1 :op-type :rf.event :operation :rf.event/dispatched
-                                              :tags tags}]))))
-      {:rf.trace/dispatch-id 20 :rf.trace/parent-dispatch-id 10 :rf.event/v [:form/validate]} 10
-      {:rf.trace/dispatch-id 10 :rf.event/v [:user/click]}                                   nil)))
+  (testing ":parent-dispatch-id is read off the dispatched event's tag
+            (Spec 009 §Dispatch correlation); the root case is in six-buckets"
+    (is (= 10 (:parent-dispatch-id
+                (first (rf.trace.projection/group-by-event
+                         [{:id 1 :op-type :rf.event :operation :rf.event/dispatched
+                           :tags {:rf.trace/dispatch-id 20 :rf.trace/parent-dispatch-id 10
+                                  :rf.event/v [:form/validate]}}])))))))
 
 (deftest group-by-event-orders-dispatched-root-only-bundle-by-its-own-id
   (testing "a root-only bundle sorts by its :dispatched event's :id — the bare
