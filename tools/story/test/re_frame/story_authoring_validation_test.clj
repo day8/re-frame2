@@ -65,28 +65,20 @@
 
 ;; ---- fragments + checks ---------------------------------------------------
 
-;; ---- fragments + checks ---------------------------------------------------
-
 (deftest reg-fragment-registers-and-is-queryable
   (rf.story/reg-fragment :fragment.cart/with-sku
     {:args {:sku "A"} :setup [[:dispatch [:cart/add {:sku [:arg :sku]}]]]})
   (is (= {:sku "A"} (:args (rf.story/handler-meta :fragment :fragment.cart/with-sku)))))
 
-(deftest reg-fragment-rejects-nested-compose
-  (is (= :rf.error/fragment-shape
-         (error-id #(rf.story/reg-fragment :fragment.bad/nested
-                      {:compose [:fragment.cart/with-sku] :setup [[:dispatch [:x]]]})))))
-
-(deftest reg-fragment-rejects-judgement-slots
-  (is (= :rf.error/fragment-shape
-         (error-id #(rf.story/reg-fragment :fragment.bad/judges
-                      {:assertions [[:rf.assert/no-warnings]]})))))
-
-(deftest reg-fragment-rejects-retired-slots
-  (testing "the fragment body is closed: an undeclared slot rejects"
-    (is (= :rf.error/fragment-shape
-           (error-id #(rf.story/reg-fragment* :fragment.vocab/legacy
-                        {:play-script [[:dispatch [:a]]]}))))))
+(deftest reg-fragment-body-is-flat-unjudged-and-closed
+  (doseq [[label register!]
+          [["no nested :compose" #(rf.story/reg-fragment :fragment.bad/nested
+                                    {:compose [:fragment.cart/with-sku] :setup [[:dispatch [:x]]]})]
+           ["no judgement slots" #(rf.story/reg-fragment :fragment.bad/judges
+                                    {:assertions [[:rf.assert/no-warnings]]})]
+           ["no undeclared slot" #(rf.story/reg-fragment* :fragment.vocab/legacy
+                                    {:play-script [[:dispatch [:a]]]})]]]
+    (is (= :rf.error/fragment-shape (error-id register!)) label)))
 
 (deftest reg-check-requires-assertions
   (is (= :rf.error/check-shape (error-id #(rf.story/reg-check :check/empty {:doc "no assertions"})))))
