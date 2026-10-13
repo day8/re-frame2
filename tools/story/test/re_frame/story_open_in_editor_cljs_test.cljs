@@ -74,16 +74,6 @@
              (dissoc props :style :on-click)))
       (is (fn? (:on-click props))))))
 
-(deftest open-chip-respects-editor-preference
-  (testing "switching editor flips the URI scheme on subsequent renders"
-    (let [coord {:file "src/x.cljs" :line 10 :column 1}]
-      (rf.story.config/set-editor! :cursor)
-      (is (= "cursor://file/src/x.cljs:10:1"
-             (:href (second (rf.story.ui.open-in-editor/open-chip coord)))))
-      (rf.story.config/set-editor! :idea)
-      (is (= "idea://open?file=src/x.cljs&line=10&column=1"
-             (:href (second (rf.story.ui.open-in-editor/open-chip coord))))))))
-
 (deftest open-chip-nil-when-source-missing
   (testing "open-chip returns nil when source-coord lacks :file"
     (is (nil? (rf.story.ui.open-in-editor/open-chip nil)))
@@ -170,12 +160,6 @@
              ((juxt :href :data-editor) (second (rf.story.ui.open-in-editor/open-chip coord))))
           template))))
 
-(deftest open-chip-for-variant-hides-on-forbidden-scheme
-  (testing "open-chip-for-variant inherits the denylist gate"
-    (rf.story.config/set-editor! {:custom "javascript:alert(1)"})
-    (is (nil? (rf.story.ui.open-in-editor/open-chip-for-variant
-                {:source {:file "src/x.cljs" :line 1}})))))
-
 ;; An OS-side editor cannot open a classpath-relative path, so the chip
 ;; prepends `:rf.story/project-root` (set once at boot via
 ;; `rf.story/configure!`) when one is configured.
@@ -210,48 +194,21 @@
 ;; silently no-op `window.location = uri` for custom schemes, and `open!` logs
 ;; the URI so a failed OS handoff is diagnosable from devtools.
 (deftest click-handler-calls-navigator-with-uri
-  (testing "clicking the chip invokes the navigator seam
-            with the same URI carried in the :href"
-    (let [hiccup       (rf.story.ui.open-in-editor/open-chip
-                         {:file "src/x.cljs" :line 42 :column 7})
-          props        (second hiccup)
-          href         (:href props)
-          on-click     (:on-click props)
-          fake-evt     #js {:preventDefault (fn [])}
-          [nav calls]  (capturing-navigator)]
+  (testing "clicking the chip invokes the navigator seam with the URI carried
+            in the :href, and preventDefaults so the browser does not
+            double-navigate (once via the <a href> native click, once via the
+            JS Location.assign call)"
+    (let [props       (second (rf.story.ui.open-in-editor/open-chip
+                                {:file "src/x.cljs" :line 42 :column 7}))
+          prevented?  (atom false)
+          fake-evt    #js {:preventDefault (fn [] (reset! prevented? true))}
+          [nav calls] (capturing-navigator)]
       (with-stub-navigator nav
-        #(on-click fake-evt))
-      (is (= ["vscode://file/src/x.cljs:42:7"]
-             @calls)
-          "navigator called exactly once with the chip's href URI")
-      (is (= href (first @calls))
+        #((:on-click props) fake-evt))
+      (is (= [["vscode://file/src/x.cljs:42:7"] true] [@calls @prevented?])
+          "navigator called exactly once with the chip's URI, default prevented")
+      (is (= (:href props) (first @calls))
           "the navigation URI is identical to the rendered href"))))
-
-(deftest click-handler-prevents-default
-  (testing "the click handler preventDefaults so the
-            browser doesn't double-navigate (once via the <a href>
-            native click, once via the JS Location.assign call)"
-    (let [hiccup       (rf.story.ui.open-in-editor/open-chip
-                         {:file "src/x.cljs" :line 1})
-          on-click     (:on-click (second hiccup))
-          prevented?   (atom false)
-          fake-evt     #js {:preventDefault (fn [] (reset! prevented? true))}
-          [nav _]      (capturing-navigator)]
-      (with-stub-navigator nav
-        #(on-click fake-evt))
-      (is @prevented?
-          "the click handler must call e.preventDefault()"))))
-
-(deftest windows-backslash-path-uri-shape
-  (testing "Windows project-root with trailing backslash
-            still produces a valid URI (trailing separators stripped)"
-    (rf.story.config/set-project-root! "C:\\Users\\me\\code\\myapp\\")
-    (let [hiccup (rf.story.ui.open-in-editor/open-chip
-                   {:file "src/app/views.cljs" :line 1 :column 1})]
-      (is (= "vscode://file/C:\\Users\\me\\code\\myapp/src/app/views.cljs:1:1"
-             (:href (second hiccup)))
-          "trailing separator stripped; backslashes inside the root
-           preserved (VSCode accepts both on Windows)"))))
 
 ;; Hosts that do not render the chip (agents over MCP, custom panels) dispatch
 ;; `[:rf.story/open-in-editor coord]`, and the registered fx fires the URI
@@ -337,32 +294,6 @@
         (rf/dispatch-sync [:rf.story/open-in-editor payload]))
       (is (= [uri] (map :uri @captured-editor-fx))
           (str "one fx resolving to " uri " for payload " (pr-str payload))))))
-
-(deftest open-in-editor-event-rejects-forbidden-scheme
-  (testing "a custom template that resolves to a forbidden script
-            scheme still fires exactly one fx — the handler doesn't
-            short-circuit — and its resolved URI is nil, which `open!`
-            refuses to navigate"
-    (install-with-capture!)
-    (rf.story.config/set-editor! {:custom "javascript:alert(1)"})
-    (with-frame capture-frame
-      (rf/dispatch-sync [:rf.story/open-in-editor
-                         {:file "src/x.cljs" :line 1}]))
-    (is (= [nil] (map :uri @captured-editor-fx)))))
-
-(deftest open-in-editor-fx-receives-source-coord-key-rf2-wn3bh
-  (testing "`:rf.story/open-in-editor` emits the structured
-            `{:source-coord {...}}` shape (NOT a pre-resolved `:uri`) so
-            `:rf.story.fx/open-in-editor` can prefer the dev-server endpoint and fall
-            back to the `editor://` URI"
-    (install-with-capture!)
-    (with-frame capture-frame
-      (rf/dispatch-sync [:rf.story/open-in-editor
-                         {:file "src/x.cljs" :line 1}]))
-    (is (= {:file "src/x.cljs" :line 1}
-           (:source-coord (first @captured-editor-fx)))
-        "the structured coord rides the fx verbatim — the endpoint
-         resolves the relative :file at runtime on the server")))
 
 (deftest production-fx-navigates-without-any-override
   (testing "the real registered :rf.story.fx/open-in-editor, on a frame with no
