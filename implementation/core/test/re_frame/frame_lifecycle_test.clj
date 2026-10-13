@@ -317,31 +317,6 @@
   (is (thrown? Exception (rf/make-frame {:id :p/bad :preset :devcards}))
       "a preset outside the closed v1 set is a registration-time error"))
 
-;; A drain racing a destroy reads a nil app-db container; replace-container!,
-;; the one choke point every container write flows through, no-ops on it.
-
-(deftest replace-container-no-ops-on-nil-container
-  ;; Direct unit-level coverage of the guard at the adapter wrapper. The
-  ;; nil-container call must not throw and must emit the error trace.
-  (testing "replace-container! with nil container is a no-op + :rf.error/write-after-destroy"
-    (let [recorded (atom [])]
-      (rf/register-listener! :trace ::rec (fn [ev] (swap! recorded conj ev)))
-      ;; Must not throw NPE.
-      (is (nil? (rf.substrate.adapter/replace-container! nil {:any :value}))
-          "nil container is a documented no-op, not an exception")
-      ;; Dev-instrumentation arm (see ns docstring). The guard's
-      ;; production-real half is the no-op-instead-of-NPE assertion above,
-      ;; which is the whole point of the guard and runs in both
-      ;; postures; the REPORT of the skipped write is a dev diagnostic.
-      (when rf.interop/debug-enabled?
-        (let [errs (filterv (fn [ev]
-                              (and (= :error (:op-type ev))
-                                   (= :rf.error/write-after-destroy
-                                      (:operation ev))))
-                            @recorded)]
-          (is (= 1 (count errs))
-              "exactly one :rf.error/write-after-destroy trace fired"))))))
-
 (deftest destroy-frame-pending-drain-pins-no-op-contract
   ;; events queued before a destroy, drained after it, neither run nor throw
   (rf/make-frame {:id :rf2-dpny/worker :doc "race-pin frame"})
@@ -660,6 +635,9 @@
       ;; the cleanup seed runs despite nested-sync rejection, and the
       ;; pre-existing queue is cut off by the handler's destroy claim
       (is (= [1 0 nil] [@cleanup-runs @ordinary-runs (rf.frame/frame frame-id)])))))
+
+;; A drain racing a destroy reads a nil app-db container; replace-container!,
+;; the one choke point every container write flows through, no-ops on it.
 
 (deftest replace-container-on-destroyed-frame-does-not-npe
   (let [recorded (atom [])]
