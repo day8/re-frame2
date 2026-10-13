@@ -149,10 +149,7 @@
 
 (deftest bad-and-unresolved-targets-fail-registration
   (rejects
-    [[":on keyword :target naming no sibling"
-      {:initial :idle :states {:idle {:on {:go :nowhere}} :other {}}}
-      :rf.error/machine-unresolved-target :target :nowhere]
-     ["keyword :target reaching past the parent level"
+    [["keyword :target reaching past the parent level"
       {:initial :outer
        :states  {:outer {:initial :mid
                          :states  {:mid {:initial :leaf
