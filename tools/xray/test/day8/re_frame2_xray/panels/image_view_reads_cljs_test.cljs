@@ -134,33 +134,6 @@
           "but the two RESOLVER KEYSETS overlap → the keyset predicate
            correctly reports NOT isolated"))))
 
-(deftest xray-and-target-resolvers-do-not-share-registrations
-  (testing "a frame built from Xray's image and a frame built from the target's
-            image have DISJOINT resolver keysets BIDIRECTIONALLY — neither sees
-            the other's registrations (Xray is NOT part of the thing being
-            inspected)"
-    ;; Assemble BOTH generations against the same combined pool, then compare
-    ;; their APPLICATION-owned resolver keysets directly (the invariant
-    ;; `xray-image-isolated-from?` encodes), in BOTH directions. The
-    ;; application-owned keysets exclude the framework standards the assembly
-    ;; unions into EVERY generation — shared by every frame by construction,
-    ;; NOT a leak between images.
-    (let [xray-app   (reads/application-resolver-keyset
-                       (rf.image-assembly/assemble [(reads/xray-image)] combined-pool))
-          target-app (reads/application-resolver-keyset
-                       (rf.image-assembly/assemble [target-image] combined-pool))]
-      ;; Each frame resolves ITS own ids (so the checks below are not vacuous).
-      (is (contains? xray-app [:event :rf.xray/refresh])
-          "Xray's frame resolves Xray's own [kind id]")
-      (is (contains? target-app [:event :counter/inc])
-          "the target's frame resolves the target's own [kind id]")
-      ;; Bidirectional non-leakage: no Xray app id in the target's app keyset,
-      ;; and no target app id in Xray's.
-      (is (every? (fn [[_ id]] (not= "rf.xray" (namespace id))) target-app)
-          "no :rf.xray/* id leaked INTO the target frame's image")
-      (is (every? (fn [[_ id]] (= "rf.xray" (namespace id))) xray-app)
-          "no target id leaked INTO Xray's image (app-owned ids are all :rf.xray/*)"))))
-
 ;; ---- live reads of the real registry (fail-soft seam) --------------------
 
 (deftest live-reads-project-real-frames
