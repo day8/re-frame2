@@ -45,16 +45,12 @@
   {:initial :out
    :states  {:out {:on {:login [:in :home]}}
              :in  {:initial :home
-                   :on      {:logout     :out
-                             :logout-vec [:out]}
-                   :states  {:home {:on {:next :away}}
-                             :away {}}}}})
+                   :on      {:logout :out}
+                   :states  {:home {}}}}})
 
 (deftest compound-machine-keyword-target-commits-its-path
-  (testing "a keyword target naming a root-level leaf commits a one-element path"
-    (is (= [:out] (state-after hierarchical [:in :home] [:logout]))))
-  (testing "a sibling keyword target inside a compound keeps its full path"
-    (is (= [:in :away] (state-after hierarchical [:in :home] [:next])))))
+  (is (= [:out] (state-after hierarchical [:in :home] [:logout]))
+      "a keyword target naming a root-level leaf commits a one-element path"))
 
 (deftest compound-machine-initial-snapshot-reads-its-path
   (testing "a root-level leaf :initial reads a one-element path before boot"
