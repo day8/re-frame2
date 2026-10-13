@@ -9,12 +9,13 @@
   (fail loud if absent). These tests exercise the parts that need NO React
   mount:
 
-    - the ENSURE create / reuse-no-reseed algebra (`acquire-frame-root!`);
-    - the SCOPE-only fail-loud-if-absent guard (`require-live-frame-for-scope!`);
-    - the frame-root `:id` guard (`require-frame-root-id!`);
-    - the did-you-mean rejectors both ways (`reject-frame-provider-id!` /
-      `reject-frame-root-frame!`), through the public `rf/frame-root` /
-      `rf/frame-provider` surfaces.
+    - the ENSURE create (`acquire-frame-root!`), one `make-frame` call whose
+      reuse-no-reseed and setup-failure teardown are `make-frame`'s own
+      (`frame_initial_events_cljs_test`);
+    - `frame-root-opts`, which strips the substrate carriers;
+    - the frame-root `:id` guard, the SCOPE-only fail-loud-if-absent guard and
+      the did-you-mean rejectors both ways, through the public
+      `rf/frame-root` / `rf/frame-provider` surfaces.
 
   The React function component (`frame-root-fc`) two-pass commit-owned lifecycle
   under a real DOM (first render emits no subtree; ENSURE in useLayoutEffect;
@@ -24,7 +25,6 @@
   ALGEBRA the component drives."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as rf.frame]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             [re-frame.views.frame-boundary :as rf.views.frame-boundary]))
@@ -39,16 +39,13 @@
 ;; generation is scoped to this suite's own registrations.
 ;;
 ;; A NS-LOAD marker event (`::image-anchor`) anchors the `:select-ns` glob so it
-;; is NEVER zero-match: some tests create a frame using only the `:rf/set-db`
+;; is NEVER zero-match: the tests create frames using only the `:rf/set-db`
 ;; framework standard and register nothing else from this ns, so a bare
 ;; `:select-ns` over this ns would be empty and fail loud with
 ;; `:rf.error/image-zero-match`. The anchor MUST register BEFORE the
 ;; `use-fixtures` form so the reset-runtime fixture captures it in the ns-load
 ;; baseline it folds back over the registrar + source store before each test —
-;; otherwise it would be wiped and the glob would zero-match. The tests' own
-;; test-time handlers (`:root/bump`, `:root/needs-missing-cofx`, …) carry this
-;; ns's provenance too, so the SAME glob picks them up when they are registered
-;; BEFORE the acquire.
+;; otherwise it would be wiped and the glob would zero-match.
 ;;
 ;; The frame still resolves `:rf/set-db` and the other framework standards: the
 ;; standards are added to EVERY image generation unconditionally by image
@@ -66,7 +63,7 @@
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-;; ---- ENSURE: create-if-absent + reuse-no-reseed ---------------------------
+;; ---- ENSURE: create-if-absent ---------------------------------------------
 
 (deftest acquire-frame-root-creates-and-returns-id
   (testing "acquire-frame-root! runs make-frame and returns the resolved id"
@@ -74,36 +71,6 @@
       (is (= :root/alpha id) "returns the frame id off the constructed frame value")
       (is (= {:n 1} (rf/app-db-value :root/alpha))
           "the frame is live in the registry and :rf/set-db seeded its app-db"))))
-
-(deftest re-acquire-frame-root-reuses-without-reseed
-  (testing "re-acquiring the same id REUSES the live frame WITHOUT re-seeding
-            (frame-root ENSURE: idempotent replacement + make-frame
-            re-records-but-does-not-replay :initial-events). This is the
-            reuse-no-reseed contract the keyed-remount gate pins under a real DOM."
-    ;; Register the dispatch handler BEFORE the acquire so it is in the
-    ;; frame's app-image-scoped generation (the generation is sealed at
-    ;; make-frame time; its `:select-ns` over this ns picks the handler up).
-    (rf/reg-event :root/bump (fn [{:keys [db]} _] {:db (update db :count inc)}))
-    (rf.views.frame-boundary/acquire-frame-root! {:id :root/beta :images [app-image] :initial-events [[:rf/set-db {:count 0}]]})
-    ;; Mutate durable state through a dispatch path.
-    (rf/dispatch-sync [:root/bump] {:frame :root/beta})
-    (is (= {:count 1} (rf/app-db-value :root/beta)) "durable state advanced")
-    ;; A re-acquire under the SAME id (the hot-reload / StrictMode remount
-    ;; shape) must NOT reset durable state and must NOT re-run :initial-events.
-    (let [id2 (rf.views.frame-boundary/acquire-frame-root! {:id :root/beta :images [app-image] :initial-events [[:rf/set-db {:count 99}]]})]
-      (is (= :root/beta id2))
-      (is (= {:count 1} (rf/app-db-value :root/beta))
-          "re-acquire preserved durable state — NOT re-seeded to {:count 99} (reuse-no-reseed)"))))
-
-(deftest frame-root-passes-url-bound-through-as-record-config
-  (testing "a frame-root opt like :url-bound? flows verbatim through make-frame
-            onto the frame record-config (it is not a component-only opt; the
-            frame-root just hands the whole opts map to make-frame)."
-    (rf.views.frame-boundary/acquire-frame-root!
-      {:id :root/urlbound :images [app-image] :url-bound? true
-       :initial-events [[:rf/set-db {:n 0}]]})
-    (is (true? (:url-bound? (rf.frame/frame-meta :root/urlbound)))
-        ":url-bound? landed on the frame meta (record-config passthrough)")))
 
 (deftest frame-root-opts-strips-children-and-fallback
   (testing "frame-root-opts strips the substrate carriers :children / :fallback
@@ -113,74 +80,6 @@
              {:id :root/x :images [:i] :initial-events []
               :children [:span] :fallback [:div "loading"]}))
         ":children and :fallback are stripped; frame opts pass through")))
-
-(deftest acquire-frame-root-setup-escaping-throw-rethrows-and-leaves-no-frame
-  (testing "a frame-root acquire whose :initial-events step THROWS
-            out of dispatch-sync rethrows out of acquire-frame-root! AND leaves
-            NO frame registered (a setup throw destroys the just-created frame,
-            then rethrows). Transitively: acquire -> make-frame ->
-            run-setup-events! tears down the partial frame and rethrows
-            :rf.error/initial-events-step-failed. This is the ESCAPING-throw
-            detection route."
-    ;; A step that requires an UNREGISTERED cofx: cofx resolution throws OUT of
-    ;; dispatch-sync (:rf.error/unregistered-cofx via throw-error!), so this is
-    ;; the ESCAPING-throw case — run-setup-events! tears down the partial frame
-    ;; (via its try/catch) and rethrows :rf.error/initial-events-step-failed.
-    (rf/reg-event :root/needs-missing-cofx
-      {:rf.cofx/requires [:root/unregistered-cofx]}
-      (fn [{:keys [db]} _] {:db (assoc db :ran true)}))
-    (let [thrown (atom nil)]
-      (try
-        (rf.views.frame-boundary/acquire-frame-root!
-          {:id :root/boom
-           :images [app-image]
-           :initial-events [[:rf/set-db {:seeded true}]
-                            [:root/needs-missing-cofx]]})
-        (catch :default e (reset! thrown e)))
-      (is (= :rf.error/initial-events-step-failed
-             (:rf.error/id (ex-data @thrown)))
-          "the setup throw RETHROWS out of acquire-frame-root! (not swallowed) as
-           the setup-step failure naming the throwing step")
-      (is (nil? (rf.frame/frame :root/boom))
-          "no half-created frame is left registered — the partial frame was torn down"))))
-
-;; The IN-BAND route — a `[:rf/set-db :not-a-map]` step the chain catches — is
-;; pinned through make-frame by `frame_initial_events_cljs_test`'s
-;; `a-failing-setup-step-tears-down-the-partial-frame-on-every-detection-route`.
-
-;; ---- fail-loud: ENSURE frame-root needs a keyword :id --------------------
-
-(deftest require-frame-root-id-fails-loud-on-missing-id
-  (testing "the frame-root requires a keyword :id"
-    (is (= :root/ok (rf.views.frame-boundary/require-frame-root-id! :root/ok 'rf/frame-root))
-        "a keyword :id passes through unchanged")
-    (is (thrown-with-msg? :default #":rf.error/frame-root-missing-id"
-          (rf.views.frame-boundary/require-frame-root-id! nil 'rf/frame-root))
-        "a missing/nil :id fails loud")
-    (is (thrown-with-msg? :default #":rf.error/frame-root-missing-id"
-          (rf.views.frame-boundary/require-frame-root-id! "root/str" 'rf/frame-root))
-        "a non-keyword :id fails loud")))
-
-;; ---- fail-loud: SCOPE-only shape needs a LIVE frame ----------------------
-
-(deftest require-live-frame-for-scope-passes-a-live-frame
-  (testing "require-live-frame-for-scope! returns the keyword for a LIVE frame"
-    (rf.views.frame-boundary/acquire-frame-root! {:id :scope/live :images [app-image]})
-    (is (= :scope/live
-           (rf.views.frame-boundary/require-live-frame-for-scope! :scope/live 'rf/frame-provider))
-        "a live frame passes through unchanged")))
-
-(deftest require-live-frame-for-scope-fails-loud-on-absent-frame
-  (testing "require-live-frame-for-scope! fails loud when the named frame is absent"
-    (is (thrown-with-msg? :default #":rf.error/frame-provider-frame-absent"
-          (rf.views.frame-boundary/require-live-frame-for-scope! :scope/never-created 'rf/frame-provider))
-        "scoping a never-created frame fails loud")
-    ;; A created-then-destroyed frame is also absent.
-    (rf.views.frame-boundary/acquire-frame-root! {:id :scope/gone :images [app-image]})
-    (rf/destroy-frame! :scope/gone)
-    (is (thrown-with-msg? :default #":rf.error/frame-provider-frame-absent"
-          (rf.views.frame-boundary/require-live-frame-for-scope! :scope/gone 'rf/frame-provider))
-        "scoping a destroyed frame fails loud")))
 
 ;; ---- end-to-end: the Reagent user-facing surfaces validate ----------------
 ;;
