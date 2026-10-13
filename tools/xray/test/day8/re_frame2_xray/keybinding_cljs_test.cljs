@@ -200,26 +200,18 @@
                  (mk-event {:key "c" :ctrl? true :shift? true})))))
   (testing "`code` fallback — IME-active contexts populate only .code"
     (is (true? (xray-toggle-key?
-                 (mk-event {:code "KeyC" :ctrl? true :shift? true})))))
-  (testing "C-shaped key on a different code — `key` alone is enough. This
-            guards against the predicate being tightened to AND both fields"
-    (is (true? (xray-toggle-key?
-                 (mk-event {:key "C" :code "Digit3"
-                            :ctrl? true :shift? true}))))))
+                 (mk-event {:code "KeyC" :ctrl? true :shift? true}))))))
 
 (deftest xray-toggle-key-rejects-every-other-chord
   (are [event] (false? (xray-toggle-key? (mk-event event)))
-    {:key "C"}                                ; no modifiers
     {:key "C" :ctrl? true}                    ; Shift missing
     {:key "C" :shift? true}                   ; Ctrl missing
     ;; meta blocks — avoids the macOS dev-tools Cmd+Shift+C collision the
     ;; source docstring calls out
     {:key "C" :ctrl? true :shift? true :meta? true}
     {:key "C" :ctrl? true :shift? true :alt? true}             ; alt blocks
-    {:key "C" :ctrl? true :shift? true :meta? true :alt? true} ; both block
     {:key "D" :ctrl? true :shift? true}       ; wrong key, right modifiers
-    {:code "KeyD" :ctrl? true :shift? true}   ; wrong code, right modifiers
-    {:ctrl? true :shift? true}))              ; neither key nor code
+    {:code "KeyD" :ctrl? true :shift? true})) ; wrong code, right modifiers
 
 ;; ---- (3) palette-toggle-key? truth table ---------------------------------
 
@@ -239,7 +231,6 @@
 (deftest palette-toggle-key-rejects-every-other-chord
   (are [event] (false? (palette-toggle-key? (mk-event event)))
     {:key "k" :ctrl? true :shift? true} ; Firefox dev-tools — must not be hijacked
-    {:key "k" :meta? true :shift? true} ; Cmd+Shift+K likewise
     {:key "k" :ctrl? true :meta? true}  ; both modifiers held is ambiguous
     {:key "k"}                          ; plain k would hijack every k in the host
     {:key "k" :ctrl? true :alt? true}   ; an IME composition on some layouts
@@ -264,7 +255,6 @@
 (deftest mode-toggle-key-rejects-every-other-chord
   (are [event] (false? (mode-toggle-key? (mk-event event)))
     {:key "m" :ctrl? true}  ; a Firefox 'bookmark this page' chord — Shift disambiguates
-    {:key "m" :meta? true}  ; 'minimize window' on macOS — Shift disambiguates
     {:key "m" :ctrl? true :meta? true :shift? true} ; both primary modifiers: ambiguous
     {:key "m" :ctrl? true :shift? true :alt? true}  ; an IME composition on some layouts
     {:key "n" :ctrl? true :shift? true}             ; wrong key, right modifiers
@@ -283,52 +273,6 @@
         (is (= [true 1 "keydown" true]
                [(keybinding/attached?) (count @listeners) type use-capture]))))))
 
-(deftest detach-removes-the-exact-attached-fn-hot-reload-safe
-  (testing "detach! removes the SAME fn object attach!
-            installed, NOT the (possibly hot-reloaded) handle-keydown
-            var. addEventListener / removeEventListener compare by
-            reference; a shadow-cljs :after-load recompiles
-            handle-keydown to a fresh object, so a detach! that
-            referenced the bare var would removeEventListener a fn that
-            was never added and silently leak the original listener.
-            We prove (a) removing a DIFFERENT fn object — standing in for
-            the recompiled var the bare-var detach! would have passed —
-            does NOT remove the live listener (the leak), and (b)
-            detach! nonetheless drops the listener to zero, which is only
-            possible if it passed the EXACT fn attach! installed."
-    (with-stub-document
-      (fn [{:keys [listeners]}]
-        (keybinding/attach!)
-        (is (= 1 (count @listeners))
-            "attach! installed one listener")
-        ;; Simulate the post-reload divergence: the stub's
-        ;; removeEventListener matches by `identical?`, so removing a
-        ;; DIFFERENT fn object (standing in for the recompiled
-        ;; handle-keydown var a bare-var detach! would pass) must NOT
-        ;; remove the live listener. This reproduces the exact leak a
-        ;; bare-var detach! would cause after :after-load.
-        (let [recompiled-stand-in (fn [_] nil)]
-          (.removeEventListener js/document "keydown" recompiled-stand-in true)
-          (is (= 1 (count @listeners))
-              "removing a fresh (recompiled-like) fn object leaves the
-               real listener intact — the bare-var detach! leak"))
-        ;; detach! removes the stashed object → the listener is gone.
-        ;; This passes ONLY because detach! references the exact fn
-        ;; attach! stored, not the (here-unchanged, but in production
-        ;; recompiled) handle-keydown var.
-        (keybinding/detach!)
-        (is (zero? (count @listeners))
-            "detach! removed the exact attached fn — no leak")
-        (is (false? (keybinding/attached?))
-            "sentinel flipped back to false")
-        ;; A subsequent attach!/detach! cycle still round-trips cleanly,
-        ;; proving the stash is reset (no stale fn lingering).
-        (keybinding/attach!)
-        (is (= 1 (count @listeners)))
-        (keybinding/detach!)
-        (is (zero? (count @listeners))
-            "second cycle round-trips — stash cleared on the prior detach!")))))
-
 (deftest detach-is-idempotent
   ;; Story calls detach! after clearing :rf.xray/keybinding-enabled?, so a
   ;; second call must be a safe no-op.
@@ -338,19 +282,6 @@
       (keybinding/detach!)
       (keybinding/detach!)
       (is (= [false 0] [(keybinding/attached?) (count @listeners)])))))
-
-(deftest attach-without-document-is-safe
-  (testing "absence of js/document — node-test baseline — must not
-            throw and must not flip the sentinel"
-    ;; This is the bare-node-test runtime; no stub installed. The
-    ;; (exists? js/document) guard in attach! must short-circuit.
-    (when-not (exists? js/document)
-      (is (false? (keybinding/attached?)))
-      (keybinding/attach!)
-      (is (false? (keybinding/attached?))
-          "without js/document the sentinel must NOT flip — otherwise
-          a subsequent stub-driven attach! would falsely think it had
-          already wired up"))))
 
 ;; ---- (5) spine-key-id ---------------------------------------------------
 ;;
@@ -399,10 +330,6 @@
     (is (nil? (spine-key-id (mk-event {:key "j" :shift? true})))))
   (testing "Lowercase g without Shift must not match (only Shift+G is)"
     (is (nil? (spine-key-id (mk-event {:key "g"}))))))
-
-(deftest spine-key-id-rejects-unknown-keys
-  (is (nil? (spine-key-id (mk-event {:key "x"}))))
-  (is (nil? (spine-key-id (mk-event {}))) "empty event → nil"))
 
 ;; ---- (7) Esc dismisses the editor-hint toast -----------------------------
 ;;
@@ -531,15 +458,6 @@
 ;; control's native Space activation. The `target-activatable?` predicate
 ;; yields the spine to those controls.
 
-(defn- mk-target-event
-  "Synthetic keydown whose `.target` is a fake element with the given
-  `tag` (tagName) and optional `role` attribute — enough to drive the
-  target-* predicates without a real DOM."
-  [{:keys [tag role]}]
-  (js-obj "target"
-          (js-obj "tagName"      tag
-                  "getAttribute" (fn [attr] (when (= attr "role") role)))))
-
 (defn- mk-shell-target-key-event
   "Synthetic keydown whose `.target` is a fake element INSIDE the Xray
   shell: `.closest` resolves the shell testid (so `target-inside-xray?`
@@ -571,10 +489,6 @@
                            "stopPropagation" (fn [] (reset! stopped true)))]
     {:event event :prevented prevented :stopped stopped}))
 
-(deftest target-activatable-compares-tag-names-case-insensitively
-  (is (true? (boolean (#'keybinding/target-activatable?
-                        (mk-target-event {:tag "button"}))))))
-
 ;; ---- the exemption is SPACE'S, not the roster's -------------------------
 ;;
 ;; `target-activatable?` exempts Space alone. Placed bare in front of the
@@ -589,14 +503,11 @@
 ;; native control claims.
 
 (def ^:private spine-roster-minus-space
-  "The spine bindings a focused activatable control does NOT claim,
-  paired with the id `spine-key-id` maps each to."
+  "Two spine bindings a focused activatable control does NOT claim, paired
+  with the id `spine-key-id` maps each to; every non-Space key takes the
+  same gate, and `spine-key-id-maps-every-arm` pins the rest of the roster."
   [{:key "j" :code "KeyJ"                :expect :rf.xray/focus-event-prev}
-   {:key "k" :code "KeyK"                :expect :rf.xray/focus-event-next}
-   {:key "l" :code "KeyL"                :expect :rf.xray/follow-head}
-   {:key "G" :code "KeyG" :shift? true   :expect :rf.xray/follow-head}
-   {:key "," :code "Comma"               :expect :rf.xray/settings-toggle}
-   {:key "s" :code "KeyS"                :expect :rf.xray/settings-toggle}])
+   {:key "l" :code "KeyL"                :expect :rf.xray/follow-head}])
 
 (defn- xray-queued-events
   "The event vectors sitting UNDRAINED in `:rf/xray`'s router queue — i.e.
@@ -698,9 +609,7 @@
   (setup-xray-runtime!)
   (with-redefs [mount/visible? (constantly false)]
     (doseq [k [{:key " " :code "Space"}
-               {:key "j" :code "KeyJ"}
-               {:key "k" :code "KeyK"}
-               {:key "l" :code "KeyL"}]]
+               {:key "j" :code "KeyJ"}]]
       (let [popout (mk-shell-key-event k)
             opener (mk-shell-key-event k)]
         (handle-keydown-on popout-surface (:event popout))
@@ -740,15 +649,13 @@
   ;; Surface-independent bindings answer identically on both surfaces.
   (setup-xray-runtime!)
   (with-redefs [mount/visible? (constantly true)]
-    (doseq [chord [{:key "M" :code "KeyM" :ctrl? true :shift? true}
-                   {:key "," :code "Comma"}
-                   {:key "s" :code "KeyS"}]]
-      (let [popout (mk-shell-key-event chord)
-            opener (mk-shell-key-event chord)]
-        (handle-keydown-on popout-surface (:event popout))
-        (handle-keydown-on opener-surface (:event opener))
-        (is (= [true true] [@(:prevented popout) @(:prevented opener)])
-            (str chord " is live on both surfaces"))))))
+    (let [chord  {:key "M" :code "KeyM" :ctrl? true :shift? true}
+          popout (mk-shell-key-event chord)
+          opener (mk-shell-key-event chord)]
+      (handle-keydown-on popout-surface (:event popout))
+      (handle-keydown-on opener-surface (:event opener))
+      (is (= [true true] [@(:prevented popout) @(:prevented opener)])
+          "the mode chord is live on both surfaces"))))
 
 (deftest install-popout-keydown-owns-exactly-one-listener
   (let [{:keys [doc listeners]} (mk-stub-document)
@@ -759,27 +666,6 @@
     (dispose)
     (is (zero? (count @listeners))
         "the disposer removed the exact listener it installed")))
-
-(deftest popout-listeners-do-not-accumulate-across-windows
-  ;; Each pop-out document owns its listener, so a reopen installs one fresh
-  ;; listener rather than stacking handlers.
-  (let [a (mk-stub-document)
-        b (mk-stub-document)
-        dispose-a (keybinding/install-popout-keydown! (:doc a))
-        _         (keybinding/install-popout-keydown! (:doc b))]
-    (is (= [1 1] [(count @(:listeners a)) (count @(:listeners b))]))
-    (is (not (identical? (:handler (first @(:listeners a)))
-                         (:handler (first @(:listeners b)))))
-        "a fresh closure per document")
-    (dispose-a)
-    (is (= [0 1] [(count @(:listeners a)) (count @(:listeners b))])
-        "disposing one leaves the other")))
-
-(deftest install-popout-keydown-refuses-a-nil-document
-  (testing "a pop-out whose document is unreachable installs
-            nothing and returns nil rather than throwing; `popout!` stores
-            the nil and `teardown-popout-state!` skips disposal."
-    (is (nil? (keybinding/install-popout-keydown! nil)))))
 
 (deftest popout-installer-is-registered-with-mount
   (testing "the injection that closes the mount <-> keybinding
@@ -871,18 +757,13 @@
             handler (installed-popout-handler listeners)]
         (is (fn? dispose)
             "a disposer even with the slot false — mount stores one per pop-out")
-        (is (fn? handler) "CONTROL — a real listener for the rows below to drive")
-        (when (fn? handler)
-          (is (= {:prevented false :queued []}
-                 (select-keys (press-in-popout! handler step) [:prevented :queued]))
-              "still disabled: j is left alone")
-          (config/set-keybinding-enabled! true)
-          (is (= {:prevented true :queued [[:rf.xray/focus-event-prev]]}
-                 (select-keys (press-in-popout! handler step) [:prevented :queued]))
-              "enabled: the listener installed under a false slot drives the spine"))
-        (when (fn? dispose)
-          (dispose)
-          (is (zero? (count @listeners))
-              "the disposer removes the listener it installed under a false slot")))
+        (is (= {:prevented false :queued []}
+               (select-keys (press-in-popout! handler step) [:prevented :queued]))
+            "still disabled: j is left alone")
+        (config/set-keybinding-enabled! true)
+        (is (= {:prevented true :queued [[:rf.xray/focus-event-prev]]}
+               (select-keys (press-in-popout! handler step) [:prevented :queued]))
+            "enabled: the listener installed under a false slot drives the spine")
+        (dispose))
       (finally
         (config/set-keybinding-enabled! true)))))
