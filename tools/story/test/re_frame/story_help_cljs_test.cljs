@@ -2,9 +2,8 @@
   "CLJS tests for Story's first-time-user help overlay on the node lane:
   `seen?` degrades to false without localStorage, the help content's
   shortcuts table and inspectors list, and `open!` / `close!` on the open
-  atom. The localStorage round trip, including the seen flag `close!` writes,
-  needs `window.localStorage`, so it lives in
-  `re-frame.story-help-dom-cljs-test`, which the browser lane loads."
+  atom. The seen flag `close!` persists needs `window.localStorage`, so it
+  lives in `re-frame.story-help-dom-cljs-test`, which the browser lane loads."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.story.ui.help :as rf.story.ui.help]
