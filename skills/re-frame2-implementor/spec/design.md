@@ -16,7 +16,7 @@ The skill is **guidance + workflow** layered on top of `spec/`. The skill does n
 
 1. **Correctness** — workflow over explanations. The skill walks the two phases; the engineer (with their session) makes the decisions. Verification posture per L3 below.
 2. **Idiomaticness** — verified against `spec/` + `spec/Implementor-Checklist.md` + `spec/conformance/`. The skill is downstream of the spec; if the spec is authoritative, the skill is correct by construction.
-3. **Context economy** — `SKILL.md` is a router; four leaves load on demand. `phase-1-decisions.md` sits under the family's 16 KB target and the other three are over it, which under `skills/README.md` §Leaf size discipline owes no record (`phase-2-impl-order.md` is recorded there as a split weighed and refused). The leaves cite spec sections by URL — citations of live main; every contract read resolves through the profile's verified checkout at the pin, per cardinal rule 1 — and teach *derivation* (grep the corpus at the pin) instead of carrying catalogues that age.
+3. **Context economy** — `SKILL.md` is a router; four leaves load on demand. Leaf sizes answer to `skills/README.md` §Leaf size discipline, which records `phase-2-impl-order.md` as a split weighed and refused. The leaves cite spec sections by URL — citations of live main; every contract read resolves through the profile's verified checkout at the pin, per cardinal rule 1 — and teach *derivation* (parse the corpus at the pin) instead of carrying catalogues that age.
 4. **Assume training knowledge** — the engineer knows what reactive substrates, FSMs, persistent data structures, and EDN are. The skill teaches the **re-frame2-specific binding**: which choices are real, which EPs depend on which, how the conformance corpus grades a claim.
 
 ## 3. Locked decisions
@@ -130,7 +130,3 @@ Typical session loads: profile session = SKILL.md + phase-1-decisions.md; an EP 
 ### OQ4 — Skill `name` — noun phrase vs gerund
 
 `re-frame2-implementor` matches the project-name pattern; Anthropic's gerund guidance is "consider", not "must". **Recommendation: keep.** Status: Mike's call.
-
-### OQ5 — Stale-detection against the spec corpus
-
-The leaves cite spec sections by docs-site URL (`https://day8.github.io/re-frame2/spec/<file>/#anchor`). `scripts/check_doc_slugs.py` resolves those URLs offline, **path only**, so a renamed or moved spec page fails the gate — but a heading rename that breaks an `#anchor` does not. Anchored citations are therefore hand-checked against the headings of the local spec pages at each review pass; keeping the count small keeps that cheap. Status: deferred.
