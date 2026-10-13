@@ -163,27 +163,20 @@
 (deftest panel-row-expand-toggle
   (setup-xray-frame!)
   (rf/with-frame :rf/xray
-    (set-routes! cart-routes)
-    (rf/dispatch-sync [:rf.xray.static.routes/toggle-row :route/cart] {:frame :rf/xray})
-    (is (= [true true]
-           (present? (panel-tree) ["rf-xray-static-routes-meta-route/cart"
-                                   "rf-xray-static-routes-sim-nav-toggle-route/cart"]))
-        "the expand surface unfolds with the registrar meta and the
-         Simulate-navigation toggle")
-    (rf/dispatch-sync [:rf.xray.static.routes/toggle-row :route/cart] {:frame :rf/xray})
-    (is (nil? (find-by-testid (panel-tree) "rf-xray-static-routes-expand-route/cart"))
-        "a second toggle folds it")))
-
-(deftest panel-expand-surfaces-schema-when-present
-  (setup-xray-frame!)
-  (rf/with-frame :rf/xray
     (set-routes! {:route/article {:path   "/articles/:slug"
                                   :params [:map [:slug :string]]
                                   :query  [:map [:page :int]]}})
     (rf/dispatch-sync [:rf.xray.static.routes/toggle-row :route/article] {:frame :rf/xray})
-    (is (= [true true]
-           (present? (panel-tree) ["rf-xray-static-routes-params-schema-route/article"
-                                   "rf-xray-static-routes-query-schema-route/article"])))))
+    (is (= [true true true true]
+           (present? (panel-tree) ["rf-xray-static-routes-meta-route/article"
+                                   "rf-xray-static-routes-sim-nav-toggle-route/article"
+                                   "rf-xray-static-routes-params-schema-route/article"
+                                   "rf-xray-static-routes-query-schema-route/article"]))
+        "the expand surface unfolds with the registrar meta, the
+         Simulate-navigation toggle and the route's params and query schemas")
+    (rf/dispatch-sync [:rf.xray.static.routes/toggle-row :route/article] {:frame :rf/xray})
+    (is (nil? (find-by-testid (panel-tree) "rf-xray-static-routes-expand-route/article"))
+        "a second toggle folds it")))
 
 ;; ---- hermetic Simulate-navigation preview -------------------------------
 
