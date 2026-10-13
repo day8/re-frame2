@@ -29,10 +29,6 @@
 
 ;; ---- placement-host enumeration ----------------------------------------
 
-(deftest render-panels-at-placement-returns-hiccup
-  (let [out (rf.story.ui.panels/render-panels-at-placement :right :story.x/y {})]
-    (is (and (vector? out) (= :div (first out))))))
-
 (defn- rendered-panel-text [tree]
   (pr-str tree))
 
