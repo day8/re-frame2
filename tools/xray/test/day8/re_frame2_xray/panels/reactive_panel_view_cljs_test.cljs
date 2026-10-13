@@ -58,14 +58,6 @@
   the keys the view reads rather than ones the real focus never has."
   (spine/compose-focus {:mode :retro :dispatch-id 1} []))
 
-(deftest reactive-panel-renders-empty-state-without-cascade
-  (testing "Empty-state copy renders when no cascade is focused"
-    (facade/install!)
-    (rf/make-frame {:id :rf/xray})
-    (let [tree (panel-tree)]
-      (is (has-testid? tree "rf-xray-reactive-empty")
-          "empty-state surfaces when no cascade exists"))))
-
 (deftest reactive-panel-empty-state-tells-a-focused-bundle-from-no-focus
   (testing "the empty state reads the focus the SPINE composes: a pinned
             bundle or epoch with no record says it captured nothing,
