@@ -49,9 +49,9 @@ References to "the identity primitive", "the render-tree", "the reactive contain
 
 Draft → show the engineer → explicit OK → `gh issue create` with `--body-file`, per the shell-safety recipe in `references/cardinal-rules.md` §8. `bd` is monorepo-internal and never invoked from a published skill.
 
-### L7 — No bead-ids in user-facing skill content
+### L7 — No bead-ids or history in the skill
 
-SKILL.md, README.md, and the references/ leaves carry no `rf2-XXXX` tracker ids. This `spec/` folder may reference beads (authoring context); user-facing leaves do not.
+No file in the skill carries an `rf2-XXXX` tracker id or a how-it-got-here narrative — this `spec/` folder included. Every sentence states the contract as it is now and why; the tracker and git history hold the story. `scripts/check_skill_implementor_partition_drift.py` enforces the id half over the user-facing leaves.
 
 ### L8 — Findings stay local
 
