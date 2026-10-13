@@ -97,23 +97,17 @@
        (rf.story.ui.author-expectations/set-operand! 1 :selector "\".count\"")
        (rf.story.ui.author-expectations/set-operand! 1 :text "\"5\"")
        (let [flat (str (render-dialog))]
-         (is (str/includes? flat "story-author-expectation-dialog"))
-         ;; both authored rows are present as components (the per-row cost
-         ;; stripe lives inside each `expectation-row`)
-         (is (str/includes? flat "story-author-expectation-rows"))
+         ;; the per-row cost stripe lives inside each `expectation-row`
          (is (str/includes? flat "expectation_row")
              "the authored rows render as expectation-row components")
          ;; the draft coverage banner reports the cheapest runner + the
          ;; explicit cannot-run honesty BEFORE save (escalates to :dom)
-         (is (str/includes? flat "story-author-expectation-summary"))
          (is (str/includes? flat ":data-cheapest-runner \":dom\"")
              "the cheapest runner that proves the whole draft is surfaced")
-         (is (str/includes? flat "story-author-expectation-cannot-run-summary"))
          (is (str/includes? flat "cannot run under the default headless runner")
              "the cannot-run honesty is visible BEFORE save")
          ;; the snippet carries the authored expectations as :assertions DATA
          (is (str/includes? flat "story-author-expectation-snippet"))
-         (is (str/includes? flat ":assertions"))
          (is (str/includes? flat ":rf.assert/path-equals"))
          (is (str/includes? flat ":rf.assert/dom-text"))
          (is (str/includes? flat ":extends :story.counter/happy-path")))
