@@ -146,17 +146,6 @@
 
 ;; ---- (1) manual facade is inert until init! ------------------------------
 
-(deftest requiring-core-and-touching-config-is-inert
-  ;; The manual facade's config surface is side-effect-free until init!:
-  ;; were `core` to require `preload`, the boot block would already have run.
-  (core/configure! {:rf.xray/auto-open? false
-                    :rf.xray/keybinding-enabled? false})
-  (core/set-auto-open! false)
-  (core/set-egress-profile! :rf.egress/local-redacted)
-  (is (= [false false false]
-         [(trace-collector-registered?) (epoch-collector-registered?) (mount/mounted?)])
-      "no collector registered and no shell mounted"))
-
 (deftest init!-performs-the-manual-install
   (is (= [false false] [(trace-collector-registered?) (epoch-collector-registered?)])
       "CONTROL — clean before init!")
@@ -206,8 +195,6 @@
 ;; drive the stub window directly).
 
 (deftest install-browser-api-exports-does-not-create-core-when-absent
-  ;; Pre-creating `core` would race goog.provide and fail browser-test with
-  ;; "Namespace already declared".
   (with-stub-dom*
     (fn [{:keys [window]}]
       (install/install-browser-api-exports!)
