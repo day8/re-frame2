@@ -45,7 +45,7 @@ Full skill-disambiguation matrix: [`skills/README.md` §Skill routing — single
 
 ## Cardinal rules (one-liners; full text in [`references/cardinal-rules.md`](references/cardinal-rules.md))
 
-1. **Spec is the contract — pinned before reading.** Verify the checkout's HEAD and origin against the pin recorded in the port profile **and that its `spec/` tree is clean** (a matching HEAD is not a matching tree — uncommitted edits and untracked fixtures ride under the recorded SHA; on a mismatch, report and stop — clearing it with a reset, checkout or stash is the engineer's call, not yours), then resolve every contract read through that checkout at the pin — the live-site URLs in this skill are citations, never the reading route; when `implementation/` and `spec/` disagree, the spec wins.
+1. **Spec is the contract — pinned before reading.** Verify the checkout's origin, HEAD **and a clean `spec/` tree** against the profile's pin (on a mismatch, report and stop — clearing it is the engineer's call), then read every contract through that checkout, never the live-site URLs this skill cites; when `implementation/` and `spec/` disagree, the spec wins.
 2. **Phase 1 before Phase 2.** Record the profile before implementing; committing it is a done-gate concern, not a pre-code gate.
 3. **Dependency order.** EP 001 → 002 → 006 → views → 009 → 015 → 013 are the foundation (015 Data Classification and 013 Flows are both v1-required — 015 rides the 009 emission boundary, and 013 stands on everything before it); optional EPs sit downstream.
 4. **Substrate-agnostic phrasing.** "The identity primitive", "the render-tree", "the reactive container" — not hiccup / Reagent / keywords.
@@ -63,7 +63,7 @@ The agent runs the port's **discovered noninteractive gates** itself when it has
 
 ## Checkpoints
 
-On resume, read the existing port profile, re-verify its spec checkout, and continue the first unfinished slice. Preserve recorded choices; minimum-port defaults fill missing choices rather than replacing an existing claim. Keep the last measured score tied to its run and scope.
+On resume, read the existing port profile, re-verify its spec checkout ([`references/phase-1-decisions.md` §Spec pin](references/phase-1-decisions.md#spec-pin-record-first)), and continue the first unfinished slice. Preserve recorded choices; minimum-port defaults fill missing choices rather than replacing an existing claim. Keep the last measured score tied to its run and scope.
 
 Report at whatever granularity fits the work — no fresh-session, one-EP-per-session, per-EP-commit, or report-template mandate. A checkpoint carries: changed profile lines, what was built and what it showed, the exact test command + outcome, the conformance delta, and genuine blockers / spec gaps.
 
@@ -76,7 +76,7 @@ Report at whatever granularity fits the work — no fresh-session, one-EP-per-se
 - [ ] Port profile committed and current (pin, choices, claim, score).
 - [ ] Foundation landed in order (001 → 002 → 006 → views → 009 → 015 → 013), on the shared path + identity foundation (`EP-0012`, a [`docs/EP/`](https://github.com/day8/re-frame2/blob/main/docs/EP/README.md) proposal; its normative text is [`spec/Conventions.md`](https://github.com/day8/re-frame2/blob/main/spec/Conventions.md)).
 - [ ] Acceptance gate 1 green: every fixture applicable to `:core/*` + `:identity/*` + `:flow/*` + `:data-classification/*` at the pin — the four v1-required families. None of them may be narrowed out of the claim: the harness refuses a `known-skipped` entry naming a required capability, so this box cannot be ticked by declaring the omission.
-- [ ] EP-006 live sub-cache witness green ([`references/phase-2-impl-order.md` §The EP-006 live sub-cache witness](references/phase-2-impl-order.md#the-ep-006-live-sub-cache-witness-port-owned)) — required whenever the cache mechanism does not intrinsically key by `rf=`: one query through two distinct host allocations, one cache-slot, exactly-once disposal, non-`rf=` negative control. Reported beside the corpus score, never folded into it; the fixtures alone cannot see a reference-keyed live cache.
+- [ ] EP 006 live sub-cache witness green ([`references/phase-2-impl-order.md` §The EP 006 live sub-cache witness](references/phase-2-impl-order.md#the-ep-006-live-sub-cache-witness-port-owned)) — required whenever the cache mechanism does not intrinsically key by `rf=`: one query through two distinct host allocations, one cache-slot, exactly-once disposal, non-`rf=` negative control. Reported beside the corpus score, never folded into it; the fixtures alone cannot see a reference-keyed live cache.
 - [ ] View-tagging contract covered by a host-side test — `data-rf-view` on each registered view's rendered root is v1-required and no fixture grades it ([`references/phase-2-impl-order.md` §Cross-cutting obligations](references/phase-2-impl-order.md#cross-cutting-obligations-spec-owned-read-dont-restate)).
 - [ ] Optional EPs per the claim; acceptance gate 2 = `claimed-applicable / claimed-applicable`.
 - [ ] The port exposes [`spec/API.md`](https://github.com/day8/re-frame2/blob/main/spec/API.md), adapted to host idiom; tooling-security obligations honoured for any tooling shipped (the conformance harness counts).
@@ -86,10 +86,10 @@ Report at whatever granularity fits the work — no fresh-session, one-EP-per-se
 
 Load each on demand, when its trigger arises:
 
-- [`references/phase-1-decisions.md`](references/phase-1-decisions.md) — the port profile: defaults, spec pin, template. **Read first**, at the start of a port or when a choice or the pin changes.
+- [`references/phase-1-decisions.md`](references/phase-1-decisions.md) — the port profile: defaults, the spec-pin verification commands, template. **Read first**, at the start of a port, on resume, or when a choice or the pin changes.
 - [`references/phase-2-impl-order.md`](references/phase-2-impl-order.md) — the EP loop + the EP index. Read when starting or resuming an EP slice.
 - [`references/conformance.md`](references/conformance.md) — harness, capability derivation, scoring, diagnosis. Read when building the harness, deriving the claim, running an acceptance gate, or a fixture fails.
-- [`references/cardinal-rules.md`](references/cardinal-rules.md) — the eleven rules in prose + anti-pattern corollaries. Read for the pin-verification commands (rule 1) and before drafting or filing a spec-gap issue (rules 8–9).
+- [`references/cardinal-rules.md`](references/cardinal-rules.md) — the eleven rules in prose + anti-pattern corollaries. Read when a one-liner above is not enough, and always before drafting or filing a spec-gap issue (rules 8–9).
 
 ---
 
