@@ -206,6 +206,33 @@ Routes are not required, but when a load is route-scoped, declare it on the rout
 
 **`:resources` drives route readiness; `:on-match` does not.** `:rf.route/transition` / `:rf.route/error` are a projection over the *blocking* requirements in the effective plan, so they mean "this page's data isn't here yet" and nothing else. `:on-match` is fire-and-forget activation work beside them — arbitrary route-entry events the runtime dispatches and never awaits, correlates, or turns into route error state. There is no route `:on-error`.
 
+### Infinite / load-more feeds (`:infinite true`)
+
+A "load more" / infinite-scroll list is **one** resource entry holding a growing vector of pages — not one entry per page. (Numbered "go to page N" pagination is the other model: put the page in `:params`, so each page is its own entry.)
+
+```clojure
+(rf/reg-resource :feed/timeline
+  {:infinite        true
+   :params-schema   [:map]                          ;; feed IDENTITY only (filter / sort) — never the cursor
+   :scope           :rf.scope/global
+   :page->items     :items                          ;; REQUIRED when a page is not already a vector
+   :next-page-param (fn [last-page _all-pages]      ;; pure; nil ⇒ end of feed
+                      (get-in last-page [:page-info :next-cursor]))}
+  (fn [_params {:rf.resource/keys [page-param page-index]}]   ;; page 0 has a nil page-param
+    {:request {:method :get :url "/api/timeline"
+               :params (cond-> {:limit 20} page-param (assoc :cursor page-param))}
+     :decode  :json}))
+
+;; Read — one framework sub carries the merged list and the load-more UI state:
+@(subscribe [:rf.resource/infinite-state feed-query])
+;; => {:items [...] :has-next-page? true :fetching-next? false :page-error nil :loading? false :error nil …}
+
+;; Grow — a CAUSE, never an owner (a supplied :owner is warned and ignored):
+(dispatch [:rf.resource/load-more (assoc feed-query :cause [:user :feed/load-more])])
+```
+
+`feed-query` is the usual `{:resource :feed/timeline :scope … :params …}`. An `ensure` (or a route's `:resources` entry) loads **page 0 only** and owns the feed; `load-more` appends the next page and is a no-op once `:has-next-page?` is false. A failed page keeps every loaded page and lands in `:page-error` — a third error channel beside `:error` (first load) and `:refresh-error` — so render "couldn't load more — retry" without losing the list. An enveloped page with no `:page->items` fails loud with `:rf.error/infinite-missing-page-accessor` on first read. Worked example: `examples/capabilities/resources/infinite_feed/`.
+
 ## When to use vs plain managed HTTP
 
 **Stay on [Pattern-RemoteData](remote-data.md) + managed HTTP** for a one-off fetch a single feature owns — no sharing, no cross-read invalidation, no TTL, unambiguously global. Reach for **Resources** the moment a fetch is shared across views, needs freshness / fresh-skip / focus-reconnect revalidation, must be invalidated after a write (list ⇄ detail), or needs a fail-closed tenant/user/locale scope. The two compose: a resource's transport **is** managed HTTP (Spec 014); Resources adds identity, scope, ownership, staleness, and invalidation on top. Full chooser: [`../decision-trees/pick-a-pattern.md` §Resources vs RemoteData](../decision-trees/pick-a-pattern.md).

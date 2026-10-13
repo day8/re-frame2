@@ -98,7 +98,8 @@ When you need the `:on-click`-fires-the-right-event assertion, walk the hiccup d
 
 On CLJS, put the click and polling Promise inside the `async done` shape above, with `:async? true` on the fixture. Finish with `done` only after polling settles. Do not wrap that async operation in `with-new-frame`: its lexical body returns and destroys the frame before the queued click can drain.
 
-- `find-by-testid` / `find-all-by-testid` — locate node(s) by `:data-testid`.
+- `find-by-testid` / `find-all-by-testid` — locate node(s) by `:data-testid`; `find-by-testid-prefix` returns every node whose testid starts with a prefix (a list's rows).
+- `find-by-attr` / `find-all-by-attr` / `find-by-attr-prefix` — the same walks over any attribute key (`(th/find-by-attr tree :data-test "save")`), for a codebase that does not key on `:data-testid`.
 - `text-content` — the rendered text under a node.
 - `invoke-handler` — call an attr handler (`:on-click`, `:on-change`, …) with an event arg, as the DOM would.
 - `testid` — the **authoring** helper that standardises the attrs fragment at view call sites; use it whenever you write a new view that wants a test handle:

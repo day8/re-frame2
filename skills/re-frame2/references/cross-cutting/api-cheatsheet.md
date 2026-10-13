@@ -105,6 +105,7 @@ Production fx surface: `re-frame.http.managed`. Test surfaces (canned-stub fxs +
 | `ts/snapshot-registrar` / `ts/restore-registrar!` | low-level snapshot/restore; compose in a `try` / `finally` for an ad-hoc bracket |
 | `ts/assert-path-equals` | `(path expected-val)` / `(path expected-val opts)` — mirrors `:rf.assert/path-equals`; full-db check → `(is (= expected-db (rf/app-db-value f)))` |
 | `ts/poll-until` | `(pred)` / `(pred opts)` — bounded poll; opts `:timeout-ms` (2000) `:interval-ms` (5) `:label`. JVM-sync (throws on timeout) / CLJS-Promise (rejects on timeout) |
+| `with-trace-recorder!` / `with-emit-recorder!` | **macros** `([recs opts?] body+)` — bind an atom of captured trace events / raw `:rf.error/*` (or `:stream :events`) records for the body, unregister on exit. Refer by name; CLJS via `:require-macros` |
 | `rf/with-fx-overrides` | `(overrides-map & body)` — **macro** on the `rf/` façade; binds `:fx-overrides` for `body`'s lexical scope, the block-shaped alternative to passing the opt on every `dispatch`. Precedence: per-call opt > lexical `with-fx-overrides` > per-frame. Composes with `with-frame` |
 | fire N events in order | `(doseq [ev evs] (rf/dispatch-sync ev))` — each drains to fixed point before the next |
 
@@ -115,6 +116,7 @@ The view-tree assertion axis (aliased `:as th`, per `spec/008-Testing.md` — **
 | Surface | Shape |
 |---|---|
 | `th/find-by-testid` / `th/find-all-by-testid` / `th/find-by-testid-prefix` | `(tree testid)` → hiccup node(s) |
+| `th/find-by-attr` / `th/find-all-by-attr` / `th/find-by-attr-prefix` | `(tree attr val)` → hiccup node(s) — any attribute key, for a codebase that does not key on `:data-testid` |
 | `th/text-content` / `th/invoke-handler` | `(node)` → text · `(node event-key & args)` → calls the handler under `event-key` (e.g. `:on-click`) |
 | `th/testid` | `(testid)` / `(testid attrs)` — attrs-fragment authoring helper for view call sites |
 

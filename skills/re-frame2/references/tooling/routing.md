@@ -9,6 +9,7 @@
 - Add a leave-guard (`:can-leave`) or entry-guard (`:can-enter`), declare a page's `:resources`, or set scroll behaviour.
 - Read the active route in a view via `:rf.route/id` / `:rf.route/params`.
 - Carry query state across routes, warm a destination on intent, or style an active link.
+- Serve hash URLs (`#/active`) or mount the app under a sub-path (`:url-strategy`).
 
 Do **not** load this leaf to learn what routing is — that is training knowledge. Load it for: the route-metadata key set, the slice shape, the event vocabulary, and the guard protocol that distinguishes re-frame2 from hook-based routers like React Router's `useBlocker` — a leave rejection parks a resumable pending value, an entry rejection is terminal.
 
@@ -181,6 +182,7 @@ Flow on `:rf.route/url-requested`:
 - **Nav-tokens suppress stale results.** Each navigation allocates a fresh `:nav-token` (`"nav-N"`). Async handlers (typically HTTP `:on-success`) capture the token at request time; the runtime suppresses the continuation when the carried token does not match the current slice's. Tests can simulate via `[:rf.test/simulate-http-resolution {:on-success-event [...] :carried-nav-token "nav-3"}]` — this fixture event is test-only, so `(:require [re-frame.routing.test-support])` to register it (it is NOT wired into the production `re-frame.routing` façade).
 - **Scroll is declarative.** `:scroll` on the route metadata is one of the closed three-keyword vocabulary `:top` (default for forward nav), `:restore` (default for popstate / initial), or `:preserve` — or `false` to suppress the `:rf.nav/scroll` fx entirely. A per-call `:scroll` in the `:rf.route/navigate` request wins. Any other value, including a map, is rejected: it fails the fx-args schema and the handler emits `:rf.error/unsupported-scroll-strategy` rather than scrolling nothing in silence.
 - **Multi-frame routing.** The route slice, nav-token counter, and saved-scroll map all live in the frame's **runtime-db** partition (under the reserved `[:rf.runtime/routing …]` keys) — each frame has its own routing state, read back via the framework `:rf/route` / `:rf.route/*` subs. No global router.
+- **The address-bar shape is a frame key, `:url-strategy`.** Routes, `route-url` and `match-url` stay path-form (`/active`); the URL-owning frame's strategy skins that onto the address bar. Omit the key for `routing/history-url-strategy` (HTML5 History, the default); declare `routing/hash-url-strategy` for `#/active` URLs on static hosting with no server rewrite; wrap either in `(routing/with-base-path strategy "/app")` when the app is mounted under a sub-path — routes never carry the base. `(rf/make-frame {:id :app :url-bound? true :url-strategy routing/hash-url-strategy})`. Requires `re-frame.routing` loaded before the frame is built; a malformed strategy fails construction with `:rf.error/invalid-url-strategy`.
 
 ## Deeper material
 
