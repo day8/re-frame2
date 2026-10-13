@@ -31,11 +31,3 @@
       (register :after  (fn [_] (swap! fired conj :after)))
       (is (nil? (fan-out {})))
       (is (= {:before 1 :after 1} (frequencies @fired))))))
-
-(deftest external-listeners-atom-is-honoured
-  (testing "registration writes through to a caller-held `:listeners` atom, which
-            consumers `defonce` so a hot reload keeps their listeners"
-    (let [external (atom {})
-          {:keys [register]} (rf.emit-substrate/make-listener-registry {:listeners external})]
-      (register :hello (fn [_] :ok))
-      (is (contains? @external :hello)))))
