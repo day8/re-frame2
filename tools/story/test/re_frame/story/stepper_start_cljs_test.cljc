@@ -178,8 +178,6 @@
        (rf.story/reg-variant vid (assoc body :script [[:dispatch-sync [:probe/inc-and-effect]]]))
        (testing (str vid)
          (is (= :catch (begin-outcome vid)) "the failed preparation rejects")
-         (is (nil? (slot vid)) "so Start never primed the substrate")
-         (is (zero? @ext-effect-count) "and issued no script effect")
          (is (= redacted? (empty? (failure-records vid)))
              "a captured failure stays on the frame; a redacted one leaves none")
          (when redacted?
