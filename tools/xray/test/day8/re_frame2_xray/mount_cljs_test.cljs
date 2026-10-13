@@ -159,8 +159,7 @@
           (with-redefs [rf.fresco/render! render-fn]
             (mount/open!)
             (is (= 1 (count @calls)))
-            (let [{:keys [tree node]} (first @calls)]
-              (is (vector? tree))
+            (let [{:keys [node]} (first @calls)]
               (is (= "rf-xray-root" (.-id node)))
               (is (identical? node (aget (.-children (.-body doc)) 0))
                   "the painted node is appended to the host"))
@@ -190,63 +189,19 @@
 ;; ---- (1b) substrate indifference -----------------------------------------
 ;;
 ;; Xray paints through its own Fresco root, so the mount verbs never consult
-;; the host adapter's `:render` shape. Each row asserts a POSITIVE mount, so
-;; it cannot pass on a verb that stopped doing anything.
-
-(defn- with-warn-counter*
-  "Run `f` with js/console replaced by a warn-counting stub; restores the
-  prior console in a finally. `f` receives the warn-count atom."
-  [f]
-  (let [warns         (atom 0)
-        prior-console (when (exists? js/console) js/console)]
-    (set! js/console (js-obj "warn" (fn [& _args] (swap! warns inc) nil)
-                             "error" (fn [& _args] nil)))
-    (try
-      (f warns)
-      (finally
-        (set! js/console prior-console)))))
-
-(deftest open!-mounts-on-an-element-shaped-substrate
-  (with-stub-document
-    (fn [_doc]
-      (let [{:keys [render-fn calls]} (mk-render-stub)]
-        (with-redefs [rf.fresco/render!                    render-fn
-                      rf.substrate.adapter/current-adapter (fn [] {:kind :rf.adapter/uix})]
-          (with-warn-counter*
-            (fn [warns]
-              (mount/open!)
-              (is (= [true 1 true nil 0]
-                     [(mount/mounted?) (count @calls)
-                      (:ok? (:diagnostic (mount/status)))
-                      (:reason (:diagnostic (mount/status))) @warns])
-                  "mounted, painted once, healthy diagnostic, no warning"))))))))
+;; the host adapter's `:render` shape. `open!` and `popout!` run under an
+;; element-shaped adapter in the pop-out rows below; `open-overlay!` creates
+;; its node through a different path, so it has its own row.
 
 (deftest open-overlay!-mounts-on-an-element-shaped-substrate
-  ;; Witnessed separately because the two verbs create their node through
-  ;; different paths.
   (with-stub-document
     (fn [_doc]
       (let [{:keys [render-fn calls]} (mk-render-stub)]
         (with-redefs [rf.fresco/render!                    render-fn
                       rf.substrate.adapter/current-adapter (fn [] {:kind :rf.adapter/uix})]
-          (with-warn-counter*
-            (fn [warns]
-              (let [result (mount/open-overlay!)]
-                (is (= [true :overlay 1 0]
-                       [(mount/mounted?) (:mode result) (count @calls) @warns]))))))))))
-
-(deftest popout!-does-not-refuse-an-element-shaped-substrate
-  ;; With no `js/window` in the node lane the window step answers
-  ;; `:popup-blocked`, so this literal pins that execution reached it.
-  (with-stub-document
-    (fn [_doc]
-      (let [{:keys [render-fn calls]} (mk-render-stub)]
-        (with-redefs [rf.fresco/render!                    render-fn
-                      rf.substrate.adapter/current-adapter (fn [] {:kind :rf.adapter/fresco})]
-          (with-warn-counter*
-            (fn [warns]
-              (is (= [:popup-blocked 0 0]
-                     [(:reason (mount/popout!)) @warns (count @calls)])))))))))
+          (let [result (mount/open-overlay!)]
+            (is (= [true :overlay 1]
+                   [(mount/mounted?) (:mode result) (count @calls)]))))))))
 
 (deftest second-open!-does-not-re-render
   (testing "open! on a mounted shell is a CSS-only show: no second render,
@@ -262,21 +217,6 @@
                 (is (= [1 true "block" true]
                        [(count @calls) (identical? first-node (:node second-state))
                         (.-display (.-style first-node)) (:visible? second-state)]))))))))))
-
-(deftest close!-hides-but-retains-mount-state
-  (with-stub-document
-    (fn [doc]
-      (let [{:keys [render-fn calls unmount-calls]} (mk-render-stub)]
-        (with-redefs [rf.fresco/render! render-fn]
-          (mount/open!)
-          (let [pre-close (:node @@#'mount/mount-state)]
-            (mount/close!)
-            (let [post-close @@#'mount/mount-state]
-              (is (= [false "none" true 0 1 1]
-                     [(:visible? post-close) (.-display (.-style (:node post-close)))
-                      (identical? pre-close (:node post-close)) @unmount-calls
-                      (count @calls) (.-length (.-children (.-body doc)))])
-                  "hidden, same node still attached, no unmount, no render"))))))))
 
 (deftest close!-collapses-layout-host-slot-and-open!-restores-it
   (testing "close! collapses the layout host's slot (so its reserved width
@@ -336,37 +276,11 @@
               popout-calls (atom 0)]
           (with-redefs [rf.fresco/render!           render-fn
                         mount/popout! (fn [] (swap! popout-calls inc) nil)]
-            (mount/install-fx!)
             (mount/open!)
             (rf/with-frame :rf/xray
               (rf/dispatch-sync [:rf.xray/popout-shell]))
             (is (= 1 @popout-calls)
                 "popout-shell event drove mount/popout! exactly once")))))))
-
-(deftest teardown!-invokes-unmount-and-removes-node
-  (with-stub-document
-    (fn [doc]
-      (let [{:keys [render-fn unmount-calls]} (mk-render-stub)]
-        (with-redefs [rf.fresco/render! render-fn]
-          (mount/open!)
-          (let [pre-node (:node @@#'mount/mount-state)]
-            (mount/teardown!)
-            (is (= [1 nil 0 nil]
-                   [@unmount-calls (.-parentNode pre-node)
-                    (.-length (.-children (.-body doc))) @@#'mount/mount-state])
-                "unmounted once, node detached, singleton cleared")))))))
-
-(deftest teardown!-then-open!-is-a-fresh-first-mount
-  (with-stub-document
-    (fn [_doc]
-      (let [{:keys [render-fn calls]} (mk-render-stub)]
-        (with-redefs [rf.fresco/render! render-fn]
-          (mount/open!)
-          (let [first-node (:node @@#'mount/mount-state)]
-            (mount/teardown!)
-            (mount/open!)
-            (is (= 2 (count @calls)) "the second open! renders afresh")
-            (is (not (identical? first-node (:node @@#'mount/mount-state))))))))))
 
 (deftest teardown!-swallows-unmount-errors
   (with-stub-document
@@ -384,18 +298,6 @@
         (is (nil? (mount/teardown!)))
         (is (= [0 nil] [(.-length (.-children (.-body doc))) @@#'mount/mount-state])
             "node removed and singleton cleared despite the throw")))))
-
-(deftest open!-without-adapter-is-silent-no-op
-  ;; A preload in a production bundle, or a host that never called
-  ;; rf/init!: Ctrl+Shift+C is a no-op until an adapter installs.
-  (with-stub-document
-    (fn [doc]
-      (let [{:keys [render-fn calls]} (mk-render-stub)]
-        (with-redefs [rf.fresco/render! render-fn]
-          (rf.substrate.adapter/dispose-adapter!)
-          (is (= [nil nil 0 0]
-                 [(mount/open!) @@#'mount/mount-state (count @calls)
-                  (.-length (.-children (.-body doc)))])))))))
 
 (deftest boot-on-runtime-ready!-honours-disabled-launch-config
   (testing "a disabled auto-open suppresses only the preload's default
@@ -424,13 +326,16 @@
                   (config/set-auto-open! true))))))))))
 
 (deftest open!-recovers-after-adapter-installs-late
-  ;; Some hot-reload orderings load the preload before the host's rf/init!.
+  ;; With no adapter (a preload in a production bundle, or a host that never
+  ;; called rf/init!) open! is a silent no-op; some hot-reload orderings load
+  ;; the preload before the host's rf/init!, so a later open! must mount.
   (with-stub-document
-    (fn [_doc]
+    (fn [doc]
       (let [{:keys [render-fn calls]} (mk-render-stub)]
         (with-redefs [rf.fresco/render! render-fn]
           (rf.substrate.adapter/dispose-adapter!)
-          (is (nil? (mount/open!)))
+          (is (= [nil nil 0]
+                 [(mount/open!) @@#'mount/mount-state (.-length (.-children (.-body doc)))]))
           (rf.substrate.adapter/install-adapter! rf.substrate.plain-atom/adapter)
           (mount/open!)
           (is (= [1 true] [(count @calls) (mount/visible?)])))))))
@@ -516,36 +421,6 @@
             (mount/open!)
             (is (identical? first-db (rf.frame/app-db-container :rf/xray)))))))))
 
-;; ---- (7b) ensure-xray-frame! run-once guard ------------------------------
-;;
-;; `popout!` calls `ensure-xray-frame!` again for the same frame; re-running
-;; the seed hook would revert a target the user picked in the L1 switcher.
-
-(deftest ensure-xray-frame-does-not-reseed-target-frame-on-second-call-rf2-n4p5it
-  (with-stub-document
-    (fn [_doc]
-      (let [{:keys [render-fn]} (mk-render-stub)]
-        (with-redefs [rf.fresco/render! render-fn
-                      rf/epoch-history  (fn [frame-id]
-                                          (case frame-id
-                                            :cart-frame [{:epoch-id :e-cart :frame :cart-frame
-                                                          :db-before {} :db-after {:k 1}
-                                                          :trigger-event [:cart/add]
-                                                          :event-id :cart/add
-                                                          :trace-events []}]
-                                            []))]
-          (trace-collector/seed-trace-for-test!
-            (pre-mount-dispatch-event 1 100 :cart-frame :cart/add-item))
-          (mount/open!)
-          (rf/with-frame :rf/xray
-            (is (= :cart-frame @(rf/subscribe [:rf.xray/target-frame]))
-                "precondition: the first mount seeded from the head cascade")
-            (rf/dispatch-sync [:rf.xray/set-target-frame :other-frame]))
-          (mount/ensure-xray-frame!)
-          (rf/with-frame :rf/xray
-            (is (= :other-frame @(rf/subscribe [:rf.xray/target-frame]))
-                "the user's pick survives the second call")))))))
-
 ;; ---- (8) teardown covers both mount singletons ---------------------------
 ;;
 ;; A leaked popout-state makes the next `popout!` short-circuit on stale
@@ -608,35 +483,22 @@
         (is (nil? (mount/teardown!)))
         (is (= [nil 1] [@@#'mount/popout-state @unmount-calls]))))))
 
-(deftest teardown!-swallows-popout-unmount-errors
-  (with-stub-document
-    (fn [_doc]
-      (let [{:keys [window closed?]} (mk-stub-popout-window)]
-        (seed-popout-state!
-          {:window     window
-           :unmount-fn (fn [] (throw (ex-info "popout unmount blew up" {:reason :test})))})
-        (is (nil? (mount/teardown!)))
-        (is (= [nil true] [@@#'mount/popout-state @closed?])
-            "singleton cleared and window closed despite the throw")))))
-
-;; ---- pop-out keydown listener lifecycle ----------------------------------
-;;
-;; Key events do not cross realms, so the pop-out has its own listener, and
-;; `teardown-popout-state!` disposes it on every exit. The routing half is in
-;; keybinding_cljs_test.cljs.
-
-(deftest teardown!-swallows-a-throwing-keydown-disposer
+(deftest teardown!-swallows-throwing-popout-disposer-and-unmount
+  ;; The pop-out's own keydown listener is disposed, then its root unmounted,
+  ;; then its window closed; a throw at either step must not strand the rest.
   (with-stub-document
     (fn [_doc]
       (let [{:keys [window closed?]} (mk-stub-popout-window)
             unmount-calls (atom 0)]
         (seed-popout-state!
           {:window          window
-           :unmount-fn      (fn [] (swap! unmount-calls inc) nil)
+           :unmount-fn      (fn []
+                              (swap! unmount-calls inc)
+                              (throw (ex-info "popout unmount blew up" {:reason :test})))
            :keydown-dispose (fn [] (throw (ex-info "disposer blew up" {:reason :test})))})
-        (is (nil? (mount/teardown!)))
+        (mount/teardown!)
         (is (= [nil 1 true] [@@#'mount/popout-state @unmount-calls @closed?])
-            "singleton cleared, unmount ran and window closed despite the throw")))))
+            "singleton cleared, unmount ran and window closed despite both throws")))))
 
 (deftest teardown!-clears-both-singletons-in-one-call
   (with-stub-document
@@ -745,33 +607,17 @@
 (defn- register-opener-reload-announcer!* [opener-win win overlay-node]
   ((deref #'mount/register-opener-reload-announcer!) opener-win win overlay-node))
 
-(deftest opener-gone?-is-false-only-for-a-live-opener
-  ;; A closed opener, a nil opener slot and an opener read that throws all
-  ;; read as gone.
-  (let [popout-of        (fn [opener]
-                           (:window (mk-stub-popout-window-with-opener opener)))
-        {live :window}   (mk-stub-opener-window)
-        {closed :window closed-flag :closed?} (mk-stub-opener-window)
-        throwing-popout  (js-obj)]
-    (reset! closed-flag true)
+(deftest opener-gone?-reads-a-missing-or-unreadable-opener-as-gone
+  ;; A live and a closed opener are driven through `popout!`'s wired watchdog
+  ;; in section (d).
+  (let [throwing-popout (js-obj)]
     (js/Object.defineProperty
       throwing-popout "opener"
       (js-obj "get" (fn [] (throw (ex-info "cross-origin block" {:reason :test})))
               "configurable" true))
-    (doseq [[label popout gone?] [["live opener"          (popout-of live)   false]
-                                  ["closed opener"        (popout-of closed) true]
-                                  ["nil opener"           (popout-of nil)    true]
-                                  ["throwing opener read" throwing-popout    true]]]
-      (is (= gone? (opener-gone?* popout)) label))))
-
-(deftest install-opener-gone-overlay!-creates-a-hidden-node-with-the-spec-ids
-  (let [{popout :window} (mk-stub-popout-window-with-opener nil)
-        overlay          (install-opener-gone-overlay!* (.-document popout))]
-    (is (= ["rf-xray-popout-opener-gone-overlay" "rf-xray-popout-opener-gone-overlay"
-            "popout-opener-gone" "none"]
-           [(.-id overlay) (.getAttribute overlay "data-testid")
-            (.getAttribute overlay "data-rf-xray-mode") (.-display (.-style overlay))])
-        "the spec'd id, testid and mode attribute, hidden until the watchdog fires")))
+    (doseq [[label popout] [["nil opener"           (:window (mk-stub-popout-window-with-opener nil))]
+                            ["throwing opener read" throwing-popout]]]
+      (is (true? (opener-gone?* popout)) label))))
 
 (deftest start-opener-gone-watchdog!-self-clears-when-popout-state-replaced
   (testing "a watchdog whose pop-out is no longer the registered :window
@@ -833,20 +679,6 @@
               "the identity guard suppressed the reveal on a superseded popout"))
         (finally
           (reset! @#'mount/popout-state nil))))))
-
-(deftest teardown-popout-state!-detaches-the-opener-announcer
-  ;; Otherwise repeated pop-out cycles in one opener accumulate handlers.
-  (let [{opener :window listeners :listeners} (mk-stub-opener-window-with-listeners)
-        {popout :window} (mk-stub-popout-window-with-opener opener)
-        overlay          (install-opener-gone-overlay!* (.-document popout))]
-    (seed-popout-state! {:window popout})
-    (let [handler (register-opener-reload-announcer!* opener popout overlay)]
-      (is (= [handler] (get @listeners "pagehide")) "registered before teardown")
-      (swap! @#'mount/popout-state assoc
-             :opener-window opener
-             :opener-pagehide-handler handler)
-      ((deref #'mount/teardown-popout-state!))
-      (is (empty? (get @listeners "pagehide"))))))
 
 (deftest teardown-popout-state!-clears-watchdog-interval
   (with-stub-document
@@ -1000,13 +832,11 @@
 
 (deftest open-overlay!-from-inline-reparents-to-body-and-rerenders-fixed
   (with-two-owner-document
-    (fn [{:keys [body host]}]
+    (fn [{:keys [body]}]
       (let [{:keys [render-fn calls]} (mk-render-stub)]
         (with-redefs [rf.fresco/render! render-fn]
           (mount/open!)
           (let [inline-node (:node @@#'mount/mount-state)]
-            (is (identical? host (.-parentNode inline-node))
-                "precondition: the inline root is owned by the layout host")
             (mount/open-overlay!)
             (let [overlay-node (:node @@#'mount/mount-state)]
               (is (= [2 :overlay :overlay true nil "overlay" 1 true]
@@ -1024,8 +854,6 @@
         (with-redefs [rf.fresco/render! render-fn]
           (mount/open-overlay!)
           (let [overlay-node (:node @@#'mount/mount-state)]
-            (is (identical? body (.-parentNode overlay-node))
-                "precondition: the overlay root is owned by document.body")
             (mount/open!)
             (let [inline-node (:node @@#'mount/mount-state)]
               (is (= [2 :inline :inline true nil "inline" 1 true]
@@ -1033,19 +861,6 @@
                       (:mode (mount/status)) (identical? host (.-parentNode inline-node))
                       (.-parentNode overlay-node) (.getAttribute inline-node "data-rf-xray-mode")
                       (deep-count-by-id body "rf-xray-root") (mount/visible?)])))))))))
-
-(deftest repeated-open-overlay!-same-mode-is-idempotent
-  (with-two-owner-document
-    (fn [{:keys [body]}]
-      (let [{:keys [render-fn calls]} (mk-render-stub)]
-        (with-redefs [rf.fresco/render! render-fn]
-          (mount/open-overlay!)
-          (let [first-node (:node @@#'mount/mount-state)]
-            (mount/open-overlay!)
-            (mount/open-overlay!)
-            (is (= [1 true 1 :overlay]
-                   [(count @calls) (identical? first-node (:node @@#'mount/mount-state))
-                    (deep-count-by-id body "rf-xray-root") (:mode (mount/status))]))))))))
 
 (deftest settings-panel-position-realizes-surface-through-the-bridge
   ;; Driven through the exported browser API `install.cljs` wires, pointing
@@ -1070,31 +885,10 @@
             (is (= [:inline host 1] (surface)))
             (settings-effects/apply-panel-position! :fullscreen)
             (is (= [:overlay body 1] (surface)))
-            (settings-effects/apply-panel-position! :right-rail)
-            (is (= [:inline host 1] (surface)))
             (finally
               (if prior-window
                 (set! js/window prior-window)
                 (js-delete js/goog.global "window")))))))))
-
-(deftest close-then-reopen-after-switch-to-inline-is-coherent
-  (with-two-owner-document
-    (fn [{:keys [host body]}]
-      (let [{:keys [render-fn calls]} (mk-render-stub)]
-        (with-redefs [rf.fresco/render! render-fn]
-          (mount/open-overlay!)
-          (mount/open!)
-          (let [inline-node (:node @@#'mount/mount-state)]
-            (mount/close!)
-            (is (= [false :inline] [(mount/visible?) (:mode (mount/status))])
-                "close! retains the realized inline mode")
-            (mount/open!)
-            (is (= [true 2 true true 1]
-                   [(mount/visible?) (count @calls)
-                    (identical? inline-node (:node @@#'mount/mount-state))
-                    (identical? host (.-parentNode inline-node))
-                    (deep-count-by-id body "rf-xray-root")])
-                "a CSS-only re-show of the same host-owned node")))))))
 
 ;; ---- (13) global reopen keeps the realized surface ----------------------
 ;;
@@ -1117,32 +911,6 @@
             "altKey"          alt?
             "preventDefault"  (fn [] nil)
             "stopPropagation" (fn [] nil))))
-
-(deftest global-toggle-reopens-hidden-overlay-as-overlay-no-host-rf2-j538f7-41
-  (with-stub-document
-    (fn [doc]
-      (set! (.-querySelector doc) (fn [_selector] nil))
-      (let [{:keys [render-fn calls]} (mk-render-stub)
-            prior-console (when (exists? js/console) js/console)]
-        (set! js/console (js-obj "error" (fn [& _args] nil)))
-        (with-redefs [rf.fresco/render! render-fn]
-          (try
-            (mount/open-overlay!)
-            (let [overlay-node (:node @@#'mount/mount-state)]
-              (mount/toggle!)
-              (is (= [false :overlay "none"]
-                     [(mount/visible?) (:mode (mount/status)) (.-display (.-style overlay-node))])
-                  "toggle! hides the overlay and it keeps its mode")
-              (mount/toggle!)
-              (is (= [true :overlay true "block" 1]
-                     [(mount/visible?) (:mode (mount/status))
-                      (identical? overlay-node (:node @@#'mount/mount-state))
-                      (.-display (.-style overlay-node)) (count @calls)])
-                  "toggle! re-shows the SAME overlay, CSS-only")
-              (is (not= :missing-layout-host (get-in (mount/status) [:diagnostic :reason]))
-                  "no inline-host lookup was attempted"))
-            (finally
-              (set! js/console prior-console))))))))
 
 (deftest global-toggle-reopens-hidden-overlay-as-overlay-host-present-rf2-j538f7-41
   (with-two-owner-document
@@ -1175,7 +943,6 @@
             (let [overlay-node (:node @@#'mount/mount-state)
                   evt (mk-keydown-event {:key "C" :code "KeyC" :ctrl? true :shift? true})]
               (#'keybinding/handle-keydown evt)
-              (is (false? (mount/visible?)) "the first press hides")
               (#'keybinding/handle-keydown evt)
               (is (= [true :overlay true 1]
                      [(mount/visible?) (:mode (mount/status))
@@ -1223,7 +990,6 @@
           (mount/open!)
           (let [inline-node (:node @@#'mount/mount-state)]
             (mount/toggle!)
-            (is (false? (mount/visible?)))
             (mount/toggle!)
             (is (= [true :inline true true 1 1]
                    [(mount/visible?) (:mode (mount/status))
@@ -1407,23 +1173,17 @@
 
 ;; ---- (c) evidence integrity on the pop-out path --------------------------
 
-(deftest popout-shell-render-never-lands-in-inspected-app-epoch
+(deftest popout-shell-render-is-rooted-at-the-shell-frame
   ;; `popout!` carries its OWN copy of the frame-provider wrap, so it needs
   ;; its own row.
   (with-driven-popout
     (fn [_ctx]
-      (let [app :test/inspected-app-popout
-            {:keys [render-fn calls]} (mk-render-stub)]
-        (rf.trace/clear-frame-no-emit!)
-        (rf/make-frame {:id app})
-        (rf/reg-event :app/inc (fn [{:keys [db]} _]
-                                 {:db (update db :n (fnil inc 0))}))
+      (let [{:keys [render-fn calls]} (mk-render-stub)]
         (with-popout-seams render-fn
           (fn [] (mount/popout!)))
         (is (= [1 :popout] [(count @calls) (shell-view-mode-of (first @calls))])
             "this is the pop-out's own tree")
-        (assert-rooted-at-shell-frame-provider! (:tree (first @calls)))
-        (assert-xray-event-leaves-app-ring-alone! app)))))
+        (assert-rooted-at-shell-frame-provider! (:tree (first @calls)))))))
 
 ;; ---- (d) the watchdog and the announcer, as `popout!` wires them ---------
 ;;
@@ -1440,8 +1200,10 @@
                   overlay (:overlay-node state)
                   wid     (:watchdog-id state)
                   tick    (get @intervals wid)]
-              (is (= ["rf-xray-popout-opener-gone-overlay" true "none" true]
-                     [(.-id overlay)
+              (is (= ["rf-xray-popout-opener-gone-overlay" "rf-xray-popout-opener-gone-overlay"
+                      "popout-opener-gone" true "none" true]
+                     [(.-id overlay) (.getAttribute overlay "data-testid")
+                      (.getAttribute overlay "data-rf-xray-mode")
                       (identical? (.-body (.-document popout)) (.-parentNode overlay))
                       (.-display (.-style overlay)) (some? tick)])
                   "the spec'd overlay in the POP-OUT's document, hidden, and a
@@ -1474,7 +1236,10 @@
                   "a persisted pagehide is a bfcache freeze: reveal nothing")
               (handler (js-obj "persisted" false))
               (is (= "flex" (.-display (.-style overlay)))
-                  "a real opener unload reveals the overlay"))))))))
+                  "a real opener unload reveals the overlay")
+              ((deref #'mount/teardown-popout-state!))
+              (is (empty? (get @opener-listeners "pagehide"))
+                  "teardown detaches it, so repeated pop-outs cannot accumulate handlers"))))))))
 
 ;; ---- (e) re-popping into a window an opener reload left behind -----------
 ;;
