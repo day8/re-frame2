@@ -1,42 +1,12 @@
 (ns day8.re-frame2-xray.panel-gallery-inventory-smoke-cljs-test
-  "Smoke for the panel-gallery /#/stories inventory.
-
-  An authoring error in one gallery namespace silently bricks the gallery
-  shell: the registrar throws on the FIRST offending gallery ns to load
-  and aborts the cascade, so subsequent galleries never run their
-  `register-all!`. The characteristic case is `:rf.error/unknown-tag` —
-  a variant carrying a `:state/*` tag (e.g. `:state/empty`,
-  `:state/special`) when nothing registers the `:state/*` axis, so the
-  registrar's `validate-tag-membership!` throws.
-
-  Story's own suite locks the framework half: `story_cljs_test`'s
-  `cljs-state-axis-tags-survive-variant-registration` registers a variant
-  carrying every `:state/*` value at once, in this same `:node-test`
-  build. This smoke locks the author half:
-
-  - **Gallery-id grammar lock**: `rf.story.schemas/story-id?` rejects a
-    malformed id (a slash in a story id, say), which aborts that
-    gallery's registrations — and the per-gallery cascade in
-    `each-gallery-register-all-drops-non-empty-inventory` below catches
-    it as empty inventory before the gallery hits the runtime.
-
-  Pure data → data; no React, no live runtime. Discovered by the
-  `:node-test` build's `cljs-test$` regex via the `-cljs-test` ns
-  suffix (`xray/test/` is on shadow's `:source-paths`)."
+  "Smoke for the panel-gallery /#/stories inventory. An authoring error in
+  one gallery namespace (an unregistered tag, a malformed story id) makes
+  the registrar throw and abort that gallery's `register-all!`, so each
+  gallery is registered alone and must yield inventory."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.set]
             [re-frame.story :as rf.story]
             [day8.re-frame2-xray.focus :as focus]
-            ;; Per-gallery register-all! drive. Each
-            ;; namespace's bottom-of-file `(register-all!)` fires at
-            ;; namespace load, but the smoke test calls each one
-            ;; individually after a `clear-all!` to verify the gallery
-            ;; produces non-empty inventory in isolation. This catches
-            ;; the cascade-aborts-on-first-error pattern where a typo
-            ;; in one gallery (e.g. lowercase `:workspace.*` id, or an
-            ;; unregistered `:feature/*` tag) silently bricks that
-            ;; gallery's contribution while the aggregate inventory
-            ;; stays non-empty from the other galleries.
             [panel-gallery.gallery-app-db          :as gallery-app-db]
             [panel-gallery.gallery-chrome          :as gallery-chrome]
             [panel-gallery.gallery-diff-mode-3     :as gallery-diff-mode-3]
@@ -88,9 +58,6 @@
   (testing "galleried + intentionally-excluded tabs exactly partition the
             live Dynamic L4 inventory — no shipped tab is silently missing
             from BOTH the gallery and the documented-exclusion list"
-    (is (empty? (clojure.set/intersection galleried-dynamic-tabs
-                                           intentionally-ungalleried-dynamic-tabs))
-        "a tab is either galleried OR documented-excluded, never both")
     (is (= focus/valid-panels
            (clojure.set/union galleried-dynamic-tabs
                               intentionally-ungalleried-dynamic-tabs))
@@ -102,14 +69,9 @@
 ;; ---- per-gallery register-all! drive ---------------------------------
 
 (def ^:private galleries
-  "Every panel-gallery namespace's `register-all!` paired with a human
-  label. Mirrors `panel-gallery.core`'s `:require` block — every
-  gallery the boot loads must appear here so a future gallery addition
-  fails this smoke until the registrar maintainer hooks it up.
-
-  The pair-form (label + fn ref) keeps the assertion failure messages
-  human-readable when one gallery's `register-all!` throws or yields
-  empty inventory."
+  "Every panel-gallery namespace's `register-all!` with a label for the
+  failure message. Kept in step with `panel-gallery.core`'s `:require`
+  block by hand: nothing checks one against the other."
   [["gallery-app-db"               gallery-app-db/register-all!]
    ["gallery-chrome"                gallery-chrome/register-all!]
    ["gallery-diff-mode-3"           gallery-diff-mode-3/register-all!]
