@@ -2,7 +2,7 @@
 
 Load when the task is **authoring a `deftest` / `cljs.test` test** against re-frame2 application code: an event-fx handler, a sub graph, a machine snapshot, a tag query, a view that reads from a frame. Teaches only the **re-frame2-specific binding** — `clojure.test` / `cljs.test` themselves are assumed. Then run the nearest relevant gate ([§Discovering a project's gates](#discovering-a-projects-gates)).
 
-**Contents:** [the single import](#the-single-import) · [per-test fixture](#the-per-test-fixture-always-use-it) · [`dispatch-sync`](#driving-events-dispatch-sync) · [pinning `:rf.cofx`](#pinning-recordable-coeffects-rfcofx-in-dispatch-opts) · [`with-frame`](#pinning-a-frame-with-frame) · [asserting state](#asserting-state-assert-path-equals-and-app-db-value) · [asserting subs](#asserting-subscriptions-compute-sub-preferred-and-subscribe-once) · [the view](#asserting-the-view) · [machines and tags](#machine-snapshots-and-tag-queries) · [HTTP and other fx](#http-and-other-side-effecting-fx) · [test doubles](#test-doubles) · [discovering gates](#discovering-a-projects-gates) · [done checklist](#checklist-before-declaring-a-test-done)
+**Contents:** [the single import](#the-single-import) · [per-test fixture](#the-per-test-fixture-always-use-it) · [`dispatch-sync`](#driving-events-dispatch-sync) · [pinning `:rf.cofx`](#pinning-recordable-coeffects-rfcofx-in-dispatch-opts) · [`with-frame`](#pinning-a-frame-with-frame) · [asserting state](#asserting-state-assert-path-equals-and-app-db-value) · [asserting subs](#asserting-subscriptions-compute-sub-preferred-and-subscribe-once) · [the view](#asserting-the-view) · [machines and tags](#machine-snapshots-and-tag-queries) · [HTTP and other fx](#http-and-other-side-effecting-fx) · [traces and error records](#capturing-traces-and-error-records) · [test doubles](#test-doubles) · [discovering gates](#discovering-a-projects-gates) · [done checklist](#checklist-before-declaring-a-test-done)
 
 ## The single import
 
@@ -39,7 +39,7 @@ A **JVM-only** (`.clj`) test drops the conditional and names the plain-atom subs
 (use-fixtures :each (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 ```
 
-Optional opts: `:init-fn` (zero-arg fn run after adapter install, before the test), `:clear-kinds` (a collection of registrar kinds to clear after the snapshot capture), `:async?` (boolean — return the `cljs.test` map-form fixture for suites with async tests; see below). Per-frame app schemas are not a registrar kind; every reset clears them and restores them on exit, so register the schemas a test needs in `:init-fn` or in the test itself.
+Optional opts: `:init-fn` (zero-arg fn run after adapter install, before the test), `:clear-kinds` (a collection of registrar kinds to clear after the snapshot capture), `:ambient-frame` (the frame id the fixture binds as the ambient frame around the body — default `:rf/default`; pass `nil` when the test makes its own top-level frames with `make-frame` / `with-new-frame`, so their `:initial-events` drain synchronously instead of queueing as a mid-cascade child), `:async?` (boolean — return the `cljs.test` map-form fixture for suites with async tests; see below). Per-frame app schemas are not a registrar kind; every reset clears them and restores them on exit, so register the schemas a test needs in `:init-fn` or in the test itself.
 
 Do **not** call `(registrar/clear-all!)` from a fixture — under CLJS, framework registrations cannot be reloaded and will be gone for the rest of the run.
 
@@ -236,6 +236,7 @@ The pure transition fn — `(re-frame.machines/machine-transition machine snapsh
 For `:rf.http/managed`, install per-call stubs around the body:
 
 ```clojure
+;; (:require [re-frame.http.test-support :as http-test-support])
 (http-test-support/with-request-stubs
   ;; :reply is a MAP — {:ok <value>} for success, {:failure {:kind ...}} for
   ;; failure. The runtime branches on (contains? reply :ok) / (:failure);
@@ -285,6 +286,26 @@ For HTTP stubs, the fn form lets the test return a canned response shape without
 For a *block* of dispatches that all want the same stub, `(rf/with-fx-overrides {…} & body)` binds the map for the body's lexical scope instead of repeating the opt on every call — precedence is per-call opt > lexical `with-fx-overrides` > per-frame, and it composes with `with-frame`.
 
 Per-frame `:fx-overrides` in the frame config accepts the same fn-value form, so a test frame can install a stub once for every dispatch routed to it. The id-keyword form (`{:rf.http/managed :rf.http/managed-canned-success}`) is the portable pattern-level form — use it when the stub is shared across many tests or when SSR / serialisation is in play; reach for the fn form when one test wants a bespoke response.
+
+## Capturing traces and error records
+
+To assert on what the runtime *emitted* — a trace operation, a promoted `:rf.error/*` — bracket the body with a recorder macro instead of hand-rolling a listener + atom + `finally`. Each binds an atom for the body's scope and unregisters on the way out, even if the body throws:
+
+```clojure
+;; Both are macros, so refer them by name:
+;;   JVM:  (:require [re-frame.test-support :as ts :refer [with-trace-recorder! with-emit-recorder!]])
+;;   CLJS: (:require-macros [re-frame.test-support :refer [with-trace-recorder! with-emit-recorder!]])
+
+(with-trace-recorder! [traces]                         ;; trace events, a vector by default
+  (rf/dispatch-sync [:my-event])
+  (is (some #(= :rf.event/run-start (:operation %)) @traces)))
+
+(with-emit-recorder! [errs]                            ;; :stream :errors is the default
+  (rf/dispatch-sync [:boom])
+  (is (= [:rf.error/handler-exception] (mapv :error @errs))))
+```
+
+`with-trace-recorder!` opts: `:pred` (keep only matching events), `:shape` (`:flat` vector, or `:by-op` — a map keyed by `:operation`), `:key`. `with-emit-recorder!` opts: `:stream` (`:errors` or `:events`), `:pred`, `:key`; it brackets the raw, unprojected framework records on purpose — an app observes production records through a frame's `:observability` sink ([`production-observability.md`](production-observability.md)). Opts go in the binding vector: `(with-trace-recorder! [seen {:shape :by-op}] …)`.
 
 ## Test doubles
 

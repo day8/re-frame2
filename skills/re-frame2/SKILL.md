@@ -92,6 +92,7 @@ This skill's view surface is the **adapters** — Reagent, reagent-slim, UIx. Fr
 |---|---|
 | HTTP request with request/response lifecycle | `patterns/remote-data.md` |
 | Cached server-state shared across views, with invalidation, or a reusable session/tenant scope (`reg-resource-scope`) — read/cache side (TanStack-Query-shaped) | `patterns/resources.md` |
+| Infinite scroll / "load more" feed — one growing cached entry (`:infinite true`, `:rf.resource/load-more`) | `patterns/resources.md` §Infinite / load-more feeds |
 | Workflow after a write succeeds (navigate / toast / fold errors — mutation `:reply-to`), mixed-scope invalidation, optimistic writes | `patterns/resources-mutations.md` |
 | HTTP with status-aware retries / error projection / batching | `patterns/managed-http.md` |
 | Auth / tracing headers or a base URL on every request (`reg-http-interceptor`) | `patterns/resources.md` §Request decoration |
