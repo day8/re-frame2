@@ -11,9 +11,8 @@
 
   The layout under test is the SNIPPET ITSELF — its markup and `<style>` are
   parsed out of `config/default-layout-host-snippet`, so an edit to the
-  recommendation is what these rows grade. The navigation rows also run in a
-  plain container the window scrolls, as the control: they read the same
-  there, so a red on the snippet is the snippet's.
+  recommendation is what these rows grade. Routing's own scroll-to-top and
+  Back restore in a window-scrolled page are routing's suite's.
 
   Offsets are read off the page as a user sees it — how far the page's first
   element has moved up — so the rows do not care which element scrolls, and
@@ -37,7 +36,7 @@
 (defn- skip! [why]
   (is true (str "a host-layout row needs a real browser — " why)))
 
-;; ---- The two layouts --------------------------------------------------------
+;; ---- The recommended layout -------------------------------------------------
 
 (defn- snippet-parts
   "The recommended snippet split into its markup and its stylesheet."
@@ -61,21 +60,20 @@
     (fn [] (doseq [[el d] saved] (set! (.. el -style -display) d)))))
 
 (defn- install-layout!
-  "Put `layout` on the page and answer `{:app <element the app mounts into>
-  :host <the Xray host, or nil> :remove! <thunk>}`. `:recommended` is the
-  shipped snippet; `:window` is a plain container the window scrolls."
-  [layout]
+  "Put the shipped snippet on the page and answer `{:app <element the app
+  mounts into> :host <the Xray host> :remove! <thunk>}`."
+  []
   (let [{:keys [markup css]} (snippet-parts)
         style   (.createElement js/document "style")
         wrapper (.createElement js/document "div")]
     ;; Anchoring off, or Chrome's scroll anchoring restores Back on its own and the Back row cannot see whether routing did.
-    (set! (.-textContent style) (str (if (= :recommended layout) css "body { margin: 0; }") " * { overflow-anchor: none; }"))
-    (when (= :recommended layout) (set! (.-innerHTML wrapper) markup))
+    (set! (.-textContent style) (str css " * { overflow-anchor: none; }"))
+    (set! (.-innerHTML wrapper) markup)
     (.appendChild js/document.head style)
     (.appendChild js/document.body wrapper)
     (let [restore! (hide-the-rest! wrapper)]
       (.scrollTo js/window 0 0)
-      {:app     (if (= :recommended layout) (.querySelector wrapper "#app") wrapper)
+      {:app     (.querySelector wrapper "#app")
        :host    (.querySelector wrapper "[data-rf-xray-host]")
        :remove! (fn []
                   (restore!)
@@ -140,14 +138,14 @@
       (rf.interop/after-render (fn [] (resolve (read)))))))
 
 (defn- navigate-and-back!
-  "In `layout`, scroll the first page to its marker, navigate to the second
-  page, scroll that to ITS marker, press Back, and call `check` with the
-  depth read after the navigation and the depth read after Back."
-  [layout check done]
+  "Scroll the first page to its marker, navigate to the second page, scroll
+  that to ITS marker, press Back, and call `check` with the depth read after
+  the navigation and the depth read after Back."
+  [check done]
   (let [frame-id   ::frame
         runner-url (.-href js/location)
         prior      (.-scrollRestoration js/window.history)
-        {:keys [app remove!]} (install-layout! layout)
+        {:keys [app remove!]} (install-layout!)
         _          (set! (.-scrollRestoration js/window.history) "manual")
         _          (.replaceState js/window.history nil "" first-url)
         _          (rf/make-frame {:id frame-id :url-bound? true})
@@ -162,7 +160,7 @@
           (fn [_]
             (scroll-to-marker!)
             (is (= first-depth (depth))
-                (str (name layout) ": precondition — the first page scrolls to "
+                (str "precondition — the first page scrolls to "
                      first-depth ", and reads " (depth)))
             (after-commit
               #(rf/dispatch-sync [:rf.route/navigate {:to ::second}] {:frame frame-id})
@@ -172,7 +170,7 @@
             (swap! readings assoc :arrived arrived)
             (scroll-to-marker!)
             (is (= second-depth (depth))
-                (str (name layout) ": precondition — the second page scrolls to "
+                (str "precondition — the second page scrolls to "
                      second-depth ", and reads " (depth)))
             (js/Promise.
               (fn [resolve]
@@ -184,7 +182,7 @@
         (.then
           (fn [back]
             (check (assoc @readings :back back))))
-        (.catch (fn [e] (is false (str (name layout) ": the row never settled: " e))))
+        (.catch (fn [e] (is false (str "the row never settled: " e))))
         (.then (fn [_]
                  (try (.unmount root) (catch :default _ nil))
                  (remove!)
@@ -193,26 +191,20 @@
                  (try (rf/destroy-frame! frame-id) (catch :default _ nil))
                  (done))))))
 
-(defn- check-navigation [layout]
-  (fn [{:keys [arrived back]}]
-    (is (= 0 arrived)
-        (str (name layout) ": the second page opened " arrived "px down rather than at"
-             " its top. Routing's scroll-to-top moves the window, so a layout whose"
-             " app scrolls in an element of its own keeps the old page's depth"))
-    (is (= first-depth back)
-        (str (name layout) ": Back restored " back " rather than " first-depth
-             ". Routing saves and restores the window's offset, so a layout whose"
-             " app scrolls in an element of its own saves 0 and restores nothing"))))
+(defn- check-navigation [{:keys [arrived back]}]
+  (is (= 0 arrived)
+      (str "the second page opened " arrived "px down rather than at"
+           " its top. Routing's scroll-to-top moves the window, so a layout whose"
+           " app scrolls in an element of its own keeps the old page's depth"))
+  (is (= first-depth back)
+      (str "Back restored " back " rather than " first-depth
+           ". Routing saves and restores the window's offset, so a layout whose"
+           " app scrolls in an element of its own saves 0 and restores nothing")))
 
 (deftest a-tall-page-opens-at-the-top-and-back-restores-under-the-recommended-host
   (if-not (browser?)
     (skip! ":node-test has no layout, history or scroll model")
-    (async done (navigate-and-back! :recommended (check-navigation :recommended) done))))
-
-(deftest control-the-same-navigation-in-a-page-the-window-scrolls
-  (if-not (browser?)
-    (skip! ":node-test has no layout, history or scroll model")
-    (async done (navigate-and-back! :window (check-navigation :window) done))))
+    (async done (navigate-and-back! check-navigation done))))
 
 ;; ---- The Xray pane beside the app --------------------------------------------
 
@@ -224,7 +216,7 @@
   (if-not (browser?)
     (skip! ":node-test has no layout model")
     (async done
-      (let [{:keys [app host remove!]} (install-layout! :recommended)
+      (let [{:keys [app host remove!]} (install-layout!)
             doc   (.-documentElement js/document)
             tall  (.createElement js/document "div")
             wide  (.createElement js/document "div")]
