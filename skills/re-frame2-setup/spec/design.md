@@ -123,7 +123,7 @@ skills/re-frame2-setup/
     └── evals.json                 (trigger-accuracy fixture + graded start-from-nothing / generator-route evals)
 ```
 
-Each reference leaf targets ≤16 KB per the family leaf-size discipline ([`skills/README.md` §Leaf size discipline](../../README.md#leaf-size-discipline)), and every leaf meets the byte ceiling. `first-counter.md` runs past the family *line* target because it carries thirteen small files as fenced blocks; that is the per-session token-saving exception the discipline allows — the default route reads SKILL.md plus this one leaf (about 40 KB together). A typical greenfield session reads SKILL.md + 1 reference leaf (2 for UIx, adding `entry-namespace.md`). `spec/`, `tests/`, and `evals/` are excluded from the npm `files` array by design.
+Each reference leaf targets ≤16 KB per the family leaf-size discipline ([`skills/README.md` §Leaf size discipline](../../README.md#leaf-size-discipline)), and every leaf meets the byte ceiling. `first-counter.md` runs past the family *line* target because it carries thirteen small files as fenced blocks; that is the per-session token-saving exception the discipline allows — the default route reads SKILL.md plus this one leaf (about 40 KB together). A typical greenfield session reads SKILL.md + 1 reference leaf (2 for UIx, adding `entry-namespace.md`, or for an empty CLJS project, adding `existing-project.md`). The merge-and-convert detail lives in that leaf rather than in SKILL.md because only the second starting point needs it, so the default route does not pay for it. `spec/`, `tests/`, and `evals/` are excluded from the npm `files` array by design.
 
 ## 6. Discovery surface (frontmatter `description`)
 
