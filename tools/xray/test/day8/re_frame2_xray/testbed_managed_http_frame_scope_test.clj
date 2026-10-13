@@ -178,8 +178,9 @@
 
 (deftest cleanup-paths-are-frame-exact
   (testing "the seeded handle's abort-fn clears frame-exactly"
+    ;; That it calls `clear-in-flight-in-frame!` at all is law 3's, over every
+    ;; handle-recording form.
     (let [form (fx-form ":managed-http/seed-in-flight")]
-      (is (str/includes? form "clear-in-flight-in-frame!"))
       (is (not (re-find #"clear-in-flight!\s+request-id" form))
           "the 2-arg `clear-in-flight!` clears by handle identity, and this
            closure holds no handle: with a nil one it is a no-op that leaves
