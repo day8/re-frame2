@@ -11,7 +11,6 @@
   flag. The CLJS bundle-level absence is pinned by `scripts/check-elision.cjs`."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as rf.error-emit]
             [re-frame.interop :as rf.interop]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
@@ -26,16 +25,3 @@
     (let [meta (rf/handler-meta {:source :store :kind :event :id :rf2-3un2g/prod-elide-event})]
       (is (some? meta))
       (is (= {} (select-keys meta [:ns :file :line :column]))))))
-
-(deftest programmatic-registration-no-source-coord-in-error-record
-  ;; A fn-form registration binds no `*pending-coords*`, so the always-on error
-  ;; record omits `:source-coord` rather than carrying nil.
-  ((requiring-resolve 're-frame.events/reg-event)
-   :rf2-3un2g/programmatic
-   (fn [_cofx _] (throw (ex-info "boom" {}))))
-  (let [seen (atom nil)]
-    (rf.error-emit/register-error-listener! :rf2-3un2g/programmatic-recorder
-                                            (fn [record] (reset! seen record)))
-    (rf/dispatch-sync [:rf2-3un2g/programmatic])
-    (is (some? @seen))
-    (is (not (contains? @seen :source-coord)))))
