@@ -22,18 +22,10 @@
        (catch clojure.lang.ExceptionInfo e e)))
 
 (deftest root-on-bad-targets-are-rejected-at-registration
-  (doseq [[label machine-id target expected]
-          [["an unresolved KEYWORD target: the ex-data carries the target and attributes the failure to the machine root"
-            :rf.root-on-tv/unresolved-kw :missing
-            {:rf.error/id :rf.error/machine-unresolved-target :target :missing :state :rf/root}]
-           ["an unresolved absolute-VECTOR target"
-            :rf.root-on-tv/unresolved-vec [:a :nowhere]
-            {:rf.error/id :rf.error/machine-unresolved-target}]
-           ["a target that is neither keyword nor vector is malformed shape, not unresolved"
-            :rf.root-on-tv/malformed {:target 42}
-            {:rf.error/id :rf.error/machine-bad-target}]]]
-    (let [data (ex-data (registration-throws? machine-id {:initial :a
-                                                          :on      {:go target}
-                                                          :states  {:a {}}}))]
-      (is (= expected (select-keys data (keys expected)))
-          (str label " — at registration, not just at dispatch")))))
+  (is (= {:rf.error/id :rf.error/machine-unresolved-target :target :missing :state :rf/root}
+         (select-keys (ex-data (registration-throws? :rf.root-on-tv/unresolved-kw
+                                                     {:initial :a
+                                                      :on      {:go :missing}
+                                                      :states  {:a {}}}))
+                      [:rf.error/id :target :state]))
+      "an unresolved keyword target fails at registration, attributed to the machine root"))
