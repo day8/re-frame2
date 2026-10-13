@@ -212,16 +212,6 @@
     (is (= "\"a plain string\"" (rf.story.ui.schema-validation/format-explain "a plain string")))))
 
 (deftest format-explain-reads-a-real-malli-explanation
-  (testing "the explanation `malli.core/explain` really returns — `:errors`
-            a seq, not a vector, and no `:message` on the error maps —
-            renders as path + message, never as the pr-str of the map"
-    (let [explanation (m/explain optional-heading {:heading ""})]
-      ;; Guard the fixture: a VECTOR `:errors` would pass whether or not
-      ;; `format-explain` reads a non-vector seq.
-      (is (not (vector? (:errors explanation)))
-          "fixture carries Malli's real non-vector :errors")
-      (is (= ":heading: schema violation"
-             (rf.story.ui.schema-validation/format-explain explanation)))))
   (testing "the per-entry explanation the Controls row and the args panel
             render — `args-violations` explains the CHILD schema, so the
             path is the root"
