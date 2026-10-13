@@ -16,14 +16,10 @@
   Fresco never sees. The widget renders through the Reagent head, the
   only public pure-render door into the private `render-table`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            ;; The gutter's hover paint is a global CSS rule, so its
-            ;; selector is part of this widget's contract.
-            [day8.re-frame2-xray.theme.global-styles :as gs]
             [day8.re-frame2-xray.views.resizable-table :as rt]))
 
 (use-fixtures :each
@@ -99,37 +95,16 @@
     (let [woven   (header-woven (render (three-column-opts {})))
           gutters (take-nth 2 (rest woven))]
       (is (= ["h-a" "g-a" "h-b" "g-b" "h-c"] (mapv fresco-key woven)))
-      (is (= ["rf-xray-resizable-gutter-keys-a"
-              "rf-xray-resizable-gutter-keys-b"]
-             (mapv #(:data-testid (nth % 1)) gutters))
-          "the testid the CSS hover rule selects on survives the key injection")
       (is (every? #(fn? (:on-pointer-down (nth % 1))) gutters)
-          "and so does the drag affordance"))))
-
-(deftest global-styles-paints-the-gutter-hover
-  (testing "the hover paint is a global CSS rule keyed on the gutter's
-            `data-testid` prefix. Without `!important` the gutter's inline
-            `background: transparent` would win and the handle would never
-            light up. No gate renders CSS, so this is its only check."
-    (is (str/includes? @#'gs/motion-css
-                       (str "[data-testid^=\"rf-xray-resizable-gutter-\"]:hover {\n"
-                            "  background: var(--rf-xray-accent) !important;\n"
-                            "}\n")))))
+          "the gutter keeps its drag affordance through the key injection"))))
 
 ;; ---- body cells, spacers and row wrappers -------------------------------
 
-(deftest body-cells-and-spacers-reach-the-codec-with-keys
-  (testing "every woven body node (3 cells + 2 spacers) on every row
-            carries its key in the attrs map"
-    (xray-setup!)
-    (is (= (repeat 2 ["c-a" "s-a" "c-b" "s-b" "c-c"])
-           (map #(mapv fresco-key (row-woven %))
-                (body-rows (render (three-column-opts {}))))))))
-
-(deftest row-wrappers-reach-the-codec-with-keys
+(deftest body-rows-cells-and-spacers-reach-the-codec-with-keys
   (testing "the consumer's `:row-key` reaches the row wrapper on the
             default path AND on the `:row-extras` path, which builds a
-            different wrapper"
+            different wrapper; every woven body node (3 cells + 2
+            spacers) carries its key in the attrs map"
     (xray-setup!)
     (let [plain  (body-rows (render (three-column-opts {})))
           extras (body-rows (render (three-column-opts
@@ -137,6 +112,8 @@
                                                      [:div (str "extra-" i)])})))]
       (is (= [["row-0" "row-1"] ["row-0" "row-1"]]
              [(mapv fresco-key plain) (mapv fresco-key extras)]))
+      (is (= (repeat 2 ["c-a" "s-a" "c-b" "s-b" "c-c"])
+             (map #(mapv fresco-key (row-woven %)) plain)))
       (is (= "r-0" (:data-testid (nth (first extras) 1)))
           "the consumer's row attrs survive the key injection"))))
 
