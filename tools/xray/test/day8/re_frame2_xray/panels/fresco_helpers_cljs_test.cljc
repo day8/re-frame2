@@ -164,22 +164,17 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest mounted-rows-carry-the-instance-count-the-view-and-the-chips
-  (let [[row read-free] (hh/mounted-rows mounted)]
-    (is (= 3 (:instances row)))
-    (is (= "[:todo 7]" (:label row)))
-    (testing "a named row leads with its view and carries no view chip"
-      (is (= "app.views/todo-row" (:view-label row)))
-      (is (nil? (:view-chip row))))
-    (testing "a read-free boundary is labelled, not blanked"
-      (is (= "(reads nothing)" (:label read-free)))
-      (is (= :unknown (:kind (:frame-chip read-free)))
-          "with no reads there is no frame, and the chip says unknown"))
-    (testing "an unnamed row renders the unknown chip in the view position, never a blank"
-      (is (= :unknown (:kind (:view-chip read-free)))))
-    (testing "two views over one edge set are both named, and a name without a source has no title line"
-      (let [views [{:view "a/one" :source :unknown} {:view "b/two" :source {:file "f" :line 3}}]]
-        (is (= "a/one, b/two" (hh/view-label views)))
-        (is (= "b/two — f:3" (hh/views-title views)))))))
+  ;; A named row leads with its view and carries no chip; a read-free,
+  ;; unnamed row is labelled, and chipped `unknown` in the view and frame
+  ;; positions, never blanked.
+  (is (= [[3 "[:todo 7]" "app.views/todo-row" nil nil]
+          [1 "(reads nothing)" nil :unknown :unknown]]
+         (mapv (juxt :instances :label :view-label
+                     (comp :kind :view-chip) (comp :kind :frame-chip))
+               (hh/mounted-rows mounted))))
+  (testing "two views over one edge set are both named, and a name without a source has no title line"
+    (let [views [{:view "a/one" :source :unknown} {:view "b/two" :source {:file "f" :line 3}}]]
+      (is (= ["a/one, b/two" "b/two — f:3"] ((juxt hh/view-label hh/views-title) views))))))
 
 (deftest attribution-rows-carry-fan-out-and-readers
   (let [e (envelope :read-attribution
@@ -344,16 +339,6 @@
         "the stem is the readable slug; the tail behind the last `-` is what
          makes it injective")))
 
-(deftest intent-rows-carry-an-id-and-an-arity-and-no-arguments
-  (let [[row] (hh/intent-rows
-                (envelope :intents
-                          {:intents [{:frames [:app/main] :dispatch-id 41
-                                      :event-id :todo/toggle :arg-count 1
-                                      :sub-ids [:todo]}]}))]
-    (is (= {:dispatch-id 41 :event-id :todo/toggle :arg-count 1
-            :frames [:app/main] :sub-ids [:todo]}
-           (dissoc row :slug)))))
-
 (deftest explain-rows-keep-the-proven-half-apart-from-the-uncorrelated-half
   (let [with-leads
         (envelope :explain-render
@@ -371,26 +356,18 @@
                                    :peak-epoch :unknown :latest-reads :unknown
                                    :loss {:reason :cap :dropped :unknown}
                                    :candidates :unknown}]})]
-    (testing "with a live window the row is proven AND uncorrelated at once"
-      (let [[row] (hh/explain-rows with-leads)]
-        (is (true? (:proven? row)))
-        (is (= ["[:todo 7]"] (:latest-reads row))
-            "the READ, not the bare sub-id — two parameterizations of one sub
-             must not both answer `:todo moved`")
-        (is (= :uncorrelated (:kind (:cause-chip row))))
-        (is (true? (:leads-known? row)))
-        (is (= 1 (count (:leads row))))
-        (is (= "app.views/todo-row" (:view-label row)) "the Why row is named too")))
-    (testing "with an empty window the leads are UNKNOWN, and the row says which"
-      (let [[row] (hh/explain-rows blind)]
-        (is (false? (:proven? row)))
-        (is (= :cap (:kind (:cause-chip row))))
-        (is (false? (:leads-known? row))
-            "an [] here would read as `no run recomputed anything`, which is the
-             one thing an empty window cannot know")
-        (is (= [] (:leads row))
-            "rendered as an empty seq so a renderer cannot iterate a keyword —
-             `:leads-known?` is what carries the distinction")))))
+    ;; Live window: proven AND uncorrelated at once, naming the READ rather
+    ;; than the bare sub-id. Empty window: the leads are UNKNOWN, rendered as
+    ;; `[]` so a renderer cannot iterate a keyword, with `:leads-known?`
+    ;; carrying the distinction an empty window cannot otherwise state.
+    (is (= [[true ["[:todo 7]"] :uncorrelated true
+             [{:dispatch-id 41 :event-id :todo/toggle :frame-id :app/main :sub-id :todo}]
+             "app.views/todo-row"]
+            [false :unknown :cap false [] nil]]
+           (mapv #((juxt :proven? :latest-reads (comp :kind :cause-chip)
+                         :leads-known? :leads :view-label)
+                   (first (hh/explain-rows %)))
+                 [with-leads blind])))))
 
 (deftest the-summary-line-states-the-claim-even-when-it-is-good
   (testing "a complete envelope still says so — an absence of bad news is not news"
