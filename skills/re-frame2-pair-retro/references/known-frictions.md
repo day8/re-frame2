@@ -19,6 +19,7 @@ Typical improvements:
 - explicit fallback behavior
 - stronger structured errors naming the next best action
 - regression coverage for platform-specific connection paths
+- in a re-frame2-pair session, read [Attach failures and the diagnostic ladder](#attach-failures-and-the-diagnostic-ladder) before proposing a new error: the structured reasons already ship
 
 ### Docs and behavior drift
 
@@ -209,6 +210,20 @@ Signals:
 Typical improvements:
 - check first — this already ships: the pair skill's `errors.md` names each `eval-cljs` refusal reason and says a blank read is usually a broken op or form, not a stale connection. Unreached is tool-shaped; reached and still misread is a hint-wording gap
 
+### Attach failures and the diagnostic ladder
+
+Signals:
+- `discover-app` or a typed tool refused with a ladder reason, and the session retried, re-added the preload or reloaded the tab instead of taking the step that reason names
+- every attach failure was treated as one "no surface here" problem
+- raw `eval-cljs` returned `:no-runtime-for-build` and the session settled on a cause the envelope does not distinguish
+
+Typical improvements:
+- check first — this already ships: each ladder reason carries a `:hint` naming its next step, and the pair skill's `errors.md` translates every rung. Unreached is tool-shaped; followed and still wrong is a hint-wording gap
+
+Branch on the **diagnostic ladder** rather than collapsing every failure to "no surface here" — each reason points at a different next step, so collapsing them yields generic "add the preload" advice when the real fix differs. The ladder reasons (per `probe.cljs`, pinned by the conformance corpus): `:nrepl-unreachable` (shadow-cljs nREPL down — fix connectivity), `:build-not-running` (start the build), `:no-runtime-connected` (build runs but no browser tab attached — open/reload the tab, or pick the correct build), `:runtime-loaded-but-preload-missing` (runtime live but the re-frame2-pair preload absent — add the preload). `:runtime-not-preloaded` is the **degradation fallback** emitted when the ladder itself errors mid-diagnosis — last-resort, not the normal-case verdict. That ladder belongs to `probe.cljs`'s `ensure-runtime!`: `discover-app` and `watch-until` call it directly, while typed tools such as `dispatch`, `get-path`, `trace-window`, and `restore-epoch` reach it through the shared `eval-after-runtime!` / `eval-after-runtime-signalled!` helpers. Those helpers preserve the classified reason and hint; a typed-tool refusal can therefore carry the same ladder diagnosis.
+
+**Raw `eval-cljs` uses a different preflight.** Its `resolve-and-preflight!` uses one `:no-runtime-for-build` reason for zero or multiple auto-detected builds, or a selected build without a live preload sentinel. Read the initiating call's build argument together with the returned `:build`, `:running-builds`, and `:hint`; the reason alone does not distinguish those causes. An empty list offers no build to select; several builds need an explicit target; a named build without a live runtime still needs its session evidence to distinguish a closed tab from a missing preload. This refusal is not a classified ladder rung. Do not extend that limitation to the typed tools merely because they also evaluate forms internally. Missing context stays unknown — the retro does not run a fresh probe to fill it in.
+
 ### Tool-catalogue / build-capability uncertainty
 
 Signals:
@@ -219,9 +234,7 @@ Signals:
 Typical improvements:
 - when proposing a fix that adds or renames a tool, cross-reference the live catalogue — that check is `re-frame2-pair`'s job (the retro itself never probes the runtime; a result the session never produced stays unknown/incomplete)
 
-If the session itself ran `discover-app`, its result carries the live build's id, its health fields and a `:freshness` liveness token, and with the server's `tools/list` sanity-checks "tool X was actually available". When the session's probe failed, branch on the **diagnostic ladder** rather than collapsing every failure to "no surface here" — each reason points at a different next step, so collapsing them yields generic "add the preload" advice when the real fix differs. The ladder reasons (per `probe.cljs`, pinned by the conformance corpus): `:nrepl-unreachable` (shadow-cljs nREPL down — fix connectivity), `:build-not-running` (start the build), `:no-runtime-connected` (build runs but no browser tab attached — open/reload the tab, or pick the correct build), `:runtime-loaded-but-preload-missing` (runtime live but the re-frame2-pair preload absent — add the preload). `:runtime-not-preloaded` is the **degradation fallback** emitted when the ladder itself errors mid-diagnosis — last-resort, not the normal-case verdict. That ladder belongs to `probe.cljs`'s `ensure-runtime!`: `discover-app` and `watch-until` call it directly, while typed tools such as `dispatch`, `get-path`, `trace-window`, and `restore-epoch` reach it through the shared `eval-after-runtime!` / `eval-after-runtime-signalled!` helpers. Those helpers preserve the classified reason and hint; a typed-tool refusal can therefore carry the same ladder diagnosis.
-
-**Raw `eval-cljs` uses a different preflight.** Its `resolve-and-preflight!` uses one `:no-runtime-for-build` reason for zero or multiple auto-detected builds, or a selected build without a live preload sentinel. Read the initiating call's build argument together with the returned `:build`, `:running-builds`, and `:hint`; the reason alone does not distinguish those causes. An empty list offers no build to select; several builds need an explicit target; a named build without a live runtime still needs its session evidence to distinguish a closed tab from a missing preload. This refusal is not a classified ladder rung. Do not extend that limitation to the typed tools merely because they also evaluate forms internally. Missing context stays unknown — the retro does not run a fresh probe to fill it in.
+If the session itself ran `discover-app`, its result carries the live build's id, its health fields and a `:freshness` liveness token, and with the server's `tools/list` sanity-checks "tool X was actually available". A failed probe is the [attach-ladder class](#attach-failures-and-the-diagnostic-ladder) above.
 
 ### Source-coordinate availability
 
