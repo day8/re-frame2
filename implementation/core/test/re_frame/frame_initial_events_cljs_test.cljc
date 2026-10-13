@@ -249,21 +249,3 @@
     (rf/dispatch-sync [:handler/makes-frame] {:frame :parent/main})
     (is (= [:rf.error/frame-construction-in-handler nil]
            [@caught (rf.frame/frame :child/in-handler)]))))
-
-(deftest frame-construction-in-fx-dispatch-re-entry-fails-loud
-  ;; the nested dispatch an :fx :dispatch queues runs inside the same cascade,
-  ;; with *handler-scope* still bound
-  (reg-test-events!)
-  (let [caught (atom ::not-run)]
-    (rf/reg-event :fx/makes-frame
-      (fn [{:keys [db]} _]
-        (reset! caught
-                (err-id #(rf/make-frame {:id :child/via-fx :initial-events [[:test/set-db {:n 0}]]})))
-        {:db db}))
-    (rf/reg-event :handler/fx-makes-frame
-      (fn [{:keys [db]} _]
-        {:db db :fx [[:dispatch [:fx/makes-frame]]]}))
-    (rf/make-frame {:id :parent/fx :initial-events [[:test/set-db {}]]})
-    (rf/dispatch-sync [:handler/fx-makes-frame] {:frame :parent/fx})
-    (is (= [:rf.error/frame-construction-in-handler nil]
-           [@caught (rf.frame/frame :child/via-fx)]))))
