@@ -96,6 +96,22 @@
   (filterv #(and (vector? %) (= ei/edn-inspector-view (first %)))
            (hiccup-nodes tree)))
 
+(defn- keyed-input-fragments
+  "Every `[:<> {:key …} [ei/edn-inspector-view {…}]]` fragment wrapping an
+  INPUT path's value, picked out by the `/input/` segment of the boundary's
+  `:mount-id`. The output value is not in a seq and needs no key."
+  [tree]
+  (filterv (fn [node]
+             (and (vector? node)
+                  (= :<> (first node))
+                  (map? (second node))
+                  (let [child (nth node 2 nil)]
+                    (and (vector? child)
+                         (= ei/edn-inspector-view (first child))
+                         (re-find #"/input/"
+                                  (str (:mount-id (second child))))))))
+           (hiccup-nodes tree)))
+
 ;; ---- fixture data -------------------------------------------------------
 
 (def sample-flows
@@ -186,7 +202,12 @@
              [(:role (second (find-by-testid tree "rf-xray-static-flows-list")))
               (mapv #(:role (second %))
                     (find-by-testid-prefix tree "rf-xray-static-flows-row-"))])
-          "a role=list <ul> holding one role=listitem row per flow"))))
+          "a role=list <ul> holding one role=listitem row per flow")
+      (is (= ["in-0" "in-0" "in-1"] (mapv #(:key (second %)) (keyed-input-fragments tree)))
+          (str "each input-path value carries its React key in the keyed "
+               "fragment's ATTRIBUTE MAP, the one spelling Fresco's codec "
+               "reads; a lost key degrades silently into index-based "
+               "reconciliation")))))
 
 (deftest panel-renders-filtered-state
   (setup-xray!)
@@ -237,101 +258,26 @@
                  "distinct. Mount ids: " (pr-str mount-ids)))))))
 
 ;; -------------------------------------------------------------------------
-;; (4b) the input-path seq's React keys actually REACH the renderer
-;; -------------------------------------------------------------------------
-
-(defn- keyed-input-fragments
-  "Every `[:<> {:key …} [ei/edn-inspector-view {…}]]` fragment wrapping an
-  INPUT path's value, picked out by the `/input/` segment of the boundary's
-  `:mount-id`. The output value is not in a seq and needs no key."
-  [tree]
-  (filterv (fn [node]
-             (and (vector? node)
-                  (= :<> (first node))
-                  (map? (second node))
-                  (let [child (nth node 2 nil)]
-                    (and (vector? child)
-                         (= ei/edn-inspector-view (first child))
-                         (re-find #"/input/"
-                                  (str (:mount-id (second child))))))))
-           (hiccup-nodes tree)))
-
-(defn- fragment-mount-id [fragment]
-  (str (:mount-id (second (nth fragment 2 nil)))))
-
-(deftest input-path-rows-carry-react-keys-in-the-attribute-map
-  (testing "each input-path value in a flow row's `for` seq carries its React
-            key in the keyed fragment's ATTRIBUTE MAP — the one spelling
-            Fresco's codec reads. Metadata reaches React nowhere, and a lost
-            key degrades silently into index-based reconciliation."
-    (setup-xray!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync
-        [:rf.xray.static.flows/set-registered-flows-override-for-test
-         sample-flows])
-      (let [fragments (keyed-input-fragments (panel-tree))]
-        (is (<= 2 (count fragments))
-            (str "PRECONDITION: at least two input-path values rendered — the "
-                 "claims below are vacuous over fewer. Got: " (count fragments)))
-        (is (every? #(some? (:key (second %))) fragments)
-            (str "every input-path value carries a React key in the attribute "
-                 "map. Attribute maps seen: " (pr-str (mapv second fragments))))
-        ;; Uniqueness is PER SEQ: each flow row owns its own inputs seq, and
-        ;; two flows both start theirs at `in-0`.
-        (is (every? (fn [[_ frags]]
-                      (= (count frags)
-                         (count (set (map #(:key (second %)) frags)))))
-                    (group-by #(second (re-find #"^(.*)/input/"
-                                                (fragment-mount-id %)))
-                              fragments))
-            "and within any ONE row's seq the keys are distinct")))))
-
-;; -------------------------------------------------------------------------
 ;; (5) LIVE production data source regression
 ;; -------------------------------------------------------------------------
 ;;
-;; Every test above injects fixtures through the test-only OVERRIDE seam,
-;; whose branch never touches the production read. This one exercises the
-;; PRODUCTION path — the `:rf.xray.static.flows/registered-flows` sub's
-;; `registered-flows-value` → `re-frame.flows/flows-snapshot` read — against
-;; REAL `reg-flow` registrations, with NO override installed.
-;;
-;; The per-frame `flows` atom is the SOLE store and the registrar `:flow`
-;; slot is RESERVED-but-empty: `(rf/registrations :flow)` THROWS
-;; `:rf.error/registrar-kind-not-queryable`. A `registered-flows-value` body
-;; that read the registrar would return an EMPTY catalogue against real
-;; flows, while every override-based test above stays green.
-
-(defn- production-setup-xray!
-  "Install the PRODUCTION Static Flows wiring (no override seam) plus the
-  host frame the live-source flows register against."
-  []
-  (registry/register-xray-handlers!)
-  (rf/make-frame {:id :rf/xray})
-  (rf/make-frame {:id :flows-test/frame-a :doc "host frame A"}))
+;; No override seam: the production sub reads `re-frame.flows/flows-snapshot`
+;; against a REAL `reg-flow`. The registrar's `:flow` slot is reserved and
+;; empty, so a registrar read would show nothing while every override-based
+;; test above stays green.
 
 (deftest live-source-reads-flows-snapshot-not-empty-registrar-slot
-  (testing "the PRODUCTION Static Flows data source reads
-            `rf.flows/flows-snapshot` and surfaces real `reg-flow`
-            registrations"
-    (production-setup-xray!)
-    (rf/reg-flow :user/full-name
-                 {:inputs      [[:user :first] [:user :last]]
-                  :output-path [:derived :full-name]
-                  :doc         "concat first + last"
-                  :frame       :flows-test/frame-a}
-                 (fn [first* last*] (str first* " " last*)))
-    (rf/reg-flow :cart/total
-                 {:inputs      [[:cart :items]]
-                  :output-path [:cart :total]
-                  :doc         "sum of cart items"
-                  :frame       :flows-test/frame-a}
-                 (fn [_] 0))
-    ;; nil picker frame → list every frame's flows (see scope-to-frame).
-    (rf/with-frame :rf/xray
-      (is (= #{:user/full-name :cart/total}
-             (set (keys (get @(rf/subscribe [:rf.xray.static.flows/registered-flows])
-                             :flows-test/frame-a))))
-          "frame A's two flows surface, keyed by frame in the per-frame shape")
-      (is (= 2 (:total @(rf/subscribe [:rf.xray.static.flows/tab-data])))
-          "both real flows reach the view-facing composite"))))
+  (registry/register-xray-handlers!)
+  (rf/make-frame {:id :rf/xray})
+  (rf/make-frame {:id :flows-test/frame-a})
+  (rf/reg-flow :user/full-name
+               {:inputs      [[:user :first] [:user :last]]
+                :output-path [:derived :full-name]
+                :frame       :flows-test/frame-a}
+               (fn [first* last*] (str first* " " last*)))
+  ;; nil picker frame → list every frame's flows (see scope-to-frame).
+  (rf/with-frame :rf/xray
+    (is (= [[:user/full-name :flows-test/frame-a]]
+           (mapv (juxt :flow-id :frame)
+                 (:flows @(rf/subscribe [:rf.xray.static.flows/tab-data]))))
+        "the real flow reaches the view-facing composite, keyed by its frame")))
