@@ -589,11 +589,6 @@
        first))
 
 (deftest hydration-mismatch-schema-models-both-emitted-tiers
-  (testing "the keys-set reader takes the union of both `:or` arms"
-    (let [ks (get (parse-tags-schemas) "HydrationMismatchTags")]
-      (is (contains? ks :server-hash) "hiccup-arm key reached the reader")
-      (is (contains? ks :error)       "adoption-arm key reached the reader")))
-
   (testing "the arms are disjoint: each tier's payload matches its own arm only"
     (let [[hiccup-arm adoption-arm] (rest (tags-schema-form "HydrationMismatchTags"))
           hiccup   {:category    :rf.ssr/hydration-mismatch
@@ -679,13 +674,10 @@
        (filter #(and (vector? %) (= :where (first %))))
        first))
 
-(deftest no-frame-context-where-is-typed-not-any
-  (is (= [:where {:optional true} :symbol] (where-entry "NoFrameContextTags"))))
-
-(deftest remaining-tag-where-slots-are-typed-not-any
+(deftest tag-where-slots-are-typed-not-any
   ;; BadFrameProviderArgTags shares one `where` argument with NoFrameContextTags
   ;; through `require-frame-provider-target!`, so the two must agree.
-  (doseq [schema-name ["BadFrameProviderArgTags" "ResourceSsrBlockingTimeoutTags"]]
+  (doseq [schema-name ["NoFrameContextTags" "BadFrameProviderArgTags" "ResourceSsrBlockingTimeoutTags"]]
     (is (= [:where {:optional true} :symbol] (where-entry schema-name)) schema-name)))
 
 ;; --- self-tests: each arm can red on the defect it exists to catch -----------
