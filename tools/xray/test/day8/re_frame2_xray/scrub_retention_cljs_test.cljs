@@ -89,7 +89,6 @@
 (deftest scrub-still-empties-the-rings
   (testing "the privacy contract holds — every place trace data lives
             is emptied (Spec 009 §Privacy §Retroactive-scrub)"
-    (rf/configure! {:trace-buffer {:events-retained 3}})
     (seed-frame!)
     (ping! 2)
     (is (seq (rf/trace-buffer probe-frame))
