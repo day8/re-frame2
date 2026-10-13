@@ -90,23 +90,23 @@ This skill's view surface is the **adapters** — Reagent, reagent-slim, UIx. Fr
 
 | Need | Pattern leaf |
 |---|---|
-| HTTP request with request/response lifecycle | `patterns/remote-data.md` |
-| Cached server-state shared across views, with invalidation, or a reusable session/tenant scope (`reg-resource-scope`) — read/cache side (TanStack-Query-shaped) | `patterns/resources.md` |
-| Infinite scroll / "load more" feed — one growing cached entry (`:infinite true`, `:rf.resource/load-more`) | `patterns/resources.md` §Infinite / load-more feeds |
-| Workflow after a write succeeds (navigate / toast / fold errors — mutation `:reply-to`), mixed-scope invalidation, optimistic writes | `patterns/resources-mutations.md` |
-| HTTP with status-aware retries / error projection / batching | `patterns/managed-http.md` |
-| Auth / tracing headers or a base URL on every request (`reg-http-interceptor`) | `patterns/resources.md` §Request decoration |
-| Form input with validation and submit | `patterns/forms.md` |
-| Long-running browser-side work | `patterns/long-running-work.md` |
-| Custom Promise / callback / Web Worker integration, or a fire-and-forget effect | `patterns/async-effect.md` |
-| App boot (configure, hydrate, navigate) | `patterns/boot.md` |
-| Real-time bidirectional connection | `patterns/websocket.md` |
-| View rendering every legal lifecycle state | `patterns/nine-states.md` |
-| Async result arrives after state moved on (epoch suppression idiom) | `patterns/stale-detection.md` |
-| Parameterised widget rendered N times (entity-id idiom) | `patterns/reusable-components.md` |
-| View wrapping a stateful JS library (chart / map / editor) | `patterns/stateful-components.md` |
-| SSR form POST handling (progressive enhancement) | `patterns/form-action.md` |
-| SSR data load before render — route-owned blocking `:resources` (`:blocking? true`); machines are synchronous-only under SSR, so there is no loader-machine fan-out | `patterns/resources.md` §Route-driven loading |
+| HTTP request with request/response lifecycle | [`remote-data.md`](patterns/remote-data.md) |
+| Cached server-state shared across views, with invalidation, or a reusable session/tenant scope (`reg-resource-scope`) — read/cache side (TanStack-Query-shaped) | [`resources.md`](patterns/resources.md) |
+| Infinite scroll / "load more" feed — one growing cached entry (`:infinite true`, `:rf.resource/load-more`) | [`resources.md` §Infinite / load-more feeds](patterns/resources.md#infinite--load-more-feeds-infinite-true) |
+| Workflow after a write succeeds (navigate / toast / fold errors — mutation `:reply-to`), mixed-scope invalidation, optimistic writes | [`resources-mutations.md`](patterns/resources-mutations.md) |
+| HTTP with status-aware retries / error projection / batching | [`managed-http.md`](patterns/managed-http.md) |
+| Auth / tracing headers or a base URL on every request (`reg-http-interceptor`) | [`resources.md` §Request decoration](patterns/resources.md#request-decoration--auth-headers-the-managed-http-seam) |
+| Form input with validation and submit | [`forms.md`](patterns/forms.md) |
+| Long-running browser-side work | [`long-running-work.md`](patterns/long-running-work.md) |
+| Custom Promise / callback / Web Worker integration, or a fire-and-forget effect | [`async-effect.md`](patterns/async-effect.md) |
+| App boot (configure, hydrate, navigate) | [`boot.md`](patterns/boot.md) |
+| Real-time bidirectional connection | [`websocket.md`](patterns/websocket.md) |
+| View rendering every legal lifecycle state | [`nine-states.md`](patterns/nine-states.md) |
+| Async result arrives after state moved on (epoch suppression idiom) | [`stale-detection.md`](patterns/stale-detection.md) |
+| Parameterised widget rendered N times (entity-id idiom) | [`reusable-components.md`](patterns/reusable-components.md) |
+| View wrapping a stateful JS library (chart / map / editor) | [`stateful-components.md`](patterns/stateful-components.md) |
+| SSR form POST handling (progressive enhancement) | [`form-action.md`](patterns/form-action.md) |
+| SSR data load before render — route-owned blocking `:resources` (`:blocking? true`); machines are synchronous-only under SSR, so there is no loader-machine fan-out | [`resources.md` §Route-driven loading](patterns/resources.md#route-driven-loading-route-resources) |
 
 Patterns compose; a screen can use Forms on submit, RemoteData for the request, and WebSocket for a push.
 
@@ -114,28 +114,28 @@ Patterns compose; a screen can use Forms on submit, RemoteData for the request, 
 
 | Concern | Cross-cutting leaf |
 |---|---|
-| Declaring data sensitive / large; the owner-classifies / framework-projects / sinks-consume egress model + six `:rf.egress/*` profiles | `references/cross-cutting/privacy-and-elision.md` |
-| Datadog / Sentry / Honeycomb production listeners that survive `goog.DEBUG=false` | `references/cross-cutting/production-observability.md` |
-| Head/meta (`reg-head` / `head-model`); extending the shipped `:rf/hydrate` handler (re-register only to change merge policy) | `references/cross-cutting/ssr-authoring.md` |
-| Path overlap / valid segments / `[:rf.path/param …]` templates; canonical EDN identity for a resource key / route param / work id | `references/cross-cutting/path-and-identity.md` |
-| Testing a view — does the screen show the right thing, does the button dispatch the right event — walk the view's returned hiccup by `:data-testid` rather than mounting a browser; state-only assertions miss a broken view or a wrong-frame dispatch | `references/cross-cutting/testing-views.md` |
-| Replacing behaviour in a test — a different registration set (image), a recorder, a mock registration, a fail-if-called guard; `with-redefs` on `rf/dispatch` intercepts nothing | `references/cross-cutting/testing-doubles.md` |
+| Declaring data sensitive / large; the owner-classifies / framework-projects / sinks-consume egress model + six `:rf.egress/*` profiles | [`privacy-and-elision.md`](references/cross-cutting/privacy-and-elision.md) |
+| Datadog / Sentry / Honeycomb production listeners that survive `goog.DEBUG=false` | [`production-observability.md`](references/cross-cutting/production-observability.md) |
+| Head/meta (`reg-head` / `head-model`); extending the shipped `:rf/hydrate` handler (re-register only to change merge policy) | [`ssr-authoring.md`](references/cross-cutting/ssr-authoring.md) |
+| Path overlap / valid segments / `[:rf.path/param …]` templates; canonical EDN identity for a resource key / route param / work id | [`path-and-identity.md`](references/cross-cutting/path-and-identity.md) |
+| Testing a view — does the screen show the right thing, does the button dispatch the right event — walk the view's returned hiccup by `:data-testid` rather than mounting a browser; state-only assertions miss a broken view or a wrong-frame dispatch | [`testing-views.md`](references/cross-cutting/testing-views.md) |
+| Replacing behaviour in a test — a different registration set (image), a recorder, a mock registration, a fail-if-called guard; `with-redefs` on `rf/dispatch` intercepts nothing | [`testing-doubles.md`](references/cross-cutting/testing-doubles.md) |
 
 ## Where the depth lives
 
 Use this index to select references by the task. A task that composes features may need several leaves; load them as each surface becomes relevant while keeping the user's requested scope intact.
 
-**Fundamentals — `references/fundamentals/`**: `events.md` (`reg-event`, `reg-interceptor`, `:interceptors` chains), `fx.md`, `cofx.md` (value-returning `reg-cofx`, `:rf.cofx/requires`), `subs.md`, `views.md` (`reg-view`, injected `dispatch`/`subscribe`, `reg-view*`), `flows.md` (`reg-flow`, flow-vs-sub), `schemas.md`, `frames.md`, `images.md` (`rf/image`, image-order composition, frame-isolation story — EP-0023), `event-state-cycle.md`, `project-structure.md`.
+**Fundamentals — `references/fundamentals/`**: [`events.md`](references/fundamentals/events.md) (`reg-event`, `reg-interceptor`, `:interceptors` chains), [`fx.md`](references/fundamentals/fx.md), [`cofx.md`](references/fundamentals/cofx.md) (value-returning `reg-cofx`, `:rf.cofx/requires`), [`subs.md`](references/fundamentals/subs.md), [`views.md`](references/fundamentals/views.md) (`reg-view`, injected `dispatch`/`subscribe`, `reg-view*`), [`flows.md`](references/fundamentals/flows.md) (`reg-flow`, flow-vs-sub), [`schemas.md`](references/fundamentals/schemas.md), [`frames.md`](references/fundamentals/frames.md), [`images.md`](references/fundamentals/images.md) (`rf/image`, image-order composition, frame-isolation story — EP-0023), [`event-state-cycle.md`](references/fundamentals/event-state-cycle.md), [`project-structure.md`](references/fundamentals/project-structure.md).
 
-**State machines — `references/state-machines/`**: `reg-machine.md` (declaration, guards/actions, divergence flags), `xstate-translation.md` (the full xstate→re-frame2 catalogue), `machine-schemas.md` (`:schemas` `:data`/`:output` + snapshot redaction), `regions.md` (parallel), `tags.md`, `spawn.md` (child machines), `history.md` (`:type :history` re-entry), `cancellation.md`. Standing model across all: think in xstate, then map onto re-frame2.
+**State machines — `references/state-machines/`**: [`reg-machine.md`](references/state-machines/reg-machine.md) (declaration, guards/actions, divergence flags), [`xstate-translation.md`](references/state-machines/xstate-translation.md) (the full xstate→re-frame2 catalogue), [`machine-schemas.md`](references/state-machines/machine-schemas.md) (`:schemas` `:data`/`:output` + snapshot redaction), [`regions.md`](references/state-machines/regions.md) (parallel), [`tags.md`](references/state-machines/tags.md), [`spawn.md`](references/state-machines/spawn.md) (child machines), [`history.md`](references/state-machines/history.md) (`:type :history` re-entry), [`cancellation.md`](references/state-machines/cancellation.md). Standing model across all: think in xstate, then map onto re-frame2.
 
-**Tooling — `references/tooling/`**: `stories.md`, `routing.md`, `story-recorder.md` (record canvas interactions as a `:script`), `story-mcp-loop.md` (story-mcp **author/refine** side; run-loop **handoff** to `re-frame2-pair`), `xray.md` (devtools panel mount + launch modes). Standing model for Story: think in Storybook JS, then map onto Story (`stories.md` has the concept map).
+**Tooling — `references/tooling/`**: [`stories.md`](references/tooling/stories.md), [`routing.md`](references/tooling/routing.md), [`story-recorder.md`](references/tooling/story-recorder.md) (record canvas interactions as a `:script`), [`story-mcp-loop.md`](references/tooling/story-mcp-loop.md) (story-mcp **author/refine** side; run-loop **handoff** to `re-frame2-pair`), [`xray.md`](references/tooling/xray.md) (devtools panel mount + launch modes). Standing model for Story: think in Storybook JS, then map onto Story (`stories.md` has the concept map).
 
-**Cross-cutting — `references/cross-cutting/`**: `testing.md` (with-frame, dispatch-sync, compute-sub, machine snapshots, fx stubs), `testing-doubles.md` (behaviour isolation by image, recorders, mocks, fail-if-called guards), `testing-views.md` (the view-tree axis: `re-frame.test-helpers`, the single-frame e2e shape, the hiccup walk), `api-cheatsheet.md` (one-page `reg-*` signature index), `privacy-and-elision.md` (path-based fail-open egress: owner classifies / framework projects / sinks consume; the six `:rf.egress/*` profiles), `production-observability.md` (`rf/register-observability-sink!` + frame `:observability` / the `rf/configure!` default), `ssr-authoring.md` (`reg-head`/`head-model` + the `:rf.ssr/check-*` fxs), `path-and-identity.md` (the `:rf/path` algebra + canonical EDN identity).
+**Cross-cutting — `references/cross-cutting/`**: [`testing.md`](references/cross-cutting/testing.md) (with-frame, dispatch-sync, compute-sub, machine snapshots, fx stubs, trace recorders), [`testing-doubles.md`](references/cross-cutting/testing-doubles.md) (behaviour isolation by image, recorders, mocks, fail-if-called guards), [`testing-views.md`](references/cross-cutting/testing-views.md) (the view-tree axis: `re-frame.test-helpers`, the single-frame e2e shape, the hiccup walk), [`api-cheatsheet.md`](references/cross-cutting/api-cheatsheet.md) (one-page `reg-*` signature index), [`privacy-and-elision.md`](references/cross-cutting/privacy-and-elision.md) (path-based fail-open egress: owner classifies / framework projects / sinks consume; the six `:rf.egress/*` profiles), [`production-observability.md`](references/cross-cutting/production-observability.md) (`rf/register-observability-sink!` + frame `:observability` / the `rf/configure!` default), [`ssr-authoring.md`](references/cross-cutting/ssr-authoring.md) (`reg-head`/`head-model` + the `:rf.ssr/check-*` fxs), [`path-and-identity.md`](references/cross-cutting/path-and-identity.md) (the `:rf/path` algebra + canonical EDN identity).
 
-**Patterns — `patterns/`**: one leaf per canonical pattern (see table above). Each opens with load triggers, the canonical mini-declaration, the features it uses, trade-offs, and the worked-example link. Pattern → example app: `examples-map.md`.
+**Patterns — `patterns/`**: one leaf per canonical pattern (see table above). Each opens with load triggers, the canonical mini-declaration, the features it uses, trade-offs, and the worked-example link. Pattern → example app: [`examples-map.md`](examples-map.md).
 
-**Decision trees — `decision-trees/`**: `pick-a-pattern.md`, `slice-or-machine.md`.
+**Decision trees — `decision-trees/`**: [`pick-a-pattern.md`](decision-trees/pick-a-pattern.md), [`slice-or-machine.md`](decision-trees/slice-or-machine.md).
 
 ## Done checklist
 
@@ -157,4 +157,4 @@ For "why does it work this way?" or a feature whose shape isn't obvious. Use the
 
 ---
 
-*re-frame2 (v2 line). v1: [re-frame](https://github.com/day8/re-frame). Full skill-disambiguation matrix: [`skills/README.md` §Skill routing — single source](https://github.com/day8/re-frame2/blob/main/skills/README.md#skill-routing--single-source). Deep-dive links route through the [canonical reading index](https://github.com/day8/re-frame2/blob/main/SKILL-REDIRECT.md).*
+*re-frame2 (v2 line). v1: [re-frame](https://github.com/day8/re-frame). Deep-dive links route through the [canonical reading index](https://github.com/day8/re-frame2/blob/main/SKILL-REDIRECT.md).*

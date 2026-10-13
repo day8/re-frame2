@@ -74,7 +74,7 @@ The skill loads when a request is about writing or changing re-frame2 applicatio
 
 ## Status
 
-Alpha. The skill covers `references/fundamentals/`, `references/state-machines/`, `references/tooling/`, `references/cross-cutting/`, the 14 canonical patterns under `patterns/`, and both decision trees (`pick-a-pattern`, `slice-or-machine`). The `evals/` harness is a repo-maintenance artifact — not shipped with the skill (see [`evals/README.md` §Repo-maintenance artifact](evals/README.md); `package.json`'s `files` allow-list omits it; run the harness from a monorepo clone).
+Alpha. Coverage is the [Layout](#layout) above. The `evals/` harness is a repo-maintenance artifact — not shipped with the skill (see [`evals/README.md` §Repo-maintenance artifact](evals/README.md); `package.json`'s `files` allow-list omits it; run the harness from a monorepo clone).
 
 ## License
 
