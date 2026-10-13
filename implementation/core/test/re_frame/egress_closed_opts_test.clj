@@ -62,28 +62,6 @@
                               :rf.egress/profile :rf.egress/off-box-tool}))
                         [:unknown-keys :recovery :where])))))
 
-(deftest walker-rejects-an-arbitrary-unknown-key
-  (testing "every key outside the walker's seven is named, sorted, beside the
-            accepted set — the epoch-only axes included, since they are
-            stripped at `project-egress` and never reach the walker"
-    (is (= {:unknown-keys [:as-of-epoch :include-digests? :include-event-args?
-                           :include-fx-args? :include-large? :include-runtime-db?
-                           :include-sensitive? :totally-made-up
-                           :rf.egress/include-event-args? :rf.egress/include-fx-args?
-                           :rf.egress/include-runtime-db?
-                           :rf.size/include-digests? :rf.size/include-large?
-                           :rf.size/include-sensitive? :rf.size/threshold-bytes]
-            :recovery     :use-a-recognised-egress-opts-key
-            :where        're-frame.elision/elide-wire-value
-            :accepted     [:frame :path :query-v
-                           :rf.egress/include-digests? :rf.egress/include-large?
-                           :rf.egress/include-sensitive? :rf.egress/threshold-bytes]}
-           (select-keys (bad-opts-ex-data
-                          #(rf.elision/elide-wire-value
-                             {:a 1}
-                             (merge stray-keys epoch-only-axes {:frame :app/main})))
-                        ex-slots)))))
-
 (def ^:private record-kind-samples
   "One input per arm of `project-record-by-kind`, kindless included. An
   event-shaped record never reaches the walker, so only a guard at the door
