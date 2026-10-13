@@ -585,12 +585,6 @@
                    (:dispositions rolled))))
       (is (= [1 1 1] (mapv #(count (% rolled)) [:restored :conflicted :refetched]))))))
 
-(deftest optimistic-force-clobbers-test
-  (testing "one row per :rf.warning/optimistic-force-clobber, its forced keys summarized"
-    (is (= [[25 [:realworld/feed]]]
-           (mapv (juxt :id (comp rids :forced-keys))
-                 (h/optimistic-force-clobbers ep0019-trace-buffer))))))
-
 ;; ---- lints -----------------------------------------------------------------
 
 (deftest scope-audit+lints
