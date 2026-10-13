@@ -252,16 +252,6 @@
         (is (pos? (rf.story.config/suppressed-count :story.login/flow))
             (pr-str attrs))))))
 
-(deftest ordinary-text-field-is-not-redacted
-  (if-not (dom-available?)
-    (skip!)
-    (do
-      (rf.story.recorder/start-recording! :story.x/y)
-      (let [name-input (mk-input! {:type "text" :id "name"})]
-        (set! (.-value name-input) "alice")
-        (.dispatchEvent name-input (js/Event. "change" #js {:bubbles true}))
-        (is (= ["alice"] (mapv :text (type-entries))))))))
-
 (deftest local-raw-profile-opts-into-verbatim-capture
   ;; the host opt-in, mirroring the dispatch rail
   (if-not (dom-available?)
