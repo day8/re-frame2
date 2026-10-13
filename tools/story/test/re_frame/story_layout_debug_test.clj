@@ -48,7 +48,6 @@
 (deftest outline-stylesheet-scoped
   (testing "outline-stylesheet scopes every selector to the wrap class"
     (let [css (rf.story.layout-debug/build-outline-stylesheet "rf-test-1")]
-      (is (string? css))
       (is (re-find #"\.rf-test-1 \*" css))
       (is (re-find #"\.rf-test-1 div" css))
       (is (re-find #"\.rf-test-1 button" css)))))
