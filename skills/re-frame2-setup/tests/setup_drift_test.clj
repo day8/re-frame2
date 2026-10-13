@@ -30,6 +30,7 @@
 (def ^:private entry-namespace-md (doc setup-root "references/entry-namespace.md"))
 (def ^:private shadow-cljs-md     (doc setup-root "references/shadow-cljs.md"))
 (def ^:private first-counter-md   (doc setup-root "references/first-counter.md"))
+(def ^:private existing-project-md (doc setup-root "references/existing-project.md"))
 (def ^:private skill-md           (doc setup-root "SKILL.md"))
 (def ^:private readme-md          (doc setup-root "README.md"))
 (def ^:private docs-setup-page-md (doc repo-root "docs/skills/re-frame2-setup.md"))
@@ -189,13 +190,16 @@
 
 ;; Lock 5b — under `:deps {:aliases [:shadow :dev]}` the launcher ignores
 ;; shadow-cljs.edn's `:source-paths`; deps.edn's `:paths` and the `:shadow`
-;; alias's `:extra-paths` own source discovery.
+;; alias's `:extra-paths` own source discovery. The shadow-only conversion
+;; moves the source dirs, so the leaf carrying it states the rule, and the
+;; router sends an empty CLJS project to that leaf.
 (deftest shadow-cljs-leaf-attributes-source-paths-to-deps-edn
   (claims
    [["shadow-cljs.md" @shadow-cljs-md #"is inert here|were ignored|ignores this key" ":source-paths is ignored under :deps"]
     ["shadow-cljs.md" @shadow-cljs-md ":paths" "deps.edn's :paths holds the app dir"]
     ["shadow-cljs.md" @shadow-cljs-md ":extra-paths" "the :shadow alias's :extra-paths holds the test dir"]
-    ["SKILL.md" @skill-md "ignores `shadow-cljs.edn`'s `:source-paths`" "the router states the same rule"]]))
+    ["existing-project.md" @existing-project-md "ignores `shadow-cljs.edn`'s `:source-paths`" "the conversion states the same rule"]
+    ["SKILL.md" @skill-md "references/existing-project.md" "the router sends an empty CLJS project to the conversion"]]))
 
 ;; Lock 6 — a fresh project's shadow-cljs is a local devDependency.
 (deftest first-counter-verify-command-uses-npx
