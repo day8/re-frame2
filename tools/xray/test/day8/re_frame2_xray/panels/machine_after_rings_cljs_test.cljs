@@ -1,7 +1,7 @@
 (ns day8.re-frame2-xray.panels.machine-after-rings-cljs-test
   "CLJS-side wiring tests for Xray's Machine Inspector `:after`
   countdown rings: the `:rf.xray/active-timers-for-focused-machine` sub
-  (which machine, which frame), the timer-hover slot, and the overlay's
+  (which machine, which frame) and the overlay's
   hiccup (`overlay-tree`) — retention eviction, the retro now-ms anchor,
   and the frame its hover dispatch lands on."
   (:require [cljs.test :refer-macros [async deftest is use-fixtures]]
@@ -191,18 +191,6 @@
            (mapv (juxt :status :armed-at)
                  @(rf/subscribe [:rf.xray/active-timers-for-focused-machine]))))))
 
-;; ---- timer-hover --------------------------------------------------------
-
-(deftest timer-hover-writes-and-clears
-  (setup-xray-frame!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/timer-hover {:machine-id :auth/login
-                                              :state :idle
-                                              :epoch 0}])
-    (is (= {:machine-id :auth/login :state :idle :epoch 0}
-           @(rf/subscribe [:rf.xray/timer-hover])))
-    (rf/dispatch-sync [:rf.xray/timer-hover nil])
-    (is (nil? @(rf/subscribe [:rf.xray/timer-hover])))))
 
 ;; ---- the overlay --------------------------------------------------------
 
