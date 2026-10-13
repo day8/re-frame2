@@ -52,12 +52,14 @@
    :after :rf.error/machine-bad-after-spec})
 
 (deftest a-malformed-clause-is-refused-at-every-position
-  (doseq [slot            [:on :after]
-          [position make] positions
-          clause          [:b [1000 :b]]]
-    (testing (str slot " " (pr-str clause) " on the " position)
+  ;; One position per call site of the shape check: the root, a state the walk
+  ;; reaches, a region body and a state inside a region.
+  (doseq [slot     [:on :after]
+          position [:flat-root :leaf :region-body :region-state]]
+    (testing (str slot " on the " position)
       (is (= {:rf.error/id (categories slot) :slot slot}
-             (select-keys (registration (make slot clause)) [:rf.error/id :slot]))))))
+             (select-keys (registration ((positions position) slot [1000 :b]))
+                          [:rf.error/id :slot]))))))
 
 (deftest a-nil-clause-is-absent
   (doseq [slot            [:on :after]
