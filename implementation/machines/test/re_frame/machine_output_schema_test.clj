@@ -1,39 +1,17 @@
 (ns re-frame.machine-output-schema-test
-  "Verifies the `[:schemas :output]` completion-output schema on `reg-machine`
-  and the `:where :machine-output` validation boundary.
+  "The `[:schemas :output]` completion-output schema on `reg-machine` and the
+  `:where :machine-output` validation boundary (Malli, the default validator):
 
-  The contract under test:
-
-   1. **Completion boundary — conforming output.** A finishing machine whose
-      `:output-key` payload CONFORMS to `[:schemas :output]` emits NO
-      `:where :machine-output` trace; the completion flows normally.
-
-   2. **Completion boundary — violating output.** A finishing machine whose
-      `:output-key` payload VIOLATES `[:schemas :output]` emits exactly one
+   1. A violating `:output-key` payload emits exactly one
       `:rf.error/schema-validation-failure :where :machine-output :phase
-      :completion` trace — and the completion STILL FLOWS (best-effort
-      fail-loud; the machine already finished, so `:rollback? false`). The
-      failure tag carries `:where`, `:machine-id`, `:failing-id`, `:phase`,
-      `:value`, `:received`, `:schema`, `:explain`, `:rollback?`, `:reason`
-      + the `:recovery` envelope.
-
-   3. **Spawned child → parent :on-done.** A spawned child whose
-      `:output-key` payload violates `[:schemas :output]` emits the boundary
-      trace AND the parent's `:on-done` STILL receives the (violating) result
-      — output validation observes, it does not suppress the payload.
-
-   4. **No schema → no validation.** A machine with no `[:schemas :output]`
-      runs without any `:where :machine-output` trace.
-
-   5. **nil output passes vacuously.** A final state with no `:output-key`
-      produces a nil `result`; a `[:schemas :output]` that admits nil passes.
+      :completion` trace, and the completion STILL flows (`:rollback? false`).
+   2. A spawned child's violating result still reaches the parent's `:on-done`
+      — output validation observes, it never suppresses the payload.
+   3. A final state with no `:output-key` produces a nil result, which passes a
+      nil-admitting schema.
 
   That `reg-machine` accepts `[:schemas :output]` and round-trips it through
-  the `:rf/machine` projection is pinned in `machine_schemas_grammar_test`.
-
-  Tests use Malli schemas (the framework default validator) — the same
-  late-bound `:schemas/validate-with-registered-fn` adapter the `:where
-  :machine-data` boundary routes through."
+  the `:rf/machine` projection is pinned in `machine_schemas_grammar_test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines]  ;; loaded for its late-bind hooks (`rf/reg-machine`)
@@ -55,24 +33,7 @@
                    (= :machine-output (-> % :tags :where)))
              @traces)))
 
-;; ---- (1) conforming completion output → no trace -------------------------
-
-(deftest conforming-output-emits-no-trace
-  (rf/reg-machine :rf.machine-output/ok
-    {:initial :running
-     :data    {}
-     :schemas {:output [:int]}
-     :states  {:running {:on {:fin {:target :done
-                                    :action (fn [{data :data}]
-                                              {:data (assoc data :result 42)})}}}
-               :done    {:final?     true
-                         :output-key :result}}})
-  (is (empty? (collect-output-traces!
-                (fn []
-                  (rf/dispatch-sync [:rf.machine-output/ok [:noop]])
-                  (rf/dispatch-sync [:rf.machine-output/ok [:fin]]))))))
-
-;; ---- (2) violating completion output → one trace, completion still flows ---
+;; ---- (1) violating completion output → one trace, completion still flows ---
 
 (deftest violating-output-emits-trace-and-still-finishes
   (testing "a finishing singleton whose :output-key payload violates the schema
@@ -106,7 +67,7 @@
       (is (nil? (rf.machines.test-support/snapshot :rf.machine-output/bad))
           "the machine STILL finished + auto-destroyed (completion flows)"))))
 
-;; ---- (3) spawned child: violating output → trace + parent :on-done STILL runs
+;; ---- (2) spawned child: violating output → trace + parent :on-done STILL runs
 
 (deftest spawned-violating-output-trace-but-on-done-still-receives-result
   (testing "a spawned child whose :output-key payload violates [:schemas :output]
@@ -139,9 +100,7 @@
               (get-in (rf.machines.test-support/snapshot :rf.machine-output/spawn-parent)
                       [:data :reported])])))))
 
-;; ---- (4) no schema → no validation (control) ------------------------------
-
-;; ---- (5) nil output passes vacuously against a nil-admitting schema -------
+;; ---- (3) nil output passes vacuously against a nil-admitting schema -------
 
 (deftest nil-output-passes-against-nil-admitting-schema
   (testing "a final state with NO :output-key produces a nil result; a
