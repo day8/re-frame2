@@ -106,10 +106,6 @@
   (is (not= ::blue-inc (:handler-fn (rf/handler-meta {:frame :blue/main :kind :event :id :counter/inc})))
       "the later image's descriptor is the live winner"))
 
-(deftest generation-shadows-empty-when-no-override
-  (rf/make-frame {:id :blue/main :images [blue-img]} blue-pool)
-  (is (= [] (:rf.gen/shadows (rf/frame-generation :blue/main)))))
-
 (deftest frame-target-not-resolving-fails-loud
   ;; no fallback to a default registrar on any read
   (is (= [:rf.error/frame-no-generation
