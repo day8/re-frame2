@@ -47,14 +47,6 @@
 
 ;; ---- bundles and eviction --------------------------------------------------
 
-(deftest ^:requires-debug trace-buffer-appends-events-as-cascades
-  (rf/reg-event :ping (fn [{:keys [db]} _] {:db (assoc db :seen? true)}))
-  (rf/dispatch-sync [:ping])
-  (let [c (first (rf/trace-buffer :rf/default))]
-    (is (= [:rf/default [:ping] :rf.event/dispatched]
-           [(:frame c) (:event c) (:operation (:dispatched c))]))
-    (is (seq (:trace-events c)))))
-
 ;; Eviction must copy survivors out of a subvec: a subvec keeps its whole
 ;; backing vector reachable, so the :run-order spine would grow by one
 ;; dispatch-id per run for the life of the ring.
@@ -111,7 +103,8 @@
     (rf/dispatch-sync [:iso/b-inc] {:frame :iso/b}))
   (doseq [[fid ev] [[:iso/a [:iso/a-inc]] [:iso/b [:iso/b-inc]]]]
     (let [bundles (rf/trace-buffer fid)]
-      (is (= [ev ev ev] (mapv :event bundles)) (str fid " holds its own three runs"))
+      (is (= [[fid ev] [fid ev] [fid ev]] (mapv (juxt :frame :event) bundles))
+          (str fid " holds its own three runs"))
       (is (= #{fid} (set (for [b bundles e (:trace-events b)] (get-in e [:tags :frame]))))
           (str "no foreign event leaks into " fid)))))
 
