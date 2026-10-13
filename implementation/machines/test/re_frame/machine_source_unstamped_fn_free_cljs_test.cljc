@@ -64,16 +64,12 @@
                     :on    {:go :done}}
              :done {}}})
 
-(deftest fn-free-inline-literal-is-silent
-  (testing "an inline fn-free literal is silent on both platforms"
+(deftest fn-free-source-bearing-specs-are-silent
+  (testing "a fn-free inline literal and a fn-free defmachine value are silent on both platforms"
     (rf/reg-machine :fn-free/inline
       {:initial :idle
        :states  {:idle {:on {:go :done}}
                  :done {}}})
-    (is (= [] (warned-ids)))))
-
-(deftest fn-free-defmachine-value-is-silent
-  (testing "a fn-free defmachine value is silent on both platforms"
     (rf/reg-machine :fn-free/defm fn-free-defmachine)
     (is (= [] (warned-ids)))))
 
