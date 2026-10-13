@@ -1088,11 +1088,13 @@
          ;; ---- §5.2 `:amp-key` -------------------------------------------------
          (= :& kv)
          (add acc (entry :amp-key :refused {:prop ktext}
-                         (str "Reagent emitted a prop LITERALLY NAMED \"&\"; Fresco reads `:&` as "
-                              "its one attribute merge, folding the map into this element's own "
-                              "attributes under the owned-literal law. Two unrelated meanings for "
-                              "one literal and your intent is unrecoverable from the text — decide "
-                              "which you meant.")))
+                         (str "Reagent emitted a prop LITERALLY NAMED \"&\", and so does Fresco: "
+                              "`:&` has no merge or spread meaning in Fresco, so the key is emitted "
+                              "as a prop named \"&\" like any other key. A prop of that name is "
+                              "rarely what was meant, so this tool leaves it as written for you to "
+                              "decide. If you meant to spread another map's entries here, `merge` "
+                              "that map into the props map; if nothing reads a prop named \"&\", "
+                              "delete the key.")))
 
          ;; ---- §5.3 `:dangerous-html` -----------------------------------------
          (rf.migration.fresco.dest/dangerous-html-key? kv)
