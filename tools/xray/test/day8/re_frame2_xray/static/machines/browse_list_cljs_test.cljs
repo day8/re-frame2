@@ -3,8 +3,8 @@
 
   ## What's under test
 
-    1. Sort button label reflects the active axis.
-    2. The selected row's aria-selected, the visible / total count line
+    1. The sort axis cycles and the button label follows it.
+    2. The selected row's aria-selected; the count line, the empty state
        and the no-results state.
     3. The search input's keystroke and Escape handlers dispatch the
        Machines search events.
@@ -53,15 +53,21 @@
     (rf.test-helpers/find-by-testid (machines-tree/panel-tree) testid)))
 
 ;; -------------------------------------------------------------------------
-;; Sort button label reflects the active axis
+;; Sort axis and its button label
 ;; -------------------------------------------------------------------------
 
-(deftest sort-button-label-tracks-the-active-axis
+(deftest sort-cycles-through-three-axes-and-the-label-follows
   (xray-setup!)
   (seed-machines! [:m/a])
-  (frame-dispatch [:rf.xray.static.machines/cycle-sort])
   (rf/with-frame :rf/xray
-    (is (= "Sort: States" (testid-text "rf-xray-static-machines-sort")))))
+    (is (= [[:name "Sort: Name"] [:states "Sort: States"]
+            [:live "Sort: Live"] [:name "Sort: Name"]]
+           (mapv (fn [_]
+                   (let [step [@(rf/subscribe [:rf.xray.static.machines/sort-key])
+                               (testid-text "rf-xray-static-machines-sort")]]
+                     (rf/dispatch-sync [:rf.xray.static.machines/cycle-sort])
+                     step))
+                 (range 4))))))
 
 ;; -------------------------------------------------------------------------
 ;; Selection
@@ -81,29 +87,27 @@
                     "rf-xray-static-machines-row-b"]))))))
 
 ;; -------------------------------------------------------------------------
-;; Count line shows total vs visible
+;; Count line, empty and no-results states
 ;; -------------------------------------------------------------------------
 
-(deftest toolbar-count-shows-visible-and-total
+(deftest toolbar-count-and-empty-states-follow-the-machines-and-search
   (xray-setup!)
+  (seed-machines! [])
+  (rf/with-frame :rf/xray
+    (is (some? (rf.test-helpers/find-by-testid (machines-tree/panel-tree)
+                                               "rf-xray-static-machines-empty"))
+        "no machines registered: the empty state"))
   (seed-machines! [:foo/a :foo/b :bar/c])
   (rf/with-frame :rf/xray
     (is (= "3 machines" (testid-text "rf-xray-static-machines-count"))))
   (frame-dispatch [:rf.xray.static.machines/set-search "foo"])
   (rf/with-frame :rf/xray
-    (is (= "2 / 3" (testid-text "rf-xray-static-machines-count")))))
-
-;; -------------------------------------------------------------------------
-;; No-results state
-;; -------------------------------------------------------------------------
-
-(deftest no-results-state-when-search-misses
-  (xray-setup!)
-  (seed-machines! [:foo/a :foo/b])
+    (is (= "2 / 3" (testid-text "rf-xray-static-machines-count"))))
   (frame-dispatch [:rf.xray.static.machines/set-search "nonexistent"])
   (rf/with-frame :rf/xray
-    (let [tree (machines-tree/panel-tree)]
-      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-no-results"))))))
+    (is (some? (rf.test-helpers/find-by-testid (machines-tree/panel-tree)
+                                               "rf-xray-static-machines-no-results"))
+        "a search matching nothing: the no-results state")))
 
 ;; -------------------------------------------------------------------------
 ;; Handlers pulled off the tree and fired with a RECORDING dispatcher
