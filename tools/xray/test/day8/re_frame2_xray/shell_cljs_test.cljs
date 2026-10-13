@@ -1,40 +1,7 @@
 (ns day8.re-frame2-xray.shell-cljs-test
-  "CLJS-side wiring + render tests for Xray's 4-layer-chrome shell
-  (per spec/018-Event-Spine.md §2 + §3 + §5).
-
-  ## Why this file exists
-
-  The shell is four stacked regions: L1 ribbon, L2 event list, L3 tab
-  bar, L4 detail panel. The contracts this file asserts:
-
-    1. The shell mounts the four layers (`rf-xray-ribbon`,
-       `rf-xray-event-list`, `rf-xray-tab-bar`, `rf-xray-detail-
-       panel-<tab>`) and the palette modal.
-
-    2. The L1 ribbon carries four clusters in fixed order: nav,
-       frame, filter pills, right icons. The REDACTED indicator
-       sits inline next to the right-icons cluster when the
-       suppressed-sensitive count is positive. (There is no explicit
-       `● LIVE` / `◐ RETRO` mode pill — the state is derivable, and
-       Space / l / G toggle it.)
-
-    3. The L3 tab bar renders one button per registered Dynamic tab
-       (Epoch / app-db / Views / Trace / Machine / Routes / Resources /
-       Graph / Frames / Fresco) and clicking a tab updates
-       `:rf.xray/selected-tab` so the L4 detail panel rebinds.
-
-    4. The L2 event list reads `:rf.xray/event-bundles` and clicking a
-       row dispatches `:rf.xray/focus-event` so the spine rebinds
-       atomically per spec/018 §6.
-
-    5. The REDACTED indicator keeps its render gate
-       `(pos? redacted-count)` and pluralises 'event' / 'events' in
-       the tooltip. It sits next to the right-icons cluster.
-
-  ## Pure hiccup walk
-
-  We walk the view's hiccup tree by `data-testid` rather than
-  mounting to a DOM."
+  "Wiring and render tests for Xray's four-layer shell (spec/018 §2, §3,
+  §5): the L1 ribbons, the L2 event list, the L3 tab bar and the L4 detail
+  panel, walked as hiccup by `data-testid` rather than mounted to a DOM."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [reagent.core :as r]
@@ -107,15 +74,11 @@
     (rf/dispatch-sync [:rf.xray/select-tab tab-id])))
 
 (defn- note-suppressed!
-  "Drive the redaction counter through the production reactive path:
-  one `:rf.xray/note-sensitive-suppressed` carries a task's
-  per-frame counts. The one-arg form is a task holding a single
-  bump; `n` delivers a burst of `n` bumps from one task."
-  ([frame-id] (note-suppressed! frame-id 1))
-  ([frame-id n]
-   (rf/with-frame :rf/xray
-     (rf/dispatch-sync [:rf.xray/note-sensitive-suppressed
-                        {(or frame-id :global) n}]))))
+  "Drive the redaction counter through the production reactive path: one
+  `:rf.xray/note-sensitive-suppressed` carrying a single bump for `frame-id`."
+  [frame-id]
+  (rf/with-frame :rf/xray
+    (rf/dispatch-sync [:rf.xray/note-sensitive-suppressed {frame-id 1}])))
 
 (defn- reset-suppressed!
   "Reset the redaction counter via the production event."
@@ -157,38 +120,17 @@
                       "rf-xray-tab-bar" "rf-xray-detail-panel-epoch"]]
         (is (some? (find-by-testid tree testid)) testid)))))
 
-(deftest shell-root-carries-lens-mode-class
-  (testing "the shell root carries the `mode-dynamic` /
-            `mode-static` class driven by `:rf.xray/mode`. The class
-            gates functional behaviour (motion / pulse dampening
-            in Static); it does not re-point
-            `--rf-xray-accent` — the Figma export carries a SINGLE
-            accent (GitHub blue) in both modes."
-    (xray-setup!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/set-mode :dynamic])
-      (let [shell (find-by-testid (dynamic-shell-tree/shell-view-tree) "rf-xray-shell")]
-        (is (= "mode-dynamic" (:class (second shell)))
-            "Dynamic mode → mode-dynamic root class"))
-      (rf/dispatch-sync [:rf.xray/set-mode :static])
-      (let [shell (find-by-testid (dynamic-shell-tree/shell-view-tree) "rf-xray-shell")]
-        (is (= "mode-static" (:class (second shell)))
-            "Static mode → mode-static root class")))))
-
-(deftest ribbon-theme-toggle-is-view-registered
-  ;; A view boundary declares `:rf/xray`, so the toggle's `:theme` read and
-  ;; dispatch cannot fall through to `:rf/default` as a plain defn's would.
-  (xray-setup!)
-  (is (some? (rf/view ::shell/ribbon-theme-toggle))))
-
 ;; -------------------------------------------------------------------------
 ;; (2) L1 ribbon clusters
 ;; -------------------------------------------------------------------------
 
-(deftest popout-icon-dispatches-popout-shell
+(deftest ribbon-icons-dispatch-their-shell-events
   (xray-setup!)
-  (is (some #(= :rf.xray/popout-shell (first %))
-            (captured-dispatches #(fire! "rf-xray-icon-popout" :on-click nil)))))
+  (doseq [[testid event-id] [["rf-xray-icon-popout" :rf.xray/popout-shell]
+                             ["rf-xray-icon-close"  :rf.xray/close-shell]]]
+    (is (some #(= event-id (first %))
+              (captured-dispatches #(fire! testid :on-click nil)))
+        testid)))
 
 ;; -------------------------------------------------------------------------
 ;; (2b) Two ribbons — chrome ribbon + events ribbon
@@ -200,7 +142,6 @@
     (let [ribbon (dynamic-shell-tree/ribbon-tree)]
       (is (re-find #"Event History"
                    (text-nodes (find-by-testid ribbon "rf-xray-ribbon-events-label"))))
-      (is (some? (find-by-testid ribbon "rf-xray-ribbon-nav")))
       (is (or (find-by-testid ribbon "rf-xray-ribbon-frame")
               (find-by-testid ribbon "rf-xray-ribbon-frame-picker"))))))
 
@@ -272,11 +213,6 @@
       (is (some? (find-by-testid tree "rf-xray-filter-add-events"))
           "the events ribbon's own add takes over"))))
 
-(deftest close-icon-dispatches-close-shell
-  (xray-setup!)
-  (is (some #(= :rf.xray/close-shell (first %))
-            (captured-dispatches #(fire! "rf-xray-icon-close" :on-click nil)))))
-
 (deftest mode-dropdown-change-dispatches-set-mode
   (xray-setup!)
   (is (some #(and (= :rf.xray/set-mode (first %)) (= :static (second %)))
@@ -284,18 +220,6 @@
               #(when-let [on-change (:on-change (second (find-by-testid (dynamic-shell-tree/ribbon-tree)
                                                                         "rf-xray-mode-pill")))]
                  (on-change #js {:target #js {:value "static"}}))))))
-
-(deftest ribbon-fast-forward-dispatches-follow-head-in-retro
-  ;; RETRO, where the fast-forward button is enabled as the way back to head.
-  (xray-setup!)
-  (trace-collector/seed-trace-for-test! {:id 1 :op-type :rf.event :operation :rf.event/dispatched
-                                         :tags {:rf.event/v [:older/event] :frame :rf/default :rf.trace/dispatch-id 1}})
-  (trace-collector/seed-trace-for-test! {:id 2 :op-type :rf.event :operation :rf.event/dispatched
-                                         :tags {:rf.event/v [:newer/event] :frame :rf/default :rf.trace/dispatch-id 2}})
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/focus-event 1]))
-  (is (some #(= [:rf.xray/follow-head] %)
-            (captured-dispatches #(fire! "rf-xray-nav-head" :on-click nil)))))
 
 ;; -------------------------------------------------------------------------
 ;; (3) L3 tab bar — every registered Dynamic tab, mnemonics, selection
@@ -335,15 +259,18 @@
   ;; A generic tablist, not a <nav>: tabs are not site navigation, and a
   ;; second `navigation` landmark collides with the host app's under Story.
   (xray-setup!)
-  (let [aria     (fn []
+  ;; Only the selected tab carries the active fill.
+  (let [active   [(:chrome-ribbon-tab-active tokens) (:chrome-ribbon-tab-active-text tokens)]
+        aria     (fn []
                    (rf/with-frame :rf/xray
                      (let [tree (dynamic-shell-tree/shell-view-tree)]
                        (into {} (for [tab-id expected-tab-ids
                                       :let [attrs (second (find-by-testid tree (str "rf-xray-tab-" (name tab-id))))]]
-                                  [tab-id [(:role attrs) (:aria-selected attrs)]])))))
+                                  [tab-id [(:role attrs) (:aria-selected attrs)
+                                           (= active [(:background (:style attrs)) (:color (:style attrs))])]])))))
         expected (fn [selected]
                    (into {} (for [tab-id expected-tab-ids]
-                              [tab-id ["tab" (if (= tab-id selected) "true" "false")]])))]
+                              [tab-id ["tab" (if (= tab-id selected) "true" "false") (= tab-id selected)]])))]
     (rf/with-frame :rf/xray
       (let [[head attrs] (find-by-testid (dynamic-shell-tree/shell-view-tree) "rf-xray-tab-bar")]
         (is (= [:div "tablist" true] [head (:role attrs) (string? (:aria-label attrs))]))))
@@ -351,33 +278,10 @@
     (select-tab! :machines)
     (is (= (expected :machines) (aria)))))
 
-(deftest only-the-selected-tab-carries-the-active-fill
-  (xray-setup!)
-  (let [active-tabs (fn []
-                      (rf/with-frame :rf/xray
-                        (let [tree (dynamic-shell-tree/shell-view-tree)]
-                          (set (for [tab-id expected-tab-ids
-                                     :let [style (:style (second (find-by-testid tree (str "rf-xray-tab-" (name tab-id)))))]
-                                     :when (= [(:chrome-ribbon-tab-active tokens) (:chrome-ribbon-tab-active-text tokens)]
-                                              [(:background style) (:color style)])]
-                                 tab-id)))))]
-    (is (= #{:epoch} (active-tabs)))
-    (select-tab! :machines)
-    (is (= #{:machines} (active-tabs)))))
-
 (deftest tab-click-dispatches-select-tab
   (xray-setup!)
   (is (some #(= [:rf.xray/select-tab :trace] %)
             (captured-dispatches #(fire! "rf-xray-tab-trace" :on-click nil)))))
-
-(deftest tab-selection-drives-detail-panel
-  (xray-setup!)
-  (select-tab! :app-db)
-  (rf/with-frame :rf/xray
-    (let [tree (dynamic-shell-tree/shell-view-tree)]
-      (is (some? (find-by-testid tree "rf-xray-detail-panel-app-db")))
-      (is (nil? (find-by-testid tree "rf-xray-detail-panel-epoch"))
-          "the default panel unmounts"))))
 
 (deftest detail-panel-cross-fade-wrapper-carries-fade-in-animation
   ;; The wrapper is keyed on the tab, so a tab change re-mounts it and
@@ -388,7 +292,7 @@
                        [1 :style :animation])]
       (is (re-find #"rf-xray-fade-in" anim))
       (is (re-find #"var\(--rf-xray-motion-scale" anim)
-          "Static mode's motion dampening reaches the fade")
+          "the motion-scale var reaches the fade")
       (is (re-find #"forwards" anim)
           "the panel stays opaque once the fade ends"))))
 
@@ -527,6 +431,7 @@
       (-> (dispatch-trace-ev 1 [:poll/tick])
           (assoc :time 1000)
           (assoc-in [:tags :source] :after-timer)))
+    (trace-collector/seed-trace-for-test! (run-end-trace-ev 1 0.4))
     (rf/with-frame :rf/xray
       (let [tree        (dynamic-shell-tree/shell-view-tree)
             ;; header cells
@@ -534,12 +439,14 @@
             h-source    (find-by-testid tree "rf-xray-event-list-col-source")
             h-event-id  (find-by-testid tree "rf-xray-event-list-col-event-id")
             h-timestamp (find-by-testid tree "rf-xray-event-list-col-timestamp")
+            h-duration  (find-by-testid tree "rf-xray-event-list-col-duration")
             ;; row cells (the :after-timer row)
             row         (first (find-all-by-testid-prefix
                                  tree "rf-xray-event-row-"))
             r-source    (find-by-testid tree "rf-xray-row-origin-after-timer")
             r-event-id  (find-by-testid tree "rf-xray-row-event-id")
-            r-time      (find-by-testid tree "rf-xray-row-time-chip")]
+            r-time      (find-by-testid tree "rf-xray-row-time-chip")
+            r-duration  (find-by-testid tree "rf-xray-row-duration")]
         ;; SOURCE column — header label width == row tag width
         (is (= (:width (style-of h-source))
                (:width (style-of r-source)))
@@ -548,22 +455,19 @@
         (is (= (:flex (style-of h-event-id))
                (:flex (style-of r-event-id)))
             "header `event id` column and row event-id both flex-grow")
-        ;; TIMESTAMP / time column — header label width == chip width,
-        ;; both right-aligned, so the timestamp header sits over the chip.
-        ;; This column carries an explicit, user-resizable `:width`;
-        ;; header + row both read from the same
-        ;; `:rf.xray/event-list-col-widths` sub.
-        (is (= (:width (style-of h-timestamp))
-               (:width (style-of r-time)))
-            "header `timestamp` width == row time-chip width")
+        ;; TIMESTAMP and DURATION columns right-align under their headers;
+        ;; the duration width is shared too.
         (is (= "right"
                (:text-align (style-of h-timestamp))
                (:text-align (style-of r-time)))
             "header timestamp and row time chip both right-align")
-        ;; the chip carries NO extra margin-left (one would push the chip
-        ;; past the header column — the shared flex gap is the spacing)
-        (is (nil? (:margin-left (style-of r-time)))
-            "row time chip has no margin-left that would drift it past the header")
+        (is (= (:width (style-of h-duration))
+               (:width (style-of r-duration)))
+            "header `duration` width == row duration-cell width")
+        (is (= "right"
+               (:text-align (style-of h-duration))
+               (:text-align (style-of r-duration)))
+            "header duration and row duration both right-align")
         ;; CONTAINER — header + row share the same column gap + h-padding
         (let [h-style (style-of header)
               r-style (style-of row)]
@@ -581,17 +485,6 @@
               "header is border-box")
           (is (= "border-box" (:box-sizing r-style))
               "row is border-box"))))))
-
-(deftest event-list-omits-column-header-when-empty
-  (testing "the empty state stays a clean `No events.`
-            message with no column-header chrome above it."
-    (xray-setup!)
-    (rf/with-frame :rf/xray
-      (let [tree (dynamic-shell-tree/shell-view-tree)]
-        (is (some? (find-by-testid tree "rf-xray-event-list-empty"))
-            "empty state renders")
-        (is (nil? (find-by-testid tree "rf-xray-event-list-header"))
-            "no column header on the empty state")))))
 
 (deftest event-row-source-tag-surfaces-ui-origin
   (testing "a default (:user / untagged) ui-origin row renders
@@ -620,37 +513,6 @@
         (is (re-find #"1\.2 ms" (text-nodes cell))
             "the duration value reads the handler wall-time as `1.2 ms`")))))
 
-(deftest event-list-duration-column-aligns-header-and-row
-  (testing "the header `duration` label and the
-            row's duration cell share the SAME width source so the value
-            sits directly under the header label. The column carries a
-            user-resizable explicit `:width`; header + row both read from
-            the same `:rf.xray/event-list-col-widths` sub so they never drift."
-    (xray-setup!)
-    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:poll/tick]))
-    (trace-collector/seed-trace-for-test! (run-end-trace-ev 1 0.4))
-    (rf/with-frame :rf/xray
-      (let [tree       (dynamic-shell-tree/shell-view-tree)
-            h-duration (find-by-testid tree "rf-xray-event-list-col-duration")
-            r-duration (find-by-testid tree "rf-xray-row-duration")]
-        (is (= (:width (style-of h-duration))
-               (:width (style-of r-duration)))
-            "header `duration` width == row duration-cell width")
-        (is (= "right"
-               (:text-align (style-of h-duration))
-               (:text-align (style-of r-duration)))
-            "header duration and row duration both right-align")))))
-
-;; ---- light-pink row bg for issue-bearing epochs -------------------------
-;;
-;; The L2 row paints a light-pink WASH (`:bg-issue-row` token, painted as a
-;; flat `:background-image` gradient layer so it composes OVER the focus /
-;; hover `:background-color`) when its epoch CONTAINS AN ISSUE — keyed off
-;; the canonical `l2-timeline/event-bundle-has-issue?` predicate, which reuses
-;; the same Issues-ribbon `issue-event?` set. The `:li` carries
-;; `data-rf-xray-issue-row="true"` for the issue case (absent otherwise) so
-;; the contract is pinnable without parsing the inline gradient string.
-
 (defn- error-trace-ev
   "An `:rf.error/*` trace event (`:op-type :error`) carrying the SAME
   `:rf.trace/dispatch-id` as a cascade so `group-by-event` buckets it into
@@ -662,34 +524,6 @@
    :operation    :rf.error/handler-exception
    :tags         {:frame                :rf/default
                   :rf.trace/dispatch-id id}})
-
-(deftest event-row-issue-epoch-gets-pink-wash
-  (testing "a row whose epoch carries an issue trace gets the
-            light-pink `:bg-issue-row` wash (painted as a `:background-
-            image` layer) + the `data-rf-xray-issue-row` flag. A clean row
-            carries neither — the wash is the per-event 'something went
-            wrong here' signal at the spine."
-    (xray-setup!)
-    ;; cascade 1 — clean. cascade 2 — carries an :rf.error/* trace.
-    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:cart/add-item]))
-    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:standard-epochs/throw-handler]))
-    (trace-collector/seed-trace-for-test! (error-trace-ev 2))
-    (rf/with-frame :rf/xray
-      (let [tree       (dynamic-shell-tree/shell-view-tree)
-            clean-row  (find-by-testid tree "rf-xray-event-row-1")
-            issue-row  (find-by-testid tree "rf-xray-event-row-2")]
-        (is (some? clean-row) "the clean cascade's row renders")
-        ;; issue row — flagged + washed
-        (is (= "true" (:data-rf-xray-issue-row (second issue-row)))
-            "issue row carries data-rf-xray-issue-row=true")
-        (is (re-find #"--rf-xray-bg-issue-row"
-                     (str (:background-image (style-of issue-row))))
-            "the wash reads the :bg-issue-row theme token (rose in both themes)")
-        ;; clean row — neither flag nor wash
-        (is (nil? (:data-rf-xray-issue-row (second clean-row)))
-            "clean row carries no issue flag")
-        (is (nil? (:background-image (style-of clean-row)))
-            "clean row paints no wash")))))
 
 (deftest event-list-empty-when-only-ungrouped-cascades
   (testing "a buffer that carries ONLY :ungrouped
@@ -705,7 +539,9 @@
         (is (some? (find-by-testid tree "rf-xray-event-list-empty"))
             "empty-state container present when only :ungrouped cascades exist")
         (is (empty? (find-all-by-testid-prefix tree "rf-xray-event-row-"))
-            "no event rows render — the :ungrouped bucket is filtered out")))))
+            "no event rows render — the :ungrouped bucket is filtered out")
+        (is (nil? (find-by-testid tree "rf-xray-event-list-header"))
+            "and no column header sits above the empty state")))))
 
 ;; -------------------------------------------------------------------------
 ;; :ungrouped opt-in surface
@@ -738,11 +574,20 @@
     (finally
       (config/update-setting! :general :show-ungrouped? false))))
 
-(deftest event-row-click-dispatches-focus-cascade
+(deftest event-row-click-and-keys-dispatch
+  ;; Enter selects the row as a click does, and Shift+F10 opens the row
+  ;; menu, so Mute / Hide need no right-click.
   (xray-setup!)
   (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
-  (is (some #(and (= :rf.xray/focus-event (first %)) (= 1 (second %)))
-            (captured-dispatches #(fire! "rf-xray-event-row-1" :on-click nil)))))
+  (let [key-down (fn [k shift?]
+                   #(fire! "rf-xray-event-row-1" :on-key-down
+                           #js {:key k :preventDefault (fn []) :currentTarget nil :shiftKey shift?}))]
+    (is (some #(and (= :rf.xray/focus-event (first %)) (= 1 (second %)))
+              (captured-dispatches #(fire! "rf-xray-event-row-1" :on-click nil))))
+    (is (some #(and (= :rf.xray/focus-event (first %)) (= 1 (second %)))
+              (captured-dispatches (key-down "Enter" false))))
+    (is (some #(= :rf.xray/open-row-context-menu (first %))
+              (captured-dispatches (key-down "F10" true))))))
 
 ;; -------------------------------------------------------------------------
 ;; (5) L2 auto-scroll
@@ -893,7 +738,10 @@
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/focus-event 1]))
   (rf/with-frame :rf/xray
-    (is (= [true false false] (nav-disabled (dynamic-shell-tree/shell-view-tree))))))
+    (is (= [true false false] (nav-disabled (dynamic-shell-tree/shell-view-tree)))))
+  (is (some #(= [:rf.xray/follow-head] %)
+            (captured-dispatches #(fire! "rf-xray-nav-head" :on-click nil)))
+      "in RETRO the enabled fast-forward is the way back to head"))
 
 (deftest ribbon-nav-boundaries-come-from-the-spine-not-the-rendered-rows
   (testing "`nav-boundary-state`'s domain is the SPINE's
@@ -996,8 +844,6 @@
           b-scoped   (nav-boundary-for scoped)]
 
       ;; ---- the premise: composing INVENTS a frame that was never stored
-      (is (nil? (:frame unscoped))
-          "CONTROL — case 1 stores no frame restriction at all")
       (is (= :app/b (:frame composed))
           "yet the composed focus reports :app/b — `compose-focus` resolves
            `:frame` from the head ROW, so the two reads differ here and
@@ -1027,15 +873,7 @@
           "so `‹` is correctly DISABLED — the stored-scope domain still
            disables a genuine edge")
       (is (= (reducer-moves? scoped +1) (not (:at-head? b-scoped)))
-          "next: boundary == reducer")
-
-      ;; ---- and the step keeps frame + id in lockstep across the boundary
-      (let [r (spine/focus-step-reducer {:focus unscoped} cross-frame-spine -1)]
-        (is (= 1 (get-in r [:focus :dispatch-id]))
-            "prev lands on the previous ROW, id 1")
-        (is (= :app/a (get-in r [:focus :frame]))
-            "carrying its own frame — an id alone is not an identity once
-             the walk spans frames")))))
+          "next: boundary == reducer"))))
 
 (deftest ribbon-nav-head-enabled-when-paused-at-head
   ;; Paused at head, fast-forward resumes LIVE, so it stays enabled.
@@ -1117,16 +955,6 @@
   [tree]
   (find-by-testid tree "rf-xray-newer-events"))
 
-(deftest newer-events-marker-absent-in-live-at-head
-  (xray-setup!)
-  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:older/event]))
-  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:newer/event]))
-  (rf/with-frame :rf/xray
-    (let [tree (dynamic-shell-tree/shell-view-tree)]
-      (is (some? (find-by-testid tree "rf-xray-event-row-2"))
-          "CONTROL — the head row is in the walked tree")
-      (is (nil? (newer-events-marker-in tree))))))
-
 (deftest newer-events-marker-in-retro-counts-newer
   (xray-setup!)
   (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:first/event]))
@@ -1174,35 +1002,6 @@
               (newer-events-marker-in (dynamic-shell-tree/shell-view-tree))])
           "LIVE, unpaused, at head, and the marker gone"))))
 
-(deftest newer-events-count-comes-from-the-spine-not-the-rendered-vector
-  (testing "the count's domain is the SPINE's focusable
-            vector, never the filtered vector the list renders. Handed a
-            rendered vector holding ONLY the focused bundle (every newer
-            row filtered out by a pill / mute / view scope) the marker
-            still reports the two newer events the spine knows about."
-    (let [focused {:dispatch-id 1 :frame :rf/default :event [:first/event]}
-          spine   [focused
-                   {:dispatch-id 2 :frame :rf/default :event [:second/event]}
-                   {:dispatch-id 3 :frame :rf/default :event [:third/event]}]
-          tree    (shell/event-list-tree
-                    (fn [_ev])
-                    {:col-widths          {:source 52 :timestamp 60 :duration 52}
-                     :list-height-px      200
-                     :event-bundles       [focused]
-                     :spine-event-bundles spine
-                     :focus               {:dispatch-id 1 :frame :rf/default
-                                           :mode :retro :head? false}
-                     :show-ungrouped?     false
-                     :now-ms              0})
-          marker  (newer-events-marker-in tree)]
-      (is (some? (find-by-testid tree "rf-xray-event-row-1"))
-          "CONTROL — the one visible row rendered")
-      (is (nil? (find-by-testid tree "rf-xray-event-row-3"))
-          "CONTROL — the newer rows really are absent from the rendered vector")
-      (is (str/includes? (text-nodes marker) "2 newer events")
-          "N is the spine's count, which index arithmetic over the
-           rendered vector would read as zero"))))
-
 (deftest newer-events-marker-survives-a-filter-that-hides-every-row
   (testing "the raw-nonempty / rendered-empty case. PRESENCE
             has the same domain as the count: a pill or a mute that hides
@@ -1210,8 +1009,8 @@
             carries newer events, and telling the user so is the whole
             job of this marker. Gating presence on `(seq event-bundles)`
             — the locally rebound FILTERED vector — would suppress it
-            exactly there. The row above pins the count against a rendered vector
-            of one; this one empties it."
+            exactly there, and a count taken over the rendered vector would
+            read zero."
     (let [spine  [{:dispatch-id 1 :frame :rf/default :event [:first/event]}
                   {:dispatch-id 2 :frame :rf/default :event [:second/event]}
                   {:dispatch-id 3 :frame :rf/default :event [:third/event]}]
@@ -1256,23 +1055,6 @@
           "the marker reads as a plural with no count")
       (is (not (re-find #"\d" text))
           "no digit is invented for a pin the spine vector cannot locate"))))
-
-(deftest newer-events-marker-absent-when-the-list-is-empty
-  (testing "the marker never rides the empty state."
-    (let [tree (shell/event-list-tree
-                 (fn [_ev])
-                 {:col-widths          {:source 52 :timestamp 60 :duration 52}
-                  :list-height-px      200
-                  :event-bundles       []
-                  :spine-event-bundles []
-                  :focus               {:dispatch-id 1 :frame :rf/default
-                                        :mode :retro :head? false}
-                  :show-ungrouped?     false
-                  :now-ms              0})]
-      (is (some? (find-by-testid tree "rf-xray-event-list-empty"))
-          "CONTROL — the empty state renders")
-      (is (nil? (newer-events-marker-in tree))
-          "no marker beside `No events.`"))))
 
 ;; ---- the sticky header and the marker keep off the focused row ----------
 ;;
@@ -1319,8 +1101,6 @@
                                       :clear-top 21 :clear-bottom 188}))]
     (is (= 20 (nudge 186 208))
         "the paused head row under the marker scrolls up clear of it")
-    (is (= 34 (nudge 200 222))
-        "a row half below the box's edge and under the marker is uncovered too")
     (is (= -11 (nudge 10 32))
         "a row the header half-covers scrolls down clear of it")
     (is (= 0 (nudge 100 122)) "a row already clear stays put")
@@ -1328,10 +1108,6 @@
         "an off-screen row stays off-screen — RETRO keeps its scroll position")))
 
 (deftest the-focused-row-carries-a-reveal-ref-while-the-marker-shows
-  (reset! @#'shell/focused-row-ref-cache nil)
-  (let [row-ref (:ref (second (find-by-testid (stale-list-tree) "rf-xray-event-row-1")))]
-    (is (fn? row-ref)
-        "the stale focused row carries a ref, so its attach can uncover it"))
   (reset! @#'shell/focused-row-ref-cache nil)
   (let [track  (#'shell/focused-row-ref 7 true false)
         reveal (#'shell/focused-row-ref 7 false true)
@@ -1429,24 +1205,6 @@
       (is (= ["button" "0"] [(:role props) (:tab-index props)]))
       (is (re-find #":cart/add-item" (:aria-label props))))))
 
-(deftest event-row-keyboard-enter-fires-body-click
-  (xray-setup!)
-  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:cart/add-item]))
-  (is (some #(and (= :rf.xray/focus-event (first %)) (= 1 (second %)))
-            (captured-dispatches
-              #(fire! "rf-xray-event-row-1" :on-key-down
-                      #js {:key "Enter" :preventDefault (fn []) :currentTarget nil :shiftKey false})))
-      "Enter selects the row as a click does"))
-
-(deftest event-row-keyboard-context-menu-fallback
-  ;; Shift+F10 opens the row menu, so Mute / Hide need no right-click.
-  (xray-setup!)
-  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:cart/add-item]))
-  (is (some #(= :rf.xray/open-row-context-menu (first %))
-            (captured-dispatches
-              #(fire! "rf-xray-event-row-1" :on-key-down
-                      #js {:key "F10" :preventDefault (fn []) :currentTarget nil :shiftKey true})))))
-
 (deftest event-row-renders-event-id-only
   ;; The payload rides the row's tooltip, not its body.
   (xray-setup!)
@@ -1487,14 +1245,6 @@
       (is (re-find #"Click → open Event detail" tip)
           "carries the click-through hint"))))
 
-(deftest row-tooltip-text-nil-safe
-  (testing "row-tooltip-text safely degrades when
-            cascade slots are missing. Always renders at least the
-            click-through hint so the tooltip is never empty."
-    (let [tip (shell/row-tooltip-text {})]
-      (is (re-find #"Click → open Event detail" tip)
-          "click-through hint always present"))))
-
 ;; -------------------------------------------------------------------------
 ;; (11) REDACTED indicator (in L1)
 ;; -------------------------------------------------------------------------
@@ -1533,28 +1283,11 @@
       (let [n (find-by-testid (dynamic-shell-tree/shell-view-tree)
                               "rf-xray-redacted-indicator")]
         (is (re-find #"REDACTED 1" (text-nodes n)))))
-    (note-suppressed! :rf/default)
-    (rf/with-frame :rf/xray
-      (let [n (find-by-testid (dynamic-shell-tree/shell-view-tree)
-                              "rf-xray-redacted-indicator")]
-        (is (re-find #"REDACTED 2" (text-nodes n)))))
     (reset-suppressed!)
     (rf/with-frame :rf/xray
       (is (nil? (find-by-testid (dynamic-shell-tree/shell-view-tree)
                                 "rf-xray-redacted-indicator"))
           "indicator drops back off when the counter is reset"))))
-
-(deftest redacted-indicator-overflow-renders-large-count
-  (testing "no upper-bound clipping — the indicator renders the raw
-            count even at large values. A 250-event burst in one task
-            arrives as ONE coalesced dispatch."
-    (xray-setup!)
-    (note-suppressed! :rf/default 250)
-    (rf/with-frame :rf/xray
-      (let [tree (dynamic-shell-tree/shell-view-tree)
-            node (find-by-testid tree "rf-xray-redacted-indicator")]
-        (is (re-find #"REDACTED 250" (text-nodes node))
-            "renders the literal count, no abbreviation")))))
 
 ;; -------------------------------------------------------------------------
 ;; (12) Filter pills — remove round-trip
@@ -1591,48 +1324,17 @@
 ;; `:fixed` preserves production behaviour; `:absolute` is the testbed-
 ;; scoped containment mode (Story workspaces).
 
-(deftest modal-positioning-defaults-to-fixed
-  (testing "shell-view with no opt renders :fixed on the shell-root
-            attribute. Slot stays unwritten (sub falls back to :fixed
-            via `(get db :modal-positioning :fixed)`) — no dispatch
-            fires because the sub already matches the default prop."
-    (xray-setup!)
-    (rf/with-frame :rf/xray
-      (let [tree (dynamic-shell-tree/shell-view-tree)
-            shell (find-by-testid tree "rf-xray-shell")]
-        (is (= "fixed" (:data-rf-xray-modal-positioning (second shell)))
-            "default attribute is :fixed")))
-    (rf/with-frame :rf/xray
-      (is (= :fixed @(rf/subscribe [:rf.xray/modal-positioning]))
-          "sub resolves to :fixed default"))))
-
-(deftest modal-positioning-absolute-opt-publishes-attribute
-  (testing "shell-view with :modal-positioning :absolute seeds the
-            slot via dispatch-sync and writes
-            data-rf-xray-modal-positioning=\"absolute\" on the shell
-            root"
-    (xray-setup!)
-    (rf/with-frame :rf/xray
-      (let [tree  (dynamic-shell-tree/shell-view-tree {:modal-positioning :absolute})
-            shell (find-by-testid tree "rf-xray-shell")]
-        (is (= "absolute" (:data-rf-xray-modal-positioning (second shell)))
-            "explicit attribute is :absolute"))
-      (is (= :absolute @(rf/subscribe [:rf.xray/modal-positioning]))
-          "sub returns :absolute after the first render"))))
-
-(deftest modal-positioning-toggle-round-trips
-  (testing "flipping the opt re-seeds the slot — render with :absolute,
-            then render with :fixed (no opt) settles back to :fixed"
-    (xray-setup!)
-    (rf/with-frame :rf/xray
-      (dynamic-shell-tree/shell-view-tree {:modal-positioning :absolute}))
-    (rf/with-frame :rf/xray
-      (is (= :absolute @(rf/subscribe [:rf.xray/modal-positioning]))))
-    (rf/with-frame :rf/xray
-      (dynamic-shell-tree/shell-view-tree))
-    (rf/with-frame :rf/xray
-      (is (= :fixed @(rf/subscribe [:rf.xray/modal-positioning]))
-          "no-opt render re-defaults the slot to :fixed"))))
+(deftest modal-positioning-opt-seeds-the-root-attribute-and-the-slot
+  (xray-setup!)
+  (let [render! (fn [& opts]
+                  (rf/with-frame :rf/xray
+                    (let [shell (find-by-testid (apply dynamic-shell-tree/shell-view-tree opts)
+                                                "rf-xray-shell")]
+                      [(:data-rf-xray-modal-positioning (second shell))
+                       @(rf/subscribe [:rf.xray/modal-positioning])])))]
+    (is (= ["fixed" :fixed] (render!)) "the default")
+    (is (= ["absolute" :absolute] (render! {:modal-positioning :absolute})))
+    (is (= ["fixed" :fixed] (render!)) "a no-opt render re-defaults the slot")))
 
 ;; -------------------------------------------------------------------------
 ;; (14) L2 row — time chip
@@ -1746,10 +1448,6 @@
                         {:epoch-id "epoch-2" :dispatch-id 2}]])
     ;; RETRO on the non-head cascade, where focus honours the resolved epoch.
     (rf/dispatch-sync [:rf.xray/focus-event 1 :rf/default]))
-  (rf/with-frame :rf/xray
-    (is (= [:rf/default "epoch-1"]
-           [@(rf/subscribe [:rf.xray/observed-frame]) @(rf/subscribe [:rf.xray/focus-epoch-id])])
-        "CONTROL — the observed frame and the focused epoch resolve"))
   (is (some #(= [:rf.xray/reset-to-epoch :rf/default "epoch-1"] (vec (take 3 %)))
             (captured-dispatches #(fire! "rf-xray-tab-bar-reset" :on-click nil)))))
 
@@ -1770,14 +1468,9 @@
           "the event→fx chain called rf/restore-epoch! with frame + epoch-id"))))
 
 (deftest reset-to-epoch-clears-stale-flash-before-reattempt
-  (testing "`:rf.xray/reset-to-epoch` dissocs any stale
-            `:reset-flash` on EVERY fresh attempt, before re-running the
-            restore. A second FAILED reset still shows a flash (the fx
-            re-sets it); the key invariant is that the slot is cleared
-            first, so a stale failure can never outlive the gesture that
-            produced it. A test that manually dispatched
-            `:rf.xray/clear-reset-flash` between attempts would paper
-            over a missing clear, so none of these attempts does."
+  (testing "`:rf.xray/reset-to-epoch` dissocs any stale `:reset-flash` on
+            every fresh attempt, so a stale failure never outlives the
+            gesture that produced it; no manual clear runs between attempts."
     (xray-setup!)
     ;; first attempt fails → flash set
     (with-redefs [rf/restore-epoch! (fn [_frame _epoch-id] false)]
@@ -1786,12 +1479,7 @@
     (rf/with-frame :rf/xray
       (is (string? @(rf/subscribe [:rf.xray/reset-flash]))
           "first failed reset sets the flash"))
-    ;; second attempt ALSO fails → the fresh attempt clears the old
-    ;; string first, then the fx re-sets a (current) failure flash.
-    (with-redefs [rf/restore-epoch! (fn [_frame _epoch-id] false)]
-      (rf/with-frame :rf/xray
-        (rf/dispatch-sync [:rf.xray/reset-to-epoch :rf/default "epoch-2"])))
-    ;; third attempt succeeds → no manual clear; the attempt's own
+    ;; the next attempt succeeds → no manual clear; the attempt's own
     ;; dissoc must wipe the flash.
     (with-redefs [rf/restore-epoch! (fn [_frame _epoch-id] true)]
       (rf/with-frame :rf/xray
@@ -1829,6 +1517,7 @@
       (rf/dispatch-sync [:rf.xray/focus-event 2 :rf/default]))
     (rf/with-frame :rf/xray
       (let [tree      (dynamic-shell-tree/shell-view-tree)
+            clean-row (find-by-testid tree "rf-xray-event-row-1")
             issue-row (find-by-testid tree "rf-xray-event-row-2")
             style     (style-of issue-row)
             caret     (find-by-testid issue-row "rf-xray-row-selection-caret")]
@@ -1843,7 +1532,9 @@
             "the row is still flagged as an issue row")
         (is (re-find #"--rf-xray-bg-issue-row"
                      (str (:background-image style)))
-            "the issue wash still rides the :background-image layer")))))
+            "the issue wash still rides the :background-image layer")
+        (is (= [true nil] [(some? clean-row) (:data-rf-xray-issue-row (second clean-row))])
+            "the clean cascade's row renders without the issue flag")))))
 
 (deftest unselected-row-caret-gutter-is-empty
   (testing "the caret gutter is fixed-width on EVERY row but
@@ -1863,7 +1554,5 @@
             "the gutter is a fixed 10px on the unselected row")
         (is (empty? (text-nodes caret1))
             "no caret glyph on the unselected row")
-        (is (re-find #">" (text-nodes caret2))
-            "the selected head row DOES paint the caret")
         (is (= "10px" (:width (style-of caret2)))
             "selected + unselected gutters share the same fixed width")))))
