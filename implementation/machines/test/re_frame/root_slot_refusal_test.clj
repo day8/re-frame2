@@ -39,17 +39,11 @@
              :y {:initial :y1 :states {:y1 {}}}}})
 
 (def ^:private refused-everywhere
-  "One well-formed value per key refused on every root."
-  {:spawn-all      {:children        [{:id :one :machine-id :rs/worker}]
-                    :join            :all
-                    :on-all-complete [:done]}
-   :always         {:action (fn [_] nil)}
-   :choice         [{:target :a}]
-   :final?         true
-   :output-key     :result
-   :error?         true
-   :deep?          true
-   :default-target :a})
+  "A well-formed value for each key the tests refuse on a root."
+  {:spawn-all {:children        [{:id :one :machine-id :rs/worker}]
+               :join            :all
+               :on-all-complete [:done]}
+   :always    {:action (fn [_] nil)}})
 
 ;; ---- refused keys ----------------------------------------------------------
 
@@ -69,8 +63,6 @@
   (let [msg (fn [root] (::message (refusal (assoc root :spawn-all (:spawn-all refused-everywhere)))))]
     (is (str/includes? (msg flat-root) "compound"))
     (is (str/includes? (msg parallel-root) "region"))))
-
-;; ---- controls: the slots the root reads register ---------------------------
 
 ;; ---- root :entry / :exit refs are checked like a state's -------------------
 
