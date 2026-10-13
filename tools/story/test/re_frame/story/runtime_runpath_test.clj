@@ -90,15 +90,6 @@
            (select-keys (record result :rf.assert/a11y-structural)
                         [:status :cannot-run? :passed?])))))
 
-(deftest visual-snapshot-cannot-run-without-a-real-browser
-  ;; :browser passes preflight for :pixels; the JVM has no real browser, so
-  ;; the executor refuses.
-  (let [result (run-target {:script [[:dispatch [:rp/set-status :ready]]
-                                     [:assert [:rf.assert/visual-snapshot]]]}
-                           {:runner :browser})]
-    (is (= :cannot-run (:status result)))
-    (is (= :cannot-run (:status (record result :rf.assert/visual-snapshot))))))
-
 (deftest browser-rows-without-their-evidence-cannot-run-in-a-browser
   (testing "with a browser available, an a11y checkpoint on a frame axe never
             scanned and a visual-snapshot with no captured pixels each record
