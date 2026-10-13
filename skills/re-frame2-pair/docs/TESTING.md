@@ -2,7 +2,7 @@
 
 Three surfaces need coverage at different fidelities.
 
-> **Scope (current surface).** The **MCP server** (`tools/re-frame2-pair-mcp/`) is the only skill-facing transport — and the one implementation of every operation. It carries its own test suite under that directory — run it with `npm test` — including the live end-to-end fixture gate (`test/live-e2e-fixture.cjs`). The surfaces below cover the skill's **runtime preload** + **structural docs** that live in this tree. (The retired bash/babashka transport — `scripts/ops.clj`, its shell wrappers, and the `tests/shim/` + `tests/e2e/` suites that drove it — has been removed; the connect/dispatch/trace/hot-reload coverage now drives the MCP server over stdio from `tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs`.)
+> **Scope (current surface).** The **MCP server** (`tools/re-frame2-pair-mcp/`) is the only skill-facing transport — and the one implementation of every operation. It carries its own test suite under that directory — run it with `npm test` — including the live end-to-end fixture gate (`test/live-e2e-fixture.cjs`). The surfaces below cover the skill's **runtime preload** + **structural docs** that live in this tree; the connect/dispatch/trace/hot-reload coverage drives the MCP server over stdio from `tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs`.
 
 The fixture app at `tests/fixture/` backs the structural pure-core surface
 and the pair-mcp live-e2e gate — a minimal Reagent + shadow-cljs build that
@@ -81,10 +81,9 @@ it is named here.
 for f in tests/runtime/*_test.clj; do bb "$f"; done
 ```
 
-The retired Babashka *behaviour mirrors* (cascade outcome/redaction,
-multi-frame, read-sub, sub-cache, snapshot, orient,
-source-coord/view parse) were DELETED: their behaviour is now tested against the
-shipped `pure.cljc` in §1a, and the source-coord/view parsers are canonical
+Behaviour (cascade outcome/redaction, multi-frame, read-sub, sub-cache,
+snapshot, orient) is tested against the shipped `pure.cljc` in §1a, never
+against a Babashka copy of it, and the source-coord/view parsers are canonical
 core aliases (`re-frame.source-coords/*`) covered by
 `implementation/core/test/re_frame/source_coords_cljs_test.cljs`.
 
@@ -114,7 +113,8 @@ The flows (each an MCP `tools/call` against the booted runtime):
   `core.cljs`, confirm
   `tail-build {probe "(re-frame2-pair.runtime/registrar-handler-ref :event :counter/inc)" baseline "<pre-edit value>" wait-ms …}`
   reports `:soft? false` once a sample leaves the baseline. This is the
-  safety-critical probe-based reload contract from §4.5 — the pre-edit
+  safety-critical probe-based reload contract from `references/ops.md`
+  §Hot-reload coordination — the pre-edit
   baseline keeps a reload that lands before the first sample recognizable.
 
 Run:
@@ -138,7 +138,7 @@ driving the pair-mcp server over stdio.
 **Status: live gate — see `tests/prompts/prompt_regression_test.clj` for the current deftests; runs in changed-surface PR CI.**
 
 Table-driven structural regression against `references/recipes.md`,
-`references/ops.md` (which now also carries the hot-reload-coordination
+`references/ops.md` (which also carries the hot-reload-coordination
 section and the v1 surface-map appendix), `references/errors.md`, and
 `SKILL.md`. The canonical-
 prompts table at the top of `tests/prompts/prompt_regression_test.clj`
@@ -199,7 +199,7 @@ release candidate even though they are not required PR checks.
 
 ### Known coverage gap — probe-based reload
 
-`tail-build`'s probe-based confirmation ([`ops.md` §Hot-reload coordination](../references/ops.md#hot-reload-coordination)) is *safety-critical* — Claude uses it to gate dispatches after a source edit, and a false positive means Claude interacts with stale code. The *comparison logic* is now pinned without a browser: since rf2-1f60u the probe is compared against a caller-supplied **pre-edit `baseline`**, so `tail_build_test.cljs` can script the real orderings — baseline captured, reload landing before the first sample, reload landing after it, and a value that never leaves the baseline (which must still time out). What still needs a real browser + real shadow-cljs + real edit + real compile pipeline is the *end-to-end* claim that a genuine reload moves the probe at all — i.e. the E2E surface, which is manual/nightly diagnostic, not required PR coverage.
+`tail-build`'s probe-based confirmation ([`ops.md` §Hot-reload coordination](../references/ops.md#hot-reload-coordination)) is *safety-critical* — Claude uses it to gate dispatches after a source edit, and a false positive means Claude interacts with stale code. The *comparison logic* is pinned without a browser: the probe is compared against a caller-supplied **pre-edit `baseline`**, so `tail_build_test.cljs` can script the real orderings — baseline captured, reload landing before the first sample, reload landing after it, and a value that never leaves the baseline (which must still time out). What still needs a real browser + real shadow-cljs + real edit + real compile pipeline is the *end-to-end* claim that a genuine reload moves the probe at all — i.e. the E2E surface, which is manual/nightly diagnostic, not required PR coverage.
 
 Mitigation while E2E remains manual/nightly:
 

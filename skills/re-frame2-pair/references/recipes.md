@@ -75,7 +75,7 @@ Never read a whole frame to orient — `orient` already handed you the map. `sna
 
 ## "Why didn't my view update?"
 
-**The deterministic observe loop: `dispatch {settle: true}` → `read-ui` / `read-dom`.** "Did my UI update?" is now one gesture — settle synchronously flushes renders, then you read what actually rendered. No manual `requestAnimationFrame` dance.
+**The deterministic observe loop: `dispatch {settle: true}` → `read-ui` / `read-dom`.** "Did my UI update?" is one gesture — settle synchronously flushes renders, then you read what actually rendered. No manual `requestAnimationFrame` dance.
 
 1. Identify the sub the view reads (ask the user if it's not in the view file). Confirm its current value with `read-sub {sub: "[:the/sub]"}` (validated + elided — never a silent nil on a typo'd id).
 2. Re-fire the event with the deterministic settle, so the cascade commits and renders flush before you read:

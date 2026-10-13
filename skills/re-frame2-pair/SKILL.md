@@ -1,7 +1,7 @@
 ---
 name: re-frame2-pair
 description: >
-  Drive a **running** re-frame2 app from the agent over its shadow-cljs
+  Drives a running re-frame2 app from the agent over its shadow-cljs
   nREPL: read a frame's app-db, subs and screen, dispatch or dry-run events,
   hot-swap handlers, walk traces and epochs, time-travel with
   `restore-epoch`, replay an epoch. Use whenever the user wants the agent to
