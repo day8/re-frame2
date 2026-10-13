@@ -141,8 +141,8 @@ nothing about the install story below.)
 the mount verbs. `init!` installs the foundation unconditionally, and
 `open!` gates only on a substrate adapter being present — which every app
 that called `rf/init!` has, production included. A host that installs Xray
-from app code owns its exclusion: see [`launch-programmatic.md` §Keeping
-the manual path out of
+from app code owns its exclusion; the recipe is [`launch-programmatic.md`
+§Keeping the manual path out of
 production](launch-programmatic.md#keeping-the-manual-path-out-of-production).
 
 **`npm run test:elision` is not proof about Xray.** It compiles

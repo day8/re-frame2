@@ -106,17 +106,13 @@ Authority:
 
 ## Keeping the manual path out of production
 
-**The preload's `(when rf.interop/debug-enabled? …)` boot block is the only
-gated install path.** A few other top-level forms in the tree carry the same
-check (view registrations, a trace-collector callback), but none of them
-gates installation, and `init!`, `open!`, `open-overlay!`, `toggle!` and
-`popout!` carry no gate of their own:
-
-- `init!` registers the `:rf.xray/*` handlers, the trace + epoch collectors,
- the browser-API exports and the keybinding listener **unconditionally**.
-- `open!` gates only on a substrate adapter being installed — which every
- app that called `rf/init!` has, in production exactly as in dev. Adapter
- presence is not a production discriminator.
+The preload's boot block is Xray's only `goog.DEBUG`-gated install path
+([`launch-lifecycle.md` §Production posture](launch-lifecycle.md#production-posture)
+owns what is and is not gated). `init!`, `open!`, `open-overlay!`,
+`toggle!` and `popout!` carry no gate of their own: `init!` installs
+**unconditionally**, and `open!` checks only that a substrate adapter is
+installed — which every app that called `rf/init!` has, in production
+exactly as in dev.
 
 So on the manual path **exclusion is the host's job**. Two ways to discharge
 it:
