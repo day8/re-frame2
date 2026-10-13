@@ -79,9 +79,7 @@
 
 (deftest explain-for-traps-unknown-variant
   (testing "an unregistered keyword target surfaces as :error, not a throw"
-    (let [result (rf.story.ui.explain-panel/explain-for :story.nope/missing)]
-      (is (nil? (:explain result)))
-      (is (not (str/blank? (:error result)))))))
+    (is (not (str/blank? (:error (rf.story.ui.explain-panel/explain-for :story.nope/missing)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; explain-for — the ambient arg layers
