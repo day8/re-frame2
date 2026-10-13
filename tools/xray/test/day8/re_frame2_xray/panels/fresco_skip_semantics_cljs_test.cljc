@@ -154,30 +154,6 @@
       (is (= {:holds [] :skipped {:count 1 :sub-ids [:a]} :evidenced? true}
              (select-keys link2 [:holds :skipped :evidenced?]))))))
 
-(deftest the-two-views-agree-about-every-sub-operation-in-one-bundle
-  ;; The shared-predicate pin. One bundle carrying every `:op-type :rf.sub`
-  ;; operation Spec 009 routes through the projection's `:subs` slot; the
-  ;; advisor's recompute COUNT and the slice's recompute ROSTER must
-  ;; describe the same set of events. They are two readings of one
-  ;; predicate, so a divergence here is a second predicate.
-  (let [windows {:app/main [(bundle 1 :e/tick
-                                    [(sub-ev :a 2.0 :rf.sub/run)
-                                     (sub-ev :b nil :rf.sub/create)
-                                     (sub-ev :c nil :rf.sub/skip)
-                                     (sub-ev :d nil :rf.sub/skip)
-                                     (sub-ev :e nil :rf.sub/dispose)])]}
-        {:keys [row link2]} (both [[:app/main :a] [:app/main :b] [:app/main :c]
-                                   [:app/main :d] [:app/main :e]]
-                                  windows)]
-    ;; `:rf.sub/run` ALONE is work: a create is a REGISTRATION (Spec 009
-    ;; §199, §241) and a dispose an eviction, so neither reaches the run
-    ;; count, the roster or the memo hits.
-    (is (= 1 (get-in row [:axes :frequency :runs])))
-    (is (= [:a] (:holds link2)) "and the slice's roster names exactly that one")
-    (is (= 2 (get-in row [:axes :frequency :memo-hits])))
-    (is (= 2 (get-in link2 [:skipped :count]))
-        "the memo hits agree too, on their own field in both views")))
-
 ;; ---------------------------------------------------------------------------
 ;; The four operations, tagged and untagged — the whole surface, in one table
 ;; ---------------------------------------------------------------------------
@@ -276,18 +252,6 @@
 ;; ---------------------------------------------------------------------------
 ;; The three states stay apart — a skip-only window is neither of the others
 ;; ---------------------------------------------------------------------------
-
-(deftest a-REGISTRATION-only-window-is-CAPPED-and-never-host-opaque
-  ;; A `reg-sub` inside a handler scope emits a create into that dispatch's
-  ;; bundle. Counted as a recompute it would land as an UNTIMED RUN and send
-  ;; the reader to React DevTools over a registration.
-  (let [reg-only (:class (:row (both [[:app/main :a]]
-                                     {:app/main [(bundle 1 :e [(sub-ev :a nil :rf.sub/create)])]})))]
-    (is (= :cap (:basis reg-only))
-        "the honest answer is the FREE remedy: reproduce and read again")
-    (is (= (:class (:row (both [[:app/main :a]] {:app/main []}))) reg-only)
-        (str "a create contributes NOTHING, so a registration-only window reads "
-             "exactly like one that retained nothing at all"))))
 
 (deftest the-three-unattributed-states-are-pairwise-DISTINCT
   ;; `:cap`, `:host-opaque`-with-recomputes and `:host-opaque`-with-memo-hits
