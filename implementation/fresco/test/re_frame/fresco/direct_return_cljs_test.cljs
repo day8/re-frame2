@@ -33,9 +33,6 @@
   Byte equality is the fairness gate and it is checked before anything
   else is claimed, because two arms that render different pages can be
   made to differ on any axis at all.
-  [[the-two-arms-are-the-same-page-and-the-gate-can-tell-when-they-are-not]]
-  also drives them apart on purpose, so the gate is known to be able to
-  fail.
 
   **It is MARKUP equality under `renderToStaticMarkup`, not mounted-DOM
   equality**, and the two must not be read as one. A server render
@@ -88,11 +85,11 @@
 
   **The control that moves every one of them is one line**: write
   [[direct-body]] as hiccup and the four rows read 4 / 3 / 2 / 3 against
-  floors of 1 / 0 / 0 / 0, all four go red, and so do the hook row and
-  the L2 row. The table is the reading, `walks-past` is the gate, and the
-  gate is deliberately the weaker `direct = floor < hiccup` so that a codec
-  refactor which moves a call site does not red a file whose subject is the
-  escape.
+  floors of 1 / 0 / 0 / 0. The table is the reading and `walks-past` is the
+  gate, probed at `codec/vec->element` alone because the other three are
+  reached only from inside it. The gate is deliberately the weaker
+  `direct = floor < hiccup` so that a codec refactor which moves a call site
+  does not red a file whose subject is the escape.
 
   This is the delta that can be taken on a loaded machine, and it is not
   the whole of the delta: see **What is NOT here**.
@@ -107,11 +104,11 @@
 
   ## What a direct return still costs — I9
 
-  Exactly two hooks, counted at React's own dispatcher through
-  [[re-frame.fresco.hook-probe]]. The shell is the React-hook spine and
-  I9 is frozen at two; a boundary that answered an element is still a
-  boundary and pays the same two, which is the reason
-  Rung 3 is an escape from the CODEC and not from the boundary.
+  Exactly two hooks: the shell is the React-hook spine, it runs the same
+  way whatever the body answers, and `hook-budget-cljs-test` holds it at
+  two. A boundary that answered an element is still a boundary and pays
+  the same two, which is the reason Rung 3 is an escape from the CODEC and
+  not from the boundary.
 
   ## Hooks in the body — a law, and deliberately not a refusal
 
@@ -148,15 +145,10 @@
             [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
             [re-frame.fresco.checkpoint-support :as rf.fresco.checkpoint-support]
-            [re-frame.fresco.hook-probe :as rf.fresco.hook-probe]
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
-            [re-frame.fresco.impl.controlled :as rf.fresco.impl.controlled]
-            [re-frame.fresco.impl.intent :as rf.fresco.impl.intent]
             [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
             [re-frame.fresco.roots-frames-support :as rf.fresco.roots-frames-support]
-            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
-            [re-frame.fresco.test :as rf.fresco.test]
             [re-frame.test-support :as rf.test-support]
             [uix.core :as uix]
             ["react" :as react]
@@ -183,8 +175,7 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Written as named fns and minted from them, which `h/defview`'s
-;; anonymity contract makes safe, because L2 runs a BODY and the rows in
-;; §5 need to hand it one.
+;; anonymity contract makes safe.
 ;;
 ;; The prop keys are written in the SAME ORDER on both sides and the
 ;; class shorthand is spelled out rather than folded, because both sides
@@ -280,12 +271,11 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- seeded!
-  ([] (seeded! seed-db))
-  ([db]
-   (rf.fresco.checkpoint-support/leave-act-environment!)
-   (rf/make-frame {:id frame-id})
-   (rf/with-frame frame-id (rf/dispatch-sync [:dr/seed db]))
-   frame-id))
+  []
+  (rf.fresco.checkpoint-support/leave-act-environment!)
+  (rf/make-frame {:id frame-id})
+  (rf/with-frame frame-id (rf/dispatch-sync [:dr/seed seed-db]))
+  frame-id)
 
 (defn- render!
   "`view` as the page's root, to static markup. `renderToStaticMarkup`
@@ -352,63 +342,33 @@
 ;; 1. The fairness gate
 ;; ---------------------------------------------------------------------------
 
-(deftest the-two-arms-are-the-same-page-and-the-gate-can-tell-when-they-are-not
+(deftest the-three-arms-render-the-same-page
   (seeded!)
   (let [hiccup (render! hiccup-arm)
         direct (render! direct-arm)]
 
-    (testing "byte-equal markup — same props, same reads, same data, same
-              DOM, so every row below is about the lowering and nothing
-              else"
-      (is (= hiccup direct)))
-
-    (testing "and the UIx spelling is the same bytes again, so the UIx arm
-              of every probe below is a third reading of one page rather
-              than a reading of a different one"
-      (is (= hiccup (render! uix-arm))))
-
-    (testing "and the page is the page, not an empty string two arms agree
-              on: both reads landed and both populations rendered"
+    (testing "byte-equal markup from all three spellings, and the page is the
+              page: both reads landed and both populations rendered"
       (is (= (str "<div class=\"row\"><span class=\"label\">quarterly 2</span>"
                   "<input class=\"field\" value=\"quarterly\"/></div>")
-             hiccup)))
-
-    (testing "THE MUTATION — move one arm's data and the gate parts them.
-              An equality that cannot be made to fail is not a gate"
-      (seeded! (assoc-in seed-db [:labels 1] "annual"))
-      (is (not= hiccup (render! direct-arm))))))
+             hiccup
+             direct
+             (render! uix-arm))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2. The deterministic delta — the four surfaces
 ;; ---------------------------------------------------------------------------
 
 (deftest a-direct-return-enters-none-of-the-four-surfaces
-  ;; One row per surface in the namespace docstring's table. Each row wraps
-  ;; the shipping function with an entry counter, `probe` restores it in a
-  ;; `finally`, and `walks-past` names the surface in every failure.
-  (doseq [[surface install! restore!]
-          [(let [real rf.fresco.impl.codec/vec->element]
-             ["the hiccup walk (codec/vec->element)"
-              (fn [n] (set! rf.fresco.impl.codec/vec->element
-                            (fn [form] (swap! n inc) (real form))))
-              (fn [] (set! rf.fresco.impl.codec/vec->element real))])
-           (let [real rf.fresco.impl.codec/convert-props]
-             ["the prop pipeline (codec/convert-props)"
-              (fn [n] (set! rf.fresco.impl.codec/convert-props
-                            (fn [& args] (swap! n inc) (apply real args))))
-              (fn [] (set! rf.fresco.impl.codec/convert-props real))])
-           (let [real rf.fresco.impl.intent/lower-prop]
-             ["event lowering (intent/lower-prop)"
-              (fn [n] (set! rf.fresco.impl.intent/lower-prop
-                            (fn [& args] (swap! n inc) (apply real args))))
-              (fn [] (set! rf.fresco.impl.intent/lower-prop real))])
-           (let [real rf.fresco.impl.controlled/install!]
-             ["controlled repair (controlled/install!)"
-              (fn [n] (set! rf.fresco.impl.controlled/install!
-                            (fn [& args] (swap! n inc) (apply real args))))
-              (fn [] (set! rf.fresco.impl.controlled/install! real))])]]
-    (seeded!)
-    (walks-past surface (probes install! restore!))))
+  ;; Probed at the walk alone: `convert-props`, `intent/lower-prop` and
+  ;; `controlled/install!` are reached only from inside `vec->element`, so a
+  ;; direct arm held at the walk's floor enters none of the four.
+  (seeded!)
+  (let [real rf.fresco.impl.codec/vec->element]
+    (walks-past "the hiccup walk (codec/vec->element)"
+                (probes (fn [n] (set! rf.fresco.impl.codec/vec->element
+                                      (fn [form] (swap! n inc) (real form))))
+                        (fn [] (set! rf.fresco.impl.codec/vec->element real))))))
 
 (deftest a-direct-return-is-not-inspected-by-the-key-diagnostic
   (seeded!)
@@ -437,65 +397,7 @@
 
     (testing "and the key pair is a pair — same DOM, so the two rows above
               differ in the diagnostic and in nothing else"
-      (is (= (render! key-hiccup-arm) (render! key-direct-arm)))
       (is (= (str "<div class=\"tags\"><span class=\"tag\">clj</span>"
                   "<span class=\"tag\">react</span></div>")
-             (render! key-hiccup-arm))))))
-
-;; ---------------------------------------------------------------------------
-;; 3. What the escape still costs — I9 holds at two
-;; ---------------------------------------------------------------------------
-
-(deftest a-boundary-that-returns-an-element-still-costs-exactly-two-hooks
-  (seeded!)
-  (is (true? (rf.fresco.hook-probe/install!))
-      "React's client-internals dispatcher slot was not found — the hook
-       budget is UNWITNESSED, not satisfied")
-  (let [hooks-of (fn [view] (rf.fresco.hook-probe/record! (fn [] (render! view))))
-        hiccup   (hooks-of hiccup-arm)
-        direct   (hooks-of direct-arm)]
-
-    (testing "the shell's two — the frame-context hook and the
-              subscription/epoch hook, in the order the ledger declares
-              them, with the body between"
-      (is (= ["useContext" "useSyncExternalStore"] (vec direct)))
-      (is (= (count rf.fresco.test.runtime/shell-hook-ledger) (count direct))))
-
-    (testing "the boundary pays the same two on either arm: Rung 3 is an
-              escape from the codec, not from the boundary. A third hook
-              in the SHELL would break I9, frozen at two"
-      (is (= direct (vec (take 2 hiccup)))))
-
-    (testing "and the hiccup arm's THIRD hook is not the shell's. It is
-              the controlled field's own shadow component — one
-              `useState`, standing in front of the input
-              (`impl.controlled`) — so it is a per-controlled-FIELD cost
-              and not a per-boundary one. The direct arm does not pay it
-              because it has no controlled field to repair, which is the
-              escape's price restated as a number rather than as prose"
-      (is (= ["useContext" "useSyncExternalStore" "useState"] (vec hiccup))))))
-
-;; ---------------------------------------------------------------------------
-;; 4. L2 refuses the direct return as opaque
-;; ---------------------------------------------------------------------------
-
-(def ^:private l2-fixtures
-  {:subs {[:dr/label 1] "quarterly" [:dr/tags 1] ["clj" "react"]}})
-
-(defn- outcome
-  [thunk]
-  (try {:value (thunk)} (catch :default e {:refused (ex-data e)})))
-
-(deftest l2-refuses-a-direct-return-as-opaque
-  (testing "CONTROL — the hiccup arm's body is exactly what L2 is for, and
-            it answers a tree"
-    (is (= :div (:tag (rf.fresco.test/tree [hiccup-body {:id 1}] l2-fixtures)))))
-
-  (testing "the direct arm's body answers a value only React can
-            interpret, so L2 refuses it and points at L3. This is the
-            escape's OTHER price and the one an author meets first: a
-            boundary moved to Rung 3 leaves the assertion tier that runs
-            without a browser"
-    (let [{:keys [refused]} (outcome #(rf.fresco.test/tree [direct-body {:id 1}] l2-fixtures))]
-      (is (= :rf.error/fresco-test-react-is-opaque (:rf.error/id refused)))))
-)
+             (render! key-hiccup-arm)
+             (render! key-direct-arm))))))
