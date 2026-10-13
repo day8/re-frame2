@@ -49,13 +49,26 @@ touched, and read its census half — it counts view-substrate API call sites
 across the nine recognised Reagent namespaces (`reagent.core`, `reagent.dom`,
 `reagent.dom.client`, `reagent.ratom`, `reagent.dom.server`, and their four
 `reagent2.*` siblings) plus everything under the `re-frame.adapter.` prefix, and
-reports what it cannot resolve instead of skipping it:
+reports what it cannot resolve instead of skipping it. The answer is a file
+count in the written report, not the call count:
+
+```clojure
+(-> report :census :summary :files-with-reagent)   ;; 0 is the licence
+```
+
+The run's closing line carries the same count while some file still names a
+re-frame2 adapter — the boot namespace, say, before decision 1 removes the
+Reagent install:
 
 ```
-0 view-substrate API call site(s) across 0 file(s) that name Reagent and 0 that name a re-frame2 adapter — 0 mechanical, … — ZERO ENTRIES: bounded by the ROSTER, not by the corpus; read :census :summary :caveat
+0 view-substrate API call site(s) across 0 file(s) that name Reagent and 1 that name a re-frame2 adapter — 0 human-decision, 0 mechanical, 0 runtime-blocker; 41 of 42 file(s) NOT RECOGNISED — read :census :summary :caveat — ZERO ENTRIES: bounded by the ROSTER, not by the corpus; read :census :summary :caveat
 ```
 
-**Read the second number, not the first.** The reporter says what it measures:
+Once no file names Reagent or an adapter, that line reads
+`NOTHING RECOGNISED — …` instead, and the report's `:files-with-reagent` is
+still the number to read.
+
+**Read the file count, not the call count.** The reporter says what it measures:
 its estimand is *rostered view-substrate API call sites, addressed at the CALL*.
 A call-site count is the wrong instrument for a dependency question, because a
 dependency is created by a **reference**, not by a call. This is not a
@@ -72,13 +85,13 @@ and the build still needs `reagent/reagent`. The same blind spot covers Reagent
 Vars handed around as values, type and protocol references, and any
 build/preload configuration that names Reagent outside scanned CLJS call heads.
 
-So the licence is the **files** half of that line: `0 file(s) that name Reagent`,
-after you have removed the requires you proved orphaned, **and** no `UNRESOLVED`
-clause. One file still naming a recognised Reagent namespace keeps the
-coordinate, whatever the call count says. Pair it with a plain textual sweep of
-the whole repository — sources *and* dependency/build configuration
-(`deps.edn`, `shadow-cljs.edn`, preloads) — for the non-call references the
-reporter does not claim to census. Anything that turns up names what has to
+So the licence is `:files-with-reagent 0`, read after you have removed the
+requires you proved orphaned. An `UNRESOLVED` file is one that names Reagent, so
+that zero rules it out too. One file still naming a recognised Reagent
+namespace keeps the coordinate, whatever the call count says. Pair it with a
+plain textual sweep of the whole repository — sources *and* dependency/build
+configuration (`deps.edn`, `shadow-cljs.edn`, preloads) — for the non-call
+references the reporter does not claim to census. Anything that turns up names what has to
 stay; when in doubt, keep `reagent/reagent`, which costs a coordinate and never
 a broken build.
 

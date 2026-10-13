@@ -48,8 +48,8 @@ this value belong to* — three answers, in order of how often they are right:
   `[::concern ikey v]`, and participation in the shared clear event
   `[::h/clear ::concern ikey]` — and stores under `[:ui ::concern ikey]` in
   app-db. The concern must be a namespace-qualified keyword; the instance key is
-  a keyword, string, number, or a vector of those (`nil` is refused at both read
-  and write). **Do not be squeamish about "app-db for a dropdown flag":** frame
+  a keyword, string, number, UUID, or a vector of those (`nil` is refused at
+  both read and write). **Do not be squeamish about "app-db for a dropdown flag":** frame
   state is cheap, and it is what makes the toggle inspectable and testable.
 
 - **A control that drafts and commits → `re-frame.fresco.forms/buffered-field`.**
