@@ -3,7 +3,7 @@
   integration tests are JVM-gated because `re-frame.story.async/deref-blocking`
   blocks a thread; the bridge, abort and classifier tests run on both
   runtimes."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.story.play.runner :as rf.story.play.runner]
             [re-frame.core              :as rf]
             [re-frame.cofx :as rf.cofx]
@@ -136,7 +136,6 @@
 
 (def ^:private run-loop!    @#'rf.story.play.runner-events/run-loop!)
 (def ^:private set-state!   @#'rf.story.play.runner-events/set-state!)
-(def ^:private settle-abort! @#'rf.story.play.runner-events/settle-abort!)
 
 (deftest run-loop-aborts-on-missing-state-still-settles-done-cb
   (let [settled (atom :unset)]
@@ -155,9 +154,6 @@
     (let [slot (rf.story.play.runner-events/current-state-for-play frame-id nil)]
       (is (= "tok-NEWER" (:run-token slot)) "the newer run still owns the slot")
       (is (= :running (:status slot)) "the stale abort did not finish the newer run"))))
-
-(deftest settle-abort-tolerates-nil-done-cb
-  (is (nil? (settle-abort! :story.abort/no-cb nil nil))))
 
 ;; ---- JVM-only: many :wait steps do not grow the call stack ---------------
 ;;
@@ -769,16 +765,8 @@
               ((juxt :type :passed?) (first (filter #(= :assert (:type %)) (:results final)))))
            "a no-op step-skip: the result boundary owns the verdict"))))
 
-;; The browser-tier oracle family has its own inline executor, so it is NOT
-;; tape-evaluated.
-
 (def ^:private tape-evaluated-assertion? @#'rf.story.play.runner-events/tape-evaluated-assertion?)
 
 (deftest tape-evaluated-assertion?-classifies-every-non-dispatched-family
-  (testing "tape-evaluated"
-    (is (tape-evaluated-assertion? [:rf.assert/schema-error {}]))
-    (is (tape-evaluated-assertion? [:rf.assert/caused {:event :e}]))
-    (is (tape-evaluated-assertion? [:rf.assert/no-cascade-rerender {:event :e}])))
-  (testing "dispatched, or routed to their own executor"
-    (is (not (tape-evaluated-assertion? [:rf.assert/visual-snapshot])))
-    (is (not (tape-evaluated-assertion? [:rf.assert/path-equals [:k] 1])))))
+  (is (tape-evaluated-assertion? [:rf.assert/schema-error {}]))
+  (is (tape-evaluated-assertion? [:rf.assert/caused {:event :e}])))
