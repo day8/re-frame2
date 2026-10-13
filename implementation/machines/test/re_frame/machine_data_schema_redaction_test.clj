@@ -1,49 +1,15 @@
 (ns re-frame.machine-data-schema-redaction-test
-  "Machine `:data` trace-egress redaction via the per-frame elision registry
-  (the EP-0025 commit-plane classification effects / projection-relative
-  machine declaration write through it).
-
-  Machine `:data` validation ships separately: a `[:schemas :data]` Malli form
-  validates the machine's `:data` slot, and the validation-failure trace
-  routes its value slots through the schema-aware redactor. What this file
-  pins is *snapshot* egress: a machine `:data` slot is redacted in the
-  `:before` / `:after` / `:snapshot` / `:data` / `:input` / `:cascade` slots
-  of `:rf.machine/*` traces when the FRAME declares its runtime-db snapshot
-  path sensitive / large.
-
-  Classification of durable `:data` for egress lives in the per-frame elision
-  registry. EP-0025: a classified machine snapshot `:data` path (the absolute
-  runtime-db path `[:rf.runtime/machines :snapshots <actor-id> :data …]`) is
-  written under `:source :effect` — by the commit-plane classification effects
-  or the projection-relative machine declaration lowered per actor; the trace
-  egress chokepoint re-roots that snapshot-relative
-  (`rf.classification/frame-snapshot-classification`) and redacts the matching
-  slot. A `:sensitive?` / `:large?` Malli prop on a `[:schemas :data]` slot is
-  VALIDATION ONLY and does not classify durable `:data` for egress.
-
-  The contract under test:
-
-   1. **Frame-declared redaction.** `project-trace-event` redacts a frame-
-      declared `:data` path to `:rf/redacted` (sensitive) / the
-      `:rf.size/large-elided` marker (large) inside every machine `:data` slot.
-
-   2. **Precision.** An undeclared sibling slot rides egress verbatim; a
-      machine whose frame declares nothing rides every `:data` slot raw.
-
-   3. **Schema props do NOT classify.** A `[:schemas :data]` `:sensitive?` slot
-      does NOT, by itself, redact durable `:data` at snapshot egress — only
-      a declared path (frame OR machine) does.
-
-   4. **Machine declaration (EP-0025 §subsystems).** A
-      top-level projection-relative `:sensitive` / `:large` key on a
-      `reg-machine` spec IS the canonical classification route: it travels
-      with the machine def and is LOWERED per actor instance at spawn /
-      first-boot into the per-frame elision registry, redacts at snapshot
-      egress through the SAME registry read path the frame mechanism uses, and
-      is DROPPED at the instance's destroy (no leak). The frame-owned
-      absolute-path mechanism (tests 1-2) functions too — the registry read
-      unions every source — but the machine declaration is the projection-
-      relative, per-instance-applied canonical surface."
+  "Machine `:data` trace-egress redaction through the per-frame elision
+  registry (EP-0025). A classified snapshot `:data` path — the absolute
+  runtime-db path `[:rf.runtime/machines :snapshots <actor-id> :data …]` — is
+  claimed under `:source :effect` by the commit-plane classification effects,
+  or under `:source :machine` by a `reg-machine` spec's projection-relative
+  `:sensitive` / `:large` declaration, which is lowered per actor at spawn /
+  first boot and dropped at destroy. The trace egress chokepoint redacts the
+  matching slot to `:rf/redacted` (sensitive) or the `:rf.size/large-elided`
+  marker (large) in every machine `:data` slot of `:rf.machine/*` traces,
+  leaving undeclared slots verbatim. A `:sensitive?` / `:large?` Malli prop on
+  `[:schemas :data]` is validation only and classifies nothing."
   (:require [clojure.string]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -67,11 +33,8 @@
 (def ^:private auth-id :rf.machine-redaction/auth)
 
 (def ^:private auth-schema
-  "A `[:schemas :data]` schema is VALIDATION ONLY: per-slot props do not classify
-  durable `:data` for snapshot egress; the classified registry paths (EP-0025
-  commit-plane effects / projection-relative machine declaration) are the
-  egress mechanism. It carries `:sensitive?` / `:large?` props to PROVE they
-  do not classify durable `:data` at snapshot egress (test (3))."
+  "Carries `:sensitive?` / `:large?` props so a test can prove they classify
+  nothing."
   [:map
    [:retries :int]
    [:token   {:sensitive? true} [:maybe :string]]
@@ -90,12 +53,8 @@
 
 (defn- declare-frame-marks!
   "Classify the machine snapshot's `:data` token slot SENSITIVE and the blob
-  slot LARGE on `:rf/default`, keyed by the absolute runtime-db snapshot path.
-  There is no durable frame annotation or imperative add-marks API, so this
-  installs the classification directly into the frame's
-  elision registry under `:source :effect` — the substrate the
-  commit-plane `:sensitive` / `:large` effects write through — that
-  `frame-snapshot-classification` reads at trace egress."
+  slot LARGE on `:rf/default`, writing the frame's elision registry under
+  `:source :effect` as the commit-plane `:sensitive` / `:large` effects do."
   ([] (declare-frame-marks! auth-id))
   ([actor-id]
    (rf.elision/swap-elision-slot! :rf/default
@@ -226,18 +185,7 @@
            (get-in (rf.classification/project-trace-event (machine-transition-event auth-id))
                    [:tags :after :data])))))
 
-;; ---- (4) EP-0025 §subsystems — the machine declaration: ------------------
-;;          a top-level projection-relative `:sensitive` / `:large` key on
-;;          `reg-machine` IS the canonical classification route, lowered per
-;;          actor instance into the per-frame elision registry at spawn /
-;;          first-boot and dropped at destroy.
-;;
-;; These tests drive LIVE machines (singleton + spawned) through the runtime so
-;; the spawn / first-boot lowering + the destroy drop are exercised end-to-end:
-;; the declaration travels with the machine def, the registry entry is added at
-;; the instance's birth + DROPPED at its death (no leak), and the egress
-;; chokepoint redacts the declared slot via the SAME registry read path the
-;; frame-declared mechanism uses (`frame-snapshot-classification`).
+;; ---- (4) the machine declaration (EP-0025 §subsystems), on live machines ----
 
 (defn- snapshot-elision-reg
   "The `:rf/default` frame's elision registry, read off runtime-db. A nil
@@ -370,21 +318,9 @@
       (is (= #{:effect} (sources)) "the effect claim SURVIVES the actor destroy — no fail-open"))))
 
 ;; ---- (6) EFFECT-FIRST boot: the machine's own claim must land DURABLY ------
-;; When an effect PRE-classifies a machine's absolute snapshot
-;; path BEFORE the singleton boots, the machine's own `:source :machine` claim
-;; (lowered LIVE by `rf.classification/lower-at-spawn!` at first-boot) must SURVIVE
-;; the boot snapshot `:rf.db/runtime` commit. A commit built from the STALE
-;; `:rf.db/runtime` coeffect — which already carries the effect's
-;; `[:rf.runtime/elision]` sub-tree — would return an effect value that
-;; INCLUDES `:rf.runtime/elision` (effect-owner only). At commit,
-;; `rf.elision/reconcile-runtime-db-effect` reads an effect-carried
-;; `:rf.runtime/elision` as an explicit full-frame install and honours it
-;; VERBATIM, which would clobber the machine owner the live swap had just
-;; unioned in. The effect owner would survive (so the path would stay
-;; redacted — no leak), but the machine would NOT itself be a durable owner,
-;; breaking the multi-owner union contract: the machine and the effect are INDEPENDENT
-;; owners and BOTH must persist, so removing the effect's claim must leave the
-;; path redacted by the machine's surviving claim.
+;; The boot commit must not rebuild runtime-db from a coeffect that already
+;; carries the effect's elision sub-tree: that would install the effect owner
+;; alone and drop the machine claim the live lowering had just unioned in.
 
 (deftest machine-boot-claim-survives-when-effect-pre-classified
   (testing "an effect that PRE-classifies a machine's absolute
