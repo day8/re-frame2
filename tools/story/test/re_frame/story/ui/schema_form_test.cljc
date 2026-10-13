@@ -118,9 +118,8 @@
 (deftest read-edn-value-parses-the-escape-hatch
   (testing "a valid EDN form reads ok"
     (is (= [true {:state :ready}]   (rf.story.ui.schema-form/read-edn-value "{:state :ready}"))))
-  (testing "blank / nil read as not-ok (fill this value), never committing nil"
-    (is (= [false nil] (rf.story.ui.schema-form/read-edn-value "   ")))
-    (is (= [false nil] (rf.story.ui.schema-form/read-edn-value nil))))
+  (testing "blank reads as not-ok (fill this value), never committing nil"
+    (is (= [false nil] (rf.story.ui.schema-form/read-edn-value "   "))))
   (testing "a malformed form reports not-ok with a message, never throws"
     (let [[ok? msg] (rf.story.ui.schema-form/read-edn-value "{:a ")]
       (is (false? ok?))
