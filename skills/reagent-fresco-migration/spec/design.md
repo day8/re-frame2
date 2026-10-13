@@ -8,19 +8,14 @@
 
 A future agent could re-author this skill from this folder alone.
 
-## 0. The 2026-08-14 retarget (rf2-r4j91)
+## 0. Destination and scope
 
-The skill was authored against **Freehand** (`re-frame.freehand`, alias `v`).
-Mike retired Freehand and `re-frame.ui` on 2026-08-14 and ruled the architecture
-to be **a Reagent adapter and a UIx adapter, plus Fresco as re-frame2 native**.
-The destination is therefore `re-frame.fresco` (alias `h`), and the locks below
-are the post-retarget set. Three of the original locks changed materially and are
-recorded as such rather than quietly rewritten — **L1**, **L2** and **L8**.
+re-frame2's view architecture is **a Reagent adapter and a UIx adapter, plus
+Fresco as re-frame2's native view layer**. This skill's source is Reagent view
+code and its destination is `re-frame.fresco` (alias `h`).
 
-**UIx is deliberately out of scope**, by Mike's narrowing on the same day: *"We
-only need a skill to migrate a Reagent code base to use fresco instead. We'll
-worry about UIx to fresco later."* No bead was filed for it and the skill does
-not mention it as future work.
+**UIx is deliberately out of scope**: the skill migrates a Reagent codebase to
+Fresco, and does not mention UIx → Fresco as future work.
 
 ## 1. Goal
 
@@ -50,30 +45,22 @@ Preserve these unless Mike explicitly unlocks them.
 
 ### L1 — The VIEW rewrite is AI judgment; a reporter/fixer exists and is invoked
 
-**Amended by rf2-r4j91.** The original lock read *"no rewrite tool ships or is
-invoked — Mike ruled skill-only"*, and that is no longer the state of the tree:
-`migration/reagent-to-fresco/codemod/` shipped under `rf2-2rtt6.143` with its
-own ratification, and the skill was still saying there was no tool to run.
-
-The amended lock keeps the part that was actually load-bearing and drops the part
-that had gone stale:
-
 - **No tool converts views.** The skill's value on an ambiguous view is that it
-  *reasons* about the shape rather than printing a flag. That stands.
-- **A source-text reporter DOES ship and the skill runs it first.** Its two
-  halves are a census of Reagent API call sites (the inventory that sizes the
-  job) and a fixer for the `[:> …]` prop dialect at React crossings, six of whose
-  families are decidable from source text. Not routing to it was a defect: the
-  skill was leaving the one automated half of the migration on the floor.
+  *reasons* about the shape rather than printing a flag.
+- **A source-text reporter ships at `migration/reagent-to-fresco/codemod/`, and
+  the skill runs it first.** Its two halves are a census of Reagent API call
+  sites (the inventory that sizes the job) and a fixer for the `[:> …]` prop
+  dialect at React crossings, six of whose families are decidable from source
+  text. Running it first puts the one automated half of the migration to work
+  before any judgment starts.
 
 If a *view* codemod ever seems needed, stop and ask Mike.
 
 ### L2 — The rewrite is OPTIONAL and the skill must not overstate the need
 
-**Strengthened by rf2-r4j91, and it is the point of the skill.** The original
-lock framed the journey as (1) v1→v2 required, then (2) optionally
-Reagent→Freehand. That is still the shape, but the first half is now stronger
-than "optional" implied, and the skill must say so before it does anything:
+**This lock is the point of the skill.** The journey is (1) v1→v2, required,
+then (2) optionally Reagent→Fresco — and the first half is complete on its own,
+which the skill says before it does anything:
 
 **With a first-class Reagent adapter, an app moving from re-frame v1 stays on
 Reagent and needs no Fresco rewrite to land on re-frame2.** `day8/re-frame2-reagent`
@@ -97,7 +84,7 @@ Two further honesty obligations ride here:
 - **Fresco ships in the same release set as the adapters, so invent no
   publication gap.** `day8/re-frame2-fresco` is one of the coordinates a `v*`
   tag publishes — enrolled in `.github/scripts/verify-version-lockstep.sh`'s
-  inventory and the release workflow since rf2-gra70 — at the same VERSION as
+  inventory and the release workflow — at the same VERSION as
   core and `day8/re-frame2-reagent`. Until a release every artefact resolves
   from source (`:local/root` or `:git/sha`), Fresco and the Reagent adapter
   alike, which is the route the installation page shows. The honesty
@@ -110,10 +97,9 @@ Two further honesty obligations ride here:
 
 The `MIG-NN` ids are this skill's own numbering, cited so an author can audit any
 change. **An id names the Reagent CONSTRUCT the skill recognises, not the
-destination shape** — which is what let the numbering survive the retarget: the
-same `r/create-class` is still MIG-17 even though its answer changed from a
-registered behavior to a callback ref. If the skill and the shipped source
-disagree, the source wins.
+destination shape** — which keeps the numbering stable when a destination
+changes: `r/create-class` is MIG-17 whatever its answer is. If the skill and
+the shipped source disagree, the source wins.
 
 ### L4 — The whole view is the unit of migration
 
@@ -121,7 +107,7 @@ Never half-migrate a view. A **hold** holds the **entire** view on Reagent; a
 **judgment call** is decided with the author, then the **whole** view converts or
 the **whole** view holds. Coherence over coverage. This is cardinal rule 2.
 
-Under Fresco this lock has teeth it did not have before: a leftover ambient
+Under Fresco the lock has teeth: a leftover ambient
 `#(dispatch …)` closure is passed to React **by identity** and fails only at
 click time, with core's `:rf.error/no-frame-context`. Nothing catches a
 half-migrated body earlier.
@@ -152,33 +138,29 @@ carries little weight: the three failures that bite hardest — a surviving
 ambient closure, a surviving `^{:key …}` in Fresco-lowered Hiccup, a Reagent
 introspection call — all compile clean.
 
-### L8 — RETIRED: there is no compiled/interpreted split to manage
+### L8 — No compiled tier to opt into
 
-**Retired by rf2-r4j91.** The original lock was *"migrate interpreted; never
-promote mid-flight"*, which was about Freehand's `{:compiled true}` opt-in and
-its finite grammar. **Fresco has no such tier.** It walks the tree at render,
-full stop — which is why dynamic tag heads and runtime-built markup are ordinary
-pass-through here rather than judgment calls. Emitting `{:compiled true}` against
-Fresco would be inventing an option that does not exist, so the lock is retired
-rather than restated.
+**Fresco has no compiled/interpreted split.** It walks the tree at render, full
+stop — which is why dynamic tag heads and runtime-built markup are ordinary
+pass-through here rather than judgment calls. Never emit `{:compiled true}` or
+any other tier opt-in: it would invent an option that does not exist.
 
 ### L9 — Emit only what has shipped, and READ THE DOOR to find out
 
-**Guide pages describe forms that do not exist.** The authority is
+**Pages describe forms that do not exist.** The authority is
 `implementation/fresco/src/re_frame/fresco.cljc` and the `impl/` namespaces
 beside it, not a design page and not the guide.
 
-The lock's original example, an `h/fn` spelling, was swept to `h/event` on
-2026-08-15 and no page teaches it now; and the `draft-guide/` corpus the lock
-named has itself **shipped** as `docs/core/fresco/` (rf2-0yp7w), leaving only a
-rewrite-audit note behind it. **Neither fact retires the lock**: a page is
-still not the door. (The key-map example once cited here was wrong in the
-other direction — the guide's "use key maps at keyboard events" matches
-`impl/intent.cljs`'s `key-map-handler`, which reads `.key` first and raises
-`:rf.error/fresco-intent-needs-the-event` where the event carries none.)
+The standing example is an `h/fn` callback spelling: design notes under
+`docs/design/fresco/` state it and the door does not export it — the callback
+form is `h/event`. The published guide under `docs/core/fresco/` is a page too,
+so it is checked against the door like any other. A page that matches the
+source is not a hazard: the guide's "use key maps at keyboard events" is what
+`impl/intent.cljs`'s `key-map-handler` enforces, reading `.key` first and
+raising `:rf.error/fresco-intent-needs-the-event` where the event carries none.
 Re-derive the examples when citing them; the rule is the constant.
 
-**This is now the highest-risk lock in the folder**, because `spec/API.md`
+**This is the highest-risk lock in the folder**, because `spec/API.md`
 carries no Fresco section. The door's names are rostered in
 `spec/api-manifest.edn` (graded by `lint.yml`'s `api-manifest` job), but a
 manifest row names a var, not the call shape a leaf teaches — so the manifest
@@ -208,8 +190,8 @@ skills/reagent-fresco-migration/
 │   ├── catalog-judgment.md        (D-tier — "here's how to DECIDE")
 │   ├── catalog-reject.md          (R-tier — "don't migrate this / stay on Reagent")
 │   ├── procedure.md               (reporter first, then incremental closed-subtree passes; the test kit)
-│   ├── ssr-hydrate.md             (MIG-23's SSR-then-hydrate recipe — severed from catalog-judgment.md under rf2-n87aa; a client-only migration never loads it)
-│   ├── end-state.md               (MIG-24's whole-app adapter question — severed from catalog-mechanical.md under rf2-v0gp; only the final pass loads it)
+│   ├── ssr-hydrate.md             (MIG-23's SSR-then-hydrate recipe — its own leaf, so a client-only migration never loads it)
+│   ├── end-state.md               (MIG-24's whole-app adapter question — its own leaf, so only the final pass loads it)
 │   └── gotchas.md                 (three leftovers/three ids, metadata keys, dialect edges, guide-vs-door)
 ├── evals/
 │   └── evals.json                 (trigger fixtures + behavioural fixtures across the M/D/R tiers)
@@ -227,30 +209,27 @@ skills/reagent-fresco-migration/
 scaffolding; `tests/` is executable evidence CI runs. Every reference leaf stays
 one level deep from `SKILL.md`.
 
-**`tests/fixture/` is preserved, not authored (rf2-vpdrf).** It is a standalone
+**`tests/fixture/` is preserved, not authored.** It is a standalone
 shadow-cljs project rather than a leaf: it resolves core, ssr, fresco and the
 stock Reagent adapter as `:local/root` deps and proves, in one fresh Node
 process, that [`ssr-hydrate.md`](../references/ssr-hydrate.md)'s MIG-23 recipe
 needs its boot-time `rf/init!` — the negative arm raises
 `:rf.error/no-adapter-installed` — and witnesses the MIG-14, MIG-22, MIG-34 and
-mixed-renderer claims a Node test can reach. The `reagent-fresco-migration-fixture-cold-start` job
-runs it on the `skills_structural` surface and `all-required-passed` requires it,
-so the recipe cannot drift from the shipped substrate unnoticed. Change the
-recipe and you change the fixture with it; re-authoring the skill leaves it
-standing. Detail in its own `README.md`.
+mixed-renderer claims a Node test can reach. The
+`reagent-fresco-migration-fixture-cold-start` job runs it on the
+`skills_structural` surface and `all-required-passed` requires it, so the
+recipe cannot drift from the shipped substrate unnoticed. Change the recipe and
+you change the fixture with it; re-authoring the skill leaves it standing.
+Detail in its own `README.md`.
 
-**Seven reference leaves, not the original six** (rf2-n87aa, 2026-09-02).
-`ssr-hydrate.md` was severed from `catalog-judgment.md`, which had reached 1.8x
-the family line ceiling and failed the catalogue test in `skills/README.md`
-§Leaf size discipline: MIG-23's recipe is ~110 self-contained lines that a
-client-only SPA migration — the common case — never reads, yet every D-tier load
-carried it. `SKILL.md` routes to it directly, so the one-level rule holds.
-
-**Eight since rf2-v0gp (2026-09-13).** `end-state.md` was severed from
-`catalog-mechanical.md` on the same test: MIG-24's closing section — what
-follows once no Reagent view remains — is ~80 lines that only the final pass
-needs, yet every M-tier load carried it. `SKILL.md`'s done-checklist routes to
-it directly, and a stub under MIG-24 keeps the rule complete.
+**Eight reference leaves, two of them split out of the tier catalogues** on the
+tokens-per-session test in `skills/README.md` §Leaf size discipline.
+`ssr-hydrate.md` is MIG-23's recipe, ~110 self-contained lines that a
+client-only SPA migration — the common case — never reads; `end-state.md` is
+MIG-24's closing section, ~80 lines that only the final pass needs. Inside the
+catalogues, every D-tier or M-tier load would carry them. `SKILL.md` routes to
+both directly, so the one-level rule holds, and a stub under MIG-24 keeps that
+rule complete.
 
 ## 5. Where this diverges from `re-frame-migration`
 
@@ -260,7 +239,7 @@ it directly, and a stub under MIG-24 keeps the rule complete.
   first is required and completes; the second is optional and may never be taken.
 - **Fewer leaves.** The domain is narrower (view tier only).
 - **Honest scoping is a first-class deliverable.** `catalog-reject.md` is not a
-  footnote. It is deliberately **short** now — Fresco has a first-class
+  footnote. It is deliberately **short** — Fresco has a first-class
   foreign-React door, callback refs, an error boundary, portals,
   instance-keyed app-db state sugar (`h/reg-state`) and a real test kit — and a
   short honest list is worth more than a long stale one.
@@ -269,13 +248,12 @@ it directly, and a stub under MIG-24 keeps the rule complete.
 
 - **OQ1 — the MIG-13 auto-apply threshold** (the keyed-literal-`map` case): ship
   as an M sub-rule, or keep D? Deferred; the skill treats it as D.
-- **OQ2 — a runnable VIEW migrator?** Still rejected — Mike ruled skill-only for
+- **OQ2 — a runnable VIEW migrator?** Rejected — Mike ruled skill-only for
   the view tier, and the shipped codemod is a `[:>]`-dialect reporter/fixer, a
   different population. Revisit only if field use shows the M-tier rewrites are
   applied identically at scale.
-- **OQ3 — what happens to this skill when Fresco publishes? Resolved.** It
-  fired with rf2-gra70 (2026-08-15), which put Fresco in the release set, and
-  L2 was rewritten to match under rf2-v0gp. A first `v*` tag changes nothing
-  here, because Fresco and the adapters get their coordinates together. What
-  would reopen L2 is the release set changing — Fresco leaving it, or Fresco
-  and the adapters ceasing to ship at one version.
+- **OQ3 — what happens to this skill when Fresco publishes?** Nothing: Fresco
+  is in the release set beside the adapters, so a first `v*` tag gives them
+  their coordinates together. What would reopen L2 is the release set changing
+  — Fresco leaving it, or Fresco and the adapters ceasing to ship at one
+  version.

@@ -10,13 +10,13 @@
 >
 > *Read these first, in order:*
 >
-> *1. `skills/reagent-fresco-migration/spec/design.md` — the locked decisions (L1–L11, L8 retired). The load-bearing ones: **L2** (the rewrite is OPTIONAL and the skill must not overstate the need — with a first-class Reagent adapter an app stays on Reagent and needs no Fresco rewrite to land on re-frame2 — only re-frame-migration's M-11 frame repairs to its subscribing or dispatching plain-function views, which a pure view does not need, so never promise unchanged view code — and Fresco ships in the same release set as the adapters, so invent no publication gap), **L9** (emit only what has shipped, and READ THE DOOR — guide pages state forms that do not exist, and since the draft guide shipped to `docs/core/fresco/` the published one can too), L1 (no view codemod, but run the reporter), L4 (whole view is the unit), L6 (closed subtrees, relaxed by the two bridge doors), L10 (generic to any Reagent app).*
-> *2. `skills/reagent-fresco-migration/spec/inputs.md` — the inputs. The primary one is **`implementation/fresco/src/`**: the door's names are rostered in `spec/api-manifest.edn`, but `spec/API.md` carries no Fresco section and a manifest row teaches no call shape, so the manifest plus the source ARE the check. `impl/intent.cljs`, `impl/codec.cljs`, `impl/slot.cljc`, `impl/state.cljc`, `impl/mount.cljs` decide the behaviours the catalogues teach. `docs/design/fresco/**` is a HAZARD — §4 of that file tabulates four measured examples of a page stating a form that does not exist, two of which have since been fixed at the source; re-measure before citing any of them. Note the `draft-guide/` corpus SHIPPED to `docs/core/fresco/` under rf2-0yp7w, so a hazard can now sit in the published guide too.*
+> *1. `skills/reagent-fresco-migration/spec/design.md` — the locked decisions (L1–L11). The load-bearing ones: **L2** (the rewrite is OPTIONAL and the skill must not overstate the need — with a first-class Reagent adapter an app stays on Reagent and needs no Fresco rewrite to land on re-frame2 — only re-frame-migration's M-11 frame repairs to its subscribing or dispatching plain-function views, which a pure view does not need, so never promise unchanged view code — and Fresco ships in the same release set as the adapters, so invent no publication gap), **L9** (emit only what has shipped, and READ THE DOOR — design pages state forms that do not exist, and the published guide under `docs/core/fresco/` is a page too), L1 (no view codemod, but run the reporter), L4 (whole view is the unit), L6 (closed subtrees, relaxed by the two bridge doors), L10 (generic to any Reagent app).*
+> *2. `skills/reagent-fresco-migration/spec/inputs.md` — the inputs. The primary one is **`implementation/fresco/src/`**: the door's names are rostered in `spec/api-manifest.edn`, but `spec/API.md` carries no Fresco section and a manifest row teaches no call shape, so the manifest plus the source ARE the check. `impl/intent.cljs`, `impl/codec.cljs`, `impl/slot.cljc`, `impl/state.cljc`, `impl/mount.cljs` decide the behaviours the catalogues teach. `docs/design/fresco/**` is a HAZARD — §4 of that file tabulates measured examples of a page stating a form that does not exist; re-measure before citing any of them. A hazard can sit in the published guide under `docs/core/fresco/` too.*
 > *3. `skills/re-frame-migration/` — the structural sibling. Match its SHAPE: `SKILL.md` router + `README.md` + the distribution triad (`LICENSE` / `package.json` / `.claude-plugin/plugin.json`) + `references/` leaves + `spec/` meta-docs + `evals/evals.json`. Match its front-matter format, voice, and cardinal-rules density.*
 >
 > *Then write the skill with the file structure locked in `design.md` §4 — that tree is the inventory of record, and this line is only its shape: `SKILL.md` (router) + eight reference leaves (`mental-model`, `catalog-mechanical` (M-tier, before→after), `catalog-judgment` (D-tier, "how to DECIDE"), `catalog-reject` (R-tier, the honesty backbone — deliberately SHORT), `procedure` (reporter first, then incremental closed-subtree passes, plus the shipped test kit and `hm/shadow!`), `ssr-hydrate` (MIG-23's SSR-then-hydrate recipe, severed so a client-only migration never loads it), `end-state` (MIG-24's whole-app adapter question, severed so only the final pass loads it), `gotchas`) + three `spec/` meta-docs + `evals/evals.json`.*
 >
-> ***`tests/fixture/` already exists and is NOT yours to write.*** *It is a standalone shadow-cljs project — the executable cold-start proof that `ssr-hydrate.md`'s MIG-23 recipe needs its boot-time `rf/init!`, run by the required `reagent-fresco-migration-fixture-cold-start` CI job (rf2-vpdrf). Leave it in place. If your rewrite changes the recipe, change the fixture to match; never delete it, and never fold it into a leaf.*
+> ***`tests/fixture/` already exists and is NOT yours to write.*** *It is a standalone shadow-cljs project — the witness suite, led by the executable cold-start proof that `ssr-hydrate.md`'s MIG-23 recipe needs its boot-time `rf/init!`, run by the required `reagent-fresco-migration-fixture-cold-start` CI job. Leave it in place. If your rewrite changes the recipe, change the fixture to match; never delete it, and never fold it into a leaf.*
 >
 > ***The first thing `SKILL.md` does is establish whether it has a job.*** *Put the trade in a two-column table — what the rewrite buys against what it costs — and take an explicit yes. Both columns measured against shipped surface. Never imply the author should move.*
 >
@@ -44,14 +44,14 @@
 
 ## When to re-author
 
-- **A major Fresco surface lands** — a view-local state tier, say. It moves cases between catalogues; the server-render door did
-  exactly that, moving MIG-23 out of R-tier. Reach for a full reauthor only when the *shape*
-  of the skill changes, not for a surface that slots into the existing tiers.
+- **A major Fresco surface lands** — a view-local state tier, say. It moves
+  cases between catalogues. Reach for a full reauthor only when the *shape* of
+  the skill changes, not for a surface that slots into the existing tiers.
 - **The positioning changes** — the release set changes (Fresco leaves it, or
   Fresco and the adapters stop shipping together), or the adapter story changes → design L2 changes; update this `spec/` folder first,
   then the skill.
-- **A provisional spelling settles**, as `hfn`→`h/event` did → edit the
-  leaves; this is not a reauthor.
+- **A provisional spelling settles** → edit the leaves; this is not a
+  reauthor.
 
 Otherwise, edit the leaves directly; reauthoring from scratch is for major
 surface changes.

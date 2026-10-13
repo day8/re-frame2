@@ -36,7 +36,9 @@ polish pass.
     not select) and `::h/revision`.
 - **The optional modules** — `forms.cljs`, `motion.cljs`, `overlay.cljs`,
   `native.cljc`, `server.cljs`, `substrate.cljs`. Each names its own public
-  surface; `native.cljc` classifies its vars explicitly. `substrate.cljs` is the
+  surface; `native.cljc` classifies its vars explicitly. (`tool.cljs` and
+  `evidence.cljs` beside them are the devtools' reader door, which no view
+  writes.) `substrate.cljs` is the
   one `end-state.md` reads: Fresco's own adapter, and the reason
   the adapter question reopens once no Reagent view is left.
 - **The test kit** — `implementation/fresco/test_kit/src/re_frame/fresco/`
@@ -67,34 +69,35 @@ L2 is the skill's most load-bearing claim, so its sources are named:
   tag publishes, including Fresco beside the Reagent adapter.
 - **`implementation/fresco/deps.edn`** and
   **`.github/scripts/verify-version-lockstep.sh`** — the publication statement
-  in Fresco's own words (PUBLISHED as of rf2-gra70, shipping from a release
-  stage of its own) and the lockstep `ARTEFACTS` inventory that enrols it.
-  Measure the release set there, never from a guide page: a stale page is how
-  this folder once taught that Fresco lacked a path the adapter had.
+  in Fresco's own words (PUBLISHED, shipping from a release stage of its own)
+  and the lockstep `ARTEFACTS` inventory that enrols it. Measure the release
+  set there, never from a guide page.
 - **`skills/re-frame-migration/`** — what the required first step actually does,
   and that it leaves views on Reagent.
 
 ## 4. Where the design corpus is a HAZARD, not an input
 
 `docs/design/fresco/**` describes the design and states forms that do not
-exist. Four measured examples, **re-measured 2026-09-02** — and the two verdicts
-that moved are the argument for re-measuring rather than quoting:
+exist. Measured examples — re-measure before quoting any of them, because a
+verdict moves whenever the source or the page does:
 
-| Stated | Reality at tip |
+| Stated | Reality in the source |
 |---|---|
-| an `h/fn` spelling | **fixed.** Swept to `h/event` on 2026-08-15; no page under `docs/core/fresco/` names it |
-| "`day8/re-frame2-fresco` is not published, and there is no date at which it will be" on the installation page | **fixed 2026-09-13 (rf2-esrp).** Never true against the lockstep inventory, which had enrolled Fresco since rf2-gra70. `00-installation.md` now says Fresco ships in the release set at core's version and resolves from source until a release, like every artefact, and still resolves it by `:local/root` |
-| key maps "valid only at `:on-key-down`/`:on-key-up`" | **not a divergence.** `lower-prop` reaches `key-map-handler` at every `event-prop?` position, but `key-map-handler` reads `.key` first and raises `:rf.error/fresco-intent-needs-the-event` where the event carries none, which is what `docs/core/fresco/03-events-as-data.md` says |
-| "binding `:value` to a contenteditable throws at the source" | **stands.** No contenteditable guard exists under `implementation/fresco/src/`, and the id the design corpus reserves for it, `:rf.error/fresco-contenteditable-not-controllable`, is in no source or spec row; `docs/core/fresco/04-controlled-inputs.md` says a `:value` on one passes to React untouched and raises nothing |
+| an `h/fn` callback spelling, in design notes under `docs/design/fresco/` | the door exports no `h/fn`; the callback form is `h/event`, and no page under `docs/core/fresco/` names `h/fn` |
+| "binding `:value` to a contenteditable throws at the source" | no contenteditable guard exists under `implementation/fresco/src/`, and the id the design corpus reserves for it, `:rf.error/fresco-contenteditable-not-controllable`, is in no source or spec row; `docs/core/fresco/04-controlled-inputs.md` says a `:value` on one passes to React untouched and raises nothing |
 
-Two structural notes. **`draft-guide/` is no longer the guide**: under rf2-0yp7w
-that corpus shipped to `docs/core/fresco/`, leaving one rewrite-audit note in
-the design tree — so a hazard here can now be in the *published* guide, as two
-of the four rows are, and "it was only the draft" no longer sorts true from
-false. And the hazard is the whole `docs/design/**` tree — `mkdocs.yml` excludes
-it from the published site precisely because it is a working RECORD — so naming
-subdirectories only invites the list to go stale, which is what happened to the
-`draft-guide/` naming above.
+A page that agrees with the source is not a hazard: key maps "valid only at
+`:on-key-down`/`:on-key-up`" matches the source, because `key-map-handler`
+reads `.key` first and raises `:rf.error/fresco-intent-needs-the-event` where
+the event carries none — which is what `docs/core/fresco/03-events-as-data.md`
+says.
+
+Two structural notes. **The published guide under `docs/core/fresco/` is a
+page as well**, so a hazard can sit there as easily as in the design tree, and
+"published" does not sort true from false. And the hazard is the whole
+`docs/design/**` tree — `mkdocs.yml` excludes it from the published site
+because it is a working RECORD — so name the tree rather than its
+subdirectories, which move.
 
 The guide is still worth **reading**: it is the best available account of intent,
 and its migration chapter and its census/fixer description are accurate because
@@ -114,30 +117,26 @@ for *what*.
 - **The v1→v2 corpus** (`migration/from-re-frame-v1/README.md`, the `M-N`/`O-N`
   rules) — that is the *other* migration, the required first step.
 - **`examples/**`** — worked examples are for authoring, not this migration.
-- **Freehand and `re-frame.ui`** — both retired, and both trees were **removed**
-  on 2026-08-16 (rf2-0yp7w); their API pages and guide went with them, so there
-  is nothing left to read and nothing to consume. `spec/004-Views.md`, which
-  carried the last of that prose, was deleted on 2026-08-18 (rf2-h89ri). Its
-  verbs (`v/html`, `v/spread-safe`, `v/defbehavior`, `{:compiled true}`)
-  described a *different substrate* and must never be carried across by
-  analogy — the single most likely way a future edit reintroduces a wrong
-  spelling.
+- **Freehand and `re-frame.ui`** — removed substrates, with no tree, API page
+  or guide left to read. Their verbs (`v/html`, `v/spread-safe`,
+  `v/defbehavior`, `{:compiled true}`) describe a *different substrate* and must
+  never be carried across by analogy — the single most likely way an edit
+  introduces a wrong spelling.
 
 ## 7. Update procedure
 
 1. **A Fresco surface LANDS** → move its cases out of `catalog-reject.md` into
    the mechanical or judgment catalogue with the now-real target, and re-check
-   `procedure.md`'s gate list. This has already fired once: the server-render
-   door landed and MIG-23 moved from R to D. The data `:ref` spelling once
-   named here is no longer a candidate: HD-022's amendment (rf2-6c12m.11)
-   retired the reservation, so a vector at `:ref` crosses as data.
+   `procedure.md`'s gate list. A vector at `:ref` is not such a surface: it
+   crosses to React as data, and the callback function is the only ref
+   spelling.
 2. **A rule's tier changes** (M↔D↔R) → move its treatment between the
    catalogues, and re-check `procedure.md`'s gate list.
 3. **A new construct needs a rule** → add a before→after (M), a decision (D) or a
    hold (R) to the matching catalogue, and add an eval if it exercises a new
    class.
-4. **A provisional spelling settles**, as `hfn`→`h/event` did →
-   re-verify every emitted verb against the door. The naming ledger holds several
+4. **A provisional spelling settles** → re-verify every emitted verb against
+   the door. The naming ledger holds several
    of these open deliberately, so this is a *when*, not an *if*.
 5. **The release set changes** — Fresco leaves it, or Fresco and the adapters
    stop shipping at one version → design L2's honesty clauses and
