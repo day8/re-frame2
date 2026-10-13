@@ -1268,39 +1268,35 @@ The agent rewrites mechanically. For the Var-ref form (the common case), the nam
 
 **Type A** (mechanical).
 
-v1's `re-frame.test` namespace (the `day8.re-frame/test` library's helpers) is renamed to `re-frame.test-support` in v2 and ships as part of the core artefact. `assert-state` maps to `assert-path-equals` per [M-62](#m-62-test-assertion-fn-family-alignment--assert-state--assert-path-equals) so the fn-side shares a name root with the `:rf.assert/*` Story event-family; a full-db assertion has no dedicated fn in v2 (compare directly against `app-db-value`), and a chained event-sequence becomes a `doseq` over `dispatch-sync`. `run-test-sync` is **dropped** in v2 (per [M-52](#m-52-run-test-sync-removed--use-dispatch-sync-under-make-reset-runtime-fixture); rewrite call sites to inline `dispatch-sync`). The require-rewrite for the surviving helpers is mechanical.
+v1's test helpers come from the `day8.re-frame/test` library, whose only namespace is `day8.re-frame.test`. It ships three helpers, `run-test-sync`, `run-test-async` and `wait-for`, and no assertion helper: v1 has no `re-frame.test` namespace and no `assert-state`. v2's test helpers live in `re-frame.test-support`, which ships in the core artefact: `make-reset-runtime-fixture`, `snapshot-registrar` / `restore-registrar!`, `assert-path-equals` and `poll-until`. None of the three v1 helpers survives under its own name:
+
+- `run-test-sync` is **dropped** — hoist its body to inline `dispatch-sync` calls under the per-test fixture, per [M-52](#m-52-run-test-sync-removed--use-dispatch-sync-under-make-reset-runtime-fixture).
+- `run-test-async` becomes the stock `cljs.test/async` macro, whose `done` fn the test calls once its awaited assertions have run. An async suite installs the map-form fixture, `(ts/make-reset-runtime-fixture {:adapter … :async? true})`.
+- `wait-for` has no v2 symbol. Await an event with a one-shot `(rf/register-listener! :trace id f)` whose `f` matches the awaited event's `:rf.event/run-end` record (the id rides `[:tags :rf.trace/event-id]`) and then unregisters itself; await a state with `ts/poll-until`, which returns a `js/Promise` on CLJS.
 
 **What to look for** in the codebase:
 
 ```clojure
-(:require [re-frame.test :as rf-test])
-(:require [re-frame.test :refer [assert-state]])
-;; or requiring the day8.re-frame/test library's own namespace directly:
 (:require [day8.re-frame.test :as rf-test])
+(:require [day8.re-frame.test :refer [run-test-sync run-test-async wait-for]])
 ```
 
-**What to do:**
+**What to do:** rewrite each helper call as above, then replace the `day8.re-frame.test` require with `re-frame.test-support` where the rewritten namespace uses one of its helpers, and drop it otherwise.
 
 ```clojure
 ;; before
-(:require [re-frame.test :as rf-test])
-(rf-test/assert-state [:path] expected)
-(rf-test/assert-state {:expected :db})
+(:require [day8.re-frame.test :as rf-test])
+(rf-test/run-test-sync
+  (rf/dispatch [:auth/login creds])
+  (is (= :validating (get-in @re-frame.db/app-db [:auth :state]))))
 
-;; after — require rewrite + assert-state -> assert-path-equals; full-db -> direct compare
+;; after — run-test-sync body hoisted under the per-test fixture (M-52)
 (:require [re-frame.test-support :as ts])
-(ts/assert-path-equals [:path] expected)         ;; was: (rf-test/assert-state [:path] expected)
-(is (= {:expected :db} (rf/app-db-value f)))      ;; was: (rf-test/assert-state {:expected :db})
+(rf/dispatch-sync [:auth/login creds])
+(ts/assert-path-equals [:auth :state] :validating)
 ```
 
-Any `run-test-sync` call sites encountered during this rewrite are handled by [M-52](#m-52-run-test-sync-removed--use-dispatch-sync-under-make-reset-runtime-fixture) — the body is hoisted to inline `dispatch-sync` calls under the standard per-test fixture; no shim survives in `re-frame.test-support`.
-
-**Signature notes** (the v2 helpers are frame-aware; v1 helpers were single-frame implicit):
-
-- A chained event-sequence is a `doseq` over `dispatch-sync` in v2 — each drains to fixed point before the next; capture intermediate state by reading `app-db-value` inside the `doseq`.
-- `(assert-path-equals path expected-val)` / that form `+ {:frame ...}` — v1's two-arg `(assert-state path expected)` maps to `(assert-path-equals path expected-val)` (per [M-62](#m-62-test-assertion-fn-family-alignment--assert-state--assert-path-equals)), giving the fn-side a shared name root with the `:rf.assert/*` Story event-family. The `:frame` opt is a v2 addition. The full-db form has no dedicated fn — compare directly: `(is (= expected-db (rf/app-db-value f)))`.
-
-If the project depended on `day8.re-frame/test` as a Maven coordinate, drop the dependency — v2 ships the surviving helpers in the core artefact (no separate coordinate to require).
+If the project depended on `day8.re-frame/test` as a Maven coordinate, drop the dependency — v2 ships its test helpers in the core artefact (no separate coordinate to require).
 
 ### M-26. Drift-sweep drops — v1 surfaces with no v2 equivalent or absorbed by canonical surfaces
 
@@ -2165,7 +2161,7 @@ For ad-hoc bodies that want a one-off registrar bracket without converting the w
 
 **Why:** v2's `dispatch-sync` is already synchronous so the macro added nothing on the drain axis; the registrar-isolation half is covered by the per-test fixture every v2 suite already installs. Carrying a shim whose job is duplicated by the standard fixture is migration drift, not migration tax-relief. Per pre-alpha policy: cut freely.
 
-**Cross-references.** [M-25](#m-25-re-frametest-helpers-renamed-to-re-frametest-support) for the surviving helper rewrites (`assert-path-equals`; a chained event-sequence becomes a `doseq` over `dispatch-sync`); [M-62](#m-62-test-assertion-fn-family-alignment--assert-state--assert-path-equals) for the `assert-state` split; [Spec 008 §`re-frame-test` library compatibility](../../spec/008-Testing.md#re-frame-test-library-compatibility) for the runtime-side framing.
+**Cross-references.** [M-25](#m-25-re-frametest-helpers-renamed-to-re-frametest-support) for the `day8.re-frame.test` require and its async helpers (`run-test-async`, `wait-for`); [M-62](#m-62-test-assertion-fn-family-alignment--assert-state--assert-path-equals) for the `assert-state` split; [Spec 008 §`re-frame-test` library compatibility](../../spec/008-Testing.md#re-frame-test-library-compatibility) for the runtime-side framing.
 
 ---
 
@@ -2637,7 +2633,7 @@ Per audit-of-audits testing #14, the per-test fixture builder is renamed from `r
 |---|---|---|
 | `re-frame.test-support/reset-runtime-fixture-factory` | `re-frame.test-support/make-reset-runtime-fixture` | the public fixture-builder fn |
 
-**Detect.** v2-pre-rename codebases trip this. v1 had no equivalent builder (test-runner namespace was `re-frame.test` with `run-test-sync` per [M-25](#m-25-re-frametest-helpers-renamed-to-re-frametest-support) + [M-52](#m-52-run-test-sync-removed--use-dispatch-sync-under-make-reset-runtime-fixture)); v1-→-v2 migrations land directly on the new name.
+**Detect.** v2-pre-rename codebases trip this. v1 had no equivalent builder (its test helpers were `day8.re-frame.test`'s `run-test-sync` / `run-test-async` / `wait-for`, per [M-25](#m-25-re-frametest-helpers-renamed-to-re-frametest-support) + [M-52](#m-52-run-test-sync-removed--use-dispatch-sync-under-make-reset-runtime-fixture)); v1-→-v2 migrations land directly on the new name.
 
 ```clojure
 ;; before
@@ -2668,7 +2664,7 @@ Per audit-of-audits testing #13, the generic `assert-state` is narrowed to `asse
 
 The path arity of v2's `assert-state` becomes the named `assert-path-equals`; the full-db arity has no v2 fn (compare directly). The disambiguation that lived inside the old fn (vector? → path form, else → full-db form) is gone. The `{:frame ...}` trailing opt is preserved on `assert-path-equals`.
 
-**Detect.** v2-pre-rename codebases trip this. v1's `re-frame.test/assert-state` was the path form only; v1-→-v2 migrations land on `assert-path-equals` directly via the bundled sweep.
+**Detect.** v2-pre-rename codebases trip this. v1 had no `assert-state` (`day8.re-frame.test` ships no assertion helper), so a v1-→-v2 migration has no site for this rule.
 
 ```clojure
 ;; before
