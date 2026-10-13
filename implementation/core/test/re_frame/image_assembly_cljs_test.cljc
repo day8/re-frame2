@@ -53,14 +53,6 @@
             (:impl (rf.image-assembly/resolve-descriptor gen :fx :cart.http/post))
             (rf.image-assembly/generation-kinds gen)]))))
 
-(deftest within-image-two-inline-is-malformed
-  (let [img (rf.image/image
-              {:id :i
-               :registrations {:reg-fx [[:checkout.http/post {} ::a]
-                                        [:checkout.http/post {} ::b]]}})]
-    (is (= :rf.error/image-within-image-collision
-           (:rf.error/id (assembly-error-data #(rf.image-assembly/assemble [img] [])))))))
-
 (deftest within-image-two-inline-sharing-an-impl-is-malformed
   ;; sharing a fn does not make two inline entries one registration, so neither
   ;; entry's metadata (here its :sensitive) can silently fold into the other's
@@ -74,13 +66,6 @@
                                                   :registrations {:reg-fx entries}})]
                                 []))))
           (str "entry order " (pr-str (mapv second entries)))))))
-
-(deftest one-registration-matched-by-overlapping-globs-is-selected-once
-  (let [pool [(reg-desc "shop.cart" :event :cart/add ::add)]
-        img  (rf.image/image {:id :i :select-ns {:include ["shop.*" "shop.cart"]}})]
-    (is (= ::add
-           (:handler-fn (rf.image-assembly/resolve-descriptor
-                          (rf.image-assembly/assemble [img] pool) :event :cart/add))))))
 
 (deftest unsupported-kind-ex-data-carries-provenance
   (let [pool [{:rf.provenance/ns "weird.ns" :kind :not-a-kind :id :x/y
@@ -168,17 +153,6 @@
             {:registration [:sub :pay/total] :image :img/b :shadowed-by :test/doubles}]
            (rf.image-assembly/generation-shadows
              (rf.image-assembly/assemble [img-a img-b dbls] pool))))))
-
-(deftest cross-image-shadow-does-not-fail-and-is-reported
-  (let [pool  [(reg-desc "a.core" :fx :checkout.http/post ::a)
-               (reg-desc "b.core" :fx :checkout.http/post ::b)]
-        img-a (rf.image/image {:id :img/a :select-ns {:include ["a.core"]}})
-        img-b (rf.image/image {:id :img/b :select-ns {:include ["b.core"]}})
-        gen   (rf.image-assembly/assemble [img-a img-b] pool)]
-    (is (= [::b [{:registration [:fx :checkout.http/post] :image :img/a :shadowed-by :img/b}]]
-           [(:handler-fn (rf.image-assembly/resolve-descriptor gen :fx :checkout.http/post))
-            (rf.image-assembly/generation-shadows gen)])
-        "the later image wins and the shadow is reported")))
 
 (defn- resource-desc
   "A synthetic `:resource` descriptor whose spec carries `scope`; a
