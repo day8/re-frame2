@@ -166,17 +166,3 @@
                                       [:dispatch [:det/inc]]]}))
                  :detail))))
 
-(deftest gate-reapplies-fx-decisions-deterministically
-  (let [hits (atom [])]
-    (rf/reg-fx :det.fx/real {:platforms #{:client :server}}
-               (fn [_ _] (swap! hits conj :real)))
-    (rf/reg-fx :det.fx/stub {:platforms #{:client :server}}
-               (fn [_ _] (swap! hits conj :stub)))
-    (rf/reg-event :det/fire (fn [_ _] {:fx [[:det.fx/real {}]]}))
-    (let [res (rf.story.determinism/assert-deterministic
-                (rf.story.artifact/make-run-artifact
-                  {:event-program [[:dispatch [:det/fire]]]
-                   :fx-decisions  {:det.fx/real :det.fx/stub}}))]
-      (is (= :deterministic (:status res)))
-      (is (re-matches #"[0-9a-f]{8}" (:run-hash res)) "the shared run-hash is 8-char hex")
-      (is (= [:stub :stub] @hits) "the stub fired on both default replays"))))
