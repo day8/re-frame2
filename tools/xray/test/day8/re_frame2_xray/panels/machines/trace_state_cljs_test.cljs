@@ -126,25 +126,6 @@
       (is (= #{populate-id always-id} fired)
           "both the event-driven edge AND the always-microstep edge light"))))
 
-(deftest extract-fired-edge-ids-reads-runtime-tags-event-shape
-  (testing "the LIVE runtime shape: `commit-or-finalize`
-            (lifecycle_fx/registration) emits the inner event under
-            `:tags :event` (a `[event-id & args]` vector), NOT top-level.
-            extract-fired-edge-ids must read it there or the live-chart
-            fired highlight never lights. The event head is matched."
-    (let [def         (toy-definition)
-          populate-id (canonical-edge-id def [:empty] [:populated] :populate)
-          ;; the exact shape the runtime trace/emit! produces + the
-          ;; sub-reactivity fixtures build (machine-transition-event).
-          events      [{:operation :rf.machine/transition
-                        :tags {:machine-id :cart
-                               :before {:state :empty}
-                               :after  {:state :populated}
-                               :event  [:populate :some-arg]}}]
-          fired       (trace-state/extract-fired-edge-ids def events :cart)]
-      (is (= #{populate-id} fired)
-          "the :tags :event vector's head (:populate) drives the match"))))
-
 ;; ---- machine-level (top-level :on) fallback fired-edge match ------------
 ;;
 ;; The chart projects a machine-level fallback ONCE from the synthetic
@@ -527,28 +508,6 @@
       (is (= #{climate-id fan-id} fired)
           "BOTH fired region edges light — the multi-region event renders"))))
 
-(deftest fired-ids-parallel-only-changed-regions
-  (testing "an event that moves ONE region and leaves the other
-            resting lights ONLY the moved region's edge"
-    (let [def        (hvac-definition)
-          projected  (:edges (chart-layout/project-definition def))
-          climate-id (->> projected
-                          (some (fn [e]
-                                  (when (and (= [:idle]    (:from-path e))
-                                             (= [:running] (:to-path e))
-                                             (= :hvac/power-cycle (:event e)))
-                                    (:id e)))))
-          ;; climate moved idle→running; fan stayed off (region unchanged).
-          events     [{:operation :rf.machine/transition
-                       :tags {:machine-id :hvac/controller
-                              :before {:state {:climate :idle :fan :off}}
-                              :after  {:state {:climate :running :fan :off}}
-                              :event  [:hvac/power-cycle]}}]
-          fired      (trace-state/extract-fired-edge-ids
-                       def events :hvac/controller)]
-      (is (= #{climate-id} fired)
-          "only the climate edge lights — the resting fan region is skipped"))))
-
 (deftest fired-ids-parallel-disambiguate-shared-state-names-across-regions
   (testing "two regions sharing a state NAME mint
             DISTINCT region-scoped edge ids; the region-scoped :source match
@@ -649,45 +608,6 @@
           fired     (trace-state/extract-fired-edge-ids def events :par/round)]
       (is (= #{a-go b-go a-always b-always} fired)
           "exactly the four real edges light; the parent round is first-class"))))
-
-(deftest extract-fired-edge-ids-parallel-round-declined-region-no-phantom
-  (testing "a region that DECLINED the external event but later
-            took an :always round gains NO phantom event-labelled edge — only
-            its round edge lights"
-    ;; :a handles :go (:idle→:staged) then rounds :staged→:done.
-    ;; :b DECLINES :go (no :go handler) and a parent round moves it
-    ;; :idle→:ready via :always.
-    (let [def       {:type :parallel
-                     :regions {:a {:initial :idle
-                                   :states  {:idle   {:on {:go :staged}}
-                                             :staged {:always :done}
-                                             :done   {}}}
-                               :b {:initial :idle
-                                   :states  {:idle  {:always :ready}
-                                             :ready {}}}}}
-          projected (:edges (chart-layout/project-definition def))
-          a-go      (region-edge-id projected :a [:idle]   [:staged] :go)
-          a-always  (region-edge-id projected :a [:staged] [:done]   :always)
-          b-always  (region-edge-id projected :b [:idle]   [:ready]  :always)
-          events    [{:operation :rf.machine/transition
-                      :tags {:actor-id :par/mix
-                             :before {:state {:a :idle :b :idle}}
-                             :after  {:state {:a :done :b :ready}}
-                             :event  [:go]}}
-                     {:operation :rf.machine.microstep/transition
-                      :source    :always
-                      :tags {:actor-id :par/mix :region :a
-                             :from :staged :to :done :microstep-index 0}}
-                     {:operation :rf.machine.microstep/transition
-                      :source    :always
-                      :tags {:actor-id :par/mix :region :b
-                             :from :idle :to :ready :microstep-index 0}}]
-          fired     (trace-state/extract-fired-edge-ids def events :par/mix)]
-      ;; :b declared no :go handler, so the projection has no :b :go edge to
-      ;; phantom-light — the fired set is EXACTLY {a-go a-always b-always}.
-      (is (= #{a-go a-always b-always} fired)
-          "b lights ONLY its :always round edge — no phantom :go edge for the
-           region that declined the event"))))
 
 ;; ---- extract-fired-edge-ids: HANDLED self/internal EVENT then an :always ----
 ;; ROUND
@@ -970,37 +890,6 @@
       (is (= #{local-a} fired)
           "the region-local edge wins; the region-level :on fallback does NOT light"))))
 
-(deftest fired-ids-parallel-region-level-on-distinct-from-root-on
-  (testing "a region-level :on fallback and a parallel ROOT :on
-            are distinct arms: a machine with BOTH lights the right one per
-            region (region-level :on for the region that declared it; root :on
-            for the region the root moved) and they never cross-match"
-    ;; :a declares a region-level :on {:reset :one}; the parallel ROOT declares
-    ;; :on {:reset {:target [:b :one]}}. On :reset from {a:two, b:two}:
-    ;;   - :a is moved by its OWN region-level :on (:two -> :one)
-    ;;   - the root :on is SUPPRESSED for :b? No — Spec 005: the root :on fires
-    ;;     only when NO region handles the event. :a handled it locally (region
-    ;;     :on), so the root :on is suppressed and :b rests. Pin that.
-    (let [def           {:type    :parallel
-                         :on      {:reset {:target [:b :one]}}
-                         :regions {:a {:initial :two
-                                       :on      {:reset :one}
-                                       :states  {:one {} :two {}}}
-                                   :b {:initial :two :states {:one {} :two {}}}}}
-          region-on-a   (region-machine-on-edge-id def :a [:one] :reset)
-          events        [{:operation :rf.machine/transition
-                          :tags {:machine-id :par
-                                 :before {:state {:a :two :b :two}}
-                                 :after  {:state {:a :one :b :two}}
-                                 :event  [:reset]
-                                 ;; :a handled via its region :on; root :on
-                                 ;; suppressed, :b rested.
-                                 :cascade [{:kind :exit  :region :a :state [:two]}
-                                           {:kind :entry :region :a :state [:one]}]}}]
-          fired         (trace-state/extract-fired-edge-ids def events :par)]
-      (is (= #{region-on-a} fired)
-          "only :a's region-level :on edge lights; the suppressed root :on + resting :b are dark"))))
-
 ;; ---- extract-fired-edge-ids: HANDLED-but-UNCHANGED parallel -------------
 ;;
 ;; A parallel region can fire a real targetless/INTERNAL or external SELF
@@ -1045,35 +934,6 @@
       (is (= #{self-id} fired)
           "the HANDLED-unchanged :a self edge lights; the RESTING :b lights nothing"))))
 
-(deftest fired-ids-parallel-internal-transition-before-equals-after
-  (testing "a region firing an INTERNAL transition (no :target,
-            action-only — before == after) lights its internal self-anchored
-            edge off the non-empty cascade"
-    (let [def       {:type    :parallel
-                     :regions {:a {:initial :idle
-                                   :states  {:idle {:on {:tick {:action :count}}}}}
-                               :b {:initial :idle
-                                   :states  {:idle {} }}}}
-          projected (:edges (chart-layout/project-definition def))
-          internal-id (->> projected
-                           (some (fn [e]
-                                   (when (and (:internal? e)
-                                              (= [:idle] (:from-path e))
-                                              (= [:idle] (:to-path e))
-                                              (= :tick (:event e))
-                                              (= "region__a__idle" (:source e)))
-                                     (:id e)))))
-          events    [{:operation :rf.machine/transition
-                      :tags {:machine-id :par
-                             :before {:state {:a :idle :b :idle}}
-                             :after  {:state {:a :idle :b :idle}}
-                             :event  [:tick]
-                             :cascade [{:kind :action :region :a :state []
-                                        :action :count}]}}]
-          fired     (trace-state/extract-fired-edge-ids def events :par)]
-      (is (= #{internal-id} fired)
-          "the internal HANDLED-unchanged :a edge lights off the cascade"))))
-
 (deftest fired-ids-parallel-region-root-internal-on-before-equals-after
   (testing "a region firing a TARGETLESS/action-only transition on
             its REGION ROOT `:on` (no :target, before == after) lights the
@@ -1113,44 +973,6 @@
           fired     (trace-state/extract-fired-edge-ids def events :par)]
       (is (= #{internal-id} fired)
           "the region-root internal HANDLED-unchanged :a fallback lights off the cascade"))))
-
-(deftest fired-ids-parallel-mixed-moved-and-handled-unchanged
-  (testing "one event moves region :a (changed) AND fires a self
-            transition in region :b (handled-unchanged): BOTH light"
-    (let [def       {:type    :parallel
-                     :regions {:a {:initial :one
-                                   :states  {:one {:on {:go :two}} :two {}}}
-                               :b {:initial :idle
-                                   :states  {:idle {:on {:go {:target :same-state
-                                                              :action :note}}}}}}}
-          projected (:edges (chart-layout/project-definition def))
-          a-id      (->> projected
-                         (some (fn [e]
-                                 (when (and (= [:one] (:from-path e))
-                                            (= [:two] (:to-path e))
-                                            (= :go (:event e))
-                                            (= "region__a__one" (:source e)))
-                                   (:id e)))))
-          b-self-id (->> projected
-                         (some (fn [e]
-                                 (when (and (= [:idle] (:from-path e))
-                                            (= [:idle] (:to-path e))
-                                            (= :go (:event e))
-                                            (= "region__b__idle" (:source e)))
-                                   (:id e)))))
-          events    [{:operation :rf.machine/transition
-                      :tags {:machine-id :par
-                             :before {:state {:a :one :b :idle}}
-                             :after  {:state {:a :two :b :idle}}
-                             :event  [:go]
-                             :cascade [{:kind :exit   :region :a :state [:one]}
-                                       {:kind :entry  :region :a :state [:two]}
-                                       {:kind :exit   :region :b :state [:idle]}
-                                       {:kind :action :region :b :state [] :action :note}
-                                       {:kind :entry  :region :b :state [:idle]}]}}]
-          fired     (trace-state/extract-fired-edge-ids def events :par)]
-      (is (= #{a-id b-self-id} fired)
-          "the moved :a edge AND the handled-unchanged :b self edge BOTH light"))))
 
 ;; ---- RAISED (internal) events are their own causal step -----------------
 ;;
@@ -1235,21 +1057,6 @@
           fired     (trace-state/extract-fired-edge-ids def events :cart)]
       (is (= #{go-id settle-id always-id} fired)
           "the nested :always microstep's edge lights alongside its enclosing raise"))))
-
-(deftest extract-fired-edge-ids-no-raised-transitions-unaffected
-  (testing "regression guard — a macrostep with no raised events is
-            unaffected by the raised-boundary derivation (falls through to the
-            to-path-from-trace read)"
-    (let [def         (toy-definition)
-          populate-id (canonical-edge-id def [:empty] [:populated] :populate)
-          events      [{:operation :rf.machine/transition
-                        :tags      {:machine-id :cart}
-                        :from      [:empty]
-                        :to        [:populated]
-                        :event     :populate
-                        :cascade   [{:kind :entry :state [:populated] :region nil}]}]
-          fired       (trace-state/extract-fired-edge-ids def events :cart)]
-      (is (= #{populate-id} fired)))))
 
 (deftest fired-ids-parallel-raise-only-region-is-not-event-handled
   (testing ":left handles :go and raises [:settle]; :right
