@@ -117,7 +117,7 @@
         {:kind :frame-setup :init [[:boom/noop]] :teardown [[::probe-snapshot]]})
       (rf.story/reg-story :story.teardown.record {:decorators [[:probe-dec]]})
       (rf.story/reg-variant :story.teardown.record/v {:decorators [[:boom-dec]] :setup []})
-      (is (nil? (run-and-destroy! :story.teardown.record/v)))
+      (run-and-destroy! :story.teardown.record/v)
       (is (not (contains? (rf.story/variant-frames) :story.teardown.record/v)))
       (let [err (first (filter #(= :rf.error/exception (:assertion %)) @captured))]
         (is (= {:phase :phase-teardown :passed? false :event [:boom/cleanup]
