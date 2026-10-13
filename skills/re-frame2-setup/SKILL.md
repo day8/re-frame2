@@ -91,7 +91,7 @@ Not for: adding re-frame2 to an existing non-trivial app (authoring), writing ap
 
 ## Done checklist
 
-Verify and report these results at handoff:
+Verify and report these results at hand-off:
 
 - [ ] The thirteen files exist at their paths, and `clojure -Stree -A:shadow:dev` resolves `day8/re-frame2` + `day8/re-frame2-reagent` + `day8/re-frame2-story` at one VERSION (step 2 pointed them at a checkout or a commit) plus `reagent/reagent` and `thheller/shadow-cljs`; the `:shadow` and `:dev` aliases `shadow-cljs.edn` names via `{:deps {:aliases [:shadow :dev]}}` are defined (omitting `:shadow` is the most common first-`watch` failure).
 - [ ] `npm install` completes and `react` / `react-dom` / `shadow-cljs` / `@xyflow/react` / `elkjs` are present.
@@ -100,7 +100,7 @@ Verify and report these results at handoff:
 
 On the **UIx route** the same criteria apply with `day8/re-frame2-uix` + `com.pitch/uix.core` in place of the Reagent pair — `com.pitch/uix.dom` is **not** day-one, because the app mounts through the adapter's own `client-root` / `render!` rather than a React Root of its own; npm is the same five packages (cardinal rule 3).
 
-### Browser smoke checks at handoff
+### Browser smoke checks at hand-off
 
 Give the author these checks after the server is running, and report them as unverified until observed:
 
