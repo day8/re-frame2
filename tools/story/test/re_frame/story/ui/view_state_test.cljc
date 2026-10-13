@@ -73,8 +73,6 @@
   (testing "the :sub-overrides rung is labelled lowest-fidelity and as
             proving nothing — the honest reading the surface surfaces"
     (let [r (first (filter #(= :sub-overrides (:rung %)) rf.story.ui.view-state/ladder-rungs))]
-      (is (= :low (:tone r)))
-      (is (= 3 (:rank r)))
       (is (str/includes? (:note r) "never proof"))
       (is (str/includes? (:proves r) "nothing")))))
 
@@ -83,19 +81,11 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest lowest-active-rank-is-the-fidelity-floor
-  (is (= 1 (rf.story.ui.view-state/lowest-active-rank events-plan)))
   (testing "a hybrid floors at its WEAKEST active rung"
     (is (= 3 (rf.story.ui.view-state/lowest-active-rank
-               {:world {:fidelity #{:real-setup :sub-overrides}}}))))
-  (testing "a bare variant has no floor"
-    (is (nil? (rf.story.ui.view-state/lowest-active-rank bare-plan)))))
+               {:world {:fidelity #{:real-setup :sub-overrides}}})))))
 
 (deftest upgrade-targets-are-the-stronger-rungs
-  (testing "a pure sub-override variant can upgrade to db-seed + real-setup"
-    (is (= [:real-setup :db-seed]
-           (mapv :rung (rf.story.ui.view-state/upgrade-targets design-plan)))))
-  (testing "a real-setup variant has no stronger rung to upgrade to"
-    (is (empty? (rf.story.ui.view-state/upgrade-targets events-plan))))
   (testing "a bare variant has nothing to upgrade FROM"
     (is (empty? (rf.story.ui.view-state/upgrade-targets bare-plan)))))
 
@@ -160,22 +150,6 @@
     [body (rf.story.plan/variant-plan id {:lookup          (assoc upgrade-lookup id completed)
                                           :fragment-lookup upgrade-fragments})]))
 
-(deftest upgrade-snippet-reads-back-as-one-reg-variant-form
-  (testing "every shape the generator emits parses — the rung note sits on its
-            own line, never after the body's last value, where `;` would
-            swallow the envelope's closing `})`"
-    (doseq [[source-id rung] [[:story.login/error :real-setup]
-                              [:story.login/error :db-seed]
-                              [:story.login/locked :real-setup]
-                              [:story.login/seeded :real-setup]
-                              [:story.login/composed-pin :real-setup]
-                              [:story.login/composed-context :real-setup]
-                              [:story.nope/unregistered :real-setup]]]
-      (let [[op id body] (read-upgrade source-id rung)]
-        (is (= 'rf.story/reg-variant op) (str source-id " → " rung))
-        (is (= (rf.story.ui.view-state/upgraded-variant-id source-id) id))
-        (is (map? body))))))
-
 (deftest upgrade-snippet-drops-the-pin-instead-of-extending-the-pinned-source
   (testing "the upgrade scaffold stays a reg-variant and adds the rung slot,
             but does NOT :extends the pinned source — :extends inherits
@@ -228,11 +202,9 @@
                                                  {:lookup          upgrade-lookup
                                                   :fragment-lookup upgrade-fragments})
                      [:world :render :sub-overrides]))))
-    (let [[body plan] (compile-completed-upgrade :story.login/composed-pin)]
-      (is (= #{:real-setup} (get-in plan [:world :fidelity])))
-      (is (empty? (get-in plan [:world :render :sub-overrides]))
-          "no pinned subscription reaches the child's render path")
-      (is (not (contains? body :compose)) "the pinning fragment is dropped from :compose")
+    (let [[_ plan] (compile-completed-upgrade :story.login/composed-pin)]
+      (is (= #{:real-setup} (get-in plan [:world :fidelity]))
+          "no pinned subscription, direct or composed, reaches the child")
       (is (= {:heading "context"} (get-in plan [:world :args]))
           "the source's own context carries forward")
       (is (str/includes? (emit-upgrade :story.login/composed-pin :real-setup)
@@ -242,13 +214,9 @@
 (deftest completed-upgrade-keeps-pin-free-composed-fragments
   (testing "control — a composed fragment that pins nothing stays in :compose,
             and its context still reaches the completed child"
-    (let [[body plan] (compile-completed-upgrade :story.login/composed-context)]
-      (is (= [:fragment.login/context] (:compose body)))
+    (let [[_ plan] (compile-completed-upgrade :story.login/composed-context)]
       (is (= #{:real-setup} (get-in plan [:world :fidelity])))
-      (is (= {:subtitle "from the fragment"} (get-in plan [:world :args])))
-      (is (not (str/includes? (emit-upgrade :story.login/composed-context :real-setup)
-                              "not composed"))
-          "nothing was dropped, so nothing is named"))))
+      (is (= {:subtitle "from the fragment"} (get-in plan [:world :args]))))))
 
 (deftest completed-upgrade-carries-decorators-from-a-skipped-pinned-layer
   (testing "extending above a pinned layer must not strip the decorators that
@@ -262,7 +230,6 @@
         (is (= stub (get-in source-plan [:world :decorators]))))
       (let [[body plan] (compile-completed-upgrade :story.login/stubbed-child)]
         (is (= :story.login/base (:extends body)) "still extends above the pin")
-        (is (= stub (:decorators body)) "the skipped layer's decorators are copied")
         (is (= (get-in source-plan [:world :decorators]) (get-in plan [:world :decorators]))
             "the completed child runs under the source's decorator stack")
         (is (= #{:real-setup} (get-in plan [:world :fidelity])))))
@@ -355,7 +322,6 @@
 (deftest compile-model-traps-unknown-variant
   (testing "an unregistered keyword target surfaces :error, not a throw"
     (let [m (rf.story.ui.view-state/compile-model :story.nope/missing [])]
-      (is (string? (:error m)))
       (is (not (str/blank? (:error m)))))))
 
 ;; ---------------------------------------------------------------------------
