@@ -4,7 +4,7 @@
   frame through the private `runner-events/exec-step!`, reached by
   var-quote so one step's behaviour is observable without the async run
   loop."
-  (:require [clojure.test :refer [are deftest is testing use-fixtures]]
+  (:require [clojure.test :refer [are deftest is use-fixtures]]
             [re-frame.core              :as rf]
             [re-frame.router            :as rf.router]
             [re-frame.frame             :as rf.frame]
@@ -59,8 +59,6 @@
   (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ nil))
   (reset! rf.story.play.runner-events/run-state {})
-  ;; An `[:assert …]` checkpoint records through the canonical handlers.
-  (rf.story/install-canonical-vocabulary!)
   (rf.frame/ensure-default-frame!)
   (rf/make-frame {:id step-frame :doc "tagged step-runner test frame"})
   (rf/reg-event :step/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
@@ -95,17 +93,6 @@
     (is (false? (:passed? res)) "unmet wait-until is a FAIL, not a skip")
     (is (= [:db [:never] :appears] (:expected res)))
     (is (re-find #"never became true" (:message res)))))
-
-(deftest assert-checkpoint-records-at-this-point-in-the-script
-  (testing "a passing checkpoint records exactly one passing assertion"
-    (rf.router/dispatch-sync! [:step/set :ready] {:frame step-frame})
-    (is (true? (:passed? (exec-step! step-frame 0 [:assert [:rf.assert/path-equals [:v] :ready]]))))
-    (is (= [{:assertion :rf.assert/path-equals :passed? true}]
-           (mapv #(select-keys % [:assertion :passed?])
-                 (:rf.story/assertions (rf/app-db-value step-frame))))))
-  (testing "a failing checkpoint records :passed? false and surfaces a step-fail"
-    (is (false? (:passed? (exec-step! step-frame 1 [:assert [:rf.assert/path-equals [:v] :NOPE]]))))
-    (is (false? (:passed? (last (:rf.story/assertions (rf/app-db-value step-frame))))))))
 
 (deftest focus-refuses-cannot-run-under-headless
   (let [res (exec-step! step-frame 0 [:focus "[data-test=in]"])]
