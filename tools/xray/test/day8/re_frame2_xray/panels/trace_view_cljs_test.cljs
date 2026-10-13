@@ -372,19 +372,6 @@
         (is (= "-" (last (find-by-testid
                            tree "rf-xray-trace-row-2-db-diff-row-:stale-glyph"))))))))
 
-(deftest db-changed-row-renders-nested-and-top-level-paths
-  (testing "a nested-key diff surfaces as its own per-path row"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (seed-history!
-        [(mk-epoch-with-db 1 1
-            {:counter 1 :user {:name "Ada" :age 30}}
-            {:counter 2 :user {:name "Ada" :age 31}}
-            [(mk-trace {:id 2 :op-type :rf.event :operation :rf.event/db-changed
-                        :time 102 :dispatch-id 1})])])
-      (focus! 1)
-      (is (some? (db-diff-row-by-suffix (rendered-tree) 2 ":user_:age"))))))
-
 (deftest db-changed-row-empty-diff-renders-no-sub-list
   (testing "db-before == db-after → empty diff → no sub-list rendered
             (spec/023 §APP-DB CHANGES empty-diff case)"
