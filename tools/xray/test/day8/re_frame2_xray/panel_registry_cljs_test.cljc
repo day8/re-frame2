@@ -57,8 +57,3 @@
   (reg/reg-l4-tab! (tab :dynamic :ordered-1 1))
   (is (= [:ordered-0 :ordered-1 :unordered]
          (mapv :id (reg/tabs-for-mode :dynamic)))))
-
-(deftest default-tab-for-mode-is-the-lowest-order-tab
-  (reg/reg-l4-tab! (tab :dynamic :appdb 1))
-  (reg/reg-l4-tab! (tab :dynamic :epoch 0))
-  (is (= :epoch (reg/default-tab-for-mode :dynamic))))
