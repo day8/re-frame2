@@ -1,48 +1,23 @@
 (ns re-frame.machine-history-unit-cljs-test
-  "Comprehensive UNIT matrix for the first-class history ENGINE — the
-  record/restore behaviours the spec (005 §History states + 009 §History
-  trace events) enumerates. `machine_history_smoke_test` holds the
-  single-machine trace-shape pins, the one-region restore and the
+  "UNIT matrix for the first-class history ENGINE — the record/restore
+  behaviours Spec 005 §History states and Spec 009 §History trace events
+  enumerate. `machine_history_smoke_test` holds the trace-shape pins and the
   owning-compound exit-set cases:
 
-    - SHALLOW vs DEEP depth distinction at the SAME exit leaf (a single shared
-      compound, exited from the same deep leaf, restores differently under
-      `:deep?` true vs absent).
-    - DEEP NESTING — two history-bearing compounds at different depths record
-      INDEPENDENTLY (keyed by their own declaration paths) and never interfere;
-      the outer's deep restore returns the full leaf, the inner's its own.
-    - ENTRY-CASCADE ORDERING during a restore — a restore is the standard
-      entry cascade fed a recorded leaf, so it fires exit-deepest-first /
-      entry-shallowest-first along the LCA, NOT a bespoke mechanism.
-    - DEFAULT-TARGET fallback (no recording) — both with `:default-target`
-      declared AND with it absent (the compound's `:initial`).
-    - `:initial`-fallback when neither a recording nor a `:default-target`
-      (a missing `:deep?` reads as shallow — the §1 contrast's shallow arm
-      declares none).
-    - DANGLING recorded path after hot-reload falls back, never enters the
-      dead path, no `:rf.error/*`.
-    - PER-REGION parallel history at STRUCTURALLY-IDENTICAL region paths —
-      region-qualified keys never collide; each region restores its own
-      recording.
-    - SNAPSHOT REVERT (Goal 2) — the `:rf/history` slot is part of the
-      revertible snapshot VALUE (not a side-table): re-running the engine from
-      an earlier captured snapshot value restores THAT snapshot's history, and
-      the slot rides `pr-str` / `read-string` (SSR-serialisation shape).
-    - The TRACE shapes (`:rf.machine.history/recorded` / `-restored`) — the
-      exact spec/009 tag keys, asserted for the deep-nesting + shallow-vs-deep
-      cases the smoke does not reach (two `-recorded` events in one exit
-      cascade; the per-step `:source` stamping on a nested restore).
+    - SHALLOW vs DEEP at the SAME exit leaf.
+    - DEEP NESTING — two history-bearing compounds record independently, keyed
+      by their own declaration paths.
+    - ENTRY-CASCADE ORDERING during a restore — the standard LCA cascade.
+    - The `:initial` fallback when neither a recording nor a `:default-target`
+      exists.
+    - DANGLING recorded paths after hot-reload fall back, with no error.
+    - PER-REGION history at structurally identical region paths.
+    - SNAPSHOT REVERT — `:rf/history` is part of the revertible, EDN-printable
+      snapshot value.
+    - The exit-set boundary: a surviving owner records nothing.
 
-  The namespace is named `*-cljs-test` (file `*_cljs_test.cljc`) so it is
-  discovered by BOTH the shadow-cljs `:node-test` build (`:ns-regexp
-  \"cljs-test$\"`, run via `npm run test:cljs`) AND the JVM
-  cognitect.test-runner (`.*-test$`, run via `clojure -M:test` in
-  `implementation/machines`). The history engine is identical across runtimes,
-  so the corpus must pass on both — mirroring the artefact's other dual-runtime
-  tests (`scxml_conformance_cljs_test.cljc`, `final_state_cljs_test.cljc`).
-
-  Drives the pure `machine-transition` primitive directly — no frame, no
-  app-db, no dispatch loop. Every assertion is pure data."
+  Named `*-cljs-test` so both the JVM runner and the shadow-cljs `:node-test`
+  build run it. Drives the pure `machine-transition` directly."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -50,21 +25,11 @@
    [re-frame.machines :as rf.machines]
    [re-frame.machines.test-support :as rf.machines.test-support]))
 
-;; ===========================================================================
-;; Harness — pure engine + trace capture (shared)
-;; ===========================================================================
-;;
-;; Trace capture (register + guaranteed unregister, CLJ/CLJS-compatible) is
-;; the shared `rf.machines.test-support/trace-capture-fixture`; `history-events` / `reset-
-;; capture!` are thin wrappers over its `events-of` / `reset-captured!`.
-
 (use-fixtures :each rf.machines.test-support/trace-capture-fixture)
 
 (defn- history-events
   [operation]
   (rf.machines.test-support/events-of operation))
-
-(defn- reset-capture! [] (rf.machines.test-support/reset-captured!))
 
 (defn- step
   "Apply one macrostep; assert it succeeded; return the post snapshot."
@@ -128,10 +93,7 @@
 ;; §2. DEEP NESTING — independent recordings, no interference
 ;;
 ;; Two history-bearing compounds at DIFFERENT depths (:outer deep, nested
-;; :inner deep). Fully exiting :outer (to a top-level sibling :away) records
-;; BOTH compounds — each keyed by its OWN declaration path — and re-entering
-;; via :outer's deep history restores the full leaf, with the inner recording
-;; untouched. Spec 005 §Deep nesting (the two never interfere).
+;; :inner deep). Spec 005 §Deep nesting.
 ;; ===========================================================================
 
 (def nested
@@ -149,16 +111,21 @@
     :away {:on {:return [:outer :hist-outer]}}}})
 
 (deftest deep-nesting-records-each-compound-independently
-  (testing "exiting :outer records BOTH the outer and the nested-inner compound, keyed independently"
-    (let [away (step nested (seed [:outer :b :b2]) [:leave])]
-      (is (= [[:away] {[:outer] [:outer :b :b2] [:outer :b] [:outer :b :b2]}]
-             [(:state away) (:rf/history away)])))))
-
-(deftest deep-nesting-outer-restore-returns-full-leaf
-  (testing "re-entering via :outer's deep history restores the full recorded leaf, leaving the inner recording"
-    (let [back (step nested (step nested (seed [:outer :b :b2]) [:leave]) [:return])]
-      (is (= [[:outer :b :b2] [:outer :b :b2]]
-             [(:state back) (get-in back [:rf/history [:outer :b]])])))))
+  (testing "exiting :outer records BOTH compounds under their own keys, one :recorded event each,
+            and :outer's deep restore returns the full leaf, leaving the inner recording"
+    (let [away     (step nested (seed [:outer :b :b2]) [:leave])
+          recorded (mapv #(select-keys (:tags %) [:compound-path :kind :recorded-config :prev-config])
+                         (history-events :rf.machine.history/recorded))
+          back     (step nested away [:return])]
+      (is (= [[:away]
+              {[:outer] [:outer :b :b2] [:outer :b] [:outer :b :b2]}
+              2
+              #{{:compound-path [:outer] :kind :deep :recorded-config [:outer :b :b2]}
+                {:compound-path [:outer :b] :kind :deep :recorded-config [:outer :b :b2]}}
+              [:outer :b :b2]
+              [:outer :b :b2]]
+             [(:state away) (:rf/history away) (count recorded) (set recorded)
+              (:state back) (get-in back [:rf/history [:outer :b]])])))))
 
 ;; ===========================================================================
 ;; §3. ENTRY-CASCADE ORDERING during a restore
@@ -198,15 +165,19 @@
 ;; ===========================================================================
 
 (deftest first-entry-no-default-target-falls-back-to-initial
-  (testing "no :default-target ⇒ the OWNING COMPOUND's :initial"
-    (let [m {:initial :player
-             :states  {:player {:initial :stopped
-                                :on      {:leave :away}
-                                :states  {:hist    {:type :history :deep? true}
-                                          :stopped {}
-                                          :playing {:on {:stop :stopped}}}}
-                       :away   {:on {:resume [:player :hist]}}}}]
-      (is (= [:player :stopped] (:state (step m (seed :away) [:resume])))))))
+  (testing "no :default-target ⇒ the OWNING COMPOUND's :initial, traced as :fallback :initial
+            with no :restored-config"
+    (let [m     {:initial :player
+                 :states  {:player {:initial :stopped
+                                    :on      {:leave :away}
+                                    :states  {:hist    {:type :history :deep? true}
+                                              :stopped {}
+                                              :playing {:on {:stop :stopped}}}}
+                           :away   {:on {:resume [:player :hist]}}}}
+          after (step m (seed :away) [:resume])
+          ev    (first (history-events :rf.machine.history/restored))]
+      (is (= [[:player :stopped] :default {:fallback :initial}]
+             [(:state after) (:source ev) (select-keys (:tags ev) [:fallback :restored-config])])))))
 
 ;; ===========================================================================
 ;; §5. DANGLING recorded path after hot-reload
@@ -217,25 +188,18 @@
 ;; removed shapes. Spec 005 §Dangling recorded paths after hot reload.
 ;; ===========================================================================
 
-(deftest dangling-deep-leaf-falls-back-no-error
-  (testing "a recorded DEEP leaf the definition removed falls back to :default-target; no error"
-    (let [r (rf.machines/machine-transition
-              (player true)
-              (assoc (seed :away) :rf/history {[:player] [:player :playing :gone]})
-              [:resume])]
-      (is (= [:ok [:player :playing :at-start] []]
-             [(:status r) (:state (:snapshot r))
-              (filterv #(= :error (:op-type %)) (rf.machines.test-support/captured-events))])))))
-
-(deftest dangling-shallow-child-falls-back-no-error
-  (testing "a recorded SHALLOW child the definition removed falls back; no error"
-    (let [r (rf.machines/machine-transition
-              (player false)
-              (assoc (seed :away) :rf/history {[:player] :ghost})
-              [:resume])]
-      (is (= [:ok [:player :playing :at-start] []]
-             [(:status r) (:state (:snapshot r))
-              (filterv #(= :error (:op-type %)) (rf.machines.test-support/captured-events))])))))
+(deftest dangling-recorded-path-falls-back-no-error
+  (testing "a recorded DEEP leaf or SHALLOW child the definition removed falls back to
+            :default-target; no error"
+    (doseq [[deep? recorded] [[true [:player :playing :gone]] [false :ghost]]]
+      (let [r (rf.machines/machine-transition
+                (player deep?)
+                (assoc (seed :away) :rf/history {[:player] recorded})
+                [:resume])]
+        (is (= [:ok [:player :playing :at-start] []]
+               [(:status r) (:state (:snapshot r))
+                (filterv #(= :error (:op-type %)) (rf.machines.test-support/captured-events))])
+            (pr-str recorded))))))
 
 ;; ===========================================================================
 ;; §6. PER-REGION parallel history at STRUCTURALLY-IDENTICAL paths
@@ -302,27 +266,11 @@
       (is (= [s1 [:player :playing :mid-track]] [rt (:state (step m rt [:resume]))])))))
 
 ;; ===========================================================================
-;; §8. TRACE shapes — the corners the smoke does not reach
-;;
-;; Spec/009 §History trace events: the deep-nesting exit emits TWO
-;; `:rf.machine.history/recorded` events (one per history-bearing compound) in
-;; one cascade; a nested deep restore stamps `:source :recorded` on the
-;; history-driven :entry cascade steps. Asserts the exact tag keys.
+;; §8. :prev-config on a second recording (Spec 009 §History trace events)
 ;; ===========================================================================
-
-(deftest deep-nesting-emits-one-recorded-per-compound
-  (testing "exiting two history-bearing compounds emits one :recorded event each"
-    (reset-capture!)
-    (step nested (seed [:outer :b :b2]) [:leave])
-    (is (= #{{:compound-path [:outer] :kind :deep :recorded-config [:outer :b :b2]}
-             {:compound-path [:outer :b] :kind :deep :recorded-config [:outer :b :b2]}}
-           (set (map #(select-keys (:tags %) [:compound-path :kind :recorded-config :prev-config])
-                     (history-events :rf.machine.history/recorded)))))
-    (is (= 2 (count (history-events :rf.machine.history/recorded))))))
 
 (deftest recorded-prev-config-on-second-exit
   (testing ":prev-config names the value overwritten on a second recording for the same compound"
-    (reset-capture!)
     (step (player true)
           (assoc (seed [:player :playing :at-start])
                  :rf/history {[:player] [:player :playing :mid-track]})
@@ -334,38 +282,13 @@
 ;; ===========================================================================
 ;; §9. EXIT-SET BOUNDARY — the surviving-LCCA owner records NOTHING
 ;;
-;; The decisive case for the XState v5 / SCXML alignment: a history-owning
-;; compound records ONLY when it is itself in the EXIT SET (the strict `<`
-;; gate). A pure WITHIN-compound sibling move — where the owner SURVIVES as
-;; the LCCA — records nothing. These pin the boundary on BOTH a flat
-;; single-machine chart AND a nested chart (where the surviving OUTER owner
-;; records nothing while a genuinely-exited INNER owner still does), so it can
-;; never silently slip to an active-child-subtree-teardown (`<=`) trigger.
+;; A history-owning compound records ONLY when it is itself in the EXIT SET
+;; (XState v5 / SCXML). A sibling move under the owner leaves it standing as
+;; the LCCA, so it records nothing, while a genuinely exited inner owner does.
 ;; ===========================================================================
-
-;; `:player` owns deep history; `:swap` moves between its two children
-;; (:playing ↔ :stopped). `:player` is the LCA of that move — it SURVIVES —
-;; so under the exit-set rule it records nothing.
-(def surviving-owner
-  {:initial :player
-   :states  {:player {:initial :stopped
-                      :states  {:hist    {:type :history :deep? true :default-target :stopped}
-                                :stopped {:on {:swap [:player :playing]}}
-                                :playing {:initial :at-start
-                                          :on      {:swap [:player :stopped]}
-                                          :states  {:at-start  {:on {:seek :mid-track}}
-                                                    :mid-track {}}}}}}})
-
-(deftest within-compound-sibling-move-records-nothing
-  (testing "a within-compound sibling move (surviving LCCA) records NOTHING"
-    (reset-capture!)
-    (let [after (step surviving-owner (seed [:player :playing :mid-track]) [:swap])]
-      (is (= [[:player :stopped] nil []]
-             [(:state after) (:rf/history after) (history-events :rf.machine.history/recorded)])))))
 
 (deftest surviving-outer-records-nothing-while-exited-inner-records
   (testing "a sibling move under :outer exits :b (records) but leaves :outer (records nothing)"
-    (reset-capture!)
     (let [after (step nested (seed [:outer :b :b2]) [:to-a])]
       (is (= [[:outer :a] {[:outer :b] [:outer :b :b2]} [[:outer :b]]]
              [(:state after) (:rf/history after)
