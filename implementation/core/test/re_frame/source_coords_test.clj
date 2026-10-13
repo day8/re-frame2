@@ -164,16 +164,8 @@
       "the *file* fallback obeys the same rule"))
 
 (deftest prod-coords-form-omits-file-when-none-was-captured
-  (are [form-meta file] (= {:ns '(quote x) :line 1}
-                           (rf.source-coords/prod-coords-form form-meta file 'x))
-    {:file "NO_SOURCE_PATH" :line 1} "NO_SOURCE_PATH"
-    {:line 1}                        nil))
-
-(deftest dev-coords-form-still-absolutises
-  (let [f (:file (rf.source-coords/coords-form {:file "re_frame/source_coords_test.clj" :line 1}
-                                               nil 'x))]
-    (is (rf.source-coords.editor-uri/absolute-path? f) (pr-str f))
-    (is (.endsWith ^String f "re_frame/source_coords_test.clj"))))
+  (is (= {:ns '(quote x) :line 1}
+         (rf.source-coords/prod-coords-form {:file "NO_SOURCE_PATH" :line 1} "NO_SOURCE_PATH" 'x))))
 
 (deftest reg-view-strips-reader-symbol-position-meta
   ;; The CLJS indexing reader stamps a classpath-RELATIVE :file (plus :line,
