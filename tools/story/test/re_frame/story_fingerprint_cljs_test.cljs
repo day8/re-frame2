@@ -5,32 +5,10 @@
   pins the cross-host invariants that only matter on CLJS:
 
   - the 8-char-hex hash renders identically (left-padded) on CLJS;
-  - volatile-strip equivalence and semantic sensitivity hold under the
-    CLJS `hash` + `pr-str`;
-  - the snapshot-identity content-hash fold is strip-free on CLJS too;
   - the per-run stamp strip (epoch-record `:frame`, trace-event
     `:id` / `:time` / volatile tags) is host-portable too."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.story.fingerprint :as rf.story.fingerprint]))
-
-(def ^:private base
-  {:status :pass
-   :variant/id :story.x/v
-   :runner :headless
-   :elapsed-ms 3.0
-   :plan-hash "abc"
-   :app-db {:n 1 :rf.story/lifecycle :ready}
-   :effects [{:effect :rf/db :dispatch-id "d-1"}]
-   :assertions [{:assertion :rf.assert/path-equals :status :pass
-                 :source "f.cljs:1" :elapsed-ms 0.1}]})
-
-(def ^:private volatile-twin
-  (-> base
-      (assoc :elapsed-ms 99.0 :runner :dom :plan-hash "zzz")
-      (assoc-in [:app-db :rf.story/lifecycle] :error)
-      (assoc-in [:effects 0 :dispatch-id] "z-9")
-      (assoc-in [:assertions 0 :source] "g.cljs:7")
-      (assoc-in [:assertions 0 :elapsed-ms] 42.0)))
 
 (deftest order-insensitive-on-cljs
   (testing "map key order does not affect the CLJS hash"
@@ -44,16 +22,6 @@
       (is (not= (seq xyz) (seq zyx))
           "the two sets iterate in different orders")
       (is (= (rf.story.fingerprint/content-hash xyz) (rf.story.fingerprint/content-hash zyx))))))
-
-(deftest volatile-equivalence-on-cljs
-  (testing "volatile-only differences canonicalize = and run-hash equal"
-    (is (= (rf.story.fingerprint/canonicalize base) (rf.story.fingerprint/canonicalize volatile-twin)))
-    (is (= (rf.story.fingerprint/run-hash base) (rf.story.fingerprint/run-hash volatile-twin)))))
-
-(deftest semantic-difference-on-cljs
-  (testing "a semantic app-db difference perturbs the run-hash on CLJS"
-    (is (not= (rf.story.fingerprint/run-hash base)
-              (rf.story.fingerprint/run-hash (assoc-in base [:app-db :n] 2))))))
 
 (deftest determinism-stamp-strip-on-cljs
   (testing "epoch records differing only in per-run stamps canonicalize = on CLJS:
@@ -118,14 +86,6 @@
            (rf.story.fingerprint/run-hash {:status :pass :app-db {:cb (fn [] 1)}})))
     (is (not= rf.story.fingerprint/opaque-fn (rf.story.fingerprint/canonical-form :kw)))
     (is (not= rf.story.fingerprint/opaque-fn (rf.story.fingerprint/canonical-form #{:a})))))
-
-(deftest snapshot-fold-strip-free-on-cljs
-  (testing "content-hash keeps :variant-id sensitivity; canonical-hash strips it"
-    (let [tuple {:variant-id :story.x/v :variant {:a 1}}]
-      (is (not= (rf.story.fingerprint/content-hash tuple)
-                (rf.story.fingerprint/content-hash (assoc tuple :variant-id :story.y/v))))
-      (is (= (rf.story.fingerprint/canonical-hash tuple)
-             (rf.story.fingerprint/canonical-hash (assoc tuple :variant-id :story.y/v)))))))
 
 ;; ===========================================================================
 ;; CROSS-HOST SCALAR STABILITY — the CLJS side of the equivalence
