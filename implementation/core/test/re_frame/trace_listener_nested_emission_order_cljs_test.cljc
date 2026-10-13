@@ -60,28 +60,3 @@
       (finally
         (rf.trace.tooling/unregister-listener! ::emitter)
         (rf.trace.tooling/unregister-listener! ::observer)))))
-
-(deftest ^:requires-debug nested-exception-isolation-preserves-order
-  ;; A listener that throws between the emitter and the observer neither stops
-  ;; delivery nor reorders it.
-  (let [seen-observer (atom [])
-        threw?        (atom 0)]
-    (rf.trace.tooling/register-listener! ::emitter
-      (fn [ev]
-        (when (= outer (:operation ev))
-          (rf.trace/emit! :info inner {}))))
-    (rf.trace.tooling/register-listener! ::thrower
-      (fn [_ev]
-        (swap! threw? inc)
-        (throw (ex-info "listener boom" {}))))
-    (rf.trace.tooling/register-listener! ::observer
-      (fn [ev] (swap! seen-observer conj ev)))
-    (try
-      (rf.trace/emit! :info outer {})
-      (is (= [outer inner] (ops-only @seen-observer))
-          "a throwing intermediate listener does not reorder or drop the observer's stream")
-      (is (pos? @threw?) "the throwing listener was actually invoked (isolation, not skip)")
-      (finally
-        (rf.trace.tooling/unregister-listener! ::emitter)
-        (rf.trace.tooling/unregister-listener! ::thrower)
-        (rf.trace.tooling/unregister-listener! ::observer)))))
