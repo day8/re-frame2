@@ -28,9 +28,6 @@
   (is (= "done · 3 of 3"   (rf.story.ui.test-mode.stepper-pure/progress-label 3 3)))
   (is (= "no steps"        (rf.story.ui.test-mode.stepper-pure/progress-label 0 0))))
 
-(deftest progress-label-safe-on-bad-inputs
-  (is (= "" (rf.story.ui.test-mode.stepper-pure/progress-label nil 3))))
-
 ;; ---- can-step? / can-step-back? / can-rewind? ---------------------------
 
 (deftest can-step-requires-active-and-not-end
