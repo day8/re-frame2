@@ -26,6 +26,8 @@ The sibling skill the user just exercised. This skill reads the parent skill's:
 - **`references/errors.md`** — the error-recovery catalogue. Misleading recovery suggestions are findings.
 - **`references/mcp-transport.md`** — the descriptor-backed tool catalogue. A tool-shaped draft names a tool from it only when the conversation has a checkout; otherwise the name comes from the session evidence or is marked unverified (SKILL.md §Issue drafts).
 - **`references/ops.md` §Hot-reload coordination** — the strict source-edit protocol. Friction here is high-leverage (every source edit triggers it).
+- **`references/wire-size-budget.md`** — the size-conscious args `known-frictions.md`'s wire-size class checks for; **`references/stories.md`** — where Story-recorder retros route instead of here.
+- **`tools/re-frame2-pair-mcp/`** (beside the skill, not in it) — the server behind the tools. `known-frictions.md`'s "check first — this already ships" notes and its diagnostic-ladder account are verified against this source (`src/re_frame2_pair_mcp/tools/probe.cljs` holds the ladder), not against the skill's prose alone.
 - **`spec/design.md`** (the sibling's) — the locked decisions. This skill respects locks; doesn't propose changes that contradict them.
 
 ## 3. Tertiary input — `references/known-frictions.md`

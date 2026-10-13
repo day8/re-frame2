@@ -43,6 +43,7 @@ Typical improvements:
 - add explicit freshness, completeness, or warning fields
 - distinguish "worked but partial" from "fully landed"
 - add better default summaries around retries, misses, and fallback paths
+- in a re-frame2-pair session, check first — this already ships: `discover-app` carries a `:freshness` token whose `:liveness` verdict (`:fresh` / `:stale-build` / `:no-runtime` / `:unknown`) and `:hint` say whether reads reflect the current build. Unreached is tool-shaped; reached and still misleading names the verdict or hint that fell short
 
 ### Hidden prerequisite burden
 
@@ -163,8 +164,10 @@ Signals:
 - `tail-build` refused with `:missing-baseline` / `:baseline-without-probe` and that was treated as a tool bug
 - a source edit was followed straight by a dispatch or trace read, so the session hit pre-reload code
 - a reload that landed before the first sample was read as a spurious timeout
+- a probe-less `tail-build` (`:soft? true`, a delay that sampled nothing) was taken as proof the edit reloaded, or a `:timed-out` / `:probe-errored` result was reported as a compile error
 
 Typical improvements:
+- check first — this already ships: the pair skill's `ops.md` §Hot-reload coordination marks `:soft? true` as a delay, never evidence, and branches `:timed-out` (a probe that cannot discriminate the edit) and `:probe-errored` (a malformed probe) away from compile errors. Unreached is tool-shaped
 - the probe's baseline is captured **before** the edit; capturing it after is tool-shaped
 - a correct baseline that still misled names the framework surface it fell short of
 
