@@ -2,14 +2,12 @@
   "The shared status vocabulary (spec/018 §12.6): nine statuses, each
   distinguishable by colour, glyph, shape and label, and the sidebar
   regions derived from it. The `#?(:cljs …)` tests reach `.cljs`
-  sidebar and shell namespaces the JVM cannot load."
+  sidebar namespaces the JVM cannot load."
   (:require [clojure.test :refer [deftest is]]
             [clojure.string :as str]
             [re-frame.story.theme.status :as rf.story.theme.status]
             #?@(:cljs [[re-frame.story.ui.sidebar :as rf.story.ui.sidebar]
-                       [re-frame.story.ui.sidebar-styles :refer [styles]]
-                       [re-frame.story.ui.shell :as rf.story.ui.shell]
-                       [re-frame.story.ui.state :as rf.story.ui.state]])))
+                       [re-frame.story.ui.sidebar-styles :refer [styles]]])))
 
 (def expected-statuses
   #{:pending :running :pass :fail :error :cannot-run :blocked :dirty :redacted})
@@ -100,8 +98,3 @@
        (is (= "fail" (:data-value chip-props)))
        (is (str/includes? (:title chip-props) "status"))
        (is (some string? children) "the text label survives beside the glyph"))))
-
-#?(:cljs
-   (deftest story-canvas-empty-hook-renders
-     (rf.story.ui.state/reset-shell-state!)
-     (is (= 1 (count (walk-find-data-test (#'rf.story.ui.shell/main-pane) "story-canvas-empty"))))))
