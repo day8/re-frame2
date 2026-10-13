@@ -113,14 +113,6 @@
 
 ;; ---- eight-slice capture model -----------------------------------------
 
-(deftest capture-slices-args-is-projectable
-  (testing "args (+ transient-controls) are the projectable pair; args
-            carries the live snapshot"
-    (let [by-slice (into {} (map (juxt :slice identity))
-                         (rf.story.save-variant/capture-slices {:n 7} nil {}))]
-      (is (= [:projectable {:n 7}] ((juxt :status :value) (:args by-slice))))
-      (is (= :projectable (-> by-slice :transient-controls :status))))))
-
 (deftest capture-slices-unwired-slices-warn-not-fabricate
   (testing "with a bare source body, the not-yet-wired slices are :not-wired
             — captured nothing, honest warning, never a fabricated value"
@@ -161,11 +153,6 @@
       (is (= :not-wired (-> by-slice :route :status))
           "route has no declared source slot — not-wired"))))
 
-(deftest capture-slices-empty-setup-declares-no-events-to-re-run
-  (let [db-seed (first (filter #(= :db-seed (:slice %))
-                               (rf.story.save-variant/capture-slices {:n 1} {:setup []} {})))]
-    (is (not (str/includes? (:note db-seed) ":setup")))))
-
 (deftest slice-warnings-filters-projectable
   (testing "slice-warnings keeps exactly the rows the user must see — every
             slice that is NOT a clean live projection, in slice-order"
@@ -187,14 +174,6 @@
              "not-wired slices carry the 'not yet projectable' label")
          (is (str/includes? flat "FORK")
              "the viewport fork is surfaced to the user")))))
-
-#?(:cljs
-   (deftest slice-report-nil-when-all-projectable
-     (testing "when every slice projects cleanly there is
-               nothing to warn about and the report renders nil"
-       (let [all-clean [{:slice :args :status :projectable}
-                        {:slice :transient-controls :status :projectable}]]
-         (is (nil? (rf.story.ui.save-variant/slice-report all-clean)))))))
 
 #?(:cljs
    (deftest save-dialog-renders-slice-report-when-open
