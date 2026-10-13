@@ -107,7 +107,7 @@ when their condition fires. Check for them at the top level (or
 inside the relevant slice) before treating a result as raw data:
 
 - `{:rf.mcp/dedup-table <cache-map>}` — call `rf.mcp-base.dedup/expand`.
-- `{:rf.mcp/overflow {:tool ... :estimated-tokens ... :hint ...}}` —
+- `{:rf.mcp/overflow {:limit :reached :token-count ... :cap-tokens ... :tool ... :hint ...}}` —
   narrow the call.
 - `{:rf.mcp/cache-hit {:hash ... :unchanged-since ... :hint ...}}` —
   reuse the prior call's payload.

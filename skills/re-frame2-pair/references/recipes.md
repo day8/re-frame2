@@ -93,7 +93,7 @@ Never read a whole frame to orient — `orient` already handed you the map. `sna
 Fire the event and capture its full epoch in one call — `dispatch {event: "[:cart/apply-coupon \"SPRING25\"]", settle: true}` (the dedicated tool; `:settle` returns the assembled `:rf/epoch-record` incl. `:render-events`, `:trace: true` returns the epoch without the synchronous render flush). The eval equivalent is `(re-frame2-pair.runtime/dispatch-and-collect [:cart/apply-coupon "SPRING25"])` — reach for it only when you need the raw runtime return shape. Then narrate the six dominoes against the resulting `:rf/epoch-record`:
 
 - Event vector + interceptor chain (from `handler-meta {kind: "event", id: ":cart/apply-coupon"}`)
-- Coeffects injected (visible as `:event/run` tags in `:trace-events`)
+- Coeffects injected (one `:rf.cofx/run` op per supplier that ran, in `:trace-events`; the delivered map rides `:rf.event/run-end`'s `:rf.event/coeffects` tag)
 - Effects map — the `:effects` projection carries one entry per dispatched fx (successes included) with `:fx-id` / `:args` / `:outcome`; off-box each row's `:args` is `:rf/redacted` by default, and `:trace-events` carries the finer per-fx detail
 - `app-db` diff between `:db-before` and `:db-after`
 - Subs that re-ran (the `:sub-runs` projection); use `:rf.sub/skip` traces for memo-hit evidence, not absence alone
@@ -137,10 +137,10 @@ Given a component name or render key, find the latest epoch whose `:renders` inc
 
 ## "Explain this error" / "What caused this error?"
 
-1. Pull recent error traces: `(re-frame.trace.tooling/trace-buffer :rf/default {:flat true :op-type :error})`. Each entry is an `:rf.error/*` op with `:rf.error/data`. (Frame-id first; `:op-type` is a `:flat-only` filter so pass `:flat true`. `rf/trace-buffer` names the same fn on both platforms; an `eval-cljs` form spells whichever home fully qualified.)
+1. Pull recent error traces: `(re-frame.trace.tooling/trace-buffer :rf/default {:flat true :op-type :error})`. Each entry is an `:rf.error/*` op whose `:tags` carry `:failing-id`, `:reason` and the category's own keys. (Frame-id first; `:op-type` is a `:flat-only` filter so pass `:flat true`. `rf/trace-buffer` names the same fn on both platforms; an `eval-cljs` form spells whichever home fully qualified.)
 2. Read `:rf.trace/trigger-handler` on the error event — `{:kind :event :id :user/save :source-coord {:ns ... :file ... :line ... :column ...}}`. This is the **handler that was executing when the error fired**, not the throw site inside the framework. Report it as `<kind> :<id> at <file>:<line>` so the user can jump straight to the source. (The field rides the trace surface — always present in the dev build this skill drives; it production-elides with the rest of the trace surface, so a production deployment would instead read the coord off the always-on error-emit record's `:source-coord`, not from a pair session.)
 3. If the error sits inside a known epoch, cross-check `:trigger-event` and walk the cascade via `:parent-dispatch-id` — the upstream event that queued the offending handler is often the real culprit.
-4. If `:rf.trace/trigger-handler` is **absent**, the error fired at dispatch-time before any handler ran (e.g. `:rf.error/no-such-handler` because the dispatched id is misspelt — that is the op-type the framework emits, and it reaches the buffer only for dispatches the *app* issues: your own `dispatch` validates the id first and refuses with `:unknown-id` without dispatching). The `:rf.error/data` payload — the failing id, the lookup map — is then the only handle; offer to `list-handlers {kind: "event"}` (or the matching kind) to find a near match.
+4. If `:rf.trace/trigger-handler` is **absent**, the error fired at dispatch-time before any handler ran (e.g. `:rf.error/no-such-handler` because the dispatched id is misspelt — that is the op-type the framework emits, and it reaches the buffer only for dispatches the *app* issues: your own `dispatch` validates the id first and refuses with `:unknown-id` without dispatching). The error's `:tags` payload — `:failing-id`, `:reason` and the category's own keys — is then the only handle; offer to `list-handlers {kind: "event"}` (or the matching kind) to find a near match.
 
 ## "Where in the code does this come from?"
 
@@ -237,7 +237,7 @@ Canonical procedure (commit-and-compare). It keeps **three** separate things, an
    Keep the response's `:head-id` as `pre-dispatch-epoch-id`. In the same breath run `handler-meta {kind: "event", id: ":foo"}` and keep its `:line` / `:column` / `:handler-fn-hash` as `pre-edit-handler-meta`. The tool **strips** the live handler function and returns `:handler-fn-hash` in its place — that hash is the wire key you capture and compare.
    **If `:head-id` comes back `null` or absent, STOP — there is no anchor.** A frame that has never drained an event has an empty ring, and an empty ring holds nothing to rewind to. Use `dispatch-dry-run` if a simulation answers the question; it restores a captured frame-state without requiring an existing epoch. For a committed comparison, establish an ordinary app epoch first, then capture it as the anchor. **Never substitute the baseline's result epoch** — that is exactly the confounded comparison this step exists to prevent.
 2. `dispatch {event: "[:foo …]", trace: true}` → observe baseline. Keep the resulting record's `:epoch-id` as `baseline-epoch-id` — **evidence for step 8, not a rewind target.** (The eval equivalent is `(re-frame2-pair.runtime/dispatch-and-collect [:foo …])`.)
-3. **Tell the user** which side effects in the cascade can't be rewound. Walk `:trace-events` for `:event/do-fx` involving non-pure fx (`:http`, navigation, localStorage, `:dispatch-later` that already landed) and warn before restoring.
+3. **Tell the user** which side effects in the cascade can't be rewound. Walk the epoch's `:effects` projection (or the `:rf.fx/handled` ops in `:trace-events`) for non-pure fx (`:http`, navigation, localStorage, `:dispatch-later` that already landed) and warn before restoring.
 4. Rewind to **`pre-dispatch-epoch-id`** — the step-1 anchor, *not* `baseline-epoch-id` — with the **dedicated `restore-epoch` tool**, the canonical, audited undo. It reinstalls the whole **frame-state** (both partitions: app-db *and* runtime-db, so machine snapshots / routes / elision rewind too; side effects and transient host state do not):
    ```
    mcp__re-frame2-pair__restore-epoch {epoch-id: "<pre-dispatch-epoch-id>"}
@@ -304,7 +304,7 @@ Poll `mcp__re-frame2-pair__watch-epochs {}` (no filter) repeatedly, passing the 
 
 ## "Alert me on slow events"
 
-Poll `mcp__re-frame2-pair__watch-epochs {pred: {"timing-ms": ">100"}}` repeatedly, advancing `since-id` to the previous response's `:head-id` each time — the `:timing-ms` predicate rides server-side so only slow cascades cross the wire. Accepts a number (sugar for `>= N`) or a comparison string (`">100"`, `"<=50"`, `">=100"`, `"<200"`, `"=42"`). Narrate matches and pull per-interceptor timings from the raw trace if needed.
+Poll `mcp__re-frame2-pair__watch-epochs {pred: {"timing-ms": ">100"}}` repeatedly, advancing `since-id` to the previous response's `:head-id` each time — the `:timing-ms` predicate rides server-side so only slow cascades cross the wire. Accepts a number (sugar for `>= N`) or a comparison string (`">100"`, `"<=50"`, `">=100"`, `"<200"`, `"=42"`). Narrate matches; to see where the time went, read the epoch's `:trace-events` — `:rf.event/run-end` carries the handler chain's `:rf.event/elapsed-ms`, each `:rf.cofx/run` its supplier's `:rf.cofx/elapsed-ms`, and every op its `:time`.
 
 ## "Watch for X while I interact"
 
