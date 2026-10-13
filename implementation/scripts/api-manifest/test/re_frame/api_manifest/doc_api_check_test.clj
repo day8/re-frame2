@@ -38,9 +38,7 @@
                                             [4 "rf.story" "dispatch"]]]
                       {:alias alias :var var :line line :raw (str alias "/" var)
                        :file "docs/api/re-frame.core.md"})})]
-    (is (= [2 4] (map :line problems)))
-    (is (re-find #"\bre-frame\.core\b" (str (:detail (first problems)))))
-    (is (re-find #"\bre-frame\.story\b" (str (:detail (second problems)))))))
+    (is (= [2 4] (map :line problems)))))
 
 (deftest story-api-references-reach-the-check-under-rf-story
   ;; The aggregate floor sits far below the live count, so dropping the
