@@ -58,10 +58,10 @@ What re-frame2-pair can see inside a live re-frame2 app.
 | View didn't update because sub result stayed `=` | *done* | Recipe checks recompute `:value-changed?`, `:rf.sub/skip` traces and mounted subscription inputs; absence from `:sub-runs` alone is inconclusive |
 | View re-rendered too broadly | *done* | `:renders` per epoch + `:sub-runs` shows which over-broad sub recomputed |
 | Async effects make the app look "wrong for a moment" | *done* | `:effects` records each dispatched fx with its `:outcome`; walk `:trace-events` for the finer-grained timing/ordering picture |
-| Interceptor order changes behaviour | *done* | `handler-meta` lists ordered interceptor ids; `:event/run` traces carry per-step timing |
+| Interceptor order changes behaviour | *done* | `handler-meta` lists ordered interceptor ids; `:rf.event/run-end` carries the whole chain's `:rf.event/elapsed-ms` (there is no per-interceptor timing) |
 | Hot reload leaves stale registrations behind | *done* | Probe-based `tail-build` against `(rf/handler-meta ...)`; `:rf.registry/handler-replaced` trace fires on every replace |
 | Wrong frame routing | *done* | `frame: ":foo"` on dispatch + `watch-epochs {frame}`; `:ambiguous-frame` refuses unsafe ops |
-| Machine snapshot drift after hot-reload | *done* | `restore-epoch` returns false with `:rf.epoch/restore-version-mismatch`; recipe explains and proposes fix |
+| Machine snapshot drift after hot-reload | *done* | `restore-epoch` refuses with `:restore-rejected` and the error trace carries `:rf.epoch/restore-version-mismatch`; recipe explains and proposes fix |
 | Form bug mixes edit / validation / saved state | *not yet* | General re-frame pattern; not a specific recipe |
 
 ---

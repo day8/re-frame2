@@ -54,7 +54,7 @@ This dichotomy is a cardinal rule in SKILL.md. The strict source-edit protocol l
 
 ### L5 — Connect first, every session
 
-Before any op, `discover-app` runs. This locates the nREPL port, connects, verifies `interop/debug-enabled?` is true, and probes the load-time marker installed by the preloaded `re-frame2-pair.runtime` namespace. Failures return structured edn (`{:ok? false :reason ...}`); the most common precondition failure is `:reason :runtime-loaded-but-preload-missing` (the normal missing-preload verdict — `:runtime-not-preloaded` is the degradation fallback the ladder returns only if it errors mid-diagnosis), fixed by adding the two-line preload entry in `SKILL.md` §Setup. The skill reports failures verbatim, doesn't guess at workarounds. `references/errors.md` carries the full failure-mode catalogue.
+Before any op, `discover-app` runs. This locates the nREPL port, connects, verifies `interop/debug-enabled?` is true, and probes the load-time marker installed by the preloaded `re-frame2-pair.runtime` namespace. Failures return structured edn (`{:ok? false :reason ...}`); the most common precondition failure is `:reason :runtime-loaded-but-preload-missing` (the normal missing-preload verdict — `:runtime-not-preloaded` is the degradation fallback the ladder returns only if it errors mid-diagnosis), fixed by the preload setup in `SKILL.md` §Setup. The skill reports failures verbatim, doesn't guess at workarounds. `references/errors.md` carries the full failure-mode catalogue.
 
 ### L6 — Multi-frame model, operating-frame selection
 
@@ -66,7 +66,7 @@ The skill registers exactly one trace listener under `:re-frame2-pair` and one e
 
 ### L8 — Use the assembled epoch stream by default; reach for the raw trace stream when the projection drops detail
 
-`:sub-runs`, `:renders`, `:effects` are the structured projections — the routing surface. `:trace-events` is the escape hatch when you need detail the projection drops (e.g. per-interceptor timing, or the raw fx `:args` the `:effects` projection redacts off-box).
+`:sub-runs`, `:renders`, `:effects` are the structured projections — the routing surface. `:trace-events` is the escape hatch when you need detail the projection drops (e.g. per-op `:time` stamps and the handler chain's `:rf.event/elapsed-ms`, or the raw fx `:args` the `:effects` projection redacts off-box).
 
 ### L9 — No bead-ids in user-facing skill content
 
@@ -109,7 +109,7 @@ Before any time-travel experiment, the AI walks the cascade's effects and tells 
 
 ```
 skills/re-frame2-pair/
-├── SKILL.md                            (router; ~130 lines)
+├── SKILL.md                            (router + connect-first rules)
 ├── README.md                           (human-facing intro)
 ├── LICENSE                             (MIT)
 ├── RELEASING.md                        (npm + plugin release notes)
@@ -141,19 +141,19 @@ Typical session reads SKILL.md (the always-loaded router) + one or two reference
 
 The screen-read block — DOM source bridge, `read-dom` vs `read-ui`, and Fresco evidence — is the one part of the catalogue that IS a separate leaf (`references/screen-reads.md`, rf2-wgvyx). It passes the split test in both directions: a read/dispatch/trace/time-travel session never opens it, and a "why did this boundary render?" session wants it without the rest of the catalogue. `ops.md`'s §Contents keeps a row per moved section pointing at it.
 
-**Recorded size exception — `references/ops.md` exceeds the 16 KB byte ceiling (rf2-j5na).** Measured LF-normalised: **220 lines / 46,461 bytes**, **2.8× the 16 KB per-leaf byte ceiling** in [`skills/README.md` §Leaf size discipline](../../README.md#leaf-size-discipline). The paragraph above grants the catalogue leaves length *in passing*; this records the decision for `ops.md` explicitly, with the reason beside it, so the next size audit reads a decision rather than re-deriving one. Three parts, each already established:
+**Recorded size exception — `references/ops.md` exceeds the 16 KB byte ceiling (rf2-j5na).** It runs to roughly **three times the 16 KB per-leaf byte ceiling** in [`skills/README.md` §Leaf size discipline](../../README.md#leaf-size-discipline), which records the current measurement. The paragraph above grants the catalogue leaves length *in passing*; this records the decision for `ops.md` explicitly, with the reason beside it, so the next size audit reads a decision rather than re-deriving one. Three parts, each already established:
 
 - **The op tables are the catalogue the exemption names.** After rf2-wgvyx moved the screen-read block out, every heading left in `ops.md` is an op-catalogue section — Read, Frames, Write, Trace, Live watch, Signal recording, Hot-reload coordination, Time-travel, Dropped from v1. There is no non-catalogue remainder to lift.
 - **Two of those sections are LOCKED.** The hot-reload protocol and the v1 → v2 surface map are pinned in place by the paragraph above and by [`spec/authoring-prompt.md`](authoring-prompt.md) — a re-authoring pass must not split them out.
 - **A split would red a test, not merely lose teaching.** `tests/prompts/prompt_regression_test.clj` reads `ops.md` **by anchor**: it asserts `SKILL.md` contains the literal `ops.md#hot-reload-coordination`, and it extracts the section by heading (`section-from @ops-md "Hot-reload coordination"`) to assert the probe-based contract, the pre-edit baseline and the `:soft? false` proceed-gate. Move or rename that section and those assertions fail.
 
-So the README bullet's test — "would splitting reduce total tokens loaded per session?" — answers **no**, and the only routes to a smaller leaf are ones the contract forbids. **Do not split it further, and do not trim teaching to reach the byte number.** `references/recipes.md` (424 lines / 46,086 bytes) sits in the same position as the exemption's own worked example, and this record binds it on the same reasoning. Do not generalise either to a leaf that merely happens to be large: a leaf earns this only by passing the same test explicitly, recorded the same way.
+So the README bullet's test — "would splitting reduce total tokens loaded per session?" — answers **no**, and the only routes to a smaller leaf are ones the contract forbids. **Do not split it further, and do not trim teaching to reach the byte number.** `references/recipes.md`, of similar size, sits in the same position as the exemption's own worked example, and this record binds it on the same reasoning. Do not generalise either to a leaf that merely happens to be large: a leaf earns this only by passing the same test explicitly, recorded the same way.
 
 ## 6. Discovery surface (frontmatter `description`)
 
-The `description` is **prose, not a keyword list**. It frames the skill by SITUATION — *"Pair-program against a **running** re-frame2 application via its Tool-Pair contract"* — then names just enough live-runtime surface to be recognisable (attach to a live shadow-cljs nREPL, a frame's app-db, dispatch events, hot-swap handlers, the trace stream and per-frame epoch history, `restore-epoch`, `replay-epoch`), carries an explicit **"Do not use"** clause (static spec reading, architecture questions, design discussion, ordinary source edits — those route to `skills/re-frame2/`), points at `references/vocabulary.md` for the surface glossary rather than inlining it, and closes with *"vocabulary matches alone do not justify activation"*.
+The `description` is **prose, not a keyword list**. It opens on the SITUATION — the agent drives a **running** re-frame2 app over its shadow-cljs nREPL — then names just enough live-runtime gesture to be recognisable (read a frame's app-db, subs and screen; dispatch or dry-run events; hot-swap handlers; walk traces and epochs; `restore-epoch`; `replay-epoch`), gives the user phrasings that should trigger it ("what's in app-db", "why didn't my view update", "what did that click do", "try this handler fix"), routes the near-misses to their sibling skills in a **"Not for"** clause (code work with no runtime → `re-frame2`, new projects → `re-frame2-setup`, the Xray panel → `re-frame2-xray`, pair-session retros → `re-frame2-pair-retro`, v1 migration → `re-frame-migration`), and ends on the two safety facts a router needs before activating: `dispatch` fires real effects, and state rewrites need the server's `--allow-writes`. The surface glossary lives in `references/vocabulary.md`, not in the description.
 
-That closing clause is the load-bearing one. The authoring-only `re-frame2` skill triggers on the same surfaces in code-writing prose, so the two skills are discriminated by **whether a live runtime is involved**, never by which nouns appear. Stuffing the surface vocabulary into this `description` would name precisely the terms both skills share and make the collision worse — which is why the glossary lives in a leaf and the frontmatter stays prose. A re-authoring pass MUST NOT convert it back into a keyword list (rf2-8wt8).
+The "Not for" clause is the load-bearing one. The authoring-only `re-frame2` skill triggers on the same surfaces in code-writing prose, so the two skills are discriminated by **whether a live runtime is involved**, never by which nouns appear. Stuffing the surface vocabulary into this `description` would name precisely the terms both skills share and make the collision worse — which is why the glossary lives in a leaf and the frontmatter stays prose. A re-authoring pass MUST NOT convert it back into a keyword list (rf2-8wt8).
 
 ## 7. Anti-patterns the skill explicitly resists
 
@@ -163,7 +163,7 @@ That closing clause is the load-bearing one. The authoring-only `re-frame2` skil
 - **Skipping `discover-app`.** L5; every op starts by checking the session sentinel.
 - **Skipping the `tail-build` confirmation after a source edit** (or calling it without the pre-edit `baseline`). L4; the protocol leaf is the canonical reference.
 - **Inventing alternate vocabulary** for re-frame2 concepts (e.g. "state graph" for "frame", "transition log" for "epoch ring"). Pillar 2.
-- **Asserting completion without grounding in a read.** SKILL.md style guidance — "Validate before proposing".
+- **Asserting completion without grounding in a read.** SKILL.md style guidance — "Validate in the requested scope".
 
 ## 8. Why this design diverges from `re-frame2`
 

@@ -22,7 +22,7 @@ With these capabilities, Claude Code can iteratively perform experiments by patc
 
 ## Status
 
-Pre-alpha — MCP-server-primary; the fixture app has landed. Per-surface implementation state, known unknowns, and the remaining spike deliverables live in [`STATUS.md`](STATUS.md).
+Pre-alpha. Per-surface implementation state and known unknowns live in [`STATUS.md`](STATUS.md).
 
 More docs: [`docs/TESTING.md`](docs/TESTING.md) (test plan); [`docs/LOCAL_DEV.md`](docs/LOCAL_DEV.md) (running from a clone); [`RELEASING.md`](RELEASING.md) (release flow); [`docs/initial-spec.md`](docs/initial-spec.md) (the original, historical design record).
 
@@ -47,7 +47,7 @@ Designed for web apps built from the following stack:
 - For the DOM→source bridge: re-frame2 injects `data-rf2-source-coord` on every registered view's root DOM element automatically in debug builds (mandatory per [Spec 006 §Source-coord annotation](https://github.com/day8/re-frame2/blob/main/spec/006-ReactiveSubstrate.md), gated on `interop/debug-enabled?` — there is no `configure!` knob to enable it). Coverage therefore needs registered views (`reg-view`) on a DOM-capable adapter; plain anonymous Reagent fns aren't annotated. As a fallback, [`re-com`](https://github.com/day8/re-com) with debug instrumentation + `:src (at)` at call sites emits `data-rc-src`. Without registered-view coverage (or re-com `:src`), the `dom/*` ops degrade gracefully.
 - [shadow-cljs](https://shadow-cljs.github.io/) as the build tool, with nREPL enabled on the dev build
 
-You don't need to change your application code to use it — the MCP server (Node) handles transport, and only re-frame2's own dev-build instrumentation is required on the application side. The one build-config change is the dev-only preload: install the `@day8/re-frame2-pair` package, put its `preload/` directory on the build's classpath, and add the namespace to `:devtools :preloads` in `shadow-cljs.edn` (see Install below — the `:preloads` half is always `shadow-cljs.edn`, while the classpath half goes wherever the app's classpath is actually owned: `deps.edn`, `project.clj` or `shadow-cljs.edn`). The preload loads only in dev builds; production is untouched.
+You don't need to change your application code to use it — the MCP server (Node) handles transport, and only re-frame2's own dev-build instrumentation is required on the application side. The one build-config change is the dev-only preload: put this skill's `preload/` directory on the build's classpath, and add the namespace to `:devtools :preloads` in `shadow-cljs.edn` (see Install below — the `:preloads` half is always `shadow-cljs.edn`, while the classpath half goes wherever the app's classpath is actually owned: `deps.edn`, `project.clj` or `shadow-cljs.edn`). The preload loads only in dev builds; production is untouched.
 
 ## No re-frame-10x dependency
 
@@ -163,7 +163,7 @@ The `re-frame2-pair.runtime` namespace ships into the consumer app via shadow-cl
 On first use in a session:
 
 1. The MCP server locates your shadow-cljs nREPL port automatically (it scans the standard port files and absorbs shadow restarts — you rarely configure anything; see [`references/mcp-transport.md` §Install / configure](references/mcp-transport.md#install--configure-one-time)).
-2. `discover-app` probes the load-time marker to confirm the preload landed. If the marker is missing, the op refuses with a structured `:reason :runtime-loaded-but-preload-missing` (the normal missing-preload verdict — a runtime is live but the marker is absent) and a hint pointing at the 2-line setup. No per-session inject step.
+2. `discover-app` probes the load-time marker to confirm the preload landed. If the marker is missing, the op refuses with a structured `:reason :runtime-loaded-but-preload-missing` (the normal missing-preload verdict — a runtime is live but the marker is absent) and a hint pointing at the preload setup. No per-session inject step.
 3. Live-watch is the pull-mode `watch-epochs` poll loop (tracks the last seen `:epoch-id` per frame and asks for everything since); every observation arrives as a completed tool result. Hot-reload confirmation is probe-based: the probe's value is captured *before* the edit (the baseline), and after the edit the `tail-build` tool polls the same short CLJS form (typically against `(rf/handler-meta ...)`) until a sample differs from that baseline — so the reload is recognized whether it lands before or after the first sample. The name `tail-build` is historical — it does not actually tail the shadow-cljs server log.
 
 On full page refresh, the preload re-runs as part of the next bundle load — the marker reappears automatically; no manual reconnect step.
