@@ -686,75 +686,22 @@
             (unmount! a)))))))
 
 ;; ===========================================================================
-;; W6 — the INTERCEPTOR row's ex-data disclosure
-;; ===========================================================================
-
-(deftest two-named-epoch-mounts-qualify-the-interceptor-ex-data-mount
-  (testing "two named Epoch mounts showing the SAME interceptor
-            exception compose two disjoint `epoch/error-ex-data/…` mount-ids.
-
-            The instance travels `render-interceptor-step` →
-            `interceptor-row-view` → `error-blocks`: the card's `ex-data`
-            disclosure mounts an `ei/edn-inspector-view` whose `:mount-id` is
-            otherwise composed from the step-key and the row ordinal ALONE —
-            both of which are identical across two mounts of one epoch."
-    (if-not (browser?)
-      (is true ":node — the :browser-test runner drives the real React mount")
-      (let [_     (setup! diagnostics-history)
-            left  (mount-epoch! {:instance-id "left"})
-            right (mount-epoch! {:instance-id "right"})]
-        (try
-          (let [ids-l (mount-ids (:container left))
-                ids-r (mount-ids (:container right))]
-            ;; ---- controls, taken from the target ------------------------
-            (is (some? (some-> (:container left)
-                               (.querySelector
-                                 "[data-testid=\"rf-xray-epoch-step-interceptor\"]")))
-                "control: the INTERCEPTOR step rendered at all. It is
-                 CONDITIONAL on a throw, so a fixture that failed to project
-                 one would leave the assertions below comparing two empty
-                 sets and passing")
-            (is (some? (some-> (:container left)
-                               (.querySelector
-                                 "[data-testid=\"rf-xray-epoch-error-interceptor-row-0-0-ex-data\"]")))
-                "control: and the row's ex-data disclosure is present — the
-                 inspector mounts only `(when (seq ex-data*))`, so a throw
-                 carrying no ex-data would render the card and no mount")
-
-            ;; ---- the claim, against LITERALS ----------------------------
-            (is (some #(= (qualified "left" interceptor-ex-data-site) %) ids-l)
-                (str "the left mount composed the id written out in this "
-                     "file, not merely something different from the right's. "
-                     "expected=" (qualified "left" interceptor-ex-data-site)
-                     " left=" (pr-str ids-l)))
-            (is (some #(= (qualified "right" interceptor-ex-data-site) %) ids-r)
-                (str "and the right mount composed its own. expected="
-                     (qualified "right" interceptor-ex-data-site)
-                     " right=" (pr-str ids-r)))
-            (is (nil? (some #(= interceptor-ex-data-site %)
-                            (concat ids-l ids-r)))
-                (str "and NEITHER presents the unqualified id — an "
-                     "EQUALITY test, because the qualified ids contain the "
-                     "unqualified one as a substring. unqualified="
-                     interceptor-ex-data-site " left=" (pr-str ids-l)
-                     " right=" (pr-str ids-r))))
-          (finally
-            (unmount! right)
-            (unmount! left)))))))
-
-;; ===========================================================================
-;; W7 — both SUBSCRIPTION violation explainers, per-row and step-level
+;; W6 — every DIAGNOSTIC explainer: the INTERCEPTOR row's ex-data disclosure
+;;      and both SUBSCRIPTION violation explainers, per-row and step-level
 ;; ===========================================================================
 
 (deftest two-named-epoch-mounts-qualify-both-subscription-violation-mounts
-  (testing "two named Epoch mounts rendering the SAME subscription
-            schema violations compose disjoint explainer mount-ids, on BOTH
+  (testing "two named Epoch mounts rendering the SAME diagnostics compose
+            disjoint explainer mount-ids: the INTERCEPTOR row's ex-data
+            disclosure, and the subscription violation explainers on BOTH
             the per-row and the step-level path.
 
-            They are two separate call sites and so two rows here:
-            `subscriptions-table`'s `:row-extras` callback, and the
-            step-level call at the foot of `render-subscriptions-step`. Each
-            must hand `violation-blocks` the instance; a step-level call
+            Each is its own call site and must hand down the instance: the
+            interceptor card's `error-blocks` (reached through
+            `render-interceptor-step` → `interceptor-row-view`), whose ex-data
+            id is otherwise composed from the step-key and row ordinal ALONE;
+            `subscriptions-table`'s `:row-extras` callback; and the
+            step-level call at the foot of `render-subscriptions-step`, which
             without it would give both named panels
             `epoch/violation-explain/:subscriptions/0`."
     (if-not (browser?)
@@ -780,6 +727,14 @@
                  names a sub that recomputed nowhere in this cascade, which
                  is what makes `attach-to-sub-row` fall back to the
                  step-level bucket rather than attaching to a row")
+            (is (some? (some-> (:container left)
+                               (.querySelector
+                                 "[data-testid=\"rf-xray-epoch-error-interceptor-row-0-0-ex-data\"]")))
+                "control: and the INTERCEPTOR row's ex-data disclosure — the
+                 step is CONDITIONAL on a throw and the inspector mounts only
+                 `(when (seq ex-data*))`, so a fixture that projected no throw,
+                 or a throw without ex-data, would leave the claims below
+                 comparing nothing")
 
             ;; ---- the claim, against LITERALS ----------------------------
             (doseq [[who ids] [["left" ids-l] ["right" ids-r]]]
@@ -790,13 +745,19 @@
               (is (some #(= (qualified who sub-step-violation-site) %) ids)
                   (str "the " who " mount qualified the STEP-LEVEL explainer. "
                        "expected=" (qualified who sub-step-violation-site)
+                       " ids=" (pr-str ids)))
+              (is (some #(= (qualified who interceptor-ex-data-site) %) ids)
+                  (str "the " who " mount qualified the INTERCEPTOR ex-data "
+                       "disclosure. expected="
+                       (qualified who interceptor-ex-data-site)
                        " ids=" (pr-str ids))))
 
-            (is (nil? (some #{sub-row-violation-site sub-step-violation-site}
+            (is (nil? (some #{sub-row-violation-site sub-step-violation-site
+                              interceptor-ex-data-site}
                             (concat ids-l ids-r)))
-                (str "and neither mount presents either unqualified "
-                     "explainer id, per-row or "
-                     "step-level. left="
+                (str "and neither mount presents any unqualified diagnostic "
+                     "id — an EQUALITY test, because each qualified id "
+                     "contains its unqualified one as a substring. left="
                      (pr-str ids-l) " right=" (pr-str ids-r)))
             (is (nil? (some (set ids-l) ids-r))
                 (str "taken whole, the two mounts share no id at all. left="
