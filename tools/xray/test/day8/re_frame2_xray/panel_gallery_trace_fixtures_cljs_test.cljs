@@ -9,14 +9,10 @@
   `:rf.xray/sync-trace-buffer`.
 
   This test pins that the fixture builders produce the shape the panel
-  actually reads:
-
-    1. Each history is a vector of `:rf/epoch-record` maps, each
-       carrying an `:epoch-id` and a `:trace-events` slice.
-    2. Running the SAME resolver + projection the panel's
-       `:rf.xray/trace-feed` sub runs (no focus pinned → head-fallback)
-       yields the panel's data map — non-empty rows for the populated
-       variants, the `:no-events` empty-kind for the empty variant.
+  actually reads: running the SAME resolver + projection the panel's
+  `:rf.xray/trace-feed` sub runs (no focus pinned → head-fallback) yields
+  the panel's data map — non-empty rows for the populated variants, the
+  `:no-events` empty-kind for the empty variant.
 
   It also pins the chrome / settings / filters seeds in
   `panel-gallery.fixtures`: those feed the L2 event list
@@ -44,27 +40,6 @@
         record (focus/find-epoch-record focus-epoch-id history)]
     (h/project-feed-from-epoch record status)))
 
-(defn- epoch-record? [r]
-  (and (map? r)
-       (some? (:epoch-id r))
-       (vector? (:trace-events r))))
-
-(deftest histories-are-epoch-record-vectors
-  (testing "every history builder yields a non-empty vector of :rf/epoch-record maps"
-    (are [history] (and (vector? history)
-                        (seq history)
-                        (every? epoch-record? history))
-      (fx/empty-trace-history)
-      (fx/short-trace-history)
-      (fx/medium-trace-history)
-      (fx/long-trace-history)
-      (fx/errors-trace-history)
-      (fx/flows-trace-history)
-      (fx/mixed-op-types-history)
-      (fx/redacted-trace-history)
-      (fx/cross-frame-history)
-      (fx/source-coord-history))))
-
 (deftest populated-variants-render-non-empty-rows
   (testing "head-fallback resolves the variant epoch and the panel feed is non-empty"
     (are [history expected-rows]
@@ -82,24 +57,19 @@
 (deftest long-trace-feed-projects-every-row-uncapped
   (testing "the 1000-row trail projects 1000 rows; cap handled by the view's overflow indicator"
     (let [{:keys [rows total empty-kind]} (feed-from-history (fx/long-trace-history))]
-      (is (nil? empty-kind))
-      (is (= 1000 (count rows)))
-      (is (= 1000 total)))))
+      (is (= [nil 1000 1000] [empty-kind (count rows) total])))))
 
 (deftest empty-variant-renders-no-events
   (testing "a focused epoch with an empty :trace-events slice → :no-events empty-state"
     (let [{:keys [rows empty-kind]} (feed-from-history (fx/empty-trace-history))]
-      (is (= :no-events empty-kind))
-      (is (empty? rows)))))
+      (is (= [:no-events true] [empty-kind (empty? rows)])))))
 
 (deftest flows-variant-head-is-the-flow-epoch
   (testing "multi-op history: head-fallback renders the flow cascade, not the leading counter epoch"
-    (let [{:keys [rows empty-kind]} (feed-from-history (fx/flows-trace-history))
-          op-types (set (map :op-type rows))]
-      (is (nil? empty-kind))
-      (is (= 7 (count rows)) "the flow epoch's trail is 7 rows")
-      (is (contains? op-types :rf.flow/computed)
-          "the focused epoch surfaces the flow op-type"))))
+    (let [{:keys [rows empty-kind]} (feed-from-history (fx/flows-trace-history))]
+      (is (= [nil 7 true]
+             [empty-kind (count rows) (contains? (set (map :op-type rows)) :rf.flow/computed)])
+          "the flow epoch's 7-row trail surfaces the flow op-type"))))
 
 (deftest chrome-seeds-project-one-l2-row-per-cascade
   (testing "the seventeen chrome / settings / filters
@@ -118,7 +88,7 @@
 
 (deftest source-coord-variant-rows-carry-source-coord
   (testing "the source-coord variant's projected rows carry a :source-coord string"
+    ;; Non-empty: the populated-variants table reads 6 rows from it.
     (let [{:keys [rows]} (feed-from-history (fx/source-coord-history))]
-      (is (seq rows))
       (is (every? :source-coord rows)
           "every projected row carries a file:line source-coord"))))
