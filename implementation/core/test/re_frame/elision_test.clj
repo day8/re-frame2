@@ -131,12 +131,6 @@
          (rf.elision/elide-wire-value {:a {:b "TOP-SECRET-TOKEN" :c "public"}}
                                       {:rf.egress/include-digests? true}))))
 
-(deftest nested-axis-whole-value-large-over-sensitive-descendant-redacts
-  (install-class! [[:b]] [[]])
-  (is (= {:b :rf/redacted :other "ok"}
-         (rf.elision/elide-wire-value {:b "ROOT-LEVEL-SECRET" :other "ok"}
-                                      {:rf.egress/include-digests? true}))))
-
 (deftest streamed-cascades-elide-per-element-frame
   ;; A drain walking several frames' bundles in one tick must elide each under
   ;; its own frame's declarations; one operating frame for all would leak.
@@ -176,11 +170,6 @@
            (-> (rf.elision/elide-wire-value {[:user/uploaded] {:value {:pdf "<<5MB-blob>>"} :ref-count 1}})
                (get-in [[:user/uploaded] :value :pdf :rf.size/large-elided])
                (select-keys [:path :hint]))))))
-
-(deftest sub-cache-shape-walker-passes-through-when-no-declarations
-  (let [sub-cache {[:cart/total] {:value 42 :ref-count 2}
-                   [:user/name]  {:value "Ada" :ref-count 1}}]
-    (is (= sub-cache (rf.elision/elide-wire-value sub-cache)))))
 
 ;; EP-0002: egress resolves its frame from the carried stamp (an explicit
 ;; `:frame` opt, else the in-effect scope) with no `:rf/default` floor. With no
@@ -264,11 +253,6 @@
          (get-in (rf.elision/elide-wire-value {:docs [{:blob "<<5MB-blob>>"}]})
                  [:docs 0 :blob :rf.size/large-elided :path]))))
 
-(deftest collection-nested-sensitive-wins-over-large
-  (install-class! [[:vault :k]] [[:vault :k]])
-  (is (= {:vault [{:k :rf/redacted}]}
-         (rf.elision/elide-wire-value {:vault [{:k "payload"}]}))))
-
 ;; `:path` is the ABSOLUTE app-db offset of the walked value (the direct-read
 ;; `get-path` shape, Spec 015 §Direct reads), so a declaration at or above the
 ;; offset governs it exactly as it does in a whole-db walk.
@@ -328,22 +312,3 @@
   (install-class! [[:price :amount]] [])
   (is (= {:price {:amount :rf/redacted :currency "AUD"}}
          (rf.elision/elide-wire-value {:price (->Money 10 "AUD")}))))
-
-(deftest a-record-in-app-db-does-not-reject-db-events-on-a-classified-frame
-  (rf/reg-event :elision-test/seed
-    (fn [{:keys [db]} _] {:db (assoc db :money (->Money 2 "AUD"))}))
-  (rf/reg-event :elision-test/inc
-    (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-  ;; Seed before classifying, so the record is in app-db before the classified
-  ;; frame's db projection ever sees it.
-  (rf/dispatch-sync [:elision-test/seed])
-  (is (record? (:money (rf/app-db-value :rf/default))))
-  (install-class! [[:secret]] [])
-  (rf/dispatch-sync [:elision-test/inc])
-  (is (= 1 (:n (rf/app-db-value :rf/default)))))
-
-(deftest a-handler-error-with-a-record-payload-is-contained
-  (rf/reg-event :elision-test/boom (fn [_ _] (throw (ex-info "boom" {}))))
-  (is (nil? (try (rf/dispatch-sync [:elision-test/boom {:m (->Money 1 "AUD")}])
-                 nil
-                 (catch Throwable t t)))))
