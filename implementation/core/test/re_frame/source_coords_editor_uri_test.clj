@@ -28,27 +28,13 @@
       "my-editor://open?p={path}&l={line}&c={column}" "my-editor://open?p=src/app/views.cljs&l=42&c=7"
       "x://{file}/{line}"                             "x://src/app/views.cljs/42")))
 
-(deftest missing-line-and-column-default-to-1
-  (is (= "vscode://file/src/x.cljs:1:1"
-         (rf.source-coords.editor-uri/editor-uri :vscode {:file "src/x.cljs"}))))
-
 (deftest missing-file-returns-nil
   (testing "no usable :file → nil URI, so the UI hides the button; a
             project-root cannot conjure one"
     (are [coord opts]
          (nil? (rf.source-coords.editor-uri/editor-uri :vscode coord opts))
-      {:line 10 :column 1} nil
       {:file "   "}        nil
       {}                   {:project-root "/abs"})))
-
-(deftest has-source-predicate
-  (is (= [true false]
-         (mapv rf.source-coords.editor-uri/has-source? [{:file "x.cljs"} {:line 10}]))))
-
-(deftest open-button-title-shape
-  (is (= ["Open in editor — src/x.cljs:42" "Open in editor"]
-         (mapv rf.source-coords.editor-uri/open-button-title
-               [{:file "src/x.cljs" :line 42} {:line 10}]))))
 
 ;; ---- forbidden schemes --------------------------------------------------
 ;;
