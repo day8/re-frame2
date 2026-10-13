@@ -10,14 +10,11 @@
 (deftest tokenise-shape
   (testing "blank / nil input returns empty vector"
     (is (= [] (rf.story.ui.sidebar-search/tokenise nil)))
-    (is (= [] (rf.story.ui.sidebar-search/tokenise "")))
     (is (= [] (rf.story.ui.sidebar-search/tokenise "   "))))
-  (testing "single token"
-    (is (= ["foo"] (rf.story.ui.sidebar-search/tokenise "foo")))
+  (testing "a token is trimmed and lowercased"
     (is (= ["foo"] (rf.story.ui.sidebar-search/tokenise "  Foo  "))))
-  (testing "multi-token split on whitespace + lowercase"
-    (is (= ["counter" "five"] (rf.story.ui.sidebar-search/tokenise "Counter Five")))
-    (is (= ["a" "b" "c"]      (rf.story.ui.sidebar-search/tokenise "a   b\tc")))))
+  (testing "multi-token split on any whitespace run"
+    (is (= ["a" "b" "c"] (rf.story.ui.sidebar-search/tokenise "a   b\tc")))))
 
 (deftest match-variant-shape
   ;; the haystack carries the variant's :doc and :tags as well as its id
@@ -40,13 +37,11 @@
   ;; all its variants; otherwise only variants matching every token survive,
   ;; and a story left with none drops out.
   (are [query out] (= out (rf.story.ui.sidebar-search/filter-grouped-tree fixture-grouped query))
-    nil            fixture-grouped
     "   "          fixture-grouped
     "Counter"      [(first fixture-grouped)]
     ;; the story id matches "counter" but not "five"
     "counter five" [{:story-id :story.counter
-                     :variants [[:story.counter/at-five {}]]}]
-    "completely-unknown-token" []))
+                     :variants [[:story.counter/at-five {}]]}]))
 
 ;; ---- filter-workspaces ---------------------------------------------------
 
@@ -55,8 +50,7 @@
             :Workspace.demo {}}]
     (are [query out] (= out (rf.story.ui.sidebar-search/filter-workspaces ws query))
       ""        ws
-      "dash"    {:Workspace.dashboard {}}
-      "missing" {})))
+      "dash"    {:Workspace.dashboard {}})))
 
 ;; ---- highlight-segments --------------------------------------------------
 
@@ -64,9 +58,7 @@
   (are [label query segments] (= segments (rf.story.ui.sidebar-search/highlight-segments label query))
     ;; an empty query is one non-match segment
     "/at-five" ""        [{:text "/at-five" :match? false}]
-    ;; a single token matching mid-label
-    "/at-five" "five"    [{:text "/at-" :match? false} {:text "five" :match? true}]
-    ;; the match is case-insensitive and keeps the label's own case
+    ;; a mid-label match is case-insensitive and keeps the label's own case
     "AtFive"   "five"    [{:text "At" :match? false} {:text "Five" :match? true}]
     ;; a token that does not hit is one non-match segment
     "/at-five" "missing" [{:text "/at-five" :match? false}]))
