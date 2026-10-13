@@ -55,19 +55,19 @@ The exact pre-publish command, its `-Tnew` prerequisite and the two coordinates 
 
 ## What it covers
 
-The canonical 6-step greenfield path:
-
 Both routes require Java 21+ and the Clojure CLI: check `java -version` and
 `clojure -Sdescribe` before writing or converting a project. An npm-only shadow-cljs
 project may not have the CLI; the scaffold's `:deps` mode requires it. The globally
 installed deps-new tool is needed only for the generator route.
 
+The canonical 6-step greenfield path, which the skill runs itself ([`SKILL.md`](SKILL.md#canonical-greenfield-path-six-steps) owns the detail):
+
 1. Write the thirteen files from `references/first-counter.md` — the generator template's own emission for `acme/my-app`, with the template's reviewed pins already in `deps.edn` / `package.json` (no question asked; an author-supplied pin, name or UIx request overrides). Day-one deps are `day8/re-frame2` + `day8/re-frame2-reagent` + `reagent/reagent`, plus Story on the `:dev` alias; on the npm side `react` / `react-dom` / `shadow-cljs` and Story's `@xyflow/react` / `elkjs` — nothing else.
 2. Point the `day8/re-frame2*` coordinates, Story's included, at something that resolves — pre-publish, `:local/root` into the reviewed checkout the skill was installed from (the same step after the generator route).
 3. Run `npm install`.
-4. Run the terminating `npx shadow-cljs compile app` — it must exit 0.
-5. Start `npx shadow-cljs watch app` — the skill runs both commands itself.
-6. Report the files, the command that succeeded and the URL (`http://localhost:8280/`); you open the page and click `+1`, and `#/stories` for Story. Done.
+4. Run the terminating `npx shadow-cljs compile app` and the starter test, `npm test` — both must pass.
+5. Start `npx shadow-cljs watch app` detached, and read the URL it prints.
+6. Report the files, the compile and test results and that URL (`http://localhost:8280/` unless the port was taken); you open the page and click `+1`, and `#/stories` for Story. Done.
 
 ## What it deliberately does not cover
 
