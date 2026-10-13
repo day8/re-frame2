@@ -184,6 +184,13 @@ Two contract facts, each pinned against the shipped spec:
     Rule 6's stricter whole-file assertion. Retire with Rule 6 at a real first
     publish. See `skill_leaf_publication_route_problems`.
 
+  * **Rule 8 — the async-flow add-on's coordinate is
+    `day8.re-frame/async-flow-fx`.** `day8/re-frame-async-flow-fx` is its
+    GitHub repository path, right only inside the repository URL, so a
+    detection rule or dependency example keyed on it misses the real
+    dependency. The rule fires on that spelling anywhere but after a `/`,
+    which is the URL position.
+
 All of these rules are written to fire ONLY on the stale ASSERTION / bad-command
 shape, never on the correct wording that states the negation — and never on the
 unrelated, live `:on-error` *surfaces* (a machine `:spawn :on-error`
@@ -433,6 +440,14 @@ PAIR_PARTITION_NEGATION_RE = re.compile(
     r"|won't\s+(?:find|reach)|cannot\s+(?:read|reach|find)|can't\s+(?:read|reach|find)"
     r"|does\s+not\s+(?:read|reach|select)|neither\s+can\s+reach|:?path-not-found",
     re.IGNORECASE,
+)
+
+# --- Rule 8: the async-flow add-on's GitHub repository path used as its
+# Maven coordinate. The coordinate is `day8.re-frame/async-flow-fx`; the
+# repository path is right only inside the repository URL, so a match after
+# a `/` (the URL position) is clean.
+ASYNC_FLOW_REPO_AS_COORD_RE = re.compile(
+    r"(?<![/\w.-])day8/re-frame-async-flow-fx\b"
 )
 
 # --- Rule 5: stock-Reagent Form-3 lifecycle advice must target the captured
@@ -821,6 +836,15 @@ def line_problems(line: str) -> list[str]:
             "\"full\"}}` slice (needs `--allow-sensitive-reads` + per-call "
             "`include-sensitive: true`; a `:rf/redacted`/summary result is "
             "INCONCLUSIVE, never absence)."
+        )
+
+    # Rule 8 — the async-flow repository path in coordinate position.
+    if ASYNC_FLOW_REPO_AS_COORD_RE.search(line):
+        problems.append(
+            "ASYNC-FLOW-COORD: the async-flow add-on's Maven coordinate is "
+            "`day8.re-frame/async-flow-fx`. `day8/re-frame-async-flow-fx` is "
+            "its GitHub repository path, right only inside the repository "
+            "URL; a detector keyed on it misses the real dependency."
         )
 
     # Rule 5 is NOT here: it needs Markdown context (section bounds + example
@@ -2331,7 +2355,8 @@ def run(*, verbose: bool, ci: bool) -> int:
                 "M-0 publication-route drift (Rule 6), "
                 "skill-leaf stop-and-wait route drift (Rule 6b), "
                 "stale listener-stream vocabulary (Rule "
-                "7), or M-1 classifier / kickoff-anchor drift "
+                "7), async-flow repository path as coordinate (Rule 8), "
+                "or M-1 classifier / kickoff-anchor drift "
                 "found."
             )
         return 0
@@ -2655,6 +2680,17 @@ def _self_test() -> int:
         'the gated `snapshot {include: ["machines"], modes: {"machines": "full"}}` '
         "slice sweeps every `[:rf.runtime/machines :snapshots]` entry.",
         dirty=False, label="D5 gated snapshot machines slice (correct, no path:)",
+    )
+
+    # Rule 8: the async-flow repository path in coordinate position.
+    expect(
+        "- Maven coord `day8/re-frame-async-flow-fx` in `deps.edn` (any version).",
+        dirty=True, label="R8 async-flow repository path as the Maven coordinate",
+    )
+    expect(
+        "`day8.re-frame/async-flow-fx` ([repo](https://github.com/day8/"
+        "re-frame-async-flow-fx)) ships a single fx.",
+        dirty=False, label="R8 coordinate beside its repository URL (correct)",
     )
 
     # --- Rule 5 fixtures — stock-Reagent Form-3 lifecycle targeting ------------
