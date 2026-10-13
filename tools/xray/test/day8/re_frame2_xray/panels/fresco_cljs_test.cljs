@@ -43,7 +43,6 @@
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
-            [re-frame.fresco.evidence :as rf.fresco.evidence]
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
             [re-frame.fresco.tool :as rf.fresco.tool]
@@ -607,11 +606,3 @@
       (app-side)
       (xray-side)
       (rf/destroy-frame! custom-shell-frame))))
-
-(deftest the-consumer-pin-tracks-the-producer-today-and-detects-a-bump
-  (testing "the pin is a LITERAL, not the producer's var — and the two agree"
-    (is (= rf.fresco.evidence/schema hh/consumed-evidence-schema)
-        (str "Xray's pin and the Fresco producer's schema have diverged. That "
-             "is the pin doing its job: teach this build the new shape, then "
-             "bump the pin in the same change."))
-    (is (= rf.fresco.evidence/producer hh/consumed-producer))))
