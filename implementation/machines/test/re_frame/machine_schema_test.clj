@@ -28,11 +28,8 @@
   Tests use Malli schemas (the framework default validator)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.machines]
             [re-frame.registrar :as rf.registrar]
-            ;; The schemas artefact ships the registered-validator hot
-            ;; path the `:where :machine-data` boundary routes through;
-            ;; the `.malli` adapter ns publishes Malli's validate/explain
-            ;; into the late-bind table.
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.schemas]
             [re-frame.schemas.malli]
