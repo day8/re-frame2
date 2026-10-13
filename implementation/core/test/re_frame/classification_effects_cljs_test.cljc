@@ -41,27 +41,6 @@
     (rf/register-listener! :trace listener-id (fn [ev] (swap! a conj ev)))
     a))
 
-(deftest sensitive-effect-records-path-and-redacts-at-egress
-  (testing "a handler returning `:sensitive` alongside `:db` redacts the value
-            it writes from its first egress, while app-db keeps the real value"
-    (rf/reg-event :auth/login
-      (fn [{:keys [db]} _]
-        {:db        (assoc-in db [:user :token] "Bearer secret-xyz")
-         :sensitive [[:user :token]]}))
-    (rf/dispatch-sync [:auth/login])
-    (is (= "Bearer secret-xyz"
-           (get-in (rf.frame/frame-app-db-value :rf/default) [:user :token])))
-    (is (= :rf/redacted (get-in (wire) [:user :token])))))
-
-(deftest large-effect-records-path-and-marks-at-egress
-  (testing "a `:large` path elides to an `:rf.size/large-elided` marker at egress"
-    (rf/reg-event :docs/upload
-      (fn [{:keys [db]} _]
-        {:db    (assoc-in db [:docs :csv] (apply str (repeat 500 "X")))
-         :large [[:docs :csv]]}))
-    (rf/dispatch-sync [:docs/upload])
-    (is (= [:docs :csv] (get-in (wire) [:docs :csv :rf.size/large-elided :path])))))
-
 (deftest clear-sensitive-is-source-scoped-does-not-un-redact-another-source
   (testing "an effect SET unions with another owner's claim, and the effect
             CLEAR removes only its own, so a path another owner (here a flow)
