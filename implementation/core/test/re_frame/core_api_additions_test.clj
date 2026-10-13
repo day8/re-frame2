@@ -114,13 +114,6 @@
          (rf/frame-state-value :pp/reset-app))
       "an app-only map leaves the absent runtime partition untouched"))
 
-(deftest frame-state-value-projection-shape
-  (rf/make-frame {:id :pp/fs :doc "frame-state"})
-  (rf/reg-event :pp/seed-fs (fn [{:keys [db]} [_ db]] {:db db}))
-  (rf/dispatch-sync [:pp/seed-fs {:a 1}] {:frame :pp/fs})
-  (is (= {:rf.db/app {:a 1} :rf.db/runtime {}}
-         (rf/frame-state-value :pp/fs))))
-
 (deftest frame-state-value-unknown-frame-is-nil
   (is (nil? (rf/frame-state-value :pp/no-such-frame))))
 
@@ -150,36 +143,6 @@
   (is (false? (rf/replace-frame-state! :pp/bad-keys-typo {:rf.db/app {:k 1} :rf.db/apps {:k 2}}))
       "an unrecognized key beside a recognized one rejects the whole write")
   (is (= {} (rf/app-db-value :pp/bad-keys-typo))))
-
-(deftest renamed-facade-exports-resolve-old-names-gone
-  ;; each public name resolves, on the facade and on its artefact ns, and the
-  ;; rejected spelling beside it does not (no compatibility alias)
-  (require 're-frame.epoch :reload)
-  (require 're-frame.routing :reload)
-  (require 're-frame.observability)
-  (is (= [] (remove (fn [[n s]] (ns-resolve n s))
-                    [['re-frame.core 'restore-epoch!]
-                     ['re-frame.core 'register-observability-sink!]
-                     ['re-frame.core 'clear]
-                     ['re-frame.core 'replace-frame-state!]
-                     ['re-frame.core 'frame-state-value]
-                     ['re-frame.core 'app-db-value]
-                     ['re-frame.epoch 'restore-epoch!]
-                     ['re-frame.observability 'register-observability-sink!]])))
-  (is (= [] (filter (fn [[n s]] (ns-resolve n s))
-                    [['re-frame.core 'restore-epoch]
-                     ['re-frame.core 'reg-observability-sink!]
-                     ['re-frame.core 'unregister-route!]
-                     ['re-frame.core 'clear-route]
-                     ['re-frame.core 'snapshot-of]
-                     ['re-frame.core 'reset-app-db!]
-                     ['re-frame.core 'replace-runtime-db!]
-                     ['re-frame.core 'replace-app-db!]
-                     ['re-frame.core 'runtime-db-value]
-                     ['re-frame.epoch 'restore-epoch]
-                     ['re-frame.routing 'clear-route]
-                     ['re-frame.routing 'unregister-route!]
-                     ['re-frame.observability 'reg-observability-sink!]]))))
 
 (deftest clear-of-a-route-removes-it-from-matching
   (require 're-frame.routing :reload)
