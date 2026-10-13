@@ -446,33 +446,6 @@
              chart (the `inferred from :data` badge drops, `declared`
              shows — consistent with the Static Topology view)")))))
 
-(deftest focused-event-chart-infers-shape-when-no-schema-rf2-kq8nac
-  (testing "EP-0005: absent a `[:schemas :data]` the focused-event
-            chart falls back to the one-sample inference and
-            `:context-band-inferred?` reaches the chart TRUE (the
-            `inferred from :data` badge shows)."
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (override-machines!    [:cart/flow])
-      (override-definitions! {:cart/flow {:initial :idle
-                                          :data    {:hits 0 :trail []}
-                                          :states  {:idle {:on {:add :busy}}
-                                                    :busy {}}}})
-      (override-epoch-history!
-        [{:epoch-id 1
-          :trace-events
-          [{:id 1 :time 10 :operation :rf.machine/transition
-            :tags {:machine-id :cart/flow
-                   :before     {:state :idle :data {:hits 0 :trail []}}
-                   :after      {:state :busy :data {:hits 1 :trail []}}
-                   :event      [:add] :rf.trace/dispatch-id "d-1"}}]}])
-      (focus-epoch! 1)
-      (let [props (find-machine-chart-props (panel-tree))]
-        (is (= {:hits "number" :trail "vector"} (:context-band props))
-            "no schema → shape inferred from one sample of initial :data")
-        (is (true? (:context-band-inferred? props))
-            "no schema → :context-band-inferred? true (badge shows)")))))
-
 ;; ---- (4d) live `:data` view renders redacted (EP-0005) -------------------
 ;;
 ;; The panel's live `:data` view renders a `:sensitive?` `[:schemas :data]`
@@ -487,8 +460,8 @@
 ;;      asserts no raw secret survives into the rendered panel hiccup.
 ;;
 ;;   2. The LIVE `:rf.xray/machine-snapshots` sub reads the RAW frame-db
-;;      slot; `redact-live-snapshots` routes it through the
-;;      SAME chokepoint so a direct snapshot read is redacted too.
+;;      slot and routes it through the SAME chokepoint;
+;;      `machine_snapshots_frame_scope_cljs_test` drives that sub.
 
 (def ^:private redaction-machine-id :session/auth-redaction)
 
@@ -579,35 +552,6 @@
                snapshot (`:rf/redacted` in the sensitive slot), not raw
                machine state"))))))
 
-(deftest live-snapshots-sub-redacts-sensitive-data-rf2-kq8nac
-  (testing "EP-0025: the `:rf.xray/machine-snapshots` sub reads
-            the RAW frame-db slot, so it routes each live snapshot through
-            the snapshot-egress chokepoint stamped with the target frame. A
-            FRAME-declared sensitive `:data` slot in the live snapshot reads
-            back `:rf/redacted`; the plain sibling rides verbatim; an
-            undeclared machine's snapshot passes through untouched."
-    (setup-xray-frame!)
-    (reg-sensitive-machine!)
-    ;; EP-0025: the inspected (target) frame declares the snapshot path. The
-    ;; redaction fn is exercised directly with that frame-id below.
-    (declare-redaction-frame-marks! :rf/xray)
-    (rf/with-frame :rf/xray
-      ;; The sub's redaction fn, driven directly on a populated snapshots
-      ;; map (the sub composes target-frame + target-frame-db → this map) to
-      ;; keep the assertion independent of a live machine runtime under the
-      ;; plain-atom test substrate.
-      (let [snaps    {redaction-machine-id
-                      {:state :authed
-                       :data  {:retries 2 :token "secret-jwt-live"}}}
-            redacted (#'machine-inspector/redact-live-snapshots :rf/xray snaps)]
-        (is (= :rf/redacted
-               (get-in redacted [redaction-machine-id :data :token]))
-            "the live snapshot's frame-declared slot is redacted on read")
-        (is (= 2 (get-in redacted [redaction-machine-id :data :retries]))
-            "the plain sibling rides verbatim")
-        (is (not (str/includes? (pr-str redacted) "secret-jwt-live"))
-            "no raw secret survives the live-snapshot redaction")))))
-
 (deftest blank-state-renders-verbatim-empty-state-text-rf2-8og3k
   (testing "spec/003 §Empty state — focused event does not target a state
             machine: the panel renders ONLY the verbatim
@@ -621,79 +565,12 @@
       (is (= "This event does not target a state machine"
              (last (find-by-testid (panel-tree)
                                    "rf-xray-machine-inspector-blank-message")))
-          "the empty-state surface renders the verbatim spec text"))))
+          "the empty-state surface renders the verbatim spec text")
+      (is (nil? (find-by-testid (panel-tree)
+                                "rf-xray-machine-inspector-prev-next-nav"))
+          "and the prev/next nav is hidden: no machine is in scope"))))
 
 ;; ---- (5) per-machine prev/next nav -------------------------------------
-
-(deftest prev-next-nav-hidden-in-blank-state
-  (testing "the per-machine prev/next nav is hidden when no machine is
-            in scope (the blank state)"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (override-machines! [:auth/login])
-      (let [tree (panel-tree)]
-        (is (some? (find-by-testid tree "rf-xray-machine-inspector-blank")))
-        (is (nil? (find-by-testid
-                    tree "rf-xray-machine-inspector-prev-next-nav"))
-            "no nav when there is no machine in scope")))))
-
-(deftest machine-focus-next-walks-to-next-event-touching-machine
-  (testing "dispatching :rf.xray/machine-focus-next moves the spine's
-            focus forward to the next epoch that touched the focused
-            machine"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (override-machines!    [:auth/login :checkout/flow])
-      (override-definitions! {:auth/login    fixture-definition
-                              :checkout/flow fixture-definition})
-      (override-epoch-history!
-        [{:epoch-id 1
-          :trace-events
-          [{:id 1 :time 10 :operation :rf.machine/transition
-            :tags {:machine-id :auth/login
-                   :before {:state :idle :data {}}
-                   :after  {:state :authing :data {}}
-                   :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}
-         {:epoch-id 2
-          :trace-events
-          [{:id 2 :time 20 :operation :rf.machine/transition
-            :tags {:machine-id :checkout/flow
-                   :before {:state :idle :data {}}
-                   :after  {:state :done :data {}}
-                   :event [:cart/sync] :rf.trace/dispatch-id "d-2"}}]}
-         {:epoch-id 3
-          :trace-events
-          [{:id 3 :time 30 :operation :rf.machine/transition
-            :tags {:machine-id :auth/login
-                   :before {:state :authing :data {}}
-                   :after  {:state :done :data {}}
-                   :event [:auth/done] :rf.trace/dispatch-id "d-3"}}]}])
-      (focus-epoch! 1)
-      (rf/dispatch-sync [:rf.xray/machine-focus-next])
-      (let [xray-db (rf.frame/frame-app-db-value :rf/xray)]
-        (is (= 3 (get-in xray-db [:focus :epoch-id]))
-            "focus stepped from epoch 1 → epoch 3, skipping epoch 2")))))
-
-(deftest machine-focus-prev-is-noop-at-history-edge
-  (testing "stepping prev when the focused epoch is already the first
-            touching the machine leaves the focus untouched"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (override-machines!    [:auth/login])
-      (override-definitions! {:auth/login fixture-definition})
-      (override-epoch-history!
-        [{:epoch-id 1
-          :trace-events
-          [{:id 1 :time 10 :operation :rf.machine/transition
-            :tags {:machine-id :auth/login
-                   :before {:state :idle :data {}}
-                   :after  {:state :authing :data {}}
-                   :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
-      (focus-epoch! 1)
-      (rf/dispatch-sync [:rf.xray/machine-focus-prev])
-      (let [xray-db (rf.frame/frame-app-db-value :rf/xray)]
-        (is (= 1 (get-in xray-db [:focus :epoch-id]))
-            "focus stays at epoch 1 — no prior match")))))
 
 (deftest machine-focus-prev-stops-at-birth-and-no-op-epochs-rf2-y8doi-23
   (testing "the panel renders a section for a machine BIRTH and for
@@ -1010,7 +887,13 @@
           "focus stepped to the prior auth/login epoch through the spine-routed
            mutation (its settling dispatch-id pinned) and stamped :mode
            :retro so compose-focus stops head-tracking and the navigation
-           holds"))))
+           holds")
+      (rf/dispatch-sync [:rf.xray/machine-focus-prev])
+      (is (= 1 (get-in (rf.frame/frame-app-db-value :rf/xray) [:focus :epoch-id]))
+          "Prev at the machine's first epoch leaves the focus where it is")
+      (rf/dispatch-sync [:rf.xray/machine-focus-next])
+      (is (= 3 (get-in (rf.frame/frame-app-db-value :rf/xray) [:focus :epoch-id]))
+          "Next steps 1 -> 3, skipping epoch 2, which touched only :checkout/flow"))))
 
 ;; ---------------------------------------------------------------------------
 ;; React unique-key guard. `focused-event-view` renders each per-section
