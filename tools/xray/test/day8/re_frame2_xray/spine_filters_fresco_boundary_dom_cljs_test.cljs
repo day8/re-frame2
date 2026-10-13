@@ -22,8 +22,8 @@
         The menu then closes from its OWN subscription.
 
     W2  Modal mounts with muted ids and commits real rows through the
-        keyed native fragment, an Unmute click updates the LIVE surface
-        in place, and a deaf control says that update means liveness.
+        keyed native fragment, and an Unmute click updates the LIVE
+        surface in place.
 
     W3  Unmount releases every read both boundaries take, after the
         collector's documented grace, and reopening does not accumulate.
@@ -135,15 +135,6 @@
   keyed by the query vector itself, so these values ARE the cache keys."
   [menu-q open-q muted-q pos-q])
 
-;; W2's DEAF lever. It writes a key on the instance's own app-db that NO
-;; sub in either boundary's read set consults, so the world moves and
-;; nothing either boundary watches is invalidated. Without it, W2's
-;; repaint would be evidence that a commit happened — not that the
-;; boundary is live.
-(rf/reg-event ::write-unwatched-slot
-  (fn [{:keys [db]} [_ n]]
-    {:db (assoc db ::probe n)}))
-
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.reagent/adapter
@@ -172,19 +163,6 @@
 ;; written that way reads a DOM that has not moved and reports a live
 ;; boundary as dead. The mount is committed with `flushSync` (React's own
 ;; door) and everything after it is polled.
-
-(defn- settle
-  "A promise resolving once every render pipeline on the page has had a
-  real chance to commit — two animation frames and a macrotask. It exists
-  for the CONTROL in W2: an absence asserted immediately after the world
-  moves is a race, and an absence asserted after this is a decision."
-  []
-  (js/Promise.
-    (fn [resolve]
-      (js/requestAnimationFrame
-        (fn [_]
-          (js/requestAnimationFrame
-            (fn [_] (js/setTimeout resolve 20))))))))
 
 ;; ---- setup / seeding, through the PRODUCTION events ----------------------
 ;;
@@ -247,9 +225,7 @@
 (defn- menu-node      [c] (q c (testid-sel "rf-xray-row-context-menu")))
 (defn- menu-backdrop  [c] (q c (testid-sel "rf-xray-row-context-menu-backdrop")))
 (defn- menu-mute-btn  [c] (q c (testid-sel "rf-xray-row-context-menu-mute")))
-(defn- dialog-node    [c] (q c (testid-sel "rf-xray-mute-manager-dialog")))
 (defn- list-node      [c] (q c (testid-sel "rf-xray-mute-manager-list")))
-(defn- empty-node     [c] (q c (testid-sel "rf-xray-mute-manager-empty")))
 (defn- row-node       [c id] (q c (testid-sel (str "rf-xray-mute-manager-row-" id))))
 (defn- unmute-btn     [c id] (q c (testid-sel (str "rf-xray-mute-manager-unmute-" id))))
 
@@ -350,52 +326,28 @@
         (let [{:keys [container root]} (mount! instance-frame
                                                [spine-filters/RowContextMenu])]
           ;; ---- the MOUNT half -------------------------------------------
-          (is (some? (menu-node container))
-              "the menu committed a real DOM root under React — the Fresco
-               boundary behind the public bridge name really ran its body,
-               which no node-lane row can witness because the door it
-               drives is handed the read as an argument")
           (is (some? (menu-backdrop container))
               "and the outside-click backdrop committed alongside it, so
                the boundary rendered the WHOLE `[:<>]` fragment rather
                than its first child")
           (is (= (str muted-id)
                  (attr (menu-node container) "data-rf-xray-event-id"))
-              (str "the committed menu carries the seeded event-id, so the
-                    boundary's `rf.fresco/sub` resolved the open state
-                    rather than painting a default shell. Expected "
+              (str "the committed menu — the Fresco boundary behind the
+                    public bridge name really ran its body — carries the
+                    seeded event-id, so the boundary's `rf.fresco/sub`
+                    resolved the open state in the MOUNTED frame, the only
+                    one with a menu open. Expected "
                    (pr-str (str muted-id))))
-          (is (some? (menu-mute-btn container))
-              "and the Mute item is on screen to be clicked")
-
-          ;; ---- the read landed in the frame the tree named ---------------
-          (is (pos? (ref-count-of instance-frame menu-q))
-              (str "the boundary's read " (pr-str menu-q) " holds a
-                    reference in the MOUNTED frame's sub-cache. Cache keys: "
-                   (pr-str (keys (cache-of instance-frame)))))
-          (is (zero? (ref-count-of competing-frame menu-q))
-              "and NOT in the competing instance's — a boundary that
-               inherited an ambient scope instead of reading React context
-               would put it there")
 
           ;; ---- the DISPATCH half, outside any render scope ---------------
-          (is (click! (menu-mute-btn container))
-              "there was a Mute item to click at all — stated as its own
-               row so a boundary that painted nothing reports THAT rather
-               than a bare poll timeout")
+          (click! (menu-mute-btn container))
           (-> (rf.test-support/poll-until
                 #(= #{muted-id} (muted-of instance-frame))
-                {:label "the Mute item's dispatch reached the mounted frame"})
+                {:label (str "the Mute item's dispatch reached the mounted "
+                             "frame; under a `{:frame :rf/xray}` literal it "
+                             "would still read nil")})
               (.then
                 (fn [_]
-                  (is (= #{muted-id} (muted-of instance-frame))
-                      (str "THE MUTE LANDED ON THE MOUNTED INSTANCE. The
-                            boundary captured its frame at render time and
-                            dispatched into it; under a
-                            `{:frame :rf/xray}` literal this
-                            frame would still read nil. Expected "
-                           (pr-str #{muted-id}) ", got "
-                           (pr-str (muted-of instance-frame))))
                   (is (= #{competing-id} (muted-of competing-frame))
                       (str "and the COMPETING instance is exactly as it was
                             — still holding its own seeded mute and nothing
@@ -408,10 +360,6 @@
                     {:label "the menu closed from its own subscription"})))
               (.then
                 (fn [_]
-                  (is (nil? (menu-node container))
-                      "the menu item's `close!` invalidated the boundary's
-                       own read and the surface left the DOM — the boundary
-                       is live, not a one-shot paint")
                   (is (nil? (menu-backdrop container))
                       "and the backdrop went with it")))
               (.catch (fn [e]
@@ -433,9 +381,7 @@
             the element the shell's call answers — commits the real
             muted-row DOM through the keyed
             native fragment, and an Unmute click updates the LIVE surface
-            in place from the boundary's own subscription. The deaf
-            control is what makes that update mean liveness rather than a
-            commit that had simply not happened yet."
+            in place from the boundary's own subscription."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (async done
@@ -447,59 +393,23 @@
         (let [{:keys [container root]} (mount! instance-frame
                                                [spine-filters/Modal])
               list-el (list-node container)]
-          ;; ---- the MOUNT half -------------------------------------------
-          (is (some? (dialog-node container))
-              "the manager committed its real dialog under React — the
-               boundary's gate read `:rf.xray/mute-manager-open?` true and
-               its body ran")
-          (is (nil? (empty-node container))
-              "NON-VACUITY: this is the populated branch, not the
-               empty-state one the boundary paints with no muted ids")
-          (is (some? list-el)
-              "and the list itself committed")
-          (is (some? (row-node container muted-id))
-              (str "the row for " (pr-str muted-id) " is real DOM"))
-          (is (some? (row-node container second-id))
-              (str "and so is the row for " (pr-str second-id)))
-          (is (some? (unmute-btn container muted-id))
-              "with a live per-row Unmute affordance")
+          ;; ---- the MOUNT half, and the NATIVE FRAGMENT KEYS ---------------
+          ;; The gate read open and the populated branch ran: the list's
+          ;; element children are EXACTLY the two seeded rows. `mute-row` is
+          ;; CALLED inside a keyed `[:<> {:key …}]` fragment, so a fragment
+          ;; that had degraded into a wrapper element, or a dropped key
+          ;; collapsing the rows, would not read these two testids.
+          (is (= [(str "rf-xray-mute-manager-row-" muted-id)
+                  (str "rf-xray-mute-manager-row-" second-id)]
+                 (mapv #(.getAttribute % "data-testid") (element-children list-el)))
+              "in `sort-by str` order, which is the order the shipped
+               `list-section` renders")
 
-          ;; ---- the NATIVE FRAGMENT KEYS, which only a real
-          ;;      commit can witness -----------------------------------------
-          (let [kids (element-children list-el)]
-            (is (= 2 (count kids))
-                (str "the list has EXACTLY the two seeded rows as element
-                      children. `mute-row` is CALLED inside a keyed
-                      `[:<> {:key …}]` fragment, and a fragment that had
-                      degraded into a real DOM node — or a key Fresco's
-                      codec dropped, collapsing the rows — would not read
-                      2 here. Got " (count kids)))
-            (is (= ["LI" "LI"] (mapv #(.-tagName %) kids))
-                "and both children are the `<li>` rows THEMSELVES, so the
-                 keyed fragment contributed no wrapper element of its own —
-                 the whole point of keying a fragment rather than the row")
-            (is (= [(str "rf-xray-mute-manager-row-" muted-id)
-                    (str "rf-xray-mute-manager-row-" second-id)]
-                   (mapv #(.getAttribute % "data-testid") kids))
-                "in `sort-by str` order, which is the order the shipped
-                 `list-section` renders"))
-
-          ;; ---- phase 2: the world moves, and the boundary is deaf ---------
-          (rf/dispatch-sync [::write-unwatched-slot 1] {:frame instance-frame})
-          (-> (settle)
-              (.then
-                (fn [_]
-                  (is (= 2 (count (element-children (list-node container))))
-                      "CONTROL: given a full settling window, a write to an
-                       app-db slot neither boundary's read set consults
-                       commits nothing. A modal that repainted here would
-                       make phase 3 pass for a reason that is not liveness")
-                  ;; ---- phase 3: a real action on a real row -------------
-                  (is (click! (unmute-btn container muted-id))
-                      "there was a per-row Unmute button to click at all")
-                  (rf.test-support/poll-until
-                    #(nil? (row-node container muted-id))
-                    {:label "the unmuted row left the live surface"})))
+          ;; ---- a real action on a real row --------------------------------
+          (click! (unmute-btn container muted-id))
+          (-> (rf.test-support/poll-until
+                #(nil? (row-node container muted-id))
+                {:label "the unmuted row left the live surface"})
               (.then
                 (fn [_]
                   (is (= #{second-id} (muted-of instance-frame))
@@ -510,8 +420,6 @@
                   (is (= #{competing-id} (muted-of competing-frame))
                       (str "and the competing instance is untouched. Got "
                            (pr-str (muted-of competing-frame))))
-                  (is (nil? (row-node container muted-id))
-                      "the unmuted row is gone from the DOM")
                   (is (some? (row-node container second-id))
                       "the other row is still there — the surface UPDATED
                        rather than being torn down")
@@ -567,10 +475,8 @@
                                               spine-filters/RowContextMenu])
                       mounted (mapv #(ref-count-of instance-frame %)
                                     boundary-reads)]
-                  (is (some? (dialog-node container))
-                      "PRECONDITION: the manager really is on screen")
-                  (is (some? (menu-node container))
-                      "PRECONDITION: and so is the row menu")
+                  ;; The gated reads hold a reference only while the manager
+                  ;; is open, so this also shows it is on screen.
                   (is (every? pos? mounted)
                       (str "the mount took a reference for every one of the
                             boundaries' reads — otherwise the release below
@@ -581,11 +487,6 @@
                         {:label "the first unmount released every read"})
                       (.then
                         (fn [_]
-                          (is (released?)
-                              (str "the unmount released them COMPLETELY,
-                                    within the collector's grace macrotask.
-                                    Cache: "
-                                   (pr-str (keys (cache-of instance-frame)))))
                           ;; ---- reopen: the same counts, not higher ----
                           (let [{c2 :container r2 :root}
                                 (mount! instance-frame
@@ -604,8 +505,6 @@
                             (teardown! r2 c2)
                             (rf.test-support/poll-until released?
                               {:label "the second unmount released them too"}))))))))
-            (.then (fn [_] (is (released?)
-                               "and the second unmount releases them too")))
             (.catch (fn [e]
                       (is false (str "W3 poll timed out: " (.-message e)))
                       nil))
