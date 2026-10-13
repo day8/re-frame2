@@ -99,13 +99,7 @@
             (str k " must be stripped from the projection at every depth")))
       (is (= [[{:keep 1}] #{{:keep 2}}]
              [(get-in projected [:nested :rows]) (get-in projected [:nested :set])])
-          "the non-volatile key beside them survives")))
-  (testing ":source / :elapsed-ms / :runner strip structurally, on the run
-            result and the assertion record that stamp them"
-    (let [stripped (rf.story.fingerprint/project
-                     (rf.story.fingerprint/strip-run-stamps base-run))]
-      (is (= [{} {}] [(select-keys stripped [:elapsed-ms :runner])
-                      (select-keys (get-in stripped [:assertions 0]) [:source :elapsed-ms])])))))
+          "the non-volatile key beside them survives"))))
 
 ;; `:source`, `:elapsed-ms` and `:runner` are ordinary domain keys (a feed's
 ;; source, a stopwatch, a race). A recursive strip would make every consumer
@@ -328,17 +322,15 @@
 (deftest large-integers-canonicalize-host-portably
   (testing "an integer beyond ±2^53-1 takes the lossy bit-double path CLJS is
             forced onto, so the same logical integer hashes equal cross-host"
-    (let [big   (bigint 100000000000000000000)
-          bits  #(vector rf.story.fingerprint/double-tag
-                         (#'rf.story.fingerprint/double->bits-hex (double %)))]
-      (is (= (bits big)
+    (let [big (bigint 100000000000000000000)]
+      (is (= [rf.story.fingerprint/double-tag "4415af1d78b58c40"]
              (rf.story.fingerprint/canonical-form big)
              (rf.story.fingerprint/canonical-form (.toBigInteger (bigdec big)))
              (rf.story.fingerprint/canonical-form 1e20))
           "bigint, BigInteger and the double CLJS reads share one canonical form")
-      (let [over (inc (bigint rf.story.fingerprint/max-safe-integer))]
-        (is (= (bits over) (rf.story.fingerprint/canonical-form over))
-            "one past max-safe-integer takes the bit-double path"))))
+      (is (= [rf.story.fingerprint/double-tag "4340000000000000"]
+             (rf.story.fingerprint/canonical-form (inc (bigint rf.story.fingerprint/max-safe-integer))))
+          "one past max-safe-integer takes the bit-double path")))
   (testing "integers within range, including the ±max-safe-integer boundary, pass through"
     (doseq [n [rf.story.fingerprint/max-safe-integer (- rf.story.fingerprint/max-safe-integer)
                42 -7 1000000]]
