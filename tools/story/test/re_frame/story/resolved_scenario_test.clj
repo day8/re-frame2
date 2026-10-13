@@ -32,7 +32,6 @@
             [re-frame.story.frames :as rf.story.frames]
             [re-frame.story.loaders :as rf.story.loaders]
             [re-frame.story.play.runner-events :as rf.story.play.runner-events]
-            [re-frame.story.runtime :as rf.story.runtime]
             [re-frame.story.save-variant :as rf.story.save-variant]
             [re-frame.story.ui.state :as rf.story.ui.state]))
 
