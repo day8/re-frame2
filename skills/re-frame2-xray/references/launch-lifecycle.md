@@ -40,16 +40,14 @@ serialisation cost.
 Caveats inherited from the `window.opener` posture:
 
 - Same-origin required; do not open with `noopener` / `noreferrer`.
-- If the user closes the opener, the pop-out becomes orphaned. Pop-out
- detects this via `window.opener.closed` and shows a clean
- "opener gone — close this window" overlay.
-- The pop-out can't survive a hard reload of the opener — the opener's
- atoms are garbage-collected and the pop-out is left reading a dead
- runtime. **There is no re-bootstrap.** (`spec/011-Launch-Modes.md`
- §Pop-out has the pop-out re-reading a `window.opener.xrayRuntime` handle
- on opener reload; nothing in `tools/xray/src` ever sets that handle, so
- it is normative-future.) Close the pop-out and open a fresh one from the
- reloaded opener.
+- If the user closes **or reloads** the opener, the pop-out is orphaned:
+ everything it runs lives in the opener's JS realm. It shows a clean
+ "opener gone — close this window" overlay (a watchdog on
+ `window.opener.closed` catches a close; a `pagehide` listener on the
+ opener catches a reload). **There is no re-bootstrap** — the
+ `window.opener.xrayRuntime` handle `spec/011-Launch-Modes.md` §Pop-out
+ describes is normative-future. Close the pop-out and open a fresh one
+ from the reloaded opener.
 - **No key opens the pop-out.** The visible `⛶` top-bar button is the
  canonical chrome launch; the programmatic call is the secondary path.
  **Inside it, the keyboard works**: the pop-out installs its own keydown

@@ -12,36 +12,32 @@ they rebind. Their registry counterparts live in **Static mode**
 Question: **What did this event do to my machines?** (Singular label
 **Machine**.)
 
-**Event-driven** — no picker, no browse modes: the panel is **blank**
-(a single calm placeholder line, no topology) when the focused event had
-no machine activity, and renders one per-machine section when it does:
-topology + transition highlight + guards + actions + cancellation
-cascade + `:after` rings. Per-machine prev/next nav walks the spine to
-the next event that touched that machine.
+**Event-driven and single-instance** — no picker, no browse modes, no
+stacked machines. When the focused event targets no machine, the panel
+shows one quiet placeholder line — "This event does not target a state
+machine" ("No machines registered." when the app has none) — and nothing
+else. When it does, the panel binds to the **one
+machine instance** that event targeted (the first, when it touched
+several) — a transition, a machine birth, or a guard-blocked no-op all
+count — and renders exactly three things, in order:
 
-Each machine renders as an interactive chart through the shared
-machines-viz **MachineChart** — nodes, edges, current-state highlight,
-parallel-region containers, final-state double-rings. The resolved
-current state carries a **static** highlight (accent border + soft glow
-ring); it does not pulse — no continuous animation, by ruling.
+1. **Prev / Next** in the panel header — walks the spine to the previous
+ or next event that touched *this* machine, moving the focused epoch.
+2. **The machine cascade** — the same numbered mini-pipeline the Epoch
+ tab's EVENT HANDLER step renders: microstep, exit, action, entry and
+ guard rows, each with click-to-source and its outcome / data write.
+ Guard and action detail lives here; nothing else lists it.
+3. **The topology chart** — the shared machines-viz **MachineChart**
+ (nodes, edges, parallel-region containers, final-state double-rings)
+ with this epoch's FROM state dashed, the TO state emphasised, fired
+ edges highlighted, and `:after` countdown rings on armed timer states.
+ It carries its own zoom / pan / fit controls. The current state is
+ highlighted statically (accent border + soft glow ring); nothing
+ pulses.
 
-**Current-state precedence** — a 4-source walk-back resolves the
-machine's current state for the focused epoch:
-
-1. **Explicit** — operator override (sticky selection)
-2. **Focused-epoch transition** — if this epoch fired one for the machine
-3. **Epoch-history walk-back** — the most recent transition in the buffer
-4. **Snapshot** — the substrate's per-frame machine state
-
-The focused-epoch **transition row** is a single prominent row: a header
-verb `<before-state → after-state>` (doubling as click-to-source) over a
-logical-state DELTA box — a before→after diff of the machine's
-`{:state :tags}` only (`:data` is carried by the per-action `↳ data Δ`).
-Guards / actions / cancellation chips list inline in the per-canvas
-footer — no modal, no popout.
-
-**Open when:** "what state is my checkout machine in?", "what transition
-fired this epoch?", "what guards passed / failed?"
+**Open when:** "what state is my checkout machine in?" (select the latest
+event that touched it), "what transition fired this epoch?", "what guards
+passed / failed?"
 
 > **Browse-all machine canvas → Static mode.** The spine-INDEPENDENT
 > "what does this machine LOOK like overall?" canvas (picker +
