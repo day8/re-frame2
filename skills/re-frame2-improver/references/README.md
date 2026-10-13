@@ -1,6 +1,6 @@
 # references/
 
-Anti-pattern catalogue for `re-frame2-improver`. Each leaf is one anti-pattern with detection rule, symptom example, canonical re-frame2 idiom, suggested rewrite, and a cross-link to the matching leaf under `skills/re-frame2/patterns/` or the relevant `spec/` document.
+Anti-pattern catalogue for `re-frame2-improver`. Each leaf is one anti-pattern with detection rule, symptom example, canonical re-frame2 idiom, suggested rewrite, and a cross-link to the matching leaf under `skills/re-frame2/patterns/` or `skills/re-frame2/references/`, or the relevant `spec/` document.
 
 > **Maintainer index, not a runtime read.** A review routes from [`../SKILL.md` §Routing](../SKILL.md#routing--load-only-the-leaves-whose-signals-appear) straight to the matching leaves — one level deep, per the family's §Leaf size discipline rule in `skills/README.md` — "no SKILL → A → B chains" (monorepo only; not shipped in the package). This page is the human catalogue index: what each leaf covers, the locked leaf format, and where the design rationale lives.
 
@@ -22,5 +22,5 @@ Each leaf carries 5 sections — Detection rules / Why it's an anti-pattern / Th
 ## Cross-references
 
 - [`../SKILL.md`](../SKILL.md) — the skill's top-level entry; describes when this catalogue is consulted.
-- [`skills/re-frame2/patterns/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2/patterns) — the canonical-idiom leaves each anti-pattern routes to.
+- [`skills/re-frame2/patterns/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2/patterns) and [`skills/re-frame2/references/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2/references) — the canonical-idiom leaves each anti-pattern routes to.
 - [`../spec/design.md`](../spec/design.md) — the design rationale (catalogue shape, 5-section leaf format, correction contract, growth procedure, deferred candidates). Not shipped in the package; reach it from a monorepo clone.

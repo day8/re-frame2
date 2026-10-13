@@ -27,7 +27,7 @@ The normative source each leaf footers to. Verified-current ownership the leaves
 | State machines + tags query layer (`reg-machine`, `:tags`, and the `[:rf.machine/has-tag? <machine-id> <tag>]` subscription — a tag read is a subscription vector, not a fn) | [005-StateMachines](../../../spec/005-StateMachines.md) |
 | Schemas at boundaries (`:schema`, `reg-app-schema`, and the `:boundary? true` registration flag that keeps a handler's `:schema` running in production) | [010-Schemas](../../../spec/010-Schemas.md) |
 | Views as pure projections | [000-Vision §Pointers to per-area Specs](../../../spec/000-Vision.md#pointers-to-per-area-specs) |
-| Data-only fx convention | [Conventions](../../../spec/Conventions.md) |
+| Effects as data — `reg-fx` and the closed effect map | [002-Frames](../../../spec/002-Frames.md) — see [Ownership](../../../spec/Ownership.md) |
 | `:platforms` fx/cofx gating | [011-SSR](../../../spec/011-SSR.md) — see [Ownership](../../../spec/Ownership.md) |
 | Testing surface (`dispatch-sync` + `app-db-value` for events; `compute-sub` for subs — there is no `compute-event`) | [008-Testing](../../../spec/008-Testing.md) |
 | Surface ownership map ("where does X live?") | [Ownership](../../../spec/Ownership.md) |

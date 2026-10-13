@@ -2,22 +2,22 @@
 
 > ↑ [`skills/`](https://github.com/day8/re-frame2/tree/main/skills) — index of all re-frame2 skills.
 
-`re-frame2-improver` is a Claude Code critique-mode skill for existing re-frame2 ClojureScript code. One request returns one complete critique: it reviews a body of source files (or a user-supplied snippet) against a small catalogue of re-frame2 anti-patterns and surfaces every material finding in the same turn — severity-ordered, each with concrete evidence, its consequence, the smallest safe correction, and a cross-link to the canonical idiom under `skills/re-frame2/patterns/`. It applies fixes only when the request says to fix as well as review.
+`re-frame2-improver` is a Claude Code critique-mode skill for existing re-frame2 ClojureScript code. One request returns one complete critique: it reviews a body of source files (or a user-supplied snippet) against a small catalogue of re-frame2 anti-patterns and surfaces every material finding in the same turn — severity-ordered, each with concrete evidence, its consequence, the smallest safe correction, and a cross-link to the canonical idiom in the `re-frame2` skill (`patterns/` or `references/`) or `spec/`. It applies fixes only when the request says to fix as well as review.
 
 This skill is the on-demand complement to [`re-frame2`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2): re-frame2 authors new code from canonical idioms; re-frame2-improver retrospectively critiques existing code against the same idioms. It activates only on explicit pull — "review my re-frame2 code", "any anti-patterns?", "audit against best practices" — and only when a body of re-frame2 source is in scope (a `.cljs` / `.cljc` file read or edited in the conversation, a pasted snippet, or a named path the skill reads). Vocabulary alone does not trigger it. The 3 activation filters and the not-for routing are stated once in [`SKILL.md` §Trigger semantics](SKILL.md#trigger-semantics-locked).
 
 ## Repo contents
 
 - `SKILL.md` — the skill itself (trigger semantics, workflow, the signal → leaf routing table, output shape, self-anti-patterns).
-- `references/` — the six anti-pattern leaves. Each carries a detection rule, symptom example, canonical re-frame2 idiom, suggested rewrite, and a cross-link to the matching idiom under `skills/re-frame2/patterns/` or `spec/`. `references/README.md` is the maintainer catalogue index; a review routes to the leaves from `SKILL.md` directly.
-- `evals/evals.json` — eval fixtures: trigger fixtures (should-trigger + should-not-trigger, per skill-creator's description-optimisation contract) plus behavioural fixtures that grade the critique itself — right anti-pattern named, evidence cited, canonical idiom cross-linked, no false positives, Edit gate respected. See [`evals/README.md`](evals/README.md) for the coverage table and grading guidance (authoring-time scaffolding, not shipped in the package — reach it from a monorepo clone).
+- `references/` — the six anti-pattern leaves. Each carries a detection rule, symptom example, canonical re-frame2 idiom, suggested rewrite, and a cross-link to the matching idiom under `skills/re-frame2/patterns/`, `skills/re-frame2/references/` or `spec/`. `references/README.md` is the maintainer catalogue index; a review routes to the leaves from `SKILL.md` directly.
+- `evals/evals.json` — eval fixtures: trigger fixtures (should-trigger + should-not-trigger, per skill-creator's description-optimisation contract) plus behavioural fixtures that grade the critique itself — right anti-pattern named, evidence cited, canonical idiom cross-linked, no false positives, Edit gate respected. See [`evals/README.md`](evals/README.md) for the harness shape and grading guidance (authoring-time scaffolding, not shipped in the package — reach it from a monorepo clone).
 - `.claude-plugin/plugin.json` — Claude Code Plugin packaging metadata.
 - `package.json` — npm packaging metadata (skill is also distributable as an Agent Skill).
 - `spec/` — skill-internal meta-docs (`design.md`, `inputs.md`, `authoring-prompt.md`) that let a future pass re-author the skill from committed inputs. Not loaded during normal operation.
 
 ## Relationship to other skills
 
-- [`re-frame2`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2) — authors new application code. The improver leans on its `patterns/` and `spec/` leaves as the canonical-idiom source-of-truth for every cross-link.
+- [`re-frame2`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2) — authors new application code. The improver leans on its `patterns/` and `references/` leaves as the canonical-idiom source of truth for every cross-link.
 - [`re-frame2-pair`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair) — pair-programs with a running re-frame2 application. The improver is static — it never attaches to a runtime; if the user wants live inspection, route to re-frame2-pair.
 - [`re-frame2-pair-retro`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair-retro) — retros on a re-frame2-pair session. Session-shaped and read-only, where this skill is source-shaped; both are self-contained.
 
@@ -29,7 +29,7 @@ This skill is the on-demand complement to [`re-frame2`](https://github.com/day8/
 
 ## Install
 
-`re-frame2-improver` ships as part of the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. It carries `package.json` and `.claude-plugin/plugin.json` packaging metadata, but neither names a live channel: the `package.json` is marked `private`, and the repo carries no plugin marketplace manifest. The install path is to clone re-frame2 and link the skill from `skills/re-frame2-improver/`. The packaged normal path is self-contained: everything a review loads (`SKILL.md` + `references/`) ships in the package's own file set — the sibling-skill routing boundary included, stated in full in [`SKILL.md` §Trigger semantics](SKILL.md#trigger-semantics-locked) — and links out to the monorepo (`skills/re-frame2/patterns/`, `spec/`, the `skills/README.md` routing matrix) are optional supporting destinations, not required reads.
+`re-frame2-improver` ships as part of the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. It carries `package.json` and `.claude-plugin/plugin.json` packaging metadata, but neither names a live channel: the `package.json` is marked `private`, and the repo carries no plugin marketplace manifest. The install path is to clone re-frame2 and link the skill from `skills/re-frame2-improver/`. The packaged normal path is self-contained: everything a review loads (`SKILL.md` + `references/`) ships in the package's own file set — the sibling-skill routing boundary included, stated in full in [`SKILL.md` §Trigger semantics](SKILL.md#trigger-semantics-locked) — and links out to the monorepo (`skills/re-frame2/patterns/` and `references/`, `spec/`, the `skills/README.md` routing matrix) are optional supporting destinations, not required reads.
 
 ### Install the skill in Claude Code
 

@@ -25,7 +25,7 @@ Greppable signals inside `reg-event` handler bodies, **grouped by direction**:
 - Nondeterministic time reads — `(js/Date.now)`, `(.getTime (js/Date.))`, `(js/Date.)` used as a value.
 - Randomness / id generation — `(js/Math.random)`, `(.randomUUID js/crypto)`, `(random-uuid)`.
 - Environment / storage **reads** — `(.getItem js/localStorage …)`, `js/navigator.language`, `js/location.href`, `js/navigator.onLine`.
-- A **reactive** subscription opened inside a handler — `(rf/subscribe …)` / `@(rf/subscribe …)` — establishes a reaction in the drain-loop's evaluation context and leaks it until GC. That is the leak. **`rf/subscribe-once` is NOT in this bucket** — see [`subscribe-once`](#subscribe-once-in-a-handler-is-not-an-anti-pattern) below.
+- A **reactive** subscription opened inside a handler — `(rf/subscribe …)` / `@(rf/subscribe …)` — takes a counted share of the frame's sub-cache entry that nothing ever returns, so the reaction stays live, watching `app-db` and recomputing, until the frame is destroyed. That is the leak. **`rf/subscribe-once` is NOT in this bucket** — see [`subscribe-once`](#subscribe-once-in-a-handler-is-not-an-anti-pattern) below.
 
 **Structural signal (durable read):** the fetched value is `assoc`'d into the returned `:db` (or runtime-db / a resource / a snapshot / a ledger row) — e.g. `:created-at (js/Date.now)`, `:id (random-uuid)`. Replaying the same event then produces a *different* result, so an ambient cofx is not enough — it must be a recorded fact.
 
@@ -64,7 +64,7 @@ Route by direction:
 - **Do flag a *reactive* `@(rf/subscribe …)` or a retained reaction** in a handler body — that leaks (the read-signals list above).
 - **Do flag `subscribe-once` inside a machine callback.** A machine `:guard` / `:action` / `:entry` / `:exit` MUST NOT call `subscribe-once` (nor read app-db any other ambient way): an in-callback ambient read is unrecorded, so replay can select a *different* transition ([`spec/006-ReactiveSubstrate.md`](https://github.com/day8/re-frame2/blob/main/spec/006-ReactiveSubstrate.md) §`subscribe-once`; [`spec/005-StateMachines.md`](https://github.com/day8/re-frame2/blob/main/spec/005-StateMachines.md) §Causal host facts). The fix is **payload threading** (the triggering event carries the fact) or a **declared recordable coeffect** on the machine's `:rf.cofx` record. For a sub read the recordable source is purpose-built: the machines-only `{:rf/sub query-v :as fact-id}` form in a `:rf.cofx/requires`, which records the sub's value once at processing-start so replay re-presents it. Only a **named** `:guards` / `:actions` entry can declare requirements (an inline callback that tries fails registration with `:rf.error/machine-cofx-requires-inline`), so that fix also names the callback — `:guard :cart/total-ok?`, `:entry :mark-vip`.
 
-Spec source: [`spec/Conventions.md`](https://github.com/day8/re-frame2/blob/main/spec/Conventions.md) (data-only fx). `reg-fx` and `reg-cofx` are public `re-frame.core` exports; there is no `inject-cofx` — coeffect delivery is the `:rf.cofx/requires` declaration.
+Spec source: [`spec/002-Frames.md`](https://github.com/day8/re-frame2/blob/main/spec/002-Frames.md) (effects — `reg-fx` and the closed effect map). `reg-fx` and `reg-cofx` are public `re-frame.core` exports; there is no `inject-cofx` — coeffect delivery is the `:rf.cofx/requires` declaration.
 
 ## Worked example
 
