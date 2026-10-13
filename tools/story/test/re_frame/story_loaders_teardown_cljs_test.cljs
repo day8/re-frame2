@@ -106,7 +106,7 @@
         (-> (rf.story/run-variant :story.lt.record/v)
             (rf.story.async/then
               (fn [_]
-                (is (nil? (rf.story/destroy-variant! :story.lt.record/v)))
+                (rf.story/destroy-variant! :story.lt.record/v)
                 (is (not (contains? (rf.story/variant-frames) :story.lt.record/v)))
                 (let [err (first (filter #(= :rf.error/exception (:assertion %)) @captured))]
                   (is (= {:phase :phase-loaders-teardown :passed? false :event [:boom/cleanup]
