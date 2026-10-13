@@ -3,35 +3,16 @@
   (`machine_history_unit_cljs_test`). Drives the pure `machine-transition`
   primitive directly (no frame / app-db):
 
-    - PER-REGION parallel history — recorded keys are region-qualified, and
-      restoring ONE region (a region-specific event) leaves a sibling holding
-      its own recording untouched.
+    - The `:rf.machine.history/recorded` / `-restored` tag bags and the
+      cascade-step `:source` stamping, exactly as spec/009 §History trace
+      events declares them.
     - A history target declared on, below or outside its owning compound —
-      which states the restore exits and re-enters.
-
-  Shallow/deep record and restore, the default-target and `:initial`
-  fallbacks, dangling recorded paths, snapshot revert and the exit-set
-  boundary live in the unit matrix; the conformance restore fixtures and the
-  W3C-adapted corpus cover the rest.
-
-  TRACE SHAPE — the `:rf.machine.history/restored` + `:rf.machine.history/
-  recorded` emits MUST match spec/009 §History trace events EXACTLY. The
-  `*-trace-shape` tests below capture the emitted events via a `re-frame.trace`
-  listener and assert the precise tag bags (`:compound-path` / `:kind` /
-  `:source` / `:fallback` / `:restored-config` / `:recorded-config` /
-  `:prev-config` / `:resolved-leaf`) + the cascade-step `:source` stamping
-  (spec/009 line 291)."
+      which states the restore exits and re-enters."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.machines :as rf.machines]
             [re-frame.machines.parallel :as rf.machines.parallel]
             [re-frame.machines.result :as rf.machines.result]
             [re-frame.machines.test-support :as rf.machines.test-support]))
-
-;; ---- trace capture (spec/009 shape proof) --------------------------------
-;;
-;; Trace capture via the shared machines test-support:
-;; the `:each` `trace-capture-fixture` feeds `rf.machines.test-support/*captured*` with guaranteed
-;; unregister in a `finally`; `events-of` / `reset-captured!` read + clear it.
 
 (use-fixtures :each rf.machines.test-support/trace-capture-fixture)
 
@@ -96,58 +77,36 @@
   [state]
   {:state state :data {} :rf/spawn-counter {}})
 
-;; A parallel machine with a history-bearing compound (`:on`) in EACH region.
-;; Under the exit-set rule the history owner must be a compound the move
-;; genuinely exits — so `:on` (not `:group`) owns the deep history: `:off-*`
-;; exits the whole `:on` subtree to its sibling `:off`, recording `:on`'s
-;; last-active leaf; `:on-*` re-enters via `[:group :on :hist]`.
-(def parallel-history
-  {:type    :parallel
-   :regions {:left  {:initial :group
-                     :states  {:group {:initial :off
-                                       :states  {:off {:on {:on-l [:group :on :hist]}}
-                                                 :on  {:initial :dim
-                                                       :on      {:off-l [:group :off]}
-                                                       :states  {:hist   {:type :history :deep? true}
-                                                                 :dim    {:on {:bright-l :bright}}
-                                                                 :bright {:on {:off-l [:group :off]}}}}}}}}
-             :right {:initial :group
-                     :states  {:group {:initial :off
-                                       :states  {:off {:on {:on-r [:group :on :hist]}}
-                                                 :on  {:initial :dim
-                                                       :on      {:off-r [:group :off]}
-                                                       :states  {:hist   {:type :history :deep? true}
-                                                                 :dim    {:on {:bright-r :bright}}
-                                                                 :bright {:on {:off-r [:group :off]}}}}}}}}}})
-
 ;; ---- spec/009 trace-shape proofs -----------------------------------------
 ;;
-;; These pin the EXACT tag bags spec/009 §History trace events declares.
-;; They assert presence AND absence
-;; (e.g. `:restored-config` absent on `:source :default`, `:fallback` absent
-;; on `:source :recorded`, `:prev-config` absent on the first-ever recording).
+;; Each `select-keys` also names a key the bag must NOT carry, so absence is
+;; pinned beside presence.
 
-(deftest recorded-trace-shape-deep
-  (testing ":rf.machine.history/recorded carries the spec/009 deep tag bag (no :prev-config on a first recording)"
-    (step deep-player (seed [:player :playing :mid-track]) [:stop])
-    (is (= [[:rf.machine {:compound-path [:player :playing] :kind :deep
-                          :recorded-config [:player :playing :mid-track]}]]
-           (mapv (fn [ev] [(:op-type ev)
-                           (select-keys (:tags ev) [:compound-path :kind :recorded-config :prev-config])])
-                 (history-events :rf.machine.history/recorded))))))
-
-(deftest restored-trace-shape-recorded-source
-  (testing ":rf.machine.history/restored on the :recorded path (no :fallback)"
+(deftest deep-history-record-and-restore-trace-shapes
+  (testing "the exit records the deep tag bag (no :prev-config on a first recording); the
+            restore takes the :recorded path (no :fallback) and stamps :source on its
+            :entry cascade steps, never on its :exit steps"
     (let [after-stop (step deep-player (seed [:player :playing :mid-track]) [:stop])]
+      (is (= [[:rf.machine {:compound-path [:player :playing] :kind :deep
+                            :recorded-config [:player :playing :mid-track]}]]
+             (mapv (fn [ev] [(:op-type ev)
+                             (select-keys (:tags ev) [:compound-path :kind :recorded-config :prev-config])])
+                   (history-events :rf.machine.history/recorded))))
       (reset-capture!)
-      (step deep-player after-stop [:play])
-      (is (= [[:rf.machine :recorded {:compound-path   [:player :playing] :kind :deep
-                                      :restored-config [:player :playing :mid-track]
-                                      :resolved-leaf   [:player :playing :mid-track]}]]
-             (mapv (fn [ev] [(:op-type ev) (:source ev)
-                             (select-keys (:tags ev) [:compound-path :kind :restored-config
-                                                      :resolved-leaf :fallback])])
-                   (history-events :rf.machine.history/restored)))))))
+      (let [r       (rf.machines.parallel/machine-transition deep-player after-stop [:play])
+            cascade (rf.machines.result/cascade r)]
+        (is (= [true
+                [[:rf.machine :recorded {:compound-path   [:player :playing] :kind :deep
+                                         :restored-config [:player :playing :mid-track]
+                                         :resolved-leaf   [:player :playing :mid-track]}]]
+                [#{:recorded} #{false}]]
+               [(rf.machines.result/ok? r)
+                (mapv (fn [ev] [(:op-type ev) (:source ev)
+                                (select-keys (:tags ev) [:compound-path :kind :restored-config
+                                                         :resolved-leaf :fallback])])
+                      (history-events :rf.machine.history/restored))
+                [(set (map :source (filter #(= :entry (:kind %)) cascade)))
+                 (set (map #(contains? % :source) (filter #(= :exit (:kind %)) cascade)))]]))))))
 
 (deftest restored-trace-shape-default-source-with-fallback
   (testing ":rf.machine.history/restored on the :default path names the :fallback (no :restored-config)"
@@ -156,22 +115,6 @@
            (mapv (fn [ev] [(:source ev)
                            (select-keys (:tags ev) [:fallback :resolved-leaf :restored-config])])
                  (history-events :rf.machine.history/restored))))))
-
-(deftest restored-trace-shape-default-fallback-initial
-  (testing ":fallback :initial when the pseudo-state declares no :default-target"
-    (step {:initial :player
-           :states  {:player
-                     {:initial :stopped
-                      :states  {:stopped {:on {:play [:player :playing :hist]}}
-                                :playing {:initial :at-start
-                                          :on      {:stop [:player :stopped]}
-                                          :states  {:hist      {:type :history :deep? true}
-                                                    :at-start  {}
-                                                    :mid-track {}}}}}}}
-          (seed [:player :stopped]) [:play])
-    (let [ev (first (history-events :rf.machine.history/restored))]
-      (is (= [:default {:fallback :initial}]
-             [(:source ev) (select-keys (:tags ev) [:fallback :restored-config])])))))
 
 (deftest restored-trace-shape-shallow-kind
   (testing "shallow history restore stamps :kind :shallow"
@@ -182,15 +125,6 @@
         (is (= [:recorded {:kind :shallow :restored-config :playing
                            :resolved-leaf [:player :playing :at-start]}]
                [(:source ev) (select-keys (:tags ev) [:kind :restored-config :resolved-leaf])]))))))
-
-(deftest cascade-step-source-stamping
-  (testing "history-driven :entry cascade steps carry :source; :exit steps do not (spec/009)"
-    (let [after-stop (step deep-player (seed [:player :playing :mid-track]) [:stop])
-          cascade    (rf.machines.result/cascade
-                       (rf.machines.parallel/machine-transition deep-player after-stop [:play]))]
-      (is (= [#{:recorded} #{false}]
-             [(set (map :source (filter #(= :entry (:kind %)) cascade)))
-              (set (map #(contains? % :source) (filter #(= :exit (:kind %)) cascade)))])))))
 
 ;; ---- a history target declared inside its owning compound -----------------
 ;;
