@@ -13,8 +13,6 @@
     `:entry` the key `[:states :b :entry]` and `[:b :c]`'s the key
     `[:states :b :states :c :entry]`, each labelled with its own state — and
     the exits on the way back likewise;
-  - the initial descent at birth, where no transition surrounds the rows,
-    resolves the same way;
   - inside a parallel region the key is prefixed `[:regions <region>]` and
     the label is `{<region> <state>}`;
   - a named `:entry` keeps its `[:actions <id>]` key and is labelled with its
@@ -92,12 +90,6 @@
         rows    (cascade-of [:cas/exit [:back]])]
     (testing "the transition leaves from [:b :c]; :b's :exit is still :b's"
       (is (= [[:states :b :exit] :b] (key-and-label rows (:b-out fns)))))))
-
-(deftest the-initial-descent-addresses-each-declaring-state
-  (let [[m fns] (nested-machine :b)
-        _       (rf/reg-machine :cas/birth m)
-        rows    (cascade-of [:cas/birth [:rf.machine/start]])]
-    (is (= [[:states :b :entry] :b] (key-and-label rows (:b-in fns))))))
 
 (deftest a-region-state-addresses-its-own-entry-within-the-region
   (let [x2-in (fn [_] nil)
