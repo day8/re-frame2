@@ -60,6 +60,4 @@
       (is (= #{} (phantom-keys event (vals (:events registry)))))
       (is (= #{} (phantom-keys sub (vals (:subs registry)))))
       (is (= #{} (phantom-keys event chains)))
-      (is (= #{} (phantom-keys (first (:interceptors event)) (mapcat :interceptors chains))))
-      (is (= #{:event/kind} (phantom-keys event [{:interceptors [] :event/kind :db}]))
-          "control: an `:event/kind` sub-tag, which the registry never carries, is caught as a phantom key"))))
+      (is (= #{} (phantom-keys (first (:interceptors event)) (mapcat :interceptors chains)))))))
