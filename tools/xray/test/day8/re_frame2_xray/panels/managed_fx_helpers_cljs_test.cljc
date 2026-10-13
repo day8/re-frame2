@@ -383,6 +383,4 @@
     nil :text-tertiary))
 
 (deftest format-duration-ms-ranges
-  (is (= "—"     (h/format-duration-ms nil)))
-  (is (= "250ms" (h/format-duration-ms 250)))
-  (is (= "1500ms" (h/format-duration-ms 1500))))
+  (is (= ["—" "250ms" "1500ms"] (mapv h/format-duration-ms [nil 250 1500]))))
