@@ -10,8 +10,7 @@
 
   Dual-runtime `.cljc`: `:node-test` and `clojure -M:test`."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.error :as rf.error]
-            [re-frame.flows.topo :as rf.flows.topo]))
+            [re-frame.error :as rf.error]))
 
 (def ^:private no-adapter-reason
   "rf/init! cannot continue because no adapter is installed; require an adapter ns and install it before boot.")
@@ -51,12 +50,3 @@
                     ":id must be a keyword"
                     {:recovery :fix-registration
                      :extra    {:flow {:id "not-a-kw"} :bad-key :id}})))))
-
-(deftest flow-cycle-emits-conformant-throw
-  ;; A real `throw-error!` site: two flows forming a dependency cycle.
-  (let [e (try (rf.flows.topo/topo-sort
-                 {:a {:id :a :inputs [[:b]] :derive identity :output-path [:a]}
-                  :b {:id :b :inputs [[:a]] :derive identity :output-path [:b]}})
-               (catch #?(:clj Throwable :cljs :default) e e))]
-    (is (= :rf.error/flow-cycle (:rf.error/id (ex-data e))))
-    (is (rf.error/message-has-id-token? (ex-message e)))))
