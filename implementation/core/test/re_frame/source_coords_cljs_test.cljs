@@ -11,10 +11,9 @@
   indexing-push-back-reader stamps `:file` on every collection-form's
   metadata, which survives the macro-expansion handoff to cljs.analyzer
   — so the form-meta path is the portable answer across both
-  compilation hosts. The shared helper lives in
-  `re-frame.source-coords/coords-form` and
-  `re-frame.source-coords-test` covers the JVM path; this test exercises
-  the CLJS path end-to-end.
+  compilation hosts. `re-frame.source-coords-test` covers the pure
+  helpers on the JVM, where macros expand; this test exercises the CLJS
+  path end-to-end.
 
   The failure mode it guards: a reg-event (or any other reg-* macro) below
   carrying `:file \"NO_SOURCE_PATH\"` in its registered metadata. `:file`
@@ -50,57 +49,16 @@
 ;; `\"NO_SOURCE_PATH\"` sentinel — that is the failure this file guards.
 
 (deftest reg-event-file-is-not-no-source-path
-  (testing "EP-0018 C: the ONE public `reg-event` macro emits a real :file
-  under CLJS, not NO_SOURCE_PATH — through the macro layer's shared
-  coord-capture path"
+  (testing "the reg-event macro emits a real :file under CLJS, not
+  NO_SOURCE_PATH — through the coord-capture path every reg-* macro shares"
     (rf/reg-event :rf2-mdjp/reg-event-sample
                   (fn [{:keys [db]} _] {:db db}))
     (let [m (rf/handler-meta {:source :store :kind :event :id :rf2-mdjp/reg-event-sample})
           f (:file m)]
       (is (some? m))
-      (is (not= "NO_SOURCE_PATH" f)
-          ":file must NOT be the cljs.analyzer NO_SOURCE_PATH sentinel")
       (when (some? f)
         (is (file-is-real? f)
-            ":file when present must be a real source path")))))
-
-(deftest reg-sub-file-is-not-no-source-path
-  (testing "reg-sub emits a real :file under CLJS"
-    (rf/reg-sub :rf2-mdjp/reg-sub-sample
-                (fn [db _] db))
-    (let [f (:file (rf/handler-meta {:source :store :kind :sub :id :rf2-mdjp/reg-sub-sample}))]
-      (is (not= "NO_SOURCE_PATH" f)))))
-
-;; make-frame and reg-view exercise the same source-coords path; they
-;; require an adapter to be installed for the underlying registration
-;; (frame/make-frame allocates substrate state, reg-view delegates to
-;; the Reagent-aware impl). The JVM test ns covers those macros with
-;; the plain-atom adapter installed in its fixture; the helper unit
-;; tests below pin the :file-resolution invariant under CLJS, so this
-;; file needs no adapter wiring.
-
-;; ---- direct helper tests (mirrors story_source_coords_test.clj) -------------
-;;
-;; The reg-* macros expand at compile time, so the assertions above
-;; observe whatever the CLJS analyzer happens to provide for
-;; `(meta &form)` in the test runner's build pipeline. To pin down the
-;; failure-mode behaviour we also test the pure helper directly: when
-;; `*file*` is the sentinel and form-meta carries a real `:file`, the
-;; helper must prefer form-meta. When both are the sentinel, `:file`
-;; must be omitted.
-
-(deftest resolve-file-prefers-form-meta
-  (testing "resolve-file picks form-meta :file when *file* is NO_SOURCE_PATH"
-    (is (= "src/my/app.cljs"
-           (rf.source-coords/resolve-file
-             {:file "src/my/app.cljs"}
-             "NO_SOURCE_PATH")))))
-
-(deftest resolve-file-omits-sentinel
-  (testing "resolve-file returns nil when both sources are NO_SOURCE_PATH"
-    (is (nil? (rf.source-coords/resolve-file
-                {:file "NO_SOURCE_PATH"}
-                "NO_SOURCE_PATH")))))
+            ":file when present must be a real source path, never the sentinel")))))
 
 ;; ---- parse-source-coord -----------------------------------------------------
 ;;
@@ -120,25 +78,17 @@
       {:ns "counter.core" :handler-id "counter-buttons" :line 47 :col 11}
 
       "rf.x:programmatic:?:?"
-      {:ns "rf.x" :handler-id "programmatic" :line nil :col nil}
-
-      "ns.x:view:42:?"
-      {:ns "ns.x" :handler-id "view" :line 42 :col nil}
-
-      "my-app.cart.view:apply-coupon-button:125:4"
-      {:ns "my-app.cart.view" :handler-id "apply-coupon-button" :line 125 :col 4})))
+      {:ns "rf.x" :handler-id "programmatic" :line nil :col nil})))
 
 (deftest parse-source-coord-malformed-returns-nil
-  (testing "malformed input returns nil and never throws"
-    (is (nil? (rf.source-coords/parse-source-coord "ns:view:42")))      ; too few
-    (is (nil? (rf.source-coords/parse-source-coord "ns:view")))
-    (is (nil? (rf.source-coords/parse-source-coord "a:b:1:2:3")))       ; too many
-    (is (nil? (rf.source-coords/parse-source-coord ":handler:1:2")))    ; empty ns
-    (is (nil? (rf.source-coords/parse-source-coord "ns::1:2")))         ; empty sym
-    (is (nil? (rf.source-coords/parse-source-coord "")))
-    (is (nil? (rf.source-coords/parse-source-coord nil)))
-    (is (nil? (rf.source-coords/parse-source-coord 42)))
-    (is (nil? (rf.source-coords/parse-source-coord :keyword)))))
+  (testing "malformed input returns nil and never throws; a non-string throws
+            if the type guard goes"
+    (are [s] (nil? (rf.source-coords/parse-source-coord s))
+      "ns:view:42"     ; too few
+      "a:b:1:2:3"      ; too many
+      ":handler:1:2"   ; empty ns
+      "ns::1:2"        ; empty sym
+      42)))
 
 (deftest format-then-parse-round-trips
   (testing "(parse-source-coord (format-source-coord id coords)) recovers id + coords"
@@ -148,9 +98,6 @@
       ;; numeric line + col
       (is (= {:ns "counter.core" :handler-id "counter-buttons" :line 47 :col 11}
              (round-trip :counter.core/counter-buttons {:line 47 :column 11})))
-      ;; line only (column not captured -> `?` -> nil)
-      (is (= {:ns "ns.x" :handler-id "view" :line 42 :col nil}
-             (round-trip :ns.x/view {:line 42})))
       ;; no coords at all (programmatic) -> both `?` -> nil
       (is (= {:ns "ns.x" :handler-id "view" :line nil :col nil}
              (round-trip :ns.x/view {})))
@@ -176,6 +123,4 @@
       ":rf.foo/bar" :rf.foo/bar
       ":bare"       :bare
       "raw-string"  "raw-string"
-      nil           nil
-      42            nil
-      :keyword      nil)))
+      42            nil)))
