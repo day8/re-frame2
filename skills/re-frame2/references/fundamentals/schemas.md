@@ -35,7 +35,7 @@ schemas/default-schema-fns                            ;; the framework's own bun
 
 Verified against `implementation/core/src/re_frame/core.cljc`: the `reg-app-schema` macro (and `reg-app-schemas` plural form) are `def`-aliased onto `re-frame.schemas` and stay on the `re-frame.core` façade; the `app-schemas` / `app-schema-meta` / `app-schemas-digest` query aliases and the `set-schema-fns!` / `schema-fns` / `default-schema-fns` validator seam is reached on `re-frame.schemas` directly (not on the `re-frame.core` façade).
 
-Registrations are **frame-scoped** — the schema attaches to a path inside one frame's `app-db`. Default frame is `(current-frame-id)`; pass `{:frame :other}` in `opts` to target another.
+Registrations are **frame-scoped** — the schema attaches to a path inside one frame's `app-db`. With no `{:frame …}` in the middle metadata map the call uses the carried frame scope and requires one: at namespace load there is none, so a bare top-level `reg-app-schema` raises `:rf.error/no-frame-context`. Name the frame in the metadata map, or wrap a block of registrations in `(rf/with-frame :app …)` — the frame need not exist yet (`examples/real-apps/realworld_http/schema.cljs` registers its whole `{path → schema}` map with `reg-app-schemas` that way).
 
 `reg-app-schema` validates the **app-db partition only**; the runtime-db partition (machine snapshots, route slice, elision declarations under `:rf.runtime/*`) is governed by its own framework schemas. So your `reg-app-schema` set describes a *pure* application contract with no framework state mixed in — the payoff of the two-partition frame. Keep calling it "the app-db schema"; it covers exactly the partition you own.
 
@@ -134,14 +134,15 @@ The `reg-app-schema` validates `app-db` shape at the `[:flight]` path; the `:sch
 ;; All three at once, atomically.
 (schemas/set-schema-fns!
   {:validate (fn [schema value] (my-validator schema value))
-   :explain  (fn [schema value] (my-explainer schema value))})
+   :explain  (fn [schema value] (my-explainer schema value))
+   :print    (fn [schema] (my-printer schema))})        ;; schema value -> canonical string
 
 (schemas/set-schema-fns! {:validate nil})  ;; disable validation entirely
 ```
 
 ## Common gotchas
 
-- **`reg-app-schema` is a no-op without the schemas artefact.** The macro emits a `late-bind` lookup; without `re-frame.schemas` loaded, the call throws `:rf.error/schemas-artefact-missing` at runtime, not at compile time. Always require `re-frame.schemas` at app boot if you call this.
+- **`reg-app-schema` fails loud without the schemas artefact.** The macro emits a `late-bind` lookup; without `re-frame.schemas` loaded, the call throws `:rf.error/schemas-artefact-missing` at runtime, not at compile time. Always require `re-frame.schemas` at app boot if you call this.
 - **`:schema` on a handler validates the event vector, not the `app-db` value.** The schema's first slot is typically `[:cat [:= :event-id] ...]`. For app-db-shape checking in dev, use `reg-app-schema`.
 - **Neither `reg-app-schema` nor a bare `:schema` reaches production.** Both are elided from a production build, so "I registered a schema for that path" is not an answer to "what stops bad data getting in?" — see §`reg-app-schema` is a development-build assertion. The production answer is `:boundary? true` on the ingesting registration, an always-on validator in the handler body, or a decoding gate such as Managed HTTP's `:decode`.
 - **`:boundary? true` without a `:schema` key is rejected at registration.** `reg-event` raises `:rf.error/at-boundary-missing-schema` and the handler is not installed. Either attach a `:schema` to the metadata map or drop the flag.

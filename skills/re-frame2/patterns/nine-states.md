@@ -111,7 +111,7 @@ The root view branches once, in a `case`, on the resolved keyword. Disabled-attr
 
 ## Worked example
 
-`examples/patterns/nine_states/core.cljs` — the full machine declaration, render-priority table, `:ui/render` selector, per-state views, and headless tests per state. Read it in full for the implementation-as-shipped shape, including how the form slice composes with the `:form` region.
+`examples/patterns/nine_states/core.cljs` — the full machine declaration, render-priority table, `:ui/render` selector, and per-state views (examples are test-free; the headless per-state tests live in `implementation/adapters/reagent/test/re_frame/nine_states_cljs_test.cljs`). Read it in full for the implementation-as-shipped shape, including how the form slice composes with the `:form` region.
 
 The declaration above is **trimmed to the pattern**. The shipped machine also carries a whole-machine `:reset`: every region takes `:reset` back to its initial state — which is the one thing that thaws the terminal `:mode :done` — and the `:data` region's `:reset` runs a `:reset-domain` action clearing the machine-owned domain data (`:items`, `:error`, and the `:archived-at` stamp the `:mode` region writes on `:archive`). That pairing is the point worth carrying over: a reset that returns the *states* to square one while leaving the *data* those states were about is a blank view laid over stale data, not a blank slate.
 

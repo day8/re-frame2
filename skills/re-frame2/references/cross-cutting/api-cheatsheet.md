@@ -118,7 +118,7 @@ The view-tree assertion axis (aliased `:as th`, per `spec/008-Testing.md` — **
 | `th/find-by-testid` / `th/find-all-by-testid` / `th/find-by-testid-prefix` | `(tree testid)` → hiccup node(s) |
 | `th/find-by-attr` / `th/find-all-by-attr` / `th/find-by-attr-prefix` | `(tree attr val)` → hiccup node(s) — any attribute key, for a codebase that does not key on `:data-testid` |
 | `th/text-content` / `th/invoke-handler` | `(node)` → text · `(node event-key & args)` → calls the handler under `event-key` (e.g. `:on-click`) |
-| `th/testid` | `(testid)` / `(testid attrs)` — attrs-fragment authoring helper for view call sites |
+| `th/testid` | `(testid id)` / `(testid id attrs)` — attrs-fragment authoring helper for view call sites |
 
 ## SSR — `day8/re-frame2-ssr`
 

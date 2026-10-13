@@ -130,7 +130,7 @@ The owner is also responsible for *advancing* — typically in the same handler 
 
 - **Comparing epochs across containers.** The counter is well-defined within a single container; comparing a `:search/:epoch` against a `:route/:nav-token` is meaningless. Each container owns its own.
 - **Capturing the epoch in a closure rather than the event payload.** Events must serialise (for SSR hydration, Tool-Pair epoch replay, trace events). Put the carried epoch in the event vector.
-- **Implementing a global cancellation registry.** The reason re-frame2 does NOT introduce a `:cancel-dispatch-later` primitive is that every async-shaped feature would grow its own cancellation surface. The epoch is portable across timers, HTTP, sockets, workers, and timers — no per-feature plumbing.
+- **Implementing a global cancellation registry.** The reason re-frame2 does NOT introduce a `:cancel-dispatch-later` primitive is that every async-shaped feature would grow its own cancellation surface. The epoch is portable across timers, HTTP, sockets, and workers — no per-feature plumbing.
 - **Not advancing the epoch on every life event.** If only some transitions bump it, a "later" reply may still match an "older" container instance because the counter didn't move. Advance on every event that ought to supersede in-flight work.
 - **Skipping the trace event on mismatch.** Suppression must be observable, or "should have happened but didn't" becomes silent. Emit `:<feature>/stale-<reason>` whenever you drop.
 - **Re-deriving the substrate's epoch.** If `:after` already handles staleness, do not also carry an app-level epoch for the same timer. The substrate already advances per entry / re-entry.

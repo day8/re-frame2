@@ -73,8 +73,7 @@ Distilled from `examples/capabilities/routing/routing/core.cljs`.
 ```clojure
 (ns app.core
   (:require [re-frame.core :as rf]
-            [re-frame.routing :as routing])  ;; load-time hook + reg-sub registrations; route-url / match-url
-  (:require-macros [re-frame.core :refer [reg-view]]))
+            [re-frame.routing :as routing]))  ;; load-time hook + reg-sub registrations; route-url / match-url
 
 (rf/reg-route :route/home
   {:doc "Landing."} "/")
@@ -96,9 +95,9 @@ Distilled from `examples/capabilities/routing/routing/core.cljs`.
 ;; the route prism and dispatches `:rf.route/url-requested` on a plain left-click.
 ;; Shape: [rf/route-link {:to :route-id :params {} :query {} :fragment "..."} & children]
 
-;; Root view dispatches on the route id.
-(reg-view root-view []
-  (case @(rf/subscribe [:rf.route/id])
+;; Root view dispatches on the route id (`subscribe` is reg-view's injected local).
+(rf/reg-view root-view []
+  (case @(subscribe [:rf.route/id])
     :route/home           [home-page]
     :route/articles       [articles-page]
     :route/article-detail [article-detail-page]
