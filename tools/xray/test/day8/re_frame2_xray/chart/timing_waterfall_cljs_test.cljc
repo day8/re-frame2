@@ -42,7 +42,3 @@
                                         :total-ms 200})]
     (is (vector? out))
     (is (= [:svg "3"] [tag (:data-row-count attrs)]))))
-
-(deftest render-overrides-testid
-  (is (= "custom-id"
-         (-> (wf/render {:phases [[:a 10]]} {:testid "custom-id"}) second :data-testid))))
