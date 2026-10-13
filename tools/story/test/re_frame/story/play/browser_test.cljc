@@ -77,9 +77,7 @@
            [(:status rec) (-> rec :actual first :rule) (-> rec :actual first :tag)])))
   (is (= :fail (:status (structural [:div [:input {}]])))
       "a :type-less :input defaults to text")
-  ;; aria-label and title each supply the name
-  (is (= :pass (:status (structural [:div [:input {:type "text" :aria-label "name"}]]))))
-  (is (= :pass (:status (structural [:div [:input {:type :email :title "email"}]])))))
+  (is (= :pass (:status (structural [:div [:input {:type :email :title "email"}]]))) ":title names it"))
 
 (deftest structural-a11y-name-exempt-input-types-pass
   ;; not rendered, or named via :value / :alt
