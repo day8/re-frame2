@@ -31,7 +31,7 @@ When one of those holds, the shape of the fix does not change — it is still **
 
 **Keep the immediate repair and optional redesign distinct within the finding.** State the one-sub correction first; offer the machine in the optional broader-redesign sentence only when a tell fires. Do not count that alternative as another defect.
 
-Spec sources: [`spec/Pattern-RemoteData.md`](https://github.com/day8/re-frame2/blob/main/spec/Pattern-RemoteData.md) (the status slice) and [`spec/005-StateMachines.md`](https://github.com/day8/re-frame2/blob/main/spec/005-StateMachines.md) §Tags (the machine).
+Spec sources: [`spec/Pattern-RemoteData.md`](https://github.com/day8/re-frame2/blob/main/spec/Pattern-RemoteData.md) (the status slice) and [`spec/005-StateMachines.md`](https://github.com/day8/re-frame2/blob/main/spec/005-StateMachines.md) §State tags (the machine).
 
 ## Worked example
 
