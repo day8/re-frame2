@@ -179,9 +179,9 @@ The author **must** ask for these. They are never auto-applied as part of a rout
 | Adopt `reg-view` for plain Reagent fns | **O-2** | Drop `defn`; replace with `(rf/reg-view view-name [args] body)`. Frame-aware. |
 | Add Malli schemas on `app-db` paths and on event payloads | **O-3** | Pull `day8/re-frame2-schemas`; register via `reg-app-schema`. Boundary-only — don't schema-fence every internal key. Both `reg-app-schema` and a handler `:schema` are **dev-build assertions** (registered in production, never checked there), so if the v1 code being replaced validated a boundary at runtime, the equivalent is `:boundary? true` on the ingesting handler's registration, not the registration's `:schema` alone. |
 | Lift a namespaced sub-tree of `app-db` into its own frame | **O-4** | Use `(make-frame {:id :feature-name})`; existing `:rf/default`-targeted events stay where they are. Multi-instance enabler. |
-| Update fx handlers to binary form `(fn [m _] ...)` | O-5 | Promoted to M-51; now a required mechanical rewrite, not opt-in. |
+| Update fx handlers to binary form `(fn [m _] ...)` | O-5 | Covered by M-51, a required mechanical rewrite. |
 | Future-proof code that introspected Reagent-reaction subscription return types | **O-6** | Drop type checks; use `(rf/subscribe-once [...])` if you need the value outside a reactive context. |
-| `:dispatch-n` to `:fx` | O-7 | Absorbed into M-8 (no longer opt-in). |
+| `:dispatch-n` to `:fx` | O-7 | Covered by M-8 (required). |
 | Adopt the Spec 012 routing surface | **O-8** | If you have a third-party router (reitit/secretary/bidi), this is the move-to-`reg-route` rewrite. Pairs with M-14. |
 | Orient against Spec 000's `C-000.NN` contract clauses (implementor-facing) | O-10 | No user-code rewrite. |
 | Switch generated-machine-spec callers from `reg-machine` to `reg-machine*` | O-11 | Source-coord stamping. Codegen pipelines only. |
@@ -272,7 +272,7 @@ The authoritative v1→v2 mapping table — for a flow that survives the triage 
 - **Mechanical reshape (Type A):** v2 is the 3-slot `(reg-flow flow-id metadata derive-fn)`. `:id` becomes the first positional slot; the `:output` fn becomes the third positional slot, taking its inputs *positionally* rather than as a resolved-inputs map (it is **not** a metadata key — a `:derive` left in the metadata map is rejected with `:rf.error/invalid-flow-metadata`); `:path` → `:output-path`; `:inputs` **map → vector** of paths (map-keyed `flow<-` inputs collapse to plain `:output-path` refs — the topological sort orders dependencies automatically). The unprefixed `:reg-flow` / `:clear-flow` fx-ids become `:rf.fx/reg-flow` / `:rf.fx/clear-flow`; `flow<-` / `get-flow` are gone.
 - **Dropped / re-homed v1 keys (the judgment-bearing, Type B part):**
   - `:live?` / `:live-inputs` — **dropped.** Re-home as a **wrapping event-handler** that calls `:rf.fx/clear-flow` when the predicate flips false (and `:rf.fx/reg-flow` to toggle back on). Authoring that predicate handler is intent static analysis can't recover — flag it for human review.
-  - `:cleanup` — **dropped.** Teardown is now always a `dissoc-in` on `:output-path` (no opt-out); copy the value elsewhere first if it must survive the clear.
+  - `:cleanup` — **dropped.** Teardown is always a `dissoc-in` on `:output-path` (no opt-out); copy the value elsewhere first if it must survive the clear.
   - per-flow `:fx` — **dropped.** Dispatch a follow-up event whose handler reads the flow's output and emits the effect.
 
 So M-30's Type column is **A/B**: the dep-add is automatic, but the `:live?` re-home (and any per-flow `:fx` → follow-up-event rewrite) is a judgment call — present it for human review like the other Type-B rules, citing **M-30** plus the spec/013 table.
