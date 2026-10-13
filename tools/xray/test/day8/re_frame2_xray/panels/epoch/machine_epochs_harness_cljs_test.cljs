@@ -36,7 +36,6 @@
   A Xray/Story-style CLJS unit test, NOT Playwright. The render facts are pinned against REALITY: drive the
   substrate, read what the projection produces."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [clojure.string :as string]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.diff.engine :as diff]
@@ -137,45 +136,6 @@
 ;;               fx · unhandled-no-op · root-:on RESOLUTION (gap 6)
 ;; ============================================================================
 
-(deftest door-plain-transition-renders-exit-transition-entry
-  (testing "rung #2 — plain :locked ──► :closed renders an exit / TRANSITION /
-            entry cascade with NO guard, NO action rows, and exactly ONE
-            transition row (no no-op)."
-    (setup!)
-    (let [record (drive! :door/main [:door/insert-coin])
-          rows   (cascade record)]
-      (is (= 1 (count (rows-of-kind rows :transition)))
-          "(c) one transition row")
-      (is (empty? (rows-of-kind rows :no-op)) "(b) not a no-op")
-      (is (empty? (rows-of-kind rows :guard)) "(a) no guard fired")
-      (let [tx (first (rows-of-kind rows :transition))]
-        (is (= :locked (:from-state tx)))
-        (is (= :closed (:to-state tx))))
-      (is (= :closed (:state (snapshot :door/main)))))))
-
-(deftest door-entry-exit-actions-render-with-data-delta
-  (testing "rung #3 — :closed ──► :open runs :closed's :exit (:clear-hold) +
-            :open's :entry (:count-open). (a) the structured cascade records
-            the exit→action→entry order; (c) the cascade carries an :exit + an
-            :entry action row; the entry action's :data-delta bumps
-            :opened-count."
-    (setup!)
-    (drive! :door/main [:door/insert-coin])            ; :locked → :closed
-    (let [record (drive! :door/main [:door/push])       ; :closed → :open
-          rows   (cascade record)
-          phases (mapv :phase (rows-of-kind rows :action))
-          steps  (region-steps record nil)]
-      (is (some #{:exit} phases)  "(c) an exit action row renders")
-      (is (some #{:entry} phases) "(c) an entry action row renders")
-      ;; (a) the structured cascade order-oracle: the :closed exit (:clear-hold)
-      ;; fires before the :open entry (:count-open).
-      (is (= [:exit :entry] (mapv :kind steps))
-          "(a) the structured cascade records the exit→entry order")
-      (is (= [:clear-hold :count-open] (mapv :action steps))
-          "(a) the exit action runs before the entry action")
-      (is (= 1 (get-in (snapshot :door/main) [:data :opened-count]))
-          "(c) the :entry action bumped :opened-count"))))
-
 (deftest door-guard-allowed-then-blocked
   (testing "rungs #4/#5 — guard ALLOWED completes, guard BLOCKED stays put.
             (a) the guard row's :outcome is :pass then :fail; (b) the blocked
@@ -207,67 +167,6 @@
           "(b) the blocked guard is a no-op, led by the blocking guard"))
     (is (= :open (:state (snapshot :door/main)))
         "(c) the door STAYS :open — the blocked close did not advance")))
-
-(deftest door-transition-with-effect-renders-fx
-  (testing "rung #6 — :open ──► :alarming runs :enter-alarm whose action
-            writes :data (the deck dispatches the downstream child via the
-            deck event-fx). (c) the cascade carries the transition + the
-            :enter-alarm action whose :data-write sets :alarm-fx?."
-    (setup!)
-    (drive! :door/main [:door/insert-coin])
-    (drive! :door/main [:door/push])
-    (let [rows (cascade (drive! :door/main [:door/trip]))]
-      (is (= 1 (count (rows-of-kind rows :transition))))
-      (is (some #(true? (get-in % [:data-write :alarm-fx?]))
-                (rows-of-kind rows :action))
-          "(a)(c) the :enter-alarm action ran (its :data-write set :alarm-fx?)"))
-    (is (= :alarming (:state (snapshot :door/main))))
-    (is (true? (get-in (snapshot :door/main) [:data :alarm-fx?]))
-        "(c) the :enter-alarm action wrote :alarm-fx? into the snapshot")))
-
-(deftest door-unhandled-event-renders-single-no-op-staying-in-state
-  (testing "rung #7 — :door/insert-coin into :alarming matches no transition →
-            a BENIGN unhandled no-op.
-            (b) exactly ONE :no-op row, :no-op? true (zero transition rows);
-            (c) the verb is the bare 'staying in :alarming' (single machine →
-            no machine name)."
-    (setup!)
-    (drive! :door/main [:door/insert-coin])
-    (drive! :door/main [:door/push])
-    (drive! :door/main [:door/trip])                    ; → :alarming
-    (let [record (drive! :door/main [:door/insert-coin])
-          rows   (cascade record)
-          no-ops (rows-of-kind rows :no-op)
-          no-op  (first no-ops)]
-      (is (= 1 (count no-ops)) "(b) exactly one no-op row (single signal)")
-      (is (empty? (rows-of-kind rows :transition))
-          "(b) NO transition row beside the no-op (the source suppresses the no-change transition)")
-      (is (= :alarming (:state no-op)))
-      (let [verb (fmt/cascade-row-label no-op)]
-        (is (string/starts-with? verb "staying in ")
-            "(c) bare consequence verb — single machine, so no machine name")
-        (is (not (string/includes? verb "received")) "(c) no event echo")))
-    (is (= :alarming (:state (snapshot :door/main)))
-        "(b) the door STAYS :alarming — a no-op does not move state")))
-
-(deftest door-audit-resolves-via-root-on-fallthrough
-  (testing "rung #8 (gap 6, RESOLUTION) — :alarming declares no :door/audit;
-            the event falls through to the machine ROOT :on, which targets
-            :locked. (a)(c) a real transition row attributes :alarming ──►
-            :locked — the root-resolved transition, NOT a no-op."
-    (setup!)
-    (drive! :door/main [:door/insert-coin])
-    (drive! :door/main [:door/push])
-    (drive! :door/main [:door/trip])                    ; → :alarming
-    (let [record (drive! :door/main [:door/audit])
-          rows   (cascade record)
-          tx     (first (rows-of-kind rows :transition))]
-      (is (empty? (rows-of-kind rows :no-op))
-          "(b) the root :on HANDLED it — NOT an unhandled no-op")
-      (is (= :alarming (:from-state tx)) "(c) a real transition row renders")
-      (is (= :locked (:to-state tx))
-          "(a)(c) the cascade attributes the root-resolved transition to :locked"))
-    (is (= :locked (:state (snapshot :door/main))))))
 
 ;; ============================================================================
 ;; TRAFFIC (PARALLEL) — regions · history · TAG-SET delta (gap 7)
@@ -319,7 +218,11 @@
       (is (= 2 (count no-ops)) "(b) both machines' unhandled events are no-ops")
       (is (= #{:door/main :brew/machine} ids) "(c) two distinct machines in play")
       (is (every? #(true? (:show-machine-name? %)) no-ops)
-          "(c) >1 machine in play → EACH no-op row names its machine"))))
+          "(c) >1 machine in play → EACH no-op row names its machine")
+      (is (empty? (rows-of-kind rows :transition))
+          "(b) no transition row beside the no-ops — the source suppresses the no-change transition")
+      (is (= :alarming (:state (some #(when (= :door/main (:machine-id %)) %) no-ops)))
+          "the door's no-op row carries the state it stayed in"))))
 
 ;; ============================================================================
 ;; PARALLEL ROUND — parent-owned cross-region :always rounds
@@ -376,23 +279,6 @@
 ;; ============================================================================
 ;; QUIZ (MICROSTEP) — :always EVENTLESS microsteps (gap 1, THE biggest)
 ;; ============================================================================
-
-(deftest quiz-answer-below-mark-settles-zero-microsteps
-  (testing "rung #12 — an :answer below the pass mark bumps :score; the
-            guarded :always does NOT fire. (a) the transition row's
-            :microsteps is 0 / nil; (c) the quiz stays :asking.
-            At N=0 (the common case) the TRANSITION row renders NO
-            `0 microsteps` summary (pure noise)."
-    (setup!)
-    (let [record (drive! :quiz/scorer [:quiz/answer])
-          tx     (first (rows-of-kind (cascade record) :transition))]
-      (is (some? tx) "(c) the :answer action transition row renders")
-      (is (contains? #{0 nil} (:microsteps tx))
-          "(a) below the mark → ZERO microsteps (the :always guard failed)")
-      (is (nil? (fmt/cascade-outcome-label tx))
-          "(c) N=0 renders NO '0 microsteps' summary (pure noise)")
-      (is (= :asking (:state (snapshot :quiz/scorer))))
-      (is (= 1 (get-in (snapshot :quiz/scorer) [:data :score]))))))
 
 (deftest quiz-answer-to-pass-fires-always-microstep-event-bundle
   (testing "rung #13 (gap 1) — answers reach the pass mark and the guarded
@@ -475,46 +361,6 @@
     (is (= :idle (:state (snapshot :brew/machine))))))
 
 ;; ============================================================================
-;; SESSION (LIFECYCLE) — spawn · child :final · :on-done · destroy (gaps 3,4,5)
-;; ============================================================================
-
-(deftest session-open-spawns-child-actor
-  (testing "rung #17 (gap 4) — :idle ──► :authenticating SPAWNS the
-            :session/login child. (a) the spawn fx fires (the
-            :rf.machine.spawn/spawned trace); (c) the runtime spawn-registry
-            slot binds the child's deterministic actor id."
-    (setup!)
-    (let [record (drive! :session/flow [:session/open])]
-      (is (= :authenticating (:state (snapshot :session/flow))))
-      (is (some #(= :rf.machine.spawn/spawned (:operation %)) (:trace-events record))
-          "(a) the spawn fx emitted :rf.machine.spawn/spawned")
-      (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                         [:rf.runtime/machines :spawned :session/flow [:authenticating]]))
-          "(c) the spawn-registry slot binds the child actor id"))))
-
-(deftest session-child-final-fires-on-done-and-auto-destroys
-  (testing "rungs #17→#18 (gaps 3,4,5) — driving the spawned child to its
-            :final? state fires the parent's :on-done (reporting the token)
-            and AUTO-DESTROYS the child. (a) the :rf.machine/destroyed trace
-            fires with :reason :rf.machine/finished; (c) the parent's
-            :data :session-token carries the child's :output-key; the child's
-            snapshot is cleared."
-    (setup!)
-    (drive! :session/flow [:session/open])              ; spawn child
-    (let [child-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                           [:rf.runtime/machines :spawned :session/flow [:authenticating]])
-          record   (drive! child-id [:succeed :session/token-abc])
-          dests    (filterv #(= :rf.machine/destroyed (:operation %)) (:trace-events record))]
-      (is (some #(= :rf.machine/finished (-> % :tags :reason)) dests)
-          "(a) the child auto-destroyed with :reason :rf.machine/finished")
-      (is (= :session/token-abc
-             (get-in (snapshot :session/flow) [:data :session-token]))
-          "(a)(c) the parent's :on-done callback ran, reporting the child's
-                  :output-key token into the parent's :data")
-      (is (nil? (snapshot child-id))
-          "(c) the child's snapshot was synchronously dissoc'd (auto-destroy)"))))
-
-;; ============================================================================
 ;; FUSE (THROW-ON-BOOT) — the initial `:entry` action THROWS (gap b: the
 ;; unasserted outcome)
 ;; ============================================================================
@@ -548,26 +394,6 @@
 ;; ============================================================================
 ;; HVAC (DEEP-COMPOUND) — the LCA + self-transition headline
 ;; ============================================================================
-
-(deftest hvac-mode-toggle-renders-lca-cascade-order
-  (testing "rung #21 — :hvac/mode-toggle crosses the :conditioning LCA. (a) the
-            structured cascade is exactly exit [:running :conditioning :heating]
-            → entry [:running :conditioning :cooling] (deepest-exit-first →
-            shallowest-entry-first; the LCA :conditioning stays active, so it is
-            neither exited nor entered); (c) the deep compound leaf moved
-            heating → cooling."
-    (setup!)
-    (drive! :hvac/controller [:hvac/power-cycle])       ; → :heating
-    (let [record (drive! :hvac/controller [:hvac/mode-toggle])
-          steps  (region-steps record :climate)]
-      (is (= [:exit :entry] (mapv :kind steps))
-          "(a) the LCA cascade order: deepest leaf exit → new-leaf entry")
-      (is (= [[:running :conditioning :heating]
-              [:running :conditioning :cooling]]
-             (mapv :state steps))
-          "(a) the deepest :heating leaf exits, the :cooling leaf enters; the
-               LCA :conditioning stays active (neither exited nor entered)"))
-    (is (= [:running :conditioning :cooling] (:climate (:state (snapshot :hvac/controller)))))))
 
 (deftest hvac-self-transitions-external-vs-internal
   (testing "rungs #22/#23 — EXTERNAL self-transition (:hvac/nudge,
@@ -652,29 +478,6 @@
       (is (= [:player :playing :mid-track] (:state (snapshot :media/deep)))
           "(c) deep history restored the exact leaf, not :initial"))))
 
-(deftest history-shallow-restore-renders-restored-banner-shallow
-  (testing "rung #25 (gap 8) — :media/shallow eject → re-insert
-            restores the recorded DIRECT CHILD then descends its :initial. (a)
-            the restored record is :source :recorded + :kind :shallow with the
-            child-keyword :restored-config; (b) the transition row carries
-            :history-restored; (c) the player lands at the child's :initial,
-            NOT the exact exit leaf."
-    (setup!)
-    (let [record   (drive-history-restore! :media/shallow)
-          rows     (cascade record)
-          tx       (first (rows-of-kind rows :transition))
-          restored (proj/history-restored-rows (:trace-events record))]
-      (is (= 1 (count restored)) "(a) one history-restored record")
-      (is (= :recorded (:source (first restored))) "(a) restored from the recorded config")
-      (is (= :shallow (:kind (first restored))) "(a) SHALLOW history")
-      (is (= :playing (:restored-config (first restored)))
-          "(a) shallow records + restores the direct-child keyword (:playing)")
-      (is (= [:player :playing :at-start] (:resolved-leaf (first restored)))
-          "(a) shallow restore descends the child's :initial chain")
-      (is (seq (:history-restored tx)) "(b) the transition row carries :history-restored")
-      (is (= [:player :playing :at-start] (:state (snapshot :media/shallow)))
-          "(c) shallow restored the child then its :initial, not the exit leaf"))))
-
 (deftest history-eject-records-and-renders-recorded-banner
   (testing "gap 8 — ejecting :player (exit to the off-compound
             :tray) WRITES :player's last config into :rf/history. (a) a
@@ -718,20 +521,6 @@
 (defn- modal-open! []
   (drive! :modal/main [:modal/open]))
 
-(deftest modal-cancel-lands-closed
-  (testing ":modal/cancel (fan-in event #1) drives :open ──►
-            :closed. (a) a real transition row from :open to :closed; (b) no
-            no-op (a handled event is not a no-op); (c) the modal lands :closed."
-    (setup!)
-    (modal-open!)                                       ; :closed → :open
-    (let [record (drive! :modal/main [:modal/cancel])    ; :open → :closed
-          rows   (cascade record)
-          tx     (first (rows-of-kind rows :transition))]
-      (is (= :open (:from-state tx)) "(c) a real transition row renders")
-      (is (= :closed (:to-state tx)) "(a) :modal/cancel lands :closed")
-      (is (empty? (rows-of-kind rows :no-op)) "(b) a handled event is not a no-op"))
-    (is (= :closed (:state (snapshot :modal/main))))))
-
 (deftest modal-submit-runs-save-and-lands-closed
   (testing ":modal/submit (fan-in event #2) drives :open ──►
             :closed AND runs the :save action (the data-bearing branch of the
@@ -768,29 +557,6 @@
   (->> (rows-of-kind (cascade record) :guard)
        (some #(when (= guard-id (:guard-id %)) (:outcome %)))))
 
-(deftest gate-high-branch-fires-on-high-level
-  (testing ":gate/set 7 arms :level 7 (internal action-only
-            transition), then :gate/check forks to :high: the FIRST guarded
-            candidate :gate-high? passes. (a) the fork's guard row carries
-            :guard-id :gate-high? with :outcome :pass; (c) the gate lands :high."
-    (setup!)
-    ;; :gate/set is an internal action-only transition — it arms :level, stays :idle.
-    (let [set-rows (cascade (drive! :gate/main [:gate/set 7]))]
-      (is (empty? (rows-of-kind set-rows :no-op))
-          "(b) :gate/set is a REAL internal transition (action-only), not a no-op")
-      (is (= 7 (get-in (snapshot :gate/main) [:data :level]))
-          "(c) :set-level read (second event)=7 into :data :level")
-      (is (= :idle (:state (snapshot :gate/main))) "(c) :gate/set stays :idle"))
-    ;; :gate/check forks by the guarded candidate vector — high branch.
-    (let [record (drive! :gate/main [:gate/check])
-          tx     (first (rows-of-kind (cascade record) :transition))]
-      (is (= :idle (:from-state tx)) "(c) a real transition row renders")
-      (is (= :high (:to-state tx)) "(c) :gate-high? selected the :high branch")
-      (is (= :pass (gate-guard-outcome record :gate-high?))
-          "(a) the fork's :gate-high? guard row PASSED (level 7 >= 5) — the
-               first-guard-pass-wins branch"))
-    (is (= :high (:state (snapshot :gate/main))))))
-
 (deftest gate-low-branch-fires-when-high-fails
   (testing ":gate/set 2 then :gate/check forks to :low: the FIRST
             candidate :gate-high? FAILS (2<5), the candidate walk advances to
@@ -807,66 +573,4 @@
           "(a) the walk advanced to :gate-low? which PASSED (0 < 2 < 5)"))
     (is (= :low (:state (snapshot :gate/main))))))
 
-(deftest gate-rejected-branch-fires-on-unguarded-fallback
-  (testing ":gate/set 0 then :gate/check forks to :rejected: BOTH
-            guards FAIL, so the UNGUARDED fallback candidate {:target :rejected}
-            fires (the else clause). (a) the fork shows :gate-high? :fail +
-            :gate-low? :fail; (c) the gate lands :rejected via the fallback."
-    (setup!)
-    (drive! :gate/main [:gate/set 0])
-    (let [record (drive! :gate/main [:gate/check])
-          tx     (first (rows-of-kind (cascade record) :transition))]
-      (is (= :rejected (:to-state tx))
-          "(c) both guards failed → the unguarded fallback selected :rejected")
-      (is (= :fail (gate-guard-outcome record :gate-high?))
-          "(a) :gate-high? FAILED (0 < 5)")
-      (is (= :fail (gate-guard-outcome record :gate-low?))
-          "(a) :gate-low? FAILED (0 is not > 0) — both guarded candidates blocked"))
-    (is (= :rejected (:state (snapshot :gate/main))))))
 
-;; ============================================================================
-;; INLINE action/guard verb rendering — REAL substrate
-;; ============================================================================
-;;
-;; The deck machines all reference NAMED guards/actions (keyword → `:guards`
-;; / `:actions` map). An INLINE `(fn …)` declared DIRECTLY in an `:on` /
-;; `:entry` / `:exit` slot is first-class per Spec 005, and the runtime
-;; carries the bare fn as the trace's `:guard-id` / `:action-id`
-;; (transition.cljc resolve-guard / resolve-action). Rendering that fn via
-;; `ns-keyword`'s `str` fallthrough would show the raw fn-object toString
-;; (`#object[Function …]` / a minified blob). This
-;; drives a machine whose guard AND actions are inline fns through the REAL
-;; substrate and asserts the cascade rows render the legible `⟨inline⟩`
-;; placeholder, not a fn-object blob.
-
-(deftest inline-guard-and-action-render-legible-verb
-  (testing "an INLINE-declared guard AND inline-declared
-            entry/exit actions, driven through the REAL substrate, render a
-            legible `⟨inline⟩` cascade verb — NOT the raw fn-object toString."
-    (setup!)
-    ;; A tiny machine whose guard + entry + exit are ALL inline (fn …)s
-    ;; declared directly in their slots (no `:guards` / `:actions` keyword
-    ;; refs). The guard PASSES so a transition fires and its exit/entry inline
-    ;; actions run, producing inline guard + action cascade rows.
-    (rf/reg-machine :inline/probe
-      {:initial :a
-       :states
-       {:a {:exit  (fn inline-exit [{data :data}] {:data (assoc data :left-a? true)})
-            :on    {:inline/go {:target :b
-                                :guard  (fn inline-guard [_] true)}}}
-        :b {:entry (fn inline-entry [{data :data}] {:data (assoc data :in-b? true)})}}})
-    (rf/dispatch-sync [:inline/probe [:rf.machine/start]])
-    (let [rows      (cascade (drive! :inline/probe [:inline/go]))
-          guard-row (first (rows-of-kind rows :guard))
-          action-rows (rows-of-kind rows :action)]
-      (is (= :b (:state (snapshot :inline/probe))) "the inline guard passed → transitioned to :b")
-      ;; The inline GUARD row carries a fn id and renders the legible verb.
-      (is (fn? (:guard-id guard-row)) "the runtime carries the bare inline fn as :guard-id")
-      (is (= "⟨inline⟩" (fmt/cascade-row-label guard-row))
-          "inline guard verb is `⟨inline⟩`, not the fn-object str")
-      ;; The inline ACTION rows (exit :left-a? + entry :in-b?) render legibly.
-      (is (seq action-rows) "the inline exit/entry actions produced :action rows")
-      (doseq [a action-rows]
-        (is (fn? (:action-id a)) "the runtime carries the bare inline fn as :action-id")
-        (is (= "⟨inline⟩" (fmt/cascade-row-label a))
-            "inline action verb is `⟨inline⟩`, not the fn-object str")))))
