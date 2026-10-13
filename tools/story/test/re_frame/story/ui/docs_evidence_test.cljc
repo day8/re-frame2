@@ -3,6 +3,7 @@
   evidence-excerpt pure projections (spec/022 §1 + §2). The React render and
   the live result-slot read are CLJS."
   (:require [clojure.test :refer [deftest is testing]]
+            [re-frame.story.plan :as rf.story.plan]
             [re-frame.story.play.evidence :as rf.story.play.evidence]
             [re-frame.story.ui.docs :as rf.story.ui.docs]))
 
@@ -43,24 +44,32 @@
 ;; ===========================================================================
 ;; fidelity / world-input  (spec/022 §1)
 ;; ===========================================================================
+;;
+;; The plans are compiled by the real `variant-plan`, so these projections
+;; read the shape the runner builds (`:setup` and `:fidelity` under `:world`,
+;; spec/017 §Variant plan) rather than a hand-built map that could agree
+;; with a wrong reader.
 
 (deftest fidelity-badges-order-and-presence
-  (testing "the full ladder, highest fidelity first, each marked present? against the plan's :fidelity set"
+  (testing "the full ladder, highest fidelity first, each marked present? against the plan's fidelity set"
     (is (= [[:real-setup true] [:db-seed false] [:sub-overrides false]]
            (mapv (juxt :rung :present?)
-                 (rf.story.ui.docs/fidelity-badges {:fidelity #{:real-setup}}))))))
+                 (rf.story.ui.docs/fidelity-badges
+                   (rf.story.plan/variant-plan {:setup [[:counter/inc]]})))))))
 
 (deftest world-input-chips-only-present
   (testing "only the world inputs the variant actually declares surface"
     (is (= #{:setup :script :db-seed :sub-overrides :network}
            (into #{} (map :key)
                  (rf.story.ui.docs/world-input-chips
-                   {:setup [[:a]] :script [[:b]]
-                    :world {:db-seed {:x 1}
-                            :render {:sub-overrides {[:s] 1}}
-                            :network {[:get "/x"] {}}}})))))
+                   (rf.story.plan/variant-plan
+                     {:setup         [[:counter/inc]]
+                      :script        [[:dispatch [:counter/add 5]]]
+                      :db-seed       {:count 1}
+                      :sub-overrides {[:count] 6}
+                      :network       {[:get "/x"] {:reply {:ok {}}}}}))))))
   (testing "a bare variant with no world inputs surfaces no chips"
-    (is (= [] (rf.story.ui.docs/world-input-chips {:world {}})))))
+    (is (= [] (rf.story.ui.docs/world-input-chips (rf.story.plan/variant-plan {}))))))
 
 ;; ===========================================================================
 ;; view-arg schema table  (spec/022 §1)
