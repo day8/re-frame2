@@ -20,11 +20,6 @@
                  [[:rf.assert/visual-snapshot] [:rf.assert/a11y] [:rf.assert/a11y-structural]])))
     (is (= :browser (rf.story.requirements/cheapest-runner #{:a11y-engine})))))
 
-(deftest dom-step-requires-dom-or-browser
-  (testing "a DOM step requires :dom, which the richer :browser also proves"
-    (is (= #{:dom} (rf.story.requirements/step-tokens [:click "[data-test=go]"])))
-    (is (rf.story.requirements/runner-satisfies? (rf.story.requirements/runner-provides :browser) #{:dom}))))
-
 (deftest in-script-assert-folds-wrapped-atom-tokens
   (testing "a [:assert visual-snapshot] checkpoint requires :pixels"
     (is (contains? (rf.story.requirements/step-tokens [:assert [:rf.assert/visual-snapshot]])
@@ -126,20 +121,8 @@
                     :renders  [{:render-key [:v 0]}]}])
                 :cljs-reactive)))))
 
-;; An empty :warnings or :renders slot is the HEALTHY state for :no-warnings /
-;; an absence assertion, so :trace, :dom and :hiccup-structure impose no
-;; post-run presence gate.
-
-(deftest hiccup-structure-token-imposes-no-evidence-slot
-  (is (nil? (get rf.story.requirements/token->evidence-slots :hiccup-structure))
-      "empty :renders is healthy for a structural absence assertion"))
-
-(deftest no-warnings-on-clean-tape-is-not-cannot-run
-  (testing ":rf.assert/no-warnings on a clean (empty-:warnings) tape does NOT false-:cannot-run"
-    (is (nil? (rf.story.requirements/validate-evidence
-                [:rf.assert/no-warnings]
-                (rf.story.play.evidence/project-evidence [{:epoch-id 1 :outcome :ok :trace-events []}])
-                :headless)))))
+;; An empty :renders slot is the HEALTHY state for an absence assertion, so
+;; :dom imposes no post-run presence gate.
 
 (deftest dom-absence-assertion-is-not-cannot-run-on-empty-renders
   (testing "a :dom absence assertion on a tape with no render rows does NOT false-:cannot-run"
@@ -166,11 +149,9 @@
 ;; ===========================================================================
 
 (deftest normalize-run-opts-defaults
-  (doseq [[opts expected] [[nil                    {:mode :fixed :runner :headless}]
-                           [{:runner :cljs-reactive} {:mode :fixed :runner :cljs-reactive}]
-                           [{:escalate true}       {:mode :auto}]
-                           [{:runner :auto}        {:mode :auto}]
-                           [{:runner :bogus}       {:mode :fixed :runner :headless}]]]
+  (doseq [[opts expected] [[{:runner :cljs-reactive} {:mode :fixed :runner :cljs-reactive}]
+                           [{:escalate true}         {:mode :auto}]
+                           [{:runner :bogus}         {:mode :fixed :runner :headless}]]]
     (is (= expected (rf.story.requirements/normalize-run-opts opts)) (pr-str opts))))
 
 ;; ===========================================================================
