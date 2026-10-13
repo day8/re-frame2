@@ -138,15 +138,21 @@
   STABLE vector via the same `(sort-by str …)` projection
   `ui/controls.cljs`'s `vector-coerce` uses for rendering, so index `i`
   addresses the exact entry the panel is currently showing at row `i`.
+  A vector shorter than `next-key` is padded with `nil` up to it, because
+  the `:tuple` widget renders every position of an absent or short arg and
+  `assoc` on a vector reaches only one past its end.
   A non-integer `next-key` means a `:map` group, so `nil` becomes `{}`.
   Anything already the right shape (a vector already, a map already)
   passes through unchanged — this is a VIVIFY step, not a re-normalise."
   [v next-key]
   (if (int? next-key)
-    (cond
-      (nil? v) []
-      (set? v) (vec (sort-by str v))
-      :else    v)
+    (let [v (cond
+              (nil? v) []
+              (set? v) (vec (sort-by str v))
+              :else    v)]
+      (if (and (vector? v) (> next-key (count v)))
+        (into v (repeat (- next-key (count v)) nil))
+        v))
     (if (nil? v) {} v)))
 
 (defn- assoc-in-kind-aware
