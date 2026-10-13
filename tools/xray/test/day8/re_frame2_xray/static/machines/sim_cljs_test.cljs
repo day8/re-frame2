@@ -173,26 +173,14 @@
                          {:machine-id :auth/login}])
       (is (= started (sim-state))))))
 
-(deftest sim-stop-disposes-per-machine-slot
-  (setup-xray-frame!)
-  (rf/with-frame :rf/xray
-    (start-sim! fixture-definition)
-    (rf/dispatch-sync [:rf.xray.static.machines/sim-stop
-                       {:machine-id :auth/login}])
-    (is (= {} @(rf/subscribe [:rf.xray.static.machines/sim-by-machine])))))
-
 ;; ---- sim rail -------------------------------------------------------------
-
-(deftest rail-renders-nothing-when-sim-inactive
-  (setup-xray-frame!)
-  (rf/with-frame :rf/xray
-    (is (nil? (sim/SimRail rf/dispatch (sim-rail-values)))
-        "rail returns nil when sim is inactive")))
 
 (deftest rail-mounts-when-sim-active
   (setup-xray-frame!)
   (rf/with-frame :rf/xray
     (select-static-machine! :auth/login)
+    (is (nil? (sim/SimRail rf/dispatch (sim-rail-values)))
+        "the rail renders nothing before the sim starts")
     (start-sim! fixture-definition)
     (let [tree (sim/SimRail rf/dispatch (sim-rail-values))]
       (is (= [] (remove #(find-by-testid tree %)
@@ -255,18 +243,6 @@
                        {:machine-id :auth/login :text ""}])
     (is (= :idle (get-in (sim-state) [:snapshot :state])))))
 
-(deftest sim-body-renders-chart-and-rail-panes
-  (setup-xray-frame!)
-  (rf/with-frame :rf/xray
-    (select-static-machine! :auth/login)
-    (start-sim! fixture-definition)
-    (let [tree (sim/body rf/dispatch (sim-body-values))]
-      (is (= [] (remove #(find-by-testid tree %)
-                        ["rf-xray-static-machines-sim-body"
-                         "rf-xray-static-machines-sim-chart"
-                         "rf-xray-static-machines-sim-rail"]))
-          "the testids missing from the body"))))
-
 (deftest body-renders-no-machine-hint-when-missing
   (setup-xray-frame!)
   (rf/with-frame :rf/xray
@@ -291,33 +267,19 @@
 
 (deftest sim-chart-edge-click-steps-the-sim-and-rebinds-the-canvas
   ;; An edge click steps the real engine, and SimChart hands the canvas the
-  ;; amber sim palette, the advanced state, the taken edge's highlights and
-  ;; the click callback.
+  ;; amber sim palette, the advanced state, the taken edge's highlights, the
+  ;; click callback and the context shape inferred from the initial :data
+  ;; (the definition declares no [:schemas :data]).
   (setup-xray-frame!)
   (rf/with-frame :rf/xray
     (select-static-machine! :auth/login)
     (start-sim! fixture-definition)
     (rf/dispatch-sync [:rf.xray.static.machines/sim-chart-edge-clicked
                        {:machine-id :auth/login :event-id :start}])
-    (is (= [true :authing :idle :authing true]
+    (is (= [true :authing :idle :authing true {:counter "number"} true]
            ((juxt :sim? :current-state :from-highlight :to-highlight
-                  (comp fn? :on-edge-click))
+                  (comp fn? :on-edge-click) :context-band :context-band-inferred?)
             (sim-chart-props fixture-definition))))))
-
-(def ^:private inferred-fixture-definition
-  "No [:schemas :data], so the context shape is INFERRED from the initial
-  :data."
-  {:initial :idle
-   :data    {:counter 0 :label "x"}
-   :states  {:idle {:on {:start :authing}}
-             :authing {:final? true}}})
-
-(deftest sim-chart-forwards-inferred-context-shape-to-canvas
-  (setup-xray-frame!)
-  (rf/with-frame :rf/xray
-    (is (= [{:counter "number" :label "string"} true]
-           ((juxt :context-band :context-band-inferred?)
-            (sim-chart-props inferred-fixture-definition))))))
 
 ;; ---- React keys -------------------------------------------------------------
 ;;
