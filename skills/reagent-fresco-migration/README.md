@@ -75,14 +75,14 @@ skills/reagent-fresco-migration/
 ├── evals/
 │   └── evals.json             # trigger fixtures + behavioural fixtures across the M/D/R tiers
 ├── tests/
-│   └── fixture/               # MIG-23's cold-start proof — a standalone shadow-cljs project, run in CI
+│   └── fixture/               # the witness suite — a standalone shadow-cljs project, run in CI
 └── spec/
     ├── design.md              # locked design decisions
     ├── inputs.md              # canonical inputs the skill leans on
     └── authoring-prompt.md    # one-shot reauthor prompt
 ```
 
-`evals/`, `spec/` and `tests/` are all outside the distributable skill package (`package.json` `files` omits them); a packaged consumer runs the skill, they do not re-run its gates. `evals/` and `spec/` are authoring-time scaffolding — the skill's own design docs and eval fixtures. `tests/fixture/` is executable evidence: a standalone shadow-cljs project that runs [`ssr-hydrate.md`](references/ssr-hydrate.md)'s MIG-23 SSR-then-hydrate recipe against the shipped core, ssr, fresco and Reagent-adapter artefacts in one fresh Node process, as the required `reagent-fresco-migration-fixture-cold-start` CI job. It is maintained with the recipe, not regenerated with the skill; reach its own `README.md` from a monorepo clone.
+`evals/`, `spec/` and `tests/` are all outside the distributable skill package (`package.json` `files` omits them); a packaged consumer runs the skill, they do not re-run its gates. `evals/` and `spec/` are authoring-time scaffolding — the skill's own design docs and eval fixtures. `tests/fixture/` is executable evidence: a standalone shadow-cljs project that runs [`ssr-hydrate.md`](references/ssr-hydrate.md)'s MIG-23 SSR-then-hydrate recipe, plus the MIG-14, MIG-22, MIG-34 and mixed-renderer claims a Node test can witness, against the shipped core, ssr, fresco and Reagent-adapter artefacts in one fresh Node process, as the required `reagent-fresco-migration-fixture-cold-start` CI job. It is maintained with the recipe, not regenerated with the skill; reach its own `README.md` from a monorepo clone.
 
 This skill also has a published **mirror page** outside this tree, at [`docs/skills/reagent-fresco-migration.md`](https://github.com/day8/re-frame2/blob/main/docs/skills/reagent-fresco-migration.md). It is an entry ramp and carries no leaf roster and no copied procedure, so a leaf change never reaches it. Nothing reconciles the two, so a rewrite of this skill's *purpose or kickoff* still has to carry the mirror by hand or it silently goes stale.
 

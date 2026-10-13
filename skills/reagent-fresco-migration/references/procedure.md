@@ -168,8 +168,9 @@ tier:
   state (MIG-16), lifecycle (MIG-17), the `:on-*` handler split (MIG-18),
   derived state and the ratom-store restructure (MIG-19/20), foreign React and
   its callback contracts (MIG-09/10/22), ambient reads in plain fns (MIG-26),
-  fn props on internal views (MIG-27), computed props (MIG-28), and the loop /
-  render-prop shaping calls (MIG-08/13). SSR-then-hydrate (MIG-23) is decided
+  fn props on internal views (MIG-27), computed props (MIG-28), a render-body
+  `capture-frame` (MIG-31), and the loop / render-prop shaping calls
+  (MIG-08/13). SSR-then-hydrate (MIG-23) is decided
   there too, but its recipe is its own leaf —
   [`ssr-hydrate.md`](ssr-hydrate.md), which a client-only migration never opens.
 
@@ -447,7 +448,8 @@ compile and tests after the write, and confirm the changed screens render.
 If this pass used a shadow comparison, repeat it on the screens the diff touched.
 
 A completed run exits `0` even when the report carries human decisions — it is a
-migration assistant, not a permanent build lint.
+migration assistant, not a permanent build lint. It exits `1` only when a file
+failed to parse (a `:parse-error` entry), and that file is left untouched.
 
 ## A single converted file is PROVISIONAL
 
