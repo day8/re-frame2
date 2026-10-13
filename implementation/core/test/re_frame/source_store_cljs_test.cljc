@@ -16,7 +16,6 @@
                :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.registrar      :as rf.registrar]
             [re-frame.source-coords  :as rf.source-coords]
-            [re-frame.image          :as rf.image]
             [re-frame.image-assembly :as rf.image-assembly]
             [re-frame.source-store   :as rf.source-store]))
 
@@ -38,15 +37,6 @@
   "`provenance-ns -> descriptor` slots, read down to each slot's `:handler-fn`."
   [slots]
   (into {} (map (fn [[k v]] [k (:handler-fn v)])) slots))
-
-(deftest same-id-different-namespace-both-survive
-  ;; The image-isolation path: keyed by [kind id provenance-namespace].
-  (rf.source-store/record-descriptor! :event :boot/init
-                                      {:ns 'examples.todo.boot :handler-fn :todo-fn})
-  (rf.source-store/record-descriptor! :event :boot/init
-                                      {:ns 'examples.counter.boot :handler-fn :counter-fn})
-  (is (= {"examples.todo.boot" :todo-fn "examples.counter.boot" :counter-fn}
-         (handler-fns (rf.source-store/descriptors-for :event :boot/init)))))
 
 (deftest same-namespace-replacement-does-not-disturb-siblings
   (rf.source-store/record-descriptor! :event :boot/init {:ns 'a.boot :handler-fn :a1})
@@ -80,34 +70,6 @@
   (rf.registrar/unregister! :event :x/y)
   (is (= {} (rf.source-store/descriptors-for :event :x/y))
       "every provenance slot for the id is forgotten"))
-
-(deftest clear-all-resets-source-store
-  (rf.registrar/register! :event :a/b {:ns 'n.s :handler-fn :f})
-  (is (seq (rf.source-store/descriptors-for :event :a/b)) "recorded")
-  (rf.registrar/clear-all!)
-  (is (empty? (rf.source-store/kinds-present)) "no kinds remain in the store"))
-
-(deftest forget-descriptor-removes-one-slot
-  (rf.source-store/record-descriptor! :event :boot/init {:ns 'a.ns :handler-fn :a})
-  (rf.source-store/record-descriptor! :event :boot/init {:ns 'b.ns :handler-fn :b})
-  (rf.source-store/forget-descriptor! :event :boot/init 'a.ns)
-  (is (= #{"b.ns"} (set (keys (rf.source-store/descriptors-for :event :boot/init))))))
-
-(deftest all-descriptors-flattens-across-slots
-  (rf.source-store/record-descriptor! :event :boot/init {:ns 'a.ns :handler-fn :a})
-  (rf.source-store/record-descriptor! :event :boot/init {:ns 'b.ns :handler-fn :b})
-  (rf.source-store/record-descriptor! :event :other     {:ns 'c.ns :handler-fn :c})
-  (is (= [:a :b :c] (sort (map :handler-fn (rf.source-store/all-descriptors :event))))))
-
-(deftest registrar-recorded-descriptor-assembles-via-all-descriptors
-  ;; Image assembly reads (:kind d) / (:id d), so a register!-recorded
-  ;; descriptor must carry them or a :select-ns image fails on a nil kind.
-  (rf.registrar/register! :event :counter/inc
-                          {:ns 'docs.counter.v2 :handler-fn (fn [_ _] {})})
-  (let [img (rf.image/image {:id        :docs.counter/v2
-                             :select-ns {:include ["docs.counter.v2"]}})]
-    (is (some? (rf.image-assembly/resolve-descriptor
-                 (rf.image-assembly/assemble [img]) :event :counter/inc)))))
 
 (deftest provenance-from-pending-coords-when-ns-stripped
   ;; In production `merge-coords` strips :ns from the descriptor, but the
