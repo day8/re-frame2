@@ -53,8 +53,8 @@ reaching across frames from a view is an anti-pattern the framework diagnoses
 rather than an ergonomics gap. Two honest routes before you hold:
 
 - The read is **non-reactive** (a one-shot in a callback) → that is a
-  `re-frame.core` verb taking a frame option, not a view one. Check the core
-  facade for what the project's version exports rather than assuming a spelling.
+  `re-frame.core` verb taking a frame option, not a view one:
+  `(rf/subscribe-once [:cell v] {:frame report})`, as MIG-26 uses it.
 - The subtree genuinely belongs to another frame → **nest a boundary on it**.
   Make that frame, then wrap the subtree in an `[h/frame-provider {:frame …}]`
   naming it, in place, inside the tree you already have — every intent lowered

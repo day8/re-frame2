@@ -90,7 +90,7 @@ The **prop-dialect fixer and the view-substrate API census are automated**, and 
 clojure -Srepro \
   -Sdeps '{:deps {day8/re-frame2-fresco-codemod
                   {:git/url   "https://github.com/day8/re-frame2.git"
-                   :git/sha   "8b17cc53d517de9359f5174a0d2fcfa4748091ab"
+                   :git/sha   "a31653bd89f42a05a59b60484409121f35e6ef3b"
                    :deps/root "migration/reagent-to-fresco/codemod"}}}' \
   -M -m re-frame.migration.fresco.codemod path/to/consumer/src/ --report out.edn
 ```
@@ -132,7 +132,7 @@ Reagent runs a view **at render time as an ordinary function** that returns hicc
 3. **Incremental, never big-bang.** Migrate one namespace / one closed subtree at a time; verify it renders and its tests pass; then move on — [`references/procedure.md`](references/procedure.md).
 4. **The MIG rule catalog is the shared vocabulary.** Every rewrite cites a `MIG-NN` id, so the author can trace any change back to a rule. The id names the **Reagent construct you found**, not the destination shape. If a construct matches no rule, treat it as a hold (rule 2).
 5. **Views only.** This skill rewrites the **view tier** — hiccup, handlers, mounts, view-held state. It never touches events, subs, fx, machines, schemas, or routes (that dataflow is re-frame2 already, from step 1). Where a view forces a dataflow change (a new `reg-sub`, a hoisted event), the skill *names* it for the author — it does not reach across into the dataflow layer.
-6. **Emit only what has shipped, and read the door to find out.** Fresco's public surface is `re-frame.fresco` plus six optional modules (`.forms`, `.motion`, `.overlay`, `.native`, `.server`, `.substrate`) and the test kit (`re-frame.fresco.test*` — `.test`, `.test.mounted`, `.test.forms`, `.test.runtime`, `.test.server`). **No guide or design page is the API**: pages drift from the door, and design notes describe forms that never shipped (there is no `h/fn`; the callback form is `h/event`). If a verb is not in the shipped door, do not write it: name the gap and hold the view.
+6. **Emit only what has shipped, and read the door to find out.** Fresco's authoring surface is `re-frame.fresco` plus six optional modules (`.forms`, `.motion`, `.overlay`, `.native`, `.server`, `.substrate`) and the test kit (`re-frame.fresco.test*` — `.test`, `.test.mounted`, `.test.forms`, `.test.runtime`, `.test.server`); `.tool` and `.evidence` are the devtools' reader door, never written in a view. **No guide or design page is the API**: pages drift from the door, and design notes describe forms that never shipped (there is no `h/fn`; the callback form is `h/event`). If a verb is not in the shipped door, do not write it: name the gap and hold the view.
 7. **The skill runs the compile/test gates; the programmer owns the visual confirmation.** Migration is verify-as-you-go, so the skill **discovers and runs the nearest safe noninteractive gate itself** — compile the subtree and run its tests (`npx shadow-cljs compile …`, `npm test`, `clojure -M:test`, whatever the project uses). "Compiles" is necessary but not sufficient: Fresco moves most view errors to run time by design.
 
 ## The transformation catalog — organised by tier
