@@ -41,7 +41,7 @@ These shape voice and structure but aren't quoted directly.
 - **Mike's standing memory rules** — "Findings is local-only", "No AI attribution in commits or PRs", "Pre-alpha masterpiece posture" (no back-compat shims; optimise for elegance/correctness/completeness), "Frames are isolated contexts" (informs the deferred foreign-frame-write candidate).
 - **`skills/README.md` §Skill routing — single source** — the monorepo's trigger matrix. SKILL.md §Trigger semantics filter 3 states the improver's own sibling boundary in full locally (a packaged install routes without the monorepo); this matrix is the alignment reference the local boundary is kept consistent with, not a runtime dependency.
 - **`skills/README.md` §Leaf size discipline** — the per-leaf size ceiling; leaves stay one level deep.
-- Anthropic skills guidance — `name` ≤ 64 chars; `description` pushy-but-conversational; SKILL.md under 500 lines; references one level deep; `evals.json` carries the 8+8 trigger fixtures **plus** behavioural critique fixtures (`expected_output` + objectively-checkable `expectations`, per the sibling `skills/re-frame2/evals` convention) that grade critique quality and the correction contract — graded alongside `evals/README.md`.
+- Anthropic skills guidance — `name` ≤ 64 chars; `description` pushy-but-conversational; SKILL.md under 500 lines; references one level deep; `evals.json` carries should-trigger and should-not-trigger fixtures **plus** behavioural critique fixtures (`expected_output` + objectively-checkable `expectations`, per the sibling `skills/re-frame2/evals` convention) that grade critique quality and the correction contract — graded alongside `evals/README.md`.
 
 ## 5. What the skill does NOT consume
 

@@ -26,6 +26,8 @@
     {"id": 14, "kind": "trigger", "name": "neg-mid-edit", "should_trigger": false, "prompt": "I'm in the middle of writing this reg-event — interrupt me if I'm about to use an anti-pattern.", "rationale": "Mid-edit interruption is explicitly disallowed; skill is pull-only."},
     {"id": 15, "kind": "trigger", "name": "neg-pair-retro", "should_trigger": false, "prompt": "Retro on the re-frame2-pair session I just finished.", "rationale": "Session retro is re-frame2-pair-retro."},
     {"id": 16, "kind": "trigger", "name": "neg-migration-review", "should_trigger": false, "prompt": "Review my v1->v2 migration so far — what's left?", "rationale": "Migration is re-frame-migration's job."},
+    {"id": 35, "kind": "trigger", "name": "neg-implementor-own-source", "should_trigger": false, "prompt": "Review implementation/core/src/re_frame/router.cljc for anti-patterns — I'm porting re-frame2 to TypeScript and want to know which patterns to carry over.", "rationale": "The near-homograph: review phrasing and a concrete .cljc path, but the code is re-frame2 itself being ported, which is re-frame2-implementor's job. This skill critiques a user's application code."},
+    {"id": 36, "kind": "trigger", "name": "neg-fresco-port", "should_trigger": false, "prompt": "What should change in this view to move it off Reagent hiccup onto Fresco?\n\n(rf/reg-view tab-content []\n  [:div (case @(subscribe [:dashboard/current-tab])\n          :overview [overview-pane]\n          :stats    [stats-pane])])", "rationale": "Source is in scope, but moving a view off Reagent onto Fresco is a porting ask, which is reagent-fresco-migration's job even on an already-re-frame2 app. Critiquing the same view against the catalogue would stay here."},
 
     {
       "id": 17,

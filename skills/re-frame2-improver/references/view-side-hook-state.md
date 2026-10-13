@@ -28,7 +28,7 @@ A `reagent/atom` is legitimate when its state is **render-local** — a hovered-
 
 ## The canonical fix
 
-Move the state to `app-db` behind a `reg-sub`. Reads use `(subscribe [:sub-id])`; writes go through `reg-event`. See [`skills/re-frame2/references/fundamentals/subs.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/fundamentals/subs.md) and [`skills/re-frame2/references/fundamentals/events.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/fundamentals/events.md).
+Move the state to `app-db` behind a `reg-sub`. Reads use `(subscribe [:sub-id])`; writes go through `reg-event`. Keep the reviewed code's view layer: that is the Reagent spelling, while a UIx `defui` reads through the adapter's `use-sub` hook and takes its frame from `use-frame`, and a Fresco `h/defview` reads `(h/sub …)`. See [`skills/re-frame2/references/fundamentals/subs.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/fundamentals/subs.md) and [`skills/re-frame2/references/fundamentals/events.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/fundamentals/events.md).
 
 Sources: [`docs/core/fresco/11-ephemeral-state.md` §Why one owner matters](https://github.com/day8/re-frame2/blob/main/docs/core/fresco/11-ephemeral-state.md#why-one-owner-matters) (each fact has one owner — no second reactive store beside `app-db`) and [`spec/000-Vision.md` §Pointers to per-area Specs](https://github.com/day8/re-frame2/blob/main/spec/000-Vision.md#pointers-to-per-area-specs) (views as pure projections).
 
