@@ -53,13 +53,10 @@
 (deftest cascade-action-badge-label-test
   (testing "the merged ACTION badge folds the phase + the
             ACTION kind into one token"
-    (is (= "EXIT ACTION"          (badge/cascade-action-badge-label :exit)))
-    (is (= "ENTRY ACTION"         (badge/cascade-action-badge-label :entry)))
-    (is (= "TRANSITION ACTION"    (badge/cascade-action-badge-label :transition)))
-    (is (= "ALWAYS ACTION"        (badge/cascade-action-badge-label :always)))
-    (is (= "AFTER-ACTION ACTION"  (badge/cascade-action-badge-label :after-action)))
-    (is (= "INITIAL-ENTRY ACTION" (badge/cascade-action-badge-label :initial-entry)))
-    (is (= "DESTROY-EXIT ACTION"  (badge/cascade-action-badge-label :destroy-exit))))
+    (is (= ["EXIT ACTION" "ENTRY ACTION" "TRANSITION ACTION" "ALWAYS ACTION"
+            "AFTER-ACTION ACTION" "INITIAL-ENTRY ACTION" "DESTROY-EXIT ACTION"]
+           (mapv badge/cascade-action-badge-label
+                 [:exit :entry :transition :always :after-action :initial-entry :destroy-exit]))))
   (testing "a phase-less action falls back to the bare ACTION label"
     (is (= (badge/cascade-kind-label :action)
            (badge/cascade-action-badge-label nil))
@@ -70,16 +67,14 @@
 
 (deftest event-bundle-outcome-resolver-test
   (testing "outcome → token-key + glyph mappings"
-    (is (= :success       (badge/cascade-outcome-token-key :pass)))
-    (is (= :success       (badge/cascade-outcome-token-key :ok)))
-    (is (= :warning       (badge/cascade-outcome-token-key :fail)))
-    (is (= :error         (badge/cascade-outcome-token-key :threw)))
-    (is (= :text-tertiary (badge/cascade-outcome-token-key :cancelled)))
-    (is (= "✓" (badge/cascade-outcome-glyph :pass)))
-    (is (= "✓" (badge/cascade-outcome-glyph :ok)))
-    (is (= "▲" (badge/cascade-outcome-glyph :fail)))
-    (is (= "✗" (badge/cascade-outcome-glyph :threw)))
-    (is (= "·" (badge/cascade-outcome-glyph :cancelled)))))
+    (is (= {:pass      [:success "✓"]
+            :ok        [:success "✓"]
+            :fail      [:warning "▲"]
+            :threw     [:error "✗"]
+            :cancelled [:text-tertiary "·"]}
+           (into {} (map (juxt identity (juxt badge/cascade-outcome-token-key
+                                               badge/cascade-outcome-glyph)))
+                 [:pass :ok :fail :threw :cancelled])))))
 
 ;; There is no per-STAGE status glyph: a clean run would paint a tick on
 ;; every stage (no information), and the inline exception card under the
@@ -89,26 +84,19 @@
 
 ;; ---- flat SIDE EFFECTS ledger row glyphs --------------------------------
 
-(deftest fx-row-status-glyph-test
-  (testing "the flat-ledger per-effect glyph closed set:
-            ✓ :ok / ✗ :error / ✗ :rollback / ↺ :overridden / – :skipped"
-    (is (= "✓" (badge/fx-row-status-glyph :ok)))
-    (is (= "✗" (badge/fx-row-status-glyph :error)))
-    (is (= "✗" (badge/fx-row-status-glyph :rollback)))
-    (is (= "↺" (badge/fx-row-status-glyph :overridden)))
-    (is (= "–" (badge/fx-row-status-glyph :skipped))
-        "skipped is the muted en-dash 'n/a'")))
+(deftest fx-row-status-glyph-and-token-key-test
+  (testing "the flat-ledger per-effect glyph + colour-token closed set; skipped
+            is the muted, NEUTRAL en-dash 'n/a'"
+    (is (= {:ok         ["✓" :success]
+            :error      ["✗" :error]
+            :rollback   ["✗" :error]
+            :overridden ["↺" :accent]
+            :skipped    ["–" :text-tertiary]}
+           (into {} (map (juxt identity (juxt badge/fx-row-status-glyph
+                                               badge/fx-row-status-token-key)))
+                 [:ok :error :rollback :overridden :skipped])))))
 
 (deftest overridden-hover-names-the-replacement-test
   (testing "the ↺ row's hover names the replacement"
     (is (str/includes? (badge/overridden-hover :http/fake) ":http/fake"))
     (is (str/includes? (badge/overridden-hover :re-frame.fx/fn-value) "with a function"))))
-
-(deftest fx-row-status-token-key-test
-  (testing ":error/:rollback → :error; :overridden → :accent;
-            :skipped → :text-tertiary (muted, NEUTRAL); else → :success"
-    (is (= :error         (badge/fx-row-status-token-key :error)))
-    (is (= :error         (badge/fx-row-status-token-key :rollback)))
-    (is (= :accent        (badge/fx-row-status-token-key :overridden)))
-    (is (= :text-tertiary (badge/fx-row-status-token-key :skipped)))
-    (is (= :success       (badge/fx-row-status-token-key :ok)))))
