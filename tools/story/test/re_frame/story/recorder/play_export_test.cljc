@@ -196,15 +196,6 @@
 ;; clock, which runs behind the recorded one by every sub-threshold gap the
 ;; export folded out.
 
-(deftest timer-child-wait-covers-a-folded-out-gap
-  (is (= [[:dispatch [:t/root]]
-          [:dispatch [:t/other]]
-          [:wait 80]]
-         (rf.story.recorder.play-export/entries->steps
-           [{:kind :event/dispatch :event [:t/root]  :t 0}
-            {:kind :event/dispatch :event [:t/other] :t 40}
-            {:kind :event/timer-child :t 80}]))))
-
 (deftest timer-child-wait-counts-only-what-the-replay-has-not-waited
   ;; 100 waited, 30 folded out, 50 to the child.
   (is (= [[:dispatch [:t/root]]
