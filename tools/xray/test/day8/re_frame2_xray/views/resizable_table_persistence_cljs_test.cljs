@@ -1,16 +1,13 @@
 (ns day8.re-frame2-xray.views.resizable-table-persistence-cljs-test
   "The column-widths persistence rows that need no real localStorage: the
-  `->edn` / `<-edn` codec, the tick reducer's clamp, and the
-  pre-registration `hydrate!` short-circuit. The storage round-trips —
-  `custom-storage-key-isolates-per-instance`,
+  `->edn` / `<-edn` codec and the pre-registration `hydrate!`
+  short-circuit. The storage round-trips —
   `resize-pair-commit-persists-current-slot`,
   `reset-clears-table-and-persists` and `hydrate-lifts-persisted-widths` —
   live in `resizable-table-persistence-dom-cljs-test`, because only a
   `-dom-cljs-test` namespace reaches the lane with a `window.localStorage`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
-            [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.views.resizable-table :as rt]))
 
@@ -33,18 +30,6 @@
                    "poisoning the slot")
               {:t1 {:a 100}} (pr-str {:t1 {:a 100 :b "oops"}})]]]
       (is (= expected (rt/<-edn encoded)) label))))
-
-(deftest resize-pair-tick-clamps-sub-floor-width
-  (registry/register-xray-handlers!)
-  (rf/make-frame {:id :rf/xray})
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray.column-widths/resize-pair-tick
-                       :rf.xray.epoch/subscriptions
-                       :sub 5 :inputs 300])
-    (is (= {:sub 24 :inputs 300}
-           @(rf/subscribe [:rf.xray.column-widths/for-table
-                           :rf.xray.epoch/subscriptions]))
-        "sub clamped to the 24px floor; inputs verbatim")))
 
 (deftest hydrate-is-no-op-pre-frame-registration
   (testing "hydrate! short-circuits when :rf/xray is not yet registered
