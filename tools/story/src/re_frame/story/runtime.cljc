@@ -1677,6 +1677,12 @@
               ;; Controls overrides, modes, substrate and run-key.
               base         {:run-key run-key :opts opts :generation gen
                             :resumed-gen (dec gen) :start-ms (rf.interop/now-ms)}]
+          ;; Claim the fresh generation BEFORE phases 0-2 reset the frame, so a
+          ;; resume of the generation this one replaces settles as superseded
+          ;; from the moment its frame is touched, rather than settling `:pass`
+          ;; over the successor's state. It is claimed already resumed, so
+          ;; nothing resumes it until the prepared attempt below is installed.
+          (swap! run-owner assoc variant-id (assoc base :resumed-gen gen))
           (if (nil? variant-body)
             (swap! run-owner assoc variant-id (assoc base :error :unknown-variant))
             (try
