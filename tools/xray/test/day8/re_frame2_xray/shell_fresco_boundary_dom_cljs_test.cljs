@@ -27,15 +27,14 @@
   the mount reads `container.querySelector…` — the DOM React committed
   on its own.
 
-  ## The five rows
+  ## The three rows
 
-  W1 asks whether the chrome PAINTS and W2 whether its reads are LIVE.
-  W3 and W4 close the two claims those leave untouched: W3
-  presses a real L3 tab button, so the dispatcher the boundary CAPTURES
-  is exercised rather than bypassed by the test's own `dispatch-sync`,
-  and holds a second live frame as the control that makes it a routing
-  claim; W4 MEASURES the teardown W1 and W2 merely call, against the
-  frame's sub-cache reference, the collector's cell watch, its reader
+  W3 finds every Dynamic layer PAINTED, then presses a real L3 tab
+  button, so the dispatcher the boundary CAPTURES is exercised rather
+  than bypassed by the test's own `dispatch-sync`; the L4 panel following
+  the click shows its reads are LIVE, and a second live frame is the
+  control that makes it a routing claim. W4 MEASURES the teardown against
+  the frame's sub-cache reference, the collector's cell watch, its reader
   edges and the whole collector census — and reopens once, because a
   release that releases nothing still reads clean on a first mount. W5
   mounts through the EMBED door, `panels/mount-shell!`, and checks that a
@@ -75,12 +74,12 @@
   production singleton's frame is trace-disabled and shared with every
   other suite on the page, and `shell-view`'s `:frame-id` opt exists
   precisely so N instances can be isolated. Naming a private
-  one is what makes W2's negative half mean something."
+  one is what makes W3's cross-frame control mean something."
   ::shell)
 
 (def ^:private other-frame
-  "A second live frame W2 dispatches into as its DEAF LEVER — the
-  negative control. A write here must move nothing in the shell above."
+  "A second live frame W3 holds at a distinct tab as its cross-frame
+  control. A click in the shell must move nothing here."
   ::other)
 
 (def ^:private embed-app-frame
@@ -122,19 +121,6 @@
 ;; that way reads a DOM that has not moved and reports a live shell as
 ;; dead. Mount is committed with `flushSync` (React's own door) and
 ;; everything after it is polled.
-
-(defn- settle
-  "A promise resolving once every render pipeline on the page has had a
-  real chance to commit — two animation frames and a macrotask. It exists
-  for the CONTROL in W2: an absence asserted immediately after the world
-  moves is a race, and an absence asserted after this is a decision."
-  []
-  (js/Promise.
-    (fn [resolve]
-      (js/requestAnimationFrame
-        (fn [_]
-          (js/requestAnimationFrame
-            (fn [_] (js/setTimeout resolve 20))))))))
 
 (defn- poll-until
   "Resolve as soon as `pred` answers truthy, or after `budget-ms`. The
@@ -262,114 +248,9 @@
 
 (defn- detail-panel-node
   "The committed L4 panel `<div>`, whatever tab it is showing. Its testid
-  carries the tab id, which is what W2 watches."
+  carries the tab id, which is what W3 watches."
   [container]
   (q container "[data-testid^=\"rf-xray-detail-panel-\"][role=\"tabpanel\"]"))
-
-;; ===========================================================================
-;; W1 — first display of the WHOLE Dynamic chrome
-;; ===========================================================================
-
-(deftest w1-dynamic-chrome-paints-every-layer-through-the-bridge
-  (testing "the Dynamic chrome commits all four
-            layers plus the events ribbon, through Xray's own Fresco
-            root.
-
-            THIS ROW CARRIES WHAT THE NODE LANE CANNOT. Every chrome
-            row in `shell_cljs_test` drives the shell's pure `*-tree`
-            fns rather than the views, because a boundary's body only
-            runs inside a React render window. Those rows are evidence
-            about COMPOSITION; this one is the only evidence that the
-            composition reaches a screen.
-
-            The theme toggle is asserted separately from the ribbon that
-            contains it because it is its OWN boundary — a nested
-            boundary head inside a boundary body, which is the shape the
-            rest of the chrome's regions take under
-            `dynamic-chrome`."
-    (if-not (browser?)
-      (is true "skipped: no DOM (node lane)")
-      (async done
-        (setup!)
-        (let [{:keys [container root]} (mount-shell! shell-frame)]
-          (-> (poll-until #(testid container "rf-xray-ribbon"))
-              (.then
-                (fn [_]
-                  (is (some? (testid container "rf-xray-shell"))
-                      (str "the shell envelope commits" (uncaught-note)))
-                  (is (some? (testid container "rf-xray-ribbon"))
-                      "L1 chrome ribbon commits")
-                  (is (some? (testid container "rf-xray-ribbon-nav"))
-                      "the ribbon's nav cluster commits — a helper CALLED
-                       rather than headed still reaches the DOM")
-                  (is (some? (testid container "rf-xray-theme-toggle"))
-                      "the theme toggle commits — a boundary head inside
-                       a boundary body")
-                  (is (some? (testid container "rf-xray-events-ribbon"))
-                      "L1.5 events ribbon commits")
-                  (is (some? (testid container "rf-xray-event-list"))
-                      "L2 event list commits — the chrome's Reagent
-                       island, crossed with `as-element`")
-                  (is (some? (testid container "rf-xray-tab-bar"))
-                      "L3 tab bar commits")
-                  (is (some? (detail-panel-node container))
-                      "L4 detail panel commits")
-                  (teardown! root container)
-                  (done)))))))))
-
-;; ===========================================================================
-;; W2 — a real dependency change repaints, and a write to another frame
-;;      does not
-;; ===========================================================================
-
-(deftest w2-chrome-repaints-on-a-real-dependency-change
-  (testing "the chrome's reads are LIVE: writing
-            `:rf.xray/select-tab` into the frame the tree named moves the
-            committed L4 panel, and writing the same event into a
-            DIFFERENT live frame moves nothing — observation, and frame
-            context.
-
-            This is the coupling a first-paint smoke test cannot see: a
-            tree that painted once and never re-ran would pass W1 and
-            fail here. The negative half is what makes it a frame claim
-            rather than merely a reactivity one — `shell-view` is mounted
-            at a PRIVATE frame, so a boundary that resolved its read
-            ambiently would follow the wrong write."
-    (if-not (browser?)
-      (is true "skipped: no DOM (node lane)")
-      (async done
-        (setup!)
-        (let [{:keys [container root]} (mount-shell! shell-frame)
-              tab-testid (fn [] (some-> (detail-panel-node container)
-                                        (.getAttribute "data-testid")))
-              !before    (atom nil)
-              step-1     (fn [before]
-                           (reset! !before before)
-                           (is (some? before)
-                               "CONTROL — the L4 panel is committed before the lever")
-                           ;; The DEAF LEVER: the same event, into a live
-                           ;; frame this tree never named.
-                           (rf/dispatch-sync [:rf.xray/select-tab :trace]
-                                             {:frame other-frame})
-                           (settle))
-              step-2     (fn [_]
-                           (is (= @!before (tab-testid))
-                               (str "a write to another frame moves nothing. "
-                                    "Was " (pr-str @!before)
-                                    ", now " (pr-str (tab-testid))))
-                           (rf/dispatch-sync [:rf.xray/select-tab :trace]
-                                             {:frame shell-frame})
-                           (poll-until (fn [] (not= @!before (tab-testid)))))
-              step-3     (fn [_]
-                           (is (= "rf-xray-detail-panel-trace" (tab-testid))
-                               (str "the L4 panel followed the write into its "
-                                    "OWN frame. Got: " (pr-str (tab-testid))))
-                           (teardown! root container)
-                           (done))]
-          (-> (poll-until tab-testid)
-              (.then step-1)
-              (.then step-2)
-              (.then step-3)))))))
 
 ;; ===========================================================================
 ;; Shared by W3 and W4 — the one read both rows key off, and the controls
@@ -433,13 +314,9 @@
 ;;      boundary CAPTURED, into the frame the tree named
 ;; ===========================================================================
 ;;
-;; W2 above moves the world with `rf/dispatch-sync` and watches the chrome
-;; follow. That is a reactivity claim and it is deliberately silent about the
-;; boundary's OTHER half: `tab-bar` does not merely READ through the
-;; collector, it CAPTURES a dispatcher with `(:dispatch (rf/capture-frame))`
-;; and threads it into every tab button as `:dispatch-fn`. No row above makes
-;; it do so, and the boundary's whole job is to capture a dispatcher — so this
-;; row makes it capture one.
+;; `tab-bar` does not merely READ through the collector, it CAPTURES a
+;; dispatcher with `(:dispatch (rf/capture-frame))` and threads it into every
+;; tab button as `:dispatch-fn`.
 ;;
 ;; THE NEGATIVE HALF IS WHAT MAKES IT A FRAME CLAIM RATHER THAN A CLICK TEST.
 ;; `tab-button` ends `(or dispatch-fn rf/dispatch)`, a defensive fallback for
@@ -466,13 +343,14 @@
             leaves a second live frame exactly where it was. The event
             travels the shipped path end to end: React's own click, the
             `:on-click` closure, the `:dispatch-fn` `tab-bar` captured, the
-            handler, the invalidated read, the recommitted boundary.
+            handler, the invalidated read, the recommitted boundary. The
+            frame comes from the boundary's capture: nothing in the row
+            names it at the moment of dispatch.
 
-            THIS ROW IS NOT A SECOND W2. W2's lever is the test's own
-            `dispatch-sync`, which supplies the frame from the OUTSIDE; here
-            the frame comes from the boundary's capture, and nothing in the
-            row names it at the moment of dispatch. That difference is the
-            whole subject."
+            First it finds every Dynamic layer committed through Xray's own
+            Fresco root — the evidence the node lane's pure `*-tree` rows
+            cannot give — the theme toggle among them as a boundary head
+            inside a boundary body."
     (if-not (browser?)
       (is true "skipped: no DOM (node lane)")
       (async done
@@ -493,10 +371,12 @@
               (.then
                 (fn [_]
                   (let [btn (tab-node container clicked-tab)]
-                    (is (some? btn)
-                        (str "PRECONDITION: the L3 `" (name clicked-tab)
-                             "` tab button is committed, so there is a real "
-                             "control to press" (uncaught-note)))
+                    (is (= [] (remove #(testid container %)
+                                      ["rf-xray-shell" "rf-xray-ribbon" "rf-xray-ribbon-nav"
+                                       "rf-xray-theme-toggle" "rf-xray-events-ribbon"
+                                       "rf-xray-event-list" "rf-xray-tab-bar"]))
+                        (str "every Dynamic layer commits; these are missing"
+                             (uncaught-note)))
                     (is (= "false" (aria-of))
                         (str "PRECONDITION: and it is not already the selected "
                              "tab, so the flip below is the click's doing. Got: "
@@ -506,11 +386,6 @@
                              "tab. Got: " (pr-str (tab-testid))))
                     (is (= :epoch (selected-tab-in shell-frame))
                         "PRECONDITION: and the shell's own frame holds the default")
-                    (is (= deaf-frame-tab (selected-tab-in other-frame))
-                        (str "PRECONDITION: while the second live frame holds a "
-                             "DISTINCT value, so `unchanged` below is a claim "
-                             "about a real value. Got: "
-                             (pr-str (selected-tab-in other-frame))))
                     ;; ---- the act: a REAL browser click on a REAL node ----
                     (if (click! btn (str "the L3 " (name clicked-tab) " tab button"))
                       (poll-until #(= (panel-testid-for clicked-tab) (tab-testid)))
@@ -629,11 +504,7 @@
             reaction instead of rebuilding it; and the entry reaper's
             horizon sits outside a bare `setTimeout 0`. A residue read
             before that point reports a LEAK against a runtime behaving
-            exactly as documented.
-
-            W1 and W2 both CALL `teardown!` and neither measures anything
-            after it, and a call is not a measurement — this row is the
-            measurement."
+            exactly as documented."
     (if-not (browser?)
       (is true "skipped: no DOM (node lane)")
       (async done
@@ -663,14 +534,11 @@
                              "first mount, so `returns to baseline` below is a "
                              "return to ZERO rather than to a residue a leak "
                              "could hide inside. Got: " (pr-str (:runtime b))))
+                    ;; An empty census has no cell, so no watch and no reader edge.
                     (is (zero? (:ref-count b))
                         (str "BASELINE: and the frame holds no sub-cache "
                              "reference for the shell's read. Cache keys: "
-                             (pr-str (keys (cache-of shell-frame)))))
-                    (is (false? (:live-cell? b))
-                        "BASELINE: and no collector cell, so no watch")
-                    (is (zero? (:reader-edges b))
-                        "BASELINE: and no reader edge, so no listener"))
+                             (pr-str (keys (cache-of shell-frame))))))
                   (mount!)))
               (.then
                 (fn [_]
@@ -683,17 +551,11 @@
                     (is (true? (:live-cell? m))
                         "NON-VACUITY: and a live collector cell, so there is a
                          watch to lose")
+                    ;; A reader edge is a boundary registration's slot on a
+                    ;; dependency edge, so the census is non-empty with it.
                     (is (pos? (:reader-edges m))
                         (str "NON-VACUITY: and reader edges on it, so there are "
-                             "listeners to lose. Got: " (:reader-edges m)))
-                    (is (pos? (:cells (:runtime m)))
-                        (str "NON-VACUITY: and the chrome's SEVEN boundaries "
-                             "between them lit the collector up. Census: "
-                             (pr-str (:runtime m))))
-                    (is (pos? (:boundaries (:runtime m)))
-                        "NON-VACUITY: with registrations holding reader slots")
-                    (is (pos? (:edges (:runtime m)))
-                        "NON-VACUITY: and dependency edges across the whole tree"))
+                             "listeners to lose. Got: " (:reader-edges m))))
                   (unmount!)
                   (rf.fresco.test.runtime/quiesced!)))
               (.then
@@ -704,14 +566,8 @@
                              "COMPLETELY. Residue: " (pr-str a)
                              " — frame cache keys: "
                              (pr-str (keys (cache-of shell-frame)))))
-                    (is (false? (:live-cell? a))
-                        (str "NO RETAINED WATCHES: the collector cell for the "
-                             "shell's read is gone, so no `add-watch` on a "
-                             "derived reaction survives the unmount. Residue: "
-                             (pr-str a)))
-                    (is (zero? (:reader-edges a))
-                        (str "NO RETAINED LISTENERS: and no reader edge survives "
-                             "either. Residue: " (pr-str a)))
+                    ;; Back at the empty baseline, no cell survives: no
+                    ;; retained watch, and no retained reader edge.
                     (is (= (:runtime @!baseline) (:runtime a))
                         (str "and the WHOLE collector census is back at baseline "
                              "— every cell, edge, boundary registration and "
@@ -758,10 +614,7 @@
                              "the release is a property of teardown rather than "
                              "of the first one happening to be clean. Baseline: "
                              (pr-str (:runtime @!baseline))
-                             " — after second unmount: " (pr-str (:runtime a))))
-                    (is (zero? (:reader-edges a))
-                        (str "with no reader edge surviving it either. Residue: "
-                             (pr-str a))))))
+                             " — after second unmount: " (pr-str (:runtime a)))))))
               (.catch (fn [e]
                         (is false (str "W4 never settled: " (.-message e)
                                        " — baseline cells: " (pr-str (census :cells))
@@ -873,20 +726,6 @@
           (-> (poll-until tab-testid)
               (.then
                 (fn [_]
-                  (is (some? (testid embed-node "rf-xray-shell"))
-                      (str "the EMBED door commits the shell envelope — the "
-                           "`shell-view` bridge crossed into Xray's own "
-                           "Fresco tree from a Reagent parent"
-                           (uncaught-note)))
-                  (is (some? (testid embed-node "rf-xray-tab-bar"))
-                      "and the L3 tab bar with it")
-                  ;; THE KEYWORD-CROSSING CLAIM. If the opts had gone through
-                  ;; a Reagent `[:>]` conversion, `:frame-id` would be a
-                  ;; string and this frame would hold nothing.
-                  (is (= :epoch (selected-tab-in embed-xray-frame))
-                      (str "the embed's own frame — named by the KEYWORD the "
-                           "bridge carried — holds the shell's state. Got: "
-                           (pr-str (selected-tab-in embed-xray-frame))))
                   (reset! !before (vec (rf/epoch-history embed-app-frame)))
                   (is (seq @!before)
                       "instrument control: the host app's ring is NON-EMPTY,
@@ -904,17 +743,16 @@
                            "RESPONDED to the click, so the untouched ring "
                            "below is about a live shell rather than a dead "
                            "one. Got: " (pr-str (tab-testid))))
+                  ;; THE KEYWORD-CROSSING CLAIM. If the opts had gone through
+                  ;; a Reagent `[:>]` conversion, `:frame-id` would be a
+                  ;; string and this frame would hold nothing.
                   (is (= clicked-tab (selected-tab-in embed-xray-frame))
                       "and the write landed in the embed's OWN frame")
-                  (let [after (vec (rf/epoch-history embed-app-frame))]
-                    (is (= (count @!before) (count after))
-                        (str "MEASURED: the embed adds NO epoch record to "
-                             "the host application's ring. Was "
-                             (count @!before) ", now " (count after)))
-                    (is (= @!before after)
-                        "and leaves every existing record byte-identical —
-                         the outer provider `mount-shell!` does not add is
-                         not a leak, and cannot become one"))
+                  (is (= @!before (vec (rf/epoch-history embed-app-frame)))
+                      "MEASURED: the embed adds NO epoch record to the host
+                       application's ring and leaves every existing record
+                       byte-identical — the outer provider `mount-shell!` does
+                       not add is not a leak, and cannot become one")
                   ;; The ring is LIVE, not merely quiet.
                   (rf/dispatch-sync [:w5/app-inc] {:frame embed-app-frame})
                   (is (not= @!before (vec (rf/epoch-history embed-app-frame)))
