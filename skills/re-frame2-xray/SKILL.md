@@ -179,7 +179,8 @@ per-key contract + suppression knob:
 | `Cmd/Ctrl+K` | global | Open the command palette (**wired** — don't tell users the K-binding is unavailable); opens the shell first if hidden. |
 | `Space` `l` `j` `k` `G` `,`/`s` | focus-gated | Spine + chrome shortcuts, only while the shell is visible and focused. Space = pause/resume LIVE · `l` (unshifted) = snap to LIVE · `j`/`k` = step focused event · `G` (Shift+G) = fast-forward to head · `,`/`s` = Settings popup. |
 
-Only these are wired: `Esc` is modal-local, not a spine key; the
+Only these are wired outside the modals: `Esc` and the Settings popup's
+`g`/`k`/`b`/`d` tab letters are modal-local, not spine keys; the
 **pop-out has no hotkey** (its canonical path is the visible `⛶`
 button); no `r`/`R`/`*` time-travel keys are live — the richer keymap in
 the spec is normative-future.
@@ -209,6 +210,9 @@ the control-by-control inventory.
  is retired — there is none). Muted event ids are a separate state: the
  L1 `🔇 N` chip opens the mute manager (per-row unmute / `Unmute all`).
  Transient, reset on load.
+- **`● REDACTED N`** — sensitive trace events the default egress profile
+ dropped; not a filter. Reveal is a trusted-local opt-in
+ ([detail](references/chrome.md#filter-pills)).
 - **Command palette (`Cmd/Ctrl+K`)** — fuzzy-ranked over six source kinds
  (panel jumps · recent events · frame switch · registered handlers ·
  settings · command verbs), mode-aware.
@@ -265,11 +269,9 @@ it nowhere; the contract behind that claim is owned by
 - **Deep workflow recipes** (find-wrong-sub walking, redaction-marker
  grammar, click-to-source, time-travel scrubbing, schema and hydration
  debugging walkthroughs). For a human who wants the walkthrough, send them
- to the chapter of the [Xray guide](https://github.com/day8/re-frame2/blob/main/docs/xray/index.md)
- (installation, panel tour, time-travel scrubbing, trace stream,
- click-to-source, schema violations, SSR hydration, machine inspector,
- the app-db tab, derivation graph, the Fresco tab, routes, resources,
- and Xray with Story and tests). For normative detail the source of truth is
+ to the matching chapter of the [Xray guide](https://github.com/day8/re-frame2/tree/main/docs/xray)
+ — one file per topic, from installation to Story and tests. For
+ normative detail the source of truth is
  [`tools/xray/spec/007-UX-IA.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/007-UX-IA.md)
  and the per-panel specs.
 - **Agent runtime access** — inspecting or driving the running app on the
