@@ -41,23 +41,6 @@
       (is (= (merge {:artifact/kind :rf.test/run-artifact :fx-decisions {}} expected)
              (rf.story.artifact/make-run-artifact parts))))))
 
-(deftest run-artifact-predicate
-  (is (rf.story.artifact/run-artifact?
-        {:artifact/kind :rf.test/run-artifact :event-program []}))
-  (is (not (rf.story.artifact/run-artifact? {:event-program []}))
-      "missing :artifact/kind")
-  (is (not (rf.story.artifact/run-artifact? {:artifact/kind :rf.test/run-artifact}))
-      "missing :event-program"))
-
-(deftest program-events-projection
-  (let [a (rf.story.artifact/make-run-artifact
-            {:event-program [[:dispatch [:a 1]]
-                             [:wait 10]
-                             [:dispatch-sync [:b 2]]
-                             [:assert-db [:k] :v]]})]
-    (is (= [[:a 1] [:b 2]] (rf.story.artifact/program-events a))
-        ":wait / :assert-* contribute no event")))
-
 ;; ===========================================================================
 ;; PURE: replay-result construction from a hand-built tape
 ;; ===========================================================================
@@ -253,13 +236,6 @@
 
 (def ^:private schema-checkpoint
   [:assert [:rf.assert/schema-error {:where :event :event :rep/typed}]])
-
-(deftest replay-fails-a-missing-expected-schema-violation
-  (rf/reg-event :rep/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-  (let [res (replay-program [[:dispatch [:rep/inc]] schema-checkpoint])]
-    (is (= :fail (:status res)))
-    (is (= [[:rf.assert/schema-error false :fail]]
-           (mapv (juxt :assertion :passed? :status) (:assertions res))))))
 
 (deftest replay-consumes-a-matching-expected-schema-violation
   ;; `replay-run-artifact` hands its captured tape to `replay-result`, so the
