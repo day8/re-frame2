@@ -135,27 +135,31 @@ own React root; all it needs is that the host called `rf/init!`.
 | Have an AI agent inspect the runtime | **re-frame2-pair** | Out of scope here — see §First fork above. |
 | Debug a mobile browser | **Out of scope at v1.0** | There is no mobile launch mode (`spec/011-Launch-Modes.md` lock #5). Nothing *refuses* a phone — the mount path carries no user-agent check; the mode simply doesn't exist. |
 
-**Most common launch failure — "the panel never appeared."** Preload in,
-page loaded, no inline panel = a **missing layout host**: nothing matched
-`[data-rf-xray-host]` when the adapter became ready. Xray fails loudly but
-safely — a `console.error` plus the same diagnostic at
-**`window.day8.re_frame2_xray.status()`**. First response: check the
-console / call `status()`, whose `:diagnostic :reason` names which of four
-it is — `:missing-layout-host`, `:no-substrate-adapter` (the host never
-called its own `rf/init!`), `:auto-open-disabled` (health, not failure),
-or the reserved, never-produced `:unsupported-substrate`. The reason
-table, the three missing-host recoveries (add the column · point the
-selector · fall back to `open-overlay!`) and the full decision tree
-(preload vs `init!`, suppress-auto-open, resize) live in
-[`references/launch-modes.md` §Launch diagnostics](references/launch-modes.md#launch-diagnostics); the pop-out
-lifecycle is in
-[`references/launch-lifecycle.md`](references/launch-lifecycle.md).
+**"The panel never appeared" — check in this order.** Xray fails loudly
+but safely, so there is always something to read.
 
-If the build cannot find the preload namespace, or the browser API is
-undefined, check the dev dependency and preload first — `status()` is
-available only after Xray's installation code ran. Installing this skill
-does not install the Xray runtime dependency; see
-[`references/launch-modes.md` §Install the preload](references/launch-modes.md#install-the-preload).
+1. **Did Xray compile into the dev build?** If the build cannot find the
+   preload namespace, fails on `@xyflow/react` / `elkjs`, or
+   `window.day8.re_frame2_xray` is undefined, fix the dev dependency, the
+   npm packages and the preload first — `status()` exists only after
+   Xray's install code ran, and installing this skill does not install the
+   runtime ([§Install the preload](references/launch-modes.md#install-the-preload)).
+2. **Read the diagnostic** — the `console.error`, or
+   **`window.day8.re_frame2_xray.status()`**, whose `:diagnostic :reason`
+   is one of four:
+   - `:missing-layout-host` — **the most common cause**: nothing matched
+     `[data-rf-xray-host]` when the adapter became ready. Add the column,
+     point `:rf.xray/layout-host-selector` at an element you have, or fall
+     back to `open-overlay!`.
+   - `:no-substrate-adapter` — the host never called its own `rf/init!`.
+   - `:auto-open-disabled` — health, not failure; open it with
+     `Ctrl+Shift+C`.
+   - `:unsupported-substrate` — reserved, never produced.
+3. **Go deeper** — the reason table, the recoveries and the full decision
+   tree (preload vs `init!`, suppress-auto-open, resize) are
+   [`references/launch-modes.md` §Launch diagnostics](references/launch-modes.md#launch-diagnostics);
+   the pop-out's own failures and lifecycle are
+   [`references/launch-lifecycle.md`](references/launch-lifecycle.md).
 
 ### Wired hotkeys
 
@@ -197,8 +201,8 @@ the control-by-control inventory.
  frame-state (app-db and runtime-db, so machines and the route slice
  revive too), not just the `:db-after` projection.
 - **Filter pills** — IN / OUT pills + an `N events filtered out` count;
- remove each pill via its trailing `×` (the bulk `Clear Filters` button
- is retired — there is none). Muted event ids are a separate state: the
+ remove each pill via its trailing `×` (there is no bulk `Clear Filters`
+ button). Muted event ids are a separate state: the
  L1 `🔇 N` chip opens the mute manager (per-row unmute / `Unmute all`).
  Transient, reset on load.
 - **`● REDACTED N`** — sensitive trace events the default egress profile
