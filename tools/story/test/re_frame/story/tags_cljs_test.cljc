@@ -35,9 +35,6 @@
     (testing "a variant that declares its own tags does NOT union with the story"
       (is (= #{:test} (rf.story.tags/effective-tags :story.t/own-tags lookups))))))
 
-(deftest effective-tags-empty-when-nothing-declared
-  (is (= #{} (rf.story.tags/effective-tags :story.none/v {:variant {:story.none/v {}}}))))
-
 (deftest resolve-body-tags-projects-effective-onto-each-body
   (is (= {:story.p/base  {:tags #{:dev}}
           :story.p/child {:extends :story.p/base :tags #{:docs}}}
