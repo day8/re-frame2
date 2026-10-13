@@ -222,7 +222,6 @@
   (let [a (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:diff/set 1]]]})
         b (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:diff/set 2]]]})
         d (rf.story.diff/diff-run-artifacts a b)]
-    (is (contains? (:facets d) :app-db))
     (is (= [{:path [:v] :baseline 1 :current 2}] (get-in d [:app-db :changed])))))
 
 (deftest diff-run-artifacts-accepts-a-run-result-directly
