@@ -11,8 +11,8 @@
     - `chart-layout/project-definition` — the machines-viz topology
       projector that feeds the chart.
 
-  The LCA order and the internal / external self-transition cases are the
-  deck-wide harness's (`machine-epochs-harness-cljs-test`)."
+  The internal / external self-transition cases are the deck-wide harness's
+  (`machine-epochs-harness-cljs-test`)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
