@@ -59,8 +59,7 @@
 
 (defn- find-repo-root
   "Walk up from `user.dir` until the matrix spec resolves — robust
-  whether the `:test` alias runs from `tools/xray` or the repo root.
-  Mirrors `panel_enum_spec_refs.clj`."
+  whether the `:test` alias runs from `tools/xray` or the repo root."
   []
   (loop [dir (io/file (System/getProperty "user.dir"))]
     (when (nil? dir)
@@ -198,7 +197,7 @@
   catalogued id (the guard enforces both directions), so adding or
   removing a bug-class in 019 fails the build until this map is
   updated. The whole catalogue is currently `:deferred` to the §Vision
-  bug-class-column work (017 lines 141-163)."
+  bug-class-column work (017 §Vision)."
   (into {}
         (for [id ["M.1" "M.2" "M.3" "M.4" "M.5" "M.6" "M.7" "M.8" "M.9" "M.10" "M.11"
                   "R.1" "R.2" "R.3" "R.4" "R.5" "R.6" "R.7" "R.8" "R.9" "R.10" "R.11"
