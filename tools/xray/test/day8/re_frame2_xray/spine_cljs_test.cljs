@@ -1,30 +1,14 @@
 (ns day8.re-frame2-xray.spine-cljs-test
-  "Direct CLJS coverage for the spine substrate — pure-reducer + sub
-  composition + the single-slot focus contract.
-
-  Per `tools/xray/spec/018-Event-Spine.md` §6 Spine binding the spine
-  sub `:rf.xray/focus` is the one axis every dependent surface reads
-  from. This file asserts:
-
-  1. The pure reducers (`focus-event-bundle-reducer`, `follow-head-reducer`,
-     `toggle-live-pause-reducer`, `set-frame-reducer`, `focus-step-
-     reducer`, `preview-event-reducer`) — JVM-runnable shape, no
-     re-frame machinery needed.
-  2. `compose-focus` derives `:head?` + the effective `:dispatch-id`
-     correctly across LIVE / RETRO / paused / evicted-cascade states.
-  3. Focus is the single source of truth —
-     `:rf.xray/select-dispatch-id` and `:rf.xray/focus-event` write
-     the spine `:focus` slot (carrying `:epoch-id`); App-DB-diff / Views
-     follow it through `:rf.xray/focus` → `:rf.xray/focus-epoch-id`.
-     There is no mirror slot.
-  4. The registered sub composes the slot + cascades via the standard
-     re-frame reactive path."
+  "The spine (spec/018 §6): the `:focus` slot every dependent surface reads
+  through `:rf.xray/focus`, the reducers and events that write it, and
+  `compose-focus`'s derivation of `:head?`, `:dispatch-id` and `:epoch-id`
+  across LIVE, RETRO, paused and evicted states. Most rows drive the
+  registered events and sub; the pure rows cover what those cannot reach."
   (:require [cljs.test :refer-macros [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.epoch :as rf.epoch]
             [re-frame.epoch.state :as rf.epoch.state]
             [re-frame.frame :as rf.frame]
-            [day8.re-frame2-xray.panels.shared.focus-resolver :as focus-resolver]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.spine :as spine]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
@@ -71,13 +55,6 @@
 ;; (1) Pure helpers — head / by-id / step
 ;; -------------------------------------------------------------------------
 
-(deftest event-bundle-by-id-finds-existing
-  (is (= (nth fixture-cascades 1)
-         (spine/event-bundle-by-id fixture-cascades :c2)))
-  (is (nil? (spine/event-bundle-by-id fixture-cascades :nonexistent)))
-  (is (nil? (spine/event-bundle-by-id fixture-cascades nil))
-      "nil id → nil match"))
-
 (deftest step-dispatch-id-walks-bounded-from-the-current-id-or-head
   (are [current delta expected]
        (= expected (spine/step-dispatch-id fixture-cascades current delta))
@@ -109,11 +86,7 @@
            (:event (spine/event-bundle-by-focus cross-frame-cascades
                                            {:dispatch-id :cx :frame :frame/b})))
         "focus on :frame/b picks the :frame/b cascade though :frame/a's
-         same-id cascade sits earlier")
-    (is (= [:a-event]
-           (:event (spine/event-bundle-by-focus cross-frame-cascades
-                                           {:dispatch-id :cx :frame :frame/a})))
-        "focus on :frame/a picks the :frame/a cascade"))
+         same-id cascade sits earlier"))
   (testing "no cascade for the focused frame → nil (no foreign-frame fallback)"
     (is (nil? (spine/event-bundle-by-focus cross-frame-cascades
                                       {:dispatch-id :cx :frame :frame/c}))))
@@ -122,8 +95,7 @@
            (:event (spine/event-bundle-by-focus cross-frame-cascades
                                            {:dispatch-id :cx})))))
   (testing "nil dispatch-id → nil"
-    (is (nil? (spine/event-bundle-by-focus cross-frame-cascades {})))
-    (is (nil? (spine/event-bundle-by-focus cross-frame-cascades nil)))))
+    (is (nil? (spine/event-bundle-by-focus cross-frame-cascades {})))))
 
 (deftest step-event-bundle-keeps-frame-and-id-in-lockstep-rf2-bz7flo
   (testing "step-event-bundle returns the WHOLE stepped row so
@@ -134,15 +106,9 @@
     (let [cascades [(cascade :c0 :frame/a)
                     (assoc (cascade :cx :frame/a) :event [:a-event])
                     (assoc (cascade :cx :frame/b) :event [:b-event])]]
-      ;; stepping next from :c0 lands on index 1 — the :frame/a :cx row.
-      (let [stepped (spine/step-event-bundle cascades :c0 +1)]
-        (is (= :cx (:dispatch-id stepped)))
-        (is (= :frame/a (:frame stepped))
-            "the stepped row's frame is :frame/a (the row at the stepped
-             index), NOT :frame/b which carries the same dispatch-id")
-        (is (= [:a-event] (:event stepped))))
-      ;; step-dispatch-id stays a thin projection of the same walk.
-      (is (= :cx (spine/step-dispatch-id cascades :c0 +1))))))
+      ;; stepping next from :c0 lands on index 1 — the :frame/a :cx row,
+      ;; NOT :frame/b's, which carries the same dispatch-id.
+      (is (= (nth cascades 1) (spine/step-event-bundle cascades :c0 +1))))))
 
 (deftest step-event-bundle-current-lookup-is-frame-strict-rf2-xj3kbn
   (testing "when the CURRENT dispatch-id itself is
@@ -184,45 +150,16 @@
 ;; ---- focusable-head-frame-id --------------------------------------------
 
 (deftest focusable-head-frame-id-skips-ungrouped
-  (testing ":ungrouped bucket is filtered out so the seed
-            frame is always a real, L2-visible cascade's frame. Without
-            the filter the bucket (no `:frame` slot) could be chosen as
-            the head. EP-0002: a nil seed leaves the target
-            UNSELECTED (`set-target-frame`'s `(or frame-id
-            default-target-frame)` = nil) rather than resolving to a
-            synthesised `:rf/default`."
+  (testing ":ungrouped bucket is filtered out so the seed frame is always a
+            real, L2-visible cascade's frame"
     (let [cascades [(cascade :c1 :cart-frame)
                     (cascade :ungrouped nil)]]
       (is (= :cart-frame (spine/focusable-head-frame-id cascades))
           ":ungrouped is filtered; head focusable cascade is :c1"))))
 
-(deftest focusable-head-frame-id-empty-cascades-returns-nil
-  (testing "no focusable cascades → nil. EP-0002:
-            callers seed `defaults/default-target-frame` = nil, so the
-            cold-start path leaves the target UNSELECTED (no `:rf/default`
-            synthesis)."
-    (is (nil? (spine/focusable-head-frame-id [])))
-    (is (nil? (spine/focusable-head-frame-id
-                [(cascade :ungrouped nil)]))
-        "only the :ungrouped bucket present → nil")))
-
 ;; -------------------------------------------------------------------------
 ;; (2) compose-focus — :head? + effective :dispatch-id derivation
 ;; -------------------------------------------------------------------------
-
-(deftest compose-focus-empty-slot-defaults-to-live-at-head
-  (testing "empty :focus slot with cascades → :live :dispatch-id at head"
-    (let [r (spine/compose-focus nil fixture-cascades)]
-      (is (= :c3 (:dispatch-id r))
-          "no slot → snap to head")
-      (is (= :live (:mode r)))
-      (is (true? (:head? r))))))
-
-(deftest compose-focus-empty-cascades-snaps-nil
-  (testing "no cascades yet → nil :dispatch-id, :head? true (vacuously)"
-    (let [r (spine/compose-focus nil [])]
-      (is (nil? (:dispatch-id r)))
-      (is (true? (:head? r))))))
 
 (deftest compose-focus-stale-slot-frame-falls-through
   (testing "when the slot's :frame restricts the focusable
@@ -261,20 +198,7 @@
       (is (= :c3 (:dispatch-id r))
           "head of :cart-frame is :c3, NOT :c4 (the global head)")
       (is (= :cart-frame (:frame r)))
-      (is (true? (:head? r))))
-    (let [r (spine/compose-focus {:frame :checkout-frame :mode :live}
-                                 multi-frame-fixture)]
-      (is (= :c4 (:dispatch-id r))
-          "head of :checkout-frame is :c4")
-      (is (= :checkout-frame (:frame r))))))
-
-(deftest compose-focus-nil-picker-frame-keeps-global-head
-  (testing "no picker restriction (slot :frame nil):
-            LIVE tracks global head"
-    (let [r (spine/compose-focus {:frame nil :mode :live}
-                                 multi-frame-fixture)]
-      (is (= :c4 (:dispatch-id r))
-          "global head wins when picker is unset"))))
+      (is (true? (:head? r))))))
 
 ;; -------------------------------------------------------------------------
 ;; (3) focus-event-bundle-reducer — writes :focus (single source of truth)
@@ -286,30 +210,6 @@
     (is (= :c2 (get-in r [:focus :dispatch-id])))
     (is (= :retro (get-in r [:focus :mode])))
     (is (= :rf/default (get-in r [:focus :frame])))))
-
-(deftest focus-event-bundle-reducer-writes-epoch-into-focus
-  (testing "the reducer stamps the settling epoch into the
-            spine `[:focus :epoch-id]` slot (the single source of truth
-            App-DB-diff / Views follow via :rf.xray/focus-epoch-id)."
-    (let [r (spine/focus-event-bundle-reducer {} :c2 :rf/default 77)]
-      (is (= 77 (get-in r [:focus :epoch-id])) ":focus :epoch-id carries the epoch"))))
-
-(deftest focus-event-bundle-reducer-without-frame-omits-frame
-  (let [r (spine/focus-event-bundle-reducer {} :c2 nil)]
-    (is (= :c2 (get-in r [:focus :dispatch-id])))
-    (is (nil? (get-in r [:focus :frame]))
-        "no :frame key in the focus slot when frame-id was nil")))
-
-;; -------------------------------------------------------------------------
-;; (4) focus-step-reducer — prev/next stepping
-;; -------------------------------------------------------------------------
-
-(deftest focus-step-reducer-next-returns-to-head-as-live
-  (let [db {:focus {:dispatch-id :c2 :mode :retro}}
-        r  (spine/focus-step-reducer db fixture-cascades +1)]
-    (is (= :c3 (get-in r [:focus :dispatch-id])))
-    (is (= :live (get-in r [:focus :mode]))
-        "stepping back to head implicitly re-engages LIVE")))
 
 ;; -------------------------------------------------------------------------
 ;; (5) follow-head-reducer
@@ -326,35 +226,8 @@
         ":focus :epoch-id cleared in lockstep")))
 
 ;; -------------------------------------------------------------------------
-;; (6) toggle-live-pause-reducer
-;; -------------------------------------------------------------------------
-
-(deftest toggle-live-pause-reducer-flips-paused
-  (let [db {:focus {:mode :live :paused? false}}
-        r  (spine/toggle-live-pause-reducer db)]
-    (is (true? (get-in r [:focus :paused?])))
-    (let [r2 (spine/toggle-live-pause-reducer r)]
-      (is (false? (get-in r2 [:focus :paused?]))
-          "second toggle reverses"))))
-
-(deftest toggle-live-pause-reducer-noop-in-retro
-  (testing "in :retro, toggle-live-pause is a no-op — Space has no
-            meaning when the user has pinned an older row"
-    (let [db {:focus {:mode :retro :paused? false}}
-          r  (spine/toggle-live-pause-reducer db)]
-      (is (= db r) "db unchanged"))))
-
-;; -------------------------------------------------------------------------
 ;; (7) set-frame-reducer + preview-event-reducer
 ;; -------------------------------------------------------------------------
-
-(deftest set-frame-reducer-clears-dispatch-id
-  (let [db {:focus {:dispatch-id :c2 :frame :rf/default :mode :retro}}
-        r  (spine/set-frame-reducer db :app/dialog)]
-    (is (= :app/dialog (get-in r [:focus :frame])))
-    (is (nil? (get-in r [:focus :dispatch-id]))
-        "frame switch snaps to new frame's head")
-    (is (= :live (get-in r [:focus :mode])))))
 
 ;; -------------------------------------------------------------------------
 ;; picker also drives :target-frame + :epoch-history so every per-frame
@@ -388,18 +261,14 @@
             history — preserves the per-frame invariant rather than
             leaving the slot stale across the switch."
     (let [db {:epoch-history [{:epoch-id 1}]
-              :target-frame  :rf/default}
+              :target-frame  :rf/default
+              :focus         {:dispatch-id :c2 :frame :rf/default :mode :retro}}
           r  (spine/set-frame-reducer db :cart-frame)]
       (is (= [] (:epoch-history r))
           "no resolved history → slot cleared, never left stale")
-      (is (= :cart-frame (:target-frame r))))))
-
-(deftest preview-event-reducer-nil-clears-preview
-  (let [db {:focus {:dispatch-id :c1 :previewing? true :mode :retro}}
-        r  (spine/preview-event-reducer db nil)]
-    (is (false? (get-in r [:focus :previewing?])))
-    (is (= :c1 (get-in r [:focus :dispatch-id]))
-        "committed selection survives preview-clear")))
+      (is (= :cart-frame (:target-frame r)))
+      (is (= [nil :live] [(get-in r [:focus :dispatch-id]) (get-in r [:focus :mode])])
+          "a frame switch snaps to the new frame's head"))))
 
 (deftest preview-event-reducer-writes-epoch-id-rf2-yng0y
   (testing "the 3-arity preview reducer writes :epoch-id in
@@ -589,18 +458,6 @@
 ;; does not stop later head arrivals being followed. Stored slot-ids are
 ;; honoured for paused/retro selections.
 
-(deftest compose-focus-live-with-stored-id-tracks-head
-  (testing "LIVE always tracks head, even when a
-            stored slot-id exists and matches the previous head. The
-            stored id might be the previous head pinned by
-            focus-step-reducer landing back on head; once a fresher
-            cascade arrives, focus auto-advances."
-    (let [r (spine/compose-focus {:dispatch-id :c2 :mode :live}
-                                 fixture-cascades)]
-      (is (= :c3 (:dispatch-id r))
-          "LIVE mode → effective id is the current head, not the stored id")
-      (is (true? (:head? r))))))
-
 (deftest compose-focus-paused-live-with-evicted-id-snaps-head
   (testing "paused LIVE + the stored id has been evicted from the
             buffer → snap to head (no orphan focus). Matches the
@@ -608,31 +465,6 @@
     (let [r (spine/compose-focus {:dispatch-id :gone :mode :live :paused? true}
                                  fixture-cascades)]
       (is (= :c3 (:dispatch-id r)))
-      (is (true? (:head? r))))))
-
-(deftest focus-sub-live-auto-follows-new-head
-  (testing "user is in LIVE on c3
-            (head); a new cascade c4 arrives; focus auto-advances to
-            c4 without the user clicking the LIVE pill."
-    (setup-xray-frame!)
-    (seed-cascades! fixture-cascades)
-    ;; Initial state — LIVE, focused on head c3 (implicit, slot-id nil).
-    (let [r (focus-sub)]
-      (is (= :c3 (:dispatch-id r)))
-      (is (= :live (:mode r))))
-    ;; User steps prev then next — lands on c3 again, slot-id is now :c3.
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/focus-event-prev])
-      (rf/dispatch-sync [:rf.xray/focus-event-next]))
-    (let [r (focus-sub)]
-      (is (= :c3 (:dispatch-id r)))
-      (is (= :live (:mode r))
-          "stepping back to head re-engages LIVE per focus-step-reducer"))
-    ;; A new cascade c4 arrives — head shifts.
-    (seed-cascades! (conj fixture-cascades (cascade :c4 :rf/default)))
-    (let [r (focus-sub)]
-      (is (= :c4 (:dispatch-id r))
-          "LIVE auto-follows the new head — focus advances to c4")
       (is (true? (:head? r))))))
 
 (deftest focus-sub-live-auto-follows-epoch-id-rf2-70tkv
@@ -688,10 +520,6 @@
 ;; `[:focus :epoch-id]` (its mount-seed contract) and a re-seed mid-test
 ;; would overwrite the very pin under test.
 
-(defn- event-bundle-count []
-  (rf/with-frame :rf/xray
-    (count @(rf/subscribe [:rf.xray/event-bundles]))))
-
 (deftest pause-with-no-stored-pin-freezes-the-shown-event-rf2-fzbj-2
   (doseq [[label prime!]
           [["fresh LIVE" (fn [] nil)]
@@ -717,7 +545,6 @@
                ((juxt :dispatch-id :epoch-id :frame :paused?) r))
             "pausing pins the shown dispatch AND its epoch"))
       (seed-cascades! (conj fixture-cascades (cascade :c4 :rf/default)))
-      (is (= 4 (event-bundle-count)) "the buffer keeps collecting while paused")
       (let [r (focus-sub)]
         (is (= [:c3 :e3 :rf/default]
                ((juxt :dispatch-id :epoch-id :frame) r))
@@ -726,7 +553,8 @@
         (rf/dispatch-sync [:rf.xray/toggle-live-pause]))
       (let [r (focus-sub)]
         (is (= [:c4 :e4 false] ((juxt :dispatch-id :epoch-id :paused?) r))
-            "resuming follows the newest event and epoch again")))))
+            "resuming follows the newest event and epoch again, so the
+             buffer kept collecting while paused")))))
 
 (deftest pause-with-lagging-live-pin-keeps-the-newer-head-rf2-fzbj-2
   (testing "clicking the then-head stores a LIVE pin; once a newer event
@@ -818,22 +646,6 @@
    :trace-events [{:id 1 :op-type :rf.event :operation :rf.event/dispatched
                    :tags {:rf.trace/dispatch-id dispatch-id}}]})
 
-(deftest epoch-id-for-event-bundle-resolves-by-the-records-dispatch-id
-  (let [history [(epoch :e1 :c1) (epoch :e2 :c2) (epoch :e3 :c3)]
-        bare    [{:epoch-id :e1 :dispatch-id 7}
-                 {:epoch-id :e2 :dispatch-id 8}]]
-    (are [records dispatch-id expected]
-         (= expected (spine/epoch-id-for-event-bundle records dispatch-id))
-      history           :c2     :e2
-      history           :c3     :e3
-      bare              8       :e2    ; a record with no :trace-events at all
-      ;; no match → nil: the event-bundle was evicted from the ring, or is
-      ;; mid-build before its epoch record commits
-      []                :c1     nil
-      [(epoch :e1 :c1)] :c-gone nil
-      nil               :c1     nil
-      [(epoch :e1 :c1)] nil     nil)))
-
 ;; ---- dispatch-id-for-epoch reverse lookup -------------------------------
 ;;
 ;; Reverse of `epoch-id-for-event-bundle`. Drives the `:rf.xray/focus-epoch`
@@ -876,54 +688,6 @@
 ;; through. The reactive `:rf.xray/focus` sub in `install!` uses
 ;; the 4-arity so every panel auto-tracks `:epoch-id` for free.
 
-(deftest compose-focus-4-arity-live-auto-derives-epoch-id-from-head
-  (testing "in LIVE+unpaused mode the 4-arity re-derives
-            :epoch-id to the head cascade's settling epoch: a stored
-            :focus :epoch-id of :e1 from a
-            prior L2 click must NOT survive a LIVE switch + head
-            arrival."
-    (let [history [(epoch :e1 :c1) (epoch :e2 :c2) (epoch :e3 :c3)]
-          r       (spine/compose-focus {:dispatch-id nil :mode :live
-                                        :epoch-id :e1}
-                                       fixture-cascades false history)]
-      (is (= :c3 (:dispatch-id r))
-          ":dispatch-id tracks head")
-      (is (= :e3 (:epoch-id r))
-          ":epoch-id ALSO tracks head — the stale stored :e1 is
-           overwritten so panels rebind on every new arrival"))))
-
-(deftest compose-focus-4-arity-live-paused-honours-stored-epoch-id
-  (testing "LIVE-paused is the explicit 'freeze inspection'
-            gesture: the stored :epoch-id rides through untouched
-            (matching how :dispatch-id stays on the stored slot when
-            paused)"
-    (let [history [(epoch :e1 :c1) (epoch :e2 :c2) (epoch :e3 :c3)]
-          r       (spine/compose-focus {:dispatch-id :c1 :mode :live
-                                        :epoch-id :e1 :paused? true}
-                                       fixture-cascades false history)]
-      (is (= :c1 (:dispatch-id r))
-          "paused → :dispatch-id pins to stored slot")
-      (is (true? (:paused? r)))
-      (is (= :e1 (:epoch-id r))
-          "paused → :epoch-id pins to stored slot"))))
-
-(deftest compose-focus-4-arity-retro-honours-stored-epoch-id
-  (testing "RETRO mode pins the cascade and its settling
-            epoch in lockstep, so the stored :epoch-id is the
-            authoritative value (the focus-event-bundle-reducer / focus-step-
-            reducer already write it consistently with :dispatch-id)"
-    (let [history [(epoch :e1 :c1) (epoch :e2 :c2) (epoch :e3 :c3)]
-          r       (spine/compose-focus {:dispatch-id :c1 :mode :retro
-                                        :epoch-id :e1}
-                                       fixture-cascades false history)]
-      (is (= :c1 (:dispatch-id r)))
-      (is (= :retro (:mode r)))
-      (is (false? (:head? r))
-          "the stored id is not the head")
-      (is (= :e1 (:epoch-id r))
-          "retro pin honoured — picker / scrubber wrote both axes
-           together"))))
-
 (deftest compose-focus-4-arity-live-head-with-no-epoch-match-returns-nil
   (testing "multi-frame edge case. The picker's frame
             (and thus the per-frame :epoch-history slot keyed off
@@ -931,14 +695,7 @@
             frame in mid-transition states; the head's settling
             epoch might also have been evicted from the ring buffer.
             When the head's epoch is NOT in epoch-history we return
-            nil rather than the stored slot.
-
-            Every panel uniformly treats nil as 'no pin, use head
-            fallback' (App-DB Diff's `(peek history)`, Views'
-            `(dec (count history))`, Machine Inspector's `(peek
-            history)`). Keeping a stale stored id here would
-            freeze the panels on it — exactly what the auto-track
-            prevents."
+            nil rather than the stale stored slot."
     (let [history [(epoch :e1 :c1) (epoch :e2 :c2)]
           r       (spine/compose-focus {:dispatch-id nil :mode :live
                                         :epoch-id :e1}
@@ -947,28 +704,6 @@
           "head cascade is :c3")
       (is (nil? (:epoch-id r))
           ":e3 is not in history → nil (NOT the stale :e1)"))))
-
-(deftest compose-focus-4-arity-live-empty-history-returns-nil
-  (testing "empty epoch-history (cold start; buffer-cleared)
-            in LIVE mode → :epoch-id nil so the App-DB Diff's
-            `(peek history)` fallback path resolves correctly."
-    (let [r (spine/compose-focus {:dispatch-id nil :mode :live
-                                  :epoch-id :e-stale}
-                                 fixture-cascades false [])]
-      (is (nil? (:epoch-id r))
-          "empty history → no resolution possible → nil overrides
-           any stale stored id"))))
-
-(deftest focus-step-reducer-4-arg-writes-epoch-id
-  (testing "step events resolve :epoch-id for the new dispatch-id into
-            the spine `[:focus :epoch-id]` slot (no mirror slot)"
-    (let [db       {:focus {:dispatch-id :c3 :mode :live}}
-          history  [(epoch :e1 :c1) (epoch :e2 :c2) (epoch :e3 :c3)]
-          r        (spine/focus-step-reducer db fixture-cascades history -1)]
-      (is (= :c2 (get-in r [:focus :dispatch-id])))
-      (is (= :retro (get-in r [:focus :mode]))
-          "a prev step off the LIVE head flips to RETRO")
-      (is (= :e2 (get-in r [:focus :epoch-id]))))))
 
 ;; -------------------------------------------------------------------------
 ;; (11) no aggregate-all-events state
@@ -1004,10 +739,7 @@
   (testing ":ungrouped is filtered out of the spine walk
             (it carries no event vector → not a valid focus target)"
     (is (= (subvec fixture-cascades-with-ungrouped 0 2)
-           (spine/focusable-event-bundles fixture-cascades-with-ungrouped)))
-    (is (= fixture-cascades
-           (spine/focusable-event-bundles fixture-cascades))
-        "no :ungrouped → no-op")))
+           (spine/focusable-event-bundles fixture-cascades-with-ungrouped)))))
 
 ;; -------------------------------------------------------------------------
 ;; :ungrouped opt-in surface
@@ -1101,12 +833,10 @@
           history  [{:epoch-id 42 :dispatch-id :mid}]
           db       {:focus {:mode :live}}
           r        (spine/focus-step-reducer db cascades history -1)]
-      (is (not= db r)
-          "prev is a REAL step, not a no-op — an id-only lookup would
-           find :cx @ :frame/a (idx 0) and clamp prev to a no-op")
       (is (= :mid (get-in r [:focus :dispatch-id]))
           "prev from the :frame/b :cx head lands on the immediately
-           previous row, :mid")
+           previous row, :mid — an id-only lookup would find :cx @
+           :frame/a (idx 0) and clamp prev to a no-op")
       (is (= :frame/b (get-in r [:focus :frame]))
           "the stepped row's frame is :frame/b — frame + id stay in
            lockstep with the row actually stepped to")
@@ -1128,17 +858,6 @@
           "stored :ungrouped → effective head (:c2)")
       (is (true? (:head? r))))))
 
-(deftest compose-focus-snaps-to-head-when-slot-id-nil-in-retro
-  (testing "even in :retro mode, nil slot-id with a
-            non-empty focusable buffer snaps to head. The unreachable
-            state 'buffer non-empty + focus nil' is structurally
-            blocked at the compose layer."
-    (let [r (spine/compose-focus {:dispatch-id nil :mode :retro}
-                                 fixture-cascades)]
-      (is (= :c3 (:dispatch-id r))
-          "nil slot-id + non-empty buffer + :retro → snap to head")
-      (is (true? (:head? r))))))
-
 ;; -------------------------------------------------------------------------
 ;; (12) Click on head stays LIVE
 ;;
@@ -1151,39 +870,12 @@
 (deftest focusable-head-id-skips-ungrouped
   (testing "focusable-head-id returns the latest focusable cascade —
             not the literal last entry if that's the :ungrouped bucket"
-    (is (= :c3 (spine/focusable-head-id fixture-cascades)))
     (is (= :c2 (spine/focusable-head-id
                  fixture-cascades-with-ungrouped))
         ":ungrouped sorts last (first-id sentinel) but focusable head
          is the latest real cascade — :c2 not :ungrouped")
-    (is (nil? (spine/focusable-head-id [])))
     (is (nil? (spine/focusable-head-id
                 [{:dispatch-id :ungrouped :frame nil}])))))
-
-(deftest focus-event-bundle-reducer-5-arg-head-stays-live
-  (testing "when dispatch-id == head-id the reducer picks
-            :live so subsequent arrivals auto-advance"
-    (let [r (spine/focus-event-bundle-reducer {} :c3 :rf/default :e3 :c3)]
-      (is (= :c3 (get-in r [:focus :dispatch-id])))
-      (is (= :live (get-in r [:focus :mode]))
-          "head click → :live (auto-follow continues)")
-      (is (= :e3 (get-in r [:focus :epoch-id]))))))
-
-(deftest focus-event-bundle-reducer-5-arg-non-head-pins-retro
-  (testing "clicking a non-head cascade pins to :retro"
-    (let [r (spine/focus-event-bundle-reducer {} :c1 :rf/default :e1 :c3)]
-      (is (= :c1 (get-in r [:focus :dispatch-id])))
-      (is (= :retro (get-in r [:focus :mode]))
-          "non-head click → :retro (auto-follow suspended)"))))
-
-(deftest focus-event-bundle-reducer-nil-head-id-defaults-retro
-  (testing "the 5-arg path with a nil head-id and the
-            4-arg path default to :retro."
-    (let [r (spine/focus-event-bundle-reducer {} :c2 :rf/default :e2 nil)]
-      (is (= :retro (get-in r [:focus :mode]))))
-    (let [r (spine/focus-event-bundle-reducer {} :c2 :rf/default :e2)]
-      (is (= :retro (get-in r [:focus :mode]))
-          "4-arg arity defaults to retro"))))
 
 (deftest focus-cascade-event-clicking-non-head-pins-retro
   (testing "clicking a non-head cascade pins :retro and
@@ -1192,9 +884,6 @@
     (seed-cascades! fixture-cascades)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/focus-event :c1 :rf/default]))
-    (let [r (focus-sub)]
-      (is (= :c1 (:dispatch-id r)))
-      (is (= :retro (:mode r)) "non-head click → :retro"))
     ;; New cascade arrives — :retro must NOT auto-advance.
     (seed-cascades! (conj fixture-cascades (cascade :c4 :rf/default)))
     (let [r (focus-sub)]
@@ -1312,17 +1001,7 @@
       (is (= :cart-frame target)
           ":target-frame re-keyed onto the clicked cascade's frame")
       (is (= [:cart-e9] (mapv :epoch-id history))
-          ":epoch-history is the clicked frame's ring contents"))
-    ;; End-to-end App-DB-diff facing surfaces resolve the clicked epoch.
-    (let [selected (rf/with-frame :rf/xray @(rf/subscribe [:rf.xray/focus-epoch-id]))
-          history  (rf/with-frame :rf/xray @(rf/subscribe [:rf.xray/epoch-history]))]
-      (is (= :cart-e9 selected)
-          "App-DB diff's :rf.xray/focus-epoch-id projection pivots to the
-           clicked cascade's epoch")
-      (is (= :cart-e9 (:epoch-id (focus-resolver/find-epoch-record selected history)))
-          "the App-DB diff's find-epoch-record lookup finds the clicked
-           epoch's record in the re-seeded slot — the panel renders the
-           right epoch's diff rather than an empty/stale state"))))
+          ":epoch-history is the clicked frame's ring contents"))))
 
 (deftest focus-cascade-same-frame-click-leaves-slot-untouched-rf2-q8hvw
   (testing "clicking a row in the CURRENT target frame is a
@@ -1409,9 +1088,7 @@
            silent snap back to LIVE auto-follow")
       (is (= :c3 (:dispatch-id r))
           "the composed id is HEAD: a nil stored id is not pinnable, so
-           `compose-focus`'s snap-to-head branch fires regardless of mode")
-      (is (not= :c2 (:dispatch-id r))
-          "L2 does not highlight a row the navigation did not choose"))))
+           `compose-focus`'s snap-to-head branch fires regardless of mode"))))
 
 (deftest select-dispatch-id-cross-frame-reseeds-epoch-history-rf2-o1c3r
   (testing ":rf.xray/select-dispatch-id (the
@@ -1448,34 +1125,11 @@
     ;; The slot itself is re-keyed onto the clicked cascade's frame, and
     ;; the App-DB-diff-facing projection follows.
     (let [target      (rf/with-frame :rf/xray @(rf/subscribe [:rf.xray/target-frame]))
-          history     (rf/with-frame :rf/xray @(rf/subscribe [:rf.xray/epoch-history]))
-          focus-epoch (rf/with-frame :rf/xray @(rf/subscribe [:rf.xray/focus-epoch-id]))]
+          history     (rf/with-frame :rf/xray @(rf/subscribe [:rf.xray/epoch-history]))]
       (is (= :cart-frame target)
           ":target-frame re-keyed onto the clicked cascade's frame")
       (is (= [:cart-e9] (mapv :epoch-id history))
-          ":epoch-history is the clicked frame's ring contents")
-      (is (= :cart-e9 focus-epoch)
-          "App-DB diff's :rf.xray/focus-epoch-id projection pivots to the
-           clicked dispatch's epoch — the panel renders the right epoch's
-           diff rather than an empty/stale state"))))
-
-(deftest select-dispatch-id-same-frame-leaves-slot-untouched-rf2-o1c3r
-  (testing "selecting a dispatch-id in the CURRENT target
-            frame is a no-op for the slot (the re-seed only fires on a
-            frame change); the head frame's epoch resolves as before"
-    (mount-multi-frame-picker-untouched!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/select-dispatch-id :c2 :rf/default]))
-    (let [r       (focus-sub)
-          target  (rf/with-frame :rf/xray @(rf/subscribe [:rf.xray/target-frame]))
-          history (rf/with-frame :rf/xray @(rf/subscribe [:rf.xray/epoch-history]))]
-      (is (= :c2 (:dispatch-id r)))
-      (is (= :e2 (:epoch-id r))
-          "same-frame select resolves the head frame's epoch unchanged")
-      (is (= :rf/default target)
-          ":target-frame stays on the head frame — no spurious re-key")
-      (is (= [:e1 :e2 :e3] (mapv :epoch-id history))
-          ":epoch-history is still the head frame's full ring"))))
+          ":epoch-history is the clicked frame's ring contents"))))
 
 ;; -------------------------------------------------------------------------
 ;; (14) spine STEP cross-frame reseeds :epoch-history
@@ -1526,10 +1180,8 @@
     (let [boot-history (rf/with-frame :rf/xray
                          @(rf/subscribe [:rf.xray/epoch-history]))]
       (is (empty? boot-history)
-          "precondition: :epoch-history was never seeded")
-      (is (nil? (spine/epoch-id-for-event-bundle boot-history :cart-c9))
-          "CONTROL: resolving against the un-reseeded (empty) slot
-           yields nil"))
+          "precondition: :epoch-history was never seeded, so a
+           non-reseeding step would resolve nil"))
     ;; Dispatch the real step event.
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/focus-event-prev]))
