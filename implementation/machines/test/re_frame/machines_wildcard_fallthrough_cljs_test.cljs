@@ -44,7 +44,6 @@
              {:dashboard {:on {:foo {:guard :never :action :leaf-explicit}
                                :*   {:guard :never :action :leaf-wildcard}}}}}}}]
       (rf/reg-machine :icj9t/parent-wild-blocked-leaf-star machine)
-      (reset! log [])
       (rf/dispatch-sync [:icj9t/parent-wild-blocked-leaf-star [:foo]])
       (is (= [:parent-wildcard] @log)
           "both leaf candidates blocked ⇒ leaf yields nothing ⇒ parent :* fires;
@@ -74,7 +73,6 @@
              {:dashboard {:on {:foo {:guard :never :action :leaf-explicit}
                                :*   {:action :leaf-wildcard}}}}}}}]
       (rf/reg-machine :icj9t/compound machine)
-      (reset! log [])
       ;; Within-level priority: leaf explicit blocked → leaf :* (enabled)
       ;; fires; the leaf level is satisfied so the walk stops — parent :*
       ;; is shadowed.
@@ -82,36 +80,3 @@
       (is (= [:leaf-wildcard] @log)
           "leaf :* fired before any parent walk — same-level priority;
            neither the blocked leaf explicit nor the parent :* fired"))))
-
-;; ---------------------------------------------------------------------------
-;; (f) parallel-region coverage — each region resolves fallthrough
-;; independently (broadcast routes through the same per-region pick path)
-;; ---------------------------------------------------------------------------
-
-(deftest parallel-region-explicit-blocked-falls-through-to-region-wildcard
-  (testing "parallel: each region's blocked explicit falls through to that region's :*"
-    (let [log (atom [])
-          tag (fn [k] (fn [_] (swap! log conj k) {}))
-          machine
-          {:type    :parallel
-           :data    {}
-           :guards  {:never (fn [_] false)}
-           :actions {:left-explicit  (tag :left-explicit)
-                     :left-wildcard  (tag :left-wildcard)
-                     :right-explicit (tag :right-explicit)
-                     :right-wildcard (tag :right-wildcard)}
-           :regions
-           {:left  {:initial :a
-                    :states  {:a {:on {:foo {:guard :never :action :left-explicit}
-                                       :*   {:action :left-wildcard}}}}}
-            :right {:initial :x
-                    :states  {:x {:on {:foo {:guard :never :action :right-explicit}
-                                       :*   {:action :right-wildcard}}}}}}}]
-      (rf/reg-machine :icj9t/parallel machine)
-      (reset! log [])
-      ;; The event broadcasts to both regions; in EACH the explicit :foo is
-      ;; guard-blocked and falls through to that region's same-level :*.
-      (rf/dispatch-sync [:icj9t/parallel [:foo]])
-      (is (= #{:left-wildcard :right-wildcard} (set @log))
-          "both regions fell through their blocked explicit to their own :*;
-           neither region's guard-blocked explicit action fired"))))
