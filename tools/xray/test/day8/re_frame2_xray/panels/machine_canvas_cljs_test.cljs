@@ -14,7 +14,6 @@
        `as-child` seam in `chart-tree`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as rf.frame]
             [day8.re-frame2-machines-viz.chart :as mv-chart]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
@@ -122,28 +121,19 @@
             reads."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
-      (let [tree  (mc/Chart {:definition fixture-definition :machine-id :m})
-            heads (into #{}
-                        (comp (filter vector?) (map first))
-                        (hiccup-seq tree))]
-        (is (contains? heads after-rings/AfterRingsOverlay-bridge)
-            "Chart mounts AfterRingsOverlay-bridge (:show-after-rings? defaults true)")))))
-
-(deftest chart-omits-the-after-rings-bridge-when-suppressed
-  (testing "the three Static / topology call sites pass `:show-after-rings?
-            false`; the bridge must then be absent altogether. This is the
-            NON-VACUITY control for the row above — without it, a `heads`
-            set that contained the bridge unconditionally would satisfy it."
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (let [tree  (mc/Chart {:definition fixture-definition
-                             :machine-id :m
-                             :show-after-rings? false})
-            heads (into #{}
-                        (comp (filter vector?) (map first))
-                        (hiccup-seq tree))]
-        (is (not (contains? heads after-rings/AfterRingsOverlay-bridge))
-            ":show-after-rings? false drops the overlay mount entirely")))))
+      (let [heads (fn [props]
+                    (into #{}
+                          (comp (filter vector?) (map first))
+                          (hiccup-seq (mc/Chart props))))]
+        (is (contains? (heads {:definition fixture-definition :machine-id :m})
+                       after-rings/AfterRingsOverlay-bridge)
+            "Chart mounts AfterRingsOverlay-bridge (:show-after-rings? defaults true)")
+        (is (not (contains? (heads {:definition        fixture-definition
+                                    :machine-id        :m
+                                    :show-after-rings? false})
+                            after-rings/AfterRingsOverlay-bridge))
+            "the Static call sites pass :show-after-rings? false, which drops
+             the bridge altogether — the non-vacuity control for the row above")))))
 
 ;; ---- 3b. the one body behind the two heads ------------------------------
 ;;
