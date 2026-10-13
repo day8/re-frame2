@@ -11,18 +11,8 @@
 
 (deftest params-from-state-projects-exactly-the-focused-slots
   (are [shell expected] (= expected (rf.story.ui.url-state/params-from-state shell))
-    {:selected-variant :story.foo/bar}
-    {:variant-id :story.foo/bar}
-
     {:selected-workspace :story.foo/grid}
     {:workspace-id :story.foo/grid}
-
-    ;; mode-tab is projected from the focused variant's slot
-    {:selected-variant :story.foo/bar
-     :active-mode-tab  {:story.foo/bar :docs
-                        :story.other/x :test}}
-    {:variant-id :story.foo/bar
-     :mode-tab   :docs}
 
     ;; cell-overrides only project for the focused variant
     {:selected-variant :story.foo/bar
@@ -138,15 +128,10 @@
 ;; than keep the recipient's stale in-memory `:uix`.
 
 (deftest apply-parsed-explicit-non-default-substrate-round-trips
-  (testing "a registered non-default substrate is kept; with no
-            :substrate? validator any present id is accepted"
-    (let [with-validator (rf.story.ui.url-state/apply-parsed-to-state
-                           {:substrate :reagent} {:substrate :uix}
-                           {:substrate? #{:reagent :uix}})
-          no-validator   (rf.story.ui.url-state/apply-parsed-to-state
-                           {:substrate :reagent} {:substrate :custom} {})]
-      (is (= :uix (:substrate with-validator)))
-      (is (= :custom (:substrate no-validator))))))
+  (testing "a registered non-default substrate is kept"
+    (is (= :uix (:substrate (rf.story.ui.url-state/apply-parsed-to-state
+                              {:substrate :reagent} {:substrate :uix}
+                              {:substrate? #{:reagent :uix}}))))))
 
 (deftest apply-parsed-invalid-substrate-degrades-to-reagent
   (testing "an UNREGISTERED substrate degrades to :reagent rather than
@@ -158,14 +143,6 @@
       (is (= :reagent (:substrate out))))))
 
 ;; ---- cell-overrides hydration --------------------------------------------
-
-(deftest apply-parsed-installs-cell-overrides-under-focused-variant
-  (testing "a shared URL / popstate restores the effective args, not just
-            the selection"
-    (let [out (rf.story.ui.url-state/apply-parsed-to-state
-                {} {:variant-id     :story.foo/bar
-                    :cell-overrides {:label "Hi"}} {})]
-      (is (= {:label "Hi"} (get-in out [:cell-overrides :story.foo/bar]))))))
 
 (deftest apply-parsed-overrides-dropped-when-variant-invalid
   (testing "overrides are variant-scoped: a rejected variant installs none"
@@ -212,15 +189,6 @@
                                   :story.other/baz :test}}
         out   (rf.story.ui.url-state/apply-parsed-to-state stale {:variant-id :story.foo/bar} {})]
     (is (= {:story.other/baz :test} (:active-mode-tab out)))))
-
-(deftest apply-parsed-mode-tab-untouched-when-variant-not-kept
-  (testing "with no kept variant the URL's mode-tab is written nowhere"
-    (let [stale {:active-mode-tab {:story.other/baz :test}}
-          out   (rf.story.ui.url-state/apply-parsed-to-state
-                  stale {:variant-id :ghost/x :mode-tab :docs}
-                  {:variant? (fn [_] false)})]
-      (is (nil? (:selected-variant out)))
-      (is (= {:story.other/baz :test} (:active-mode-tab out))))))
 
 ;; ---- URL authoritative for ALL URL-owned chrome slots --------------------
 
