@@ -118,7 +118,7 @@ This is re-frame2's answer to XState v5's `stateIn` (v6 `checkStateIn(snapshot, 
 - **`:type :parallel` is mutually exclusive with root `:initial` / `:states`.** Use one or the other at the top level. Registration throws `:rf.error/machine-parallel-bad-shape` if both are present (validated in `re-frame.machines.lifecycle-fx.validation`).
 - **Each region needs its own `:initial`.** Region bodies are themselves transition tables; a missing `:initial` keyword is a registration-time error (`re-frame.machines.lifecycle-fx.validation`).
 - **Region names are keywords.** `:regions {:data {...} :form {...}}` — not strings, not symbols. Validated at registration (`re-frame.machines.lifecycle-fx.validation`).
-- **No nested parallel regions in v1.** A region body declaring its own `:type :parallel` throws `:rf.error/machine-parallel-nested-not-supported` (`re-frame.machines.lifecycle-fx.validation`).
+- **No nested parallel regions.** A region body declaring its own `:type :parallel` throws `:rf.error/machine-parallel-nested-not-supported` (`re-frame.machines.lifecycle-fx.validation`).
 - **Broadcast is to every region.** One event-keyword goes to every region's `:on` table; regions whose tables don't list that event are no-ops for that dispatch. Don't broadcast a region-private event with a generic name — namespace it (`:form/submit-valid`, not `:submit-valid`) to make the per-region intent visible.
 - **`:after` and `:spawn` are scoped per region.** Each region carries its own `:after`-epoch counter at `[:data :rf/after-epoch-by-region <region-name>]` — a sibling region's transition does NOT invalidate this region's in-flight `:after` timers (per-region scoping in `re-frame.machines.transition`, Spec 005 §Per-region `:always` / `:after` / `:spawn` scoping).
 
@@ -132,4 +132,4 @@ For the full parallel-regions contract — broadcast routing, per-region scoping
 
 ---
 
-*Derived from the `re-frame.machines.*` sub-namespaces (`lifecycle-fx.validation` for the parallel-regions validator, `parallel` / `transition` for broadcast + tag union) @ main, and the worked examples `examples/real-apps/realworld_http/tags.cljs` and `examples/patterns/nine_states/core.cljs`. Citations are symbol-level (machines.cljc was split); re-verify after parallel-regions or broadcast-routing changes.*
+*Derived from the `re-frame.machines.*` sub-namespaces (`lifecycle-fx.validation` for the parallel-regions validator, `parallel` / `transition` for broadcast + tag union) @ main, and the worked examples `examples/real-apps/realworld_http/tags.cljs` and `examples/patterns/nine_states/core.cljs`. Citations are symbol-level; re-verify after parallel-regions or broadcast-routing changes.*

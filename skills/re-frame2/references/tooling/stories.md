@@ -142,7 +142,7 @@ Distilled from `tools/story/testbeds/counter_with_stories/stories.cljs` — ever
 The controls panel auto-derives a widget per arg-key by walking the component's Malli schema. `resolve-argtypes` consults, in order:
 
 1. **Explicit `:argtypes`** on the variant body, then the parent story (per-key override).
-2. **The registered view's props schema** — first-match `[:rf/props :schema]` on the `:component` view's `reg-view` metadata (`:rf/props` canonical, `:schema` the alternative; first match wins, no merge). There is **no `:spec` slot** — `:spec` is dead post-M-54 (the `:spec`→`:schema` rename; the framework reads `:schema` only). The one declaration feeds both the controls panel's argtype derivation and the schema-validation panel, resolved through the compiled variant-plan's `[:world :view-args-schema]` so an `:extends`-inherited / `:compose`-d `:component` resolves correctly.
+2. **The registered view's props schema** — first-match `[:rf/props :schema]` on the `:component` view's `reg-view` metadata (`:rf/props` canonical, `:schema` the alternative; first match wins, no merge). There is **no `:spec` slot** — the framework reads `:schema` only. The one declaration feeds both the controls panel's argtype derivation and the schema-validation panel, resolved through the compiled variant-plan's `[:world :view-args-schema]` so an `:extends`-inherited / `:compose`-d `:component` resolves correctly.
 3. **Value-shape fallback** — infer the widget from the live CLJS value when no schema is available.
 
 Walker output for the common Malli forms:

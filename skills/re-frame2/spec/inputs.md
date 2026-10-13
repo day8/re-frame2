@@ -57,7 +57,7 @@ Used for *why*, not *what*. The leaves cite EPs by name for design rationale (fr
 
 These shape the skill's voice and structure but aren't quoted directly.
 
-- **`ai/findings/re-frame2-skill-design-v2.md`** — the v2 redesign rationale: the four pillars, the cut-test, the routing model. **Historical, and not available in a clone** — the `ai/` tree is local-only and untracked (per L11), so a fresh reauthoring session cannot read it; design.md §2–§3 carry everything it fed. It also sourced the original **Q14 — no verification module** posture, which was **unlocked on 2026-08-31**: see design.md L3 *History*. Do not reproduce Q14 as a live constraint.
+- **design.md §2–§3** — the pillars, the cut-test and the routing model are carried there in full; no local findings document is an input, since the `ai/` tree is local-only and untracked (per L11) and a fresh reauthoring session cannot read it. The verification posture is design.md L3: the agent runs the project's declared gate — do not reintroduce a "the author runs the tests" hand-off.
 - **`skills/re-frame-migration/spec/**`** + **`skills/re-frame2-implementor/spec/**`** — the existing `spec/` triad pattern (design / inputs / authoring-prompt). This skill's spec/ mirrors that shape.
 - **`SKILL-REDIRECT.md`** (repo root) — the canonical pointer table the leaves redirect to for deep-dive content.
 - Anthropic skills guidance — `name` ≤ 64 chars, lowercase + hyphens; `description` "pushy"; SKILL.md under ~500 lines; leaves one level deep; avoid time-sensitive content (deferred to lookup leaves like `references/deps-versions.md` in the sibling setup skill).

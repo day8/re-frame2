@@ -151,7 +151,7 @@ Singletons supporting `:reset` back to `:idle` must NOT use `:final?` (auto-dest
 - **Forgetting cancellation.** The exit cascade makes it trivial; omitting `:cancel` on `:working` leaves a runaway loop.
 - **`:always` cycles without a yielding `:after` between batches.** Hits `:rf.error/machine-always-depth-exceeded` (default 16). A `:yielding` state with a small positive `:after` delay (e.g. `:after {1 …}` — **not** `:after {0 …}`, which registration refuses) resets depth between batches.
 - **Per-child bookkeeping in the parent's `:data`.** The runtime owns join-state at `[:rf.runtime/machines :spawned ...]`; re-implementing re-derives.
-- **A child that hand-dispatches its own completion to the parent.** Completion is finality — the child reaches a `:final?` leaf and the runtime does the rest. A hand-rolled done-event forces the child to know its parent's vocabulary, so the same machine no longer composes under a plain `:spawn`. The `:spawn-all` block keys that used to name those child events are retired and now fail registration (`:rf.error/machine-spawn-all-bad-shape`). `:meta {:terminal? true}` on a `:final?` leaf is likewise redundant — drop it.
+- **A child that hand-dispatches its own completion to the parent.** Completion is finality — the child reaches a `:final?` leaf and the runtime does the rest. A hand-rolled done-event forces the child to know its parent's vocabulary, so the same machine stops composing under a plain `:spawn`. A `:spawn-all` block key naming such child events fails registration (`:rf.error/machine-spawn-all-bad-shape`). `:meta {:terminal? true}` on a `:final?` leaf is likewise redundant — drop it.
 
 ## Worked example
 

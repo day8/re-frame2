@@ -17,14 +17,14 @@ different behaviour               -> different images
 
 You almost certainly do not need to name an image. The two facts an author should hold:
 
-- **The ordinary `reg-*` path is unchanged — the default image is implicit.** `reg-*` writes to the process-wide registration source; a frame created with no explicit `:images` resolves against the *default image* projected over that source. A single-frame app never spells `image` or `make-frame` `:images`; the zero-ceremony path stays zero-ceremony. The image concept becomes visible only when the default process-wide registration set stops being the right boundary.
+- **The ordinary `reg-*` path needs no image — the default image is implicit.** `reg-*` writes to the process-wide registration source; a frame created with no explicit `:images` resolves against the *default image* projected over that source. A single-frame app never spells `image` or `make-frame` `:images`; the zero-ceremony path stays zero-ceremony. The image concept becomes visible only when the default process-wide registration set stops being the right boundary.
 - **Registration ids are scoped to an image; frame ids are process-local.** Two images may both contain `:counter/inc`; two live frames may **not** both register as `:counter/main`. That split is the heart of the multi-frame story: a docs page can reuse teaching-friendly registration ids across examples, while each mounted example still needs a distinct frame id. (An anonymous `make-frame` value — created with no `:id` — is born and dies in a test/harness scope without claiming a name in the frame registry.)
 
 **When you reach for explicit images:** two unrelated surfaces on one page (a todo surface beside a counter, each with its own local ids), a tool surface beside the thing it inspects (so their ids never collide), progressive doc examples that reuse one teaching vocabulary, library packaging, and isolated test/story frames. Each case is "different instruction set, isolated memory" — so each gets its own image, and each live instance gets its own frame.
 
-## The landed public surface
+## The public surface
 
-`rf/image` is exported on `re-frame.core` today:
+`rf/image` is exported on `re-frame.core`:
 
 ```clojure
 (rf/image {:id        :todo/image                          ;; optional

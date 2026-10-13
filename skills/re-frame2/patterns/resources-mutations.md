@@ -205,4 +205,4 @@ Load-bearing rules:
 
 ---
 
-*Derived from `spec/016-Resources.md` (optional capability `day8/re-frame2-resources`) @ main. Re-verify the surface after later resource slices land.*
+*Derived from `spec/016-Resources.md` (optional capability `day8/re-frame2-resources`) @ main. Re-verify after mutation-surface changes.*

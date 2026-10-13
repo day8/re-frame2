@@ -19,11 +19,11 @@ The canonical Flows exemplar (Spec 013) — a three-line-item shopping cart whos
 
 ## counter_slim_and_fast — `examples/substrates/reagent_slim/counter/`
 
-The counter dataflow mounted on the slim Reagent rewrite (`day8/reagent-slim`) — the `reagent2.*` substrate that excludes `reagent.impl.*` and `react-dom/server`. Same six-domino dataflow as `counter/`, but every Reagent import points at `reagent2.*` and `(rf/init!)` takes the slim adapter Var. Point at this fixture only when the task is about substrate-swap, the adapter-owned bundle-isolation contract (`check-reagent-slim-bundle-isolation.cjs`), or proving that the slim adapter is API-shape-compatible with the stock Reagent adapter. It is not a human-facing teaching example; it is the live isolation fixture for the slim epic.
+The counter dataflow mounted on the slim Reagent rewrite (`day8/reagent-slim`) — the `reagent2.*` substrate that excludes `reagent.impl.*` and `react-dom/server`. Same six-domino dataflow as `counter/`, but every Reagent import points at `reagent2.*` and `(rf/init!)` takes the slim adapter Var. Point at this fixture only when the task is about substrate-swap, the adapter-owned bundle-isolation contract (`check-reagent-slim-bundle-isolation.cjs`), or proving that the slim adapter is API-shape-compatible with the stock Reagent adapter. It is not a human-facing teaching example; it is the live isolation fixture for the slim adapter.
 
 ## counter_with_stories — `tools/story/testbeds/counter_with_stories/`
 
-The canonical worked example / testbed for the Story epic (`tools/story/`, the `day8/re-frame2-story` artefact). Tool-owned testbed: it lives alongside the tool it exercises rather than under `examples/`. The counter with seven `reg-*` Story macros wired end-to-end — `reg-tag`, `reg-mode`, `reg-decorator`, `reg-story-panel`, `reg-story`, `reg-variant`, `reg-workspace` — thirty variants exercising five of the canonical `:rf.assert/*` events (`caused`, `dispatched`, `effect-emitted`, `no-cascade-rerender`, `sub-equals`) plus the built-in `force-fx-stub` decorator. URL-hash-routed: `#/` renders the live counter; `#/stories` mounts the Story playground shell. Point at this example when authoring any Story-substrate code: tag definitions, modes, decorators, variants, workspaces, or the `:rf.assert/*` family. The Stage 8 worked example for the Story epic; exercises 007 Stories, 002 Frames, and 008 Testing.
+The canonical worked example / testbed for Story (`tools/story/`, the `day8/re-frame2-story` artefact). Tool-owned testbed: it lives alongside the tool it exercises rather than under `examples/`. The counter with seven `reg-*` Story macros wired end-to-end — `reg-tag`, `reg-mode`, `reg-decorator`, `reg-story-panel`, `reg-story`, `reg-variant`, `reg-workspace` — thirty variants exercising five of the canonical `:rf.assert/*` events (`caused`, `dispatched`, `effect-emitted`, `no-cascade-rerender`, `sub-equals`) plus the built-in `force-fx-stub` decorator. URL-hash-routed: `#/` renders the live counter; `#/stories` mounts the Story playground shell. Point at this example when authoring any Story-substrate code: tag definitions, modes, decorators, variants, workspaces, or the `:rf.assert/*` family. Exercises 007 Stories, 002 Frames, and 008 Testing.
 
 ## boot — `examples/patterns/boot/`
 
@@ -75,7 +75,7 @@ Resource SSR preload + hydration — the resource counterpart to the minimal `ss
 
 ## state_machine_walkthrough — `examples/capabilities/machines/state_machine_walkthrough/`
 
-The runnable companion to `docs/machines/concepts.md` — the guide chapter's login flow rendered as live code, driving the canonical lockout scenario (three failures → `:locked-out`) in the browser. Four files, no tests: examples are test-free by ruling, so read it as a worked shape, not as a coverage source. Point at this example when teaching the machine grammar from scratch, when verifying the chapter's worked shape against the live implementation, or when authoring an event-driven sequence of FSM transitions. Exercises 005 StateMachines and 014 HTTPRequests. Pedagogical sibling of `login/` — same domain, different aim (`login/` is the "single-feature scaffold"; this is the chapter's walkthrough).
+The runnable companion to `docs/machines/concepts.md` — the guide chapter's login flow rendered as live code, driving the canonical lockout scenario (three failures → `:locked-out`) in the browser. Four files, no tests: examples are test-free, so read it as a worked shape, not as a coverage source. Point at this example when teaching the machine grammar from scratch, when verifying the chapter's worked shape against the live implementation, or when authoring an event-driven sequence of FSM transitions. Exercises 005 StateMachines and 014 HTTPRequests. Pedagogical sibling of `login/` — same domain, different aim (`login/` is the "single-feature scaffold"; this is the chapter's walkthrough).
 
 ## todomvc — `examples/core/todomvc/`
 
@@ -108,7 +108,7 @@ The Fresco substrate ships one: `examples/substrates/fresco/login/` — the `cor
 1. Pick the primary pattern from [`decision-trees/pick-a-pattern.md`](decision-trees/pick-a-pattern.md).
 2. Pick the state shape from [`decision-trees/slice-or-machine.md`](decision-trees/slice-or-machine.md).
 3. Find the example above whose paragraph names the same pattern + shape combination.
-4. Read the example's source — match its shape; do not re-derive (per SKILL.md cardinal rule 2).
+4. Read the example's source — match its shape; do not re-derive (per SKILL.md cardinal rule 5).
 5. If the example contradicts the pattern leaf, **the example wins** (per SKILL.md cardinal rule 1).
 
 ## Cross-references

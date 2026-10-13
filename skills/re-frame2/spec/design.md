@@ -33,7 +33,7 @@ On an existing project, a tool-capable session **runs the nearest declared nonin
 
 What stays locked is the **shape**: no `references/verify.md`, no verification framework, no policy essay — the rule is one workflow step and one done-checklist line in `SKILL.md`, because running a gate is general software practice (Pillar 4) and the only re-frame2-specific content is *which* gate and *that the agent runs it*.
 
-*History.* This lock was originally **Q14 — NO verification module** (the author runs the tests; the skill stops at writing the code), enforced by commit `d96a6026d0` and Rule 2 of `scripts/check_skill_re_frame2_drift.py`. It was unlocked on 2026-08-31 (rf2-g9k0g, a surface review): §1 says the output should compile and pass the author's tests while the posture forbade the agent from finding out, the testing leaf already taught the agent to discover the exact gate and then relay it, and the family baseline already trusts the explicit invoker with these commands. The drift guard's posture rules flipped in the same change.
+*Why the agent runs the gate rather than handing it back.* §1 makes "compiles and passes the author's tests" part of the goal, so a posture that forbade the agent from finding out would contradict the goal; the testing leaf already teaches the agent to discover the exact gate; and the family baseline already trusts the explicit invoker with these commands. Rule 2 of `scripts/check_skill_re_frame2_drift.py` guards both halves — the frontmatter grants and the absence of hand-off wording.
 
 ### L4 — Two-level routing only
 
@@ -65,7 +65,7 @@ Code talks to a frame — an explicitly registered, descriptively-named one (EP-
 
 ### L11 — Findings stay local
 
-Per Mike's standing memory rule "Findings is local-only" — design exploration happens in `ai/findings/`; never committed. This skill's commits contain only `skills/re-frame2/**`.
+Design exploration happens in the local-only `ai/findings/` tree and is never committed. This skill's commits contain only `skills/re-frame2/**`.
 
 ## 4. Audience and scope
 
@@ -110,14 +110,14 @@ skills/re-frame2/
     └── authoring-prompt.md      (one-shot reauthor prompt)
 ```
 
-Per-leaf size discipline — the line ceiling *and* the byte ceiling — is set once in [`skills/README.md` §Leaf size discipline](../../README.md#leaf-size-discipline) and is not restated here. In practice the 47 reference / pattern / decision-tree leaves range ~50–320 lines, and a number sit over one or both targets, which under that section owes no record. The view-test recipe SKILL.md routes to is its own leaf (`cross-cutting/testing-views.md`), so a state-only test session no longer loads it. A typical authoring session reads SKILL.md (~170) + one reference leaf + one pattern leaf ≈ ~480 LoC — well under any reasonable context budget.
+Per-leaf size discipline — the line ceiling *and* the byte ceiling — is set once in [`skills/README.md` §Leaf size discipline](../../README.md#leaf-size-discipline) and is not restated here. In practice the 48 reference / pattern / decision-tree leaves range ~50–340 lines, and a number sit over one or both targets, which under that section owes no record. The view-test recipe SKILL.md routes to is its own leaf (`cross-cutting/testing-views.md`), so a state-only test session does not load it. A typical authoring session reads SKILL.md (~160) + one reference leaf + one pattern leaf ≈ ~500 LoC — well under any reasonable context budget.
 
-**A split weighed and refused — `state-machines/reg-machine.md` and `state-machines/spawn.md` (rf2-ytkt).** Both sit over the 16 KB byte target and inside the 250-line half; the overrun is long unwrapped prose lines, which is precisely the case the byte target exists to catch, so it is a **true positive about density** rather than a mis-measurement. The two remedies the section's own bullet offers were each tried and each measured unavailable (measured 2026-09-02 under rf2-ytkt, PR #9051):
+**Why `state-machines/reg-machine.md` and `state-machines/spawn.md` stay whole.** Both sit over the 16 KB byte target and inside the 250-line half; the overrun is long unwrapped prose lines, which is precisely the case the byte target exists to catch, so it is a **true positive about density** rather than a mis-measurement. Neither remedy the leaf-size section offers is available:
 
-- **De-duplication is exhausted.** rf2-udtw3 trimmed every restated passage it had named, plus two more. A shingle-based near-duplicate scan over `reg-machine.md` then returned **zero** intra-file near-duplicate pairs at a 0.30 Jaccard threshold; `spawn.md`'s six pairs were all false positives on inspection — structurally parallel but semantically distinct rules (`:output-key`-requires-`:final?` versus `:error?`-requires-`:final?`, two different error ids). The residual is unique teaching, established by measurement rather than assumed.
-- **The arithmetically-available split cannot reach the ceiling.** `spawn.md`'s `:spawn-all` section is **1,950 bytes**; moving it *wholesale* to a new leaf still leaves **17,286 bytes — 902 over** — while costing a `SKILL.md` routing row and two roster rows. `reg-machine.md` is the same shape: the trim targets rf2-udtw3 named span 4,593 bytes *including* the replacement text it says to keep, so the realistic yield is ~1.5–2 KB against a 4,215-byte gap, and ~2.5 KB of the growth is required new teaching (descriptor tiers, `:reenter?` geometries, region-only ctx keys, `defmachine`) that widened the gap rather than creating it. **A remedy that provably cannot reach its own target is not a remedy.**
+- **There is nothing left to de-duplicate.** A shingle-based near-duplicate scan (0.30 Jaccard) found no intra-file near-duplicate pairs in `reg-machine.md`; the pairs it reported in `spawn.md` are structurally parallel but semantically distinct rules (`:output-key`-requires-`:final?` versus `:error?`-requires-`:final?`, two different error ids). The residual is unique teaching.
+- **The available split cannot reach the ceiling.** `spawn.md`'s `:spawn-all` section is about 3 KB of a leaf about 6 KB over the target, so moving it *wholesale* to a new leaf still leaves `spawn.md` over — while costing a `SKILL.md` routing row and two roster rows. `reg-machine.md` has the same shape: its largest restated spans are smaller than its gap, and most of its length is required teaching (descriptor tiers, `:reenter?` geometries, region-only ctx keys, `defmachine`). **A remedy that provably cannot reach its own target is not a remedy.**
 
-The README bullet's test — "would splitting reduce total tokens loaded per session?" — therefore answers **no** in the direction that forbids the split: an author needs the whole of one canonical declaration, so a split raises tokens-per-session rather than lowering it. **Do not split either leaf, and do not trim teaching to reach the byte number.** A leaf over the target owes no record; a split is proposed with this kind of arithmetic and taken or refused on it, per `skills/README.md` §Leaf size discipline.
+The tokens-per-session test therefore answers **no** in the direction that forbids the split: an author needs the whole of one canonical declaration, so a split raises tokens-per-session rather than lowering it. **Do not split either leaf, and do not trim teaching to reach the byte number.** A leaf over the target owes no record; a split is proposed with this kind of arithmetic and taken or refused on it, per `skills/README.md` §Leaf size discipline.
 
 ## 6. Discovery surface (frontmatter `description`)
 
@@ -159,7 +159,7 @@ The skill therefore carries **no top-level orienting paragraph** in SKILL.md (th
 - `references/fundamentals/flows.md` — the flow-vs-subscription decision turns on storage / durability / lifecycle. A "same function, different policy" anchor names why the decision is subtle (both are derivations; you choose policy, not math) and cross-links the algebra.
 - `references/fundamentals/frames.md` — the where-state-lives material (two durable partitions + the ephemeral sub-cache) is the four **storage classes** (`:app-db` / `:runtime-db` / `:ephemeral` / `:host-transient`). The cross-link names the vocabulary and pins the split: a *remote* fact still has a **local** storage class — "remote" is its `:authority`, never where it's stored.
 
-Both cross-links route through `SKILL-REDIRECT.md` → *Derivations and processes (the algebra)* and flag the divergence ("you don't author against this shape — it's a view, not an API"). Tool-facing siblings (`re-frame2-xray`, `re-frame2-pair`) and the implementor skill carry the heavier vocabulary; this authoring skill stays light. The graph accessor is **internal-only** (no public accessor name, no `re-frame.core` facade export in this slice).
+Both cross-links route through `SKILL-REDIRECT.md` → *Derivations and processes (the algebra)* and flag the divergence ("you don't author against this shape — it's a view, not an API"). Tool-facing siblings (`re-frame2-xray`, `re-frame2-pair`) and the implementor skill carry the heavier vocabulary; this authoring skill stays light. The graph accessor is **internal-only** (no public accessor name, no `re-frame.core` facade export).
 
 ## 11. Composition vocabulary in the authoring skill
 
