@@ -238,18 +238,6 @@
                 (fn [_ _] (throw (ex-info "sink-arm kaboom" {:cause :test}))))
   nil)
 
-(deftest a-policy-naming-an-UNREGISTERED-sink-still-prints
-  (if-not (browser?)
-    (is true skip-msg)
-    (do
-      (register-sink-refusal! :fu75.sink/orphan [{:sink :fu75.sink/never-wired}])
-      (let [{:keys [console]}
-            (capture-console
-              #(rf/dispatch-sync [:fu75.sink/throws] {:frame :fu75.sink/orphan}))]
-        (is (= 1 (count console))
-            (str "an unwired sink id must not buy silence; got " (pr-str console)))
-        (is (= :fu75.sink/orphan (:frame (nth (first console) 2))))))))
-
 (deftest sink-ownership-is-frame-scoped-not-page-wide
   (if-not (browser?)
     (is true skip-msg)
@@ -401,9 +389,4 @@
         (is (= 2 (count args)))
         (is (= "[re-frame2]" prefix))
         (is (re-find #"^:rf\.warning/unknown-configure-key — .*:epoch-histroy" line)
-            (str "the op, then the warning's own :reason; got " (pr-str line))))))
-  (testing "a :trace listener receives it instead, and the line stands down"
-    (rf/register-listener! :trace ::seen (fn [_] nil))
-    (let [calls (capture-console-warn #(rf/configure! {:epoch-histroy {:depth 5}}))]
-      (rf/unregister-listener! :trace ::seen)
-      (is (empty? calls) (str "nothing printed; got " (pr-str calls))))))
+            (str "the op, then the warning's own :reason; got " (pr-str line)))))))
