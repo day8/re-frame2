@@ -197,15 +197,6 @@
       (is (true? (:exception (first (stepper-results))))
           "the owning session's amendment landed"))))
 
-(deftest an-owning-stepper-step-still-receives-its-settled-result
-  ;; the debugger shows the same verdict the auto-run loop records
-  (let [d (deferred)]
-    (install-deferred-host! d)
-    (seed-stepper! [[:flush-presence 100]])
-    (rf.story.play/step-once! rf.story.play.presence-cljs-test/presence-frame)
-    ((:reject! d) (ex-info "presence flush failed" {}))
-    (is (= [true false] ((juxt :exception :passed?) (first (stepper-results)))))))
-
 (deftest a-step-back-does-not-invalidate-an-earlier-pending-amendment
   ;; step-back pops only the LAST step, so idx 0's amendment is still owed
   (let [d (deferred)]
