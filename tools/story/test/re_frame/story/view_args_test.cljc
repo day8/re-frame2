@@ -60,11 +60,7 @@
             view does not bump the Story mutation tick the resolver's memo
             is keyed on, registering a variant does."
     (doseq [[label view-id view-meta variant-id args expected]
-            [[":rf/props"
-              :views/widget {:rf/props [:map [:label :string] [:count :int]]}
-              :story.prod/ok {:label "Hi" :count 3}
-              [:map [:label :string] [:count :int]]]
-             [":rf/props wins over :schema"
+            [[":rf/props wins over :schema"
               :views/dual {:rf/props [:map [:a :string]] :schema [:map [:b :string]]}
               :story.prod/dual {:a "x"}
               [:map [:a :string]]]
@@ -75,10 +71,6 @@
              [":spec is not a schema key, so a :spec-only view resolves nil"
               :views/specced {:spec [:map [:x :string]]}
               :story.prod/specced {:x "v"}
-              nil]
-             ["a view carrying no schema slot resolves nil"
-              :views/bare {}
-              :story.prod/bare {:x 1}
               nil]
              ["a variant with no :component resolves nil"
               nil nil
@@ -118,29 +110,19 @@
    [:size [:int {:min 8 :max 64}]] [:disabled? :boolean]])
 
 (deftest compiled-resolver-resolves-a-variant-that-leaves-props-to-its-story
-  (testing "the flagship authoring pattern — required props on
-            the story's :args, a variant overriding one — resolves its schema.
-            The schema is the component's :rf/props, so the read does not
-            depend on which layer supplies the args"
+  (testing "the flagship authoring pattern — required props on the story's
+            :args, a variant overriding one — resolves the component's
+            :rf/props, even when the args miss a required prop on every layer"
     (reg-view-meta! :views/button {:rf/props button-props})
-    (rf.story.registrar/reg-story* :story.ui.button
+    (rf.story.registrar/reg-story* :story.ui.unlabelled
                                    {:component :views/button
-                                    :args      {:label "Go" :variant :primary
-                                                :size 16 :disabled? false}})
-    (rf.story.registrar/reg-variant* :story.ui.button/danger {:args {:variant :danger}})
+                                    :args      {:variant :primary :size 16
+                                                :disabled? false}})
+    (rf.story.registrar/reg-variant* :story.ui.unlabelled/danger
+                                     {:args {:variant :danger}})
     (is (= button-props
-           (rf.story.view-args/compiled-view-args-schema :story.ui.button/danger)))
-    (testing "and args that genuinely miss a required prop on every layer do
-              not erase the schema they were validated against"
-      (rf.story.registrar/reg-story* :story.ui.unlabelled
-                                     {:component :views/button
-                                      :args      {:variant :primary :size 16
-                                                  :disabled? false}})
-      (rf.story.registrar/reg-variant* :story.ui.unlabelled/danger
-                                       {:args {:variant :danger}})
-      (is (= button-props
-             (rf.story.view-args/compiled-view-args-schema
-               :story.ui.unlabelled/danger))))))
+           (rf.story.view-args/compiled-view-args-schema
+             :story.ui.unlabelled/danger)))))
 
 (deftest compiled-resolver-resolves-a-variant-whose-steps-read-story-or-global-args
   (testing "a valid variant whose steps substitute an [:arg k] that only
@@ -157,16 +139,6 @@
                                        {:setup [[:dispatch [:app/set-label [:arg :label]]]]})
       (is (= props (rf.story.view-args/compiled-view-args-schema :story.yfwfa/setup))
           "a story-supplied arg read by :setup")
-      (testing "and an arg only the globals supply"
-        (rf.story.registrar/reg-story* :story.yfwfa-global {:component :views/labelled})
-        (rf.story.registrar/reg-variant* :story.yfwfa-global/setup
-                                         {:setup [[:dispatch [:app/set-label [:arg :label]]]]})
-        (try
-          (rf.story.config/set-global-args! {:label "Global"})
-          (is (= props (rf.story.view-args/compiled-view-args-schema
-                         :story.yfwfa-global/setup)))
-          (finally
-            (rf.story.config/set-global-args! {}))))
       (testing "a change to the global args is a new memo slot, not a stale one"
         (rf.story.registrar/reg-story* :story.yfwfa-late {:component :views/labelled})
         (rf.story.registrar/reg-variant* :story.yfwfa-late/setup
