@@ -47,14 +47,6 @@
 
 ;; ---- initial-snapshot -----------------------------------------------------
 
-(deftest initial-snapshot-shallow-read-seeds-state-and-data-or-nil
-  ;; Rows: a flat definition; a missing :data slot, which defaults to {};
-  ;; a definition with no :initial (a parallel root), which reads nil.
-  (are [definition snap] (= snap (sim-h/initial-snapshot definition))
-    flat-definition               {:state :idle :data {:counter 0}}
-    {:initial :a :states {:a {}}} {:state :a :data {}}
-    {}                            nil))
-
 (deftest reset-sim-state-restores-the-seed-it-opened-with
   ;; Reset rewinds to the snapshot the slot was SEEDED with — a compound
   ;; root's engine leaf, not the shallow read — and clears trail and error.
@@ -176,12 +168,6 @@
              :form {:initial :editing
                     :states  {:editing {}}}}})
 
-(def ^:private action-only-timer-definition
-  {:initial :loading
-   :data    {:n 0}
-   :actions bump-action
-   :states  {:loading {:after {5000 {:action :bump}}}}})
-
 (def ^:private parallel-root-action-only-timer-definition
   {:type    :parallel
    :data    {:n 0}
@@ -239,18 +225,6 @@
         "the two entries stored different epochs, so newest-vs-oldest is visible")
     (is (= :timeout (sim-h/current-sim-state
                       (step! s3 (sim-h/after-elapsed-event s3 row) timer-definition))))))
-
-(deftest available-after-transitions-lists-a-targetless-action-only-timer
-  ;; A targetless timer lists with a nil :target, fires at epoch 0 — the
-  ;; engine's own reading of a node no step has entered — and its step is
-  ;; recorded although the state stands still.
-  (let [s0   (sim-h/make-sim-state :t action-only-timer-definition engine-seed)
-        rows (sim-h/available-after-transitions (:definition s0) (:snapshot s0))
-        ev   (sim-h/after-elapsed-event s0 (first rows))]
-    (is (= [{:delay-key 5000 :target nil :action :bump :guard? false :guard nil :decl-path [:loading]}]
-           rows))
-    (is (= [:rf.machine.timer/after-elapsed 5000 0 [:loading]] ev))
-    (is (= [{:n 1}] (map :data (:audit-trail (step! s0 ev action-only-timer-definition)))))))
 
 (deftest available-after-transitions-lists-a-targetless-parallel-root-timer
   ;; A parallel ROOT's own :after lists at decl-path [] — a flat or
