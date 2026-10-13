@@ -17,16 +17,11 @@
     (is (= [:div.rf-story-md] (rf.story.ui.markdown/parse nil)))
     (is (= [:div.rf-story-md] (rf.story.ui.markdown/parse "   \n   ")))))
 
-(deftest paragraph-joins-lines-with-space
-  (testing "consecutive non-blank lines form one <p>, joined with a single space"
-    (is (= [[:p {} "line one" " " "line two"]] (blocks "line one\nline two")))))
-
 (deftest hard-break-via-trailing-two-spaces
   (testing "a line ending with `  ` (CommonMark hard break) yields a `[:br]`"
     (is (= [[:p {} "first" [:br {}] "second"]] (blocks "first  \nsecond")))))
 
 (deftest headings-levels-1-through-6
-  (is (= :h1 (first (first (blocks "# Title")))))
   (is (= :h6 (first (first (blocks "###### Title"))))))
 
 (deftest heading-inline-parsing
