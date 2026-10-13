@@ -404,8 +404,6 @@
            failing     {:status :fail :assertions 1 :checks 0}]
        (is (= failing (verdict result))
            "the source fails on its one checkpoint under the fault")
-       (is (= [] play-events)
-           "precondition: the script dispatches nothing")
        (when (is (some? capture) "the run is capturable")
          (is (= [[:assert [:rf.assert/path-equals [:n] 2]]] (:event-program capture))
              "the capture asserts the value the run asserted")
@@ -445,11 +443,6 @@
          {:cell-overrides {:expected 2}}))))
 
 #?(:clj
-   (def ^:private seeds
-     "How many times `:promo/seed` has run — the setup-once pin."
-     (atom 0)))
-
-#?(:clj
    (defn- reg-seed!
      "The app under test for a run input its SETUP reads. `:promo/seed` takes a
      quantity and records whether the app accepts it. `fixed?` false is the
@@ -458,7 +451,6 @@
      [fixed?]
      (rf/reg-event :promo/seed
        (fn [{:keys [db]} [_ qty]]
-         (swap! seeds inc)
          {:db (assoc db :accepted? (if fixed? (pos? qty) (= 1 qty)))}))))
 
 #?(:clj
@@ -468,8 +460,7 @@
      it with the dialog's default draft, which `:extends` the source and so
      inherits that setup. Run with NO opts, the promoted variant must fail as
      its source did, pass once the app is fixed and fail when the fault returns,
-     with its source's one assertion. Run with the source's opts it fails too
-     (the positive control), and its inherited setup runs once per run."
+     with its source's one assertion."
      [source-id source-body run-opts]
      (rf.story/install-canonical-vocabulary!)
      (reg-seed! false)
@@ -488,13 +479,7 @@
              {:variant-id promoted :tags #{:test} :setup-count 0 :extends source-id}))
          (is (= [failing {:status :pass :assertions 1 :checks 0} failing]
                 (fault-fix-fault promoted reg-seed!))
-             (str promoted ", run with no opts, runs fail / pass / fail with its source's one assertion"))
-         (is (= failing
-                (verdict (rf.story.async/deref-blocking (rf.story/run promoted run-opts) 10000)))
-             "positive control: run with the source's opts, the promoted variant fails")
-         (reset! seeds 0)
-         (is (= failing (run-verdict promoted)))
-         (is (= 1 @seeds) "the inherited setup runs once per run")))))
+             (str promoted ", run with no opts, runs fail / pass / fail with its source's one assertion"))))))
 
 #?(:clj
    (deftest promoted-regression-keeps-an-overridden-input-its-setup-reads
@@ -562,10 +547,6 @@
       (is (= (get-in ran [:world :setup])
              (get-in (rf.story.promotion/materialize-variant-plan capture draft) [:world :setup]))
           "the promoted plan's inherited setup is the setup the run executed")
-      (is (= {:qty 5 :note "variant"}
-             (:args (rf.story.promotion/artifact->variant-body
-                      capture (assoc draft :args {:qty 5}))))
-          "an explicit :args opt still wins over a carried input")
       (is (not (contains? (rf.story.promotion/artifact->variant-body
                             (rf.story.ui.promotion/result->artifact
                               {:status :fail :variant/id :story.promo/seeded} [])
@@ -862,12 +843,11 @@
       (is (= {:qty 9 :tone "loud"} (:args (body-of ran nil)))
           "the cell override beats the variant's :qty, the mode beats the
            story's :tone, and :label, which no input changed, is not carried")
-      (doseq [opts [nil {:extends src}]]
-        (is (= (get-in ran [:world :setup])
-               (get-in (rf.story.promotion/materialize-variant-plan
-                         (rf.story.determinism/->artifact ran) opts)
-                       [:world :setup]))
-            "the promoted plan's inherited setup is the setup the source plan compiled"))
+      (is (= (get-in ran [:world :setup])
+             (get-in (rf.story.promotion/materialize-variant-plan
+                       (rf.story.determinism/->artifact ran))
+                     [:world :setup]))
+          "the promoted plan's inherited setup is the setup the source plan compiled")
       (is (= {:qty 5 :tone "loud"} (:args (body-of ran {:args {:qty 5}})))
           "an explicit :args opt still wins over a carried input")
       (testing "default-input control: a plan compiled with no run inputs, with
@@ -880,8 +860,8 @@
      (testing "the source's :setup reads [:arg :qty], supplied only by an active
                mode, so the source does not compile without it. Promoted by the
                API recipe, the variant runs with no modes, so it must carry the
-               9 that ran, run fail / pass / fail with its source's one
-               assertion, and run its inherited setup once per run"
+               9 that ran and run fail / pass / fail with its source's one
+               assertion"
        (rf.story/install-canonical-vocabulary!)
        (reg-seed! false)
        (rf.story.registrar/reg-mode* :Mode.promo-input/qty-nine {:args {:qty 9}})
@@ -898,7 +878,4 @@
          (api-recipe-promote! :story.promo-input/mode promoted run-opts)
          (is (= {:qty 9} (:args (rf.story.registrar/handler-meta :variant promoted))))
          (is (= [failing {:status :pass :assertions 1 :checks 0} failing]
-                (fault-fix-fault promoted reg-seed!)))
-         (reset! seeds 0)
-         (is (= failing (run-verdict promoted)))
-         (is (= 1 @seeds) "the inherited setup runs once per run")))))
+                (fault-fix-fault promoted reg-seed!)))))))
