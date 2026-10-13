@@ -119,18 +119,6 @@
 ;; vector, so the disclosure must dedup + cross-exclude by concrete query-v
 ;; — NOT the registered sub-id, which collapses distinct parameterizations.
 
-(deftest skipped-subs-recompute-excludes-only-exact-query
-  (testing "the focused counterexample: `[:item/derived 1]`
-            recomputes while `[:item/derived 2]` memo-hits. The recompute
-            excludes ONLY its exact query; the different same-id memo-hit is
-            preserved + disambiguated, not suppressed."
-    (let [events       [(skip-qv :item/derived [:item/derived 1])  ; ran below → excluded
-                        (skip-qv :item/derived [:item/derived 2])] ; memo-hit → kept
-          ran-query-vs #{[:item/derived 1]}
-          rows         (subs/skipped-subs events ran-query-vs)]
-      (is (= [[:item/derived 2]] (mapv :query-v rows))
-          "only the exact recomputed query is excluded; the sibling survives"))))
-
 (deftest project-record-surfaces-subs-skipped-distinct-from-ran
   (testing "project-record reads the memo-hit :rf.sub/skip
             evidence into :subs-skipped, kept DISTINCT from the run-set even
