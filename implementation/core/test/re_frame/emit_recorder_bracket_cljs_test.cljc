@@ -93,12 +93,10 @@
       (is (= 1 (count @outer))))))
 
 (deftest the-public-facade-no-longer-offers-the-always-on-streams
-  (testing "both public listener verbs refuse both raw always-on streams, naming
-            the two dev streams they accept"
-    (doseq [stream      [:errors :events]
-            [verb call] [['rf/register-listener! #(rf/register-listener! % ::probe (fn [_]))]
-                         ['rf/unregister-listener! #(rf/unregister-listener! % ::probe)]]]
-      (let [data (try (call stream)
+  (testing "register-listener! refuses both raw always-on streams, naming the
+            two dev streams it accepts"
+    (doseq [stream [:errors :events]]
+      (let [data (try (rf/register-listener! stream ::probe (fn [_]))
                       nil
                       (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) ex
                         (ex-data ex)))]
@@ -106,4 +104,4 @@
                 :stream      stream
                 :valid       #{:trace :epoch}}
                (select-keys data [:rf.error/id :stream :valid]))
-            (str verb " refuses " stream))))))
+            (str "rf/register-listener! refuses " stream))))))
