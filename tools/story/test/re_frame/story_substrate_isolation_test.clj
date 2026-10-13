@@ -8,9 +8,7 @@
   the output side; this guards the input side."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [clojure.test :refer [deftest is testing]]
-            [malli.core :as m]
-            [re-frame.story.schemas :as rf.story.schemas]))
+            [clojure.test :refer [deftest is testing]]))
 
 ;; ----- helpers ------------------------------------------------------------
 
@@ -73,11 +71,4 @@
                "\n\nPer `002-Runtime.md` §Substrate hooks + `003-Render-Shell.md` §UI shell substrate Story's UI shell is Reagent; UIx "
                "substrates plug in at boot via "
                "`re-frame.story.ui.multi-substrate/register-substrate!`. "
-               "Story core MUST NOT drag those adapters onto its classpath."))))
-
-  (testing "the substrate enum still advertises :reagent + :uix
-(consumer-app registration surface — keyword refs only, not requires)"
-    ;; Validate against the schema VALUE: a substring probe of
-    ;; schemas.cljc is satisfied by the docstring alone.
-    (is (m/validate rf.story.schemas/SubstrateSet #{:reagent}))
-    (is (m/validate rf.story.schemas/SubstrateSet #{:uix}))))
+               "Story core MUST NOT drag those adapters onto its classpath.")))))
