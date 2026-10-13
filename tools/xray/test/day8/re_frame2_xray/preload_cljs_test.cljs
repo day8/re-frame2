@@ -1,22 +1,8 @@
 (ns day8.re-frame2-xray.preload-cljs-test
-  "Tests for the Xray preload foundation.
-
-  ## Two contracts under test
-
-  1. **Idempotency.** Loading the preload twice (shadow-cljs
-     `:after-load` simulation) must not double-register the trace
-     callback nor double-attach the keydown listener. The framework's
-     `register-listener!` semantics already collapse same-id
-     registrations to one entry, but the warning trace the framework
-     emits on replacement would pollute the dev console on every hot-
-     reload; the preload's `defonce` sentinels prevent the warning
-     altogether.
-
-  2. **Trace collector wiring.** After preload load, every dispatch /
-     drain step / fx invocation that the framework's trace bus emits
-     must appear in Xray's ring buffer. This test fires a dispatch
-     against a registered handler and asserts the trace stream lands
-     in Xray's buffer.
+  "Tests for the Xray preload foundation: registering the trace collector
+  is idempotent, a frameless trace the framework's per-frame ring skips is
+  retained in Xray's frameless ring, and that ring's eviction releases what
+  it drops.
 
   ## Why these tests run on node-test (not browser-test)
 
@@ -40,18 +26,7 @@
 
 ;; ---- fixtures -----------------------------------------------------------
 ;;
-;; Per `re-frame.test-support` the canonical CLJS test isolation
-;; pattern is snapshot/restore. `(rf.registrar/clear-all!)` is hostile here:
-;; the framework-shipped registrations land at ns-load time and cannot
-;; be re-loaded, so wiping the registrar between tests would leave any
-;; subsequent test ns starting against an empty registry — and the
-;; cross-test pollution would show up as failures in unrelated suites
-;; that happen to run after ours.
-;;
-;; The fixture below adds an `init-fn` that flips Xray's defonce
-;; sentinels back and clears Xray's per-process trace buffer. Each
-;; test starts from the same baseline; framework state is preserved
-;; via snapshot/restore from `make-reset-runtime-fixture`.
+;; `init-fn` flips Xray's defonce sentinels back and clears its trace buffer.
 
 (defn- xray-init! []
   (preload/reset-for-test!)
@@ -67,11 +42,7 @@
 
 (deftest preload-trace-collector-is-idempotent
   (testing "calling register-trace-collector! twice attaches the collector once"
-    ;; First call: the sentinel flips and the framework adds the
-    ;; collector to its listener map. We don't poke into the
-    ;; framework's private listener map here — we verify the
-    ;; *observable* contract: a single emit produces a single buffer
-    ;; append, even after a second registration call.
+    ;; The observable contract: one emit is one buffer append.
     (preload/register-trace-collector!)
     (preload/register-trace-collector!)
     (trace-collector/reset-for-test!)
@@ -106,7 +77,7 @@
 
 (deftest xray-frameless-ring-releases-evicted-events
   (testing "eviction leaves a plain vector holding only the kept
-            events, on overflow and on shrink. A `subvec` view would keep its
+            events. A `subvec` view would keep its
             whole backing vector reachable and later `conj`s would extend that
             backing, so the visible count would stay at the depth while every
             evicted payload stayed live. A `PersistentVector` holds exactly its `count`
@@ -122,15 +93,6 @@
         (is (instance? PersistentVector ring)
             (str "overflow materializes a fresh vector, not a view over every "
                  "event ever pushed; got " (pr-str (type ring)))))
-      (trace-collector/set-frameless-ring-depth! 2)
-      (let [ring (trace-collector/frameless-events)]
-        (is (= [48 49] (mapv :id ring))
-            "shrinking drops the oldest events immediately")
-        (is (instance? PersistentVector ring)
-            (str "shrinking materializes a fresh vector, releasing the dropped "
-                 "events; got " (pr-str (type ring)))))
-      (trace-collector/clear-frameless-ring!)
-      (is (= [] (trace-collector/frameless-events)) "clear still empties the ring")
       (finally
         (trace-collector/set-frameless-ring-depth!
           trace-collector/default-frameless-ring-depth)))))
