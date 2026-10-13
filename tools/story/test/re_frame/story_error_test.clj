@@ -1,6 +1,6 @@
 (ns re-frame.story-error-test
   "`re-frame.story.error`: the one Throwable→error-map projection and the
-  `:rf.error/exception` record built on it."
+  no-handler refusal's capture."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
@@ -8,8 +8,8 @@
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.story.error :as rf.story.error]))
 
-;; `exception-record` walks `:data` against its frame and fails closed when
-;; the frame is unresolvable, so a live frame needs an installed adapter.
+;; `throwable->error-map` walks `:data` against a frame and fails closed when
+;; the frame is unresolvable, so the default frame needs an installed adapter.
 (use-fixtures :each
   (fn [test-fn]
     (reset! rf.frame/frames {})
@@ -26,30 +26,12 @@
     (is (str/includes? (:stack m) "boom")
         "the trace is captured into :stack, not leaked to stderr")))
 
-(deftest throwable->error-map-tolerates-nil-throwable
-  (is (= {:message nil :stack nil :data nil} (rf.story.error/throwable->error-map nil))))
-
 (deftest throwable->error-map-explicit-message-override
   (testing "an explicit :message wins, even without a throwable; nil falls back"
     (doseq [[e opts expected] [[(ex-info "original" {}) {:message "pre-extracted"} "pre-extracted"]
                                [nil {:message "pre-extracted"} "pre-extracted"]
                                [(ex-info "original" {}) {:message nil} "original"]]]
       (is (= expected (:message (rf.story.error/throwable->error-map e opts)))))))
-
-;; ---- exception-record -----------------------------------------------------
-
-(deftest exception-record-wraps-the-projection
-  (rf/make-frame {:id :story.x/v})
-  (try
-    (let [e (ex-info "kaboom" {:k :v})
-          r (rf.story.error/exception-record :story.x/v :phase-2-events [:some/event 1] e)]
-      (is (= {:assertion :rf.error/exception :variant-id :story.x/v :phase :phase-2-events
-              :event [:some/event 1] :passed? false}
-             (select-keys r [:assertion :variant-id :phase :event :passed?])))
-      (is (= (rf.story.error/throwable->error-map e {:frame :story.x/v}) (:error r)))
-      (is (= {:k :v} (-> r :error :data)) "a live frame's empty policy passes :data through"))
-    (finally
-      (rf/destroy-frame! :story.x/v))))
 
 ;; ---- the no-handler refusal is a captured failure -------------------------
 
