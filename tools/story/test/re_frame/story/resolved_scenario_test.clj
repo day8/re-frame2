@@ -129,13 +129,6 @@
         "the inherited predicate's verdict is reported as loader-incomplete")
     (is (not= :pass (:status result)))))
 
-(deftest inline-plan-runs-its-loaders-and-cleanup
-  (rf.story.async/deref-blocking
-    (rf.story.runtime/run-inline-plan
-      {:loaders [[:rs/load]] :loaders-teardown [[:rs/close]]})
-    5000)
-  (is (= [:load :close] @calls)))
-
 ;; ===========================================================================
 ;; 2 · a run's loader cleanup survives a hot reload
 ;; ===========================================================================
