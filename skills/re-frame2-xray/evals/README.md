@@ -63,7 +63,7 @@ only the focused family leaf):
 | 11 | `panel-route-schema` | yes | Schema violations → Epoch inline + L2 pink-wash; registry → Static Schemas; no Issues tab, no Dynamic Schemas tab. |
 | 12 | `panel-route-hydration` | yes | No standalone Hydration tab; mismatches → Epoch inline + issues-ribbon signal. |
 | 21 | `chrome-rewind` | yes | Passive inspect (live frame unmoved) vs explicit `Reset` button (`restore-epoch!` reinstalls the whole frame-state — both app-db and runtime-db — not just `:db-after`); `r`/`R`/`*` are NOT wired. |
-| 22 | `chrome-filters` | yes | No `Clear Filters` control (retired) — remove each IN/OUT pill via its trailing `×` (the warning copy is `N events filtered out`); muted event ids route separately through the L1 `🔇 N` chip → mute manager (per-row unmute / `Unmute all`). |
+| 22 | `chrome-filters` | yes | No `Clear Filters` control — remove each IN/OUT pill via its trailing `×` (the warning copy is `N events filtered out`); muted event ids route separately through the L1 `🔇 N` chip → mute manager (per-row unmute / `Unmute all`). |
 | 23 | `chrome-palette` | yes | Palette source kinds + representative command verbs; `Cmd/Ctrl+K` is wired (not struck). |
 | 24 | `launch-overlay` | yes | `open-overlay!` is the supported FALLBACK for no-layout-host; floats above `document.body`; not the primary path. |
 | 26 | `config-init-vs-settings` | yes | The slider wins for the session, but `init! opts` re-pin (and re-persist) on the next boot — four-layer merge order `defaults < configure! < persisted Settings < init! opts`; `configure! {:rf.xray/settings …}` is the user-overridable layer; density is NOT a popup control. |
@@ -98,9 +98,8 @@ Graph tab's per-panel projection toggle (Declared/Realized) as distinct from
 the L1 Static mode pill, so the overloaded `static`/`mode` vocabulary cannot
 re-route a user to the wrong control, and panel-route-simulate-url that pins
 where the URL simulator is actually MOUNTED (Static → Routes, per
-`static/routes/simulate_url.cljs`) against a tour that once advertised it in
-Dynamic Routes, whose shipped `panel-tree` renders three sections and no input
-at all. And the route-quality contract: panel-route-state, panel-route-machine, static-browse-registry
+`static/routes/simulate_url.cljs`) rather than Dynamic Routes, whose shipped
+`panel-tree` renders three sections and no input at all. And the route-quality contract: panel-route-state, panel-route-machine, static-browse-registry
 and panel-route-resources grade one representative question per scope
 family — focused-epoch, observed-frame/live-structure, Static-definition,
 and (via panel-route-frames) process-global/registry — each requiring one

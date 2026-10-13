@@ -110,8 +110,8 @@ works today. Do not teach `r` / `R` / `*` as live keys.
 
 The L1.5 events ribbon carries the active IN / OUT pills and, pushed to
 its trailing edge, an `N events filtered out` warning count (renders
-only when N > 0). There is **no bulk `Clear Filters` control** — that
-button was deliberately retired: remove each pill individually via its
+only when N > 0). There is **no bulk `Clear Filters` control**: remove
+each pill individually via its
 trailing `×`, and removing the last pill collapses the ribbon (the
 hidden events return as the pills go). Muted event ids are a *separate*
 suppression state the ribbon pills do not manage: click the L1 `🔇 N`
