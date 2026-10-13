@@ -2,7 +2,8 @@
   "The late-bind resolution cache and `chain-fn!` composition. Every dispatch
   and subscribe resolves hooks through `get-fn-cached`, so a stale slot serving
   a withdrawn hook is a silent correctness bug: nil resolutions are not cached,
-  and `set-fn!` / `set-fns!` / `chain-fn!` / `invalidate-cache!` drop the slot.
+  and a publication drops the slot (`set-fns!` and `chain-fn!` publish through
+  `set-fn!`, which calls `invalidate-cache!`).
   `chain-fn!` runs the last-registered step first, with the same args, and
   propagates every step's throw.
 
@@ -21,11 +22,6 @@
 
 (use-fixtures :each isolate-hook-state)
 
-(defn- cached?
-  "True when `hook-key` currently has a populated cache slot."
-  [hook-key]
-  (contains? @(deref #'rf.late-bind/fn-cache) hook-key))
-
 (deftest get-fn-cached-does-not-cache-nil-resolutions
   (let [k :test/g1-deferred]
     (is (nil? (rf.late-bind/get-fn-cached k)))
@@ -34,15 +30,6 @@
       (is (identical? f (rf.late-bind/get-fn-cached k))
           "a publication after a nil lookup is visible on the next call"))))
 
-(deftest invalidate-cache!-drops-the-slot-so-the-next-lookup-re-resolves
-  (let [k  :test/g1-invalidate
-        f2 (fn [] :v2)]
-    (rf.late-bind/set-fn! k (fn [] :v1))
-    (rf.late-bind/get-fn-cached k)
-    (swap! (deref #'rf.late-bind/hooks) assoc k f2)
-    (rf.late-bind/invalidate-cache! k)
-    (is (identical? f2 (rf.late-bind/get-fn-cached k)))))
-
 (deftest set-fn!-invalidates-the-slot-so-hot-reload-swaps-the-fn
   (let [k  :test/g1-hot-reload
         f2 (fn [] :new)]
@@ -50,17 +37,6 @@
     (rf.late-bind/get-fn-cached k)
     (rf.late-bind/set-fn! k f2)
     (is (identical? f2 (rf.late-bind/get-fn-cached k)))))
-
-(deftest set-fns!-invalidates-each-cache-slot
-  (let [k1    :test/rtk2e-inv-a
-        k2    :test/rtk2e-inv-b
-        new-a (fn [] :new-a)
-        new-b (fn [] :new-b)]
-    (rf.late-bind/set-fn! k1 (fn [] :old-a))
-    (rf.late-bind/set-fn! k2 (fn [] :old-b))
-    (run! rf.late-bind/get-fn-cached [k1 k2])
-    (rf.late-bind/set-fns! {k1 new-a, k2 new-b})
-    (is (= [new-a new-b] (mapv rf.late-bind/get-fn-cached [k1 k2])))))
 
 (deftest chain-fn!-runs-the-last-registered-step-first-with-the-same-args
   (let [k    :test/g2-args
@@ -86,13 +62,6 @@
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"boom-inner"
           ((rf.late-bind/get-fn k) :arg))
         "the outer step does not swallow the inner step's throw")))
-
-(deftest chain-fn!-invalidates-the-cache-slot
-  (let [k :test/g2-cache-invalidate]
-    (rf.late-bind/set-fn! k (fn [_] :seed))
-    (rf.late-bind/get-fn-cached k)
-    (rf.late-bind/chain-fn! k (fn [_] nil))
-    (is (not (cached? k)))))
 
 (deftest racing-lookup-cannot-restore-a-superseded-fn
   ;; set-fn! publishes into `hooks` and then drops the slot. A reader that read
