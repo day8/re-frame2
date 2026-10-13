@@ -172,12 +172,12 @@
     (rf.events/reg-event id metadata handler)))
 
 (deftest error-sink-record-carries-producer-component-attribution
-  (testing "a throwing interceptor and a throwing coeffect supplier each deliver a
-            record whose :failing-id names the failing component, distinct from
-            :event-id, with the producer's :source-coord, and :reason on :tags"
+  (testing "a throwing interceptor delivers a record whose :failing-id names the
+            failing component, distinct from :event-id, with the producer's
+            :source-coord, and :reason on :tags (the coeffect producer is pinned
+            by the classified-reason test below)"
     (let [seen       (atom [])
-          attr-coord {:ns 'kuky65.attr :file "test/kuky65/attr.cljc" :line 4242}
-          cofx-coord {:ns 'kuky65.cofx :file "test/kuky65/cofx.cljc" :line 77}]
+          attr-coord {:ns 'kuky65.attr :file "test/kuky65/attr.cljc" :line 4242}]
       (rf/register-observability-sink! :test.sinks/attribution
                                        (fn [record] (swap! seen conj record)))
       (rf/make-frame {:id :obs/attr :observability
@@ -188,22 +188,11 @@
       (reg-event-at! attr-coord :kuky65/with-throwing-interceptor
                      {:frame :obs/attr :interceptors [:kuky65/boom-after]}
                      (fn [{:keys [db]} _] {:db (assoc db :x 1)}))
-      (rf/reg-cofx :kuky65/boom-cofx
-                   (fn [] (throw (ex-info "cofx supplier boom" {}))))
-      (reg-event-at! cofx-coord :kuky65/needs-boom-cofx
-                     {:frame :obs/attr :rf.cofx/requires [:kuky65/boom-cofx]}
-                     (fn [{:keys [db]} _] {:db db}))
-      (doseq [[error event-id failing-id coord]
-              [[:rf.error/interceptor-exception :kuky65/with-throwing-interceptor :kuky65/boom-after
-                attr-coord]
-               [:rf.error/coeffect-exception :kuky65/needs-boom-cofx :kuky65/boom-cofx
-                cofx-coord]]]
-        (testing (name error)
-          (rf/dispatch-sync [event-id] {:frame :obs/attr})
-          (let [r (error-of-kind error @seen)]
-            (is (= [event-id failing-id coord nil]
-                   [(:event-id r) (:failing-id r) (:source-coord r) (:reason r)]))
-            (is (string? (get-in r [:tags :reason])))))))))
+      (rf/dispatch-sync [:kuky65/with-throwing-interceptor] {:frame :obs/attr})
+      (let [r (error-of-kind :rf.error/interceptor-exception @seen)]
+        (is (= [:kuky65/with-throwing-interceptor :kuky65/boom-after attr-coord nil]
+               [(:event-id r) (:failing-id r) (:source-coord r) (:reason r)]))
+        (is (string? (get-in r [:tags :reason])))))))
 
 (deftest classified-reason-redacts-whole-slot-while-attribution-survives
   (testing "with [:reason] classified sensitive, the interpolated :reason redacts
@@ -221,8 +210,7 @@
                      :kuky65/classified-reason-event
                      {:frame :obs/reason :rf.cofx/requires [:kuky65/classified-boom-cofx]}
                      (fn [{:keys [db]} _] {:db db}))
-      (try (rf/dispatch-sync [:kuky65/classified-reason-event] {:frame :obs/reason})
-           (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ nil))
+      (rf/dispatch-sync [:kuky65/classified-reason-event] {:frame :obs/reason})
       (let [r (error-of-kind :rf.error/coeffect-exception @seen)]
         (is (= [:rf/redacted
                 :kuky65/classified-boom-cofx
