@@ -1,31 +1,8 @@
 (ns day8.re-frame2-xray.resize-handle-cljs-test
-  "CLJS tests for the Xray shell's horizontal resize handle.
-
-  Asserts:
-    1. `Handle` — the `as-component` bridge — mounts on
-       `:inline` mode and short-circuits to nil on `:popout` /
-       `:fullscreen`, and `handle-tree` carries the documented markup.
-    2. The shell-view tree MOUNTS the handle when in default `:inline`
-       mode. A hiccup walk stops at the bridge's `[:>]` interop head, so
-       this is a mount assertion rather than a markup one; the markup is
-       (1)'s subject and the mounted boundary is the browser lane's.
-    3. Drag lifecycle — `start-drag!` flips `dragging?` to true,
-       `simulate-up!` flips it back. `simulate-move!` dispatches the
-       set-panel-width-px event with the start + delta.
-    4. Clamp at write-time — the registry's set-panel-width-px event
-       clamps to [320, viewport×0.9] before persisting.
-    5. Double-click handler dispatches `:rf.xray/reset-panel-width`,
-       which forgets the stored width and returns to the inherited one.
-    6. Every `:rf.xray/set-panel-width-px` dispatch here runs
-       `apply-panel-width!` with no `<html>` root, which is its no-host
-       path. Its write of the CSS custom property on the `<html>` root —
-       so it cascades to the host via inheritance; writing it on the
-       host's own inline style would shadow consumer overrides on
-       `:root` — is `resize_handle_dom_cljs_test`'s subject.
-
-  Not asserted here: `apply-all!` restoring the persisted width on boot,
-  and reload survival (`update-setting!` round-tripping through
-  localStorage), both covered indirectly by config + effects."
+  "CLJS tests for the Xray shell's horizontal resize handle: the mode gate,
+  the handle's markup, the drag and keyboard dispatches, write-time
+  clamping, the reset, and the width sub. The `<html>` writes of
+  `apply-panel-width!` are `resize_handle_dom_cljs_test`'s subject."
   (:require [cljs.test :refer-macros [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.test-helpers :as rf.test-helpers]
@@ -51,18 +28,10 @@
   (registry/register-xray-handlers!)
   (rf/make-frame {:id :rf/xray}))
 
-;; ---- hiccup walker ------------------------------------------------------
-;; Tests call `rf.test-helpers/find-by-testid` / `expand-tree` directly —
-;; there is no Xray walker facade.
-
 ;; ---- the handle's own markup --------------------------------------------
 ;;
-;; `handle-tree` is the boundary's PURE inner fn — of the live width, the
-;; announced ARIA ceiling and a dispatcher. Driving it directly is what
-;; the node lane can assert without a React render window: `handle-view`
-;; is a Fresco boundary and its `rf.fresco/sub` is legal only inside one,
-;; so calling the BOUNDARY here would raise
-;; `:rf.error/fresco-sub-outside-render` rather than answer hiccup.
+;; `handle-tree` is the boundary's PURE inner fn; the boundary's
+;; `rf.fresco/sub` is legal only inside a render.
 
 (defn- handle-markup
   "The handle's node as `handle-view` composes it.
@@ -79,26 +48,19 @@
 
 ;; ---- mount on :inline / short-circuit on others ------------------------
 ;;
-;; The MODE GATE is [[resize-handle/Handle]]'s whole job: it is the
-;; `as-component` bridge `shell-view-tree` heads,
-;; and it decides in CLJS — before the props crossing — because
-;; `as-component` round-trips prop names but not prop VALUES, so a
-;; keyword `mode` would not survive it. Non-`:inline` answers nil;
-;; `:inline` answers the bridge's `[:>]` vector rather than markup.
+;; [[resize-handle/Handle]] gates on mode in CLJS, because `as-component`
+;; round-trips prop names but not keyword VALUES. The gate is an allowlist
+;; of `:inline`, so a mode that is neither `:inline` nor `:popout` answers nil.
 
-(deftest handle-short-circuits-on-fullscreen
+(deftest handle-short-circuits-on-overlay
   (setup!)
-  (is (nil? (resize-handle/Handle :fullscreen))
-      "fullscreen mode has no resize — the panel fills the viewport"))
+  (is (nil? (resize-handle/Handle :overlay))
+      "only the :inline rail has a width to drag"))
 
 ;; ---- shell mounts the handle in :inline mode ---------------------------
 ;;
-;; A hiccup walk of the shell STOPS at the bridge's `[:>]`
-;; interop head, exactly as `shell.cljs` records for its own
-;; `surface-bridge`. So what this row owes is that the shell MOUNTS
-;; the handle in `:inline` and does not in `:popout`; the markup behind
-;; the bridge is `handle-tree`'s subject above, and the mounted
-;; boundary's is the browser lane's.
+;; A hiccup walk of the shell stops at the bridge's `[:>]` interop head, so
+;; this row counts mounts; the markup behind the bridge is `handle-tree`'s.
 
 (defn- interop-heads
   "Every `[:> component …]` node in the expanded tree, in pre-order.
@@ -129,26 +91,11 @@
 ;; ---- drag lifecycle ----------------------------------------------------
 
 (defn- stub-event
-  "Build a stub PointerEvent-shaped JS object carrying just the slots
-  the handle reads. `preventDefault` is a no-op stub so start-drag!
-  can call it without throwing in the test runner.
-
-  Pointer events extend MouseEvent so `pageX` is present at the same
-  shape; `pointerId` is the pointer-events-specific slot used by the
-  drag-state snapshot for capture release."
+  "A PointerEvent-shaped stub carrying just the slots the handle reads."
   [page-x]
   #js {:pageX          page-x
        :pointerId      1
        :preventDefault (fn [])})
-
-(deftest start-drag-flips-state
-  (setup!)
-  (resize-handle/start-drag! (stub-event 1000) 480)
-  (is (true? (resize-handle/dragging?))
-      "start-drag! installed the global capture")
-  (resize-handle/simulate-up!)
-  (is (false? (resize-handle/dragging?))
-      "simulate-up! tore down the capture"))
 
 (deftest drag-move-dispatches-set-width
   (setup!)
@@ -157,11 +104,10 @@
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
       (resize-handle/start-drag! (stub-event 1000) 480)
-      ;; Drag LEFT by 50px (pageX 950 < start-x 1000) — panel widens
-      ;; by 50px → 530px target. The view's `dx = start-x - now-x`,
-      ;; so dx = 50, new-width = 530.
+      ;; Dragging LEFT by 50px widens the panel: dx = start-x - now-x.
       (resize-handle/simulate-move! 950)
       (resize-handle/simulate-up!))
+    (is (false? (resize-handle/dragging?)) "the release ends the drag")
     (let [width-events (filter #(= :rf.xray/set-panel-width-px (first %))
                                @dispatches)]
       (is (some #(= 530 (second %)) width-events)
@@ -172,10 +118,13 @@
 (deftest set-panel-width-event-clamps-to-floor
   (setup!)
   (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/set-panel-width-px 100]))
-  ;; 100 < 320 floor → clamps to 320.
-  (is (= 320 (config/get-setting :general :panel-width-px))
-      "sub-floor request snaps to min-panel-width-px"))
+    (is (= config/default-panel-width-px @(rf/subscribe [:rf.xray/panel-width-px]))
+        "a fresh sub returns the published default")
+    (rf/dispatch-sync [:rf.xray/set-panel-width-px 100])
+    (is (= [320 320] [(config/get-setting :general :panel-width-px)
+                      @(rf/subscribe [:rf.xray/panel-width-px])])
+        "a sub-floor request snaps to min-panel-width-px, and the sub follows
+         the write")))
 
 ;; ---- double-click reset -------------------------------------------------
 
@@ -277,36 +226,12 @@
              ((juxt :data-testid :tab-index :aria-valuemin) props))
           "the documented testid, tab-reachable, floored at the minimum width")
       (is (number? (:aria-valuenow props))
-          "handle exposes current width to assistive tech"))))
+          "handle exposes current width to assistive tech")
+      ;; The separator role requires aria-valuemax beside min and now.
+      (is (number? (:aria-valuemax props))
+          "aria-valuemax is a number")
+      (is (>= (:aria-valuemax props) (:aria-valuemin props))
+          "aria-valuemax >= aria-valuemin"))))
 
-;; ---- yield-to-consumer + the real-DOM writes: see the dom sibling -------
-;;
-;; The yield-predicate rows and `apply-panel-width!`'s `<html>` writes live
-;; in `day8.re-frame2-xray.resize-handle-dom-cljs-test`. `getComputedStyle`
-;; resolving an inline `resize:` declaration is the behaviour under test and
-;; cannot be stubbed, and `:node-test` ships no jsdom, so those rows need a
-;; namespace ending `-dom-cljs-test` for `:browser-test` to load them at
-;; all. The dom sibling loads on BOTH lanes (`:node-test`'s `cljs-test$` is
-;; a bare suffix match) and answers node with a stated skip per row.
-;;
-;; What stays here is everything that needs no host: the pure `handle-tree`
-;; markup, the drag lifecycle, write-time clamping, the keyboard rows and the
-;; subscription.
-
-;; ---- panel-width-px sub --------------------------------------------------
-
-(deftest panel-width-px-sub-defaults-to-published-default
-  (setup!)
-  (rf/with-frame :rf/xray
-    (let [width @(rf/subscribe [:rf.xray/panel-width-px])]
-      (is (= config/default-panel-width-px width)
-          "fresh sub returns the published default"))))
-
-(deftest panel-width-px-sub-tracks-update
-  (setup!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/set-panel-width-px 600]))
-  (rf/with-frame :rf/xray
-    (let [width @(rf/subscribe [:rf.xray/panel-width-px])]
-      (is (= 600 width)
-          "sub reflects the latest update"))))
+;; The yield-to-consumer rows and `apply-panel-width!`'s `<html>` writes
+;; need a real `getComputedStyle`: see `resize-handle-dom-cljs-test`.
