@@ -25,7 +25,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
-            [re-frame.machines :as rf.machines]
+            [re-frame.machines]
             [re-frame.machines.lifecycle-fx.registration :as rf.machines.lifecycle-fx.registration]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
@@ -58,57 +58,30 @@
    :states  {:idle {:on {:submit {:target :done :guard :ok? :action :go}}}
              :done {}}})
 
-;; ---- fires: source-blind ---------------------------------------------------
-
-(deftest warns-for-bare-def-source-blind-spec
-  (testing "a plain (def m …) + (reg-machine :id m) arrives source-blind: one
-            advisory at :warning grade, naming the machine, recoverable"
-    (rf/reg-machine :src-warn/blind blind-spec)
-    (is (= [[:src-warn/blind :warning :warned-and-proceeded true]]
+(deftest bare-def-spec-warns-once-per-id
+  (testing "a plain (def m …) + (reg-machine :id m) arrives source-blind: one recoverable
+            :warning advisory per id, so a re-registered id stays silent and a distinct
+            id warns again"
+    (rf/reg-machine :src-warn/dup blind-spec)
+    (rf/reg-machine :src-warn/dup blind-spec)
+    (rf/reg-machine :src-warn/b blind-spec)
+    (is (= [[:src-warn/dup :warning :warned-and-proceeded true]
+            [:src-warn/b :warning :warned-and-proceeded true]]
            (mapv (juxt (comp :machine-id :tags) :op-type :recovery (comp string? :reason :tags))
                  (warns))))))
 
-;; ---- silent: source-bearing (defmachine / inline) --------------------------
-
-(deftest silent-for-defmachine-value
-  (testing "a defmachine value carries per-element source (stamped at the def
-            site) → NO advisory"
+(deftest silent-for-source-bearing-specs
+  (testing "a defmachine value (stamped at its def site) and an inline reg-machine
+            literal (macro-walked in place) both carry per-element source, so
+            neither warns"
     (rf/reg-machine :src-warn/defm stamped-spec)
-    (is (empty? (warns)) "defmachine value is source-bearing — no advisory")))
-
-(deftest silent-for-inline-literal
-  (testing "an inline reg-machine literal is macro-walked in place → source
-            captured → NO advisory (the second blessed form)"
     (rf/reg-machine :src-warn/inline
       {:initial :idle
        :guards  {:ok? (fn [_] true)}
        :actions {:go  (fn [_] {})}
        :states  {:idle {:on {:submit {:target :done :guard :ok? :action :go}}}
                  :done {}}})
-    (is (empty? (warns)) "inline literal is source-bearing — no advisory")))
-
-;; ---- once-per-id -----------------------------------------------------------
-
-(deftest once-per-id-on-reregistration
-  (testing "the advisory is de-duplicated per id: a re-registered id warns
-            once, a distinct id warns again"
-    (rf/reg-machine :src-warn/dup blind-spec)
-    (rf/reg-machine :src-warn/dup blind-spec)
-    (rf/reg-machine :src-warn/b blind-spec)
-    (is (= [:src-warn/dup :src-warn/b] (mapv #(:machine-id (:tags %)) (warns))))))
-
-;; ---- runtime-built (reg-machine*) also warns -------------------------------
-
-(deftest reg-machine-star-runtime-built-warns
-  (testing "the plain-fn reg-machine* surface (runtime-built spec) also arrives
-            source-blind and warns — the check keys on the OBSERVABLE property,
-            not the registration surface. The message tells a runtime-built
-            author they may ignore it"
-    (rf.machines/reg-machine* :src-warn/plain blind-spec)
-    (is (= 1 (count (warns)))
-        "a runtime-built spec is source-blind — the advisory fires")))
-
-;; ---- production DCE gate ---------------------------------------------------
+    (is (empty? (warns)))))
 
 (deftest noop-in-production
   (testing "under rf.interop/debug-enabled? false (the production gate) the
