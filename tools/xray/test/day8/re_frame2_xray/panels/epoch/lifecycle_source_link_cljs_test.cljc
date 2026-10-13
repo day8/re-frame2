@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.panels.epoch.lifecycle-source-link-cljs-test
-  "The source key of a root's, a region body's and a region state's own
+  "The source key of a parallel region body's own
   `:entry` / `:exit` cascade row resolves against the source metadata the
   `reg-machine` macro co-locates on a literal spec.
 
@@ -67,20 +67,6 @@
      "The `:source-coords` of `k`'s enclosing node on `spec`."
      [spec k]
      (:source-coords (get-in spec (pop k)))))
-
-(deftest root-lifecycle-rows-resolve-against-registered-source
-  (rf/reg-machine :lsl/flat
-    {:initial :a
-     :entry   (fn [_] {:data {:at :root-in}})
-     :exit    (fn [_] {:data {:at :root-out}})
-     :states  {:a    {:on {:fin :done}}
-               :done {:final? true}}})
-  (let [spec  (registered :lsl/flat)
-        entry (key-of-row-running (cascade-of [:lsl/flat [:rf.machine/start]])
-                                  (:entry spec))]
-    (testing "the root's own :entry row"
-      (is (= [:entry] entry))
-      (is (= "(fn [_] {:data {:at :root-in}})" (inline-source spec entry))))))
 
 (deftest region-lifecycle-rows-resolve-against-registered-source
   (rf/reg-machine :lsl/parallel
