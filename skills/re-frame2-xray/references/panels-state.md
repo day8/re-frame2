@@ -22,7 +22,8 @@ change. Section order, top → bottom, each card titled as shown:
  user-domain state.
 - **`:rf/machines › <id>`** — one section per machine instance (e.g.
  `:rf/machines › :title/flow`).
-- **`:rf/spawned › <id>`** — one section per spawned instance.
+- **`:rf/spawned › <id>`** — one section per parent machine, holding
+ the actors it spawned.
 - **`:rf/route`** — the current-route slice (a singleton section).
 - **`:rf/pending-navigation`** · **`:rf/elision`** — singleton sections
  for the remaining reserved areas. There are no others.
