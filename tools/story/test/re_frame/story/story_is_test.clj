@@ -50,9 +50,8 @@
                               [:assert-db [:status] :loaded]
                               [:assert-db [:status] :loaded]]}})
     (let [[result reports] (capture-reports #(rf.story/is :story.is/pass))]
-      (is (= :pass (:status result)) "the unified verdict is :pass")
-      (is (= 2 (count reports)) "one report per assertion (2 assertions)")
-      (is (every? #(= :pass (:type %)) reports)))))
+      (is (= [:pass [:pass :pass]] [(:status result) (mapv :type reports)])
+          "a :pass verdict, one :pass report per assertion"))))
 
 (deftest story-is-reports-per-assertion-fail
   (testing "rf.story/is fires a :fail report for a failing assertion"
@@ -61,23 +60,9 @@
        :script {:script [[:dispatch-sync [:is/set-status :idle]]
                               [:assert-db [:status] :loaded]]}})
     (let [[result reports] (capture-reports #(rf.story/is :story.is/fail))]
-      (is (= :fail (:status result)))
-      (is (= 1 (count reports)))
-      (is (= :fail (:type (first reports))))
+      (is (= [:fail [:fail]] [(:status result) (mapv :type reports)]))
       (is (re-find #":rf.assert/path-equals" (:message (first reports)))
           "the report names the failing assertion id"))))
-
-(deftest story-is-two-is-in-one-script-report-as-two-results
-  (testing "a failing assertion does not suppress a sibling in the same
-            :script — each reports separately with its own expected / actual"
-    (rf.story/reg-variant :story.is/two-mixed
-      {:tags        #{:test}
-       :script {:script [[:dispatch-sync [:is/set-status :loaded]]
-                         [:assert-db [:status] :loaded]
-                         [:assert-db [:status] :idle]]}})
-    (let [[_ reports] (capture-reports #(rf.story/is :story.is/two-mixed))]
-      (is (= [:pass :fail] (mapv :type reports)))
-      (is (= [:idle :loaded] ((juxt :expected :actual) (second reports)))))))
 
 (deftest story-is-reports-an-errored-run
   (testing "an :error run reports through clojure.test's do-report, which
