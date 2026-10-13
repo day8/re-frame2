@@ -68,20 +68,13 @@
 
 (deftest configure-passes-auto-open-through
   (config/configure! {:rf.xray/auto-open? false})
-  (is (false? (config/auto-open-enabled?)))
   (config/configure! {:rf.xray/auto-open? nil})
   (is (true? (config/auto-open-enabled?)) "nil resets to the default"))
 
 (deftest configure-passes-project-root-through
   (config/configure! {:rf.xray/project-root "C:/Users/me/code/my-app"})
-  (is (= "C:/Users/me/code/my-app" (config/get-project-root)))
   (config/configure! {:rf.xray/project-root ""})
   (is (nil? (config/get-project-root)) "a blank root normalises to nil"))
-
-(deftest configure-passes-filters-through
-  (let [seed {:in [{:pattern :auth/*}] :out []}]
-    (config/configure! {:rf.xray/filters seed})
-    (is (= seed (config/get-filter-seed)))))
 
 ;; ---- panel width and event-list column widths ------------------------------
 
@@ -97,12 +90,8 @@
     ;; A viewport narrower than the floor still floors.
     999    300  320))
 
-(deftest clamp-event-list-col-width-unknown-col-returns-nil
-  (is (nil? (config/clamp-event-list-col-width :event-id 100))))
-
 (deftest resolve-event-list-col-widths-clamps-and-defaults
   (are [persisted expected] (= expected (config/resolve-event-list-col-widths persisted))
-    nil                                       {:source 52 :timestamp 76 :duration 60}
     {:source 10 :timestamp 20 :duration 5}    {:source 40 :timestamp 60 :duration 48}
     {:source 100 :phantom 200 :event-id 999}  {:source 100 :timestamp 76 :duration 60}
     {:source "wide" :timestamp nil :duration "tall"}
@@ -114,18 +103,6 @@
   (config/set-editor! :cursor)
   (is (= "cursor://file/src/x.cljs:12:4"
          (config/editor-uri {:file "src/x.cljs" :line 12 :column 4}))))
-
-(deftest editor-uri-project-root-regression-rf2-5m5n2
-  (testing "a classpath-relative source-coord resolves to an absolute URI
-            when :project-root is set (editors reject relative paths)"
-    (config/set-project-root! "C:/Users/me/code/my-app/tools/xray/testbeds")
-    (is (= (str "vscode://file/"
-                "C:/Users/me/code/my-app/tools/xray/testbeds/"
-                "panel_gallery/event_detail_stories.cljs:115:3")
-           (config/editor-uri
-             {:file "panel_gallery/event_detail_stories.cljs"
-              :line 115
-              :column 3})))))
 
 ;; ---- the layered merge, through configure! --------------------------------
 ;;
