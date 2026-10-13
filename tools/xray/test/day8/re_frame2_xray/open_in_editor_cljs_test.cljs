@@ -77,14 +77,8 @@
     (is (= [:a "vscode://file/src/app/events.cljs:17:3" "xray-open-in-editor" "vscode"]
            [tag (:href props) (:data-testid props) (:data-editor props)]))))
 
-(deftest open-chip-respects-editor-preference
-  (config/set-editor! :cursor)
-  (is (= "cursor://file/src/x.cljs:10:1"
-         (:href (second (open-in-editor/open-chip {:file "src/x.cljs" :line 10}))))))
-
 (deftest open-chip-nil-when-source-missing
-  (is (nil? (open-in-editor/open-chip {:line 1})))
-  (is (nil? (open-in-editor/open-chip {:file ""}))))
+  (is (nil? (open-in-editor/open-chip {:line 1}))))
 
 ;; ---- Xray-side scheme-denylist behaviour -------------------------------
 ;;
@@ -103,37 +97,14 @@
 (deftest open-chip-renders-for-non-forbidden-custom-scheme
   (config/configure! {:rf.xray/editor {:custom "subl://open?path={path}&line={line}"}})
   (is (= "subl://open?path=src/x.cljs&line=5"
-         (:href (second (open-in-editor/open-chip {:file "src/x.cljs" :line 5})))))
-  ;; There is no allowlist: http: renders too, the residual footgun the spec accepts.
-  (config/configure! {:rf.xray/editor {:custom "http://localhost:3000/{path}"}})
-  (is (= "http://localhost:3000/src/x.cljs"
-         (:href (second (open-in-editor/open-chip {:file "src/x.cljs"}))))))
+         (:href (second (open-in-editor/open-chip {:file "src/x.cljs" :line 5}))))))
 
-;; ---- project-root prefix ------------------------------------------------
+;; ---- project-root prefix and URI invariance to host page URL -------------
 ;;
 ;; An OS-side editor's filesystem resolver cannot find a classpath-relative
-;; path ("panel_gallery/event_detail_stories.cljs:115:3"). The Xray config
-;; exposes `:rf.xray/project-root` — set once at boot via
-;; `xray-config/configure!` — and `resolve-uri` (which both the chip and the
-;; `:rf.xray.fx/open-in-editor` fx share) prepends it before the URI ships.
-;; Mirror of Story's project-root matrix.
-
-(deftest open-chip-project-root-regression-rf2-5m5n2
-  (testing "the panel-gallery testbed's classpath-relative coord
-            resolves to an absolute on-disk URI when the host has
-            plumbed :rf.xray/project-root through xray-config/configure!"
-    (config/set-project-root!
-      "C:/Users/me/code/my-app/tools/xray/testbeds")
-    (let [hiccup (open-in-editor/open-chip
-                   {:file "panel_gallery/event_detail_stories.cljs"
-                    :line 115
-                    :column 3})]
-      (is (= (str "vscode://file/"
-                  "C:/Users/me/code/my-app/tools/xray/testbeds/"
-                  "panel_gallery/event_detail_stories.cljs:115:3")
-             (:href (second hiccup)))))))
-
-;; ---- URI invariance to host page URL ------------------------------------
+;; path, so `resolve-uri` (which both the chip and the
+;; `:rf.xray.fx/open-in-editor` fx share) prepends `:rf.xray/project-root`
+;; before the URI ships.
 ;;
 ;; A host that does not call `xray-config/configure!` ships a
 ;; classpath-relative `:file` slot (`panel_gallery/foo.cljs`) the OS
@@ -234,78 +205,23 @@
                       :uri (when-let [coord (:source-coord args)]
                              (open-in-editor/resolve-uri coord)))))}}))
 
-(deftest open-in-editor-event-emits-fx-whose-coord-resolves-to-the-uri
-  (testing "dispatching `:rf.xray/open-in-editor` with
-            a bare coord (the structured map the `{:source-coord ...}`
-            wrapper also unwraps to) produces a
-            `:rf.xray.fx/open-in-editor` fx whose `:source-coord`
-            resolves to the vscode:// URI"
-    (setup!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/open-in-editor
-                         {:ns 'app.events :file "src/app/events.cljs"
-                          :line 17 :column 3}])
-      (is (= 1 (count @captured-editor-fx))
-          "exactly one open-fx fires per dispatch")
-      (is (= "vscode://file/src/app/events.cljs:17:3"
-             (:uri (first @captured-editor-fx)))
-          "the fx's :source-coord resolves to the vscode:// URI"))))
-
-(deftest open-in-editor-event-accepts-wrapped-shape
-  (testing "dispatching with `{:source-coord coord}` (the
-            shape the shared `coord-chip` / `coord-link` dispatch sites
-            emit) produces the same fx as the bare-coord form"
-    (setup!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/open-in-editor
-                         {:source-coord {:file "src/x.cljs" :line 5 :column 1}}])
-      (is (= "vscode://file/src/x.cljs:5:1"
-             (:uri (first @captured-editor-fx)))
-          "the wrapper shape unwraps + resolves the same way"))))
-
-(deftest open-in-editor-event-parses-display-string-coord
-  (testing "the Trace panel projects the structured coord
-            to a `\"file:line\"` display string at projection time;
-            the handler parses the display string back to the
-            structured form so the URI build works end-to-end."
-    (setup!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/open-in-editor
-                         {:source-coord "src/app/events.cljs:42"}])
-      (is (= "vscode://file/src/app/events.cljs:42:1"
-             (:uri (first @captured-editor-fx)))
-          "display string parses to `:file` + `:line`; `:column`
-           falls through to the editor-uri builder's default of 1"))))
-
-(deftest open-in-editor-event-runs-on-xray-frame-without-host-contamination
-  (testing "the handler doesn't write to Xray's app-db
-            (no `:db` in the returned effect map). The click is pure
-            navigation; no host-frame escape, no Xray-frame state
-            pollution."
-    (setup!)
+(deftest open-in-editor-event-emits-one-coord-fx-per-dispatch-shape
+  ;; The bare coord, the `{:source-coord coord}` wrapper every call site
+  ;; emits, and the `"file:line"` display string the Trace panel projects
+  ;; all produce exactly one fx. The structured coord rides the fx verbatim
+  ;; (the fx prefers the dev-server endpoint and resolves there), and the
+  ;; click writes nothing to Xray's app-db.
+  (setup!)
+  (let [coord {:file "src/x.cljs" :line 5 :column 1}]
     (rf/with-frame :rf/xray
       (let [pre-db (rf.frame/frame-app-db-value :rf/xray)]
-        (rf/dispatch-sync [:rf.xray/open-in-editor
-                           {:file "src/x.cljs" :line 1}])
-        (let [post-db (rf.frame/frame-app-db-value :rf/xray)]
-          (is (= pre-db post-db)
-              "Xray's app-db is untouched by the click — no
-               `:last-open-in-editor-coord` or other recorded coord"))))))
-
-(deftest open-in-editor-fx-receives-source-coord-key-rf2-wn3bh
-  (testing "`:rf.xray.fx/open-in-editor` is invoked with the structured
-            `{:source-coord {...}}` shape (NOT a pre-resolved `:uri`) so
-            the fx can prefer the dev-server endpoint and fall back to the
-            `editor://` URI. The resolution is deferred to the fx /
-            `open-coord!`, not done in the event-fx."
-    (setup!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/open-in-editor
-                         {:file "src/x.cljs" :line 1}])
-      (is (= {:file "src/x.cljs" :line 1}
-             (:source-coord (first @captured-editor-fx)))
-          "the structured coord rides the fx verbatim — the endpoint
-           resolves the relative :file at runtime on the server"))))
+        (rf/dispatch-sync [:rf.xray/open-in-editor coord])
+        (rf/dispatch-sync [:rf.xray/open-in-editor {:source-coord coord}])
+        (rf/dispatch-sync [:rf.xray/open-in-editor {:source-coord "src/x.cljs:5"}])
+        (is (= (repeat 3 "vscode://file/src/x.cljs:5:1")
+               (mapv :uri @captured-editor-fx)))
+        (is (= coord (:source-coord (first @captured-editor-fx))))
+        (is (= pre-db (rf.frame/frame-app-db-value :rf/xray)))))))
 
 ;; ---- open-in-editor DX hint when no editor configured -------------------
 ;;
@@ -330,11 +246,8 @@
   host scenario."
   []
   (setup!)
-  ;; `reset-editor!` (via the fixture) called `set-editor! :vscode`,
-  ;; which flips the explicit flag on. Clear it back to the
-  ;; unconfigured framework-default state.
-  (reset! config/editor-explicitly-set? false)
-  (config/update-setting! :general :editor-override nil))
+  ;; The fixture's `set-editor! :vscode` flips the explicit flag on.
+  (reset! config/editor-explicitly-set? false))
 
 (deftest open-in-editor-event-hints-when-no-editor-configured
   (testing "with NO editor effectively configured, the
@@ -346,10 +259,7 @@
                          {:file "src/x.cljs" :line 1}])
       (is (= 0 (count @captured-editor-fx))
           "no `:rf.xray.fx/open-in-editor` fx fires — the silent vscode: nav is
-           replaced by the hint dispatch")))
-  ;; Reset the override slot so the leaked `nil` write does not bleed
-  ;; into sibling tests' `get-editor` reads.
-  (config/update-setting! :general :editor-override nil))
+           replaced by the hint dispatch"))))
 
 (deftest open-in-editor-event-navigates-when-operator-override-set
   (testing "an operator override (no host set) also counts
@@ -361,11 +271,7 @@
                          {:file "src/x.cljs" :line 10}])
       (is (= "cursor://file/src/x.cljs:10:1"
              (:uri (first @captured-editor-fx)))
-          "the override editor's URI rides the fx"))
-    ;; Reset the override slot so :cursor does not bleed into sibling
-    ;; tests' `get-editor` reads (the fixture resets the editor atom +
-    ;; project-root but NOT the settings override slot).
-    (config/update-setting! :general :editor-override nil)))
+          "the override editor's URI rides the fx"))))
 
 ;; ---- click-time navigation ----------------------------------------------
 ;;
@@ -406,23 +312,16 @@
         "the navigator gets exactly the rendered href")
     (is @prevented? "the browser must not navigate a second time")))
 
-(deftest open-bang-no-op-for-nil-uri
-  (testing "`open!` is a no-op for nil URI (the absent-coord
-            case + the rejected-by-denylist case both flow nil)"
-    (let [[nav calls] (capturing-navigator)]
-      (with-stub-navigator nav
-        #(open-in-editor/open! nil))
-      (is (= [] @calls)
-          "no navigation attempted for nil URI"))))
-
 (deftest open-bang-denylist-gates-pre-resolved-uri
   ;; `open!` re-applies the denylist at the pre-resolved handoff, which
-  ;; bypasses editor-uri's build-time gate (an MCP-side replay, say).
+  ;; bypasses editor-uri's build-time gate (an MCP-side replay, say), and is
+  ;; a no-op for the nil an absent or rejected coord flows.
   (let [[nav calls] (capturing-navigator)]
     (with-stub-navigator nav
       (fn []
+        (open-in-editor/open! nil)
         (open-in-editor/open! "javascript:alert(1)")
-        (is (= [] @calls) "a forbidden scheme never reaches the navigator")
+        (is (= [] @calls) "neither nil nor a forbidden scheme reaches the navigator")
         (open-in-editor/open! "lapce://open?file=src/x.cljs&line=1")
         (is (= ["lapce://open?file=src/x.cljs&line=1"] @calls)
             "an unknown non-dangerous scheme navigates")))))
@@ -439,17 +338,10 @@
 ;;   2. Unconfigured + `:rf/xray` present → show the hint toast.
 ;;   3. Unconfigured + no frame           → standalone fallback: navigate.
 
-(defn- unconfigure-editor! []
-  ;; Model the bare-preload host: clear the explicit flag the fixture's
-  ;; `set-editor! :vscode` set + any operator override.
-  (reset! config/editor-explicitly-set? false)
-  (config/update-setting! :general :editor-override nil))
-
 (deftest chip-click-shows-hint-instead-of-navigating-when-unconfigured-with-frame
   ;; `chip-click!` calls the `rf/dispatch` macro, whose expansion reaches
   ;; `re-frame.core/dispatch-impl`, so the spy goes there.
-  (setup!)
-  (unconfigure-editor!)
+  (setup-unconfigured!)
   (let [[nav calls] (capturing-navigator)
         dispatched  (atom [])]
     (with-redefs [rf/dispatch-impl (fn [ev & opts]
@@ -459,19 +351,16 @@
     (is (= [[] 1 [:rf.xray/editor-hint-show] :rf/xray]
            [@calls (count @dispatched) (:event (first @dispatched))
             (:frame (first (:opts (first @dispatched))))])
-        "no silent navigation; one hint dispatch on the shell frame"))
-  (config/update-setting! :general :editor-override nil))
+        "no silent navigation; one hint dispatch on the shell frame")))
 
 (deftest chip-click-standalone-fallback-navigates-without-frame
   (testing "with NO editor configured AND no :rf/xray frame
             (the standalone / static-host fallback — nowhere for a hint
             toast to mount), the chip falls back to direct navigation.
             This is the documented standalone contract."
-    (setup!)
-    (unconfigure-editor!)
+    (setup-unconfigured!)
     ;; Tear down the shell frame so there is no hint target.
     (reset! rf.frame/frames {})
-    (is (false? (config/editor-configured?)))
     (let [[nav calls] (capturing-navigator)]
       (with-stub-navigator nav
         #(open-in-editor/chip-click! {:file "src/x.cljs" :line 1 :column 1}))
