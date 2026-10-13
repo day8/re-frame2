@@ -31,10 +31,10 @@ The list is **open** — confirmed modes from one field report, not an exhaustiv
 |---|---|---|
 | `reg-sub` accepted a positional signal fn returning live reactions | `reg-sub` requires the producer in metadata `:inputs`, returning query vectors | compiles, but positional syntax fails at registration; a malformed declared producer fails at first materialization (#1) |
 | add-on surfaces were single-jar | per-feature artefacts; `re-frame.core` re-exports resolve even when the artefact is absent | the call site compiles; a façade registration throws at namespace load, and an unregistered `:rf.http/managed` fx errors per request (#2) |
-| framework runtime lived outside `app-db` | framework runtime lives in a **separate runtime-db partition** (`:rf.db/runtime`); a `:db` return cannot touch it, and a `:rf/runtime` app-db root is a hard error | a wholesale `{:db fresh}` replace is now safe; a `:db` carrying a retired `:rf/runtime` key throws `:rf.error/legacy-runtime-root` (#3) |
+| framework runtime lived outside `app-db` | framework runtime lives in a **separate runtime-db partition** (`:rf.db/runtime`); a `:db` return cannot touch it, and a `:rf/runtime` app-db root is a hard error | a wholesale `{:db fresh}` replace is safe; a `:db` carrying a retired `:rf/runtime` key throws `:rf.error/legacy-runtime-root` (#3) |
 | effect maps accepted top-level `:dispatch` etc. | the effect-map top level is a closed set | a missed M-8 fold compiles clean, then **aborts its event** on first execution — siblings and all (#4) |
 
-The common thread: v2's stricter contracts and its two-partition runtime model (app-db + a framework-owned runtime-db) are *correct* design choices (they buy atomic revertibility, SSR survival, and tooling visibility — and make the old wholesale-replace clobber structurally impossible), but they relocate the remaining failures from "won't compile" to "compiles, boots wrong." The live-introspection smoke-test is the cheap insurance.
+The common thread: v2's stricter contracts and its two-partition runtime model (app-db + a framework-owned runtime-db) are *correct* design choices (they buy atomic revertibility, SSR survival, and tooling visibility — and make a wholesale-replace clobber structurally impossible), but they relocate the remaining failures from "won't compile" to "compiles, boots wrong." The live-introspection smoke-test is the cheap insurance.
 
 ---
 
