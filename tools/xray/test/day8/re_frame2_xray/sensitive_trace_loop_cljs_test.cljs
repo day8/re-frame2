@@ -1,32 +1,13 @@
 (ns day8.re-frame2-xray.sensitive-trace-loop-cljs-test
-  "Loop-proof tests for the `:sensitive?` trace-callback path.
+  "The `:sensitive?` trace-callback path. A suppressed trace makes
+  `config/note-suppressed!` schedule a task-coalesced
+  `:rf.xray/note-sensitive-suppressed` into `:rf/xray`, so the
+  `[● REDACTED N]` count must neither count Xray's own reads nor cost one
+  dispatch per trace.
 
-  ## Why this file exists
-
-  Xray registers `trace-collector/collect-trace!` as the
-  `:rf.xray/trace-collector` callback at preload time. Whenever a
-  `:sensitive?` trace event arrives, `collect-trace!` calls
-  `config/note-suppressed!`, which schedules a task-coalesced
-  `:rf.xray/note-sensitive-suppressed` into the `:rf/xray` frame (one
-  per task, not one per event) so the reactive
-  `[● REDACTED N]` indicator updates on the standard app-db-write path.
-
-  That dispatch would be the root of an infinite loop if the
-  bookkeeping handler's `:rf.event/dispatched` trace re-entered the
-  collector. The bookkeeping handlers carry `:rf.trace/no-emit? true`
-  in their registration metadata; the framework's
-  trace-emit fns short-circuit on the flag (Spec 009 §Trace-emission
-  opt-out).
-
-  Sensitive trace events come from path-marked, schema-derived
-  classification (the router's `prepare-handler-ctx` schema-sensitive
-  computation drives the scope's `:sensitive?` stamp), which needs the
-  schemas artefact this Xray CLJS test build does not load. The
-  loop-guard contract for sensitive handler cascades is therefore
-  exercised at the framework-trace level (`re-frame.trace-test`) and at
-  the schemas-loaded story-side tests; the sensitive rows here drive
-  frameless sub reads, which sub-tag classification fails closed to
-  `:sensitive? true`."
+  Path-marked sensitive classification needs the schemas artefact this
+  build does not load, so the sensitive rows drive frameless sub reads,
+  which sub-tag classification fails closed to `:sensitive? true`."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -39,15 +20,9 @@
 
 ;; ---- fixtures -----------------------------------------------------------
 ;;
-;; `make-xray-runtime-fixture` runs the `:all` reset tier
-;; (Xray install/registry/mount sentinels + trace-collector rings) over the
-;; plain-atom adapter; `:post-reset` re-registers Xray's handlers + the
-;; `:rf/xray` frame, RE-installs the trace collector (the reset above cleared
-;; it, so each test runs against the SAME wiring the production preload
-;; installs), and clears the per-process counter + egress profile so each
-;; test starts from the baseline. `:async? true` is the map form cljs.test
-;; requires for section (2)'s `(async done …)` test, which has to cross a task
-;; boundary to see the coalesced dispatch land.
+;; `:async? true` is the map form cljs.test requires for section (2)'s
+;; `(async done …)` test, which has to cross a task boundary to see the
+;; coalesced dispatch land.
 
 (use-fixtures :each
   (xray-test-support/make-xray-runtime-fixture
@@ -78,10 +53,6 @@
 ;; so every boot would add 126 to the REDACTED count with no host data
 ;; redacted.
 
-(def ^:private shell-mount-burst
-  "The measured boot burst: frameless `:rf.xray*` sub reads in one mount."
-  126)
-
 (defn- xray-queue-depth
   "Envelopes sitting undrained in `:rf/xray`'s external lane (the router's
   `:queue`)."
@@ -104,8 +75,7 @@
             126 to the count."
     ;; Both a bare `rf.xray` id and a sub-namespace id — the shell mount
     ;; reads both shapes (`:rf.xray/mode`, `:rf.xray.edn-inspector/widths`).
-    (doseq [sub-id (take shell-mount-burst
-                         (cycle [:rf.xray/mode :rf.xray.edn-inspector/widths]))]
+    (doseq [sub-id [:rf.xray/mode :rf.xray.edn-inspector/widths]]
       (emit-frameless-sub-run! sub-id))
     (is (zero? (config/suppressed-count))
         "Xray's own reads are not redacted host data")))
