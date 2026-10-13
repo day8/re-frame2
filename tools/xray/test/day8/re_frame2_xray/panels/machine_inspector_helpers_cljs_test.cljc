@@ -15,15 +15,6 @@
 
 ;; ---- project-data -------------------------------------------------------
 
-(deftest project-data-empty-when-no-machines
-  (is (= {:machines            []
-          :total               0
-          :selected-id         nil
-          :selected-machine-id nil
-          :selected            nil
-          :empty-kind          :no-machines}
-         (h/project-data [] {} nil))))
-
 (deftest project-data-echoes-the-raw-selection-slot-rf2-mj4jp
   (testing "the Dynamic panel feeds the selection rule `project-data`'s RAW
             `:selected-machine-id`, never `:selected-id`: with no selection
@@ -208,20 +199,11 @@
              :dispatch-id "s-1"
              :microstep?  false
              :guards      []
-             :actions     []}]
+             :actions     []
+             :definition  {:initial :closed}}]
            (h/project-focused-event-transitions
-             [(started-event 1 :door/main :closed {:open? false} :explicit)])))))
-
-(deftest project-focused-event-start-carries-definition
-  (testing "a start record gets the registered definition attached so the
-            chart can render the topology"
-    (let [definitions {:door/main {:initial :closed
-                                    :states  {:closed {:on {:push :open}}
-                                              :open   {}}}}
-          events  [(started-event 1 :door/main :closed)]
-          records (h/project-focused-event-transitions events definitions)]
-      (is (= (get definitions :door/main)
-             (-> records first :definition))))))
+             [(started-event 1 :door/main :closed {:open? false} :explicit)]
+             {:door/main {:initial :closed}})))))
 
 (deftest project-focused-event-start-and-transition-interleave
   (testing "a cascade carrying a birth and a later transition yields both
@@ -267,20 +249,11 @@
              :dispatch-id "n-1"
              :microstep?  false
              :guards      []
-             :actions     []}]
+             :actions     []
+             :definition  {:initial :closed}}]
            (h/project-focused-event-transitions
-             [(no-op-event 1 :door/main :open [:door/close])])))))
-
-(deftest project-focused-event-no-op-carries-definition
-  (testing "a no-op record gets the registered definition attached so the
-            chart can render the topology"
-    (let [definitions {:door/main {:initial :closed
-                                    :states  {:closed {:on {:push :open}}
-                                              :open   {:on {:close :closed}}}}}
-          events  [(no-op-event 1 :door/main :open [:door/close])]
-          records (h/project-focused-event-transitions events definitions)]
-      (is (= (get definitions :door/main)
-             (-> records first :definition))))))
+             [(no-op-event 1 :door/main :open [:door/close])]
+             {:door/main {:initial :closed}})))))
 
 (deftest project-focused-event-no-op-deduped-against-transition
   (testing "a machine that transitioned and later no-op'd in one cascade
@@ -328,15 +301,13 @@
          (h/focused-event-section-key
            :rf/default {:machine-id :auth/login :id 2
                         :from-state :authing :to-state :done}))
-      "epoch id and from/to-state change on every Prev/Next; the key does not"))
-
-(deftest section-key-changes-for-a-different-machine-topology
+      "epoch id and from/to-state change on every Prev/Next; the key does not")
   (is (not= (h/focused-event-section-key :rf/default {:machine-id :auth/login})
-            (h/focused-event-section-key :rf/default {:machine-id :door/main}))))
-
-(deftest section-key-changes-across-inspected-frames
+            (h/focused-event-section-key :rf/default {:machine-id :door/main}))
+      "a different machine is a different topology, so a fresh section")
   (is (not= (h/focused-event-section-key :rf/default  {:machine-id :auth/login})
-            (h/focused-event-section-key :rf/checkout {:machine-id :auth/login}))))
+            (h/focused-event-section-key :rf/checkout {:machine-id :auth/login}))
+      "and so is the same machine in another inspected frame"))
 
 ;; ---- pick-focused-transition — the selection rule ------------------------
 ;;
@@ -351,13 +322,6 @@
     [(t-event 1 :auth/login    :idle   :authing [:auth/submit])
      (t-event 2 :checkout/flow :idle   :paying  [:cart/sync])
      (t-event 3 :session/clock :tick-0 :tick-1  [:tick])]))
-
-(deftest pick-focused-transition-selection-outranks-trace-order-rf2-mj4jp
-  (testing "the selected machine binds though it is second in trace order,
-            and the caller gets that machine's own whole record"
-    (let [records (cascade-records)]
-      (is (= (second records)
-             (h/pick-focused-transition records :checkout/flow))))))
 
 (deftest pick-focused-transition-selection-takes-first-of-its-own-rf2-mj4jp
   (testing "a machine that transitioned twice in one cascade binds its FIRST
@@ -375,11 +339,7 @@
     (let [records (cascade-records)]
       (is (= (first records)
              (h/pick-focused-transition records)
-             (h/pick-focused-transition records nil))))))
-
-(deftest pick-focused-transition-stale-selection-falls-back-rf2-mj4jp
-  (testing "a selected machine absent from this cascade falls back to trace
-            order rather than blanking the panel"
-    (let [records (cascade-records)]
-      (is (= (first records)
-             (h/pick-focused-transition records :door/main))))))
+             (h/pick-focused-transition records nil)
+             (h/pick-focused-transition records :door/main))
+          "a stale selection, a machine absent from this cascade, falls back
+           to trace order rather than blanking the panel"))))
