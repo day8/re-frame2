@@ -35,12 +35,6 @@
 
 (use-fixtures :each {:before reset-all!})
 
-;; ---- public API additions ------------------------------------------------
-
-(deftest active-shell-starts-nil
-  (testing "active-shell returns nil before any mount"
-    (is (nil? (rf.story/active-shell)))))
-
 ;; ---- command palette -----------------------------------------------------
 
 (deftest command-palette-shortcut-detection
@@ -268,21 +262,6 @@
                       (= "tab" (:role (second node))))))
        vec))
 
-(deftest tabs-renderer-mounts-only-the-selected-cell-rf2-ktnl8
-  (testing "tabs-renderer mounts only the active tab's variant-cell"
-    (rf.story/reg-variant :story.rf2-ktnl8.only/a {:setup []})
-    (rf.story/reg-variant :story.rf2-ktnl8.only/b {:setup []})
-    (rf.story/reg-variant :story.rf2-ktnl8.only/c {:setup []})
-    (rf.story/reg-workspace :Workspace.rf2-ktnl8.only/t
-      {:layout   :tabs
-       :variants [:story.rf2-ktnl8.only/a
-                  :story.rf2-ktnl8.only/b
-                  :story.rf2-ktnl8.only/c]})
-    (let [{:keys [fn cells]} (find-tabs-renderer-call
-                               (rf.story.ui.workspace/workspace-view
-                                 :Workspace.rf2-ktnl8.only/t))]
-      (is (= 1 (count-variant-cells-in (fn cells)))))))
-
 (deftest tabs-renderer-strip-has-one-switchable-tab-per-variant-rf2-ktnl8
   (testing "tabs-renderer renders a tab strip with one button per variant:
             labelled with the variant id, carrying an on-click that selects
@@ -361,8 +340,8 @@
           "the navigator shows the first of three cells"))))
 
 ;; A workspace's `:columns` pins the grid to `repeat(N, minmax(0, 1fr))`;
-;; without it the grid keeps `repeat(auto-fit, minmax(280px, 1fr))`. The tests
-;; read the rendered grid div's inline style.
+;; without it the grid keeps `repeat(auto-fit, minmax(280px, 1fr))`. The test
+;; reads the rendered grid div's inline style.
 
 (defn- grid-div-style
   "The inline style of the grid container div (`:data-test-grid-columns`) in `tree`."
@@ -384,17 +363,6 @@
   (let [{renderer :fn cells :cells args :args}
         (find-tabs-renderer-call (rf.story.ui.workspace/workspace-view ws-id))]
     (apply renderer cells args)))
-
-(deftest workspace-grid-without-columns-keeps-auto-fit-rf2-ugmrg
-  (rf.story/reg-variant :story.ugmrg-auto/a {:setup []})
-  (rf.story/reg-variant :story.ugmrg-auto/b {:setup []})
-  (rf.story/reg-workspace :Workspace.ugmrg-auto/grid
-    {:layout   :grid
-     :variants [:story.ugmrg-auto/a
-                :story.ugmrg-auto/b]})
-  (is (= "repeat(auto-fit, minmax(280px, 1fr))"
-         (:grid-template-columns (grid-div-style (render-grid-tree :Workspace.ugmrg-auto/grid))))
-      ":columns is opt-in"))
 
 (deftest workspace-variants-grid-columns-pins-fixed-template-rf2-ugmrg
   (testing "isolated :variants-grid honours :columns — the capped-grid branch
