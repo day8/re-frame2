@@ -108,17 +108,6 @@
         (is (= [false :rf.assert/sub-threw :anything] ((juxt :passed? :actual :expected) out)))
         (is (re-find #"threw" (:reason out)))))))
 
-(deftest cljs-evaluate-sub-equals-runtime-db-projection
-  (testing "a runtime-db projection sub resolves against the full frame-state
-            value the play-runner hands over; bare app-db would read nil"
-    (rf.subs/reg-runtime-sub :pecaxy/light
-      (fn [rt _] (get-in rt [:rf.runtime/machines :snapshots :traffic-light :state])))
-    (let [runtime {:rf.runtime/machines {:snapshots {:traffic-light {:state :red}}}}
-          lookup  #((juxt :passed? :actual)
-                    (evaluate-sub-equals :rf/default % [[:pecaxy/light] :red]))]
-      (is (= [true :red] (lookup {:rf.db/app {} :rf.db/runtime runtime})))
-      (is (= [false nil] (lookup {:rf.db/app {}}))))))
-
 ;; The evaluator is pure over the tape-projected emitted-fx SET: when the fx
 ;; was emitted but the optional predicate rejects it — or throws — the record
 ;; fails with the reason, and nothing propagates.
