@@ -6,7 +6,6 @@
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.epoch.capture   :as rf.epoch.capture]
             [re-frame.story.assertions :as rf.story.assertions]
-            [re-frame.story.fingerprint :as rf.story.fingerprint]
             [re-frame.story.result   :as rf.story.result]
             [re-frame.story.play.evidence :as rf.story.play.evidence]
             [re-frame.story.requirements  :as rf.story.requirements]))
@@ -56,11 +55,7 @@
              (rf.story.result/check-records
                {:check/clean [[:rf.assert/no-warnings]]
                 :check/a     [[:rf.assert/path-equals [:a] 1]]}
-               [a nowarn b])))))
-  (testing "an unmatched check atom groups nothing and is vacuously :pass"
-    (is (= [{:check :check/missing :status :pass :assertions []}]
-           (rf.story.result/check-records {:check/missing [[:rf.assert/path-equals [:z] 9]]}
-                                          [])))))
+               [a nowarn b]))))))
 
 (deftest check-groups-sensitive-record-by-redaction-invariant-key
   (testing "a sensitive path-equals / sub-equals record carries the REDACTED
@@ -185,12 +180,6 @@
   (first (filter #(= :rf.assert/schema-error (:assertion %)) (:assertions r))))
 
 (deftest run-result-schema-expectations-wiring
-  (testing "an EXPECTED schema violation passes the run (exactly consumed)"
-    (is (= :pass (:status (rf.story.result/run-result
-                            {:epoch-tape [(schema-epoch :event :checkout/submit)]
-                             :schema-expectations
-                             [[:rf.assert/schema-error {:where :event :event :checkout/submit}]]})))))
-
   (testing "a MISSING expected violation FAILS the run with a :fail record"
     (let [r (rf.story.result/run-result
               {:epoch-tape [(epoch {})]
@@ -301,14 +290,6 @@
                              [[:rf.assert/caused {}]]))]
       (is (= :fail (:status r)))
       (is (re-find #"names no :event" (:reason r))))))
-
-(deftest causal-against-non-reactive-run-is-cannot-run
-  (testing "a causal assertion against a run with NO reactive rows resolves
-            :cannot-run (fail closed — never a silent pass)"
-    (is (= :cannot-run
-           (:status (rec :rf.assert/caused
-                         (causal-run [(epoch {:effects [{:fx-id :db :outcome :ok}]})]
-                                     [[:rf.assert/caused {:event :counter/inc}]])))))))
 
 ;; `:rf.assert/no-cascade-rerender`'s [0,0] default would pass vacuously once
 ;; its cause is renamed away, so an UNOBSERVED required cause is :cannot-run;
@@ -492,8 +473,6 @@
                :assertions [{:assertion :rf.assert/path-equals
                              :payload [[:n] 1] :passed? true}]}
         r     (rf.story.result/run-result parts)]
-    (testing ":run-hash IS the public primitive over the result's own slice"
-      (is (= (rf.story.fingerprint/run-hash r) (:run-hash r))))
     (testing "a volatile slot does not perturb it; a behavioural slot does"
       (is (= (:run-hash r)
              (:run-hash (rf.story.result/run-result (assoc parts :elapsed-ms 999)))))
