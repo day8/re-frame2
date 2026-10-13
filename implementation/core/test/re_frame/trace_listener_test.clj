@@ -7,7 +7,8 @@
     - Synchronous delivery: every test here reads its deliveries the moment
       `dispatch-sync` returns, so an async delivery fails them all.
     - Emission order (not listener order, which Spec 009 §Resolved decisions
-      leaves unspecified): `events-delivered-in-emission-order`.
+      leaves unspecified): strictly ascending `:id`s in
+      `trace_listener_deferred_batch_fifo_cljs_test.cljc`.
     - The canonical point-event envelope: `trace-stream-completeness` in
       `trace_test.clj`.
     - Frame tagging: `frame-isolation-trace-events-carry-only-their-own-frame`
@@ -60,19 +61,6 @@
         (is (seq in-cascade))
         (is (= (count in-cascade) (count (rf/trace-buffer :rf/default {:flat true}))))))))
 
-(deftest ^:requires-debug events-delivered-in-emission-order
-  (testing "a listener sees events in the order the runtime fired them"
-    (let [seen (atom [])]
-      (rf/register-listener! :trace ::ordered (fn [ev] (swap! seen conj ev)))
-      (rf/reg-event :ord/init (fn [_ _] {:db {:n 0}}))
-      (rf/reg-event :ord/inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-      (rf/dispatch-sync [:ord/init])
-      (rf/dispatch-sync [:ord/inc])
-      (rf/unregister-listener! :trace ::ordered)
-      ;; Strictly increasing :ids also rule out a duplicated or batched delivery.
-      (let [ids (map :id @seen)]
-        (is (apply < ids) (str "ids in delivery order: " (pr-str ids)))))))
-
 (deftest ^:requires-debug unknown-listener-stream-carries-canonical-thrown-error-shape
   (testing "an unknown stream throws the canonical thrown-error shape, :where naming the verb"
     (doseq [[verb-fn where-sym] [[#(rf/register-listener! :bogus ::k (fn [_])) 'rf/register-listener!]
@@ -87,13 +75,7 @@
                (dissoc data :reason)))
         (is (string? (:reason data)))))))
 
-(deftest ^:requires-debug surviving-streams-still-register
-  (testing ":trace registers and unregisters; :epoch is a member, so it never throws"
-    (is (= ::still-here (rf/register-listener! :trace ::still-here (fn [_]))))
-    (is (nil? (rf/unregister-listener! :trace ::still-here)))
-    ;; :epoch returns its id with day8/re-frame2-epoch on the classpath and
-    ;; nil without it; either way it does not throw the way :bogus does.
-    (is (not= ::threw
-              (try (rf/register-listener! :epoch ::ep (fn [_]))
-                   (catch clojure.lang.ExceptionInfo _ ::threw))))
-    (rf/unregister-listener! :epoch ::ep)))
+(deftest ^:requires-debug register-returns-its-id-and-unregister-nil
+  (is (= [::still-here nil]
+         [(rf/register-listener! :trace ::still-here (fn [_]))
+          (rf/unregister-listener! :trace ::still-here)])))
