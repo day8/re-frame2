@@ -25,15 +25,13 @@
 
   That is a missed EXPLICIT declaration, not a blanket security-boundary claim,
   and nothing here scrubs anything the author did not declare —
-  `leaves-an-undeclared-frames-snapshot-untouched…` is the row that pins that.
+  `stops-redacting-against-the-collector-target…` is the row that pins that.
 
   ## Why these rows drive the real sub
 
-  `machine_inspector_view_cljs_test/live-snapshots-sub-redacts-sensitive-data-rf2-kq8nac`
-  calls `#'machine-inspector/redact-live-snapshots` DIRECTLY with a
-  hand-supplied frame-id. That fn redacts against whatever frame it is
-  handed; the question here is one level up, in WHICH frame the sub hands
-  it, so a helper-level row cannot see it. Every row here reads
+  `#'machine-inspector/redact-live-snapshots` redacts against whatever
+  frame it is handed; the question here is one level up, in WHICH frame
+  the sub hands it, so a helper-level test cannot see it. Every row here reads
   `@(rf/subscribe [:rf.xray/machine-snapshots])` so the whole production chain
   (`:rf.xray/focus` -> `:rf.xray/observed-frame` ->
   `:rf.xray/target-frame-runtime-db` -> the sub) runs for real.
@@ -175,25 +173,6 @@
           (str "the UNDECLARED sibling slot was scrubbed too — that is a
                 blanket redaction, not the declaration: " (pr-str snaps))))))
 
-;; ---- (2) PROPERTY TWO: no collateral change ----------------------------
-
-(deftest leaves-an-undeclared-frames-snapshot-untouched-rf2-6ev6j
-  (testing "a frame declaring NO matching `:data` path leaves the
-            snapshot UNTOUCHED and REFERENCE-PRESERVING (the fast path inside
-            `project-machine-tags` that the sub's own comment names). This
-            invariant holds whichever frame the sub classifies against, BY
-            DESIGN, and it is the half that says the observed-frame
-            classification does not buy its correctness with a blanket
-            scrub."
-    (seed-host-runtime-db! host-b)
-    ;; deliberately NO declare-secret-sensitive!
-    (setup-xray!)
-    (focus-frame! host-b)
-    (is (identical? snapshot (get (machine-snapshots) machine-id))
-        "an undeclared frame's snapshot passes through untouched on the
-         reference-preserving fast path — not rebuilt, and no UNDECLARED slot
-         withheld; these rows are explicitly not a claim that undeclared
-         carriers are a boundary")))
 
 ;; ---- (3) the differing-frame controls ----------------------------------
 
