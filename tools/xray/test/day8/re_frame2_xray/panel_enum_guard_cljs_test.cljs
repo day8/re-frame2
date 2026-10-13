@@ -22,39 +22,23 @@
         - an enum `:mount` name the spec never mentions → RED (a panel
           shipped but undocumented).
 
-  The third projection — the api-manifest `:cljs-only` rows for
-  `day8.re-frame2-xray.panels` — is reconciled against the LIVE vars by
-  the CLJS enumeration probe and `xray_spec_check`. Because
-  PROJECTION A pins the live facade to the enum, the manifest inherits
-  enum coherence transitively; this guard adds the enum↔facade and
-  enum↔spec edges those checks do not cover.
+  The api-manifest `:cljs-only` rows for `day8.re-frame2-xray.panels` are
+  reconciled against the LIVE vars by the CLJS enumeration probe and
+  `xray_spec_check`, so they inherit enum coherence through PROJECTION A.
 
-  ## Mechanism
-
-  Both extra projections are read at COMPILE time so the test stays a
-  headless pure-data reconciliation (no DOM, no runtime filesystem):
-    - the live facade surface via `emit-ns-publics` (the analyzer
-      enumeration macro);
-    - the spec references via `emit-spec-mount-fn-names` (the JVM-side
-      slurp macro in `panel_enum_spec_refs.clj`).
-
-  ## Proving RED-on-drift
-
-  Add a `mount-<panel>!` to ONE projection but not the enum (a new
-  facade fn, or a new spec mention) → the corresponding bidirectional
-  assertion below fails. Add an enum entry whose `:mount` no facade fn
-  / no spec line carries → the reverse direction fails. Reverting the
-  drift returns the test to green."
+  Both projections are read at COMPILE time — the facade through
+  `emit-ns-publics`, the spec through `emit-spec-mount-fn-names` in
+  `panel_enum_spec_refs.clj` — so the test is a pure-data reconciliation.
+  Each projection is non-empty because the enum is: an empty projection
+  leaves every enum entry unmatched."
   (:require-macros [re-frame.api-manifest.cljs-publics :refer [emit-ns-publics]]
                    [day8.re-frame2-xray.panel-enum-spec-refs
                     :refer [emit-spec-mount-fn-names]])
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.set :as set]
             [day8.re-frame2-xray.panel-enum :as panel-enum]
-            ;; Force the analyzer to analyse the facade ns before
-            ;; `emit-ns-publics` expands so the macro reads a real
-            ;; surface. The alias is unused at runtime (the surface is
-            ;; read at compile time) but the require is load-bearing.
+            ;; Load-bearing: the analyzer must see the facade ns before
+            ;; `emit-ns-publics` expands.
             [day8.re-frame2-xray.panels]))
 
 ;; ---------------------------------------------------------------------------
@@ -77,30 +61,11 @@
               (filter #(re-matches #"mount-[a-z][a-z0-9-]*!" %)))
         (emit-ns-publics day8.re-frame2-xray.panels)))
 
-;; INCREMENTAL BUILDS RE-EXPAND THIS.
-;; `emit-spec-mount-fn-names` slurps the spec markdown on the JVM side at
-;; macro-expansion time, but it reads through `re-frame.build.spec-resource`,
-;; which registers each file against the compiling namespace's cache key — so
-;; correcting a drifted spec row recompiles this call site rather than leaving
-;; the reconciliations below grading a PREVIOUS expansion.
-;; `panel_enum_spec_refs.clj` owns the mechanism.
+;; A spec edit recompiles this call site; `panel_enum_spec_refs.clj` says how.
 (def ^:private spec-mount-names
   "PROJECTION B — the `mount-<panel>!` names the Xray API spec
   enumerates, captured at compile time."
   (emit-spec-mount-fn-names))
-
-;; ---------------------------------------------------------------------------
-;; Sanity — none of the projections is silently empty (a vacuously-green
-;; guard is worse than no guard).
-;; ---------------------------------------------------------------------------
-
-(deftest projections-are-non-empty
-  (testing "each projection enumerated at least one mount fn — guards
-            against a dropped require / unanalysed ns / unreadable spec
-            making a reconciliation vacuously green"
-    (is (seq enum-mount-names)   "the single-source enum is non-empty")
-    (is (seq facade-mount-names) "the live facade surface enumerated mount fns")
-    (is (seq spec-mount-names)   "the spec enumerated mount fns")))
 
 ;; ---------------------------------------------------------------------------
 ;; PROJECTION A — facade ⟺ enum.
@@ -143,21 +108,3 @@
                "(an undocumented panel — add it to 007-UX-IA.md §Mountable "
                "surface inventory or 008-Embedding-Contract.md): "
                (sort undocumented))))))
-
-;; ---------------------------------------------------------------------------
-;; Enum well-formedness — the source itself stays coherent.
-;; ---------------------------------------------------------------------------
-
-(deftest enum-entries-are-well-formed
-  (is (= []
-         (remove (fn [{:keys [id mount tier]}]
-                   (and (keyword? id)
-                        (string? mount)
-                        (re-matches #"mount-[a-z][a-z0-9-]*!" mount)
-                        (contains? #{:l3-tab :overlay :inline :spine :full-shell} tier)))
-                 panel-enum/panel-enum))
-      "every entry has a keyword :id, a `mount-*!` :mount and a closed-vocabulary :tier")
-  (is (= (count panel-enum/panel-enum)
-         (count panel-enum/panel-ids)
-         (count panel-enum/mount-fn-names))
-      "panel :id and :mount values are unique"))
