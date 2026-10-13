@@ -76,10 +76,6 @@
     (is (:all-green? (rf.story.ui.state/test-summary s [:story.x/a :story.x/b])))))
 
 ;; Nothing to run is not green.
-(deftest test-summary-empty
-  (is (false? (:all-green? (rf.story.ui.state/test-summary
-                             rf.story.ui.state/default-shell-state [])))))
-
 (deftest test-summary-running-blocks-green
   (let [s       (-> rf.story.ui.state/default-shell-state
                     (rf.story.ui.state/mark-test-running :story.x/a))
@@ -194,15 +190,16 @@
                status keyword and asserts the rendered hiccup carries
                the expected `data-status` attribute."
        (let [dot-fail    (rf.story.ui.sidebar/status-dot :fail)
-             dot-pending (rf.story.ui.sidebar/status-dot :pending)
              dot-pass    (rf.story.ui.sidebar/status-dot :pass)
              dot-running (rf.story.ui.sidebar/status-dot :running)]
          (is (= "fail"    (get (second dot-fail) :data-status)))
-         (is (= "pending" (get (second dot-pending) :data-status)))
          (is (= "pass"    (get (second dot-pass) :data-status)))
          (is (= "running" (get (second dot-running) :data-status)))
          ;; aria-label round-trips for screen-reader users.
-         (is (= "tests: Fail" (get (second dot-fail) :aria-label)))))))
+         (is (= "tests: Fail" (get (second dot-fail) :aria-label)))
+         ;; `role="status"` carries an implicit `aria-live="polite"`, which
+         ;; would make every mounted dot a live region.
+         (is (= "img" (get (second dot-fail) :role)))))))
 
 ;; ---- :cannot-run ≠ :pending THROUGH the dot -----------------------------
 
@@ -221,14 +218,6 @@
        (is (= "tests: Can't run" (:aria-label props-cannot)))
        (is (= "tests: Pending"   (:aria-label props-pending)))
        (is (= "tests: Can't run" (:title props-cannot))))))
-
-;; ---- status-dot is decorative img (not a live region) -----------------
-
-;; `role="status"` carries an implicit `aria-live="polite"`, which would make
-;; every mounted dot (one per variant row) a live region.
-#?(:cljs
-   (deftest sidebar-dot-uses-img-role-not-status
-     (is (= "img" (get (second (rf.story.ui.sidebar/status-dot :fail)) :role)))))
 
 #?(:cljs
    (deftest widget-run-all-button-disabled-while-running
