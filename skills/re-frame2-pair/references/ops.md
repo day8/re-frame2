@@ -119,11 +119,7 @@ The tool's args: `since-id`, `pred`, `frame`, `limit`, `cursor`, `epochs-mode`, 
 | `watch/resume` | `mcp__re-frame2-pair__watch-epochs {since-id: "<last-head-id>", pred: {...}}` | Returns only matches that landed after `since-id`; repeat to live-watch |
 | `watch/paginate` | `mcp__re-frame2-pair__watch-epochs {pred: {...}, limit: 20, cursor: "<next-cursor>"}` | When a poll's matches exceed `:limit` (default 50), `:next-cursor`/`:has-more?` let you page the rest |
 
-"Run for N matches" and "watch until the user stops you" are *loops the agent runs*, not tool args: call `watch-epochs` repeatedly, advancing `since-id`, until you've seen enough matches or the user stops you.
-
 Predicate keys (any combination, inside `pred`): `event-id`, `event-id-prefix`, `effects`, `timing-ms` (e.g. `">100"`), `touches-path`, `sub-ran`, `render`, `origin` (`:app|:pair|:story|:test`), `frame`.
-
-Each call tracks the last seen `:epoch-id` in the operating frame's history via `since-id` and returns everything matching since.
 
 ## Signal recording + blocking waits
 
