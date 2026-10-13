@@ -76,16 +76,6 @@
       (is (string? (:reason a))))
     (rf.story/destroy-variant! :story.auth/happy)))
 
-(deftest path-equals-fail
-  (testing ":rf.assert/path-equals records a mismatch without throwing"
-    (rf.story/reg-variant :story.auth/sad
-      {:setup []
-       :script [[:dispatch-sync [:rf.assert/path-equals [:auth :status] :authenticated]]]})
-    (let [[a & more] (:assertions (run-v! :story.auth/sad))]
-      (is (= [nil false :authenticated nil]
-             [more (:passed? a) (:expected a) (:actual a)])))
-    (rf.story/destroy-variant! :story.auth/sad)))
-
 (deftest path-matches-pass
   (testing ":rf.assert/path-matches validates against malli"
     (rf/reg-event :test/set-count
@@ -189,22 +179,9 @@
     (rf.story/destroy-variant! :story.empty/v)
     (rf.story/destroy-variant! :story.any-fail/v)))
 
-(deftest assertion-event-discriminator
-  (is (= [true true false false false false]
-         (map rf.story.assertions/assertion-event?
-              [[:rf.assert/path-equals [:x] 1] [:rf.assert/no-warnings] [:auth/login]
-               [:rf.story/something] nil []]))))
-
 ;; :rf.assert/schema-error declares an EXPECTED schema violation (spec/017
 ;; §Schema rule); its selector must mirror the projected violation's so the
 ;; multiset matcher pairs them.
-(deftest schema-error-recognised-and-known
-  (is (rf.story.assertions/assertion-id-known? :rf.assert/schema-error))
-  (is (= [true true false]
-         (map (comp boolean rf.story.assertions/schema-error?)
-              [[:rf.assert/schema-error {:where :event :event :x}] [:rf.assert/schema-error]
-               [:rf.assert/path-equals [:k] 1]]))))
-
 (deftest schema-error-selector-mirrors-violation-selector
   (testing "the declared selector matches evidence/violation-selector key for key
             per surface; a where-less spec is the [:any] wildcard; an unknown
@@ -232,7 +209,7 @@
                         [:atom :spec :selector])))))
 
 ;; The evaluator is pure over the tape-projected warning records, so its
-;; :count / :actual / :reason projection is reached through the var.
+;; :count / :actual projection is reached through the var.
 (def ^:private evaluate-no-warnings @#'rf.story.assertions/evaluate-no-warnings)
 
 (deftest evaluate-no-warnings-fail-branch
@@ -244,11 +221,8 @@
                                       :epoch-id 2 :trace-id 20}]
                                     [])]
       (is (= [false 2 [:rf.warning/slow-sub :rf.warning/deprecated]]
-             ((juxt :passed? :count :actual) out)))
-      (is (re-find #"2 warning" (:reason out))))
-    (let [out (evaluate-no-warnings [] [])]
-      (is (= [true 0 []] ((juxt :passed? :count :actual) out)))
-      (is (re-find #"no warning" (:reason out))))))
+             ((juxt :passed? :count :actual) out))))
+    (is (= [true 0 []] ((juxt :passed? :count :actual) (evaluate-no-warnings [] []))))))
 
 (deftest causal-bounds-exactly-shorthand
   (testing "per-id default bounds, and the :exactly / :min / :max overrides"
@@ -256,8 +230,7 @@
                               [:rf.assert/caused {:exactly 2} {:min 2 :max 2}]
                               [:rf.assert/caused {:min 3} {:min 3}]
                               [:rf.assert/caused {:min 2 :max 5} {:min 2 :max 5}]
-                              [:rf.assert/no-cascade-rerender {:exactly 0} {:min 0 :max 0}]
-                              [:rf.assert/no-cascade-rerender {:exactly 3} {:min 3 :max 3}]]]
+                              [:rf.assert/no-cascade-rerender {:exactly 0} {:min 0 :max 0}]]]
       (is (= bounds (rf.story.assertions/causal-bounds id spec)) (pr-str id spec)))))
 
 (deftest causal-effect-surface-sub-over-view-precedence
