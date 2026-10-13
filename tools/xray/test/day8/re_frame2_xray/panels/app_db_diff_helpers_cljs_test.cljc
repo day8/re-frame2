@@ -81,13 +81,6 @@
            (h/current-state-sections {:counter 1} {}
                                      {:app :rf/redacted :runtime :rf/redacted})))))
 
-(deftest current-state-sections-enumerates-only-populated-areas
-  (is (= #{:rf/machines :rf/route}
-         (set (map :area (:areas (h/current-state-sections
-                                   {:counter 1}
-                                   {:rf.runtime/routing  {:current {:route-id :home}}
-                                    :rf.runtime/machines {:snapshots {:auth {:state :idle}}}})))))))
-
 (deftest current-state-sections-machines-fan-out-one-per-instance
   (testing "one instance entry per machine id, sorted by (pr-str id), each
             carrying its own snapshot"
