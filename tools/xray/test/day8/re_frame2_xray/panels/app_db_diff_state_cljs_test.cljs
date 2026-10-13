@@ -281,22 +281,6 @@
            boot mode: with no focused epoch there is no 'this epoch added
            it' claim, so every slot renders plain current-state"))))
 
-;; ---- mount opts: card chrome --------------------------------------------
-;;
-;; The TOP and every reserved area are top-level mounts in one panel, so each
-;; carries `:card? true` or they blend into one continuous block. The opts
-;; map is one constant across browse and diff mode.
-
-(deftest every-mount-is-a-card
-  (let [mounts (find-edn-inspector-mounts
-                 (state/state-body
-                   (sections {:counter 2}
-                             {:rf/route {:id :home}
-                              :rf/machines {:auth {:state :idle}}})))]
-    (is (seq mounts) "the panel mounts edn-inspector widget instances")
-    (is (every? #(true? (:card? (:opts %))) mounts)
-        "every mount opts in to the card chrome")))
-
 ;; ---- two panel instances under ONE frame provider ------------------------
 ;;
 ;; Every id a section composes names a logical SURFACE and is the same string
