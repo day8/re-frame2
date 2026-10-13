@@ -105,15 +105,10 @@
                  [nil "horizontal" "both"]))
         "no declaration renders the handle; horizontal and both yield")))
 
-;; THE YIELD GATE LIVES IN `handle-view`, THE BOUNDARY, and
-;; deliberately not in the `Handle` bridge beside the mode gate. The
-;; bridge is scaffolding with a defined end: when `shell-view` becomes a
-;; boundary, `Handle` is DELETED. A spec'd product behaviour
-;; parked there would be deleted with it, silently.
-;;
-;; The row above asserts the PREDICATE the boundary gates on; the
-;; markup it gates is `resize_handle_cljs_test`'s, and the gate driving a
-;; real mount is `resize_handle_boundary_dom_cljs_test`'s W3.
+;; The yield gate lives in `handle-view`, the boundary. The row above
+;; asserts the PREDICATE it gates on; the markup it gates is
+;; `resize_handle_cljs_test`'s, and the gate driving a real mount is
+;; `resize_handle_boundary_dom_cljs_test`'s W3.
 
 ;; ---- apply-panel-width! (CSS var write) --------------------------------
 
@@ -145,32 +140,19 @@
           (finally
             (remove-stub-host! host)))))))
 
-(deftest apply-panel-width-clears-html-inline-when-default
-  (testing "when the user has NOT explicitly resized (the value
-            still equals `default-panel-width-px`), `apply-panel-width!`
-            MUST clear any prior inline declaration so the consumer's
-            `:root` override, or the host CSS's `var(...)` fallback, wins"
-    (if-not (browser?)
-      (is true "skipped: no DOM (node lane — see ns docstring)")
-      (let [html (html-root)]
-        (is (some? html) "precondition: a real <html> root to clear")
-        ;; Prime an inline declaration first, so the empty read below is
-        ;; evidence that the CLEAR path ran rather than evidence that
-        ;; nothing was ever set.
-        (.setProperty (.-style html) "--rf-xray-inline-width" "999px")
-        (settings-effects/apply-panel-width! config/default-panel-width-px)
-        (is (= "" (some-> html .-style (.getPropertyValue "--rf-xray-inline-width")))
-            "default value MUST clear the inline `<html>` declaration")
-        ;; nil arg also routes to the default and must clear.
-        (.setProperty (.-style html) "--rf-xray-inline-width" "888px")
-        (settings-effects/apply-panel-width! nil)
-        (is (= "" (some-> html .-style (.getPropertyValue "--rf-xray-inline-width")))
-            "nil arg defaults to the published width and clears the inline")
-        ;; A 600px viewport clamps 560 to 540; the default still clears.
-        (.setProperty (.-style html) "--rf-xray-inline-width" "777px")
-        (settings-effects/apply-panel-width! config/default-panel-width-px 600)
-        (is (= "" (some-> html .-style (.getPropertyValue "--rf-xray-inline-width")))
-            "the default clears even where the viewport clamps it")))))
+(deftest apply-panel-width-nil-clears-html-inline
+  ;; A nil width routes to the published default, which clears any prior
+  ;; inline declaration so the consumer's `:root` override, or the host CSS's
+  ;; `var(...)` fallback, wins. A width that IS the default clears the same
+  ;; way at any viewport: the reset row below reads it at 600 and 1600.
+  (if-not (browser?)
+    (is true "skipped: no DOM (node lane — see ns docstring)")
+    (let [html (html-root)]
+      ;; Primed first, so the empty read is evidence the CLEAR path ran.
+      (.setProperty (.-style html) "--rf-xray-inline-width" "888px")
+      (settings-effects/apply-panel-width! nil)
+      (is (= "" (some-> html .-style (.getPropertyValue "--rf-xray-inline-width")))
+          "nil arg defaults to the published width and clears the inline"))))
 
 ;; ---- reset, through the real handler ---------------------------------
 
