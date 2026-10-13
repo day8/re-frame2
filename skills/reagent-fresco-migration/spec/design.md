@@ -214,7 +214,7 @@ skills/reagent-fresco-migration/
 ├── evals/
 │   └── evals.json                 (trigger fixtures + behavioural fixtures across the M/D/R tiers)
 ├── tests/
-│   └── fixture/                   (MIG-23's cold-start proof — a standalone shadow-cljs project, not a leaf; the required `reagent-fresco-migration-fixture-cold-start` job)
+│   └── fixture/                   (the witness suite, MIG-23's cold start first — a standalone shadow-cljs project, not a leaf; the required `reagent-fresco-migration-fixture-cold-start` job)
 └── spec/
     ├── design.md                  (this file — locked decisions)
     ├── inputs.md                  (the canonical inputs the skill leans on)
@@ -232,7 +232,8 @@ shadow-cljs project rather than a leaf: it resolves core, ssr, fresco and the
 stock Reagent adapter as `:local/root` deps and proves, in one fresh Node
 process, that [`ssr-hydrate.md`](../references/ssr-hydrate.md)'s MIG-23 recipe
 needs its boot-time `rf/init!` — the negative arm raises
-`:rf.error/no-adapter-installed`. The `reagent-fresco-migration-fixture-cold-start` job
+`:rf.error/no-adapter-installed` — and witnesses the MIG-14, MIG-22, MIG-34 and
+mixed-renderer claims a Node test can reach. The `reagent-fresco-migration-fixture-cold-start` job
 runs it on the `skills_structural` surface and `all-required-passed` requires it,
 so the recipe cannot drift from the shipped substrate unnoticed. Change the
 recipe and you change the fixture with it; re-authoring the skill leaves it
