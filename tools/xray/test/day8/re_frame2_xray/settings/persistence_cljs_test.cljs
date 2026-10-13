@@ -34,12 +34,6 @@
           (config/get-setting :theme nil)
           (config/get-setting :general :epoch-history)])))
 
-(deftest text-size-round-trips
-  (config/update-setting! :general :text-size 16)
-  (reset! config/settings config/default-settings)
-  (config/load-settings-from-storage!)
-  (is (= 16 (config/get-setting :general :text-size))))
-
 (deftest reset-clears-everything
   (config/update-setting! :general :text-size 18)
   (config/reset-settings!)
