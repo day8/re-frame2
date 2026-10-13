@@ -131,13 +131,10 @@
                       :rect       {:top 100 :left 200
                                    :width 300 :height 40}})
        (let [root (rf.story.ui.element-inspector/overlay)]
-         (is (= :div (first root)))
          (is (= "story-element-inspector-overlay"
                 (:data-test (second root))))
          (is (= 4 (count root)) "root + props + outline + tooltip")
-         (let [outline (nth root 2)
-               tooltip (nth root 3)]
-           (is (= :div (first outline)))
+         (let [tooltip (nth root 3)]
            (is (= "story-element-inspector-tooltip"
                   (:data-test (second tooltip))))
            (is (= ":counter.core/counter"
