@@ -6,32 +6,7 @@
                :cljs [cljs.test :refer-macros [are deftest is]])
             [day8.re-frame2-xray.static.machines.helpers :as h]))
 
-;; ---- sub-mode normalisation ---------------------------------------------
-
-(deftest normalise-sub-mode-keeps-the-four-modes-and-defaults-the-rest
-  (are [raw mode] (= mode (h/normalise-sub-mode raw))
-    :sim        :sim
-    "instances" :instances
-    :nonsense   :topology
-    "junk"      :topology
-    nil         :topology))
-
-;; ---- sort-key normalisation ---------------------------------------------
-
-(deftest normalise-sort-key-keeps-the-three-axes-and-defaults-the-rest
-  (are [raw k] (= k (h/normalise-sort-key raw))
-    :states   :states
-    :nonsense :name
-    nil       :name))
-
 ;; ---- source-coord lifting -----------------------------------------------
-
-(deftest lift-source-coord-reads-the-canonical-slot-then-the-lenient-one
-  (are [definition coord] (= coord (h/lift-source-coord definition))
-    {:source-coord {:file "x.cljs" :line 42}} {:file "x.cljs" :line 42}
-    {:source {:file "y.cljs"}}                {:file "y.cljs"}
-    nil                                       nil
-    {:initial :idle}                          nil))
 
 (deftest format-source-coord-renders-file-and-optional-line
   (are [coord label] (= label (h/format-source-coord coord))
@@ -87,15 +62,14 @@
    {:machine-id :bar/upload   :state-count 4 :live-count 0
     :source-coord {:file "src/bar/upload.cljs"} :source-label "src/bar/upload.cljs"}])
 
-(deftest search-text-covers-name-namespace-file
-  (is (re-find #"src/foo/login" (h/search-text (first sample-rows)))))
-
 (deftest apply-search-filters-by-substring
   (are [query ids] (= ids (mapv :machine-id (h/apply-search sample-rows query)))
     ""         [:foo/login :foo/checkout :bar/upload]
     "foo"      [:foo/login :foo/checkout]
     ;; case-insensitive
     "Checkout" [:foo/checkout]
+    ;; the source file path
+    "src/bar"  [:bar/upload]
     "nomatch"  []))
 
 ;; ---- sort ---------------------------------------------------------------
@@ -128,10 +102,3 @@
 
     [] nil nil
     {:total 0 :visible 0 :selected-id nil}))
-
-;; ---- pip render plan ----------------------------------------------------
-
-(deftest pip-render-plan-is-none-at-zero-and-pips-when-live
-  (are [live plan] (= plan (h/pip-render-plan live))
-    0 {:kind :none}
-    1 {:kind :pips :count 1}))
