@@ -71,7 +71,8 @@
     :must-mention [["dispatch-and-collect" "trace/dispatch-and-collect"]
                    [":rf/epoch-record" "epoch-record"]
                    [":sub-runs"]
-                   [":renders"]]}
+                   [":renders"]
+                   [":rf.cofx/generated"]]}
 
    {:id :why-no-update
     :prompt "Why didn't the header update after `[:profile/save ...]`?"
