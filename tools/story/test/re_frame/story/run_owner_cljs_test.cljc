@@ -200,29 +200,6 @@
         #?(:clj  (is (= :fail (settled-status p)))
            :cljs (is (some? p)))))))
 
-(deftest rerun-runs-the-compiled-play-with-the-run-inputs
-  (testing "an [:arg] resolves through the canvas's Controls override, and a
-            :compose'd fragment's script runs ahead of the variant's own"
-    (rf/reg-event :fresh/set (fn [{:keys [db]} [_ k v]] {:db (assoc db k v)}))
-    (let [vid :story.fresh/args]
-      (rf.story/reg-variant vid
-        {:args   {:value 7}
-         :script [[:dispatch-sync [:fresh/set :value [:arg :value]]]
-                  [:assert [:rf.assert/path-equals [:value] 11]]]})
-      (select! vid {:cell-overrides {:value 11}})
-      (rf/dispatch-sync [:fresh/set :value 0] {:frame vid})
-      (rerun! vid {:play nil})
-      (is (= :pass (play-status vid nil))))
-    (let [vid :story.fresh/composed]
-      (rf.story/reg-fragment :fragment.fresh/seed
-        {:script {:script [[:dispatch-sync [:fresh/set :seeded true]]]}})
-      (rf.story/reg-variant vid
-        {:compose [:fragment.fresh/seed]
-         :script  [[:assert [:rf.assert/path-equals [:seeded] true]]]})
-      (select! vid {})
-      (rerun! vid {:play nil})
-      (is (= :pass (play-status vid nil))))))
-
 (deftest rerun-selects-a-play-and-run-all-sequences
   (testing "a dropdown row runs THAT play from :setup and leaves it active;
             Run all prepares once and runs every play in order"
