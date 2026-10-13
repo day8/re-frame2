@@ -118,9 +118,7 @@
                            :*           {:action :leaf-star}}}}}}}]
       (rf/reg-machine :forbid/wild machine)
       (seed-snapshot! :forbid/wild {:state [:authenticated :modal] :data {}})
-      (reset! log [])
       (rf/dispatch-sync [:forbid/wild [:auth/logout]])
-      (is (empty? @log)
-          "the forbidden exact block fired (a no-op) — NO wildcard at any tier/level ran")
-      (is (= [:authenticated :modal] (:state (snapshot :forbid/wild)))
-          "state unchanged — the block consumed the event"))))
+      (is (= [[] [:authenticated :modal]] [@log (:state (snapshot :forbid/wild))])
+          "the forbidden exact block consumed the event: no wildcard at any tier or level
+           ran, and the state is unchanged"))))
