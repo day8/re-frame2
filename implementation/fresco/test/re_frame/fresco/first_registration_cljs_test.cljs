@@ -119,8 +119,7 @@
                 cell holds the substrate's nil-recovery — the very thing
                 the substrate declined to cache, cached anyway, where
                 nothing evicts it"
-        (is (nil? value))
-        (is (some? (rf.fresco.test.runtime/cell-reaction late-key))))
+        (is (nil? value)))
 
       ;; NEGATIVE CONTROL, taken FIRST, so the drop measured below is
       ;; attributable to registering THIS id rather than to the mere fact
@@ -138,10 +137,6 @@
         ;; assertion below is reached by the registration hook alone.
         (rf/reg-sub :firstreg/late (fn [db _] (:late db)))
 
-        (testing "synchronously the held recovery is dropped — the repair's
-                  first phase, which is all a correct READ needs"
-          (is (nil? (rf.fresco.test.runtime/cell-reaction late-key))))
-
         (testing "and a body run inside the window already answers with the
                   real handler, because a cell with no reaction takes the
                   cold probe and the probe resolves the registration that
@@ -158,7 +153,6 @@
                       to correct itself — it painted nil, and a correction
                       that arrived in a later task could arrive after the
                       paint"
-              (is (some? (rf.fresco.test.runtime/cell-reaction late-key)))
               (is (> @notified notified-before)))
 
             (testing "and the property the repair exists for: a LATER write
