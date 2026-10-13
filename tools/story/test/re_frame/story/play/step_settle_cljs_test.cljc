@@ -12,8 +12,8 @@
   `-cljs-test` name, so the JVM and `:node-test` lanes both run it. The one
   CLJS-only test needs `interop/next-tick` to be a macrotask that provably
   has not run yet; the JVM's executor makes no such promise."
-  (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
-               :cljs [cljs.test    :refer [deftest is use-fixtures]])
+  (:require #?(:clj  [clojure.test :refer [are deftest is use-fixtures]]
+               :cljs [cljs.test    :refer [are deftest is use-fixtures]])
             [re-frame.core   :as rf]
             [re-frame.router :as rf.router]
             [re-frame.frame  :as rf.frame]
@@ -47,30 +47,21 @@
 ;; PURE: which steps must wait for a node, and — the trap — which must not
 ;; ===========================================================================
 
-(deftest interaction-steps-require-their-node
-  (is (= "[data-test=go]" (step-required-selector [:click "[data-test=go]"]))))
-
-(deftest presence-asserting-dom-atoms-require-their-node
-  ;; the folded atom reaches the run-loop; a raw step that bypassed folding too
-  (is (= "[data-test=out]"
-         (step-required-selector [:assert [:rf.assert/dom-text "[data-test=out]" "42"]])))
-  (is (= "[data-test=out]"
-         (step-required-selector [:assert-dom "[data-test=out]" :text "42"]))))
-
-(deftest dom-hidden-must-not-wait-for-the-node
-  ;; An ABSENT node is dom-hidden's PASS condition: waiting for one would
-  ;; invert the assertion and burn the budget. `run!` accepts a hand-built,
-  ;; unfolded spec, so the raw form must mean the same.
-  (is (nil? (step-required-selector [:assert [:rf.assert/dom-hidden "[data-test=gone]"]])))
-  (is (nil? (step-required-selector [:assert-dom "[data-test=gone]" :hidden]))))
-
-(deftest a-malformed-assert-dom-waits-for-nothing
-  ;; it reaches the executor that reports it, rather than timing out first
-  (is (nil? (step-required-selector [:assert-dom "[data-test=x]" :sideways]))))
-
-(deftest non-dom-steps-require-no-node
-  (is (nil? (step-required-selector [:dispatch [:settle/inc]])))
-  (is (nil? (step-required-selector [:assert [:rf.assert/path-equals [:n] 1]]))))
+(deftest a-step-waits-only-for-a-node-it-needs-present
+  ;; The folded atom reaches the run-loop, and `run!` accepts a hand-built,
+  ;; unfolded spec, so each DOM row is checked in both forms.
+  (are [step selector] (= selector (step-required-selector step))
+    [:click "[data-test=go]"]                              "[data-test=go]"
+    [:assert [:rf.assert/dom-text "[data-test=out]" "42"]] "[data-test=out]"
+    [:assert-dom "[data-test=out]" :text "42"]             "[data-test=out]"
+    ;; an ABSENT node is dom-hidden's PASS condition: waiting for one would
+    ;; invert the assertion and burn the budget
+    [:assert [:rf.assert/dom-hidden "[data-test=gone]"]]   nil
+    [:assert-dom "[data-test=gone]" :hidden]               nil
+    ;; a malformed step reaches the executor that reports it, not a timeout
+    [:assert-dom "[data-test=x]" :sideways]                nil
+    [:dispatch [:settle/inc]]                              nil
+    [:assert [:rf.assert/path-equals [:n] 1]]              nil))
 
 ;; ===========================================================================
 ;; The precondition decision itself
