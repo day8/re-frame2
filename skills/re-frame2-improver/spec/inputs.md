@@ -6,7 +6,7 @@ The canonical inputs the skill leans on. A re-authoring pass needs these to repr
 
 ## 1. Primary input — the user's in-scope source
 
-The skill operates on re-frame2 ClojureScript source the user has put in scope: files read or edited in the current session, a snippet the user pastes, or a concrete `.cljs` / `.cljc` file or directory the user names for review (in which case the skill **reads the named path** before critiquing — resolving the path is the same act the in-conversation-read case already performs). What the skill looks for is anti-pattern signal — the greppable + structural cues catalogued per leaf. A named path that does not resolve (missing or unreadable) does not establish scope: say so and ask for a snippet rather than fabricate.
+The skill operates on re-frame2 ClojureScript source the user has put in scope: files read or edited in the current session, a snippet the user pastes, or a concrete `.cljs` / `.cljc` file or directory the user names for review (in which case the skill **reads the named path** before critiquing — resolving the path is the same act the in-conversation-read case already performs). What the skill looks for is anti-pattern signal — the greppable + structural cues catalogued per leaf. A named path that does not resolve (missing or unreadable) does not establish scope: say so, review any other readable source, and ask for a snippet only when none remains — never fabricate.
 
 ## 2. Secondary input — `skills/re-frame2/`
 
@@ -52,6 +52,6 @@ These shape voice and structure but aren't quoted directly.
 
 ## 6. Update procedure
 
-1. **A canonical idiom changes in `skills/re-frame2/patterns/`, `spec/`, or the pinned sections of `docs/core/fresco/11-ephemeral-state.md` (leaf 6's Fresco clauses)** → re-verify every leaf that cross-links it; update the "After" snippet and the failure-category / API references. In particular, a **Spec 014 reply-addressing / appended-envelope** change routes to BOTH HTTP leaves (`manual-retry-loops.md` + `schemaless-events.md`) and their behavioural evals (17, 20, 26).
-2. **A new anti-pattern surfaces across 3+ real reviews** → add a leaf (locked five-section format) and a catalogue row; promote a deferred candidate from design.md §4 if it matches.
+1. **A canonical idiom changes in `skills/re-frame2/patterns/` or `references/`, `spec/`, or the pinned sections of `docs/core/fresco/11-ephemeral-state.md` (leaf 6's Fresco clauses)** → re-verify every leaf that cross-links it; update the "After" snippet and the failure-category / API references. In particular, a **Spec 014 reply-addressing / appended-envelope** change routes to BOTH HTTP leaves (`manual-retry-loops.md` + `schemaless-events.md`) and their behavioural evals (17, 20, 26).
+2. **A new anti-pattern surfaces across 3+ real reviews** → follow the growth procedure in design.md L6 (leaf, catalogue row, routing row); promote a deferred candidate from design.md §4 if it matches.
 3. **Spec ownership moves** (e.g. a surface migrates spec documents) → re-verify the §3 ownership table and every leaf footer.
