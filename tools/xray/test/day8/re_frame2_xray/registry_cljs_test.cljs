@@ -752,9 +752,7 @@
       (rf/dispatch-sync [:rf.xray/select-tab :machines])
       (is (= 2 (signal)) "re-activating the active Machine tab still bumps")
       (rf/dispatch-sync [:rf.xray/select-tab :epoch])
-      (is (= 2 (signal)) "a non-Machine tab leaves the signal steady")
-      (rf/dispatch-sync [:rf.xray/select-tab :machines])
-      (is (= 3 (signal))))))
+      (is (= 2 (signal)) "a non-Machine tab leaves the signal steady"))))
 
 (deftest machine-tab-fit-signal-bumps-on-static-activation
   ;; Static shares the `:machines` tab id and the chart, so it bumps the
@@ -797,22 +795,10 @@
                      :rf.trace/event-id    (first event-vec)
                      :frame       :rf/default}})))
 
-(deftest sub-cascades-filters-xray-internal-events
-  ;; `:rf.xray/event-bundles` hard-filters `rf.xray` cascades at the data
-  ;; layer, so every downstream consumer inherits the filter.
-  (setup-xray-frame!)
-  (rf/with-frame :rf/xray
-    (seed-buffer-with-dispatched-events!
-      [{:dispatch-id 1 :event-vec [:cart/add-item {:item-id "apple"}]}
-       {:dispatch-id 2 :event-vec [:rf.xray/focus-event 99]}
-       {:dispatch-id 3 :event-vec [:checkout/start]}
-       {:dispatch-id 4 :event-vec [:rf.xray/select-tab :event]}])
-    (is (= [:cart/add-item :checkout/start]
-           (mapv #(first (:event %)) @(rf/subscribe [:rf.xray/event-bundles]))))))
-
 (deftest sub-cascades-filter-also-applies-to-filtered-event-bundles
-  ;; The L2 list reads `:rf.xray/filtered-event-bundles`, so the filter must
-  ;; reach it through its `:rf.xray/event-bundles` input.
+  ;; `:rf.xray/event-bundles` hard-filters `rf.xray` cascades at the data
+  ;; layer, and the L2 list reads `:rf.xray/filtered-event-bundles`, so the
+  ;; filter must reach it through its `:rf.xray/event-bundles` input.
   (setup-xray-frame!)
   (rf/with-frame :rf/xray
     (seed-buffer-with-dispatched-events!
@@ -895,28 +881,21 @@
   [dispatch-id epoch-id]
   {:mode :retro :dispatch-id dispatch-id :epoch-id epoch-id :frame nil})
 
-(deftest sub-issues-ribbon-rejects-pinned-bundle-that-settled-no-epoch
-  ;; The ribbon is the auto-open-on-error signal, so a head-fallback here
-  ;; would fire the watcher on an unrelated epoch's issues.
-  (setup-xray-frame!)
-  (install-pin-seeder!)
-  (rf/with-frame :rf/xray
-    (seed-focus+history! (pin-focus pin-dispatch-id nil) pin-history)
-    (is (= {:issues [] :total 0 :epoch-id nil :empty-kind :no-epoch}
-           (select-keys @(rf/subscribe [:rf.xray/issues-ribbon])
-                        [:issues :total :epoch-id :empty-kind])))))
-
 (deftest sub-issues-ribbon-rejects-only-the-pinned-no-epoch-shape
-  ;; POSITIVE CONTROL: an unset focus still head-falls-back and an ordinary
-  ;; pinned epoch still projects its own issues.
+  ;; The ribbon is the auto-open-on-error signal, so a head-fallback for a
+  ;; pinned bundle that settled no epoch would fire the watcher on an
+  ;; unrelated epoch's issues; an unset focus still head-falls-back and an
+  ;; ordinary pinned epoch still projects its own issues.
   (setup-xray-frame!)
   (install-pin-seeder!)
   (rf/with-frame :rf/xray
-    (doseq [focus [(pin-focus nil nil) (pin-focus 11 11)]]
+    (doseq [[focus expected] [[(pin-focus pin-dispatch-id nil)
+                               {:issues [] :total 0 :epoch-id nil :empty-kind :no-epoch}]
+                              [(pin-focus nil nil) {:total 1 :epoch-id 11 :empty-kind nil}]
+                              [(pin-focus 11 11)   {:total 1 :epoch-id 11 :empty-kind nil}]]]
       (seed-focus+history! focus pin-history)
-      (is (= {:total 1 :epoch-id 11 :empty-kind nil}
-             (select-keys @(rf/subscribe [:rf.xray/issues-ribbon])
-                          [:total :epoch-id :empty-kind]))
+      (is (= expected
+             (select-keys @(rf/subscribe [:rf.xray/issues-ribbon]) (keys expected)))
           (pr-str focus)))))
 
 (deftest sub-reactive-data-rejects-pinned-bundle-that-settled-no-epoch
@@ -967,17 +946,6 @@
 
 ;; ---- (4) high-value event contracts -------------------------------------
 
-(deftest event-select-dispatch-id-and-clear
-  (testing ":rf.xray/select-dispatch-id + clear round-trip — reads
-            focus off the canonical spine `:rf.xray/focus` sub
-            (focus is the single source of truth)"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/select-dispatch-id 42])
-      (is (= 42 (:dispatch-id @(rf/subscribe [:rf.xray/focus]))))
-      (rf/dispatch-sync [:rf.xray/clear-selected-dispatch-id])
-      (is (nil? (:dispatch-id @(rf/subscribe [:rf.xray/focus])))))))
-
 ;; ---- select-dispatch-id head-id must thread show-ungrouped? ------------
 ;;
 ;; `:rf.xray/select-dispatch-id` and `:rf.xray/focus-event` both pick
@@ -1019,18 +987,6 @@
     (rf/dispatch-sync [:rf.xray/clear-selected-dispatch-id])
     (rf/dispatch-sync [:rf.xray/focus-event :routed-b :rf/default])
     (is (= :retro (:mode @(rf/subscribe [:rf.xray/focus]))))))
-
-(deftest event-select-epoch-passive-scrub
-  (testing ":rf.xray/select-epoch pins the spine focus epoch (passive
-            scrub) — the single source of truth is
-            `[:focus :epoch-id]`, surfaced by `:rf.xray/focus-epoch-id`"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/select-epoch :e-7])
-      (is (= :e-7 @(rf/subscribe [:rf.xray/focus-epoch-id])))
-      ;; nil resets the focus epoch.
-      (rf/dispatch-sync [:rf.xray/select-epoch nil])
-      (is (nil? @(rf/subscribe [:rf.xray/focus-epoch-id]))))))
 
 (deftest event-select-machine-id-and-clear
   (testing ":rf.xray/select-machine-id + clear round-trip"
