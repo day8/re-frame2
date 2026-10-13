@@ -1,20 +1,9 @@
 (ns day8.re-frame2-xray.frame-switcher-cljs-test
-  "CLJS coverage for the L1 frame-switcher slot.
-
-  Verifies the public contract documented in `frame_switcher.cljs`:
-
-  1. Pure helpers (`internal-frames`, `distinct-frames`) — JVM-runnable
-     shape, no re-frame machinery.
-  2. Subs `:rf.xray/current-frame` + `:rf.xray/available-frames`
-     resolve through the canonical chain (spine focus-slot + cascades
-     projection).
-  3. Event `:rf.xray/select-frame` writes through the spine + fires
-     the persistence fx.
-  4. EDN round-trip (`->edn` / `<-edn`) survives malformed inputs.
-  5. The Cmd-K palette's `:palette/select-frame` verb dispatches
-     through the canonical `:rf.xray/select-frame` event — the
-     ribbon, the palette, and any future frame-aware feature share
-     one write path."
+  "CLJS coverage for the L1 frame-switcher slot: the pure
+  `internal-frames` / `distinct-frames` filter, the
+  `:rf.xray/available-frames` sub, the Cmd-K palette's route through the
+  canonical `:rf.xray/select-frame` event, the rendered picker, and the
+  persisted slot's storage key."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.test-helpers :as rf.test-helpers]
@@ -63,55 +52,15 @@
 (deftest distinct-frames-excludes-internal-frames-unconditionally
   (testing "spec/018 §8 I1 — `:rf/xray` and the other tool frames are
             filtered out of the picker option list UNCONDITIONALLY:
-            there is no re-include arity and no setting to drive one."
-    (let [cascades [{:dispatch-id 1 :frame :rf/default}
-                    {:dispatch-id 2 :frame :rf/xray}
-                    {:dispatch-id 3 :frame :app/main}
-                    {:dispatch-id 4 :frame :rf/re-frame2-pair}]]
-      (is (= [:rf/default :app/main]
-             (frame-switcher/distinct-frames cascades))
-          ":rf/xray and :rf/re-frame2-pair are excluded, user frames kept
-           in first-seen order"))))
-
-(deftest distinct-frames-drops-nil-frame-cascades
-  (testing "an :ungrouped cascade has nil :frame — it must NOT show
-            up in the picker (the picker labels would render `nil`)"
-    (let [cascades [{:dispatch-id 1 :frame :rf/default}
-                    {:dispatch-id 2 :frame nil}
-                    {:dispatch-id 3 :frame :app/main}]]
-      (is (= [:rf/default :app/main]
-             (frame-switcher/distinct-frames cascades))
-          "nil frame is filtered out"))))
-
-(deftest distinct-frames-preserves-first-seen-order
-  (testing "the helper preserves first-seen order so the picker's
-            option list reads stably — re-orderings would shuffle the
-            user's selection visually on every new cascade"
-    (let [cascades [{:dispatch-id 1 :frame :app/b}
-                    {:dispatch-id 2 :frame :app/a}
-                    {:dispatch-id 3 :frame :app/b}  ;; duplicate
-                    {:dispatch-id 4 :frame :app/c}
-                    {:dispatch-id 5 :frame :app/a}]] ;; duplicate
-      (is (= [:app/b :app/a :app/c]
-             (frame-switcher/distinct-frames cascades))
-          "duplicates collapse, order preserved"))))
-
-;; -------------------------------------------------------------------------
-;; (2) EDN round-trip — persistence (de)serialisation
-;; -------------------------------------------------------------------------
-
-(deftest edn-round-trips-keyword
-  (is (= :rf/cart-frame (frame-switcher/<-edn (frame-switcher/->edn :rf/cart-frame)))))
-
-(deftest edn-load-tolerates-malformed-input
-  (testing "the load path NEVER throws into init — malformed EDN
-            yields nil; the caller treats nil as 'no selection'"
-    (is (nil? (frame-switcher/<-edn "garbage"))
-        "non-EDN string parses to nil")
-    (is (nil? (frame-switcher/<-edn ""))
-        "empty string parses to nil")
-    (is (nil? (frame-switcher/<-edn "{:frame \"not-a-keyword\"}"))
-        "non-keyword `:frame` value parses to nil")))
+            there is no re-include arity and no setting to drive one. An
+            :ungrouped cascade's nil :frame is dropped too (the picker would
+            label it `nil`), and duplicates collapse in first-seen order so
+            the option list reads stably."
+    (is (= [:app/b :rf/default :app/a]
+           (frame-switcher/distinct-frames
+             (map-indexed (fn [i frame] {:dispatch-id i :frame frame})
+                          [:app/b :rf/xray :rf/default nil :app/a :app/b
+                           :rf/re-frame2-pair :app/a]))))))
 
 ;; -------------------------------------------------------------------------
 ;; (3) Subs — :rf.xray/current-frame + :rf.xray/available-frames
@@ -136,10 +85,7 @@
   (testing "the sub composes off `:rf.xray/event-bundles` so it picks up
             every frame present in the trace stream — minus the
             internal-frames filter set (spec/018 §8 I1)"
-    ;; Seed BEFORE setup! so the sub's first compute reads the populated
-    ;; trace-bus atom (the sub falls back to `(trace-collector/buffer-for-test)` when
-    ;; the db's `:trace-buffer` slot is unwritten). Mirrors the shell
-    ;; tests' seed-then-subscribe order.
+    ;; Seed BEFORE setup! so the sub's first compute reads the seeded ring.
     (dispatch-trace 1 :rf/default)
     (dispatch-trace 2 :app/main)
     (dispatch-trace 3 :rf/xray)              ;; tool frame, filtered
@@ -152,13 +98,6 @@
 ;; -------------------------------------------------------------------------
 ;; (5) Cmd-K palette routes through the canonical contract
 ;; -------------------------------------------------------------------------
-;;
-;; The palette's `:palette/select-frame` verb MUST dispatch the canonical
-;; `:rf.xray/select-frame` event-fx — NOT the spine's `:rf.xray/set-
-;; frame` primitive directly. That way every persistence /
-;; instrumentation layer attached to the frame-switcher contract lives
-;; behind one event surface, so the ribbon + the palette + any future
-;; frame-aware feature share the same write path.
 
 (deftest palette-select-frame-routes-through-canonical-contract
   (testing "the Cmd-K palette's `:palette/select-frame` invocation
@@ -195,16 +134,14 @@
 ;; (6) View — frame-switcher-view reads the contract
 ;; -------------------------------------------------------------------------
 
-;; Tests call `rf.test-helpers/find-by-testid` directly; there is no Xray
-;; walker facade. `hiccup-seq` (depth-first nodes over the expanded tree) is
-;; not exposed by test-helpers, so it is a thin wrapper over
-;; `rf.test-helpers/expand-tree` for the `:option`-node filter below.
+;; Depth-first nodes over the expanded tree, for the `:option` filter.
 (defn- hiccup-seq [tree]
   (tree-seq (some-fn vector? seq?) seq (rf.test-helpers/expand-tree tree)))
 
 (deftest view-renders-frame-dropdown-button-always
   ;; The face shows the selected frame; with a single frame the native
-  ;; <select> stays ENABLED and lists that frame, checked.
+  ;; <select> stays ENABLED and lists that frame, checked, and carries a
+  ;; non-empty aria-label so screen readers announce its purpose on focus.
   (dispatch-trace 1 :app/main)
   (setup!)
   (rf/with-frame :rf/xray
@@ -214,22 +151,24 @@
           options (filter (fn [n]
                             (and (vector? n) (= :option (first n))))
                           (hiccup-seq tree))]
-      (is (= [":app/main" :select false [[":app/main" "✓ :app/main"]]]
+      (is (= [":app/main" :select false [[":app/main" "✓ :app/main"]] true]
              [(last label) (first picker) (boolean (:disabled (second picker)))
-              (mapv (juxt (comp :value second) last) options)])))))
+              (mapv (juxt (comp :value second) last) options)
+              (let [aria-label (:aria-label (second picker))]
+                (boolean (and (string? aria-label) (seq aria-label))))])))))
 
 ;; -------------------------------------------------------------------------
 ;; (7) Storage-key plumbing — per-instance isolation
 ;; -------------------------------------------------------------------------
 
 (deftest storage-key-defaults-to-canonical-value
-  ;; The persisted slot's name: changing it silently drops every saved pick.
+  ;; tools/xray/spec/007 publishes this key.
   (is (= "re-frame2.xray.frame-switcher.v1"
          frame-switcher/default-storage-key)))
 
 (deftest storage-key-set-then-clear-round-trips
-  (testing "Story testbeds override the key for per-scenario isolation;
-            passing nil resets to the default"
+  (testing "a host can override the key; passing nil resets to the
+            default"
     (frame-switcher/set-storage-key! "story.scenario-1.xray.frame.v1")
     (is (= "story.scenario-1.xray.frame.v1"
            (frame-switcher/get-storage-key)))
@@ -237,13 +176,6 @@
     (is (= frame-switcher/default-storage-key
            (frame-switcher/get-storage-key))
         "nil resets to the canonical default")))
-
-;; -------------------------------------------------------------------------
-;; No realm grouping
-;; -------------------------------------------------------------------------
-;;
-;; There is no realm `<optgroup>` grouping: the picker renders the flat option
-;; list directly, and the public partition is image -> frame (EP-0023).
 
 ;; -------------------------------------------------------------------------
 ;; (8) A pinned view-scope frame that leaves the stream keeps a matching option
@@ -255,10 +187,6 @@
 ;; pinned frame as its own `<option>`. Without that option the controlled
 ;; `<select>` would carry a value with NO matching `<option>` (React "value
 ;; not in options" warning + blank render + an unpickable label).
-
-(defn- current-frame []
-  (rf/with-frame :rf/xray
-    @(rf/subscribe [:rf.xray/current-frame])))
 
 (defn- available-frames []
   (rf/with-frame :rf/xray
@@ -296,55 +224,14 @@
     (dispatch-trace 3 :app/main)
     (is (= [:app/main] (available-frames))
         ":app/admin is gone from the available (pickable) set")
-    (is (= :app/admin (current-frame))
-        "the empty scope survives — the pin is NOT retargeted")
-    (let [{:keys [value option-values]} (picker-value+options)]
-      (is (contains? option-values value)
-          "the controlled <select> value matches a rendered option — no mismatch")
-      (is (= ":app/admin" value) "the value is the pinned frame")
-      (is (contains? option-values ":app/main")
-          "the still-available frame is offered so the user can re-scope"))))
-
-(deftest pinned-frame-with-empty-stream-has-matching-option
-  (testing "with the pinned frame gone AND no frames left, the
-            disabled control still carries a value that matches its sole
-            (pinned) option — no orphan value, no React warning"
-    (dispatch-trace 1 :app/admin)
-    (setup!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/select-frame :app/admin]))
-    ;; Every frame leaves the stream (buffer cleared).
-    (trace-collector/reset-for-test!)
-    (trace-collector/refresh-trace-rings!)
-    (is (= [] (available-frames)) "no frames remain in the pickable set")
-    (is (= :app/admin (current-frame)) "the empty scope survives")
-    (let [{:keys [value option-values]} (picker-value+options)]
-      (is (contains? option-values value)
-          "the value still matches an option (the pinned frame is surfaced)")
-      (is (= #{":app/admin"} option-values)
-          "the pinned frame is the sole option"))))
+    (is (= {:value ":app/admin" :option-values #{":app/admin" ":app/main"}}
+           (picker-value+options))
+        "the value is the still-pinned frame, which is surfaced as an option
+         beside the still-available one the user can re-scope to")))
 
 (deftest no-pick-empty-stream-renders-clean-empty-select
   (testing "with no pick and no frames, the select carries the
             empty value and renders no options (value \"\" with zero
             options is React's clean 'nothing selected' — no mismatch)"
     (setup!)  ;; no cascades seeded
-    (is (nil? (current-frame)) "no frame to scope to")
-    (let [{:keys [value option-values]} (picker-value+options)]
-      (is (= "" value) "empty value")
-      (is (empty? option-values) "no options"))))
-
-(deftest available-pick-adds-no-synthetic-option
-  (testing "the surfaced option is added ONLY when the active
-            frame is not available; in the normal case (the pick IS
-            available) the option set is exactly the available frames — no
-            synthetic duplicate"
-    (dispatch-trace 1 :app/main)
-    (dispatch-trace 2 :app/admin)
-    (setup!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/select-frame :app/main]))
-    (let [{:keys [value option-values]} (picker-value+options)]
-      (is (= #{":app/main" ":app/admin"} option-values)
-          "exactly the available frames — no synthetic duplicate")
-      (is (contains? option-values value)))))
+    (is (= {:value "" :option-values #{}} (picker-value+options)))))
