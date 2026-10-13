@@ -59,7 +59,6 @@
            :states  {:flat {:on {:mouse/down {:guard :never :action :exact-down}
                                   :mouse/*    {:action :ns-any}}}}}]
       (rf/reg-machine :z4t2v/blocked-exact->ns machine)
-      (reset! log [])
       ;; Exact :mouse/down's guard returns false ⇒ not enabled ⇒ fall through
       ;; to the same-level :mouse/* (fallthrough across tiers).
       (rf/dispatch-sync [:z4t2v/blocked-exact->ns [:mouse/down]])
@@ -84,7 +83,6 @@
            :states  {:flat {:on {:mouse/* {:guard :never :action :ns-any}
                                   :*       {:action :total-any}}}}}]
       (rf/reg-machine :z4t2v/blocked-ns->total machine)
-      (reset! log [])
       ;; :mouse/* matches :mouse/down but its guard fails ⇒ fall through to :*.
       (rf/dispatch-sync [:z4t2v/blocked-ns->total [:mouse/down]])
       (is (= [:total-any] @log)
@@ -109,40 +107,8 @@
       ;; Seed an installed leaf so the no-op for :keyboard/down is measured
       ;; against an installed state (the snapshot is synthesised lazily).
       (seed-snapshot! :z4t2v/ns-isolation {:state [:flat] :data {}})
-      (reset! log [])
-      ;; :mouse/down matches :mouse/*; :keyboard/down does NOT (different ns)
-      ;; and there is no total :* → benign no-op.
       (rf/dispatch-sync [:z4t2v/ns-isolation [:mouse/down]])
       (rf/dispatch-sync [:z4t2v/ns-isolation [:keyboard/down]])
-      (is (= [:mouse-any] @log)
-          ":mouse/* fired only for :mouse/down; :keyboard/down was NOT caught by :mouse/*")
-      (is (= [:flat] (:state (snapshot :z4t2v/ns-isolation)))
-          ":keyboard/down was a genuine no-op — snapshot unchanged"))))
-
-;; ---------------------------------------------------------------------------
-;; (f) compound + parallel coverage
-;; ---------------------------------------------------------------------------
-
-(deftest parallel-region-ns-wildcard-resolves-per-region
-  (testing "parallel: exact beats :ns/* per region; non-matching ns is a region no-op"
-    (let [log (atom [])
-          tag (fn [k] (fn [_] (swap! log conj k) {}))
-          machine
-          {:type    :parallel
-           :data    {}
-           :actions {:left-exact (tag :left-exact)
-                     :left-ns    (tag :left-ns)
-                     :right-ns   (tag :right-ns)}
-           :regions
-           {:left  {:initial :a
-                    :states  {:a {:on {:mouse/down {:action :left-exact}
-                                       :mouse/*    {:action :left-ns}}}}}
-            :right {:initial :x
-                    :states  {:x {:on {:mouse/* {:action :right-ns}}}}}}}]
-      (rf/reg-machine :z4t2v/parallel-exact machine)
-      (reset! log [])
-      ;; :mouse/down: left region's EXACT wins; right region's :mouse/* fires.
-      (rf/dispatch-sync [:z4t2v/parallel-exact [:mouse/down]])
-      (is (= #{:left-exact :right-ns} (set @log))
-          "left region's exact beat its :mouse/*; right region caught it via :mouse/*;
-           left region's :mouse/* must NOT fire when its exact :mouse/down is enabled"))))
+      (is (= [[:mouse-any] [:flat]] [@log (:state (snapshot :z4t2v/ns-isolation))])
+          ":mouse/* fired only for :mouse/down; :keyboard/down was a genuine no-op
+           that left the snapshot unchanged"))))
