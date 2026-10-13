@@ -10,8 +10,8 @@
   The probe: one event's `run-start` … `run-end` emits defer as one batch; a
   listener reacts to that `run-start` by emitting a new trace, which carries a
   higher `:id` than the already-captured `run-end`. An observer records delivery
-  order, which must keep `:id`s ascending and deliver `run-end` before the new
-  trace. A misorder never throws, so the order is the assertion.
+  order, which must keep `:id`s strictly ascending (no event delivered twice)
+  and deliver `run-end` before the new trace. A misorder never throws, so the order is the assertion.
 
   One deftest per flush seam: the outermost flush (top-level `dispatch-sync`,
   `*fanout-ctx*` unbound) and the integrate path (a listener-initiated
@@ -46,7 +46,7 @@
         ops (mapv first stream)
         ro  (index-of ops :rf.event/run-end)
         no  (index-of ops nested-op)]
-    (is (= (sort ids) ids)
+    (is (apply < ids)
         (str "delivery IDs regressed — a listener-authored trace overtook an "
              "older still-pending deferred item. Stream: " (pr-str stream)))
     (is (and ro no (< ro no))
