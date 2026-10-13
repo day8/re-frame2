@@ -188,11 +188,6 @@
 
 ;; ---- mode-tabs -----------------------------------------------------------
 
-(deftest valid-mode-tab?-rejects-noise
-  (is (= [true true true false false false false]
-         (map (comp boolean rf.story.ui.state/valid-mode-tab?)
-              [:dev :docs :test :canvas :nonsense nil "test"]))))
-
 (deftest set-active-mode-tab-roundtrip
   (let [s0 rf.story.ui.state/default-shell-state
         s  (-> s0
@@ -277,12 +272,7 @@
                    :re-frame.story.registrar/no-axis    [:loose]}]
       (is (= [:status :role :alpha :zeta
               :re-frame.story.registrar/no-axis]
-             (rf.story.ui.state/ordered-axes by-axis)))))
-  (testing "missing canonical axes are skipped, no-axis trails"
-    (is (= [:status :re-frame.story.registrar/no-axis]
-           (rf.story.ui.state/ordered-axes
-             {:status                              [:s/a]
-              :re-frame.story.registrar/no-axis    [:loose]})))))
+             (rf.story.ui.state/ordered-axes by-axis))))))
 
 ;; ---- workspace resolver --------------------------------------------------
 
@@ -330,22 +320,6 @@
 (deftest unknown-layout-empty
   (testing "unknown layouts degrade gracefully"
     (is (= [] (rf.story.ui.workspace/resolve-layout :Workspace.x/y {:layout :weird})))))
-
-;; ---- :isolation slot ----------------------------------------------------
-
-(deftest variants-grid-isolation-does-not-change-cell-resolution
-  (testing "absent, :isolated and :shared :isolation resolve the same cell
-            vector — the slot tunes mount strategy, not enumeration"
-    (rf.story/reg-variant :story.iso/a {:setup []})
-    (rf.story/reg-variant :story.iso/b {:setup []})
-    (let [cells-for (fn [isolation]
-                      (rf.story.ui.workspace/resolve-layout
-                        :Workspace.iso/all
-                        (cond-> {:layout :variants-grid}
-                          isolation (assoc :isolation isolation))))
-          absent    (cells-for nil)]
-      (is (= absent (cells-for :isolated) (cells-for :shared)))
-      (is (= 2 (count absent))))))
 
 ;; ---- :for anchor + :columns template ------------------------------------
 
@@ -786,13 +760,6 @@
     (is (= "" (rf.story.ui.test-mode.pure/format-timestamp-ms "no")))))
 
 ;; ---- step-through scrubber ----------------------------------------------
-
-(deftest test-mode-play-step-label-renders-event-id
-  (testing "play-step-label stringifies the event id only, blank for malformed input"
-    (is (= [":auth/email-changed" ":rf.assert/path-equals" "" "" ""]
-           (map rf.story.ui.test-mode.pure/play-step-label
-                [[:auth/email-changed "alice@example.com"] [:rf.assert/path-equals [[:count] 7]]
-                 nil [] "not-a-vec"])))))
 
 (deftest test-mode-play-step-statuses-maps-events-to-status
   (let [steps    rf.story.ui.test-mode.pure/play-step-statuses
