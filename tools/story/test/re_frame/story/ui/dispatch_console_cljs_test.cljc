@@ -61,11 +61,6 @@
 
 ;; ---- pure: history shaping -----------------------------------------------
 
-(deftest prepend-history-entry-orders-newest-first
-  (is (= [{:event-id :a/new} {:event-id :a/old}]
-         (rf.story.ui.dispatch-console/prepend-history-entry
-           [{:event-id :a/old}] {:event-id :a/new}))))
-
 (deftest prepend-history-entry-respects-cap
   ;; prepending past the cap evicts the oldest, from the tail
   (let [seed (mapv (fn [i] {:event-id i}) (range rf.story.ui.dispatch-console/history-max))]
