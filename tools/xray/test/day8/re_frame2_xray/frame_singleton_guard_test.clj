@@ -192,10 +192,7 @@
              (report offs)))))
 
 (deftest no-deferred-fn-bare-dispatch-in-migrated-files
-  ;; A DEFERRED `(fn [_e] (rf/dispatch [ev]))` on-click fires after render
-  ;; scope unwinds (ambient frame gone), so its bare dispatch raises
-  ;; `:rf.error/no-frame-context`, leaving Xray state untouched. The
-  ;; adjacency-only guard above cannot see a multiline callback; this
+  ;; The adjacency-only guard above cannot see a multiline callback; this
   ;; whole-file scan can.
   (let [offs (multiline-offenders deferred-fn-bare-dispatch-pattern
                                   :deferred-fn-bare-dispatch)]
