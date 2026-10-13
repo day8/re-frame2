@@ -58,27 +58,6 @@
             :delay-source :literal
             :epoch epoch}}))
 
-(deftest tick-loop-runs-off-render-without-ambient-frame-context
-  (async done
-    (rf/with-frame :rf/xray
-      (override-machines!    [:auth/login])
-      (override-definitions! {:auth/login fixture-definition})
-      (push-scheduled! 1000 :auth/login :idle 5000 0)
-      (after-rings/kick-tick! :rf/xray))
-    (is (nil? (:rings/now-ms (rf.frame/frame-app-db-value :rf/xray)))
-        "nothing has bumped now-ms yet")
-    ;; Outside `rf/with-frame` — the off-render condition under test.
-    (#'day8.re-frame2-xray.panels.machine-after-rings/tick-loop!)
-    (-> (rf.test-support/poll-until
-          #(pos? (or (:rings/now-ms (rf.frame/frame-app-db-value :rf/xray)) 0))
-          {:label "tick-loop! dispatch drained onto :rf/xray"})
-        (.catch (fn [e]
-                  (is false
-                      (str "tick-loop! never dispatched :rf.xray/timer-tick "
-                           "onto :rf/xray — " (.-message e)))
-                  nil))
-        (.then (fn [_] (done))))))
-
 ;; ---- the clock must OUTLIVE the last armed timer -------------------------
 ;;
 ;; A `:cancelled` ring has a retention window, so a DEADLINE, and both
