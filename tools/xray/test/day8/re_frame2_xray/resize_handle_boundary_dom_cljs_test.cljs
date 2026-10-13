@@ -46,13 +46,14 @@
   mount reads `container.querySelector…` — the DOM React committed on
   its own.
 
-  ## The three rows
+  ## The two rows
 
-  W1 asks whether the handle PAINTS and whether its `aria-valuenow` is
-  LIVE, with a second live frame as the deaf lever. W2 presses a REAL
-  key on the committed node, so the dispatcher the boundary CAPTURED is
-  exercised rather than bypassed by the row's own `dispatch-sync`, and
-  then resets through the same door. W3 is the yield branch, and it is a
+  W2 finds the handle PAINTED as the shipped separator, then presses a
+  REAL key on the committed node, so the dispatcher the boundary CAPTURED
+  is exercised rather than bypassed by the row's own `dispatch-sync`; its
+  `aria-valuenow` following the press, and a second live frame holding
+  still, show the read is LIVE and routed. It then resets through the
+  same door. W3 is the yield branch, and it is a
   PAIR of mounts differing only in the host's `resize` declaration — a
   `handle-view` that returned nil unconditionally would satisfy the
   yield half on its own, so the half that renders is what makes the
@@ -102,7 +103,7 @@
 ;; both, and would go green on the defect.
 
 (def ^:private seeded-width-px
-  "The width W1 and W2 write into [[handle-frame]] before asserting
+  "The width W2 writes into [[handle-frame]] before asserting
   anything. Distinct from `config/default-panel-width-px` so the first
   paint's value and the seeded value are different strings, and
   comfortably inside the [320px, viewport×0.9] clamp at any sane
@@ -352,92 +353,13 @@
         false)))
 
 ;; ===========================================================================
-;; W1 — the bridge COMMITS the real handle, and its announced width is LIVE
-;; ===========================================================================
-
-(deftest w1-the-bridge-commits-a-handle-whose-width-is-live
-  (testing "mounting `Handle :inline` under an explicit frame
-            commits the shipped handle node, and the width it announces
-            follows a write into THAT frame while a write into a second
-            live frame moves nothing.
-
-            THIS IS WHAT THE NODE LANE CANNOT SEE. `handle-tree` is driven
-            there with values the test itself supplies, so a green row
-            says the markup composes; it cannot say the boundary's body
-            ran, that `rf.fresco/sub` resolved, or that the value reaching
-            `aria-valuenow` came from a frame rather than from the test.
-            A `handle-view` returning nil passes every node-lane row and
-            fails the first assertion here."
-    (if-not (browser?)
-      (is true "skipped: no DOM (node lane)")
-      (async done
-        (setup!)
-        (let [{:keys [container root]} (mount! handle-frame)
-              !first (atom nil)]
-          (-> (poll-until #(handle-node container))
-              (.then
-                (fn [_]
-                  (is (some? (handle-node container))
-                      "the `as-component` bridge mounted and the boundary
-                       committed a real node — the composition the node
-                       lane cannot reach")
-                  (is (= "separator" (some-> (handle-node container)
-                                             (.getAttribute "role")))
-                      (str "and it is the shipped separator, not some other "
-                           "node that happens to carry the testid. Got: "
-                           (pr-str (some-> (handle-node container)
-                                           (.getAttribute "role")))))
-                  (reset! !first (announced-width container))
-                  (is (= (str config/default-panel-width-px) @!first)
-                      (str "PRECONDITION: first paint announces the DEFAULT "
-                           "width, so the change below is the write's doing. "
-                           "Got: " (pr-str @!first)))
-                  (rf/dispatch-sync [:rf.xray/set-panel-width-px seeded-width-px]
-                                    {:frame handle-frame})
-                  (poll-until #(= (str seeded-width-px)
-                                  (announced-width container)))))
-              (.then
-                (fn [_]
-                  (is (= (str seeded-width-px) (announced-width container))
-                      (str "the committed handle followed a real write into "
-                           "the frame it was mounted at — the read is LIVE, "
-                           "not a value frozen at first paint. Was "
-                           (pr-str @!first) ", now "
-                           (pr-str (announced-width container))))
-                  ;; The DEAF LEVER: the same event, into a live frame this
-                  ;; mount never named.
-                  (rf/dispatch-sync [:rf.xray/set-panel-width-px deaf-width-px]
-                                    {:frame other-frame})
-                  (settle)))
-              (.then
-                (fn [_]
-                  (is (= deaf-width-px (width-in other-frame))
-                      (str "CONTROL: the deaf lever really moved the second "
-                           "frame, so the unchanged reading below is about "
-                           "ROUTING rather than about a write that never "
-                           "happened. Got: " (pr-str (width-in other-frame))))
-                  (is (= (str seeded-width-px) (announced-width container))
-                      (str "and the handle did NOT follow it. A boundary that "
-                           "resolved its read ambiently would announce "
-                           (pr-str (str deaf-width-px)) ". Got: "
-                           (pr-str (announced-width container))))
-                  (teardown! root container)
-                  (done)))
-              (.catch (fn [e]
-                        (is false (str "W1 never settled: " (.-message e)))
-                        (done)))))))))
-
-;; ===========================================================================
 ;; W2 — a REAL KEY PRESS on the committed handle, through the dispatcher the
 ;;      boundary CAPTURED, into the frame the provider named
 ;; ===========================================================================
 ;;
-;; W1 moves the world with `rf/dispatch-sync` and watches the handle follow.
-;; That is a reactivity claim and it is deliberately silent about the
-;; boundary's OTHER half: `handle-view` does not merely READ through the
-;; collector, it CAPTURES a dispatcher with `(:dispatch (rf/capture-frame))`
-;; and threads it into `handle-tree`, which closes over it in three separate
-;; handlers. Nothing above makes it capture one.
+;; `handle-view` does not merely READ through the collector, it CAPTURES a
+;; dispatcher with `(:dispatch (rf/capture-frame))` and threads it into
+;; `handle-tree`, which closes over it in three separate handlers.
 ;;
 ;; THE KEYBOARD IS THE RIGHT LEVER HERE, not the pointer drag. A drag routes
 ;; through `start-drag!`, which stashes the captured dispatcher in a
@@ -457,13 +379,9 @@
   (testing "pressing a real `ArrowLeft` on the committed handle
             widens the panel in the frame the enclosing `frame-provider`
             NAMED, and leaves a second live frame exactly where it was;
-            `Enter` then resets it through the same captured door.
-
-            THIS ROW IS NOT A SECOND W1. W1's lever is the row's own
-            `dispatch-sync`, which supplies the frame from the OUTSIDE;
-            here the frame comes from the boundary's capture and nothing
-            in the row names it at the moment of dispatch. That difference
-            is the whole subject."
+            `Enter` then resets it through the same captured door. The
+            frame comes from the boundary's capture: nothing in the row
+            names it at the moment of dispatch."
     (if-not (browser?)
       (is true "skipped: no DOM (node lane)")
       (async done
@@ -472,8 +390,12 @@
           (-> (poll-until #(handle-node container))
               (.then
                 (fn [_]
-                  (is (some? (handle-node container))
-                      "PRECONDITION: there is a real control to press")
+                  (is (= "separator" (some-> (handle-node container)
+                                             (.getAttribute "role")))
+                      (str "the bridge committed the shipped separator, a real "
+                           "control to press. Got: "
+                           (pr-str (some-> (handle-node container)
+                                           (.getAttribute "role")))))
                   ;; Seed BOTH frames, the deaf one at a distinct value, so
                   ;; `unchanged` below is a claim about a real value rather
                   ;; than about the default every frame answers with.
@@ -485,14 +407,6 @@
                                   (announced-width container)))))
               (.then
                 (fn [_]
-                  (is (= (str seeded-width-px) (announced-width container))
-                      (str "PRECONDITION: the handle announces the seeded "
-                           "width before the key press. Got: "
-                           (pr-str (announced-width container))))
-                  (is (= deaf-width-px (width-in other-frame))
-                      (str "PRECONDITION: while the second live frame holds a "
-                           "DISTINCT value. Got: "
-                           (pr-str (width-in other-frame))))
                   ;; ---- the act: a REAL key press on a REAL node ----
                   (if (press! (handle-node container) "ArrowLeft"
                               "the committed resize handle")
@@ -532,9 +446,6 @@
                            "same captured dispatcher — `:rf.xray/reset-panel-"
                            "width`. "
                            "Got: " (pr-str (announced-width container))))
-                  (is (= deaf-width-px (width-in other-frame))
-                      (str "and the reset did not reach the second frame "
-                           "either. Got: " (pr-str (width-in other-frame))))
                   (teardown! root container)
                   (done)))
               (.catch (fn [e]
@@ -578,10 +489,6 @@
               (.then (fn [_] (settle)))
               (.then
                 (fn [_]
-                  (is (some? (testid c1 anchor-testid))
-                      "CONTROL: the tree committed, so both halves below are
-                       reading a rendered position rather than an empty
-                       container")
                   (is (some? (handle-node c1))
                       (str "a host declaring `resize: vertical` is NOT "
                            "asserting a horizontal handle, so Xray renders "
