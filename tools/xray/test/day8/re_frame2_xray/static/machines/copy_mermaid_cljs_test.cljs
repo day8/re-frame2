@@ -38,7 +38,7 @@
   vectors the real fx dispatches when the `writeText` Promise settles.
   One async test additionally exercises the REAL registered fx on this
   node target (no clipboard) to prove the unavailable-clipboard
-  branch lands `:failed` through the fx's own frame-pinned dispatch."
+  branch renders `Copy failed` through the fx's own frame-pinned dispatch."
   (:require [cljs.test :refer-macros [async deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.test-helpers :as rf.test-helpers]
@@ -167,20 +167,6 @@
 ;; (3) Failure paths — never reported as copied
 ;; -------------------------------------------------------------------------
 
-(deftest rejected-clipboard-reports-failure
-  (xray-setup!)
-  (seed-machines! [:m/a])
-  (seed-definitions! {:m/a fixture-definition})
-  (frame-dispatch [:rf.xray.static.machines/select :m/a])
-  (let [captured (capture-copy!)]
-    (frame-dispatch [:rf.xray.static.machines/copy-mermaid
-                     :m/a fixture-definition])
-    (frame-dispatch (:on-failure (first @captured)))
-    (rf/with-frame :rf/xray
-      (is (= "Copy failed"
-             (rf.test-helpers/text-content
-               (find-status-span (machines-tree/panel-tree))))))))
-
 (deftest unavailable-clipboard-real-fx-lands-failure
   (async done
     ;; No fx-override: the REAL registered fx runs, finds no clipboard on
@@ -194,7 +180,10 @@
                      :m/a fixture-definition])
     (js/setTimeout
       (fn []
-        (is (= :failed (copy-status :m/a)))
+        (rf/with-frame :rf/xray
+          (is (= "Copy failed"
+                 (rf.test-helpers/text-content
+                   (find-status-span (machines-tree/panel-tree))))))
         (done))
       50)))
 
@@ -214,32 +203,25 @@
 ;; (4) Feedback hygiene — cleared on selection change; no stale settle
 ;; -------------------------------------------------------------------------
 
-(deftest status-cleared-on-selection-change
+(deftest status-cleared-on-selection-change-and-never-repopulated-late
   (xray-setup!)
   (seed-machines! [:m/a :m/b])
   (seed-definitions! {:m/a fixture-definition
                       :m/b fixture-definition})
   (frame-dispatch [:rf.xray.static.machines/select :m/a])
-  (let [captured (capture-copy!)]
-    (frame-dispatch [:rf.xray.static.machines/copy-mermaid
-                     :m/a fixture-definition])
+  (let [captured (capture-copy!)
+        copy!    #(frame-dispatch [:rf.xray.static.machines/copy-mermaid
+                                   :m/a fixture-definition])]
+    (copy!)
+    (frame-dispatch [:rf.xray.static.machines/select :m/b])
     (frame-dispatch (:on-success (first @captured)))
+    (is (nil? (copy-status :m/a))
+        "a settlement arriving after the user moved on is dropped")
+    (frame-dispatch [:rf.xray.static.machines/select :m/a])
+    (copy!)
+    (frame-dispatch (:on-success (second @captured)))
     (is (= :copied (copy-status :m/a))
         "precondition: feedback set before the selection change")
     (frame-dispatch [:rf.xray.static.machines/select :m/b])
     (is (nil? (copy-status :m/a))
         "the slot is cleared, so returning to :m/a shows no stale feedback")))
-
-(deftest late-settlement-after-reselect-does-not-repopulate
-  (xray-setup!)
-  (seed-machines! [:m/a :m/b])
-  (seed-definitions! {:m/a fixture-definition
-                      :m/b fixture-definition})
-  (frame-dispatch [:rf.xray.static.machines/select :m/a])
-  (let [captured (capture-copy!)]
-    (frame-dispatch [:rf.xray.static.machines/copy-mermaid
-                     :m/a fixture-definition])
-    (frame-dispatch [:rf.xray.static.machines/select :m/b])
-    (frame-dispatch (:on-success (first @captured)))
-    (is (nil? (copy-status :m/a))
-        "a settlement arriving after the user moved on is dropped")))
