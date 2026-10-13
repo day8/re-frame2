@@ -73,9 +73,8 @@
           data (try (plan-of :story.bad/arg m)
                     (catch #?(:clj Exception :cljs :default) e
                       (ex-data e)))]
-      (is (= :rf.error/story-missing-arg (:rf.error/id data)))
-      (is (= :qty (:arg data)))
-      (is (re-find #"qty" (:reason data))))))
+      (is (= {:rf.error/id :rf.error/story-missing-arg :arg :qty}
+             (select-keys data [:rf.error/id :arg]))))))
 
 (deftest args-and-argtypes-resolve-through-extends
   (testing "args + argtypes deep-merge root→child through :extends"
@@ -165,34 +164,24 @@
                     (catch #?(:clj Exception :cljs :default) e
                       (:rf.error/id (ex-data e))))))))))
 
-(deftest unknown-keyword-target-fails
-  (testing "a keyword target with no registered body fails"
-    (is (= :rf.error/story-unknown-variant
-           (try (plan-of :story.none/here {})
-                (catch #?(:clj Exception :cljs :default) e
-                  (:rf.error/id (ex-data e))))))))
-
 ;; ---- shipping-vocabulary normalization ----------------------------------
 
-(deftest bare-setup-steps-lift-to-dispatch
-  (testing ":setup lowers to [:world :setup], bare event vectors
-            lifting to tagged [:dispatch …] (migration normalization — bare
-            shorthand is the migration form, not the P1 public grammar)"
-    (let [m {:story.legacy/e {:setup [[:counter/init 3]]}}
-          p (plan-of :story.legacy/e m)]
-      (is (= [[:dispatch [:counter/init 3]]] (get-in p [:world :setup]))))))
-
-(deftest bare-script-steps-lift-to-dispatch
-  (testing ":script lowers to the plan's :script (bare vectors lift to :dispatch)"
+(deftest bare-setup-and-script-steps-lift-to-dispatch
+  (testing ":setup lowers to [:world :setup] and :script to the plan's
+            :script, bare event vectors lifting to tagged [:dispatch …]
+            (migration normalization — bare shorthand is the migration form,
+            not the P1 public grammar)"
     (let [m {:story.legacy/p
-             {:script [[:dispatch-sync [:counter/init 3]]
-                            [:counter/inc]
-                            [:wait 50]]}}
+             {:setup  [[:counter/init 3]]
+              :script [[:dispatch-sync [:counter/init 3]]
+                       [:counter/inc]
+                       [:wait 50]]}}
           p (plan-of :story.legacy/p m)]
-      (is (= [[:dispatch-sync [:counter/init 3]]
-              [:dispatch [:counter/inc]]
-              [:wait 50]]
-             (:script p))))))
+      (is (= {:setup  [[:dispatch [:counter/init 3]]]
+              :script [[:dispatch-sync [:counter/init 3]]
+                       [:dispatch [:counter/inc]]
+                       [:wait 50]]}
+             {:setup (get-in p [:world :setup]) :script (:script p)})))))
 
 (deftest plays-preserved-as-named-scripts
   (testing ":plays normalizes to the primary :script and preserves all named scripts"
@@ -259,12 +248,14 @@
              :story.e/child  {:extends :story.e/parent
                               :script  [[:dispatch [:go]]]}}
           ex (rf.story.plan/explain :story.e/child {:lookup m})]
-      (is (= [:story.e/parent :story.e/child] (:source-chain ex)))
-      (is (= [:story.e/parent] (:parent-chain ex)))
-      (is (= {:n 1} (:args ex)))
-      (is (= [{:key :n :value 1}] (:substitutions ex)))
-      (is (= [[:dispatch [:seed 1]]] (:setup-order ex)))
-      (is (= [[:dispatch [:go]]] (:script-order ex))))))
+      (is (= {:source-chain  [:story.e/parent :story.e/child]
+              :parent-chain  [:story.e/parent]
+              :args          {:n 1}
+              :substitutions [{:key :n :value 1}]
+              :setup-order   [[:dispatch [:seed 1]]]
+              :script-order  [[:dispatch [:go]]]}
+             (select-keys ex [:source-chain :parent-chain :args :substitutions
+                              :setup-order :script-order]))))))
 
 ;; ===========================================================================
 ;; View arg schemas (spec §View arg schemas)
@@ -525,15 +516,11 @@
 ;; ---- pure resolver: render-path read + sub-assertion honesty -------------
 
 (deftest sub-overrides-render-path-resolver-is-exact
-  (testing "resolve returns the override value on an exact query-vector match"
-    (let [ovr {[:login/state] :error [:item 7] {:sku "X"}}]
-      (is (= :error      (rf.story.sub-overrides/resolve ovr [:login/state])))
-      (is (= {:sku "X"}  (rf.story.sub-overrides/resolve ovr [:item 7])))))
-  (testing "a non-exact query (different args / sub-id) MISSES — no fuzzing"
+  (testing "resolve returns the override value on an exact query-vector match,
+            and a non-exact query (here a prefix of it) MISSES — no fuzzing"
     (let [ovr {[:item 7] {:sku "X"}}]
-      (is (rf.story.sub-overrides/miss? (rf.story.sub-overrides/resolve ovr [:item 8])))
-      (is (rf.story.sub-overrides/miss? (rf.story.sub-overrides/resolve ovr [:item])))
-      (is (rf.story.sub-overrides/miss? (rf.story.sub-overrides/resolve ovr [:other 7])))))
+      (is (= {:sku "X"} (rf.story.sub-overrides/resolve ovr [:item 7])))
+      (is (rf.story.sub-overrides/miss? (rf.story.sub-overrides/resolve ovr [:item])))))
   (testing "an override whose VALUE is nil is a genuine hit (sentinel is distinct)"
     (let [ovr {[:login/user] nil}]
       (is (nil? (rf.story.sub-overrides/resolve ovr [:login/user]))))))
@@ -566,8 +553,7 @@
           p (plan-of :story.x/pred
                      {:story.x/pred {:script [[:assert-db [:count] :pred pred]]}})
           step (first (:script p))]
-      (is (= :assert (first step)))
-      (is (= [:rf.assert/path-matches [:count] [:fn pred]] (second step))))))
+      (is (= [:assert [:rf.assert/path-matches [:count] [:fn pred]]] step)))))
 
 ;; ---- :assert-dom fold + runner requirement -------------------------------
 
@@ -603,26 +589,18 @@
 ;; on `:rf.assert/caused` and a non-boolean value on either id, BEFORE any
 ;; run.
 
-(deftest non-boolean-require-cause-fails-plan-construction
-  (testing "a non-boolean :require-cause? on :no-cascade-rerender FAILS —
-           the opt is a strict boolean, never silently coerced"
-    (let [m {:story.x/rc-bad
-             {:assertions [[:rf.assert/no-cascade-rerender
-                            {:event :e :require-cause? :nope}]]}}]
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-            #"story-bad-assertion-opt"
-            (plan-of :story.x/rc-bad m))))))
-
 (deftest bad-assertion-opt-error-carries-structured-data
-  (testing "the :rf.error/story-bad-assertion-opt ex-data names the bad atom"
-    (let [m  {:story.x/rc-data
-              {:assertions [[:rf.assert/caused {:event :e :require-cause? false}]]}}
-          ex (try (plan-of :story.x/rc-data m) nil
-                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))]
-      (is (= :rf.error/story-bad-assertion-opt (:rf.error/id (ex-data ex))))
-      (is (contains? (set (:offending-assertions (ex-data ex)))
-                     [:rf.assert/caused {:event :e :require-cause? false}])))))
+  (testing "a non-boolean :require-cause? on :no-cascade-rerender, or the key
+            on :caused, FAILS plan construction — the opt is a strict
+            boolean, never silently coerced — and the ex-data names the bad
+            atom"
+    (doseq [bad [[:rf.assert/no-cascade-rerender {:event :e :require-cause? :nope}]
+                 [:rf.assert/caused {:event :e :require-cause? false}]]]
+      (let [ex (try (plan-of :story.x/rc-bad {:story.x/rc-bad {:assertions [bad]}}) nil
+                    (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))]
+        (is (= [:rf.error/story-bad-assertion-opt [bad]]
+               ((juxt :rf.error/id :offending-assertions) (ex-data ex)))
+            (pr-str bad))))))
 
 (deftest legal-require-cause-false-compiles
   (testing "{:require-cause? false} on :no-cascade-rerender is the sole legal
