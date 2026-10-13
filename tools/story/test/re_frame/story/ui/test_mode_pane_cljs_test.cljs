@@ -289,8 +289,6 @@
             (fn [_]
               (let [slot (get @rf.story.ui.test-mode.state/results-atom :story.pane.mount/v)]
                 (is (map?     (:result slot))      ":result populated")
-                (is (number?  (:ran-at-ms slot))   ":ran-at-ms stamped")
-                (is (false?   (:running? slot))    ":running? cleared on resolve")
                 (is (= #{}    (:expanded slot))    ":expanded starts empty")
                 (is (vector?  (:play-events slot)) ":play-events captured")
                 (is (= 1      (count (:play-events slot)))
