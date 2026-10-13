@@ -7,9 +7,7 @@
   1. **Frame wiring.** `set-target-frame!` dispatches into the
      `:rf/xray` frame; the dispatch updates `:rf.xray/target-frame`
      in Xray's app-db, so the companion sub re-fires and
-     `target-frame` reads back the new value. (There is no panel
-     picker API — no `active-panel` / `set-active-panel!`; the 4-layer
-     shell switches via `:rf.xray/selected-tab`.)
+     `target-frame` reads back the new value.
 
   2. **`load-theme!` is a safe no-op without a DOM.** It injects a
      host-supplied CSS override into `<head>` when a DOM is present
@@ -70,26 +68,20 @@
 ;; ---- init! contract ----------------------------------------------------
 
 (deftest init!-wires-theme-density-and-buffer-depths
-  ;; A host's boot-time opts land in the slots the Settings popup writes.
+  ;; A host's boot-time opts land in the slots the Settings popup writes,
+  ;; and keys init! does not recognise are ignored (spec/API.md), so a host
+  ;; passing a key a later Xray adds does not break boot.
   (setup-xray-frame!)
-  (core/init! {:target-frame  :app/main
-               :theme         :dark
-               :density       :compact
-               :buffer-depths {:epoch 75}})
+  (core/init! {:target-frame    :app/main
+               :theme           :dark
+               :density         :compact
+               :buffer-depths   {:epoch 75}
+               :unknown/future  :something
+               :rf.xray/another 42})
   (is (= [:dark :compact 75]
          [(config/get-setting :theme nil)
           (config/get-setting :general :density)
           (config/get-setting :general :epoch-history)])))
-
-(deftest init!-tolerates-unknown-opts-keys
-  (testing "init! silently ignores keys it doesn't recognise
-            (forward-compat: a host passing a key a future Xray release
-            adds MUST NOT break the current Xray boot)."
-    (setup-xray-frame!)
-    (core/init! {:target-frame    :app/main
-                 :unknown/future  :something
-                 :rf.xray/another 42})
-    (is true "init! did not throw on unknown keys")))
 
 (deftest init!-buffer-depths-with-nil-epoch-is-noop
   (testing "init! ignores :buffer-depths shapes without a
