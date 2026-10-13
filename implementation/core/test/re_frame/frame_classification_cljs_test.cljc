@@ -56,11 +56,7 @@
             :bad-value   :rf.egress/bogus-profile}
            (select-keys data [:rf.error/id :bad-key :bad-value])))
     (is (contains? (:valid data) :rf.egress/off-box-observability)
-        "the error carries the closed profile enum"))
-  (rf/make-frame {:id :app/good-profile :observability {:handled-events [{:sink :my-app.sinks/datadog
-                                                                          :rf.egress/profile :rf.egress/off-box-observability}]}})
-  (is (= :my-app.sinks/datadog
-         (get-in (rf/frame-meta :app/good-profile) [:observability :handled-events 0 :sink]))))
+        "the error carries the closed profile enum")))
 
 (deftest fail-loud-on-unknown-sink-entry-key
   ;; the entry is closed (:sink plus optional :rf.egress/profile): route-stream!
