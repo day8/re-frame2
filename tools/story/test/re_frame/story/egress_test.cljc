@@ -3,7 +3,8 @@
   T4): a shared / exported / copied artifact says honestly whether the
   recipient can reproduce it, and what downgraded it."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.story.egress :as rf.story.egress]))
+            [re-frame.story.egress :as rf.story.egress]
+            [re-frame.story.plan :as rf.story.plan]))
 
 (deftest classify-empty-is-full
   (is (= {:status :full :label "fully reproducible" :reasons []}
@@ -32,6 +33,16 @@
       (let [r (rf.story.egress/classify inputs)]
         (is (= status (:status r)))
         (is (some #(= code (:code %)) (:reasons r)))))))
+
+;; Built through the real compiler, because `variant-plan` places `:setup`
+;; under `:world` — a hand-built plan fixture can put it anywhere.
+(deftest classify-setup-fn-in-a-compiled-plan-is-partial
+  (let [plan (rf.story.plan/variant-plan
+               :story.egress/setup-fn
+               {:lookup {:story.egress/setup-fn {:setup [[:dispatch [:init (fn [] 1)]]]}}})
+        r    (rf.story.egress/classify {:plan plan})]
+    (is (= [:partial [:setup-fn]]
+           [(:status r) (mapv :code (:reasons r))]))))
 
 (deftest classify-fn-override-is-view-only
   (let [r (rf.story.egress/classify {:cell-overrides {:on-click (fn [_] nil) :label "ok"}})]
