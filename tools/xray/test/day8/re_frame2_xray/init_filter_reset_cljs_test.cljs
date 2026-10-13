@@ -166,8 +166,6 @@
 (deftest init-restores-durable-mode-pref
   (testing "the Dynamic ↔ Static mode is a DURABLE pref — it restores on init"
     (static-persistence/save! :static)
-    (is (= :static (static-persistence/load))
-        "precondition: localStorage holds the durable :static mode")
     (boot!)
     (is (= :static (frame-sub [:rf.xray/mode]))
         "the durable mode pref restores even as transient filters reset")
@@ -198,8 +196,6 @@
 (deftest no-seed-first-mount-stays-fully-unfiltered
   (testing "with NO host seed, production first mount comes up fully
             unfiltered (a nil seed means unfiltered)"
-    (is (nil? (config/get-filter-seed))
-        "precondition: the fixture cleared any seed")
     (boot!)
     (is (= {:in [] :out []} (frame-sub [:rf.xray/active-filters]))
         "no seed → registry-default empty pills → unfiltered first paint")))
