@@ -57,8 +57,9 @@ the situation they cover:
 ### Authoring on the CLJS reference
 
 - [`re-frame2/`](re-frame2) — author re-frame2 ClojureScript
-  application code. Events, subscriptions, effects, frames, state machines,
-  schemas, stories, routing, and the 14 canonical patterns (RemoteData,
+  application code. Events, subscriptions, effects, coeffects, interceptors,
+  flows, frames, views, state machines, schemas, routing, SSR, stories,
+  tests, and the 14 canonical patterns (RemoteData,
   Resources, ResourcesMutations, Forms, Boot, WebSocket, NineStates,
   ManagedHTTP, AsyncEffect, LongRunningWork, StaleDetection,
   ReusableComponents, StatefulComponents, FormAction), with leaf content under `references/`,
@@ -99,8 +100,8 @@ the situation they cover:
   event vectors; Form-2 atoms and Form-3 lifecycle move out of the
   component. An AI skill that applies judgment, not a
   codemod — it applies the mechanical `MIG-NN` rewrites directly, reasons
-  through the judgment calls, and declines the cases Fresco doesn't yet
-  handle ("stay on Reagent, or wait"). Staying on Reagent views is a
+  through the judgment calls, and keeps on Reagent the views Fresco has
+  no home for (its reject tier: "stay on Reagent"). Staying on Reagent views is a
   first-class, fully-supported choice — this skill's trigger is narrow:
   already on re-frame2 AND specifically wanting to trial Fresco, which
   ships in the same release set as the adapters and resolves the same way.
@@ -108,9 +109,10 @@ the situation they cover:
 - [`re-frame2-improver/`](re-frame2-improver) — critique-mode for
   existing re-frame2 ClojureScript code. Reviews a body of source
   files (or a user-supplied snippet) against a small catalogue of
-  re-frame2 anti-patterns, surfaces concrete findings cross-linked to
-  canonical idioms under `skills/re-frame2/patterns/`, and may propose
-  inline fixes via `Edit`. Activates only on explicit pull ("review my
+  re-frame2 anti-patterns and surfaces concrete findings cross-linked to
+  canonical idioms in the `re-frame2` skill (`patterns/` or `references/`)
+  or `spec/`. Read-only unless asked to fix, when it applies the smallest
+  safe corrections via `Edit`. Activates only on explicit pull ("review my
   re-frame2 code", "any anti-patterns?", "audit against best
   practices"); a body of re-frame2 source must be in scope.
 
@@ -172,14 +174,14 @@ signed off.
 | Author / engineer intent | Trigger phrasing / surface | Route to |
 |---|---|---|
 | Bootstrap a brand-new re-frame2 ClojureScript project from nothing (or an empty CLJS project with shadow-cljs/Clojure but zero re-frame2 wiring) | "start a re-frame2 project", "scaffold re-frame2", "hello-world re-frame2 app", "new re-frame2 app", build failure on a freshly-scaffolded project tracing to missing `re-frame.core` / `re-frame.adapter.reagent` wiring | [`re-frame2-setup/`](re-frame2-setup) |
-| Write new application code on a working re-frame2 project | events, subs, fx, cofx, frames, state machines, schemas, stories, routing, canonical patterns; `reg-event`, `reg-sub`, `reg-fx`, `reg-machine`, `reg-view`, `reg-route`, `reg-story`, `reg-app-schema`, `reg-interceptor`, `dispatch`, `subscribe`, `app-db` | [`re-frame2/`](re-frame2) |
+| Write new application code on a working re-frame2 project | events, subs, fx, cofx, interceptors, flows, frames, views, state machines, schemas, routing, SSR, stories, tests, canonical patterns; `reg-event`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-flow`, `reg-machine`, `reg-view`, `reg-route`, `reg-resource`, `reg-mutation`, `reg-story`, `reg-app-schema`, `reg-interceptor`, `dispatch`, `subscribe`, `app-db` | [`re-frame2/`](re-frame2) |
 | Migrate an existing re-frame v1.x ClojureScript codebase to re-frame2 | "migrate to re-frame2", "upgrade re-frame", "v1 to v2", "what breaks under re-frame2", or any v1 surface (`re-frame.db`, `dispatch-with`, `reg-global-interceptor`, `reg-sub-raw`, `^:flush-dom`, `re-frame.alpha`, `re-frame-test`, old top-level `:dispatch` / `:dispatch-n` effect-map keys) | [`re-frame-migration/`](re-frame-migration) |
 | Migrate Reagent **view** code to **Fresco**, the re-frame-native view layer — the OPTIONAL, SECOND step, done only after the v1→v2 move and only if Fresco is wanted | "migrate my Reagent views to Fresco", "port this component to h/defview", "move off Reagent hiccup", "the re-frame-native views", deref-drop, or a Reagent view surface named in a Fresco context (`r/atom` / `r/with-let` / `r/create-class` / `adapt-react-class` / `@(subscribe …)` in a view / `[:> …]` prop dialect) — **on an already-re-frame2 app** | [`reagent-fresco-migration/`](reagent-fresco-migration) |
 | Tour the **Xray** in-app devtools panel — how to launch it (true-inline, pop-out, programmatic `init!`, hotkeys, the Dynamic ↔ Static mode toggle) or **which tab / mode surfaces X** | "open Xray", "where is X in Xray", "which Xray panel/tab shows…", "Xray Static mode", "browse registered machines/routes/schemas in Xray", "Ctrl+Shift+C", "Xray hotkey", "Xray popout", "Xray machine inspector", "Xray epoch cascade", "where do Xray issues show up" — the user asks where a *human* looks in the visible panel; the moment they ask the agent to inspect or change the running app (read-only included), that's `re-frame2-pair` | [`re-frame2-xray/`](re-frame2-xray) |
 | Pair-program against a **running** re-frame2 application — attach to a live shadow-cljs nREPL, inspect a frame's `app-db`, dispatch events, hot-swap handlers, walk traces / epochs, time-travel with `restore-epoch` | live runtime is involved; user is operating on (or wants to operate on) a running local app | [`re-frame2-pair/`](re-frame2-pair) |
 | Retrospect on a `re-frame2-pair` session and turn it into prioritised improvement ideas for the pair-tool skill, preload runtime, MCP surface, or upstream `re-frame2` Tool-Pair contract | concrete `re-frame2-pair` session in the conversation **or** a user-supplied recap of one; user explicitly asks for a retro ("retro on this pair session", "review my re-frame2-pair session", "draft an issue about that"), OR a post-error post-mortem trigger fires within a live re-frame2-pair session | [`re-frame2-pair-retro/`](re-frame2-pair-retro) |
 | Build a **new re-frame2 implementation** in one of the eight in-scope JS-cross-compile-to-React+VDOM host languages (TypeScript, F# / Fable, Kotlin/JS, Squint, Scala.js, PureScript, Melange / ReScript / Reason — plus ClojureScript, the reference) — porting the pattern, not building an app on the CLJS reference | "port re-frame2", "implement re-frame2 in &lt;language&gt;", "second re-frame2 implementation", "implementor checklist", "conformance corpus", or any prompt about building re-frame2 itself | [`re-frame2-implementor/`](re-frame2-implementor) |
-| Critique **existing** re-frame2 ClojureScript code on explicit pull — review a body of source files (or a user-supplied snippet) against the re-frame2 anti-pattern catalogue, surface findings cross-linked to canonical idioms, and optionally propose inline fixes | "review my re-frame2 code for anti-patterns", "audit this against re-frame2 best practices", "any improvements?", "is there a better re-frame2 pattern here", "spot any anti-patterns in `cart/handlers.cljs`" — **and** a body of re-frame2 source is in scope: read or edited in the conversation, supplied as a snippet, **or** named as a concrete, resolvable `.cljs` / `.cljc` file or directory path the skill can read (the skill reads the named path before critiquing). A path that doesn't resolve does not establish scope — the skill says so and asks for a snippet rather than fabricate. | [`re-frame2-improver/`](re-frame2-improver) |
+| Critique **existing** re-frame2 ClojureScript code on explicit pull — review a body of source files (or a user-supplied snippet) against the re-frame2 anti-pattern catalogue, surface findings cross-linked to canonical idioms, and, when asked, apply the smallest safe fixes | "review my re-frame2 code for anti-patterns", "audit this against re-frame2 best practices", "any improvements?", "is there a better re-frame2 pattern here", "spot any anti-patterns in `cart/handlers.cljs`" — **and** a body of re-frame2 source is in scope: read or edited in the conversation, supplied as a snippet, **or** named as a concrete, resolvable `.cljs` / `.cljc` file or directory path the skill can read (the skill reads the named path before critiquing). A path that doesn't resolve does not establish scope — the skill says so and asks for a snippet rather than fabricate. | [`re-frame2-improver/`](re-frame2-improver) |
 | Read re-frame2's full API reference, EP design rationale, principles, conventions, or spec corpus | spec / architecture / design discussion without a running app or active authoring task | [`SKILL-REDIRECT.md`](../SKILL-REDIRECT.md) |
 
 ### Disqualifiers (vocabulary alone is not enough)
@@ -218,7 +220,7 @@ family rule — single source below:
 | `re-frame2-pair` | drive a live runtime | the agent, against the live app | a grounding live read after every change (Pillar 4) | the role *is* driving a runtime — executing against it is the point |
 | `re-frame2-implementor` | implementation driver (build the runtime) | the agent, with its tool access | the port's **discovered** noninteractive gates — the per-EP slice at every loop pass, and the full required-foundation / claimed-capability conformance passes in an end-to-end session — with exact commands + exits reported; interactive/visual evidence stays a concise programmer handoff | acceptance criterion *is* spec-conformance; the EP loop's slice gate and the conformance passes operationalise it |
 | `re-frame-migration` | migrate v1 code on an existing codebase | **split** — the skill runs the project's discovered noninteractive install / compile / test gates; the programmer owns the boot smoke when no drivable runtime is connected | compile + tests clean by the skill's own run, **and** the boot smoke-test clean — driven through a connected runtime, or run by the programmer from the skill's checklist and reported as pending until then | trust-the-explicit-invoker baseline — an explicit "migrate this repo" authorises the Type-A edits and the project's own gates; Type-B rewrites stay ask-first, batched into one checkpoint |
-| `reagent-fresco-migration` | migrate Reagent views to Fresco on an existing re-frame2 app | **split** — the skill runs the discovered safe noninteractive gates; the programmer owns the interactive/visual step | the skill's discovered **compile + tests** pass per closed subtree **and** the programmer has **rendered** and eyeballed the converted views | trust-the-explicit-invoker baseline — the skill discovers and runs the nearest safe noninteractive gate (compile the subtree, run its tests), but "compiles" is not the done-bar: interpreted Fresco moves most view errors to run time by design, so a converted view must still be *rendered* and eyeballed, which stays the programmer's when there is no runtime to drive |
+| `reagent-fresco-migration` | migrate Reagent views to Fresco on an existing re-frame2 app | **split** — the skill runs the discovered safe noninteractive gates; the programmer owns the interactive/visual step | the skill's discovered **compile + tests** pass per closed subtree **and** the programmer has **rendered** and eyeballed the converted views | trust-the-explicit-invoker baseline — the skill discovers and runs the nearest safe noninteractive gate (compile the subtree, run its tests), but "compiles" is not the done-bar: Fresco moves most view errors to run time by design, so a converted view must still be *rendered* and eyeballed, which stays the programmer's when there is no runtime to drive |
 | `re-frame2` (authoring) | author code on an existing re-frame2 app | **split** — the skill runs the project's discovered noninteractive compile / test / lint gate; the programmer owns interactive / visual checks and anything needing a live runtime (`re-frame2-pair`) | the nearest declared gate passes on the changed path, with the exact command + result reported | trust-the-explicit-invoker baseline — the skill already discovers the gate from `deps.edn` / `shadow-cljs.edn` / `package.json` / the nearest README, so it runs it and reports rather than relaying the command to the human; it still drives no runtime of its own (that stays `re-frame2-pair`'s) |
 | `re-frame2-setup` | scaffold greenfield | **split** — the skill runs its [canonical greenfield path](re-frame2-setup/SKILL.md#canonical-greenfield-path-six-steps) itself: `npm install`, the terminating compile and `npm test`, then the watch and the URL it printed; the browser smoke checks are handed to the programmer | the skill's own install, compile and starter test pass and the dev server is serving; the browser checks (the counter advances 0→1, hot reload) are handed off and reported unverified until observed — compile success is never a mount claim | one prompt produces one served SPA — zero-interview default (Reagent + the template-baseline pin); the browser checks stay the author's because the skill drives no runtime of its own |
 | `re-frame2-improver` | critique existing code | nobody runs; static critique | one complete severity-ordered critique in the requesting turn, findings cross-linked to canonical idioms | read-only by default; a direct "review and apply/fix" request authorises safe in-scope `Edit`s (redesigns stay proposals); runs no suite |
@@ -319,35 +321,36 @@ Single source of truth for the per-leaf size ceiling — per-skill
 Recorded here, so the next author cites the record rather than re-deriving
 it, are the leaves where a split or de-duplication was weighed and refused
 on that test. It is a record of decisions, not a census of every leaf over
-the figures. Line counts and LF-normalised bytes as measured on 2026-09-26:
+the figures, and it carries no sizes: they drift with every edit, so measure
+a leaf when its split comes up again.
 
-- catalogue-shaped — `re-frame2-pair/references/ops.md` 221 L / 47,392 B;
-  `re-frame2-pair/references/recipes.md` 339 L / 43,070 B;
-  `re-frame2-pair-retro/references/known-frictions.md` 254 L / 20,618 B;
-  `reagent-fresco-migration/references/catalog-mechanical.md` 475 L / 22,654 B and
-  `reagent-fresco-migration/references/catalog-judgment.md` 380 L / 21,727 B (any
+- catalogue-shaped — `re-frame2-pair/references/ops.md`,
+  `re-frame2-pair/references/recipes.md`,
+  `re-frame2-pair-retro/references/known-frictions.md`,
+  `reagent-fresco-migration/references/catalog-mechanical.md` and
+  `reagent-fresco-migration/references/catalog-judgment.md` (any
   row can apply to any view, so each is scanned whole for every view
   converted)
-- dense teaching — `re-frame2/references/state-machines/reg-machine.md`
-  208 L / 20,966 B; `re-frame2/references/state-machines/spawn.md`
-  222 L / 22,227 B; `re-frame-migration/references/guided-views-m11.md`
-  261 L / 39,793 B; `re-frame2-implementor/references/phase-2-impl-order.md`
-  102 L / 22,834 B (the EP loop and its index, loaded whole by every EP
+- dense teaching — `re-frame2/references/state-machines/reg-machine.md`,
+  `re-frame2/references/state-machines/spawn.md`,
+  `re-frame-migration/references/guided-views-m11.md` and
+  `re-frame2-implementor/references/phase-2-impl-order.md`
+  (the EP loop and its index, loaded whole by every EP
   slice; its largest section, the cross-cutting obligations, binds every
   port whatever its claim, so a split saves tokens only in a session that
   stops before any obligation applies, and costs a `SKILL.md` routing row
   because routing is one level deep)
 - migration phase leaves, where the test holds only in part —
-  `re-frame-migration/references/inventory-and-plan.md` 134 L / 38,451 B
+  `re-frame-migration/references/inventory-and-plan.md`
   (Phase 0a's five steps, one arc read whole); `auto-call-site-rewrites.md`
-  618 L / 58,154 B and `auto-cross-cutting.md` 450 L / 41,533 B (the Type A
+  and `auto-cross-cutting.md` (the Type A
   catalogues a Phase-3 sweep walks in full); `guided-interceptors-subs.md`
-  362 L / 27,065 B (loaded whole when the Phase-0a plan names any of its
+  (loaded whole when the Phase-0a plan names any of its
   rules). Two of them have a seam where a split would save tokens for one
   session shape: `auto-call-site-rewrites.md`'s test-layer block (M-25
-  through M-50, about 13 KB), which a migration with no re-frame test layer
-  never needs, and `guided-interceptors-subs.md`'s M-71 section (about
-  11 KB), for a plan that does not name M-71. Nothing measured shows which
+  through M-50), which a migration with no re-frame test layer
+  never needs, and `guided-interceptors-subs.md`'s M-71 section,
+  for a plan that does not name M-71. Nothing measured shows which
   shape is common, so they are recorded rather than split; if one shape
   comes to dominate, those are the seams
 
