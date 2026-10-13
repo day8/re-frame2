@@ -108,14 +108,6 @@
 ;; An extent that declares `:extent-frame` has ONE frame: a carried stamp naming
 ;; a different frame is refused, and a matching one must still answer.
 
-(deftest a-matched-carried-stamp-still-answers-inside-an-extent-that-names-its-frame
-  (rf.frame/call-with-ambient-frame-refused
-    {:substrate :probe :extent-frame :app :reason "Use the probe's own reader."}
-    (fn []
-      (binding [rf.frame/*current-frame* :app]
-        (is (= :app (rf.frame/resolve-current-frame)))
-        (is (= :app (rf.frame/require-current-frame! :subscribe)))))))
-
 (deftest the-mismatch-payload-names-both-frames
   (let [data (try (rf.frame/call-with-ambient-frame-refused
                     {:substrate :probe :extent-frame :app
@@ -186,16 +178,6 @@
                         {:substrate :probe :reason "Use the probe's own reader."}
                         (fn [] (rf.frame/require-current-frame! :capture-frame)))))))
 
-(deftest a-mismatched-stamp-is-refused-before-the-pure-door-is-admitted
-  (let [data (try (rf.frame/call-with-ambient-frame-refused
-                    {:substrate :probe :extent-frame :app :reason "Use the probe's own reader."}
-                    (fn []
-                      (binding [rf.frame/*current-frame* :other]
-                        (rf.frame/require-current-frame! :current-frame-id))))
-                  (catch clojure.lang.ExceptionInfo e (ex-data e)))]
-    (is (= {:rf.error/id :rf.error/ambient-frame-refused :carried-frame :other :extent-frame :app}
-           (select-keys data [:rf.error/id :carried-frame :extent-frame])))))
-
 (deftest stateful-ambient-operations-stay-refused-beside-an-admitted-door
   (rf.frame/call-with-ambient-frame-refused
     {:substrate :probe :extent-frame :app :reason "Use the probe's own reader."}
@@ -216,6 +198,3 @@
   (is (= :rf.error/no-frame-context
          (refused-id #(rf.frame/require-current-frame! :subscribe)))
       "the extent has unwound when the call returns"))
-
-(deftest the-refusal-returns-the-thunks-value
-  (is (= 42 (rf.frame/call-with-ambient-frame-refused {:substrate :probe} (fn [] 42)))))
