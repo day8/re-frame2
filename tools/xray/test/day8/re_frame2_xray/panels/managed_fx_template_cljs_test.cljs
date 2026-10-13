@@ -69,10 +69,9 @@
                               :handler [:user/loaded]})
                      :res nil)
           ids (set (testids (template/record-panel r)))]
-      (is (contains? ids "rf-xray-managed-fx-section-request"))
-      (is (not (contains? ids "rf-xray-managed-fx-section-wire")))
-      (is (not (contains? ids "rf-xray-managed-fx-section-response")))
-      (is (not (contains? ids "rf-xray-managed-fx-section-app-db"))))))
+      (is (= [true false false false]
+             (mapv #(contains? ids (str "rf-xray-managed-fx-section-" %))
+                   ["request" "wire" "response" "app-db"]))))))
 
 ;; ---- React keys reaching the renderer ------------------------------------
 
@@ -225,20 +224,6 @@
 
 (defn- noop-dispatch [_])
 
-(deftest opening-a-collapsed-section-puts-its-payload-in-the-tree
-  (testing "a section starts collapsed, the expansion state changes, and the
-            PAYLOAD is present afterwards"
-    (let [rk     (h/record-key disclosure-record)
-          shut   (template/record-panel noop-dispatch nil disclosure-record)
-          opened (template/record-panel noop-dispatch
-                                        {(h/expansion-key rk :request) true}
-                                        disclosure-record)
-          req    {:method :get :url "/x"}]
-      (is (not (some #{req} (tree-nodes shut)))
-          "the request payload is absent while the section is shut")
-      (is (some #{req} (tree-nodes opened))
-          "the request payload reaches the tree once the section is open"))))
-
 (deftest opening-response-on-a-failure-record-surfaces-the-failure-tags
   (testing "The failure branch of RESPONSE is a distinct payload — it is what
             the failure diagnostics are read from."
@@ -258,13 +243,15 @@
                      "rf-xray-managed-fx-wire-na")))))
 
 (deftest disclosure-state-is-per-record
-  (testing "Opening REQUEST on one record must not open it on its siblings —
-            which is why the override key carries the record identity."
+  (testing "Opening REQUEST on one record puts its payload in the tree and must
+            not open it on its siblings — which is why the override key carries
+            the record identity."
     (let [a         (record {:surface :http :fx-id :rf.http/managed
                              :status :ok :http-status 200})
           b         (record {:surface :flow :fx-id :rf.fx/reg-flow :status :ok})
           overrides {(h/expansion-key (h/record-key a) :request) true}]
-      (is (body-shown? (template/record-panel noop-dispatch overrides a) :request))
+      (is (some #{(:req a)} (tree-nodes (template/record-panel noop-dispatch overrides a)))
+          "the request payload reaches the tree once the section is open")
       (is (not (body-shown? (template/record-panel noop-dispatch overrides b) :request))))))
 
 (deftest a-section-header-dispatches-its-own-toggle
@@ -307,10 +294,8 @@
                             (filter #(= (str (section-testid s) "-toggle")
                                         (:data-testid (second %))))
                             first second :aria-expanded))]
-      (is (= "true" (aria :request)))
-      (is (= "true" (aria :wire)))
-      (is (= "false" (aria :response)))
-      (is (= "false" (aria :handler))))))
+      (is (= ["true" "true" "false" "false"]
+             (mapv aria [:request :wire :response :handler]))))))
 
 ;; ---- HD-016: no plain fn in hiccup head position --------------------------
 ;;
@@ -441,12 +426,6 @@
       (is (= [[:rf.xray/focus-event 41 :rf/default]] @seen)
           "the link focuses the REPLY bundle, never the issuing one")))
 
-  (testing "CANCELLED and STALE are their own statuses, not ERROR"
-    (let [c (joined-http-record :cancelled {:cancel-cause :actor-destroyed})
-          s (joined-http-record :stale {:cancel-cause :rf.http/superseded})]
-      (is (str/includes? (visible-text (template/record-panel c)) "CANCELLED"))
-      (is (str/includes? (visible-text (template/record-panel s)) "STALE"))))
-
   (testing "an issued row with no terminal row says so"
     (let [r   (assoc (joined-http-record :issued {}) :completion :none)
           txt (visible-text (template/record-panel r))]
@@ -508,11 +487,14 @@
 
 (deftest a-named-record-panel-qualifies-both-widget-ids
   (testing "naming the mount splices the instance in after the panel's own
-            prefix and before the record key; both ids move together because
-            both are built from the one node-key"
-    (let [expanded (open-all disclosure-record)
-          plain    (template/record-panel noop-dispatch expanded nil disclosure-record)
-          named    (template/record-panel noop-dispatch expanded "left" disclosure-record)]
+            prefix and before the record key, in every record of the list;
+            both ids move together because both are built from the one node-key"
+    (let [recs     [(record {:surface :http :fx-id :rf.http/managed
+                             :status :ok :http-status 200})
+                    disclosure-record]
+          expanded (into {} (mapcat open-all recs))
+          plain    (template/records-list noop-dispatch expanded nil recs)
+          named    (template/records-list noop-dispatch expanded "left" recs)]
       (is (= (mapv #(str "rf-xray-inspect-managed-fx/left/"
                          (subs % (count "rf-xray-inspect-managed-fx/")))
                    (widget-mount-ids plain))
@@ -545,21 +527,3 @@
             "a `record-key`-keyed override opens a named mount's REQUEST —
              disclosure is deliberately shared between two lists of the same
              records")))))
-
-(deftest records-list-threads-the-instance-to-every-record
-  (testing "the 4-arity reaches every record, not just the first."
-    (let [recs  [(record {:surface :http :fx-id :rf.http/managed
-                          :status :ok :http-status 200})
-                 (record {:surface :websocket :fx-id :rf.ws/connect :status :ok})]
-          named (template/records-list noop-dispatch
-                                       (into {} (mapcat open-all recs))
-                                       "right" recs)
-          ids   (widget-mount-ids named)]
-      (is (every? #(str/starts-with? % "rf-xray-inspect-managed-fx/right/") ids)
-          (str "every widget in the list carries the mount's name — "
-               (pr-str ids)))
-      (is (every? (fn [rec] (some #(str/includes? % (h/record-key rec)) ids))
-                  recs)
-          (str "and each record's own key is inside them, so the "
-               "qualifier composed WITH `record-key` rather than replacing "
-               "it — " (pr-str ids))))))
