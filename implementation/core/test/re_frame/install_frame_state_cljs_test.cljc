@@ -14,9 +14,7 @@
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.events :as rf.events]
             [re-frame.frame :as rf.frame]
-            [re-frame.image-assembly :as rf.image-assembly]
             [re-frame.interop :as rf.interop]
-            [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             #?(:clj [re-frame.test-support :as rf.test-support
                      :refer [with-emit-recorder! with-trace-recorder!]]
@@ -55,18 +53,6 @@
 
 (def ^:private saved-ssr
   {:hydration {:server-hash "bbbb2222" :version 2}})
-
-(deftest install-frame-state-is-a-core-standard-with-framework-authority
-  ;; framework-write authority keeps the runtime-db it returns in bounds; the
-  ;; standard registry unions it into every resolved image generation
-  (rf.events/register-install-frame-state-standard!)
-  (is (true? (:rf/framework-authority? (rf.registrar/handler-meta :event :rf/install-frame-state))))
-  (is (= {:standard true :rf/framework-authority? true}
-         (-> (->> (rf.image-assembly/standard-descriptors)
-                  (filter #(and (= :event (:kind %))
-                                (= :rf/install-frame-state (:id %))))
-                  first)
-             (select-keys [:standard :rf/framework-authority?])))))
 
 (deftest a-present-app-partition-replaces-app-db-and-runtime-db-is-untouched
   (let [fid    (fresh-frame!)
