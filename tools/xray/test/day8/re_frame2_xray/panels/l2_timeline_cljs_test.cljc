@@ -52,18 +52,13 @@
 
 ;; ---- duration column ----------------------------------------------------
 
-(deftest event-bundle-duration-ms-test
-  (is (= 1.234 (l2/event-bundle-duration-ms (cascade-with-duration 1.234))))
-  (is (= 2.5 (l2/event-bundle-duration-ms
-               {:handler {:operation :rf.event/run-end
-                          :tags      {:duration-ms 2.5}}}))
-      "falls back to :duration-ms when :rf.event/elapsed-ms is absent"))
-
 (deftest event-bundle-duration-label-test
   ;; One decimal place plus ` ms` on both runtimes; nil leaves the cell empty.
   (are [label bundle] (= label (l2/event-bundle-duration-label bundle))
     "1.2 ms"  (cascade-with-duration 1.234)
     "12.0 ms" (cascade-with-duration 12)
+    "2.5 ms"  {:handler {:operation :rf.event/run-end
+                         :tags      {:duration-ms 2.5}}}
     nil       {}))
 
 ;; ---- issue wash ---------------------------------------------------------
