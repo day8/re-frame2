@@ -133,7 +133,40 @@
                                           :rf.frame/id         :empty/main
                                           :rf.frame/generation {:rf.gen/resolver {}}}}))))))
 
+;; ---- a frame made without :images: the live registration store ----------
+
+(deftest project-frame-row-live-store
+  (testing "a frame view resolving the live store projects its registrations
+            through the image-row shape, with no image ids, and its ambiguous
+            ids sorted"
+    (let [row (h/project-frame-row
+                :app/main
+                {:rf.frame/id            :app/main
+                 :rf.frame/live-store?   true
+                 :rf.frame/registrations {[:event :counter/inc]   inc-desc
+                                          [:sub   :counter/value] value-desc}
+                 :rf.frame/ambiguous     [{:kind :fx :id :app/z :namespaces ["a" "b"]}
+                                          {:kind :event :id :app/save :namespaces ["a" "b"]}]})]
+      (is (true? (:live-store? row)))
+      (is (= {:images [] :kinds [:event :sub] :descriptor-count 2}
+             (select-keys (:image row) [:images :kinds :descriptor-count])))
+      (is (= [[:event :app/save] [:fx :app/z]]
+             (mapv (juxt :kind :id) (:ambiguous (:image row))))))))
+
+(deftest project-image-view-live-store-frame-is-shown
+  (testing "a frame resolving the live store flips :images? even with nothing
+            it can run, so its ambiguous ids are not hidden behind the empty
+            caption"
+    (is (true? (:images? (h/project-image-view
+                           {:app/main {:rf.frame/live-store?   true
+                                       :rf.frame/registrations {}
+                                       :rf.frame/ambiguous     [{:kind :event :id :app/save
+                                                                 :namespaces ["a" "b"]}]}}))))))
+
 ;; ---- display strings -----------------------------------------------------
+
+(deftest ambiguous-summary-string
+  (is (= "ambiguous — app.a app.b" (h/ambiguous-summary ["app.a" "app.b"]))))
 
 (deftest provenance-summary-strings
   (testing "provenance summaries read cleanly: the source namespace, or the

@@ -19,15 +19,18 @@
     - **frame-derived RESOLUTION** — the lookup path `target frame -> resolved
       image generation -> registration resolution`: what a given frame
       resolves a `(kind, id)` to, via its generation. The same id resolves to
-      DIFFERENT descriptors in frames running different images.
+      DIFFERENT descriptors in frames running different images. A frame made
+      without `:images` seals no generation: it resolves the registration
+      store live, and its row says so, listing what it can run and naming
+      any id it refuses as ambiguous.
 
   Xray itself runs in its OWN image/frame and inspects the target frame as
   DATA (EP-0023 §Xray Beside The Target) — `image_view_reads/xray-image` is
   Xray's separate registration set; the inspector never shares the target's.
 
-  The FRAMES/IMAGES section is DEMAND-GATED: a process not using `rf/make-frame`
-  image-loaded frames renders the calm no-image caption — the honest
-  not-using-images state.
+  The FRAMES/IMAGES section is DEMAND-GATED: a process with no frame made by
+  `rf/make-frame` renders the calm empty caption — the honest no-frame-yet
+  state.
 
   ## Pure hiccup + helpers
 
@@ -118,13 +121,18 @@
 (def ^:private descriptor-prov-style
   {:color (:text-tertiary tokens)})
 
+(def ^:private ambiguous-style
+  {:color (:warning tokens)})
+
 ;; ---- EP-0023 image/frame row ---------------------------------------------
 
 (defn- descriptor-rows
   "Render a frame's resolved image as its `[kind id]` descriptor list —
   the image presented as a registration-set VALUE (EP-0023 §Image). Each row
   is `kind/id   <provenance>`. Capped to keep the browse calm; the count line
-  carries the full total. Pure hiccup.
+  carries the full total. An id the frame refuses as ambiguous (a frame made
+  without `:images`, whose id more than one namespace registers) leads the
+  list, outside the cap, naming its namespaces. Pure hiccup.
 
   Each row carries its own `:key` in its ATTRIBUTE map. Under Reagent an
   unkeyed `for` is a console warning; under Fresco's codec the literal
@@ -133,10 +141,18 @@
   by every other substrate, so it is the portable spelling rather than a
   Fresco accommodation. `kind` + `id` is unique within one image's
   descriptor set by construction — a descriptor IS a `[kind id]` pair."
-  [{:keys [descriptors descriptor-count] :as _image}]
+  [{:keys [descriptors descriptor-count ambiguous] :as _image}]
   (let [shown (take 24 descriptors)]
     (into [:div]
           (concat
+            (for [{:keys [kind id namespaces]} ambiguous]
+              [:div {:key         (str "ambiguous " kind " " id)
+                     :data-testid "rf-xray-module-view-ambiguous"
+                     :style       descriptor-row-style}
+               (str kind " " id)
+               " "
+               [:span {:style ambiguous-style}
+                (ih/ambiguous-summary namespaces)]])
             (for [{:keys [kind id provenance]} shown]
               [:div {:key   (str kind " " id)
                      :style descriptor-row-style}
@@ -150,25 +166,29 @@
                 (str "… " (- descriptor-count (count shown)) " more")]])))))
 
 (defn- frame-row
-  "Render one live frame as an EXECUTION CONTEXT pointing at its resolved
-  image generation (EP-0023 §Frame). Shows the frame id, the image summary (N
-  descriptors · K kinds), capability requirements, and the resolved `[kind
-  id]` descriptor set (the image as a value). Pure hiccup.
+  "Render one live frame as an EXECUTION CONTEXT pointing at what it resolves
+  registrations through (EP-0023 §Frame): its resolved image generation, or
+  — for a frame made without `:images` — the live registration store. Shows
+  the frame id, the image summary (N descriptors · K kinds), capability
+  requirements, and the resolved `[kind id]` descriptor set (the image as a
+  value). Pure hiccup.
 
   The row owns its own React `:key` (its frame id, which is unique across
   the live-frame registry by construction), in its attribute map rather
   than as vector METADATA attached by the caller: metadata is a Reagent
   reading of `:key` that Fresco's codec does not share, and the attribute
   map is the spelling both read."
-  [{:keys [frame-id image capabilities has-adapter?] :as _frame-row}]
+  [{:keys [frame-id image capabilities has-adapter? live-store?] :as _frame-row}]
   (let [fid-name (if frame-id (str frame-id) "<anonymous>")]
     [:div {:key         fid-name
            :data-testid (str "rf-xray-module-view-frame-" fid-name)}
      [:div {:data-testid (str "rf-xray-module-view-frame-" fid-name "-id")
             :style       frame-id-style}
       fid-name]
-     [:div {:style frame-fact-style}
+     [:div {:data-testid (str "rf-xray-module-view-frame-" fid-name "-image")
+            :style       frame-fact-style}
       [:span {:style frame-fact-label-style} "image     "]
+      (when live-store? "live registration store · ")
       (ih/image-row-summary image)
       ;; Name the composed image ids when present (an anonymous image carries
       ;; no `:rf.image/id` → a nil entry; drop it rather than print "nil").
@@ -184,14 +204,17 @@
         "active-substrate binding"])
      [:div {:style frame-fact-style}
       [:span {:style frame-fact-label-style} "resolves  "]
-      "this frame resolves (kind id) through its image generation"]
+      (if live-store?
+        "this frame resolves (kind id) live from the registration store"
+        "this frame resolves (kind id) through its image generation")]
      (descriptor-rows image)]))
 
 (defn- frames-section-body
-  "The FRAMES / IMAGES section body — every live image-loaded frame, each as
-  an execution context carrying its resolved image (its generation's `[kind
-  id]` descriptors). When NO live frame runs a generation, the calm no-image
-  caption (EP-0023's public model is opt-in). Pure hiccup."
+  "The FRAMES / IMAGES section body — every frame made with `rf/make-frame`,
+  each as an execution context carrying the registrations it resolves: its
+  image generation's `[kind id]` descriptors, or the live registration
+  store's for a frame made without `:images`. With no such frame, the calm
+  empty caption. Pure hiccup."
   [{:keys [frames images?] :as _image-view}]
   (if images?
     (into [:div {:data-testid "rf-xray-module-view-frames-list"}]
@@ -208,11 +231,11 @@
 
 (rf.fresco/defview Panel
   "The Module-view tab's root. Renders the EP-0023 PUBLIC model — the
-  FRAMES/IMAGES section (`image -> frame -> event stream`: every live
-  image-loaded frame as an execution context carrying its resolved image's
-  `[kind id]` descriptors). Reads `:rf.xray/image-view`.
-  A process running entirely on the `reg-*` sugar / load-order path with no
-  image-loaded frames renders the honest no-image caption.
+  FRAMES/IMAGES section (`image -> frame -> event stream`: every frame made
+  with `rf/make-frame` as an execution context carrying the `[kind id]`
+  descriptors it resolves, through its image or live from the registration
+  store). Reads `:rf.xray/image-view`. A process with no such frame renders
+  the honest empty caption.
 
   A FRESCO BOUNDARY, not an `rf/reg-view`. Two differences matter and
   neither is cosmetic.
@@ -240,10 +263,10 @@
     [:section {:data-testid "rf-xray-module-view"
                :style       panel-root-style}
      [:div {:style panel-scroll-container-style}
-      ;; FRAMES / IMAGES — the EP-0023 PUBLIC model: every live image-loaded
-      ;; frame as an execution context carrying its resolved image (the
-      ;; generation's [kind id] descriptors), plus the frame-derived
-      ;; resolution path.
+      ;; FRAMES / IMAGES — the EP-0023 PUBLIC model: every frame as an
+      ;; execution context carrying the [kind id] descriptors it resolves
+      ;; (its image generation's, or the live store's), plus the
+      ;; frame-derived resolution path.
       (section/section-row
         {:label  "Frames"
          :testid "rf-xray-module-view-frames"
@@ -292,12 +315,12 @@
   []
   ;; `:rf.xray/image-view` — the EP-0023 PUBLIC `image -> frame` model.
   ;; Reads the EP-0023 live-frame registry + sealed image
-  ;; generations via the fail-soft `image-view-reads` seam and projects via
-  ;; the pure `image-view-helpers/project-image-view`: every live
-  ;; image-loaded frame as an execution context carrying its resolved image
-  ;; (the generation's [kind id] descriptors). Read-only — enumerating live
-  ;; frames + reading sealed generations pins nothing and dispatches nothing
-  ;; (a sealed generation is an immutable VALUE, not a routing path). It does
+  ;; generations, and the registrations each frame made without `:images`
+  ;; resolves live, via the fail-soft `image-view-reads` seam and projects via
+  ;; the pure `image-view-helpers/project-image-view`: every frame as an
+  ;; execution context carrying the [kind id] descriptors it resolves.
+  ;; Read-only — enumerating frames, reading sealed generations and querying
+  ;; registrations pins nothing and dispatches nothing. It does
   ;; NOT compose off an `:rf.xray/*` app-db slot: the live-frame registry is a
   ;; process-global fact (it lives in `re-frame.live-frame`, not Xray's
   ;; app-db); the sub reads it directly at recompute time and a tab activation

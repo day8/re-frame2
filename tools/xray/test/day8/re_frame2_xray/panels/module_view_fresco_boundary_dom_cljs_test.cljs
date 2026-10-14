@@ -181,3 +181,31 @@
             ;; lifecycle and an imperative subscriber must not rely on that.
             (rf/unsubscribe probe)
             (teardown! root container)))))))
+
+;; ===========================================================================
+;; W2 — a frame made without :images paints as resolving the live store
+;; ===========================================================================
+
+(deftest w2-a-live-store-frame-paints-with-its-ambiguous-id-named
+  (testing "the application frame, made without :images, paints a row marked
+            as resolving the live registration store, and an id two
+            namespaces register is named there with both namespaces."
+    (if-not (browser?)
+      (is true ":node — the :browser-test runner drives the real React mount")
+      (let [_   (rf/reg-event ::save {:ns 'app.a} (fn [db _] db))
+            _   (rf/reg-event ::save {:ns 'app.b} (fn [db _] db))
+            _   (setup!)
+            row (str "[data-testid=\"rf-xray-module-view-frame-" app-frame "\"]")
+            {:keys [container root]} (mount-panel! :rf/xray)]
+        (try
+          (is (re-find #"live registration store"
+                       (.-textContent
+                         (q container (str "[data-testid=\"rf-xray-module-view-frame-"
+                                           app-frame "-image\"]"))))
+              "the application frame's row says it resolves the live store")
+          (is (re-find #"ambiguous — app\.a app\.b"
+                       (.-textContent
+                         (q container (str row " [data-testid=\"rf-xray-module-view-ambiguous\"]"))))
+              "the ambiguous id is named with both namespaces")
+          (finally
+            (teardown! root container)))))))
