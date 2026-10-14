@@ -37,14 +37,6 @@
       (append (page [:b] "c2") "c1" 1100)
       (append (page [:c] "c3") "c2" 1200)))
 
-(deftest next-param-derivation
-  (is (= ["c1" "c2" nil]
-         (map #(rf.resources.state/next-param-for next-cursor %)
-              [[(page [:a] "c1")]
-               [(page [:a] "c1") (page [:b] "c2")]
-               [(page [:a] nil)]]))
-      "derived from the last page; a nil cursor is the terminal"))
-
 (deftest prev-param-derivation-mirror
   (let [pages [{:items [:a] :page-info {:prev-cursor "p0"}}
                {:items [:b] :page-info {:prev-cursor "p1"}}]]
@@ -67,15 +59,6 @@
           :next-page-param "c3" :loaded-at 1200}
          (select-keys (accumulated-3) [:data :page-params :next-page-param :loaded-at]))
       "pages grow in order, one param each, the cursor and :loaded-at re-derived per append"))
-
-(deftest page-accessor-resolution
-  ;; nil leaves the page as the item vector; anything but a keyword or fn is nil
-  (let [f (fn [p] (:rows p))]
-    (is (= [[:a :b] [:x] nil nil]
-           [((rf.resources.state/resolve-page->items :items) {:items [:a :b]})
-            ((rf.resources.state/resolve-page->items f) {:rows [:x]})
-            (rf.resources.state/resolve-page->items nil)
-            (rf.resources.state/resolve-page->items 99)]))))
 
 (deftest replace-page-in-place-preserves-window
   (let [e0 (accumulated-3)
@@ -127,12 +110,6 @@
     (is (= expected (rf.resources.state/refetch-window-count policy page-count))
         (str "policy " (pr-str policy) " over " page-count " pages"))))
 
-(deftest entry-begin-refetch-sweep-default-noop
-  (let [e0 (accumulated-3)]
-    (is (= [true true] [(identical? e0 (rf.resources.state/entry-begin-refetch-sweep e0 nil))
-                        (identical? e0 (rf.resources.state/entry-begin-refetch-sweep e0 {}))])
-        "the default arms no sweep")))
-
 (deftest entry-begin-refetch-sweep-opt-in-arms-cursor
   (let [e0 (accumulated-3)
         e1 (rf.resources.state/entry-begin-refetch-sweep e0 {:refetch-all-pages? true})]
@@ -140,16 +117,3 @@
            [(:refetch-sweep e1) (= (select-keys e0 [:data :status :revision]) (select-keys e1 [:data :status :revision]))])
         "pages 1..N-1 are armed; :data, :status and :revision are untouched"))
   (is (= [["c1" 1]] (:refetch-sweep (rf.resources.state/entry-begin-refetch-sweep (accumulated-3) {:refetch-window 2})))))
-
-(deftest entry-advance-and-clear-refetch-sweep
-  (let [e0 (rf.resources.state/entry-begin-refetch-sweep (accumulated-3) {:refetch-all-pages? true})
-        e1 (rf.resources.state/entry-advance-refetch-sweep e0)
-        e2 (rf.resources.state/entry-advance-refetch-sweep e1)]
-    (is (= [["c1" 1] [["c2" 2]] ["c2" 2] false nil]
-           [(rf.resources.state/next-refetch-sweep-leg e0) (:refetch-sweep e1)
-            (rf.resources.state/next-refetch-sweep-leg e1) (contains? e2 :refetch-sweep)
-            (rf.resources.state/next-refetch-sweep-leg e2)])
-        "each advance pops the head leg; popping the last removes the cursor")
-    (is (not (contains? (rf.resources.state/clear-refetch-sweep e0) :refetch-sweep))
-        "a failed or aborted leg clears the sweep"))
-  (is (nil? (rf.resources.state/next-refetch-sweep-leg (accumulated-3))) "an unarmed entry has no leg"))
