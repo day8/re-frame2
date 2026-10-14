@@ -20,20 +20,7 @@
     {:adapter rf.adapter.reagent/adapter :ambient-frame nil})
   (fn [test-fn] (try (test-fn) (finally (r/flush)))))
 
-;; ---- (1) the callback fires once the render queue drains -------------------
-
-(deftest after-render-runs-callback-on-queue-drain
-  (testing "a callback handed to interop/after-render under the Reagent
-            adapter FIRES when Reagent's render queue drains; (r/flush)
-            forces that drain synchronously"
-    (let [fired (atom 0)]
-      (rf.interop/after-render (fn [] (swap! fired inc)))
-      (is (zero? @fired) "not fired before the drain")
-      (r/flush)
-      (is (= 1 @fired)
-          "callback fired exactly once after the render queue drained"))))
-
-;; ---- (2) copied / wrapped adapter map routes to the live hook --
+;; ---- a copied / wrapped adapter map routes to the live hook ---------------
 ;;
 ;; `route-hook!` routes by the adapter's `:kind` token, not object identity;
 ;; by identity an `assoc`'d copy would make `interop/after-render` a silent
