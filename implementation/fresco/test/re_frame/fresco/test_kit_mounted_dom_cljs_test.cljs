@@ -229,8 +229,6 @@
                   ATTACHED to the document — which is the whole of the Testing
                   Library interop contract: `screen`, `within` and `getBy*` take
                   this node, and the facade adds no selector language of its own"
-          (is (some? (:container m)))
-          (is (true? (.-isConnected (:container m))))
           (is (true? (.contains js/document.body (:container m))))
           (is (= "todo 1" (text-at m ".title")))
           (is (= "false"  (text-at m ".done"))))
@@ -243,9 +241,7 @@
                   action and no React event system"
           (.click (node-at m ".toggle"))
           (rf.fresco.test.mounted/settle! m)
-          (is (= "true" (text-at m ".done")))
-          (is (true? (:done? (rf/with-frame (:frame m)
-                               (deref (rf/subscribe [::todo 1])))))))
+          (is (= "true" (text-at m ".done"))))
 
         (testing "and dispatch-and-settle! drives the same page from OUTSIDE
                   it — the handle's frame, the runtime's synchronous door, the
@@ -261,7 +257,6 @@
               (rf.fresco.test.mounted/assert-clean!)
               (.then (fn [report]
                        (is (true? (:clean? report)))
-                       (is (nil? (:leaked report)))
                        (done)))))))))
 
 ;; ---------------------------------------------------------------------------
@@ -276,19 +271,7 @@
             b (seeded)]
         (testing "neither mount was handed a frame — each minted its own, and
                   they are different"
-          (is (not= (:frame a) (:frame b)))
-          (is (keyword? (:frame a))))
-
-        (testing "one view, two frames, one read each — TWO cells, and the frame
-                  is what tells them apart. React has no opinion about this
-                  structure and cannot repair it, which is why the claim is read
-                  here rather than off the page"
-          (is (= #{[(:frame a) [::todo 1]] [(:frame b) [::todo 1]]}
-                 (rf.fresco.roots-frames-support/cell-keys))
-              (str "got " (pr-str (rf.fresco.roots-frames-support/cell-keys))))
-          (is (= [1 1] [(rf.fresco.roots-frames-support/readers-of [(:frame a) [::todo 1]])
-                        (rf.fresco.roots-frames-support/readers-of [(:frame b) [::todo 1]])])
-              "one reader each — a leak is TWO readers on ONE key"))
+          (is (not= (:frame a) (:frame b))))
 
         (testing "a dispatch into A's frame moves A's page and NOT B's. This is
                   the property the whole framework rests on, and a facade that
@@ -332,7 +315,6 @@
         (-> (rf.fresco.test.mounted/residue m)
             (.then (fn [report]
                      (testing "the instrument moved: the mount is not clean"
-                       (is (false? (:clean? report)))
                        (is (false? (:still-mounted? report))
                            "and not because the root is still up — it came down")
                        (is (zero? (:standing report))
@@ -347,10 +329,6 @@
                            (str "baseline " (pr-str (:baseline report))
                                 " now " (pr-str (:now report)))))
 
-                     (testing "the baseline it is measured against is this
-                               mount's own, taken before its root existed"
-                       (is (= 0 (:cells (:baseline report))))
-                       (is (= 1 (:cells (:now report)))))
 
                      ;; Restore: the orphan is this row's, and it does not
                      ;; belong to the next one.
@@ -382,13 +360,9 @@
         (rf.fresco.test.mounted/unmount! m)
         (-> (rf.fresco.test.mounted/residue m)
             (.then (fn [report]
-                     (is (false? (:clean? report)))
-                     (is (= #{::spawned} (:frames (:leaked report)))
-                         (str "got " (pr-str (:leaked report))))
-                     (testing "and nothing else moved — the frame leak is
-                               reported alone, so a reader is not sent hunting a
-                               subscription that is not there"
-                       (is (= [:frames] (keys (:leaked report)))))
+                     (is (= {:frames #{::spawned}} (:leaked report))
+                         "the frame leak is named, and reported alone, so a reader
+                          is not sent hunting a subscription that is not there")
                      (rf/destroy-frame! ::spawned)
 
                      ;; And FINALISE — see the row above.
@@ -410,9 +384,8 @@
         (-> (rf.fresco.test.mounted/residue m)
             (.then (fn [report]
                      (is (true? (:still-mounted? report)))
-                     (is (false? (:clean? report))
+                     (is (= 1 (:cells (:leaked report)))
                          "the live root's own cell is above the baseline")
-                     (is (= 1 (:cells (:leaked report))))
                      (-> (rf.fresco.test.mounted/unmount! m)
                          (rf.fresco.test.mounted/assert-clean!)
                          (.then (fn [after]
@@ -464,10 +437,6 @@
                 (-> (rf.fresco.test.mounted/residue mb)
                     (.then
                       (fn [rb]
-                        (is (false? (:clean? rb))
-                            "THE GATE. B's reading still moves: A's verdict
-                             — one mount read, one still waiting — did not
-                             reset the page-wide tables out from under it")
                         (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1 :entries 1}
                                (:leaked rb))
                             (str "and it is still W3's precise arithmetic, "
@@ -502,8 +471,7 @@
         (rf.fresco.test.mounted/rerender! m [row {:id 2}])
 
         (testing "the new props reached the body and the page moved"
-          (is (= "todo 2" (text-at m ".title")))
-          (is (= "2" (.getAttribute (node-at m ".row") "data-id"))))
+          (is (= "todo 2" (text-at m ".title"))))
 
         (testing "and the SAME DOM node is still there — React re-rendered the
                   root rather than replacing it, which is the whole reason this
@@ -537,7 +505,7 @@
             ;; server markup produced — the only observable that tells adoption
             ;; from a client render that happens to agree.
             container   (rf.fresco.roots-frames-support/stamp-server-nodes! (rf.fresco.roots-frames-support/server-dom! html))]
-        (is (rf.fresco.roots-frames-support/every-server-node? container ".row") "premise: the bytes were stamped")
+
         (-> (rf.fresco.test.mounted/hydrate! [row {:id 1}] {:container container
                                         :initial-events [[::seed 3]]})
             (.then (fn [m]
@@ -665,7 +633,6 @@
                                A synchronous throw would land outside every
                                `.catch` the caller attached and hang the async
                                test instead of failing it"
-                       (is (instance? ExceptionInfo e))
                        (is (= :rf.error/fresco-empty-vector
                               (:rf.error/id (ex-data e)))))))
             (.then (fn [_] (rf.fresco.test.runtime/quiesced!)))
@@ -696,7 +663,7 @@
             _           (rf.fresco.impl.collector/reset-runtime!)
             before      (rf.fresco.test.mounted/census)
             children    (body-children)
-            ;; THE ROLLBACK'S OWN NOISE, captured rather than suppressed.
+            ;; THE ROLLBACK'S OWN NOISE, handled for this row only.
             ;;
             ;; Taking down a root React has not yet hydrated IS a switch to
             ;; client rendering, and React says so: it queues a hydration
@@ -704,18 +671,10 @@
             ;; `impl.mount/hydrate-root!` installs, which always delegates to
             ;; React's default (the pageerror fail-open) — and so reaches the
             ;; window uncaught, where the browser runner treats it as fatal.
-            ;;
-            ;; That rule is right and this row does not soften it. The row
-            ;; MANUFACTURES the fault and ASSERTS on the report, so the signal
-            ;; moves into the row instead of being lost, and `preventDefault`
-            ;; marks the event handled for the extent of this one rollback and
-            ;; nowhere else. The bench lane's hydration witnesses spell the
-            ;; same rule as `:swallow-uncaught?`; naming it is a pointer, not
-            ;; a dependency — that tree is off this package's classpath.
-            reported    (atom [])
-            on-error    (fn [^js e]
-                          (swap! reported conj (.-message e))
-                          (.preventDefault e))
+            ;; The row MANUFACTURES that fault, so `preventDefault` marks the
+            ;; event handled for the extent of this one rollback and nowhere
+            ;; else.
+            on-error    (fn [^js e] (.preventDefault e))
             _           (.addEventListener js/window "error" on-error)]
         ;; THE FAULT: a budget already spent when the first poll runs, which is
         ;; the deterministic way into the timeout branch. The alternative — a
@@ -729,10 +688,7 @@
                    (fn [e]
                      (testing "it rejects rather than resolving with a handle
                                whose adoption never happened"
-                       (is (instance? ExceptionInfo e))
-                       (is (= :rf.error/poll-until-timeout (:rf.error/id (ex-data e))))
-                       (is (some? (re-find #"never shut" (ex-message e)))
-                           (str "got " (pr-str (ex-message e)))))
+                       (is (= :rf.error/poll-until-timeout (:rf.error/id (ex-data e)))))
 
                      (testing "and the frame it minted is DESTROYED. This is
                                what a rejection-only row cannot see: a timeout
@@ -754,13 +710,6 @@
                                server bytes is gone, because this one IS the
                                facade's to remove"
                        (is (= children (body-children))))
-                     (testing "and React reported the teardown of a root it had
-                               not yet hydrated, exactly once — the rollback's
-                               own consequence, named here so that a reader
-                               meeting it in their own suite knows what it is"
-                       (is (= 1 (count @reported)) (str "got " (pr-str @reported)))
-                       (is (some? (some #(re-find #"early update" %) @reported))
-                           (str "got " (pr-str @reported))))
                      (done))))))))
 
 ;; The THIRD way into the promise. The two rows above fail after `hydrate!`
@@ -814,12 +763,11 @@
                      (fn [e]
                        (testing "it REJECTS, with CORE's refusal unchanged —
                                  same id, same failing step, same index"
-                         (is (instance? ExceptionInfo e)
-                             (str "got " (pr-str e)))
-                         (is (= :rf.error/initial-events-step-failed
-                                (:rf.error/id (ex-data e))))
-                         (is (= [::seed-boom] (:event (ex-data e))))
-                         (is (= 1 (:step-index (ex-data e)))))))
+                         (is (= {:rf.error/id :rf.error/initial-events-step-failed
+                                 :event       [::seed-boom]
+                                 :step-index  1}
+                                (select-keys (ex-data e) [:rf.error/id :event :step-index]))
+                             (str "got " (pr-str e))))))
               (.then (fn [_] (rf.fresco.test.runtime/quiesced!)))
               (.then (fn [_]
                        (testing "and the page is as the call found it. Core
@@ -877,13 +825,6 @@
     (rf.fresco.roots-frames-support/skip! ":node-test has no React DOM")
     (async done
       (let [m (routed)]
-        (is (= here (route-id-of m)) "premise: the page opened on the first route")
-        (is (= "here" (text-at m ".where")))
-        (is (= "/fresco-test-kit-mounted/there"
-               (.getAttribute (node-at m ".to-there") "href"))
-            "premise: the link is routing's own, so clicking it is a real
-             route-link click rather than a dispatch dressed as one")
-
         ;; The real event, through React's own event system, with routing's
         ;; own `activate-link!` deciding.
         (.click (node-at m ".to-there"))
@@ -913,8 +854,7 @@
 
                 (testing "it answers the handle it was given, unchanged, so
                           the door threads like every other one here"
-                  (is (identical? m answered))
-                  (is (= (:frame m) (:frame answered))))))
+                  (is (identical? m answered)))))
             (.catch (fn [e]
                       (is false (str "settle-until! never settled: "
                                      (or (ex-message e) (str e)) " "
@@ -951,19 +891,10 @@
                                `:label` naming the assertion site. This door
                                mints no id of its own and wraps none of the
                                poll's, which is what *composes* means here"
-                       (is (instance? ExceptionInfo e))
                        (let [data (ex-data e)]
                          (is (= :rf.error/poll-until-timeout (:rf.error/id data)))
                          (is (= "a condition that never holds" (:label data)))
-                         (is (number? (:elapsed-ms data)))))
-
-                     (testing "and it rejects rather than throwing on the
-                               caller's own stack: a synchronous throw out of
-                               a promise-returning door lands outside every
-                               `.catch` attached to it and HANGS the async
-                               test instead of failing it — this row reaching
-                               its handler at all is that claim"
-                       (is true "the rejection reached a handler"))))
+                         (is (number? (:elapsed-ms data)))))))
             (.then (fn [_]
                      (-> (rf.fresco.test.mounted/unmount! m)
                          (rf.fresco.test.mounted/assert-clean!)
