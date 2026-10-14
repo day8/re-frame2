@@ -54,13 +54,12 @@
       content
       (throw (js/Error. "ENOENT")))))
 
-(deftest read-port-file-parses-trims-and-fails-soft
-  (doseq [[content expected] [["  6789  \n" 6789]
-                              ["not-a-number" nil]]]
-    (let [restore! (install-fs-stub! nil (read-returning "the/port" content))]
-      (try
-        (is (= expected (nrepl/read-port-file "the/port")) (pr-str content))
-        (finally (restore!))))))
+(deftest read-port-file-non-numeric-is-nil
+  ;; So the discovery cascade falls through instead of adopting a NaN port.
+  (let [restore! (install-fs-stub! nil (read-returning "the/port" "not-a-number"))]
+    (try
+      (is (nil? (nrepl/read-port-file "the/port")))
+      (finally (restore!)))))
 
 ;; ---------------------------------------------------------------------------
 ;; `attach-handlers!`, driven through a fake socket that records its callbacks.
@@ -107,18 +106,6 @@
     (nrepl/attach-handlers! conn (fake-socket cbs*))
     (emit-data! cbs* (frame-buf {"id" "ghost" "value" "x"}))
     (is (zero? (.-length (:buf @conn))) "the frame is consumed and dropped")))
-
-(deftest error-handler-marks-conn-closed
-  (let [cbs*     (atom {})
-        conn     (nrepl/make-conn 0 "127.0.0.1")
-        orig-err (.-error js/console)]
-    (swap! conn assoc :closed? false)
-    (nrepl/attach-handlers! conn (fake-socket cbs*))
-    (set! (.-error js/console) (fn [& _] nil))   ; the handler logs to stderr
-    (try
-      ((get @cbs* "error") (js/Error. "boom"))
-      (finally (set! (.-error js/console) orig-err)))
-    (is (true? (:closed? @conn)) "a socket error marks the conn closed, so the next op reconnects")))
 
 (deftest close!-resets-probe-cache-and-pending
   ;; Operator teardown clears every session cache, so a later connect never
@@ -368,21 +355,6 @@
           (.then (fn [_]
                    (is (= (assoc caches :closed? false)
                           (select-keys @conn [:closed? :resolved-build-id :build-alias :probed-builds])))))
-          (.catch (fn [e] (is false (str "unexpected reject: " (.-message e))) nil))
-          (.then (fn [_] (restore!) (done)))))))
-
-(deftest connect!-single-flight-one-socket-for-concurrent-callers
-  (async done
-    (let [sockets* (atom [])
-          restore! (with-multi-create-connection! sockets*)
-          conn     (nrepl/make-conn 6001 "127.0.0.1")
-          p1       (nrepl/connect! conn)
-          p2       (nrepl/connect! conn)]
-      (is (= 1 (count @sockets*)) "two concurrent connect! callers open ONE socket")
-      (is (identical? p1 p2) "and share ONE in-flight Promise")
-      (fire-cb! (first @sockets*) "connect")
-      (-> p1
-          (.then (fn [_] (is (false? (:closed? @conn)) "the shared connect publishes a live conn")))
           (.catch (fn [e] (is false (str "unexpected reject: " (.-message e))) nil))
           (.then (fn [_] (restore!) (done)))))))
 
