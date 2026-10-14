@@ -10,22 +10,18 @@
   measures it.
 
   **It works, and the clause does not close for hand-rolled bytes.**
-  Both halves are facts and the rows below are laid out to keep them
-  apart:
+  Both halves are facts:
 
     - the option reaches React on both doors — the server's bytes and
       the client's root each carry the prefix they were given, and the
-      distinctness the option exists for is real (§1, §2); but
+      distinctness the option exists for is real (§4); but
     - a root the product door hydrates carries an element a hand-rolled
       server render has no counterpart for, and `useId` is derived from tree
       POSITION as well as from the prefix. So the two sides disagree on
-      the id's tail while agreeing perfectly on its head (§2), and a page
+      the id's tail while agreeing perfectly on its head, and a page
       whose bytes were baked by a hand-rolled `renderToString` rather
-      than by a product door hydrates into a text mismatch.
-
-  §3 pins that cause to a single structural difference and §4 and §5 run
-  the whole clause on the far side of it, so the difference is named
-  exactly rather than left as *hydration is broken*.
+      than by a product door hydrates into a text mismatch
+      (`server_render_ssr_dom_cljs_test` §4b-3).
 
   ## The cause, stated once
 
@@ -36,8 +32,8 @@
   prefix AND from a *tree id* accumulated at each fork — an array of more
   than one child — so that sibling pair is a fork the server render never
   sees, and every id below it shifts. `renderToString` over the tree the
-  arm actually hydrates produces ids that agree (§3); over the tree a
-  consumer spells by hand, it does not (§2).
+  arm actually hydrates produces ids that agree (§4); over the tree a
+  consumer spells by hand, it does not.
 
   The package's server door, `re-frame.fresco.server/render`, renders
   through that same `impl.mount/tree` with its adoption window, so its
@@ -55,9 +51,7 @@
   only the first would stay green under a door that ignored the option
   and let React default both sides; one asserting only the second would
   stay green under a door that broke hydration outright. Both directions
-  are below, and so is the near-miss (§5) — a client prefix that is
-  legal, spelled, and *different* from the server's — because that is the
-  page a team ships when the two halves of a build drift apart.
+  are below.
 
   ## Why the id is TEXT and not an attribute
 
@@ -65,7 +59,7 @@
   divergences are outside React's own hydration contract and stay outside
   it here (Spec 011 §Hydration-mismatch detection,
   `impl.mount/emit-hydration-mismatch!`), so an id parked in an `id=`
-  attribute would diverge in silence and the disagreement rows would be
+  attribute would diverge in silence and the mismatch reading would be
   measuring nothing.
 
   ## Why the readings survive a re-render
@@ -102,9 +96,9 @@
   which is the right instrument for markup rows and the wrong one for a
   `useId` claim — a client root's ids are not a server render's.
 
-  Runtime: `-dom-cljs-test`, so `:browser-test` decides every hydration
-  claim against a real React DOM. The `renderToString` rows need no DOM
-  and run under `:node-test` too; the DOM rows say so and skip."
+  Runtime: `-dom-cljs-test`, so `:browser-test` decides the hydration
+  claim against a real React DOM; under `:node-test` the row says so and
+  skips."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.adapter.uix :as rf.adapter.uix]
@@ -194,32 +188,17 @@
   (rf.fresco.impl.collector/reset-runtime!)
   nil)
 
-(defn- server-html!
-  "The bytes an SSR route delivers for `hiccup` under `frame-kw`, with
-  React's own `identifierPrefix` — `nil` for a route that names none.
-
-  **The tree a consumer spells BY HAND**: the frame provider over the
-  root element, handed to `react-dom/server`'s `renderToString`. That
-  hand-rolled call bakes no adoption closer, so these are the bytes a
-  hand-rolled SSR route ships — `root-shaped-server-html!` below is the
-  other tree, and §3 pins the difference to that one fork."
-  [frame-kw hiccup prefix]
-  (react-dom-server/renderToString
-    (rf.fresco.impl.mount/provider frame-kw (rf.fresco.impl.codec/root-element frame-kw hiccup))
-    (when prefix #js {"identifierPrefix" prefix})))
-
 (defn- root-shaped-server-html!
-  "The same bytes, from the tree the product door actually HYDRATES —
-  `Fragment[closer, adoption-provider[frame provider[page]]]`,
+  "The bytes an SSR route delivers for `hiccup` under `frame-kw`, with
+  React's own `identifierPrefix`, from the tree the product door actually
+  HYDRATES — `Fragment[closer, adoption-provider[frame provider[page]]]`,
   `impl.mount/tree`'s hydrating shape reproduced element for element.
 
   **This is not a product path and this file does not propose it as
-  one.** It is a measurement: the ONLY difference between it and
-  [[server-html!]] is that structure, so a row that agrees here and
-  disagrees there has isolated the cause to the structure and to nothing
-  else. The markup the two produce is identical — the closer renders no
-  DOM — which is exactly why the difference is invisible to every row in
-  the package that reads markup.
+  one.** It is a measurement: the closer renders no DOM, so its markup is
+  a hand-rolled render's and only the ids differ, which is exactly why
+  the difference is invisible to every row in the package that reads
+  markup.
 
   The window is a real one, minted for the render and never closed: on
   the server nothing runs a passive effect, so it stays open and is read
@@ -227,8 +206,7 @@
 
   `sup/server-html!` refuses to open a window for its own renders and
   says why — inventing product API for a test. The distinction held to
-  here is that this is not offered to any other suite and answers no
-  question except *which structural difference moved the id*."
+  here is that this is not offered to any other suite."
   [frame-kw hiccup prefix]
   (let [window (rf.fresco.impl.roots/open-adoption-window!)
         app    (rf.fresco.impl.mount/provider frame-kw (rf.fresco.impl.codec/root-element frame-kw hiccup))]
@@ -272,18 +250,11 @@
 ;; Settlement — the ONE way out of an async row, taken on both outcomes
 ;; ---------------------------------------------------------------------------
 ;;
-;; Every async row below hydrates a real root and waits on `sup/adopted!`,
-;; and each of them holds things the `:each` fixture will NOT take back:
-;;
-;;   * a MOUNTED React root, with the container `sup/server-dom!` minted
-;;     still in the document — the fixture resets frames, disposes the
-;;     adapter and empties the runtime, and none of that unmounts a root;
-;;   * `console.error`, replaced by `sup/open-console-capture!`, and the
-;;     `window` "error" listener it registered. §2 and §5 open theirs with
-;;     `:swallow-uncaught? true`, so a listener that outlives its row goes
-;;     on calling `preventDefault` on every later row's uncaught errors —
-;;     which is precisely the fail-open the browser runner's pageerror rule
-;;     exists to prevent.
+;; The async row below hydrates real roots and waits on `sup/adopted!`, and
+;; holds a thing the `:each` fixture will NOT take back: a MOUNTED React
+;; root, with the container `sup/server-dom!` minted still in the
+;; document — the fixture resets frames, disposes the adapter and empties
+;; the runtime, and none of that unmounts a root.
 ;;
 ;; The mismatch watcher's trace listener is the one thing the fixture does
 ;; sweep — `make-reset-runtime-fixture`'s `:before` calls
@@ -301,8 +272,7 @@
 ;; entered and the `finally` never fires. Nothing runs: no `stop!`, no
 ;; `release!`, no `done`. The row does not fail on its own account — it
 ;; never settles, so `cljs.test`'s async runner has nothing to advance it
-;; with, and the next row is handed a live root and a swallowing listener to
-;; take its census against.
+;; with, and the next row is handed a live root to take its census against.
 ;;
 ;; On THIS lane it is worse than a hang, which is worth knowing before
 ;; reading a sabotage of it as merely slow. An unsettled rejection is an
@@ -313,173 +283,18 @@
 ;; summary, inside one `cljs.test/run-block` with no try/catch. So the cost
 ;; of a rejection here is never one row.
 ;;
-;; `sup/settle-row!` is the one path all four end with. Its rejection arm is
-;; on no green path here, so the rows that take it are the shared controls:
+;; `sup/settle-row!` is the path it ends with. Its rejection arm is on no
+;; green path here, so the rows that take it are the shared controls:
 ;; roots_frames_hydration_dom's
 ;; `a-rejected-adoption-still-releases-both-roots-and-the-watcher` and
 ;; server_render_ssr_dom's `a-rejected-adoption-leaves-the-next-row-a-clean-page`.
 
 ;; ---------------------------------------------------------------------------
-;; 1 — the SERVER side alone (no DOM; runs under :node-test)
-;; ---------------------------------------------------------------------------
-
-(deftest the-hydrating-root-s-own-shape-moves-the-id-and-not-the-prefix
-  (testing "one prefix, two tree SHAPES, two ids — the whole cause, on the
-            server side alone and with no DOM in sight. The prefix is
-            identical in both because the option is doing its job; the
-            tail differs because `useId` is derived from tree position and
-            the hydrating root carries a fork the plain render has not"
-    (fresh!)
-    (let [plain  (id-in-html (server-html! frame-a [id-page {}] "pfx-a-"))
-          shaped (id-in-html (root-shaped-server-html! frame-a [id-page {}] "pfx-a-"))]
-      (is (str/includes? plain "pfx-a-") "the plain shape carries the prefix")
-      (is (str/includes? shaped "pfx-a-") "and so does the root's own shape")
-      (is (not= plain shaped)
-          (str "the two shapes must not agree — if they did, §2's mismatch "
-               "would have some other cause; got " (pr-str plain) " both times")))))
-
-;; ---------------------------------------------------------------------------
-;; 2 — THE OBSTRUCTION, measured: the bytes a consumer bakes by hand do
-;;     not hydrate, and the prefix is not why
-;; ---------------------------------------------------------------------------
-
-(deftest the-bytes-a-consumer-can-bake-today-mismatch-on-position-not-on-prefix
-  (async done
-    (if-not (rf.fresco.impl.mount/browser?)
-      (do (rf.fresco.roots-frames-support/skip! ":node-test has no React DOM") (done))
-      (do
-        (fresh!)
-        (let [html      (server-html! frame-a [id-page {}] "pfx-a-")
-              server-id (id-in-html html)
-              container (rf.fresco.roots-frames-support/stamp-server-nodes! (rf.fresco.roots-frames-support/server-dom! html))
-              {:keys [seen stop!]} (rf.fresco.roots-frames-support/watch-mismatches!)
-              ;; MANUFACTURED here and asserted on here — the only shape of
-              ;; call site at which swallowing an uncaught error is not the
-              ;; fail-open the pageerror rule forbids. React routes a hydration
-              ;; failure to `reportError`, and the browser runner fails a
-              ;; run on any uncaught pageerror.
-              {:keys [captured close!]} (rf.fresco.roots-frames-support/open-console-capture!
-                                          {:swallow-uncaught? true})]
-          (is (some? server-id) "premise: the bytes carry an id")
-          (rf.fresco.impl.collector/reset-runtime!)
-          (let [handle (rf.fresco.impl.mount/hydrate-root! container frame-a [id-page {}]
-                                            {:identifier-prefix "pfx-a-"})]
-            (-> (rf.fresco.roots-frames-support/adopted! handle)
-                (.then
-                  (fn [ok]
-                    ;; Closed HERE and named in `:release!` as well. Here,
-                    ;; because the assertions below read `@captured` and the
-                    ;; window has to be shut across the render rather than
-                    ;; across the rest of the row; there, because `close!` is
-                    ;; idempotent and the rejection path never reaches this
-                    ;; line.
-                    (close!)
-                    (is (true? ok) "the root's own adoption window shut")
-                    (testing "React complains, and the complaint is attributed
-                              to this arm's own door rather than left as an
-                              uncaught window error"
-                      (is (seq (filterv #(re-find #"Hydration failed" %) @captured))
-                          (str "React itself must have reported the divergence "
-                               "on the page's own channel; got "
-                               (pr-str (mapv #(subs % 0 (min 60 (count %)))
-                                             @captured))))
-                      (is (seq @seen)
-                          "the divergence must reach Spec 011's channel")
-                      (let [tags (rf.fresco.roots-frames-support/tags-of (first @seen))]
-                        (is (= 're-frame.fresco.impl.mount/hydrate-root!
-                               (:where tags))
-                            (str "attributed to source; got " (pr-str (:where tags))))
-                        (is (= :warned-and-replaced (:recovery tags))
-                            "React had already patched the DOM by the time the
-                             callback ran, so that is the recovery reported")))
-
-                    (testing "and the PREFIX is not what diverged. Read after a
-                              real client render, so it is the client's own
-                              answer and not an untouched server byte"
-                      (relabel! frame-a "alpha'")
-                      (is (= "alpha'" (text-in container ".value"))
-                          "premise: the dispatch painted, so a render happened")
-                      (is (= "alpha'" (text-in container ".label"))
-                          "premise: the ISLAND re-rendered too — its prop moved")
-                      (is (str/includes? server-id "pfx-a-")
-                          "the server's id carried the prefix")
-                      (is (str/includes? (probe-id container) "pfx-a-")
-                          (str "and so does the client's — the pass-through "
-                               "reached both doors; got "
-                               (pr-str (probe-id container))))
-                      (is (not= server-id (probe-id container))
-                          (str "they differ all the same, which is the "
-                               "obstruction this row records; server "
-                               (pr-str server-id) ", client "
-                               (pr-str (probe-id container)))))))
-                (rf.fresco.roots-frames-support/settle-row!
-                  {:row      "§2 — the bytes a consumer can bake today"
-                   :done     done
-                   :release! (fn []
-                               (close!)
-                               (stop!)
-                               (rf.fresco.impl.mount/release! handle))}))))))))
-
-;; ---------------------------------------------------------------------------
-;; 3 — THE DIAGNOSIS: bytes of the root's own shape hydrate silently
-;; ---------------------------------------------------------------------------
-
-(deftest bytes-of-the-hydrating-root-s-own-shape-adopt-with-the-server-s-id
-  (async done
-    (if-not (rf.fresco.impl.mount/browser?)
-      (do (rf.fresco.roots-frames-support/skip! ":node-test has no React DOM") (done))
-      (do
-        (fresh!)
-        (let [html      (root-shaped-server-html! frame-a [id-page {}] "pfx-a-")
-              server-id (id-in-html html)
-              container (rf.fresco.roots-frames-support/stamp-server-nodes! (rf.fresco.roots-frames-support/server-dom! html))
-              {:keys [seen stop!]} (rf.fresco.roots-frames-support/watch-mismatches!)]
-          (rf.fresco.impl.collector/reset-runtime!)
-          (let [handle (rf.fresco.impl.mount/hydrate-root! container frame-a [id-page {}]
-                                            {:identifier-prefix "pfx-a-"})]
-            (-> (rf.fresco.roots-frames-support/adopted! handle)
-                (.then
-                  (fn [ok]
-                    (is (true? ok) "the root's own adoption window shut")
-
-                    (testing "the adoption was real — these are the very nodes
-                              the bytes produced, which no re-render could
-                              reconstruct"
-                      (is (rf.fresco.roots-frames-support/every-server-node? container ".page, .value, .probe")
-                          "the server's nodes survived, probe included"))
-
-                    (testing "and React had nothing to complain about, which is
-                              what isolates §2's mismatch to the tree shape:
-                              one structural difference is all that changed"
-                      (is (empty? @seen)
-                          (str "matching shape and matching prefix must produce "
-                               "no mismatch; got "
-                               (pr-str (mapv #(:error (rf.fresco.roots-frames-support/tags-of %)) @seen)))))
-
-                    (testing "the id agrees ACROSS A REAL CLIENT RENDER, which
-                              is the only reading that separates *the client
-                              minted the same id* from *nobody touched the
-                              server's text*"
-                      (relabel! frame-a "alpha'")
-                      (is (= "alpha'" (text-in container ".label"))
-                          "premise: the island re-rendered")
-                      (is (= server-id (probe-id container))
-                          (str "the client's own id must equal the server's; "
-                               "server " (pr-str server-id) ", client "
-                               (pr-str (probe-id container)))))))
-                (rf.fresco.roots-frames-support/settle-row!
-                  {:row      "§3 — bytes of the hydrating root's own shape"
-                   :done     done
-                   :release! (fn []
-                               (stop!)
-                               (rf.fresco.impl.mount/release! handle))}))))))))
-
-;; ---------------------------------------------------------------------------
 ;; 4 — §2.4's clause, as written: TWO SIMULTANEOUS hydrating roots
 ;; ---------------------------------------------------------------------------
 ;;
-;; Everything §2.4 asks of the root and provider element, on the far side
-;; of §3's structural difference: two roots adopting at once, each with
+;; Everything §2.4 asks of the root and provider element, on bytes of the
+;; root's own shape: two roots adopting at once, each with
 ;; its own stable prefix, neither complaining, ids distinct, and an exact
 ;; census once both are down. What it does NOT witness is the package's
 ;; server door emitting these bytes — `root-shaped-server-html!` stands in
@@ -584,69 +399,3 @@
                                (stop!)
                                (rf.fresco.impl.mount/release! ha)
                                (rf.fresco.impl.mount/release! hb))}))))))))
-
-;; ---------------------------------------------------------------------------
-;; 5 — the NEAR-MISS: a legal prefix that is the wrong one
-;; ---------------------------------------------------------------------------
-;;
-;; This row is what makes §4's green mean something. The two roots there
-;; each *have* a prefix, and a door that accepted the option and dropped
-;; it on the floor would still satisfy every assertion that reads only the
-;; server's bytes. Here the client is handed a prefix that is well-formed,
-;; spelled exactly as the door asks, and DIFFERENT from the one the bytes
-;; were baked with — and everything else, the tree shape included, is held
-;; identical to §3's silent adoption. The prefix is the only variable.
-
-(deftest a-client-prefix-that-disagrees-with-the-bytes-is-caught-at-source
-  (async done
-    (if-not (rf.fresco.impl.mount/browser?)
-      (do (rf.fresco.roots-frames-support/skip! ":node-test has no React DOM") (done))
-      (do
-        (fresh!)
-        (let [html      (root-shaped-server-html! frame-a [id-page {}] "pfx-a-")
-              server-id (id-in-html html)
-              container (rf.fresco.roots-frames-support/stamp-server-nodes! (rf.fresco.roots-frames-support/server-dom! html))
-              {:keys [seen stop!]} (rf.fresco.roots-frames-support/watch-mismatches!)
-              ;; Manufactured and asserted on here — see §2's note.
-              {:keys [captured close!]} (rf.fresco.roots-frames-support/open-console-capture!
-                                          {:swallow-uncaught? true})]
-          (rf.fresco.impl.collector/reset-runtime!)
-          (let [handle (rf.fresco.impl.mount/hydrate-root! container frame-a [id-page {}]
-                                            {:identifier-prefix "pfx-b-"})]
-            (-> (rf.fresco.roots-frames-support/adopted! handle)
-                (.then
-                  (fn [_]
-                    ;; Closed here for §2's reason, and named in `:release!`
-                    ;; as well because `close!` is idempotent and the
-                    ;; rejection path never reaches this line.
-                    (close!)
-                    (testing "the divergence is REPORTED, and attributed to this
-                              arm's own door"
-                      (is (seq (filterv #(re-find #"Hydration failed" %) @captured))
-                          (str "React itself must have reported it; got "
-                               (pr-str (mapv #(subs % 0 (min 60 (count %)))
-                                             @captured))))
-                      (is (seq @seen)
-                          "a prefix that disagrees with the bytes must complain")
-                      (let [tags (rf.fresco.roots-frames-support/tags-of (first @seen))]
-                        (is (= 're-frame.fresco.impl.mount/hydrate-root!
-                               (:where tags))
-                            (str "attributed to source; got "
-                                 (pr-str (:where tags))))
-                        (is (= :warned-and-replaced (:recovery tags)))))
-
-                    (testing "and the recovery is visible: the id on the page is
-                              the CLIENT's prefix, not the bytes'"
-                      (is (not= server-id (probe-id container))
-                          (str "the disagreeing client id must have replaced the "
-                               "server's; both read " (pr-str server-id)))
-                      (is (str/includes? (probe-id container) "pfx-b-")
-                          (str "and it is the client's prefix; got "
-                               (pr-str (probe-id container)))))))
-                (rf.fresco.roots-frames-support/settle-row!
-                  {:row      "§5 — a client prefix that disagrees with the bytes"
-                   :done     done
-                   :release! (fn []
-                               (close!)
-                               (stop!)
-                               (rf.fresco.impl.mount/release! handle))}))))))))
