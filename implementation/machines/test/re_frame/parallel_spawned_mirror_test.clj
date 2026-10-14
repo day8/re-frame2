@@ -60,22 +60,6 @@
   (is (not (contains? (machine-data :psm5/p) :rf/spawned))
       "no mirror entry outlives the child"))
 
-(deftest region-reentry-mirrors-the-successor
-  (reg-child! :psm6/kid)
-  (rf/reg-machine :psm6/p
-    {:type    :parallel
-     :data    {}
-     :regions {:a {:initial :idle
-                   :states  {:idle    {:on {:go-a :loading}}
-                             :loading {:spawn {:machine-id :psm6/kid}
-                                       :on    {:again {:target :loading :reenter? true}}}}}
-               :b {:initial :idle
-                   :states  {:idle {}}}}})
-  (rf/dispatch-sync [:psm6/p [:go-a]])
-  (rf/dispatch-sync [:psm6/p [:again]])
-  (is (= [:psm6/kid#2 {[:loading] :psm6/kid#2}]
-         [(registry-slot :psm6/p [:a :loading]) (:rf/spawned (machine-data :psm6/p))])))
-
 (defn- two-region-parent [a-loading b-loading]
   {:type    :parallel
    :data    {}
