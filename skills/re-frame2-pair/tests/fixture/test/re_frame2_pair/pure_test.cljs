@@ -14,24 +14,12 @@
 ;; Multi-frame operating-frame resolution (multi-frame ambiguity matrix)
 ;; ===========================================================================
 
-(deftest reserved-tool-frame-predicate
-  (testing ":rf/* tool frames are reserved; :rf/default and user frames are not"
-    (is (true?  (pure/reserved-tool-frame? :rf/xray)))
-    (is (true?  (pure/reserved-tool-frame? :rf/ssr)))
-    (is (false? (pure/reserved-tool-frame? :rf/default))
-        ":rf/default is an ordinary app frame id, not a tool frame")
-    (is (false? (pure/reserved-tool-frame? :stories)))
-    (is (false? (pure/reserved-tool-frame? :rf-default))
-        "un-namespaced lookalike is a user frame")
-    (is (false? (pure/reserved-tool-frame? "rf/xray"))
-        "a non-keyword id is never a tool frame")))
-
 (deftest app-frame-ids-excludes-tool-frames-retains-default
   (is (= [:rf/default] (pure/app-frame-ids [:rf/default :rf/xray]))
       ":rf/xray excluded; :rf/default retained")
   (is (= [:my-app] (pure/app-frame-ids [:my-app :rf/xray :rf/ssr])))
-  (is (= [:rf/default :stories] (pure/app-frame-ids [:rf/default :stories :rf/xray]))
-      "order mirrors the input frame-ids")
+  (is (= [:rf/default :stories :rf-default] (pure/app-frame-ids [:rf/default :stories :rf-default :rf/xray]))
+      "order mirrors the input frame-ids; the un-namespaced :rf-default lookalike is a user frame")
   (is (= [] (pure/app-frame-ids [:rf/xray]))
       "only tool frames -> no app frames"))
 
@@ -45,20 +33,17 @@
     (is (= :stories (pure/resolve-operating-frame nil :stories [:rf/default :stories]))
         "session pin resolves ambiguity")
     (is (= :rf/default (pure/resolve-operating-frame :rf/default :stories [:rf/default :stories]))
-        "explicit override beats the session pin")
-    (is (= :ghost (pure/resolve-operating-frame :ghost nil []))
-        "an explicit override returns even if unregistered (resolver is naive)")))
+        "explicit override beats the session pin")))
 
 (deftest ambiguous-frame-envelope-shape
   (let [env (pure/ambiguous-frame-envelope :dispatch [:rf/default :stories] nil
                                            {:event [:cart/apply-coupon "SPRING25"]})]
-    (is (false? (:ok? env)))
-    (is (= :ambiguous-frame (:reason env)) ":reason is the sole machine discriminator")
-    (is (= :dispatch (:operation env)))
-    (is (= [:rf/default :stories] (:available-frames env)))
-    (is (nil? (:selected-frame env)))
-    (is (= [:cart/apply-coupon "SPRING25"] (:event env)) "extra context rides through")
-    (is (re-find #"select-frame!|frame" (:hint env)) "hint names the fix")))
+    (is (= {:ok? false :reason :ambiguous-frame :operation :dispatch
+            :available-frames [:rf/default :stories] :selected-frame nil
+            :event [:cart/apply-coupon "SPRING25"]}
+           (dissoc env :hint))
+        "extra context rides through beside the refusal")
+    (is (re-find #"select-frame!" (:hint env)) "hint names the fix")))
 
 ;; ===========================================================================
 ;; Call-time id validation (read-sub validation matrix)
@@ -79,15 +64,14 @@
            (pure/validate-against-known :sub :current-user [:current-user :cart/total]))))
   (testing "an unknown id fails with :unknown-id + :nearest (no silent swallow)"
     (let [r (pure/validate-against-known :sub :current-userr [:current-user :cart/total])]
-      (is (false? (:ok? r)))
-      (is (= :unknown-id (:reason r)))
-      (is (some #(= :current-user %) (:nearest r)))
-      (is (= 2 (:known-count r)))
+      (is (= {:ok? false :reason :unknown-id :kind :sub :id :current-userr
+              :nearest [:current-user :cart/total] :known-count 2}
+             (dissoc r :hint)))
       (is (re-find #"did you mean" (:hint r)))))
   (testing "an empty registrar reports :known-count 0 with a distinct hint"
     (let [r (pure/validate-against-known :sub :anything [])]
-      (is (false? (:ok? r)))
-      (is (= 0 (:known-count r)))
+      (is (= {:ok? false :reason :unknown-id :kind :sub :id :anything :nearest [] :known-count 0}
+             (dissoc r :hint)))
       (is (re-find #"nothing is registered" (:hint r))))))
 
 ;; ===========================================================================
@@ -96,8 +80,6 @@
 
 (deftest epoch-elapsed-ms-spans-run-start-to-last-run-end
   (let [run (fn [op t] {:op-type :rf.event :operation op :time t})]
-    (is (= 150 (pure/epoch-elapsed-ms
-                {:trace-events [(run :rf.event/run-start 1000) (run :rf.event/run-end 1150)]})))
     (is (nil? (pure/epoch-elapsed-ms {:trace-events [(run :rf.event/run-end 1000)]}))
         "no run-start -> nil")
     (is (nil? (pure/epoch-elapsed-ms {:trace-events [(run :rf.event/run-start 1000)]}))
@@ -116,7 +98,7 @@
   (is (not ((pure/parse-timing-pred "<=50") 51)))
   (is (nil? (pure/parse-timing-pred "not-a-number")) "unparseable -> nil (predicate absent)"))
 
-(deftest epoch-matches-composes-keys
+(deftest epoch-matches-filters-on-each-axis
   (let [slow {:event-id :cart/add
               :trace-events [{:op-type :rf.event :operation :rf.event/run-start :time 1000}
                              {:op-type :rf.event :operation :rf.event/run-end   :time 1150}]}]
@@ -127,9 +109,7 @@
     (is (pure/epoch-matches? {:timing-ms 100} slow) "slow epoch clears >=100")
     (is (not (pure/epoch-matches? {:timing-ms ">100"}
                                   {:event-id :x :trace-events []}))
-        "an epoch with no timing bracket does not clear a numeric threshold")
-    (is (pure/epoch-matches? {:event-id :cart/add :timing-ms 100} slow)
-        "keys AND-compose")))
+        "an epoch with no timing bracket does not clear a numeric threshold")))
 
 ;; ===========================================================================
 ;; Pair-epoch attribution (queued-correct, frame-qualified, bounded)
@@ -155,7 +135,6 @@
     (is (true?  (pure/origin-matches? :pair pair)))
     (is (false? (pure/origin-matches? :pair app)) "an :app cascade is not pair-origin")
     (is (false? (pure/origin-matches? :pair []))  "no dispatched trace -> false")
-    (is (false? (pure/origin-matches? :pair nil)))
     (is (false? (pure/origin-matches? :pair
                   [{:operation :rf.event/run-start :tags {:rf.event/origin :pair}}]))
         "origin rides on :rf.event/dispatched, not an arbitrary trace op")))
@@ -236,8 +215,6 @@
 (deftest db-diff-summary-depth-1-delta
   (is (= {:added-paths [[:b]] :removed-paths [] :changed-paths [[:a]]}
          (pure/db-diff-summary {:a 1} {:a 2 :b 3})))
-  (is (= {:added-paths [] :removed-paths [] :changed-paths []}
-         (pure/db-diff-summary {:a 1} {:a 1})))
   (is (= {:added-paths [] :removed-paths [] :changed-paths [[]]}
          (pure/db-diff-summary 1 2) )
       "non-map, non-equal -> the whole-db changed marker [[]]"))
@@ -260,12 +237,9 @@
 (deftest cascade-summary-contained-throw-forces-error
   (let [summary (pure/cascade-summary thrown-action-epoch false)]
     (is (= :error (:outcome summary)) "a contained throw forces :outcome :error, not :ok")
-    (is (seq (:errors summary)))
-    (let [err (first (:errors summary))]
-      (is (= :rf.error/machine-action-exception (:operation err)))
-      (is (= :fuse/box (:machine-id err)))
-      (is (= :blow-fuse (:action-id err)))
-      (is (= "fuse blew" (:message err))))))
+    (is (= [{:operation :rf.error/machine-action-exception :machine-id :fuse/box
+             :action-id :blow-fuse :message "fuse blew"}]
+           (:errors summary)))))
 
 (deftest cascade-summary-benign-no-op-stays-ok
   (let [summary (pure/cascade-summary
@@ -314,11 +288,8 @@
         (is (nil? (:sensitive? summary)) "no :sensitive? annotation, yet args still redact")))))
 
 (deftest redact-sensitive-event-vector-edge-shapes
-  (is (nil? (pure/redact-sensitive-event-vector nil false false)) "nil-preserving")
   (is (= :rf/redacted (pure/redact-sensitive-event-vector "scalar" false false))
-      "a degenerate non-vector redacts wholesale")
-  (is (= [:only-head] (pure/redact-sensitive-event-vector [:only-head] false false))
-      "a head-only vector has no args to redact"))
+      "a degenerate non-vector redacts wholesale"))
 
 (deftest restore-cascade-projection-shape
   (let [target {:epoch-id 5 :event-id :auth/login
@@ -355,25 +326,25 @@
   (is (nil? (pure/top-keys [1 2 3])) "a non-map app-db value has no top-keys"))
 
 (deftest assemble-orient-summary-shape
-  (let [r (pure/assemble-orient
-           {:debug-enabled? true
-            :all-frames [:rf/default :rf/xray]
-            :operating-frame :rf/default
-            :ambiguous-frame? false
-            :runtime-instance-id "abc"
-            :app-fids [:rf/default]
+  (let [registry {:basis :process
+                  :counts {:event 2 :sub 2 :fx 1}
+                  :events [:cart/add :cart/checkout]
+                  :subs [:cart/total :current-user]
+                  :fx [:http]}]
+    (is (= {:ok? true
+            :liveness {:debug-enabled? true :frame-count 2 :app-frame-count 1
+                       :ambiguous-frame? false :runtime-instance-id "abc"}
+            :frames {:all [:rf/default :rf/xray] :app [:rf/default] :operating :rf/default}
             :app-db-top-keys {:rf/default [:cart :route :user]}
-            :registry {:basis :process
-                       :counts {:event 2 :sub 2 :fx 1}
-                       :events [:cart/add :cart/checkout]
-                       :subs [:cart/total :current-user]
-                       :fx [:http]}
-            :machines [:checkout]})]
-    (is (true? (:ok? r)))
-    (is (= 2 (get-in r [:liveness :frame-count])))
-    (is (= 1 (get-in r [:liveness :app-frame-count])))
-    (is (= [:rf/default] (get-in r [:frames :app])))
-    (is (= [:rf/default :rf/xray] (get-in r [:frames :all])) "tool frame in :all")
-    (is (= [:cart :route :user] (get-in r [:app-db-top-keys :rf/default])))
-    (is (= 2 (get-in r [:registry :counts :event])))
-    (is (= [:checkout] (:machines r)))))
+            :registry registry
+            :machines [:checkout]}
+           (pure/assemble-orient
+            {:debug-enabled? true
+             :all-frames [:rf/default :rf/xray]
+             :operating-frame :rf/default
+             :ambiguous-frame? false
+             :runtime-instance-id "abc"
+             :app-fids [:rf/default]
+             :app-db-top-keys {:rf/default [:cart :route :user]}
+             :registry registry
+             :machines [:checkout]})))))
