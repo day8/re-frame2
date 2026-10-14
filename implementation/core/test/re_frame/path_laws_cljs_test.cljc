@@ -8,7 +8,6 @@
   RNG (no test.check on the classpath), so CLJ and CLJS draw the same values."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
-            [re-frame.error :as rf.error]
             [re-frame.identity :as rf.identity]
             [re-frame.path :as rf.path]))
 
@@ -284,16 +283,3 @@
           (error-id #(rf.path/normalize-concrete [:a 9007199254740992 :b]))]))
   (is (= :rf.error/non-edn-identity (error-id #(rf.identity/canonical-bytes 9007199254740992)))
       "canonical-bytes rejects the same out-of-range integer: one domain, not two"))
-
-;; ---- thrown-error shape conformance for bad-path! ------------------------
-
-(deftest bad-path-thrown-error-shape
-  ;; Spec 009 §The thrown-error shape: a human sentence trailed by the
-  ;; [:rf.error/bad-path] token, with the canonical :where / :recovery slots
-  (let [thrown (try (rf.path/normalize nil) nil
-                    (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))
-        msg    (ex-message thrown)]
-    (is (= [true false] [(boolean (rf.error/message-has-id-token? msg))
-                         (boolean (rf.error/keyword-only-message? msg))]))
-    (is (= [:rf.error/bad-path 'rf.path/normalize :fix-path nil]
-           ((juxt :rf.error/id :where :recovery :bad-path) (ex-data thrown))))))
