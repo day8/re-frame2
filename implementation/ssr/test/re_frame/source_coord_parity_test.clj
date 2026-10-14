@@ -26,9 +26,8 @@
 
   ## Posture split
 
-  The FORMATTERS are ordinary pure functions and the neutral-owner aliasing
-  is ordinary Var identity: neither is gated, so every deftest above the
-  end-to-end one runs unchanged in both postures.
+  The formatters are ordinary pure functions, ungated, so the deftest
+  above the end-to-end one runs unchanged in both postures.
 
   The end-to-end render is the exception. The attributes only reach server
   markup because `reg-view` installs the annotation wrapper, and it installs
@@ -42,7 +41,6 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
-            [re-frame.source-coords :as rf.source-coords]
             [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
             [re-frame.views.jvm-source-coord-annotation :as rf.views.jvm-source-coord-annotation]))
@@ -91,22 +89,6 @@
     (is (= expected-source-coord-no-line-no-col
            (rf.views.jvm-source-coord-annotation/format-source-coord fixture-id fixture-coords-no-line-no-col))
         "JVM degraded source-coord must match the canonical degraded literal")))
-
-;; ---- convergence: source-coords is the single cross-host owner ------------
-;;
-;; The JVM annotation vars and the CLJS formatters alias one `.cljc`
-;; implementation in `re-frame.source-coords`, so the canonical literals are
-;; pinned once, on that owner; the end-to-end render below holds the JVM
-;; annotation to the same literals.
-
-(deftest neutral-owner-is-the-single-jvm-formatter-implementation
-  (testing "`re-frame.source-coords` emits the canonical literals"
-    (is (= expected-source-coord
-           (rf.source-coords/format-source-coord fixture-id fixture-coords))
-        "neutral owner must emit the canonical data-rf2-source-coord literal")
-    (is (= expected-view-id
-           (rf.source-coords/format-view-id fixture-id))
-        "neutral owner must emit the canonical data-rf-view literal")))
 
 ;; ---- end-to-end byte parity: SSR-rendered HTML carries BOTH attributes ---
 ;;
