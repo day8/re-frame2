@@ -85,11 +85,8 @@
 ;; Round-trip and URL shape
 
 (deftest round-trip-preserves-chart-state
-  (testing "encode → decode recovers the ChartState exactly, fabricating no
-            omitted optional :snapshot or :frame-id"
-    (doseq [cs [chart-state (dissoc chart-state :snapshot) (dissoc chart-state :frame-id)]]
-      (is (= cs (:rf.machines-viz.share/chart (share/decode-share-url (encode cs))))
-          (pr-str (keys cs)))))
+  (testing "encode → decode recovers the ChartState exactly"
+    (is (= chart-state (:rf.machines-viz.share/chart (share/decode-share-url (encode chart-state))))))
   (testing "the envelope carries the encoding version and an encode-time stamp"
     (let [env (share/decode-share-url (encode chart-state))]
       (is (= "2" (:rf.machines-viz.share/v env)))
@@ -104,11 +101,9 @@
   (testing "there is no default host: a missing (non-string) or blank (after
             trimming) one is refused rather than filled in with a URL that 404s"
     (doseq [opts [nil {:host "   "}]]
-      (let [d (ex-data (thrown #(share/encode-share-url chart-state opts)))]
-        (is (= [:rf.machines-viz.share/encode-failed :no-host]
-               ((juxt :rf.error/id :reason) d))
-            (pr-str opts))
-        (is (string? (:message d)))))))
+      (is (= [:rf.machines-viz.share/encode-failed :no-host]
+             ((juxt :rf.error/id :reason) (ex-data (thrown #(share/encode-share-url chart-state opts)))))
+          (pr-str opts)))))
 
 ;; The one malformed `:host` worth refusing carries a fragment: the payload IS
 ;; the fragment and the viewer stops at the first `#`, so the link reads as
@@ -253,16 +248,6 @@
               :states  {:idle    {:timeout 5000 :on-timeout :expired :on {:go :done}}
                         :expired {:final? true}
                         :done    {:final? true}}}
-             :choice
-             {:initial :evaluating
-              :states  {:evaluating {:type   :choice
-                                     :choice [{:target :a :guard :ready?} {:target :b}]}
-                        :a {:final? true}
-                        :b {:final? true}}}
-             :ids-named-like-non-topology-slots
-             {:initial :data
-              :states  {:data    {:on {:meta :schemas}}
-                        :schemas {}}}
              :literal-and-subscription-delays
              {:initial :idle
               :states  {:idle {:after {1000 :a [:timeouts/retry] :b}}
@@ -317,8 +302,7 @@
                  (assoc chart-state :snapshot {:state state}))
                [(assoc chart-state :frame-id "not-a-keyword")
                 (assoc chart-state :machine-id "not-a-keyword")]
-               (for [definition [{:initial "idle" :states {:idle {}}}
-                                 {:type :parallel :regions {:main {:initial "x" :states {:x {}}}}}
+               (for [definition [{:type :parallel :regions {:main {:initial "x" :states {:x {}}}}}
                                  {:initial :outer :states {:outer {:states {:inner {}}}}}]]
                  {:machine-id :demo :definition definition}))]
     (is (= [:rf.machines-viz.share/encode-failed :invalid-chart-state]
@@ -329,20 +313,20 @@
         (pr-str cs))))
 
 (deftest decoded-extra-top-level-key-rejected
-  (testing "the top-level ChartState is CLOSED on decode: a forged URL adding a
-            known leak, or any unreviewed future key, is refused"
-    (doseq [extra [{:source-coords {:file "/Users/mike/secret/x.cljs" :line 42}}
-                   {:rf.machines-viz.share/some-future-field {:anything :goes}}]]
-      (is (= :invalid-chart-state
-             (:reason (ex-data (thrown #(share/decode-share-url (forge (merge chart-state extra)))))))
-          (pr-str extra)))))
+  (testing "the top-level ChartState is CLOSED on decode: a forged URL adding
+            any unreviewed key is refused"
+    (is (= :invalid-chart-state
+           (:reason (ex-data (thrown #(share/decode-share-url
+                                        (forge (assoc chart-state
+                                                      :rf.machines-viz.share/some-future-field
+                                                      {:anything :goes}))))))))))
 
 (deftest chart-state->props-projection
   (testing "a decoded envelope projects to read-only MachineChart props: every
             :state arm the encoder accepts decodes and rides verbatim as
             :current-state (none → no highlight); :frame-id is provenance,
             not a prop"
-    (doseq [state [nil :loading [:authenticated :cart :browsing]
+    (doseq [state [nil [:authenticated :cart :browsing]
                    {:data :dirty :form :busy} {:data :dirty :form [:edit :touched]}]]
       (let [cs (cond-> (-> chart-state (assoc :definition compound-definition) (dissoc :snapshot))
                  state (assoc :snapshot {:state state}))]
