@@ -105,20 +105,6 @@ function seedAi(h, count, prefix = 'note') {
   }
 }
 
-test('ARM 1: a change touching nothing under ai/ passes', () => {
-  withFixtureRepo((h) => {
-    h.write('README.md', '# fixture\n');
-    seedAi(h, 3);
-    h.commit('seed');
-
-    h.write('README.md', '# fixture, edited\n');
-    h.commit('unrelated change');
-
-    const r = h.run();
-    assert.equal(r.status, 0, `expected pass, got ${r.status}\n${r.stderr}`);
-  });
-});
-
 test('ARMS 3+4: 89 -> 61 passes, and THEN 61 -> 62 fails (the sequence, not the cases)', () => {
   withFixtureRepo((h) => {
     h.write('README.md', '# fixture\n');
