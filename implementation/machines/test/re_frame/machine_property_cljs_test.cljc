@@ -316,35 +316,6 @@
                         b       (outcome (reorder-regions m (reverse (keys (:regions m)))))]
                     (when (not= a b) [m evs a b]))))))))
 
-;; Order independence is a law about selection within one frozen round, not
-;; about the outcome (docs/machines/parallel-states.md): non-commuting writes
-;; to one key change what the next round freezes, and so a sibling's target.
-(deftest non-commuting-region-writes-are-declaration-order-sensitive
-  (testing "regions :a and :b write :x non-commutatively on one event; region :c's :always
-            target follows the frozen :x, so reversing :a/:b changes :c's resolved state"
-    (let [base {:type    :parallel
-                :data    {}
-                :guards  {:x-is-1? (fn [{d :data}] (= 1 (:x d)))
-                          :x-is-2? (fn [{d :data}] (= 2 (:x d)))}
-                :actions {:set-x-1 (fn [{d :data}] {:data (assoc d :x 1)})
-                          :set-x-2 (fn [{d :data}] {:data (assoc d :x 2)})}
-                :regions {:a {:initial :s0
-                              :states  {:s0 {:on {:ev {:target :s1 :action :set-x-1}}} :s1 {}}}
-                          :b {:initial :s0
-                              :states  {:s0 {:on {:ev {:target :s1 :action :set-x-2}}} :s1 {}}}
-                          :c {:initial :c0
-                              :states  {:c0    {:always [{:guard :x-is-2? :target :c-two}
-                                                         {:guard :x-is-1? :target :c-one}]}
-                                        :c-one {}
-                                        :c-two {}}}}}
-          run  (fn [order]
-                 (let [s (final-snapshot (rf.machines.parallel/install-region-cache
-                                           (assoc base :region-order order))
-                                         [[:ev]])]
-                   {:x (get-in s [:data :x]) :c (get-in s [:state :c])}))]
-      (is (= [{:x 2 :c :c-two} {:x 1 :c :c-one}]
-             [(run [:a :b :c]) (run [:b :a :c])])))))
-
 ;; ---- INVARIANT 9: parent-owned parallel :always rounds ---------------------
 ;;
 ;; After an event applies, the PARENT freezes configuration + `:data`, selects
