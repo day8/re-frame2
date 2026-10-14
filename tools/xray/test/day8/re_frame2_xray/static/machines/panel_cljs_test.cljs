@@ -16,6 +16,7 @@
   tree by data-testid rather than mounting to a real DOM."
   (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.machines]
             [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
@@ -66,10 +67,11 @@
 ;; -------------------------------------------------------------------------
 
 (deftest detail-header-renders-canonical-shape
+  ;; A real registration: the source chip reads the coord `reg-machine`
+  ;; records on the registration metadata.
   (xray-setup!)
+  (rf/reg-machine :m/a {:initial :a :states {:a {} :b {} :c {}}})
   (seed-machines! [:m/a])
-  (seed-definitions! {:m/a {:states {:a {} :b {} :c {}}
-                            :source-coord {:file "src/a.cljs" :line 7}}})
   (seed-snapshots! {:m/a {:state :a}})
   (rf/with-frame :rf/xray
     (let [tree (machines-tree/panel-tree)

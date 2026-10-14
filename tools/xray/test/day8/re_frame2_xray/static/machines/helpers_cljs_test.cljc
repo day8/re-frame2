@@ -1,10 +1,19 @@
 (ns day8.re-frame2-xray.static.machines.helpers-cljs-test
-  "Pure-data unit tests for the Static Machines projection helpers.
+  "Unit tests for the Static Machines projection helpers: pure data, plus
+  one real `reg-machine` registration for the call-site coord.
   Dual-runtime so the projection contract is covered on
   the JVM and in the `:node-test` bundle alike."
-  (:require #?(:clj  [clojure.test :refer [are deftest is]]
-               :cljs [cljs.test :refer-macros [are deftest is]])
-            [day8.re-frame2-xray.static.machines.helpers :as h]))
+  (:require #?(:clj  [clojure.test :refer [are deftest is use-fixtures]]
+               :cljs [cljs.test :refer-macros [are deftest is use-fixtures]])
+            [clojure.string :as str]
+            [day8.re-frame2-xray.static.machines.helpers :as h]
+            [re-frame.core :as rf]
+            [re-frame.machines]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
+
+(use-fixtures :each
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- source-coord lifting -----------------------------------------------
 
@@ -13,6 +22,23 @@
     {:file "src/x.cljs" :line 42} "src/x.cljs:42"
     {:file "src/x.cljs"}          "src/x.cljs"
     {:line 42}                    nil))
+
+;; The coord the chip shows is the one a REAL `reg-machine` records, which
+;; lands on the registration metadata rather than on the `:rf/machine` spec.
+(deftest a-real-registration-surfaces-its-call-site-coord
+  (rf/reg-machine ::door
+    {:initial :closed
+     :states  {:closed {:on {:open :opened}}
+               :opened {:on {:close :closed}}}})
+  (let [registration (rf/handler-meta {:source :store :kind :event :id ::door})
+        row          (first (h/project-rows [::door]
+                                            {::door (:rf/machine registration)}
+                                            {::door (h/lift-source-coord registration)}
+                                            {}))
+        {:keys [file line]} (:source-coord row)]
+    (is (str/ends-with? (str file) "helpers_cljs_test.cljc"))
+    (is (= (str file ":" line) (:source-label row)))
+    (is (= 2 (:state-count row)))))
 
 ;; ---- row projection -----------------------------------------------------
 
@@ -23,14 +49,14 @@
           :source-coord {:file "src/a.cljs" :line 12}
           :source-label "src/a.cljs:12"}
          (h/project-row :m/a
-                        {:states       {:idle {} :loading {} :done {}}
-                         :source-coord {:file "src/a.cljs" :line 12}}
+                        {:states {:idle {} :loading {} :done {}}}
+                        {:file "src/a.cljs" :line 12}
                         {:m/a {:state :idle}}))))
 
 ;; The count must match what the topology renderer paints: compound
 ;; substates and every parallel region's states included.
 (deftest state-count-counts-every-rendered-state
-  (are [definition n] (= n (:state-count (h/project-row :m/x definition {})))
+  (are [definition n] (= n (:state-count (h/project-row :m/x definition nil {})))
     ;; compound: :unauth + :authed + :browsing + :paying
     {:initial :unauth
      :states  {:unauth {:on {:login :authed}}
@@ -87,7 +113,7 @@
 
 (deftest project-browse-list-counts-and-resolves-the-selection
   (are [machines query selected out]
-       (= out (select-keys (h/project-browse-list machines {} {} query :name selected)
+       (= out (select-keys (h/project-browse-list machines {} {} {} query :name selected)
                            [:total :visible :selected-id]))
     ;; no pick: the first SORTED row, not the first registered
     [:foo/login :foo/checkout :bar/upload] nil nil

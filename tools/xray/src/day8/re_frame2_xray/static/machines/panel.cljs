@@ -253,6 +253,23 @@
                    (contains? #{:copied :failed} status))
           status))))
 
+  ;; `{machine-id coord}` — each machine's `reg-machine` call-site coord,
+  ;; which lives on the HOST registration's metadata rather than on its
+  ;; `:rf/machine` spec map. Read from the source store for the reason
+  ;; `panels.machine-inspector`'s definitions read gives: this computation
+  ;; runs under Xray's own image-loaded frame.
+  (rf/reg-sub :rf.xray.static.machines/source-coords
+    {:inputs [[:rf.xray/registered-machines]]}
+    (fn [[machines] _query]
+      (into {}
+            (keep (fn [id]
+                    (when-some [coord (h/lift-source-coord
+                                        (rf/handler-meta {:source :store
+                                                          :kind   :event
+                                                          :id     id}))]
+                      [id coord])))
+            (or machines []))))
+
   ;; Composite — feeds the browse-list + detail header. Reads the
   ;; :rf.xray/registered-machines + machine-definitions +
   ;; machine-snapshots subs registered by panels.machine-inspector
@@ -263,12 +280,13 @@
   (rf/reg-sub :rf.xray.static.machines/data
     {:inputs [[:rf.xray/registered-machines]
               [:rf.xray/machine-definitions]
+              [:rf.xray.static.machines/source-coords]
               [:rf.xray/machine-snapshots]
               [:rf.xray.static.machines/search]
               [:rf.xray.static.machines/sort-key]
               [:rf.xray.static.machines/selected-id]]}
-    (fn [[machines definitions live-snapshots query sort-key selected-id] _query]
-      (h/project-browse-list machines definitions (or live-snapshots {})
+    (fn [[machines definitions coords live-snapshots query sort-key selected-id] _query]
+      (h/project-browse-list machines definitions coords (or live-snapshots {})
                              query sort-key selected-id)))
   nil)
 
@@ -448,14 +466,15 @@
   (rf/reg-sub :rf.xray.static.machines/data
     {:inputs [[:rf.xray/registered-machines]
               [:rf.xray/machine-definitions]
+              [:rf.xray.static.machines/source-coords]
               [:rf.xray/machine-snapshots]
               [:rf.xray/machine-snapshots-override]
               [:rf.xray.static.machines/search]
               [:rf.xray.static.machines/sort-key]
               [:rf.xray.static.machines/selected-id]]}
-    (fn [[machines definitions live-snapshots snapshots-override
+    (fn [[machines definitions coords live-snapshots snapshots-override
           query sort-key selected-id] _query]
-      (h/project-browse-list machines definitions
+      (h/project-browse-list machines definitions coords
                              (or snapshots-override live-snapshots {})
                              query sort-key selected-id)))
   nil)
