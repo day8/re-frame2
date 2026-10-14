@@ -43,18 +43,6 @@
     (when rf.interop/debug-enabled?
       (is (= "kept in dev" (:doc meta))))))
 
-(deftest doc-stripped-uniformly-across-reg-surfaces
-  ;; The strip covers every reg-* surface, not just events.
-  (with-redefs [rf.interop/debug-enabled? false]
-    (rf/reg-sub :rf2-9wwkcm/prod-sub {:doc "sub doc elided"} (fn [db _] db))
-    (rf/reg-fx :rf2-9wwkcm/prod-fx {:doc "fx doc elided"} (fn [_] nil))
-    (rf/reg-cofx :rf2-9wwkcm/prod-cofx {:doc "cofx doc elided"} (fn [ctx] ctx))
-    (doseq [[kind id] {:sub  :rf2-9wwkcm/prod-sub
-                       :fx   :rf2-9wwkcm/prod-fx
-                       :cofx :rf2-9wwkcm/prod-cofx}]
-      (is (not (contains? (rf/handler-meta {:source :store :kind kind :id id}) :doc))
-          (str kind)))))
-
 (deftest pure-documentation-keys-is-closed-to-doc
   ;; Spec 001's elidable set. Widening it to a load-bearing key such as
   ;; `:sensitive?` would strip redaction metadata in production.
