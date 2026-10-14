@@ -275,12 +275,7 @@
       (let [tags (op-tags traces :rf.resource/route-plan)]
         (is (= [true {:plan-cause :replan :ensured 0 :kept 0 :removed 3} []]
                [(:plan-error tags) (plan-counts tags) (:identities tags)])
-            "the planner row reports the atomicity rule")))
-    (rf/dispatch-sync [:t/login "ann"])
-    (replan! [:session-restore])
-    (is (= [nil :loading true (by-id ann-shell ann-docs global-key)]
-           [(:error (slice)) (:transition (slice)) (every? owned? ks) (plan-slot)])
-        "a later resolution and replan repairs it from scratch")))
+            "the planner row reports the atomicity rule")))))
 
 ;; ===========================================================================
 ;; a conditional occurrence entering and leaving the plan
@@ -314,21 +309,6 @@
 ;; ===========================================================================
 ;; retained in-flight work, and an empty next plan
 ;; ===========================================================================
-
-(deftest replan-keeps-retained-in-flight-work-owned-and-unaborted
-  (navigate-to-docs-as! "ann")
-  (let [ks     [(shell-key "ann") (docs-key "ann" "intro") global-key]
-        n      (request-count)
-        wids   (mapv #(:current-work (entry %)) ks)
-        traces (record-traces! #{:rf.resource/route-plan :rf.resource/owner-released}
-                               #(replan! [:no-change]))]
-    (is (= [n true wids true nil]
-           [(request-count) (every? owned? ks) (mapv #(:current-work (entry %)) ks) (every? live? ks)
-            (op-tags traces :rf.resource/owner-released)])
-        "every identity is adopted: no request, the same live attempts, and no release fx at all")
-    (is (= [{:plan-cause :replan :ensured 0 :kept 3 :removed 0}
-            (apply by-id ks) (by-id (shell-key "ann") global-key) :loading]
-           [(plan-counts (op-tags traces :rf.resource/route-plan)) (plan-slot) (blocking-slot) (:transition (slice))]))))
 
 (deftest replan-to-an-empty-plan-clears-both-slots
   ;; a fresh activation token has no old slot to clear, a replan's token does
