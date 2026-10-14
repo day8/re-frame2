@@ -650,11 +650,12 @@
    ## Why the frame, and not the process store
 
    This is the CALL-TIME check in front of `read-sub!` / `dispatch-
-   consequence!`, and those two execute against a FRAME. A frame runs its
-   own sealed image generation, so an `:reg-sub` / `:reg-event` defined
-   INLINE IN AN IMAGE is registered for that frame and absent from the
-   process store — an ordinary supported definition the skill explicitly
-   teaches. Reading `{:source :store}` here would reject exactly those ids
+   consequence!`, and those two execute against a FRAME. A frame made with
+   `:images` runs its own sealed image generation, so an `:reg-sub` /
+   `:reg-event` defined INLINE IN AN IMAGE is registered for that frame and
+   absent from the process store — an ordinary supported definition the
+   skill explicitly teaches. Reading `{:source :store}` here would reject
+   exactly those ids
    with `:reason :unknown-id :known-count 0`, telling the operator
    'nothing is registered' about an app that dispatches and subscribes
    perfectly well, and pushing them to raw `eval-cljs` for a gesture the
@@ -663,15 +664,15 @@
    rather than validated and then dispatched into a frame that
    cannot serve it.
 
-   Process-wide DISCOVERY (`registrar-list`, the orient/registry counts)
-   deliberately stays on `{:source :store}` — it is asking what the HOST
+   Process-wide DISCOVERY (`registrar-list`, orient's `:basis :process`
+   counts) deliberately stays on `{:source :store}` — it is asking what the HOST
    PROCESS registered, which is a different question from what THIS FRAME
    runs.
 
-   FAILS LOUD up the eval boundary when `frame-id` does not resolve to a
-   live frame generation (the framework's `:rf.error/frame-no-generation`),
-   exactly as `frame-registrar-list` does. Swallowing it here would
-   report an unresolvable frame as
+   FAILS LOUD up the eval boundary when `frame-id` names no frame that
+   seals an image or resolves the store live (the framework's
+   `:rf.error/frame-no-generation`), exactly as `frame-registrar-list` does.
+   Swallowing it here would report an unresolvable frame as
    'nothing is registered under :sub', which is a statement about the
    registrar rather than about the frame that was wrong."
   [kind id frame-id]
@@ -797,12 +798,14 @@
 ;; ---------------------------------------------------------------------------
 ;; Frame-derived registrar introspection
 ;;
-;; A frame's inspectable registration set is its RESOLVED IMAGE GENERATION —
-;; the same `(kind, id)` can resolve DIFFERENTLY per frame (two frames running
+;; A frame's inspectable registration set is what it RESOLVES — its sealed
+;; image generation, or, for a frame made without `:images`, the registration
+;; store resolved live, less any id more than one namespace registers. The same
+;; `(kind, id)` can resolve DIFFERENTLY per frame (two frames running
 ;; different images each resolve their own descriptor). The process-global
 ;; registrar reads above answer "what is registered process-globally"; these
-;; answer "what does THIS FRAME's running image resolve `(kind, id)` to" —
-;; keyed off the frame's sealed generation, not the process-global registrar.
+;; answer "what does THIS FRAME resolve `(kind, id)` to" — keyed off the
+;; frame, not the process-global registrar.
 ;;
 ;; They consume ONLY the PUBLIC facade reads — the
 ;; `{:frame f :kind k …}` arities of `rf/registrations` / `rf/handler-meta`,
@@ -850,8 +853,9 @@
      :ns     (:rf.provenance/ns m)}))
 
 (defn frame-registrar-describe
-  "Per-FRAME handler metadata for `(kind, id)` — the registration resolved
-   through frame `frame-id`'s OWN sealed image generation (NOT the
+  "Per-FRAME handler metadata for `(kind, id)` — the registration as frame
+   `frame-id` resolves it: through its OWN sealed image generation, or the
+   live registration store for a frame made without `:images` (NOT the
    process-global registrar). Routes through the PUBLIC facade read
    `(rf/handler-meta {:frame f :kind k :id id})`.
 
@@ -862,10 +866,12 @@
    `:handler-fn-hash`) and every nested fn becomes the `:rf/fn` sentinel.
 
    Returns the meta map merged with the coordinate rollup on a hit, or
-   `{:ok? false :reason :not-registered …}` when the frame's image carries no
-   such `(kind, id)`. FAILS LOUD up the eval boundary when `frame-id` is not a
-   live frame carrying a generation (`:rf.error/frame-no-generation`) — the
-   facade's no-silent-fallback contract."
+   `{:ok? false :reason :not-registered …}` when the frame resolves no such
+   `(kind, id)`. FAILS LOUD up the eval boundary when `frame-id` names no
+   frame that seals an image or resolves the store live
+   (`:rf.error/frame-no-generation`) — the facade's no-silent-fallback
+   contract — and on an id a live-store frame refuses because more than one
+   namespace registers it (`:rf.error/ambiguous-registration`, naming them)."
   [frame-id kind id]
   (if-let [m (rf/handler-meta {:frame frame-id :kind kind :id id})]
     (let [coord (coordinate-summary m)]
@@ -877,9 +883,11 @@
     {:ok? false :reason :not-registered :kind kind :id id :frame frame-id}))
 
 (defn frame-registrar-list
-  "Enumerate the ids registered under `kind` resolved through frame
-   `frame-id`'s OWN image generation — only the ids that frame's image
-   carries (NOT the process-global registrar). Routes through the PUBLIC facade
+  "Enumerate the ids registered under `kind` as frame `frame-id` resolves
+   them — only the ids that frame runs, from its OWN image generation or, for
+   a frame made without `:images`, the live registration store less any id
+   more than one namespace registers (NOT the process-global registrar).
+   Routes through the PUBLIC facade
    read `(rf/registrations {:frame f :kind k})`, projecting its keys. Returns
    the sorted id vector. FAILS LOUD up the eval boundary on an unresolvable
    frame."
@@ -887,8 +895,9 @@
   (-> (rf/registrations {:frame frame-id :kind kind}) keys sort vec))
 
 (defn frame-registrar-registrations
-  "The `{id meta}` map for `kind` resolved through frame `frame-id`'s OWN image
-   generation, each meta carrying its provenance/coordinate facts. Routes
+  "The `{id meta}` map for `kind` as frame `frame-id` resolves it — its OWN
+   image generation, or the live registration store for a frame made without
+   `:images` — each meta carrying its provenance/coordinate facts. Routes
    through the PUBLIC facade read `(rf/registrations {:frame f :kind k})`.
    Fns are stripped (the `:rf/fn` sentinel) so the map is
    EDN-clean. FAILS LOUD up the eval boundary on an unresolvable frame."
@@ -3708,8 +3717,8 @@
   "The PROCESS-WIDE registry view — counts for every registrar kind plus the
    full sorted id vectors for the three most navigable kinds, off the
    process-global registrar. The fallback orient uses when no single operating
-   frame resolves (a multi-frame ambiguous session, or a core whose operating
-   frame carries no sealed image generation). `:basis :process` labels which
+   frame resolves (a multi-frame ambiguous session, or an operating frame id
+   naming no frame). `:basis :process` labels which
    registrar these counts came from."
   []
   {:basis  :process
@@ -3720,37 +3729,34 @@
 
 (defn- frame-registry-view
   "The OPERATING-FRAME registry view — counts + the high-value id vectors
-   resolved through `frame-id`'s OWN sealed image generation rather than the
-   process-wide registrar. The same `(kind, id)` can resolve
-   differently per frame, so the SELECTED universe a frame actually runs is
+   for what `frame-id` resolves rather than the process-wide registrar. The
+   same `(kind, id)` can resolve differently per frame, so the SELECTED
+   universe a frame actually runs is
    the registry an agent driving that frame should see — not the union of
    every namespace's registrations the flat registrar holds.
 
-   Routes through the PUBLIC `rf/frame-generation` read: the
-   resolver's `[kind id]` keys give the per-kind counts and the navigable id
-   vectors directly off the generation. `:basis :frame` + `:frame` label
-   which frame these counts resolved through. Returns nil when the frame does
-   not resolve to a live generation (caller falls back to the process view)."
+   Routes through the PUBLIC frame-targeted query `(rf/registrations {:frame f
+   :kind k})`, which answers for a frame made with `:images` (its sealed
+   generation) and for one made without (the live registration store, less
+   any id more than one namespace registers). `:basis :frame` + `:frame` label
+   which frame these counts resolved through. Returns nil when `frame-id`
+   names no frame of either kind (caller falls back to the process view)."
   [frame-id]
   (when frame-id
     (try
-      (let [gen      (rf/frame-generation frame-id)
-            resolver (:rf.gen/resolver gen)
-            by-kind  (reduce-kv
-                       (fn [acc [k id] _d] (update acc k (fnil conj #{}) id))
-                       {}
-                       resolver)
-            ids-of   (fn [k] (vec (sort (get by-kind k []))))]
+      (let [by-kind (into {}
+                          (map (fn [k] [k (rf/registrations {:frame frame-id :kind k})]))
+                          frame-query-kinds)
+            ids-of  (fn [k] (vec (sort (keys (get by-kind k)))))]
         {:basis  :frame
          :frame  frame-id
-         :counts (into {} (map (fn [k] [k (count (get by-kind k []))]))
+         :counts (into {} (map (fn [k] [k (count (get by-kind k))]))
                        orient-registrar-kinds)
          :events (ids-of :event)
          :subs   (ids-of :sub)
          :fx     (ids-of :fx)})
-      ;; A frame that does not carry a generation (`:rf.error/frame-no-
-      ;; generation`) is an imageless frame with no sealed image. Fall back
-      ;; to the process view rather than fail the whole orientation.
+      ;; A target naming no frame (`:rf.error/frame-no-generation`) falls back
+      ;; to the process view rather than failing the whole orientation.
       (catch :default _ nil))))
 
 (defn orient
@@ -3784,16 +3790,17 @@
                       COUNTS for every kind, plus the full sorted id
                       vectors for the three most navigable kinds. Drill
                       any other kind via `list-handlers {kind ...}`.
-                      RE-BASED on the OPERATING FRAME's resolved image
-                      generation when a single operating frame resolves —
-                      the SELECTED universe that
-                      frame actually runs, not the process-wide registrar
-                      union (the same `(kind, id)` can resolve differently
-                      per frame). `:basis :frame` + `:frame <id>` name the
-                      resolution; falls back to `:basis :process` (the
-                      process-wide registrar counts) in a multi-frame
-                      ambiguous session or against an operating frame that
-                      carries no sealed image generation.
+                      RE-BASED on what the OPERATING FRAME resolves when a
+                      single operating frame resolves — its sealed image
+                      generation, or the live registration store for a
+                      frame made without `:images` — the SELECTED universe
+                      that frame actually runs, not the process-wide
+                      registrar union (the same `(kind, id)` can resolve
+                      differently per frame). `:basis :frame` + `:frame
+                      <id>` name the resolution; falls back to `:basis
+                      :process` (the process-wide registrar counts) in a
+                      multi-frame ambiguous session or against an
+                      operating frame id naming no frame.
      :machines        the registered machine ids (the `:rf/machine?` filter
                       over `(rf/registrations {:source :store :kind :event})`).
 
@@ -3808,10 +3815,10 @@
   (let [h        (health)
         app-fids (app-frame-ids)
         op-frame (:operating-frame h)
-        ;; Re-base the registry on the OPERATING FRAME's resolved
-        ;; image generation when one resolves; fall back to the process-wide
-        ;; registrar counts otherwise (ambiguous multi-frame session, or an
-        ;; operating frame with no sealed image generation).
+        ;; Re-base the registry on what the OPERATING FRAME resolves when one
+        ;; resolves; fall back to the process-wide registrar counts otherwise
+        ;; (ambiguous multi-frame session, or an operating frame id naming no
+        ;; frame).
         registry (or (frame-registry-view op-frame) (process-registry-view))]
     ;; The live reads (health, per-app-frame app-db top-keys, registry-view,
     ;; machines) assemble into the compact summary shape via `pure/assemble-
