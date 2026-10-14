@@ -5,9 +5,9 @@
   back to the default registrar. This suite therefore uses public
   `rf/dispatch-sync`, same-id global sentinels, and committed state to prove
   that handler resolution and effects stay inside the target frame: same-id
-  runtime-db partition isolation with an untouched sibling, and a child `:fx`
-  dispatch retaining the frame's image generation. Absence-is-default and two
-  frames sharing one image belong to `re-frame.live-run-frame-resolution-cljs-test`.
+  runtime-db partition isolation with an untouched sibling. Absence-is-default,
+  a child `:fx` dispatch retaining the frame's image generation, and two frames
+  sharing one image belong to `re-frame.live-run-frame-resolution-cljs-test`.
   `:ambient-frame nil` keeps every target explicit so ambient resolution cannot
   conceal a routing error."
   (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
@@ -47,10 +47,10 @@
                            :rf.runtime/conf-observed (:rf.runtime/conf-seed runtime-db)
                            :rf.runtime/conf-writer   writer)}))
 
-;; The other cases prove app-db isolation; a regression routing app-db
-;; correctly while reading or committing runtime-db through another frame
-;; would leave them green. Every handler is framework-authority, so a
-;; fallback takes the real runtime-effect path.
+;; App-db isolation is `re-frame.live-run-frame-resolution-cljs-test`'s; a
+;; regression routing app-db correctly while reading or committing runtime-db
+;; through another frame would leave those tests green. Every handler is
+;; framework-authority, so a fallback takes the real runtime-effect path.
 (deftest two-image-frames-same-id-isolate-the-runtime-db-partition
   (rf/reg-event :boot/rt-init {:rf/framework-authority? true} (runtime-writer :global))
   (doseq [writer [:todo :counter :sibling]
@@ -68,24 +68,3 @@
           {:rf.runtime/conf-seed :sibling-seed}]
          (map rf.frame/frame-runtime-db-value [:conf.rt/todo :conf.rt/counter :conf.rt/sibling]))
       "each handler read and wrote only its own frame's runtime-db; the sibling is untouched"))
-
-(deftest child-dispatch-stays-in-the-frames-image-and-commits-only-that-frame
-  ;; A wrong fallback at either cascade step writes a global marker.
-  (rf/reg-event :counter/inc  (fn [{:keys [db]} _] {:db (assoc db :inc :global)}))
-  (rf/reg-event :counter/step (fn [{:keys [db]} _] {:db (assoc db :step :global)}))
-  (make-image-frame! :counter/main "examples.counter"
-                     [(event-desc "examples.counter" :counter/inc
-                                  (fn [{:keys [db]} _]
-                                    {:db (assoc db :inc :image)
-                                     :fx [[:dispatch [:counter/step]]]}))
-                      (event-desc "examples.counter" :counter/step
-                                  (fn [{:keys [db]} _] {:db (assoc db :step :image)}))])
-  (make-image-frame! :sibling/main "examples.todo"
-                     [(event-desc "examples.todo" :counter/inc
-                                  (fn [{:keys [db]} _] {:db (assoc db :inc :sibling)}))
-                      (event-desc "examples.todo" :counter/step
-                                  (fn [{:keys [db]} _] {:db (assoc db :step :sibling)}))])
-  (rf/dispatch-sync [:counter/inc] {:frame :counter/main})
-  (is (= [{:inc :image :step :image} {}]
-         [(rf/app-db-value :counter/main) (rf/app-db-value :sibling/main)])
-      "the parent and its fx child both resolved the target image; the sibling frame got no write"))
