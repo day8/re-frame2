@@ -72,9 +72,11 @@
       (let [[record :as records] (ambiguities @seen)]
         (is (= 1 (count records)) "one always-on record per navigation")
         (is (= {:frame        :probe/frame
+                :event-id     :rf.route/handle-url-change
+                :failing-id   :probe/page
                 :registration [:route :probe/page]
                 :namespaces   ["probe.routes-a" "probe.routes-b"]}
-               (select-keys record [:frame :registration :namespaces])))
+               (select-keys record [:frame :event-id :failing-id :registration :namespaces])))
         (is (str/includes? (str (:reason record)) "(rf/clear :route :probe/page)")
             "the record names the remedy"))
       (rf/dispatch-sync [:rf.route/handle-url-change "/"] {:frame :probe/frame})
@@ -84,7 +86,8 @@
           "a URL that does not reach the ambiguous route raises nothing")
       (rf/dispatch-sync [:rf.route/navigate {:url "/page"}] {:frame :probe/frame})
       (is (= :rf.route/not-found (current-route-id :probe/frame)))
-      (is (= 2 (count (ambiguities @seen)))
+      (is (= [2 :rf.route/navigate]
+             [(count (ambiguities @seen)) (:event-id (peek (ambiguities @seen)))])
           "the programmatic {:url} door raises it too"))))
 
 (deftest match-url-raises-the-ambiguity-inside-the-frame

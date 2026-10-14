@@ -1439,26 +1439,35 @@
 (defn- report-ambiguous-route!
   "Report `ex` — the `:rf.error/ambiguous-registration` a URL raised by
   matching a route more than one namespace registers — on both error axes,
-  attributed to the frame whose event is navigating. The always-on record
-  follows the event and `:fx` ambiguity records (`:registration`,
-  `:namespaces`, `:reason`), because the cause is production-reachable (a
-  late-loaded module duplicating a route id) and nothing else would say why
-  the URL went to not-found. Returns nil."
+  against the navigation event in flight, as an ambiguous `:fx` is reported
+  against the event that returned it: `:failing-id` is the route id. Always-on
+  because the cause is production-reachable (a late-loaded module duplicating
+  a route id) and nothing else would say why the URL went to not-found.
+  Reached through the `:error-emit/emit-error-both` late-bind hook, like
+  `re-frame.router.diagnostics`. Returns nil."
   [ex]
-  (let [{:keys [registration namespaces reason]} (ex-data ex)
-        tags {:frame        (rf.frame/current-event-owner-frame-id)
-              :registration registration
-              :namespaces   namespaces
-              :reason       reason}]
-    (when-let [dispatch-error-record!
-               (rf.late-bind/get-fn-cached :error-emit/dispatch-error-record)]
-      (dispatch-error-record!
-        (assoc tags
-               :error :rf.error/ambiguous-registration
-               :time  (rf.interop/now-ms))))
-    (rf.trace/emit-error! :rf.error/ambiguous-registration
-                          (assoc tags :recovery :clear-the-id-and-re-evaluate-its-owner))
-    nil))
+  (when-let [emit-error-both!
+             (rf.late-bind/get-fn-cached :error-emit/emit-error-both)]
+    (let [{:keys [registration namespaces reason]} (ex-data ex)
+          frame (rf.frame/current-event-owner-frame-id)
+          event (:event (rf.frame/current-event-envelope frame))]
+      (emit-error-both!
+        :rf.error/ambiguous-registration
+        event
+        (first event)
+        frame
+        nil                                 ;; the route never ran
+        0                                   ;; elapsed-ms
+        (rf.interop/now-ms)                 ;; time
+        {:failing-id   (second registration)
+         :frame        frame
+         :registration registration
+         :namespaces   namespaces
+         :reason       reason
+         :recovery     :clear-the-id-and-re-evaluate-its-owner}
+        {:registration registration
+         :namespaces   namespaces})))
+  nil)
 
 (defn match-url-fail-closed
   "Fail-closed wrapper over `match-url`, reached by every URL-bearing
