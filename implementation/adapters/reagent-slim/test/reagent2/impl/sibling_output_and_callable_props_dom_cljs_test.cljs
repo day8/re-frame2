@@ -1,18 +1,13 @@
 (ns reagent2.impl.sibling-output-and-callable-props-dom-cljs-test
-  "Two reagent-slim render-boundary contracts, witnessed through a real
-  `react-dom/client` root.
+  "A reagent-slim render-boundary contract, witnessed through a real
+  `react-dom/client` root: a metadata-bearing callback (`cljs.core/MetaFn`,
+  what `with-meta` returns for a fn) reaches React DOM as a real JS function,
+  so a click runs it and a callback ref is called with the node. Passed
+  through unchanged, the MetaFn object's `typeof` is \"object\", so React DOM
+  would refuse it as a listener and treat it as an object ref.
 
-  1. A component whose render returns a SEQUENCE commits sibling children:
-     no wrapper element and no `:rf.error/template-bad-tag`. Coercing the
-     seq with `vec` in `wrap-render`'s classification cond would make
-     `as-element` read the first child as a hiccup HEAD.
-  2. A metadata-bearing callback (`cljs.core/MetaFn`, what `with-meta`
-     returns for a fn) reaches React DOM as a real JS function, so a click
-     runs it and a callback ref is called with the node. Passed through
-     unchanged, the MetaFn object's `typeof` is \"object\", so React DOM
-     would refuse it as a listener and treat it as an object ref.
-
-  The node-lane counterparts live in `template_cljs_test.cljs`."
+  A component returning a SEQUENCE is pinned on the node lane, through the
+  generated class, by `template_cljs_test.cljs`."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [reagent2.dom.client :as rdc]
             ["react-dom" :as react-dom]))
@@ -34,31 +29,6 @@
       (finally
         (try (rdc/unmount root) (catch :default _ nil))
         (.remove node)))))
-
-(defn- host-html [^js node]
-  (some-> (.querySelector node ".host") .-innerHTML))
-
-(defn- keyed-rows [] (list ^{:key "a"} [:span "a"] ^{:key "b"} [:span "b"]))
-(defn- empty-rows [] (list))
-(defn- text-rows [] (list "a" "b"))
-
-(deftest sequence-output-commits-sibling-children
-  (testing "reagent-slim — a component returning a sequence commits its items as siblings"
-    (if-not (browser?)
-      (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
-      (with-attached-root
-        (fn [root node]
-          (react-dom/flushSync (fn [] (rdc/render root [:div.host [keyed-rows]])))
-          (is (= "<span>a</span><span>b</span>" (host-html node))
-              "two keyed sibling spans, with no wrapper element")
-
-          (react-dom/flushSync (fn [] (rdc/render root [:div.host [empty-rows]])))
-          (is (= "" (host-html node))
-              "an empty sequence commits nothing")
-
-          (react-dom/flushSync (fn [] (rdc/render root [:div.host [text-rows]])))
-          (is (= "ab" (host-html node))
-              "text siblings commit as text, not as an `<a>` element holding the second item"))))))
 
 (deftest metafn-click-handler-and-callback-ref-reach-react-dom
   (testing "reagent-slim — a metadata-bearing on-click and :ref are called by React DOM"
