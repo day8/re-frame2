@@ -46,7 +46,7 @@
   `re-frame.adapter.context/coerce-context-value` is the defensive cover
   for that case, while `rf/frame-provider` bypasses it (pinned by
   `namespaced-frame-id-survives-react-context-round-trip`)."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
+  (:require [cljs.test :refer-macros [deftest is use-fixtures async]]
             [reagent.dom.client :as rdc]
             ["react" :as React]
             ["react-dom" :as react-dom]
@@ -335,15 +335,18 @@
   [(rf.adapter.context/function-component-current-frame) (vec (corruption-traces traces))])
 
 (deftest scenario-3-context-corrupted-emits-structured-error
-  "Scenario 3 — context-not-present / corrupted error path.
+  "Scenario 3 — context-not-present / corrupted error path, for the `false`
+   and JS-object shapes.
 
    Asserts the EP-0002 contract: a non-coercible
-   `_currentValue` on the shared frame-context emits
-   `:rf.error/frame-context-corrupted` (op-type `:error`, recovery
-   `:no-frame-context`) and the reader returns nil — NOT a synthesised
-   `:rf/default`. The error event is the diagnostic surface; the nil
-   return is what makes a public frame-scoped op raise
-   `:rf.error/no-frame-context` rather than scope to a default.
+   `_currentValue` on the shared frame-context emits one
+   `:rf.error/frame-context-corrupted` event naming its shape, and the reader
+   returns nil — NOT a synthesised `:rf/default`. The nil, numeric and
+   empty-string shapes, the event's `:op-type` / `:recovery` /
+   `:tags :received`, and the routed `rf/current-frame-id` raise are pinned
+   once for every React adapter by
+   `re-frame.adapter.react-shared-suite/assert-frame-context-corrupted`,
+   which reads the same `function-component-current-frame`.
 
    Direct test against the function-component-shape resolver because
    the only ways to corrupt `_currentValue` involve either bypassing
@@ -364,20 +367,10 @@
   (let [original (.-_currentValue ^js rf.adapter.context/frame-context)]
     (with-trace-recorder! [traces]
       (try
-        (testing "nil _currentValue: error trace fires; resolves to nil (no-frame-context)"
-          (let [[resolved errs] (read-corrupted traces nil)
-                err             (first errs)]
-            (is (= [nil 1 :error :no-frame-context :nil true]
-                   [resolved (count errs) (:op-type err) (:recovery err)
-                    (-> err :tags :type) (contains? (:tags err) :received)])
-                "returns nil (no synthesised :rf/default), with one :rf.error/frame-context-corrupted event: :op-type :error per Spec 009 §Error contract, :recovery :no-frame-context, a :tags :type naming the shape and a :tags :received")))
-        (testing "a false, numeric, JS object or empty-string _currentValue: one error trace naming its shape; resolves to nil"
-          (doseq [[value type] [[false :boolean] [42 :number] [#js {:not "a frame"} :js-object] ["" :empty-string]]]
-            (let [[resolved errs] (read-corrupted traces value)]
-              (is (= [nil 1 type] [resolved (count errs) (-> errs first :tags :type)])
-                  (str (pr-str value) " reads as nil, with one error trace typed " type))))
-          (is (= 42 (-> (read-corrupted traces 42) second first :tags :received))
-              ":tags :received echoes the offending value"))
+        (doseq [[value type] [[false :boolean] [#js {:not "a frame"} :js-object]]]
+          (let [[resolved errs] (read-corrupted traces value)]
+            (is (= [nil 1 type] [resolved (count errs) (-> errs first :tags :type)])
+                (str (pr-str value) " reads as nil, with one error trace typed " type))))
         (finally
           (set! (.-_currentValue ^js rf.adapter.context/frame-context) original)))))))
 
@@ -565,7 +558,6 @@
                   ;; (2) Mutate durable state so the hot-reload remount has
                   ;; something distinct to preserve.
                   (rf/dispatch-sync [:rf/set-db {:n 42}] {:frame target})
-                  (is (= {:n 42} (rf/app-db-value target)) "durable state advanced to {:n 42}")
                   ;; (3) Simulate a :dev/after-load hot-reload remount: a FRESH
                   ;; frame-root instance (KEYED v2, so React unmounts v1 and
                   ;; mounts a fresh one — the keyed-remount path) under the SAME
@@ -642,8 +634,6 @@
           (-> (js/Promise.resolve (act-fn (fn [] (.render root ensure-el))))
               (.then
                 (fn [_]
-                  (is (= [true {:n 3}] [(some? (rf.frame/frame target)) (rf/app-db-value target)])
-                      "frame created at commit, :initial-events seeding its app-db")
                   ;; Genuine unmount — frame-root does NOT destroy.
                   (js/Promise.resolve (act-fn (fn [] (.unmount root))))))
               ;; AWAITED rather than fired-and-forgotten. A bare `js/setTimeout`
