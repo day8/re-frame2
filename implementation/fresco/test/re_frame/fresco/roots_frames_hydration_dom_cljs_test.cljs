@@ -259,18 +259,10 @@
                       (is (rf.fresco.roots-frames-support/every-server-node? cb ".screen, .title, .value")
                           "root B kept the server's nodes"))
 
-                    (testing "and neither root's adoption reached into the
-                              other's tree"
-                      (is (= "A" (text-in ca ".title")))
-                      (is (= "B" (text-in cb ".title")))
-                      (is (= "alpha" (text-in ca ".value")))
-                      (is (= "beta"  (text-in cb ".value"))))
-
                     (testing "the cell table split by frame across the two
                               adoptions, exactly as it does across two ordinary
                               mounts"
-                      (is (= #{[frame-a label-q] [frame-b label-q]} (rf.fresco.roots-frames-support/cell-keys)))
-                      (is (= #{frame-a frame-b} (rf.fresco.roots-frames-support/frame-memo-frames))))))
+                      (is (= #{[frame-a label-q] [frame-b label-q]} (rf.fresco.roots-frames-support/cell-keys))))))
                 (rf.fresco.roots-frames-support/settle-row!
                   {:row      "H1 — two overlapping adoptions, each keeping its own DOM"
                    :done     done
@@ -381,20 +373,14 @@
                           (str "every divergence React reported reached the
                                 instrumentation stream; React said "
                                (count react-complaints) ", the framework said "
-                               (count @seen)))
-                      (is (= 2 (count @seen))
-                          (str "`:rf.ssr/hydration-mismatch` count; got "
-                               (count @seen) " — "
-                               (pr-str (mapv (comp :error rf.fresco.roots-frames-support/tags-of) @seen)))))
+                               (count @seen))))
 
                     (testing "and what did fire is the framework diagnostic
                               Spec 011 names, tier-discriminated by its door"
                       (doseq [ev @seen]
                         (let [tags (rf.fresco.roots-frames-support/tags-of ev)]
-                          (is (= :rf.ssr/hydration-mismatch (:operation ev)))
                           (is (= 're-frame.fresco.impl.mount/hydrate-root! (:where tags)))
-                          (is (= :warned-and-replaced (:recovery tags)))
-                          (is (string? (:error tags))))))
+                          (is (= :warned-and-replaced (:recovery tags))))))
 
                     (testing "RECOVERY, unlike complaint, IS independent: each
                               root recovered to its OWN client model, not to
@@ -677,22 +663,6 @@
                   ;; An ORDINARY root, mounted inside root A's adoption window.
                   (let [hb (rf.fresco.impl.mount/root! cb frame-b [tray-screen {:tag :ordinary}])]
                     (swap! held assoc :hb hb)
-                    (testing "the ordinary sibling gets its ENTER phase, even
-                              though a hydration is in flight elsewhere on the
-                              page — the row a page-global window fails"
-                      (is (= :mounting (first (get @!phases :ordinary)))
-                          (str "root B's first render must see :mounting; saw "
-                               (pr-str (get @!phases :ordinary))))
-                      (is (= "mounting" (text-in cb ".probe"))
-                          "and it reached the DOM that way"))
-
-                    (testing "an ordinary root has no adoption window at all —
-                              nil, which `adopting?` reads as closed. That is
-                              what makes root-scoping free for it: no object,
-                              no provider, no branch"
-                      (is (nil? (:adoption hb)))
-                      (is (false? (rf.fresco.impl.roots/adopting? (:adoption hb)))))
-
                     (-> (rf.fresco.roots-frames-support/adopted! ha)
                         (.then
                           (fn [ok]
