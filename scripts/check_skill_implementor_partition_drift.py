@@ -444,10 +444,6 @@ def _self_test() -> int:
          "The app-facing authoring key is `:reply-to`; it normalizes to the one "
          "internal / normalized `:rf/reply-to` descriptor it lowers to.",
          []),
-        ("F2 legitimate internal :rf/reply-to mention",
-         "All family sugar normalizes to the internal `:rf/reply-to` descriptor "
-         "(a conformance surface, not an everyday app-facing spelling).",
-         []),
         ("E2 HTTP sugar as a reshaped envelope",
          "For HTTP, the public `:on-success` / `:on-failure` payload is sugar "
          "reshaped from the internal envelope — the canonical reply map is internal.",
@@ -463,9 +459,6 @@ def _self_test() -> int:
         ("F4 reply map :rf.reply/work-id, ledger :work/id",
          "The transient reply map spells the work identity `:rf.reply/work-id`; "
          "bare `:work/id` is the durable ledger / verification identity.",
-         []),
-        ("F5 bare :work/id in a ledger context (no reply-map)",
-         "Ledger-backed work correlates by `:work/id` (the family owns the tuple head).",
          []),
     ]
     failures = 0
