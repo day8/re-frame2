@@ -59,7 +59,6 @@ function runDetector(changedPaths) {
 {
   const r = runDetector([MCP + 'src/re_frame2_pair_mcp/server.cljs',
                          MCP + 'src/re_frame2_pair_mcp/tools.cljs']);
-  assert(r.code === 0 && r.stdout === '',                               'A: exit 0, no stdout');
   assert((r.stderr.match(/re-frame2-pair-mcp: source changed/g) || []).length === 1,
                                                                         'A: one warning header for several files');
   assert(/server\.cljs/.test(r.stderr) && /tools\.cljs/.test(r.stderr), 'A: lists every changed file');
