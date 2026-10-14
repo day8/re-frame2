@@ -51,17 +51,6 @@
                         :rf.cofx/id :lint/ambient}}]
            (mapv #(select-keys % [:op-type :recovery :tags]) (warns AMBIENT))))))
 
-(deftest consume-undeclared-flags-only-an-undeclared-registered-cofx-read
-  (rf/reg-cofx :lint/declared   {:recordable? true} (fn [] :D))
-  (rf/reg-cofx :lint/undeclared {:recordable? true} (fn [] :U))
-  ;; :some.domain/plain-key is not a registered cofx, so it is not flagged
-  (lint! :lint/consume-form
-         (guard-reading [:lint/declared]
-                        '(fn [{cofx :rf.cofx :keys [data]}]
-                           [(:lint/undeclared cofx) (:some.domain/plain-key data)])))
-  (is (= [{:machine-id :lint/consume-form :slot :guards :entry-id :g :rf.cofx/id :lint/undeclared}]
-         (mapv :tags (warns CONSUME)))))
-
 (deftest consume-undeclared-tolerates-unreadable-string-source
   (rf/reg-cofx :lint/undeclared5 {:recordable? true} (fn [] :U))
   ;; the safe EDN reader rejects `#=`: the source is left unscanned, never thrown on
@@ -69,14 +58,18 @@
          (guard-reading [:lint/declared5] "(fn [] #=(str :lint/undeclared5"))
   (is (empty? (warns CONSUME))))
 
-(deftest consume-undeclared-fires-end-to-end-through-reg-machine
-  ;; the macro stamps :source-code as a pr-str STRING the scan reads back
-  (rf/reg-cofx :lint/e2e-declared   {:recordable? true} (fn [] :D))
-  (rf/reg-cofx :lint/e2e-undeclared {:recordable? true} (fn [] :U))
-  (rf/reg-machine :lint/e2e-consume
+(deftest consume-undeclared-flags-only-an-undeclared-registered-cofx-read
+  ;; The macro stamps :source-code as a pr-str STRING the scan reads back. Of
+  ;; the three qualified reads only the undeclared registered cofx is flagged:
+  ;; :some.domain/plain-key is not a registered cofx.
+  (rf/reg-cofx :lint/declared   {:recordable? true} (fn [] :D))
+  (rf/reg-cofx :lint/undeclared {:recordable? true} (fn [] :U))
+  (rf/reg-machine :lint/consume
     {:initial :idle
-     :guards  {:g {:rf.cofx/requires [:lint/e2e-declared]
-                   :fn (fn [{cofx :rf.cofx}] (some? (:lint/e2e-undeclared cofx)))}}
+     :guards  {:g {:rf.cofx/requires [:lint/declared]
+                   :fn (fn [{cofx :rf.cofx data :data}]
+                         [(:lint/declared cofx) (:lint/undeclared cofx) (:some.domain/plain-key data)])}}
      :states  {:idle {:on {:go {:target :done :guard :g}}}
                :done {}}})
-  (is (= #{:lint/e2e-undeclared} (set (map #(:rf.cofx/id (:tags %)) (warns CONSUME))))))
+  (is (= [{:machine-id :lint/consume :slot :guards :entry-id :g :rf.cofx/id :lint/undeclared}]
+         (mapv :tags (warns CONSUME)))))
