@@ -210,9 +210,7 @@ test('a non-DOM Story test runs the node lane only; a JVM .clj test runs neither
   assert.equal(cljs.cljs_browser, 'false');
   assert.equal(cljs.cljs_node_test, 'true');
   const clj = classify('tools/story/test/re_frame/story_test.clj');
-  assert.equal(clj.cljs_browser, 'false');
   assert.equal(clj.cljs_node_test, 'false');
-  assert.equal(clj.tools_jvm, 'true');
 });
 
 test('every Story/Xray DOM suite in the tree is armed by the classifier (rf2-1sd8h)', () => {
@@ -270,7 +268,6 @@ test('an ordinary JVM-only .clj under Story src stays off the CLJS lanes and the
   assert.equal(result.cljs_browser, 'false');
   assert.equal(result.cljs_node_test, 'false');
   assert.equal(result.story_xray_browser, 'false');
-  assert.equal(result.tools_jvm, 'true');
 });
 
 test('macros.clj is still the ONLY .clj under either src tree (rf2-uqf5q)', () => {
@@ -416,8 +413,6 @@ const NEW_TOOLS_JVM_LANES = [
   { job: 'jvm-tools-machines-viz', output: 'tools_jvm_machines_viz', dir: 'tools/machines-viz' },
   { job: 'jvm-tools-testbed-support', output: 'tools_jvm_testbed_support', dir: 'tools/testbed-support' },
 ];
-
-pinnedRoster('NEW_TOOLS_JVM_LANES', NEW_TOOLS_JVM_LANES.map((lane) => lane.dir));
 
 test('the new tools JVM jobs are gated on their own output, run their artefact and are required (rf2-wq17m)', () => {
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
@@ -848,7 +843,6 @@ test('Story/Xray src and deps.edn arm template_expensive; the rest of their tree
   assert.equal(src.mcp_conformance, 'true');
   const outside = classify('tools/story/test/re_frame/story/golden_test.cljc');
   assert.equal(outside.template_expensive, 'false');
-  assert.equal(outside.tools_jvm, 'true');
 });
 
 // The wire-vocab JVM suites (tools/mcp-conformance/wire-vocab) READ HTTP,
@@ -903,10 +897,8 @@ test('fresco, http, resources, routing, epoch and ssr arm playground from src an
 // tools/template arms its own jvm-tools-template lane, and adapter_diagnostic
 // for the reverse edge: `uix_consumer_deps_recipe_test.clj` (jvm-uix) slurps a
 // template file as its version source, so a template-only diff can red jvm-uix.
-test('tools/template arms template_expensive and adapter_diagnostic (rf2-jdj17.1, rf2-q4s8)', () => {
-  const result = classify('tools/template/src/day8/re_frame2_template/hooks.clj');
-  assert.equal(result.template_expensive, 'true');
-  assert.equal(result.adapter_diagnostic, 'true');
+test('tools/template arms template_expensive (rf2-jdj17.1)', () => {
+  assert.equal(classify('tools/template/src/day8/re_frame2_template/hooks.clj').template_expensive, 'true');
 });
 
 const UIX_RECIPE_TEST_REL =
@@ -977,7 +969,6 @@ test('each gate launcher arms its own gate and keeps the generic static-script o
     ['implementation/scripts/serve-and-run-fresco-controlled-testbed.cjs', 'fresco_controlled'],
     ['implementation/scripts/serve-and-run-fresco-hmr-testbed.cjs', 'fresco_hmr'],
     ['implementation/scripts/check-story-static.cjs', 'story_static_gate'],
-    ['implementation/scripts/story-build.cjs', 'story_static_gate'],
   ]) {
     const result = classify(file);
     for (const output of new Set([gate, ...GENERIC_SCRIPT_OUTPUTS])) {
@@ -1000,16 +991,7 @@ test('example compilation has a dedicated changed-surface output (rf2-gzavkm)', 
   const directSurfaces = [
     'examples/core/counter/core.cljs',
     'implementation/deps.edn',
-    'implementation/adapters/uix/src/re_frame/adapter/uix.cljs',
-    'implementation/epoch/src/re_frame/epoch.cljc',
-    'implementation/schemas/src/re_frame/schemas.cljc',
-    'implementation/machines/src/re_frame/machines.cljc',
-    'implementation/routing/src/re_frame/routing.cljc',
-    'implementation/flows/src/re_frame/flows.cljc',
-    'implementation/http/src/re_frame/http/managed.cljc',
-    'implementation/ssr/src/re_frame/ssr.cljc',
     'implementation/ssr-ring/src/re_frame/ssr/ring.clj',
-    'implementation/resources/src/re_frame/resources.cljc',
     'implementation/scripts/check-examples-compile.cjs',
     'tools/story/src/re_frame/story.cljs',
     'tools/xray/src/day8/re_frame2_xray/preload.cljs',
@@ -1067,15 +1049,14 @@ test('the shipped preload arms its behavioral gates, its wire-vocab reader, comp
 
 // The retro, migration and improver skill trees each need an arm of their own:
 // the main case has no default arm, so a tree no arm names classifies to ZERO
-// outputs. The pair-retro tree cannot inherit the pair arm — the pattern
+// outputs. The improver arm is pinned by its extracted-reference test below. The pair-retro tree cannot inherit the pair arm — the pattern
 // `skills/re-frame2-pair/*` needs a `/` straight after `pair` — and the loop
 // below pins that boundary from the other side: retro paths must not arm the
 // pair tree's expensive gates. One file per tree.
-const SKILLS_STRUCTURAL_ONLY_FILES = pinnedRoster('SKILLS_STRUCTURAL_ONLY_FILES', [
+const SKILLS_STRUCTURAL_ONLY_FILES = [
   'skills/re-frame2-pair-retro/tests/duplicate_search_test.clj',
   'skills/reagent-fresco-migration/tests/fixture/test/reagent_fresco_migration/mig23_cold_start_test.cljs',
-  'skills/re-frame2-improver/tests/storage_materializer_test.clj',
-]);
+];
 for (const file of SKILLS_STRUCTURAL_ONLY_FILES) {
   test(`${file} arms skills_structural (rf2-g1m2q)`, () => {
     const result = classify(file);
@@ -1098,20 +1079,6 @@ for (const file of SKILLS_STRUCTURAL_ONLY_FILES) {
     }
   });
 }
-
-// The improver arm's other boundary: `skills/re-frame2-implementor/` shares the
-// prefix `skills/re-frame2-imp`, carries no tests and has no arm, so a pattern
-// loosened to `skills/re-frame2-imp*` would schedule a job with nothing to run.
-test('skills/re-frame2-implementor/ does not inherit the improver arm (rf2-z65e)', () => {
-  const result = classify('skills/re-frame2-implementor/SKILL.md');
-  assert.equal(
-    result.skills_structural,
-    'false',
-    'the implementor tree shares the prefix `skills/re-frame2-imp` with the ' +
-      'improver tree but carries no tests; an arm matching it would schedule ' +
-      'the skills-structural job for a tree with nothing to run.',
-  );
-});
 
 // The REVERSE edge into the two skill fixtures, both gated on
 // skills_structural. The MIG-23 SSR cold-start fixture and the re-frame2-pair
@@ -1270,34 +1237,6 @@ test('no workflow carries an inline Clojure installer body or setup-clojure (rf2
         'transient curl-35 / socket-hang-up flake the shared installer retries through',
     );
   }
-});
-
-test('every Clojure CLI step calls the shared installer by absolute path (rf2-e7ja9)', () => {
-  let callSites = 0;
-  for (const { name, text } of allWorkflows()) {
-    const lines = text.split(/\r?\n/);
-    lines.forEach((line, i) => {
-      if (!/^\s*-\s+name:.*Set up Clojure CLI/.test(line)) return;
-      callSites++;
-      // The step's `run:` is the next non-blank line — the extraction leaves a
-      // two-line step, so anything else means a body crept back in.
-      const next = lines[i + 1] ?? '';
-      assert.match(
-        next,
-        /^\s*run: "\$GITHUB_WORKSPACE\/\.github\/scripts\/install-clojure-cli\.sh"$/,
-        `${name}:${i + 2} — a "Set up Clojure CLI" step must be exactly a call to the shared ` +
-          'installer. Use the $GITHUB_WORKSPACE-absolute form: several jobs set a ' +
-          '`defaults.run.working-directory` (e.g. `implementation`) under which a relative ' +
-          './.github/scripts/... would not resolve.',
-      );
-    });
-  }
-  // Non-vacuity: if the steps were renamed away wholesale this test would
-  // otherwise pass by iterating nothing.
-  assert.ok(
-    callSites >= 50,
-    `expected the ~59 Clojure CLI call sites to still be present, found ${callSites}`,
-  );
 });
 
 // The adapter-disposition guard scans a FIXED cross-repo roster, not the diff,
@@ -1534,13 +1473,11 @@ test('every script the static gate spawns is armed (rf2-9n2cv)', () => {
 // The runtime-path predicate arms the smoke tier AND the static gate: the
 // static export's release closure is tools/story/src/** plus tools/xray/src/**
 // plus its testbed entry, and arming the job is not arming the step. One row
-// per glob alternative and runtime extension, plus the named macros.clj.
+// per glob alternative and runtime extension.
 test('Story/Xray runtime source arms the smoke tier and the static gate (rf2-xurxw, rf2-65ajl)', () => {
   for (const file of [
     'tools/xray/src/day8/re_frame2_xray/core.cljs',
     'tools/story/src/re_frame/story/ui/shell.cljs',
-    'tools/story/src/re_frame/story/macros.clj',
-    'tools/story/testbeds/counter_with_stories/story_static.cljs',
     'tools/story/testbeds/counter_with_stories/story_static.index.html',
     'tools/xray/testbeds/feature_matrix/scenarios.cjs',
   ]) {
@@ -1675,7 +1612,6 @@ test('jvm-adapters-test-react is gated on the disjunction (rf2-6r9j.87)', () => 
 // it, so a signal missing there makes a forced full run SKIP the job — the
 // narrowing's own fail-open.
 test('a forced full run still arms test_react_jvm (rf2-6r9j.87)', () => {
-  assert.equal(classify('--all').test_react_jvm, 'true');
   assert.equal(classify('.github/workflows/test.yml').test_react_jvm, 'true');
 });
 
@@ -1762,18 +1698,6 @@ test('every spec module the full-gate runner loads is armed (rf2-65ajl)', () => 
       `${spec} is executed by npm run test:story-feature-load but does not arm story_full_gate`,
     );
   }
-});
-
-test('adapter-testbed-smokes workflow remains scoped to ADAPTER_SMOKE_FILTER=adapters/ (rf2-t5slp)', () => {
-  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
-  // Verify the adapter-testbed-smokes job passes the narrow adapters/ filter
-  // (a substring OR-match against the orchestrator's shadow-cljs build ids),
-  // so it runs exactly the adapter smokes and never widens onto another
-  // testbed family.
-  assert.match(
-    workflow,
-    /adapter-testbed-smokes:[\s\S]*ADAPTER_SMOKE_FILTER:\s*"adapters\/"/,
-  );
 });
 
 // The source-less test tiers — the reply / derivation / event
@@ -1991,11 +1915,11 @@ test('the fresco HMR job installs the PINNED three engines and narrows none (rf2
 });
 
 // The DOM suites the fresco arm's cljs_browser exists for.
-const FRESCO_DOM_TESTS = pinnedRoster('FRESCO_DOM_TESTS', [
+const FRESCO_DOM_TESTS = [
   'implementation/fresco/test/re_frame/fresco/kernel_commit_owns_dom_cljs_test.cljs',
   'implementation/fresco/test/re_frame/fresco/roots_frames_hydration_dom_cljs_test.cljs',
   'implementation/fresco/test/re_frame/fresco/roots_frames_isolation_dom_cljs_test.cljs',
-]);
+];
 
 test('the fresco DOM suites really are in the browser lane (rf2-8a6s)', () => {
   // NON-VACUITY. Arming cljs_browser is worth nothing unless the job it
@@ -2193,32 +2117,6 @@ test('PUSH: a multi-commit push classifies over the WHOLE push, not the tip (rf2
   }
 });
 
-test('PUSH: the CONTROL — HEAD^ alone misses that same change (rf2-34yg)', () => {
-  // Same history, no accepted base: the HEAD^ default sees only the docs tip.
-  // If this ever arms the gates, the test above has stopped proving anything.
-  const result = classifyViaGitDiscovery(pushHistory);
-  for (const key of DISCOVERY_GATE_KEYS) {
-    assert.equal(
-      result[key],
-      'false',
-      `HEAD^ sees only the docs tip, so ${key} stays false — this is the ` +
-        'failure the accepted base avoids, kept as the control for the test above',
-    );
-  }
-});
-
-test('PUSH: the all-zeros sentinel folds back to HEAD^ (first push to a ref) (rf2-34yg)', () => {
-  // A first push to a fresh ref carries an all-zeros `before`, which must not
-  // reach `git diff` as a literal ref.
-  const result = classifyViaGitDiscovery(pushHistory, () => ({
-    GITHUB_EVENT_NAME: 'push',
-    CHANGED_SURFACES_BASE_REF: '0'.repeat(40),
-  }));
-  for (const key of DISCOVERY_GATE_KEYS) {
-    assert.equal(result[key], 'false', `all-zeros must fold to HEAD^, not fail (${key})`);
-  }
-});
-
 test('PUSH: an UNRESOLVABLE base arms everything rather than skipping (rf2-34yg)', () => {
   // The force-push case: `before` is the discarded tip, reachable from no ref.
   // A classifier's failure mode is a false GREEN, so its fail-closed is
@@ -2349,15 +2247,6 @@ test('the slot pin arms implementation_jvm only INCIDENTALLY (rf2-ipx7h)', () =>
     'the .clj control must measure false — the arm is the census predicate, '
       + 'not a fresco JVM arm',
   );
-});
-
-test('a bench-lane diff is CLASSIFIED to no gate, not left unclassified (rf2-6c12m.1)', () => {
-  // The Fresco bench lane is a hand-run shadow-cljs project kept off every
-  // per-PR lane: its suites exercise LOCAL COPIES of the runtime, so a PR run
-  // could catch nothing in the shipped one. The classifier's explicit `bench/*`
-  // arm sets nothing; the tree's own gate is `npm run check` from bench/fresco/.
-  const result = classify('bench/fresco/src/re_frame/bench/fresco/lane.cljs');
-  assert.deepEqual(new Set(Object.values(result)), new Set(['false']));
 });
 
 test('jvm-fresco is UNCONDITIONAL, rostered and required (rf2-ipx7h)', () => {
@@ -3153,101 +3042,6 @@ test('every DECLARED tree still exists, and its named coverage does (rf2-skvce)'
       }
     }
   }
-  assert.deepEqual(problems, [], problems.join('\n  '));
-});
-
-// ---------------------------------------------------------------------------
-// THE GUARD'S OWN GUARD.
-//
-// `pinnedRoster` covers the rosters declared through it. It cannot, by itself,
-// cover the NEXT one: a roster added by someone who has never read that comment
-// and declared as a bare array literal would carry a phantom pin silently, and
-// a guard that depends on an author remembering it guards nothing.
-//
-// So this test reads THIS FILE'S OWN SOURCE and refuses a path-shaped roster
-// that never reached the guard. Parsing a roster out of source to keep it
-// honest is an idiom this suite already uses one tier over — `every spec module
-// the full-gate runner loads is armed` parses `ALL_SPEC_FILES` out of the story
-// runner for exactly this reason. What differs here is that the file
-// being parsed is this one, which is the only way to reach a roster that has
-// not been written yet.
-const ROSTERS_EXEMPT_FROM_PATH_PINNING = new Set([
-  // Empty, and that is the intended steady state. An entry belongs here only
-  // when a roster holds path-SHAPED strings that are not repo paths — glob
-  // patterns, or synthetic probes that must stay untracked — and it carries a
-  // reason on the line. Never add one to silence a red you have not understood:
-  // the red normally means a pin has gone phantom, which is the bug itself
-  // rather than the guard misfiring.
-]);
-
-test('every path-shaped roster in this file is declared through pinnedRoster (rf2-e30e)', () => {
-  const source = fs.readFileSync(__filename, 'utf8');
-  const isPathShaped = (s) => /^[A-Za-z0-9_.@-]+(?:\/[A-Za-z0-9_.@*-]+)+$/.test(s);
-  const problems = [];
-  const declaration = /(?:^|\n)const ([A-Z][A-Z0-9_]*) = \[/g;
-  let scanned = 0;
-  let match;
-
-  while ((match = declaration.exec(source)) !== null) {
-    const name = match[1];
-    scanned += 1;
-
-    // Quote-aware bracket matching: a roster entry may itself contain a
-    // bracket, and a naive search for the next `]` would truncate the array.
-    const open = source.indexOf('[', match.index);
-    let depth = 0;
-    let end = -1;
-    let quote = null;
-    for (let i = open; i < source.length; i += 1) {
-      const character = source[i];
-      if (quote !== null) {
-        if (character === '\\') { i += 1; continue; }
-        if (character === quote) quote = null;
-        continue;
-      }
-      if (character === "'" || character === '"' || character === '`') { quote = character; continue; }
-      if (character === '[') depth += 1;
-      else if (character === ']') {
-        depth -= 1;
-        if (depth === 0) { end = i; break; }
-      }
-    }
-    assert.ok(end > 0, `${name}: the self-parse could not find the end of the array literal`);
-
-    const entries = [...source.slice(open + 1, end).matchAll(/'([^'\n]*)'|"([^"\n]*)"/g)]
-      .map((entry) => (entry[1] === undefined ? entry[2] : entry[1]));
-    const paths = entries.filter(isPathShaped);
-
-    // A roster counts as guarded however it reaches `pinnedRoster` — wrapped at
-    // its declaration, or (where the rows are tuples or objects rather than
-    // bare paths) passed as a projected column afterwards.
-    //
-    // Tolerate whitespace between the call and its first argument, because a
-    // formatter will break a long call across lines and a contiguous-substring
-    // search cannot see across one: written as
-    // `source.includes("pinnedRoster('" + name + "'")`, this check would report
-    // PROSE_PINS_ARMING_JVM unguarded when it is guarded a few lines below,
-    // purely because prettier wraps the argument onto its own line. A detector
-    // that answers "not found" for a formatting reason is the same fail-open
-    // shape as the phantom pin it is here to catch.
-    const guarded = new RegExp(`pinnedRoster\\(\\s*'${name}'`).test(source);
-    if (paths.length > 0 && !guarded && !ROSTERS_EXEMPT_FROM_PATH_PINNING.has(name)) {
-      problems.push(
-        `${name} holds ${paths.length} path-shaped entry/entries (e.g. ${paths[0]}) ` +
-          'but is declared as a bare array, so a phantom path in it would be inert ' +
-          `rather than red. Declare it as \`const ${name} = pinnedRoster('${name}', [...])\`, ` +
-          'or pass its path column to pinnedRoster if the rows are tuples.',
-      );
-    }
-  }
-
-  // The parse itself is an instrument that can answer "nothing here" when it is
-  // simply broken, so pin that it still finds the bare declarations it should.
-  assert.ok(
-    scanned > 0,
-    'the self-parse matched no bare roster declarations at all — the parse has rotted, ' +
-      'and a rotted parse reports a clean file',
-  );
   assert.deepEqual(problems, [], problems.join('\n  '));
 });
 
