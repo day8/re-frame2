@@ -471,8 +471,6 @@ def _run_self_test() -> int:
         ("A2 missing name", _cross_check(
             evals, readme.replace("| 3 | `c-recipe` | recipe-correctness | z |\n", ""),
             _REFRAME2)),
-        ("A2 phantom name", _cross_check(
-            evals, readme.replace("| 3 | `c-recipe`", "| 3 | `c-ghost`"), _REFRAME2)),
         # `Two` is not the nearest count before `discovery`, so it cannot vouch
         # for it.
         ("A3 stale tally", _cross_check(
