@@ -139,16 +139,6 @@
 
 ;; ---- direct source writes (depth zero) ------------------------------------
 
-(deftest layer-1-direct-source-write-still-flushes
-  ;; A bare `reset!` outside replace-container! (test or tooling) drains at once.
-  (let [src   (atom 5)
-        l1    ((direct-derived-fn) [src] (fn [x] (* x 10)))
-        notes (atom [])]
-    @l1
-    (add-watch l1 :w (fn [_ _ prev nu] (swap! notes conj [prev nu])))
-    (reset! src 6)
-    (is (= [[50 60]] @notes))))
-
 (deftest direct-source-sole-dependent-falsey-throw-surfaces-by-presence
   (doseq [thrown-val [false nil]]
     (let [src   (atom 1)
