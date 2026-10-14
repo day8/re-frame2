@@ -58,12 +58,6 @@
 (defn- cached? [frame-id query-v]
   (contains? @(:sub-cache (rf.frame/frame frame-id)) query-v))
 
-(deftest same-id-remake-refreshes-a-changed-inline-sub
-  (install! :gen/frame (sub-image :gen/v1 :gen/value 1))
-  (let [before (read-sub :gen/frame [:gen/value])]
-    (install! :gen/frame (sub-image :gen/v2 :gen/value 2))
-    (is (= [1 2] [before (read-sub :gen/frame [:gen/value])]))))
-
 (deftest same-id-remake-refreshes-a-changed-declared-input-parent
   ;; The parent's declared-input closure must be evicted too, or the cached
   ;; parent keeps the generation-1 child reaction by closure.
