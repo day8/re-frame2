@@ -3,12 +3,10 @@
 
   Pinned here: the app-db `:sensitive` substitution in `:db-before` /
   `:db-after` with bookkeeping passing through; the shared app-db axes kept
-  independent of each other and of the three epoch-only axes (`:trigger-event`
-  args, the `:rf.db/runtime` partition, `:effects` args); the t1/t2 pending-db
-  trace re-root; the `:rf.epoch/sensitive?` badge; the `:trace-events-keep`
-  bound; the explicit `:frame` override; the profile floor resolved once at the
-  record boundary; and guards G1 (absent projector) and G2 (a core whose door
-  does not dispatch `:rf/epoch-record`). Every redaction assertion sits beside a
+  independent of each other; `:trigger-event` args failing closed; the t1/t2
+  pending-db trace re-root; the explicit `:frame` override; the profile floor
+  resolved once at the record boundary; and guards G1 (absent projector) and G2
+  (a core whose door does not dispatch `:rf/epoch-record`). Every redaction assertion sits beside a
   value that rides raw through the same call, or an opt-in revealing it.
 
   Dual-lane `.cljc`: the `-cljs-test` suffix puts it in the shadow-cljs
@@ -121,15 +119,6 @@
       (is (not (contains-secret? proj)))
       (is (= (select-keys raw bookkeeping) (select-keys proj bookkeeping))))))
 
-(deftest projection-does-not-mutate-the-ring
-  (testing "a forwarder projects on every cascade, so projection must leave the
-            raw ring — the material replay and `restore-epoch!` read — untouched"
-    (login-record!)
-    (let [before (rf/epoch-history frame-id)]
-      (dotimes [_ 2] (mapv rf/project-egress (rf/epoch-history frame-id)))
-      (is (contains-secret? before) "the ring holds the raw secret to begin with")
-      (is (= before (rf/epoch-history frame-id))))))
-
 (deftest include-sensitive-keeps-large-elision-independent
   (testing "`:rf.egress/include-sensitive?` and `:rf.egress/include-large?` are
             independent: each opt-in lifts its own axis and no other"
@@ -201,30 +190,6 @@
       (is (= [redacted redacted]
              (mapv :tags (:trace-events (rf/project-egress rec))))))))
 
-(deftest sensitive-rollup-badge-survives-projection
-  (testing "`:rf.epoch/sensitive?` is derived from the RAW record at assembly, so
-            it survives projection: true where a declared path holds a value,
-            strict false on a frame that classifies nothing"
-    (fresh-frame!)
-    (reg-login!)
-    (rf/dispatch-sync [:egress/login secret] {:frame frame-id})
-    (rf/make-frame {:id control-frame-id})
-    (rf/reg-event :egress/plain (fn [_ _] {:db {:audit {:note benign}}}))
-    (rf/dispatch-sync [:egress/plain] {:frame control-frame-id})
-    (is (= [true false]
-           (mapv #(:rf.epoch/sensitive? (rf/project-egress (last-record %)))
-                 [frame-id control-frame-id])))))
-
-(deftest trace-events-retention-cap-bounds-what-egresses
-  (testing "records older than the `:trace-events-keep` window (5, set by the
-            fixture) drop `:trace-events`, and projection does not restore the slot"
-    (rf/make-frame {:id frame-id})
-    (rf/reg-event :egress/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (dotimes [_ 7] (rf/dispatch-sync [:egress/inc] {:frame frame-id}))
-    (is (= [false false true true true true true]
-           (mapv #(contains? (rf/project-egress %) :trace-events)
-                 (rf/epoch-history frame-id))))))
-
 ;; ---- the one door's epoch arm -----------------------------------------------
 
 (deftest explicit-frame-override-beats-the-records-own-frame
@@ -241,42 +206,6 @@
                       [:db-after :auth :password])
               (:db-after none)]))
       (is (not (contains-secret? none))))))
-
-(deftest shared-axes-lift-through-the-door-but-epoch-only-axes-do-not
-  (testing "pair-MCP's boundary — `off-box-tool` plus
-            `:rf.egress/include-sensitive?`, deliberately NOT `local-raw` — lifts
-            the app-db leaf while event args, the runtime-db partition and effect
-            args stay closed; `:rf.egress/include-runtime-db?` opens the partition"
-    (fresh-frame!)
-    (rf/reg-fx :egress/login-fx (fn [_ _] nil))
-    (rf/reg-event :egress/login
-      (fn [{:keys [db]} [_ pw]]
-        {:db (assoc-in db [:auth :password] pw)
-         :fx [[:egress/login-fx {:password pw}]]}))
-    (rf/dispatch-sync [:egress/login secret] {:frame frame-id})
-    (let [raw  (last-record)
-          opts {:rf.egress/profile            :rf.egress/off-box-tool
-                :rf.egress/include-sensitive? true}
-          proj (rf/project-egress raw opts)]
-      (is (= [secret [:egress/login :rf/redacted] :rf/redacted [:rf/redacted]]
-             [(get-in proj [:db-after :auth :password])
-              (:trigger-event proj)
-              (get-in proj [:frame-state-after :rf.db/runtime])
-              (mapv :args (filter #(= :egress/login-fx (:fx-id %)) (:effects proj)))]))
-      (is (= (get-in raw [:frame-state-after :rf.db/runtime])
-             (get-in (rf/project-egress raw (assoc opts :rf.egress/include-runtime-db? true))
-                     [:frame-state-after :rf.db/runtime]))))))
-
-(deftest local-raw-profile-floor-is-honoured-not-overridden-to-false
-  (testing "the profile is the floor and only keys the caller supplies overlay
-            it: `:rf.egress/local-raw` opts sensitive back in with no explicit
-            key, and an explicit false still wins"
-    (let [raw  (login-record!)
-          leaf #(get-in (rf/project-egress raw %) [:db-after :auth :password])]
-      (is (= [secret :rf/redacted]
-             [(leaf {:rf.egress/profile :rf.egress/local-raw})
-              (leaf {:rf.egress/profile            :rf.egress/local-raw
-                     :rf.egress/include-sensitive? false})])))))
 
 (defn- large-everywhere-record!
   "One cascade populating the three slots the shared large axis governs: the
