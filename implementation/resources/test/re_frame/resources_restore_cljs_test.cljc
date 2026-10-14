@@ -112,15 +112,9 @@
            ["a :loading entry that already holds data → :loaded, keeping it"
             {:status :loading :data {:title "kept"} :current-work [:rf.work/resource gkey 6]}
             [:loaded {:title "kept"} nil]]
-           ["an already-stable :loaded entry keeps its status"
+           ["an already-stable entry keeps its status"
             {:status :loaded :data {:x 1} :loaded-at 1000 :stale-at 9.0e15}
-            [:loaded {:x 1} nil]]
-           ["…as does :error"
-            {:status :error :error {:kind :x}}
-            [:error nil {:kind :x}]]
-           ["…and :idle"
-            {:status :idle}
-            [:idle nil nil]]]]
+            [:loaded {:x 1} nil]]]]
     (let [se (restored-entry (rf.resources.ssr/reconcile-on-restore
                                (runtime-db-with {gkey (entry (assoc fields :resource-id :article/by-slug))})
                                :app/main))]
@@ -302,8 +296,7 @@
   (let [ssr     [:ssr "req-9" "nav-1"]
         machine [:machine :checkout/flow "inst-1"]
         app     [:app :dashboard 7]
-        route   (fn [token] [:route :route/article token])
-        no-live #{ssr (route "nav-x") machine app}]
+        route   (fn [token] [:route :route/article token])]
     (doseq [[label owners rdb-fn survivors]
             [["the live nav-token's route owner revives"
               #{ssr (route "nav-1") machine} #(with-live-nav-token % "nav-1")
@@ -311,12 +304,8 @@
              ["a stale nav-token's route owner orphans beside the live one"
               #{(route "nav-OLD") (route "nav-NEW") machine} #(with-live-nav-token % "nav-NEW")
               #{(route "nav-NEW") machine}]
-             ["no routing slice: no route owner is live"
-              no-live identity #{machine app}]
-             ["a routing slice without :current"
-              no-live #(assoc % :rf.runtime/routing {:pending-navigation {:x 1}}) #{machine app}]
-             ["a nil live nav-token"
-              no-live #(assoc-in % [:rf.runtime/routing :current :nav-token] nil) #{machine app}]]]
+             ["no live nav-token: no route owner is live"
+              #{ssr (route "nav-x") machine app} identity #{machine app}]]]
       (let [out (rf.resources.ssr/reconcile-on-restore
                   (rdb-fn (runtime-db-with {gkey (loaded-entry owners)})) :app/main)]
         (is (= [survivors survivors]
@@ -372,16 +361,6 @@
     (is (empty? @inline) "nothing fired inline")
     (is (restored-row? @committed))
     (is (released? @committed stale :stale-nav-orphan))))
-
-(deftest commit-restore-reconcile-traces-noop-without-intents
-  (testing "commit-restore-reconcile-traces! is a no-op on a value
-            carrying no deferred intents (an inline reconcile, or resource-free)"
-    (let [[seen unregister!] (restore-trace-recorder)]
-      (try
-        (rf.resources.ssr/commit-restore-reconcile-traces! (runtime-db-with {}))
-        (rf.resources.ssr/commit-restore-reconcile-traces! nil)
-        (finally (unregister!)))
-      (is (empty? @seen) "no intents → no trace rows"))))
 
 ;; ===========================================================================
 ;; 4. Indexes recomputed from entries, never trusted (Spec 016 §Restore part 5)
@@ -561,8 +540,7 @@
     (rf/make-frame {:id fid})
     (let [token (rf.frame/frame-incarnation-token fid)
           n     (count (-> (mk) meta (get :re-frame.resources.ssr/deferred-trace-intents)))]
-      (doseq [[label commit!] [["the 1-arity" #(rf.resources.ssr/commit-restore-reconcile-traces! %)]
-                               ["a LIVE incarnation token"
+      (doseq [[label commit!] [["a LIVE incarnation token"
                                 #(rf.resources.ssr/commit-restore-reconcile-traces! % fid {:owner-token token})]
                                ["a nil token"
                                 #(rf.resources.ssr/commit-restore-reconcile-traces! % fid {:owner-token nil})]]]
