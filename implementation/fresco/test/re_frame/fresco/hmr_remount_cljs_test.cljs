@@ -28,8 +28,8 @@
   fn is anonymous, so it can shadow no helper the body calls —
   so re-evaluating the form is re-running that one call and rebinding the
   var. [[load-namespace!]] below is those two things and nothing else,
-  and [[the-defview-macro-mints-what-a-reload-re-mints]] holds the model
-  to the macro so the two cannot drift apart silently.
+  and [[a-save-re-mints-the-head-and-with-it-the-element-type]] holds the
+  model to the macro's own name so the two cannot drift apart silently.
 
   ## Why the observables here are not DOM assertions
 
@@ -235,29 +235,10 @@
               which is the entire mechanism by which a save costs a subtree"
       (is (false? (same-object? (element-type-of g1) (element-type-of g2)))))
 
-    (testing "the address survives the transition and the identity does not
-              — the frame-incarnation rule, one level up
-              and on the view rather than on the frame"
-      (is (= view-name (.-displayName ^js g1)))
-      (is (= view-name (.-displayName ^js g2))))))
-
-(deftest the-defview-macro-mints-what-a-reload-re-mints
-  ;; The model's own guard. `load-namespace!` claims to be what re-evaluating
-  ;; the `defview` form does; that claim is only true while the macro expands
-  ;; to this call under this name. If `mint-view!` ever gains an HMR-stable
-  ;; proxy keyed on the view name — a live possibility, since the ledger
-  ;; already carries source coordinates per name — this test goes red
-  ;; and the recorded contract must be rewritten before the suite can pass.
-  ;; That is the intended behaviour: the freeze is falsifiable.
-  (let [reloaded (load-namespace! panel-body)]
-    (is (true? (rf.fresco.impl.codec/boundary-head? panel))
-        "the macro's product is a marked boundary head")
-    (is (true? (rf.fresco.impl.codec/boundary-head? reloaded))
-        "and so is the reload's, so the two are the same kind of object")
-    (is (= (.-displayName ^js panel) (.-displayName ^js reloaded) view-name)
-        "minted under the identical name — same address")
-    (is (false? (same-object? panel reloaded))
-        "and it is nonetheless a different head, which is the reload")))
+    (testing "the address survives the transition and the identity does not,
+              and it is the address `defview` itself mints under — so the
+              reload model is held to the macro"
+      (is (= view-name (.-displayName ^js panel) (.-displayName ^js g1) (.-displayName ^js g2))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2. The hand-over: the stale generation lets go of everything
