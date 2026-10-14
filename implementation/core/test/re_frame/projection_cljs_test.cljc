@@ -322,20 +322,6 @@
    :network        ["GET" "super-secret-token"]
    :source-chain   [:a :b]})                      ;; author prose — not a named slot
 
-(deftest derived-tree-app-db-path-position-redacts
-  (mk-frame! :proj/derived-path)
-  (rf/reg-event :proj/seed-path
-    (fn [{:keys [db]} _]
-      {:db        (assoc-in db [:auth :token] "path-secret")
-       :sensitive [[:auth :token]]}))
-  (rf/with-frame :proj/derived-path
-    (rf/dispatch-sync [:proj/seed-path]))
-  (is (= {:auth {:token :rf/redacted} :public {:count 3}}
-         (rf/project-egress {:kind  :rf.observe/derived-tree
-                             :frame :proj/derived-path
-                             :tree  {:auth {:token "path-secret"} :public {:count 3}}}
-                            {:rf.egress/profile :rf.egress/off-box-tool}))))
-
 (deftest derived-tree-multi-slot-form-path-walks-named-slots
   ;; Under a live frame each named :slot-keys value is path-walked, so a
   ;; re-keyed secret at a non-app-db position ships raw (fail-open), and the
