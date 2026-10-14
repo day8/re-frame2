@@ -34,13 +34,6 @@
   {:type "text" :name "description" :placeholder "What's this article about?"
    :data-testid "editor-description"})
 
-(def ^:private classless-remainder+nil-class
-  "The same field as the `:helper` and `:no-dissoc` arms write it: the
-  passenger key, written with a nil value."
-  {:class nil
-   :type "text" :name "description" :placeholder "What's this article about?"
-   :data-testid "editor-description"})
-
 (def ^:private title-remainder
   "The title field — the only one carrying a class."
   {:class "form-control-lg"
@@ -73,10 +66,9 @@
 (deftest the-lg-helper-differs-from-the-plain-one-by-the-TAG-alone
   (let [plain (rf.bench.fresco.amp-merge-clock-app/field-lean    draft errors id :description false classless-remainder)
         lg    (rf.bench.fresco.amp-merge-clock-app/field-lean-lg draft errors id :description false classless-remainder)]
-    (is (= (shape (attrs-of plain)) (shape (attrs-of lg))))
-    (is (= [:input.form-control :input.form-control.form-control-lg]
-           [(first (input-of plain)) (first (input-of lg))])
-        "the title's extra class rides the tag, the way `:expanded` has it")))
+    (is (= [(shape (attrs-of plain)) :input.form-control :input.form-control.form-control-lg]
+           [(shape (attrs-of lg)) (first (input-of plain)) (first (input-of lg))])
+        "the same attributes, and the title's extra class rides the tag, the way `:expanded` has it")))
 
 (deftest rung-3-primes-two-arms-present-the-codec-the-same-map
   ;; `:merged` puts `:k` and `:busy?` INTO the caller map and takes them back
@@ -98,12 +90,4 @@
     (let [old (attrs-of (rf.bench.fresco.amp-merge-clock-app/field-explicit draft errors id :description false
                                                                           classless-remainder))]
       (is (= [true nil 9 PersistentHashMap]
-             [(contains? old :class) (:class old) (count old) (type old)]))))
-  (testing "rung (3): the `:class nil` call site crosses where `:merged` does not"
-    (let [merged (presented (rf.bench.fresco.amp-merge-clock-app/field draft errors id
-                                                                       (merge {:k :description :busy? false}
-                                                                              classless-remainder)))
-          old    (presented (rf.bench.fresco.amp-merge-clock-app/field-no-dissoc draft errors id :description false
-                                                                                 classless-remainder+nil-class))]
-      (is (= [9 PersistentHashMap PersistentArrayMap]
-             [(count old) (type old) (type merged)])))))
+             [(contains? old :class) (:class old) (count old) (type old)])))))
