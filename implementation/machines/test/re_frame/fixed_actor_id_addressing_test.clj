@@ -1,6 +1,6 @@
 (ns re-frame.fixed-actor-id-addressing-test
   "`:fixed-actor-id` is the one stable-name mechanism — the address IS the id
-  (Spec 005 §Spec-spec keys). A re-entered fixed child is a new incarnation at
+  (Spec 005 §`:spawn` map keys). A re-entered fixed child is a new incarnation at
   the same address, and a spawn onto a LIVE fixed address runs the occupant
   through the ordinary destroy path before installing the replacement."
   (:require [clojure.test :refer [deftest is use-fixtures]]
