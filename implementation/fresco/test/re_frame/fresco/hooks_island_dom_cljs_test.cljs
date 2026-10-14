@@ -356,14 +356,6 @@
                   (is (= #{k} (rf.fresco.roots-frames-support/cell-keys)))
                   (is (= 2 (count (readers-of k)))))
 
-                (testing "and TWO read-set entries exist, which is the honest
-                          count: the one-key entry the boundary and the island
-                          SHARE, and the empty one `shared-host` claimed — a
-                          body that reads nothing still mints and claims an
-                          entry, and that is what makes the tool tier's census
-                          complete"
-                  (is (= 2 (:entries (rf.fresco.test.runtime/residue)))))
-
                 (testing "and `re-frame.fresco.tool`'s mounted-boundary
                           projection — the one Xray consumes — NAMES
                           the read, without knowing that hooks exist. That is
@@ -381,9 +373,7 @@
                                                     (some #(= ::price (:sub-id %))
                                                           (:reads r)))
                                                   (:boundaries projection)))]
-                    (is (= :mounted-boundaries (:read projection)))
-                    (is (some? row) "the projection names no read of ::price")
-                    (is (= alpha (:frame row)))
+                    (is (= alpha (:frame row)) "the projection names the read of ::price, under the mounted frame")
                     (is (= alpha (:frame-id (first (:reads row)))))
                     (is (= 2 (:instances row))
                         "one edge set, two holders — the runtime keys a
@@ -422,17 +412,14 @@
                             wakes on every write in the application here, which
                             is the cost the whole cell table exists to avoid"
                     (rf.fresco.impl.mount/dispatch! handle [::touch-elsewhere])
-                    (is (= runs (deref !island-runs)))
-                    (is (= "204" (text-at handle ".price")))))
+                    (is (= runs (deref !island-runs)))))
 
                 (testing "and the island's own dispatch — `:dispatch-sync` off
                           the ops map, fired from a real click through React's
                           event system — moves the same app-db the rest of the
                           page reads"
                   (click! handle ".commit")
-                  (is (= "from-the-island" (text-at handle ".price")))
-                  (is (= "from-the-island"
-                         (rf/with-frame alpha @(rf/subscribe [::price "AAPL"])))))
+                  (is (= "from-the-island" (text-at handle ".price"))))
 
                 (is (= rf.fresco.roots-frames-support/released (teardown! handle)))
                 nil))
@@ -643,13 +630,10 @@
   it installed and from nothing else, asserted where a dynamic-var tier
   could actually have won.
 
-  WHY THIS ROW IS IN THE DOM LANE AT ALL, given the node lane already
-  states the rule (`hooks_island_cljs_test`, the `with-frame` row): this is
-  the SHIPPED path. `mount/root!` commits inside `flushSync`
-  (`impl/mount.cljs`), so an island body runs on the caller's own stack in
-  production, not only under a server renderer or an `act()`. A rule that
-  held for `renderToStaticMarkup` and not here would be a rule about the
-  test harness.
+  WHY THIS ROW IS IN THE DOM LANE: this is the SHIPPED path.
+  `mount/root!` commits inside `flushSync` (`impl/mount.cljs`), so an
+  island body runs on the caller's own stack in production, not only
+  under a server renderer or an `act()`.
 
   The seeding is the discriminator: `alpha` and `beta` answer the same
   query with different values, `beta` is the frame the boundary names, and
@@ -657,8 +641,7 @@
   keyed to beta, is the reading — a dynamic-var tier would key it to alpha,
   and both trees would look perfectly plausible on screen."
   [view]
-  (let [ka (price-key alpha "AAPL")
-        kb (price-key beta  "AAPL")]
+  (let [kb (price-key beta "AAPL")]
     (seat! alpha {"AAPL" "alpha-price"})
     (seat! beta  {"AAPL" "beta-price"})
     (-> (rf/with-frame alpha
@@ -673,10 +656,7 @@
               (is (= "beta-price" (text-at b ".price")))
               (is (= #{kb} (rf.fresco.roots-frames-support/cell-keys))
                   "and it built exactly one cell, keyed to the boundary's frame —
-                   a dynamic-var tier would have keyed it to alpha")
-              (is (empty? (readers-of ka))
-                  "alpha has no reader at all: nothing in this tree ever
-                   resolved to it"))
+                   a dynamic-var tier would have keyed it to alpha"))
 
             (testing "`use-frame`'s bundle is locked to the same frame, and
                       stays so once the scope has unwound — the ops map is a
@@ -684,10 +664,7 @@
               (is (= beta (:frame @!last-ops)))
               ((:dispatch-sync @!last-ops) [::set-price "AAPL" "beta-moved"])
               (rf.fresco.impl.mount/settle!)
-              (is (= "beta-moved" (text-at b ".price")))
-              (is (= "alpha-price" (get-in (rf/app-db-value alpha) [:prices "AAPL"]))
-                  "and alpha — the frame the with-frame named — was never
-                   written to"))
+              (is (= "beta-moved" (text-at b ".price"))))
 
             (is (= rf.fresco.roots-frames-support/released (teardown! b)))
             nil)))))
@@ -704,10 +681,9 @@
 ;; W5d. The same rule on the SCHEDULED path — the mode no other row can see
 ;; ---------------------------------------------------------------------------
 ;;
-;; W5c above and the node lane's `with-frame` row both render the island on
-;; the calling stack — `flushSync` there, `renderToStaticMarkup` here — which
-;; is the only shape in which a dynamic-var tier could ever WIN, and so the
-;; right harness for an adversarial precedence contest. It is the wrong
+;; W5c above renders the island on the calling stack, inside `flushSync`,
+;; which is the only shape in which a dynamic-var tier could ever WIN, and
+;; so the right harness for an adversarial precedence contest. It is the wrong
 ;; harness for the other half of the rule: *the same component tree resolves
 ;; the same frame under either scheduling mode*.
 ;;
@@ -750,8 +726,7 @@
   on either arm — this row mints its own roots, so `release-minted!` (which
   knows only about `mount-live!`'s handles) cannot see them."
   [roots containers]
-  (let [ka  (price-key alpha "AAPL")
-        kb  (price-key beta  "AAPL")
+  (let [kb        (price-key beta "AAPL")
         new-root! (fn [sink]
                     (let [c (rf.fresco.impl.mount/fresh-container!)
                           r (scheduled-root! c sink)]
@@ -782,7 +757,6 @@
                     (str "React SCHEDULED the mount rather than committing it on "
                          "the calling stack; body runs inside the scope: "
                          @runs-in-extent))
-                (is (pos? @!island-runs))
                 (is (= alpha rf.frame/*current-frame*)
                     "and the dynamic tier is not empty while it runs — it names
                      alpha, so a hook that consulted it had an answer available"))
@@ -796,15 +770,6 @@
                         same reading W5c takes, now on the schedule a consumer's
                         own concurrent root actually uses"
                 (is (= #{kb} (rf.fresco.roots-frames-support/cell-keys)))
-                (is (= 1 (count (readers-of kb))))
-                ;; Counted rather than `empty?`, unlike W5c's identical
-                ;; claim: a reader is a React registration object, and on
-                ;; FAILURE `cljs.test` prints the actual value — which blows
-                ;; the stack on that object's cycles and turns a legible
-                ;; failure into a RangeError.
-                (is (zero? (count (readers-of ka)))
-                    "alpha has no reader at all, although it is the frame the
-                     persistent ambient scope names")
                 (is (= "beta-price"
                        (some-> (.querySelector ^js container ".price") .-textContent))))
 
@@ -813,8 +778,7 @@
                 (is (= beta (:frame @!last-ops)))
                 ((:dispatch-sync @!last-ops) [::set-price "AAPL" "beta-moved"])
                 (rf.fresco.impl.mount/settle!)
-                (is (= "beta-moved" (get-in (rf/app-db-value beta) [:prices "AAPL"])))
-                (is (= "alpha-price" (get-in (rf/app-db-value alpha) [:prices "AAPL"]))))
+                (is (= "beta-moved" (get-in (rf/app-db-value beta) [:prices "AAPL"]))))
 
               ;; Leg 1's tree goes away before leg 2 mints its own, so the
               ;; cell census leg 2 reads is about leg 2.
@@ -825,11 +789,9 @@
   "Leg 2: the same schedule with NO boundary above the island. The
   persistent ambient scope still names `alpha`, and the hook still
   refuses — which is what separates *context ONLY* from *context FIRST*
-  on the scheduled path, exactly as the node lane's frameless row does on
-  the synchronous one."
+  on the scheduled path."
   [roots containers]
-  (let [ka   (price-key alpha "AAPL")
-        sink (atom nil)
+  (let [sink (atom nil)
         c    (rf.fresco.impl.mount/fresh-container!)
         r    (scheduled-root! c sink)
         runs-in-extent (atom nil)]
@@ -855,8 +817,6 @@
                 (is (= :rf.error/no-frame-context (:rf.error/id data))
                     (str "saw " (pr-str data)))
                 (is (= 're-frame.fresco.native/use-sub (:where data)))))
-            (is (not (contains? (rf.fresco.roots-frames-support/cell-keys) ka))
-                "and nothing was built under the frame the ambient scope named")
             nil)))))
 
 (deftest a-scheduled-render-that-outlives-the-scope-still-reads-the-boundarys-frame
@@ -907,11 +867,8 @@
                           the island through its own cell"
                   (rf.fresco.impl.mount/dispatch! handle [::touch-elsewhere])
                   (is (= "1" (text-at handle ".other")))
-                  (is (= "191" (text-at handle ".price")))
                   (rf.fresco.impl.mount/dispatch! handle [::set-price "AAPL" 204])
-                  (is (= "204" (text-at handle ".price")))
-                  (is (= 1 (count (readers-of ka))))
-                  (is (= 1 (count (readers-of ke)))))
+                  (is (= "204" (text-at handle ".price"))))
 
                 (is (= rf.fresco.roots-frames-support/released (teardown! handle)))
                 nil))

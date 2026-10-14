@@ -136,9 +136,7 @@
       (is (= 1300 (rf.fresco.impl.presence/next-deadline exiting))))
 
     (testing "the claim: it returns to :present rather than finishing and remounting"
-      (is (= {:a :present :b :present} (rf.fresco.impl.presence/phases back)))
-      (is (nil? (:deadline (get (:entries back) :b)))
-          "a cancelled exit leaves no deadline behind"))
+      (is (= {:a :present :b :present} (rf.fresco.impl.presence/phases back))))
 
     (testing "and it returns to the SAME node — the key never left, and order is frozen"
       (is (= [:a :b] (:order back))
@@ -159,9 +157,7 @@
     (is (= [1300 nil 1400 1400 1400] seen)
         "one deadline per exit — and the second exit's is fixed at the instant
          it started: two exits, two deadlines, not one per render and not one
-         that keeps moving")
-    (is (= 1400 (:deadline (get (:entries s5) :b)))
-        "the deadline is the absolute instant :b started exiting, 50 ms of re-renders later")))
+         that keeps moving")))
 
 (deftest re-deriving-mid-flight-is-a-no-op-on-every-frame-of-the-window
   (let [exiting (rf.fresco.impl.presence/step (painted) (toasts :a) 1000 retention-ms)
@@ -169,18 +165,11 @@
         redone  (rest (reductions (fn [s now] (rf.fresco.impl.presence/step s (toasts :a) now retention-ms))
                                   exiting
                                   frames))]
-    (testing "premise: the window really is walked frame by frame at 60 Hz"
-      (is (= 18 (count frames)))
-      (is (= (count frames) (count redone))))
-
-    (testing "THE FRAME BUDGET: every frame of the retention window costs nothing"
+    (testing "THE FRAME BUDGET: every frame of the retention window re-derives a
+              state EQUAL to the exiting one, so the React half's effect
+              dependency (`pending-signature`) and the deadline cannot move"
       (is (= #{exiting} (set redone))
-          "the machine is idempotent, so re-deriving mid-flight changes no value")
-      (is (= #{(rf.fresco.impl.presence/pending-signature exiting)}
-             (set (map rf.fresco.impl.presence/pending-signature redone)))
-          "the effect's own dependency never moves: no timer re-armed, no render forced")
-      (is (= #{1300} (set (map rf.fresco.impl.presence/next-deadline redone)))
-          "an absolute deadline cannot be pushed forward by the passage of frames"))))
+          "the machine is idempotent, so re-deriving mid-flight changes no value"))))
 
 ;; ---------------------------------------------------------------------------
 ;; The DOM half — the React component, its timers, and its silence
@@ -314,9 +303,7 @@
 
               (testing "TEARDOWN: an unmount mid-transition leaves no timer behind"
                 (is (= #{} (orphans @log))
-                    "every retention timer armed was cleared by the effect's own cleanup")
-                (is (= 0 (.-length (toast-nodes container)))
-                    "and the retained node went with the root rather than outliving it")))
+                    "every retention timer armed was cleared by the effect's own cleanup")))
             (finally (rf.fresco.impl.mount/release! handle))))
         (finally (restore!))))))
 

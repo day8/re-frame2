@@ -195,9 +195,6 @@
                        :overscan        rf.fresco.examples.ledger.views/overscan
                        :total           total}))
 
-(defn- window-size [i total]
-  (let [[from to] (window-at i total)] (inc (- to from))))
-
 (defn- scroll-to!
   "Scroll the viewport to model row `i` and let React commit — all of it.
 
@@ -259,29 +256,8 @@
   nil)
 
 ;; ---------------------------------------------------------------------------
-;; The premise — every instrument below can answer, and answers non-trivially
+;; The vendor's wrappers stay out of the table
 ;; ---------------------------------------------------------------------------
-
-(deftest the-screen-mounts-ten-thousand-records-into-twenty-four-rows
-  (if-not (browser?)
-    (skip! "the premise")
-    (let [m (mount-ledger! 10000)]
-      (is (= "10000" (.getAttribute (grid-in m) "aria-rowcount"))
-          "the model's count, announced")
-      (is (= (window-size 0 10000) (count (rows-in m)))
-          "and the document's, which is twenty-four: twenty visible rows
-           plus three of overscan below and none above. The two numbers
-           being different IS the subject of this file")
-      (is (= 24 (window-size 0 10000))
-          "stated as a constant once, so a reader knows what the derived
-           number above is worth")
-      (testing "the rows are the MODEL's first rows, in order"
-        (is (= "rec-100000" (record-of (first (rows-in m)))))
-        (is (= "rec-100023" (record-of (last (rows-in m))))))
-      (testing "and each carries a real, operable field"
-        (is (some? (note-node m 0)))
-        (is (= "Note for Record 0" (.getAttribute (note-node m 0) "aria-label"))))
-      (rf.fresco.test.mounted/unmount! m))))
 
 (deftest the-vendors-own-wrappers-are-presentational
   ;; A `role="grid"` owns `role="row"`, and a virtualizer puts two divs

@@ -36,18 +36,10 @@
     OWNERSHIP — release on parameter change — and it is [[release-search]]
     called from [[::typed]].
 
-  They are independent, and the witness shows it: remove the second and
-  the first still produces the right screen. What is lost is only the
+  They are independent: remove the second and the first still produces
+  the right screen. What is lost is only the
   request, which is the C2 class *orphaned in-flight request after a
   parameter change*.
-
-  ## Some handlers are named functions, and one reason is the witness
-
-  [[typed-fx]] and [[dismiss-fx]] are ordinary functions with a one-line
-  registration beside them. That is good structure anyway, and it is also
-  what lets `l0-cljs-test` demonstrate a defect class by registering the
-  SAME effect map with exactly one thing removed — no second copy of a
-  handler to drift, and no test-only switch inside the application.
 
   ## The release that cannot be written
 
@@ -58,8 +50,7 @@
   boundary shell is frozen at two hooks; `h/reg-state` mints a
   subscription and a setter and nothing else). The site is absent rather
   than wrong, so it is not a census row; it is C2's *demand outlives the
-  read that wanted it*, and `demand-dom-cljs-test` exhibits it on the
-  shipped path with no mutation at all.
+  read that wanted it*.
 
   ## Two event shapes, and the seam is not the author's choice
 
@@ -72,9 +63,9 @@
 
 (def debounce-ms
   "How long the field waits for the typing to stop. Small, because the
-  witness's debounce rows are decided by the GENERATION guard rather than
-  by a duration: a burst dispatched in one turn arms one timer per
-  keystroke and exactly one of them is still current when it fires."
+  debounce is decided by the GENERATION guard rather than by a duration:
+  a burst dispatched in one turn arms one timer per keystroke and exactly
+  one of them is still current when it fires."
   20)
 
 (def service-delay-ms
@@ -124,12 +115,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn typed-fx
-  "The whole effect map a keystroke produces.
-
-  Named for the same reason [[dismiss-fx]] is: the witness demonstrates
-  C2's *orphaned in-flight request after a parameter change* by
-  registering this effect map with its abandon removed, so the mutation is
-  one filtered entry rather than a second copy of a keystroke handler."
+  "The whole effect map a keystroke produces."
   [db typed]
   (let [db'      (-> db
                      (assoc-in [:search :term] typed)
@@ -204,13 +190,7 @@
 
 (defn dismiss-fx
   "The whole effect map a dismissal produces — the model half and the
-  release beside it.
-
-  A named function rather than an inline handler body because the witness
-  demonstrates C2's *missed release on a conditional-false read* by
-  registering `(dissoc (dismiss-fx db) :fx)` as a handler of its own. The
-  mutation under demonstration is then exactly the release, and no copy of
-  the model half exists to drift."
+  release beside it."
   [db]
   (let [;; CENSUS O5 | OWNERSHIP | release | the panel closed, so the suggestion read is gone
         release (release-search db)

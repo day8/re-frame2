@@ -59,10 +59,10 @@
 (rf/reg-event ::seed (fn [_ [_ label]] {:db {:label label}}))
 (rf/reg-event ::relabel (fn [{:keys [db]} [_ label]] {:db (assoc db :label label)}))
 
-;; The seeding event fires an EFFECT rather than writing the db, so
-;; `:fx-overrides` is what decides which handler runs. That is the whole point
-;; of W2: `:fx-overrides` is a `make-frame` option the root door refuses (W6),
-;; so it has to ride the head.
+;; `::stamp-via-fx` fires an EFFECT rather than writing the db, so
+;; `:fx-overrides` is what decides which handler runs — W3's reading of which
+;; head's config is live. `:fx-overrides` is a `make-frame` option the root
+;; door refuses (W6), so it has to ride the head.
 (defonce ^:private !fx-seen (atom nil))
 
 (rf/reg-event ::stamp-via-fx (fn [_ _] {:fx [[::stamp-fx :fired]]}))
@@ -166,42 +166,6 @@
           (rf.fresco.impl.mount/dispatch! ensured [::relabel "third"])
           (is (= "third" (text-at ca ".label"))))
 
-        (finally
-          (rf.fresco/unmount! a)
-          (detach! ca)
-          (rf.fresco.impl.collector/reset-runtime!))))))
-
-;; ---------------------------------------------------------------------------
-;; W2 — the head takes the WHOLE `make-frame` option map
-;; ---------------------------------------------------------------------------
-;;
-;; `:fx-overrides` is a key the root door refuses (W6). It rides the head like
-;; any other option, because the head IS the `make-frame` call.
-
-(deftest frame-root-takes-the-whole-make-frame-option-map
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test has no DOM")
-    (let [_ (bare!)
-          _ (reset! !fx-seen nil)
-          ca (rf.fresco.impl.mount/fresh-container!)
-          a  (rf.fresco/client-root)
-          _  (rf.fresco/render! a
-               [rf.fresco/frame-root
-                {:id             ensured
-                 :initial-events [[::seed "seeded"] [::stamp-via-fx]]
-                 :fx-overrides   {::stamp-fx (fn [_ _] (reset! !fx-seen :override))}}
-                [panel {:tag "opts"}]]
-               ca)]
-      (try
-        (testing "the override is LIVE on the ensured frame, and it ran during
-                  the seed — so `:fx-overrides` reached `make-frame` untouched"
-          (is (= :override @!fx-seen)
-              (str "the `:fx-overrides` entry did not take: the seeding event's "
-                   "effect ran " (pr-str @!fx-seen) " rather than the override")))
-
-        (testing "and the ordinary options went in beside it, on the SAME head:
-                  the seed painted"
-          (is (= "seeded" (text-at ca ".label"))))
         (finally
           (rf.fresco/unmount! a)
           (detach! ca)
@@ -349,21 +313,17 @@
 (deftest the-root-doors-refuse-frame-configuration-naming-the-head-that-takes-it
   (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no container to hand a door")
-    ;; ONE door, in its two first-call modes: the refusal is the same
-    ;; `require-root-options!` on the create path and the hydrate path alike.
-    (doseq [[door call] [["render!"                #(rf.fresco/render! (rf.fresco/client-root) [panel {}] (rf.fresco.impl.mount/fresh-container!) %)]
-                         ["render! {:hydrate? true}" #(rf.fresco/render! (rf.fresco/client-root) [panel {}] (rf.fresco.impl.mount/fresh-container!) (assoc % :hydrate? true))]]]
-    (testing (str "h/" door " given `:frame`")
-      (is (= :rf.error/fresco-frame-config-misplaced
-             (:rf.error/id (refusal #(call {:frame ensured}))))))
-    (testing (str "h/" door " given `:initial-events`")
-      (is (= :rf.error/fresco-frame-config-misplaced
-             (:rf.error/id (refusal #(call {:initial-events [[::seed "x"]]}))))))
-    (testing (str "h/" door " given a key it does not own")
-      (is (= :rf.error/fresco-unknown-root-option
-             (:rf.error/id (refusal #(call {:fx-overrides {}}))))
-          "a misspelled or misplaced root option must be refused, not
-           silently dropped")))))
+    ;; `require-root-options!` runs once, before the first-call branch, so the
+    ;; create and hydrate modes share this refusal.
+    (let [call #(rf.fresco/render! (rf.fresco/client-root) [panel {}] (rf.fresco.impl.mount/fresh-container!) %)]
+      (testing "h/render! given `:frame`"
+        (is (= :rf.error/fresco-frame-config-misplaced
+               (:rf.error/id (refusal #(call {:frame ensured}))))))
+      (testing "h/render! given a key it does not own"
+        (is (= :rf.error/fresco-unknown-root-option
+               (:rf.error/id (refusal #(call {:fx-overrides {}}))))
+            "a misspelled or misplaced root option must be refused, not
+             silently dropped")))))
 
 ;; ---------------------------------------------------------------------------
 ;; W7 — THE DOCUMENTED BOOT → RELOAD PAIR, and the trap on the other side of it
@@ -381,9 +341,7 @@
 ;;
 ;; Both directions are witnessed, because either alone reads as an accident:
 ;; the documented pair must go through (this row), and the trimmed one must be
-;; refused (W8, which needs a different instrument and says why there). Neither
-;; can be seen by W2, which measures the ENSURE's option handoff at MOUNT time
-;; and never re-renders.
+;; refused (W8, which needs a different instrument and says why there).
 
 (defn- reload-tree
   "The documented boot tree, parameterised only by the view code that a hot

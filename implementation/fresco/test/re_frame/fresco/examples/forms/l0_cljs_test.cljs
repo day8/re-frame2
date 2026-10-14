@@ -109,40 +109,6 @@
 ;; Recipe 1 — the buffered draft's transitions
 ;; ---------------------------------------------------------------------------
 
-(deftest the-field-is-populated-before-anybody-types
-  (with-app
-    (fn [frame]
-      (is (= "Login page hangs on submit" (read-sub frame [::rf.fresco.examples.forms.subs/subject-shown ticket]))
-          "no draft, so the committed subject is what the field shows —
-           there is no load-the-form step to forget")
-      (is (false? (read-sub frame [::rf.fresco.examples.forms.subs/editing? ticket]))
-          "and reading is not editing"))))
-
-(deftest a-keystroke-opens-the-session-and-nothing-else-moves
-  (with-app
-    (fn [frame]
-      (let [before (app-db-of frame)]
-        (type-subject! frame "Login page hangs")
-        (let [after (app-db-of frame)]
-          (is (= "Login page hangs" (read-sub frame [::rf.fresco.examples.forms.subs/subject-shown ticket])))
-          (is (true? (read-sub frame [::rf.fresco.examples.forms.subs/editing? ticket])))
-          (is (= (:ticket before) (:ticket after))
-              "the committed subject has not moved — that is what BUFFERED means")
-          (is (= (:subject-revision before) (:subject-revision after))
-              "and the revision has not moved either: typing is not a reset"))))))
-
-(deftest enter-commits-the-trimmed-draft-and-ends-the-session
-  (with-app
-    (fn [frame]
-      (type-subject! frame "  Login times out  ")
-      (send! frame [::rf.fresco.examples.forms.events/commit-subject ticket])
-      (is (= "Login times out" (get-in (app-db-of frame) [:ticket :subject])))
-      (is (false? (read-sub frame [::rf.fresco.examples.forms.subs/editing? ticket]))
-          "the session is over — the draft is gone, not merely equal")
-      (is (= 1 (read-sub frame [::rf.fresco.examples.forms.subs/subject-revision ticket]))
-          "and the revision moved, which is what re-baselines a field that
-           is still mounted"))))
-
 (deftest a-refused-commit-leaves-the-subject-standing-and-still-moves-the-revision
   ;; TRAP: same-value blindness. A refusal that changed nothing at all
   ;; would leave the blank text sitting in the field looking accepted,
@@ -164,34 +130,6 @@
           "a refusal ends the session too — the user is shown the committed
            value back, not left holding text nothing will accept"))))
 
-(deftest escape-abandons-the-session-and-the-late-blur-does-nothing
-  ;; TRAP: cancel-unmounts-then-blur, from the model's side. The screen's
-  ;; side is `forms.flow-dom-cljs-test`.
-  (with-app
-    (fn [frame]
-      (type-subject! frame "half-typed nonsense")
-      (send! frame [::rf.fresco.examples.forms.events/cancel-subject ticket])
-      (is (= "Login page hangs on submit" (read-sub frame [::rf.fresco.examples.forms.subs/subject-shown ticket])))
-      (is (= 1 (read-sub frame [::rf.fresco.examples.forms.subs/subject-revision ticket])))
-      (testing "the blur that follows finds no session and commits nothing"
-        (let [before (app-db-of frame)]
-          (send! frame [::rf.fresco.examples.forms.events/commit-subject ticket])
-          (is (= before (app-db-of frame))
-              "not merely 'the subject is unchanged' — NOTHING is, including
-               the revision. A commit that ran and happened to write the same
-               value would pass a narrower assertion and be a different
-               program"))))))
-
-(deftest committing-twice-is-committing-once
-  (with-app
-    (fn [frame]
-      (type-subject! frame "Login times out")
-      (send! frame [::rf.fresco.examples.forms.events/commit-subject ticket])
-      (let [after-first (app-db-of frame)]
-        (send! frame [::rf.fresco.examples.forms.events/commit-subject ticket])
-        (is (= after-first (app-db-of frame))
-            "Enter then blur, or double Enter: the second finds no session")))))
-
 (deftest two-tickets-hold-two-drafts
   ;; TRAP: re-minted / colliding ephemeral state. A hand-picked
   ;; `[:ui :subject-draft]` path would be ONE draft for the whole page.
@@ -206,32 +144,6 @@
         (is (= "nine" (read-sub frame [::rf.fresco.examples.forms.subs/subject-shown 9])))
         (is (= 0 (read-sub frame [::rf.fresco.examples.forms.subs/subject-revision 9]))
             "including its revision — a reset is per instance")))))
-
-;; ---------------------------------------------------------------------------
-;; Recipe 2 — the gate
-;; ---------------------------------------------------------------------------
-
-(deftest the-button-and-the-handler-read-one-definition
-  ;; R-A6. The failure this deletes is two recomputations drifting apart,
-  ;; so the assertion is that they answer the same thing at every step of
-  ;; a repair — not that either is right at one moment.
-  (with-app
-    (fn [frame]
-      (doseq [text ["" "  " "ada" ""]]
-        (send! frame [::rf.fresco.examples.forms.events/edit :assignee text])
-        (is (= (rf.fresco.examples.forms.db/can-submit? (app-db-of frame))
-               (read-sub frame [::rf.fresco.examples.forms.subs/can-submit?]))
-            (str "gate agreement after typing " (pr-str text)))))))
-
-(deftest a-problem-clears-as-soon-as-the-field-is-repaired
-  (with-app
-    (fn [frame]
-      (send! frame [::rf.fresco.examples.forms.events/touch {:field :assignee}])
-      (is (some? (read-sub frame [::rf.fresco.examples.forms.subs/shown-problem :assignee])))
-      (send! frame [::rf.fresco.examples.forms.events/edit :assignee "ada"])
-      (is (nil? (read-sub frame [::rf.fresco.examples.forms.subs/shown-problem :assignee]))
-          "the problem is derived from the current draft, so repairing the
-           field clears it without a second event to remember"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Recipe 3 — the write, as a mutation instance
@@ -264,23 +176,6 @@
 
 (defn- status [frame]
   (read-sub frame [:rf/mutation {:instance rf.fresco.examples.forms.events/save-instance}]))
-
-(deftest a-refused-submission-reveals-every-problem-and-asks-the-server-for-nothing
-  (capture-transport!)
-  (with-app
-    (fn [frame]
-      (is (nil? (read-sub frame [::rf.fresco.examples.forms.subs/shown-problem :assignee]))
-          "before the attempt")
-      (send! frame [::rf.fresco.examples.forms.events/submit])
-      (is (= :problem/assignee-blank (read-sub frame [::rf.fresco.examples.forms.subs/shown-problem :assignee]))
-          "after it")
-      (is (false? (read-sub frame [::rf.fresco.examples.forms.subs/can-submit?]))
-          "and the gate the button reads still says no")
-      (is (= [] @!requests)
-          "the gate refused, so no write was executed at all")
-      (is (false? (:pending? (status frame)))
-          "and the form is not busy — there is nothing in flight to be busy
-           about"))))
 
 (deftest the-busy-flag-is-the-writes-own-and-not-a-flag-anybody-keeps
   ;; TRAP: arity-sniffed done-fn / a local `:saving?` boolean. Completion

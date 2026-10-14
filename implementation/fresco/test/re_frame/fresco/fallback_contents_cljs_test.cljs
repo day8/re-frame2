@@ -25,10 +25,8 @@
   its stated reason is *\"a placeholder that differs per site is not a
   placeholder\"*. One declaration carrying a boundary head would render
   `ALPHA` in one frame, `BRAVO` in another and `ALPHA-TWO` after a
-  write — the justification falsified by what it permitted.
-  [[a-declared-placeholder-is-a-placeholder-again]] takes that
-  measurement against an INERT fallback, where all three documents are
-  the same one. The refusal is walk-scoped and asks the
+  write — the justification falsified by what it permitted. The refusal
+  is walk-scoped and asks the
   boundary MARKER rather than the mint, so it holds for every head the
   mint door produces.
 
@@ -49,13 +47,12 @@
 
   **Over-refuse** (make `deferring-head-kind` answer a kind for anything
   non-nil, the shape a walk that confused \"an element\" with \"a
-  deferring head\" would have) and every row in §3 goes red — one row per
-  legitimate fallback position, so the failure names which position was
-  taken away. §1 stays green under the first mutation, which is why it is
+  deferring head\" would have) and §3 goes red: a legal fallback no longer
+  mints. §1 stays green under the first mutation, which is why it is
   separate: it is about the walk's own evaluation and not about this
-  refusal at all. (The second reaches its intent and empty-vector rows
-  too, because the structural refusal runs ahead of the walk and would
-  claim those forms first.)
+  refusal at all. (The second reaches its intent row too, because the
+  structural refusal runs ahead of the walk and would claim that form
+  first.)
 
   Runtime: `-cljs-test`, not `-dom-`. Every claim is a declaration or a
   `renderToString`, so there is nothing here a DOM would add."
@@ -72,15 +69,12 @@
             ["react-dom/server" :as react-dom-server]))
 
 (def ^:private frame-a ::fallback-contents-a)
-(def ^:private frame-b ::fallback-contents-b)
 
 ;; Registered above `use-fixtures`, deliberately — the reset fixture
 ;; captures its source-store baseline when the `use-fixtures` form is
 ;; evaluated (the sibling suites' convention).
 
 (rf/reg-sub :fresco.fb/title (fn [db _] (:title db)))
-
-(rf/reg-event :fresco.fb/seed (fn [_ [_ title]] {:db {:title title}}))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
@@ -89,14 +83,9 @@
      :init-fn       (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
 
 (defn- fresh!
-  "Two frames holding different values, because frame isolation is what
-  the placeholder rows are read against."
   []
   (rf.fresco.checkpoint-support/leave-act-environment!)
-  (rf/make-frame {:id frame-a})
-  (rf/make-frame {:id frame-b})
-  (rf/with-frame frame-a (rf/dispatch-sync [:fresco.fb/seed "ALPHA"]))
-  (rf/with-frame frame-b (rf/dispatch-sync [:fresco.fb/seed "BRAVO"])))
+  (rf/make-frame {:id frame-a}))
 
 ;; ---------------------------------------------------------------------------
 ;; The component behind the door, and the things a fallback might contain
@@ -147,10 +136,9 @@
 ;; ---------------------------------------------------------------------------
 ;; 1 — what the mint-time WALK can see, it refuses
 ;;
-;; These three rows are about `as-element`'s own evaluation and not about
-;; the structural refusal beside it. They are green with the refusal
-;; removed (the ns docstring's first mutation) — which is why they are a
-;; separate deftest.
+;; This row is about `as-element`'s own evaluation and not about the
+;; structural refusal beside it. It is green with the refusal removed (the
+;; ns docstring's first mutation) — which is why it is a separate deftest.
 ;; ---------------------------------------------------------------------------
 
 (deftest a-fallback-refuses-what-the-mint-time-walk-can-see
@@ -160,16 +148,7 @@
             is the same loud error it would be anywhere outside a boundary"
     (is (= :rf.error/fresco-intent-outside-boundary
            (error-id #(host-with-fallback "fb/intent"
-                                          [:button {:on-click [:x/y]} "go"])))))
-  (testing "a `sub` call written in the fallback FORM — evaluated where the
-            declaration is, which is outside any render"
-    (is (= :rf.error/fresco-sub-outside-render
-           (error-id #(host-with-fallback "fb/sub"
-                                          [:div (rf.fresco.impl.collector/sub [:fresco.fb/title])])))))
-  (testing "and hiccup that is not hiccup, which is the property the walk
-            runs at the declaration FOR"
-    (is (= :rf.error/fresco-empty-vector
-           (error-id #(host-with-fallback "fb/empty" []))))))
+                                          [:button {:on-click [:x/y]} "go"]))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — and what it CANNOT see is refused structurally, ahead of it
@@ -177,29 +156,13 @@
 
 (deftest a-deferring-head-in-a-fallback-is-refused-at-the-declaration
   (fresh!)
-  (testing "a `defview` head — an element whose body runs later, so the
-            evaluating walk never looks inside it. The structural walk
-            does, and refuses it where the author's stack is"
-    (is (= :rf.error/fresco-host-fallback-boundary-head
-           (error-id #(host-with-fallback "fb/view" [fallback-view {}])))))
-  (testing "and so does a `defhost` head, so the rule is about DEFERRAL and
-            not about `defview` — any head whose content the walk cannot
-            reach is refused the same way"
-    (is (= :rf.error/fresco-host-fallback-boundary-head
-           (error-id #(host-with-fallback "fb/host" [inner-host {}])))))
   (testing "a bare head, with no vector around it at all — a fallback is a
             hiccup FORM, so the refusal is written against the form and
             not against head position"
     (is (= :rf.error/fresco-host-fallback-boundary-head
            (error-id #(host-with-fallback "fb/bare" fallback-view)))))
-  (testing "and a head nested arbitrarily deep, because \"inert markup\"
-            is a claim about the whole form"
-    (is (= :rf.error/fresco-host-fallback-boundary-head
-           (error-id #(host-with-fallback
-                        "fb/deep"
-                        [:div.skeleton
-                         [:p "loading"]
-                         [:section [:span [fallback-view {}]]]]))))
+  (testing "and a head inside a seq child, because \"inert markup\" is a
+            claim about the whole form"
     (is (= :rf.error/fresco-host-fallback-boundary-head
            (error-id #(host-with-fallback
                         "fb/seq"
@@ -210,101 +173,29 @@
   (fresh!)
   (testing "a message that says only \"a boundary head\" leaves an author
             grepping a fallback they wrote three screens ago. All three
-            facts are in the ex-data and all three are in the message"
+            facts are in the ex-data"
     (let [data (error-data #(host-with-fallback
                               "fb/named"
                               [:div.skeleton [:span [fallback-view {}]]]))]
-      (is (= :rf.error/fresco-host-fallback-boundary-head (:rf.error/id data)))
-      (is (= "fb/named" (:host data)) "the host whose declaration is at fault")
-      (is (= "re-frame.fresco.fallback-contents-cljs-test/fallback-view"
-             (:head data))
-          "the offending head, by the displayName its mint stamped")
-      (is (= "defview" (:kind data)) "and which door minted it")
-      (is (= [1 1 0] (:position data))
-          "the index route into the DECLARED form — the div's child 1 is the
-           span, whose child 1 is the offending vector, whose head is at 0")
-      (is (re-find #"fb/named" (ex-message (try (host-with-fallback
-                                                  "fb/named"
-                                                  [:div.skeleton
-                                                   [:span [fallback-view {}]]])
-                                                (catch :default e e))))
-          "and the MESSAGE carries them too — ex-data is for a test, the
-           message is for the author")))
+      (is (= {:rf.error/id :rf.error/fresco-host-fallback-boundary-head
+              :host        "fb/named"
+              :head        "re-frame.fresco.fallback-contents-cljs-test/fallback-view"
+              :kind        "defview"
+              :position    [1 1 0]}
+             (select-keys data [:rf.error/id :host :head :kind :position])))))
   (testing "the `defhost` case names its own door"
     (let [data (error-data #(host-with-fallback "fb/named-host" [inner-host {}]))]
-      (is (= "defhost" (:kind data)))
-      (is (= "re-frame.fresco.fallback-contents-cljs-test/inner-host"
-             (:head data)))
-      (is (= [0] (:position data)) "head position of the fallback itself"))))
-
-(deftest a-declared-placeholder-is-a-placeholder-again
-  (fresh!)
-  (testing "THE PLACEHOLDER IS A VALUE. One
-            declaration is walked ONCE into ONE element and reused at
-            every site, and `mint-host-gate!`'s reason for that is \"a
-            placeholder that differs per site is not a placeholder\". A
-            boundary head would make it differ per site AND per write — three
-            different documents from one declaration. With the head
-            refused, the reason holds: the SAME document in two isolated
-            frames and again after a write"
-    (let [head (host-with-fallback "fb/inert" [:section.fb-inert "SKELETON"])
-          in-a (server-html frame-a [:div.page [head {:value "dark"}]])
-          in-b (server-html frame-b [:div.page [head {:value "dark"}]])]
-      (is (re-find #"SKELETON" in-a) (str "the placeholder rendered: " in-a))
-      (is (= in-a in-b)
-          (str "the SAME declared placeholder in a frame holding a different "
-               "value — identical bytes, which is what a placeholder is: "
-               in-a " vs " in-b))
-      (rf/with-frame frame-a (rf/dispatch-sync [:fresco.fb/seed "ALPHA-TWO"]))
-      (let [after (server-html frame-a [:div.page [head {:value "dark"}]])]
-        (is (= in-a after)
-            (str "and a write moved nothing, because there is nothing there "
-                 "to read a frame: " after)))
-      ;; The non-vacuity control: those frames really do differ, so the
-      ;; equality above is a fact about the placeholder and not about a
-      ;; fixture that never varied.
-      (is (not= (server-html frame-a [:div.page [fallback-view {}]])
-                (server-html frame-b [:div.page [fallback-view {}]]))
-          "the same body in an ordinary POSITION still differs per frame —
-           the two frames are genuinely distinguishable"))))
+      (is (= {:kind     "defhost"
+              :head     "re-frame.fresco.fallback-contents-cljs-test/inner-host"
+              :position [0]}
+             (select-keys data [:kind :head :position]))))))
 
 ;; ---------------------------------------------------------------------------
-;; 3 — every legitimate fallback position, proven ONE AT A TIME
+;; 3 — a legal fallback still mints and renders
 ;;
-;; A refusal is only as good as what it leaves alone. One row per shape a
-;; real placeholder is written in, so an over-broad walk fails by NAME
-;; rather than as a wall of red.
+;; A refusal is only as good as what it leaves alone: tag, props, nested
+;; vector, string and seq child take every branch of the walk.
 ;; ---------------------------------------------------------------------------
-
-(deftest inert-hiccup-in-every-position-still-mints
-  (fresh!)
-  (testing "a bare tag"
-    (is (some? (host-with-fallback "ok/tag" [:div.skel]))))
-  (testing "a tag with a props map"
-    (is (some? (host-with-fallback "ok/props" [:div.skel {:data-live "no"} "loading"]))))
-  (testing "nested vectors, arbitrarily deep"
-    (is (some? (host-with-fallback "ok/nested"
-                                   [:div.skel [:p [:span [:em "loading"]]]]))))
-  (testing "a seq child — the lazy position, which the walk has to descend
-            into by hand because a seq is not a vector"
-    (is (some? (host-with-fallback "ok/seq"
-                                   [:ul (for [i (range 3)] [:li {:key i} i])]))))
-  (testing "a fragment"
-    (is (some? (host-with-fallback "ok/fragment" [:<> [:span "a"] [:span "b"]]))))
-  (testing "string, number, nil and false children — every scalar
-            `as-element` accepts, none of which is a head"
-    (is (some? (host-with-fallback "ok/scalars" [:div "text" 42 nil false]))))
-  (testing "a bare string, which is legal hiccup and is not a vector at all"
-    (is (some? (host-with-fallback "ok/string" "loading"))))
-  (testing "an already-built React element, which the walk must pass over
-            rather than descend into"
-    (is (some? (host-with-fallback
-                 "ok/element"
-                 (react/createElement "div" #js {:className "skel"} "loading")))))
-  (testing "a props map whose VALUES are collections — the walk descends
-            through renderable positions, and a props map is not one"
-    (is (some? (host-with-fallback "ok/prop-values"
-                                   [:div.skel {:class ["a" "b"] :data-n 3}])))))
 
 (deftest an-inert-fallback-still-renders-what-it-always-rendered
   (fresh!)

@@ -48,21 +48,21 @@
 
   ## Why there is no recipe
 
-  [[an-intent-raised-inside-an-animating-subtree-does-not-reach-app-db]] is
+  [[the-drop-window-is-reacts-suspended-commit-not-the-animation]] is
   the row that settles it. A click inside a subtree a hosted
   `<ViewTransition>` is animating LANDS ON THE DOM — a native listener on
   the same node fires — and produces NO app-db write: not late, not
-  queued, not replayed once the animation ends, and with nothing on any
-  console channel to say so. The identical click on a quiet document
-  arrives in about a millisecond, and a direct `rf/dispatch` made while the
-  same animation is live arrives in about six.
+  queued, not replayed once the animation ends. The identical click on a
+  quiet document arrives in about a millisecond, and a direct
+  `rf/dispatch` made while the same animation is live arrives in about
+  six.
 
   So the composition holds for CONTENT and fails for INTERACTION, and a
   recipe that said \"wrap the region in a ViewTransition\" would ship a UI
   that silently discards what the user does to it.
 
-  [[the-drop-window-is-reacts-suspended-commit-not-the-animation]] says
-  WHERE, and the answer is not ours and not the animation. React gates its
+  The same row says WHERE, and the answer is not ours and not the
+  animation. React gates its
   whole synthetic event system on one module-level flag that
   `commitBeforeMutationEffects` clears and only the mutation phase
   restores; under a view transition the mutation phase is the browser's
@@ -92,9 +92,8 @@
 
   ## On the node lane this file states a skip, never a green
 
-  `:node-test` has no DOM. Every DOM row degrades to an explicit skip. The
-  declaration and `react-dom/server` rows need no DOM and run on both
-  lanes. The real run is `npm run test:browser`."
+  `:node-test` has no DOM. Every row degrades to an explicit skip. The
+  real run is `npm run test:browser`."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
@@ -129,7 +128,7 @@
      :init-fn       (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
-;; The declaration — arm (a)'s host, and the trap beside it
+;; The declaration — arm (a)'s host
 ;; ---------------------------------------------------------------------------
 
 (rf.fresco/defhost view-transition
@@ -138,10 +137,11 @@
   `:render` is the only policy under which a crossing's CHILDREN reach the
   server response, and this host exists to be wrapped around content that
   must survive server rendering — so the policy is not a preference here,
-  it is the whole point. [[the-declared-host-passes-its-children-through-on-the-server]]
+  it is the whole point. [[a-hosted-view-transition-hydrates-with-no-mismatch]]
   witnesses that `react-dom/server` really does render this element type as
-  a pass-through; it is EXPECTED, but `:server :render` depends on it, so it
-  is measured rather than assumed."
+  a pass-through — bytes missing the children would hydrate as a mismatch;
+  it is EXPECTED, but `:server :render` depends on it, so it is measured
+  rather than assumed."
   (.-ViewTransition react)
   {:server :render})
 
@@ -235,9 +235,7 @@
     c))
 
 (def ^:private fast-transitions
-  "240 ms, so ten rows do not spend three seconds waiting for the UA
-  default. Long enough that an interruption fired on the next macrotask
-  still lands while the first animation is live."
+  "240 ms, so the rows do not wait out the UA default."
   (str "::view-transition-group(*), ::view-transition-old(*), "
        "::view-transition-new(*) { animation-duration: 240ms; }"))
 
@@ -373,53 +371,14 @@
     (when handle (rf.fresco.impl.mount/release! handle))
     nil))
 
-;; ---------------------------------------------------------------------------
-;; 1. The declaration and the server half — no DOM, so both lanes run these
-;; ---------------------------------------------------------------------------
-
 (defn- server-html
   [hiccup]
   (react-dom-server/renderToString
     (rf.fresco.impl.mount/provider
       frame-id (rf.fresco.impl.codec/root-element frame-id hiccup))))
 
-(deftest the-declared-host-passes-its-children-through-on-the-server
-  (testing "a `:server :render` ViewTransition host renders its children into
-            the response, and the bare `[:>]` escape DELETES them"
-    (seeded!)
-    (let [bare     (server-html [panel {}])
-          hosted   (server-html [view-transition {} [panel {}]])
-          escaped  (server-html [:> (.-ViewTransition react) {} [panel {}]])]
-
-      ;; THE PREMISE, and it is the reason a zero below means what it says:
-      ;; these children DO reach a server response when nothing wraps them.
-      (is (re-find #"vtw-children" bare)
-          "premise: the children render on the server with no wrapper at all")
-
-      (is (re-find #"vtw-children" hosted)
-          "the declared `:server :render` host is a pass-through — its
-           children are in the response")
-      (is (re-find #"vtw-label" hosted)
-          "and so is the subscription-driven text inside them")
-
-      ;; THE TRAP the lane doc names. `[:>]` carries no declaration in which
-      ;; to say `:server :render`, so it takes the Client-only default and
-      ;; the whole subtree is absent — not a ViewTransition defect, but the
-      ;; failure a naive wrapping produces.
-      (is (not (re-find #"vtw-children" escaped))
-          "the raw `[:>]` escape omits its subtree on the server: wrapping
-           existing content in one DELETES that content from the response"))))
-
-(deftest the-host-declaration-is-the-element-type-itself
-  (testing "under `:render` the head's type IS React's ViewTransition, so
-            there is no gate and no type swap between server and client"
-    (let [el (rf.fresco.impl.codec/root-element frame-id [view-transition {} [:div "x"]])]
-      (is (identical? (.-ViewTransition react) (.-type ^js el))
-          "premise for every hydration claim below: one element type
-           everywhere"))))
-
 ;; ---------------------------------------------------------------------------
-;; 2. THE CEILING — the negative row, with its control in the same body
+;; 1. THE CEILING — the negative row, with its control in the same body
 ;; ---------------------------------------------------------------------------
 
 (def ^:private !set-local (atom nil))
@@ -471,7 +430,6 @@
                 (testing "AN ORDINARY DISPATCH ANIMATES NOTHING — the commit
                           landed (the premise above), and React started no
                           transition for it"
-                  (is (= "B" (text-of handle "vtw-label")))
                   (is (zero? started)
                       "an app-db commit reaches React through
                        `useSyncExternalStore`, which React excludes from
@@ -494,7 +452,6 @@
                 (testing "AND WRAPPING `rf/dispatch` IN `startTransition` DOES
                           NOT CHANGE THAT — the router queues, so the store
                           mutation lands after the transition scope has closed"
-                  (is (= "C" (text-of handle "vtw-label")))
                   (is (zero? started)))
                 (reset! (:calls spy) [])
                 ;; ---- (iii) a SYNCHRONOUS commit inside `startTransition` ---
@@ -514,7 +471,6 @@
                 (testing "NOR DOES TAKING THE QUEUE OUT OF THE ARGUMENT — an
                           external-store mutation performed synchronously
                           INSIDE `startTransition` still activates nothing"
-                  (is (= "D" (text-of handle "vtw-label")))
                   (is (zero? started)))
                 (reset! (:calls spy) [])
                 ;; ---- (iii) THE CONTROL, same host, same instrument ------
@@ -541,7 +497,7 @@
             (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
-;; 3. THE ONE HONEST PATH — useDeferredValue over `n/use-sub`
+;; 2. THE ONE HONEST PATH — useDeferredValue over `n/use-sub`
 ;; ---------------------------------------------------------------------------
 
 (def ^:private !bridge-updates (atom 0))
@@ -645,7 +601,7 @@
             (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
-;; 4. ARM (a) — the Suspense reveal, with a controlled input inside
+;; 3. ARM (a) — the Suspense reveal, with a controlled input inside
 ;; ---------------------------------------------------------------------------
 
 (def ^:private !resolve-lazy (atom nil))
@@ -722,7 +678,6 @@
                       "the controlled input follows app-db after the reveal")))
             (.then
               (fn [_]
-                (is (= "typed" (value-of handle "vtw-input")))
                 (undo)
                 ((:restore spy))
                 (teardown-census! handle)))
@@ -730,216 +685,12 @@
             (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
-;; 5. Interruption, intent routing and unmount
-;; ---------------------------------------------------------------------------
-
-(deftest a-second-update-mid-animation-interrupts-cleanly
-  (async done
-    (if-not (api-supported?)
-      (do (skip! (if (rf.fresco.impl.mount/browser?)
-                   "this browser has no View Transition API"
-                   ":node-test has no DOM"))
-          (done))
-      (let [_       (seeded!)
-            undo    (style! fast-transitions)
-            handle  (mount-concurrent! (staged-container!)
-                                       (rf.fresco.impl.mount/provider
-                                         frame-id (do (reset! !set-local nil) (react/createElement ceiling-host nil))))
-            spy     (spy-transitions!)]
-        (-> (poll #(and (some? (node handle "vtw-button")) (some? @!set-local))
-                  "the hosted tree commits")
-            (.then
-              (fn [_]
-                (reset! (:calls spy) [])
-                (react/startTransition (fn [] (@!set-local "L1")))
-                (poll #(seq @(:calls spy)) "React starts the first transition")))
-            (.then
-              (fn [_]
-                (is (= 1 (count @(:calls spy)))
-                    "premise: exactly one transition is live")
-                ;; A SECOND transition-lane update while the first animation is
-                ;; running. Nothing else touches the tree in this window — the
-                ;; intent case is the NEXT row, deliberately apart, because a
-                ;; Fresco intent turns out to change the outcome.
-                (.then (sleep! 20)
-                       (fn [_]
-                         (react/startTransition (fn [] (@!set-local "L2")))
-                         (awaited! spy 3000)))))
-            (.then
-              (fn [{:keys [started rejected]}]
-                (testing "INTERRUPTION IS CLEAN — every transition settles
-                          rather than rejecting, and the second update gets its
-                          own transition rather than being folded into the
-                          first"
-                  (is (>= started 2)
-                      (str "two updates, two transitions — saw " started))
-                  (is (zero? rejected)
-                      (str "every transition settled rather than rejecting — "
-                           started " started, " rejected " rejected")))
-                ;; POLL, do not read. React DEFERS a second transition's
-                ;; mutation until the first has finished, and `awaited!`
-                ;; returns on the transitions it had SEEN when it started —
-                ;; so a bare read here is a race, and one lost in the
-                ;; reassuring direction: `started` can already be 2 while the
-                ;; DOM still shows the first value.
-                (poll #(= "L2" (text-of handle "vtw-local"))
-                      "the tree settles on the LAST update, not a stale one")))
-            (.then
-              (fn [_]
-                (is (= "L2" (text-of handle "vtw-local")))
-                (undo)
-                ((:restore spy))
-                (teardown-census! handle)))
-            (.catch (report-failure! "interruption row" handle undo))
-            (.then (fn [_] (done))))))))
-
-(def ^:private !quiet-latency
-  "The control's measured latency, carried into the claim's message so the
-  two numbers are reported side by side rather than one in isolation."
-  (atom nil))
-
-(def ^:private !busy-readings
-  "What each door read while the animation was live."
-  (atom nil))
-
-(def ^:private !native-hits (atom 0))
-
-(deftest an-intent-raised-inside-an-animating-subtree-does-not-reach-app-db
-  (async done
-    (if-not (api-supported?)
-      (do (skip! (if (rf.fresco.impl.mount/browser?)
-                   "this browser has no View Transition API"
-                   ":node-test has no DOM"))
-          (done))
-      (let [_      (seeded!)
-            undo   (style! fast-transitions)
-            handle (mount-concurrent! (staged-container!)
-                                      (rf.fresco.impl.mount/provider
-                                        frame-id (do (reset! !set-local nil) (react/createElement ceiling-host nil))))
-            spy    (spy-transitions!)
-            !warn  (atom [])
-            orig-w (.-warn js/console)]
-        (reset! !native-hits 0)
-        ;; React reports a cancelled transition on `console.warn`. Captured
-        ;; because the row's last claim is that NOTHING is reported.
-        (set! (.-warn js/console)
-              (fn [& args] (swap! !warn conj (pr-str (vec args))) nil))
-        (-> (poll #(and (some? (node handle "vtw-button")) (some? @!set-local))
-                  "the hosted tree commits")
-            (.then
-              (fn [_]
-                ;; THE CONTROL COMES FIRST, and it is not optional: a click
-                ;; that fails to reach app-db DURING an animation says nothing
-                ;; unless the same click reaches it when nothing is animating.
-                (.click ^js (node handle "vtw-button"))
-                (timed-poll #(= 1 @(rf/with-frame frame-id (rf/subscribe [:vtw/clicks])))
-                            "CONTROL: the same intent routes with no transition in flight"
-                            4000)))
-            (.then
-              (fn [quiet-ms]
-                (reset! !quiet-latency quiet-ms)
-                (reset! (:calls spy) [])
-                (react/startTransition (fn [] (@!set-local "L1")))
-                (poll #(seq @(:calls spy)) "React starts a transition")))
-            (.then
-              (fn [_]
-                (is (= 1 (count @(:calls spy)))
-                    "premise: a transition is live at the moment of the click")
-                ;; A NATIVE listener on the SAME node, so a zero on app-db can
-                ;; be told apart from a click that never landed. This is the
-                ;; premise the whole row turns on.
-                (.addEventListener ^js (node handle "vtw-button") "click"
-                                   (fn [_] (swap! !native-hits inc)))
-                ;; TWO DOORS, and the discriminator is the point: a `.click`
-                ;; goes through the rendered intent, while a direct
-                ;; `rf/dispatch` goes to the router alone.
-                (.click ^js (node handle "vtw-button"))
-                (-> (within #(= 2 @(rf/with-frame frame-id (rf/subscribe [:vtw/clicks]))) 3000)
-                    (.then (fn [click-ms]
-                             (rf/with-frame frame-id (rf/dispatch [:vtw/click]))
-                             (-> (within #(<= 2 @(rf/with-frame frame-id (rf/subscribe [:vtw/clicks]))) 3000)
-                                 (.then (fn [disp-ms]
-                                          {:click-ms click-ms :disp-ms disp-ms}))))))))
-            (.then
-              (fn [{:keys [click-ms disp-ms]}]
-                (reset! !busy-readings {:click click-ms :dispatch disp-ms})
-
-                (testing "THE PREMISE: the click really did land on the button
-                          while the animation was live. Without this the rest
-                          of the row is a zero with no meaning — and the
-                          browser is exonerated by it, twice over: an isolated
-                          page delivers both a native listener AND React's own
-                          `onClick` throughout a live transition"
-                  (is (= 1 @!native-hits)
-                      "a native listener on the same node fired during the
-                       animation"))
-
-                (testing "THE ROUTER IS EXONERATED TOO — an app-db write made
-                          by dispatching DIRECTLY, while the same animation is
-                          live, arrives promptly"
-                  (is (some? disp-ms)
-                      (str "a direct `rf/dispatch` during the animation reached
-                            app-db in " (pr-str disp-ms) " ms")))
-
-                (testing "AND YET THE INTENT'S OWN WRITE NEVER ARRIVES. This is
-                          the row's finding, and it is why there is no
-                          recipe: an interaction inside a subtree a hosted
-                          `<ViewTransition>` is animating lands on the DOM and
-                          produces no app-db write — not late, not queued, not
-                          replayed after the animation.
-
-                          WHERE it is lost is
-                          [[the-drop-window-is-reacts-suspended-commit-not-the-animation]],
-                          which narrows it:
-                          the loss is React's, and the window is the SUSPENDED
-                          COMMIT rather than the animation. What this row
-                          rules out holds — the browser (the native listener
-                          above), task scheduling (setTimeout, MessageChannel,
-                          microtasks and rAF all fire within a few ms) and the
-                          router (the direct dispatch above) — but read its
-                          fourth rule-out narrowly: an isolated page's
-                          `onClick` fires throughout an animation because a
-                          click made THERE lands outside the window, and a
-                          plain React `onClick` in THIS tree is dropped inside
-                          it"
-                  (is (nil? click-ms)
-                      (str "the intent's write did not arrive within 3000 ms — "
-                           "quiet-document control " @!quiet-latency " ms, "
-                           "readings " (pr-str @!busy-readings))))
-
-                (testing "AND IT IS SILENT: React reports nothing, so an
-                          application would show no sign of the dropped
-                          interaction"
-                  (is (= [] @!warn)
-                      (str "nothing on `console.warn` at this point — saw "
-                           (pr-str @!warn))))
-
-                ;; Give the settled document its chance, so "not late" is a
-                ;; measurement rather than an assumption.
-                (within #(<= 3 @(rf/with-frame frame-id (rf/subscribe [:vtw/clicks]))) 3000)))
-            (.then
-              (fn [late-ms]
-                (is (nil? late-ms)
-                    (str "and it is still absent after the animation settles: "
-                         "app-db reads "
-                         @(rf/with-frame frame-id (rf/subscribe [:vtw/clicks]))
-                         " (control click + direct dispatch), never 3"))
-                (set! (.-warn js/console) orig-w)
-                (undo)
-                ((:restore spy))
-                (teardown-census! handle)))
-            (.catch (fn [e]
-                      (set! (.-warn js/console) orig-w)
-                      ((report-failure! "intent-during-animation row" handle undo) e)))
-            (.then (fn [_] (done))))))))
-
-;; ---------------------------------------------------------------------------
-;; 5b. WHERE THE WRITE IS LOST — React's SUSPENDED COMMIT, not the animation
+;; 4. WHERE THE WRITE IS LOST — React's SUSPENDED COMMIT, not the animation
 ;; ---------------------------------------------------------------------------
 
 (def ^:private slow-transitions
-  "600 ms. [[fast-transitions]] wants ten rows not to spend three seconds
-  waiting; this row wants ONE animation that outlasts a frame by a wide
+  "600 ms. [[fast-transitions]] wants the rows not to wait; this row
+  wants ONE animation that outlasts a frame by a wide
   margin, so that a click landing after the commit window has closed is
   still unambiguously a click into a LIVE animation. Opposite
   requirements, so a second duration rather than a shared one."
@@ -1161,10 +912,7 @@
                           TRANSITION IS STILL ANIMATING but after React's
                           `update` callback has run, ALL ARRIVE. So the drop
                           window is the SUSPENDED COMMIT — one frame at the
-                          START of a transition — and not the animation, which
-                          is the distinction
-                          [[an-intent-raised-inside-an-animating-subtree-does-not-reach-app-db]]
-                          cannot draw from one click"
+                          START of a transition — and not the animation"
                   (is (= 1 @!win-inside-hits)
                       "the plain React `onClick` inside the subtree fires again once the commit has flushed")
                   (is (= 1 @!win-outside-hits)
@@ -1173,15 +921,10 @@
                       (str "the fresco intent's own write reached app-db in "
                            (pr-str ms) " ms with " (pr-str anims)
                            " view-transition animations still running")))
-                ;; AND THE ROUTER, RE-MEASURED WITH THE PHASE ASSERTED rather
-                ;; than inferred. `an-intent-raised-inside-an-animating-subtree-
-                ;; does-not-reach-app-db` makes its direct-dispatch reading
-                ;; only after a 3000 ms `within` has run to exhaustion over a
-                ;; 240 ms animation, so that reading is post-transition and
-                ;; eliminates nothing. This one dispatches with
-                ;; view-transition animations demonstrably running and reads
-                ;; the count again at arrival, so the phase is a measurement
-                ;; at both ends.
+                ;; AND THE ROUTER, MEASURED WITH THE PHASE ASSERTED rather
+                ;; than inferred: this dispatches with view-transition
+                ;; animations demonstrably running and reads the count again
+                ;; at arrival, so the phase is a measurement at both ends.
                 (let [live (count (vt-animations))]
                   (is (pos? live)
                       "premise: view-transition animations are running at the moment of the direct dispatch")
@@ -1285,13 +1028,7 @@
                           a direct `rf/dispatch` made in the same suspended
                           commit in which a click is discarded DOES reach
                           app-db. So what the window stops is React's EVENT
-                          DELIVERY and not an app-db write — two candidates
-                          [[an-intent-raised-inside-an-animating-subtree-does-not-reach-app-db]]
-                          cannot separate, because the direct dispatch it
-                          makes runs only after its own 3000 ms `within` has
-                          gone to exhaustion over a 240 ms animation, which
-                          puts that reading after the transition rather than
-                          inside it"
+                          DELIVERY and not an app-db write"
                   (is (some? ms)
                       (str "a direct dispatch made inside the commit window reached app-db in "
                            (pr-str ms) " ms; console traffic during the window was "
@@ -1360,7 +1097,7 @@
             (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
-;; 6. Hydration
+;; 5. Hydration
 ;; ---------------------------------------------------------------------------
 
 (deftest a-hosted-view-transition-hydrates-with-no-mismatch

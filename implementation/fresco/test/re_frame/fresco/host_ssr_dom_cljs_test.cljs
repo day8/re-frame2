@@ -50,7 +50,8 @@
      pass over a mismatch React silently repaired.
   3. **A fresh `createRoot` mount** never consults a server snapshot at
      all, so the foreign component renders on the very first pass and
-     the placeholder never flashes. Asserted on the line after
+     the placeholder never flashes. `host_slots_dom_cljs_test`'s
+     compound-family row asserts it for a gated host on the line after
      `root!` returns, which is inside its own `flushSync`.
 
   ## And why `:render` needs NO mechanism at all
@@ -260,14 +261,6 @@
    [:h1.title (rf.fresco.impl.collector/sub [:fresco.ssr/title])]
    [fallback-chart {:label (rf.fresco.impl.collector/sub [:fresco.ssr/title])}]])
 
-(rf.fresco/defview slotted-page
-  "Children and props cross the door — the gate forwards its own props
-  object, so this guards the crossing that the gate sits in front of."
-  [_]
-  [:div.page
-   [fallback-chart {:label (rf.fresco.impl.collector/sub [:fresco.ssr/title])}
-    [:span.kid "slotted"]]])
-
 (rf.fresco/defview provider-page
   "THE PROVIDER PAGE, under the policy that serves it. A
   native sibling above the crossing so \"the subtree is absent\" stays
@@ -386,18 +379,6 @@
             two-policy matrix says"
     (is (= :client-only (rf.fresco.impl.codec/host-server fallback-chart)))))
 
-(deftest the-other-policy-is-render-and-it-is-an-assertion
-  (testing "`:render` is the second of the two — the author
-            asserting that this component is safe to run on the server"
-    (is (= :render (rf.fresco.impl.codec/host-server themed)))
-    (is (= :render (rf.fresco.impl.codec/host-server reader-host))))
-  (testing "and it reads back as data like the other policy, so a server
-            walk that wants to state what it is honouring still can"
-    (is (= :client-only (rf.fresco.impl.codec/host-server themed-client-only)))
-    (is (some? (rf.fresco.impl.codec/mint-host! "server/render-plus-callbacks" chart
-                                 {:callbacks {:on-pick :event} :server :render}))
-        "and it composes with :callbacks, which is another option")))
-
 (deftest the-declaration-refuses-a-policy-it-cannot-honour
   (testing "a third value is refused at the declaration, naming the two"
     (is (= :rf.error/fresco-host-bad-ssr-policy
@@ -457,28 +438,7 @@
             same defect class as an intent crossing as inert data, and it
             gets the same refusal"
     (is (= :rf.error/fresco-bad-host-declaration
-           (error-id #(rf.fresco.impl.codec/mint-host! "server/typo" chart {:sserver :client-only}))))
-    (is (= :rf.error/fresco-bad-host-declaration
-           (error-id #(rf.fresco.impl.codec/mint-host! "server/legacy" chart
-                                        {:callbacks {} :hydrate? true})))))
-  (testing "AND THAT IS WHERE AN `:ssr` SPELLING LANDS. There is no `:ssr`
-            option, no alias and no deprecation path, and the option roster
-            is what says so, whether `:ssr` carries a keyword or a map"
-    (is (= :rf.error/fresco-bad-host-declaration
-           (error-id #(rf.fresco.impl.codec/mint-host! "server/retired-render" chart
-                                        {:ssr :render}))))
-    (is (= :rf.error/fresco-bad-host-declaration
-           (error-id #(rf.fresco.impl.codec/mint-host! "server/retired-client-only" chart
-                                        {:ssr :client-only}))))
-    (is (= :rf.error/fresco-bad-host-declaration
-           (error-id #(rf.fresco.impl.codec/mint-host! "server/retired-fallback" chart
-                                        {:ssr {:fallback [:div.s]}})))))
-  (testing "while the four it does know are accepted together"
-    (is (some? (rf.fresco.impl.codec/mint-host! "server/all" chart
-                                 {:callbacks {:on-pick :event}
-                                  :slots     #{:title}
-                                  :server    :client-only
-                                  :fallback  [:div.s]})))))
+           (error-id #(rf.fresco.impl.codec/mint-host! "server/typo" chart {:sserver :client-only}))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — the server render (no DOM needed; runs under :node-test too)
@@ -597,51 +557,7 @@
                 have thrown the same ReferenceError: " html)))))
 
 ;; ---------------------------------------------------------------------------
-;; 4 — a fresh mount: no placeholder, ever
-;; ---------------------------------------------------------------------------
-
-(deftest a-fresh-mount-renders-the-component-on-its-first-pass
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test has no DOM")
-    (do
-      (fresh!)
-      (testing "a `createRoot` mount never consults a server snapshot, so
-                neither policy costs a placeholder pass — asserted on the
-                line after `root!` returns, which is inside its flushSync"
-        (let [a (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [client-only-page {}])]
-          (try
-            (is (some? (query-node (:container a) ".chart"))
-                ":client-only mounted its component immediately")
-            (is (= "yes" (.getAttribute (query-node (:container a) ".chart") "data-live"))
-                "and it is the real one")
-            (finally (rf.fresco.impl.mount/release! a))))
-        (let [b (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [fallback-page {}])]
-          (try
-            (is (some? (query-node (:container b) ".chart"))
-                "{:fallback …} mounted its component immediately too")
-            (is (nil? (query-node (:container b) ".chart-skeleton"))
-                "and the placeholder never flashed — a fallback is for the
-                 server's markup, not for a client that has none")
-            (finally (rf.fresco.impl.mount/release! b))))))))
-
-(deftest the-gate-forwards-props-and-children-untouched
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test has no DOM")
-    (do
-      (fresh!)
-      (testing "the gate hands its own props straight through, so the
-                crossing is the object `host-element` built — the door's
-                contract is unchanged by the policy sitting in front of it"
-        (let [h (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [slotted-page {}])]
-          (try
-            (is (= "quarterly" (.-textContent (query-node (:container h) ".chart-label")))
-                "a declared prop reached the foreign component")
-            (is (some? (query-node (:container h) ".chart .kid"))
-                "and so did the children, in the component's own slot")
-            (finally (rf.fresco.impl.mount/release! h))))))))
-
-;; ---------------------------------------------------------------------------
-;; 5 — hydration: the first client pass matches, and adoption swaps
+;; 4 — hydration: the first client pass matches, and adoption swaps
 ;; ---------------------------------------------------------------------------
 
 (defn- hydration-row

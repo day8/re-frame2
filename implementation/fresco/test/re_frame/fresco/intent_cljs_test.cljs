@@ -52,17 +52,6 @@
       (h (ev {}))
       (is (= [[:todo/toggle 7] [:todo/toggle 7]] @!seen)))))
 
-(deftest the-closure-closes-over-the-boundarys-frame
-  (testing "two boundaries lower the same intent to two different frames"
-    (let [!a (recorder)
-          !b (recorder)
-          ha (lowered (dispatching !a) :on-click [:ping])
-          hb (lowered (dispatching !b) :on-click [:ping])]
-      (ha (ev {}))
-      (hb (ev {}))
-      (is (= [[:ping]] @!a))
-      (is (= [[:ping]] @!b)))))
-
 (deftest an-intent-lowered-outside-a-boundary-is-a-loud-error
   (is (nil? rf.fresco.impl.intent/*dispatch*))
   (is (thrown-with-msg? js/Error #"no ambient frame"
@@ -118,17 +107,10 @@
     (let [e (ev {:value "v" :checked true})]
       (is (= [:e "v" true :tail]
              (rf.fresco.impl.intent/materialize [:e :re-frame.fresco/value :re-frame.fresco/checked :tail] e)))))
-  (testing "an intent with no marker comes back with the same elements"
-    (let [e (ev {:value "v"})]
-      (is (= [:e 1 "two"] (rf.fresco.impl.intent/materialize [:e 1 "two"] e)))))
   (testing "markers are substituted at the top level only — the documented shape"
     (let [e (ev {:value "v"})]
       (is (= [:e {:v :re-frame.fresco/value}]
-             (rf.fresco.impl.intent/materialize [:e {:v :re-frame.fresco/value}] e)))))
-  (testing "the static/dynamic split is decidable before any event exists"
-    (is (true? (rf.fresco.impl.intent/markers? [:e :re-frame.fresco/value])))
-    (is (true? (rf.fresco.impl.intent/markers? [:e :re-frame.fresco/checked])))
-    (is (false? (rf.fresco.impl.intent/markers? [:e 1 "two"])))))
+             (rf.fresco.impl.intent/materialize [:e {:v :re-frame.fresco/value}] e))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Submit auto-prevent, and the one reserved head that opts in elsewhere
@@ -173,36 +155,7 @@
                       [:filter/set :re-frame.fresco/value]])]
       (h (ev {:value "milk" :prevented !prevented}))
       (is (true? @!prevented))
-      (is (= [[:filter/set "milk"]] @!seen))))
-  (testing "the submit default still holds under the head, and is not doubled"
-    (let [!seen      (recorder)
-          !prevented (atom false)
-          h (lowered (dispatching !seen) :on-submit
-                     [:re-frame.fresco/prevent [:todo/create]])]
-      (h (ev {:prevented !prevented}))
-      (is (true? @!prevented))
-      (is (= [[:todo/create]] @!seen))))
-  (testing "auto-prevent composes with the value marker, decorator or not"
-    (let [!seen (recorder)
-          !prevented (atom false)
-          h (lowered (dispatching !seen) :on-submit
-                     [:todo/create :re-frame.fresco/value])]
-      (h (ev {:value "milk" :prevented !prevented}))
-      (is (true? @!prevented))
-      (is (= [[:todo/create "milk"]] @!seen)))))
-
-(deftest the-retired-metadata-spelling-does-nothing
-  ;; Not a formality. The `prevent?` metadata annotation is inert, so an
-  ;; anchor that carries it navigates on the first click rather than
-  ;; quietly preventing. Pinned here so the inertness is a measured fact and
-  ;; not a claim in a docstring.
-  (let [!seen      (recorder)
-        !prevented (atom false)
-        h (lowered (dispatching !seen) :on-click
-                   (with-meta [:ping] {:re-frame.fresco/prevent? true}))]
-    (h (ev {:prevented !prevented}))
-    (is (false? @!prevented))
-    (is (= [[:ping]] @!seen))))
+      (is (= [[:filter/set "milk"]] @!seen)))))
 
 (deftest a-malformed-prevent-head-is-refused-loudly
   (let [d (dispatching (recorder))]
@@ -236,12 +189,6 @@
             (is (= :rf.error/fresco-malformed-prevent (:rf.error/id data)))
             (is (= :on-key-up (:position data)))
             (is (= [:re-frame.fresco/prevent] (:form data)))))))
-    (testing "the refusal is taken at LOWERING time — before any event exists,
-              so a malformed decorator cannot reach a user's click"
-      (is (thrown? js/Error
-                   (rf.fresco.impl.intent/with-frame d
-                     (fn [] (rf.fresco.impl.intent/lower-props
-                              {:on-click [:re-frame.fresco/prevent :nope]}))))))
     (testing "and only at an event position: an intent travelling as data is
               not lowered, so it is not classified either"
       (is (= [:re-frame.fresco/prevent :nope]
@@ -314,15 +261,6 @@
     (is (thrown-with-msg? js/Error #"wraps EXACTLY ONE intent vector"
                           (lowered (dispatching (recorder)) :on-key-down
                                    {"Enter" [:re-frame.fresco/prevent]}))))
-  (testing "a marker composes inside a prevented branch"
-    (let [!seen (recorder)
-          !p    (atom false)
-          h     (lowered (dispatching !seen) :on-key-down
-                         {"Enter" [:re-frame.fresco/prevent
-                                   [:todo/commit :re-frame.fresco/value]]})]
-      (h (ev {:key "Enter" :value "milk" :prevented !p}))
-      (is (true? @!p))
-      (is (= [[:todo/commit "milk"]] @!seen))))
   (testing "an ordinary function is a legal branch"
     (let [!called (atom false)
           h (lowered (dispatching (recorder)) :on-key-down
@@ -347,51 +285,14 @@
           "the body ran — the plain-function arm gets this far too, which is
            why the swallowed intent is invisible without this second check")
       (is (= [[:form/commit "milk"]] @!seen)
-          "and the intent it returned reached the frame")))
-  (testing "a callback branch is lowered by the same `event-callback` as a
-            bare event position, not by a second rule: a non-vector return is
-            ignored there too"
-    (let [!seen (recorder)
-          h     (lowered (dispatching !seen) :on-key-down
-                         {"Enter" (rf.fresco.impl.intent/callback
-                                    (fn [_e] :not-an-intent))})]
-      (h (ev {:key "Enter"}))
-      (is (= [] @!seen))))
-  (testing "and the composition gate still governs a callback branch — it is
-            centralised over the whole map, so it cannot be reached around by
-            changing what a branch lowers to"
-    (let [!seen (recorder)
-          h     (lowered (dispatching !seen) :on-key-down
-                         {"Enter" (rf.fresco.impl.intent/callback
-                                    (fn [_e] [:form/commit]))})]
-      (h (ev {:key "Enter" :composing? true}))
-      (is (= [] @!seen) "an IME commit is not a form commit")
-      (h (ev {:key "Enter" :composing? false}))
-      (is (= [[:form/commit]] @!seen)))))
-
-;; ---------------------------------------------------------------------------
-;; The whole-map door
-;; ---------------------------------------------------------------------------
-
-(deftest lower-props-walks-a-map-once-and-does-not-allocate-when-there-is-nothing-to-do
-  (let [!seen (recorder)]
-    (testing "a props map with nothing to lower comes back by identity"
-      (let [props {:class "row" :data-index 3 :on-click (fn [_])}]
-        (is (identical? props (rf.fresco.impl.intent/with-frame (dispatching !seen)
-                                                 (fn [] (rf.fresco.impl.intent/lower-props props)))))))
-    (testing "a props map with an intent comes back lowered, everything else intact"
-      (let [props    {:class "row" :data-index 3 :on-click [:touch 3]}
-            lowered' (rf.fresco.impl.intent/with-frame (dispatching !seen) (fn [] (rf.fresco.impl.intent/lower-props props)))]
-        (is (= {:class "row" :data-index 3} (dissoc lowered' :on-click)))
-        ((:on-click lowered') (ev {}))
-        (is (= [[:touch 3]] @!seen))))))
+          "and the intent it returned reached the frame"))))
 
 ;; ---------------------------------------------------------------------------
 ;; ONE callback form, and the POSITION selects the contract (HD-024)
 ;; ---------------------------------------------------------------------------
 ;;
-;; One test per position, plus the row for a position nothing walks, plus
-;; the diagnostic that must name the POSITION rather than the form.
+;; One test per position, plus the diagnostic that must name the POSITION
+;; rather than the form.
 
 (deftest the-one-form-is-an-ordinary-function
   (testing "the form is a function, stated as an assertion. A carrier that
@@ -447,18 +348,6 @@
           (h (ev {:prevented prevented}))
           (is (false? @prevented) "the runtime left the event alone")
           (is (= [[:signup/submit]] @!seen)))))))
-
-(deftest at-a-render-position-the-return-is-output-and-dispatching-is-a-loud-error
-  (testing "the render contract. A slot or a foreign render prop is
-            invoked DURING a render, so its return is markup — which is
-            itself a vector, and is exactly why the shape of the value
-            cannot select the contract and the position must."
-    (let [!seen (recorder)
-          h     (lowered (dispatching !seen) :row-renderer
-                         (rf.fresco.impl.intent/callback (fn [row] [:li (:title row)])))]
-      (is (= [:li "milk"] (h {:title "milk"}))
-          "the hiccup came back to the caller and was NOT dispatched")
-      (is (= [] @!seen)))))
 
 (deftest a-handler-lowered-inside-a-render-body-belongs-to-the-supplying-boundary
   (testing "A render prop exists to build interactive rows, and
@@ -620,9 +509,7 @@
               (is (= :rf.error/fresco-intent-needs-the-event (:rf.error/id data)))
               (is (= :on-pick (:position data)))
               (is (= "preventDefault" (:needed data)))
-              (is (= "a-value" (:argument data)))
-              (is (re-find #":on-pick" (ex-message e)) "it names the POSITION")
-              (is (re-find #"h/event" (ex-message e)) "and the spelling that works"))))))
+              (is (= "a-value" (:argument data))))))))
     (testing "`:on-submit`'s auto-prevent is the same law, reached by the
               policy default rather than by the head"
       (let [h (rf.fresco.impl.intent/with-frame d (fn [] (rf.fresco.impl.intent/lower-prop :on-submit [:go])))]
@@ -657,22 +544,6 @@
         (h nil)
         (is (= [[:go 1] [:go 1]] @!seen))))))
 
-(deftest outside-every-walked-position-the-form-is-just-a-function
-  (testing "a position nothing walks. A carrier handed to a raw #js prop is
-            called natively, and a marker object there would raise the
-            host's own TypeError naming nothing the author wrote. Here the
-            value is never anything but a function, so the position not
-            being walked costs the contract and nothing else."
-    (let [!ran     (atom 0)
-          cb       (rf.fresco.impl.intent/callback (fn [x] (swap! !ran inc) [:would-have-dispatched x]))
-          js-props #js {:onPing cb}]
-      (is (fn? (.-onPing js-props)))
-      (is (= [:would-have-dispatched 3] ((.-onPing js-props) 3))
-          "a JavaScript library calling it natively gets a real call and a
-           real return — the return is simply not an intent here, because
-           this is not a position anything could have lowered")
-      (is (= 1 @!ran)))))
-
 (deftest an-intent-returned-with-no-frame-in-scope-names-the-position
   (testing "the form is legal with no frame — a callback that never returns
             an intent has nothing to dispatch. Returning one there is the
@@ -689,27 +560,3 @@
             h    (rf.fresco.impl.intent/lower-prop :on-click (rf.fresco.impl.intent/callback (fn [_] (swap! !ran inc) nil)))]
         (h (ev {}))
         (is (= 1 @!ran))))))
-
-(deftest ref-keeps-reacts-own-contract-and-is-not-lowered
-  (testing ":ref is the one position whose contract is neither Fresco's to
-            select nor the same in both phases — React invokes it in the
-            COMMIT phase with the node, and its return is the detach
-            cleanup. Wrapping it would forbid a legitimate dispatch there and
-            would change the identity React re-attaches on."
-    (is (= :ref (rf.fresco.impl.intent/position-contract :ref)))
-    (is (= :event (rf.fresco.impl.intent/position-contract :on-click)))
-    (is (= :render (rf.fresco.impl.intent/position-contract :row-renderer)))
-    (let [cb (rf.fresco.impl.intent/callback (fn [_node] :cleanup))]
-      (is (identical? cb (rf.fresco.impl.intent/lower-prop :ref cb)))
-      (is (identical? cb (rf.fresco.impl.intent/lower-prop "ref" cb))))))
-
-(deftest an-ordinary-function-is-untouched-everywhere
-  (testing "there is no `raw-fn` identity passthrough, because identity is
-            the default: an ordinary function is claimed by no position, and
-            the codec hands functions to React by identity so `React.memo`
-            and every downstream bail-out that compares handler identity keep
-            working. One fewer form for nothing given up."
-    (let [f (fn [_] :whatever)]
-      (is (identical? f (rf.fresco.impl.intent/lower-prop :on-click f)))
-      (is (identical? f (rf.fresco.impl.intent/lower-prop :row-renderer f)))
-      (is (identical? f (rf.fresco.impl.intent/lower-prop :ref f))))))

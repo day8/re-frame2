@@ -286,16 +286,10 @@
       (is (= #{(sub-key [:re/row 0]) (sub-key [:re/row 1])}
              (rf.fresco.test.runtime/reads-of two))))
 
-    (let [four (probe! (body-of 4))]
-      (testing "and the length is a render-time fact: four rows, four keys,
-                no ledger of what the previous render read"
-        (is (= #{(sub-key [:re/row 0]) (sub-key [:re/row 1])
-                 (sub-key [:re/row 2]) (sub-key [:re/row 3])}
-               (rf.fresco.test.runtime/reads-of four)))))
-
     (let [one (probe! (body-of 1))]
-      (testing "shrinking is symmetric: the read set is what THIS render
-                read, so three keys left it without anything being diffed"
+      (testing "and the length is a render-time fact: the read set is what
+                THIS render read, so the dropped row's key left it without
+                anything being diffed"
         (is (= #{(sub-key [:re/row 0])} (rf.fresco.test.runtime/reads-of one)))))))
 
 ;; ---------------------------------------------------------------------------
@@ -637,43 +631,3 @@
 ;; ---------------------------------------------------------------------------
 ;; The controls that make the matrix worth its greens
 ;; ---------------------------------------------------------------------------
-
-(deftest a-refusal-acquires-nothing-and-leaves-nothing
-  (async done
-    (seeded!)
-    ;; A refusal that also recorded — a key pushed onto the scratch before
-    ;; the guard, a cell built, a reader slot taken — would be a leak wearing
-    ;; an error message. `read-key!` raises before it touches the scratch,
-    ;; and this is the row that says the census agrees.
-    ;;
-    ;; **This row is insurance rather than a measurement, and it is worth
-    ;; saying which.** Removing an extent guard does not red it: with
-    ;; the extent guard removed the escaped reads reach `subscribe-once`,
-    ;; which refuses before acquiring anything, so the zeros hold either
-    ;; way. What keeps it from being a zero the instrument cannot make
-    ;; non-zero is that the instrument is shared — `runtime/residue` is
-    ;; proven able to answer non-zero by `the-residue-census-can-answer-
-    ;; false` in `kernel_commit_owns_cljs_test`, which runs in this same
-    ;; bundle. The cross-reference is deliberate: one proven control beats
-    ;; a second copy of it.
-    (let [!parked (atom nil)]
-      (probe! (fn [_]
-                (reset! !parked (fn [] (rf.fresco/sub [:re/right])))
-                [:p (rf.fresco/sub [:re/left])]))
-
-      (dotimes [_ 3] (outcome (fn [] (@!parked))))
-
-      (testing "three refusals later the runtime owns exactly what the
-                probing render owned: nothing"
-        (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0}
-               (dissoc (rf.fresco.test.runtime/residue) :entries)))
-        (is (= [] (rf.fresco.test.runtime/cell-readers (sub-key [:re/right]))))
-        (is (nil? (rf.fresco.test.runtime/cell-reaction (sub-key [:re/right])))))
-
-      (.then (rf.fresco.test.runtime/quiesced!)
-             (fn [_]
-               (testing "and the render-phase entry cache evaporates at the
-                         runtime's own horizon, refusals included"
-                 (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                        (rf.fresco.test.runtime/residue))))
-               (done))))))

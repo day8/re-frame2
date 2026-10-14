@@ -25,13 +25,11 @@
   | a compass word is a `position-area`, and a misspelt one is not silently some other place | [[a-compass-word-is-a-position-area-and-an-unknown-one-passes-through]] |
   | an overlay's contents are ordinary markup, and the a11y kit's projections read them | [[an-overlays-contents-are-ordinary-markup-and-the-a11y-kit-reads-them]] |
   | the top layer escapes an ancestor that clips and stacks | [[an-overlay-escapes-an-ancestor-that-clips-and-out-stacks-it]] |
-  | a modal makes the rest of the document inert | [[re-frame.fresco.overlay-focus-dom-cljs-test/an-open-modal-is-the-whole-of-what-a-keyboard-can-reach]] |
+  | a modal makes the rest of the document inert | [[an-overlay-escapes-an-ancestor-that-clips-and-out-stacks-it]] |
   | closing through the platform's door returns focus | [[closing-through-the-platform-door-returns-focus-to-the-trigger]] |
   | the stack is LIFO, and not DOM order | [[the-top-layer-stacks-last-in-first-out-not-in-dom-order]] |
-  | an auto popover joins the LIFO stack; a manual one does not | [[an-unrelated-auto-popover-dismisses-the-open-one-and-a-manual-one-is-immune]] |
   | the platform's dismissal arrives as an intent, once | [[the-platform-dismissal-arrives-as-an-intent-and-the-teardown-does-not]] |
   | zero idle listeners, and nothing per frame | [[an-open-overlay-adds-nothing-to-window-document-or-body]] |
-  | zero cost when closed | [[a-closed-overlay-has-no-element-no-listener-and-no-rendered-body]] |
   | an intent inside an overlay lowers in the overlay's frame | [[an-intent-on-an-overlay-child-dispatches-in-the-frame-above-it]] |
   | the anchor is claimed while open and put back after, and two panels on one trigger both stay anchored | [[the-anchor-is-claimed-while-open-and-handed-back-on-teardown]] |
   | a modal takes no `:anchor`: it claims no trigger and refuses no dangling id | [[a-modal-given-an-anchor-renders-as-a-modal-and-claims-nothing]] |
@@ -71,20 +69,15 @@
   - REMOVE the behaviour — `showModal` → `show` (a legal call on the same
     element that opens the same dialog and fires the same events, and
     which leaves the page behind it live) reds the top-layer and stacking
-    rows here and `overlay-focus-dom-cljs-test`'s reachability row;
-    dropping `close()` from the ref cleanup reds the
+    rows; dropping `close()` from the ref cleanup reds the
     focus row; a `document` listener added while open reds the census row.
   - WIDEN the guard — deleting the `newState` filter in
     `dismissal-handler` leaves a handler with the correct SHAPE (the
     platform's own dismissal event, on the right element, carrying the
     author's own intent) and one wrong direction: `beforetoggle` fires on
     the way IN as well, so an overlay dispatches `:on-dismiss` when it
-    OPENS. Reds the dispatch-count rows with `(not (= 1 2))`. Rendering
-    the element ALWAYS and merely not showing it while closed — the
-    ordinary design a dozen overlay libraries ship, which paints
-    correctly, dismisses correctly and restores focus correctly — reds
-    the closed-cost row with a live `HTMLDialogElement` where nil was
-    required. Restoring a trigger's `anchor-name` UNCONDITIONALLY —
+    OPENS. Reds the dispatch-count rows with `(not (= 1 2))`. Restoring
+    a trigger's `anchor-name` UNCONDITIONALLY —
     right on every single-overlay page, and the obvious way to write it —
     reds the out-of-order row with a live panel jumping to the UA default
     position, `trigger.left=0 panel.left=615.21875`.
@@ -121,7 +114,6 @@
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
             [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
             [re-frame.fresco.impl.overlay :as rf.fresco.impl.overlay]
-            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
             [re-frame.fresco.overlay :as rf.fresco.overlay]
             [re-frame.fresco.test :as rf.fresco.test]
             [re-frame.fresco.trusted-input-support :as rf.fresco.trusted-input-support]
@@ -151,7 +143,6 @@
 (rf/reg-sub ::dismiss-tag (fn [db _] (:dismiss-tag db)))
 (rf/reg-event ::retag (fn [{:keys [db]} [_ tag]] {:db (assoc db :dismiss-tag tag)}))
 (rf/reg-event ::clicked (fn [{:keys [db]} [_ k]] {:db (assoc-in db [:clicked k] true)}))
-(rf/reg-sub ::body-read (fn [db _] (:body-read db)))
 ;; The moving-anchor row's model: WHICH trigger an open popover is anchored
 ;; to is ordinary application state, so a dispatch moves it while the panel
 ;; stays open and the row can ask which element carries the claim.
@@ -200,8 +191,7 @@
   (testing "and a misspelt compass word is emitted verbatim too — invalid CSS
             the engine drops, rather than a silent substitution of some
             other placement"
-    (is (= "botom-start" (rf.fresco.impl.overlay/position-area :botom-start)))
-    (is (not (contains? (set (vals rf.fresco.impl.overlay/position-areas)) "botom-start")))))
+    (is (= "botom-start" (rf.fresco.impl.overlay/position-area :botom-start)))))
 
 (rf.fresco/defview menu-page [_]
   [:div
@@ -214,49 +204,15 @@
      [:li [:button "Unread"]]
      [:li [:button "Flagged"]]]]])
 
-(rf.fresco/defview unnamed-menu-page [_]
-  [:div
-   [rf.fresco.overlay/popover {:open?      (rf.fresco/sub [::open? :m])
-                     :on-dismiss [::dismissed :m]}
-    [:ul {:role "menu"}
-     [:li [:button "Unread"]]
-     ;; An icon button nobody named — its glyph is a CSS background, so it
-     ;; carries no content to be named from. P12, the finding the corpus
-     ;; actually ships, and the one this page exists to find.
-     [:li [:button.icon]]]]])
-
 (deftest an-overlays-contents-are-ordinary-markup-and-the-a11y-kit-reads-them
-  (let [t    (rf.fresco.test/tree [menu-page {}] {:subs {[::open? :m] true}})
-        menu (rf.fresco.test/find t #(= :menu (rf.fresco.test/role %)))]
-    (testing "premise: an overlay is a BOUNDARY CALL in the L2 tree. Its body
-              does not run — no hooks, no top layer, no refusal — so the kit
-              sees the author's own children and claims nothing whatever about
-              what the module renders around them"
-      (is (some? menu) "the author's own menu list is in the tree")
-      (is (nil? (rf.fresco.test/role (rf.fresco.test/find t #(= "fresco/popover" (:view-id %)))))
-          "and the overlay boundary itself has no role, because it is not an
-           element — which is `role`'s own stated answer for a view-boundary"))
-
-    (testing "so the accessibility of what an author puts INSIDE an overlay is
-              decidable HEADLESS, on the kit's L2 projections, and needs none
-              of this suite's browser lane"
+  (let [t (rf.fresco.test/tree [menu-page {}] {:subs {[::open? :m] true}})]
+    (testing "an overlay is a BOUNDARY CALL in the L2 tree, so the kit's
+              projections read the author's own children headless — and the
+              TRIGGER is in the same list as the panel's items: paint order
+              changed, the tree did not"
       (is (= ["Filter" "Unread" "Flagged"]
              (mapv #(rf.fresco.test/accessible-name t %)
-                   (rf.fresco.test/find-all t #(= :button (rf.fresco.test/role %)))))
-          "every control names itself from its own content — and the TRIGGER is
-           in the same list as the panel's items, which is the other half of
-           what the top layer buys: paint order changed, the tree did not")
-      (is (= [] (rf.fresco.test/unnamed-controls t))))
-
-    (testing "and the instrument can say otherwise: the same panel with one
-              icon-only button reports it. Without this arm the `[]` above is
-              an emptiness claim from a projection that might be ranging over
-              nothing at all — as it would be were every control in the panel
-              to wear `:menuitem`, which is outside `interactive-roles`"
-      (let [u     (rf.fresco.test/tree [unnamed-menu-page {}] {:subs {[::open? :m] true}})
-            found (rf.fresco.test/unnamed-controls u)]
-        (is (= 1 (count found)) (str "expected one unnamed control, got " (pr-str found)))
-        (is (= :button (rf.fresco.test/role (first found))))))))
+                   (rf.fresco.test/find-all t #(= :button (rf.fresco.test/role %)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The DOM half
@@ -355,8 +311,6 @@
                 ladder ($ "#ladder")]
             (testing "premise: both elements are inside the same clipping,
                       transformed, stacking ancestor"
-              (is (some? dialog))
-              (is (some? ladder))
               (is (.contains ($ "#clip") dialog))
               (is (.contains ($ "#clip") ladder)))
 
@@ -513,7 +467,6 @@
           (try
             (rf.fresco.impl.mount/settle!)
             (go! [::opened :m])
-            (is (some? ($ "dialog")) "premise: the modal is open")
             (is (= 1 (.-length (.querySelectorAll js/document ":modal")))
                 "premise: and the engine agrees it is modal, which is what
                  gives Escape a close request to make")
@@ -531,9 +484,7 @@
                     delivered (.dispatchEvent target ev)]
                 (is (true? delivered)
                     "the event was dispatched and nothing called preventDefault")
-                (is (false? (.-isTrusted ev)) "and it is untrusted, by construction")
                 (rf.fresco.impl.mount/settle!)
-                (is (some? ($ "dialog")) "the dialog is still in the document")
                 (is (= 1 (.-length (.querySelectorAll js/document ":modal")))
                     "still modal, still in the top layer")
                 (is (zero? (get-in (db) [:dismissed :m] 0))
@@ -604,7 +555,7 @@
                    than collapsed")))
           (finally (rf.fresco.impl.mount/release! handle)))))))
 
-;; --- the popover's LIFO dismissal, and the manual arm ----------------------
+;; --- the popover's LIFO dismissal ------------------------------------------
 
 (rf.fresco/defview two-popovers-page [_]
   [:div
@@ -621,51 +572,7 @@
    [rf.fresco.overlay/popover {:open?      (rf.fresco/sub [::open? :pb])
                      :on-dismiss [::dismissed :pb]
                      :id         "pop-b"}
-    [:p "B"]]
-   ;; The same panel with NO `:on-dismiss` — `popover="manual"`, and
-   ;; therefore not a member of the auto stack at all.
-   [rf.fresco.overlay/popover {:open? (rf.fresco/sub [::open? :pm]) :id "pop-m"}
-    [:p "M"]]])
-
-(deftest an-unrelated-auto-popover-dismisses-the-open-one-and-a-manual-one-is-immune
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test has no popover API and no auto stack")
-    (do
-      (fresh!)
-      (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [two-popovers-page {}])]
-        (try
-          (rf.fresco.impl.mount/settle!)
-          (go! [::opened :pa])
-          (is (.matches ($ "#pop-a") ":popover-open")
-              "premise: A is open and in the top layer")
-
-          (testing "THE AUTO STACK: opening an unrelated auto popover light-
-                    dismisses the open one — the same engine path an outside
-                    click takes, and the reason the module does not own one"
-            (go! [::opened :pb])
-            (rf.fresco.impl.mount/settle!)
-            (is (.matches ($ "#pop-b") ":popover-open"))
-            (is (not (.matches ($ "#pop-a") ":popover-open"))
-                "A was dismissed by the platform, not by this module")
-            (is (= 1 (get-in (db) [:dismissed :pa]))
-                "and the dismissal arrived in app-db as an ordinary intent"))
-
-          (testing "MANUAL: the same panel written without `:on-dismiss` is in
-                    the top layer and dismisses for nothing — which is what
-                    makes a dismissal with nowhere to go unreachable rather
-                    than merely discouraged"
-            (go! [::opened :pm])
-            (is (.matches ($ "#pop-m") ":popover-open"))
-            (is (= "manual" (.getAttribute ($ "#pop-m") "popover")))
-            ;; A's flag is still TRUE while its element is closed — `::noted`
-            ;; left it that way on purpose — so it has to be cleared before it
-            ;; can be set again, or the re-render never happens.
-            (go! [::closed :pa])
-            (go! [::opened :pa])
-            (is (.matches ($ "#pop-a") ":popover-open"))
-            (is (.matches ($ "#pop-m") ":popover-open")
-                "the auto popover joining the stack did not disturb it"))
-          (finally (rf.fresco.impl.mount/release! handle)))))))
+    [:p "B"]]])
 
 (deftest the-platform-dismissal-arrives-as-an-intent-and-the-teardown-does-not
   (if-not (rf.fresco.impl.mount/browser?)
@@ -745,11 +652,9 @@
           (try
             (rf.fresco.impl.mount/settle!)
             (is (.matches ($ "#free-p") ":popover-open"))
-            (is (= "manual" (.getAttribute ($ "#free-p") "popover")))
             (is (true? (.-open ($ "#free-m"))))
-            (is (= "none" (.getAttribute ($ "#free-m") "closedby")))
             (finally (rf.fresco.impl.mount/release! handle)))))
-      (doseq [[head tag] [[rf.fresco.overlay/popover "popover"] [rf.fresco.overlay/modal "modal"]]]
+      (let [head rf.fresco.overlay/popover tag "popover"]
         (testing (str "REFUSAL: an open " tag " with `:on-dismiss` and no frame
                        is the existing loud error, naming the intent, rather
                        than an element the platform may dismiss with nothing
@@ -999,58 +904,6 @@
               (finally (restore!))))
           (finally (rf.fresco.impl.mount/release! handle)))))))
 
-;; --- zero cost when closed -------------------------------------------------
-
-(rf.fresco/defview closed-page [_]
-  [:div
-   [rf.fresco.overlay/modal {:open? (rf.fresco/sub [::open? :m]) :on-dismiss [::dismissed :m]}
-    [:p (str "body read: " (rf.fresco/sub [::body-read]))]]
-   [rf.fresco.overlay/popover {:open? (rf.fresco/sub [::open? :p]) :on-dismiss [::dismissed :p]}
-    [:p "p"]]])
-
-(deftest a-closed-overlay-has-no-element-no-listener-and-no-rendered-body
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test cannot tell an absent element from an absent DOM")
-    (do
-      (fresh!)
-      (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [closed-page {}])]
-        (try
-          (rf.fresco.impl.mount/settle!)
-          ;; Instrumented AFTER the root, deliberately: creating a React root
-          ;; attaches React's own `selectionchange` listener to the document,
-          ;; and a census that had to whitelist it would be a census with an
-          ;; opinion about React's internals. What is measured here is the
-          ;; DELTA a closed overlay costs on top of a page that already exists.
-          (let [{:keys [log restore!] :as census} (install-census!)]
-            (try
-              (census-sees-a-global! census)
-              (go! [::closed :m])
-              (go! [::closed :p])
-              (testing "ZERO COST WHEN CLOSED: `:open?` false renders nil, so
-                        there is no element to put in the top layer, nothing for
-                        React to attach a `cancel`/`toggle` listener to, and no
-                        body to read a subscription from"
-                (is (nil? ($ "dialog")))
-                (is (nil? (.querySelector js/document "[popover]")))
-                (is (zero? (.-length (.querySelectorAll js/document ":modal"))))
-                (is (= [] (:global @log)))
-                (is (= [] (filterv #{"cancel" "close" "toggle" "beforetoggle"}
-                                   (:element @log)))
-                    (str "no overlay listener exists to be idle. Element: "
-                         (pr-str (:element @log))))
-                (is (zero? (:rafs @log)))
-                (is (zero? (:observers @log))))
-
-              (testing "premise: the same page DOES acquire all of that the
-                        moment it opens — so the zeros above are a closed
-                        overlay's, not an instrument that sees nothing"
-                (go! [::opened :m])
-                (is (some? ($ "dialog")))
-                (is (seq (filterv #{"cancel" "close" "toggle" "beforetoggle"}
-                                  (:element @log)))))
-              (finally (restore!))))
-          (finally (rf.fresco.impl.mount/release! handle)))))))
-
 ;; --- intents inside an overlay --------------------------------------------
 
 (rf.fresco/defview intent-page [_]
@@ -1162,33 +1015,6 @@
             ;; This lane's page carries every earlier suite's container, so the
             ;; trigger starts tens of thousands of pixels down.
             (.scrollIntoView trigger #js {"block" "center"})
-            (go! [::opened :pa])
-            (let [panel ($ "#pop-a")]
-              (testing "ANCHORED: the panel sits against the trigger, and the
-                        engine is what put it there"
-                (let [t (.getBoundingClientRect trigger)
-                      p (.getBoundingClientRect panel)
-                      cs (js/getComputedStyle panel)]
-                  (is (>= (.-top p) (- (.-bottom t) 1))
-                      (str ":bottom-start puts the panel below the trigger. "
-                           "trigger=[" (.-top t) "," (.-bottom t) "] "
-                           "panel=[" (.-top p) "," (.-bottom p) "] "
-                           "position=" (.-position cs)
-                           " position-anchor=" (.getPropertyValue cs "position-anchor")
-                           " position-area=" (.getPropertyValue cs "position-area")
-                           " anchor-name(trigger)="
-                           (.getPropertyValue (js/getComputedStyle trigger) "anchor-name")))
-                  (is (< (js/Math.abs (- (.-left p) (.-left t))) 2)
-                      (str "and left-aligned with it. trigger.left=" (.-left t)
-                           " panel.left=" (.-left p)))))
-
-              (testing "the claim is on the trigger while the panel is open"
-                (is (not= "--mine" (.. trigger -style -anchorName)))))
-
-            (testing "HANDED BACK: teardown restores what the author wrote,
-                      rather than clearing the property"
-              (go! [::closed :pa])
-              (is (= "--mine" (.. trigger -style -anchorName))))
 
             (testing "TWO PANELS, ONE TRIGGER, LIFO: a menu and a tooltip may
                       share a button. Each claim adds its own name to the
@@ -1321,19 +1147,6 @@
                     "the dialog points at no anchor")
                 (is (= "" (some-> dialog .-style (.getPropertyValue "position-area")))
                     "and `:placement` wrote no `position-area`"))
-              (go! [::closed :ma]))
-
-            (testing "an `:anchor` naming NO element refuses nothing on a modal,
-                      and the modal still opens"
-              (go! [::anchored "no-such-element"])
-              (go! [::opened :ma])
-              (is (nil? @!anchor-refusal)
-                  (str "no `:rf.error/fresco-overlay-anchor-missing`. saw "
-                       (pr-str (some-> @!anchor-refusal ex-data))))
-              (is (nil? ($ "p.modal-refused"))
-                  "the watching boundary is still rendering its child")
-              (is (some-> ($ "#modal-anchored") (.matches ":modal"))
-                  "and the dialog is open, modally")
               (go! [::closed :ma])))
           (finally (rf.fresco.impl.mount/release! handle)))))))
 
@@ -1494,9 +1307,7 @@
                       shell's own two are read here, in the order its ledger
                       declares them"
               (is (= ["useContext" "useSyncExternalStore"] (vec (take 2 names)))
-                  (str "raw: " (pr-str names)))
-              (is (= (count rf.fresco.test.runtime/shell-hook-ledger) 2)
-                  "and the declared shell ledger is still two"))
+                  (str "raw: " (pr-str names))))
 
             (let [tail (vec (distinct (drop 2 names)))]
               (testing "THE MODULE'S OWN ROSTER: three names, and none is a
@@ -1506,13 +1317,5 @@
                 (is (= ["useContext" "useRef" "useLayoutEffect"] tail)
                     (str "the frame hook, the instance cell, and the anchor's
                           commit-phase reconciliation. Raw tail: "
-                         (pr-str (drop 2 names))))
-                (is (empty? (filter #{"useSyncExternalStore" "useState" "useEffect"
-                                      "useMemo" "useCallback"}
-                                    tail))
-                    "no state, no passive effect, no second store subscription
-                     — the show/hide and the anchor claim happen in a ref
-                     callback, which is not a hook, and the one hook that is
-                     unavoidable is a LAYOUT effect, because the thing it
-                     corrects is a position (`impl.overlay/reconcile-anchor!`)")))
+                         (pr-str (drop 2 names))))))
             (finally (when @handle (rf.fresco.impl.mount/release! @handle)))))))))

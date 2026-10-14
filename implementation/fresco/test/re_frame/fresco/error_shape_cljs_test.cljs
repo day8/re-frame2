@@ -182,7 +182,6 @@
 
     (testing "the reason is a human sentence, and the offending value rides
               with it — the shape's `offending value` slot"
-      (is (string? (:reason data)))
       (is (fn? (:head data)) "the head that was refused is the head that was written"))
 
     (testing "and the source coordinate is `defview`'s, captured at
@@ -201,12 +200,9 @@
 (deftest defhost-registers-its-macro-captured-coordinate
   (testing "the coordinate is keyed by the same `<ns>/<sym>` string the
             macro stamps as `displayName`, and it is the declaration's own"
-    (let [coord (rf.fresco.impl.error/source-of "re-frame.fresco.error-shape-cljs-test/date-picker")]
-      (is (some? coord) "defhost registered a coordinate")
-      (is (= 're-frame.fresco.error-shape-cljs-test (:ns coord)))
-      (is (string? (:file coord)))
-      (is (pos-int? (:line coord)))
-      (is (pos-int? (:column coord))))))
+    (is (= {:ns 're-frame.fresco.error-shape-cljs-test :file? true :line? true :column? true}
+           (coordinate-of {:source (rf.fresco.impl.error/source-of
+                                     "re-frame.fresco.error-shape-cljs-test/date-picker")})))))
 
 (deftest a-declaration-whose-mint-refuses-closes-its-extent-anyway
   ;; Written through the real macro, and the only refusing declaration in

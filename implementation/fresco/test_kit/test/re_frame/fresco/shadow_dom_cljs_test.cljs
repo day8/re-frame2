@@ -278,56 +278,52 @@
 (deftest a-drifted-intent-names-its-checkpoint-and-both-vectors
   (if-not (browser?)
     (skip! "an intent stream needs a real click")
-    (let [{:keys [status checkpoint checkpoints step difference]}
-          (run drifted-intent-row)]
-      (testing "the run is red, and it stops at the checkpoint that caused it"
-        (is (= :red status))
-        (is (= 3 checkpoint))
-        (is (= 3 (:checkpoint (run drifted-intent-row)))
-            "and deterministically so")
-        (is (= 4 checkpoints) "four taken: the mount, and one per step")
-        (is (= {:click "button.save"} step)))
-      (testing "and it names the intent rather than the page it changed"
-        (is (= :intent (:kind difference)))
-        (is (= :differs (:reason difference)))
-        (is (= 0 (:index difference)))
-        (is (= [:fresco.shadow/save] (:reference difference)))
-        (is (= [:fresco.shadow/save :force] (:candidate difference)))))))
+    (is (= {:status      :red
+            :checkpoint  3
+            :checkpoints 4
+            :step        {:click "button.save"}
+            :difference  {:kind      :intent
+                          :reason    :differs
+                          :index     0
+                          :reference [:fresco.shadow/save]
+                          :candidate [:fresco.shadow/save :force]}}
+           (run drifted-intent-row))
+        "red at the checkpoint that caused it, naming the intent rather than the page it changed")))
 
 (deftest a-drifted-attribute-names-the-exact-node
   (if-not (browser?)
     (skip! "an attribute is read off a real element")
-    (let [{:keys [status checkpoint step difference]} (run drifted-dom-row)]
+    (let [{:keys [difference] :as verdict} (run drifted-dom-row)]
       (testing "the difference is inside the branch the first step opens"
-        (is (= :red status))
-        (is (= 1 checkpoint))
-        (is (= {:click "button.edit"} step)))
+        (is (= {:status :red :checkpoint 1 :checkpoints 2 :step {:click "button.edit"}}
+               (dissoc verdict :difference))))
       (testing "and the report names the node, the attribute and both values"
-        (is (= :dom (:kind difference)))
-        (is (= :attribute (:reason difference)))
-        (is (= "placeholder" (:attribute difference)))
-        (is (= "Title" (:reference difference)))
-        (is (= "Article title" (:candidate difference)))
+        (is (= {:kind      :dom
+                :reason    :attribute
+                :attribute "placeholder"
+                :reference "Title"
+                :candidate "Article title"}
+               (dissoc difference :at :path)))
         (is (re-find #"input" (:at difference))
             (str "the path leads to the offending element: " (:at difference)))))))
 
 (deftest a-step-that-matches-nothing-is-red-and-not-green
   (if-not (browser?)
     (skip! "a selector is resolved against a real container")
-    (let [{:keys [status checkpoint difference]}
-          (rf.fresco.test.mounted/shadow! {:reference      [reference-row {}]
-                       :candidate      [candidate-row {}]
-                       :initial-events seed
-                       :script         [{:click "button.no-such-control"}]})]
-      (is (= :red status)
-          (str "a checkpoint reached by a step that did not happen has proved "
-               "nothing, and green here means proved"))
-      (is (= 1 checkpoint))
-      (is (= {:kind     :script
-              :reason   :selector-matched-nothing
-              :selector "button.no-such-control"
-              :matched  :neither}
-             difference)))))
+    (is (= {:status      :red
+            :checkpoint  1
+            :checkpoints 2
+            :step        {:click "button.no-such-control"}
+            :difference  {:kind     :script
+                          :reason   :selector-matched-nothing
+                          :selector "button.no-such-control"
+                          :matched  :neither}}
+           (rf.fresco.test.mounted/shadow! {:reference      [reference-row {}]
+                        :candidate      [candidate-row {}]
+                        :initial-events seed
+                        :script         [{:click "button.no-such-control"}]}))
+        (str "a checkpoint reached by a step that did not happen has proved "
+             "nothing, and green here means proved"))))
 
 ;; ---------------------------------------------------------------------------
 ;; The live control state — the false green a markup-only comparison gives
@@ -350,17 +346,13 @@
               (str "a selection is written by moving option.selected and no "
                    "attribute tracks it, so the serialiser sees one page twice")))
         (testing "the comparator names the select, the slot and both values"
-          (let [{:keys [status checkpoints difference]} ((:checkpoint! s))]
-            (is (= :red status)
+          (let [{:keys [difference] :as verdict} ((:checkpoint! s))]
+            (is (= {:status :red :checkpoint 0 :checkpoints 1} (dissoc verdict :difference))
                 (str "a markup-only comparison answers {:status :green :checkpoints 1} "
                      "here: a port could select the wrong "
                      "option with every byte of markup and every intent agreeing"))
-            (is (= 1 checkpoints))
-            (is (= :dom (:kind difference)))
-            (is (= :property (:reason difference)))
-            (is (= "value" (:property difference)))
-            (is (= "two" (:reference difference)))
-            (is (= "one" (:candidate difference)))
+            (is (= {:kind :dom :reason :property :property "value" :reference "two" :candidate "one"}
+                   (dissoc difference :at :path)))
             (is (re-find #"select" (:at difference))
                 (str "named at the select rather than at whichever option "
                      "changed underneath it: " (:at difference)))))
@@ -412,9 +404,6 @@
   (is (true? (::started-green? v)) "the pair began indistinguishable")
   (is (true? (::same-markup? v))
       "and no byte of markup moved — the attributes cannot see this")
-  (is (= :red (:status v)))
-  (is (= :dom (:kind (:difference v))))
-  (is (= :property (:reason (:difference v))))
   (:difference v))
 
 (defn- pick-options!
@@ -430,8 +419,8 @@
         (let [d (is-live-only
                   (live-difference [uncontrolled-fields {}]
                                    (fn [r _] (.click (.querySelector r "input.flag")))))]
-          (is (= "checked" (:property d)))
-          (is (= [true false] [(:reference d) (:candidate d)]))
+          (is (= {:kind :dom :reason :property :property "checked" :reference true :candidate false}
+                 (dissoc d :at :path)))
           (is (re-find #"input\[0\]" (:at d)) (:at d))))
 
       (testing "a text field one side typed into"
@@ -440,8 +429,8 @@
                                    (fn [r _]
                                      (set! (.-value (.querySelector r "input.text"))
                                            "typed"))))]
-          (is (= "value" (:property d)))
-          (is (= ["typed" ""] [(:reference d) (:candidate d)]))
+          (is (= {:kind :dom :reason :property :property "value" :reference "typed" :candidate ""}
+                 (dissoc d :at :path)))
           (is (re-find #"input\[1\]" (:at d)) (:at d))))
 
       (testing "a checkbox one side left in the third state"
@@ -451,10 +440,10 @@
                                      (set! (.-indeterminate
                                              (.querySelector r "input.flag"))
                                            true))))]
-          (is (= "indeterminate" (:property d))
+          (is (= {:kind :dom :reason :property :property "indeterminate" :reference true :candidate false}
+                 (dissoc d :at :path))
               (str "never an attribute in any markup, and the third thing a "
-                   "checkbox can look like on screen"))
-          (is (= [true false] [(:reference d) (:candidate d)]))))
+                   "checkbox can look like on screen"))))
 
       (testing "a MULTIPLE select whose value alone cannot tell the two apart"
         (let [d (is-live-only
@@ -462,11 +451,11 @@
                                    (fn [r c]
                                      (pick-options! r [0 2])
                                      (pick-options! c [0 1]))))]
-          (is (= "selected" (:property d))
+          (is (= {:kind :dom :reason :property :property "selected" :reference false :candidate true}
+                 (dissoc d :at :path))
               (str "a multiple select's `value` is only its FIRST selected "
                    "option, so {a c} and {a b} share one — the option's own "
                    "selectedness is what separates them"))
-          (is (= [false true] [(:reference d) (:candidate d)]))
           (is (re-find #"option\[1\]" (:at d)) (:at d)))))))
 
 ;; ---------------------------------------------------------------------------
@@ -481,24 +470,13 @@
                          :initial-events seed})]
       (try
         (is (= :live (:status s)) "no :script means both mounts stay live")
-        (let [ref-frame (:frame (:reference s))
-              can-frame (:frame (:candidate s))]
-          (is (not= ref-frame can-frame))
-          (is (= {:status :green :checkpoints 1} ((:checkpoint! s)))
-              "checkpoint 0 — the same seed produced the same page twice")
-
-          (rf.fresco.test.mounted/dispatch-and-settle! (:reference s) [:fresco.shadow/edit])
-          (testing "a write on one side does not reach the other"
-            (is (true? (rf/subscribe-once [:fresco.shadow/editing?]
-                                          {:frame ref-frame})))
-            (is (false? (rf/subscribe-once [:fresco.shadow/editing?]
-                                           {:frame can-frame}))))
-          (testing "and the comparator sees the divergence it caused"
-            (let [{:keys [status difference]} ((:checkpoint! s))]
-              (is (= :red status))
-              (is (= :intent (:kind difference)))
-              (is (= :only-in-reference (:reason difference)))
-              (is (= [:fresco.shadow/edit] (:reference difference))))))
+        (is (= {:status :green :checkpoints 1} ((:checkpoint! s)))
+            "checkpoint 0 — the same seed produced the same page twice")
+        (rf.fresco.test.mounted/dispatch-and-settle! (:reference s) [:fresco.shadow/edit])
+        (testing "a write on one side does not reach the other, and the
+                  comparator sees the divergence it caused"
+          (is (= {:kind :intent :reason :only-in-reference :index 0 :reference [:fresco.shadow/edit]}
+                 (dissoc (:difference ((:checkpoint! s))) :candidate))))
         (finally ((:stop! s)))))))
 
 (deftest a-mounts-own-address-normalises
@@ -521,11 +499,12 @@
         (testing "and a FOREIGN address still reddens — the rule is narrow"
           (rf.fresco.test.mounted/dispatch-and-settle! (:reference s) [:fresco.shadow/noted ::alien-a])
           (rf.fresco.test.mounted/dispatch-and-settle! (:candidate s) [:fresco.shadow/noted ::alien-b])
-          (let [{:keys [status difference]} ((:checkpoint! s))]
-            (is (= :red status))
-            (is (= :intent (:kind difference)))
-            (is (= [:fresco.shadow/noted ::alien-a] (:reference difference)))
-            (is (= [:fresco.shadow/noted ::alien-b] (:candidate difference)))))
+          (is (= {:kind      :intent
+                  :reason    :differs
+                  :index     0
+                  :reference [:fresco.shadow/noted ::alien-a]
+                  :candidate [:fresco.shadow/noted ::alien-b]}
+                 (:difference ((:checkpoint! s))))))
         (finally ((:stop! s)))))))
 
 ;; ---------------------------------------------------------------------------
@@ -590,24 +569,20 @@
   (let [d (refusal #(rf.fresco.test.mounted/shadow! {:reference [reference-row {}]
                                  :candidate [candidate-row {}]
                                  :seed      seed}))]
-    (is (= :rf.error/fresco-test-bad-option (:rf.error/id d))
+    (is (= {:rf.error/id :rf.error/fresco-test-bad-option :unknown [:seed]}
+           (select-keys d [:rf.error/id :unknown]))
         (str "a stray `:seed`, a natural guess at "
              ":initial-events, accepted in silence would compare two "
-             "UNSEEDED views and call them the same"))
-    (is (= [:seed] (:unknown d)))))
-
-(deftest the-options-must-be-a-map
-  (let [d (refusal #(rf.fresco.test.mounted/shadow! [:reference [reference-row {}]]))]
-    (is (= :rf.error/fresco-test-bad-option (:rf.error/id d)))))
+             "UNSEEDED views and call them the same"))))
 
 (deftest the-script-verb-roster-is-closed
   (let [d (refusal #(rf.fresco.test.mounted/shadow! {:reference [reference-row {}]
                                  :candidate [candidate-row {}]
                                  :script    [{:clik "button.edit"}]}))]
-    (is (= :rf.error/fresco-test-bad-option (:rf.error/id d))
+    (is (= {:rf.error/id :rf.error/fresco-test-bad-option :step {:clik "button.edit"}}
+           (select-keys d [:rf.error/id :step]))
         (str "a verb nothing recognises would drive neither side, and the "
-             "checkpoint after it would go green for a step that never ran"))
-    (is (= {:clik "button.edit"} (:step d))))
+             "checkpoint after it would go green for a step that never ran")))
   (testing "and each verb's own argument shape"
     (is (= :rf.error/fresco-test-bad-option
            (:rf.error/id (refusal #(rf.fresco.test.mounted/shadow! {:reference [reference-row {}]

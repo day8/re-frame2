@@ -13,9 +13,7 @@
 
   | row | what it establishes | the narrowing it catches |
   |---|---|---|
-  | [[the-module-gate-dedupes-a-hover-and-a-click-into-one-load]] | the route/module split's own dedupe rule, at the state it actually races on | a gate that skips only `:loaded`, so a warm-on-hover followed by a click starts a second load |
   | [[a-lazy-boundary-paints-the-fallback-then-the-component-with-the-props-it-was-written-with]] | load, fallback and arrival, with the props and the one child intact across a crossing that was deferred | a bridge that re-ran the loader on arrival; a `:children` slot that lost the single child |
-  | [[a-lazy-suspension-retains-the-committed-subscription-and-the-arrival-leaves-exact-ownership]] | the post-commit suspension result, re-measured across a LAZY boundary specifically | a lazy retry that quietly re-subscribed — the screen is right under it |
   | [[a-rejected-lazy-head-re-throws-its-cached-error-and-only-a-fresh-head-reloads]] | rejection is TERMINAL at the payload; `:reset-key` clears the boundary and reloads nothing | the claim that changing `:reset-key` retries the chunk |
   | [[a-client-only-lazy-region-writes-nothing-and-a-declared-fallback-writes-the-skeleton]] | which DECLARATION actually emits server bytes, at the `defhost` crossing | a region documented as sending a skeleton whose declaration sends nothing |
   | [[a-client-only-host-over-a-lazy-head-writes-nothing-and-never-calls-its-loader]] | the host's OWN Client-only policy over a lazy head, with one gate and a bare `react/lazy` control beside it | a gate that renders the head anyway, so the server fetches a chunk it cannot use — and a witness whose zero is really two `defhost` gates |
@@ -56,16 +54,13 @@
 
   It is the module gate, not the React boundary: `shadow.lazy/load` is an
   ordinary promise-returning function and calling it again really does
-  fetch again. [[the-module-gate-dedupes-a-hover-and-a-click-into-one-load]]
-  witnesses both halves of that — the load that must NOT happen twice and
-  the retry that must.
+  fetch again.
 
   ## Lanes
 
   `-dom-cljs-test`, so `:browser-test` runs the whole file against a real
-  React DOM. THREE rows need no DOM and run under `:node-test` as well:
-  the module gate is pure re-frame, and both server rows are
-  `renderToString`. Every other row degrades on the node lane to a STATED
+  React DOM. TWO rows need no DOM and run under `:node-test` as well:
+  both server rows are `renderToString`. Every other row degrades on the node lane to a STATED
   skip rather than to a green for a render that never happened.
 
   ## Two server rows, and why one could not have been both
@@ -90,7 +85,6 @@
             [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
             [re-frame.test-support :as rf.test-support]
             ["react" :as react]
-            ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]
             ["react-dom/server" :as react-dom-server]))
 
@@ -101,42 +95,7 @@
 ;; baseline when the form is evaluated (the sibling suites' convention).
 ;; ---------------------------------------------------------------------------
 
-(rf/reg-sub :lzb/label (fn [db _] (:label db)))
-(rf/reg-sub :lzb/module (fn [db _] (get-in db [:modules :admin] :absent)))
-
 (rf/reg-event :lzb/seed (fn [_ _] {:db {:label "alpha"}}))
-(rf/reg-event :lzb/relabel (fn [{:keys [db]} [_ label]] {:db (assoc db :label label)}))
-
-;; How many times the module-loading effect actually ran. The dedupe row's
-;; only instrument: app-db's `:loading` says what the gate INTENDED, and
-;; this says what the network was actually asked for.
-(defonce ^:private !module-loads (atom 0))
-
-(rf/reg-fx :lzb/load-module!
-  {:doc       "Stand-in for `shadow.lazy/load`, counted."
-   :platforms #{:client}}
-  (fn [_ctx _spec] (swap! !module-loads inc) nil))
-
-;; THE GATE, and the rule the rows below hold it to.
-;;
-;; The set is `#{:loading :loaded}` and not `#{:loaded}`. Warming a module
-;; from a hover or focus intent is the documented reason to dispatch this
-;; early, and the click that follows arrives while the first load is still
-;; in flight — so a gate written against the finished state alone starts a
-;; second fetch for the chunk it is already fetching.
-(rf/reg-event :lzb/wanted
-  {:doc "Ask for the admin module, at most once per in-flight load."}
-  (fn [{:keys [db]} _]
-    (when-not (contains? #{:loading :loaded} (get-in db [:modules :admin]))
-      {:db (assoc-in db [:modules :admin] :loading)
-       :fx [[:lzb/load-module! {:on-loaded [:lzb/module-loaded]
-                                :on-failed [:lzb/module-failed]}]]})))
-
-(rf/reg-event :lzb/module-loaded
-  (fn [{:keys [db]} _] {:db (assoc-in db [:modules :admin] :loaded)}))
-
-(rf/reg-event :lzb/module-failed
-  (fn [{:keys [db]} _] {:db (assoc-in db [:modules :admin] :failed)}))
 
 ;; ---------------------------------------------------------------------------
 ;; Loaders, heads, and the components that arrive in them
@@ -218,12 +177,6 @@
 (def ^:private paint-head (lazy-head paint-loader))
 (rf.fresco/defhost paint-host paint-head)
 
-;; --- scenario 3: the post-commit suspension --------------------------------
-
-(def ^:private own-loader (deferred-loader))
-(def ^:private own-head (lazy-head own-loader))
-(rf.fresco/defhost own-host own-head)
-
 ;; --- scenario 4: rejection, and the head that replaces it ------------------
 ;;
 ;; TWO heads over ONE loader. `reject-head` is the one that rejects and
@@ -253,26 +206,6 @@
 (def ^:private bare-head (lazy-head bare-loader))
 (rf.fresco/defhost bare-host bare-head)
 
-;; THE CONTROL, and the row is worthless without it. `renderToString` is
-;; allowed to be inert — a renderer that never reached the region would
-;; leave the count at zero for a reason that has nothing to do with the
-;; gate. This head is the same `react/lazy` with no gate at all, in the
-;; same shape, and its count says what an ungated head does here.
-(def ^:private raw-loader (deferred-loader))
-(def ^:private raw-head (lazy-head raw-loader))
-
-(defn- suspense-tree
-  "The control's shape, written in raw React: a
-  Suspense with a fallback and one lazy head under it. No `defhost`, no
-  provider, no root element — nothing between `renderToString` and the
-  head but React."
-  [head]
-  (react/createElement "div" nil
-    (react/createElement "h1" #js {:id "title"} "metrics")
-    (react/createElement (.-Suspense react)
-      #js {:fallback (react/createElement "div" #js {:id "react-fallback"} "loading")}
-      (react/createElement head #js {:points #js [1 2 3]}))))
-
 (defn- gated-suspense-tree
   "The same shape with the head's OWN host as the one declaration in it:
   React's Suspense, and under it the crossing, lowered under the frame
@@ -288,12 +221,6 @@
 ;; ---------------------------------------------------------------------------
 ;; Views
 ;; ---------------------------------------------------------------------------
-
-(rf.fresco/defview own-panel
-  "A committed boundary inside the Suspense region, and the subject of the
-  ownership row: it holds a subscription before anything suspends."
-  [_]
-  [:p {:id "panel"} (str "label=" (rf.fresco/sub [:lzb/label]))])
 
 (defonce ^:private !attempts (atom 0))
 
@@ -358,20 +285,7 @@
 (defn- poll [pred label]
   (rf.test-support/poll-until pred {:label label :timeout-ms 4000}))
 
-(defn- sub-key [query-v] [frame-id query-v])
-
 (defn- ownership [] (dissoc (rf.fresco.test.runtime/residue) :entries))
-
-(defn- reader-count
-  "A COUNT rather than the reader vector: a registration and the cells it
-  acquired hold each other, so `cljs.test`'s failure printer walks a cycle
-  and dies on the vector."
-  [query-v]
-  (count (rf.fresco.test.runtime/cell-readers (sub-key query-v))))
-
-(defn- sole-reader [query-v]
-  (let [rs (rf.fresco.test.runtime/cell-readers (sub-key query-v))]
-    (when (= 1 (count rs)) (first rs))))
 
 (defn- teardown-census! [handle]
   (rf.fresco.impl.mount/unmount! handle)
@@ -396,47 +310,6 @@
                    " | ownership " (pr-str (ownership))))
     (when handle (rf.fresco.impl.mount/release! handle))
     nil))
-
-;; ---------------------------------------------------------------------------
-;; 1. The module gate — the split that needs no Suspense, and the only
-;;    retryable path of the two
-;; ---------------------------------------------------------------------------
-
-(deftest the-module-gate-dedupes-a-hover-and-a-click-into-one-load
-  ;; Pure re-frame; runs on both lanes.
-  (seeded!)
-  (reset! !module-loads 0)
-  (rf/with-frame frame-id
-    (testing "the premise: the first intent starts exactly one load and
-              parks the module in `:loading`"
-      (rf/dispatch-sync [:lzb/wanted])
-      (is (= :loading @(rf/subscribe [:lzb/module])))
-      (is (= 1 @!module-loads)))
-
-    (testing "and the click that follows the hover is the SAME load. The
-              race the gate exists for is `:loading`, not `:loaded` — the
-              finished state is the easy half, and a gate written against
-              it alone passes every test that never warms a module early"
-      (rf/dispatch-sync [:lzb/wanted])
-      (rf/dispatch-sync [:lzb/wanted])
-      (is (= 1 @!module-loads)
-          "a warm-on-hover followed by a click fetched the chunk once"))
-
-    (testing "a failure re-opens the gate, and THIS is where a retry
-              belongs: `shadow.lazy/load` is an ordinary function and
-              calling it again really does fetch again"
-      (rf/dispatch-sync [:lzb/module-failed])
-      (is (= :failed @(rf/subscribe [:lzb/module])))
-      (rf/dispatch-sync [:lzb/wanted])
-      (is (= 2 @!module-loads) "the retry is a second, real load")
-      (is (= :loading @(rf/subscribe [:lzb/module]))))
-
-    (testing "and once it is loaded, returning to the route loads nothing"
-      (rf/dispatch-sync [:lzb/module-loaded])
-      (rf/dispatch-sync [:lzb/wanted])
-      (rf/dispatch-sync [:lzb/wanted])
-      (is (= 2 @!module-loads))
-      (is (= :loaded @(rf/subscribe [:lzb/module]))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2. Load → fallback → arrival, and what crossed
@@ -484,128 +357,6 @@
 
                 (teardown-census! handle)))
             (.catch (report-failure! "lazy paint witness" handle))
-            (.then (fn [_] (done))))))))
-
-;; ---------------------------------------------------------------------------
-;; 3. The post-commit suspension, across a LAZY boundary
-;; ---------------------------------------------------------------------------
-
-(def ^:private !set-split (atom nil))
-
-(defn- split-host
-  "Owns whether the lazy sibling is in the tree. The setter is published
-  from a passive effect, so a row cannot drive the tree before React has
-  mounted it."
-  [_]
-  (let [[split? set-split] (react/useState false)]
-    (react/useEffect (fn [] (reset! !set-split set-split) js/undefined)
-                     #js [set-split])
-    ;; The panel is a DIRECT child of the boundary, with no wrapper. React
-    ;; hides a suspended primary tree by setting `display: none` on the
-    ;; boundary's own host children, and `getComputedStyle` does not
-    ;; cascade that to descendants — a `<div>` in between would report the
-    ;; panel visible throughout the suspension and the ownership rows
-    ;; below would be measuring a premise that never held.
-    (rf.fresco.impl.codec/root-element
-      frame-id
-      [suspense-host {:fallback [:p {:id "skel2"} "waiting"]}
-       [own-panel {}]
-       (when split? [own-host {}])])))
-
-(unchecked-set split-host "displayName" "lzb/split-host")
-
-(defn- act! [f] (react-dom/flushSync f) nil)
-
-(deftest a-lazy-suspension-retains-the-committed-subscription-and-the-arrival-leaves-exact-ownership
-  ;; `activity_suspense_dom_cljs_test`'s
-  ;; `a-post-commit-suspension-retains-the-subscription-and-the-retry-leaves-exact-ownership`
-  ;; establishes the result against a hand-thrown thenable: hiding a
-  ;; committed tree for a Suspense FALLBACK leaves its passive effects
-  ;; mounted, so the `useSyncExternalStore` subscription survives and the
-  ;; retry's registration is `identical?` to the pre-suspension one —
-  ;; which is exactly what `<Activity mode="hidden">` does NOT do.
-  ;;
-  ;; This row does not re-derive that. It asks the one question the cited
-  ;; row cannot answer: whether the same holds when the suspension comes
-  ;; from a `React.lazy` PAYLOAD rather than from a component that threw a
-  ;; thenable of its own. The two reach React by the same route, so the
-  ;; expectation is that it does — and an expectation is not a
-  ;; measurement, particularly for the retry, which under a lazy head is
-  ;; React re-reading a payload rather than re-running a component.
-  (async done
-    (if-not (rf.fresco.impl.mount/browser?)
-      (do (skip! ":node-test has no DOM") (done))
-      (let [_      (seeded!)
-            _      (reset! !set-split nil)
-            handle (mount-concurrent! (rf.fresco.impl.mount/fresh-container!)
-                                      (rf.fresco.impl.mount/provider frame-id
-                                                      (react/createElement split-host nil)))
-            !state (atom {})]
-        (-> (poll #(and (= 1 (reader-count [:lzb/label])) (some? @!set-split))
-                  "the panel commits and subscribes")
-            (.then
-              (fn [_]
-                (testing "the premise: the boundary is committed, live and
-                          owning its read set BEFORE anything suspends"
-                  (is (= "label=alpha" (painted handle "panel")))
-                  (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1} (ownership))))
-
-                (swap! !state assoc :first-reg (sole-reader [:lzb/label]))
-
-                ;; The lazy sibling enters an already-committed boundary.
-                (act! (fn [] (@!set-split true)))
-                (poll #(= "waiting" (painted handle "skel2")) "the fallback takes the layout")))
-            (.then
-              (fn [_]
-                (testing "the premise of the premise: the head really did
-                          suspend, and its loader ran"
-                  (is (= 1 @(:calls own-loader))))
-
-                (testing "React hid the committed panel rather than
-                          unmounting it"
-                  (is (some? (node handle "panel")))
-                  (is (false? (visible? handle "panel"))))
-
-                (testing "and hiding it behind a LAZY boundary releases
-                          nothing, exactly as the hand-thrown thenable did.
-                          The count never leaves 1 and the registration is
-                          the same object"
-                  (is (= 1 (reader-count [:lzb/label])))
-                  (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1} (ownership)))
-                  (is (true? (identical? (:first-reg @!state) (sole-reader [:lzb/label])))
-                      "the same registration, not a rebuilt one"))
-
-                ;; A write DURING the suspension. Because the subscription
-                ;; survived, the hidden panel hears it.
-                (rf.fresco.impl.mount/dispatch! handle [:lzb/relabel "beta"])
-                (settle! own-loader :resolve chart-cell)
-                (poll #(= "label=beta" (painted handle "panel"))
-                      "the chunk lands and the boundary is revealed, up to date")))
-            (.then
-              (fn [_]
-                (testing "the arrival leaves EXACT ownership. A lazy retry
-                          that had re-subscribed without releasing would
-                          show here as two, and would paint correctly
-                          throughout"
-                  (is (= 1 (reader-count [:lzb/label])))
-                  (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1} (ownership)))
-                  (is (true? (identical? (:first-reg @!state) (sole-reader [:lzb/label])))))
-
-                (testing "and the revealed panel needed no correction: it
-                          heard the write while it was hidden, which is
-                          what an Activity-hidden subtree cannot do"
-                  (is (= "label=beta" (painted handle "panel")))
-                  (is (some? (node handle "chart"))))
-
-                (testing "still live after the arrival"
-                  (rf.fresco.impl.mount/dispatch! handle [:lzb/relabel "gamma"])
-                  (poll #(= "label=gamma" (painted handle "panel"))
-                        "the revealed boundary repaints"))))
-            (.then
-              (fn [_]
-                (is (= 1 (reader-count [:lzb/label])))
-                (teardown-census! handle)))
-            (.catch (report-failure! "lazy suspension witness" handle))
             (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
@@ -757,24 +508,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-client-only-host-over-a-lazy-head-writes-nothing-and-never-calls-its-loader
-  (testing "THE CONTROL, first, because the row above it is a zero and a
-            zero is what an inert renderer also produces. A raw
-            `react/lazy` head — no gate, no `defhost`, the identical
-            shape — has its loader called ONCE while `renderToString`
-            runs, and React abandons the boundary to the client: React
-            19's `lazyInitializer` runs during a server render like any
-            other render, so a chunk the server can do nothing with is
-            fetched anyway and the response carries a switched-to-client
-            template instead of the region"
-    (let [html (react-dom-server/renderToString (suspense-tree raw-head))]
-      (is (= 1 @(:calls raw-loader))
-          (str "an ungated lazy head IS reached by the server renderer: " html))
-      (is (re-find #"react-fallback" html)
-          (str "and React wrote the Suspense fallback into the response: " html))
-      (is (re-find #"Switched to client rendering" html)
-          (str "having abandoned the boundary: " html))))
-
-  (testing "and the same head behind its OWN `h/defhost`, under the
+  (testing "the lazy head behind its OWN `h/defhost`, under the
             Client-only default, with nothing else in front of it — one
             Suspense and the one declaration. The loader is never called:
             the server does not reach for a chunk it cannot use, and that

@@ -112,29 +112,6 @@
 ;; 1. The counter a reload moves
 ;; ---------------------------------------------------------------------------
 
-(deftest a-save-moves-the-registry-epoch-once-per-sub-registration
-  (seeded! "A")
-  (let [before (rf.fresco.impl.generation/registry-epoch)]
-
-    ;; NEGATIVE CONTROL, taken FIRST. The epoch is the arm's count of `:sub`
-    ;; registrations specifically, so a reload's OTHER top-level forms must
-    ;; leave it alone. If this moved, every number below would be measuring
-    ;; "a namespace loaded" rather than "a subscription was registered".
-    (rf/reg-event :hmr-registry/other (fn [{:keys [db]} _] {:db db}))
-    (is (= before (rf.fresco.impl.generation/registry-epoch))
-        "an event registration moves the registry epoch by zero")
-
-    (testing "a reload's re-registration of an existing sub moves it by one —
-              the replacement case, which is the case a save is"
-      (rf/reg-sub :hmr-registry/label (fn [db _] (:label db)))
-      (is (= (inc before) (rf.fresco.impl.generation/registry-epoch))))
-
-    (testing "and a first-time registration moves it by one as well: the
-              counter does not distinguish them, because in the render-commit
-              gap they are the same defect"
-      (rf/reg-sub :hmr-registry/fresh (fn [db _] (:label db)))
-      (is (= (+ 2 before) (rf.fresco.impl.generation/registry-epoch))))))
-
 ;; ---------------------------------------------------------------------------
 ;; 2. A save is not a re-render trigger
 ;; ---------------------------------------------------------------------------

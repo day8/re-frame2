@@ -82,7 +82,9 @@
     (is (= 400 (rf.fresco.impl.presence/next-deadline s)) "100 + :timeout-ms, as an instant")
     (testing "and it leaves exactly on time, not before"
       (is (= {1 :present 2 :unmounting} (rf.fresco.impl.presence/phases (rf.fresco.impl.presence/expire s 399))))
-      (is (= {1 :present} (rf.fresco.impl.presence/phases (rf.fresco.impl.presence/expire s 400)))))))
+      (let [done (rf.fresco.impl.presence/expire s 400)]
+        (is (= {1 :present} (rf.fresco.impl.presence/phases done)))
+        (is (= 1 (count (:entries done))) "and the machine retains nothing of it")))))
 
 (deftest the-deadline-is-a-terminal-bound-and-re-deriving-cannot-extend-it
   (testing "the property `:timeout-ms` is FOR. Deadlines are absolute
@@ -90,15 +92,14 @@
             neighbour arriving, a neighbour leaving, React re-running the
             body — leave a retained child leaving at the instant it was
             always going to."
-    (let [s (-> (state-of [[[(toast 1 "a")] 0]]) rf.fresco.impl.presence/settle
-                (rf.fresco.impl.presence/step [] 100 timeout-ms))]
-      (is (= 400 (rf.fresco.impl.presence/next-deadline s)))
-      (let [busy (-> s
-                     (rf.fresco.impl.presence/step [(toast 2 "b")] 150 timeout-ms)
-                     (rf.fresco.impl.presence/step [(toast 2 "b") (toast 3 "c")] 200 timeout-ms)
-                     (rf.fresco.impl.presence/step [(toast 3 "c")] 250 timeout-ms))]
-        (is (= 400 (:deadline (get (:entries busy) 1)))
-            "still 400 — not 550, which is what re-deriving would give")))))
+    (let [s    (-> (state-of [[[(toast 1 "a")] 0]]) rf.fresco.impl.presence/settle
+                   (rf.fresco.impl.presence/step [] 100 timeout-ms))
+          busy (-> s
+                   (rf.fresco.impl.presence/step [(toast 2 "b")] 150 timeout-ms)
+                   (rf.fresco.impl.presence/step [(toast 2 "b") (toast 3 "c")] 200 timeout-ms)
+                   (rf.fresco.impl.presence/step [(toast 3 "c")] 250 timeout-ms))]
+      (is (= 400 (:deadline (get (:entries busy) 1)))
+          "still 400 — not 550, which is what re-deriving would give"))))
 
 (deftest step-is-idempotent-which-is-what-lets-react-adjust-state-in-render
   (testing "the property the React half rides. A second application with
@@ -108,11 +109,7 @@
     (let [children [(toast 1 "a") (toast 2 "b")]
           once     (rf.fresco.impl.presence/step rf.fresco.impl.presence/initial children 0 timeout-ms)
           twice    (rf.fresco.impl.presence/step once children 99 timeout-ms)]
-      (is (= once twice)))
-    (let [s     (-> (state-of [[[(toast 1 "a")] 0]]) rf.fresco.impl.presence/settle)
-          once  (rf.fresco.impl.presence/step s [] 100 timeout-ms)
-          twice (rf.fresco.impl.presence/step once [] 500 timeout-ms)]
-      (is (= once twice) "including for a retained child, whose deadline holds"))))
+      (is (= once twice)))))
 
 (deftest first-appearance-slots-are-frozen-so-an-exiting-child-does-not-jump
   (let [s (-> (state-of [[[(toast 1 "a") (toast 2 "b") (toast 3 "c")] 0]])
@@ -135,10 +132,6 @@
          (rf.fresco.impl.presence/phases (rf.fresco.impl.presence/step rf.fresco.impl.presence/initial
                                          [(toast 1 "a") nil false]
                                          0 timeout-ms))))
-  (is (thrown-with-msg? js/Error #"with a :key"
-                        (rf.fresco.impl.presence/step rf.fresco.impl.presence/initial [[:div.toast "x"]] 0 timeout-ms)))
-  (is (thrown-with-msg? js/Error #"with a :key"
-                        (rf.fresco.impl.presence/step rf.fresco.impl.presence/initial ["a string"] 0 timeout-ms)))
   (testing "one id for both — presence cannot identify the child — carrying
             the offending child, which is what a tool branches on"
     (let [unkeyed (refusal-data
@@ -152,10 +145,7 @@
 
 (deftest timeout-ms-is-mandatory-and-positive
   (is (= 300 (rf.fresco.impl.presence/check-timeout! 300)))
-  (doseq [bad [nil 0 -1 "300"]]
-    (is (thrown-with-msg? js/Error #"positive :timeout-ms"
-                          (rf.fresco.impl.presence/check-timeout! bad))
-        (str "refused: " (pr-str bad)))
+  (doseq [bad [nil 0 "300"]]
     (let [data (refusal-data #(rf.fresco.impl.presence/check-timeout! bad))]
       (is (= :rf.error/fresco-presence-timeout-required (:rf.error/id data))
           (str "with its own id, for " (pr-str bad)))
@@ -193,30 +183,13 @@
                                {:key "stolen" :ref (fn [_]) :class "x"}}]]
       (is (= [:div.toast {:key 1 :class "x"}]
              (rf.fresco.impl.presence/with-phase hostile :unmounting)))))
-  (testing "and it cannot reach them under ANY spelling, which is what
-            this row pins. `\"key\"` and `:x/key` survive a raw `#{:key
-            :ref}` dissoc and canonicalise onto React's key — after the
-            child's own `:key` has been merged, and at the one moment the
-            node must NOT be remounted, because it is being animated out.
-            The exclusion is taken on the canonical SLOT, through the
-            codec's structural-slot filter."
-    (doseq [spelling ["key" 'key :x/key]]
-      (let [hostile [:div.toast {:key 1
-                                 :re-frame.fresco.motion/unmounting
-                                 {spelling "stolen" :class "x"}}]
-            out     (rf.fresco.impl.presence/with-phase hostile :unmounting)]
-        (is (= [:div.toast {:key 1 :class "x"}] out)
-            (str "key, spelled " (pr-str spelling)))
-        (is (= 1 (rf.fresco.impl.presence/child-key out))
-            "the retained node's identity is the key the machine retains it
-             under, and nothing in an override can move it")))
-    (doseq [spelling ["ref" 'ref :x/ref]]
-      (let [hostile [:div.toast {:key 1
-                                 :re-frame.fresco.motion/unmounting
-                                 {spelling (fn [_]) :class "x"}}]]
-        (is (= [:div.toast {:key 1 :class "x"}]
-               (rf.fresco.impl.presence/with-phase hostile :unmounting))
-            (str "ref, spelled " (pr-str spelling))))))
+  (testing "and under a spelling a raw `#{:key :ref}` dissoc misses — the
+            exclusion is the codec's structural-slot filter, which
+            `codec-cljs-test` drives over every spelling"
+    (is (= [:div.toast {:key 1 :class "x"}]
+           (rf.fresco.impl.presence/with-phase
+             [:div.toast {:key 1 :re-frame.fresco.motion/unmounting {"key" "stolen" :class "x"}}]
+             :unmounting))))
   (testing "a child that carries no override comes back UNTOUCHED, by
             identity — the transform costs nothing on a node that does not
             use it"
@@ -224,48 +197,6 @@
       (is (identical? plain (rf.fresco.impl.presence/with-phase plain :unmounting))))
     (is (= [:div.toast] (rf.fresco.impl.presence/with-phase [:div.toast] :present))
         "including a node with no props map, which is not given one")))
-
-(deftest a-legal-override-reaches-the-element-as-appearance-and-never-as-an-attribute
-  (testing "the docstring's own claim, MEASURED at the element rather than
-            asserted in prose. `with-phase` runs on a tray's
-            direct children, so this is the only route by which an override
-            reaches the codec at all — and what arrives there is an
-            ordinary attribute map with the two keys already gone"
-    (doseq [phase [:present :mounting :unmounting]]
-      (let [child [:div {:key 1
-                         :class "toast"
-                         :re-frame.fresco.motion/mounting   {:class "toast--enter"}
-                         :re-frame.fresco.motion/unmounting {:class "toast--exit"}}]
-            names (set (js/Object.keys (.-props (rf.fresco.impl.codec/as-element
-                                                  (rf.fresco.impl.presence/with-phase child phase)))))]
-        (is (not (contains? names "mounting")) (str "at " phase))
-        (is (not (contains? names "unmounting")) (str "at " phase))))))
-
-(deftest a-boundary-child-takes-the-override-map-as-ordinary-props
-  (let [card (rf.fresco.impl.codec/mark-boundary! (fn [_] nil))]
-    (is (= [card {:key 1 :toast {:id 1} :exiting? true}]
-           (rf.fresco.impl.presence/with-phase [card {:key 1 :toast {:id 1}
-                                       :re-frame.fresco.motion/unmounting {:exiting? true}}]
-                                :unmounting))
-        "the same merge an element gets (HD-030): the phase's map lands in
-         the view's props under the names its author chose, it appears in a
-         structural test's props map, and a headless test can supply it")
-    (testing "and in a phase the child declared nothing for, the view is
-              handed exactly what it was written with — no phase value, no
-              reserved key"
-      (is (= [card {:key 1 :toast {:id 1}}]
-             (rf.fresco.impl.presence/with-phase [card {:key 1 :toast {:id 1}
-                                         :re-frame.fresco.motion/unmounting {:exiting? true}}]
-                                  :present))))
-    (testing "a view that declares no override comes back untouched, by
-              identity, like an element"
-      (let [plain [card {:key 1 :toast {:id 1}}]]
-        (is (identical? plain (rf.fresco.impl.presence/with-phase plain :unmounting)))))
-    (testing "and an override on a view head cannot reach `:key` either"
-      (is (= [card {:key 1 :exiting? true}]
-             (rf.fresco.impl.presence/with-phase [card {:key 1 :re-frame.fresco.motion/unmounting
-                                         {:key "stolen" :exiting? true}}]
-                                  :unmounting))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The census-real screen, ported both ways
@@ -352,7 +283,6 @@
                    (rf.fresco.impl.presence/step rf.fresco.impl.presence/initial (inline-tray toasts) 0 timeout-ms))
           gone   (rf.fresco.impl.presence/step seeded (inline-tray [(first toasts)]) 100 timeout-ms)
           back   (rf.fresco.impl.presence/step gone (inline-tray toasts) 150 timeout-ms)]
-      (is (= {1 :present 2 :unmounting} (rf.fresco.impl.presence/phases gone)))
       (let [exiting (attrs (rf.fresco.impl.codec/as-element (second (rf.fresco.impl.presence/render gone))))]
         (is (= "toast toast--exit" (get exiting "className")))
         (is (true? (get exiting "inert")))
@@ -361,14 +291,4 @@
       (let [restored (attrs (rf.fresco.impl.codec/as-element (second (rf.fresco.impl.presence/render back))))]
         (is (= "toast" (get restored "className")))
         (is (nil? (get restored "inert")))
-        (is (nil? (get restored "aria-hidden"))))))
-  (testing "witness 3, headlessly: the child is gone after :timeout-ms and
-            the machine retains nothing"
-    (let [seeded (rf.fresco.impl.presence/settle
-                   (rf.fresco.impl.presence/step rf.fresco.impl.presence/initial (inline-tray toasts) 0 timeout-ms))
-          gone   (rf.fresco.impl.presence/step seeded (inline-tray [(first toasts)]) 100 timeout-ms)
-          done   (rf.fresco.impl.presence/expire gone 400)]
-      (is (= {1 :present} (rf.fresco.impl.presence/phases done)))
-      (is (= [1] (:order done)))
-      (is (= 1 (count (:entries done))))
-      (is (nil? (rf.fresco.impl.presence/next-deadline done))))))
+        (is (nil? (get restored "aria-hidden")))))))

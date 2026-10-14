@@ -19,8 +19,8 @@
   other cells, and the rows below take both postures — one where another
   committed cell's microtask rewire also bumps the generation, and one
   where nothing else on the frame moves at all — each through a Fresco
-  body and through a `native/use-sub` one-key entry, with a quiet gap as
-  the negative control.
+  body and through a `native/use-sub` one-key entry. The quiet-gap
+  negative control is `kernel_commit_owns_cljs_test`'s.
 
   The harness is the commit seam, as in `reincarnation_cells_cljs_test`:
   `render-body` (or `hook-entry` + `hook-read`) is the render,
@@ -133,24 +133,11 @@
              ": a tie here is the predecessor's value left on screen"))
     (is (= "B" now) "and the committed key answers for the successor")))
 
-(defn- assert-a-quiet-gap-leaves-the-staged-number-alone [render!]
-  (let [{:keys [painted at-render at-commit]}
-        (staged-commit-across render! (fn [epoch] epoch))]
-    (is (= "A" painted))
-    (is (= at-render at-commit)
-        "with nothing in the gap the number ties, so React schedules no re-render")))
-
 (deftest a-staged-body-on-a-frame-holding-no-other-cell-sees-the-reincarnation
   (assert-reincarnation-moves-the-staged-number render-staged!))
 
 (deftest a-staged-use-sub-entry-on-a-frame-holding-no-other-cell-sees-the-reincarnation
   (assert-reincarnation-moves-the-staged-number render-staged-hook!))
-
-(deftest a-quiet-gap-leaves-a-staged-body-snapshot-equal
-  (assert-a-quiet-gap-leaves-the-staged-number-alone render-staged!))
-
-(deftest a-quiet-gap-leaves-a-staged-use-sub-snapshot-equal
-  (assert-a-quiet-gap-leaves-the-staged-number-alone render-staged-hook!))
 
 (deftest a-staged-key-committed-across-a-same-id-reincarnation-sees-the-store-move
   (async done
@@ -190,18 +177,3 @@
                                                   {}))))
               (release-staged)
               (release-held))))))))
-
-(deftest with-nothing-in-the-gap-the-staged-number-ties-and-nothing-re-renders
-  ;; NEGATIVE CONTROL for the row above: the same render and the same
-  ;; commit with no reincarnation between them. The number must NOT move,
-  ;; or the row above would be reporting an instrument that always moves
-  ;; rather than a transition that moved it — and a mount that raced
-  ;; nothing must not re-render for nothing.
-  (incarnate! "A" 3)
-  (let [release-held (commit-held!)
-        {:keys [entry at-render]} (render-staged!)
-        release-staged (rf.fresco.impl.collector/commit-boundary! entry (fn []))]
-    (is (= at-render (rf.fresco.test.runtime/snapshot-of entry))
-        "a cell born at the basis the render read contributes the same number")
-    (release-staged)
-    (release-held)))

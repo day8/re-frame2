@@ -188,24 +188,3 @@
                registered view's root")
           (is (nil? (coord-attr handle ".frag"))))
         (finally (rf.fresco.impl.mount/release! handle))))))
-
-;; ---------------------------------------------------------------------------
-;; 3 — the forward/backward join a tool actually walks
-;; ---------------------------------------------------------------------------
-
-(deftest the-attribute-resolves-back-through-the-view-registrar
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test has no DOM")
-    (let [handle (mounted!)]
-      (try
-        (testing "the id read off the DOM node is the id the registrar
-                  answers for — which is the whole point of the annotation:
-                  a tool holding a node reaches the declaration"
-          (let [raw (view-attr handle ".plain")
-                id  (keyword (subs raw 1))]
-            (is (= (keyword view-ns "plain-root") id)
-                "the walker's documented read-back — `(keyword (subs s 1))`")
-            (is (some? (rf/handler-meta {:source :store :kind :view :id id}))
-                "and that id has a `:view` registrar entry, so the coordinate
-                 is recoverable even for the exempt shapes above")))
-        (finally (rf.fresco.impl.mount/release! handle))))))

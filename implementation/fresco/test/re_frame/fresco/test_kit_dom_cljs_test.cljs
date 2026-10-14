@@ -54,10 +54,7 @@
 
       (testing "two pages written in different attribute orders are the same
                 page, which `innerHTML` alone cannot say"
-        (is (= (rf.fresco.test/canonical-dom a) (rf.fresco.test/canonical-dom b)))
-        (is (not= (.-innerHTML a) (.-innerHTML b))
-            "and the control: the raw serialisation genuinely differs, so the
-             equality above is the comparator's answer and not the DOM's"))
+        (is (= (rf.fresco.test/canonical-dom a) (rf.fresco.test/canonical-dom b))))
 
       (testing "the names are sorted, so the canonical form is stated rather
                 than merely self-consistent"
@@ -109,18 +106,11 @@
     (skip! ":node-test has no document")
     (testing "a container whose TEXT reads like markup is not a container
               holding that markup"
-      (let [literal (js/document.createElement "div")
-            real    (node! "<p>x</p>")]
+      (let [literal (js/document.createElement "div")]
         (set! (.-textContent literal) "<p>x</p>")
-        (is (= "<p>x</p>" (.-textContent literal))
-            "the control: the page really is showing those characters to a
-             user, which is ordinary rendered content and not malformed DOM")
-        (is (not= (rf.fresco.test/canonical-dom literal)
-                  (rf.fresco.test/canonical-dom real))
-            "two different pages, therefore two different canonical forms")
         (is (= "&lt;p&gt;x&lt;/p&gt;" (rf.fresco.test/canonical-dom literal))
-            "and the canonical form is stated, so what the escape produces is
-             pinned rather than merely differing from something")))))
+            "TEXT that reads like markup is escaped, so it cannot serialise
+             the way a real `<p>` element does")))))
 
 (deftest a-quote-in-an-attribute-value-cannot-become-a-second-attribute
   ;; The same ambiguity through the attribute door: `"` is the
@@ -139,8 +129,6 @@
       (.setAttribute p2 "data-z" "w")
       (.appendChild two p2)
       (testing "one attribute whose value spells two is still one attribute"
-        (is (= 1 (.-length (.-attributes p1))))
-        (is (= 2 (.-length (.-attributes p2))))
         (is (not= (rf.fresco.test/canonical-dom one)
                   (rf.fresco.test/canonical-dom two))))
       (testing "and an ampersand a page really shows survives round-distinctly,

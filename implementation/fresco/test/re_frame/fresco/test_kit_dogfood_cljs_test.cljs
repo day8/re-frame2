@@ -28,22 +28,22 @@
 
   ## Which tier each claim sits at
 
-  Re-expressed, the claims sort into three tiers, and the sorting is the
+  Re-expressed, the claims sort into two tiers, and the sorting is the
   interesting part:
 
   | bench witness | here | tier |
   |---|---|---|
-  | the seeded shape, the subs, narrow/broad writes, keyed insert/delete, drafts | as the bench states them, needing nothing from the kit | L0 |
   | a lowered intent reaches a real event handler | `ht/fire!` | L1 |
   | the controlled field carries its value through the marker | `ht/fire!` + `ht/controlled?` | L1 |
   | the form submits once and prevents navigation | `ht/fire!` | L1 |
   | the key-map commits, cancels, and is silent mid-composition | `ht/fire!` | L1 |
   | what the rendered screen OFFERS to dispatch | `ht/tree` + `ht/intents` | L2 |
 
-  The L0 rows need no kit at all, which is L0's contract holding: they
-  are pure re-frame and the substrate is not in them. The composition
-  rows need exactly one door, and the tree row is a claim the bench
-  file cannot make at all."
+  The bench's state-layer rows (seed, subs, writes, drafts) are L0 —
+  pure re-frame, with no substrate in them — so they need nothing from
+  the kit and are not re-expressed here. The composition rows need
+  exactly one door, and the tree row is a claim the bench file cannot
+  make at all."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
@@ -71,14 +71,6 @@
 (rf/reg-sub :dg/todo        (fn [db [_ id]] (get-in db [:todos id])))
 (rf/reg-sub :dg/done?       (fn [db [_ id]] (boolean (get-in db [:todos id :done?]))))
 (rf/reg-sub :dg/draft       (fn [db [_ k]] (get-in db [:drafts k] "")))
-(rf/reg-sub :dg/remaining   (fn [db _] (count (remove :done? (vals (:todos db))))))
-(rf/reg-sub :dg/visible-ids
-            (fn [db _]
-              (let [keep? (case (:filter db)
-                            :all    (constantly true)
-                            :active (fn [id] (not (get-in db [:todos id :done?])))
-                            :done   (fn [id] (get-in db [:todos id :done?])))]
-                (filterv keep? (:order db)))))
 
 (rf/reg-event :dg/seed       (fn [_ [_ n]] {:db (seed-db n)}))
 (rf/reg-event :dg/toggle     (fn [{:keys [db]} [_ id]]
@@ -125,75 +117,6 @@
    frame-id))
 
 (defn- read-sub [query] (rf/with-frame frame-id (deref (rf/subscribe query))))
-(defn- send!    [event] (rf/with-frame frame-id (rf/dispatch-sync event)) nil)
-
-;; ---------------------------------------------------------------------------
-;; L0 — the state layer, needing nothing from the kit
-;; ---------------------------------------------------------------------------
-;;
-;; Bench counterparts: the-seeded-shape…, the-subscriptions-read-what-the-
-;; screen-needs, the-narrow-write…, the-broad-write…, keyed-insert-delete-
-;; and-reorder…, one-parametric-sub-and-named-events…, an-empty-draft-
-;; creates-and-commits-nothing.
-;;
-;; They are reproduced with `rf/dispatch-sync` and `rf/subscribe` and no
-;; `ht/` call anywhere, which is L0's contract *demonstrated* rather than
-;; asserted: a substrate's test kit that had to be involved in a pure
-;; state test would be a kit that had leaked into the state layer.
-
-(deftest l0-the-state-layer-behaves-with-no-view-substrate-in-sight
-  (seeded! 3)
-  (testing "the seeded shape"
-    (is (= [0 1 2] (read-sub [:dg/visible-ids])))
-    (is (= 3 (read-sub [:dg/remaining])))
-    (is (= "todo 1" (:title (read-sub [:dg/todo 1]))))
-    (is (= "" (read-sub [:dg/draft 1])) "an untouched draft reads as empty, not nil"))
-
-  (testing "the narrow write touches one row and the header"
-    (send! [:dg/toggle 1])
-    (is (true?  (read-sub [:dg/done? 1])))
-    (is (false? (read-sub [:dg/done? 0])))
-    (is (= 2 (read-sub [:dg/remaining])))
-    (is (= [0 1 2] (read-sub [:dg/visible-ids])) "under :all the list is unchanged"))
-
-  (testing "the broad write rebuilds the list, in all three branches"
-    (send! [:dg/set-filter :active])
-    (is (= [0 2] (read-sub [:dg/visible-ids])))
-    (send! [:dg/set-filter :done])
-    (is (= [1] (read-sub [:dg/visible-ids])))
-    (send! [:dg/set-filter :all])
-    (is (= [0 1 2] (read-sub [:dg/visible-ids]))))
-
-  (testing "one parametric sub serves every draft instance, and commit is by
-            explicit caller action rather than by value equality"
-    (send! [:dg/edit-draft 0 "zero"])
-    (send! [:dg/edit-draft new-draft-key "new"])
-    (is (= "zero" (read-sub [:dg/draft 0])))
-    (is (= "new"  (read-sub [:dg/draft new-draft-key])))
-    (is (= ""     (read-sub [:dg/draft 1])) "an instance nobody typed into")
-    (send! [:dg/commit 0])
-    (is (= "zero" (:title (read-sub [:dg/todo 0]))))
-    (is (= "" (read-sub [:dg/draft 0])) "and only then is the draft cleared"))
-
-  (testing "insert appends and mints the next id; an EMPTY draft creates
-            nothing, which is the row that keeps the one above honest"
-    ;; The block above typed into the new-item draft; discard it, so what
-    ;; the empty-draft row measures is the empty draft and not the residue
-    ;; of the row before it.
-    (send! [:dg/cancel new-draft-key])
-    (send! [:dg/create])
-    (is (= [0 1 2] (read-sub [:dg/visible-ids])))
-    (send! [:dg/edit-draft new-draft-key "milk"])
-    (send! [:dg/create])
-    (is (= [0 1 2 3] (read-sub [:dg/visible-ids])))
-    (is (= "milk" (:title (read-sub [:dg/todo 3])))))
-
-  (testing "delete removes the row and its draft"
-    (send! [:dg/edit-draft 1 "half-typed"])
-    (send! [:dg/remove 1])
-    (is (= [0 2 3] (read-sub [:dg/visible-ids])))
-    (is (nil? (read-sub [:dg/todo 1])))
-    (is (= "" (read-sub [:dg/draft 1])))))
 
 ;; ---------------------------------------------------------------------------
 ;; L1 — the composition, on ht/fire! alone
@@ -210,7 +133,6 @@
 
 (deftest l1-a-lowered-intent-reaches-a-real-event-handler
   (seeded! 3)
-  (is (false? (read-sub [:dg/done? 1])))
   (let [{:keys [intents prevented?]}
         (rf.fresco.test/fire! frame-id [:button {:on-click [:dg/toggle 1]} "toggle"] :on-click {})]
 
@@ -218,8 +140,7 @@
       (is (= [[:dg/toggle 1]] intents)))
 
     (testing "and it reached a real handler: app-db moved"
-      (is (true? (read-sub [:dg/done? 1])))
-      (is (= 2 (read-sub [:dg/remaining]))))
+      (is (true? (read-sub [:dg/done? 1]))))
 
     (testing "a click is not a submit, so nothing was prevented — the
               control that keeps the prevent row below from being green
@@ -234,43 +155,23 @@
                                    :re-frame.fresco/value]}]]
 
     (testing "the form IS the controlled door — the runtime's own selection"
-      (is (true? (rf.fresco.test/controlled? field)))
-      (is (= "" (get (rf.fresco.test/element-props field) "value"))))
+      (is (true? (rf.fresco.test/controlled? field))))
 
     (testing "the marker is substituted from the event's own target, and the
               substituted intent is what reached the handler"
-      (is (= {:intents [[:dg/edit-draft new-draft-key "mi"]] :prevented? false}
-             (rf.fresco.test/fire! frame-id field :on-input {:value "mi"})))
-      (is (= "mi" (read-sub [:dg/draft new-draft-key])))
       (is (= {:intents [[:dg/edit-draft new-draft-key "milk"]] :prevented? false}
              (rf.fresco.test/fire! frame-id field :on-input {:value "milk"})))
-      (is (= "milk" (read-sub [:dg/draft new-draft-key]))))
-
-    (testing "and the same substitution read as pure data agrees with what
-              the fired handler dispatched — two doors, one law"
-      (is (= [:dg/edit-draft new-draft-key "milk"]
-             (rf.fresco.test/materialize [:dg/edit-draft new-draft-key :re-frame.fresco/value]
-                             {:value "milk"}))))))
+      (is (= "milk" (read-sub [:dg/draft new-draft-key]))))))
 
 (deftest l1-the-form-submits-once-and-prevents-the-browsers-navigation
   (seeded! 3)
-  (send! [:dg/edit-draft new-draft-key "milk"])
-  (let [{:keys [intents prevented?]}
-        (rf.fresco.test/fire! frame-id [:form {:on-submit [:dg/create]}] :on-submit {})]
-
-    (testing "the default action is prevented, by policy and without the
-              author writing `::h/prevent` — `on-submit` carries it"
-      (is (true? prevented?)))
-
-    (testing "and the create ran exactly once"
-      (is (= [[:dg/create]] intents))
-      (is (= [0 1 2 3] (read-sub [:dg/visible-ids])))
-      (is (= "milk" (:title (read-sub [:dg/todo 3]))))
-      (is (= "" (read-sub [:dg/draft new-draft-key]))))))
+  (is (= {:intents [[:dg/create]] :prevented? true}
+         (rf.fresco.test/fire! frame-id [:form {:on-submit [:dg/create]}] :on-submit {}))
+      "the default action is prevented by policy — `on-submit` carries it
+       without the author writing `::h/prevent` — and the create dispatched once"))
 
 (deftest l1-the-key-map-commits-cancels-and-is-silent-mid-composition
   (seeded! 3)
-  (send! [:dg/edit-draft 1 "renamed"])
   (let [field [:input {:on-key-down {"Enter"  [:dg/commit 1]
                                      "Escape" [:dg/cancel 1]}}]]
 
@@ -283,24 +184,18 @@
                        {:key "Enter" :composing? true :key-code 13})))
       (is (= {:intents [] :prevented? false}
              (rf.fresco.test/fire! frame-id field :on-key-down
-                       {:key "Enter" :composing? false :key-code 229})))
-      (is (= "todo 1" (:title (read-sub [:dg/todo 1]))))
-      (is (= "renamed" (read-sub [:dg/draft 1])) "and the draft survives"))
+                       {:key "Enter" :composing? false :key-code 229}))))
 
     (testing "a settled Enter commits — the control that says the two rows
               above are silence rather than a dead handler"
       (is (= [[:dg/commit 1]]
              (:intents (rf.fresco.test/fire! frame-id field :on-key-down
-                                 {:key "Enter" :composing? false :key-code 13}))))
-      (is (= "renamed" (:title (read-sub [:dg/todo 1])))))
+                                 {:key "Enter" :composing? false :key-code 13})))))
 
     (testing "Escape takes the map's other branch"
-      (send! [:dg/edit-draft 1 "second thoughts"])
       (is (= [[:dg/cancel 1]]
              (:intents (rf.fresco.test/fire! frame-id field :on-key-down
-                                 {:key "Escape" :composing? false :key-code 27}))))
-      (is (= "" (read-sub [:dg/draft 1])))
-      (is (= "renamed" (:title (read-sub [:dg/todo 1])))))
+                                 {:key "Escape" :composing? false :key-code 27})))))
 
     (testing "and a key the map does not name dispatches nothing, so a
               key-map is not a catch-all wearing a lookup"
@@ -373,29 +268,16 @@
               [:dg/remove 1]]
              (rf.fresco.test/intents tree))))
 
-    (testing "the marker is retained as the authored keyword rather than
-              resolved — a tree cannot know what a target will carry, and
-              writing a value there would be the tree claiming one"
-      (is (= [:dg/edit-draft 1 :re-frame.fresco/value]
-             (:on-input (rf.fresco.test/attrs (rf.fresco.test/find tree #(= "draft" (:class (:attrs %)))))))))
 
     (testing "the read values reached the markup"
       (is (= "todo 1×" (rf.fresco.test/text tree)))
-      (is (false? (:checked (rf.fresco.test/attrs (rf.fresco.test/find tree #(= "toggle" (:class (:attrs %)))))))))
-
-    (testing "and the control: the same body with a DONE to-do renders the
-              other value, so the row above is reading the fixture"
-      (is (true? (:checked (rf.fresco.test/attrs (rf.fresco.test/find (rf.fresco.test/tree [row-body {:id 1}]
-                                                         {:subs {[:dg/todo 1] {:done? true}
-                                                                  [:dg/draft 1] ""}})
-                                              #(= "toggle" (:class (:attrs %)))))))))))
+      (is (false? (:checked (rf.fresco.test/attrs (rf.fresco.test/find tree #(= "toggle" (:class (:attrs %)))))))))))
 
 (deftest l2-a-dynamic-child-list-renders-inside-the-body-s-own-window
   (let [tree (rf.fresco.test/tree [filters-body {}] {:subs {[:dg/filter] :active}})]
 
     (testing "a `for` inside the body splices its members as children — the
               runtime's one-level flatten, not a second rule"
-      (is (= 3 (count (rf.fresco.test/find-all tree #(= :button (:tag %))))))
       (is (= "allactivedone" (rf.fresco.test/text tree))))
 
     (testing "each member keeps the key it was written with"

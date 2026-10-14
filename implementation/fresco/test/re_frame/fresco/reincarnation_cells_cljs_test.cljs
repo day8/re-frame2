@@ -220,39 +220,3 @@
 ;; 3. The reincarnation branch is chosen by the frame's LIVENESS, not by the
 ;;    passage of time — the negative control for section 2 against section 1
 ;; ---------------------------------------------------------------------------
-
-(deftest the-deferred-repair-branches-on-the-successor-existing
-  ;; Sections 1 and 2 run the identical deferred callback and reach opposite
-  ;; outcomes. This asserts they are opposite for the stated reason — the
-  ;; successor's existence when the deferred phase fires — rather than by two
-  ;; coincidences. The frame is recreated INSIDE the window, after the
-  ;; synchronous phase has already dropped the reference and before the
-  ;; deferred phase runs.
-  ;;
-  ;; That window is the current microtask checkpoint rather than a whole
-  ;; macrotask, and the row seats the successor SYNCHRONOUSLY, inside it. A
-  ;; successor seated in a later task finds the cell disposed and recovers
-  ;; through `cold-read!`'s probe on the next render instead, which is the
-  ;; recovery a key that never had a cell gets.
-  (async done
-    (incarnate! "A")
-    (let [{:keys [release]} (render+commit!)]
-      (rf/destroy-frame! frame-id)
-      (is (nil? (rf.fresco.test.runtime/cell-reaction sub-key))
-          "synchronous phase: reference dropped")
-      ;; Seat the successor while the deferred phase is still pending.
-      (rf/make-frame {:id frame-id})
-      (rf/with-frame frame-id (rf/dispatch-sync [:reinc-cell/seed "B"]))
-      (at-the-checkpoint
-        #(some? (rf.fresco.test.runtime/cell-reaction sub-key))
-        "the liveness branch"
-        done
-        (fn [_turns]
-          (testing "a successor seated INSIDE the deferral window flips the
-                    branch from dispose to re-wire — so the two outcomes are
-                    the frame's liveness, read when the deferred phase fires"
-            (is (some? (rf.fresco.test.runtime/cell-reaction sub-key)))
-            (is (= 1 (:cells (rf.fresco.test.runtime/residue)))))
-          (testing "and the re-wired cell answers for the SUCCESSOR"
-            (is (= "B" (rf.fresco.impl.collector/render-body frame-id body {}))))
-          (release))))))

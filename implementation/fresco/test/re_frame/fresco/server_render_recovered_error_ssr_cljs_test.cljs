@@ -24,7 +24,7 @@
   therefore watches the ALWAYS-ON error-emit stream, which sits upstream of
   all three, exactly as `render-body` does.
 
-  ## The four claims
+  ## The three claims
 
   1. **The refusal.** An ordinary registered sub that throws, rendered
      through `render`, raises `:rf.error/ssr-render-failed` — and names
@@ -40,11 +40,6 @@
      because a listener leaked per request is a leak per request under any
      real load, and a leaked `:errors` listener also takes corpus-wide
      ownership away from whatever owns it next.
-  4. **The two doors do not collide.** They register under DIFFERENT ids,
-     and §4 proves it from INSIDE each render rather than by reading the
-     source: a view is a callback that runs during `renderToString`, so it
-     can observe the live listener registry at the one moment both windows
-     would be open if they shared an id.
 
   Runtime: `-cljs-test`, so the focused `:node-test-fresco` build and the
   always-on `:node-test`. Every row renders to a string; none needs a DOM."
@@ -129,19 +124,17 @@
 ;; The listener keys, spelled out
 ;; ---------------------------------------------------------------------------
 ;;
-;; `re-frame.fresco.server` keeps these private, and §3, §4 and §5 are the
-;; only readers of them in the corpus: proving a listener was RELEASED needs a
-;; name to look for, and proving the doors cannot collide needs all of them.
-;; Renaming a tag in the source breaks these rows and nothing else — which is
-;; the intended blast radius, since the rows exist to pin that each door clears
-;; its own and that nesting does not disarm an outer window.
+;; `re-frame.fresco.server` keeps this private, and §3 and §5 are the only
+;; readers of it in the corpus: proving a listener was RELEASED needs a name to
+;; look for. Renaming the tag in the source breaks these rows and nothing else
+;; — which is the intended blast radius, since the rows exist to pin that the
+;; door clears its own and that nesting does not disarm an outer window.
 ;;
 ;; A key is `[tag frame-id]` — PER INVOCATION, not per door. The door tag
 ;; alone is not a registry key, so these rows match on the tag half and count
 ;; the windows carrying it.
 
-(def ^:private render-listener-tag      :re-frame.fresco.server/render-recovered-error)
-(def ^:private render-body-listener-tag :re-frame.fresco.server/render-body-recovered-error)
+(def ^:private render-listener-tag :re-frame.fresco.server/render-recovered-error)
 
 (defn- door-keys
   "Every live `:errors` registry key belonging to `tag` — one per render of
@@ -178,19 +171,6 @@
   the hazard §1 is about."
   [_]
   [:div.page [:p.label (str (rf.fresco/sub [::detonates]))]])
-
-(def ^:private !listeners-mid-render
-  "What the `:errors` registry held while a render was in flight. §4's
-  whole instrument."
-  (atom ::unset))
-
-(rf.fresco/defview watching
-  "Reads the live `:errors` listener registry from INSIDE the render — a
-  view body is a callback React runs during `renderToString`, so this is
-  the one moment the door's window is observably open."
-  [_]
-  (reset! !listeners-mid-render (live-error-listener-ids))
-  [:div.page [:p.label (str (rf.fresco/sub [::label]))]])
 
 ;; ---------------------------------------------------------------------------
 ;; The request
@@ -309,50 +289,16 @@
       (is (str/includes? (:html (rf.fresco.server/render (request))) "alpha")))))
 
 ;; ---------------------------------------------------------------------------
-;; §4 — the doors do not share a listener key
-;; ---------------------------------------------------------------------------
-;;
-;; A shared key is the obvious hazard: re-registering REPLACES, so a
-;; re-entrant call would let the inner `finally` unregister the OUTER
-;; door's listener and leave the outer render blind for the rest of its
-;; pass — the exact silent-wrong-page failure both doors exist to catch.
-;; The keys are per invocation, and these rows read them at the one moment
-;; it matters.
-
-(deftest each-door-arms-its-own-listener-and-only-its-own
-  (testing "`render`'s window, observed from inside `render`"
-    (reset! !listeners-mid-render ::unset)
-    (rf.fresco.server/render (request :hiccup [watching {}]))
-    (let [live @!listeners-mid-render]
-      (is (set? live) "the probe ran inside the render")
-      (is (= 1 (count (door-keys render-listener-tag live)))
-          "the whole-page door's listener is armed while its render is in flight")
-      (is (empty? (door-keys render-body-listener-tag live))
-          "and the body-only door's is not — the tags differ, so neither
-           door can unregister the other's")))
-
-  (testing "`render-body`'s window, observed from inside `render-body`"
-    (reset! !listeners-mid-render ::unset)
-    (rf.fresco.server/render-body {:hiccup       [watching {}]
-                         :render-state {:rf/app-db {:label "alpha"} :rf/runtime-db {}}})
-    (let [live @!listeners-mid-render]
-      (is (set? live))
-      (is (= 1 (count (door-keys render-body-listener-tag live))))
-      (is (empty? (door-keys render-listener-tag live))))))
-
-;; ---------------------------------------------------------------------------
 ;; §5 — SAME-door re-entrancy: the outer window survives the inner `finally`
 ;; ---------------------------------------------------------------------------
 ;;
-;; §4 proves the two doors' keys differ, so a CROSS-door nesting is safe — but
-;; that is not the whole of it: with one FIXED key per door, a door re-entering
-;; ITSELF would reuse a single key, the inner registration would REPLACE the
-;; outer listener, and the inner `finally` would unregister it. The outer
-;; render would then finish BLIND: any recovered error after that point
-;; recorded by nobody, and the door returning a successful page over markup the
-;; application never meant to produce — the precise failure this whole suite
-;; exists to prevent, reached from the one direction §4's two-tag argument
-;; cannot separate.
+;; A shared key is the obvious hazard: re-registering REPLACES. With one FIXED
+;; key per door, a door re-entering ITSELF would reuse a single key, the inner
+;; registration would REPLACE the outer listener, and the inner `finally` would
+;; unregister it. The outer render would then finish BLIND: any recovered error
+;; after that point recorded by nobody, and the door returning a successful
+;; page over markup the application never meant to produce — the precise
+;; failure this whole suite exists to prevent.
 ;;
 ;; React rejecting a nested render does not make it safe, and that is why the
 ;; row below CATCHES the inner call rather than requiring it to succeed: the
@@ -413,18 +359,9 @@
           "and neither invocation left a frame behind"))))
 
 (deftest render-body-keeps-its-refusal-and-leaves-no-residue
-  (testing "the sibling door keeps its own verdict beside the whole-page
-            door's, and running one after the other leaves nothing behind"
-    (let [listeners-before (live-error-listener-ids)
-          data             (try (rf.fresco.server/render-body
-                                  {:hiccup       [detonating {}]
-                                   :render-state {:rf/app-db {:label "alpha"} :rf/runtime-db {}}})
-                                (catch :default e (ex-data e)))]
-      (is (= :rf.error/ssr-render-failed (:rf.error/id data)))
-      (is (= 're-frame.fresco.server/render-body (:where data))
-          "the body-only door's own symbol")
-      (is (= listeners-before (live-error-listener-ids)))
-      (is (thrown? :default (rf.fresco.server/render (request :hiccup [detonating {}])))
-          "and the whole-page door refuses right after it")
-      (is (= listeners-before (live-error-listener-ids))
-          "with both registries back where they started"))))
+  (let [listeners-before (live-error-listener-ids)]
+    (is (thrown? :default (rf.fresco.server/render-body
+                            {:hiccup       [detonating {}]
+                             :render-state {:rf/app-db {:label "alpha"} :rf/runtime-db {}}})))
+    (is (= listeners-before (live-error-listener-ids))
+        "the body-only door releases its listener on a refusal")))

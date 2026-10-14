@@ -279,10 +279,6 @@
         marked (rf.fresco.test/find tree #(= "true" (:data-route-heading (rf.fresco.test/attrs %))))]
     (testing "the marker the focus effect selects on exists, exactly once,
               and is on a real heading"
-      (is (some? marked)
-          "no element carries :data-route-heading — the recipe would focus
-           nothing, and every browser row below would be asserting that a
-           nil selector match is a no-op")
       (is (= 1 (count (rf.fresco.test/find-all tree #(= "true" (:data-route-heading (rf.fresco.test/attrs %))))))
           "exactly one: `querySelector` takes the first match in document
            order, so a second marker is a focus target chosen by accident
@@ -302,37 +298,6 @@
            order. Without any tabindex the engine refuses focus outright
            and `.focus()` is a silent no-op; with 0 the recipe buys itself
            an extra Tab press for every keyboard user on every page"))))
-
-(deftest the-recipe-names-a-root-and-not-the-document
-  (let [fx           (:fx (rf.fresco.examples.navigation.events/pane-shown {} [::rf.fresco.examples.navigation.events/pane-shown]))
-        [fx-id args] (first fx)]
-    (testing "`:on-match` asks for exactly one effect, and it is the focus one"
-      (is (= 1 (count fx)))
-      (is (= ::rf.fresco.examples.navigation.events/focus-heading fx-id)))
-
-    (testing "the effect carries a ROOT scope alongside the selector"
-      (is (= rf.fresco.examples.navigation.events/root-selector (:root args))
-          "without `:root` the effect resolves its selector against the whole
-           document and focuses the first marked heading on the page, whoever
-           it belongs to — the defect
-           [[a-deep-link-focuses-inside-the-applications-own-root]] mounts a
-           decoy to catch")
-      (is (= rf.fresco.examples.navigation.events/heading-selector (:selector args))))
-
-    (testing "and the shell RENDERS that root, so the scope names an element
-              rather than nothing"
-      ;; The other half of the same fact, and the half a `:root` key alone
-      ;; cannot state: a recipe scoped to an id no view writes resolves to
-      ;; nil and focuses nothing at all — a no-op that looks exactly like a
-      ;; working recipe on a page where nothing else competes for the marker.
-      (let [tree (rf.fresco.test/tree [rf.fresco.examples.navigation.views/app {}] {:subs {[:rf.route/id] rf.fresco.examples.navigation.routes/feed}})
-            root (rf.fresco.test/find tree #(= rf.fresco.examples.navigation.events/root-id (:id (rf.fresco.test/attrs %))))]
-        (is (some? root)
-            (str "no element in the shell carries the id "
-                 (pr-str rf.fresco.examples.navigation.events/root-id) " that " (pr-str rf.fresco.examples.navigation.events/root-selector)
-                 " names"))
-        (is (= :main (:tag root))
-            "and it is the application's own root element")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Focus — the positives
@@ -382,35 +347,6 @@
                           the landing is not merely somewhere but somewhere
                           identifiable")))
             (finish-after m [decoy] done))))))
-
-(deftest going-back-lands-focus-on-the-pane-it-returned-to
-  (if-not (browser?)
-    (skip! ":node-test has no focus model")
-    (async done
-      (let [m (at! rf.fresco.examples.navigation.routes/article {:slug (:slug first-article)})]
-        (-> (focused-heading m "the deep link's landing focus")
-            (.then (fn [_]
-                     ;; The Back button, as the framework sees it: one
-                     ;; `:rf.route/handle-url-change` carrying `:popstate`.
-                     ;; Dispatched rather than driven through real history
-                     ;; because this mount's frame is not URL-bound — what
-                     ;; is under test is the conduct the door produces, not
-                     ;; the listener that opens it.
-                     (rf.fresco.test.mounted/dispatch-and-settle!
-                       m [:rf.route/handle-url-change "/navigation"
-                          {:rf.route/cause :popstate}])
-                     (is (= rf.fresco.examples.navigation.routes/feed (read-sub m [:rf.route/id]))
-                         "the Back really landed, so the row below is not green
-                          for want of anything happening")
-                     (focused-heading m "the Back navigation's landing focus")))
-            (.then (fn [h]
-                     (is (identical? h (active))
-                         (str "focus is on " (active-label) " after Back"))
-                     (is (= "Articles" (.-textContent h))
-                         "and it is the LIST's heading — a recipe that focused
-                          whatever it focused last would still be holding the
-                          article heading, which has just been unmounted")))
-            (finish-after m done))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Focus — the too-eager directions

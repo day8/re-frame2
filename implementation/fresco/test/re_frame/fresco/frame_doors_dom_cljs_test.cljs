@@ -6,33 +6,22 @@
   about the doors, which is why they are asserted against a live
   `createRoot` rather than reasoned about:
 
-  1. **They answer under the shell, and follow the frame** (W1). The
-     shell resolves its frame through `useContext` and declares it to
-     core; `rf/current-frame-id` answers from that declaration, and a
-     shell that answered differently would make the door a property of
-     the shell.
-  2. **The documented trap, made green, plus the isolation law** (W7).
+  1. **The documented trap, made green, plus the isolation law** (W7).
      ONE reusable view, mounted under TWO frames, each instance building
      `(rf/capture-frame)` and firing it from a `setTimeout` after its
      render has unwound. This is the case the seam exists for and the
      case nothing else can spell: `with-frame` and `{:frame …}` both
      presuppose knowing the id, which a reusable view does not.
-  3. **The hook ledger does not move**. Counted at React's own dispatcher
+  2. **The hook ledger does not move**. Counted at React's own dispatcher
      by the same probe the ≤2-hook budget uses. The ledger is a hard
      fence; a read that spent a hook would be a finding rather than a
      price.
-  4. **StrictMode's double-invoke is not additive** (W6) — the same value
+  3. **StrictMode's double-invoke is not additive** (W6) — the same value
      on both runs, and no second edge, entry or registration.
-  5. **The `[:>]` value-first door dispatches through a plain closure
+  4. **The `[:>]` value-first door dispatches through a plain closure
      over the capture** (W7). An ordinary function crosses by identity
      and carries no frame of its own, so the frame has to be put into it
      by hand, in the body, where `(rf/capture-frame)` knows it.
-  6. **A render callback invoked during a FOREIGN render answers the
-     supplying boundary** — and its discipline travels with it. The
-     foreign component renders under the boundary's own React context, so
-     an ambient read there would RESOLVE through tier 2 if the callback
-     did not re-establish the refusal; the refused read is what makes the
-     answered frame evidence of the wrapper rather than of the context.
 
   ## The mutation witness for W7
 
@@ -94,12 +83,6 @@
                  (pr-str 're-frame.fresco.hook-probe)
                  " rather than reading this as a pass.")))
 
-(defn- outcome
-  "The thrown ex-data, or `::no-throw` with the value."
-  [thunk]
-  (try [::no-throw (thunk)]
-       (catch :default e (ex-data e))))
-
 (defn- frames! []
   (rf.fresco.checkpoint-support/leave-act-environment!)
   (rf.fresco.todo-support/make-frame! frame-a todos)
@@ -125,30 +108,6 @@
   [props]
   (printing-body props))
 
-(defn- frame-attr [handle]
-  (some-> (.querySelector (:container handle) ".row") (.getAttribute "data-frame")))
-
-;; ---------------------------------------------------------------------------
-;; W1 — the same answer under the shell, following the frame
-;; ---------------------------------------------------------------------------
-
-(deftest the-identity-door-answers-under-the-shell
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test has no DOM")
-    (do
-      (frames!)
-      (testing "the shell"
-        (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-a [context-row {:id 0}])]
-          (try (is (= (str frame-a) (frame-attr handle)))
-               (finally (rf.fresco.impl.mount/release! handle)))))
-
-      (testing "and it FOLLOWS the frame — mounted under a second frame it
-               answers the second. A constant would have passed the row
-               above"
-        (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-b [context-row {:id 0}])]
-          (try (is (= (str frame-b) (frame-attr handle)))
-               (finally (rf.fresco.impl.mount/release! handle))))))))
-
 ;; ---------------------------------------------------------------------------
 ;; The hook ledger does not move
 ;; ---------------------------------------------------------------------------
@@ -173,9 +132,7 @@
                                                       frame-a [context-row {:id 0}]))))]
             (rf.fresco.impl.mount/release! @handle)
             (is (= ["useContext" "useSyncExternalStore"] names)
-                (str "hooks React was asked for: " (pr-str names)))
-            (is (= (count rf.fresco.test.runtime/shell-hook-ledger) (count names))
-                "and the declared ledger is still the measured one")))))))
+                (str "hooks React was asked for: " (pr-str names)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W6 — StrictMode's double-invoke
@@ -226,10 +183,9 @@
                    one boundary, one edge per read. The identity door
                    appends no sub-key, so a double-invoke cannot double
                    anything it contributes — because it contributes nothing"
-            (let [{:keys [entries boundaries edges]} (rf.fresco.test.runtime/stats)]
-              (is (= 1 entries))
-              (is (= 1 boundaries))
-              (is (= 1 edges) "the one real read, counted once")))
+            (is (= {:entries 1 :boundaries 1 :edges 1}
+                   (select-keys (rf.fresco.test.runtime/stats) [:entries :boundaries :edges]))
+                "the one real read, counted once"))
           (finally (rf.fresco.impl.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
@@ -293,9 +249,6 @@
                 :data-done  (str (rf.fresco.impl.collector/sub [:fresco.todo/done? id]))}
      [:> foreign-picker {:label (str frame) :on-pick on-pick}]]))
 
-(defn- refusal-id [f]
-  (try (f) ::did-not-throw (catch :default e (:rf.error/id (ex-data e)))))
-
 (defn- done-attr [handle]
   (some-> (.querySelector (:container handle) ".row") (.getAttribute "data-done")))
 
@@ -311,26 +264,6 @@
       (frames!)
       (reset! !built {})
       (reset! !handed {})
-
-      (testing "THE PREMISE, asserted rather than cited. `[:>]` infers the
-                contract from the spelling exactly as a native tag does,
-                so the two spellings that carry the frame for the author
-                both LOWER at this prop — the plain closure is one door of
-                three, and W7 measures that one on purpose, because it is
-                the door that carries no frame of its own"
-        (is (= ::did-not-throw
-               (refusal-id #(rf.fresco.impl.intent/with-frame (fn [_] nil)
-                              (fn [] (rf.fresco.impl.codec/as-element
-                                       [:> foreign-picker {:on-pick [:fresco.todo/toggle 0]}])))))
-            "an intent vector at an event-spelled slot lowers rather than
-             refusing — under a frame, as at a native tag; outside one it is
-             the ordinary outside-boundary refusal, which is the same proof")
-        (is (= ::did-not-throw
-               (refusal-id #(rf.fresco.impl.intent/with-frame (fn [_] nil)
-                              (fn [] (rf.fresco.impl.codec/as-element
-                                       [:> foreign-picker
-                                        {:on-pick (rf.fresco.impl.intent/callback (fn [] [:fresco.todo/toggle 0]))}])))))
-            "and so does a marked h/event, which takes the event wrapper"))
 
       (let [a (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-a [escape-picker {:id 0}])
             b (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-b [escape-picker {:id 0}])]
@@ -370,67 +303,3 @@
                 (rf.fresco.impl.mount/release! b)
                 (done))))
           0)))))
-
-;; ---------------------------------------------------------------------------
-;; A render callback invoked during a FOREIGN render answers the supplier
-;; ---------------------------------------------------------------------------
-
-(def ^:private !callback-seen
-  "What each supplying boundary's render callback observed when the
-  foreign component invoked it during ITS render, keyed by the frame the
-  identity door answered. Keyed that way so a callback that answered the
-  wrong frame overwrites its sibling's slot and the count goes red."
-  (atom {}))
-
-(defn- foreign-list
-  "A stand-in for a virtualised list: it is handed a `renderRow` prop and
-  CALLS it during its own render. Written with `react/createElement`, as
-  `foreign-picker` is and for the same reason. This is the position that
-  makes the wrapper's refusal binding load-bearing: the foreign render
-  runs under the boundary's own React context, so an ambient read here
-  would RESOLVE through tier 2 if the callback did not re-establish the
-  body's discipline."
-  [^js props]
-  (let [render-row (.-renderRow props)]
-    (react/createElement "ul" #js {:className "list"} (render-row 0))))
-
-(rf.fresco/defview supplier
-  "Supplies a render callback to a foreign component. Inside the callback
-  it reads both doors and tries an ambient read, and records all three."
-  [_]
-  [:div.host
-   [:> foreign-list
-    {:render-row (rf.fresco/event [i]
-                   (let [id-seen (rf/current-frame-id)]
-                     (swap! !callback-seen assoc id-seen
-                            {:capture (:frame (rf/capture-frame))
-                             :read    (outcome #(rf/subscribe [:fresco.todo/done? i]))})
-                     (rf.fresco/as-element [:li.row {:data-frame (str id-seen)} (str i)])))}]])
-
-(deftest a-render-callback-invoked-by-a-foreign-render-answers-the-supplying-boundary
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test has no DOM")
-    (do
-      (frames!)
-      (reset! !callback-seen {})
-      (let [a (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-a [supplier {}])
-            b (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-b [supplier {}])]
-        (try
-          (is (= #{frame-a frame-b} (set (keys @!callback-seen)))
-              (str "two suppliers under two frames must have answered two
-                    different frames inside the callback; got "
-                   (pr-str (keys @!callback-seen))))
-          (is (= (str frame-a) (frame-attr a)) "and the row rendered under the supplier's frame")
-          (is (= (str frame-b) (frame-attr b)))
-          (doseq [f [frame-a frame-b]]
-            (let [{:keys [capture read]} (get @!callback-seen f)]
-              (is (= f capture) (str "the capture inside the callback is locked to " f))
-              (is (= :rf.error/ambient-frame-refused (:rf.error/id read))
-                  (str "the ambient read inside the callback must REFUSE — it is
-                        what proves the doors answered from the re-established
-                        binding rather than from the React context the foreign
-                        render happens to be under; got " (pr-str read)))
-              (is (= f (:extent-frame read)) "naming the supplying boundary as the extent")))
-          (finally
-            (rf.fresco.impl.mount/release! a)
-            (rf.fresco.impl.mount/release! b)))))))

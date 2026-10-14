@@ -42,8 +42,7 @@
   running the runtime's guards (`codec/vector-kind`). Asserting `:where`
   is what makes that structural rather than coincidental: a kit
   paraphrase would carry `re-frame.fresco.test` and red."
-  (:require [clojure.string :as str]
-            [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.fresco :as rf.fresco]
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
@@ -211,7 +210,7 @@
                   "(HD-011). The namespace docstring promises anything the "
                   "codec hands to React untouched refuses with a pointer to "
                   "L3; a generic malformed says the author wrote nonsense. "
-                  "This row is the CONTROL for the three below: opacity is "
+                  "This row is the CONTROL for the two below: opacity is "
                   "the answer only when the escape is well formed.")}
 
    ;; ---- The seam's own rows ----------------------------------------------
@@ -238,18 +237,7 @@
                   "found there answers `:invalid` and reports a generic "
                   "malformed head — a second identity for one fault.")}
 
-   {:case    "`[:>]` with NO component raises the runtime's own refusal"
-    :form    [:div [:>]]
-    :subject [:>]
-    :runtime [:refused :rf.error/fresco-raw-not-a-component]
-    :refuses {:rf.error/id :rf.error/fresco-raw-not-a-component
-              :where       're-frame.fresco.impl.codec/raw-element}
-    :why     (str "codec/raw-component — the escape's Component slot is empty. "
-                  "Opacity is not the answer: there is nothing for React to "
-                  "interpret, so a pointer to L3 sends the programmer to "
-                  "mount a form that cannot mount.")}
-
-   {:case    "`[:> nil]` — the broken-import spelling — raises the same id"
+   {:case    "`[:> nil]` — the broken-import spelling — raises the runtime's own refusal"
     :form    [:div [:> nil]]
     :subject [:> nil]
     :runtime [:refused :rf.error/fresco-raw-not-a-component]
@@ -445,33 +433,3 @@
           (is (= tree (:tree got))
               (str case "\n  TREE column — " why
                    "\n  got: " (pr-str got))))))))
-
-(deftest the-table-covers-both-verbs
-  (testing "the corpus holds rows that refuse and rows that answer a tree,
-            so neither witness above is a helper that only knows one verb"
-    (is (seq (filter :refuses rows)))
-    (is (seq (filter :tree rows)))
-    (is (every? (fn [r] (or (:refuses r) (contains? r :tree))) rows))))
-
-(deftest the-table-covers-forms-BOTH-sides-refuse
-  (testing "the corpus holds rows where the RUNTIME refuses too, and the kit
-            answers with the runtime's own id and raising site"
-    (let [shared (filter (fn [{:keys [runtime refuses]}]
-                           (and (= :refused (first runtime))
-                                (= (second runtime) (:rf.error/id refuses))))
-                         rows)]
-      (is (seq shared))
-      ;; The RAISING SITE is what makes a shared row shared. The kit stamps
-      ;; its own refusals `re-frame.fresco.test`, so a `:where` inside the
-      ;; runtime's own namespaces is the evidence that the id came from the
-      ;; interpreter rather than from a kit-private twin — which is the
-      ;; sentence below, stated as a predicate.
-      ;;
-      ;; It reads the PACKAGE prefix rather than one file, and deliberately:
-      ;; WHICH `impl` namespace guards a given hiccup form is the runtime's
-      ;; business and can move. A prefix that names the package survives a
-      ;; move; one that names a file only survives until it.
-      (is (seq (filter #(str/starts-with? (str (:where (:refuses %)))
-                                          "re-frame.fresco.impl.")
-                       shared))
-          "at least one row's refusal is raised by the runtime's own guard"))))

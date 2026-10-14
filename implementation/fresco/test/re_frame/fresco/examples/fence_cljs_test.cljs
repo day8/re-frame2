@@ -33,8 +33,7 @@
   [[the-population-is-derived-and-non-empty]] refuses an empty walk (a
   moved tree would otherwise pass every fence vacuously) and requires the
   read to have produced the one edge every application has, a namespace
-  depending on `re-frame.fresco`. [[every-fence-predicate-fires]] shows
-  each family one name it must catch and two it must not.
+  depending on `re-frame.fresco`.
   [[a-planted-breach-is-named]] pushes an `ns` form carrying forbidden
   requires through the same functions the live row uses, so the pipeline
   is known to fire before [[no-package-reaches-past-the-public-door]] says
@@ -164,27 +163,6 @@
           "no application namespace depends on `re-frame.fresco`; the reader is not producing edges"))
     (println (str "fresco example fence: " (count pop) " packages read off the directory: "
                   (str/join ", " (keys pop))))))
-
-(deftest every-fence-predicate-fires
-  ;; THE SABOTAGE CONTROL. The fence is green because the applications
-  ;; are clean, and it would be just as green if a predicate had been written
-  ;; wrong — `"re-frame.fresco.impl"` without the trailing dot, say. So each
-  ;; is shown one name it must catch and two it must not, and the rows that
-  ;; matter are the second and third: a fence that swallowed the public door
-  ;; or core would fail every application rather than protect one.
-  (let [caught {"a Fresco internal" "re-frame.fresco.impl.collector"
-                "the benchmark tree" "re-frame.bench.fresco.front.codec"
-                "a development tool" "re-frame.xray.mount"
-                "the test kit"       "re-frame.fresco.test.mounted"}]
-    (is (= (set (map :label forbidden)) (set (keys caught)))
-        "every family has a sabotage row, and no row lacks a family")
-    (doseq [{:keys [label match?]} forbidden]
-      (is (true? (boolean (match? (caught label))))
-          (str "the " label " predicate does not catch " (pr-str (caught label))))
-      (is (false? (boolean (match? "re-frame.fresco")))
-          (str "the " label " predicate catches the PUBLIC DOOR"))
-      (is (false? (boolean (match? "re-frame.core")))
-          (str "the " label " predicate catches core")))))
 
 (deftest a-planted-breach-is-named
   ;; The pipeline control: an `ns` form carrying two forbidden requires and

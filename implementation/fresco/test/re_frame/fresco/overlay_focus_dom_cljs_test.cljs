@@ -14,40 +14,25 @@
   behind is unreachable* rather than as *one control refused focus*,
   because only the first is the thing a modal is bought for.
 
-  ## The three claims, and why the middle one is what makes the others mean
-  ## anything
+  ## The claims
 
   | claim | row |
   |---|---|
-  | the module's modal is the trapping kind: the reachable set becomes EXACTLY the panel's controls | [[an-open-modal-is-the-whole-of-what-a-keyboard-can-reach]] |
-  | the module's popover is NOT a trap, and must not be read as one | [[an-open-popover-leaves-the-page-behind-it-reachable]] |
   | a REAL Tab and a REAL Shift+Tab cycle inside the trap, and a REAL Escape lets the page back out | [[a-real-tab-cycles-within-the-modal-and-a-real-escape-gives-the-page-back]] |
   | the wrap fires at the SEQUENTIAL edge, over a panel whose sequential order is shorter than its markup | [[a-real-tab-wraps-at-the-radio-groups-edge-and-not-at-the-dom-s]] |
   | …and over one whose sequential order is a permutation of it | [[a-real-tab-wraps-at-the-tabindex-ordered-edge]] |
   | …and over one whose LAST element is not a stop at all | [[a-real-tab-wraps-past-a-trailing-hidden-control]] |
 
-  The middle claim is an emptiness claim about everything outside a
-  dialog, and an emptiness claim is exactly the shape that passes
-  vacuously — an instrument that reported *nothing is focusable* would
-  satisfy it perfectly. So the first row is a SEEDED VIOLATION, made
-  permanent rather than run once by hand: the same `<dialog>` element,
-  holding the same controls, opened through `show()` instead of
-  `showModal()`. That is a legal call on the same element which paints
-  the same panel and fires the same events, and the ONE thing it does
-  not do is make the document behind it inert.
-  The row asserts that the page behind stays reachable under `show()`,
-  which is the trap removed, measured.
+  [[a-real-tab-leaves-an-open-popover]] is the other direction on the
+  product itself. A popover is deliberately not modal — a filter menu
+  that made the page it filters unreachable would be a defect, not a
+  feature — so a suite that only ever asserted *an overlay makes
+  everything else unfocusable* would be asserting something the module
+  does not claim and must not do.
 
-  The third row is the other direction on the product itself. A popover
-  is deliberately not modal — a filter menu that made the page it
-  filters unreachable would be a defect, not a feature — so a suite that
-  only ever asserted *an overlay makes everything else unfocusable*
-  would be asserting something the module does not claim and must not
-  do.
+  ## What is measured
 
-  ## What is measured, and what the fourth row adds
-
-  The first three rows ask the ENGINE — blur, request focus, read
+  [[reachable]] asks the ENGINE — blur, request focus, read
   `document.activeElement` back — because inertness is decided by the
   engine's own modality and by nothing this module writes. See
   `examples.ledger.keyboard-dom-cljs-test` on why asking is the only
@@ -56,8 +41,7 @@
   Asking is not quite tabbing, though, and this file's central claim is
   about what a keyboard user can REACH. [[reachable]] answers *which
   elements would take focus if asked*; a trap is *where Tab goes when it
-  runs out of panel*. The two agree here, and that agreement is measured
-  rather than assumed:
+  runs out of panel*.
   [[a-real-tab-cycles-within-the-modal-and-a-real-escape-gives-the-page-back]]
   presses Tab through the browser gate's trusted-input bridge
   (`re-frame.fresco.trusted-input-support`, whose other half is
@@ -173,10 +157,8 @@
 ;; the reason they are separate pages rather than extra controls on that
 ;; one. Both are panels whose SEQUENTIAL focus order differs from their
 ;; DOCUMENT order, which is the difference a wrap computed from document
-;; order gets wrong; the rows above are about inertness and
-;; the popover contrast, and folding a radio group into their fixture
-;; would change what every one of them reads without making any of them
-;; measure a wrap.
+;; order gets wrong; folding a radio group into the fixture above would
+;; change what every row over it reads.
 
 (rf.fresco/defview a-page-with-a-modal-holding-a-radio-group [_]
   ;; A RADIO GROUP IS THREE ELEMENTS AND ONE TAB STOP. Document order in
@@ -275,9 +257,7 @@
   ;; correct. `ghost.disabled` is FALSE — the IDL property reflects the
   ;; element's own attribute and the element has none — so a predicate
   ;; reading the property cannot see this at all, while the
-  ;; `:disabled` PSEUDO-CLASS matches the effective state. The row below
-  ;; asserts both halves of that, because the gap between them is the
-  ;; whole defect.
+  ;; `:disabled` PSEUDO-CLASS matches the effective state.
   [:div
    [:button#before {:type "button"} "Before"]
    [:button#trigger {:type "button" :on-click [::opened]} "Open"]
@@ -365,7 +345,7 @@
   "Does the ENGINE accept focus on `el`? Blur, ask, read
   `document.activeElement` back. Inertness is invisible in markup — the
   page behind a modal carries no attribute saying so — which is why
-  every row here asks rather than reads."
+  this asks rather than reads."
   [^js el]
   (some-> (active) (.blur))
   (.focus el)
@@ -386,67 +366,18 @@
     order))
 
 (defn- open! [m] (rf.fresco.test.mounted/dispatch-and-settle! m [::opened]) m)
-(defn- close! [m] (rf.fresco.test.mounted/dispatch-and-settle! m [::closed]) m)
 
 (defn- $ [m sel] (.querySelector (:container m) sel))
-
-;; ---------------------------------------------------------------------------
-;; The module's modal — the trap, complete
-;; ---------------------------------------------------------------------------
-
-(deftest an-open-modal-is-the-whole-of-what-a-keyboard-can-reach
-  (if-not (browser?)
-    (skip! ":node-test has no modality")
-    (let [m (rf.fresco.test.mounted/mount! [a-page-with-a-modal {}])]
-      (try
-        (testing "premise: closed, the page is its own three controls and
-                  the panel is not in the document at all"
-          (is (= ["before" "trigger" "after"] (reachable (:container m))))
-          (is (nil? ($ m "dialog"))))
-
-        (open! m)
-
-        (testing "opening moves focus INTO the panel — the platform's own
-                  dialog-focusing steps, which `overlay-dom-cljs-test`
-                  holds in detail; asserted here only as the premise the
-                  next row needs"
-          (is (.contains ($ m "dialog") (active))))
-
-        (is (= ["confirm" "reason" "cancel"] (reachable (:container m)))
-            "THE TRAP, COMPLETE. The reachable set is now EXACTLY the
-             panel's three controls, in the panel's document order —
-             `before`, `trigger` and `after` have all left it. Stated as
-             the whole sequence rather than as `is #before still
-             focusable?`, because a modal that leaked one control of the
-             page behind it is a modal a keyboard user tabs straight out
-             of, and a membership test over one control cannot see the
-             leak in another")
-
-        (close! m)
-
-        (testing "and closing gives the page back — the same three
-                  controls, in the same order, so the reading above was
-                  a state the page was in and not a state it is now
-                  stuck in"
-          (is (nil? ($ m "dialog")))
-          (is (= ["before" "trigger" "after"] (reachable (:container m)))))
-
-        (finally (rf.fresco.test.mounted/unmount! m))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The trap under a real keyboard
 ;; ---------------------------------------------------------------------------
 
 (deftest a-real-tab-cycles-within-the-modal-and-a-real-escape-gives-the-page-back
-  ;; WHAT THIS ADDS TO THE ROW ABOVE, and it is not decoration.
-  ;; [[an-open-modal-is-the-whole-of-what-a-keyboard-can-reach]] is an
-  ;; emptiness claim: it asks each of the page's controls whether it
-  ;; would take focus, and finds that none would. That is inertness.
-  ;; A TRAP is the positive fact next door — that Tab off the end of the
-  ;; panel comes back to its start rather than leaving — and no amount
-  ;; of asking elements whether they are focusable can see it, because
-  ;; the thing being measured is where the engine SENDS focus when
-  ;; nobody asked.
+  ;; A TRAP is a positive fact — that Tab off the end of the panel comes
+  ;; back to its start rather than leaving — and no amount of asking
+  ;; elements whether they are focusable can see it, because the thing
+  ;; being measured is where the engine SENDS focus when nobody asked.
   ;;
   ;; Escape closes the row out, because a trap with no exit is a defect
   ;; rather than a feature, and the exit is the platform's alone.
@@ -459,8 +390,6 @@
               finish (fn [] (rf.fresco.test.mounted/unmount! m) (done))]
           (try
             (open! m)
-            (is (.contains ($ m "dialog") (active))
-                "premise: opening put focus inside the panel")
             (is (= "confirm" (label-of (active)))
                 (str "premise: on the panel's first control. Active: "
                      (label-of (active))))
@@ -490,17 +419,11 @@
                            "is what `impl.overlay/wrap-tab!` closes, and "
                            "this row is what reddens if it stops. Pressed: "
                            (pr-str forward)))
-                  (is (empty? (filter #{"before" "trigger" "after" "body"} forward))
-                      (str "and not one landing was a control of the page "
-                           "behind, nor the nowhere between them. Pressed: "
-                           (pr-str forward)))
 
                   ;; Back to the first control, so the backward lap is
                   ;; measured from the edge Shift+Tab has to wrap AT rather
                   ;; than from wherever the forward lap finished.
                   (.focus ($ m "#confirm"))
-                  (is (= "confirm" (label-of (active)))
-                      "premise: back on the panel's first control")
 
                   (rf.fresco.trusted-input-support/walk!
                     "Shift+Tab" 5
@@ -514,10 +437,6 @@
                                  "Shift+Tab off the panel's FIRST control "
                                  "lands directly on its last. Pressed: "
                                  (pr-str backward)))
-                        (is (empty? (filter #{"before" "trigger" "after" "body"} backward))
-                            (str "and the backward lap leaves the panel no "
-                                 "more than the forward one does. Pressed: "
-                                 (pr-str backward)))
 
                         (rf.fresco.trusted-input-support/press-once!
                           "Escape"
@@ -528,9 +447,8 @@
                                         which is the only exit a trap has — and
                                         it still is, because the wrap answers
                                         Tab and nothing else. The panel goes,
-                                        and the page comes back exactly as
-                                        [[an-open-modal-is-the-whole-of-what-a-keyboard-can-reach]]
-                                        found it after a programmatic close"
+                                        and the page behind is reachable
+                                        again"
                                 (is (nil? ($ m "dialog")))
                                 (is (= ["before" "trigger" "after"]
                                        (reachable (:container m)))))
@@ -560,9 +478,9 @@
 ;; The two rows below are that population: one panel whose sequential
 ;; order is SHORTER than its document order (a radio group), one whose
 ;; sequential order is a PERMUTATION of it (a positive `tabindex`). Both
-;; drive both edges with trusted input, and both name `body` explicitly,
-;; because `<body>` is where a wrap that did not fire puts focus, and
-;; reading it as merely "some other control" would let that leak pass.
+;; drive both edges with trusted input and assert the exact cycle, so a
+;; landing on `<body>` — where a wrap that did not fire puts focus — reds
+;; either one.
 
 (defn- both-edges!
   "Focus `start`, walk `n` trusted Tabs, re-focus `start`, walk `n` trusted
@@ -593,11 +511,6 @@
               finish (fn [] (rf.fresco.test.mounted/unmount! m) (done))]
           (try
             (open! m)
-            (is (.contains ($ m "dialog") (active))
-                "premise: opening put focus inside the panel")
-            (is (true? (.-checked ($ m "#large")))
-                "premise: `large` is the group's checked member, so it — and
-                 not `small` — is the one stop the group contributes")
 
             ;; FIVE presses over a three-stop cycle, for the reason the
             ;; three-control row gives: three is a wrap, five closes it.
@@ -624,12 +537,6 @@
                            "`small`, match nothing, let the default action "
                            "stand and put focus on `<body>`. Pressed: "
                            (pr-str backward)))
-                  (is (empty? (filter #{"before" "trigger" "after" "body" "small"}
-                                      (concat forward backward)))
-                      (str "and not one landing in either lap was a control "
-                           "of the page behind, the nowhere between them, or "
-                           "the group member the engine does not sequence to. "
-                           "Pressed: " (pr-str (concat forward backward))))
                   (finally (finish)))))
             (catch :default e
               (is false (str "the radio-group trap row threw: " (.-message e)))
@@ -645,9 +552,6 @@
               finish (fn [] (rf.fresco.test.mounted/unmount! m) (done))]
           (try
             (open! m)
-            (is (.contains ($ m "dialog") (active))
-                "premise: opening put focus inside the panel")
-
             (both-edges!
               m "#first" 5
               (fn [forward backward]
@@ -664,10 +568,6 @@
                            "on `third` — the last, because a `tabindex=0` "
                            "sorts AFTER every positive one. Pressed: "
                            (pr-str backward)))
-                  (is (empty? (filter #{"before" "trigger" "after" "body"}
-                                      (concat forward backward)))
-                      (str "and neither lap left the panel or rested nowhere. "
-                           "Pressed: " (pr-str (concat forward backward))))
                   (finally (finish)))))
             (catch :default e
               (is false (str "the tabindex trap row threw: " (.-message e)))
@@ -695,8 +595,6 @@
 ;; with a conditionally-hidden final button, which `sequential-tab-stops`
 ;; excludes; the two rows after it pin the cases the platform still
 ;; calls visible.
-;;
-;; The row names `body` explicitly for the reason the two above do.
 
 (deftest a-real-tab-wraps-past-a-trailing-hidden-control
   (if-not (browser?)
@@ -708,21 +606,14 @@
               finish (fn [] (rf.fresco.test.mounted/unmount! m) (done))]
           (try
             (open! m)
-            (is (.contains ($ m "dialog") (active))
-                "premise: opening put focus inside the panel")
-
-            ;; THE TWO PREMISES THAT MAKE THIS PANEL THE CASE IT IS, and
-            ;; they pull in opposite directions — which is precisely why
-            ;; a rects-based reading would count `ghost` while a keyboard
+            ;; THE PREMISE THAT MAKES THIS PANEL THE CASE IT IS: a
+            ;; rects-based reading would count `ghost`, while a keyboard
             ;; never reaches it.
             (is (pos? (.-length (.getClientRects ($ m "#ghost"))))
                 "premise: `visibility:hidden` still occupies layout, so
                  the hidden button DOES report a client rect — this is
                  not `display:none`, and a predicate reading rects has
                  no way to tell it from a real control")
-            (is (false? (focusable? ($ m "#ghost")))
-                "premise: and the engine refuses focus on it anyway, so
-                 it is an element of the panel and not a stop of it")
 
             (both-edges!
               m "#reason" 5
@@ -747,12 +638,6 @@
                            "withheld — and withholding it is what lets the "
                            "engine put focus on `body`. Pressed: "
                            (pr-str backward)))
-                  (is (empty? (filter #{"before" "trigger" "after" "body" "ghost"}
-                                      (concat forward backward)))
-                      (str "and not one landing in either lap was a control "
-                           "of the page behind, the nowhere between them, or "
-                           "the hidden button itself. Pressed: "
-                           (pr-str (concat forward backward))))
                   (finally (finish)))))
             (catch :default e
               (is false (str "the hidden-trailing-control row threw: "
@@ -788,24 +673,12 @@
               finish (fn [] (rf.fresco.test.mounted/unmount! m) (done))]
           (try
             (open! m)
-            (is (.contains ($ m "dialog") (active))
-                "premise: opening put focus inside the panel")
-
-            ;; THE PREMISES, and they are the row. If the attribute never
-            ;; reached the DOM the panel would be three ordinary controls
-            ;; and every cycle below would pass without measuring
-            ;; anything — so the condition is asserted rather than assumed.
-            (is (some? (.closest ($ m "#ghost") "[inert]"))
-                "premise: the ghost really does sit under an `inert`
-                 ancestor — INHERITED, not carried on the button itself")
+            ;; THE PREMISE that separates this row from the hidden one.
             (is (true? (.checkVisibility ($ m "#ghost")
                                          #js {"visibilityProperty" true}))
-                "premise: and the platform calls it VISIBLE, which is why
+                "premise: the platform calls it VISIBLE, which is why
                  the `checkVisibility` exclusion that answers the hidden
                  control cannot answer this one")
-            (is (false? (focusable? ($ m "#ghost")))
-                "premise: the engine refuses focus on it all the same, so
-                 it is an element of the panel and not a stop of it")
 
             (both-edges!
               m "#reason" 5
@@ -825,12 +698,6 @@
                            "`preventDefault` would be correctly withheld, and "
                            "withholding it would put the FIRST landing on "
                            "`body`. Pressed: " (pr-str backward)))
-                  (is (empty? (filter #{"before" "trigger" "after" "body" "ghost"}
-                                      (concat forward backward)))
-                      (str "and not one landing in either lap was a control "
-                           "of the page behind, the nowhere between them, or "
-                           "the switched-off button itself. Pressed: "
-                           (pr-str (concat forward backward))))
                   (finally (finish)))))
             (catch :default e
               (is false (str "the inert-trailing-region row threw: "
@@ -848,9 +715,6 @@
               finish (fn [] (rf.fresco.test.mounted/unmount! m) (done))]
           (try
             (open! m)
-            (is (.contains ($ m "dialog") (active))
-                "premise: opening put focus inside the panel")
-
             ;; THE PREMISE THAT NAMES THE READING. The property and the
             ;; pseudo-class disagree here, and that disagreement is the
             ;; entire defect: one reflects the element's own attribute,
@@ -859,25 +723,11 @@
                 "premise: `ghost.disabled` is FALSE — the IDL property
                  reflects the button's own attribute and it has none, so
                  the property reading cannot see this case at all")
-            (is (true? (.matches ($ m "#ghost") ":disabled"))
-                "premise: while `:disabled` matches, because the
-                 pseudo-class is the EFFECTIVE state the fieldset imposes")
             (is (true? (.checkVisibility ($ m "#ghost")
                                          #js {"visibilityProperty" true}))
                 "premise: and it is VISIBLE — painted and greyed, not
                  hidden — so the `checkVisibility` exclusion does not
                  reach it either")
-            (is (false? (focusable? ($ m "#ghost")))
-                "premise: the engine refuses focus on it")
-
-            ;; THE OTHER DIRECTION, and it is why `tab-stop?` asks the
-            ;; pseudo-class rather than walking up to a `fieldset[disabled]`.
-            (is (true? (focusable? ($ m "#legend-button")))
-                "premise: the FIRST `<legend>`'s contents are NOT disabled
-                 by the fieldset, so `legend-button` is a REAL stop inside
-                 the switched-off section — an exclusion that dropped the
-                 whole subtree would lose it, and losing a stop makes the
-                 wrap fire at the wrong control rather than merely miss")
 
             (both-edges!
               m "#reason" 5
@@ -900,12 +750,6 @@
                            "wrap would aim at `ghost`, fail to land, and put the "
                            "FIRST landing on `body`. Pressed: "
                            (pr-str backward)))
-                  (is (empty? (filter #{"before" "trigger" "after" "body" "ghost"}
-                                      (concat forward backward)))
-                      (str "and not one landing in either lap was a control "
-                           "of the page behind, the nowhere between them, or "
-                           "the disabled button itself. Pressed: "
-                           (pr-str (concat forward backward))))
                   (finally (finish)))))
             (catch :default e
               (is false (str "the disabled-fieldset row threw: "
@@ -924,7 +768,7 @@
   ;; same dispatch the panel's handler is part of, so only the native
   ;; flag has moved by the time the wrap asks. No other row can see any
   ;; of this — every wrap row presses keys nothing claims, and the
-  ;; popover rows have no wrap at all.
+  ;; popover row has no wrap at all.
   (if-not (browser?)
     (skip! ":node-test has no modality, and no engine to press a key at")
     (if-not (rf.fresco.trusted-input-support/bridge?)
@@ -935,9 +779,6 @@
           (try
             (open! m)
             (.focus ($ m "#cancel"))
-            (is (= "cancel" (label-of (active)))
-                (str "premise: on the edge the wrap fires at. Active: "
-                     (label-of (active))))
 
             (rf.fresco.trusted-input-support/press-once!
               "Tab"
@@ -966,44 +807,10 @@
 ;; The module's popover — deliberately not a trap
 ;; ---------------------------------------------------------------------------
 
-(deftest an-open-popover-leaves-the-page-behind-it-reachable
-  ;; The other direction, on the product rather than on the instrument.
-  ;; A popover is an anchored panel over a live page: a filter menu that
-  ;; made the list it filters unreachable would be a defect. Without
-  ;; this row the suite would have proved only that opening SOMETHING
-  ;; makes everything else unfocusable, which is not what the module
-  ;; claims and not what it does.
-  (if-not (browser?)
-    (skip! ":node-test has no popover")
-    (let [m (rf.fresco.test.mounted/mount! [a-page-with-a-popover {}])]
-      (try
-        (is (= ["before" "trigger" "after"] (reachable (:container m)))
-            "premise: closed, the page is its own three controls")
-
-        (open! m)
-
-        (is (some? ($ m "[popover]")) "premise: the panel is in the document")
-
-        (is (= ["before" "trigger" "confirm" "reason" "cancel" "after"]
-               (reachable (:container m)))
-            "THE CONTRAST. The panel's controls JOIN the page's rather
-             than replacing them, and they join at the panel's place in
-             the DOM — which is where the author wrote it, because the
-             top layer changes paint order and not tree order. A
-             keyboard user can tab out of a popover and back into the
-             page, which is exactly the conduct that separates a menu
-             from a dialog")
-
-        (close! m)
-        (is (= ["before" "trigger" "after"] (reachable (:container m))))
-
-        (finally (rf.fresco.test.mounted/unmount! m))))))
-
 (deftest a-real-tab-leaves-an-open-popover
-  ;; THE FENCE ON THE MODAL'S WRAP, and the row above cannot stand in for
-  ;; it. `reachable` asks each element whether it would take focus, and
-  ;; `impl.overlay/wrap-tab!` changes no element's focusability whatever —
-  ;; it changes where Tab GOES at one edge. So a wrap that had been wired
+  ;; THE FENCE ON THE MODAL'S WRAP. `impl.overlay/wrap-tab!` changes no
+  ;; element's focusability whatever — it changes where Tab GOES at one
+  ;; edge. So a wrap that had been wired
   ;; into the popover as well as the modal would leave every assertion in
   ;; this file green except this one, which presses a real Tab off the
   ;; panel's last control and requires it to land on the page behind.

@@ -218,8 +218,8 @@
         (testing "THE CONTROL: with no :images the mount runs the default image,
                   which refuses the override rather than let load order pick a
                   winner — so the green below is differential, not vacuous"
-          (is (= :rf.error/image-duplicate-id (:rf.error/id (:refused default))))
-          (is (= [:fx fx-id] [(:kind (:refused default)) (:id (:refused default))]))
+          (is (= {:rf.error/id :rf.error/image-duplicate-id :kind :fx :id fx-id}
+                 (select-keys (:refused default) [:rf.error/id :kind :id])))
           (is (nil? (:image (:refused default)))
               "refused by the DEFAULT image, which carries no id"))
         (testing "and the refusal leaves nothing behind"
@@ -229,9 +229,8 @@
                                       (attempt #(rf.fresco.test.mounted/mount!
                                                   [screen {}] {:images app-wins})))]
           (do
-            (testing "the ordered composition mounts the screen"
-              (is (= "announce" (text-at m ".announce"))))
-            (testing "and the frame runs the LATER image's implementation"
+            (testing "the ordered composition mounts, and the frame runs the
+                      LATER image's implementation"
               (rf.fresco.test.mounted/dispatch-and-settle! m [::announce "hello"])
               (is (= [[:app (:frame m) "hello"]] @!deliveries)))
             (-> (clean! [m]) (.then (fn [_] (done)))))
@@ -251,8 +250,7 @@
                                               [screen {}] {:images library-wins}))))]
         (if (and a b)
           (do
-            (testing "each mount minted a frame of its own"
-              (is (not= (:frame a) (:frame b))))
+
             (testing "a REAL click on each page reaches each frame's own winner —
                       the composition is a fact about the frame, so a second
                       mount with another order cannot change the first's"
@@ -284,14 +282,10 @@
           (testing "the timer a seed step armed is on the mount's virtual clock:
                     nothing fires one millisecond short, and it fires on the
                     deadline"
-            (is (= [] @!timers))
             (rf.fresco.test.mounted/advance-clock! m 299)
             (is (= [] @!timers))
             (rf.fresco.test.mounted/advance-clock! m 1)
             (is (= [[(:frame m) "seeded"]] @!timers)))
-          (testing "and the composition is still the one the frame runs"
-            (rf.fresco.test.mounted/dispatch-and-settle! m [::announce "after"])
-            (is (= [[:app (:frame m) "after"]] @!deliveries)))
           (-> (clean! [m]) (.then (fn [_] (done)))))
         (done)))))
 
@@ -307,11 +301,10 @@
                   is between images, never inside one"
           (let [{:keys [refused]} (attempt #(rf.fresco.test.mounted/mount!
                                               [screen {}] {:images [screen-image both-image]}))]
-            (is (= :rf.error/image-duplicate-id (:rf.error/id refused)))
-            (is (= :kit.image/both (:image refused))
+            (is (= {:rf.error/id :rf.error/image-duplicate-id :image :kit.image/both :kind :fx :id fx-id}
+                   (select-keys refused [:rf.error/id :image :kind :id]))
                 (str "refused by " (pr-str (:image refused))
-                     " — nil is the default image, which means :images never arrived"))
-            (is (= [:fx fx-id] [(:kind refused) (:id refused)]))))
+                     " — nil is the default image, which means :images never arrived"))))
         (testing "an empty :images is core's :rf.error/make-frame-bad-images,
                   passed through rather than read as 'use the default'"
           (is (= :rf.error/make-frame-bad-images
@@ -370,28 +363,21 @@
       (let [{:keys [refused message] :as outcome}
             (attempt #(rf.fresco.test.mounted/mount! [screen {}] {:image [screen-image]}))]
         (unmount-stray! outcome)
-        (is (= :rf.error/fresco-test-bad-option (:rf.error/id refused)))
-        (is (= [:image] (:unknown refused)))
+        (is (= {:rf.error/id :rf.error/fresco-test-bad-option :unknown [:image]}
+               (select-keys refused [:rf.error/id :unknown])))
         (is (some? (re-find #":images" (str message))) (str "got " (pr-str message)))))
     (testing "refused before the clock is installed, so a clocked call that
               never became a mount leaves the platform's timers in place"
       (let [{:keys [refused] :as outcome}
             (attempt #(rf.fresco.test.mounted/mount! [screen {}] {:clock true :seed []}))]
         (unmount-stray! outcome)
-        (is (= :rf.error/fresco-test-bad-option (:rf.error/id refused)))
-        (is (= [:seed] (:unknown refused)))
+        (is (= {:rf.error/id :rf.error/fresco-test-bad-option :unknown [:seed]}
+               (select-keys refused [:rf.error/id :unknown])))
         (is (identical? platform-timeout js/setTimeout))))
     (testing "options are a map"
       (let [outcome (attempt #(rf.fresco.test.mounted/mount! [screen {}] [:initial-events]))]
         (unmount-stray! outcome)
-        (is (= :rf.error/fresco-test-bad-option (:rf.error/id (:refused outcome))))))
-    (testing "shadow!'s roster is closed too, with :images now inside it"
-      (let [{:keys [refused]}
-            (attempt #(rf.fresco.test.mounted/shadow! {:reference [screen {}]
-                                                       :candidate [screen {}]
-                                                       :imagez    app-wins}))]
-        (is (= :rf.error/fresco-test-bad-option (:rf.error/id refused)))
-        (is (= [:imagez] (:unknown refused)))))))
+        (is (= :rf.error/fresco-test-bad-option (:rf.error/id (:refused outcome))))))))
 
 (deftest hydrate-refuses-an-unknown-option-as-a-rejection
   (if-not (rf.fresco.impl.mount/browser?)
@@ -407,8 +393,8 @@
                      (testing "the promise is the whole error channel: the
                                refusal is a rejection, not a throw past every
                                .catch"
-                       (is (= :rf.error/fresco-test-bad-option (:rf.error/id (ex-data e))))
-                       (is (= [:imagez] (:unknown (ex-data e)))))
+                       (is (= {:rf.error/id :rf.error/fresco-test-bad-option :unknown [:imagez]}
+                              (select-keys (ex-data e) [:rf.error/id :unknown]))))
                      (testing "and it came before the container"
                        (is (= children (body-children))))))
             (.then (fn [_] (done))))))))

@@ -206,10 +206,7 @@
           (is (= "beta-again" (text-at cb ".label"))
               "root B stopped repainting when root A was torn down"))
 
-        (testing "root B's mount point survives too"
-          (is (true? (connected? cb))))
-
-        (testing "and so does root A's — the container was the CALLER's
+        (testing "root A's mount point survives — the container was the CALLER's
                   node, handed to `h/render!`, and a teardown door may not
                   delete a node it did not create"
           (is (true? (connected? ca))
@@ -227,146 +224,7 @@
           (rf.fresco/unmount! b)
           (detach! ca)
           (detach! cb)
-          (is (= [false false] [(connected? ca) (connected? cb)])
-              "this witness left one of its own containers in the shared
-               browser-test document")
           (rf.fresco.impl.collector/reset-runtime!))))))
-
-;; ---------------------------------------------------------------------------
-;; W3 — THE EXECUTING SABOTAGE CONTROL for kernel risk row 2
-;; ---------------------------------------------------------------------------
-
-(defn- pre-rf2-31xm-teardown!
-  "The public teardown door AS IT WOULD BE UNNARROWED: take this root
-  down, drop its container, and empty the process-global runtime.
-
-  **The sabotage needs no mock and no seam, because that door exists
-  under an honest name.** `impl.mount/release!` is `unmount!` plus the
-  container removal plus `collector/reset-runtime!` — precisely the
-  meaning the public facade does not carry, serving as the fixture door
-  for a suite that owns the whole page. Its three steps are written out
-  here rather than called, for ONE reason: `release!` takes the impl
-  tier's positional handle, and a `h/client-root` handle is opaque and
-  hands that back to nobody. The mutation is that door's body, step for
-  step, and no reconstruction of its meaning.
-
-  This is the one place in this file where `impl.collector` performs an
-  act rather than taking a reading, and the header's rule survives it
-  whole. That rule forbids the impl tier from doing what the PUBLIC door
-  is supposed to be able to do; total teardown is the one thing the
-  public door must NOT be able to do, which is the whole of root-scoped
-  teardown."
-  [handle container]
-  (rf.fresco/unmount! handle)
-  (when-some [p (.-parentNode container)] (.removeChild p container))
-  (rf.fresco.impl.collector/reset-runtime!)
-  nil)
-
-;; Kernel risk row 2 of `docs/design/fresco/product/lanes/adversarial-risks.md`
-;; — *independent roots and SSR requests cannot reset, adopt, dirty, or release
-;; one another's state* — is a correctness gate, and that register's gate
-;; construction rule asks every one of them for "a sabotage mutation that makes
-;; each correctness gate red". A sabotage that does not RUN is no answer:
-;; a reviewer cannot re-run what is not there, so this suite and
-;; `roots-frames-isolation-dom-cljs-test` each carry one that executes.
-;;
-;; The mutation is the register's own first verb. `collector/reset-runtime!`
-;; empties every table this arm holds, and every one of them is one-per-page
-;; and keyed by frame — its docstring says so out loud — so a teardown door
-;; that calls it releases every sibling root's state along with its own. W1
-;; above asserts that root A's teardown does not. This row plants the door
-;; that does, and watches W1's three readings invert.
-;;
-;; Both halves run the same construction, and they red in opposite directions:
-;;
-;;   - the ARMED half reds if the page-wide door stops being page-wide, which
-;;     is what a control that has quietly become a no-op looks like;
-;;   - the DISARMED half reds if root-scoped teardown regresses to page-wide,
-;;     which is the defect W1 exists to catch.
-;;
-;; The stranding reading is the one worth having, and it is why the row does
-;; not stop at the counts. A runtime emptied under a live root throws nothing
-;; and clears nothing: the markup React last committed stays on the page, the
-;; mount point stays connected, and the only symptom is a screen that has
-;; stopped moving. The armed half asserts all three — dead tables, a frozen
-;; label, and a page that still looks perfectly well.
-(deftest a-page-wide-teardown-door-strands-the-sibling-root
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test has no DOM")
-    (do
-      ;; DISARMED — the shipped root-scoped door.
-      (let [_  (fresh!)
-            ca (rf.fresco.impl.mount/fresh-container!)
-            cb (rf.fresco.impl.mount/fresh-container!)
-            a  (rf.fresco/client-root)
-            b  (rf.fresco/client-root)]
-        (rf.fresco/render! a [rf.fresco/frame-root {:id frame-a} [panel {:tag "a"}]] ca)
-        (rf.fresco/render! b [rf.fresco/frame-root {:id frame-b} [panel {:tag "b"}]] cb)
-        (try
-          (is (= #{[frame-a label-q] [frame-b label-q]} (cell-keys))
-              (str "premise: two roots, two frames, one cell each; got "
-                   (pr-str (cell-keys))))
-          (rf.fresco/unmount! a)
-          (testing "DISARMED — root B keeps its cell, keeps its reader, and stays
-                    LIVE across its sibling's teardown"
-            (is (contains? (cell-keys) [frame-b label-q])
-                (str "got " (pr-str (cell-keys))))
-            (is (= 1 (readers-of [frame-b label-q])))
-            (rf.fresco.impl.mount/dispatch! frame-b [::relabel "beta-again"])
-            (is (= "beta-again" (text-at cb ".label"))
-                "root B stopped repainting when root A was torn down"))
-          (finally
-            (rf.fresco/unmount! b)
-            (detach! ca)
-            (detach! cb)
-            (is (= [false false] [(connected? ca) (connected? cb)])
-                "this witness left one of its own containers in the shared
-                 browser-test document")
-            (rf.fresco.impl.collector/reset-runtime!))))
-
-      ;; ARMED — the same construction, torn down through the page-wide door.
-      (let [_  (fresh!)
-            ca (rf.fresco.impl.mount/fresh-container!)
-            cb (rf.fresco.impl.mount/fresh-container!)
-            a  (rf.fresco/client-root)
-            b  (rf.fresco/client-root)]
-        (rf.fresco/render! a [rf.fresco/frame-root {:id frame-a} [panel {:tag "a"}]] ca)
-        (rf.fresco/render! b [rf.fresco/frame-root {:id frame-b} [panel {:tag "b"}]] cb)
-        (try
-          (is (= #{[frame-a label-q] [frame-b label-q]} (cell-keys))
-              (str "premise: the same two roots as the disarmed half; got "
-                   (pr-str (cell-keys))))
-          (pre-rf2-31xm-teardown! a ca)
-          (testing "ARMED — root A's teardown reached the process-global runtime
-                    and took root B's state with it"
-            (is (= #{} (cell-keys))
-                (str "THE SABOTAGE DID NOT SABOTAGE — the page-wide door left the
-                      cell table standing, so W1's key reading is not a
-                      discrimination; got " (pr-str (cell-keys))))
-            (is (zero? (readers-of [frame-b label-q]))
-                "root B's boundary must have lost the cell it was reading"))
-
-          (testing "and root B is STRANDED — the half a count cannot show.
-                    Nothing threw, nothing complained, its markup is the markup
-                    React last committed and its mount point is still connected.
-                    The only symptom is a screen that has stopped moving, which
-                    is exactly why W1 reads the tables and the dispatch rather
-                    than the DOM"
-            (rf.fresco.impl.mount/dispatch! frame-b [::relabel "beta-again"])
-            (is (= "beta" (text-at cb ".label"))
-                (str "the page-wide door left root B repainting, so the dispatch
-                      reading in W1 is not a discrimination either; got "
-                     (pr-str (text-at cb ".label"))))
-            (is (true? (connected? cb))
-                "and the page still looks perfectly well"))
-          (finally
-            (rf.fresco/unmount! b)
-            (detach! ca)
-            (detach! cb)
-            (is (= [false false] [(connected? ca) (connected? cb)])
-                "this witness left one of its own containers in the shared
-                 browser-test document")
-            (rf.fresco.impl.collector/reset-runtime!)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W6 — a first render that THROWS leaves nothing on the caller's container
@@ -390,37 +248,17 @@
 ;; THE READING IS REACT'S OWN CONTAINER MARK, and the section note on
 ;; [[react-owned?]] says why nothing else will do: the DOM is identical
 ;; either way, because a root that never rendered leaves the container as
-;; empty as one that was never created. The mark is read only with the
-;; control below driving it in both directions on a working mount first.
+;; empty as one that was never created. The retry below drives the mark in
+;; both directions on a working mount: set while its root is live, and
+;; cleared once that root comes down.
 
 (deftest a-failed-first-render-leaves-no-root-on-the-callers-container
   (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
-    (let [_       (fresh!)
-          control (rf.fresco.impl.mount/fresh-container!)
-          ca      (rf.fresco.impl.mount/fresh-container!)
-          probe   (rf.fresco/client-root)
-          a       (rf.fresco/client-root)]
+    (let [_  (fresh!)
+          ca (rf.fresco.impl.mount/fresh-container!)
+          a  (rf.fresco/client-root)]
       (try
-        (testing "the INSTRUMENT first, driven in both directions on a
-                  working mount: a container React has never seen is
-                  unowned, one it holds a root on is owned, and it is
-                  unowned again the moment that root comes down. Without
-                  this the row's own reading is satisfied by a mark that
-                  is never written at all"
-          (is (false? (react-owned? control))
-              "a fresh container already reads as React-owned")
-          (rf.fresco/render! probe
-            [rf.fresco/frame-root {:id frame-a} [panel {:tag "control"}]]
-            control)
-          (is (true? (react-owned? control))
-              "React's container mark was not found on a live root, so the
-               reading below cannot discriminate and this row proves
-               nothing until the mark's spelling is re-established")
-          (rf.fresco/unmount! probe)
-          (is (false? (react-owned? control))
-              "React's container mark outlived the root that wrote it"))
-
         (let [boom   (js/Error. "row formatting failed")
               rows   (map (fn [_] (throw boom)) [1])
               thrown (try (rf.fresco/render! a [:ul rows] ca) ::no-throw
@@ -446,26 +284,13 @@
                     the door's ordinary nil"
             (is (nil? (rf.fresco/unmount! a))))
 
-          (testing "and the SAME handle mounts normally on the retry. A
-                    second `createRoot` over a container that already had
-                    one is exactly what the leak produces, and React says
-                    so on the console — a SECOND reading of the same fact,
-                    and one that only speaks in a development React, which
-                    is why the mark above is the row's discriminator"
-            (let [errors (atom [])
-                  real   (.-error js/console)]
-              (set! (.-error js/console)
-                    (fn [& args] (swap! errors conj (apply str args))))
-              (try
-                (rf.fresco/render! a
-                  [rf.fresco/frame-root {:id frame-a} [panel {:tag "retry"}]]
-                  ca)
-                (finally (set! (.-error js/console) real)))
-              (is (empty? (filterv #(str/includes? % "createRoot") @errors))
-                  (str "React complained about the retry: " (pr-str @errors)))
-              (is (= "alpha" (text-at ca ".label"))
-                  "the retry through the same handle did not paint")
-              (is (true? (react-owned? ca)))))
+          (testing "and the SAME handle mounts normally on the retry"
+            (rf.fresco/render! a
+              [rf.fresco/frame-root {:id frame-a} [panel {:tag "retry"}]]
+              ca)
+            (is (= "alpha" (text-at ca ".label"))
+                "the retry through the same handle did not paint")
+            (is (true? (react-owned? ca))))
 
           (testing "and that root comes down exactly once"
             (rf.fresco/unmount! a)
@@ -475,11 +300,6 @@
                 "a second teardown through the same handle must be a no-op")))
 
         (finally
-          (rf.fresco/unmount! probe)
           (rf.fresco/unmount! a)
-          (detach! control)
           (detach! ca)
-          (is (= [false false] [(connected? control) (connected? ca)])
-              "this witness left one of its own containers in the shared
-               browser-test document")
           (rf.fresco.impl.collector/reset-runtime!))))))

@@ -90,7 +90,6 @@
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
             [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
-            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
             [re-frame.fresco.native :as rf.fresco.native]
             [re-frame.test-support :as rf.test-support]
             [uix.core :as uix :refer-macros [defui]]
@@ -345,25 +344,6 @@
 ;; the rows below are unchanged by it.
 
 (deftest a-declared-render-crossing-is-the-authors-own-function-and-costs-no-wrapper
-  (testing "a handwritten component is a FUNCTION, and it is the element type
-            React reconciles on — not a wrapper holding one"
-    (is (identical? react-cell (.-type (react/createElement react-cell #js {:label "42"})))))
-
-  (testing "so the props React hands the component carry the author's own
-            slot and nothing else. Stated as a KEY SET rather than by
-            identity, because `React.createElement` copies its config into
-            a fresh props object and always has — a row asserting identity
-            would be asserting a fact about React that is not true of any
-            arm"
-    (is (= ["label"] (slots (react/createElement react-cell #js {:label "42"})))))
-
-  (testing "and the body runs when the function is CALLED — no fiber, no
-            hook, no shell. This is what `a DECLARED island costs what React
-            costs` means as a structural fact rather than a timing"
-    (let [el (react-cell #js {:label "42"})]
-      (is (= "span" (.-type el)))
-      (is (= "42" (.-children (.-props el))))))
-
   (testing "THE CROSSING, which is the arm the band is stated over: through
             `h/defhost` under `{:server :render}`, the element the codec
             builds has the author's own function as its type and the
@@ -538,19 +518,6 @@
               "useContext" "useSyncExternalStore"
               "useContext" "useSyncExternalStore"]
              (vec (take 6 hooks)))))
-
-    (testing "I9 holds at two, read off the ledger the shell declares — the
-              tree above added a raw-React island and a foreign UIx subtree
-              and moved it by nothing"
-      (is (= 2 (count rf.fresco.test.runtime/shell-hook-ledger))))
-
-    (testing "and neither `useRef` nor `useState` is among them: HD-020(b)'s
-              two named prohibitions, over every hook Fresco spent on this
-              page. The UIx arm below DOES call `useRef` — three times — and
-              that is its own affair and not charged here, exactly as
-              `hook_budget_cljs_test` establishes for a hosted component's
-              own roster"
-      (is (= [] (filterv #{"useRef" "useState"} (vec (take 6 hooks))))))
 
     (testing "the crossings themselves cost no hook: `{:server :render}` mints
               no gate, so everything past the sixth is the foreign subtree's

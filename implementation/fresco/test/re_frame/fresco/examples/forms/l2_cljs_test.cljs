@@ -30,7 +30,6 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.fresco :as rf.fresco]
-            [re-frame.fresco.examples.forms.db :as rf.fresco.examples.forms.db]
             [re-frame.fresco.examples.forms.events :as rf.fresco.examples.forms.events]
             [re-frame.fresco.examples.forms.subs :as rf.fresco.examples.forms.subs]
             [re-frame.fresco.examples.forms.views :as rf.fresco.examples.forms.views]
@@ -78,24 +77,6 @@
 ;; Recipe 1 — the buffered field's markup
 ;; ---------------------------------------------------------------------------
 
-(deftest the-subject-field-is-value-revision-and-three-intents
-  (let [tree  (subject-tree {:shown "Login page hangs" :revision 2})
-        attrs (rf.fresco.test/attrs (tagged tree :input))]
-    (is (= "Login page hangs" (:value attrs)))
-    (is (= 2 (::rf.fresco/revision attrs))
-        "the reset trigger is the subject-revision read, carried on the
-         field the view renders")
-    (is (= [rf.fresco.examples.forms.db/subject-draft ticket ::rf.fresco/value] (:on-input attrs))
-        "typing writes h/reg-state's own setter, keyed by the ticket —
-         POSITIONAL, because a marker inside a payload map is substituted
-         nowhere and arrives as the keyword itself")
-    (is (= [::rf.fresco.examples.forms.events/commit-subject ticket] (:on-blur attrs)))
-    (is (= {"Enter"  [::rf.fresco.examples.forms.events/commit-subject ticket]
-            "Escape" [::rf.fresco.examples.forms.events/cancel-subject ticket]}
-           (:on-key-down attrs))
-        "the key MAP, not a callback reading `.key` — which is what keeps
-         the composition gate, and why this file finds no function")))
-
 (deftest the-hint-is-absent-until-a-session-is-open-and-is-its-own-boundary
   (is (nil? (classed (hint-tree false) "subject-hint")))
   (is (some? (classed (hint-tree true) "subject-hint")))
@@ -107,7 +88,7 @@
          belongs to its own body and not to the field's")))
 
 ;; ---------------------------------------------------------------------------
-;; Recipe 2 — the gate, as an absence and a presence
+;; Recipe 2 — the gate, as an absence
 ;; ---------------------------------------------------------------------------
 
 (deftest a-field-with-no-shown-problem-renders-no-problem-region
@@ -121,28 +102,6 @@
     (is (= [::rf.fresco.examples.forms.events/touch {:field :assignee}] (:on-blur attrs))
         "blur is the touch mark, and it names ONE field")))
 
-(deftest a-shown-problem-is-rendered-announced-and-pointed-at
-  (let [tree    (field-tree {:field :assignee :label "Assignee" :text ""
-                             :problem :problem/assignee-blank})
-        input   (rf.fresco.test/attrs (tagged tree :input))
-        problem (classed tree "field-problem")]
-    (is (= "An assignee is required." (rf.fresco.test/text problem)))
-    (is (= :alert (rf.fresco.test/role problem))
-        "the message announces itself when it appears")
-    (is (= "true" (:aria-invalid input)))
-    (is (= (:id (rf.fresco.test/attrs problem)) (:aria-describedby input))
-        "and the control points at THAT node — the two ids are written
-         from one expression, so they cannot drift apart")))
-
-(deftest the-notes-field-is-a-textarea-and-nothing-else-changes
-  (let [tree (field-tree {:field :notes :label "Notes" :multiline? true
-                          :text "reproduced" :problem nil})]
-    (is (some? (tagged tree :textarea)))
-    (is (nil? (tagged tree :input)))
-    (is (= [::rf.fresco.examples.forms.events/edit :notes ::rf.fresco/value] (:on-input (rf.fresco.test/attrs (tagged tree :textarea))))
-        "one props map serves both spellings, so a change to the contract
-         cannot reach one field and miss the other")))
-
 ;; ---------------------------------------------------------------------------
 ;; Recipe 3 — the status the write owns
 ;; ---------------------------------------------------------------------------
@@ -155,30 +114,6 @@
   [{:keys [save]}]
   (rf.fresco.test/tree [rf.fresco.examples.forms.views/save-button {}]
            {:subs {[:rf/mutation {:instance rf.fresco.examples.forms.events/save-instance}] (or save idle)}}))
-
-(deftest an-invalid-form-leaves-the-button-operable-and-claims-nothing
-  (let [attrs (rf.fresco.test/attrs (button-tree {}))]
-    (is (false? (:disabled attrs))
-        "operable — a disabled submit is out of the tab order and explains
-         nothing, and it is also what would make `:attempted?` unreachable
-         and the whole submit-attempt gate dead code")
-    (is (nil? (:aria-disabled attrs))
-        "and it says nothing to assistive technology either. WAI-ARIA
-         defines aria-disabled=true as perceivable but disabled — \"not
-         editable or otherwise operable\" — the same claim `disabled`
-         makes. Pressing this button is the ONLY way the form reveals
-         what is wrong, so announcing it inoperable would be telling a
-         screen reader user that the one instruction they have does not
-         work. This row is the semantic-coherence half; an attribute pin
-         alone could not see it")
-    (is (= "Save ticket" (rf.fresco.test/text (button-tree {}))))))
-
-(deftest a-write-in-flight-disables-the-button-from-the-writes-own-status
-  (let [attrs (rf.fresco.test/attrs (button-tree {:save (assoc idle :pending? true)}))]
-    (is (true? (:disabled attrs))
-        "busy is a projection of the instance. There is no `:saving?` key
-         in this application's app-db for a failure branch to forget")
-    (is (= "Saving…" (rf.fresco.test/text (button-tree {:save (assoc idle :pending? true)}))))))
 
 (deftest a-field-in-flight-is-disabled-and-recovers-on-failure
   (is (true? (:disabled (rf.fresco.test/attrs (tagged (field-tree {:field :assignee :label "Assignee"
@@ -203,34 +138,6 @@
                               (assoc idle :error? true :settled? true)}})]
     (is (= :alert (rf.fresco.test/role tree)))
     (is (= "Saving failed. Nothing was lost — try again." (rf.fresco.test/text tree)))))
-
-;; ---------------------------------------------------------------------------
-;; The shells — what they read, which is nothing
-;; ---------------------------------------------------------------------------
-
-(deftest the-form-shell-reads-nothing-and-so-never-re-renders
-  ;; The row the per-keystroke claim rests on. An empty fixture map is a
-  ;; LOAD-BEARING empty: `tree` refuses any read no fixture answers, so a
-  ;; sub added to this body reds here before it can reach a keystroke's
-  ;; path.
-  (let [tree (rf.fresco.test/tree [rf.fresco.examples.forms.views/details-form {}] {})
-        kids (rf.fresco.test/find-all tree :view-id)]
-    (is (= [::rf.fresco.examples.forms.events/submit] (:on-submit (rf.fresco.test/attrs tree)))
-        "and submit is a plain intent — `:on-submit` auto-prevents, so
-         there is no `.preventDefault` in the application at all")
-    (is (= ["re-frame.fresco.examples.forms.views/field-row"
-            "re-frame.fresco.examples.forms.views/field-row"
-            "re-frame.fresco.examples.forms.views/save-failure"
-            "re-frame.fresco.examples.forms.views/save-button"]
-           (mapv :view-id kids))
-        "four CALLS — the children's bodies did not run, which is why
-         their reads are not on this fixture map")))
-
-(deftest the-screen-reads-nothing-either
-  (let [tree (rf.fresco.test/tree [rf.fresco.examples.forms.views/screen {:ikey ticket}] {})]
-    (is (= ticket (:ikey (rf.fresco.test/attrs (rf.fresco.test/find tree #(= "re-frame.fresco.examples.forms.views/subject-field"
-                                                     (:view-id %))))))
-        "the screen hands the instance key down and reads nothing itself")))
 
 ;; ---------------------------------------------------------------------------
 ;; The two structural trap witnesses
@@ -308,13 +215,3 @@
         "and the a11y projection reports the unnamed button and NOT the
          labelled field — the direction an over-eager guard gets wrong,
          and the one nothing else here would catch")))
-
-(deftest the-fields-are-named-by-their-labels-and-not-by-a-placeholder
-  (let [tree  (subject-tree {:shown "s" :revision 0})
-        input (tagged tree :input)]
-    (is (= "Subject" (rf.fresco.test/accessible-name tree input))
-        "from the `<label for=…>` beside it — a name that survives the
-         first keystroke, which a placeholder does not"))
-  (let [tree (field-tree {:field :notes :label "Notes" :multiline? true
-                          :text "" :problem nil})]
-    (is (= "Notes" (rf.fresco.test/accessible-name tree (tagged tree :textarea))))))

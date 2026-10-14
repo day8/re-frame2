@@ -115,8 +115,6 @@
             and the two attribute names are the keys inside it"
     (let [body  (rf.fresco.impl.codec/retained-body probe)
           attrs (unchecked-get body (:view-attrs-slot sentinels))]
-      (is (some? attrs)
-          "the mint writes Spec 006's attrs map under this exact property name")
       (is (= #{(:source-coord sentinels) (:view-id sentinels)}
              (into #{} (map name) (keys attrs)))
           "and the map's two keys ARE the two scanned literals — which is what

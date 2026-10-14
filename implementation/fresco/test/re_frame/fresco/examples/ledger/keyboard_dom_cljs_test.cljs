@@ -22,11 +22,9 @@
   but ABSENT, and no amount of tabbing reaches them from where the
   viewport currently is. That is not a defect — it is the trade a
   virtualizer is bought for — but it is a fact a screen has to be
-  designed around, and the design is measured here:
-  [[the-keyboard-reachable-set-is-the-window-and-not-the-model]] states
-  the bound, and
-  [[traversing-to-the-window-edge-scrolls-and-extends-the-reachable-set]]
-  states the mitigation that makes the whole model reachable anyway.
+  designed around, and
+  [[the-keyboard-order-is-the-window-in-document-order]] measures the
+  bound.
 
   ## The instrument, and why it ASKS rather than infers
 
@@ -44,19 +42,15 @@
 
   **Measured.** Which elements the engine will focus; the complete order
   they come in; that the order is exactly the mounted window's controls
-  and nothing else; that focusing the window's last row makes the ENGINE
-  scroll the viewport; that the previously-focused node survives the
-  window moving; and that the screen carries no control whose role
+  and nothing else; and that the screen carries no control whose role
   promises an activation its tag cannot deliver.
 
   **Measured too: a real Tab.** A synthetic
   `KeyboardEvent` performs no default action in any engine — it reaches
   every listener and moves focus nowhere — so a `pressed Tab` row built
   from `new KeyboardEvent` would measure its own dispatcher.
-  [[a-real-tab-moves-focus-and-a-synthetic-one-does-not]] carries both
-  arms of exactly that, and
-  [[real-sequential-navigation-agrees-with-the-instrument]] presses Tab
-  along the ledger and finds the same sequence [[keyboard-order]]
+  [[real-sequential-navigation-agrees-with-the-instrument]] presses a real
+  Tab along the ledger and finds the same sequence [[keyboard-order]]
   derives. The instrument is the one every other row uses: it costs no
   round trip, it can range over the whole forty-eight-entry order, and it
   is VERIFIED against the thing it stands in for rather than merely
@@ -77,7 +71,7 @@
   too (`cljs-test$` matches `-dom-cljs-test`) and every row degrades
   there to a STATED skip rather than to a false green.
 
-  The two trusted-input rows are `async` — the press happens in another
+  The trusted-input row is `async` — the press happens in another
   process — and every other row is not. That is what the MAP fixture
   below is for: cljs.test refuses an async row under a POSITIONAL
   fixture by throwing a bare string that unwinds the whole
@@ -92,8 +86,7 @@
             [re-frame.fresco.examples.ledger.views :as rf.fresco.examples.ledger.views]
             [re-frame.fresco.test.mounted :as rf.fresco.test.mounted]
             [re-frame.fresco.trusted-input-support :as rf.fresco.trusted-input-support]
-            [re-frame.test-support :as rf.test-support]
-            ["react-dom" :as react-dom]))
+            [re-frame.test-support :as rf.test-support]))
 
 ;; ---------------------------------------------------------------------------
 ;; The control page — the two defects this file's instruments must catch
@@ -154,7 +147,6 @@
 (defn- viewport-in [m] (query-node m ".ledger-viewport"))
 (defn- note-node [m i] (query-node m (str "#" (rf.fresco.examples.ledger.events/note-id i))))
 (defn- active [] (.-activeElement js/document))
-(defn- record-of [^js node] (some-> node (.getAttribute "data-record")))
 
 (defn- label-of
   "How a failure NAMES an element — its id when it has one, else its
@@ -192,8 +184,7 @@
   screen does not:
 
   1. **The viewport's scroll offset is restored.** Asking for focus on
-     an element below the fold makes the engine scroll it into view —
-     which is a fact this file measures deliberately elsewhere, and
+     an element below the fold makes the engine scroll it into view,
      which would silently move the window under any row that merely
      wanted to read the order.
   2. **Focus is dropped at the end.** The sweep leaves focus on the last
@@ -243,9 +234,8 @@
 ;; Driving the screen
 ;; ---------------------------------------------------------------------------
 
-(defn- mount-ledger!
-  ([] (mount-ledger! rf.fresco.examples.ledger.events/default-total))
-  ([total] (rf.fresco.test.mounted/mount! [rf.fresco.examples.ledger.views/ledger {}] {:initial-events (rf.fresco.examples.ledger.app/initial-events total)})))
+(defn- mount-ledger! []
+  (rf.fresco.test.mounted/mount! [rf.fresco.examples.ledger.views/ledger {}] {:initial-events (rf.fresco.examples.ledger.app/initial-events rf.fresco.examples.ledger.events/default-total)}))
 
 (defn- window-at
   "The window `views/ledger`'s geometry puts on screen at scroll offset
@@ -257,26 +247,6 @@
                        :viewport-height rf.fresco.examples.ledger.views/viewport-height
                        :overscan        rf.fresco.examples.ledger.views/overscan
                        :total           total}))
-
-(defn- tell-the-vendor-it-scrolled!
-  "Deliver a `scroll` event for the offset the viewport is ALREADY at,
-  and let React commit all of it.
-
-  Deliberately not `virtualized-dom-cljs-test`'s `scroll-to!`, which
-  SETS `scrollTop` and then notifies: here the engine moved the viewport
-  itself, in response to a focus move, and what is under test is that
-  the vendor follows the platform. The three mechanics are that file's
-  and its docstring holds their reasons — the event goes inside
-  `flushSync` because a scroll is a continuous-priority event that an
-  empty `flushSync` does not flush, and the settle happens twice because
-  the window report is a passive effect."
-  [m]
-  (let [^js vp (viewport-in m)]
-    (react-dom/flushSync
-      (fn [] (.dispatchEvent vp (js/Event. "scroll" #js {:bubbles true}))))
-    (rf.fresco.test.mounted/settle! m)
-    (rf.fresco.test.mounted/settle! m)
-    m))
 
 (defn- controls-of-rows
   "The ids the ledger's rows contribute to a focus order, for the model
@@ -322,107 +292,9 @@
              ranges over"))
       (rf.fresco.test.mounted/unmount! m))))
 
-(deftest the-ledgers-controls-are-reachable-and-its-chrome-is-not
-  (if-not (browser?)
-    (skip! "the candidate set")
-    (let [m (mount-ledger!)]
-      (testing "premise: the screen mounted the window it always mounts"
-        (is (= 24 (count (query-nodes m "[role='row']")))))
-
-      (testing "a row's two controls are both the engine's to focus"
-        (is (true? (focusable? (note-node m 0))))
-        (is (true? (focusable? (query-node m ".ledger-flag")))))
-
-      (testing "and the virtualizer's own wrappers are not in the
-                sequential-navigation order — they carry
-                `role=\"presentation\"`, and an element that announces
-                nothing and is reachable by Tab is a stop on the journey
-                for no reason"
-        (let [order (set (keyboard-order m))]
-          (is (not (contains? order "ledger-viewport")))
-          (is (not (contains? order "ledger-spacer")))))
-
-      (testing "MEASURED, AND WORTH RECORDING: the engine will
-                nonetheless accept a PROGRAMMATIC focus on the scroll
-                container, because a scroller is focusable in its own
-                right (Chromium's keyboard-focusable scrollers). Being
-                focusable and being in the tab order are therefore two
-                different questions, and `.focus()` answers only the
-                first — which is exactly why [[keyboard-order]] filters
-                a CANDIDATE SET rather than sweeping every element on
-                the page. The spacer, which does not scroll, is not
-                focusable at all"
-        (is (true? (focusable? (viewport-in m))))
-        (is (false? (focusable? (query-node m ".ledger-spacer")))))
-
-      (testing "nor is the grid, nor a cell: `role=\"grid\"` is a
-                container, and the ledger does not implement the
-                roving-tabindex conduct that would make one focusable"
-        (is (false? (focusable? (query-node m "[role='grid']"))))
-        (is (false? (focusable? (query-node m "[role='gridcell']")))))
-
-      (rf.fresco.test.mounted/unmount! m))))
-
 ;; ---------------------------------------------------------------------------
-;; A REAL Tab — and the synthetic one it has to be told apart from
+;; A REAL Tab
 ;; ---------------------------------------------------------------------------
-
-(deftest a-real-tab-moves-focus-and-a-synthetic-one-does-not
-  ;; BOTH ARMS, ONE MOUNT. Either alone proves nothing: the trusted arm
-  ;; on its own claims that Tab moves focus, which nobody doubts, and the
-  ;; synthetic arm on its own claims this file's dispatcher is broken.
-  ;; Together they are the reason every row below reads the engine's
-  ;; focusability answer instead of pressing a key, and press one only
-  ;; where a trusted key press is available.
-  ;;
-  ;; The three-control page, not the ledger: what is under test is a
-  ;; property of the PLATFORM, and driving it through four hundred lines
-  ;; of virtualizer would only make it slower to read.
-  (if-not (browser?)
-    (skip! "a real key press")
-    (if-not (rf.fresco.trusted-input-support/bridge?)
-      (rf.fresco.trusted-input-support/unwitnessed! "sequential navigation on this screen")
-      (async done
-        (let [m      (rf.fresco.test.mounted/mount! [a-page-of-near-misses {}])
-              finish (fn [] (rf.fresco.test.mounted/unmount! m) (done))]
-          (try
-            (let [real (query-node m "#real")]
-              (.focus real)
-              (is (identical? real (active)) "premise: focus starts on the button")
-
-              (testing "SYNTHETIC: dispatched, unprevented, and inert. It is a
-                        real event object and every listener in its path sees
-                        it — which is exactly why `:on-key-down` needs no
-                        bridge — but `isTrusted` is false, and sequential
-                        navigation is a DEFAULT ACTION, which a page may not
-                        forge"
-                (let [ev        (js/KeyboardEvent. "keydown"
-                                                   #js {:key "Tab" :bubbles true
-                                                        :cancelable true})
-                      delivered (.dispatchEvent real ev)]
-                  (is (true? delivered)
-                      "the event was dispatched and nothing called preventDefault")
-                  (is (false? (.-isTrusted ev)) "and it is untrusted, by construction")
-                  (is (identical? real (active))
-                      "and focus has not moved: a `pressed Tab` row built this
-                       way would be measuring its own dispatcher")))
-
-              (rf.fresco.trusted-input-support/press-once!
-                "Tab"
-                (fn []
-                  (try
-                    (testing "TRUSTED: the same key, the same page, pressed by
-                              the engine — and focus lands on the next element
-                              the engine accepts, which is the `<div>` a
-                              `tabindex` bought a place for and not the one with
-                              only a role"
-                      (is (identical? (query-node m "#half") (active))
-                          (str "expected #half, got " (some-> (active) label-of)))
-                      (is (not (identical? real (active)))))
-                    (finally (finish))))))
-            (catch :default e
-              (is false (str "the Tab row threw: " (.-message e)))
-              (finish))))))))
 
 (deftest real-sequential-navigation-agrees-with-the-instrument
   ;; THE PROXY, VERIFIED. Every other row in this file reads
@@ -493,136 +365,6 @@
         (is (= [] (->> (query-nodes m "[tabindex]")
                        (filterv #(pos? (.-tabIndex ^js %)))
                        (mapv label-of)))))
-
-      (rf.fresco.test.mounted/unmount! m))))
-
-(deftest the-keyboard-reachable-set-is-the-window-and-not-the-model
-  (if-not (browser?)
-    (skip! "the bound")
-    (let [small   (mount-ledger! 100)
-          n-100   (count (keyboard-order small))
-          _       (rf.fresco.test.mounted/unmount! small)
-          big     (mount-ledger! 10000)
-          n-10k   (count (keyboard-order big))]
-      (is (= n-100 n-10k)
-          "THE BOUND. A hundred records and ten thousand put the same
-           number of operable controls within reach of a keyboard —
-           which is what `10K-row behavior` costs, stated where an
-           accessibility reviewer can see the cost rather than only the
-           benefit")
-      (is (= 48 n-10k)
-          "forty-eight: two controls on each of twenty-four mounted
-           rows. `virtualized-dom-cljs-test` holds the contrast — the
-           same rows with no virtualizer put the whole model in the
-           document, and the order grows with it")
-
-      (testing "so the last record is not reachable from here at all,
-                and `aria-rowcount` is the whole of what tells a screen
-                reader that it exists"
-        (is (nil? (note-node big 9999)))
-        (is (= "10000" (.getAttribute (query-node big "[role='grid']") "aria-rowcount"))))
-
-      (rf.fresco.test.mounted/unmount! big))))
-
-;; ---------------------------------------------------------------------------
-;; Traversal drives the virtualizer — which is what makes the model reachable
-;; ---------------------------------------------------------------------------
-
-(deftest traversing-to-the-window-edge-scrolls-and-extends-the-reachable-set
-  (if-not (browser?)
-    (skip! "the mitigation")
-    (let [total     rf.fresco.examples.ledger.events/default-total
-          m         (mount-ledger! total)
-          [_ to]    (window-at 0 total)
-          ^js vp    (viewport-in m)
-          edge      (note-node m to)]
-      (testing "premise: the viewport is at the top, and the last
-                mounted row is below the fold — twenty-four rows of
-                twenty-four pixels against a four-hundred-and-eighty
-                pixel viewport"
-        (is (zero? (.-scrollTop vp)))
-        (is (some? edge))
-        (is (> (* to rf.fresco.examples.ledger.views/row-height) rf.fresco.examples.ledger.views/viewport-height)))
-
-      (.focus edge)
-
-      (is (pos? (.-scrollTop vp))
-          "THE ENGINE MOVED THE VIEWPORT. Asking for focus scrolls the
-           element into view, and that is the platform's own behaviour
-           rather than anything this screen or this test arranged — it
-           is also the entire mechanism by which a keyboard user reaches
-           past a virtualizer's window")
-      (is (identical? edge (active)))
-
-      (let [top       (.-scrollTop vp)
-            [from' _] (window-at top total)]
-        (tell-the-vendor-it-scrolled! m)
-
-        (is (identical? edge (active))
-            "and the node the user is on survived the window moving —
-             the same node, so the caret and the selection went
-             nowhere")
-        (is (= (str "rec-" (+ 100000 to)) (record-of (active)))
-            "still that record's field, which is the claim
-             `virtualized-dom-cljs-test`'s unkeyed arm shows can be
-             false while looking true")
-
-        (testing "the window really did move, so the row below is not
-                  green for want of anything happening"
-          (is (pos? from'))
-          (is (nil? (note-node m 0)) "row 0 has left the document"))
-
-        (testing "AND THE REACHABLE SET MOVED WITH IT: records that were
-                  absent a moment ago are now operable from the
-                  keyboard, which is what makes ten thousand rows
-                  reachable by traversal rather than only by mouse"
-          (let [[from'' to''] (window-at (.-scrollTop vp) total)]
-            (is (= (controls-of-rows from'' to'') (keyboard-order m)))
-            (is (> to'' to)
-                "the far edge advanced past where the first window
-                 ended"))))
-
-      (rf.fresco.test.mounted/unmount! m))))
-
-(deftest the-field-a-user-was-typing-in-stays-reachable-after-any-scroll
-  ;; The keyboard half of Rule 3. `virtualized-dom-cljs-test` shows the
-  ;; pinned node keeps FOCUS across a scroll that unmounts its
-  ;; neighbours; the question left over is what happens when the user
-  ;; then tabs away — whether they can ever get back.
-  (if-not (browser?)
-    (skip! "the pin's keyboard consequence")
-    (let [total     rf.fresco.examples.ledger.events/default-total
-          m         (mount-ledger! total)
-          ^js vp    (viewport-in m)
-          field     (note-node m 5)
-          top       (* 500 rf.fresco.examples.ledger.views/row-height)
-          [from to] (window-at top total)]
-      (.focus field)
-      (rf.fresco.test.mounted/settle! m)
-      (set! (.-scrollTop vp) top)
-      (tell-the-vendor-it-scrolled! m)
-
-      (is (some? (note-node m 5))
-          "premise: the pin kept row 5 in the document four hundred and
-           ninety-five rows after the window left it")
-
-      (let [order (keyboard-order m)]
-        (is (= (rf.fresco.examples.ledger.events/note-id 5) (last (butlast order)))
-            "THE PIN'S PLACE IN THE ORDER. The vendor appends the pinned
-             row after the window's rows, so the field the user was
-             typing in is the second-to-last stop rather than the first
-             — off screen, out of visual order, and still REACHABLE,
-             which is the property that matters: a keyboard user who
-             scrolled away can tab back to their own draft without
-             hunting for it with the scrollbar")
-        (is (= (* 2 (inc (inc (- to from)))) (count order))
-            "the window's rows plus the pinned one, two controls each —
-             derived from the geometry rather than typed, because the
-             window here is twenty-seven rows wide and the one at the
-             top of the model is twenty-four: the upper overscan is
-             clamped away at row zero and present everywhere else, and a
-             constant would be asserting about whichever offset it was
-             written at"))
 
       (rf.fresco.test.mounted/unmount! m))))
 

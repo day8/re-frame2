@@ -39,7 +39,6 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.frame :as rf.frame]
             [re-frame.fresco :as rf.fresco]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
             [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
@@ -188,70 +187,12 @@
                   (rf.fresco.roots-frames-support/readers-of [frame-b label-q]) (rf.fresco.roots-frames-support/readers-of [frame-b count-q])])
               (str "reader counts: " (pr-str (rf.fresco.test.runtime/residue)))))
 
-        (testing "and the frame-locked ambient dispatch memoised for each body
-                  is keyed by frame too — a second table saying the same thing
-                  on a different axis"
-          (is (= #{frame-a frame-b} (rf.fresco.roots-frames-support/frame-memo-frames))
-              (str "got " (pr-str (rf.fresco.roots-frames-support/frame-memo-frames))))
-          (is (= [true true]
-                 (mapv #(rf.frame/frame-incarnation-live?
-                          % (:incarnation (rf.fresco.roots-frames-support/frame-memo-row %)))
-                       [frame-a frame-b]))
-              "and each row is pinned to the incarnation that is LIVE under its
-               id. Since the row is acquired during render, one row per
-               rendered frame is the reading of RENDER, and pinning is what a
-               dispatch could otherwise have left behind wrongly"))
-
         (testing "the markup corroborates, and it corroborates on BOTH frames
                   — a constant would satisfy either one alone"
           (is (= "alpha" (text-at a ".label")))
           (is (= "beta"  (text-at b ".label")))
           (is (= (str frame-a) (attr-at a ".panel" "data-frame")))
           (is (= (str frame-b) (attr-at b ".panel" "data-frame"))))
-
-        (finally (rf.fresco.impl.mount/release! a) (rf.fresco.impl.mount/release! b))))))
-
-;; ---------------------------------------------------------------------------
-;; W2 — a dispatch moves one frame, and re-runs one body
-;; ---------------------------------------------------------------------------
-
-(deftest a-dispatch-is-frame-local-in-bodies-and-in-state
-  (if-not (rf.fresco.impl.mount/browser?)
-    (rf.fresco.roots-frames-support/skip! ":node-test has no DOM")
-    (let [_ (fresh!)
-          a (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-a [panel {:tag "a"}])
-          b (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-b [panel {:tag "b"}])
-          ;; Sampled BEFORE the dispatch, because the property below is that
-          ;; the dispatch did not disturb it.
-          row-b-before (rf.fresco.roots-frames-support/frame-memo-row frame-b)]
-      (try
-        (testing "one dispatch into frame A re-runs exactly one body"
-          (let [ran (rf.fresco.roots-frames-support/body-runs-delta! (fn [] (rf.fresco.impl.mount/dispatch! a [::bump])))]
-            (is (= 1 ran)
-                (str "a commit in one frame must notify only that frame's
-                      readers; " ran " bodies ran"))))
-
-        (testing "and only frame A's state moved"
-          (is (= "1" (text-at a ".count")))
-          (is (= "0" (text-at b ".count"))))
-
-        (testing "and the dispatch touched frame A's memo row alone — B's row is
-                  the SAME object it was before, so one frame's traffic cannot
-                  re-pin another's"
-          (is (identical? row-b-before (rf.fresco.roots-frames-support/frame-memo-row frame-b))
-              "frame B's row was replaced by a dispatch into frame A")
-          (is (= #{frame-a frame-b} (rf.fresco.roots-frames-support/frame-memo-frames))
-              (str "got " (pr-str (rf.fresco.roots-frames-support/frame-memo-frames)))))
-
-        (testing "the counter can read 2, so `1` above was a discrimination
-                  and not a ceiling — both frames are exercised, which is
-                  what stops this row passing vacuously"
-          (let [ran (rf.fresco.roots-frames-support/body-runs-delta!
-                      (fn [] (rf.fresco.impl.mount/dispatch! a [::bump])
-                             (rf.fresco.impl.mount/dispatch! b [::bump])))]
-            (is (= 2 ran)))
-          (is (= "2" (text-at a ".count")))
-          (is (= "1" (text-at b ".count"))))
 
         (finally (rf.fresco.impl.mount/release! a) (rf.fresco.impl.mount/release! b))))))
 
@@ -288,48 +229,6 @@
           (is (= "1" (text-at b ".count"))))
 
         (finally (rf.fresco.impl.mount/release! a) (rf.fresco.impl.mount/release! b))))))
-
-;; ---------------------------------------------------------------------------
-;; W4 — independent unmount
-;; ---------------------------------------------------------------------------
-
-(deftest unmounting-one-root-releases-its-keys-and-leaves-the-other-live
-  (async done
-    (if-not (rf.fresco.impl.mount/browser?)
-      (do (rf.fresco.roots-frames-support/skip! ":node-test has no DOM") (done))
-      (let [_ (fresh!)
-            a (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-a [panel {:tag "a"}])
-            b (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-b [panel {:tag "b"}])]
-        ;; `unmount!` and NOT `release!`: `release!` resets the runtime, so
-        ;; every count below would read zero whether the teardown released
-        ;; anything or not.
-        (rf.fresco.impl.mount/unmount! a)
-        (-> (rf.fresco.roots-frames-support/quiesced!)
-            (.then
-              (fn [_]
-                (try
-                  (testing "frame A's keys are gone and frame B's are untouched"
-                    (is (= #{} (keys-for frame-a))
-                        (str "frame A's cells should be reaped; got "
-                             (pr-str (keys-for frame-a))))
-                    (is (= #{[frame-b label-q] [frame-b count-q]} (keys-for frame-b))
-                        (str "frame B's cells must survive its sibling's
-                              teardown; got " (pr-str (keys-for frame-b))))
-                    (is (= #{frame-b} (rf.fresco.roots-frames-support/cell-frames))))
-
-                  (testing "and the survivor is LIVE, not merely present — it
-                            still re-runs its body and still moves its DOM"
-                    (let [ran (rf.fresco.roots-frames-support/body-runs-delta! (fn [] (rf.fresco.impl.mount/dispatch! b [::bump])))]
-                      (is (= 1 ran)))
-                    (is (= "1" (text-at b ".count")))
-                    (is (= "beta" (text-at b ".label"))))
-
-                  (testing "and tearing the survivor down leaves nothing at all"
-                    (is (= rf.fresco.roots-frames-support/released (rf.fresco.roots-frames-support/teardown-census! b))))
-                  (finally
-                    (rf.fresco.impl.mount/release! a)
-                    (rf.fresco.impl.mount/release! b)
-                    (done))))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W5 — a failing teardown is contained

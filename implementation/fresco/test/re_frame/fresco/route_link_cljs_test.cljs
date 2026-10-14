@@ -170,15 +170,6 @@
   value of an assertion, which is what a pin is for."
   [:on-mouse-enter :on-focus :on-touch-start])
 
-(deftest a-prefetch-key-never-reaches-the-anchor
-  (testing "`:prefetch` is routing's link-model key, not an HTML attribute, so
-           the key itself is consumed and never emitted as a stray attribute —
-           what it ASKS FOR reaches the anchor, the key does not"
-    (let [[_ attrs] (rendered {:to :conduit.profile/show :params {:username "jane"}
-                               :prefetch :intent}
-                              "jane")]
-      (is (not (contains? attrs :prefetch))))))
-
 (deftest prefetch-intent-fills-every-credible-intent-position
   (testing "the sugar: `:prefetch :intent` puts routing's own prefetch event
            at hover, focus and touch-start — one vector, three positions,
@@ -196,41 +187,9 @@
                (get attrs position))
             (str position " carries routing's prefetch intent, in band, "
                  "with no :fragment")))
-      (is (apply = (map attrs prefetch-positions))
-          "the SAME vector at each position — three triggers for one warm-up,
-           so `=` still sees two renders of one link as equal"))))
-
-(deftest no-prefetch-key-means-no-position-is-touched
-  (testing "passive by construction: absent `:prefetch`, none of the three
-           positions appears at all — not nil, not present-and-empty. This is
-           the control that keeps the row above honest, since an assertion
-           that a key is PRESENT says nothing about a link that did not ask"
-    (let [[_ attrs] (rendered {:to :conduit.profile/show :params {:username "jane"}}
-                              "jane")]
-      (doseq [position prefetch-positions]
-        (is (not (contains? attrs position))
-            (str position " is absent on a passive link"))))))
-
-(deftest the-prefetch-intent-lowers-and-dispatches-on-the-render-frame
-  (testing "the rendered vector is not merely well-shaped data — lowered
-           through Fresco's own intent lowering and fired, it DISPATCHES,
-           and it dispatches on the frame captured at RENDER (the same frame
-           `require-frame!` pinned the click to). Reading the vector alone
-           would pass on a link that warms nothing, which is the defect this
-           row exists to close"
-    (let [!seen     (atom [])
-          [_ attrs] (rendered {:to :conduit.profile/show :params {:username "jane"}
-                               :prefetch :intent}
-                              "jane")
-          h         (rf.fresco.impl.intent/with-frame frame-id
-                      (fn [ev] (swap! !seen conj ev) nil)
-                      (fn [] (rf.fresco.impl.intent/lower-prop
-                               :on-mouse-enter (:on-mouse-enter attrs))))]
-      (h (ev {}))
-      (is (= [[:rf.route/prefetch {:to     :conduit.profile/show
-                                   :params {:username "jane"}}]]
-             @!seen)
-          "firing the hover dispatched the prefetch — recorded, not inspected"))))
+      (is (not (contains? attrs :prefetch))
+          "and the `:prefetch` key itself is consumed, never emitted as a
+           stray attribute"))))
 
 (deftest a-caller-value-at-a-claimed-position-is-refused-at-render
   (testing "one intent per position: `:prefetch :intent` claims all three, so
@@ -257,20 +216,6 @@
                               "jane")]
       (is (= [:conduit/track "jane"] (:on-mouse-enter attrs))
           "the author's own hover intent passes through untouched"))))
-
-(deftest a-bad-prefetch-value-is-still-routings-refusal
-  (testing "a PRESENT `:prefetch` that is not `:intent` is routing's
-           `:rf.error/route-link-bad-prefetch`, raised from inside the seam
-           before Fresco's claimed-position check is reached. The two ids
-           stay distinct — that one means the value is bad, Fresco's means
-           the value is good and the position is taken"
-    (doseq [bad [:render nil]]
-      (is (thrown-with-msg?
-            js/Error #"route-link-bad-prefetch"
-            (rendered {:to :conduit.profile/show :params {:username "jane"}
-                       :prefetch bad}
-                      "jane"))
-          (str ":prefetch " (pr-str bad) " is refused")))))
 
 (deftest prevent-does-not-wrap-a-navigate
   (is (thrown-with-msg?

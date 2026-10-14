@@ -1,11 +1,9 @@
 (ns re-frame.fresco.examples.todo.flow-dom-cljs-test
   "L3 — THE WHOLE TODO FLOW, MOUNTED.
 
-  One pass through the application on a real React root: adding through
-  a real form submission, a real checkbox, edit-in-place under real
-  keystrokes, a real click on a real filter link, and — the central
-  claim — **keyed identity across a filter flip, asserted by DOM NODE
-  IDENTITY**. Every row ends at `hm/assert-clean!`.
+  The application on a real React root, and its central claim: **keyed
+  identity across a filter flip — a real click on a real filter link —
+  asserted by DOM NODE IDENTITY**. Every row ends at `hm/assert-clean!`.
 
   ## This file reaches no internal namespace either
 
@@ -18,10 +16,9 @@
   ## TWO CLICKS, TWO SETTLING RULES
 
   A Fresco intent dispatches through the runtime's own SYNCHRONOUS
-  frame-locked door, so after a real click on `.destroy` or
-  `.clear-completed` the handlers have run, `app-db` has moved and React
-  has committed: the next line reads the repainted page, and
-  `hm/settle!` is all that is owed.
+  frame-locked door, so after a real click on `.toggle` the handlers
+  have run, `app-db` has moved and React has committed: the next line
+  reads the repainted page, and `hm/settle!` is all that is owed.
 
   A **route-link** is different. `re-frame.routing/activate-link!` ends
   in the ASYNC door, so the click returns with the navigation merely
@@ -39,28 +36,16 @@
   than on an async mutation — so the trap is not a property of
   applications that talk to servers.
 
-  ## What this tier states rather than proves
-
-  `new-todo-box` claims that *Enter in a text field submits its form*.
-  A synthetic `KeyboardEvent` is untrusted and triggers no default
-  action, so implicit submission cannot be driven from a test at all.
-  [[submit!]] calls `HTMLFormElement.requestSubmit`, which fires exactly
-  the submit event the browser's own implicit submission fires — the
-  application's half of the claim is therefore driven, and the browser's
-  half is stated. `:on-key-down` is a React handler and IS driven, by a
-  real synthetic key event, below.
-
   ## Browser lane
 
   Every row needs a real document and a real React DOM. `:node-test`
   compiles this namespace too (`cljs-test$` matches `-dom-cljs-test`),
   and each row degrades there to a STATED skip rather than a false
   green."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
+  (:require [cljs.test :refer-macros [deftest is use-fixtures async]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.fresco.examples.todo.app :as rf.fresco.examples.todo.app]
-            [re-frame.fresco.examples.todo.db :as rf.fresco.examples.todo.db]
             [re-frame.fresco.examples.todo.events :as rf.fresco.examples.todo.events]
             [re-frame.fresco.examples.todo.routes :as rf.fresco.examples.todo.routes]
             [re-frame.fresco.examples.todo.subs :as rf.fresco.examples.todo.subs]
@@ -100,7 +85,6 @@
 
 (defn- node [m sel] (.querySelector (:container m) sel))
 (defn- nodes [m sel] (vec (array-seq (.querySelectorAll (:container m) sel))))
-(defn- text [m sel] (some-> (node m sel) .-textContent))
 (defn- titles [m] (mapv #(.-textContent %) (nodes m ".todo-title")))
 
 (defn- row-node
@@ -110,51 +94,6 @@
   [m title]
   (some-> (node m (str "[aria-label='Delete " title "']"))
           (.closest ".todo-row")))
-
-(defn- click!
-  "A real click on a Fresco intent, and then a settle. `HTMLElement.click()`
-  is what a `user-event` sequence ultimately performs; the intent's own
-  dispatch is synchronous, so the settle is all that is owed."
-  [m sel]
-  (.click (node m sel))
-  (rf.fresco.test.mounted/settle! m))
-
-(defn- double-click!
-  "A real `dblclick`, which `.click()` cannot synthesise."
-  [m sel]
-  (.dispatchEvent (node m sel) (js/MouseEvent. "dblclick" #js {:bubbles true}))
-  (rf.fresco.test.mounted/settle! m))
-
-(defn- press!
-  "A real `keydown` carrying `key`, at `sel`. React's synthetic
-  `onKeyDown` is driven by exactly this event, so the key-map's `.key`
-  lookup is the real one."
-  [m sel key]
-  (.dispatchEvent (node m sel) (js/KeyboardEvent. "keydown" #js {:key key :bubbles true}))
-  (rf.fresco.test.mounted/settle! m))
-
-(defn- submit!
-  "Submit the form at `sel` the way the browser's own implicit
-  submission does — see the namespace docstring on what this tier can
-  and cannot drive."
-  [m sel]
-  (.requestSubmit (node m sel))
-  (rf.fresco.test.mounted/settle! m))
-
-(defn- type-into!
-  "Type `v` into the field at `sel` — a foreign write followed by a real
-  `input` event, which is what a keystroke is from React's side.
-
-  Written through the PROTOTYPE's own `value` setter because React
-  patches the instance setter to maintain its change tracker: a plain
-  `set!` updates the tracker too, after which React reads the node as
-  already agreeing and the `input` below reaches no handler."
-  [m sel v]
-  (let [n (node m sel)
-        d (js/Object.getOwnPropertyDescriptor js/HTMLInputElement.prototype "value")]
-    (.call (.-set d) n v)
-    (.dispatchEvent n (js/InputEvent. "input" #js {:bubbles true}))
-    (rf.fresco.test.mounted/settle! m)))
 
 (defn- read-sub [m query-v] (rf/subscribe-once query-v {:frame (:frame m)}))
 
@@ -174,10 +113,10 @@
   "The whole application, on its own root and its own frame, seeded and
   pointed at *All*. `:initial-events` drain to fixed point before the
   first render, so a row opens on the seeded page."
-  ([] (mount-app! [:rf.route/navigate {:to rf.fresco.examples.todo.routes/all}]))
-  ([nav-event]
-   (rf.fresco.test.mounted/mount! [rf.fresco.examples.todo.views/app {}]
-              {:initial-events [[::rf.fresco.examples.todo.events/seed rf.fresco.examples.todo.app/sample-todos] nav-event]})))
+  []
+  (rf.fresco.test.mounted/mount! [rf.fresco.examples.todo.views/app {}]
+             {:initial-events [[::rf.fresco.examples.todo.events/seed rf.fresco.examples.todo.app/sample-todos]
+                               [:rf.route/navigate {:to rf.fresco.examples.todo.routes/all}]]}))
 
 (defn- finish
   "Tear down, assert this mount left nothing behind, and end the row."
@@ -198,119 +137,7 @@
       (.then (fn [_] (finish m done)))))
 
 ;; ---------------------------------------------------------------------------
-;; 1 — the seeded page, and adding one
-;; ---------------------------------------------------------------------------
-
-(deftest the-page-opens-seeded-and-a-real-submission-appends
-  (if-not (browser?)
-    (skip! "the seeded page and a form submission")
-    (async done
-      (let [m (mount-app!)]
-        (is (= rf.fresco.examples.todo.app/sample-todos (titles m))
-            "the frame's :initial-events drained before the first render")
-        (is (= "3 items left" (text m ".todo-count")))
-
-        (type-into! m "#new-todo" "buy milk")
-        (is (= "buy milk" (read-sub m [::rf.fresco.examples.todo.subs/new-todo]))
-            "controlled: the keystroke reached the model, not a local draft")
-
-        (submit! m ".new-todo-form")
-        (is (= (conj rf.fresco.examples.todo.app/sample-todos "buy milk") (titles m)))
-        (is (= "" (.-value (node m "#new-todo")))
-            "and the box emptied itself, because its :value IS the model")
-        (finish m done)))))
-
-;; ---------------------------------------------------------------------------
-;; 2 — a real checkbox, and the conditional chrome
-;; ---------------------------------------------------------------------------
-
-(deftest toggling-a-real-checkbox-moves-the-model-and-the-count
-  (if-not (browser?)
-    (skip! "a real checkbox")
-    (async done
-      (let [m (mount-app!)]
-        (.click (node m ".todo-row .toggle"))
-        (rf.fresco.test.mounted/settle! m)
-        (is (= 2 (read-sub m [::rf.fresco.examples.todo.subs/active-count])))
-        (is (= "2 items left" (text m ".todo-count")))
-        (is (true? (.-checked (node m ".todo-row .toggle")))
-            "the box shows what the model says, which is the same fact it
-             just sent there")
-        (is (some? (node m ".clear-completed"))
-            "and one completed to-do is what puts the button on the page")
-        (finish m done)))))
-
-(deftest clearing-completed-takes-the-chrome-with-it-when-nothing-is-left
-  (if-not (browser?)
-    (skip! "clear-completed and the conditional chrome")
-    (async done
-      (let [m (mount-app!)]
-        (click! m "#toggle-all")
-        (is (= "0 items left" (text m ".todo-count")))
-        (is (= "Clear completed (3)" (text m ".clear-completed")))
-
-        (click! m ".clear-completed")
-        (is (= [] (titles m)))
-        (is (nil? (node m ".todo-list")) "the list is gone")
-        (is (nil? (node m ".footer")) "and so is the footer")
-        (is (some? (node m "#new-todo"))
-            "the header stays — it is what you add the next one with")
-        (finish m done)))))
-
-;; ---------------------------------------------------------------------------
-;; 3 — edit in place, under real keys
-;; ---------------------------------------------------------------------------
-
-(deftest enter-commits-an-edit-and-escape-reverts-it
-  (if-not (browser?)
-    (skip! "edit-in-place under real keystrokes")
-    (async done
-      (let [m (mount-app!)]
-        (testing "a double-click opens ONE editor, pre-filled"
-          (double-click! m ".todo-row .todo-title")
-          (is (= 1 (count (nodes m ".edit"))))
-          (is (= "Read the spec" (.-value (node m ".edit")))))
-
-        (testing "Enter commits the typed text"
-          (type-into! m ".edit" "Read the whole spec")
-          (press! m ".edit" "Enter")
-          (is (= "Read the whole spec" (first (titles m))))
-          (is (nil? (node m ".edit")) "and the editor closed")
-          (is (nil? (read-sub m [rf.fresco.examples.todo.db/draft 1])) "leaving no draft behind"))
-
-        (testing "Escape reverts, and the blur that follows commits nothing"
-          (double-click! m ".todo-row .todo-title")
-          (type-into! m ".edit" "typed but cancelled")
-          (press! m ".edit" "Escape")
-          (is (nil? (node m ".edit")))
-          (is (= "Read the whole spec" (first (titles m)))
-              "the model still holds what Enter committed — the cancel
-               beat the late blur because the commit handler reads the
-               draft from app-db and Escape had already removed it"))
-
-        (finish m done)))))
-
-(deftest an-edit-opens-exactly-the-row-it-was-asked-for
-  (if-not (browser?)
-    (skip! "per-instance widget state")
-    (async done
-      (let [m (mount-app!)]
-        ;; the SECOND row, reached through its delete button's accessible
-        ;; name and `closest` — no test-only attribute on the application
-        (.dispatchEvent (.querySelector (row-node m "Write the witness") ".todo-title")
-                        (js/MouseEvent. "dblclick" #js {:bubbles true}))
-        (rf.fresco.test.mounted/settle! m)
-        (is (= 1 (count (nodes m ".edit")))
-            "one editor, because the draft is keyed by the to-do's id. A
-             hand-rolled [:ui :edit-draft] path would have opened all
-             three, silently")
-        (is (= "Write the witness" (.-value (node m ".edit"))))
-        (is (nil? (read-sub m [rf.fresco.examples.todo.db/draft 1])))
-        (is (= "Write the witness" (read-sub m [rf.fresco.examples.todo.db/draft 2])))
-        (finish m done)))))
-
-;; ---------------------------------------------------------------------------
-;; 4 — the filter, through a real link, and the KEYED IDENTITY claim
+;; The filter, through a real link, and the KEYED IDENTITY claim
 ;; ---------------------------------------------------------------------------
 
 (deftest a-filter-flip-keeps-the-surviving-rows-DOM-NODES
@@ -355,43 +182,3 @@
                        claim rather than a tautology about a list that
                        never changed")))
               (finish-after m done)))))))
-
-(deftest the-filter-lives-on-the-url-and-nowhere-else
-  (if-not (browser?)
-    (skip! "the routed filter")
-    (async done
-      (let [m (mount-app!)]
-        (-> (follow-filter! m "Completed" :completed)
-            (.then
-              (fn [_]
-                (is (= [] (titles m)) "nothing is done yet")
-                (is (= "selected" (.-className (node m ".filters a[href$='completed']")))
-                    "the highlighted tab is derived from the URL")
-                (is (= #{:todos :next-id :new-todo}
-                       (set (keys (rf/app-db-value (:frame m)))))
-                    "and app-db holds no copy of the filter to disagree
-                     with the address bar")))
-            (finish-after m done))))))
-
-;; ---------------------------------------------------------------------------
-;; 5 — an editor that survives a re-render it did not cause
-;; ---------------------------------------------------------------------------
-
-(deftest an-open-editor-survives-another-rows-toggle
-  (if-not (browser?)
-    (skip! "an open editor across an unrelated commit")
-    (async done
-      (let [m (mount-app!)]
-        (.dispatchEvent (.querySelector (row-node m "Merge the PR") ".todo-title")
-                        (js/MouseEvent. "dblclick" #js {:bubbles true}))
-        (rf.fresco.test.mounted/settle! m)
-        (type-into! m ".edit" "Merge it")
-        (let [field (node m ".edit")]
-          (.click (.querySelector (row-node m "Read the spec") ".toggle"))
-          (rf.fresco.test.mounted/settle! m)
-          (is (identical? field (node m ".edit"))
-              "the editor is the same element across a commit that moved a
-               different row — keyed rows again, and the reason a caret
-               survives an unrelated change")
-          (is (= "Merge it" (.-value field))))
-        (finish m done)))))

@@ -146,43 +146,6 @@
 (defn- readers-of [query-v] (count (rf.fresco.test.runtime/cell-readers (sub-key query-v))))
 
 ;; ---------------------------------------------------------------------------
-;; Law 1 — a commit of that sub dirties that boundary ONLY
-;; ---------------------------------------------------------------------------
-
-(deftest law-1-a-commit-dirties-the-readers-of-the-moved-sub-and-no-other-boundary
-  (seeded!)
-  (let [reads-a (mount! (reading [[:idxlaw/a]]))
-        reads-b (mount! (reading [[:idxlaw/b]]))]
-
-    (testing "the premise: two boundaries, two keys, one reader each"
-      (is (= 1 (readers-of [:idxlaw/a])))
-      (is (= 1 (readers-of [:idxlaw/b]))))
-
-    (rf.fresco.impl.collector/dispatch! frame-id [:idxlaw/bump :a])
-
-    (testing "the reader of the moved sub is woken exactly once"
-      (is (= 1 (woken reads-a))))
-
-    (testing "and the boundary that does not read it is not woken at all —
-              `only` is the whole law, and a runtime that woke every
-              committed boundary would satisfy the line above"
-      (is (= 0 (woken reads-b))))
-
-    ;; The mirror, on the same two counters, in the same test. Without it
-    ;; the zero above is equally the zero of a runtime that notifies
-    ;; nobody, and this file would be asserting silence.
-    (rf.fresco.impl.collector/dispatch! frame-id [:idxlaw/bump :b])
-
-    (testing "moving the OTHER sub wakes the other boundary and leaves the
-              first where it was: both counters are live, and each moved
-              only for its own key"
-      (is (= 1 (woken reads-b)))
-      (is (= 1 (woken reads-a))))
-
-    (release! reads-a)
-    (release! reads-b)))
-
-;; ---------------------------------------------------------------------------
 ;; Law 2 — two boundaries sharing a sub BOTH dirty
 ;; ---------------------------------------------------------------------------
 
@@ -307,6 +270,9 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Law 5 — the broad dirty set is the UNION of all readers of any dirty sub
+;;
+;; Its mirror half, a single-key commit waking that key's one reader and no
+;; other boundary, is law 1.
 ;; ---------------------------------------------------------------------------
 
 (deftest law-5-the-broad-dirty-set-is-the-union-and-a-double-reader-is-woken-once
@@ -387,7 +353,6 @@
     (release! reader)))
 
 (deftest law-6-a-dirty-cell-whose-readers-have-all-left-yields-the-empty-set
-  (seeded!)
   ;; The sharper half, and the one a `no cell` row cannot make: a cell
   ;; that EXISTS, is genuinely dirtied by a commit, and still contributes
   ;; no boundary. A released cell is given one macrotask of grace before

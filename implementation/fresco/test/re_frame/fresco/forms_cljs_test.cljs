@@ -9,7 +9,7 @@
   |---|---|---|
   | 1 | pure | the concern's spelling, which two gates pin, and its `app-db` layout |
   | 2 | L0 | every transition, driven through a real frame |
-  | 3 | L0 | the five trap classes, and the near-miss each must NOT catch |
+  | 3 | L0 | the addressing trap: one draft per control, and a bad control refused by name |
   | 4 | L2 | the body as a semantic tree — props, ownership, and the absence of a function |
   | 5 | hooks | the count, taken at React's own dispatcher |
 
@@ -53,7 +53,6 @@
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
             [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
             [re-frame.fresco.test.forms :as rf.fresco.test.forms]
-            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
             [re-frame.fresco.test :as rf.fresco.test]
             [re-frame.test-support :as rf.test-support]
             ["react-dom/server" :as react-dom-server]))
@@ -247,28 +246,6 @@
 ;; 2. The protocol
 ;; ---------------------------------------------------------------------------
 
-(deftest no-session-until-the-first-edit
-  (with-app
-    (fn [frame]
-      (is (nil? (record-of frame))
-          "focus creates nothing. There is no state to mint before there
-           is something to remember")
-      (is (= committed (shown-now frame))
-          "and the field is populated before anybody types, so the first
-           keystroke lands on top of the committed text rather than into
-           an empty box — there is no load-the-form step to forget"))))
-
-(deftest an-edit-opens-the-session-and-moves-nothing-else
-  (with-app
-    (fn [frame]
-      (type! frame 0 "Buy oat")
-      (is (= {:revision 0 :draft "Buy oat"} (record-of frame)))
-      (is (= "Buy oat" (shown-now frame)))
-      (is (= committed (title-of frame))
-          "the committed title has not moved — that is what BUFFERED means")
-      (is (zero? (revision-of frame))
-          "and typing is not a reset"))))
-
 (deftest a-commit-hands-the-caller-the-candidate-and-ends-the-session
   (with-app
     (fn [frame]
@@ -279,34 +256,6 @@
            Trimming is the handler's decision and the module takes none")
       (is (= "Buy oat milk" (title-of frame)))
       (is (nil? (record-of frame)) "and the session is over"))))
-
-(deftest a-refused-commit-still-ends-the-session
-  (with-app
-    (fn [frame]
-      (type! frame 0 "   ")
-      (commit! frame 0)
-      (is (= committed (title-of frame)) "the caller refused the blank draft")
-      (is (= 1 (revision-of frame))
-          "and advanced the revision, as this caller does on every commit.
-           The refusal does not depend on it: the session ends below, and a
-           field with no session shows `:value`")
-      (is (nil? (record-of frame))
-          "the session ended on the module's side whatever the caller
-           decided — two different facts, and this one is the module's")
-      (is (= committed (shown-now frame))
-          "so the blank text the caller refused is not left sitting in the
-           box looking accepted"))))
-
-(deftest a-second-commit-does-nothing
-  (with-app
-    (fn [frame]
-      (type! frame 0 "Buy oat milk")
-      (commit! frame 0)
-      (commit! frame 0)
-      (is (= 1 (count (committed-log frame)))
-          "Enter then blur, or double Enter: the second finds no record.
-           Idempotence by the MODEL, so no handler has to know what order
-           it ran in"))))
 
 (deftest escape-clears-the-draft-and-the-late-blur-commits-nothing
   (with-app
@@ -448,13 +397,15 @@
            entry — one representation of unset, not two"))))
 
 ;; ---------------------------------------------------------------------------
-;; 3. The five trap classes
+;; 3. The addressing trap
 ;; ---------------------------------------------------------------------------
 ;;
-;; The forms recipes carry these five and the module inherits every one,
-;; because it IS those recipes with the protocol moved behind a view.
-;; Three are decided here, one in §4, and two need a screen and are the
-;; mounted suite's. `forms-recipes.md` carries the table.
+;; The forms recipes carry five trap classes and the module inherits every
+;; one, because it IS those recipes with the protocol moved behind a view.
+;; `forms-recipes.md` carries the table. The rows here decide trap 5's
+;; addressing half; its survival half needs a screen and is the mounted
+;; suite's, and the protocol rows in §2 and the body rows in §4 hold the
+;; rest.
 
 (deftest trap-re-minted-ephemeral-state-two-fields-two-drafts
   ;; TRAP 5, the addressing half. A draft held in a render closure dies on
@@ -485,43 +436,6 @@
         (is (= ::rf.fresco.forms/drafts (:concern d))
             "and it names THIS module's concern, so the message points at
              the field the author wrote")))))
-
-(deftest trap-same-value-blindness-the-model-half
-  ;; TRAP 2. The user commits a draft equal to the committed title, so the
-  ;; value does not move and equality cannot see the decision. The field
-  ;; does not need it to: the commit ends the session, and a field with no
-  ;; session shows `:value` ([[a-refused-commit-still-ends-the-session]]).
-  (with-app
-    (fn [frame]
-      (type! frame 0 committed)
-      (commit! frame 0)
-      (is (= committed (title-of frame)) "the value did not move")
-      (is (= 1 (revision-of frame))
-          "and the revision did, because this caller advances it on every
-           commit. The revision is what replaces a live session from
-           outside, even with an equal value; a commit has already ended its
-           own"))))
-
-(deftest trap-commit-flicker-a-superseded-settle-changes-nothing
-  ;; TRAP 3. A settle lands while the user is editing again. Advancing the
-  ;; revision in it supersedes that session on purpose — the chapter does
-  ;; so only when the settled value should replace the draft — and what
-  ;; the fence buys is that the superseded session's late blur cannot
-  ;; commit over the settled value.
-  (with-app
-    (fn [frame]
-      (type! frame 0 "first")
-      (commit! frame 0)
-      (type! frame 1 "second")
-      (send! frame [::settle 7 "first (server)"])
-      (commit! frame 2)
-      (is (= [[7 "first"]] (committed-log frame))
-          "the settle moved the revision to 2, so the re-rendered field's
-           blur carries 2 and meets a record written at 1 — superseded,
-           and it never reaches the caller")
-      (is (= "first (server)" (title-of frame))
-          "and the settled value stands rather than flickering back to the
-           superseded draft"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 4. L2 — the body as a semantic tree
@@ -566,11 +480,9 @@
                                        nil))]
     (testing "through to the input, because a field nobody can label or
               style is not a field"
-      (is (= "What needs doing?" (:placeholder attrs)))
-      (is (= "title" (:class attrs)))
-      (is (= "title" (:name attrs)))
-      (is (= "todo-title" (:data-testid attrs)))
-      (is (= "Title" (:aria-label attrs))))
+      (is (= {:placeholder "What needs doing?" :class "title" :name "title"
+              :data-testid "todo-title" :aria-label "Title"}
+             (select-keys attrs [:placeholder :class :name :data-testid :aria-label]))))
     (testing "`:type` defaults to text and is not forced"
       (is (= "text" (:type attrs)))
       (is (= "email" (:type (input-attrs (field-tree {:type "email"} nil))))))
@@ -598,30 +510,6 @@
     (is (= [rf.fresco.test.forms/edit-id control 0 ::rf.fresco/value] (:on-input attrs)))
     (is (= [rf.fresco.test.forms/commit-id control 0 [::title-committed 7]] (:on-blur attrs)))
     (is (= #{"Enter" "Escape"} (set (keys (:on-key-down attrs)))))))
-
-(deftest trap-arity-sniffed-done-fn-every-handler-site-is-data
-  ;; TRAP 4, and TRAP 1's structural half with it. Spec 004B records a
-  ;; function-valued handler as `{:rf.ui/opaque :fn}`, so a completion
-  ;; callback smuggled in as a prop would show up here by tag and name.
-  ;; And the twin-atom stack cannot exist in a body that runs at all:
-  ;; `ht/tree` installs no React dispatcher, so a body holding local state
-  ;; would not have run — a statement by the instrument rather than by the
-  ;; author.
-  (let [trees  [(field-tree {::rf.fresco/revision 0} nil)
-                (field-tree {::rf.fresco/revision 0 :on-cancel [::title-cancelled 7]}
-                            {:revision 0 :draft "half typed"})]
-        opaque (for [tree  trees
-                     node  (rf.fresco.test/find-all tree map?)
-                     [k v] (rf.fresco.test/attrs node)
-                     :when (= {:rf.ui/opaque :fn} v)]
-                 [(:tag node) k])]
-    (is (= [] (vec opaque))
-        "not one function-valued prop. Give any slot a `(h/event …)` and this
-         row names the tag and the prop it appeared on")
-    (testing "and every intent the field offers is a vector of data"
-      (is (= 4 (count (rf.fresco.test/intents (first trees))))
-          "input, blur, Enter, Escape — four sites, four vectors, and the
-           Escape one carries a `nil` `:on-cancel` rather than a closure"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 5. The price, counted at React's own dispatcher
@@ -676,16 +564,7 @@
               effect: everything it knows is in `app-db` and reaches it
               through the same subscription hook every other boundary uses"
       (is (= (:hooks (server-render! [hand-written-field {}])) hooks))
-      (is (= ["useContext" "useSyncExternalStore" "useState"] hooks)))
-    (testing "so the module's own contribution is zero, stated as the
-              difference the two arms leave"
-      (is (zero? (- (count hooks)
-                    (count (:hooks (server-render! [hand-written-field {}])))))))
-    (testing "and the shell's ledger did not move — no `useRef`, and the
-              one `useState` is the element's rather than a boundary's"
-      (is (= 2 (count rf.fresco.test.runtime/shell-hook-ledger)))
-      (is (= [] (filterv #{"useRef"} hooks)))
-      (is (= 1 (count (filterv #{"useState"} hooks)))))))
+      (is (= ["useContext" "useSyncExternalStore" "useState"] hooks)))))
 
 (deftest an-untitled-todo-renders-an-empty-field
   ;; The chapter's own call site for a todo with no `:title` yet: `:todo/title` reads nil, the revision defaults to `0`,

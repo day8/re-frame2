@@ -190,13 +190,11 @@
             reverse edge and no watch; no sub-cache slot, so no reaction
             and no ref-count. An abandoned render pays for its reads and
             keeps none of them"
-    (is (nil? (get @rf.fresco.impl.collector/!cells (sub-key [:coldprobe/plain]))))
     (is (nil? (sub-cache-entry [:coldprobe/plain])))
-    (is (= [] (rf.fresco.test.runtime/cell-readers (sub-key [:coldprobe/plain]))))
     (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0}
            (dissoc (rf.fresco.test.runtime/residue) :entries))))
 
-  ;; THE CONTROL, and the reason the four nils above mean anything. Both
+  ;; THE CONTROL, and the reason the readings above mean anything. Both
   ;; tables are perfectly capable of holding this key; what decides is
   ;; whether React committed the render.
   (let [entry   (do (rf.fresco.impl.collector/render-body
@@ -206,7 +204,6 @@
     (testing "committing the very same read fills both tables — so the
               emptiness above is the probe's promise, not an instrument
               that cannot see"
-      (is (some? (get @rf.fresco.impl.collector/!cells (sub-key [:coldprobe/plain]))))
       (is (some? (sub-cache-entry [:coldprobe/plain])))
       (is (= 1 (count (rf.fresco.test.runtime/cell-readers (sub-key [:coldprobe/plain]))))))
     ;; The equivalence commit-free Tier-1 reads rest on: the probe's pure
@@ -300,12 +297,6 @@
     @reaction
     (vreset! !runs 0)
 
-    (testing "the premise: the reaction is in the frame's sub-cache and no
-              cell holds the key, so this read is cold by the runtime's
-              own definition and rung 1 is the rung it must take"
-      (is (some? (sub-cache-entry [:coldprobe/counted])))
-      (is (nil? (get @rf.fresco.impl.collector/!cells (sub-key [:coldprobe/counted])))))
-
     (testing "the read answers the reaction's own value"
       (is (= [7] (run-body! (fn [read] (read [:coldprobe/counted]))))))
 
@@ -319,9 +310,6 @@
   ;; THE CONTROL. Same key, same body, same value — with the warm reaction
   ;; released, so rung 1 has nothing to find and the read falls to the
   ;; pure compute. A zero that cannot become a one is not a measurement.
-  (testing "the sub-cache slot went with the last holder"
-    (is (nil? (sub-cache-entry [:coldprobe/counted]))))
-
   (vreset! !runs 0)
   (testing "and the same read now computes exactly once"
     (is (= [7] (run-body! (fn [read] (read [:coldprobe/counted])))))

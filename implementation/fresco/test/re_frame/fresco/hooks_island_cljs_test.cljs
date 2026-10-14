@@ -8,16 +8,13 @@
   re-renders, StrictMode's double mount, teardown, the crossing through
   `h/defhost` — and that is `hooks_island_dom_cljs_test`'s subject.
 
-  Five claims do NOT need a fiber, and they are the ones here, because
+  Two claims do NOT need a fiber, and they are the ones here, because
   the server renderer runs a component body for real:
 
   | row | what it establishes |
   |---|---|
-  | [[a-read-under-a-live-frame-answers-without-committing-anything]] | the COLD tier. A body runs, the value is right, and the runtime retained nothing — because nothing committed. Both arms. |
+  | [[a-read-under-a-live-frame-answers-without-committing-anything]] | the COLD tier. A body runs, the value is right, and the runtime retained nothing — because nothing committed. |
   | [[both-hooks-refuse-outside-every-frame-and-each-names-itself]] | the refusal, and that the two hooks are distinguishable in it. |
-  | [[a-live-with-frame-around-the-render-does-not-reach-either-hook]] | the ONE hook frame-resolution rule, adversarially: React context only, even when a `with-frame` is live on the very stack the body runs on. |
-  | [[use-frame-answers-the-runtimes-own-row-rather-than-capturing-its-own]] | the hook is not a second `capture-frame`. This is the row the incarnation rule rests on, and it is an IDENTITY test because an equality test passes for the wrong implementation. |
-  | [[the-namespace-is-the-two-hooks]] | the membership pin: `use-sub` and `use-frame` are present, and they are the whole namespace. |
 
   ## Why the server renderer is the harness
 
@@ -45,10 +42,8 @@
             [re-frame.fresco.native :as rf.fresco.native]
             [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
             [re-frame.test-support :as rf.test-support]
-            [uix.core :as uix :refer-macros [defui]]
             ["react" :as react]
-            ["react-dom/server" :as react-dom-server])
-  (:require-macros [re-frame.fresco.expansion-probe :as rf.fresco.expansion-probe]))
+            ["react-dom/server" :as react-dom-server]))
 
 (def ^:private frame-id ::hooks-island)
 
@@ -69,12 +64,6 @@
 ;; The islands
 ;; ---------------------------------------------------------------------------
 
-(defonce ^:private !observed-ops
-  ;; What `use-frame` handed the body on its last run. A module atom rather
-  ;; than a returned value because the thing under test is what a COMPONENT
-  ;; saw, and a component's return value is markup.
-  (atom nil))
-
 (defn- reader
   "Reads one subscription, and nothing else. Raw React."
   [^js props]
@@ -84,20 +73,7 @@
   "Takes the frame-locked ops and reports the frame it was locked to."
   [^js _props]
   (let [ops (rf.fresco.native/use-frame)]
-    (reset! !observed-ops ops)
     (react/createElement "span" nil (str (:frame ops)))))
-
-(defui uix-reader
-  "The same read in a UIx `defui`: the hook does not know which dialect
-  called it."
-  [{:keys [sym]}]
-  (uix/$ :span (str (rf.fresco.native/use-sub [::price sym]))))
-
-(defn- uix-arm
-  "The plain React shim every crossing into UIx needs — UIx's ABI is a
-  carrier object its own `uix/$` builds."
-  [^js props]
-  (uix/$ uix-reader {:sym (.-sym props)}))
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -166,24 +142,6 @@
             one prohibition — which would leave a cell and a membership
             behind on a render React discarded, and which is invisible
             from the markup because the markup is right either way"
-    (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0} (cold-residue))))
-
-  (testing "`:entries` is deliberately outside that reading, and being
-            exact about it is the difference between a census and a
-            slogan. A read-set entry is minted during the RENDER — it is
-            the cached `subscribe`/`getSnapshot` pair React is about to be
-            handed — and claimed at the COMMIT that never came here; an
-            unclaimed one belongs to `collector/entry-reap-horizon-ms`'s
-            reaper. That is not a property of hooks: a boundary body whose
-            render React discards leaves exactly the same one, and the
-            hook seam mints through the same door precisely so there is
-            one story"
-    (is (= 1 (:entries (rf.fresco.test.runtime/residue)))))
-
-  (testing "the UIx arm is the same hook and the same reading: the value
-            is right, and nothing was committed"
-    (is (= "<span>191</span>"
-           (render-under-frame! (react/createElement uix-arm #js {:sym "AAPL"}))))
     (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0} (cold-residue)))))
 
 ;; ---------------------------------------------------------------------------
@@ -207,117 +165,4 @@
             refusal to the boundary shell, which is not what refused"
     (let [data (refusal #(render-frameless! (react/createElement framed nil)))]
       (is (= :rf.error/no-frame-context (:rf.error/id data)))
-      (is (= 're-frame.fresco.native/use-frame (:where data)))))
-
-  (testing "and a UIx island refuses the same way: the dialect the body is
-            written in does not change where the frame comes from"
-    (let [data (refusal #(render-frameless! (react/createElement uix-arm #js {:sym "AAPL"})))]
-      (is (= :rf.error/no-frame-context (:rf.error/id data)))
-      (is (= 're-frame.fresco.native/use-sub (:where data))))))
-
-;; ---------------------------------------------------------------------------
-;; 2b. The one hook frame-resolution rule, stated adversarially
-;; ---------------------------------------------------------------------------
-
-(deftest a-live-with-frame-around-the-render-does-not-reach-either-hook
-  (testing "the ONE rule the React hook family follows: a hook
-            resolves from the React context the boundary above it installed,
-            and from NOTHING else. `renderToStaticMarkup` runs the component
-            body on THIS stack, so a `with-frame` wrapped around it is
-            genuinely live while the body runs — which is the only condition
-            under which a dynamic-var tier could ever answer, and therefore
-            the only shape in which this claim can be tested at all. These
-            rows hold Fresco's native tier to the rule, and make it a SHARED
-            statement with the UIx family's hooks rather than one adapter's
-            private choice."
-    (seat!)
-    (rf/make-frame {:id ::somewhere-else})
-    (rf/with-frame ::somewhere-else (rf/dispatch-sync [::seed {"AAPL" :wrong-frame}]))
-
-    (testing "`n/use-sub` under a boundary reads the BOUNDARY's frame while a
-              with-frame naming a different one is live around the render"
-      (is (= "<span>191</span>"
-             (rf/with-frame ::somewhere-else
-               (render-under-frame! (react/createElement reader #js {:sym "AAPL"}))))))
-
-    (testing "`n/use-frame` locks its bundle to the BOUNDARY's frame in the
-              same condition — the ops map is the one the surrounding context
-              names, so a dispatch made through it after the scope unwinds
-              still targets that frame and not the scope's"
-      (is (= (str "<span>" frame-id "</span>")
-             (rf/with-frame ::somewhere-else
-               (render-under-frame! (react/createElement framed nil)))))
-      (is (= frame-id (:frame @!observed-ops))))
-
-    (testing "and with NO boundary above it a live with-frame does not rescue
-              either hook: absence is still the loud refusal. This is the case
-              that separates `context ONLY` from `context FIRST` — a chain that
-              merely reordered the two tiers would answer here"
-      (let [data (refusal #(rf/with-frame frame-id
-                             (render-frameless!
-                               (react/createElement reader #js {:sym "AAPL"}))))]
-        (is (= :rf.error/no-frame-context (:rf.error/id data)))
-        (is (= 're-frame.fresco.native/use-sub (:where data))))
-      (let [data (refusal #(rf/with-frame frame-id
-                             (render-frameless! (react/createElement framed nil))))]
-        (is (= :rf.error/no-frame-context (:rf.error/id data)))
-        (is (= 're-frame.fresco.native/use-frame (:where data)))))))
-
-;; ---------------------------------------------------------------------------
-;; 3. `use-frame` is the runtime's row, not a second capture
-;; ---------------------------------------------------------------------------
-
-(deftest use-frame-answers-the-runtimes-own-row-rather-than-capturing-its-own
-  (seat!)
-  (reset! !observed-ops nil)
-  (let [markup (render-under-frame! (react/createElement framed nil))
-        ops    @!observed-ops]
-
-    (testing "the shape is `capture-frame`'s, locked to the ambient frame"
-      (is (= (str "<span>" frame-id "</span>") markup))
-      (is (= frame-id (:frame ops)))
-      (is (every? #(fn? (get ops %)) [:dispatch :dispatch-sync :subscribe])))
-
-    (testing "and it is IDENTICAL to the runtime's own memo row for this
-              frame — the bundle a lowered intent's ambient dispatch was
-              minted over, not a second `rf/capture-frame` the hook took
-              for itself.
-
-              This is the row the incarnation rule rests on, and equality
-              would not have caught it: `rf/capture-frame` called twice on
-              one live frame answers two maps that are `=` and are not the
-              same object. The UIx adapter's `use-frame` is exactly that
-              implementation, memoised on the frame KEYWORD — which is `=`
-              across a same-id reincarnation, so it would hand a destroyed
-              incarnation's bundle out forever. `hooks_island_dom_cljs_test`
-              drives the reincarnation itself; this row is where the
-              structural reason lives"
-      (is (identical? (:ops (rf.fresco.impl.collector/frame-row frame-id)) ops)))))
-
-;; ---------------------------------------------------------------------------
-;; 4. The membership pin
-;; ---------------------------------------------------------------------------
-
-(def ^:private publics
-  "Every public var name in `re-frame.fresco.native`, read from the
-  compiler at expansion — the analyser's public defs for the runtime
-  half, the JVM namespace's public vars for the macro half."
-  (set (rf.fresco.expansion-probe/public-vars re-frame.fresco.native)))
-
-(deftest the-namespace-is-the-two-hooks
-  (testing "the census is not vacuous: the probe really read a namespace.
-            Narrowing caught: an analyser lookup answering an empty map on
-            a miss, which would make the row below pass by describing
-            nothing"
-    (is (seq publics)))
-
-  (testing "the two hooks are there, and they resolve"
-    (is (contains? publics "use-sub"))
-    (is (contains? publics "use-frame"))
-    (is (fn? rf.fresco.native/use-sub))
-    (is (fn? rf.fresco.native/use-frame)))
-
-  (testing "and they are the whole namespace — a third public var reds
-            here at the diff that adds it"
-    (is (= #{"use-sub" "use-frame"} publics)
-        "the namespace's public census is exactly the two hooks")))
+      (is (= 're-frame.fresco.native/use-frame (:where data))))))

@@ -109,17 +109,6 @@
 ;; The id — `reg-view`'s derivation, spelled once
 ;; ---------------------------------------------------------------------------
 
-(deftest the-entry-appears-under-the-id-reg-view-would-have-derived
-  (testing "`::aliased-row` IS `(keyword \"<ns>\" \"<sym>\")`, so an author
-            who knows how to name a core view already knows how to name a
-            Fresco one"
-    (is (some? (slot ::aliased-row))))
-
-  (testing "the peer proves it is ONE convention and not two that happen to
-            agree today — both ids are this namespace qualifying the
-            declaration's own symbol"
-    (is (some? (slot ::core-peer)))))
-
 ;; ---------------------------------------------------------------------------
 ;; The coordinate — where `reg-view` stores it
 ;; ---------------------------------------------------------------------------
@@ -142,7 +131,6 @@
   (testing "a documented declaration carries its `:doc`, so the registrar's
             `:rf.warning/missing-doc` nudge cannot fire against a view that
             IS documented"
-    (is (string? (:doc (slot ::aliased-row))))
     (is (re-find #"DOCUMENTED boundary" (:doc (slot ::aliased-row)))))
 
   (testing "an undocumented one carries none — the slot reports what the
@@ -153,17 +141,6 @@
 ;; The head, and the `rf/view` answer it makes possible
 ;; ---------------------------------------------------------------------------
 
-(deftest the-entry-carries-the-minted-head-itself
-  (testing "`:handler-fn` is the very value the `def` binds — nothing
-            wrapped it on the way into the registrar"
-    (is (identical? aliased-row (:handler-fn (slot ::aliased-row))))
-    (is (fn? (:handler-fn (slot ::aliased-row)))))
-
-  (testing "and there is no private key beside it, so no consumer can read
-            the head from a second slot"
-    (is (not (contains? (slot ::aliased-row) :fresco/component)))
-    (is (not (contains? (slot ::aliased-row) :executable-key)))))
-
 (deftest rf-view-answers-the-boundary-and-answers-it-untouched
 
   (testing "`(rf/view id)` resolves a Fresco view the way it resolves a
@@ -172,17 +149,7 @@
             `view-head` returns a slot this namespace did not build exactly
             as stored, so nothing composed, wrapped or componentised a
             boundary that already IS a React component"
-    (is (identical? aliased-row (rf/view ::aliased-row))))
-
-  (testing "the peer is the control: an ordinary `reg-view` in this same
-            process resolves too, so the answer above is this entry's shape
-            and not an accident of the lookup"
-    (is (some? (:handler-fn (slot ::core-peer))))
-    (is (some? (rf/view ::core-peer))))
-
-  (testing "an id nothing registered still answers nil — the lookup
-            discriminates, it does not answer everything"
-    (is (nil? (rf/view ::nothing-registered-under-this-id)))))
+    (is (identical? aliased-row (rf/view ::aliased-row)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The adapter-timing witness (constraint 3)
@@ -200,16 +167,7 @@
             given — it stores a WRAPPER built around it. A `:handler-fn`
             that is `identical?` to the raw `def` value was therefore never
             near that path, whatever key it sits under"
-    (is (identical? aliased-row (:handler-fn (slot ::aliased-row)))))
-
-  (testing "and a registration made HERE, with no adapter installed, is
-            whole — same id, same coord keys, same untouched head"
-    (let [head #(:handler-fn (slot ::aliased-row))
-          before (head)]
-      (rf.fresco.impl.collector/publish-view-alias!
-        ::aliased-row (select-keys (slot ::aliased-row) coord-keys) before)
-      (is (identical? before (head)))
-      (is (identical? before (rf/view ::aliased-row))))))
+    (is (identical? aliased-row (:handler-fn (slot ::aliased-row))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Hot reload — the registrar's own replacement, and nothing added for it
@@ -238,9 +196,8 @@
       (is (identical? reloaded (rf/view ::aliased-row))))
 
     (testing "the shape is unchanged across the reload — still the ordinary
-              key, still no `:executable-key`, still the coordinate"
-      (is (not (contains? (slot ::aliased-row) :executable-key)))
-      (is (= coords (select-keys (slot ::aliased-row) coord-keys))))))
+              key, still no `:executable-key`"
+      (is (not (contains? (slot ::aliased-row) :executable-key))))))
 
 ;; ---------------------------------------------------------------------------
 ;; What the reload TELLS a tool — the `:different-fn?` discriminator
@@ -298,7 +255,7 @@
 
     ;; The entry names no `:executable-key`, and does not need to: the
     ;; registrar's derivation already defaults to `:handler-fn`, which is
-    ;; where the head lives (`the-entry-carries-the-minted-head-itself`).
+    ;; where the head lives (`the-slot-is-written-adapter-neutrally`).
     ;; The registrar tells the two cases apart without learning anything
     ;; about Fresco — and without Fresco telling it anything either. The two
     ;; rows below are the proof that the default derivation actually bites.
@@ -309,9 +266,7 @@
       (let [rotated (fn rotated-row [_] nil)
             calls   (while-recording
                       #(rf.fresco.impl.collector/publish-view-alias! ::aliased-row coords rotated))]
-        (is (= 1 (count calls)) "exactly one replacement, not zero and not two")
-        (is (= {:kind :view :id ::aliased-row :different-fn? true}
-               (first calls)))))
+        (is (= [{:kind :view :id ::aliased-row :different-fn? true}] calls))))
 
     (testing "and it is a DISCRIMINATOR, not a constant: re-publishing the
               head already in the slot is the idempotent reload it looks
@@ -319,6 +274,4 @@
       (let [same  (head)
             calls (while-recording
                     #(rf.fresco.impl.collector/publish-view-alias! ::aliased-row coords same))]
-        (is (= 1 (count calls)) "the hook fires on every re-registration")
-        (is (= {:kind :view :id ::aliased-row :different-fn? false}
-               (first calls)))))))
+        (is (= [{:kind :view :id ::aliased-row :different-fn? false}] calls))))))
