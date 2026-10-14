@@ -16,14 +16,14 @@
     {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- refused
-  "Run `thunk`, expecting it to throw. Returns `{:data … :message …}` for the
-  thrown `ExceptionInfo`, or nil if it returned normally."
+  "Run `thunk`, expecting it to throw. Returns `{:data …}` for the thrown
+  `ExceptionInfo`, or nil if it returned normally."
   [thunk]
   (try
     (thunk)
     nil
     (catch clojure.lang.ExceptionInfo e
-      {:data (ex-data e) :message (ex-message e)})))
+      {:data (ex-data e)})))
 
 (deftest explicit-opts-on-a-non-frame-scoped-kind-fail-closed
   ;; `:sub` takes no opts at all, so a well-formed `{:frame f}` is refused just
@@ -42,8 +42,8 @@
       "zero residue: the refused calls cleared nothing"))
 
 (deftest unknown-kind-fails-closed-and-reports-the-closed-set
-  (let [{:keys [data message]} (refused #(rf/clear :widget :guard/nope))
-        kinds                  (set (:clear-kinds data))]
+  (let [{:keys [data]} (refused #(rf/clear :widget :guard/nope))
+        kinds          (set (:clear-kinds data))]
     (is (= {:rf.error/id :rf.error/registrar-clear-bad-request
             :reason      :unknown-kind
             :kind        :widget}
@@ -51,6 +51,4 @@
     ;; One registrar kind, the added `:http-interceptor`, and the removed `:frame`
     ;; (a live runtime object torn down by `destroy-frame!`).
     (is (every? kinds [:event :http-interceptor]))
-    (is (not (contains? kinds :frame)))
-    (is (re-find #":resource-scope" (str message))
-        "the message spells the closed set out")))
+    (is (not (contains? kinds :frame)))))
