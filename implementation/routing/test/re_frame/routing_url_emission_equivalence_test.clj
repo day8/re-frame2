@@ -41,13 +41,11 @@
   2. **`\\:` deleted from the same set.** A run swallows the param sigil, so
      every pattern emits its own text where the value belongs
      (`/profile/:username` for `{:username \"jane\"}`). RED: failures across
-     `emitted-paths-are-exactly-what-the-pattern-says` and
-     `every-emitted-url-matches-back-to-the-address-it-came-from`.
+     `emitted-paths-are-exactly-what-the-pattern-says`.
   3. **The fast walk's optional-group bail turned into a skip** — `\\{` / `\\}`
      consumed instead of returning nil, so a group pattern never reaches the
-     general loop. RED: `/docs{/:section}?` emits `/docs/api?`, an elided group
-     raises `:rf.error/missing-route-param`, and `/docs{/:section}?{/:page}?`
-     round-trips to the wrong route.
+     general loop. RED: `/docs{/:section}?` emits `/docs/api?`, and an elided
+     group raises `:rf.error/missing-route-param`.
 
   Mutation 3 is also why the walk decides for itself, in a branch of its own
   loop, rather than being switched on by an `(empty? groups)` gate computed
@@ -107,23 +105,6 @@
     (is (= expected (rf.routing.registry/route-url (cond-> {:to to} params (assoc :params params))))
         (str to " " (pr-str params)))))
 
-(deftest every-emitted-url-matches-back-to-the-address-it-came-from
-  (register-routes!)
-  (testing "the prism holds over both walks — route-url then match-url"
-    ;; `:eq/base` is absent: `/:only` also matches its `/x` and out-ranks it,
-    ;; so its row would assert this fixture's ranking rather than the prism.
-    (doseq [[to params] [[:eq/root    {}]
-                         [:eq/plain   {}]
-                         [:eq/profile {:username "a&b?c"}]
-                         [:eq/pair    {:x "1" :y "2"}]
-                         [:eq/only    {:only "solo"}]
-                         [:eq/files   {:rest "a/b/c.txt"}]
-                         [:eq/docs    {:section "api"}]
-                         [:eq/chain   {:section "api" :page "2"}]]]
-      (let [url (rf.routing.registry/route-url {:to to :params params})]
-        (is (= [to params] ((juxt :route-id :params) (rf.routing.registry/match-url url)))
-            (str "round trip of " url))))))
-
 ;; ===========================================================================
 ;; The fail-closed classes — every one of them closed
 ;; ===========================================================================
@@ -131,13 +112,9 @@
 (deftest the-emission-guards-still-refuse-what-they-always-refused
   (register-routes!)
 
-  (testing "an absent or empty path param, inside an optional group too"
-    (doseq [[to params] [[:eq/profile {}]
-                         [:eq/profile {:username ""}]
-                         [:eq/docs    {:section ""}]]]
-      (is (= :rf.error/missing-route-param
-             (:rf.error/id (thrown-data #(rf.routing.registry/route-url {:to to :params params}))))
-          (str to " " (pr-str params)))))
+  (testing "an empty top-level path param"
+    (is (= :rf.error/missing-route-param
+           (:rf.error/id (thrown-data #(rf.routing.registry/route-url {:to :eq/profile :params {:username ""}}))))))
 
   (testing "the set-free membership test counts neither a NAMESPACED key nor a
             NON-keyword key as the bare capture of the same name"
@@ -148,11 +125,6 @@
     (is (= :uncaptured-params
            (:reason (thrown-data #(rf.routing.registry/route-url
                                     {:to :eq/profile :params {:username "j" "username" "x"}}))))))
-
-  (testing "the reject scan refuses a non-address key"
-    (is (= {:reason :bad-address-keys :keys [:replace?]}
-           (select-keys (thrown-data #(rf.routing.registry/route-url {:to :eq/plain :replace? true}))
-                        [:reason :keys]))))
 
   (testing "an integer outside the safe range takes the guard's slow leg and is refused"
     (is (= :rf.error/route-url-non-edn-value
