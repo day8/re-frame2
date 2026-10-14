@@ -15,6 +15,9 @@
             [re-frame.core :as rf]
             [re-frame.fx :as rf.fx]
             [re-frame.routing]
+            ;; The routing nav-allocation cofx declares a :schema, which needs the
+            ;; schemas artefact loaded.
+            [re-frame.schemas]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
