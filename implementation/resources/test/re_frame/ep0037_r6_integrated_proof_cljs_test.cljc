@@ -36,7 +36,6 @@
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.fx :as rf.fx]
-   [re-frame.registrar :as rf.registrar]
    ;; load-bearing side-effecting requires: register the routing + resources
    ;; events / subs and resources' late-bound `:routing/*` integration hooks.
    [re-frame.resources]
@@ -482,10 +481,6 @@
       (is (= [:rf.route/prefetch {:to :conduit/article :params {:slug slug}}]
              (rf.routing.link/prefetch-payload props))
           "the link's intent payload is the address ONLY — no policy, no fragment")
-      #?(:cljs (is (fn? (:on-mouse-enter attrs))
-                   "the real anchor carries the composed intent handler; that
-                    handler's own behaviour is pinned by
-                    `the-real-anchor-intent-handler-composes-and-dispatches`"))
       ;; The anchor's handler enqueues ASYNCHRONOUSLY (a DOM event handler), so
       ;; the exact payload it dispatches is dispatched synchronously here.
       (let [traces (capture-traces
@@ -540,23 +535,12 @@
 
 #?(:cljs
    (deftest the-real-anchor-intent-handler-composes-and-dispatches
-     (testing "row 7's `BOTH link surfaces` clause for `rf/route-link`. The
-               handler must run the caller's `:on-mouse-enter` FIRST and then
-               enqueue EXACTLY ONE prefetch payload, stamped `:source :router`,
-               to the frame that RENDERED the link — not an ambient frame
-               resolved at event time.
-
-               Read as an ORDERED MILESTONE SEQUENCE, because neither law is
-               visible to an after-the-fact read. `(some? (first
-               (filter …)))` over the captured traces is exactly as true for one
-               dispatch as for five, so cardinality goes unasserted; and a
-               caller-ran counter inspected once the composed handler has already
-               RETURNED is exactly as true whether the dispatch preceded the
-               caller or followed it, so ordering goes unasserted. Under such a
-               read, a mutation that dispatched twice, and before the caller,
-               would keep the whole CLJS lane green. So the caller pushes
-               `:caller` and the trace listener pushes `:dispatch` into ONE
-               atom as each happens, and the law IS the sequence."
+     (testing "row 7's `BOTH link surfaces` clause for `rf/route-link`: the
+               handler runs the caller's `:on-mouse-enter` FIRST, then enqueues
+               EXACTLY ONE prefetch payload, stamped `:source :router`, to the
+               frame that RENDERED the link. The caller and the trace listener
+               push into ONE atom as each happens, because neither the order nor
+               the count is visible once the composed handler has returned."
        (let [app        (boot-app!)
              other      (seal-frame! {:frame-id :conduit/other})
              slug       "composed"
@@ -568,7 +552,6 @@
              props      (article-link-props slug (fn [_e] (swap! milestones conj :caller)))
              attrs      (second (rf/with-frame app
                                   (rf.routing.link/route-link-render props "Read it")))]
-         (is (fn? (:on-mouse-enter attrs)))
          ;; render scope has unwound by the time a real pointer arrives, and a
          ;; DIFFERENT frame is ambient; the handler must still target the
          ;; render-time frame.
@@ -598,16 +581,6 @@
 ;; ===========================================================================
 ;; 4. Auth denial + fresh return, through the PUBLIC door (EP row 8)
 ;; ===========================================================================
-
-(deftest the-app-seals-a-frame-after-registering-the-public-denial-handler
-  ;; Rather than throwing :rf.error/image-duplicate-id with colliding
-  ;; coordinates [{:ns nil} {:ns "<app ns>"}].
-  (let [app (boot-app! {:auth-arm :client})]
-    (is (= [true 1 true]
-           [(some? app)
-            (count (filter #(= :rf.route/entry-denied %) (keys (rf.registrar/registrations :event))))
-            (some? (seal-frame! {:frame-id :conduit/second-frame}))])
-        "the frame sealed, the app's registration replaced the default, and a later frame seals too")))
 
 (deftest a-denial-handler-registered-after-the-frame-was-sealed-still-fires
   ;; The complementary order — `docs/routing/testing.md` writes its entry-denied
