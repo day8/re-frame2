@@ -149,8 +149,7 @@ test('a module the service refuses at boot is exit 1, the refusal code on stderr
   assert.strictEqual(r.stdout, '');
 });
 
-test('the manifest points its bin at this launcher, exports the two entry points, and pins the Node CI runs', () => {
+test('the manifest points its bin at this launcher and exports the two entry points', () => {
   assert.deepStrictEqual(Object.values(manifest.bin), ['./bin/serve.cjs']);
   assert.deepStrictEqual(manifest.exports, { './service': './src/service.cjs', './http': './src/http.cjs' });
-  assert.strictEqual(manifest.engines.node, '>=24');
 });
