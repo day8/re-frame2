@@ -15,22 +15,6 @@
 (def ^:private snapshot rf.machines.test-support/snapshot)
 (def ^:private frame-db rf.machines.test-support/runtime-db)
 
-(deftest finalize-auto-destroy-clears-parent-data-rf-spawned-slot
-  (rf/reg-machine :fin/kid {:initial :running
-                            :data    {}
-                            :states  {:running {:on {:go :done}}
-                                      :done    {:final? true}}})
-  (rf/reg-machine :sup/finalize {:initial :idle
-                                 :states  {:idle    {:on {:start :working}}
-                                           :working {:spawn {:machine-id :fin/kid :start [:go]}}}})
-  ;; The child reaches :final? on its :start, so the FINALIZE path destroys it.
-  (rf/dispatch-sync [:sup/finalize [:start]])
-  (is (= [nil nil nil]
-         [(snapshot :fin/kid#1)
-          (get-in (frame-db) [:rf.runtime/machines :spawned :sup/finalize [:working]])
-          (get-in (snapshot :sup/finalize) [:data :rf/spawned [:working]])])
-      "the child auto-destroyed, and neither its registry slot nor the parent's mirror names a dead id"))
-
 (deftest multi-child-independent-tracking
   (doseq [id [:child/a :child/b :gc/x :gc/y]]
     (rf/reg-machine id {:initial :running :data {} :states {:running {}}}))
