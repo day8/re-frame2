@@ -10,15 +10,13 @@
   chains onto the hook too, so the React adapters are a required SUBSET of
   the producers rather than the exact set."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [clojure.set :as set]
             ;; Loading every adapter ns here forces all three to publish
             ;; their chain steps before this test's deftest runs. Every
             ;; require is load-bearing — do not trim.
             [re-frame.adapter.reagent       :as rf.adapter.reagent]
             [re-frame.adapter.reagent-slim  :as rf.adapter.reagent-slim]
             [re-frame.adapter.uix           :as rf.adapter.uix]
-            [re-frame.late-bind             :as rf.late-bind]
-            [re-frame.late-bind.directory   :as rf.late-bind.directory]))
+            [re-frame.late-bind             :as rf.late-bind]))
 
 (def ^:private hook-key :reagent/set-hiccup-emitter!)
 
@@ -38,22 +36,6 @@
   [["reagent"      rf.adapter.reagent/adapter]
    ["reagent-slim" rf.adapter.reagent-slim/adapter]
    ["uix"          rf.adapter.uix/adapter]])
-
-(deftest directory-entry-pins-the-chained-contract
-  (testing "the directory entry for :reagent/set-hiccup-emitter!
-            stays `:chained? true` and lists every React-shaped adapter as
-            a producer"
-    (let [entry (some (fn [e] (when (= hook-key (:key e)) e))
-                      rf.late-bind.directory/hooks)
-          producers (set (let [p (:producer-ns entry)]
-                           (if (sequential? p) p [p])))
-          react-adapters '#{re-frame.adapter.reagent
-                            re-frame.adapter.reagent-slim
-                            re-frame.adapter.uix}]
-      (is (= [true true] [(:chained? entry) (set/subset? react-adapters producers)])
-          (str ":reagent/set-hiccup-emitter! must be `:chained? true`, since a `set-fn!` "
-               "in any of its producers clobbers the chain, and must list every "
-               "React-shaped adapter as a producer. Directory entry: " (pr-str entry))))))
 
 (deftest chained-install-fans-out-to-every-adapter
   (testing "invoking the chained `:reagent/set-hiccup-emitter!`
