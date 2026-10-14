@@ -8,43 +8,15 @@
   1. **The entry reap horizon is past a bare `setTimeout 0`** — the
      property `hydrateRoot`'s passive subscribe needs, expressed as the
      race it has to win rather than as the integer it is implemented
-     with.
+     with. `read_profile_baseline_cljs_test`'s
+     `one-bare-macrotask-lands-in-front-of-the-reap-horizon` runs that
+     race on a clock that stands still; this file holds the other half,
+     that an entry a commit claimed is never reaped at any horizon.
   2. **A runtime reset shuts the adoption window** — so a fixture that
      throws mid-hydration cannot leave the page permanently adopting.
   3. **`body-runs` counts real body runs**, is monotone, and survives
      `reset-runtime!` — HD-028's rider stated where it can be stated
-     exactly.
-
-  ## Why row 1 is not a contract test in disguise
-
-  `arm1.runtime/entry-reap-horizon-ms` is a MARGIN and its own docstring
-  says no caller may rely on it. What is asserted below is not \"4 ms\":
-  it is that an entry a render minted is **still in the cache one bare
-  macrotask later**, which a `setTimeout 0` horizon would break and is
-  the only thing about the horizon that is a design property rather than
-  a measurement. Setting the horizon to 0 turns this row red;
-  raising it to 32 does not.
-
-  ## Why row 1 runs the race on a clock that stands still
-
-  On Node's real clock two things that are not the horizon decide the
-  race. One is wall-clock time: a reaper's horizon runs from its own
-  arming, so every millisecond the host spends before the probe fires
-  counts against it. The other is Node's timer lists — one per
-  duration, each drained whole when its turn comes, and taken in the
-  order of their oldest pending timer. A 0 ms timer an earlier row left
-  pending puts the probe's list, probe included, in front of a reaper
-  already past its horizon; a 4 ms one puts the reaper's list first and
-  the row goes red with nothing about the horizon changed. Under this
-  lane the probe fires more than 4 ms after its own arming, with the
-  reaper already overdue, so on a real clock the row reports which of
-  those timers is older.
-
-  So the row records the timers the render arms instead of arming them,
-  adds the probe, and fires them as a clock that does not move during
-  the render would: by delay, ties in arm order. Both properties above
-  hold there — at a horizon of 0 the reaper ties the probe and was
-  armed first, so the row goes red; at 32 it stays green."
+     exactly."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
@@ -73,47 +45,9 @@
   (rf.bench.fresco.arm1.runtime/render-body frame-id (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))]) {})
   (rf.bench.fresco.arm1.runtime/last-reads))
 
-(defn- armed-by
-  "Calls `f` with `setTimeout` recording each timer instead of arming it,
-  and answers `[result timers]`: every timer `f` armed, as
-  `[delay-ms callback]` in arm order."
-  [f]
-  (let [real    (.-setTimeout js/globalThis)
-        !timers (volatile! [])]
-    (set! (.-setTimeout js/globalThis)
-          (fn [callback ms] (vswap! !timers conj [(or ms 0) callback]) nil))
-    (try
-      [(f) @!timers]
-      (finally (set! (.-setTimeout js/globalThis) real)))))
-
-(defn- fire-on-a-still-clock!
-  "Fires `timers` as a clock that does not move while they are armed
-  fires them: by delay, ties in arm order (`sort-by` is stable)."
-  [timers]
-  (run! (fn [[_ callback]] (callback)) (sort-by first timers)))
-
 ;; ---------------------------------------------------------------------------
-;; 1 — the reap horizon is past a bare `setTimeout 0`
+;; 1 — the reap horizon evicts the cache and never a claimed entry
 ;; ---------------------------------------------------------------------------
-
-(deftest an-unclaimed-entry-survives-a-bare-macrotask-and-not-the-horizon
-  (seeded!)
-  (testing "**The race the hydration door has to win**. An entry is minted
-           in the RENDER and claimed in the COMMIT, and `hydrateRoot` puts a
-           scheduler turn between the two; a reaper that won that race
-           would leave the boundary subscribed to a detached entry, and its
-           next render would mint a second one and make React tear down and
-           rebuild the subscription. So a timer armed AFTER the reaper's,
-           for zero, must still find the entry cached"
-    (let [[_ timers] (armed-by one-body-run!)
-          probe      [0 (fn []
-                          (is (= 1 (:entries (rf.bench.fresco.arm1.runtime/stats)))
-                              "one bare macrotask later it is STILL cached — a commit
-                               arriving here would find the entry its render minted"))]]
-      (fire-on-a-still-clock! (conj timers probe))
-      (is (zero? (:entries (rf.bench.fresco.arm1.runtime/stats)))
-          "and the horizon is bounded, not disabled: an entry
-           nothing claimed is still evicted"))))
 
 (deftest a-claimed-entry-is-never-reaped-at-any-horizon
   (async done
@@ -153,10 +87,9 @@
            it; bumped inside `run-once`, so a `React.memo` bail-out reads as
            an increment that did not happen"
     (dotimes [_ 3] (one-body-run!))
-    (is (= 3 (rf.bench.fresco.arm1.runtime/body-runs)) "one per body, counted")
     (rf.bench.fresco.arm1.runtime/reset-runtime!)
     (is (= 3 (rf.bench.fresco.arm1.runtime/body-runs))
-        "and a teardown does NOT zero it — an instrument a teardown door
+        "one per body, counted — and a teardown does NOT zero it — an instrument a teardown door
          resets is one a reading taken on the wrong side of the reset can
          pass with")))
 
