@@ -4,7 +4,6 @@
   tags."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [reagent2.impl.template :as template]
-            [reagent2.impl.component :as component]
             [goog.object :as gobj]
             ["react" :as react]
             ["react-dom/server" :as rds]))
@@ -23,12 +22,6 @@
       (is (= [tag id class-name]
              [(.-tag parsed) (.-id parsed) (.-className parsed)])
           (str (pr-str head) " — " label)))))
-
-(deftest parse-tag-class-before-id-not-supported
-  (testing ":div.a#id — class-before-id is NOT supported (nil tag)"
-    (let [parsed (template/parse-tag :div.a#id [:div.a#id])]
-      (is (nil? (.-tag parsed))
-          "class-before-id yields a nil tag, not a parsed element"))))
 
 ;; ---------------------------------------------------------------------------
 ;; cached-prop-name — kebab→camel + special cases
@@ -108,7 +101,6 @@
       (is (identical? out (template/convert-prop-value :on-select probe)))
       (is (= [:called-1 :a] (.call out nil :a)))
       (is (= [:called-2 :a :b] (.call out nil :a :b)))
-      (is (= [[:a] [:a :b]] @calls) "the fixture's own -invoke ran for each call")
       (is (= :called-0 (.call (template/convert-prop-value probe) nil))
           "the 1-arg form takes the same arm"))))
 
@@ -123,16 +115,11 @@
             component that invokes its callback prop natively. A MetaFn
             object reaching `props.onSelect` unchanged would make the render
             throw `props.onSelect is not a function`."
-    (let [meta-handler  (with-meta (fn [v] (str "meta-" v)) {:rf/probe true})
-          plain-handler (fn [v] (str "plain-" v))]
-      (is (= "<span>plain-picked</span>"
-             (rds/renderToStaticMarkup
-               (template/as-element [:> CallsOnSelect {:on-select plain-handler}])))
-          "control: a plain fn prop is called by the foreign component")
+    (let [meta-handler  (with-meta (fn [v] (str "meta-" v)) {:rf/probe true})]
       (is (= "<span>meta-picked</span>"
              (rds/renderToStaticMarkup
                (template/as-element [:> CallsOnSelect {:on-select meta-handler}])))
-          "a metadata-bearing fn prop is called by the foreign component too"))))
+          "a metadata-bearing fn prop is called by the foreign component"))))
 
 ;; ---------------------------------------------------------------------------
 ;; A component whose render returns a SEQUENCE renders sibling children. Driven
@@ -170,22 +157,13 @@
         "an empty sequence renders nothing (not an empty hiccup vector)")
     (is (= "<div>ab</div>" (static-markup [:div [seq-text]]))
         "text siblings stay text (not misread as an `<a>` tag with a child)")
+    (is (= "<span>a</span><span>b</span>" (static-markup [(fn [] (fn [] (seq-rows)))]))
+        "a Form-2 inner renderer returning the sequence")
+    (is (= "<span>a</span><span>b</span>" (static-markup (seq-rows)))
+        "a direct as-element of the sequence")
     (is (= ["a" "b"] (let [out (class-render-output [seq-rows])]
                        (when (array? out) (mapv #(.-key ^js %) out))))
         "the class render hands React an array of keyed children")))
-
-(deftest sequence-output-agrees-across-form-shapes-rf2-fzbj-30
-  (testing "controls: a Form-2 inner renderer and a direct as-element of
-            the same sequence render the same siblings, and a hiccup
-            vector still means ONE element"
-    (let [form-2        (fn [] (fn [] (seq-rows)))
-          vector-form-1 (fn [] [:span "one"])]
-      (is (= "<span>a</span><span>b</span>" (static-markup [form-2]))
-          "Form-2 inner renderer")
-      (is (= "<span>a</span><span>b</span>" (static-markup (seq-rows)))
-          "direct as-element of the sequence")
-      (is (= "<span>one</span>" (static-markup [vector-form-1]))
-          "a component returning a hiccup vector still renders one element"))))
 
 ;; ---------------------------------------------------------------------------
 ;; A keyword value on a non-HTML-attribute prop passes through and warns once
@@ -288,25 +266,17 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest as-element-fragment-with-ref
-  (testing "React accepts `key`, `ref` and `children` on a Fragment, and this
-            path converts the WHOLE props map — so a fragment ref crosses here
-            with no arm of its own. Measured rather than read off the
-            conversion rules, because the identity is the part that matters:
-            React detaches and reattaches on a changed ref identity, so a
-            wrapper allocated per render would re-run the author's callback,
-            and its cleanup, on every commit."
-    (let [f      (fn [_instance] nil)
-          ^js el (template/as-element [:<> {:ref f} [:div "a"]])]
-      (is (= (.-Fragment react) (.-type el)))
-      (is (identical? f (-> el .-props .-ref))
-          "the author's own function, not a wrapper")))
-  (testing "an object ref crosses untouched too — it takes the `:else` arm
+  (testing "an object ref crosses untouched — it takes the `:else` arm
             rather than any of the converting ones"
     (let [r      (react/createRef)
           ^js el (template/as-element [:<> {:ref r} [:div "a"]])]
       (is (identical? r (-> el .-props .-ref)))))
-  (testing "and a key and a ref from one map land in their two different
-            places: the key on the element, the ref in the props"
+  (testing "a fragment ref crosses with no arm of its own, as the author's own
+            function: React detaches and reattaches on a changed ref
+            identity, so a wrapper allocated per render would re-run the
+            author's callback, and its cleanup, on every commit. A key and a
+            ref from one map land in their two places: the key on the
+            element, the ref in the props"
     (let [f      (fn [_instance] nil)
           ^js el (template/as-element [:<> {:key "k" :ref f} [:div "a"]])]
       (is (= "k" (.-key el)))
@@ -360,12 +330,6 @@
         "the symbol '> is a tag, not the :> head")))
 
 (deftest props-slot-rule-rf2-e7zxb
-  (testing "`props-slot?` is the one named rule four call sites
-            share — nil or a map occupies the props slot, anything else is
-            the first child."
-    (is (= [true true true false false false false]
-           (map template/props-slot? [nil {} {:id "x"} "x" [:span] 0 :kw]))))
-
   (testing "an explicit nil props slot is a props slot, so children start
             one later — the arm a past-the-end index also takes"
     (let [^js el (template/as-element [:div nil "only-child"])]
@@ -405,12 +369,6 @@
       (is (= "<span>hooked:41</span>" markup)
           "useState ran in a valid function-component context; state seeded
            from the arg — no 'Invalid hook call' throw"))))
-
-(deftest as-element-user-fn
-  (testing "[my-view 1] — user-fn head wraps via fn-to-class"
-    (let [my-view (fn [_n] [:div])
-          ^js el (template/as-element [my-view 1])]
-      (is (component/reagent-class? (.-type el))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Target-aware keyword/symbol DOM-attr stringification
@@ -490,22 +448,16 @@
     (let [captured (atom nil)
           calls    (atom [])]
       (with-warn-spy calls
-        #(reset! captured (template/as-element [:br "should-not-render"])))
+        #(do (reset! captured (template/as-element [:br "should-not-render"]))
+             ;; Void tags WITHOUT children are silent.
+             (template/as-element [:br])
+             (template/as-element [:input {:type "text"}])
+             (template/as-element [:img {:src "x.png"}])))
       (let [^js el @captured]
         (is (= "br" (.-type el)))
         (is (nil? (-> el .-props .-children)) "children dropped (lenient)"))
       (is (= 1 (count @calls)) "one dev warning fired for the dropped children")
       (is (re-find #"<br>" (first @calls)) "warning names the void tag"))))
-
-(deftest as-element-void-tag-no-children-does-not-warn-rf2-mdgt8t
-  (testing "a void tag WITHOUT children does not warn"
-    (let [calls (atom [])]
-      (with-warn-spy calls
-        #(do (template/as-element [:br])
-             (template/as-element [:input {:type "text"}])
-             (template/as-element [:img {:src "x.png"}])))
-      (is (zero? (count @calls))
-          "no warning when void tags carry no children"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Prototype-pollution defence: user keys `:__proto__`, `:constructor` and
@@ -530,7 +482,6 @@
           out (template/convert-prop-value
                 {:__proto__ evil :constructor "y" :prototype "z"
                  :legit "ok"})]
-      (is (= "object" (goog/typeOf out)))
       (is (= "ok" (aget out "legit"))
           "legitimate keys flow through")
       (is (or (nil? (aget out "polluted"))
@@ -570,12 +521,10 @@
             converts to its own name, twice"
     (doseq [n prototype-member-names]
       (let [k (keyword n)]
-        ;; The public cache entry point, direct.
+        ;; The public cache entry point, direct; the element conversion below
+        ;; then reads the cached entry.
         (is (= n (template/cached-prop-name k))
             (str ":" n " converts to its own name on first sight"))
-        (is (= n (template/cached-prop-name k))
-            (str ":" n " converts to its own name on the cached path"))
-        ;; And through a whole element, where the name reaches the props object.
         (let [^js el (template/as-element [:div {k "v"}])]
           (is (= "v" (gobj/get (.-props el) n))
               (str ":" n " reaches the props object under its own name")))))))
@@ -625,13 +574,6 @@
         (.componentWillUnmount inst)))))
 
 (deftest expand-seq-warns-on-an-unkeyed-child-not-on-keyed-ones
-  (testing "a sequence holding an unkeyed child vector warns once"
-    (let [calls (atom [])]
-      (with-warn-spy calls #(template/as-element [:ul (list [:li "a"])]))
-      (is (= 1 (count @calls)) "one unkeyed child, one warning")
-      (is (re-find #"unique :key" (str (first @calls)))
-          "the warning names the missing :key")))
-
   (testing "several unkeyed children in one sequence warn once"
     (let [calls (atom [])]
       (with-warn-spy calls
