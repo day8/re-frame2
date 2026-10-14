@@ -559,20 +559,11 @@ def blocks(escapes):
 
 # (name, markdown, expected escaped-line count)
 _CASES = [
-    ("a two-column continuation escapes", "- parent\n\n  continuation\n\n- sibling\n", 1),
     # The depth disjunct: inside an li, but the WRONG one.
     (
         "a continuation that leaves a CHILD item but stays in its grandparent",
         "- gp\n    - parent\n\n      continuation\n\n    - psib\n",
         1,
-    ),
-    # The "outside every li" disjunct: an earlier escape closes the list, so
-    # the marker below it is swallowed as literal text and its own
-    # continuation compares two zero depths.
-    (
-        "a cascade, where an earlier escape swallows the marker below it",
-        "- alpha\n\n  escaped paragraph\n- beta\n  lazy line of beta\n",
-        2,
     ),
     # `place` refuses a sentinel that did not survive, so this also proves
     # pipe rows are marked inside their first cell.
@@ -625,9 +616,12 @@ def self_test() -> int:
     else:
         print("ok    a continuation python-markdown reads as a heading is measurable")
 
-    # THE READ-THIS-FIRST QUALIFIER.  On the cascade, `- beta` is swallowed
-    # and renders as text, so its continuation is marked; on the plain
-    # two-column escape the owner is a healthy `<li>` and it is not.
+    # THE READ-THIS-FIRST QUALIFIER.  On the cascade, an earlier escape closes
+    # the list, so `- beta` is swallowed and renders as text, and its own
+    # continuation (the "outside every li" disjunct, comparing two zero
+    # depths) is marked; on the plain two-column escape the owner is a
+    # healthy `<li>` and it is not.  Both lists are exact, so this also pins
+    # the escape count of each shape.
     checks += 1
     cascade = "- alpha\n\n  escaped paragraph\n- beta\n  lazy line of beta\n"
     flagged = [e.owner_is_text for e in analyse(cascade, md)[0]]
