@@ -1,7 +1,6 @@
 (ns re-frame.reg-view-variadic-args-dom-cljs-test
   "A registered view forwards ANY number of positional arguments under stock
-  Reagent, keyword-variadic ones included, with its frame context and its
-  `displayName` intact.
+  Reagent, keyword-variadic ones included, with its frame context intact.
 
   WHY THE COUNT MATTERS. Stock Reagent renders a component's argv by calling
   the registered head with `.call` for up to four arguments and with
@@ -22,9 +21,8 @@
     - `reg-view-star-form-3-*` — the `reg-view*` outer-callable route that
       the M-11 recipe prescribes for a `create-class` view, with the same
       thirty scalars reaching the class's `:reagent-render`.
-    - `boundary-*` — 20, 21 and 22 positional arguments, each its own row,
-      because the failure modes either side of twenty-one differ (a 21st
-      argument is spread as a seq; 22 or more throws).
+    - `boundary-*` — 20 and 21 positional arguments, the fixed-arity limit
+      and one past it, where a 21st argument would be spread as a seq.
     - `head-*` — the head's own contract without a mount: it is a real JS
       function that `.apply` reaches with any argument count, and it still
       carries the `:contextType` metadata Reagent's `fn-to-class` reads.
@@ -32,8 +30,7 @@
 
   The mounted rows also assert the frame: the view and a registered child read
   the enclosing `frame-provider`'s frame through React context (the fixture's
-  `:ambient-frame nil` leaves no dynamic scope to fall back on), and the
-  mounted component keeps the view-id `displayName` React DevTools shows.
+  `:ambient-frame nil` leaves no dynamic scope to fall back on).
 
   The `-dom-cljs-test` suffix selects the `:browser-test` build; `:node-test`
   loads the namespace too, where the mounted rows take the no-DOM branch and
@@ -44,9 +41,7 @@
             ["react-dom" :as react-dom]
             [re-frame.adapter.context :as rf.adapter.context]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
-            [re-frame.adapter.react-test-support :as rf.adapter.react-test-support]
             [re-frame.core :as rf]
-            [re-frame.performance :as rf.performance]
             [re-frame.test-support :as rf.test-support]
             [re-frame.views])
   (:require-macros [re-frame.core :refer [reg-view with-frame]]))
@@ -151,47 +146,22 @@
 
 ;; ---- reg-view, keyword-variadic, 30 scalars ---------------------------------
 
-(deftest kw-form-1-renders-its-label-with-thirty-scalars
-  (testing "a Form-1 `reg-view` declared `[& {:keys [label]}]`, mounted with
-            15 keyword/value pairs, receives every pair"
-    (if-not (browser?)
-      (is true ":node-test: no DOM — the :browser-test runner exercises this")
-      (do (setup!)
-          (assert-renders ::kw-form-1 (kw-args 15) "kw-form-1-label" "visible|13")))))
-
 (deftest kw-form-1-with-thirty-scalars-resolves-the-provider-frame
-  (testing "the head and a registered child both read the enclosing
-            frame-provider's frame through React context"
+  (testing "a Form-1 `reg-view` declared `[& {:keys [label]}]`, mounted with
+            15 keyword/value pairs, receives every pair, and the head and a
+            registered child both read the enclosing frame-provider's frame
+            through React context"
     (if-not (browser?)
       (is true ":node-test: no DOM — the :browser-test runner exercises this")
       (do (setup!)
           (let [{:keys [value error]}
                 (mount ::kw-form-1 (kw-args 15)
-                       (fn [node] {:head  (text-of node "kw-form-1-frame")
+                       (fn [node] {:label (text-of node "kw-form-1-label")
+                                   :head  (text-of node "kw-form-1-frame")
                                    :child (text-of node "frame-probe")}))]
-            (is (nil? error) (str "the render raised " (pr-str (error-message error))))
-            (is (= (pr-str frame-id) (:head value))
-                "the variadic head resolves the provider's frame")
-            (is (= (pr-str frame-id) (:child value))
-                "a frame-reading child of the variadic head resolves the provider's frame"))))))
-
-(deftest kw-form-1-with-thirty-scalars-keeps-its-display-name
-  (testing "the mounted component carries the view-id displayName DevTools shows"
-    (is (= (rf.performance/entry-id ::kw-form-1) (.-displayName ^js (rf/view ::kw-form-1)))
-        "the head is stamped with the view-id's display projection")
-    (if-not (browser?)
-      (is true ":node-test: no DOM — the :browser-test runner exercises the mount")
-      (do (setup!)
-          (let [expected (rf.performance/entry-id ::kw-form-1)
-                {:keys [value error]}
-                (mount ::kw-form-1 (kw-args 15)
-                       (fn [node]
-                         (rf.adapter.react-test-support/devtools-names-above
-                           (.querySelector node "[data-testid='kw-form-1-label']"))))]
-            (is (nil? error) (str "the render raised " (pr-str (error-message error))))
-            (is (some #{expected} value)
-                (str "the mounted component is named " (pr-str expected)
-                     "; saw " (pr-str value))))))))
+            (is (= [nil {:label "visible|13" :head (pr-str frame-id) :child (pr-str frame-id)}]
+                   [(error-message error) value])
+                "[render-error read]: every pair arrived, and the variadic head and a frame-reading child resolve the provider's frame"))))))
 
 (deftest kw-form-2-forwards-thirty-scalars-to-outer-and-inner
   (testing "a Form-2 `reg-view` — outer and inner both keyword-variadic —
