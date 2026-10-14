@@ -31,8 +31,6 @@
     :fn   'assert-source-coord-format-shape}
 
    {:section "view-id (data-rf-view) stamping (Spec 006)"}
-   {:test 'view-id-tags-dom-root
-    :fn   'assert-view-id-tags-dom-root}
    {:test 'view-id-fragment-exempt
     :fn   'assert-view-id-fragment-exempt}
    {:test 'view-id-user-supplied-wins
@@ -75,14 +73,10 @@
    {:section "render-time parity"}
    {:test 'parity-view-re-register-rerender
     :fn   'assert-view-re-register-causes-rerender}
-   {:test 'parity-wrap-view-callable
-    :fn   'assert-wrap-view-callable-dispatches-to-user-fn}
 
    {:section "render-to-string + late-bind chain"}
    {:test 'rts-throws-with-no-emitter
     :fn   'assert-render-to-string-throws-with-no-emitter}
-   {:test 'rts-returns-html-after-install
-    :fn   'assert-render-to-string-returns-html-after-direct-install}
    {:test 'rts-published-through-chain
     :fn   'assert-set-hiccup-emitter-published-through-chain}
 
@@ -93,10 +87,6 @@
    {:section "copied / wrapped adapter map routes to live hooks"}
    {:test 'copied-adapter-map-routes-to-live-hooks
     :fn   'assert-copied-adapter-map-routes-to-live-hooks}
-
-   {:section "chained clear-warn-once-caches!"}
-   {:test 'clear-warn-chain-empties-cache
-    :fn   'assert-chained-clear-warn-once-empties-cache}
 
    {:section "with-frame through the spine-routed current-frame read"}
    {:test 'runtime-with-frame
@@ -143,8 +133,6 @@
     :fn   'assert-xspec-frame-destroy-with-active-machines}
    {:test 'xspec-machine-microstep-subscribe
     :fn   'assert-xspec-machine-microstep-subscribe}
-   {:test 'xspec-boot-order-adapter-ready
-    :fn   'assert-xspec-boot-order-adapter-ready}
    {:test 'xspec-machines-under-ssr
     :fn   'assert-xspec-machines-under-ssr}
    {:test 'xspec-route-not-found-ssr

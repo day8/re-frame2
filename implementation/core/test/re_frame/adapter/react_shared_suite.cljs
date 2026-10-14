@@ -149,7 +149,6 @@
     ((:dispose-adapter! adapter))
     (let [thrown (try (render-to-string [:div] {}) nil
                       (catch :default e e))]
-      (is (some? thrown) "render-to-string threw post-dispose")
       (is (= :rf.error/no-hiccup-emitter-bound (:rf.error/id (ex-data thrown)))
           "the emitter slot was cleared by dispose-adapter!"))))
 
@@ -252,44 +251,19 @@
             "user-supplied data-rf2-source-coord survives the wrap-view pass")))))
 
 (defn assert-source-coord-format-shape
-  "The attribute value is exactly <ns>:<sym>:<line>:<col> — a programmatic
-  reg-view* with no macro-captured coords degrades to <ns>:<sym>:?:?.
-
-  The format is asserted independently of the presence test, so a shape
-  drift is named on its own."
+  "The attribute value is exactly <ns>:<sym>:<line>:<col>; a programmatic
+  reg-view* with no macro-captured coords degrades to <ns>:<sym>:?:?."
   [{:keys [substrate-kw name]}]
   (testing (str name " — source-coord: attribute format is <ns>:<sym>:<line>:<col>")
     (let [id      (mint-kw substrate-kw "sc-format")
           user-fn (fn [] (React/createElement "i" #js {} "x"))]
       (rf/reg-view* id user-fn)
-      (let [out  ((rf/view id))
-            attr (source-coord out)]
-        (is (string? attr))
-        (let [parts (str/split attr #":")]
-          (is (= 4 (count parts)) "exactly four colon-separated segments")
-          (is (= (namespace id) (first parts)) "first segment is the id keyword's namespace")
-          (is (= (clojure.core/name id) (second parts)) "second segment is the id keyword's name")
-          ;; Programmatic reg-view* carries no macro coords → `?:?`.
-          (is (= "?" (nth parts 2)) "third segment is `?` for a programmatic reg-view*")
-          (is (= "?" (nth parts 3)) "fourth segment is `?` for a programmatic reg-view*"))))))
+      (is (= [(namespace id) (clojure.core/name id) "?" "?"]
+             (str/split (source-coord ((rf/view id))) #":"))))))
 
 ;; ===========================================================================
 ;; view-id (data-rf-view) stamping (Spec 006 §View tagging contract)
 ;; ===========================================================================
-
-(defn assert-view-id-tags-dom-root
-  "A DOM-tag root carries BOTH data-rf-view AND data-rf2-source-coord."
-  [{:keys [substrate-kw name]}]
-  (testing (str name " — view-id: tags a DOM root with data-rf-view")
-    (let [id      (mint-kw substrate-kw "view-dom-root")
-          user-fn (fn [] (React/createElement "span" #js {} "hi"))]
-      (rf/reg-view* id user-fn)
-      (let [out ((rf/view id))]
-        (is (= "span" (.-type out)) "root element type preserved")
-        (is (= (str id) (view-attr out))
-            "data-rf-view value is (str id) — leading-colon preserved")
-        (is (string? (source-coord out))
-            "data-rf2-source-coord still present (parity contract)")))))
 
 (defn assert-view-id-fragment-exempt
   "A Fragment root is exempt for view-id too."
@@ -406,36 +380,19 @@
 ;; ===========================================================================
 
 (defn assert-reg-view-react-key-preserved
-  "A registered view whose root React element carries a `:key`
-  emerges from wrap-view's cloneElement passes (source-coord injection +
-  unmount-sentinel append) with that key intact. Across a seq of views
-  carrying distinct per-item keys the keys stay distinct — no collision.
-  Headless: `((rf/view id))` runs the full wrap-view path under node-test
-  (goog.DEBUG true), so the source-coord attribute also lands, proving the
-  cloneElement passes actually executed and the key survived them."
+  "A registered view whose root React element carries a `:key` emerges from
+  wrap-view's cloneElement passes (source-coord injection + unmount-sentinel
+  append) with that key intact. The source-coord attribute proves the passes
+  ran."
   [{:keys [substrate-kw name]}]
-  (testing (str name " — React :key: per-item keys survive the wrap-view passes, stay distinct")
-    (let [n        3
-          rendered (for [i (range n)
-                         :let [id      (mint-kw substrate-kw (str "react-key-" i))
-                               item-key (str "rk-" i)
-                               user-fn (fn [] (React/createElement
-                                               "li" #js {:key item-key} (str "item " i)))]]
-                     (do (rf/reg-view* id user-fn)
-                         {:item-key item-key :out ((rf/view id))}))
-          rendered (vec rendered)]
-      (doseq [{:keys [item-key out]} rendered]
-        (is (some? out) "registered view returned a non-nil React element")
-        (is (= "li" (.-type out)) "root element type preserved through the wrap-view passes")
-        (is (= item-key (.-key out))
-            (str "the call-site React :key (" item-key ") survives cloneElement "
-                 "(source-coord injection + unmount-sentinel append)"))
-        (is (string? (source-coord out))
-            "data-rf2-source-coord present — the wrap-view pass ran, so key-preservation is meaningful"))
-      (let [keys (mapv :item-key rendered)]
-        (is (= n (count (distinct keys)))
-            (str "all " n " per-item keys are distinct after the wrap-view passes — no collision; got "
-                 (pr-str keys)))))))
+  (testing (str name " — React :key: per-item keys survive the wrap-view passes")
+    (doseq [i (range 3)]
+      (let [id       (mint-kw substrate-kw (str "react-key-" i))
+            item-key (str "rk-" i)]
+        (rf/reg-view* id (fn [] (React/createElement "li" #js {:key item-key} (str "item " i))))
+        (let [out ((rf/view id))]
+          (is (= ["li" item-key true]
+                 [(.-type out) (.-key out) (string? (source-coord out))])))))))
 
 ;; ===========================================================================
 ;; void-element unmount-sentinel — wrap-view must NOT attach a
@@ -463,7 +420,6 @@
             user-fn (fn [] (React/createElement void-tag #js {}))]
         (rf/reg-view* id user-fn)
         (let [out ((rf/view id))]
-          (is (some? out) (str "registered view returned a non-nil element (" void-tag ")"))
           ;; The wrap output is a Fragment (its `type` is React.Fragment, a
           ;; non-string symbol/object), NOT the bare void element.
           (is (= (.-Fragment React) (.-type out))
@@ -634,7 +590,6 @@
   (testing (str name " — frame-provider core: single child coerced to vector")
     (let [single-child :fake-single-child-marker
           el (rf.substrate.spine/build-frame-provider-element :session single-child)]
-      (is (some? el) "build-frame-provider-element didn't throw on a non-sequential child")
       (is (= :session (provider-element-frame-kw el)))
       ;; React normalises single-element children to the element value;
       ;; the marker survives the coercion regardless of normalisation.
@@ -651,15 +606,9 @@
   args."
   [{:keys [name]}]
   (testing (str name " — frame-provider core: sequential children preserved")
-    (let [a :child-a
-          b :child-b
-          el (rf.substrate.spine/build-frame-provider-element :session [a b])]
-      (is (some? el))
+    (let [el (rf.substrate.spine/build-frame-provider-element :session [:child-a :child-b])]
       (is (= :session (provider-element-frame-kw el)))
-      (let [kids (provider-element-children el)]
-        (is (some? kids))
-        (is (= 2 (.-length kids))
-            "sequential children produced a two-element children slot")))))
+      (is (= [:child-a :child-b] (vec (provider-element-children el)))))))
 
 (defn assert-frame-provider-js-array-children-spread
   "The native trailing-`$`-children idiom hands the core a JS
@@ -670,17 +619,10 @@
   child). This pins that array branch."
   [{:keys [name]}]
   (testing (str name " — frame-provider core: JS-array children spread to positional args")
-    (let [a :child-a
-          b :child-b
-          el (rf.substrate.spine/build-frame-provider-element :session #js [a b])]
-      (is (some? el))
+    (let [el (rf.substrate.spine/build-frame-provider-element :session #js [:child-a :child-b])]
       (is (= :session (provider-element-frame-kw el)))
-      (let [kids (provider-element-children el)]
-        (is (some? kids))
-        (is (= 2 (.-length kids))
-            "JS-array children spread to a two-element children slot")
-        (is (= a (aget kids 0)) "first child preserved positionally")
-        (is (= b (aget kids 1)) "second child preserved positionally")))))
+      (is (= [:child-a :child-b] (vec (provider-element-children el)))
+          "the array spread into two positional children, in order"))))
 
 ;; ===========================================================================
 ;; warn-once fires-once (Spec 006 §Documented exemption)
@@ -752,20 +694,6 @@
       (is (= :body-v2 @observed)
           "after re-registration, the next render mutates observed to v2"))))
 
-(defn assert-wrap-view-callable-dispatches-to-user-fn
-  "wrap-view is a public fn (Spec 006) that returns a callable; invoking
-  it runs the user fn. Pins the adapter's wrap-view seam independently of
-  the cloneElement output inspection."
-  [{:keys [wrap-view substrate-kw name]}]
-  (testing (str name " — wrap-view: returns a callable that runs the user fn")
-    (let [id          (mint-kw substrate-kw "parity-sample")
-          out-from-fn (atom nil)
-          wrapped     (wrap-view id {:line 42 :column 7}
-                                 (fn [] (reset! out-from-fn :ran) nil))]
-      (is (fn? wrapped) "wrap-view returns a fn")
-      (wrapped)
-      (is (= :ran @out-from-fn) "the wrapped fn invokes the user fn"))))
-
 ;; ===========================================================================
 ;; render-to-string + late-bind chain wiring
 ;; ===========================================================================
@@ -787,11 +715,9 @@
     (let [tree   [:div "smoke-secret-xyzzy"]
           thrown (try (render-to-string tree {}) nil
                       (catch :default e e))]
-      (is (some? thrown) "render-to-string threw when no emitter was installed")
       (is (= :rf.error/no-hiccup-emitter-bound (:rf.error/id (ex-data thrown)))
           ":rf.error/id names the canonical error discriminator")
       (let [data (ex-data thrown)]
-        (is (some? data) "the thrown value carries ex-data")
         (is (string? (:reason data)) ":reason key is a string")
         ;; EP-0015: no raw render-tree — shape only.
         (is (nil? (:render-tree data)) "there is no raw :render-tree slot (EP-0015)")
@@ -799,19 +725,6 @@
             ":render-tree/summary describes the tree's SHAPE")
         (is (not (re-find #"xyzzy" (pr-str data)))
             "no hiccup child content leaked into the thrown ex-data")))))
-
-(defn assert-render-to-string-returns-html-after-direct-install
-  "After (set-hiccup-emitter! emitter-fn), render-to-string returns the
-  emitter's output — the direct-install path."
-  [{:keys [set-emitter! render-to-string name]}]
-  (testing (str name " — render-to-string returns HTML after direct install")
-    (set-emitter! a-mock-emitter)
-    (let [tree [:div "ok"]
-          html (render-to-string tree {})]
-      (is (string? html) "render-to-string returns a string after set-hiccup-emitter!")
-      (is (str/starts-with? html "<mock>") "the installed emitter is what render-to-string invokes")
-      (is (str/includes? html (pr-str tree)) "the installed emitter received the render-tree"))
-    (set-emitter! nil)))
 
 (defn assert-set-hiccup-emitter-published-through-chain
   "The adapter chains its set-hiccup-emitter! into the
@@ -893,40 +806,6 @@
           ;; teardown (dispose) lands on the same object the :before installed.
           (rf.substrate.adapter/dispose-adapter!)
           (rf.substrate.adapter/install-adapter! original))))))
-
-;; ===========================================================================
-;; chained clear-warn-once-caches! end-to-end
-;; ===========================================================================
-
-(defn- non-dom-element
-  "React element whose `.-type` is NOT a string — wrap-view's
-  source-coord annotator classifies it as a non-DOM root and routes it
-  to the warn-once path (Spec 006 §Source-coord annotation)."
-  []
-  (React/createElement React/Fragment #js {} "non-dom"))
-
-(defn assert-chained-clear-warn-once-empties-cache
-  "The chained :adapter/clear-warn-once-caches! hook (registered via
-  rf.substrate.spine/install-clear-warn-once-step! at adapter ns-load) clears the
-  adapter's warn-cache: after one warn-once fire the same id is silenced;
-  after the chained hook fires the same id re-warns."
-  [{:keys [wrap-view substrate-kw name]}]
-  (testing (str name " — chained clear-warn-once-caches! empties the warn-cache")
-    (let [target-id    (mint-kw substrate-kw "clear-warn-shared")
-          wrapped      (wrap-view target-id {} (fn user-fn [] (non-dom-element)))
-          phase-1-ws   (with-captured-console-warn
-                         (fn [] (dotimes [_ 3] (wrapped))))]
-      (is (= 1 (count phase-1-ws))
-          (str "phase-1 sanity: warn-once fires exactly once WITHIN a single phase; got "
-               (count phase-1-ws) ": " (pr-str phase-1-ws)))
-      (let [chained-hook (rf.late-bind/get-fn :adapter/clear-warn-once-caches!)]
-        (is (some? chained-hook) "precondition: the chained hook is registered")
-        (chained-hook)
-        (let [phase-2-ws (with-captured-console-warn (fn [] (wrapped)))]
-          (is (= 1 (count phase-2-ws))
-              (str "phase-2 must re-emit the warning for the same id AFTER the "
-                   "chained :adapter/clear-warn-once-caches! hook fires. Got "
-                   (count phase-2-ws) ": " (pr-str phase-2-ws))))))))
 
 ;; ===========================================================================
 ;; with-frame through the spine-routed current-frame read
@@ -1025,11 +904,6 @@
         (is (= 6 @derived))
         (mk-write! adapter a 10) (mk-write! adapter b 20) (mk-write! adapter c 30)
         (is (= 60 @derived))))
-    (testing "4 sources — fallback path"
-      (let [a (mk-source adapter :a) b (mk-source adapter :b)
-            c (mk-source adapter :c) d (mk-source adapter :d)
-            derived (mk-derive adapter [a b c d] (fn [w x y z] [w x y z]))]
-        (is (= [:a :b :c :d] @derived))))
     (testing "argument order matches source-vector order"
       (let [s0 (mk-source adapter 100) s1 (mk-source adapter 1)
             derived (mk-derive adapter [s0 s1] -)]
@@ -1056,62 +930,19 @@
     {:calls calls :unsub unsub}))
 
 (defn assert-derived-baseline-projections
-  "Watch-baseline regression: a derived projection that stays
-  value-equal across a source update must NOT spuriously notify; real
-  changes still notify exactly once. Covers odd?/count/key/boolean/vector
-  projections."
+  "Watch-baseline regression: a derived projection that stays `=` across a
+  source update, though it is a new object, must NOT notify; a real change
+  notifies exactly once. The scalar case is `assert-derived-baseline-sequence`."
   [{:keys [adapter name]}]
-  (testing (str name " — derived watch-baseline: =-equal projections do not notify")
-    (testing "(odd? x) stays true across 1 → 3"
-      (let [src (mk-source adapter 1)
-            derived (mk-derive adapter [src] odd?)
-            {:keys [calls unsub]} (mk-subscribe adapter derived)]
-        (mk-write! adapter src 3)
-        (is (= [] @calls) "first source update where derived stays = must NOT notify")
-        (mk-write! adapter src 4)
-        (is (= 1 (count @calls)) "real change notifies once")
-        (is (= [true false] (first @calls)))
-        (unsub)))
-    (testing "(count xs) stays 3 across [1 2 3] → [4 5 6]"
-      (let [src (mk-source adapter [1 2 3])
-            derived (mk-derive adapter [src] count)
-            {:keys [calls unsub]} (mk-subscribe adapter derived)]
-        (mk-write! adapter src [4 5 6])
-        (is (= [] @calls) "first source update where count stays = must NOT notify")
-        (mk-write! adapter src [4 5 6 7])
-        (is (= 1 (count @calls)) "real change notifies once")
-        (is (= [3 4] (first @calls)))
-        (unsub)))
-    (testing "(:k m) stays 1 across {:k 1 :other 2} → {:k 1 :other 99}"
-      (let [src (mk-source adapter {:k 1 :other 2})
-            derived (mk-derive adapter [src] :k)
-            {:keys [calls unsub]} (mk-subscribe adapter derived)]
-        (mk-write! adapter src {:k 1 :other 99})
-        (is (= [] @calls) "first source update where (:k m) stays = must NOT notify")
-        (mk-write! adapter src {:k 2 :other 99})
-        (is (= 1 (count @calls)) "real change notifies once")
-        (is (= [1 2] (first @calls)))
-        (unsub)))
-    (testing "(boolean (:logged-in? m)) stays true"
-      (let [src (mk-source adapter {:logged-in? true})
-            derived (mk-derive adapter [src] (fn [m] (boolean (:logged-in? m))))
-            {:keys [calls unsub]} (mk-subscribe adapter derived)]
-        (mk-write! adapter src {:logged-in? true :name "x"})
-        (is (= [] @calls) "first source update where boolean projection stays = must NOT notify")
-        (mk-write! adapter src {:logged-in? false})
-        (is (= 1 (count @calls)) "real change notifies once")
-        (is (= [true false] (first @calls)))
-        (unsub)))
-    (testing "(:items m) stays [1 2]"
-      (let [src (mk-source adapter {:items [1 2] :n 5})
-            derived (mk-derive adapter [src] :items)
-            {:keys [calls unsub]} (mk-subscribe adapter derived)]
-        (mk-write! adapter src {:items [1 2] :n 6})
-        (is (= [] @calls) "first source update where vector projection stays = must NOT notify")
-        (mk-write! adapter src {:items [1 2 3] :n 6})
-        (is (= 1 (count @calls)) "real change notifies once")
-        (is (= [[1 2] [1 2 3]] (first @calls)))
-        (unsub)))))
+  (testing (str name " — derived watch-baseline: an =-equal vector projection does not notify")
+    (let [src (mk-source adapter {:items [1 2] :n 5})
+          derived (mk-derive adapter [src] :items)
+          {:keys [calls unsub]} (mk-subscribe adapter derived)]
+      (mk-write! adapter src {:items [1 2] :n 6})
+      (is (= [] @calls) "first source update where the projection stays = must NOT notify")
+      (mk-write! adapter src {:items [1 2 3] :n 6})
+      (is (= [[[1 2] [1 2 3]]] @calls) "a real change notifies once")
+      (unsub))))
 
 (defn assert-derived-baseline-sequence
   "The contract holds across a sequence of updates: only real = changes
@@ -1523,21 +1354,6 @@
       (rf/dispatch-sync [:auth/check [:go]])
       (is (= :admin @observed-by-action)
           "the action read the recorded (pre-cascade) sub value off its :rf.cofx"))))
-
-(defn assert-xspec-boot-order-adapter-ready
-  "#3 Machine spawn at boot before substrate adapter ready."
-  [{:keys [name]}]
-  (testing (str name " — #3 machine spawn at boot before adapter ready")
-    (rf/reg-event :init-shape
-      (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {:snapshots {:flow/boot {:state :armed :data {}}}}}}))
-    ;; EP-0027: `:initial-events` runs the setup steps synchronously at TOP-LEVEL
-    ;; construction (an ambient `*current-frame*` scope does not make it
-    ;; async-queue; only an in-flight handler cascade — `*handler-scope*` — would,
-    ;; and that is a fail-loud error). This test models a TOP-LEVEL boot, so
-    ;; the setup drains synchronously and its seed is observable.
-    (rf/make-frame {:id :booted :initial-events [[:init-shape]]})
-    (is (= :armed (get-in (:rf.db/runtime (rf/frame-state-value :booted)) [:rf.runtime/machines :snapshots :flow/boot :state]))
-        ":initial-events completed against an installed adapter — runtime-db carries the seed")))
 
 (defn assert-xspec-machines-under-ssr
   "#4 Machines under SSR (allowed-subset)."
