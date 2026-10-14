@@ -100,28 +100,25 @@
                          :clj  (rf.routing.link/route-link-render-ssr props))]
       [tag (:href attrs)])))
 
-(deftest route-link-href-agrees-across-hosts-for-every-strategy-shape
+(deftest both-link-doors-agree-across-hosts-for-every-strategy-shape
   (register-routes!)
   (doseq [{:keys [frame active punct] :as row} parity-cases]
     (seat-frame! row)
-    (testing (str "rf/route-link render inside frame " frame)
-      (is (= [:a active] (rendered-anchor frame active-props)))
-      (is (= [:a punct] (rendered-anchor frame punct-props))
-          "params, query and literal punctuation ride inside the encoded form"))))
-
-(deftest link-model-href-agrees-across-hosts-for-every-strategy-shape
-  (register-routes!)
-  (doseq [{:keys [frame active punct] :as row} parity-cases]
-    (seat-frame! row)
-    (testing (str ":routing/link-model seam for frame " frame)
-      (is (= {:href          active
-              :payload       [:rf.route/url-requested {:url "/active"}]
-              :native?       false
-              :prefetch      nil
-              :prefetch-keys rf.routing.link/prefetch-intent-keys}
-             (rf.routing.link/link-model active-props frame))
-          "only the href is encoded — the navigation payload stays PATH-FORM")
-      (is (= punct (:href (rf.routing.link/link-model punct-props frame)))))))
+    (is (= [[:a active]
+            [:a punct]
+            {:href          active
+             :payload       [:rf.route/url-requested {:url "/active"}]
+             :native?       false
+             :prefetch      nil
+             :prefetch-keys rf.routing.link/prefetch-intent-keys}
+            punct]
+           [(rendered-anchor frame active-props)
+            (rendered-anchor frame punct-props)
+            (rf.routing.link/link-model active-props frame)
+            (:href (rf.routing.link/link-model punct-props frame))])
+        (str "rf/route-link and the :routing/link-model seam inside frame " frame
+             ": params, query and literal punctuation ride inside the encoded"
+             " href, and only the href is encoded — the payload stays PATH-FORM"))))
 
 (deftest link-model-prefetch-agrees-across-hosts
   (testing "the warm-up is PURE and identical on both hosts: the SSR shell
