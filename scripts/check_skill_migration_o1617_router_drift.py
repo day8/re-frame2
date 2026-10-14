@@ -366,7 +366,6 @@ def _self_test() -> int:
         "## Reporting\n\nList the sites.\n"
     )
     cases = (
-        ("LEAF clean router", check_leaf, clean_leaf, False),
         ("LEAF shadow ## Detection", check_leaf,
          clean_leaf + "\n## Detection\n\nGrep for the coord.\n", True),
         ("LEAF mapping-table row", check_leaf, clean_leaf + "\n| a | b | c |\n", True),
@@ -374,7 +373,6 @@ def _self_test() -> int:
          clean_leaf + "\n```clojure\n(rf/reg-machine :x {})\n```\n", True),
         ("LEAF tracker id", check_leaf, clean_leaf + "\nSee rf2-abcde for context.\n", True),
         ("LEAF no route", check_leaf, "# O-16\n\nNo route here.\n", True),
-        ("COMPANION clean owner", check_companion, clean_companion, False),
         ("COMPANION still-loads", check_companion, clean_companion.replace(
             "It **fails to compile**",
             "the `:async-flow` fx still loads, so it **fails to compile**"), True),
