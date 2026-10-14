@@ -520,7 +520,8 @@
 
 (deftest navigate-structural-gate-rejects-malformed-requests
   ;; The event-shape gate, then `re-frame.routing.address/classify` over the
-  ;; request map (its per-rule verdicts are `routing-address-extraction-test`'s),
+  ;; request map (its per-rule verdicts are `routing-address-extraction-test`'s
+  ;; and `routing-boundary-totality-cljs-test`'s),
   ;; reject before any guard runs: the slice stays put, nothing is pushed and
   ;; :can-leave is never consulted, in both postures. Ungated, each row would
   ;; commit a navigation, throw a raw host exception, or silently drop part of
