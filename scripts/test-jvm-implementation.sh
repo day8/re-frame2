@@ -79,19 +79,14 @@ artefacts=(
   # The EP-0018 one-form event-MODEL conformance tier is
   # `.cljc` and runs in BOTH runtimes. Its own `:test` alias
   # (implementation/event-conformance/deps.edn) runs the SAME `.cljc`
-  # namespaces under the JVM so the `:clj`-only arms are exercised: the
-  # `^:no-doc`-meta facade probe (which reads `(meta (var …))` over the
-  # public `re-frame.core` vars — JVM-only, since CLJS has no runtime
-  # vars) and the `:clj` host throw type (`clojure.lang.ExceptionInfo`)
-  # for the retired-name removal errors — the CLJS side (the always-on
-  # `:node-test` gate) runs only the `:cljs` arm. It locks the
-  # one-form event PUBLIC contract: `reg-event` as the single form with
-  # reg-event-fx semantics, the three retired names as throwing stubs
-  # raising their exact hard errors (production-survivable), the single
-  # `:rf/event-handler` wrapper (no `:event/kind`), and frame-scoped event
-  # routing (an image-loaded frame routes to its image, an image-less frame
-  # to the global registrar). There is no realm-routing: EP-0023/EP-0024
-  # retire the EP-0013 multi-realm substrate.
+  # namespaces under the JVM so the `:clj` host throw type
+  # (`clojure.lang.ExceptionInfo`) for the retired-name removal errors is
+  # exercised — the CLJS side (the always-on `:node-test` gate) runs only
+  # the `:cljs` arm. It locks the one-form event PUBLIC contract: the three
+  # retired names as throwing stubs raising their exact hard errors
+  # (production-survivable), supplied recordable coeffects validated at the
+  # durable boundary, the closed effects map at the final effects boundary,
+  # and runtime-db isolation between image-loaded frames.
   implementation/event-conformance
   # The test-runtime quiet-reporter artefact
   # (day8/re-frame2-test-quiet) ships its own JVM `:test`

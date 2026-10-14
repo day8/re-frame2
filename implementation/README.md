@@ -251,8 +251,7 @@ implementation/
                              regression lock on the boundaries of the one-form
                              event contract: supplied recordable coeffects validated
                              at the durable boundary, the closed effects map at the
-                             final effects boundary, silent `:rf.db/runtime` writes
-                             for framework-authority handlers only, the three
+                             final effects boundary, the three
                              retired names (`reg-event-db`/`-fx`/`-ctx`) throwing
                              and registering nothing, and live dispatch staying
                              inside an image-loaded frame. Core's tests hold the

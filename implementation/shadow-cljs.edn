@@ -299,9 +299,8 @@
                 ;; core's focused suites could weaken while staying green:
                 ;; supplied recordable coeffects are validated at the durable
                 ;; boundary; the closed effects map is enforced at the final
-                ;; effects boundary, with no db-return convenience; only
-                ;; framework-authority handlers write :rf.db/runtime
-                ;; silently; the THREE retired names (reg-event-db / -fx /
+                ;; effects boundary, with no db-return convenience; the
+                ;; THREE retired names (reg-event-db / -fx /
                 ;; -ctx) throw, register nothing and fan out on the
                 ;; always-on error channel; and live dispatch stays inside an
                 ;; image-loaded frame. Core's tests hold the single
