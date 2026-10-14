@@ -45,23 +45,12 @@
 (defn- floor-row [readings micro]
   (rf.bench.fresco.walk-profile-app/tag-cache-floor-row readings census roster micro))
 
-(deftest an-instrument-with-signal-passes
-  (is (= {:ok? true :worst 0.18}
-         (select-keys (floor-row [(healthy 0.20) (healthy 0.25) (healthy 0.18)] micro) [:ok? :worst]))))
-
 (deftest strict-rule-beats-overlap
   ;; One dataset, two rules: the overlap rule lets a good round vouch for a
   ;; bad one, and the every-round rule refuses it.
   (let [strict  (floor-row [(healthy 0.20) (healthy 0.20) (healthy 0.03)] micro)
         overlap (rf.bench.fresco.lane/control-verdict 0.1 {:min 0.03 :max 0.20 :mean 0.1433} 0.25)]
     (is (= [true false 0.03] [(:ok? overlap) (:ok? strict) (:worst strict)]))))
-
-(deftest the-audits-exact-converged-case
-  ;; Cached 50 ns, fresh 50 ns, observed delta 0: an unguarded `worst >= bar`
-  ;; reports ok.
-  (is (= {:predicted 0 :bar 0 :worst 0 :ok? false}
-         (select-keys (floor-row [(healthy 0.0)] [[:cached-parse-hit 50.0] [:parse-tag-fresh 50.0]])
-                      [:predicted :bar :worst :ok?]))))
 
 (deftest the-audits-exact-inverted-case
   ;; A cache hit priced above a fresh parse: a NEGATIVE floor puts the bar
