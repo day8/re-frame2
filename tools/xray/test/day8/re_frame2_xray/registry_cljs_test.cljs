@@ -714,7 +714,7 @@
 ;; Any gated registration edit, add OR replace, must bump `schema-version`
 ;; and pair a `migrate-schema!` clause (or record why none is needed).
 
-(def ^:private expected-schema-version 7)
+(def ^:private expected-schema-version 8)
 
 (deftest schema-version-is-pinned-so-changed-registrations-name-a-migration
   (is (= expected-schema-version registry/schema-version)
