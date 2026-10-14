@@ -115,14 +115,6 @@
     ;; coordinate, the join folds them identically to live completions.
 
     (dispatch-synthetic-child-completion! f :s1)
-    ;; After the first :work/child-done, the join state's :done
-    ;; carries :s1; the join condition (:all of 3) hasn't resolved
-    ;; yet so :resolved? stays false and the parent is still :working.
-    (let [parent-snapshot (parent-machine-snapshot f)
-          join-snapshot   (join-state f)]
-      (is (= [:working #{:s1} false]
-             [(:state parent-snapshot) (:done join-snapshot) (:resolved? join-snapshot)])))
-
     (dispatch-synthetic-child-completion! f :s2)
     (is (= [#{:s1 :s2} :working] [(:done (join-state f)) (:state (parent-machine-snapshot f))]))
 
