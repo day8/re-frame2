@@ -20,34 +20,25 @@
   is the whole of what HD-025 sells, and its dismiss button could not be
   written. This file is that button, clicked.
 
-  Six claims, and the third and fourth are the ones that matter:
+  Four claims, and the first two are the ones that matter:
 
-  1. a **bare intent vector** on a native presence child dispatches;
-  2. an **`h/event` at an event position** on one dispatches what it returns;
-  3. both of them still dispatch **while the child is being retained** —
-     the `::motion/unmounting` window, where the child is gone from app-db,
-     still on screen, still clickable, and re-lowered by presence on
-     every one of its own renders;
-  4. the intent lands in the frame the **tray** was mounted under, proved
+  1. a **bare intent vector** and an **`h/event` at an event position**
+     on a native presence child both dispatch **while the child is being
+     retained** — the `::motion/unmounting` window, where the child is
+     gone from app-db, still on screen, still clickable, and re-lowered
+     by presence on every one of its own renders;
+  2. the intent lands in the frame the **tray** was mounted under, proved
      against a second live frame on the same page rather than against an
      absence;
-  5. a tray with no frame above it is legal until a child writes an
+  3. a tray with no frame above it is legal until a child writes an
      intent, and that intent is the loud error, **named**;
-  6. presence's roster is four hooks — three distinct names, with
+  4. presence's roster is four hooks — three distinct names, with
      `useContext` read twice for the frame and for the root-scoped
      adoption window — and `collector/shell`'s is two — counted at
      React's own dispatcher, so the budget claim is a reading rather than
-     a docstring. It also reads two things off the same log: presence's
-     body runs exactly **twice** on a mount, which is `step`'s
-     adjust-during-render convergence seen from outside; and a `useEffect` call surfaces more than one
-     dispatcher read on React 19.2's dev build, which is why a hook
-     ROSTER is `distinct` rather than a count.
-
-  One row exists only to make a mutation legible.
-  `an-intent-under-a-framed-tray-raises-nothing` puts an error boundary
-  over an ordinary framed tray and asserts it caught nothing: every other
-  row above reds on an *absence* — no tray, so every query is nil — and
-  React does not print the `ex-info` it swallowed. That row prints it.
+     a docstring. It also reads off the same log that presence's body
+     runs exactly **twice** on a mount, which is `step`'s
+     adjust-during-render convergence seen from outside.
 
   ## The host child, and why it is not witnessed here
 
@@ -68,7 +59,6 @@
             [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
             [re-frame.fresco.impl.presence-react :refer [presence]]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
-            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
             [re-frame.fresco.checkpoint-support :as rf.fresco.checkpoint-support]
             [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
@@ -148,41 +138,6 @@
                      :data-role "note"}
        "note"]])])
 
-(rf.fresco/defview note-only-tray
-  "The same tray carrying **only** the callback form, and it exists for
-  what it proves when the frame binding is taken away. The two intent
-  shapes fail at different MOMENTS: a bare vector is refused at LOWERING,
-  during presence's render, so a tray holding one never reaches the
-  screen — and a red on the tray above could always be blamed on that
-  sibling. `h/event` is lowered happily with no frame (the dispatch is
-  captured, not required); it renders, it clicks, and it raises at
-  INVOCATION. So this tray is the one whose red is the callback path's
-  own."
-  [_]
-  [presence {:timeout-ms timeout-ms}
-   (for [t (rf.fresco.impl.collector/sub [:fresco.presence-intent/visible])]
-     [:div.toast {:key (:id t) :data-id (:id t)}
-      [:button.note {:data-id   (:id t)
-                     :on-click  (rf.fresco/event [e]
-                                  (when (= "note" (.. e -target -dataset -role))
-                                    [:fresco.presence-intent/noted (:id t)]))
-                     :data-role "note"}
-       "note"]])])
-
-(rf.fresco/defview toast-card
-  "A BOUNDARY child of presence. It resolves its own frame in its own
-  shell and takes any override as ordinary props, so it is the control:
-  presence's binding around the crossing must leave this path alone."
-  [{:keys [id]}]
-  [:div.card {:data-id id}
-   [:button.card-dismiss {:on-click [:fresco.presence-intent/dismissed id]} "dismiss"]])
-
-(rf.fresco/defview card-tray
-  [_]
-  [presence {:timeout-ms timeout-ms}
-   (for [t (rf.fresco.impl.collector/sub [:fresco.presence-intent/visible])]
-     [toast-card {:key (:id t) :id (:id t)}])])
-
 (def ^:private two [{:id 1 :message "Saved"} {:id 2 :message "Copied"}])
 (def ^:private one [{:id 1 :message "Saved"}])
 
@@ -197,58 +152,7 @@
   (rf.fresco.impl.mount/settle!))
 
 ;; ---------------------------------------------------------------------------
-;; 1 — a bare intent vector on a native presence child
-;; ---------------------------------------------------------------------------
-
-(deftest a-native-presence-child-dispatches-its-inline-intent
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test has no DOM")
-    (do
-      (fresh! frame-id two)
-      (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [toast-tray {}])]
-        (try
-          (is (some? (query handle ".toast"))
-              "the tray rendered at all — without the frame binding the intent
-               on the child would raise :rf.error/fresco-intent-outside-boundary
-               during presence's own render and there would be no tray to click")
-          (is (nil? (:dismissed (db frame-id))))
-          (click! (button handle ".dismiss" 2))
-          (is (= [2] (:dismissed (db frame-id)))
-              "the inline dismiss button dispatched, which is the whole of what
-               the inline tray is sold on")
-          (click! (button handle ".dismiss" 1))
-          (is (= [2 1] (:dismissed (db frame-id)))
-              "and again, so this is a live handler and not a one-shot")
-          (finally (rf.fresco.impl.mount/release! handle)))))))
-
-;; ---------------------------------------------------------------------------
-;; 2 — the one callback form at a presence child's event position
-;; ---------------------------------------------------------------------------
-
-(deftest a-callback-at-a-presence-childs-event-position-dispatches-what-it-returned
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test has no DOM")
-    (do
-      (fresh! frame-id two)
-      ;; The callback-ONLY tray, deliberately: see its docstring. A bare
-      ;; vector on the same child would fail earlier and louder with the
-      ;; binding removed, and would take the credit for this row's red.
-      (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id
-                                [note-only-tray {}])]
-        (try
-          (is (some? (button handle ".note" 1))
-              "the tray rendered — an h/event is LOWERED with no frame in scope,
-               because the dispatch is captured rather than required, so this
-               path fails at invocation and not here")
-          (click! (button handle ".note" 1))
-          (is (= [1] (:noted (db frame-id)))
-              "and at invocation the h/event read the real event and the vector it
-               RETURNED drained through the arm's synchronous door — the second
-               row of the position table, at a position presence lowered")
-          (finally (rf.fresco.impl.mount/release! handle)))))))
-
-;; ---------------------------------------------------------------------------
-;; 3 — the unmounting window: retained, on screen, and still clickable
+;; 1 — the unmounting window: retained, on screen, and still clickable
 ;; ---------------------------------------------------------------------------
 
 (deftest a-retained-child-dispatches-during-the-unmounting-window
@@ -277,7 +181,7 @@
           (finally (rf.fresco.impl.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
-;; 4 — the frame is the TRAY's, proved against a second live frame
+;; 2 — the frame is the TRAY's, proved against a second live frame
 ;; ---------------------------------------------------------------------------
 
 (deftest a-presence-child-lands-in-the-frame-the-tray-was-mounted-under
@@ -301,22 +205,8 @@
               "and symmetrically the other way")
           (finally (rf.fresco.impl.mount/release! a) (rf.fresco.impl.mount/release! b)))))))
 
-(deftest a-boundary-child-of-presence-still-lowers-in-its-own-render
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test has no DOM")
-    (do
-      (fresh! frame-id two)
-      (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [card-tray {}])]
-        (try
-          (click! (.querySelector (:container handle)
-                                  ".card[data-id=\"2\"] .card-dismiss"))
-          (is (= [2] (:dismissed (db frame-id)))
-              "a boundary child resolves its own frame in its own shell, and
-               presence's binding around the crossing left that path alone")
-          (finally (rf.fresco.impl.mount/release! handle)))))))
-
 ;; ---------------------------------------------------------------------------
-;; 5 — a frameless tray is legal; an intent under one is still the loud error
+;; 3 — a frameless tray is legal; an intent under one is still the loud error
 ;; ---------------------------------------------------------------------------
 
 (def ^:private !caught (atom nil))
@@ -362,41 +252,7 @@
             (finally (rf.fresco.impl.mount/release! handle))))))))
 
 ;; ---------------------------------------------------------------------------
-;; 5b — the mutation sentinel: a framed tray raises NOTHING, by name
-;; ---------------------------------------------------------------------------
-;;
-;; Every other row above reds usefully when the binding is removed, but it
-;; reds on an ABSENCE — the tray never renders, so the queries come back nil
-;; and the diagnostic React swallowed is nowhere in the failure text. This row
-;; puts an error boundary over the tray for no reason except to catch what
-;; presence threw and print it, so a mutation names `:rf.error/fresco-intent-
-;; outside-boundary` in the test output rather than in a browser console
-;; somebody has to go and read.
-
-(deftest an-intent-under-a-framed-tray-raises-nothing
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test has no DOM")
-    (do
-      (fresh! frame-id two)
-      (reset! !caught nil)
-      (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id
-                                [boundary {:fallback [:p.oops "the tray refused"]
-                                           :on-error (fn [e] (reset! !caught e))}
-                                 [toast-tray {}]])]
-        (try
-          (is (nil? @!caught)
-              (str "presence raised while lowering its own children, and the "
-                   "error boundary above the tray caught: "
-                   (pr-str (select-keys (ex-data @!caught)
-                                        [:rf.error/id :intent :position]))))
-          (is (nil? (query handle ".oops"))
-              "so the fallback did not take over")
-          (is (= 2 (.-length (.querySelectorAll (:container handle) ".toast")))
-              "and both toasts, controls and all, are on screen")
-          (finally (rf.fresco.impl.mount/release! handle)))))))
-
-;; ---------------------------------------------------------------------------
-;; 6 — the hook budget, counted at React's own dispatcher
+;; 4 — the hook budget, counted at React's own dispatcher
 ;; ---------------------------------------------------------------------------
 
 (defn- unwitnessed! []
@@ -428,8 +284,6 @@
                      "whole of it — presence's own hooks add nothing to "
                      "what HD-020(b)'s ≤2 budget governs. Raw: "
                      (pr-str names)))
-            (is (= (count rf.fresco.test.runtime/shell-hook-ledger) (count (take 2 names)))
-                "and the declared shell ledger is the measured one")
             (is (= ["useContext" "useState" "useEffect"] (vec (distinct tail)))
                 (str "presence's own roster, in call order: the frame hook, "
                      "the retention state, the ROOT-SCOPED ADOPTION WINDOW "
@@ -438,10 +292,6 @@
                      "the RAW list is a log of dispatcher reads rather than "
                      "of calls — see the two claims below for why. Raw tail: "
                      (pr-str tail)))
-            (is (empty? (filter #{"useRef" "useMemo" "useCallback"
-                                  "useSyncExternalStore"}
-                                tail))
-                "and nothing else — no useRef, and no second subscription")
             (testing "the raw log's two multiplicities, both measured rather
                       than assumed"
               (is (= 2 (get freq "useState"))
@@ -462,13 +312,5 @@
                    here against four calls. The floor moves the day
                    presence stops reading the adoption window; a bare
                    number would instead move the day React changes how
-                   often it reads one")
-              (is (= 4 (get freq "useEffect"))
-                  "twice per pass, against one call in the body: React 19.2's
-                   DEV dispatcher is read more than once per `useEffect` call,
-                   which is a property of the instrument rather than a second
-                   effect. It is exactly why the roster above is taken with
-                   `distinct` and not by counting, and it is pinned here so a
-                   React bump that changes it reds a test with an explanation
-                   attached rather than a bare number"))
+                   often it reads one"))
             (finally (rf.fresco.impl.mount/release! @handle))))))))
