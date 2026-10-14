@@ -1,56 +1,12 @@
 (ns re-frame.schemas.test-fixture
-  "Shared `:each` reset fixture for schemas-artefact JVM tests.
+  "Shared `:each` reset fixture for the schemas-artefact JVM tests: one reset
+  of the registrar, frames, flows, schema registry, schema fns and warn-once
+  caches, so no per-file copy can drift and let state bleed between tests.
+  `schemas/printer_seam_test.clj` keeps a narrower fixture of its own.
 
-  The JVM test files (`schemas_test.clj`, `schemas_sensitive_test.clj`,
-  `schemas_conformance_test.clj`, …) share one reset of the registrar /
-  frame / flows / schemas slate plus `(rf/init! plain-atom/adapter)`.
-  Drifting per-file copies would invite the cross-test bleed that the
-  per-frame side-tables exist to prevent.
-
-  The canonical reset is here; test namespaces call
-  `(use-fixtures :each tf/reset-runtime)` and inherit a uniform reset
-  semantics. The deliberately narrower
-  `schemas/printer_seam_test.clj` fixture (schema fns and the schema
-  registry; it installs no adapter) stays separate by design.
-
-  ## What gets reset
-
-  - `(registrar/clear-all!)`
-  - `(reset! frame/frames {})`
-  - `(flows/reset-flows!)`
-  - `(schemas/clear-schemas-by-frame!)` — resets the per-frame
-    registry (the raw `schemas-by-frame` atom is not re-exported;
-    the registry is encapsulated)
-  - `(schemas/set-schema-fns! schemas/default-schema-fns)` — restores Malli defaults
-    so a test that mutates the pluggable validator
-    surface doesn't poison sibling tests.
-  - `(schemas/clear-validator-unavailable-warned!)` — clears the
-    `:rf.warning/schema-validator-unavailable` one-shot
-    so test cases that exercise the unbound-validator path each
-    start from a clean slate.
-  - `(schemas/clear-walker-opaque-warned!)` — clears the
-    `:rf.warning/schema-walker-opaque` one-shot so test cases that
-    exercise the non-vector schema-registration path each start from
-    a clean slate.
-  - `(registrar/clear-warning-caches!)` — clears the registrar's
-    per-(kind, id) warn-once caches (missing-doc, registration-collision)
-    so each test sees a clean suppression slate.
-  - `(rf/init! plain-atom/adapter)` — installs the schemas-artefact
-    JVM tests' standard substrate.
-
-  ## EP-0002 frame scope
-
-  `reg-app-schema` is context-required frame-local: an ambient call under
-  no established scope raises `:rf.error/no-frame-context` (there is no
-  `:rf/default` floor). `init!` does not create `:rf/default`, so the
-  fixture registers it as an ordinary frame and pins `*current-frame*` so
-  the schemas-artefact tests' ambient `reg-app-schema` calls carry a scope
-  stamp — the fixture-level equivalent of wrapping each body in
-  `(rf/with-frame :rf/default …)`. A test that registers against an
-  explicit frame passes `{:frame …}`, which overrides this ambient pin.
-  (The schemas conformance runner unbinds this scope around its own
-  `make-frame` so its `:initial-events` cascade fires synchronously — see
-  `schemas_conformance_test`.)"
+  `reg-app-schema` needs an established frame scope and `init!` creates no
+  `:rf/default`, so the fixture ensures that frame and binds
+  `*current-frame*` to it; an explicit `{:frame ...}` overrides the binding."
   (:require [re-frame.core :as rf]
             [re-frame.flows :as rf.flows]
             [re-frame.frame :as rf.frame]
@@ -70,8 +26,6 @@
   (rf.schemas/clear-walker-opaque-warned!)
   (rf.registrar/clear-warning-caches!)
   (rf/init! rf.substrate.plain-atom/adapter)
-  ;; EP-0002: establish an explicit :rf/default scope for the
-  ;; body so ambient reg-app-schema calls carry a frame stamp.
   (rf.frame/ensure-default-frame!)
   (binding [rf.frame/*current-frame* :rf/default]
     (test-fn)))
