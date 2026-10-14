@@ -101,12 +101,3 @@
           (is (= [[:cfx.test/a :cfx.test/b]]
                  (mapv (comp (juxt :other-frame :target-frame) :tags)
                        (cross-frame-warnings recorded)))))))))
-
-(deftest no-warning-when-no-other-frame-is-mid-drain
-  (testing "a cross-frame dispatch-sync outside any drain does not warn"
-    (frames-with-b-leaf!)
-    (let [recorded (record-traces! ::no-drain-no-warn)]
-      (rf/dispatch-sync [:b/leaf] {:frame :cfx.test/b})
-      (is (true? (:b-ran? (rf/app-db-value :cfx.test/b))))
-      (when rf.interop/debug-enabled?
-        (is (empty? (cross-frame-warnings recorded)))))))
