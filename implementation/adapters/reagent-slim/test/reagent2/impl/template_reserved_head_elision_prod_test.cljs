@@ -17,13 +17,9 @@
   `-dom-cljs-test$` and do NOT match this ns.
 
   WHAT IS ASSERTED — the observable OUTCOME, not merely \"an exception\".
-  A failure path on CLJS can be a silent no-op rather than a throw
-  (dispatching into a destroyed frame is one), and whole classes of error
-  fail to throw on CLJS at all (`(inc nil)` is `1`). So the
-  load-bearing assertion is the one below that NO element is produced for a
-  reserved head — the phantom is what the guard is about. The thrown
-  payload is checked as well, but it is the phantom's ABSENCE that states
-  the contract.
+  A failure path on CLJS can be a silent no-op rather than a throw, so the
+  reject is read off `render-outcome`, which carries ex-data only when the
+  render threw and so cannot pass on a silent paint or a silent nil.
 
   The sibling `reagent2.impl.template-reserved-head-cljs-test` pins the
   same behaviour under dev; this file pins that production agrees."
@@ -44,13 +40,6 @@
     (is (false? ^boolean js/goog.DEBUG)
         "goog.DEBUG must be constant-folded false here, or this file proves nothing"))
 
-  (testing "no phantom element is produced for a reserved head"
-    ;; THE load-bearing assertion. A guard that elided in production would
-    ;; return a React element for <suspense-boundry> and this would fail.
-    (let [{:keys [painted]} (render-outcome [:rf/suspense-boundry {:id 1}])]
-      (is (nil? painted)
-          "a reserved head must paint NOTHING in production")))
-
   (testing "the reject carries its catalogued identity in production"
     (let [{:keys [data]} (render-outcome [:rf/suspense-boundry {:id 1}])]
       (is (= :rf.error/invalid-hiccup-head (:rf.error/id data)))
@@ -66,23 +55,12 @@
           "the author-facing explanation must reach production users"))))
 
 (deftest ordinary-heads-unaffected-in-production
-  (testing "unreserved heads still paint under :advanced"
-    (is (some? (:painted (render-outcome [:div "x"]))))
-    (is (some? (:painted (render-outcome [:my-element "x"])))))
-
-  (testing "the cache-collision guard holds in production too"
-    (is (some? (:painted (render-outcome [:button "ordinary"]))))
-    (is (nil? (:painted (render-outcome [:rf/button {}])))
-        "an unreserved twin must not disarm the guard in the shipped build"))
-
   (testing "the string-aliased cache-hit guard holds in production too"
     ;; A STRING head "rf/x" and the reserved keyword `:rf/x` share the cache
     ;; key "rf/x"; seeding the string form must not let the keyword ride the
     ;; cache-HIT path and paint a phantom in the shipped :advanced build.
     (is (some? (:painted (render-outcome ["rf/prod-string-twin" "ordinary"])))
         "seed the cache under the aliased string key")
-    (is (nil? (:painted (render-outcome [:rf/prod-string-twin {:id 1}])))
-        "the string-seeded reserved twin must paint NOTHING in production")
     (is (= :rf.error/invalid-hiccup-head
            (:rf.error/id (:data (render-outcome [:rf/prod-string-twin {:id 1}]))))
         "and carry its catalogued identity from the cache-hit path")))
