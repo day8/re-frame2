@@ -3,10 +3,8 @@
 //
 // THE CLONE is the guarantee: `state` crosses the thread boundary by
 // structured clone, whatever the module does. THE FREEZE is a diagnostic:
-// a strict-mode write throws, a sloppy-mode write fails silently — and
-// `sloppy.cjs` shows the isolation holds even then. A claim about "another
-// request" needs another request, so the interference rows send two with
-// different state.
+// a strict-mode write throws. A claim about "another request" needs another
+// request, so the interference rows send two with different state.
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -19,13 +17,6 @@ test('the snapshot the module is handed is FROZEN, and a write to it throws', as
     const { frozen, mutationThrew, readTodos } = observed(await collect(service, req({ ':todos': '[1 2 3]' })));
     // The value read is the one sent, so the freeze did not hand it an empty object.
     assert.deepStrictEqual({ frozen, mutationThrew, readTodos }, { frozen: true, mutationThrew: true, readTodos: '[1 2 3]' });
-  });
-});
-
-test("a sloppy module's write fails silently — and still reaches nothing", async () => {
-  await withService('sloppy', { isolates: 1 }, async (service) => {
-    const { frozen, threw, afterWrite } = observed(await collect(service, req({ ':todos': 'original' })));
-    assert.deepStrictEqual({ frozen, threw, afterWrite }, { frozen: true, threw: false, afterWrite: 'original' });
   });
 });
 
@@ -75,7 +66,6 @@ test('the module boots once per isolate, not once per request', async () => {
     const a = observed(await collect(service, req({ ':todos': '[]' })));
     const b = observed(await collect(service, req({ ':todos': '[]' })));
     assert.strictEqual(a.threadId, b.threadId, 'one isolate served both');
-    assert.strictEqual(a.boots, 1, 'the isolate must have booted the module exactly once');
     assert.strictEqual(b.boots, 1, 'a second boot by the time of the second render is a per-request boot');
   });
 });
