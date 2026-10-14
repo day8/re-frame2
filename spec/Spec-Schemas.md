@@ -3052,7 +3052,7 @@ The shared `:rf/path` shape every path-consuming surface (app-db / runtime-db fo
   ;; Portable EDN identity values usable as associative keys / vector indexes.
   ;; Host values (fns, atoms, promises, DOM nodes, opaque host objects) are
   ;; NOT segments and are rejected at the boundary that accepts the path.
-  ;; A subsystem MAY narrow this (e.g. flows exclude nil output segments).
+  ;; A spec MAY narrow this for its surface, as a stated policy.
   [:or
    :keyword
    :string
