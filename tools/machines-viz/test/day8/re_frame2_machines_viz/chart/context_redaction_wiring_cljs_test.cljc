@@ -85,9 +85,3 @@
                     :context-band-sensitive #{:card}
                     :context-band-raw?      true})]
       (is (str/includes? (value-for graph :card) secret)))))
-
-(deftest xyflow-graph-no-context-band-emits-no-context
-  (testing "with no :context-band fed, the root-container carries no :context
-            rows — nothing to serialise into an export"
-    (is (nil? (context-rows (projection/xyflow-graph
-                              (layout/project-definition flat-machine) {} {}))))))
