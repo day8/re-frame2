@@ -118,52 +118,36 @@
   [fx-id args]
   (m/validate (registered-schema fx-id) args))
 
-(deftest nav-fx-args-pass-the-real-validation-hook-when-conforming
-  (testing "everything the runtime emits passes the wired gate, fractional
-            :saved-pos included"
-    (let [conforming {:rf.nav/push-url       "/search?q=shoes#install"
-                      :rf.nav/replace-url    "/search?q=shoes#install"
-                      :rf.nav/capture-scroll {:url "/articles/42?ref=email#install"}
-                      :rf.nav/scroll         {:strategy  :restore
-                                              :from      {:id :route/cart}
-                                              :to        {:id :route/checkout}
-                                              :saved-pos [0.5 1234.75]
-                                              :fragment  "section-3"}}]
-      ;; Under the gate the hook accepts everything, so the registered
-      ;; schema's own verdict is what proves these args conform.
-      (doseq [[fx-id args] conforming]
-        (is (true? (schema-verdict fx-id args)) (str fx-id)))
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (with-trace-recorder! [traces]
-          (doseq [[fx-id args] conforming]
-            (is (true? (validate-through-hook fx-id args)) (str fx-id)))
-          (is (empty? (filter #(= :rf.error/schema-validation-failure (:operation %))
-                              @traces))
-              "no schema-validation-failure trace for conforming nav args"))))))
-
-(deftest nav-fx-args-fail-the-real-validation-hook-when-malformed
-  (testing "one malformed shape per fx fails the wired gate, so handle-one-fx
+(deftest nav-fx-args-are-adjudicated-by-the-real-validation-hook
+  (testing "what the runtime emits passes the wired gate, fractional :saved-pos
+            included, and one malformed shape per fx fails it, so handle-one-fx
             skips the fx (Spec 010 §Per-step recovery row 5) before its handler
             touches history, the scroll position or the capture cache"
-    (doseq [[fx-id bad-args] {:rf.nav/push-url       :route/cart
-                              :rf.nav/replace-url    42
-                              :rf.nav/scroll         {:strategy :smooth}
-                              :rf.nav/capture-scroll {:position [0 0]}}]
-      (is (false? (schema-verdict fx-id bad-args))
-          (str fx-id "'s registered schema rejects " (pr-str bad-args)))
+    (doseq [[fx-id good bad] [[:rf.nav/push-url       "/search?q=shoes#install"         :route/cart]
+                              [:rf.nav/replace-url    "/search?q=shoes#install"         42]
+                              [:rf.nav/capture-scroll {:url "/articles/42?ref=email#install"} {:position [0 0]}]
+                              [:rf.nav/scroll         {:strategy  :restore
+                                                       :from      {:id :route/cart}
+                                                       :to        {:id :route/checkout}
+                                                       :saved-pos [0.5 1234.75]
+                                                       :fragment  "section-3"}
+                                                      {:strategy :smooth}]]]
+      ;; Under the gate the hook accepts everything, so the registered
+      ;; schema's own verdict is what proves the adjudication.
+      (is (= [true false] [(schema-verdict fx-id good) (schema-verdict fx-id bad)]) (str fx-id))
       ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (with-trace-recorder! [traces]
-          (is (false? (validate-through-hook fx-id bad-args))
-              (str fx-id " with " (pr-str bad-args) " fails the wired gate"))
-          (is (= [{:where    :fx-args
-                   :rf.fx/id fx-id
-                   :failing-id fx-id
-                   :event-id :test/originating-event
-                   :recovery :skipped}]
-                 (->> @traces
-                      (filter #(= :rf.error/schema-validation-failure (:operation %)))
-                      (mapv #(assoc (select-keys (:tags %) [:where :rf.fx/id :failing-id :event-id])
-                                    :recovery (:recovery %)))))
-              (str fx-id " emits one :fx-args violation, recovery :skipped")))))))
+          (is (= [true false [{:where      :fx-args
+                               :rf.fx/id   fx-id
+                               :failing-id fx-id
+                               :event-id   :test/originating-event
+                               :recovery   :skipped}]]
+                 [(validate-through-hook fx-id good)
+                  (validate-through-hook fx-id bad)
+                  (->> @traces
+                       (filter #(= :rf.error/schema-validation-failure (:operation %)))
+                       (mapv #(assoc (select-keys (:tags %) [:where :rf.fx/id :failing-id :event-id])
+                                     :recovery (:recovery %))))])
+              (str fx-id " passes the conforming args and emits one :fx-args violation,"
+                   " recovery :skipped, for the malformed ones")))))))
