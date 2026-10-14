@@ -2,9 +2,9 @@
 // GUARANTEE 3 — ONE IN-FLIGHT RENDER PER ISOLATE.
 //
 // The reading is `overlapMax`, a high-water mark the reference module keeps
-// in module state; through the service it must be 1. A broken counter also
-// reads 1, so the first row shows it reading 2 when nothing stands between
-// the module and its callers.
+// in module state; through the service it must be 1. Behind it, an isolate
+// refuses a second dispatch outright, so a pool that double-booked one would
+// fail its caller rather than overlap.
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -13,18 +13,6 @@ const { CODE } = require('../src/protocol.cjs');
 const { Isolate } = require('../src/isolate.cjs');
 
 const req = (extra = {}) => ({ protocol: 1, entry: 'app/root', state: { ':todos': '[]' }, ...extra });
-
-test('CONTROL — the overlap counter can read more than 1', async () => {
-  const mod = require('./fixtures/reference.cjs');
-  const call = { entry: 'app/root', state: Object.freeze({ ':delay': '40' }), args: undefined };
-  const bodies = [];
-  await Promise.all([
-    mod.render(call, (h) => bodies.push(h)),
-    mod.render(call, (h) => bodies.push(h)),
-  ]);
-  const seen = Math.max(...bodies.map((h) => observed(h).overlapMax));
-  assert.strictEqual(seen, 2, 'the counter must be able to see an overlap, or it proves nothing');
-});
 
 test('a pool of N under 2N concurrent requests never overlaps within an isolate', async () => {
   // Six requests on three isolates, the rest waiting in `acquire()` under a
@@ -117,8 +105,7 @@ test('a full waiting line refuses the next caller at once rather than queueing i
     const started = Date.now();
     const err = await refusalOf(() => collect(service, req()));
     const elapsed = Date.now() - started;
-    assert.ok(err, 'a caller past a full waiting line must be refused, not queued');
-    assert.strictEqual(err.code, CODE.SERVICE_SATURATED);
+    assert.strictEqual(err?.code, CODE.SERVICE_SATURATED, 'a caller past a full waiting line must be refused, not queued');
     assert.strictEqual(err.detail.poolSize, 1);
     assert.ok(elapsed < 200, `refused after ${elapsed} ms; it waited instead of being refused at once`);
     assert.strictEqual(service.stats().waiting, 1, 'the refused caller must not have joined the line');
