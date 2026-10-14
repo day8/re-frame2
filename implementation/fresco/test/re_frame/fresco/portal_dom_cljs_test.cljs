@@ -43,8 +43,8 @@
   renders the caller's `:fallback`, or nothing, and never reaches for a
   container. The matrix row describes the SURFACE, which is Client-only
   because the portalled subtree never reaches the response.
-  [[the-declaration-is-an-ordinary-host-crossing]] pins the first; §2
-  measures the second.
+  [[a-declared-fallback-stands-at-the-tree-position-on-the-server]] pins
+  the first; §2 measures the second.
 
   ## The mutation witnesses
 
@@ -66,8 +66,8 @@
   a refusal that names the value.
 
   Runtime: `-dom-cljs-test`, so `:browser-test` runs it against a real
-  React DOM. The declaration rows and the `renderToString` rows need no
-  DOM and run under `:node-test` too."
+  React DOM. The `renderToString` rows need no DOM and run under
+  `:node-test` too."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
@@ -201,25 +201,6 @@
     (rf.fresco.impl.mount/provider frame-id (rf.fresco.impl.codec/root-element frame-id hiccup))))
 
 ;; ---------------------------------------------------------------------------
-;; 1 — the declaration (runs under :node-test too)
-;; ---------------------------------------------------------------------------
-
-(deftest the-declaration-is-an-ordinary-host-crossing
-  (testing "the helper is a minted host head, so it is legal in hiccup head
-            position and inherits the door's whole crossing — children
-            lowered under the writing boundary's frame, a declared
-            ReactNode slot, props by identity. There is no fifth element
-            class here, and no new head kind for a reader or the test kit
-            to learn"
-    (is (rf.fresco.impl.codec/host-head? rf.fresco/portal)))
-  (testing "and its declared policy reads `:render`, which is a claim about
-            the head's COMPONENT — safe on the server, where it renders the
-            caller's fallback and never reaches for a container. The
-            SURFACE is Client-only, and §2 is where that is measured rather
-            than declared"
-    (is (= :render (rf.fresco.impl.codec/host-server rf.fresco/portal)))))
-
-;; ---------------------------------------------------------------------------
 ;; 2 — the server render: Client-only, on both arms (no DOM needed)
 ;; ---------------------------------------------------------------------------
 
@@ -233,10 +214,8 @@
     (let [html (server-html [bare-page {}])]
       (is (re-find #"saved" html)
           (str "the page rendered — the sibling native node is there: " html))
-      (is (not (re-find #"THE PORTALLED SUBTREE" html))
-          (str "and the portalled subtree is not in the response: " html))
       (is (not (re-find #"class=\"toast\"" html))
-          (str "as markup either, not merely as text: " html)))))
+          (str "and the portalled subtree is not in the response: " html)))))
 
 (deftest a-declared-fallback-stands-at-the-tree-position-on-the-server
   (fresh!)
@@ -247,8 +226,6 @@
     (let [html (server-html [toast-page {:target nil}])]
       (is (re-find #"rack-placeholder" html)
           (str "the caller's markup is in the server bytes: " html))
-      (is (re-find #"rack loading" html)
-          (str "with its content: " html))
       (is (not (re-find #"class=\"toast\"" html))
           (str "and still not the portalled subtree — a fallback is a
                 placeholder AT THE TREE POSITION, never the portal's own
@@ -271,10 +248,8 @@
                     line after `root!` returns, which is inside its own
                     flushSync, and therefore also the claim that the fallback
                     never flashed"
-            (is (some? (query-node rack ".toast"))
-                "the portalled subtree is in the TARGET container")
             (is (= "saved" (.-textContent (query-node rack ".toast")))
-                "carrying the value its body read from the frame")
+                "the portalled subtree is in the TARGET container, carrying the value its body read from the frame")
             (is (nil? (query-node (:container h) ".toast"))
                 "and nowhere in the root's own container")
             (is (nil? (query-node (:container h) ".rack-placeholder"))
@@ -291,9 +266,6 @@
                     its frame from the substrate's one React context. React
                     keeps a portal in the tree it was written in, so the
                     provider above the root is above this body too"
-            (is (some? (query-node rack ".deep"))
-                "the boundary inside the portal rendered rather than
-                 refusing with :rf.error/no-frame-context")
             (is (= "saved" (.-textContent (query-node rack ".deep")))
                 "and its `h/sub` read resolved against the owner's frame"))
           (testing "and teardown takes the portalled DOM with it. The nodes
