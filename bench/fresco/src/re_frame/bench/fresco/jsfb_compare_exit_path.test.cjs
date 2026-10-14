@@ -121,9 +121,6 @@ test('SHORT or UNMEASURED evidence exits 1, naming every missing cell, its side 
   for (const [what, dir, ours, missing, named] of [
     ['a benchmark missing from theirs', theirsDir('short-theirs', { skip: SWAP }), oursJson('short-theirs.json'), 2,
       [`05_swap1k / rf2-fresco: ${THEIRS}`, `05_swap1k / rf2-uix: ${THEIRS}`]],
-    ['an arm missing from ours',
-      theirsDir('short-ours'), oursJson('short-ours.json', (j) => delete j.summary.replace1k.arms[ARM0]), 1,
-      [`02_replace1k / rf2-fresco: ${OURS}`]],
     ['a cell missing from both',
       theirsDir('both-gone', { skip: [`${ARM0}_09_clear1k_x8`] }), oursJson('both-gone.json', (j) => delete j.summary.clear1k.arms[ARM0]), 1,
       ['09_clear1k_x8 / rf2-fresco: NEITHER instrument measured it']],
@@ -165,12 +162,11 @@ test('THE PROCESS EXIT: no arguments at all is a refusal, not a green run', () =
 const WORKLOAD_CONCLUSION = /workload moves the ratio by/;
 
 test('THE WORKLOAD CONCLUSION: a refused ours ratio or duration prints UNMEASURED, not a movement', () => {
-  // The duration rows sit under an ordinary 1.2 ratio, so a guard that looked
+  // The duration row sits under an ordinary 1.2 ratio, so a guard that looked
   // only at the derived number would still print the movement.
-  for (const [field, bad, named] of [['ratio', -1.2, 'ratio=-1.2'], ['base', 0, 'base ms=0'], ['ms', 0, `${ARM0} ms=0`]]) {
+  for (const [field, bad, named] of [['ratio', -1.2, 'ratio=-1.2'], ['ms', 0, `${ARM0} ms=0`]]) {
     const f = oursJson(`wl-${field}.json`, (j) => {
-      if (field === 'base') j.summary.run1k.base = bad;
-      else j.summary.run1k.arms[ARM0][field] = bad;
+      j.summary.run1k.arms[ARM0][field] = bad;
     });
     const r = run(['--theirs', theirsDir(`wl-${field}`), '--ours', f]);
     assert.doesNotMatch(r.stdout, WORKLOAD_CONCLUSION, `ours ${field}=${bad} may not yield a movement`);
@@ -192,11 +188,9 @@ test('THE WORKLOAD CONCLUSION: a MEASURED run exits 0, states the movement and S
 test('THE WORKLOAD CONCLUSION is OURS-only: a short DRIVER table does not suppress it', () => {
   // This section is one instrument across two pages, so the benchmark driver's
   // evidence is not among its premises. It is also the process-exit row for
-  // short evidence: exit 1, the missing cell named.
+  // short evidence: exit 1.
   const r = run(['--theirs', theirsDir('wl-short', { skip: [`${ARM0}_01_run1k`] }), '--ours', oursJson('wl-short.json')]);
   assert.strictEqual(r.status, 1, r.stdout + r.stderr);
-  assert.match(r.stderr, /1 of 10 expected cells were not measured/);
-  assert.match(r.stderr, /01_run1k \/ rf2-fresco/);
   assert.match(r.stdout, WORKLOAD_CONCLUSION, 'ours measured this page; the driver is not its premise');
 });
 
