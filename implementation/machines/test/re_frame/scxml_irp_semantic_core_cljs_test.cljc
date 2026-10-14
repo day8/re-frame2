@@ -28,7 +28,7 @@
 
   History:
     387  default history target before first visit         COVERED (fixture scxml-history-test387-*)
-    388  stored history config restored after first visit  COVERED (scxml-history-test388-*)
+    388  stored history config restored after first visit  COVERED (fixture scxml-history-test388-*)
     579  default history fires only when nothing recorded  COVERED (fixture scxml-history-test579-*)
     580  history pseudo-state never in active config /
          per-region shallow                                COVERED (fixture scxml-history-test580-*)
