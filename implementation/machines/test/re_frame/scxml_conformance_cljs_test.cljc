@@ -360,7 +360,7 @@
         "the action runs with no exit/entry and the non-initial child is kept")))
 
 ;; ---- History (SCXML §3.10) ---------------------------------------------------
-;; The W3C 387/579/580 adaptations run as Mode-B fixtures
+;; The W3C 387/388/579/580 adaptations run as Mode-B fixtures
 ;; (`spec/conformance/fixtures/scxml-history-test*.edn`).
 
 (defn- history-rejection-id
@@ -395,29 +395,3 @@
                                                 :states  {:s01  {}
                                                           :hist {:type :history :default-target :nonexistent}}}}}}
            history-rejection-id))))
-
-(deftest scxml-history-test388-deep-restores-exact-leaf
-  (let [m {:initial :s0
-           :states  {:s0   {:initial :s01
-                            :on      {:leave :away}
-                            :states  {:s01  {:initial :s011 :states {:s011 {} :s012 {}}}
-                                      :s02  {:initial :s021 :states {:s021 {} :s022 {}}}
-                                      :hist {:type :history :deep? true :default-target :s022}}}
-                     :away {:on {:return [:s0 :hist]}}}}
-        left (step m {:state [:s0 :s01 :s012] :data {}} [:leave])]
-    (is (= [[:s0 :s01 :s012] [:s0 :s01 :s012]]
-           [(get-in left [:rf/history [:s0]]) (:state (step m left [:return]))])
-        "deep history records and restores the exact leaf")))
-
-(deftest scxml-history-test388-shallow-restores-child-then-initial
-  (let [m {:initial :s0
-           :states  {:s0   {:initial :s01
-                            :on      {:leave :away}
-                            :states  {:s01  {:initial :s011 :states {:s011 {} :s012 {}}}
-                                      :s02  {:initial :s021 :states {:s021 {} :s022 {}}}
-                                      :hist {:type :history :default-target :s02}}}
-                     :away {:on {:return [:s0 :hist]}}}}
-        left (step m {:state [:s0 :s01 :s012] :data {}} [:leave])]
-    (is (= [:s01 [:s0 :s01 :s011]]
-           [(get-in left [:rf/history [:s0]]) (:state (step m left [:return]))])
-        "shallow history records the direct child and restores it through its :initial")))
