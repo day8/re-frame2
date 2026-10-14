@@ -189,7 +189,9 @@ Two contract facts, each pinned against the shipped spec:
     GitHub repository path, right only inside the repository URL, so a
     detection rule or dependency example keyed on it misses the real
     dependency. The rule fires on that spelling anywhere but after a `/`,
-    which is the URL position.
+    which is the URL position. The http-fx add-on has the same shape: its
+    coordinate is `day8.re-frame/http-fx`, and `day8/re-frame-http-fx` is
+    its repository path.
 
 All of these rules are written to fire ONLY on the stale ASSERTION / bad-command
 shape, never on the correct wording that states the negation — and never on the
@@ -449,6 +451,9 @@ PAIR_PARTITION_NEGATION_RE = re.compile(
 ASYNC_FLOW_REPO_AS_COORD_RE = re.compile(
     r"(?<![/\w.-])day8/re-frame-async-flow-fx\b"
 )
+# The http-fx add-on: coordinate `day8.re-frame/http-fx`, repository path
+# `day8/re-frame-http-fx`.
+HTTP_FX_REPO_AS_COORD_RE = re.compile(r"(?<![/\w.-])day8/re-frame-http-fx\b")
 
 # --- Rule 5: stock-Reagent Form-3 lifecycle advice must target the captured
 # frame explicitly. The one-argument forms are valid while a real resolver scope
@@ -845,6 +850,13 @@ def line_problems(line: str) -> list[str]:
             "`day8.re-frame/async-flow-fx`. `day8/re-frame-async-flow-fx` is "
             "its GitHub repository path, right only inside the repository "
             "URL; a detector keyed on it misses the real dependency."
+        )
+    if HTTP_FX_REPO_AS_COORD_RE.search(line):
+        problems.append(
+            "HTTP-FX-COORD: the http-fx add-on's Maven coordinate is "
+            "`day8.re-frame/http-fx`. `day8/re-frame-http-fx` is its GitHub "
+            "repository path, right only inside the repository URL; a "
+            "detector keyed on it misses the real dependency."
         )
 
     # Rule 5 is NOT here: it needs Markdown context (section bounds + example
@@ -2355,7 +2367,8 @@ def run(*, verbose: bool, ci: bool) -> int:
                 "M-0 publication-route drift (Rule 6), "
                 "skill-leaf stop-and-wait route drift (Rule 6b), "
                 "stale listener-stream vocabulary (Rule "
-                "7), async-flow repository path as coordinate (Rule 8), "
+                "7), async-flow or http-fx repository path as coordinate "
+                "(Rule 8), "
                 "or M-1 classifier / kickoff-anchor drift "
                 "found."
             )
@@ -2691,6 +2704,15 @@ def _self_test() -> int:
         "`day8.re-frame/async-flow-fx` ([repo](https://github.com/day8/"
         "re-frame-async-flow-fx)) ships a single fx.",
         dirty=False, label="R8 coordinate beside its repository URL (correct)",
+    )
+    expect(
+        "- Maven coord `day8/re-frame-http-fx` in `deps.edn` (any version).",
+        dirty=True, label="R8 http-fx repository path as the Maven coordinate",
+    )
+    expect(
+        "`day8.re-frame/http-fx` ([repo](https://github.com/day8/"
+        "re-frame-http-fx)) ships a single fx.",
+        dirty=False, label="R8 http-fx coordinate beside its repository URL",
     )
 
     # --- Rule 5 fixtures — stock-Reagent Form-3 lifecycle targeting ------------

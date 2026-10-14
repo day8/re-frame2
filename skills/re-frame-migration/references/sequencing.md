@@ -87,7 +87,7 @@ The M-rule numbering in [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/
 | 6 | **M-22** | `reg-view` is a defn-shape macro; keyword-shape calls fail to expand. Compile-level. |
 | 7 | **M-23** | `re-frame.alpha` namespace removed. Compile-level (require fails). |
 | 8 | **M-24** | `rf/h` removed. Compile-level (symbol unresolved). |
-| 9 | **M-25** | `re-frame.test` renamed to `re-frame.test-support`. Compile-level. |
+| 9 | **M-25** | `day8.re-frame.test` helpers move to `re-frame.test-support`. Compile-level. A v0.1.6 / 0.1.7 runner reference is kept or moved before the `day8.re-frame/test` coord retires. |
 | 9a | **M-64** | If the codebase uses `reset-runtime-fixture-factory`. Rename to `make-reset-runtime-fixture`. Closed mechanical rename. Pairs with M-25 (same `re-frame.test-support` ns). v2-pre-rename only. |
 | 9b | **M-62** | If the codebase uses `assert-state`. Path form → `assert-path-equals`; full-db form → direct compare `(is (= expected-db (rf/app-db-value f)))` (no dedicated v2 fn). Disambiguation moves from arity to call site. Pairs with M-25. v1's `assert-state` (path form only) → `assert-path-equals` directly. |
 | 10 | **M-26** | Drift-sweep drops — most are symbol-not-found at compile time. The Type B half (`add-post-event-callback`, the trace / epoch callbacks) waits for behavioural review; `console` / `set-loggers!` and `enqueue` are not migrated, so flag them. |
