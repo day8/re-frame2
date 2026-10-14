@@ -18,7 +18,7 @@
 
   JVM-only: it creates namespaces and `eval`s registration forms in them."
   (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is testing use-fixtures]]
+            [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
