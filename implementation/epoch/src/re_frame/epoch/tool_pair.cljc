@@ -176,9 +176,12 @@
     * the validator returns true / nil (every snapshot conformed, or none
       carried a `[:schemas :data]` schema).
 
-  Failure case: the validator returned false — at least one snapshot's
-  `:data` failed its `[:schemas :data]` schema. The validator does not surface the
-  failing leaf paths (it emits its own per-snapshot trace naming each), so
+  Failure cases: the validator returns false — at least one snapshot's
+  `:data` failed its `[:schemas :data]` schema — or it throws. A validator
+  that cannot finish its walk has not shown the value conforms, so the write
+  fails closed, as the router's machine-data boundary does for a dispatched
+  transition. The validator does not surface the failing leaf paths (on a
+  false return it emits its own per-snapshot trace naming each), so
   the returned vector names the runtime-db root the failure walked
   (`[:rf.runtime/machines :snapshots]`) — the same shape the app-db
   validator returns for an app-db failure. The validity question is
@@ -188,7 +191,7 @@
            (rf.late-bind/get-fn :machines/validate-machine-data!)]
     (let [validation-result
           (try (validate-machine-data! runtime-db nil frame-id)
-               (catch #?(:clj Throwable :cljs :default) _ true))]
+               (catch #?(:clj Throwable :cljs :default) _ false))]
       (if (or (nil? validation-result) (true? validation-result))
         []
         [machine-snapshots-path]))
