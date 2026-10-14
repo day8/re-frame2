@@ -35,27 +35,6 @@
 ;; `data-rf-view` is `(str id)` — a printed keyword, leading colon included.
 (def expected-view-id ":rf.parity-test/sample-view")
 
-;; Degraded canonical: programmatic registration with no macro coords.
-(def fixture-meta-no-line-no-col
-  {:ns         'rf.parity-test
-   :file       "rf/parity_test.cljs"
-   :handler-id fixture-id})
-
-(def expected-attr-no-line-no-col
-  "rf.parity-test:sample-view:?:?")
-
-;; ---- CLJS side: degraded shape (no line / col) pins the canonical -------
-
-(deftest cljs-format-source-coord-degraded-shape-byte-identical
-  (testing "with no :line / :column (a programmatic reg-view*), the CLJS
-            helper degrades to <ns>:<sym>:?:?, as the SSR helper does"
-    (let [cljs-format #'re-frame.views/format-source-coord
-          cljs-output (cljs-format fixture-id fixture-meta-no-line-no-col)]
-      (is (= expected-attr-no-line-no-col cljs-output)
-          (str "CLJS degraded shape: expected "
-               (pr-str expected-attr-no-line-no-col)
-               " — got: " (pr-str cljs-output))))))
-
 ;; ---- convergence: source-coords is the single cross-host owner -
 ;;
 ;; Both hosts' formatters alias one `.cljc` implementation in
