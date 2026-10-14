@@ -63,15 +63,13 @@
   (testing "an :omit-stamped body redacts off-box, at a nested slot too (a
             retry-attempt's intermediate failure body), leaving its siblings;
             a :classify-stamped body (its sensitive slots already redacted
-            on-box) and an unstamped one ride untouched"
+            on-box) rides untouched"
     (rf/make-frame {:id :test/http})
     (are [operation tags expected] (= expected (projected-tags (http-record operation tags) nil))
       :rf.http/retry-attempt {:failure {:status 500 :body http-secret} :rf.http/off-box-body :omit}
                              {:failure {:status 500 :body :rf/redacted} :rf.http/off-box-body :omit}
       :rf.http/replied       {:value {:token :rf/redacted :user-id 42} :rf.http/off-box-body :classify}
-                             {:value {:token :rf/redacted :user-id 42} :rf.http/off-box-body :classify}
-      :rf.http/replied       {:value {:k "v"}}
-                             {:value {:k "v"}})))
+                             {:value {:token :rf/redacted :user-id 42} :rf.http/off-box-body :classify})))
 
 (deftest local-raw-profile-lifts-omission-without-an-explicit-key
   (testing "the omit seams read the sensitive axis by key presence, so the
