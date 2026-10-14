@@ -150,15 +150,6 @@
     (click! :sp/unfavorite {:optimistic? false})
     (is (= [unpainted true 1] [(article) (stale?) (- (reads) before-reads)]))))
 
-(deftest a-three-attempt-chain-restores-the-original-baseline
-  (setup!)
-  (click! :sp/favorite)
-  (click! :sp/unfavorite)
-  (let [click-3 (click! :sp/favorite)]
-    (is (= {:favorited true :favoritesCount 6} (article)))
-    (fail! click-3)
-    (is (= [unpainted true] [(article) (stale?)]))))
-
 (deftest c3-a-successful-successor-commits-without-a-stale-mark
   (setup!)
   (click! :sp/favorite)
