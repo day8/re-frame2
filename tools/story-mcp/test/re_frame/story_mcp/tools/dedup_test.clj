@@ -14,23 +14,19 @@
 
 (deftest apply-dedup-rewrites-both-slots-consistently
   ;; Both slots carry the deduped payload, so the cap step sizes the
-  ;; post-dedup wire on both.
+  ;; post-dedup wire on both; every other slot the handler set rides through.
   (let [shared  {:big "value" :tags [:a :b :c]}
         payload [{:id 1 :data shared} {:id 2 :data shared} {:id 3 :data shared}]
         out     (rf.story-mcp.tools.wire-pipeline/apply-dedup
-                  (rf.story-mcp.tools.result/text-result (rf.story-mcp.tools.result/pr-edn payload) payload)
+                  (assoc (rf.story-mcp.tools.result/text-result (rf.story-mcp.tools.result/pr-edn payload) payload)
+                         :_sibling :passes-through)
                   true)
         sc      (:structuredContent out)]
     (is (contains? sc :rf.mcp/dedup-table))
     (is (= payload (rf.story-mcp.test-support/dedup-expand sc)) "round-trip restores the payload")
     (is (= (rf.story-mcp.tools.result/pr-edn sc) (-> out :content first :text))
-        "the text slot is re-stringified from the deduped structured payload")))
-
-(deftest apply-dedup-preserves-sibling-slots
-  (let [payload [{:k :v} {:k :v}]
-        result  (assoc (rf.story-mcp.tools.result/text-result (rf.story-mcp.tools.result/pr-edn payload) payload)
-                       :_sibling :passes-through)]
-    (is (= :passes-through (:_sibling (rf.story-mcp.tools.wire-pipeline/apply-dedup result true))))))
+        "the text slot is re-stringified from the deduped structured payload")
+    (is (= :passes-through (:_sibling out)))))
 
 (deftest descriptor-dedup-eligibility-matches-the-documented-set
   ;; tools/story-mcp/spec/Principles.md §Structural dedup at the wire
