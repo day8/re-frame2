@@ -2118,7 +2118,7 @@ history + spine focus:
 | **app-db-diff**    | `:rf.xray/app-db-state` (← `:rf.xray/app-db-current+diff`; rf2-p53m2 — the `:rf.xray/app-db-diff` composite was pruned) | `:rf.xray.edn-inspector/zoom-to` (the shared EDN widget's double-click / Enter zoom) |
 | **views**          | `:rf.xray/reactive-data` | `:rf.xray/reactive-toggle-unchanged` |
 | **trace**          | `:rf.xray/trace-feed` (incremental projection) | `:rf.xray/toggle-trace-row-expand` · `:rf.xray/open-in-editor` |
-| **machine-inspector** | `:rf.xray/machine-chart-data` · `:rf.xray/active-timers-for-focused-machine` · `:rf.xray/machine-scrubber-position` | scrubber events · `:rf.xray/focus-event` |
+| **machine-inspector** | `:rf.xray/machine-inspector-data` · `:rf.xray/machine-transitions-for-focused-event` · `:rf.xray/machine-focused-epoch-cascade` · `:rf.xray/machine-tab-fit-signal`; its after-rings overlay reads `:rf.xray/active-timers-for-focused-machine` · `:rf.xray/machine-scrubber-position` | `:rf.xray/machine-focus-prev` · `:rf.xray/machine-focus-next` · `:rf.xray/machine-state-clicked` |
 | **routing**        | `:rf.xray/registered-routes` · `:rf.xray/current-route-slice` · `:rf.xray/routing-tab-data` | route-simulation events |
 | **resources**      | `:rf.xray/resources-tab-data` (composite over `:rf.xray/registered-resources` · `:rf.xray/resource-entries` · `:rf.xray/resource-work-ledger` · the route registry · the trace buffer) | (read-only — no dispatch; observing pins no resource) |
 | **cancellation-cascade** | `:rf.xray/cancellation-cascade-for-focused-machine` · `:rf.xray/cancellation-cascade-for-focused-event` · `:rf.xray/cancellation-cascade-popover-open?` · `:rf.xray/modal-positioning` | `:rf.xray/cancellation-cascade-close` |

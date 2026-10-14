@@ -1845,11 +1845,12 @@ never win for a macrostep):
    see below; since rf2-coozg suppresses the no-change `{X}→{X}` commit
    transition at the source, a no-op-only cascade carries neither a
    transition nor an action, so it needs its own predicate).
-4. `:rf.machine/started` present → `:reg-machine` (rf2-it4vt — an EAGER pure
-   start emits the birth signal but NO transition / action / no-op rows;
-   without this predicate the standalone start would fall through to
-   `:effectful` (the machine handler always rides its snapshot-write
-   do-fx) and render a raw `:db` diff instead of the `[START]` row).
+4. `:rf.machine/started` present → `:reg-machine` (an EAGER start emits
+   the birth signal and an action row per initial-entry action, but no
+   transition or no-op; without this predicate a start whose initial path
+   declares no entry action would fall through to `:effectful` (the
+   machine handler always rides its snapshot-write do-fx) and render a raw
+   `:db` diff instead of the `[START]` row).
 5. `:rf.fx/do-fx` present → `:effectful`.
 6. else → `:db-only`.
 
@@ -1937,14 +1938,15 @@ creation paths, and renders the `[START]` badge at the FRONT of the cascade
 (rank -1):
 
 - **EAGER** — an explicit `[:machine-id [:rf.machine/start]]` dispatch gets
-  its own epoch. The start is a PURE init-kick (rf2-gl588 — runs the
-  initial-entry cascade then STOPS, emitting NO transition / action rows),
-  so the `[START]` is the cascade's SOLE row (a standalone birth). The
+  its own epoch. The start runs the initial-entry cascade then STOPS, so
+  `[START]` leads only the `:initial-entry` action rows of the entry
+  actions on the initial path — no transition, no no-op — and is the
+  cascade's SOLE row when that path declares no entry action. The
   cascade's handler-flavour is forced `:reg-machine` by the
-  `:rf.machine/started` presence even though no transition / action / no-op
-  fired — otherwise the standalone start (which always rides the machine
-  handler's snapshot-write do-fx) would mis-classify `:effectful` and
-  render a raw `:db` diff instead of the `[START]` row.
+  `:rf.machine/started` presence even when no action fired — otherwise
+  that standalone start (which always rides the machine handler's
+  snapshot-write do-fx) would mis-classify `:effectful` and render a raw
+  `:db` diff instead of the `[START]` row.
 - **LAZY** — when a machine is first reached by a REAL event, init folds
   into THAT event's epoch (`maybe-boot` runs ahead of the user event in the
   same handler call). So `[START]` renders at the FRONT of the cascade,
@@ -2706,12 +2708,10 @@ R3 + R4 structural-context chrome (§10.0.12; rf2-e28r3 removed the
 former `:full-with-diff?` opt — there is no separate flag).
 
 **Canonical `data-*` shape** (Cluster F — rf2-xvu24): every
-surface's enclosing section still carries
-`data-rf-xray-diff-mode="full+diff"` so browser-test selectors +
-DOM probes can pin "this section renders FULL+DIFF" against a
-uniform axis. The attribute is now a constant rather than a
-toggle-driven value; kept for selector compatibility with
-e2e specs that pre-date the retirement.
+surface's enclosing section carries the constant
+`data-rf-xray-diff-mode="full+diff"`, so a test or DOM probe can pin
+"this section renders FULL+DIFF" against a uniform axis; the epoch view
+suite pins it on the HANDLER `:db` sub-section.
 
 **Retired by rf2-vv3m6** (2026-05-29):
 
@@ -3156,7 +3156,8 @@ F‴ (rf2-gl588) it runs the initial-entry cascade then STOPS (a pure
 init-kick — xstate's `createActor(m).start()` / `xstate.init`), **not** a
 real trigger (see
 `ai/findings/2026-06-03.machine-creation-bootstrap-review.md` §1) —
-produces a cascade with only a `[START]` row (no transition / no-op), so
+produces a cascade of the `[START]` row and its `:initial-entry` action
+rows (no transition / no-op), so
 the orientation line is **suppressed**: the birth story rides the
 `[START]` cascade row, not an orientation line.
 
