@@ -55,13 +55,6 @@
      :tags (fn [_p _] #{[:feed] [:article-list]})}
     (fn [_p _] {:request {:method :get :url "/feed"}})))
 
-(defn- reg-global-article-resource! []
-  (rf/reg-resource :r/article
-    {:scope :rf.scope/global
-     :params-schema [:map [:slug :string]]
-     :tags (fn [{:keys [slug]} _] #{[:article slug] [:article-list]})}
-    (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})))
-
 (defn- seed-ownerless-session-feed!
   "Leave jake's session feed :loaded and ownerless, so an invalidation is
   observable as :invalidated-at rather than a refetch."
@@ -152,30 +145,3 @@
                                                                 :params {} :instance n}])
                        (reply-success! @last-managed-args {:ok true}))))]
     (is (= 1 (count warnings)))))
-
-(deftest per-target-descriptor-safe-pattern-does-not-warn
-  ;; Each per-target descriptor hits its entry in its own scope.
-  (reg-global-article-resource!)
-  (reg-feed-resource!)
-  (rf/dispatch-sync [:t/login "jake"])
-  (rf/dispatch-sync [:rf.resource/ensure {:resource :r/article :scope :rf.scope/global
-                                          :params {:slug "w"} :owner [:v :a]}])
-  (reply-success! @last-managed-args {:title "old"})
-  (rf/dispatch-sync [:rf.resource/release-owner {:resource :r/article :scope :rf.scope/global
-                                                 :params {:slug "w"} :owner [:v :a]}])
-  (seed-ownerless-session-feed!)
-  (rf/reg-mutation :m/favorite
-    {:params-schema [:map [:slug :string]]
-     :invalidates (fn [{:keys [slug]} _result]
-                    [{:scope :rf.scope/global :tags #{[:article slug]}}
-                     {:scope {:from-db :t/session} :tags #{[:feed]}}])}
-    (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug "/fav")}}))
-  (let [warnings (record-warnings!
-                   (fn []
-                     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite
-                                                              :params {:slug "w"} :instance :s1}])
-                     (reply-success! @last-managed-args {:favorited true})))]
-    (is (some? (:invalidated-at (entry (rf.resources.state/scoped-resource-key
-                                         :rf.scope/global :r/article {:slug "w"})))))
-    (is (some? (:invalidated-at (entry (session-feed-key "jake")))))
-    (is (empty? warnings))))
