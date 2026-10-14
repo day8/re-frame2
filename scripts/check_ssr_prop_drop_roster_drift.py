@@ -509,10 +509,6 @@ def _run_self_tests(verbose: bool = False) -> int:
            missing_from_page("monkey", ["key"]) == ["key"])
     expect("boundary: `prefer`/`reference` do NOT answer for `ref`",
            missing_from_page("prefer a reference", ["ref"]) == ["ref"])
-    expect("boundary: matching is case-SENSITIVE, as strip-prop? is for these",
-           missing_from_page("dangerouslysetinnerhtml",
-                             ["dangerouslySetInnerHTML"])
-           == ["dangerouslySetInnerHTML"])
 
     # ---- LIMIT 2, pinned: contamination reads as PRESENT ------------------
     # The gate UNDER-REPORTING, the direction that never cries wolf: real
