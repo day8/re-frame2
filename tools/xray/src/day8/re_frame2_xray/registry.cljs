@@ -220,8 +220,18 @@
         process has `focus!`'s async path the moment the code reloads but
         not the event it queues, so a host focus naming a frame would dispatch
         an unregistered event. The migration re-runs `focus/install!` —
-        idempotent, and a pure addition with nothing to release."
-  7)
+        idempotent, and a pure addition with nothing to release.
+    8 — The Static Machines source chip reads its coord off the machine's
+        registration: ONE new sub, `:rf.xray.static.machines/source-coords`,
+        becomes an input of `:rf.xray.static.machines/data`, and
+        `:rf.xray/machine-inspector-data` drops the snapshots and
+        definitions inputs it never used. Both are CHANGED topologies the
+        umbrella would leave at their old shape, so the migration re-runs
+        `static-machines-panel/install!` and `machine-inspector/install!`.
+        Nine registrations nothing used are REMOVED
+        (`schema-7-registrations-removed`) and cleared in place, as
+        schema 6's were."
+  8)
 
 (defonce ^:private installed-schema
   ;; The registration-schema version this process has installed, or nil
@@ -329,10 +339,32 @@
                 "page is RELOADED. The Xray registrations themselves have "
                 "already migrated."))))
 
-(defn- migrated-through-7
-  "The tail clauses — schema 5's ADDITION, schema 6's REMOVAL and schema 7's
-  ADDITION. All three migrate live in full, so they sit past schema 4's fork
-  rather than inside it, and the fn returns TRUE unconditionally.
+(def ^:private schema-7-registrations-removed
+  "The registrations schema 7 carried and schema 8 removed, by kind: the
+  machine-canvas chart-collapsed family, which no control ever reached;
+  the `:rf.xray/timer-hover` SUB, which nothing subscribed to (the event
+  of the same name stays); and three events nothing dispatched. Their
+  installers no longer register them, so only a clear takes them out of
+  a live process."
+  {:sub   [:rf.xray.machine-canvas/chart-collapsed-for
+           :rf.xray.machine-canvas/chart-collapsed-by-id
+           :rf.xray/timer-hover]
+   :event [:rf.xray.machine-canvas/set-chart-collapsed
+           :rf.xray.machine-canvas/hydrate-chart-collapsed
+           :rf.xray/clear-machine-selection
+           :rf.xray/machine-chart-layout-pulse
+           :rf.xray/clear-selected-dispatch-id]
+   :fx    [:rf.xray.machine-canvas/persist-chart-collapsed]})
+
+(defn- migrated-through-8
+  "The tail clauses — schema 5's ADDITION, schema 6's REMOVAL, schema 7's
+  ADDITION and schema 8's REPLACEMENT plus REMOVAL. All four migrate live in
+  full, so they sit past schema 4's fork rather than inside it, and the fn
+  returns TRUE unconditionally.
+
+  Schema 8 — re-running the two owning installers replaces each changed sub
+  in place (the registrar's replacement hook evicts the stale reaction) and
+  adds the new one; clearing an id a process never registered is a no-op.
 
   Schema 7 — `focus!`'s async continuation. One NEW event,
   `:rf.xray/focus-after-frame`, inside the gated `focus/install!`. Re-running
@@ -362,6 +394,12 @@
     (run! #(rf/clear :sub %) schema-5-subs-removed))
   (when (< from 7)
     (focus/install!))
+  (when (< from 8)
+    (static-machines-panel/install!)
+    (machine-inspector/install!)
+    (doseq [[kind ids] schema-7-registrations-removed
+            id         ids]
+      (rf/clear kind id)))
   true)
 
 (defn- migrate-schema!
@@ -440,8 +478,8 @@
       ;; the upgrade.
       (if (donor-ownership-resident?)
         (do (warn-donor-ownership-resident!) false)
-        (migrated-through-7 from)))
-    (migrated-through-7 from)))
+        (migrated-through-8 from)))
+    (migrated-through-8 from)))
 
 (defn register-xray-handlers!
   "Idempotent registration of Xray's :rf.xray/* events, subs, fxs.
