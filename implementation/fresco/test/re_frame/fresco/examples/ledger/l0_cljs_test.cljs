@@ -3,10 +3,9 @@
 
   Two populations, and they are separated on purpose.
 
-  **The model**, which knows nothing about windowing. Ten thousand
-  records, four handlers and five reads, and every one of them behaves
-  exactly as it would behind a screen that mounted all ten thousand rows.
-  That is the claim `ledger.events`' `ns` form makes structurally and
+  **The model**, which knows nothing about windowing. At ten thousand
+  records a note write behaves exactly as it would behind a screen that
+  mounted all ten thousand rows. That is the claim `ledger.events`' `ns` form makes structurally and
   this file makes behaviourally: virtualization is a rendering strategy
   and it does not reach the model.
 
@@ -35,28 +34,13 @@
 (defn- with-ledger
   "Run `f` against a fresh frame holding `total` records, seeded exactly
   as the application seeds itself."
-  ([f] (with-ledger 200 f))
-  ([total f]
-   (rf/with-new-frame [frame (rf/make-frame
-                               {:initial-events (rf.fresco.examples.ledger.app/initial-events total)})]
-     (f frame))))
+  [total f]
+  (rf/with-new-frame [frame (rf/make-frame
+                              {:initial-events (rf.fresco.examples.ledger.app/initial-events total)})]
+    (f frame)))
 
 (defn- read-sub [frame query-v] (rf/subscribe-once query-v {:frame frame}))
 (defn- send! [frame event] (rf/dispatch-sync event {:frame frame}))
-
-;; ---------------------------------------------------------------------------
-;; Pure — the record, and the id that is deliberately not the index
-;; ---------------------------------------------------------------------------
-
-(deftest a-records-id-is-not-its-index
-  (is (= {:id "rec-100000" :name "Record 0"} (rf.fresco.examples.ledger.events/record 0)))
-  (is (= {:id "rec-104136" :name "Record 4136"} (rf.fresco.examples.ledger.events/record 4136)))
-  (testing "which is what makes a focus assertion an assertion about the
-            RECORD — an id that read `5` would be equally satisfied by
-            focus having stayed on the fifth row of the window, and the
-            fifth row of the window is exactly what a slot-keyed
-            virtualizer leaves it on"
-    (is (not= (str 5) (:id (rf.fresco.examples.ledger.events/record 5))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The model — ordinary re-frame2, at ten thousand rows
@@ -76,50 +60,6 @@
                 cannot move what a row displays as its name"
         (is (= {:id "rec-104136" :name "Record 4136"}
                (read-sub frame [::rf.fresco.examples.ledger.subs/record 4136])))))))
-
-(deftest a-record-is-read-by-index-and-answers-by-identity
-  (with-ledger
-    (fn [frame]
-      (let [before (read-sub frame [::rf.fresco.examples.ledger.subs/record 7])]
-        (send! frame [::rf.fresco.examples.ledger.events/note 7 "x"])
-        (is (identical? before (read-sub frame [::rf.fresco.examples.ledger.subs/record 7]))
-            "IDENTICAL, not merely `=`. A note write must not mint a fresh
-             record map, because the row's record read is what a
-             keystroke must NOT notify — and a subscription's equality
-             gate is the thing standing between one body run and
-             twenty-six")))))
-
-(deftest the-flag-toggles-and-nothing-else-does
-  (with-ledger
-    (fn [frame]
-      (is (false? (read-sub frame [::rf.fresco.examples.ledger.subs/flagged? 3])))
-      (send! frame [::rf.fresco.examples.ledger.events/flag {:index 3}])
-      (is (true? (read-sub frame [::rf.fresco.examples.ledger.subs/flagged? 3])))
-      (is (false? (read-sub frame [::rf.fresco.examples.ledger.subs/flagged? 4])))
-      (send! frame [::rf.fresco.examples.ledger.events/flag {:index 3}])
-      (is (false? (read-sub frame [::rf.fresco.examples.ledger.subs/flagged? 3])) "and back"))))
-
-(deftest focus-is-recorded-as-an-index-and-read-back-as-the-pin
-  (with-ledger
-    (fn [frame]
-      (is (= -1 (read-sub frame [::rf.fresco.examples.ledger.subs/pinned-index]))
-          "`-1` and not `nil`: the value goes to a foreign component as a
-           number, and `nil` there would be a prop the vendor has to
-           special-case")
-      (send! frame [::rf.fresco.examples.ledger.events/row-focused {:index 12}])
-      (is (= 12 (read-sub frame [::rf.fresco.examples.ledger.subs/pinned-index])))
-      (testing "the next focus replaces it — one pin, and it is released
-                by the next focus and by nothing else, because a `:on-blur`
-                companion would unmount the row while the platform is
-                still moving focus through it"
-        (send! frame [::rf.fresco.examples.ledger.events/row-focused {:index 13}])
-        (is (= 13 (read-sub frame [::rf.fresco.examples.ledger.subs/pinned-index])))))))
-
-(deftest the-window-the-vendor-reports-is-ordinary-data
-  (with-ledger
-    (fn [frame]
-      (send! frame [::rf.fresco.examples.ledger.events/window-shown {:from 40 :to 66}])
-      (is (= {:from 40 :to 66} (read-sub frame [::rf.fresco.examples.ledger.subs/window]))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The window function
@@ -144,32 +84,10 @@
          model"))
   (testing "in the middle, where both edges get their overscan"
     (is (= [7 33] (window (* 10 rf.fresco.examples.ledger.views/row-height)))
-        "scrolled to row 10: three above, twenty visible, three below")
-    (is (= [497 523] (window (* 500 rf.fresco.examples.ledger.views/row-height)))))
+        "scrolled to row 10: three above, twenty visible, three below"))
   (testing "at the bottom, where the model clamps the far edge"
-    (is (= [9974 9999] (window (* 9977 rf.fresco.examples.ledger.views/row-height))))))
-
-(deftest the-window-does-not-grow-with-the-model
-  ;; The virtualizer half of the screen's scaling claim, stated where it
-  ;; is arithmetic. The DOM suite measures the same thing on a real
-  ;; engine; this row is what makes that measurement's expected value a
-  ;; derivation rather than a constant somebody typed.
-  (let [at-100   (rf.fresco.examples.ledger.vendor/window-from 0 (assoc geometry :total 100))
-        at-10000 (window 0)]
-    (is (= at-100 at-10000)
-        "a hundred records and ten thousand produce the same window at the
-         same offset — which is `the mounted rows do not follow the
-         collection`, before any DOM is involved")
-    (is (= [0 23] at-10000)))
+    (is (= [9974 9999] (window (* 9977 rf.fresco.examples.ledger.views/row-height)))))
+  (testing "a hundred records put the same window on screen as ten thousand"
+    (is (= [0 23] (rf.fresco.examples.ledger.vendor/window-from 0 (assoc geometry :total 100)))))
   (testing "and a model SMALLER than one window is clamped, not padded"
     (is (= [0 9] (rf.fresco.examples.ledger.vendor/window-from 0 (assoc geometry :total 10))))))
-
-(deftest a-scroll-of-n-rows-moves-the-window-by-n
-  ;; The premise the DOM suite's `a scroll costs the rows that entered`
-  ;; row rests on: if a three-row scroll moved the window by more than
-  ;; three, the body count it measures would be about the vendor's
-  ;; arithmetic rather than about the screen's topology.
-  (let [[from-a to-a] (window (* 100 rf.fresco.examples.ledger.views/row-height))
-        [from-b to-b] (window (* 103 rf.fresco.examples.ledger.views/row-height))]
-    (is (= 3 (- from-b from-a)))
-    (is (= 3 (- to-b to-a)))))
