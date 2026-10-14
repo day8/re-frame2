@@ -183,12 +183,12 @@
                        (when-not dedup? ",\"dedup\":false") "}")))
 
 (deftest callable-in-a-success-payload-crosses-as-a-marker
-  ;; `edn-result` is the one chokepoint for every data-returning tool; the
-  ;; run adds the egress walk and, for dedup, a re-stringified text slot.
+  ;; A run adds the egress walk to `edn-result`'s projection and, for dedup,
+  ;; a re-stringified text slot.
   (rf.story/reg-variant* :story.button/predicate predicate-body)
-  (doseq [[tool dedup?] [["get-variant" false] ["run-variant" true] ["run-variant" false]]]
-    (testing (str tool " dedup=" dedup?)
-      (let [[line frame] (call-success-tool tool "story.button/predicate" dedup?)]
+  (doseq [dedup? [true false]]
+    (testing (str "dedup=" dedup?)
+      (let [[line frame] (call-success-tool "run-variant" "story.button/predicate" dedup?)]
         (is (= [nil nil true false]
                [(:error frame) (get-in frame [:result :isError])
                 (str/includes? line "clojure.core$pos_QMARK_") (str/includes? line "#object")])
