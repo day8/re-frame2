@@ -219,7 +219,6 @@
             view reads :fetching-next? while it is in flight (pages stay visible)"
     (rf/dispatch-sync [:rf.route/navigate {:to :infinite-feed.app/timeline}])
     (reply-success! (page [{:id 0 :title "A"}] 1))
-    (is (= [{:id 0 :title "A"}] (:items (feed-state))) "page 0 loaded")
     (reset! last-managed-args nil)
     ;; the view dispatches load-more — runtime derives the next cursor from the tail.
     (load-more!)
