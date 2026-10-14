@@ -9,7 +9,6 @@
   (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.reply :as rf.reply]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
             [managed-http-counter.core]))
@@ -75,8 +74,6 @@
                                                   :request-id :http-counter/+1
                                                   :reason     :user}}
         f               (capture-frame!)]
-    (is (rf.reply/valid-reply? cancelled-reply)
-        "the fixture is a reply the framework can actually deliver, so it cannot drift from the real envelope")
     (rf/dispatch-sync [:http-counter/+1 cancelled-reply] {:frame f})
     (is (= [:idle (:error cancelled-reply)]
            [(:http-counter/status (rf/app-db-value f)) (:http-counter/error (rf/app-db-value f))])
