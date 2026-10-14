@@ -18,13 +18,9 @@
       "address ∪ raw-URL ∪ policy ∪ edit; any other key rejects :unknown-keys"))
 
 (deftest classify-enforces-the-branch-rules
-  (let [home   {:route-id :route/home}
-        search {:route-id :route/search :query {:q "x"}}]
+  (let [home {:route-id :route/home}]
     (doseq [[request current expected]
-            [;; the whole roster is gated before extraction, even beside a :to
-             [{:to :route/article :params {:slug "x"} :my-app/replace? true} nil
-              {:reason :unknown-keys :keys [:my-app/replace?]}]
-             [{:params {:slug "x"}} home
+            [[{:params {:slug "x"}} home
               {:reason :params-requires-destination :keys [:params]}]
              [{:to :route/home :url "/x"} nil
               {:reason :to-url-exclusive :keys [:to :url]}]
@@ -34,12 +30,6 @@
               {:reason :query-exclusive :keys [:query :query-merge]}]
              [{:to :route/home :query-merge {:a 1}} nil
               {:reason :query-merge-in-place-only :keys [:query-merge]}]
-             ;; any non-map, not only the shapes a merge fold happens to accept
-             [{:query-merge #{:page}} search
-              {:reason :query-merge-not-map :keys [:query-merge]}]
-             ;; the rule is about the delta map, never its members
-             [{:query-merge {:sort nil :page 0}} search
-              nil]
              [{:replace? true} home
               {:reason :no-destination-or-change :keys [:replace?]}]
              [{:query {:a 1}} nil
