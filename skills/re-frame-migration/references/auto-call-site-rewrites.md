@@ -20,7 +20,7 @@ Neither per-file confirmation nor a second acknowledgement is required — the a
 
 ## Contents
 
-- Dep-coord and namespace rewrites (M-0, M-1, M-38, M-23, M-25 — incl. the async-test recipe `run-test-async` / `wait-for-event`, M-50, M-52)
+- Dep-coord and namespace rewrites (M-0, M-1, M-38, M-23, M-25 — incl. the async-test recipe `run-test-async` / `wait-for`, M-50, M-52)
 - Test-layer v1 API to v2 mapping (M-25 / M-26 / M-64 / M-73 — the test/fixture-layer sweep target, in one place)
 - M-75 — subscription inputs move into `:inputs` (the `:<-` chain; loud-at-load)
 - reg-sub flat-sub sugar removed (`:->` / `:=>` desugaring — no `M-N` id)
@@ -152,15 +152,14 @@ Same for the `uix` variant.
 
 ```clojure
 ;; SEARCH
-(:require [re-frame.test :as rf-test])
 (:require [day8.re-frame.test :as rf-test])
 
 ;; REWRITE
 (:require [re-frame.test-support :as rf-test])
 ```
 
-`assert-state` maps to `assert-path-equals` per **M-62** (the fn-side mirrors the `:rf.assert/path-equals` Story event); a full-db assertion has no dedicated fn — compare directly with `(is (= expected-db (rf/app-db-value f)))`. A chained event-sequence is a `doseq` over `dispatch-sync`. `run-test-sync` is dropped in v2 — see **M-52** below to rewrite call sites.
-Also: drop `day8.re-frame/test` from the Maven coords.
+v1's `day8.re-frame.test` has no assertion helper; assert with `assert-path-equals` (the fn-side mirrors the `:rf.assert/path-equals` Story event, and a v2-pre-rename `assert-state` maps to it per **M-62**); a full-db assertion has no dedicated fn — compare directly with `(is (= expected-db (rf/app-db-value f)))`. A chained event-sequence is a `doseq` over `dispatch-sync`. `run-test-sync` is dropped in v2 — see **M-52** below to rewrite call sites. `with-temp-re-frame-state` is dropped too: its synchronous cleanup is the per-test `make-reset-runtime-fixture`'s teardown.
+Read the pinned `day8.re-frame/test` version before retiring the coord: v0.1.6 and 0.1.7 also ship `day8.chrome-shadow-test-runner`, which a test alias or CI job may run. Flag each runner reference (keep it or move it to another runner; v2 ships none), and drop the coord only once no require or runner reference remains. The version-aware inventory is [`MIGRATION.md` §M-25](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-25-re-frametest-helpers-renamed-to-re-frametest-support).
 Before accepting the migrated suite, audit its test doubles as [M-52](#m-52--run-test-sync-removed) says: a v1 `with-redefs` on `rf/dispatch` or `rf/subscribe` still compiles in v2 and intercepts nothing.
 
 ### M-52 — `run-test-sync` removed
@@ -195,25 +194,22 @@ v2's `dispatch-sync` is already settle-by-default, so the macro added nothing on
 - **`with-redefs` on `rf/dispatch`, `rf/dispatch-sync` or `rf/subscribe`.** In call position these are v2 macros, so the redef compiles and intercepts nothing while the real event runs. A redef that does reach a function value must keep the original's arity set, which only the compiled suite checks.
 - **A throwing "fail if this subscription is touched" double.** v2 recovers a throwing subscription to `nil`, so the guard passes whether or not the forbidden access happens. It becomes a receipt.
 
-### M-25 (async tests) — `run-test-async` + `wait-for` / `wait-for-event`
+### M-25 (async tests) — `run-test-async` + `wait-for`
 
-M-52 above covers the **synchronous** test surface (`run-test-sync` → `dispatch-sync` under `make-reset-runtime-fixture`). It does **not** cover the v1 **async** test pattern — `re-frame.test/run-test-async` wrapping `wait-for` / `wait-for-event` — used wherever a test awaits an event that fires *asynchronously*: a `:http-xhrio` GET resolving, a debounce / throttle window elapsing, a `core.async` step, an `async-flow-fx` cascade settling. There is no v2 `run-test-async` and no v2 `wait-for-event`, so a v1 suite with async tests dead-ends at this rule. The three v1 surfaces map as follows (all part of M-25's `re-frame.test` → `re-frame.test-support` rename):
+M-52 above covers the **synchronous** test surface (`run-test-sync` → `dispatch-sync` under `make-reset-runtime-fixture`). It does **not** cover the v1 **async** test pattern — `day8.re-frame.test/run-test-async` wrapping `wait-for` — used wherever a test awaits an event that fires *asynchronously*: a `:http-xhrio` GET resolving, a debounce / throttle window elapsing, a `core.async` step, an `async-flow-fx` cascade settling. There is no v2 `run-test-async` and no v2 `wait-for`, so a v1 suite with async tests dead-ends at this rule. The three v1 surfaces map as follows (all part of M-25's `day8.re-frame.test` → `re-frame.test-support` move):
 
-1. **`run-test-async` → `cljs.test/async`.** v1's macro bound an `async`-style completion callback; the v2-canonical form is the stock `cljs.test/async` macro, which binds a `done` fn you call once the awaited assertions have run. No re-frame surface is involved — this is the standard ClojureScript async-test shape.
-2. **`wait-for-event` → a trace listener matching `:rf.event/run-end`.** v1 `wait-for` / `wait-for-event` registered a one-shot `add-post-event-callback` that fired when the awaited event's handler had run to completion. Per **M-26**, `add-post-event-callback` → `register-listener!` / `unregister-listener!` (the dev-only trace listener API — live under `cljs.test` / JVM test runs). Match the `:rf.event/run-end` trace marker — it is emitted **after** the handler's interceptor chain, db commit, and fx walk, i.e. the exact handler-complete timing v1's post-event callback gave (NOT `:rf.event/run-start`, which fires before the handler body). The awaited event id rides the trace event under `[:tags :rf.trace/event-id]`.
-3. **The fixture `make-restore-fn` → an epoch-free snapshot/restore.** MIGRATION.md **M-26** maps v1's `make-restore-fn` to the epoch surface: `(let [snap (rf/app-db-value frame-id)] (fn [] (rf/replace-frame-state! frame-id {:rf.db/app snap})))`. Note the argument shape — `replace-frame-state!` takes a **partial frame-state map**, and the partition is named explicitly by its key: `{:rf.db/app v}` replaces app-db and leaves the runtime partition untouched (there is no `rf/replace-app-db!` to call). `replace-frame-state!` is late-bound on the **`day8/re-frame2-epoch`** artefact (M-33) and raises `:rf.error/epoch-artefact-missing` when it is absent — a plain (non-Xray, no-epoch) test suite does not carry epoch on its classpath. For those suites, snapshot `(rf/app-db-value :rf/default)` and restore via a one-shot `reg-event` dispatched synchronously — no epoch dependency:
+1. **`run-test-async` → `cljs.test/async`.** v1's macro wrapped its body in `cljs.test/async`, and `wait-for` called `done` for the test once the last awaited event had run, restoring re-frame state just before it. The v2-canonical form is the stock `cljs.test/async` macro, which binds a `done` fn you call once the awaited assertions have run; the `:async? true` fixture's `:after` teardown then runs after that `done`. No re-frame surface is involved — this is the standard ClojureScript async-test shape.
+2. **`wait-for` → a trace listener matching `:rf.event/run-end`.** v1 `wait-for` registered a one-shot `add-post-event-callback` that fired when the awaited event's handler had run to completion. Per **M-26**, `add-post-event-callback` → `register-listener!` / `unregister-listener!` (the dev-only trace listener API — live under `cljs.test` / JVM test runs). Match the `:rf.event/run-end` trace marker — it is emitted **after** the handler's interceptor chain, db commit, and fx walk, i.e. the exact handler-complete timing v1's post-event callback gave (NOT `:rf.event/run-start`, which fires before the handler body). The awaited event id rides the trace event under `[:tags :rf.trace/event-id]`.
+3. **`run-test-async`'s state restore (and any `rf/make-restore-fn` fixture) → an epoch-free snapshot/restore.** MIGRATION.md **M-26** maps v1's `make-restore-fn` to the epoch surface: `(let [snap (rf/app-db-value frame-id)] (fn [] (rf/replace-frame-state! frame-id {:rf.db/app snap})))`. Note the argument shape — `replace-frame-state!` takes a **partial frame-state map**, and the partition is named explicitly by its key: `{:rf.db/app v}` replaces app-db and leaves the runtime partition untouched (there is no `rf/replace-app-db!` to call). `replace-frame-state!` is late-bound on the **`day8/re-frame2-epoch`** artefact (M-33) and raises `:rf.error/epoch-artefact-missing` when it is absent — a plain (non-Xray, no-epoch) test suite does not carry epoch on its classpath. For those suites, snapshot `(rf/app-db-value :rf/default)` and restore via a one-shot `reg-event` dispatched synchronously — no epoch dependency:
 
 ```clojure
 ;; SEARCH (v1)
-(:require [re-frame.test :as rf-test :refer [run-test-async wait-for]]
-          [day8.re-frame.test :refer [run-test-async wait-for-event]])
-
-(use-fixtures :each (rf-test/make-restore-fn))   ; v1 snapshot+closure fixture
+(:require [day8.re-frame.test :refer [run-test-async wait-for]])
 
 (deftest fetches-the-thing
-  (run-test-async
+  (run-test-async                                ; restores re-frame state, then calls done
     (rf/dispatch [:thing/fetch 42])              ; fires an async :http-xhrio GET
-    (wait-for-event :thing/fetch-success         ; await the reply event
+    (wait-for [:thing/fetch-success]             ; await the reply event
       (is (= :loaded (:thing/status @app-db))))))
 
 ;; REWRITE (v2)
@@ -246,7 +242,7 @@ M-52 above covers the **synchronous** test surface (`run-test-sync` → `dispatc
   (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter :async? true})  ; M-64 + :async?
   restore-app-db-fixture)
 
-;; wait-for-event → a one-shot trace listener matching :rf.event/run-end.
+;; wait-for → a one-shot trace listener matching :rf.event/run-end.
 ;; `done` is from cljs.test/async; `f` runs once the awaited event's handler
 ;; has run to completion.
 (defn wait-for-event* [event-id done f]
@@ -269,17 +265,17 @@ M-52 above covers the **synchronous** test surface (`run-test-sync` → `dispatc
 **Notes.**
 - The listener is **dev/test-only** (the `:trace` stream rides the `re-frame.trace` surface, DCE'd under `:advanced` + `goog.DEBUG=false`) — that is correct for a test runner; do **not** reach for the production observability sink (`register-observability-sink!` against an `:observability :handled-events` policy) here (its record is not trace-shaped and is for production observability, not test waits).
 - For a pure **state-observable** wait (the awaited effect lands in `app-db` rather than via a discrete event — e.g. a debounce that just updates a slice), prefer `re-frame.test-support/poll-until`, which returns a `js/Promise` that composes directly with `cljs.test/async` (`(-> (ts/poll-until pred) (.then ...) (.catch ...))`). Use the `:rf.event/run-end` listener when the contract is "*this event* fired", `poll-until` when it is "*this state* settled".
-- After the `re-frame.test` → `re-frame.test-support` require swap, also drop the `day8.re-frame/test` Maven coord (see M-25 above) — `run-test-async` / `wait-for-event` shipped from it and have no v2 successor symbol; they become the inline shapes above.
+- After the `day8.re-frame.test` → `re-frame.test-support` require swap, retire the `day8.re-frame/test` Maven coord as M-25 above says, once no require or runner reference remains — `run-test-async` / `wait-for` shipped from it and have no v2 successor symbol; they become the inline shapes above.
 - **Async suites need the `:async? true` map-form reset fixture**, and a hand-rolled one can silence the no-frame-context throw while a bare `dispatch-sync` silently fails to drain. Why the map-form is required, what to verify, and the fn/map mixing hazard are the `re-frame2` skill's [`testing.md` §Async suites](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/cross-cutting/testing.md#async-cljstest-suites--async-true).
 
 ### Test-layer v1 API to v2 mapping
 
-The test / fixture layer carries its own v1 *test-API* subset — distinct from the app's `src/` surfaces and from the `re-frame.alpha` / off-contract rewrites above. It is **invisible to both the compiler and the boot smoke-test** (fixtures and `*_test` namespaces load only under the test runner, never at app boot — see [`runtime-smoke-test.md` §The done-bar is more than the local dev build](runtime-smoke-test.md#the-done-bar-is-more-than-the-local-dev-build)), so it is a distinct Phase-0a sweep target ([`inventory-and-plan.md`](inventory-and-plan.md)) that gates the migration only when the suite RUNS. The four surfaces and their v2 destinations, gathered here in **one place** (full code shapes for the async pair are in [§M-25 (async tests)](#m-25-async-tests--run-test-async--wait-for--wait-for-event) above):
+The test / fixture layer carries its own v1 *test-API* subset — distinct from the app's `src/` surfaces and from the `re-frame.alpha` / off-contract rewrites above. It is **invisible to both the compiler and the boot smoke-test** (fixtures and `*_test` namespaces load only under the test runner, never at app boot — see [`runtime-smoke-test.md` §The done-bar is more than the local dev build](runtime-smoke-test.md#the-done-bar-is-more-than-the-local-dev-build)), so it is a distinct Phase-0a sweep target ([`inventory-and-plan.md`](inventory-and-plan.md)) that gates the migration only when the suite RUNS. The four surfaces and their v2 destinations, gathered here in **one place** (full code shapes for the async pair are in [§M-25 (async tests)](#m-25-async-tests--run-test-async--wait-for) above):
 
 | v1 test-layer surface | v2 replacement | Rule |
 |---|---|---|
-| `(:require [re-frame.test …])` / `[day8.re-frame.test …]` | `(:require [re-frame.test-support …])` — ships in core; drop the `day8.re-frame/test` Maven coord | **M-25** |
-| `(use-fixtures :each (rf-test/make-restore-fn))` — the per-test snapshot/restore fixture | `(ts/make-reset-runtime-fixture {:adapter adapter})` is the v2 per-test `:each` fixture that fills the same role — registrar / runtime isolation, the fixture every v2 suite installs (the builder rename is M-64). The **app-db snapshot/restore** half `make-restore-fn` performed stacks on top: epoch-free inline (snapshot `(rf/app-db-value :rf/default)`, restore via a one-shot `reg-event` dispatched synchronously) or, when the suite pulls `day8/re-frame2-epoch`, `(rf/replace-frame-state! frame-id {:rf.db/app snap})`. | **M-26** (the `make-restore-fn` drop) + the `make-reset-runtime-fixture` builder (M-64) |
+| `(:require [day8.re-frame.test …])`, its `with-temp-re-frame-state` cleanup bracket, and a `day8.chrome-shadow-test-runner` alias or CI job (v0.1.6 / 0.1.7) | `(:require [re-frame.test-support …])` — ships in core; `with-temp-re-frame-state` gives way to the per-test fixture below; the runner is flagged and kept or moved (v2 ships none); retire the `day8.re-frame/test` Maven coord only once no require or runner reference remains | **M-25** |
+| a per-test snapshot/restore fixture built on `rf/make-restore-fn` | `(ts/make-reset-runtime-fixture {:adapter adapter})` is the v2 per-test `:each` fixture that fills the same role — registrar / runtime isolation, the fixture every v2 suite installs (the builder rename is M-64). The **app-db snapshot/restore** half `make-restore-fn` performed stacks on top: epoch-free inline (snapshot `(rf/app-db-value :rf/default)`, restore via a one-shot `reg-event` dispatched synchronously) or, when the suite pulls `day8/re-frame2-epoch`, `(rf/replace-frame-state! frame-id {:rf.db/app snap})`. | **M-26** (the `make-restore-fn` drop) + the `make-reset-runtime-fixture` builder (M-64) |
 | `(rf/reg-event-db …)` inside a fixture / `:before` body | `(rf/reg-event …)` — destructure `:db` from the coeffects map, wrap the body `{:db …}`. A fixture is **not** exempt: the retired `reg-event-db` throwing stub throws `:rf.error/reg-event-db-removed` the instant the fixture registers it. | **M-73** |
 | `add-post-event-callback` / `remove-post-event-callback` driving an **async** test wait | a **one-shot `:trace`-stream listener matching `:rf.event/run-end`** — `(rf/register-listener! :trace k f)` that fires once the awaited event's handler has run to completion, then `(rf/unregister-listener! :trace k)`. | **M-26** |
 
