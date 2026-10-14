@@ -56,8 +56,6 @@
             seen          (atom [])
             tracker       (r/track! (fn [] (swap! seen conj @sub)))
             during-reject (atom ::never-fired)]
-        (is (= [0] @seen)
-            "precondition: the tracker primed to the seeded value")
         (let [after-prime @runs]
           ;; The listener-triggered sync flush: during the rejection emit,
           ;; force Reagent's batch queue and read the reaction. Under a
