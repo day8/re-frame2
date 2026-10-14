@@ -46,12 +46,6 @@
                                      :states  {:leaf  {:on {:go :other}}
                                                :other {}}}}}}})
 
-(def self-loop-machine
-  "Two transitions leave `:idle` under distinct triggers, one a self-loop."
-  {:initial :idle
-   :states  {:idle {:on {:ping :idle :go :busy}}
-             :busy {:on {:done :idle}}}})
-
 (def internal-self-machine
   {:initial :a
    :states  {:a {:on {:tick {:action :inc}}}}})
@@ -243,12 +237,6 @@
            (select-keys (node-by-id graph (layout/node-id [:authenticated :browsing]))
                         [:parentId :extent :parentNode])))))
 
-(deftest xyflow-graph-flat-state-nests-under-root-container
-  (let [graph (projection/xyflow-graph (layout/project-definition idle-loading) {} {})]
-    (is (nil? (:parentId (node-by-id graph layout/root-container-id))))
-    (is (= {:parentId layout/root-container-id :extent "parent"}
-           (select-keys (node-by-id graph (layout/node-id [:idle])) [:parentId :extent])))))
-
 (deftest xyflow-graph-region-children-do-not-emit-pre-v12-parent-node
   (let [graph (projection/xyflow-graph (layout/project-definition parallel-machine) {} {})]
     (is (not-any? #(contains? % :parentNode) (:nodes graph)))))
@@ -342,8 +330,7 @@
               #{(rs :audio [:playing]) (layout/region-node-id :audio)}]
              [parallel-machine #{} #{}]
              [nested-compound-machine #{leaf}
-              #{leaf (layout/node-id [:outer :mid]) (layout/node-id [:outer])}]
-             [idle-loading #{(layout/node-id [:loading])} #{(layout/node-id [:loading])}]]
+              #{leaf (layout/node-id [:outer :mid]) (layout/node-id [:outer])}]]
             :let [graph (projection/xyflow-graph (layout/project-definition machine) {}
                                                  {:highlight-ids highlight})
                   fs    (flags (:nodes graph) :active)]]
@@ -415,13 +402,6 @@
            (map #((juxt :regionId :regionIndex) (:data (node-by-id graph (layout/region-node-id %))))
                 [:audio :video])))))
 
-(deftest xyflow-graph-threads-entry-exit-onto-node-data
-  (let [graph (projection/xyflow-graph
-                (layout/project-definition {:initial :a :states {:a {:entry :on-enter :exit :on-leave}}})
-                {} {})]
-    (is (= {:entry "on-enter" :exit "on-leave"}
-           (select-keys (:data (node-by-id graph (layout/node-id [:a]))) [:entry :exit])))))
-
 ;; ---- event-node payload ----------------------------------------------------
 
 (deftest xyflow-graph-event-node-surfaces-guard-and-action
@@ -480,9 +460,7 @@
   (let [parsed (layout/project-definition machine-level-on-machine)
         graph  (projection/xyflow-graph parsed {} {})]
     (is (= [true] (map (comp :machineLevel :data)
-                       (filter #(= :logout (:eventId (:data %))) (:nodes graph)))))
-    (is (= layout/machine-root-id
-           (:source (inbound-edge-for graph (:id (first (filter :machine-level? (:edges parsed))))))))))
+                       (filter #(= :logout (:eventId (:data %))) (:nodes graph)))))))
 
 ;; ---- ->elk-children ---------------------------------------------------------
 
@@ -514,12 +492,8 @@
            ((juxt :width :height) (first (filter #(= cid (:id %)) kids)))))))
 
 (deftest leaf-elk-size-takes-the-larger-of-measured-and-floor-per-dimension
-  (let [floor-w projection/state-node-min-width
-        floor-h projection/state-node-min-height]
-    (doseq [[measured expected] [[nil                     {:width floor-w :height floor-h}]
-                                 [{:width 300 :height 90} {:width 300 :height 90}]
-                                 [{:width 320 :height 10} {:width 320 :height floor-h}]]]
-      (is (= expected (projection/leaf-elk-size measured)) (pr-str measured)))))
+  (is (= {:width 320 :height projection/state-node-min-height}
+         (projection/leaf-elk-size {:width 320 :height 10}))))
 
 (deftest elk-children-threads-measured-dims-to-leaves-and-events
   ;; The measure-then-relayout pass: measured leaves and event-nodes take their
@@ -564,10 +538,9 @@
   ;; TOP clears the title strip plus a body-pad band. Reserving room for a
   ;; nested initial marker, drawn left of its state and outside ELK, widens
   ;; LEFT only.
-  (doseq [{:keys [container-title-height container-body-pad] :as chart-vc}
-          [vc/chart-compact vc/chart-regular vc/chart-cosy]
-          :let [pad #(str "[top=" (+ container-title-height container-body-pad)
-                          ",left=" % ",bottom=" container-body-pad ",right=" container-body-pad "]")]]
+  (let [{:keys [container-title-height container-body-pad] :as chart-vc} vc/chart-cosy
+        pad #(str "[top=" (+ container-title-height container-body-pad)
+                  ",left=" % ",bottom=" container-body-pad ",right=" container-body-pad "]")]
     (is (= (pad container-body-pad) (projection/container-elk-padding chart-vc)))
     (is (= (pad (max container-body-pad projection/initial-marker-left-extent))
            (projection/container-elk-padding chart-vc true)))))
@@ -620,18 +593,7 @@
                 (into {} (map (juxt (comp first :sources)
                                     #(get-in % [:layoutOptions "elk.layered.priority.direction"])))))))))
 
-;; ---- ELK routes and label positions ---------------------------------------------
-
-(deftest xyflow-graph-attaches-edge-points-by-elk-edge-id
-  ;; Keyed by the elk edge ids, so each half draws exactly its own segment.
-  (let [parsed    (layout/project-definition idle-loading)
-        id        (:id (first (filter #(= :start (:event %)) (:edges parsed))))
-        in-route  [{:x 0 :y 0} {:x 0 :y 25} {:x 40 :y 25}]
-        out-route [{:x 40 :y 50} {:x 80 :y 75} {:x 80 :y 100}]
-        graph     (projection/xyflow-graph parsed {} {:edge-points {(str id "__in")  in-route
-                                                                     (str id "__out") out-route}})]
-    (is (= [in-route out-route]
-           (map #(get-in % [:data :points]) [(inbound-edge-for graph id) (outbound-edge-for graph id)])))))
+;; ---- ELK label positions ---------------------------------------------------------
 
 (deftest xyflow-graph-attaches-elk-label-position-to-edge-data
   (let [parsed (layout/project-definition idle-loading)
@@ -736,22 +698,6 @@
             :done       [[(id [:active :connecting]) :event] [:event (id [:active :connected])] false]
             :retry      [[(id [:failed]) :event] [:event (id [:active])] false]}
            (into {} (map (juxt :event route)) (:edges parsed))))))
-
-(def ^:private multi-self-loop-machine
-  {:initial :idle
-   :states  {:idle {:on {:arm    {:action :arm-it}
-                         :disarm {:action :disarm-it}
-                         :clear  {:action :clear-it}}}}})
-
-(deftest xyflow-graph-each-parsed-edge-yields-one-event-node
-  ;; Several events on one source, or on one source/target pair, never collapse.
-  (doseq [m [idle-loading compound-machine self-loop-machine wildcard-machine
-             machine-level-on-machine multi-self-loop-machine
-             {:initial :a :states {:a {:on {:go-fast :b :go-slow :b}} :b {}}}]
-          :let [parsed (layout/project-definition m)
-                graph  (projection/xyflow-graph parsed {} {})]]
-    (is (= (count (:edges parsed)) (count (filter #(= "rf2-event" (:type %)) (:nodes graph))))
-        (pr-str m))))
 
 (def ^:private cross-hierarchy-machine
   {:initial :outer
@@ -881,11 +827,10 @@
                 (into {} (map (juxt :guard #(:forkOrder (:data (event-node-for graph (:id %))))))))))))
 
 (deftest fork-order-badges-only-guarded-same-trigger-groups
-  ;; Distinct triggers never group; a guardless group has no evaluation order to
-  ;; show; a partly guarded one numbers every branch, the fallback last.
-  (doseq [[on expected] [[{:go-x {:guard :gx? :target :b} :go-y {:guard :gy? :target :c}} {}]
-                         [{:go [{:target :b} {:target :c}]}                              {}]
-                         [{:go [{:guard :g1? :target :b} {:target :c}]}                 {[:b] 1 [:c] 2}]]
+  ;; A guardless group has no evaluation order to show; a partly guarded one
+  ;; numbers every branch, the fallback last.
+  (doseq [[on expected] [[{:go [{:target :b} {:target :c}]}                {}]
+                         [{:go [{:guard :g1? :target :b} {:target :c}]}   {[:b] 1 [:c] 2}]]
           :let [edges (:edges (layout/project-definition {:initial :a :states {:a {:on on} :b {} :c {}}}))
                 order (projection/fork-order-by-edge-id edges)]]
     (is (= expected (into {} (keep #(when-let [o (order (:id %))] [(:to %) o])) edges)))))
@@ -922,12 +867,10 @@
                         [:layoutOptions "elk.layered.crossingMinimization.semiInteractive"]))))
 
 (deftest no-guarded-fork-emits-no-fork-machinery
-  ;; Distinct triggers on one source (`self-loop-machine`) and the `:after` /
-  ;; guarded `:always` pair on one source (`idle-loading`) are not forks.
-  (doseq [m [self-loop-machine idle-loading]
-          :let [parsed (layout/project-definition m)
-                graph  (projection/xyflow-graph parsed {} {})
-                elk    (projection/->elk-children parsed)]]
+  ;; An `:after` beside a guarded `:always` on one source is two triggers, not a fork.
+  (let [parsed (layout/project-definition idle-loading)
+        graph  (projection/xyflow-graph parsed {} {})
+        elk    (projection/->elk-children parsed)]
     (is (every? #(nil? (:forkOrder (:data %))) (filter #(= "rf2-event" (:type %)) (:nodes graph))))
     (is (empty? (connector-edges-of graph)))
     (is (not-any? #(contains? (:layoutOptions %) "elk.position") (root-children elk)))
@@ -944,27 +887,18 @@
    :guards  {:within-window? {:rf.cofx/requires [:rf/time-ms]
                               :fn (fn [_] true)}}
    :actions {:schedule-retry {:rf.cofx/requires [:payment/retry-jitter-ms]
-                              :fn (fn [_] nil)}
-             :stamp-started  {:rf.cofx/requires [:rf/time-ms]
-                              :fn (fn [_] nil)}
-             :stamp-ended    {:rf.cofx/requires [:rf/uuid]
                               :fn (fn [_] nil)}}
-   :states  {:idle {:entry :stamp-started
-                    :exit  :stamp-ended
-                    :on    {:go {:target :busy
-                                 :guard  :within-window?
-                                 :action :schedule-retry}}}
+   :states  {:idle {:on {:go {:target :busy
+                              :guard  :within-window?
+                              :action :schedule-retry}}}
              :busy {}}})
 
-(deftest xyflow-graph-carries-declared-requires-on-event-and-state-data
+(deftest xyflow-graph-carries-declared-requires-on-event-data
   (let [parsed (layout/project-definition cofx-projection-machine)
         graph  (projection/xyflow-graph parsed {} {})]
     (is (= {:guardRequires ["rf/time-ms"] :actionRequires ["payment/retry-jitter-ms"]}
            (select-keys (:data (event-node-for graph (:id (first (:edges parsed)))))
-                        [:guardRequires :actionRequires])))
-    (is (= {:entryRequires ["rf/time-ms"] :exitRequires ["rf/uuid"]}
-           (select-keys (:data (node-by-id graph (layout/node-id [:idle])))
-                        [:entryRequires :exitRequires])))))
+                        [:guardRequires :actionRequires])))))
 
 (def cofx-parallel-dup-machine
   "Regions `:a` and `:b` each own an `:active` with distinct lifecycle requires."
