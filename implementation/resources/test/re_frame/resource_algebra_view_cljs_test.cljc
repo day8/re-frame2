@@ -360,6 +360,3 @@
                 (set (map #(get-in graph [:nodes % :status]) (resource-node-ids graph)))
                 (count (resource-node-ids shipped)) (contains-any? raw shipped) (contains-any? digests shipped)])
             "no raw value or content digest egresses, and the live graph, shipped off-box too, keeps both resource nodes")))))
-
-;; ---- registry semantics --------------------------------------------------
-
