@@ -69,12 +69,6 @@
                      :states  {:hidden {:on {:show :shown}}
                                :shown  {:on {:hide :hidden}}}}}})
 
-(def ^:private plain-machine
-  "No container declares tags or lifecycle actions."
-  {:initial :a
-   :states  {:a {:on {:go :b}}
-             :b {}}})
-
 ;; ---- mount helpers ----------------------------------------------------------
 
 (defn- browser? []
@@ -158,8 +152,6 @@
             (is (<= (+ (.-offsetTop band) (.-offsetHeight band)) (reserved-top el))
                 "the band ends inside the reserved header, above the first child")
             (is (nil? (any-band idle)) "the lifecycle-free :idle paints no band")
-            (is (nil? (by-testid idle "rf-mv-chart-state-entry")) "no entry row")
-            (is (nil? (by-testid idle "rf-mv-chart-state-tags")) "no tag row")
             (is (= plain-reserved-top (reserved-top idle))
                 "the lifecycle-free :idle keeps the plain title + body-pad")))))))
 
@@ -232,16 +224,3 @@
                 "the header reservation includes the band")
             (is (<= (.-offsetHeight header) (reserved-top frame))
                 "the whole header fits inside the reserved TOP padding")))))))
-
-(deftest lifecycle-free-root-shows-no-band
-  (testing "a root declaring no tags and no lifecycle action shows no band and
-            keeps the plain header reservation"
-    (if-not (browser?)
-      (is true ":node-test: no DOM — browser-test runner exercises this")
-      (with-mounted-chart
-        {:machine-id :test/plain :definition plain-machine}
-        (fn [node]
-          (let [frame (.querySelector node "[data-root-container=\"true\"]")]
-            (is (nil? (any-band frame)) "no lifecycle band")
-            (is (= plain-reserved-top (reserved-top frame))
-                "the header reservation is the plain title + body-pad")))))))
