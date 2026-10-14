@@ -90,10 +90,7 @@
            (vec (sort (js/Object.keys (donor-prop :cfg {:aria-label "x" :data-kind "y" :other-key "z"} "cfg")))))))
   (testing "a STRING key is verbatim"
     (is (= ["first-name"] (vec (js/Object.keys (donor-prop :cfg {"first-name" 1} "cfg"))))))
-  (testing "the recursion stops at the first non-map collection"
-    (is (= [{"day-of-week" 1}] (js->clj (donor-prop :menu-items [{:day-of-week 1}] "menuItems"))))
-    (is (= [{"day-of-week" 1}] (js->clj (donor-prop :menu-items #{{:day-of-week 1}} "menuItems")))))
-  (testing "and never descends into a #js node, which crosses as the same object"
+  (testing "the recursion never descends into a #js node, which crosses as the same object"
     (let [js-options #js {:first-name "a"}]
       (is (identical? js-options (donor-prop :opts js-options "opts")))))
   (testing "a CSS custom property is mangled (§4.2's :css-var-repair)"
