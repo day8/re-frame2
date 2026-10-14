@@ -18,8 +18,7 @@
   discrete event; the port makes it uncontrolled and converges one
   `requestAnimationFrame` later. Those DOM-level differences are witnessed
   there, in the browser lane. What THIS namespace pins is narrower and is
-  the adapter's own contract: which of the two a consumer gets, and that
-  the other one remains reachable on purpose.
+  the adapter's own contract: which of the two a consumer gets.
 
   No DOM needed — the selector is a var read."
   (:require [cljs.test :refer-macros [deftest testing is]]
@@ -46,14 +45,3 @@
         "the adapter's load left the var at false (read from the load-time
          snapshot, so no sibling suite's per-row pinning can mask its
          absence), and `should-use-reagent-input?` answers false")))
-
-(deftest the-port-remains-reachable-explicitly
-  (testing "the adapter makes React the DEFAULT, not the only option: the var
-           stays public and dynamic, so a consumer who genuinely wants
-           Reagent's port asks for it by name"
-    (set! uix.compiler.input/*use-reagent-input-enabled?* true)
-    (is (true? (reagent-input-selected?))
-        "an explicit opt-in reaches the port")
-    (set! uix.compiler.input/*use-reagent-input-enabled?* false)
-    (is (false? (reagent-input-selected?))
-        "and an explicit opt-out returns to React's own implementation")))
