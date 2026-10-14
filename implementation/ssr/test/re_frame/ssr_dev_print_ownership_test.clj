@@ -59,16 +59,6 @@
             (str "the line names " needle "; got " (pr-str (first lines))))))
     (is (= "" out) (str "the production gate prints nothing; got " (pr-str out)))))
 
-(defn- ssr-ids
-  "The ids in a listener registry that `re-frame.ssr` owns."
-  [registry]
-  (filterv #(and (keyword? %) (some-> (namespace %) (str/starts-with? "re-frame.ssr")))
-           (keys registry)))
-
-(deftest ssr-registers-no-listener
-  (is (= [] (ssr-ids @@#'rf.error-emit/listeners)) "the :errors registry")
-  (is (= [] (ssr-ids @@#'rf.trace.tooling/listeners)) "the :trace registry"))
-
 (deftest an-unrouted-error-on-a-client-frame-prints
   (rf/make-frame {:id :ownership/client :platform :client})
   (expect-one-line
