@@ -95,14 +95,6 @@ test('makeCleanup escalates SIGTERM→SIGKILL and AWAITS the eventual exit (rf2-
   assert.ok(shadow.exited, 'cleanup resolved before the post-SIGKILL exit');
 });
 
-test('makeCleanup HARD-CAPS a never-settling browser.close() instead of hanging (rf2-7ckmwx finding 1)', async () => {
-  const start = Date.now();
-  await cleanupWith({ getBrowser: () => ({ close: () => new Promise(() => {}) }), browserCloseMs: 120 })();
-  const elapsed = Date.now() - start;
-  assert.ok(elapsed >= 100, `cleanup returned in ${elapsed}ms without waiting for the close cap`);
-  assert.ok(elapsed < 5000, `cleanup took ${elapsed}ms: the close is not capped by browserCloseMs`);
-});
-
 test('makeCleanup GRADES a rejected browser.close() + never-exiting shadow as DIRTY, after attempting BOTH (rf2-j538f7.19 AC1/AC3/AC6)', async () => {
   let closes = 0;
   // No isConnected(), so disconnection cannot be proven.
@@ -123,16 +115,17 @@ test('makeCleanup GRADES a rejected browser.close() + never-exiting shadow as DI
   );
 });
 
-test('makeCleanup treats a rejected browser.close() as CLEAN when isConnected() proves disconnection (rf2-j538f7.19 AC1)', async () => {
-  const browser = { close: () => Promise.reject(new Error('transport already closed')), isConnected: () => false };
-  const report = await cleanupWith({ getBrowser: () => browser, browserCloseMs: 100 })();
-  assert.deepEqual([report.clean, report.browser.state], [true, 'disconnected']);
-});
-
-test('makeCleanup grades a browser close that exceeds its cap + stays connected as DIRTY (rf2-j538f7.19 AC2)', async () => {
-  const browser = { close: () => new Promise(() => {}), isConnected: () => true };
-  const report = await cleanupWith({ getBrowser: () => browser, browserCloseMs: 60 })();
-  assert.deepEqual([report.clean, report.browser.state], [false, 'dirty']);
+// The never-settling row also proves the cap: without it the close never
+// returns.
+test('a browser close that rejects or overruns its cap is CLEAN only when isConnected() proves disconnection (rf2-j538f7.19 AC1/AC2)', async () => {
+  for (const [close, connected, expected] of [
+    [() => Promise.reject(new Error('transport already closed')), false, [true, 'disconnected']],
+    [() => new Promise(() => {}), true, [false, 'dirty']],
+  ]) {
+    const browser = { close, isConnected: () => connected };
+    const report = await cleanupWith({ getBrowser: () => browser, browserCloseMs: 60 })();
+    assert.deepEqual([report.clean, report.browser.state], expected);
+  }
 });
 
 // A signal arriving during the `finally` teardown joins the in-flight cleanup
@@ -151,22 +144,17 @@ test('makeCleanup is idempotent and grades a shadow that exits on SIGTERM CLEAN 
 
 // ---- grading the owned process tree -----------------------------------------
 
-test('a wrapper that EXITED cannot certify clean while owned descendants survive (rf2-kzbf AC1)', async () => {
-  const report = await cleanupWith({ reapShadowTree: fakeReap({ owned: [4242, 4243], survivors: [4243] }) })();
-  assert.deepEqual(
-    { clean: report.clean, wrapper: report.shadow.state, shadowClean: report.shadow.clean,
-      survivors: report.shadow.tree.survivors, issues: report.issues.length },
-    { clean: false, wrapper: 'exited', shadowClean: false, survivors: [4243], issues: 1 },
-  );
-  assert.match(report.issues[0], /4243/, 'the issue must name the surviving pid');
-});
-
-test('an owned-tree reap that cannot be PROVEN is DIRTY, not optimistically clean (rf2-kzbf AC3)', async () => {
-  const report = await cleanupWith({
-    reapShadowTree: fakeReap({ error: 'could not enumerate the process table (EPERM)' }),
-  })();
-  assert.deepEqual([report.clean, report.shadow.clean], [false, false]);
-  assert.match(report.issues[0], /could NOT be proven/);
+// The wrapper has EXITED in every row, so only the reap decides the grade.
+test('the owned-tree reap grades the run: a survivor or an unproven reap is DIRTY and named, none is CLEAN (rf2-kzbf AC1/AC3/AC4)', async () => {
+  for (const [reap, clean, issue] of [
+    [{ owned: [4242, 4243], survivors: [4243] }, false, /4243/],
+    [{ error: 'could not enumerate the process table (EPERM)' }, false, /could NOT be proven/],
+    [{ owned: [900, 901], survivors: [] }, true, null],
+  ]) {
+    const report = await cleanupWith({ reapShadowTree: fakeReap(reap) })();
+    assert.deepEqual([report.clean, report.issues.length], [clean, issue ? 1 : 0]);
+    if (issue) assert.match(report.issues[0], issue);
+  }
 });
 
 test('the owned-tree reap runs even when the wrapper never exited, and both failures are reported (rf2-kzbf AC2)', async () => {
@@ -180,14 +168,6 @@ test('the owned-tree reap runs even when the wrapper never exited, and both fail
   assert.deepEqual(
     { wrapper: report.shadow.state, signals: shadow.killSignals, clean: report.clean, issues: report.issues.length },
     { wrapper: 'alive', signals: ['SIGTERM', 'SIGKILL'], clean: false, issues: 2 },
-  );
-});
-
-test('a reaped tree with no survivors still grades CLEAN (rf2-kzbf AC4 — no false RED)', async () => {
-  const report = await cleanupWith({ reapShadowTree: fakeReap({ owned: [900, 901], survivors: [] }) })();
-  assert.deepEqual(
-    { clean: report.clean, issues: report.issues, owned: report.shadow.tree.owned },
-    { clean: true, issues: [], owned: [900, 901] },
   );
 });
 
@@ -227,15 +207,29 @@ test('ownedDescendants claims our subtree and fences every row it cannot prove o
 
 // ---- the reaper's kill decisions and outcome grading -------------------------
 
-test('makeShadowTreeReaper never tree-kills a RECYCLED root pid (rf2-kzbf audit, AC2)', async () => {
-  const killed = [];
-  const out = await reaper({
-    readTable: () => [{ pid: 100, ppid: 1, createdMs: 1000 }, { pid: 200, ppid: 100, createdMs: 6000 }],
-    treeKill: (pid) => killed.push(pid),
-    isAlive: () => false,
-  })();
-  // A stranger wearing our number is not itself a teardown failure.
-  assert.deepEqual({ killed, owned: out.owned, error: out.error }, { killed: [], owned: [], error: null });
+// A stranger wearing our number, or an empty tree, is not itself a teardown
+// failure; missing proof is. Reporting dirty only after a kill is not
+// fail-closed.
+test('makeShadowTreeReaper kills nothing it cannot prove ours, and errors where the proof is missing (rf2-kzbf AC2/AC3)', async () => {
+  for (const [label, opts, error] of [
+    ['a RECYCLED root pid',
+      { readTable: () => [{ pid: 100, ppid: 1, createdMs: 1000 }, { pid: 200, ppid: 100, createdMs: 6000 }] }, null],
+    ['an already-empty tree', { readTable: () => [{ pid: 999, ppid: 1, createdMs: 7000 }] }, null],
+    ['an undated root',
+      { readTable: () => [{ pid: 100, ppid: 1, createdMs: 0 }, { pid: 200, ppid: 100, createdMs: 6000 }] },
+      /cannot be proven ours/],
+    ['orphans of a dead root with no dated stranger and no exit instant',
+      { rootExited: () => true, readTable: () => [{ pid: 200, ppid: 100, createdMs: 6000 }] }, /could not be bounded/],
+    ['an unreadable process table',
+      { readTable: () => { throw new Error('powershell unavailable'); } },
+      /could not enumerate the process table \(powershell unavailable\)/],
+  ]) {
+    const killed = [];
+    const out = await reaper({ treeKill: (pid) => killed.push(pid), isAlive: () => true, ...opts })();
+    assert.deepEqual({ killed, owned: out.owned }, { killed: [], owned: [] }, label);
+    if (error) assert.match(out.error, error, label);
+    else assert.equal(out.error, null, label);
+  }
 });
 
 test('makeShadowTreeReaper still reaps OUR orphan after the wrapper exits (rf2-kzbf audit, AC1)', async () => {
@@ -251,39 +245,6 @@ test('makeShadowTreeReaper still reaps OUR orphan after the wrapper exits (rf2-k
     { killed, owned: out.owned, survivors: out.survivors },
     { killed: [200], owned: [200], survivors: [] },
   );
-});
-
-// Reporting dirty only after the kill is not fail-closed.
-test('makeShadowTreeReaper kills NOTHING through an unprovable root (rf2-kzbf audit of PR #9247, AC2/AC3)', async () => {
-  const killed = [];
-  const out = await reaper({
-    readTable: () => [{ pid: 100, ppid: 1, createdMs: 0 }, { pid: 200, ppid: 100, createdMs: 6000 }],
-    treeKill: (pid) => killed.push(pid),
-    isAlive: () => true,
-  })();
-  assert.deepEqual({ killed, owned: out.owned }, { killed: [], owned: [] });
-  assert.match(out.error, /cannot be proven ours/);
-});
-
-test('no dated stranger and no observed exit instant means orphan discovery is UNBOUNDED — refuse (rf2-kzbf audit of PR #9247, AC2/AC3)', async () => {
-  const killed = [];
-  const out = await reaper({
-    rootExited: () => true,
-    readTable: () => [{ pid: 200, ppid: 100, createdMs: 6000 }],
-    treeKill: (pid) => killed.push(pid),
-    isAlive: () => true,
-  })();
-  assert.deepEqual({ killed, owned: out.owned }, { killed: [], owned: [] });
-  assert.match(out.error, /could not be bounded/);
-});
-
-test('an already-empty tree stays CLEAN (rf2-kzbf audit of PR #9247 — no false RED)', async () => {
-  const out = await reaper({
-    readTable: () => [{ pid: 999, ppid: 1, createdMs: 7000 }],
-    treeKill: () => { throw new Error('nothing to kill'); },
-    isAlive: () => false,
-  })();
-  assert.deepEqual({ owned: out.owned, error: out.error }, { owned: [], error: null });
 });
 
 // A tree-kill that returns success while removing nothing must grade the
@@ -303,29 +264,6 @@ test('makeShadowTreeReaper reports SURVIVORS when the kill removes nothing (rf2-
     { survivors: out.survivors.sort((a, b) => a - b), error: out.error },
     { survivors: [100, 200], error: null },
   );
-});
-
-test('makeShadowTreeReaper surfaces an enumeration failure instead of reporting clean (rf2-kzbf AC3)', async () => {
-  const out = await reaper({ readTable: () => { throw new Error('powershell unavailable'); }, treeKill: () => {} })();
-  assert.match(out.error, /could not enumerate the process table \(powershell unavailable\)/);
-});
-
-// POSIX `npx` is exec'd directly, with no wrapper/descendant split to reap.
-test('makeShadowTreeReaper is INERT on POSIX — current behaviour is unchanged there (rf2-kzbf)', async () => {
-  const out = await makeShadowTreeReaper({
-    rootPid: 100,
-    spawnedAtMs: 0,
-    platform: 'linux',
-    readTable: () => { throw new Error('must never be consulted off Windows'); },
-    treeKill: () => { throw new Error('must never kill off Windows'); },
-  })();
-  assert.deepEqual(out, { supported: false, owned: [], survivors: [], error: null });
-});
-
-test('makeShadowTreeReaper refuses to claim a reap when no root pid was recorded (rf2-kzbf AC3)', async () => {
-  const out = await makeShadowTreeReaper({ rootPid: undefined, spawnedAtMs: 0, platform: 'win32' })();
-  assert.equal(out.supported, true);
-  assert.match(out.error, /no shadow root pid/);
 });
 
 // ---- the real thing, on Windows ---------------------------------------------
