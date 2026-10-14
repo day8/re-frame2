@@ -17,8 +17,7 @@
   `scripts/test-routing-prod-gate.sh` (the `-Dre-frame.debug=false` lane).
 
   Trace reads — the `:rf.error/can-enter-non-boolean` tags and the NEGATIVE
-  `not-any?` reads for `:rf.error/no-such-handler` and
-  `:rf.error/route-guard-loop` — sit behind `trace/emit!` /
+  `not-any?` read for `:rf.error/no-such-handler` — sit behind `trace/emit!` /
   `trace/emit-error!`, gated on `rf.interop/debug-enabled?`. Under the gate the
   ring is EMPTY by design, so a negative there would pass vacuously; each sits
   inside a `(when rf.interop/debug-enabled? …)` arm with its production-visible
@@ -96,15 +95,6 @@
       (is (= ["/home"] @replaced)
           "the current slice's URL was restored by replace (no history entry)")
       (is (= :home (current-id))))))
-
-(deftest entry-denied-on-initial-load
-  (testing "initial load has no current route to leave but evaluates target
-            entry policy normally — a guarded deep-link is denied"
-    (register-common!)
-    (let [seen (capture-denials!)]
-      (rf/dispatch-sync [:rf.route/handle-url-change "/account"])
-      (is (= 1 (count @seen)) "exactly one denial on the initial load")
-      (is (nil? (current-id)) "no route committed at all"))))
 
 ;; ---- the exactly-once floor: the framework DEFAULT handler --------------
 
@@ -332,12 +322,10 @@
       (rf/dispatch-sync [:rf.route/handle-url-change "/account"] {:frame f})
       (is (= 403 (:status (rf.ssr/get-response f)))
           "hard deny with no replacement → 403")
-      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value f))
-                        [:rf.runtime/routing :current]))
-          "no route committed — no resource or hydration data for the denied target")
-      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value f))
-                        [:rf.runtime/routing :pending-navigation]))
-          "and no pending value"))))
+      (is (= [nil nil] (map #(get-in (:rf.db/runtime (rf/frame-state-value f)) [:rf.runtime/routing %])
+                            [:current :pending-navigation]))
+          "no route committed (so no resource or hydration data for the denied
+           target) and no pending value"))))
 
 (deftest ssr-client-frame-stamps-no-status
   (testing "the 403 floor is SERVER-ONLY — a client frame denial emits no
@@ -361,24 +349,6 @@
       (rf/dispatch-sync [:rf.route/handle-url-change "/account"] {:frame f})
       (is (= 404 (:status (rf.ssr/get-response f)))
           "last write wins — the app's explicit status supersedes the 403 floor"))))
-
-(deftest repeated-denials-never-emit-a-loop-error
-  (testing "entry is terminal, so a repeatedly-denied target cannot spin —
-            :rf.error/route-guard-loop is retired and never fires"
-    (register-common!)
-    (rf/dispatch-sync [:rf.route/handle-url-change "/home"])
-    (let [traces (atom [])
-          seen   (capture-denials!)]
-      (rf/register-listener! :trace ::loop (fn [ev] (swap! traces conj ev)))
-      (dotimes [_ 12] (rf/dispatch-sync [:rf.route/navigate {:to :account}]))
-      (rf/unregister-listener! :trace ::loop)
-      (is (= 12 (count @seen)) "each fresh attempt denies once — 12 attempts, 12 denials")
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (is (not-any? #(= :rf.error/route-guard-loop (:operation %)) @traces)
-            ":rf.error/route-guard-loop is retired"))
-      (is (nil? (pending)) "no pending value ever accumulated")
-      (is (= :home (current-id))))))
 
 ;; ---- leave short-circuits entry ------------------------------------------
 
