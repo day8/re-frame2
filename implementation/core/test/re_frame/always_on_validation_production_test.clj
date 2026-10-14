@@ -253,16 +253,12 @@
         data  (ex-data (:ex c))]
     [(:rf.error/id data) (:where data) (:failing-id data) (:frame data) @calls (:n (db-of))]))
 
-(deftest boundary-check-without-the-schemas-artefact-refuses-on-the-release-arm
+(deftest boundary-check-without-the-schemas-artefact-refuses-on-both-arms
   ;; the payload CONFORMS: nothing can say so, and a pass would run the handler
-  ;; on exactly the unchecked input the flag exists to gate
-  (is (= [:rf.error/schemas-artefact-missing 'rf/reg-event :prod/boundary :rf/default 0 nil]
-         (boundary-dispatch-without-the-artefact false))))
-
-(deftest boundary-check-without-the-schemas-artefact-refuses-on-the-dev-arm
-  ;; the same refusal in development, so it is not first met in production
-  (is (= [:rf.error/schemas-artefact-missing 'rf/reg-event :prod/boundary :rf/default 0 nil]
-         (boundary-dispatch-without-the-artefact true))))
+  ;; on exactly the unchecked input the flag exists to gate. The release arm
+  ;; first, then the dev arm, so the refusal is not first met in production.
+  (is (= (repeat 2 [:rf.error/schemas-artefact-missing 'rf/reg-event :prod/boundary :rf/default 0 nil])
+         (map boundary-dispatch-without-the-artefact [false true]))))
 
 (deftest recordable-schema-check-without-the-schemas-artefact-fails-injection-in-every-posture
   ;; a conforming value too: the check cannot run, so the value cannot fold
