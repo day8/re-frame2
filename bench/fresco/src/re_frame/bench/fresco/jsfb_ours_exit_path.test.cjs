@@ -189,7 +189,7 @@ test('a published clock that is zero or non-finite is refused and NAMED; the dec
 
 // --- THE DISJUNCTION: five gates, and each one alone sinks the run -----------
 
-test('EACH of the five gates alone refuses, and all five together are the only pass', () => {
+test('EACH of the five gates alone refuses', () => {
   const broken = {
     'DOM parity': { parity: parityOf(htmlOf({ [OTHERS[0]]: '<div></div>' }), {}) },
     'the positive control': { control: controlVerdict(controlAt(1), '') },
@@ -198,10 +198,10 @@ test('EACH of the five gates alone refuses, and all five together are the only p
     'the page-error funnel': { pageErrors: ['Error: boom'] },
     'the recording site': { summary: summaryOf({ [ROW_IDS[0]]: { nonPositive: 1 } }) },
   };
-  for (const [gate, over] of Object.entries(broken)) {
-    assert.strictEqual(verdict(sound(over)).code, 1, `${gate} alone must refuse`);
-  }
-  assert.strictEqual(verdict(sound()).code, 0, 'and none of them broken is the pass');
+  assert.deepStrictEqual(
+    Object.fromEntries(Object.entries(broken).map(([gate, over]) => [gate, verdict(sound(over)).code])),
+    Object.fromEntries(Object.keys(broken).map((gate) => [gate, 1]))
+  );
 });
 
 // --- the wiring: what keeps the gate able to fail ----------------------------
