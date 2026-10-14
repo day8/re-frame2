@@ -300,9 +300,11 @@
     (is (re-find #"NOT resolved" desc) desc)))
 
 (deftest explain-variant-happy
-  (let [s (:structuredContent (invoke "explain-variant" {:variant-id "story.button/primary"}))]
+  (let [s (:structuredContent (invoke "explain-variant" {:variant-id "story.button/primary"}))
+        e (:explain s)]
     (is (= [:story.button/primary [:story.button/primary] []]
-           [(:variant-id s) (-> s :explain :source-chain) (-> s :explain :parent-chain)]))))
+           [(:variant-id s) (:source-chain e) (:parent-chain e)]))
+    (is (every? #(contains? e %) [:merge :required-runner]))))
 
 (deftest lookup-tools-refuse-missing-ids
   ;; The tools share three lookup preludes in tools.args (`with-variant`,
