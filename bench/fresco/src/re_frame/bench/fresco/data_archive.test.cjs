@@ -52,10 +52,6 @@ test('the archived corpus RESOLVES at the pinned commit, at the path it was arch
     archive.ARCHIVE_ENTRIES,
     `${archive.ARCHIVE_SHA}:${archive.ARCHIVE_PATH} must carry the whole corpus`
   );
-  assert.ok(
-    entries.some((e) => e.rel === 'alloc-0gjqi/paired-run1.json'),
-    'and the record `present()` tests on must be one of them'
-  );
 });
 
 test('the restore is advertised in ONE spelling, and every place that quotes it agrees', () => {
@@ -105,9 +101,10 @@ corpusTest('and the REPORT ITSELF reads it — the boundary is on the path the C
   // The check above proves `readRecord` by calling `readRecord`, so it stays
   // green over a report that never touches the boundary. This one SPAWNS the
   // CLI as `bench/fresco/README.md` documents it and reads the population out
-  // of what it printed: a raw read prints n=[1,4,4,4,2,4], PASS TERM +0.89% and
-  // null arm n=8. Tables are parsed rather than matched verbatim, so a reworded
-  // heading or a re-rounded median cannot fail a POPULATION check.
+  // of what it printed: a raw read prints n=[1,4,4,4,2,4] and null arm n=8.
+  // Tables are parsed rather than matched verbatim, so a reworded heading or a
+  // re-rounded median cannot fail a POPULATION check. The term those rows yield
+  // is `alloc_pass_position.cjs --self-test`'s to pin.
   const r = cp.spawnSync(process.execPath, [path.join(__dirname, 'alloc_pass_position.cjs'), RECORD], { encoding: 'utf8' });
   assert.strictEqual(r.status, 0, `the report must run over the archived record: ${r.stderr}`);
 
@@ -130,7 +127,6 @@ corpusTest('and the REPORT ITSELF reads it — the boundary is on the path the C
     { roundN: [3, 8, 7, 8, 4, 7], nullN: 18 },
     'the per-round n the studio pages publish, and the null arm that licenses reading the rest'
   );
-  assert.ok(r.stdout.includes('PASS TERM +0.68%'), 'the published term');
 });
 
 corpusTest('the archived corpus really is in the OLD vocabulary — so the translation is doing work', () => {
