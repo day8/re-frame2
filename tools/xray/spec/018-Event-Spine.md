@@ -1086,7 +1086,7 @@ classification sentinels render per §12.
 
 **Design sketch.** The shipped App-db tab is the sectioned inspector of
 [`004-App-DB-Diff.md`](004-App-DB-Diff.md) + [`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md)
-§4 (APP STATE + reserved runtime-area cards, `diff-gutter` glyphs); the
+§4 (the `app-db` card + reserved runtime-area cards, `diff-gutter` glyphs); the
 changed-slices-first layout, its token names and the path-origin chips
 below were not built.
 

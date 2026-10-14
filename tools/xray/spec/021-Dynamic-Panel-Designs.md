@@ -980,47 +980,48 @@ Lines-per-screen target ~30-50 depending on db shape.
 Reconciled to `tools/xray/design-reference/xray_devtools_reference.cljs` (the `app-db-panel`
 component), the later iteration —
 the **sectioned-by-reserved-area** model (the prior separate DIFF / STATE two-zone split is
-superseded). The complete app-db renders as **vertical sections**, each headed by an uppercase
-caption label and rendering its value as a collapsible widget; adjacent sections self-separate
-by their card chrome (the `───` rules in the mockup below are shorthand). Section order, top →
-bottom:
+superseded). The complete app-db renders as **vertical sections**, each a card whose header
+ribbon carries its title and whose body renders the value as a collapsible widget; adjacent
+sections self-separate by their card chrome (the `───` rules in the mockup below are
+shorthand). Section order, top → bottom:
 
-- **APP STATE** (TOP, always shown) — the app-db **minus** every reserved `:rf/*` key (the
+- **`app-db`** (TOP, always shown) — the app-db **minus** every reserved `:rf/*` key (the
   application's own state).
-- **MACHINE `<id>`** — `:rf/machines` **fans out: one section per machine**, headed by the
-  machine id (e.g. `MACHINE :title/flow`).
-- **SPAWNED `<id>`** — `:rf/spawned` fans out the same way, one section per spawned instance.
-- **ROUTE** — `:rf/route` is a **single section** (singleton — the current-route slice; NOT
-  fanned out).
-- **Other reserved singletons** — `PENDING-NAVIGATION`
-  (`:rf/pending-navigation`), `ELISION` (`:rf/elision`) — one section each.
+- **`:rf/machines › <id>`** — `:rf/machines` **fans out: one section per machine**, titled by
+  the area key and the machine id (e.g. `:rf/machines › :title/flow`).
+- **`:rf/spawned › <id>`** — `:rf/spawned` fans out the same way, one section per spawned
+  instance.
+- **`:rf/route`** — a **single section** (singleton — the current-route slice; NOT fanned
+  out).
+- **Other reserved singletons** — `:rf/pending-navigation` and `:rf/elision`, one section
+  each, titled by the key.
 
 An absent or empty reserved area renders **nothing** — no section, no placeholder
 (rf2-jcdvo: `current-state-sections` filters it at projection time, pinned by the App-DB
-suite's "no placeholder card for empty reserved area" test). Only APP STATE always renders.
+suite's "no placeholder card for empty reserved area" test). Only `app-db` always renders.
 With a focused epoch, emptiness covers **both** sides: an area the epoch emptied (the last
 machine destroyed, a pending navigation cleared) still renders, showing what was removed (§4.3).
 The reserved areas are exactly `:rf/machines`, `:rf/spawned`, `:rf/route`,
 `:rf/pending-navigation` and `:rf/elision` (`reserved-area-order`); there is no `SYSTEM-IDS`
 area. The `:rf/*` names are section LABELS: since EP-0001 the reserved areas are read off the
 frame's runtime-db partition (`app_db_diff_helpers/runtime-areas` → `[:rf.runtime/machines
-:snapshots]`, `[:rf.runtime/routing :current]`, …), while APP STATE reads the app-db partition. Each section renders as its own inspector card (rf2-63ie5) — rf2-jcdvo dropped the
+:snapshots]`, `[:rf.runtime/routing :current]`, …), while `app-db` reads the app-db partition. Each section renders as its own inspector card (rf2-63ie5) — rf2-jcdvo dropped the
 inter-section hairline. The mode-accent stripe sits at the panel's left edge.
 
 ```
 ┌─ APP-DB · epoch #42 ────────────────────────────── [◀ Prev] [Next ▶] ─┐
 │▌ stripe: mode accent (one GitHub-blue accent, both modes)             │
 │                                                                       │
-│ APP STATE                                                             │
+│ app-db                                                                │
 │   ▾ {:counter 2, :user {:name "Alice" :role :admin}}                  │
 │     · :counter  2             ← was 1                        │
 │ ───────────────────────────────────────────────────────────────────  │
-│ MACHINE :title/flow                                                   │
+│ :rf/machines › :title/flow                                            │
 │   ▾ {:state :loaded, :context {:data [...]}}                          │
-│ MACHINE :other/flow                                                   │
+│ :rf/machines › :other/flow                                            │
 │   ▸ {:state :idle}                                                    │
 │ ───────────────────────────────────────────────────────────────────  │
-│ ROUTE                                                                 │
+│ :rf/route                                                             │
 │   ▸ {:route-id :home, :params {}}                                     │
 │                                                                       │
 │  Empty reserved area (e.g. no pending navigation, no elision): no     │
@@ -1036,7 +1037,7 @@ inter-section hairline. The mode-accent stripe sits at the panel's left edge.
 ### §4.3 The section renderer
 
 Every section's value renders as a cljs-devtools-style collapsible inspector widget via the
-shared lazy-tree + inline-diff + keyword-accent + clickable-paths renderer (§10) — App state,
+shared lazy-tree + inline-diff + keyword-accent + clickable-paths renderer (§10) — `app-db`,
 each machine, each spawned instance, Route, and every reserved singleton alike. Diff is
 annotation in place on the changed nodes within each section ("← was X"), with the
 ancestor chain force-expanded so the operator never expands to find a change (§10.4).
