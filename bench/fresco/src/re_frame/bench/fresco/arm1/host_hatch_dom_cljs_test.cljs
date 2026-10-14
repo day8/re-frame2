@@ -4,9 +4,10 @@
   The charter's v0 gate says 'one host hatch proven', and use case D9
   names the claim: hosting React libraries via the one door — value in,
   callback out, hook/context/ref owners, React-owned lifecycle.
-  `front/intent_cljs_test` is the contract half: it proves what a
-  declared `:callbacks` entry lowers TO, at closure level, with no door,
-  no foreign component and no DOM anywhere in the witness.
+  The contract half is on the package's own lowering, in
+  `re-frame.fresco.intent-cljs-test`: it proves what a declared
+  `:callbacks` entry lowers TO, at closure level, with no door, no
+  foreign component and no DOM anywhere in the witness.
   This file is the other half: a real foreign React component — its own
   `useState`, its own `useEffect`, its own `useContext`, its own ref
   plumbing — declared once with `defhost`, driven from Fresco

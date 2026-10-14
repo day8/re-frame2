@@ -1,9 +1,9 @@
 (ns re-frame.bench.fresco.arm1.controlled-grid-dom-cljs-test
   "THE 100-CELL CONTROLLED GRID, ON ARM 1 (K4, HD-019's full door).
 
-  Two of validation.md's six `:controlled/grid-100` claims — the
+  Two of validation.md's `:controlled/grid-100` claims — the
   same-turn echo and the explicit-revision reset — are witnessed on the
-  dogfood screen's own single field. The other four are here, at the witness's
+  dogfood screen's own single field. The rest are here, at the witness's
   stated size, on the arm's own element path —
   **`:mid-string-caret`, `:selection-preserved`,
   `:ime-composition-commits-nothing`, `:unchanged-model-rejection`** and
@@ -101,8 +101,8 @@
   would update the tracker too — after which React discards the `input`
   event as a no-op change and nothing under test ever runs.
 
-  Runtime: `-dom-cljs-test`; under `:node-test` every claim degrades to a
-  stated skip."
+  Runtime: `-dom-cljs-test`; under `:node-test` every row but
+  [[the-selector-is-live-in-this-bundle]] degrades to a stated skip."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.grid :as rf.bench.fresco.arm1.grid]
