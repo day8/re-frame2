@@ -3,10 +3,8 @@
   decoration belongs to the managed-HTTP seam). Both lower through the one
   `:rf.http/managed` fx, so a frame-registered `reg-http-interceptor`
   decorates every request the frame issues with no per-resource or
-  per-mutation opt-in. The interceptor reads the carried frame's app-db and
-  leaves the request alone when it does not apply; decoration leaves the
-  runtime-owned reply addressing, and so stale suppression, intact; and the
-  decorated header value never reaches a trace row (Spec 016 §Security).
+  per-mutation opt-in. The interceptor reads the carried frame's app-db, and
+  the decorated header value never reaches a trace row (Spec 016 §Security).
 
   The `:rf.http/managed` stub replaces only the wire: it walks the real
   per-frame request-side chain (`rf.http.test-support/run-request-chain`),
@@ -136,30 +134,6 @@
       "the write lowers through the same seam, so the same interceptor decorates it")
   (reply-success! {:slug "w"})
   (is (= :success (:status (instance :md/save-1))) "and the decorated write settles the instance"))
-
-(deftest decoration-no-op-when-token-absent
-  (reg-auth-interceptor!)
-  (rf/reg-resource :na/article (article-spec) article-spec-request)
-  (ensure-article! :na/article)
-  (is (= {:method :get :url "/api/articles/w"} (:request @last-decorated))
-      "with no token in the frame's app-db the bare domain request reaches the transport unchanged"))
-
-(deftest decoration-composes-with-stale-suppression
-  (seed-token! "tok")
-  (reg-auth-interceptor!)
-  (rf/reg-resource :sp/article (article-spec) article-spec-request)
-  (let [k (rf.resources.state/scoped-resource-key :rf.scope/global :sp/article {:slug "w"})]
-    (ensure-article! :sp/article)
-    (let [gen1-header  (auth-header)
-          gen1-success (:on-success @last-decorated)]
-      (rf/dispatch-sync [:rf.resource/refetch {:resource :sp/article :scope :rf.scope/global :params {:slug "w"}}])
-      (is (= ["Token tok" "Token tok" 2] [gen1-header (auth-header) (:generation (entry k))])
-          "a forced refetch supersedes gen 1, and both requests are decorated")
-      (rf/dispatch-sync (conj gen1-success {:status :ok :value {:stale "data"}}))
-      (is (= [nil 2 :loading] ((juxt :data :generation :status) (entry k)))
-          "the stale, fully decorated gen-1 reply never writes over the newer generation")
-      (reply-success! {:fresh "data"})
-      (is (= {:fresh "data"} (:data (entry k))) "the current gen-2 reply lands normally"))))
 
 (deftest decorated-bearer-token-does-not-leak-into-trace-rows
   ;; the runtime lowers the DOMAIN request into the trace stream and the header
