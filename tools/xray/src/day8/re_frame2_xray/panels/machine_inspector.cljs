@@ -743,10 +743,8 @@
         ;; "Previous event touching A" over a chart drawing B.
         ;; Resolved once here, they cannot disagree.
         ;;
-        ;; `selected-machine-id` is `project-data`'s RAW slot echo, NOT
-        ;; its `:selected-id` — the effective one falls back to the
-        ;; alphabetically-first machine, which would outrank trace order
-        ;; when the operator has chosen nothing. See that fn's docstring.
+        ;; `selected-machine-id` is `project-data`'s RAW slot echo: nil
+        ;; when the operator has chosen nothing, so trace order decides.
         focused-record   (h/pick-focused-transition records
                                                    selected-machine-id)
         ;; The bound machine drives the prev/next nav (a cascade may
@@ -1108,11 +1106,9 @@
   ;; `:selected-machine-id`.
   (rf/reg-sub :rf.xray/machine-inspector-data
     {:inputs [[:rf.xray/registered-machines]
-              [:rf.xray/machine-snapshots]
-              [:rf.xray/machine-definitions]
               [:rf.xray/selected-machine-id]]}
-    (fn [[machines live-snapshots definitions selected-id] _query]
-      (h/project-data machines (or live-snapshots {}) definitions selected-id)))
+    (fn [[machines selected-id] _query]
+      (h/project-data machines selected-id)))
 
   ;; ---- focused-event lens composite ------------------------------
 
@@ -1426,8 +1422,8 @@
       `:rf.xray/set-machine-definitions-override-for-test` — override
       events + companion `*-override` subs, with the production
       `:rf.xray/registered-machines` / `:rf.xray/machine-snapshots` /
-      `:rf.xray/machine-definitions` / `:rf.xray/machine-inspector-data`
-      subs RE-registered to layer the override read on top.
+      `:rf.xray/machine-definitions` subs RE-registered to layer the
+      override read on top.
     - `:rf.xray/set-epoch-history-for-test`,
       `:rf.xray/set-focus-epoch-id-for-test` — pure SEEDING events that
       write the real `:epoch-history` / `:focus` slots (no override sub).
@@ -1471,17 +1467,6 @@
         (dissoc db :machine-definitions-override)
         (assoc db :machine-definitions-override ov))}))
 
-  ;; The per-panel composite — re-register so the snapshots-override
-  ;; flips the projection (same shape the Static Machines surface uses).
-  (rf/reg-sub :rf.xray/machine-inspector-data
-    {:inputs [[:rf.xray/registered-machines]
-              [:rf.xray/machine-snapshots]
-              [:rf.xray/machine-snapshots-override]
-              [:rf.xray/machine-definitions]
-              [:rf.xray/selected-machine-id]]}
-    (fn [[machines live-snapshots snapshots-override definitions selected-id] _query]
-      (let [snapshots (or snapshots-override live-snapshots {})]
-        (h/project-data machines snapshots definitions selected-id))))
 
   ;; Focused-event composite seeding events (write the real slots).
   (rf/reg-event :rf.xray/set-epoch-history-for-test

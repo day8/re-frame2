@@ -17,16 +17,14 @@
 
 (deftest project-data-echoes-the-raw-selection-slot-rf2-mj4jp
   (testing "the Dynamic panel feeds the selection rule `project-data`'s RAW
-            `:selected-machine-id`, never `:selected-id`: with no selection
-            the effective id still names the alphabetically-first row, a
-            machine the operator never chose"
-    (let [project #(select-keys (h/project-data [:checkout/flow :auth/login] {} %)
-                                [:selected-machine-id :selected-id :empty-kind])]
-      (is (= {:selected-machine-id nil :selected-id :auth/login :empty-kind nil}
-             (project nil)))
-      (is (= {:selected-machine-id :checkout/flow :selected-id :checkout/flow
-              :empty-kind nil}
-             (project :checkout/flow))))))
+            `:selected-machine-id`: with no selection it stays nil rather
+            than naming a machine the operator never chose"
+    (is (= {:selected-machine-id nil :empty-kind nil}
+           (h/project-data [:checkout/flow :auth/login] nil)))
+    (is (= {:selected-machine-id :checkout/flow :empty-kind nil}
+           (h/project-data [:checkout/flow :auth/login] :checkout/flow)))
+    (is (= {:selected-machine-id nil :empty-kind :no-machines}
+           (h/project-data [] nil)))))
 
 ;; ---- focused-event lens --------------------------------------------------
 

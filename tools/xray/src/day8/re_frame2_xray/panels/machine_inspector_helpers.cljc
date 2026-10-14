@@ -5,11 +5,10 @@
 
   Same dual-target pattern every other panel uses (subscriptions,
   routes, ...). The panel view in
-  `machine_inspector.cljs` builds the hiccup; the *logic* — projecting
-  the registered-machine set + the live snapshots into per-machine
-  rows, and folding the focused event's cascade into transition
-  records — is pure data → data and runs under the JVM unit-test target
-  (`clojure -M:test`).
+  `machine_inspector.cljs` builds the hiccup; the *logic* — folding the
+  focused event's cascade into transition records, and the panel's
+  empty-state and selection projection — is pure data → data and runs
+  under the JVM unit-test target (`clojure -M:test`).
 
   ## What this panel surfaces (per tools/xray/spec/003-Machine-Inspector.md)
 
@@ -26,12 +25,9 @@
        trace order — UNLESS the operator has explicitly selected a
        machine that this same cascade touched, which outranks trace
        order so that a Static → Dynamic JUMP lands on the machine it
-       names. `pick-selected` resolves
-       `project-data`'s `:selected-id` from the `:selected-machine-id`
-       slot (else the first row); the panel reads `:empty-kind` and the
-       RAW `:selected-machine-id` from `project-data` and nothing else
-       — never `:selected-id`, whose alphabetical-first fallback would
-       name a machine that is not on screen.
+       names. The panel reads that selection as `project-data`'s
+       `:selected-machine-id` — the operator's raw slot, nil when they
+       have chosen none.
 
     2. **MachineChart** — the real machines-viz component, not a
        placeholder. `panels/machine_canvas.cljs` requires
@@ -43,9 +39,7 @@
 
     3. **Active state** — highlighted on the chart from the
        focused-event record: `:from-highlight` / `:to-highlight` for a
-       transition, `:current-state` for a birth or a no-op. The live
-       snapshots reach `project-data` as each row's `:state`, which no
-       view renders.
+       transition, `:current-state` for a birth or a no-op.
 
     4. **Transition history ribbon** — there is none, nor any other
        ribbon in the Dynamic panel.
@@ -61,36 +55,16 @@
       `panels/machine_after_rings.cljs`.
     - No share affordance.
 
-  ## Inputs to the projection
+  ## The panel projection
 
-  The composite sub `:rf.xray/machine-inspector-data` feeds two
-  sources into `project-data`, plus the definitions map and the
-  operator's raw selection:
+  The composite sub `:rf.xray/machine-inspector-data` feeds the
+  registered machine-ids (the `:rf/machine?` filter over the generic
+  registrar read — empty when the machines artefact is not on the
+  classpath, Spec 005 §Querying machines) and the operator's raw
+  selection into `project-data`, which returns
 
-    1. **`machines`** — vector of registered machine-ids (the `:rf/machine?`
-       filter over the generic registrar read). Empty when the machines
-       artefact is not on the classpath (Spec 005 §Querying machines).
-
-    2. **`snapshots`** — `{machine-id snapshot-or-nil}` map; each
-       value is the result of `(rf/machine-meta-via-sub machine-id)`
-       (i.e. `(get-in runtime-db [:rf.runtime/machines :snapshots <id>])`
-       against the target frame's RUNTIME-DB partition — machine snapshots
-       live in runtime-db, not app-db, per EP-0001). nil when the
-       machine is registered but not yet initialised.
-
-  ## Helper output
-
-  `project-data` returns a map shaped:
-
-      {:machines      [<machine-row> ...]    ;; one per registered id
-       :total         <int>
-       :selected-id   <keyword-or-nil>
-       :selected      <machine-row-or-nil>   ;; the picker focus
-       :empty-kind    <:no-machines / nil>}
-
-  Each `machine-row` is `{:machine-id :state :data :registered?}`. The
-  `:state` slot is the snapshot's `:state` keyword (nil for
-  uninitialised machines).
+      {:selected-machine-id <keyword-or-nil>
+       :empty-kind          <:no-machines / nil>}
 
   ## What this doesn't do
 
@@ -232,106 +206,30 @@
       (get-in ev [:tags :machine-id])
       (get-in ev [:tags :handler-id])))
 
-;; ---- projection ---------------------------------------------------------
-
-(defn project-machine-row
-  "One row per registered machine. `machine-id` is the keyword the
-  machine is registered under (per Spec 005); `snapshot` is the
-  current `{:state :data}` map (or nil for uninitialised machines).
-  `definition` is the registered machine spec (the `:rf/machine` registrar projection); nil when the spec is not yet introspectable.
-
-  Per the panel's minimum-viable contract the row carries:
-
-    :machine-id   — the registered id (keyword)
-    :state        — the snapshot's :state keyword (nil if uninit)
-    :data         — the snapshot's :data map (nil if uninit)
-    :definition   — the registered machine spec (nil if not available)
-    :registered?  — always true (the row exists because the id is
-                    registered); included so the view can render the
-                    fact distinctly from `:state` (an uninitialised
-                    registered machine still has a row)."
-  ([machine-id snapshot] (project-machine-row machine-id snapshot nil))
-  ([machine-id snapshot definition]
-   {:machine-id  machine-id
-    :state       (when (map? snapshot) (:state snapshot))
-    :data        (when (map? snapshot) (:data snapshot))
-    :definition  definition
-    :registered? true}))
-
-(defn project-machine-rows
-  "Project the registered-machine set + the live snapshots map (+
-  the per-id definition map, when available) into one row per id.
-  Sorted by `(str machine-id)` — the full printed id, namespace
-  included — for deterministic test output. Pure fn — JVM-runnable."
-  ([machines snapshots] (project-machine-rows machines snapshots nil))
-  ([machines snapshots definitions]
-   (->> (or machines [])
-        (map (fn [id]
-               (project-machine-row id
-                                    (get snapshots id)
-                                    (get definitions id))))
-        (sort-by (fn [{:keys [machine-id]}]
-                   (str machine-id)))
-        vec)))
-
-(defn pick-selected
-  "Resolve the row for the selected machine-id. When `selected-id` is
-  nil the first row is the default focus (so the panel renders
-  *something* on first open). Returns nil when there are no rows."
-  [rows selected-id]
-  (or (some #(when (= (:machine-id %) selected-id) %) rows)
-      (first rows)))
-
 ;; ---- top-level composite -------------------------------------------------
 
 (defn project-data
-  "Fold the registered-machine set + the snapshots map + the user's
-  selection into the data shape the panel view consumes.
+  "Fold the registered-machine set + the operator's selection into the
+  two values the panel view reads.
 
   Inputs:
 
     `machines`     — vector / seq of registered machine-ids (the
                      `:rf/machine?` filter over the generic read). nil-safe.
-    `snapshots`    — `{machine-id snapshot-or-nil}`. nil-safe.
-    `definitions`  — `{machine-id definition}`, optional. nil-safe.
-    `selected-id`  — the user's picker focus (keyword) or nil. nil
-                     defaults to the first row.
+    `selected-id`  — the operator's raw selection slot (keyword) or nil.
 
   Returns:
 
-      {:machines            [<machine-row> ...]
-       :total               <int>
-       :selected-id         <id-or-nil>   ;; EFFECTIVE selection
-       :selected-machine-id <id-or-nil>   ;; RAW slot, verbatim
-       :selected            <row-or-nil>
+      {:selected-machine-id <id-or-nil>   ;; the RAW slot, verbatim
        :empty-kind          <:no-machines / nil>}
 
-  `:selected-id` and `:selected-machine-id` ARE NOT THE SAME VALUE.
-  `:selected-id` is `pick-selected`'s EFFECTIVE answer — the slot when
-  one is set, else the first row of an ALPHABETICALLY sorted list — so
-  it names a machine even when the operator has chosen none. Reading it
-  as though it were the operator's choice would draw countdown rings for
-  a machine not on screen. `:selected-machine-id` is the raw
-  `selected-id` ARGUMENT echoed back untouched, nil and all, and it is
+  `:selected-machine-id` is echoed back untouched, nil and all: it is
   what the Dynamic panel's selection rule (`pick-focused-transition`)
-  must be given."
-  ([machines snapshots selected-id]
-   (project-data machines snapshots nil selected-id))
-  ([machines snapshots definitions selected-id]
-   (let [rows         (project-machine-rows machines snapshots definitions)
-         total        (count rows)
-         selected     (pick-selected rows selected-id)
-         effective-id (:machine-id selected)
-         empty-kind   (when (zero? total) :no-machines)]
-     {:machines    rows
-      :total       total
-      :selected-id effective-id
-      ;; The RAW slot, echoed back so the Dynamic panel can
-      ;; reach the operator's actual choice without going through
-      ;; `effective-id`'s alphabetical-first fallback. See the docstring.
-      :selected-machine-id selected-id
-      :selected    selected
-      :empty-kind  empty-kind})))
+  must be given, and any fallback to a default machine would name one
+  the operator never chose."
+  [machines selected-id]
+  {:selected-machine-id selected-id
+   :empty-kind          (when (empty? machines) :no-machines)})
 
 ;; ---- formatting helpers (consumed by the view) --------------------------
 
